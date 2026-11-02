@@ -374,6 +374,7 @@ src/lib/server/token-exchange/  The token exchange for locallibrary plugins, and
 src/lib/server/tools/           The tools' own hosts, and their guides rendered to HTML
 src/lib/tools/                  The tools: one entry per tool, with its guides bundled from apps/<tool>/
 src/lib/server/meta.ts          What each public page tells link previews and search engines, returned by its load as `meta`
+src/lib/server/meta-records.ts  The records behind a public page, written into its head as at-tags (`at:canonical`, `at:alternate`, `at:author`)
 src/lib/server/structured-data.ts  The schema.org structured data (JSON-LD) a performer, profile, mix or artist page adds to its `meta`
 src/lib/og/cards/               The link-preview pictures (1200×630), one Svelte component each, with their stories
 src/lib/server/og/              Draws them as PNGs for src/routes/og/, keeping recent ones in memory

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ProjectView } from '#lib/types.ts';
-import { artistMeta, mixMeta, pageMeta, performerMeta, pressKitMeta, pressKitsMeta, profileMeta } from './meta';
+import { artistMeta, listed, mixMeta, pageMeta, performerMeta, pressKitMeta, pressKitsMeta, profileMeta } from './meta';
 
 const SITE = 'https://localnetwork.test';
 
@@ -207,5 +207,33 @@ describe('artists', () => {
 
 	it('keeps an artist no set credits out of search, since anything typed into the address names it', () => {
 		expect(artistMeta(SITE, 'cheap pills here', '/artists/name/cheap%20pills%20here', false).noindex).toBe(true);
+	});
+});
+
+describe('listed', () => {
+	const records = { canonical: [project.uri], alternate: [], author: ['at://did:plc:dj'] };
+
+	const thing = () => ({ '@type': 'Thing', name: 'x' });
+
+	it('adds the records and structured data to a page search engines may list', async () => {
+		expect(await listed(performerMeta(SITE, project), { records: () => records, jsonLd: thing })).toMatchObject({
+			records,
+			jsonLd: { '@context': 'https://schema.org', '@type': 'Thing', name: 'x' }
+		});
+		// A page with nothing to say gets neither.
+		const plain = await listed(performerMeta(SITE, project), { jsonLd: null });
+
+		expect(plain).not.toHaveProperty('records');
+		expect(plain).not.toHaveProperty('jsonLd');
+	});
+
+	it('leaves a page kept out of search as it was, without even looking its records up', async () => {
+		const hidden = performerMeta(SITE, { ...project, status: 'hidden' });
+
+		const lookUp = () => {
+			throw new Error('looked up');
+		};
+
+		expect(await listed(hidden, { records: lookUp, jsonLd: thing })).toBe(hidden);
 	});
 });

@@ -27,6 +27,8 @@ export type PageMeta = {
 	description: string;
 	/** The page's canonical address, absolute. */
 	url: string;
+	/** The AT Protocol records behind the page, as at-tags: DID-based `at://` URIs (see server/meta-records.ts). */
+	records?: { canonical: string[]; alternate: string[]; author: string[] };
 	type: 'website' | 'profile' | 'music.song';
 	image?: PageImage;
 	/** Keeps search engines from listing a page only its managers and staff can see. */

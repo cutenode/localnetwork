@@ -8,8 +8,8 @@ import {
 	musicBrainzArtist,
 	performerProfile,
 	personProfile,
-	pressKitProfile,
-	withJsonLd
+	jsonLdFor,
+	pressKitProfile
 } from './structured-data';
 
 const SITE = 'https://localnetwork.test';
@@ -82,27 +82,19 @@ const report = (mix: Partial<MixReport['mix']>): Pick<MixReport, 'mix'> => ({
 	mix: { title: 'Sunday Warm-up', durationSecs: 7092, ...mix }
 });
 
-describe('withJsonLd', () => {
+describe('jsonLdFor', () => {
 	it('adds the schema.org context to what the page is about', () => {
-		const meta = performerMeta(SITE, project);
-
-		expect(withJsonLd(meta, () => ({ '@type': 'Thing', name: 'x' }))).toEqual({
-			...meta,
-			jsonLd: { '@context': 'https://schema.org', '@type': 'Thing', name: 'x' }
+		expect(jsonLdFor(performerMeta(SITE, project), () => ({ '@type': 'Thing', name: 'x' }))).toEqual({
+			'@context': 'https://schema.org',
+			'@type': 'Thing',
+			name: 'x'
 		});
-	});
-
-	it('leaves out pages search engines are told to skip, and pages with nothing to say', () => {
-		const hidden = performerMeta(SITE, { ...project, status: 'hidden' });
-
-		expect(withJsonLd(hidden, performerProfile(project))).toBe(hidden);
-		expect(withJsonLd(performerMeta(SITE, project), null).jsonLd).toBeUndefined();
 	});
 });
 
 describe('performers', () => {
 	it('makes a performer page a profile page about a music group, with absolute addresses and web links only', () => {
-		expect(withJsonLd(carded(performerMeta(SITE, project)), performerProfile(project)).jsonLd).toEqual({
+		expect(jsonLdFor(carded(performerMeta(SITE, project)), performerProfile(project))).toEqual({
 			'@context': 'https://schema.org',
 			'@type': 'ProfilePage',
 			url: 'https://localnetwork.test/projects/neon-tide',
@@ -113,15 +105,13 @@ describe('performers', () => {
 	});
 
 	it('leaves out what a performer has not filled in', () => {
-		expect(withJsonLd(carded(performerMeta(SITE, bare)), performerProfile(bare)).jsonLd?.mainEntity).toEqual(
-			bareNeonTide
-		);
+		expect(jsonLdFor(carded(performerMeta(SITE, bare)), performerProfile(bare))?.mainEntity).toEqual(bareNeonTide);
 	});
 
 	it("names a press kit's profile page for the kit, from its public part", () => {
 		const epk = { rkey: 'k1', cid: 'bafykit', record: { title: 'Summer 2026', headline: 'Out now' } };
 
-		expect(withJsonLd(carded(pressKitMeta(SITE, project, epk)), pressKitProfile(project, epk.record)).jsonLd).toEqual({
+		expect(jsonLdFor(carded(pressKitMeta(SITE, project, epk)), pressKitProfile(project, epk.record))).toEqual({
 			'@context': 'https://schema.org',
 			'@type': 'ProfilePage',
 			name: 'Summer 2026',
@@ -130,17 +120,17 @@ describe('performers', () => {
 			mainEntity: neonTide
 		});
 		expect(
-			withJsonLd(carded(pressKitMeta(SITE, bare, epk)), pressKitProfile(bare, { title: 'Summer 2026' })).jsonLd
+			jsonLdFor(carded(pressKitMeta(SITE, bare, epk)), pressKitProfile(bare, { title: 'Summer 2026' }))
 		).not.toHaveProperty('description');
 	});
 });
 
 describe('mixes', () => {
 	const recording = (performer: ProjectView, mix: Partial<MixReport['mix']>) =>
-		withJsonLd(
+		jsonLdFor(
 			carded(mixMeta(SITE, performer, { title: 'Warm-up' }, 2, 12)),
 			mixRecording(performer, { title: 'Warm-up' }, report(mix))
-		).jsonLd;
+		);
 
 	it('makes a mix a recording by its performer, with an ISO 8601 duration', () => {
 		expect(recording(project, { date: '2026-10-04' })).toEqual({
@@ -195,9 +185,7 @@ describe('profiles', () => {
 	const account = { did: 'did:plc:mira', handle: 'mira.test' };
 
 	it("makes a person's profile a profile page about them", () => {
-		expect(
-			withJsonLd(carded(profileMeta(SITE, account, profile, 'Mira')), personProfile(profile, 'Mira')).jsonLd
-		).toEqual({
+		expect(jsonLdFor(carded(profileMeta(SITE, account, profile, 'Mira')), personProfile(profile, 'Mira'))).toEqual({
 			'@context': 'https://schema.org',
 			'@type': 'ProfilePage',
 			url: 'https://localnetwork.test/@mira.test',
@@ -226,7 +214,7 @@ describe('profiles', () => {
 		};
 
 		expect(
-			withJsonLd(carded(profileMeta(SITE, account, plain, 'Mira')), personProfile(plain, 'Mira')).jsonLd?.mainEntity
+			jsonLdFor(carded(profileMeta(SITE, account, plain, 'Mira')), personProfile(plain, 'Mira'))?.mainEntity
 		).toEqual({ '@type': 'Person', name: 'Mira', url: 'https://localnetwork.test/@mira.test' });
 	});
 });
@@ -236,10 +224,10 @@ describe('artists', () => {
 		const path = '/artists/7d0b9c12-5e64-4f3a-8b21-c4e9a6f05d72';
 
 		expect(
-			withJsonLd(
+			jsonLdFor(
 				artistMeta(SITE, 'Mira Okonkwo', path, true),
 				musicBrainzArtist('Mira Okonkwo', '7d0b9c12-5e64-4f3a-8b21-c4e9a6f05d72')
-			).jsonLd
+			)
 		).toEqual({
 			'@context': 'https://schema.org',
 			'@type': 'MusicGroup',

@@ -1,7 +1,8 @@
 import { error } from '@sveltejs/kit';
-import { pressKitMeta } from '#lib/server/meta.ts';
+import { listed, pressKitMeta } from '#lib/server/meta.ts';
+import { projectRecords } from '#lib/server/meta-records.ts';
 import { loadProjectPage } from '#lib/server/project-page.ts';
-import { pressKitProfile, withJsonLd } from '#lib/server/structured-data.ts';
+import { pressKitProfile } from '#lib/server/structured-data.ts';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, params }) => {
@@ -26,9 +27,10 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		tracklists: Object.fromEntries(
 			(page.project.profile.mixes ?? []).flatMap((mix, index) => (mix.tracklist ? [[mix.url, index + 1]] : []))
 		),
-		meta: withJsonLd(
-			pressKitMeta(locals.app.config.publicUrl, page.project, kit.epk),
-			pressKitProfile(page.project, kit.epk.record)
-		)
+		meta: await listed(pressKitMeta(locals.app.config.publicUrl, page.project, kit.epk), {
+			records: () =>
+				projectRecords(locals.app.requests, page.project, { canonical: kit.epk.uri, alternate: [page.project.uri] }),
+			jsonLd: pressKitProfile(page.project, kit.epk.record)
+		})
 	};
 };

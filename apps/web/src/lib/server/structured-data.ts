@@ -6,7 +6,7 @@
 import type { EpkRecord } from '#lib/epk.ts';
 import type { PageMeta } from '#lib/meta.ts';
 import type { MixReport } from '#lib/mix/report.ts';
-import type { JsonLdNode } from '#lib/structured-data.ts';
+import type { JsonLd, JsonLdNode } from '#lib/structured-data.ts';
 import { musicBrainzUrl } from '#lib/supports.ts';
 import type {
 	BasicsSection,
@@ -20,11 +20,13 @@ import type {
 import { isWebUrl } from '#lib/web-url.ts';
 
 /** A page's structured data, from its metadata. */
-type Builder = (meta: PageMeta) => JsonLdNode;
+export type JsonLdBuilder = (meta: PageMeta) => JsonLdNode;
 
-/** Adds a page's structured data to its metadata. A page search engines are told to skip, or with none, gets none. */
-export const withJsonLd = (meta: PageMeta, build: Builder | null): PageMeta =>
-	meta.noindex || !build ? meta : { ...meta, jsonLd: { '@context': 'https://schema.org', ...build(meta) } };
+/** A page's structured data in schema.org's vocabulary (see `listed` for which pages get it). */
+export const jsonLdFor = (meta: PageMeta, build: JsonLdBuilder): JsonLd => ({
+	'@context': 'https://schema.org',
+	...build(meta)
+});
 
 /** Other pages about the same performer or person: the links they listed that a page would make clickable. */
 function sameAs(links: ProjectLink[] | undefined): { sameAs?: string[] } {
@@ -86,7 +88,7 @@ function musicGroup(project: Performer, base: string) {
 
 /** A performer's page: a profile page about them. */
 export const performerProfile =
-	(project: Performer & Pick<ProjectView, 'createdAt' | 'updatedAt'>): Builder =>
+	(project: Performer & Pick<ProjectView, 'createdAt' | 'updatedAt'>): JsonLdBuilder =>
 	(meta) => ({
 		'@type': 'ProfilePage',
 		url: meta.url,
@@ -97,7 +99,7 @@ export const performerProfile =
 
 /** A press kit, from its public part only: a profile page about its performer, named for the kit. */
 export const pressKitProfile =
-	(project: Performer, record: Pick<EpkRecord, 'title' | 'headline'>): Builder =>
+	(project: Performer, record: Pick<EpkRecord, 'title' | 'headline'>): JsonLdBuilder =>
 	(meta) => ({
 		'@type': 'ProfilePage',
 		name: record.title,
@@ -112,7 +114,7 @@ export const mixRecording =
 		project: Pick<Performer, 'slug' | 'avatarUrl'> & { profile: Pick<ProjectProfile, 'name'> },
 		mix: { title: string },
 		report: { mix: Pick<MixReport['mix'], 'durationSecs' | 'date'> }
-	): Builder =>
+	): JsonLdBuilder =>
 	(meta) => {
 		const duration = isoDuration(report.mix.durationSecs);
 		const date = isoDate(report.mix.date);
@@ -142,7 +144,7 @@ export const personProfile =
 			};
 		},
 		name: string
-	): Builder =>
+	): JsonLdBuilder =>
 	(meta) => ({
 		'@type': 'ProfilePage',
 		url: meta.url,
@@ -160,7 +162,7 @@ export const personProfile =
 
 /** An artist the directory knows by MusicBrainz ID, with MusicBrainz's page about them as the same artist. */
 export const musicBrainzArtist =
-	(name: string, mbid: string): Builder =>
+	(name: string, mbid: string): JsonLdBuilder =>
 	(meta) => ({
 		'@type': 'MusicGroup',
 		name,

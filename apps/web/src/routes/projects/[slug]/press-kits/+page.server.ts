@@ -1,4 +1,5 @@
-import { pressKitsMeta } from '#lib/server/meta.ts';
+import { listed, pressKitsMeta } from '#lib/server/meta.ts';
+import { projectRecords } from '#lib/server/meta-records.ts';
 import { loadProjectPage } from '#lib/server/project-page.ts';
 import type { PageServerLoad } from './$types';
 
@@ -11,6 +12,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		epks: locals.app.epks.forProject(page.project),
 		// The profile's full address, printed in the kit, so a PDF still says where to find it.
 		profileUrl: new URL(`/projects/${params.slug}`, locals.app.config.publicUrl).href,
-		meta: pressKitsMeta(locals.app.config.publicUrl, page.project)
+		meta: await listed(pressKitsMeta(locals.app.config.publicUrl, page.project), {
+			records: () => projectRecords(locals.app.requests, page.project)
+		})
 	};
 };

@@ -13,6 +13,10 @@
 	<meta name="description" content={meta.description} />
 	<link rel="canonical" href={meta.url} />
 	{#if meta.noindex}<meta name="robots" content="noindex" />{/if}
+	<!-- at-tags (tangled.org/chrisshank.com/at-tags): the records behind the page, one tag per record. -->
+	{#each meta.records?.canonical ?? [] as uri (uri)}<meta name="at:canonical" content={uri} />{/each}
+	{#each meta.records?.alternate ?? [] as uri (uri)}<meta name="at:alternate" content={uri} />{/each}
+	{#each meta.records?.author ?? [] as uri (uri)}<meta name="at:author" content={uri} />{/each}
 	<meta property="og:site_name" content={SITE_NAME} />
 	<meta property="og:type" content={meta.type} />
 	<meta property="og:title" content={meta.title} />

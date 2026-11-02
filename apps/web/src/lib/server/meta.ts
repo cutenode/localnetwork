@@ -4,8 +4,10 @@ import { type PageImage, type PageMeta, SITE_NAME } from '#lib/meta.ts';
 import { CARD } from '#lib/og/style.ts';
 import { bareMbid } from '#lib/supports.ts';
 import type { AccountView, ProfileRecord, ProfileView, ProjectView } from '#lib/types.ts';
+import type { PageRecords } from './meta-records';
 import { isDrawable } from './og/drawable';
 import { cardPaths } from './og/paths';
+import { type JsonLdBuilder, jsonLdFor } from './structured-data';
 
 /** About as much of a description as link previews show; longer ones are cut at a word. */
 const DESCRIPTION_LENGTH = 200;
@@ -193,3 +195,20 @@ export const mixMeta = (
 		),
 		type: 'music.song'
 	});
+
+/**
+ * A page's metadata with what only a page search engines may list carries: the records behind it, written as at-tags,
+ * and its structured data. A page kept out of search gets neither, and its records aren't even looked up.
+ */
+export async function listed(
+	meta: PageMeta,
+	{ records, jsonLd }: { records?: () => PageRecords | Promise<PageRecords>; jsonLd?: JsonLdBuilder | null }
+): Promise<PageMeta> {
+	if (meta.noindex) return meta;
+
+	return {
+		...meta,
+		...(records && { records: await records() }),
+		...(jsonLd && { jsonLd: jsonLdFor(meta, jsonLd) })
+	};
+}

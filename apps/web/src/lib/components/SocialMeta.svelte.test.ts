@@ -126,3 +126,26 @@ it("keeps a name that closes the script tag inside it, so it can't add a script 
 		String.raw`{"@context":"https://schema.org","@type":"MusicGroup","name":"\u003c/script>\u003cscript>alert(1)\u003c/script>"}`
 	);
 });
+
+it('names the records behind the page as at-tags, one tag per record', async () => {
+	const project = 'at://did:plc:root/computer.localnetwork.project/1';
+	const set = 'at://did:plc:a/computer.localnetwork.dj.set/3x';
+
+	await render(SocialMeta, {
+		meta: {
+			title: 'Warehouse by Neon Tide',
+			description: 'A tracklist',
+			url: 'https://localnetwork.test/projects/neon-tide/mixes/1',
+			type: 'music.song',
+			records: { canonical: [project], alternate: [set], author: ['at://did:plc:a', 'at://did:plc:b'] }
+		}
+	});
+
+	const values = (name: string) =>
+		[...document.head.querySelectorAll(`meta[name="${name}"]`)].map((meta) => meta.getAttribute('content'));
+
+	await expect.poll(() => values('at:canonical')).toEqual([project]);
+	expect(values('at:alternate')).toEqual([set]);
+	expect(values('at:author')).toEqual(['at://did:plc:a', 'at://did:plc:b']);
+	expect(document.head.querySelector('meta[property^="at:"], link[href^="at:"]')).toBeNull();
+});
