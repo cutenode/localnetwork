@@ -87,7 +87,7 @@
 		<PerformerFields values={shown} {sets} />
 
 		{#if showDetails}
-			<FormSection title="Private booking details" description="Only signed-in members see these. They're stored in a private atproto space, not your public repo.">
+			<FormSection title="Private booking details" description="Only this project's managers and Local Network staff see these, and people you let into one of your press kits.">
 				<div class="grid gap-4 sm:grid-cols-2">
 					<div>
 						<label class="label" for="bookingEmail">Booking email</label>

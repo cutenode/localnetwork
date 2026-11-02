@@ -43,7 +43,7 @@
 		</form>
 		<ul class="m-0 flex w-full max-w-md list-none flex-col gap-4 p-0 text-small text-fg-muted">
 			<li class="flex gap-3"><KeyRound class="mt-0.5 size-4 shrink-0 text-fg-subtle" /><span>You approve exactly what we can do on your PDS: write your own requests, bookings and audit entries into Local Network's spaces, and keep a private planner.</span></li>
-			<li class="flex gap-3"><LockKeyhole class="mt-0.5 size-4 shrink-0 text-fg-subtle" /><span>Private data uses <a class="link" href="/about#spaces">atproto spaces</a>. If your PDS doesn't support spaces yet, you can still sign in and we'll file things for you.</span></li>
+			<li class="flex gap-3"><LockKeyhole class="mt-0.5 size-4 shrink-0 text-fg-subtle" /><span>Your requests, bookings and planner go in <a class="link" href="/about#spaces">atproto spaces</a> that only the people involved can read. If your PDS doesn't support spaces yet, you can still sign in and we'll file things for you.</span></li>
 		</ul>
 	</div>
 </div>
