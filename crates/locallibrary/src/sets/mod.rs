@@ -51,8 +51,8 @@ pub struct Set {
     pub title: Option<String>,
     /// The day it was played (local).
     pub date: NaiveDate,
-    /// `club`, `festival`, `radio`, `livestream`, `mix` (the Lexicon's `knownValues`) or the DJ's
-    /// own word.
+    /// `club`, `festival`, `radio`, `livestream`, `studio` (`mix` in older sets), the Lexicon's
+    /// `knownValues`, or the DJ's own word.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

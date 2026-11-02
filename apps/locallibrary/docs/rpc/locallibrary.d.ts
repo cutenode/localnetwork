@@ -1663,7 +1663,7 @@ export type NewSet = {
   title?: string | null;
   /** The day it was played, `2026-10-03`. */
   date?: string | null;
-  /** `club`, `festival`, `radio`, `livestream`, `mix`, or another word. */
+  /** `club`, `festival`, `radio`, `livestream`, `studio`, or another word. */
   kind?: string | null;
   venue?: string | null;
   city?: string | null;
@@ -1710,7 +1710,7 @@ export type EditSet = {
   title?: string | null;
   /** The day it was played, `2026-10-03`. */
   date?: string | null;
-  /** `club`, `festival`, `radio`, `livestream`, `mix`, or another word. */
+  /** `club`, `festival`, `radio`, `livestream`, `studio`, or another word. */
   kind?: string | null;
   venue?: string | null;
   city?: string | null;
@@ -6685,8 +6685,8 @@ export type Set = {
   /** The day it was played (local). */
   date: string;
   /**
-   * `club`, `festival`, `radio`, `livestream`, `mix` (the Lexicon's `knownValues`) or the DJ's
-   * own word.
+   * `club`, `festival`, `radio`, `livestream`, `studio` (`mix` in older sets), the Lexicon's
+   * `knownValues`, or the DJ's own word.
    */
   kind?: string | null;
   venue?: string | null;

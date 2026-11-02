@@ -10404,7 +10404,7 @@
             "string",
             "null"
           ],
-          "description": "`club`, `festival`, `radio`, `livestream`, `mix`, or another word.",
+          "description": "`club`, `festival`, `radio`, `livestream`, `studio`, or another word.",
           "default": null
         },
         "venue": {
@@ -10526,7 +10526,7 @@
             "string",
             "null"
           ],
-          "description": "`club`, `festival`, `radio`, `livestream`, `mix`, or another word.",
+          "description": "`club`, `festival`, `radio`, `livestream`, `studio`, or another word.",
           "default": null
         },
         "venue": {
@@ -26330,7 +26330,7 @@
             "string",
             "null"
           ],
-          "description": "`club`, `festival`, `radio`, `livestream`, `mix` (the Lexicon's `knownValues`) or the DJ's\nown word."
+          "description": "`club`, `festival`, `radio`, `livestream`, `studio` (`mix` in older sets), the Lexicon's\n`knownValues`, or the DJ's own word."
         },
         "venue": {
           "type": [
