@@ -490,3 +490,6 @@ export type PendingInvite = AccountView & { role: string; createdAt: string; exp
 
 /** A request to join a space waiting on an answer. */
 export type JoinRequestView = AccountView & { message: string | null; createdAt: string };
+
+/** Somewhere to make an Atmosphere account (hosts.json): sign-up starts at `service`, and handles end in `domain`. */
+export type AccountHost = { name: string; domain: string; service: string; country: string; note?: string };

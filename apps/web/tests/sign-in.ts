@@ -8,8 +8,8 @@ export async function signIn(page: Page, handle: string, password: string, next 
 	await page.goto(`/login?next=${encodeURIComponent(next)}`);
 	const app = new URL(page.url());
 	await page.waitForLoadState('networkidle');
-	await page.getByPlaceholder('alice.bsky.social').fill(handle);
-	await page.getByRole('button', { name: 'Continue' }).click();
+	await page.getByLabel('Your handle').fill(handle);
+	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 	await page.locator('input[type="password"]').fill(password);
 	await page.getByRole('button', { name: 'Sign in' }).click();
 	await page.getByRole('button', { name: 'Authorize' }).click();
