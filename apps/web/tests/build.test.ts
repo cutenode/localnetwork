@@ -22,6 +22,9 @@ let initialLoad: Set<string>;
 
 let routes: [id: string, files: Set<string>][];
 
+// No deadline (the 0 below). The build blocks this worker (execFileSync), so Vitest can't stop a hung
+// one, only fail a slow one after it finishes. How long it takes follows the machine's load (about 10s
+// on a quiet one, over 300s with other test runs going), and CI's job timeout still ends a hung one.
 beforeAll(async () => {
 	// Vitest sets NODE_ENV to `test`, which would make Vite compile the components in Svelte's dev
 	// mode, so it is unset.
@@ -60,8 +63,9 @@ beforeAll(async () => {
 		return [...keys].map((each) => chunks[each].file);
 	};
 
-	// Node 0 is the root layout, which every page renders.
-	initialLoad = new Set([...manifest.client.imports, ...nodeScripts(0)]);
+	// Node 0 is the root layout, which every page renders, and node 1 the root error page, which the
+	// client loads on every page before it hydrates.
+	initialLoad = new Set([...manifest.client.imports, ...nodeScripts(0), ...nodeScripts(1)]);
 
 	routes = manifest.routes.flatMap(({ id, page }) => {
 		if (!page) return [];
@@ -70,7 +74,7 @@ beforeAll(async () => {
 
 		return [[id, new Set(scripts.filter((file) => !initialLoad.has(file)))]];
 	});
-}, 120_000);
+}, 0);
 
 const bytes = (extension: string) =>
 	files.filter((file) => file.endsWith(extension)).reduce((sum, file) => sum + statSync(file).size, 0);
@@ -92,8 +96,8 @@ it('ships no sourcemaps to the browser', () => {
 // that needs more than that is worth deciding on, not finding here later.
 
 it('keeps what every page loads within its budget', () => {
-	// The entry and the root layout with everything they import: SvelteKit's and Svelte's runtimes,
-	// devalue, and the small components pages share (vite.config.ts). About 172 KiB.
+	// The entry, the root layout and the root error page with everything they import: SvelteKit's and
+	// Svelte's runtimes, devalue, and the small components pages share (vite.config.ts). About 179 KiB.
 	expect(size(initialLoad)).toBeLessThan(180 * 1024);
 });
 

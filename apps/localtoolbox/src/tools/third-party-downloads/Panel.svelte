@@ -61,18 +61,19 @@
   import Plus from '@lucide/svelte/icons/plus';
   import Settings2 from '@lucide/svelte/icons/settings-2';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
+  import HintSwitch from '$lib/components/HintSwitch.svelte';
   import PanelShell from '$lib/components/PanelShell.svelte';
   import StatusNote from '$lib/components/StatusNote.svelte';
   import SourcePicker from '$lib/components/SourcePicker.svelte';
   import { Button } from '$lib/components/ui/button/index.ts';
   import { Label } from '$lib/components/ui/label/index.ts';
-  import { Switch } from '$lib/components/ui/switch/index.ts';
   import { Textarea } from '$lib/components/ui/textarea/index.ts';
   import * as Collapsible from '$lib/components/ui/collapsible/index.ts';
   import * as Tooltip from '$lib/components/ui/tooltip/index.ts';
   import { activeTab, askPage, isSoundCloudUrl, openTab, roundTrip } from '$lib/chrome.ts';
   import { downloaded } from '$lib/downloaded.svelte.ts';
   import { downloader } from '$lib/downloader.svelte.ts';
+  import { motion } from '$lib/motion.ts';
   import { HIDE_DOWNLOADED_PREF } from '$lib/filter.ts';
   import { queue } from '$lib/queue.svelte.ts';
   import { choicePref, flagPref } from '$lib/prefs.svelte.ts';
@@ -685,22 +686,12 @@
       <div class="flex flex-col gap-1.5">
         <div class="flex items-center gap-4">
           {#each TOGGLES as toggle (toggle.id)}
-            <Tooltip.Root>
-              <Tooltip.Trigger>
-                {#snippet child({ props })}
-                  <div {...props} class="flex items-center gap-1.5">
-                    <Switch id={toggle.id} bind:checked={toggle.pref.value} />
-                    <Label
-                      for={toggle.id}
-                      class="text-caption whitespace-nowrap text-fg-muted"
-                    >
-                      {toggle.label}
-                    </Label>
-                  </div>
-                {/snippet}
-              </Tooltip.Trigger>
-              <Tooltip.Content class="max-w-72">{toggle.hint}</Tooltip.Content>
-            </Tooltip.Root>
+            <HintSwitch
+              id={toggle.id}
+              label={toggle.label}
+              hint={toggle.hint}
+              bind:checked={toggle.pref.value}
+            />
           {/each}
         </div>
         {#if hiddenLine}
@@ -822,11 +813,11 @@
             -->
             {#if fault}
               <p
-                transition:slide={{ duration: 240, easing: cubicOut }}
+                transition:slide={motion({ duration: 240, easing: cubicOut })}
                 class="border-t border-critical/40 bg-critical/5 px-2.5 py-2 text-caption
                        leading-relaxed text-critical"
               >
-                <span class="min-w-0 break-words" in:fade={{ duration: 200, delay: 110 }}>
+                <span class="min-w-0 break-words" in:fade={motion({ duration: 200, delay: 110 })}>
                   {fault}
                 </span>
               </p>

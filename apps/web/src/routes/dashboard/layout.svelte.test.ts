@@ -1,7 +1,7 @@
 import { createRawSnippet } from 'svelte';
 import { page } from 'vitest/browser';
 import { expect, it } from 'vitest';
-import { render } from 'vitest-browser-svelte';
+import { cleanup, render } from 'vitest-browser-svelte';
 import type { ProjectView, Viewer } from '#lib/types.ts';
 import Layout from './+layout.svelte';
 
@@ -32,7 +32,13 @@ const menu = async () => {
 it('lists the sections, each project the viewer manages, and the way back to the site', async () => {
 	await render(Layout, {
 		params: {},
-		data: { viewer: viewer(false), pendingRequests: 0, unread: 0, projects: Promise.resolve([neon]) },
+		data: {
+			viewer: viewer(false),
+			pendingRequests: 0,
+			unread: 0,
+			projects: Promise.resolve([neon]),
+			sections: Promise.resolve(null)
+		},
 		children
 	});
 	const nav = await menu();
@@ -62,7 +68,13 @@ it('lists the sections, each project the viewer manages, and the way back to the
 it('adds the staff console, with the requests waiting, for staff', async () => {
 	await render(Layout, {
 		params: {},
-		data: { viewer: viewer(true), pendingRequests: 4, unread: 0, projects: Promise.resolve([]) },
+		data: {
+			viewer: viewer(true),
+			pendingRequests: 4,
+			unread: 0,
+			projects: Promise.resolve([]),
+			sections: Promise.resolve(null)
+		},
 		children
 	});
 	const nav = await menu();
@@ -73,7 +85,13 @@ it('adds the staff console, with the requests waiting, for staff', async () => {
 it('counts what is unread in the inbox', async () => {
 	await render(Layout, {
 		params: {},
-		data: { viewer: viewer(false), pendingRequests: 0, unread: 3, projects: Promise.resolve([]) },
+		data: {
+			viewer: viewer(false),
+			pendingRequests: 0,
+			unread: 3,
+			projects: Promise.resolve([]),
+			sections: Promise.resolve(null)
+		},
 		children
 	});
 	const nav = await menu();
@@ -84,7 +102,13 @@ it('counts what is unread in the inbox', async () => {
 it('still offers to list a project when the directory is offline', async () => {
 	await render(Layout, {
 		params: {},
-		data: { viewer: viewer(false), pendingRequests: 0, unread: 0, projects: Promise.resolve(null) },
+		data: {
+			viewer: viewer(false),
+			pendingRequests: 0,
+			unread: 0,
+			projects: Promise.resolve(null),
+			sections: Promise.resolve(null)
+		},
 		children
 	});
 	const nav = await menu();
@@ -92,4 +116,40 @@ it('still offers to list a project when the directory is offline', async () => {
 	const projects = nav.getByRole('list', { name: 'Projects' });
 	await expect.element(projects.getByRole('link', { name: 'List a project' })).toBeInTheDocument();
 	expect(projects.getByRole('link').elements()).toHaveLength(1);
+});
+
+it('shows a DJ their projects and a promoter their planner, by the sections their profile has on', async () => {
+	const open = async (sections: { performer: boolean; promoter: boolean }, projects: ProjectView[] = []) => {
+		cleanup();
+
+		await render(Layout, {
+			params: {},
+			data: {
+				viewer: viewer(false),
+				pendingRequests: 0,
+				unread: 0,
+				projects: Promise.resolve(projects),
+				sections: Promise.resolve(sections)
+			},
+			children
+		});
+
+		return menu();
+	};
+
+	let nav = await open({ performer: false, promoter: true });
+	await expect
+		.element(nav.getByRole('link', { name: 'Profile', exact: true }))
+		.toHaveAttribute('href', '/dashboard/profile');
+	await expect.element(nav.getByRole('link', { name: 'Planner' })).toBeInTheDocument();
+	await expect.element(nav.getByRole('link', { name: 'List a project' })).not.toBeInTheDocument();
+	await expect.element(nav.getByText('Projects', { exact: true })).not.toBeInTheDocument();
+
+	nav = await open({ performer: true, promoter: false });
+	await expect.element(nav.getByRole('link', { name: 'List a project' })).toBeInTheDocument();
+	await expect.element(nav.getByRole('link', { name: 'Planner' })).not.toBeInTheDocument();
+
+	// Projects someone manages stay, whatever their profile says.
+	nav = await open({ performer: false, promoter: false }, [neon]);
+	await expect.element(nav.getByRole('link', { name: 'Neon Tide' })).toBeInTheDocument();
 });

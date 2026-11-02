@@ -351,6 +351,7 @@ fn a_drive_is_built_from_a_traktor_collection() {
         color: None,
         color_id: 0,
         loop_beats: None,
+        active_loop: false,
     };
     let cues = vec![cue(Some(0), 1000, None, "Drop"), cue(None, 2000, Some(4000), "")];
     let analysis = |t: &Track| match t.id {

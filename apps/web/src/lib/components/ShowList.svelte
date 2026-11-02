@@ -5,6 +5,7 @@
 	import { EVENT_STATUS, isCancelled, showHours, venueDay } from '#lib/shows.ts';
 	import type { ShowView } from '#lib/types.ts';
 	import DateBlock from '#lib/ui/DateBlock.svelte';
+	import { webHref } from '#lib/web-url.ts';
 
 	/**
 	 * Upcoming shows, soonest (or nearest) first, in every state a listing has: `shows` undefined while they load (as
@@ -84,7 +85,7 @@
 					</p>
 					{#if (record.tickets && !isCancelled(record)) || edit}
 						<p class="m-0 flex flex-wrap items-center gap-x-4 gap-y-1 text-small">
-							{#if record.tickets && !isCancelled(record)}<a class="link inline-flex items-center gap-1" href={record.tickets} rel="noopener noreferrer nofollow" target="_blank">Tickets<ExternalLink class="size-3" /></a>{/if}
+							{#if record.tickets && !isCancelled(record)}<a class="link inline-flex items-center gap-1" href={webHref(record.tickets)} rel="noopener noreferrer nofollow" target="_blank">Tickets<ExternalLink class="size-3" /></a>{/if}
 							{#if edit}<a class="link inline-flex items-center gap-1" href={edit} aria-label="Edit {record.name}"><Pencil class="size-3" />Edit</a>{/if}
 						</p>
 					{/if}

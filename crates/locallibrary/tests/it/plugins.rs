@@ -12,6 +12,7 @@ mod destinations;
 mod ensure;
 mod events;
 mod exports;
+mod fields;
 mod hooks;
 mod imports;
 mod jobs;
@@ -26,6 +27,7 @@ mod services;
 mod shared_accounts;
 mod sources;
 
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -161,6 +163,38 @@ impl Reads for TestReads {
     }
 }
 
+thread_local! {
+    /// The plugins the library takes for the app's on this thread (see `locallibrary::plugin::set_hosted`).
+    static HOSTED: Cell<Option<&'static Plugins>> = const { Cell::new(None) };
+}
+
+/// A fixture whose plugins are the app's host on this thread, as a refresh and an edit plan find them.
+struct Hosted {
+    _dir: tempfile::TempDir,
+    store: Store,
+    drive: PathBuf,
+    plugins: &'static Plugins,
+}
+
+impl Hosted {
+    /// `f`'s plugins, hosted. The host lives as long as the test process does (a plan holds it),
+    /// its plugins stopped when the test ends.
+    fn new(f: Fixture) -> Hosted {
+        let Fixture { _dir, store, drive, plugins, .. } = f;
+        let plugins: &'static Plugins = Box::leak(Box::new(plugins));
+        locallibrary::plugin::set_hosted(|| HOSTED.with(Cell::get));
+        HOSTED.with(|h| h.set(Some(plugins)));
+        Hosted { _dir, store, drive, plugins }
+    }
+}
+
+impl Drop for Hosted {
+    fn drop(&mut self) {
+        HOSTED.with(|h| h.set(None));
+        self.plugins.shutdown();
+    }
+}
+
 /// A store, a fixture drive (`USB`, adopted) and the plugins `specs` makes.
 struct Fixture {
     _dir: tempfile::TempDir,
@@ -200,9 +234,10 @@ impl Fixture {
     }
 
     /// The echo plugin, its exporter declaring the test plugin's own options: `outside`, a file
-    /// it says it writes in place of the export, and `extra`, one it writes besides.
+    /// it says it writes in place of the export, `extra`, one it writes besides, and `sizes`, the
+    /// sizes of the files it says it writes.
     fn exporting() -> Fixture {
-        let options = "options = { type = \"object\", properties = { extra = { type = \"string\" }, outside = { type = \"string\" } } }";
+        let options = "options = { type = \"object\", properties = { extra = { type = \"string\" }, outside = { type = \"string\" }, sizes = { type = \"array\", items = { type = \"integer\" } } } }";
         let manifest = ECHO.replace("extension = \"m3u\"\n", &format!("extension = \"m3u\"\n{options}\n"));
         assert_ne!(manifest, ECHO);
         Fixture::new(|dir| vec![spec(dir, &manifest, &[])], Options::default())

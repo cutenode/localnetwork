@@ -63,7 +63,11 @@
 {/snippet}
 
 <div class="container-page grid grid-cols-[minmax(0,1fr)] gap-6 py-6 sm:py-10 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-10">
-	<nav aria-label={label} class="max-lg:border-b max-lg:border-line max-lg:pb-3 lg:sticky lg:top-6 lg:self-start">
+	{#snippet heading(group: SidebarGroup, index: number)}
+	{#if group.label}<p id="{id}-group-{index}" class="m-0 px-3 eyebrow text-fg-subtle">{group.label}</p>{/if}
+{/snippet}
+
+<nav aria-label={label} class="max-lg:border-b max-lg:border-line max-lg:pb-3 lg:sticky lg:top-6 lg:self-start">
 		<button type="button" aria-expanded={open} aria-controls="{id}-items" aria-label="{title} menu: {here?.label ?? title}" onclick={() => (open = !open)} class="flex min-h-11 w-full items-center gap-2.5 rounded-md px-3 text-small font-medium text-fg hover:bg-raised lg:hidden">
 			<Menu class="size-4 shrink-0" aria-hidden="true" /><span class="min-w-0 truncate">{here?.label ?? title}</span>
 			<ChevronDown class={['ml-auto size-4 shrink-0 transition-transform', open && 'rotate-180']} aria-hidden="true" />
@@ -71,16 +75,20 @@
 		<div id="{id}-items" class={['flex-col gap-5 max-lg:pt-3 lg:flex', open ? 'flex' : 'hidden']}>
 			<div class="hidden px-3 lg:block"><Eyebrow>{title}</Eyebrow></div>
 			{#each groups as group, index (index)}
-				<div class="flex flex-col gap-1.5">
-					{#if group.label}<p id="{id}-group-{index}" class="m-0 px-3 eyebrow text-fg-subtle">{group.label}</p>{/if}
+				<!-- A group whose items turn out to be none leaves nothing behind, its label included. -->
+				<div class="flex flex-col gap-1.5 empty:hidden">
 					{#await group.items}
+						{@render heading(group, index)}
 						<ul aria-labelledby={group.label ? `${id}-group-${index}` : undefined} aria-busy="true" class="m-0 flex list-none flex-col gap-0.5 p-0">
 							{#each { length: 2 }, row (row)}<li class="flex min-h-10 items-center px-3"><span class="h-4 w-3/4 animate-pulse rounded-md bg-raised"></span></li>{/each}
 						</ul>
 					{:then items}
-						<ul aria-labelledby={group.label ? `${id}-group-${index}` : undefined} class="m-0 flex list-none flex-col gap-0.5 p-0">
-							{#each items as item (item.href)}{@render link(item)}{/each}
-						</ul>
+						{#if items.length}
+							{@render heading(group, index)}
+							<ul aria-labelledby={group.label ? `${id}-group-${index}` : undefined} class="m-0 flex list-none flex-col gap-0.5 p-0">
+								{#each items as item (item.href)}{@render link(item)}{/each}
+							</ul>
+						{/if}
 					{/await}
 				</div>
 			{/each}

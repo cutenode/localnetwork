@@ -140,8 +140,7 @@ describe('SpaceSyncer against a repo host', () => {
 		const credentials = new SpaceCredentialManager({
 			source: async () => ({ getDelegationToken: async () => 'token' }),
 			identity: host.identity,
-			logger: silentLogger,
-			fetch: host.fetch
+			logger: silentLogger
 		});
 
 		const s = new SpaceSyncer({

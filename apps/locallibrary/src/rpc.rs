@@ -102,13 +102,17 @@ const CAPABILITIES: &[&str] = &[
     "error.detail",
 ];
 
-/// What `initialize` says the sidecar can do: [`CAPABILITIES`], and `account` in a build with the
+/// What `initialize` says the sidecar can do: [`CAPABILITIES`], `account` in a build with the
 /// Atmosphere account, which has the `account.*` and `*.publish.*` methods (`settings.import_published.*`
-/// too). A sidecar built without it answers those with `method_not_found`.
+/// too), and `peers` in one with `store.serve` and `store.fetch`. A sidecar built without them
+/// answers those with `method_not_found`.
 fn capabilities() -> Vec<String> {
     let mut all: Vec<String> = CAPABILITIES.iter().map(|c| c.to_string()).collect();
     if cfg!(feature = "account") {
         all.push("account".into());
+    }
+    if cfg!(feature = "peers") {
+        all.push("peers".into());
     }
     all
 }
@@ -292,14 +296,7 @@ struct RpcProgress(Arc<Coalesced>);
 impl RpcProgress {
     fn new(id: Value, out: Out) -> Self {
         let emit = move |scope: &Scope, report: Report| {
-            let (event, items) = match report {
-                Report::Event { event, items } => (api::Progressed::Event(event), items),
-                Report::Step => (api::Progressed::Step(api::StepStarted::new()), None),
-            };
-            let params = api::ProgressParams {
-                id: id.clone(),
-                event: api::ProgressEvent { event, scope: scope.clone(), items },
-            };
+            let params = api::ProgressParams { id: id.clone(), event: api::ProgressEvent::new(scope, report) };
             send(&out, &json!({ "jsonrpc": "2.0", "method": "progress", "params": params }));
         };
         RpcProgress(Arc::new(Coalesced::new(PROGRESS_EVERY, emit)))
@@ -417,6 +414,11 @@ impl Jobs {
             self.changed.notify_all();
         }
         true
+    }
+
+    /// Cancels every running request of `method`.
+    fn cancel_method(&self, method: &str) {
+        self.lock().running.values().filter(|j| j.method == method).for_each(|j| j.cancel.cancel());
     }
 
     /// Refuses new requests from now on and, with `cancel`, cancels the running ones.
@@ -656,8 +658,9 @@ pub fn serve(store_root: PathBuf, workers: usize) -> anyhow::Result<()> {
     }
     // Input closed or shutdown: let running requests finish (a sync interrupted only because the
     // parent went away gains nothing), then exit. Use `$/cancel` to stop them early. Watching
-    // stops after what it's doing.
+    // stops after what it's doing, and serving the store stops: neither would ever finish.
     server.stop_watch(false);
+    server.jobs.cancel_method("store.serve");
     server.jobs.wait_idle();
     // A signal sets the exit status, even when input closed while it was being handled.
     if let Some(signal) = server.jobs.lock().signal {
@@ -901,7 +904,18 @@ impl Server {
             let run = || {
                 // Cancelled while it waited (shutting down): it doesn't start.
                 ctx.check().map_err(locallibrary::Error::from)?;
-                let call = Call { root: &store_root, plans: &plans, ctx: &ctx };
+                #[cfg(feature = "peers")]
+                let notify = |method: &str, event: Value| {
+                    let params = json!({ "id": id, "event": event });
+                    send(&out, &json!({ "jsonrpc": "2.0", "method": method, "params": params }));
+                };
+                let call = Call {
+                    root: &store_root,
+                    plans: &plans,
+                    ctx: &ctx,
+                    #[cfg(feature = "peers")]
+                    notify: &notify,
+                };
                 m.run(&call, params).unwrap_or_else(|| Err(RpcError::method_not_found(&method)))
             };
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).unwrap_or_else(|_| {
@@ -942,7 +956,13 @@ pub fn read(method: &str, params: Value, ctx: &Ctx<'_>) -> Result<Value, RpcErro
     let m = m.ok_or_else(|| RpcError::method_not_found(method))?;
     // The store the host started the plugin in (see `Reads::read`), else the process's.
     let root = api::store_root().unwrap_or_else(locallibrary::Store::default_root);
-    let call = Call { root: &root, plans: &NONE, ctx };
+    let call = Call {
+        root: &root,
+        plans: &NONE,
+        ctx,
+        #[cfg(feature = "peers")]
+        notify: &|_, _| {},
+    };
     m.run(&call, params).unwrap_or_else(|| Err(RpcError::method_not_found(method)))
 }
 

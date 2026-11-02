@@ -193,13 +193,14 @@ fn said(r: &crate::mix::MixReport) -> serde_json::Value {
 }
 
 /// Identifying a mix again, with the drive's index and the recording heard kept from the first
-/// time, decodes nothing and says exactly what the first time did, index and all.
+/// time, decodes nothing and says exactly what the first time did, index and all. The seeds are
+/// distinct: two tracks of the same audio are one play, the other its alternate.
 #[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn identifying_again_from_the_cache_says_what_the_first_time_did(tc: TestCase) {
     use crate::mix::{Identifier, Options};
     use crate::progress::{CancelToken, Event};
     let seeds: Vec<u32> =
-        tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(100_000)).min_size(1).max_size(3));
+        tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(100_000)).min_size(1).max_size(3).unique(true));
     let dir = tempfile::tempdir().unwrap();
     let (device, library, recording) = drive_and_set(dir.path(), &seeds);
     let cache = Cache::new(dir.path().join("cache"));

@@ -122,3 +122,138 @@ fn a_replay_makes_edits_again_in_the_one_database_that_lost_them() {
         assert!(again.is_noop(), "{lost}: {:?}", again.changes);
     }
 }
+
+/// Regression: the backup an undo takes didn't carry the journal, so redoing the undo (putting
+/// that backup back) left the drive with the edit and the journal without it, and `edits replay`
+/// wouldn't make it again. Restoring an older backup and then a newer one was the same. Backups
+/// carry the journal, and putting one back puts it back as it was.
+#[test]
+fn a_redo_puts_the_undone_edits_back_on_the_journal() {
+    use locallibrary::api::{UndoRequest, undo_plan};
+    use locallibrary::backup;
+    use locallibrary::edit::Edit;
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    for name in ["Friday", "Saturday"] {
+        common::apply(&root, &[Edit::CreatePlaylist { path: name.into(), folder: false }]);
+    }
+    let changes =
+        |d: &Device| -> Vec<Vec<String>> { edit::journal::list(d).unwrap().into_iter().map(|e| e.changes).collect() };
+    let has = |d: &Device, name: &str| d.library().unwrap().find_playlist(name).is_some();
+    let mut d = Device::open_export(&root).unwrap();
+    let both = changes(&d);
+    assert_eq!(both.len(), 2);
+
+    // Undo Saturday, then redo it by putting back the backup the undo took.
+    let undone = backup::restore(&mut d, None, false).unwrap();
+    assert!(!has(&d, "Saturday"));
+    assert_eq!(changes(&d), both[..1]);
+    let redo = backup::list(&d).unwrap().into_iter().find(|b| b.undoes.as_deref() == Some(&undone.id)).unwrap();
+    let req = UndoRequest { drive: Some(root.display().to_string()), backup: Some(redo.id.clone()), force: false };
+    let plan = undo_plan(&req).unwrap();
+    assert!(plan.summary.contains(&"1 recorded edit(s) go back on the journal".to_string()), "{:?}", plan.summary);
+    assert!(plan.journal.is_empty(), "nothing comes off: {:?}", plan.journal);
+    backup::restore(&mut d, Some(&redo.id), false).unwrap();
+    assert!(has(&d, "Saturday"));
+    assert_eq!(changes(&d), both, "the redone edit is back on the journal");
+
+    // Restore the oldest backup (before Friday), then the one before Saturday: the journal
+    // follows the drive both times.
+    let backups = backup::list(&d).unwrap();
+    let made: Vec<_> = backups.iter().filter(|b| b.undoes.is_none()).collect();
+    let (before_saturday, before_friday) = (made[0].id.clone(), made[1].id.clone());
+    backup::restore(&mut d, Some(&before_friday), false).unwrap();
+    assert!(!has(&d, "Friday") && !has(&d, "Saturday"));
+    assert!(changes(&d).is_empty());
+    backup::restore(&mut d, Some(&before_saturday), false).unwrap();
+    assert!(has(&d, "Friday") && !has(&d, "Saturday"));
+    assert_eq!(changes(&d), both[..1], "Friday is back on the journal");
+    let edits = edit::journal::edits(&d).unwrap();
+    let replay = edit::plan(&d, &edits, &EditOptions { lenient: true, no_journal: true }, &Ctx::silent()).unwrap();
+    assert!(replay.is_noop(), "the drive has every recorded edit: {:?}", replay.changes);
+}
+
+/// Regression: the backup an undo takes didn't carry the player name and colour the drive
+/// remembers, so redoing an undone `drive player` left the drive remembering none, and `refresh`
+/// wouldn't put the name back after rekordbox's next export.
+#[test]
+fn a_redo_remembers_the_player_name_again() {
+    use locallibrary::{backup, player};
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    common::add_onelibrary(&root);
+    let mut d = Device::open(&root).unwrap();
+    d.adopt(None).unwrap();
+    player::set(&mut d, Some("MAIN"), Some(3)).unwrap();
+    let remembered = |d: &Device| Device::open(d.root()).unwrap().state().unwrap().player.clone();
+    let set = remembered(&d).unwrap();
+
+    let undone = backup::restore(&mut d, None, false).unwrap();
+    assert_eq!(remembered(&d), None, "undone, the drive remembers no name");
+    let redo = backup::list(&d).unwrap().into_iter().find(|b| b.undoes.as_deref() == Some(&undone.id)).unwrap();
+    backup::restore(&mut d, Some(&redo.id), false).unwrap();
+    assert_eq!(player::db_identity(&root).unwrap().name.as_deref(), Some("MAIN"));
+    assert_eq!(remembered(&d), Some(set), "redone, it remembers MAIN again");
+}
+
+/// Regression: a replay cut off part way (the app killed) left its backup without what its change
+/// left, so once the replay was run again to finish it, taking it all back needed `undo --force`.
+/// The backup notes what each step left: two undos (the second run's, then the first's) put the
+/// drive back as rekordbox exported it, neither forced.
+#[test]
+fn a_replay_cut_off_part_way_can_be_undone_without_forcing() {
+    use locallibrary::backup;
+    use locallibrary::progress::{CancelToken, Event, Phase};
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    let exported = common::drive_files(&root);
+    // A playlist edit first, which a replay makes after the cue edits: the drive cut off after
+    // the first of those is like no state an edit left.
+    common::apply(&root, &[locallibrary::edit::Edit::CreatePlaylist { path: "Friday".into(), folder: false }]);
+    let mut d = Device::open_export(&root).unwrap();
+    let lib = d.library().unwrap();
+    for track in &lib.tracks[..2] {
+        let set = CueEdit::Set(SetCue {
+            hot_cue: Some(HotCue(1)),
+            at: CuePosition::Beat(9),
+            snap: false,
+            loop_beats: None,
+            name: None,
+            color: None,
+        });
+        cue_edit::apply(&cue_edit::plan(&d, &[track.id], &set, &Ctx::silent()).unwrap(), &mut d, &Ctx::silent())
+            .unwrap();
+    }
+    // rekordbox exports again, without the cues.
+    for (key, bytes) in &exported {
+        std::fs::write(paths::to_fs(&root, key), bytes).unwrap();
+    }
+    assert!(common::changed_files(&exported, &common::drive_files(&root)).is_empty());
+
+    // The replay is killed as its second step starts copying, its first step made.
+    let killed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let kill = |e: &Event| {
+            let started = matches!(e, Event::PhaseStart { phase: Phase::Copy, .. });
+            if started && !common::changed_files(&exported, &common::drive_files(&root)).is_empty() {
+                panic!("killed");
+            }
+        };
+        let ctx = Ctx::new(&kill, CancelToken::new());
+        let mut d = Device::open_export(&root).unwrap();
+        let edits = edit::journal::edits(&d).unwrap();
+        let plan = edit::plan(&d, &edits, &EditOptions { lenient: true, no_journal: true }, &ctx).unwrap();
+        edit::apply(&plan, &mut d, &ctx)
+    }));
+    assert!(killed.is_err(), "the replay was killed");
+    let cut_off = common::drive_files(&root);
+    assert!(!common::changed_files(&exported, &cut_off).is_empty(), "the first step was made");
+
+    common::replay(&root);
+    let mut d = Device::open_export(&root).unwrap();
+    backup::restore(&mut d, None, false).unwrap();
+    assert!(common::changed_files(&cut_off, &common::drive_files(&root)).is_empty(), "back to where it was cut off");
+    let mut d = Device::open_export(&root).unwrap();
+    let undone = backup::restore(&mut d, None, false).unwrap_or_else(|e| panic!("undone unforced: {e}"));
+    assert_eq!(undone.reason, "before replaying edits");
+    assert!(common::changed_files(&exported, &common::drive_files(&root)).is_empty(), "back to the export");
+}

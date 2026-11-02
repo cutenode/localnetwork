@@ -639,7 +639,8 @@ fn sidecar_messages_round_trip(tc: TestCase) {
     assert_eq!(started_event["event"], "job.started");
     let step = api::ProgressEvent {
         event: api::Progressed::Step(api::StepStarted::default()),
-        scope: Default::default(),
+        target: None,
+        step: None,
         items: None,
     };
     let step = serde_json::to_value(api::ProgressParams { id: id.clone(), event: step }).unwrap();

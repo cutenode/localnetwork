@@ -18,6 +18,39 @@
 				}
 			}
 		},
+		"profileView": {
+			"type": "object",
+			"description": "A DJ's profile that staff list in the directory, as the directory indexed it.",
+			"required": ["uri", "cid", "record", "listing", "genres"],
+			"properties": {
+				"uri": { "type": "string", "format": "at-uri" },
+				"cid": { "type": "string", "format": "cid" },
+				"record": { "type": "unknown", "description": "The computer.localnetwork.profile record." },
+				"listing": {
+					"type": "string",
+					"format": "at-uri",
+					"description": "The root's computer.localnetwork.listing.profile that lists it."
+				},
+				"genres": {
+					"type": "array",
+					"items": { "type": "string", "maxLength": 48 },
+					"description": "The genres it was searched by: its performer section's, or when that names none, the ones the DJ plays most by their computer.localnetwork.dj.profile."
+				},
+				"distanceM": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Meters from the searched location, when the search had one and the profile has coordinates."
+				}
+			}
+		},
+		"performerView": {
+			"type": "object",
+			"description": "A performer the directory found: a published project, or a listed DJ's profile. Exactly one of the two is set.",
+			"properties": {
+				"project": { "type": "ref", "ref": "#projectView" },
+				"profile": { "type": "ref", "ref": "#profileView" }
+			}
+		},
 		"recordView": {
 			"type": "object",
 			"description": "A record as the directory indexed it. Its collection's record script can leave fields out and add its own.",

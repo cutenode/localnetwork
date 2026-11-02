@@ -3,7 +3,7 @@ import { TID } from '@atproto/common-web';
 import { COLLECTION, SELF_SPACE_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import type { PlannerSaveView, PlannerShowView, ShowDetails, Viewer } from '#lib/types.ts';
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
-import { createSpaceIfMissing, type JsonRecord, type RepoClient } from '../atproto/repo-client';
+import { createSpaceIfMissing, type JsonRecord, memberSpacePolicy, type RepoClient } from '../atproto/repo-client';
 import { plannerSpace } from '../atproto/spaces';
 import { type Core, UserError } from '../core';
 import { nowIso } from '../db';
@@ -74,9 +74,7 @@ export class PlannerService {
 			await createSpaceIfMissing(client, {
 				spaceType: SPACE_TYPE.planner,
 				skey: SELF_SPACE_KEY,
-				readPolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
-				writePolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
-				appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+				policy: memberSpacePolicy()
 			});
 		}
 

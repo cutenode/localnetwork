@@ -18,11 +18,11 @@
 //! the source's counted over its whole read and given with its last page.
 
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use loclib_interop::{Error, Export, HISTORY_FOLDER, Software, Source, engine, rekordbox, serato, traktor};
 use loclib_model::analysis::TrackAnalysis;
-use loclib_model::paths::{self, PathStyle};
+use loclib_model::paths::{self, PathStyle, resolved};
 use loclib_model::{Library, Track};
 use loclib_plugin::{DriveReads, Exported, ExportedFile, Hooks, Host, RpcError, WriteExport, code, params};
 use loclib_progress::Ctx;
@@ -146,7 +146,7 @@ fn write_export(req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
             let drive_dir = resolved(&drive_root);
             let audio = |t: &Track| {
                 let from = paths::to_fs(&drive_root, &paths::key(&t.file_path));
-                match dunce::canonicalize(&from) {
+                match from.canonicalize().map(paths::without_verbatim_prefix) {
                     Ok(real) if !real.starts_with(&drive_dir) => {
                         Err(Error::Invalid(format!("refusing {:?}: it resolves outside the drive", t.file_path)))
                     }
@@ -232,14 +232,6 @@ fn missing_audio(source: &Source<'_>) -> Option<String> {
         source.root.display(),
         first.file_path
     ))
-}
-
-/// `path` (absolute) with its symlinks resolved as far as it's there, so two paths compare, and
-/// relative paths between them lead where they say: a `..` takes away a real folder (out of a
-/// link's target), or, past what's there, the name before it. Without Windows' `\\?\` prefix
-/// where the path means the same without it.
-fn resolved(path: &Path) -> PathBuf {
-    paths::absolute_with(path, |p| dunce::canonicalize(p).ok())
 }
 
 /// What can't be done as asked, as locallibrary's `invalid` error.

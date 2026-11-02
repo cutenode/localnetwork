@@ -4,7 +4,7 @@ import { getApp } from '#lib/server/app.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { SESSION_COOKIE } from '#lib/server/auth/session.ts';
 import { gzipped } from '#lib/server/compress.ts';
-import { guardArea } from '#lib/server/http.ts';
+import { guardArea, isUnlisted } from '#lib/server/http.ts';
 import { createLogger } from '#lib/server/logger.ts';
 import { toolSite } from '#lib/server/tools/site.ts';
 
@@ -104,6 +104,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 	response.headers.set('x-content-type-options', 'nosniff');
 	response.headers.set('referrer-policy', 'strict-origin-when-cross-origin');
 	response.headers.set('permissions-policy', 'camera=(), microphone=(), geolocation=(self), payment=()');
+
+	if (isUnlisted(event.route.id)) response.headers.set('x-robots-tag', 'noindex');
 
 	if (app.config.publicUrl.startsWith('https:')) {
 		response.headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains');

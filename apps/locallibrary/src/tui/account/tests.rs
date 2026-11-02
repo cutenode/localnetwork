@@ -296,10 +296,11 @@ fn the_bar_says_whos_signed_in_and_l_twice_signs_out(tc: hegel::TestCase) {
     } else {
         let by = local_time(info.sign_in_again_by, "%Y-%m-%d");
         assert!(bar.contains(&format!("sign in again by {by} ({} days)", info.days_left())), "{bar}");
-        // A warning in its last two days.
+        // A warning in its last two days, in the colour the terminal draws it with.
         let line = app.profile.account.line(width);
         let again = line.spans.iter().find(|s| s.content.contains("sign in again by")).unwrap();
-        assert_eq!(again.style.fg == Some(crate::tui::theme::current().warning.into()), days == 1, "{bar}");
+        let warning = crate::tui::theme::fg(crate::tui::theme::current().warning);
+        assert_eq!(again.style.fg == warning.fg, days == 1, "{bar}");
     }
     // A handle being typed is put away when another view is shown.
     if tc.draw(gs::booleans()) {

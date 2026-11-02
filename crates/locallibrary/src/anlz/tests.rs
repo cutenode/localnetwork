@@ -70,9 +70,14 @@ fn file(sections: &[Vec<u8>]) -> Vec<u8> {
 /// `PCPT` per the documented layout: hot_cue, status, u32, order u16 x2, type, u8, u16,
 /// time, loop_time, 16 bytes padding.
 fn pcpt(hot: u32, kind: u8, time: u32, loop_time: u32) -> Vec<u8> {
+    pcpt_status(hot, 4, kind, time, loop_time)
+}
+
+/// `pcpt` with a status (4: an active loop).
+fn pcpt_status(hot: u32, status: u32, kind: u8, time: u32, loop_time: u32) -> Vec<u8> {
     let mut h = Vec::new();
     h.extend_from_slice(&hot.to_be_bytes());
-    h.extend_from_slice(&4u32.to_be_bytes());
+    h.extend_from_slice(&status.to_be_bytes());
     h.extend_from_slice(&0x10000u32.to_be_bytes());
     h.extend_from_slice(&0xffffu16.to_be_bytes());
     h.extend_from_slice(&0xffffu16.to_be_bytes());
@@ -137,6 +142,7 @@ fn basic_cue_list() {
         color: None,
         color_id: 0,
         loop_beats: None,
+        active_loop: false,
     };
     assert_eq!(cues[0], memory);
     assert_eq!(cues[1].end_ms, Some(16000));
@@ -160,6 +166,44 @@ fn extended_cue_list_wins_and_carries_names() {
     assert_eq!(cues[0].comment, "Drop");
     assert_eq!(cues[0].color, Some([255, 0, 64]));
     assert_eq!((cues[1].hot_cue, cues[1].end_ms, cues[1].color), (Some(2), Some(64_000), None));
+}
+
+/// Loops a basic list marks active (status 4) are active loops, in that list and in the extended
+/// list beside it; a point never is. A `.EXT` with no basic memory list (rekordbox 7's) takes
+/// them from the `.DAT`'s.
+#[test]
+fn active_loops_come_from_the_basic_list() {
+    let memory_list = |n: u8| [0, 0, 0, 0, 0, 0, 0, n, 0xff, 0xff, 0xff, 0xff];
+    let basic = section(
+        b"PCOB",
+        &memory_list(3),
+        &[
+            pcpt_status(0, 4, 2, 8_000, 16_000),
+            pcpt_status(0, 0, 2, 20_000, 21_000),
+            pcpt_status(0, 4, 1, 500, u32::MAX),
+        ]
+        .concat(),
+    );
+    let extended = section(
+        b"PCO2",
+        &[0, 0, 0, 0, 0, 3, 0, 0],
+        &[
+            pcp2(0, 2, 8_000, 16_000, "", [0, 0, 0]),
+            pcp2(0, 2, 20_000, 21_000, "", [0, 0, 0]),
+            pcp2(0, 1, 500, u32::MAX, "", [0, 0, 0]),
+        ]
+        .concat(),
+    );
+    let active = |cues: Vec<Cue>| cues.iter().map(|c| (c.start_ms, c.active_loop)).collect::<Vec<_>>();
+    let want = [(500, false), (8_000, true), (20_000, false)];
+    let dat = file(std::slice::from_ref(&basic));
+    assert_eq!(active(cues(&dat).unwrap()), want);
+    assert_eq!(active(cues(&file(&[basic, extended.clone()])).unwrap()), want);
+    let ext = file(&[extended]);
+    assert_eq!(active(cues(&ext).unwrap()), [(500, false), (8_000, false), (20_000, false)], "nothing says so");
+    assert_eq!(active(track_cues(Some(&dat), Some(&ext))), want);
+    assert_eq!(active(track_cues(None, Some(&ext))), [(500, false), (8_000, false), (20_000, false)]);
+    assert_eq!(active(track_cues(Some(&dat), None)), want);
 }
 
 #[test]

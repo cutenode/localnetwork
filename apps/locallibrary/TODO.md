@@ -15,8 +15,8 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       and push.
 - [ ] **CI has never run.** On pull requests and pushes to `main` (Markdown-only changes skip it):
       fmt, clippy, nextest on macOS/Linux/Windows, the msrv job (`cargo +1.91 check`, not yet run
-      against the updated lockfile), docs, cargo-deny, and a slim `features` job (clippy on the
-      headless CLI without ALSA headers). Linux runs the tests under coverage, with thresholds
+      against the updated lockfile), docs, cargo-deny, and clippy on the headless CLI without ALSA
+      headers (in the lint job). Linux runs the tests under coverage, with thresholds
       (`.cargo/config.toml`) measured in an arm64 Linux container: set them just under what the
       first run measures. Weekly and on demand, `locallibrary-scheduled.yml` runs Bombadil, the
       no-default-features tests, the cargo-hack feature powerset and cargo-deny's advisories:
@@ -37,17 +37,15 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       role, the RPC method aliases): they only map from builds nobody else ran, and after v0.1.0
       they're public contract. Fold CHANGELOG "Changed" into "Added" at the same time (it still
       lists `mirror` and `push`).
-- [ ] `dist plan` runs only on PRs that touch a `Cargo.toml`, `Cargo.lock`, `dist-workspace.toml`,
-      `rust-toolchain.toml` or `locallibrary-release.yml`; the rename PR will trigger it. Then try
+- [ ] `dist plan` runs (in `locallibrary-ci.yml`'s lint job) only on PRs that touch a `Cargo.toml`,
+      `dist-workspace.toml`, `rust-toolchain.toml` or `locallibrary-release.yml`; the rename PR will
+      trigger it. Then try
       the release pipeline with `locallibrary-v0.1.0-rc.1` (which skips the Homebrew push) before
       tagging `locallibrary-v0.1.0`.
 - [ ] Third-party notices for the release archives and the Homebrew formula: generate them with
       `cargo about` in `locallibrary-release.yml`, plus rekordbox-pdb's MIT notice for the vendored
       code and `crates/locallibrary/src/convert/template.pdb`. Keep the task here or in
       CONTRIBUTING.md's release checklist, not both.
-- [ ] Jobs (`refresh`, `prep`) re-plan later steps on any `StalePlan`, including a rekordbox export
-      mid-job, which breaks `op.rs`'s promise that the confirmed plan is what runs. Re-plan only
-      drives this job already wrote; refuse otherwise.
 - [ ] `clean` backs up only the databases. It deletes only rekordbox's demo samples, which every
       export brings back, yet `refresh` runs it after every export, so audio backups pile up and a
       full drive can't be cleaned at all.
@@ -70,8 +68,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       read an account again.
 - [ ] Run the audit: the one asked for on 2026-10-11 stopped when its area subagents were turned
       down.
-- [ ] Delete the Hegel coverage session's 11 GB of logs and lcov exports in
-      `/private/tmp/claude-501/-Users-cyren-GitHub-cutenode-localnetwork/ad693dc7-2dd1-40a7-9cb5-b96ac5545ebf`.
 
 ## Split-out crates
 
@@ -164,47 +160,22 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 - [ ] The opener (`rundll32 url.dll,FileProtocolHandler`, used by sign-in, `mix --open` and the
       player's mix report) with a report path that has spaces.
 
-## Tests to add
-
-- [ ] A CI-only `format::apply` test on a disk image per OS (hdiutil, a diskpart vdisk, losetup).
-      Linux first needs loop devices treated as removable under `LOCALLIBRARY_FORMAT_VIRTUAL`
-      (`format/linux.rs`).
-- [ ] `eject` on a two-partition image on the macOS leg of that job: refusing when the store is on
-      another volume, and naming the volumes it unmounts.
-
 ## Open bugs and gaps
 
-- [ ] Found while raising coverage, each a decision: a lenient replay that skips
-      `DeleteHistoryLists` only says "not found", dropping which list; merging the same drive
-      twice in folder mode makes "(2)" copies of every playlist; under `LOCALLIBRARY_VOLUMES`,
-      `format::disk_at` still runs read-only `diskutil info`/`lsblk` on the disk holding the test
-      folder.
-- [ ] Redo: the backup an undo makes doesn't carry `edits.json` or the remembered player state, so
-      undo then redo leaves edits that replay won't redo, and restoring an older backup then a
-      newer one puts back edits the journal has forgotten.
-- [ ] A replay cut off by a crash leaves its backup without `after`: running the replay again
-      finishes it, but taking it back needs `undo --force`.
 - [ ] KEYCHAIN had an "interrupted operation" marker from 2026-10-04 16:56: run `locallibrary
       status KEYCHAIN` next time it's mounted.
-- [ ] Loops rekordbox marks active (PCPT status 4) don't engage on their own: `anlz::cues` takes the
-      .EXT list, which doesn't carry the flag (fixing it changes loclib-model's `analysis::Cue`).
-- [ ] `d` lists the outputs (cpal asks each device for its configs) and opens the chosen one on the
-      UI thread, so a slow Bluetooth or AirPlay device can stall it briefly: move both to a worker.
 - [ ] `mix` matches one drive's library; tracks only on another drive (or only in rekordbox) show
       as "not in the library". `collection` could supply rekordbox's tracks.
 - [ ] `cue_edit.rs` sums its backup's size itself; it could use `backup::needed_bytes` like pack
       and clean (its sum also counts staged analysis files).
-- [ ] A sync or pack onto a stick with no `exportLibrary.db` takes on the source's player name and
-      colour, since there's none to keep. For set sticks, clearing it may be better.
 - [ ] Type-check `docs/rpc/locallibrary.d.ts` with `tsc` in CI once something consumes the RPC.
 - [ ] Apple signing secrets (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`,
       `APPLE_SIGNING_IDENTITY`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`) need a paid
       Developer ID; the shell installer and Homebrew run an unsigned CLI fine. Windows binaries are
       unsigned too (dist supports Azure Artifact Signing).
-- [ ] `collection export`'s space check counts `written.needed_bytes` but not `download_bytes`
-      (online-only Dropbox files that download onto the boot disk): both the fit warning
-      (`collection_export.rs:276`) and `apply`'s `NoSpace` check (`:473`) miss them. A full export
-      to `~/rekordbox-export` stopped at 1.8 of 25 GB.
+- [ ] `collection export` copies online-only files one at a time, so one that takes minutes to
+      download stalls the export (it now says which file it's waiting on). Start the next few
+      downloads while one copies (reading a file's first byte is enough).
 - [ ] Not investigated: `track show` may show the My Tags of another track that shares its file,
       and `account logout` may forget the handle after a refused status check.
 - [ ] Two property tests failed once and passed on reruns, with no saved case:
@@ -259,7 +230,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Features and decisions
 
-- [ ] `store serve` and `store fetch` aren't in the sidecar.
 - [ ] Decide: an additive OneLibrary convert brings back a track a player removed when the other
       database still has it (`--replace` is the way out, `docs/editing.md`).
 
@@ -310,18 +280,17 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       in, with `cargo clean` between: build `cargo build --release -p locallibrary-cli` as is and
       with `CARGO_PROFILE_RELEASE_LTO=fat`, and record for each the build's wall time, the size
       of `target/release/locallibrary` and of `target/`, and the release run time of `convert` on
-      a 5,000-track drive, `check` on a drive and the `bnb/perf` criterion benches. Switch only if
-      the run times win by more than their run-to-run spread. Needs about 15 GB free.
+      a 5,000-track drive, `check` on a drive and the criterion benches (`cargo bench`). Switch
+      only if the run times win by more than their run-to-run spread. Needs about 15 GB free.
 - [ ] Applying many set-fields ops to the drive's databases still finds each op's tracks by
       building a map of every track (`ids_of` in `edit::apply_op`, and `PdbDb::set_fields`'s
       `self.lib.track`), so a whole-library key and BPM import's apply is O(ops x tracks), as is
       planning a replay of one (its edits name tracks by path, which the plan's per-track model
       in `edit/track_index.rs` doesn't take yet).
 - [ ] `merge.rs` finds each new track by scanning the source (`src_lib.track`, five call sites),
-      O(new x N). Use `Library::track_lookup` from `bnb/perf` and measure it.
-- [ ] Once `bnb/perf` and `bnb/ci-runners` are both in, make the workspace's `criterion`
-      `codspeed-criterion-compat`, as `locallibrary-bench.yml` already says it is, and connect
-      the repo in CodSpeed after the first push (the free tier needs it public).
+      O(new x N). Use `Library::track_lookup` and measure it (`cargo bench -p locallibrary`).
+- [ ] Connect the repo in CodSpeed (LOC-47; the free tier needs it public), then run
+      `locallibrary-bench.yml` on `main` once so pull requests have a baseline to compare with.
 - [ ] `a_click_does_what_it_points_at` (`tui/app/props.rs`) draws once more than it needs for
       kinds 9, 12 and 13, about 15% of its renders.
 

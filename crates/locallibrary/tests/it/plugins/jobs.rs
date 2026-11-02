@@ -1,8 +1,6 @@
 //! A refresh running plugins' operations, a step of its own: planned with the job, applied on the
 //! drive as the steps before left it, and refused up front when one can't be planned.
 
-use std::cell::Cell;
-
 use hegel::TestCase;
 use hegel::generators as gs;
 use locallibrary::api::{DriveRef, JobPlan, OperationStep, RefreshRequest, StepKind};
@@ -11,30 +9,7 @@ use loclib_plugin::{Choice, ChoiceItem};
 
 use super::*;
 
-thread_local! {
-    /// The plugins a refresh on this thread finds (see `locallibrary::plugin::set_hosted`).
-    static HOSTED: Cell<Option<&'static Plugins>> = const { Cell::new(None) };
-}
-
-/// A fixture whose plugins are the app's host on this thread, as `refresh` finds them.
-struct Hosted {
-    _dir: tempfile::TempDir,
-    store: Store,
-    drive: PathBuf,
-    plugins: &'static Plugins,
-}
-
 impl Hosted {
-    /// `f`'s plugins, hosted. The host lives as long as the test process does (a plan holds it),
-    /// its plugins stopped when the test ends.
-    fn new(f: Fixture) -> Hosted {
-        let Fixture { _dir, store, drive, plugins, .. } = f;
-        let plugins: &'static Plugins = Box::leak(Box::new(plugins));
-        locallibrary::plugin::set_hosted(|| HOSTED.with(Cell::get));
-        HOSTED.with(|h| h.set(Some(plugins)));
-        Hosted { _dir, store, drive, plugins }
-    }
-
     fn refresh(&self, operations: Vec<OperationStep>, skip: Vec<StepKind>) -> Result<Planned<JobPlan>> {
         let req = RefreshRequest { drive: Some(common::path(&self.drive)), skip, sync: false, operations };
         locallibrary::api::refresh_plan(&self.store, &req, &Ctx::silent())
@@ -42,13 +17,6 @@ impl Hosted {
 
     fn playlists(&self) -> Vec<String> {
         common::library(&self.drive).playlists.into_iter().map(|p| p.name).collect()
-    }
-}
-
-impl Drop for Hosted {
-    fn drop(&mut self) {
-        HOSTED.with(|h| h.set(None));
-        self.plugins.shutdown();
     }
 }
 

@@ -1,14 +1,20 @@
+import { once } from 'node:events';
+import { createServer } from 'node:http';
+import { type AddressInfo, createServer as createNetServer, type Socket } from 'node:net';
 import { IncludeScope, ScopePermissions, ScopePermissionsTransition, SpacePermission } from '@atproto/oauth-scopes';
-import { describe, expect, it, vi } from 'vitest';
-import { CALENDAR_EVENT, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CALENDAR_EVENT, CALENDAR_RSVP, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
 import { loadConfig } from '../config';
 import { openDatabase } from '../db';
 import { silentLogger } from '../logger';
+import { type Loopback, rebindToLoopback } from '../testing/rebind';
+import { IdentityResolver } from './identity';
 import { permissionSetFor } from './lexicons';
 import {
 	clientMetadata,
 	DECLARED_SCOPES,
 	grantsAll,
+	grantsProfile,
 	grantsPublicRecords,
 	grantsSpaces,
 	heldOptionalScopes,
@@ -18,6 +24,11 @@ import {
 	SCOPES,
 	type SignedInAccount
 } from './oauth';
+
+/** A fetch for services whose client never reaches the network. */
+const offline: typeof globalThis.fetch = async (input) => {
+	throw new Error(`no network in this test: ${new Request(input).url}`);
+};
 
 const config = (publicUrl: string) =>
 	loadConfig({
@@ -42,6 +53,27 @@ describe('OAuth scopes', () => {
 			)
 			.map(String),
 		...full.split(' ').filter((scope) => !scope.startsWith('include:'))
+	];
+
+	/**
+	 * What accounts hold from before the profiles permissions: the grant `full` got from the permission set and scopes as
+	 * they were, with the shared spaces pinned to the root, written out as the PDS stores it, so it doesn't change with
+	 * them.
+	 */
+	const beforeProfiles = [
+		`space:computer.localnetwork.space.audit?authority=${root}&skey=main&collection=computer.localnetwork.audit.entry&action=read_self&action=create`,
+		`space:computer.localnetwork.space.moderation?authority=${root}&skey=main&collection=computer.localnetwork.moderation.request&action=read_self&action=create&action=update&action=delete`,
+		`space:computer.localnetwork.space.booking?authority=${root}&collection=computer.localnetwork.booking.inquiry&collection=computer.localnetwork.booking.message&collection=computer.localnetwork.booking.status&action=read_self&action=create&action=update&action=delete`,
+		`space:computer.localnetwork.space.planner?authority=${user}&skey=self&collection=computer.localnetwork.planner.save&collection=computer.localnetwork.planner.show&manage=create&manage=update`,
+		'repo:computer.localnetwork.epk',
+		'repo:computer.localnetwork.show',
+		'repo:computer.localnetwork.follow?action=create&action=delete',
+		`space:computer.localnetwork.space.epk?authority=${user}&collection=computer.localnetwork.epk.content&collection=computer.localnetwork.epk.grant&manage=create&manage=update&manage=delete`,
+		`space:computer.localnetwork.space.backstage?authority=${root}&collection=computer.localnetwork.epk.draft&action=read_self&action=create&action=update&action=delete`,
+		`space:computer.localnetwork.space.epk?authority=${root}&collection=computer.localnetwork.epk.request&action=read_self&action=create&action=delete`,
+		'atproto',
+		'blob?accept=image/jpeg&accept=image/png&accept=image/webp&accept=application/json',
+		'repo:community.lexicon.calendar.event?action=create&action=update&action=delete'
 	];
 
 	it('requests the permission set, keeping explicit only what a set cannot hold', () => {
@@ -103,13 +135,37 @@ describe('OAuth scopes', () => {
 		expect(permissions.allowsSpace({ ...legacy, action: 'create', collection: COLLECTION.epkRequest })).toBe(false);
 	});
 
+	it("lets users keep their profile, edit their sets, draft in a performer's space, and answer events", () => {
+		const permissions = new ScopePermissions(granted);
+		const performer = { type: SPACE_TYPE.performer, authority: root, skey: '3mperf' } as const;
+
+		for (const action of ['create', 'update', 'delete'] as const) {
+			expect(permissions.allowsRepo({ collection: COLLECTION.profile, action })).toBe(true);
+			expect(permissions.allowsRepo({ collection: CALENDAR_RSVP, action })).toBe(true);
+			expect(permissions.allowsSpace({ ...performer, action, collection: COLLECTION.epkDraft })).toBe(true);
+			// Only staff list a DJ, from the root account.
+			expect(permissions.allowsRepo({ collection: COLLECTION.listingProfile, action })).toBe(false);
+			// The root keeps a performer's people.
+			expect(permissions.allowsSpace({ ...performer, action, collection: COLLECTION.person })).toBe(false);
+		}
+
+		// locallibrary makes and removes sets; the site only edits them.
+		expect(permissions.allowsRepo({ collection: COLLECTION.djSet, action: 'update' })).toBe(true);
+		expect(permissions.allowsRepo({ collection: COLLECTION.djSet, action: 'create' })).toBe(false);
+		expect(permissions.allowsRepo({ collection: COLLECTION.djSet, action: 'delete' })).toBe(false);
+		expect(permissions.allowsSpace({ ...performer, action: 'read_self' })).toBe(true);
+		expect(permissions.allowsSpace({ ...performer, action: 'read' })).toBe(false);
+	});
+
 	it('lets users upload avatars and mix tracklists to their own PDS, and nothing else', () => {
 		// The PDS checks uploadBlob against the token's scopes like this.
-		const permissions = new ScopePermissionsTransition(full);
+		for (const scope of [full, base]) {
+			const permissions = new ScopePermissionsTransition(scope);
 
-		for (const mime of ['image/png', 'image/jpeg', 'image/webp', 'application/json'])
-			expect(permissions.allowsBlob({ mime })).toBe(true);
-		expect(permissions.allowsBlob({ mime: 'text/html' })).toBe(false);
+			for (const mime of ['image/png', 'image/jpeg', 'image/webp', 'application/json'])
+				expect(permissions.allowsBlob({ mime })).toBe(true);
+			expect(permissions.allowsBlob({ mime: 'text/html' })).toBe(false);
+		}
 	});
 
 	it('has a base scope without spaces for fallback, which a full grant covers', () => {
@@ -121,9 +177,12 @@ describe('OAuth scopes', () => {
 		expect(SCOPES.minimal).toBe('atproto');
 	});
 
-	it('lets any account follow, and announce shows as calendar events, with or without spaces', () => {
+	it('lets any account keep a profile, follow, and announce shows as calendar events, with or without spaces', () => {
 		for (const scopes of [granted, base.split(' ')]) {
 			const permissions = new ScopePermissions(scopes);
+
+			for (const action of ['create', 'update', 'delete'] as const)
+				expect(permissions.allowsRepo({ collection: COLLECTION.profile, action })).toBe(true);
 
 			for (const action of ['create', 'delete'] as const)
 				expect(permissions.allowsRepo({ collection: COLLECTION.follow, action })).toBe(true);
@@ -173,11 +232,37 @@ describe('OAuth scopes', () => {
 		expect(grantsSpaces(granted.join(' ').replaceAll(root, elsewhere), user, root)).toBe(false);
 	});
 
+	it('says which grants can save a profile and its picture, so the editor asks the others to sign in first', () => {
+		expect(grantsProfile(granted.join(' '), user, root)).toBe(true);
+		expect(grantsProfile(base, user, root)).toBe(true);
+		expect(grantsProfile(beforeProfiles.join(' '), user, root)).toBe(false);
+		expect(grantsProfile(granted.filter((scope) => !scope.startsWith('blob')).join(' '), user, root)).toBe(false);
+		expect(grantsProfile(null, user, root)).toBe(false);
+	});
+
+	it('counts a grant from before profiles as one with spaces, so nobody is signed out at deploy', () => {
+		const before = beforeProfiles.join(' ');
+
+		// The app signs a spaces-capable account out when this is false for its stored grant.
+		expect(grantsSpaces(before, user, root)).toBe(true);
+		expect(grantsSpaces(`${before} account:email?action=read`, user, root)).toBe(true);
+		// It lacks the new writes, so the first one that needs them asks for a fresh sign-in, which gets them all.
+		expect(grantsAll(before, full, user, root)).toBe(false);
+		expect(grantsPublicRecords(before, user, root)).toBe(false);
+
+		// Every space write it had is still needed, drafts in a project's backstage included.
+		const publicRecords = (scope: string) => /localnetwork\.(show|follow)|calendar\.event/.test(scope);
+
+		for (const dropped of beforeProfiles.filter((scope) => !publicRecords(scope)))
+			expect(grantsSpaces(beforeProfiles.filter((scope) => scope !== dropped).join(' '), user, root)).toBe(false);
+	});
+
 	it('declares every scope it may ask for in its client metadata', () => {
 		const declared = DECLARED_SCOPES.split(' ');
 
 		for (const scope of Object.values(SCOPES).flatMap((scopes) => scopes.split(' '))) expect(declared).toContain(scope);
 		expect(new Set(declared).size).toBe(declared.length);
+		expect(new ScopePermissions(declared).allowsRepo({ collection: CALENDAR_RSVP, action: 'create' })).toBe(true);
 	});
 
 	it('compares grants the way the PDS writes them, and spots any scope missing', () => {
@@ -239,6 +324,46 @@ describe('OAuth scopes', () => {
 	});
 });
 
+describe('OAuthService', () => {
+	/** Signing in at an http PDS from a production build with ALLOW_PRIVATE_NETWORK as given. */
+	const signInAtHttpPds = async (allowPrivateNetwork: string) => {
+		const production = loadConfig({
+			NODE_ENV: 'production',
+			ALLOW_PRIVATE_NETWORK: allowPrivateNetwork,
+			ROOT_IDENTIFIER: 'did:plc:root',
+			ROOT_PASSWORD: 'x',
+			PUBLIC_URL: 'https://localnetwork.test',
+			HAPPYVIEW_URL: 'http://127.0.0.1:8000'
+		});
+
+		// The guarded fetch the app gives it, for the same network.
+		const identity = new IdentityResolver({
+			plcUrl: production.plcUrl,
+			allowPrivateNetwork: production.allowPrivateNetwork,
+			logger: silentLogger
+		});
+
+		const oauth = new OAuthService({
+			config: production,
+			db: await openDatabase(':memory:'),
+			logger: silentLogger,
+			fetch: identity.serviceFetch
+		});
+
+		// Port 9 is one fetch refuses to connect to, so nothing leaves the machine either way.
+		return oauth.client.authorize('http://127.0.0.1:9/');
+	};
+
+	it('signs in at an http PDS in a production build only on a private network it may reach', async () => {
+		const refusedHttp = expect.stringMatching(/Unsecure resource metadata URL \(http:\)/);
+
+		await expect(signInAtHttpPds('false')).rejects.toMatchObject({ cause: { message: refusedHttp } });
+		await expect(signInAtHttpPds('true')).rejects.toMatchObject({
+			cause: { message: expect.not.stringMatching(/Unsecure/) }
+		});
+	});
+});
+
 describe('OAuthService.authorize', () => {
 	const user = 'did:plc:user';
 	const page = new URL('https://pds.test/oauth/authorize');
@@ -262,7 +387,8 @@ describe('OAuthService.authorize', () => {
 		const oauth = new OAuthService({
 			config: config('http://127.0.0.1:5173'),
 			db: await openDatabase(':memory:'),
-			logger: silentLogger
+			logger: silentLogger,
+			fetch: offline
 		});
 
 		const asked: string[] = [];
@@ -338,5 +464,151 @@ describe('OAuthService.authorize', () => {
 			})
 		).rejects.toThrow(OptionalScopeUnsupported);
 		expect(unknown.asked).toHaveLength(3);
+	});
+});
+
+describe('OAuthService sign-in, given servers a DID document names', () => {
+	const PDS = 'pds.rebind.localnetwork.computer';
+	const ISSUER = 'auth.rebind.localnetwork.computer';
+	const did = 'did:plc:visitor';
+	let loopback: Loopback;
+
+	beforeEach(async () => {
+		loopback = await rebindToLoopback([PDS, ISSUER]);
+
+		return async () => {
+			vi.unstubAllGlobals();
+			vi.restoreAllMocks();
+			await loopback.close();
+		};
+	});
+
+	/**
+	 * Signs `did` in as /login does, with the app's guarded fetch, a DID document whose PDS is `pds`, and private
+	 * addresses allowed or not.
+	 */
+	const signIn = async (pds: string, allowPrivateNetwork = false, timeoutMs?: number) => {
+		const identity = new IdentityResolver({
+			plcUrl: 'https://plc.directory',
+			allowPrivateNetwork,
+			logger: silentLogger
+		});
+
+		const oauth = new OAuthService({
+			config: config('https://localnetwork.computer'),
+			db: await openDatabase(':memory:'),
+			logger: silentLogger,
+			fetch: identity.serviceFetch,
+			timeoutMs
+		});
+
+		vi.spyOn(oauth.client.identityResolver, 'resolve').mockResolvedValue({
+			did,
+			handle: 'visitor.localnetwork.computer',
+			didDoc: { id: did, service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: pds }] }
+		});
+
+		// What came of it: the authorization page, or the innermost cause of the error (for a request fetch refused, why).
+		return oauth.authorize(did, '{}').then(
+			(page) => page.href,
+			(error: Error) => {
+				let cause = error;
+
+				while (cause.cause instanceof Error) cause = cause.cause;
+
+				return cause.message;
+			}
+		);
+	};
+
+	it('gives up on a PDS that takes the connection and never answers, once the time limit is up', async () => {
+		// Connections it takes, which it holds open without a word.
+		const held: Socket[] = [];
+		const server = createNetServer((socket) => void held.push(socket));
+
+		await once(server.listen(0, '127.0.0.1'), 'listening');
+		// SAFETY: a server listening on a TCP port reports an AddressInfo.
+		const { port } = server.address() as AddressInfo;
+
+		try {
+			const started = performance.now();
+
+			expect(await signIn(`http://127.0.0.1:${port}`, true, 200)).toBe('The operation was aborted due to timeout');
+			expect(performance.now() - started).toBeLessThan(2_000);
+			expect(held).toHaveLength(1);
+		} finally {
+			for (const socket of held) socket.destroy();
+			await new Promise((resolve) => server.close(resolve));
+		}
+	});
+
+	it('refuses a PDS whose name points at loopback when it connects, and never reaches it', async () => {
+		expect(await signIn(`https://${PDS}:${loopback.port}`)).toBe('Hostname resolved to non-unicast address');
+		expect(loopback.connections()).toBe(0);
+	});
+
+	it("refuses an authorization server, named in the PDS's metadata, whose name points at loopback", async () => {
+		const real = globalThis.fetch;
+		const pds = 'https://pds.localnetwork.computer';
+
+		// The PDS answers from a public address; everything else goes out to the network.
+		vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+			const request = new Request(input, init);
+
+			if (!request.url.startsWith(`${pds}/`)) return real(input, init);
+
+			return Response.json({ resource: pds, authorization_servers: [`https://${ISSUER}:${loopback.port}`] });
+		});
+
+		expect(await signIn(pds)).toBe('Hostname resolved to non-unicast address');
+		expect(loopback.connections()).toBe(0);
+	});
+
+	it('follows no redirect from the authorization server, even where private addresses are allowed', async () => {
+		let inside = 0;
+		let origin = '';
+
+		// A PDS that is its own authorization server, and sends its pushed authorization requests somewhere else.
+		const server = createServer((request, response) => {
+			if (request.url === '/.well-known/oauth-protected-resource') {
+				response.setHeader('content-type', 'application/json');
+				response.end(JSON.stringify({ resource: origin, authorization_servers: [origin] }));
+			} else if (request.url === '/.well-known/oauth-authorization-server') {
+				response.setHeader('content-type', 'application/json');
+
+				response.end(
+					JSON.stringify({
+						issuer: origin,
+						authorization_endpoint: `${origin}/authorize`,
+						token_endpoint: `${origin}/token`,
+						pushed_authorization_request_endpoint: `${origin}/par`,
+						require_pushed_authorization_requests: true,
+						response_types_supported: ['code'],
+						code_challenge_methods_supported: ['S256'],
+						token_endpoint_auth_methods_supported: ['none', 'private_key_jwt'],
+						token_endpoint_auth_signing_alg_values_supported: ['ES256'],
+						dpop_signing_alg_values_supported: ['ES256'],
+						client_id_metadata_document_supported: true
+					})
+				);
+			} else if (request.url === '/par') {
+				response.writeHead(307, { location: '/inside' }).end();
+			} else {
+				inside++;
+				response.writeHead(201, { 'content-type': 'application/json' });
+				response.end(JSON.stringify({ request_uri: 'urn:ietf:params:oauth:request_uri:x', expires_in: 60 }));
+			}
+		});
+
+		await once(server.listen(0, '127.0.0.1'), 'listening');
+		// SAFETY: a server listening on a TCP port reports an AddressInfo.
+		origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+		try {
+			expect(await signIn(origin, true)).toBe('unexpected redirect');
+			expect(inside).toBe(0);
+		} finally {
+			await new Promise((resolve) => server.close(resolve));
+		}
 	});
 });

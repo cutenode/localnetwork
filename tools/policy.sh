@@ -24,6 +24,22 @@ while IFS= read -r file; do files+=("$file"); done < <(list -- package.json pnpm
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 list | jq -R -s '{files: split("\n")[:-1]}' > "$scratch/tracked-files.json"
+# The files the Rust code embeds from outside its own crate, for the policy that the locallibrary
+# paths filter in ci.yml has them: the paths in include_str! and include_bytes!, from the file
+# they're in.
+git grep --untracked -I -o -E 'include_(str|bytes)!\(\s*"[^"]+"' -- ':(glob)**/*.rs' |
+  node --input-type=module -e '
+    import { posix } from "node:path";
+    const lines = (await new Response(process.stdin).text()).split("\n").filter(Boolean);
+    const files = new Set();
+    for (const line of lines) {
+      const [, file, target] = /^([^:]+):.*"([^"]+)"$/.exec(line);
+      const path = posix.normalize(posix.join(posix.dirname(file), target));
+      const krate = file.split("/").slice(0, 2).join("/");
+      if (!path.startsWith(`${krate}/`)) files.add(path);
+    }
+    process.stdout.write(JSON.stringify({ files: [...files].sort() }));
+  ' > "$scratch/embedded-files.json"
 # Cargo.lock under a name conftest parses as TOML, for the policy that the dev profile keeps its
 # entries for the crates still in it.
 cp Cargo.lock "$scratch/Cargo.lock.toml"
@@ -48,4 +64,4 @@ if [ -n "$uncovered" ]; then
   echo "$uncovered"
   exit 1
 fi
-run "$conftest" test --combine --all-namespaces --no-color --policy tools/policy "${files[@]}" /scratch/tracked-files.json /scratch/Cargo.lock.toml /scratch/railway-project.json
+run "$conftest" test --combine --all-namespaces --no-color --policy tools/policy "${files[@]}" /scratch/tracked-files.json /scratch/embedded-files.json /scratch/Cargo.lock.toml /scratch/railway-project.json

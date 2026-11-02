@@ -3,7 +3,7 @@ import type { JsonObject } from '@atproto/lex-json';
 import { z } from 'zod';
 import { type LatLng, toE6 } from '#lib/geo.ts';
 import { CALENDAR_EVENT, COLLECTION } from '#lib/nsid.ts';
-import { EVENT_STATUS, type ShowFormValues, venueClock, venueDay } from '#lib/shows.ts';
+import { EVENT_STATUS, PROJECT_SHOWS, type ShowFormValues, venueClock, venueDay } from '#lib/shows.ts';
 import type { Location, ProjectView, ShowRecord, ShowView, StrongRef, Viewer } from '#lib/types.ts';
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
 import { recordCid, xrpcErrorName } from '../atproto/repo-client';
@@ -54,9 +54,6 @@ const CHANGED = 'This show changed since you opened it. Reload and try again.';
 const ADDRESS = 'community.lexicon.location.address';
 
 const GEO = 'community.lexicon.location.geo';
-
-/** The most upcoming shows a project's page lists. */
-const PROJECT_SHOWS = 20;
 
 const DAY_MS = 86_400_000;
 

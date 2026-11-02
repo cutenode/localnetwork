@@ -34,6 +34,7 @@ const data = {
 	pendingRequests: 0,
 	unread: 0,
 	projects: Promise.resolve([project]),
+	sections: Promise.resolve(null),
 	project,
 	isNew: true,
 	values: showFormDefaults,

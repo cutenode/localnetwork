@@ -142,7 +142,7 @@ fn names_too_long_for_the_targets_export_pdb_are_refused_when_planning() {
 }
 
 /// Merging one drive into another says what it adds and adds it; merged again, its tracks are
-/// all there already.
+/// all there already, and so are its playlists, in the folder the first merge made.
 #[test]
 fn a_merge_adds_what_it_planned_and_then_matches_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -157,8 +157,9 @@ fn a_merge_adds_what_it_planned_and_then_matches_it() {
     let report = api::merge_apply(&req, &Ctx::silent()).unwrap();
     assert_eq!(report.tracks_added, 12);
     assert_eq!(Device::open(&main).unwrap().library().unwrap().tracks.len(), 14);
-    // Merged again, every track is matched; only the folder of its playlists comes again.
+    // Merged again, every track is matched, and its playlists are in the folder already.
     let again = api::merge_plan(&req, &Ctx::silent()).unwrap();
     assert_eq!((again.new_tracks.len(), again.matched_tracks), (0, 12));
-    assert!(again.playlists.iter().all(|p| p.path.starts_with("Club (2)")), "{:?}", again.playlists);
+    assert!(again.playlists.iter().all(|p| !p.create && p.tracks_added == 0), "{:?}", again.playlists);
+    assert!(again.noop, "{:?}", again.summary);
 }

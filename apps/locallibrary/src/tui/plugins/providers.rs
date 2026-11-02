@@ -33,13 +33,9 @@ pub struct Fetching {
 /// What providers fetch for the tracks selected, as a menu offers it on a drive (see
 /// [`super::offered`]): each kind some plugin provides, with its providers' plugins' names, and
 /// why it can't run here, if it can't.
-pub fn fetches(drive: Option<bool>) -> Vec<(ProviderKind, String, String, Option<String>)> {
+pub fn fetches(drive: bool) -> Vec<(ProviderKind, String, String, Option<String>)> {
     let Ok(plugins) = crate::plugins::host() else { return Vec::new() };
-    let why = match drive {
-        None => Some("open a drive first"),
-        Some(false) => Some("only on a plugged-in drive"),
-        Some(true) => None,
-    };
+    let why = (!drive).then_some("open a drive first");
     let kinds = [ProviderKind::Artwork, ProviderKind::Metadata];
     let found = kinds.into_iter().filter_map(|kind| {
         let by = providing(plugins, Some(kind))?;
@@ -98,7 +94,7 @@ impl App {
     /// What providers of `kind` find for the tracks `target` selects on the drive at `root`: a
     /// form asks which provider (any, to start with) and whether over what tracks have first.
     pub(in crate::tui) fn fetch_form(&mut self, kind: ProviderKind, root: Option<PathBuf>, target: Option<&Target>) {
-        let Some(root) = self.plugged(root) else { return };
+        let Some(root) = self.drive_open(root) else { return };
         let tracks = target.map(|t| self.context(t).tracks).unwrap_or_default();
         if tracks.is_empty() {
             return self.toast("no track selected", Level::Info);

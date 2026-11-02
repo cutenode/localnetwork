@@ -1,5 +1,5 @@
 # `cargo coverage`: the tests under cargo-llvm-cov, failing below these thresholds. CI runs it on
-# every OS; raise the thresholds to just under the lowest OS's numbers when coverage goes up. Only
+# Linux; raise the thresholds to just under its numbers when coverage goes up. Only
 # the code that ships is measured: test modules live in files of their own (`tests.rs`, and the
 # TUI's `props.rs`, `screens.rs` and `testing.rs`), left out with `test_util.rs` and the test
 # plugin (`bin/test-plugin/`, which the CLI's debug builds include too) by the regex, which takes

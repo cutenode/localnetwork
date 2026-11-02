@@ -117,6 +117,9 @@ struct Sent {
     secret: bool,
     /// The accounts whose tokens are filled in, which go only where their scopes cover.
     accounts: Vec<Filled>,
+    /// Its query, with its secrets and tokens filled in, when it has one to fill: the first hop
+    /// is sent with it in place of the address's own, which a secret is never put in.
+    query: Option<Vec<(String, String)>>,
 }
 
 /// An account filled into a request, what it's signed in with, and the access it's through.
@@ -285,7 +288,8 @@ impl Plugin {
     /// token, on the last hop it went to, is answered for the plugin (see [`Plugin::answered`]).
     pub(crate) fn fetch(&self, live: &Live, params: Value, cancel: &CancelToken) -> Result<Value, RpcError> {
         let req: Fetch = loclib_plugin::params(params)?;
-        let (url, sent, in_query) = self.prepare(live, &req)?;
+        let url = self.address(&req)?;
+        let (sent, in_query) = self.prepare(live, &req, &url)?;
         // Before it's sent: an answer with nowhere to go is never asked for.
         let into = req.into_blob.as_deref().map(|blob| self.new_blob(live, blob)).transpose()?;
         let requests = Requests::new().map_err(|e| RpcError::internal(format!("the network: {e}")))?;
@@ -318,9 +322,10 @@ impl Plugin {
     /// about them, nor to one with keys alone, passed on as it is): saying the
     /// token lacks scopes (see [`insufficient_scope`]), `scope`, its body not passed on (see
     /// [`Plugin::scope_refused`]); a 401 otherwise, the request sent again once with the account's
-    /// token refreshed (see [`Plugin::refused_token`]), and its answer passed on, the account
-    /// signed out when it's a 401 again saying `error="invalid_token"`. With the placeholders of
-    /// the tokens the request that was answered had in its query.
+    /// token refreshed (see [`Plugin::refused_token`]), and its answer passed on. A 401 that isn't
+    /// sent again, the second or one with no refresh token to refresh, signs the account out only
+    /// when it says `error="invalid_token"` (see [`Plugin::invalid_token`]). With the placeholders
+    /// of the tokens the request that was answered had in its query.
     fn answered(
         &self,
         live: &Live,
@@ -356,8 +361,12 @@ impl Plugin {
                 let written = Url::parse(&req.url).map_err(|_| invalid("it isn't a web address"))?;
                 return Err(self.scope_refused(&attached[0].0, &scopes, &req.method, &written, store));
             }
-            if status == 403 || again {
-                let invalid = again && status == 401 && said.iter().any(|c| c.param("error") == Some("invalid_token"));
+            let resend = status == 401 && !again && {
+                let refreshed = attached.iter().map(|(usable, token)| self.refused_token(usable, token, store));
+                refreshed.collect::<Result<Vec<bool>, _>>()?.contains(&true)
+            };
+            if !resend {
+                let invalid = status == 401 && said.iter().any(|c| c.param("error") == Some("invalid_token"));
                 if invalid {
                     for (usable, token) in &attached {
                         self.invalid_token(usable, token, store)?;
@@ -365,25 +374,28 @@ impl Plugin {
                 }
                 return Ok((Answer { status, headers, read: body, response }, in_query));
             }
-            for (usable, token) in &attached {
-                self.refused_token(usable, token, store)?;
-            }
             again = true;
-            let (url, sent, query) = self.prepare(live, req)?;
+            let url = self.address(req)?;
+            let (sent, query) = self.prepare(live, req, &url)?;
             in_query = query;
             let (followed, filled) = self.follow(live, url, sent, requests, cancel)?;
             (response, attached) = (followed, tokens(filled));
         }
     }
 
-    /// The request `req` asks for, as it's sent to its URL, its secrets and accounts' tokens
-    /// filled in: with the tokens filled into its query, and the placeholders that named them.
-    fn prepare(&self, live: &Live, req: &Fetch) -> Result<(Url, Sent, InQuery), RpcError> {
-        let mut url =
-            Url::parse(&req.url).map_err(|_| invalid(format!("{} isn't a web address", one_line(&req.url))))?;
+    /// The address `req` asks for, as the plugin wrote it, when the plugin may go there.
+    fn address(&self, req: &Fetch) -> Result<Url, RpcError> {
+        let url = Url::parse(&req.url).map_err(|_| invalid(format!("{} isn't a web address", one_line(&req.url))))?;
         if let Some(why) = refused(&self.manifest.capabilities, &url, self.loopback()).or_else(|| self.offline(&url)) {
             return Err(denied(why));
         }
+        Ok(url)
+    }
+
+    /// The request `req` asks for at `url` (its [`Plugin::address`]), as it's sent, its secrets
+    /// and accounts' tokens filled in, the query's kept apart from the address: with the tokens
+    /// filled into its query, and the placeholders that named them.
+    fn prepare(&self, live: &Live, req: &Fetch, url: &Url) -> Result<(Sent, InQuery), RpcError> {
         let method = Method::from_bytes(req.method.as_bytes())
             .map_err(|_| invalid(format!("{} isn't an HTTP method", one_line(&req.method))))?;
         if req.body.is_some() && req.body_blob.is_some() {
@@ -402,7 +414,7 @@ impl Plugin {
         // What a scope covers is the request as the plugin wrote it.
         let asked = (method.clone(), url.clone());
         let (plain, filled) = (HeaderMap::new(), HeaderMap::new());
-        let mut sent = Sent { method, plain, filled, body: None, secret: false, accounts: Vec::new() };
+        let mut sent = Sent { method, plain, filled, body: None, secret: false, accounts: Vec::new(), query: None };
         // The accounts' tokens filled into the query, and the placeholders that named them.
         let mut in_query = Vec::new();
         if url.query_pairs().any(|(_, v)| v.contains(SECRET) || v.contains(ACCOUNT_PLACEHOLDER)) {
@@ -418,7 +430,7 @@ impl Plugin {
                 filled.push((k, token.clone()));
                 in_query.push((token, v));
             }
-            url.query_pairs_mut().clear().extend_pairs(filled);
+            sent.query = Some(filled);
         }
         for (name, value) in &req.headers {
             let name = HeaderName::from_bytes(name.as_bytes())
@@ -458,7 +470,7 @@ impl Plugin {
             sent.plain.remove(CONTENT_TYPE);
             sent.body = Some(Body::Form(self.form(live, &req.multipart)?));
         }
-        Ok((url, sent, in_query))
+        Ok((sent, in_query))
     }
 
     /// What goes where a request (`asked`, its method and URL as the plugin wrote it) names an
@@ -547,7 +559,14 @@ impl Plugin {
         let mut hops = 0;
         loop {
             self.wait_turn(&url, cancel)?;
-            let mut request = self.client()?.request(sent.method.clone(), url.clone());
+            let mut request = match sent.query.take() {
+                Some(query) => {
+                    let mut bare = url.clone();
+                    bare.set_query(None);
+                    self.client()?.request(sent.method.clone(), bare).query(&query)
+                }
+                None => self.client()?.request(sent.method.clone(), url.clone()),
+            };
             request = request.headers(sent.plain.clone()).headers(sent.filled.clone());
             if let Some(body) = &sent.body {
                 let files = body.file_bytes();

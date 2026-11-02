@@ -6,6 +6,9 @@
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
+
+	// Bound, so a handle typed before the page hydrated stays (see formFields).
+	let subject = $derived(data.subject);
 </script>
 
 <svelte:head><title>Verifications · Local Network</title></svelte:head>
@@ -19,7 +22,7 @@
 			<h2 class="text-emphasis font-semibold">Verify an account</h2>
 			<div>
 				<label class="label" for="subject">Handle or DID</label>
-				<input id="subject" name="subject" class="input" required placeholder="alice.bsky.social" value={data.subject} />
+				<input id="subject" name="subject" class="input" required placeholder="alice.bsky.social" bind:value={subject} />
 				<p class="hint">For project managers. Uses their handle and display name as they are now. A rename turns the badge off until you re-issue it.</p>
 			</div>
 			<button class="btn-primary w-full">Verify</button>

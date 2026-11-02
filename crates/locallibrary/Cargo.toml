@@ -102,6 +102,7 @@ form_urlencoded = "1.2.2"
 oauth2 = { version = "5.0.0", default-features = false }
 # A file sent as a request's body, as the stream of its chunks.
 futures-util = { version = "0.3.34", default-features = false }
+rayon = "1.12.0"
 
 [dev-dependencies]
 hegeltest = { workspace = true, features = ["chrono"] }
@@ -120,6 +121,7 @@ loclib-interop.workspace = true
 locallibrary-plugin-demos = { path = "../../plugins/demos" }
 # Waiting until a connection reaches the sign-in listener's queue (`callback` tests).
 mio = { version = "1.2.4", features = ["os-poll", "net"] }
+criterion.workspace = true
 
 [target."cfg(windows)".dependencies]
 # A file's index and its volume's serial number, which the drive watcher tells rewrites by.
@@ -134,3 +136,7 @@ libc = "0.2"
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "library"
+harness = false

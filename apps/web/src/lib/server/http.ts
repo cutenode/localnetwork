@@ -45,6 +45,12 @@ export function guardArea(locals: LocalsLike, url: URL, routeId: string | null):
 	if (isUnder(routeId, '/admin')) requireStaff(locals, url);
 }
 
+/** Areas search engines shouldn't list: the signed-in ones, and pages that only mean something to whoever opened them. */
+const UNLISTED = ['/dashboard', '/admin', '/login', '/report', '/notifications', '/mixes/preview'];
+
+/** Whether the route is in an area search engines shouldn't list, which the server hook says in `X-Robots-Tag`. */
+export const isUnlisted = (routeId: string | null) => UNLISTED.some((area) => isUnder(routeId, area));
+
 const SAME_SITE = 'http://same.site';
 
 /**
@@ -93,11 +99,6 @@ export async function act<T, V extends object = never>(run: () => Promise<T>, va
 			return fail(400, { error: `That doesn't fit the record format: ${cause.message}`, values, reauth: false });
 		throw cause;
 	}
-}
-
-/** Whether `value` is a full http(s) address, the only kind of link pages make clickable. */
-export function isWebUrl(value: string): boolean {
-	return URL.canParse(value) && ['http:', 'https:'].includes(new URL(value).protocol);
 }
 
 export function text(form: FormData, name: string, max = 10_000): string {

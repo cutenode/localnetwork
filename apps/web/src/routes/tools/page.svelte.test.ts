@@ -4,8 +4,9 @@ import { render } from 'vitest-browser-svelte';
 import ToolsPage from './+page.svelte';
 import ToolPage from './[tool]/+page.svelte';
 import GuidePage from './[tool]/docs/[page]/+page.svelte';
+import { PAGE_META } from '#lib/testing/page-meta.ts';
 
-const layout = { viewer: null, pendingRequests: 0 };
+const layout = { viewer: null, pendingRequests: 0, meta: PAGE_META };
 
 const form = null;
 

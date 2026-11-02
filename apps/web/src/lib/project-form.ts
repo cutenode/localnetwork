@@ -47,7 +47,10 @@ export function formValues(form: FormData) {
 				'feeTier',
 				'feeCurrency',
 				'feeMin',
-				'feeMax'
+				'feeMax',
+				'bookCity',
+				'bookRegion',
+				'bookCountry'
 			].includes(key)
 		)
 			continue;
@@ -89,6 +92,12 @@ export function formValues(form: FormData) {
 		})
 		.filter((mix) => mix.url);
 	values.fees = feeRows(form);
+	const [bookRegions, bookCountries] = [strings(form, 'bookRegion'), strings(form, 'bookCountry')];
+	values.cities = strings(form, 'bookCity').map((city, row) => ({
+		city,
+		region: bookRegions[row] ?? '',
+		country: bookCountries[row] ?? ''
+	}));
 	values.international = form.get('international') === 'on';
 
 	return values;

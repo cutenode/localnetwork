@@ -1,0 +1,29 @@
+/** The site's name: after each page's title, and what link previews name the site. */
+export const SITE_NAME = 'Local Network';
+
+/** The picture a link preview shows for a page. */
+export type PageImage = {
+	/** An absolute URL. */
+	url: string;
+	/** What's in the picture, for people who can't see it. */
+	alt: string;
+};
+
+/**
+ * What a public page tells link previews and search engines about itself. Its server load returns one and the root
+ * layout writes it into the head, so it's in the HTML crawlers read: they run no JavaScript, so nothing streamed or
+ * set in the browser reaches them.
+ */
+export type PageMeta = {
+	/** The page's own name, without the site's. */
+	title: string;
+	/** The `<title>`, when it isn't the title followed by the site's name. */
+	documentTitle?: string;
+	description: string;
+	/** The page's canonical address, absolute. */
+	url: string;
+	type: 'website' | 'profile' | 'music.song';
+	image?: PageImage;
+	/** Keeps search engines from listing a page only its managers and staff can see. */
+	noindex?: boolean;
+};

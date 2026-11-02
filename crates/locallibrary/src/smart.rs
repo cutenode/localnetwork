@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::edit::Edit;
+use crate::fields::Declared;
 use crate::query::{self, Filter, TrackSelector};
 use crate::{Error, Result};
 
@@ -28,7 +29,10 @@ pub struct SmartPlaylist {
 }
 
 impl SmartPlaylist {
-    pub fn validate(&self) -> Result<()> {
+    /// Refuse a rule that can't be applied: one without a path or a filter, or whose filter or
+    /// sort can't be read, or names a plugin's field none of the analyzers installed declares
+    /// (`declared` are those they do) or a value its field can't hold.
+    pub fn validate(&self, declared: &Declared) -> Result<()> {
         if self.path.split('/').all(|p| p.trim().is_empty()) {
             return Err(Error::invalid("give the playlist a path, e.g. Smart/Peak time"));
         }
@@ -36,9 +40,9 @@ impl SmartPlaylist {
         if self.filter.trim().is_empty() {
             return Err(Error::invalid("give the rule a filter, e.g. \"bpm:126-132 rating:>=4\""));
         }
-        Filter::parse(&self.filter)?;
+        Filter::parse(&self.filter)?.check_fields(declared)?;
         if let Some(s) = &self.sort {
-            query::parse_sort(s)?;
+            query::parse_sort_with(s, Some(declared))?;
         }
         Ok(())
     }
@@ -84,9 +88,10 @@ impl SmartPlaylists {
         self.playlists.iter().find(|p| p.key() == key(path))
     }
 
-    /// Add a rule, or replace the one for exactly its path.
-    pub fn set(&mut self, rule: SmartPlaylist) -> Result<()> {
-        rule.validate()?;
+    /// Add a rule, or replace the one for exactly its path, once it's valid (see
+    /// [`SmartPlaylist::validate`]).
+    pub fn set(&mut self, rule: SmartPlaylist, declared: &Declared) -> Result<()> {
+        rule.validate(declared)?;
         match self.playlists.iter_mut().find(|p| p.key() == rule.key()) {
             Some(p) => *p = rule,
             None => self.playlists.push(rule),
@@ -128,7 +133,8 @@ impl SmartPlaylists {
             let rule = SmartPlaylist { drives: vec![drive], ..r.clone() };
             match self.get(&rule.path) {
                 Some(p) if !own(p) => left.push(rule.path),
-                _ => self.set(rule)?,
+                // An export's rules come from rekordbox's own filters: no plugin's fields.
+                _ => self.set(rule, &Declared::default())?,
             }
         }
         Ok(left)

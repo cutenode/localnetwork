@@ -13,8 +13,8 @@ use serde_json::Value;
 
 use crate::error::{ok, params};
 use crate::protocol::{
-    Fetch, Fetched, Hello, HelloReply, Partial, PluginInfo, ProgressEvent, ProgressParams, ProgressReport, Progressed,
-    StepInfo, StepStarted, check_protocol, method,
+    Fetch, Fetched, Hello, HelloReply, Partial, PluginInfo, ProgressEvent, ProgressParams, ProgressReport,
+    check_protocol, method,
 };
 use crate::{
     Contributions, EnsureAccount, Ensured, EventNotify, FEATURES, HostNotify, Incoming, ListItem, Manifest,
@@ -119,12 +119,7 @@ impl Host {
     fn new(peer: Peer, served: Arc<Served>, id: Value, cancel: CancelToken, flusher: &Flusher) -> Host {
         let (to, about) = (peer.clone(), id.clone());
         let send = move |scope: &Scope, report: Report| {
-            let (event, items) = match report {
-                Report::Event { event, items } => (Progressed::Event(event), items),
-                Report::Step => (Progressed::Step(StepStarted::default()), None),
-            };
-            let step = scope.step.map(|s| StepInfo { index: s.index, total: s.total, id: s.id.into() });
-            let event = ProgressEvent { event, target: scope.target.clone(), step, items };
+            let event = ProgressEvent::new(scope, report);
             to.notify(method::PROGRESS, &ProgressParams { id: about.clone(), event: ProgressReport::Known(event) });
         };
         let progress = Arc::new(Coalesced::new(PROGRESS_EVERY, send));

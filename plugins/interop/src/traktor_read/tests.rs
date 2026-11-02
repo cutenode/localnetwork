@@ -88,7 +88,7 @@ impl Session {
     fn granted(&self, name: &str) -> PathBuf {
         let dir = self.dir.path().join(name);
         std::fs::create_dir_all(&dir).unwrap();
-        dunce::canonicalize(dir).unwrap()
+        loclib_model::paths::resolved(&dir)
     }
 
     fn stop(self) {
@@ -396,6 +396,7 @@ fn a_collection_is_a_library_source() {
         color: None,
         color_id: 0,
         loop_beats: None,
+        active_loop: false,
     };
     let analysis = |t: &Track| match t.id {
         1 => TrackAnalysis {
@@ -532,6 +533,7 @@ fn library(tc: &TestCase) -> (Library, FxHashMap<u32, TrackAnalysis>) {
             color: None,
             color_id: 0,
             loop_beats: None,
+            active_loop: false,
         });
         let beats = match tc.draw(gs::booleans()) {
             true => grid(t.bpm.max(90.0), tc.draw(gs::integers::<u32>().max_value(2000)), 4),

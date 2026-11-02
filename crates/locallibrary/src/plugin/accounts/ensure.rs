@@ -69,7 +69,7 @@ impl Plugin {
     pub(crate) fn ensure(&self, live: &Live, asked: Value, ctx: &Ctx<'_>) -> Result<Value, RpcError> {
         let req: EnsureAccount = params(asked)?;
         let refused = |e: Error| RpcError::invalid_params(e.to_string());
-        self.given(&req.kind, &req.scopes).map_err(refused)?;
+        self.scopes_given(&req.kind, &req.scopes).map_err(refused)?;
         let need = self.needs(&req.kind).map_err(refused)?;
         let mut now = self.standing(live, need, &req)?;
         if !now.question.scopes.is_empty() {
@@ -119,7 +119,7 @@ impl Plugin {
         let asked = self.host.options.ask.as_ref().and_then(|ask| Some((ask, ask.allow(&q)?)));
         let Some((ask, allowed)) = asked else { return Err(unasked(need, &q)) };
         let (id, scopes) = (&q.access.id, &q.scopes);
-        let external = |e: Error| for_plugin(RpcFailure::from(e), &known_roots(Some(store)));
+        let external = |e: Error| for_plugin(RpcFailure::from(e), &known_roots(Some(store), &self.given()));
         if !allowed {
             return remember(store, id, |a| a.more(&[], scopes)).map_err(external);
         }

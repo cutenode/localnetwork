@@ -243,3 +243,20 @@ fn version_word_spellings_are_one_token(tc: TestCase) {
     words.insert(at, spelled);
     assert_eq!(tokens(&words.join(" ")), with_word);
 }
+
+/// ASCII skips taking accents apart and putting them back, and folds as if it hadn't.
+#[hegel::test(test_cases = 200)]
+fn ascii_folds_as_unicode_does(tc: hegel::TestCase) {
+    let s = tc.draw(hegel::generators::text().alphabet("aZ9 \t.&'`-\u{e9}\u{301}\u{2019}\u{fb01}").max_size(12));
+    let mut out = String::new();
+    for c in normalize(&s).nfd() {
+        match c {
+            '\u{300}'..='\u{36f}' | '\'' | '\u{2018}' | '\u{2019}' | '`' | '\u{b4}' | '.' => {}
+            '&' => out.push_str(" and "),
+            c if c.is_alphanumeric() => out.push(c),
+            _ => out.push(' '),
+        }
+    }
+    let unicode: String = out.nfc().collect();
+    assert_eq!(fold(&s), unicode.split_whitespace().collect::<Vec<_>>().join(" "), "{s:?}");
+}

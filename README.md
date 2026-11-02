@@ -44,7 +44,7 @@ cargo build                  # locallibrary
 cargo test --workspace --locked
 ```
 
-The TypeScript apps share one lint config (`.oxlintrc.json`, which each app's own extends) and one format config (`.oxfmtrc.json`). CI runs each tool's checks only when its files (or the shared ones) change, and comments on a pull request with each tool's coverage and, for the website and the extension, its size against `main`. The slow suites (mutation testing, fuzzing, the website in every browser, the CLI's timings, a release build) run weekly, in the `*-scheduled.yml` workflows; a weekly run that fails opens an issue, which the next one that passes closes.
+The TypeScript apps share one lint config (`.oxlintrc.json`, which each app's own extends) and one format config (`.oxfmtrc.json`). CI runs each tool's checks only when its files (or the shared ones) change, and comments on a pull request with each tool's coverage and, for the website and the extension, its size against `main`. The slow suites (mutation testing, fuzzing, the website in every browser, Lighthouse on every page of the website against its history, the CLI's timings, a release build) run weekly, in the `*-scheduled.yml` workflows; a weekly run that fails opens an issue, which the next one that passes closes.
 
 ## Contributing
 

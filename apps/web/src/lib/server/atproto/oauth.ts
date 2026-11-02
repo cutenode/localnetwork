@@ -9,8 +9,14 @@ import {
 	type OAuthSession,
 	requestLocalLock
 } from '@atproto/oauth-client-node';
-import { IncludeScope, isDidString, normalizeAtprotoOauthScopeValue, SpacePermission } from '@atproto/oauth-scopes';
-import { PERMISSIONS } from '#lib/nsid.ts';
+import {
+	IncludeScope,
+	isDidString,
+	normalizeAtprotoOauthScopeValue,
+	RepoPermission,
+	SpacePermission
+} from '@atproto/oauth-scopes';
+import { CALENDAR_RSVP, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
 import type { Config } from '../config';
 import { type Db, nowIso } from '../db';
 import type { AccountRow } from '../db/schema';
@@ -26,40 +32,63 @@ const permissions = new IncludeScope(PERMISSIONS);
  */
 const CALENDAR_EVENTS = 'repo:community.lexicon.calendar.event?action=create&action=update&action=delete';
 
+/** Guests' RSVPs to events, asked for on its own for the same reason as calendar events. */
+const RSVPS = `repo:${CALENDAR_RSVP}?action=create&action=update&action=delete`;
+
+/** Avatars, and the JSON mix reports DJs attach to their mixes as tracklists. */
+const BLOBS = 'blob?accept=image/jpeg&accept=image/png&accept=image/webp&accept=application/json';
+
+/** Writing your own profile. */
+const PROFILE_WRITES = 'repo:computer.localnetwork.profile?action=create&action=update&action=delete';
+
 /**
- * The records the app writes to an account's public repo for any account, spaces or not: shows with their calendar
- * events, and follows. A grant without them still counts as one with spaces, so adding them didn't send everyone back
- * through sign-in; the writes that need them ask for a fresh sign-in themselves.
+ * The records the app writes to an account's public repo for any account, spaces or not: profiles, shows with their
+ * calendar events, and follows. A grant without them still counts as one with spaces, so adding them didn't send
+ * everyone back through sign-in; the writes that need them ask for a fresh sign-in themselves.
  */
 const PUBLIC_RECORDS = [
+	PROFILE_WRITES,
 	'repo:computer.localnetwork.show?action=create&action=update&action=delete',
 	'repo:computer.localnetwork.follow?action=create&action=delete',
 	CALENDAR_EVENTS
 ].join(' ');
 
 /**
+ * Writes added to `full` after accounts had already signed in with it: editing the sets locallibrary published, press
+ * kit drafts in a performer's space, and RSVPs. Like PUBLIC_RECORDS, a grant without them still counts as one with
+ * spaces; the first write that needs one asks for a fresh sign-in, and that grant holds them all. The permission set's
+ * are read from it as `rootDid` publishes it, so they're the scopes the PDS expands it to.
+ */
+const stepUp = (rootDid: string) => [
+	...permissions
+		.toPermissions(permissionSetFor(rootDid))
+		.filter((permission) =>
+			permission instanceof RepoPermission
+				? permission.collection.includes(COLLECTION.djSet)
+				: permission instanceof SpacePermission && permission.type === SPACE_TYPE.performer
+		)
+		.map(String),
+	RSVPS
+];
+
+/**
  * Granular OAuth scopes. Local Network's permission set (lexicons/computer/localnetwork/permissions.json)
- * grants write access to the user's own repos in the audit, moderation, booking, and backstage spaces, a
- * personal planner space under the user's own DID, and the records it writes to the user's public
- * repo (press kits, shows, follows). The shared spaces are the root's: each network's root
- * publishes the set with its own DID as their authority, so the PDS expands it to that network's
- * spaces only. Blob uploads and calendar events stay explicit: a permission set can only hold repo,
- * rpc, and space permissions, and only for its own namespace. Nothing grants reading other users' data; the app reads shared spaces with
- * credentials issued to the root authority. The base fallback, for a PDS without spaces, asks for
- * the public records anyone can write (follows, and shows with their events); the root account
+ * grants write access to the user's own repos in the audit, moderation, booking, backstage and performer
+ * spaces, a personal planner space under the user's own DID, and the records it writes to the user's
+ * public repo (their profile, press kits, shows, follows, and edits to their sets). The shared spaces are
+ * the root's: each network's root publishes the set with its own DID as their authority, so the PDS
+ * expands it to that network's spaces only. Blob uploads, calendar events and RSVPs stay explicit: a
+ * permission set can only hold repo, rpc, and space permissions, and only for its own namespace. Nothing
+ * grants reading other users' data; the app reads shared spaces with credentials issued to the root
+ * authority. The base fallback, for a PDS without spaces, asks for the public records anyone can write
+ * (profiles, follows, and shows with their events) and the uploads a profile needs; the root account
  * writes and uploads everything else on the user's behalf. The rest are OPTIONAL_SCOPES, asked for only
  * when someone opts in to what needs them, so they stay out of `full` and never send anyone back
  * through sign-in.
  */
 export const SCOPES = {
-	full: [
-		'atproto',
-		// Project avatars, and the JSON mix reports DJs attach to their mixes as tracklists.
-		'blob?accept=image/jpeg&accept=image/png&accept=image/webp&accept=application/json',
-		CALENDAR_EVENTS,
-		permissions.toString()
-	].join(' '),
-	base: `atproto ${PUBLIC_RECORDS}`,
+	full: ['atproto', BLOBS, CALENDAR_EVENTS, RSVPS, permissions.toString()].join(' '),
+	base: `atproto ${PUBLIC_RECORDS} ${BLOBS}`,
 	/** For a PDS that refuses even the base scopes' granular permissions. */
 	minimal: 'atproto',
 	/** Posting a bug report to userinput.app, asked for when someone first sends one. */
@@ -151,10 +180,10 @@ export function grantsAll(
 
 /**
  * Whether a grant lets the app make the space writes it makes with a user's session, which is what makes an account
- * spaces-capable. The public records aren't needed for that (see PUBLIC_RECORDS).
+ * spaces-capable. The public records and the step-up writes aren't needed for that (see PUBLIC_RECORDS and STEP_UP).
  */
 export function grantsSpaces(granted: string | undefined | null, did: string, rootDid: string): boolean {
-	return grantsAll(granted, SCOPES.full, did, rootDid, PUBLIC_RECORDS.split(' '));
+	return grantsAll(granted, SCOPES.full, did, rootDid, [...PUBLIC_RECORDS.split(' '), ...stepUp(rootDid)]);
 }
 
 /** Whether a grant lets the app read the account's email address, in either form (see heldOptionalScopes). */
@@ -162,7 +191,15 @@ export function grantsEmail(granted: string | undefined | null, did: string): bo
 	return OPTIONAL_SCOPES.email.some((scope) => grantsAll(granted, scope, did, ROOT_AUTHORITY));
 }
 
-/** Whether a grant lets the app write shows, calendar events, and follows to the account's public repo. */
+/**
+ * Whether a grant lets the app save the account's profile: the profile record, and the avatar it uploads. Grants from
+ * before profiles don't, so the editor offers to sign in again before anyone fills it in.
+ */
+export function grantsProfile(granted: string | undefined | null, did: string, rootDid: string): boolean {
+	return grantsAll(granted, `${PROFILE_WRITES} ${BLOBS}`, did, rootDid);
+}
+
+/** Whether a grant lets the app write profiles, shows, calendar events, and follows to the account's public repo. */
 export function grantsPublicRecords(granted: string | undefined | null, did: string, rootDid: string): boolean {
 	return grantsAll(granted, PUBLIC_RECORDS, did, rootDid);
 }
@@ -222,14 +259,48 @@ function sqliteStore<T>(db: Db, table: 'oauthState' | 'oauthSession') {
 	};
 }
 
+/**
+ * How long a request from the OAuth client may take, its body included. The client sets no limit on session requests,
+ * and the guarded fetch has none of its own. 30 seconds is what the app gives a space read from a PDS
+ * (SpaceCredentialManager's `send`), and covers the largest blob a session uploads, a 5 MB press kit photo
+ * (EPK_PHOTO_MAX_BYTES).
+ */
+const REQUEST_TIMEOUT_MS = 30_000;
+
 export class OAuthService {
 	readonly client: NodeOAuthClient;
 	readonly scopes = SCOPES;
 
-	constructor(private readonly deps: { config: Config; db: Db; logger: Logger }) {
+	constructor(
+		private readonly deps: {
+			config: Config;
+			db: Db;
+			logger: Logger;
+			/**
+			 * A guarded fetch (IdentityResolver's `serviceFetch`). Signing in talks to servers a user's DID document
+			 * names: their PDS, the authorization server its metadata names, and the PDS again for every session request.
+			 */
+			fetch: typeof globalThis.fetch;
+			/** How long a request may take, for tests (REQUEST_TIMEOUT_MS otherwise). */
+			timeoutMs?: number;
+		}
+	) {
 		this.client = new NodeOAuthClient({
+			// The client hands fetch a Request, whose redirect mode the guarded fetch can't tell from the default and so
+			// refuses. Passing the mode along, with `follow` turned into `error`, means no request leaves the guard. Each
+			// request also gets a time limit, on top of any signal the client gave it, so a server that never answers
+			// can't hold a sign-in or a session request open.
+			fetch: (input, init) => {
+				const request = new Request(input, init);
+				const signal = AbortSignal.any([request.signal, AbortSignal.timeout(deps.timeoutMs ?? REQUEST_TIMEOUT_MS)]);
+				const redirect = request.redirect === 'follow' ? 'error' : request.redirect;
+
+				return deps.fetch(request, { redirect, signal });
+			},
 			clientMetadata: clientMetadata(deps.config, DECLARED_SCOPES),
-			allowHttp: deps.config.dev,
+			// An http PDS only lives on a private network, which ALLOW_PRIVATE_NETWORK already lets the
+			// production build reach (scripts/dev-network.ts --production, for Lighthouse's signed-in pages).
+			allowHttp: deps.config.dev || deps.config.allowPrivateNetwork,
 			plcDirectoryUrl: deps.config.plcUrl,
 			handleResolver: deps.config.handleResolverUrl,
 			requestLock: requestLocalLock,

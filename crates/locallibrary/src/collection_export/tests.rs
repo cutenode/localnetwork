@@ -676,3 +676,32 @@ fn an_export_plan_says_what_it_leaves_out_and_what_it_needs(tc: hegel::TestCase)
         assert_eq!(std::fs::read_dir(folder.root()).unwrap().count(), 0, "the drive is left as it was");
     }
 }
+
+/// Regression: the space check left out the online-only files an export downloads, which land on
+/// the disk their cloud folder is on, so an export to a folder on that disk filled it part way.
+/// They count when the cloud folder shares the target's disk, and not when it doesn't.
+#[cfg(unix)]
+#[test]
+fn downloads_onto_the_targets_disk_count_in_its_space() {
+    let dir = tempfile::tempdir().unwrap();
+    let cloud = dir.path().join("Dropbox/track.mp3");
+    let target = dir.path().join("rekordbox-export");
+    let source = |path: &Path| library_write::Source {
+        path: path.to_path_buf(),
+        size: 700,
+        mtime: 0,
+        audio_path: None,
+        shift_ms: 0,
+        force: false,
+        hash: None,
+    };
+    let copy = FileCopy { path: "Contents/track.mp3".into(), size: 700 };
+    for (from, free, here) in [(&cloud, 1000, true), (&cloud, 1300, true), (&PathBuf::from("/dev/null"), 1000, false)] {
+        let mut written = Planned { needed_bytes: 600, free_space: Some(free), ..Default::default() };
+        written.sources.insert(copy.path.clone(), source(from));
+        let (downloaded, needed, fits) = space(&written, &[&copy], &target);
+        let want = if here { 700 } else { 0 };
+        assert_eq!((downloaded, needed), (want, 600 + want), "{}", from.display());
+        assert_eq!(fits, 600 + want <= free, "{} with {free} free", from.display());
+    }
+}

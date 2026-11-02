@@ -1,6 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
-	import type { ArtistSupports, Charts, SupportedArtist } from '#lib/types.ts';
+	import type { Charts, SupportedArtist } from '#lib/types.ts';
 	import ArtistResults from './ArtistResults.svelte';
 	import ArtistSupport from './ArtistSupport.svelte';
 	import ChartBoard from './ChartBoard.svelte';
@@ -39,20 +39,12 @@
 	<ArtistSupport supports={artistSupports} retryHref="/artists/ferrule" />
 </Story>
 
-<Story name="Artist, loading" asChild>
-	<ArtistSupport supports={pending<ArtistSupports | null>()} retryHref="/artists/ferrule" />
-</Story>
-
 <Story name="Artist, no plays" asChild>
 	<ArtistSupport supports={{ tracks: [], djs: {} }} retryHref="/artists/ferrule" />
 </Story>
 
 <Story name="Artist, offline" asChild>
 	<ArtistSupport supports={null} retryHref="/artists/ferrule" />
-</Story>
-
-<Story name="Artist, error" asChild>
-	<ArtistSupport supports={failed<ArtistSupports | null>()} retryHref="/artists/ferrule" />
 </Story>
 
 <Story name="Artist on a phone" asChild globals={phone}>

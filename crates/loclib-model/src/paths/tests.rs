@@ -132,6 +132,15 @@ fn path_styles_round_trip_through_json(tc: TestCase) {
     assert_eq!(PathStyle::default(), PathStyle::Relative);
 }
 
+/// Slashes are trimmed before normalising and NFC paths aren't normalised again, landing where
+/// normalising everything first would.
+#[hegel::test(test_cases = 200)]
+fn keys_are_the_nfc_path_without_leading_slashes(tc: hegel::TestCase) {
+    let s = tc.draw(hegel::generators::text().alphabet("/\\a.e\u{301}\u{e9}\u{338}\u{fb01}").max_size(10));
+    let nfc: String = s.nfc().collect();
+    assert_eq!(key(&s), nfc.replace('\\', "/").trim_start_matches('/'), "{s:?}");
+}
+
 /// Made absolute, a path is the current folder (when it's relative) followed by its parts, each
 /// `..` taking the part before it away and each `.` nothing; nothing at all stays nothing. With
 /// what's real followed, the part that exists is the real folder, followed by the rest.
@@ -183,6 +192,27 @@ fn paths_are_folded_part_by_part(tc: TestCase) {
         }
     }
     assert_eq!(absolute_with(&below, real), folded, "{below:?}");
+}
+
+/// The part of a path that exists is resolved (symlinks too, a `..` after one stepping out of its
+/// target), the rest appended; `..` below a folder that isn't there yet takes it away.
+/// Regressions: `..` after a link went back to the link's folder; export's own copy of this left
+/// such a path unresolved, so `/tmp/new/../out` and `/private/tmp/out` didn't compare.
+#[test]
+fn the_part_that_exists_is_resolved() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = without_verbatim_prefix(dir.path().canonicalize().unwrap());
+    assert_eq!(resolved(&dir.path().join("new/../out/x")), real.join("out/x"));
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&real, real.join("link")).unwrap();
+        assert_eq!(resolved(&real.join("link/missing/../there")), real.join("there"));
+        // `..` out of a link is the folder its target is in, where the OS takes it.
+        std::fs::create_dir_all(real.join("deep/er")).unwrap();
+        std::os::unix::fs::symlink(real.join("deep/er"), real.join("up")).unwrap();
+        assert_eq!(resolved(&real.join("up/../x")), real.join("deep/x"));
+        assert_eq!(resolved(&real.join("new/../up/x")), real.join("deep/er/x"));
+    }
 }
 
 #[test]

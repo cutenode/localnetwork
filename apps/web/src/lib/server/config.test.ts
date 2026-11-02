@@ -20,6 +20,7 @@ describe('loadConfig', () => {
 			syncNotify: true,
 			logLevel: 'debug',
 			adminDids: [],
+			epkViewRetentionDays: 90,
 			happyView: { url: 'https://happyview.example', apiKey: undefined }
 		});
 	});
@@ -78,6 +79,7 @@ describe('loadConfig', () => {
 			ALLOW_PRIVATE_NETWORK: '0',
 			AUDIT_MAX_ATTEMPTS: '5',
 			SESSION_DAYS: '7',
+			EPK_VIEW_RETENTION_DAYS: '30',
 			HAPPYVIEW_API_KEY: 'hv_key'
 		});
 
@@ -86,6 +88,7 @@ describe('loadConfig', () => {
 			allowPrivateNetwork: false,
 			auditMaxAttempts: 5,
 			sessionDays: 7,
+			epkViewRetentionDays: 30,
 			happyView: { apiKey: 'hv_key' }
 		});
 	});

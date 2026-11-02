@@ -1,8 +1,10 @@
 import { TID } from '@atproto/common-web';
 import type { JsonValue } from '@atproto/lex-json';
+import { MAX_EPKS_PER_PROJECT } from '#lib/epk.ts';
 import { type LatLng, toE6 } from '#lib/geo.ts';
 import { type MatchCriteria, type MatchResult, noteTexts } from '#lib/matching.ts';
 import { BSKY_FOLLOW, COLLECTION } from '#lib/nsid.ts';
+import { PROJECT_SHOWS } from '#lib/shows.ts';
 import { normalizeGenres } from '#lib/taxonomy/genres.ts';
 import type {
 	FieldChange,
@@ -51,6 +53,35 @@ export type ProjectSearch = {
 };
 
 export type ProjectSearchResult = { items: ProjectView[]; total: number; page: number; pageSize: number };
+
+/**
+ * The page asked for, and the directory params every performer search takes (searchProjects and searchPerformers):
+ * words, place, the filters, sort, and paging.
+ */
+export function searchQuery(params: ProjectSearch) {
+	const page = Math.max(1, params.page ?? 1);
+	const pageSize = Math.min(60, Math.max(1, params.pageSize ?? 24));
+
+	const query = {
+		q: params.q && truncateUtf8(params.q, QUERY_BYTES),
+		latE6: params.near && toE6(params.near.lat),
+		lngE6: params.near && toE6(params.near.lng),
+		radiusKm: params.radiusKm && Math.round(params.radiusKm),
+		// The directory normalizes genres itself. Doing it here keeps the list within the lexicon's limits.
+		genres: params.genres && normalizeGenres(params.genres, 20),
+		kinds: params.kinds,
+		formats: params.formats,
+		setTypes: params.setTypes,
+		feeTiers: params.feeTiers,
+		country: params.country,
+		unclaimed: params.unclaimed,
+		sort: params.sort,
+		limit: pageSize,
+		cursor: page > 1 ? String((page - 1) * pageSize) : undefined
+	};
+
+	return { page, pageSize, query };
+}
 
 const PROJECT_STATUSES: readonly ProjectStatus[] = ['active', 'hidden', 'archived'];
 
@@ -167,11 +198,29 @@ export class ProjectService {
 		return row ? parseJson<ProjectDetails>(row.details, {}) : null;
 	}
 
-	async bySlug(slug: string): Promise<ProjectView | null> {
+	/**
+	 * A project by slug. With `counts`, the same query also counts the press kits and upcoming shows its pages stream in
+	 * afterwards, capped at as many as they list.
+	 */
+	async bySlug(slug: string, options: { counts?: boolean } = {}): Promise<ProjectView | null> {
 		if (!SLUG.test(slug)) return null;
-		const { project } = await this.directory.query('getProject', { slug });
 
-		return project ? this.toView(project) : null;
+		const { project, pressKits, upcomingShows } = await this.directory.query('getProject', {
+			slug,
+			counts: options.counts
+		});
+
+		const view = project && this.toView(project);
+
+		if (!view || pressKits === undefined || upcomingShows === undefined) return view ?? null;
+
+		return {
+			...view,
+			counts: {
+				pressKits: Math.min(pressKits, MAX_EPKS_PER_PROJECT),
+				upcomingShows: Math.min(upcomingShows, PROJECT_SHOWS)
+			}
+		};
 	}
 
 	async byUri(uri: string): Promise<ProjectView | null> {
@@ -240,28 +289,13 @@ export class ProjectService {
 	}
 
 	async search(params: ProjectSearch): Promise<ProjectSearchResult> {
-		const page = Math.max(1, params.page ?? 1);
-		const pageSize = Math.min(60, Math.max(1, params.pageSize ?? 24));
+		const { page, pageSize, query } = searchQuery(params);
 
 		const output = await this.directory.query('searchProjects', {
-			q: params.q && truncateUtf8(params.q, QUERY_BYTES),
-			latE6: params.near && toE6(params.near.lat),
-			lngE6: params.near && toE6(params.near.lng),
-			radiusKm: params.radiusKm && Math.round(params.radiusKm),
-			// The directory normalizes genres itself. Doing it here keeps the list within the lexicon's limits.
-			genres: params.genres && normalizeGenres(params.genres, 20),
-			kinds: params.kinds,
-			formats: params.formats,
-			setTypes: params.setTypes,
-			feeTiers: params.feeTiers,
-			country: params.country,
+			...query,
 			manager: params.manager,
 			status: params.status,
-			includeInactive: params.includeInactive,
-			unclaimed: params.unclaimed,
-			sort: params.sort,
-			limit: pageSize,
-			cursor: page > 1 ? String((page - 1) * pageSize) : undefined
+			includeInactive: params.includeInactive
 		});
 
 		return { items: this.toViews(output.projects), total: output.total, page, pageSize };

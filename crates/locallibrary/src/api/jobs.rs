@@ -6,9 +6,10 @@
 //! runs, made by the same `*_plan` functions the single commands use, so one confirmation covers
 //! them all. Applying runs the steps in order, each operation through its own apply and so
 //! through the shared write routine. An operation whose drive an earlier step changed is planned
-//! again on the drive as that step left it; the steps that only make sense after the others (the
-//! pull and the sync) are planned as they run. The first step that fails stops the job, and the
-//! report says what was done ([`JobReport::stopped`]).
+//! again on the drive as that step left it, but only when nothing else changed it since: an
+//! outside write (a rekordbox export mid-job) stops the job with the stale plan. The steps that
+//! only make sense after the others (the pull and the sync) are planned as they run. The first
+//! step that fails stops the job, and the report says what was done ([`JobReport::stopped`]).
 
 use std::collections::BTreeSet;
 
@@ -34,6 +35,7 @@ use crate::edit::{self, Edit, EditOptions};
 use crate::eject::EjectReport;
 use crate::error::{Action, Reason};
 use crate::fleet::{self, Role};
+use crate::hash::Hash;
 use crate::local_time;
 use crate::op::{self, AnyPlanned, CloneTarget, Operation, Planned, Touched};
 use crate::progress::{Ctx, Steps};
@@ -363,12 +365,15 @@ fn run_job(plan: &JobPlan, store: Option<&Store>, ctx: &Ctx<'_>) -> Result<JobRe
     let steps = Steps::new(ctx, plan.running().map(|s| s.step.id()).collect());
     let ctx = &steps.ctx();
     let mut report = JobReport::default();
+    let mut left = Left::new(plan);
     for step in plan.running() {
         steps.begin(step.step.id());
         let mut done = StepReport { step: step.step, done: Vec::new(), warnings: Vec::new(), reports: Vec::new() };
         let mut outcome = Ok(true);
         for w in &step.work {
-            outcome = plan.same_drives().and_then(|()| run_work(w, step, store, &mut done, &mut report, ctx));
+            left.before();
+            outcome = plan.same_drives().and_then(|()| run_work(w, step, store, &mut done, &mut report, &left, ctx));
+            left.after(w);
             if !matches!(outcome, Ok(true)) {
                 break;
             }
@@ -395,6 +400,62 @@ fn run_job(plan: &JobPlan, store: Option<&Store>, ctx: &Ctx<'_>) -> Result<JobRe
     Ok(report)
 }
 
+/// What the job's own work left on what its plans made up front touch, measured around each
+/// piece of work, so a plan refused as stale is planned again only when the job itself made it
+/// so. A change from anywhere else (a rekordbox export mid-job) stops the job, as it would stop
+/// a single apply.
+struct Left<'p> {
+    /// The plans still to apply, with the states of what each touches as the job last left them
+    /// (`None` once something other than the job changed them).
+    plans: Vec<(&'p dyn AnyPlanned, Option<Vec<Hash>>)>,
+}
+
+impl<'p> Left<'p> {
+    fn new(plan: &'p JobPlan) -> Left<'p> {
+        let plans = plan
+            .running()
+            .flat_map(|s| &s.work)
+            .filter_map(|w| match w {
+                Work::Op { plan: Some(p), .. } => Some(p.as_ref()),
+                _ => None,
+            })
+            .map(|p| (p, Some(p.drives().iter().map(Touched::planned_state).collect())))
+            .collect();
+        Left { plans }
+    }
+
+    fn measure(plan: &dyn AnyPlanned) -> Vec<Hash> {
+        plan.drives().iter().map(Touched::measured).collect()
+    }
+
+    /// Before a piece of work: whatever changed since the job last looked, it didn't change.
+    fn before(&mut self) {
+        for (p, left) in &mut self.plans {
+            if left.as_ref().is_some_and(|l| *l != Self::measure(*p)) {
+                *left = None;
+            }
+        }
+    }
+
+    /// After `w`: what it left, for the plans still to apply.
+    fn after(&mut self, w: &Work) {
+        if let Work::Op { plan: Some(done), .. } = w {
+            self.plans.retain(|(p, _)| !std::ptr::addr_eq(*p, done.as_ref()));
+        }
+        for (p, left) in &mut self.plans {
+            if left.is_some() {
+                *left = Some(Self::measure(*p));
+            }
+        }
+    }
+
+    /// Whether everything `plan` touches is as the job's own work left it.
+    fn ours(&self, plan: &dyn AnyPlanned) -> bool {
+        let left = self.plans.iter().find(|(p, _)| std::ptr::addr_eq(*p, plan)).and_then(|(_, l)| l.as_ref());
+        left.is_some_and(|l| *l == Self::measure(plan))
+    }
+}
+
 /// Run one piece of a step. `Ok(false)` stops the job there (the check found problems).
 fn run_work(
     w: &Work,
@@ -402,12 +463,16 @@ fn run_work(
     store: Option<&Store>,
     done: &mut StepReport,
     report: &mut JobReport,
+    left: &Left<'_>,
     ctx: &Ctx<'_>,
 ) -> Result<bool> {
     match w {
         Work::Op { plan: Some(plan), again } => match apply_op(plan.as_ref(), step, store, done, ctx) {
-            // An earlier step changed the drive: the same operation, on the drive as it is now.
-            Err(Error::StalePlan(_)) => apply_op(again(store, ctx)?.as_ref(), step, store, done, ctx)?,
+            // An earlier step of this job changed the drive: the same operation, on the drive as
+            // that step left it.
+            Err(Error::StalePlan(_)) if left.ours(plan.as_ref()) => {
+                apply_op(again(store, ctx)?.as_ref(), step, store, done, ctx)?
+            }
             r => r?,
         },
         Work::Op { plan: None, again } => apply_op(again(store, ctx)?.as_ref(), step, store, done, ctx)?,

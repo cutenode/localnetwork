@@ -295,6 +295,8 @@ describe('DjSets with a recording', () => {
 
 		await page.getByRole('button', { name: 'Close the player for Halle Nord' }).click();
 		await expect.element(position()).not.toBeInTheDocument();
+		// The tracklist opened with the player and folds away with it.
+		await expect.element(page.getByRole('group')).not.toHaveAttribute('open');
 	});
 });
 

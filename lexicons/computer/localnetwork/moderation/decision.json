@@ -18,6 +18,11 @@
 					"decidedBy": { "type": "string", "format": "did" },
 					"project": { "type": "string", "format": "at-uri" },
 					"projectRevision": { "type": "integer", "minimum": 1 },
+					"listing": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "The listing an approved list request made, like a computer.localnetwork.listing.profile record."
+					},
 					"createdAt": { "type": "string", "format": "datetime" }
 				}
 			}

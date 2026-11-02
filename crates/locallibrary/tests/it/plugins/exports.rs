@@ -197,7 +197,7 @@ fn an_export_writes_out_only_what_its_exporter_says(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn an_exports_sizes_that_overflow_are_refused(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let f = Fixture::echo();
+    let f = Fixture::exporting();
     let size = hegel::one_of!(gs::integers::<u64>().min_value(u64::MAX - 1000), gs::integers::<u64>().max_value(1000));
     let sizes: Vec<u64> = tc.draw(gs::vecs(size).min_size(1).max_size(4));
     let out = f._dir.path().join("out");

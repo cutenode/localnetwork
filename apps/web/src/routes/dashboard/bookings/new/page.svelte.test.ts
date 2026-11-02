@@ -34,6 +34,7 @@ const fromShow = {
 	viewer,
 	pendingRequests: 0,
 	unread: 0,
+	sections: Promise.resolve(null),
 	projects: Promise.resolve([]),
 	project,
 	values: inquiryValues({ title: 'Rooftop Rave', date: '2026-12-12T23:30:00.000Z', venue: 'The Lot', capacity: 300 }),

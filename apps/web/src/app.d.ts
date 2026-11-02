@@ -1,5 +1,6 @@
 // See https://svelte.dev/docs/kit/types#app.d.ts
 import type { App as ServerApp } from '#lib/server/app.ts';
+import type { PageMeta } from '#lib/meta.ts';
 import type { Logger } from '#lib/server/logger.ts';
 import type { Viewer } from '#lib/types.ts';
 
@@ -23,6 +24,8 @@ declare global {
 
 		interface PageData {
 			viewer?: Viewer | null;
+			/** Set by every public page's server load, and written into the head by the root layout. */
+			meta?: PageMeta;
 		}
 	}
 }

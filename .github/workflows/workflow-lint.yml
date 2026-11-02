@@ -4,53 +4,16 @@ name: Workflow lint
 # shellcheck, which the runner has), and zizmor for security problems such as actions not pinned
 # to a commit, checkouts that keep the token, and template injection, in the workflows and the
 # local actions. Config in .github/actionlint.yaml and .github/zizmor.yml; zizmor's other
-# exceptions are comments on the lines they cover.
+# exceptions are comments on the lines they cover. ci.yml calls it when anything in .github/
+# changes.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_call:
 
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  # Pushes and pull requests always start this workflow, so the passed job at the end always
-  # reports. The other jobs run only when the files listed here change.
-  changes:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: read
-      contents: read
-      pull-requests: read
-    # The API lists at most 3000 of a pull request's files, so one that size runs everything.
-    outputs:
-      run: ${{ github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.run == 'true' }}
-    steps:
-      # A pull request's files come from the API. A push is diffed against the last commit this
-      # workflow passed on, so what a cancelled or failed run didn't check runs on the next push.
-      - if: github.event_name == 'push'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - if: github.event_name == 'push'
-        id: base
-        uses: ./.github/actions/last-passed
-      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
-        id: filter
-        with:
-          base: ${{ steps.base.outputs.sha }}
-          filters: |
-            run:
-              - '.github/**'
-
   lint:
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -67,18 +30,3 @@ jobs:
           "$(go env GOPATH)/bin/actionlint"
       # Offline: the online audits look up action tags and advisories through the GitHub API.
       - run: zizmor --offline --format github --config .github/zizmor.yml .github
-
-  # The check the "Protect Main" ruleset requires: it fails if any job above failed or was
-  # cancelled, and passes when they all passed or were skipped because nothing they check changed.
-  passed:
-    name: Workflow lint passed
-    if: always()
-    needs: [changes, lint]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      # Skipped while changes found something to check means it didn't run (see locallibrary-ci.yml).
-      - if: >-
-          contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
-          || (needs.changes.outputs.run == 'true' && contains(needs.*.result, 'skipped'))
-        run: exit 1

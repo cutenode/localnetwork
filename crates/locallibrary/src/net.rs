@@ -102,8 +102,8 @@ pub(crate) fn with_causes(e: &(dyn std::error::Error + 'static)) -> String {
     out
 }
 
-/// `Ok` when `url` is a public https address; otherwise why not.
-pub(crate) fn public(url: &str) -> Result<(), String> {
+/// `url` parsed, when it's a public https address; otherwise why not.
+pub(crate) fn public(url: &str) -> Result<reqwest::Url, String> {
     let shown = one_line(url);
     let parsed = reqwest::Url::parse(url).map_err(|_| format!("{shown} isn't a web address"))?;
     if parsed.scheme() != "https" {
@@ -113,7 +113,7 @@ pub(crate) fn public(url: &str) -> Result<(), String> {
     if host.is_empty() || this_computer(&parsed) || ip(&parsed).is_some_and(local) {
         return Err(format!("{shown} is on this computer or its local network"));
     }
-    Ok(())
+    Ok(parsed)
 }
 
 /// Whether `url` names this computer: `localhost` or a name below it, or a loopback address.

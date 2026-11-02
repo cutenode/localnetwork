@@ -9,12 +9,13 @@
 	import ProjectForm from '#lib/components/ProjectForm.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
 	import { draftKey, hasDraft } from '#lib/form-draft.svelte.ts';
-	import { formatDateTime } from '#lib/format.ts';
+	import { formatDateTime, requestTitle } from '#lib/format.ts';
 	import { CLAIM_RELATIONSHIPS, labelFor } from '#lib/taxonomy/options.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import Card from '#lib/ui/Card.svelte';
 	import Eyebrow from '#lib/ui/Eyebrow.svelte';
 	import type { PageProps } from './$types';
+	import { webHref } from '#lib/web-url.ts';
 
 	let { data, form }: PageProps = $props();
 
@@ -22,9 +23,7 @@
 
 	const editable = $derived(request.requester.did === data.viewer?.did && (request.status === 'pending' || request.status === 'changes_requested'));
 
-	const title = $derived(
-		request.kind === 'create' ? `New project: ${request.record.profile?.name}` : request.kind === 'claim' ? `Claim: ${request.project?.name}` : `Changes to ${request.project?.name}`
-	);
+	const title = $derived(requestTitle(request));
 
 	let editing = $state(false);
 
@@ -63,7 +62,7 @@
 	</header>
 
 	{#if data.submitted}
-		<FormMessage form={{ success: "Submitted. A moderator will review it soon; it was written to your PDS inside Local Network's private moderation space." }} />
+		<FormMessage form={{ success: 'Submitted. A moderator will review it soon.' }} />
 	{/if}
 	<FormMessage {form} />
 
@@ -85,12 +84,12 @@
 			<p class="m-0"><span class="text-fg-subtle">Relationship:</span> {labelFor(CLAIM_RELATIONSHIPS, request.record.claim?.relationship)}</p>
 			<p class="m-0 whitespace-pre-line">{request.record.claim?.evidence}</p>
 			{#if request.record.claim?.links?.length}
-				<ul class="m-0 flex list-none flex-col gap-1 p-0">{#each request.record.claim.links as link, index (index)}<li class="break-all"><a class="link" href={link} rel="noopener noreferrer nofollow" target="_blank">{link}</a></li>{/each}</ul>
+				<ul class="m-0 flex list-none flex-col gap-1 p-0">{#each request.record.claim.links as link, index (index)}<li class="break-all"><a class="link" href={webHref(link)} rel="noopener noreferrer nofollow" target="_blank">{link}</a></li>{/each}</ul>
 			{/if}
 		</Card>
 	{:else if request.kind === 'update'}
 		<Card as="section" class="flex flex-col gap-3">
-			<h2 class="m-0 text-emphasis font-semibold">Proposed changes</h2>
+			<h2 class="m-0 text-emphasis font-semibold">{request.status === 'approved' ? 'Published changes' : 'Proposed changes'}</h2>
 			<DiffTable changes={data.changes} />
 		</Card>
 	{/if}
@@ -104,7 +103,11 @@
 
 	{#if editable}
 		<div class="flex flex-wrap gap-3">
-			<Button variant="secondary" onclick={() => (editing = !editing)}>{editing ? 'Stop editing' : 'Edit request'}</Button>
+			{#if request.kind === 'list'}
+				<Button variant="secondary" href="/dashboard/profile">Edit your profile</Button>
+			{:else}
+				<Button variant="secondary" onclick={() => (editing = !editing)}>{editing ? 'Stop editing' : 'Edit request'}</Button>
+			{/if}
 			<form method="POST" action="?/withdraw" use:enhance={({ cancel }) => { if (!confirm('Withdraw this request?')) cancel(); }}>
 				<button class="btn-danger">Withdraw</button>
 			</form>
@@ -124,10 +127,4 @@
 			{/if}
 		{/if}
 	{/if}
-
-	<Card as="section" tone="well" padding="sm" class="flex flex-col gap-1">
-		<h2 class="m-0 text-small font-medium text-fg-soft">Where this lives</h2>
-		<p class="m-0 text-caption text-fg-muted">{request.repoDid === request.requester.did ? 'Your repo' : 'Filed for you by the root account'} inside the moderation space:</p>
-		<p class="m-0 font-mono text-caption break-all text-fg-subtle">{request.uri}</p>
-	</Card>
 </div>

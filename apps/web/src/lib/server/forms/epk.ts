@@ -16,7 +16,8 @@ import {
 } from '#lib/epk.ts';
 import type { ProjectMix } from '#lib/types.ts';
 import { UserError } from '../core';
-import { CID, isWebUrl, text } from '../http';
+import { isWebUrl } from '#lib/web-url.ts';
+import { CID, text } from '../http';
 import { PHOTO_TYPES } from '../images';
 import { sniffImage } from './project';
 

@@ -17,7 +17,7 @@ import { TID } from '@atproto/common-web';
 import { mockNetworkUtilities, TestPds, TestPlc } from '@atproto/dev-env';
 import { USERINPUT } from '../src/lib/bug-report.ts';
 import { LEXICON_DOCS, publishLexicons, validateRecord } from '../src/lib/server/atproto/lexicons.ts';
-import { AgentRepoClient } from '../src/lib/server/atproto/repo-client.ts';
+import { AgentRepoClient, memberSpacePolicy } from '../src/lib/server/atproto/repo-client.ts';
 import { BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '../src/lib/nsid.ts';
 import { sampleReport } from '../src/lib/mix/sample.ts';
 import { HappyViewClient } from '../src/lib/server/happyview/client.ts';
@@ -26,6 +26,7 @@ import { eventRecord, showRecord } from '../src/lib/server/services/shows.ts';
 import { checkDocker, startHappyView } from './lib/happyview.ts';
 import {
 	DEMO_DJ_PROFILE,
+	DEMO_PROFILE,
 	DEMO_DJ_SETS,
 	DEMO_DJS,
 	DEMO_EPKS,
@@ -64,7 +65,7 @@ const ACCOUNTS = [
 		handle: 'neon.test',
 		password: 'neon-pass',
 		displayName: 'Neon',
-		note: 'DJ; manages two demo projects, has three sets and four shows, and made a press kit that moves to the root on their first visit'
+		note: 'DJ with a profile; manages two demo projects, has three sets and four shows, and made a press kit that moves to the root on their first visit'
 	},
 	{ handle: 'pat.test', password: 'pat-pass', displayName: 'Pat', note: "promoter; follows both of neon's projects" },
 	...DEMO_DJS.map((dj) => ({
@@ -171,6 +172,14 @@ async function main() {
 		rkey: 'self',
 		record: DEMO_DJ_PROFILE
 	});
+	// And their profile on the site, at /@neon.test.
+	const profiled = new Date().toISOString();
+	await neon.com.atproto.repo.putRecord({
+		repo: dids['neon.test'],
+		collection: COLLECTION.profile,
+		rkey: 'self',
+		record: validateRecord(COLLECTION.profile, { ...DEMO_PROFILE, createdAt: profiled, updatedAt: profiled })
+	});
 
 	// HappyView isn't running yet, so it reads these sets through backfillSeeds below, and again when the app first
 	// syncs its scripts, as it would for older ones.
@@ -194,7 +203,7 @@ async function main() {
 		}
 	}
 
-	log(`Seeded neon.test's dj.profile and ${djs.reduce((sum, dj) => sum + dj.sets.length, 0)} dj.set records`);
+	log(`Seeded neon.test's profile, dj.profile and ${djs.reduce((sum, dj) => sum + dj.sets.length, 0)} dj.set records`);
 
 	// A tracklist on Neon Tide's first mix, so its mix page has something to show: the sample report,
 	// stored in the root's repo the way an approved request leaves it.
@@ -259,9 +268,7 @@ async function main() {
 		const space = await owner.createSpace({
 			spaceType: SPACE_TYPE.epk,
 			skey: rkey,
-			readPolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
-			writePolicy: { $type: 'com.atproto.simplespace.defs#publicPolicy' },
-			appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+			policy: memberSpacePolicy({ publicWrite: true })
 		});
 
 		const members = epk.legacy
@@ -327,6 +334,7 @@ async function main() {
 	log(`HappyView      ${happyView.url}`);
 	void backfillSeeds(new HappyViewClient(happyView), projectUris, [
 		{ collection: COLLECTION.djProfile, did: dids['neon.test'] },
+		{ collection: COLLECTION.profile, did: dids['neon.test'] },
 		...djs.map(({ handle }) => ({ collection: COLLECTION.djSet, did: dids[handle] })),
 		{ collection: COLLECTION.epk, did: root.did },
 		{ collection: COLLECTION.epk, did: dids['neon.test'] },
@@ -381,7 +389,15 @@ async function main() {
 	);
 
 	// The production build only reaches this network's loopback PDS and PLC with the SSRF guard off.
-	const production = { NODE_ENV: 'production', HOST: '127.0.0.1', ALLOW_PRIVATE_NETWORK: 'true' };
+	// adapter-node takes a request to be https unless PROTOCOL_HEADER's header says otherwise, so a
+	// form posted from http://127.0.0.1 (signing in) fails SvelteKit's CSRF check without
+	// `X-Forwarded-Proto: http`, which scripts/lighthouse.ts sends while it signs in.
+	const production = {
+		NODE_ENV: 'production',
+		HOST: '127.0.0.1',
+		PROTOCOL_HEADER: 'x-forwarded-proto',
+		ALLOW_PRIVATE_NETWORK: 'true'
+	};
 
 	const app = START_APP
 		? spawn(PRODUCTION ? process.execPath : 'pnpm', PRODUCTION ? ['build'] : ['exec', 'vite', 'dev'], {

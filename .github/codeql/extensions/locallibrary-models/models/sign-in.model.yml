@@ -1,0 +1,11 @@
+# What starting a sign-in returns is the sign-in link: the authorize URL with its client_id,
+# redirect_uri, scope, state, code_challenge and login_hint, and no token, secret or verifier.
+# It's printed so --no-browser and --paste work. CodeQL's cleartext-logging query takes any name
+# with "account" in it for a secret, so without these barriers the link reads as one.
+extensions:
+  - addsTo:
+      pack: codeql/rust-all
+      extensible: barrierModel
+    data:
+      - ["<locallibrary::plugin::Plugins>::begin_account_sign_in", "ReturnValue", "log-injection", "manual"]
+      - ["locallibrary::api::account::account_login_begin", "ReturnValue", "log-injection", "manual"]

@@ -897,7 +897,7 @@ pub fn smart(args: SmartArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
                 limit,
                 drives: Vec::new(),
             };
-            rule.validate()?;
+            rule.validate(&crate::plugins::host().map(|p| p.fields()).unwrap_or_default())?;
             let change = match crate::diff_cmd::read_or_empty(store_path, api::smart_list)?.get(&path) {
                 Some(old) => format!("replace the rule for {path:?} ({}) with {filter:?}", old.filter),
                 None => format!("add a rule for {path:?}: {filter:?}"),

@@ -51,23 +51,24 @@ file, and its clippy may disagree with CI's. The oldest Rust locallibrary suppor
 Change either on purpose: bump the pin in a commit of its own, fixing what the newer clippy
 finds, and raise `rust-version` together with the msrv job in `locallibrary-ci.yml`.
 
-**CI** (`.github/workflows/locallibrary-ci.yml`) runs the quick checks on pull requests and
-pushes to `main` that change the workspace (not when only Markdown changed). macOS, Linux and
-Windows each run the same jobs, the tests in a call of `locallibrary-ci-os.yml` per OS, so an OS
-that can't get a runner holds up only its own:
+**CI** (`.github/workflows/locallibrary-ci.yml`, which `ci.yml` calls) runs the quick checks on
+pull requests and pushes to `main` that change the workspace (not when only Markdown changed), on
+Linux. macOS and Windows run in the merge queue, once for each group of pull requests about to
+merge, or on a pull request with the `all-os` label (add it, then re-run CI):
 
 | Job | What it runs |
 | --- | --- |
 | `lint` | `cargo fmt --check`, clippy, and the doctests (`cargo test --doc`; nextest doesn't run them) |
 | `build` | `cargo llvm-cov nextest-archive`: every test, built once with coverage, packed for the shards |
 | `test` | 3 shards, each running a third of the tests from that archive under [cargo-nextest](https://nexte.st) |
-| `coverage` | merges the shards' profiles and fails below the thresholds `cargo coverage` uses (see Coverage); Linux's totals go to the run summary and a comment on the pull request |
-| `hegel` | on Linux, the Hegel property tests alone from the same archive, against the same thresholds (`tools/hegel-coverage.sh`); its totals sit beside the whole suite's |
+| `coverage` | merges the shards' profiles and fails below the thresholds `cargo coverage` uses (see Coverage); the totals go to the run summary and a comment on the pull request |
+| `hegel` | the Hegel property tests alone from the same archive, against the same thresholds (`tools/hegel-coverage.sh`); its totals sit beside the whole suite's |
+| `other-os` | on macOS and Windows, one job each: clippy, the doctests and `cargo nextest run`, without coverage |
 
 Locally, `cargo nextest run` runs the same tests and `cargo coverage` the same check. CI runs
 nextest with the `ci` profile in `.config/nextest.toml` (`NEXTEST_PROFILE=ci`): a test that runs
-past ten minutes fails, and each test shard and the `hegel` job upload a JUnit file with every
-test's time (the `junit-*` artifacts). The test jobs set up what some tests need, the same way on
+past ten minutes fails, and each test shard and the `hegel` and `other-os` jobs upload a JUnit file
+with every test's time (the `junit-*` artifacts). The test jobs set up what some tests need on
 each OS:
 
 - the `sqlcipher` CLI, which the tests must find (`LOCALLIBRARY_REQUIRE_SQLCIPHER=1`, see the
@@ -97,6 +98,11 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
 - the builds without the default features (on Linux, without the ALSA headers): the tests of the
   library and the CLI with none and of the CLI with only `account`, and clippy over every
   combination of features with [cargo-hack](https://github.com/taiki-e/cargo-hack);
+- `format` and `eject` on a disk image each test creates and attaches (hdiutil on macOS, a loop
+  device on Linux, a VHD on Windows; `crates/locallibrary/src/format/tests/disk_image.rs`). They skip
+  themselves without `LOCALLIBRARY_DISK_IMAGE_TESTS=1`. On a Mac,
+  `LOCALLIBRARY_DISK_IMAGE_TESTS=1 cargo nextest run -p locallibrary --lib -E 'test(/^format::disk_image::/)'`
+  runs them;
 - the Bombadil explorations below;
 - mutation testing of the past week's changes to the `loclib-*` crates, the plugins and
   `rekordbox-pdb` with [cargo-mutants](https://mutants.rs) (settings in `.cargo/mutants.toml`), in
@@ -116,9 +122,11 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
 A weekly run with a failed job opens an issue (or comments on the open one) naming the jobs, and
 the next weekly run that passes closes it.
 
-`.github/workflows/locallibrary-bench.yml` runs the benchmarks under
-[CodSpeed](https://codspeed.io) on the same pull requests and pushes as CI, once the workspace has
-some, and reports each one's change against `main`.
+`.github/workflows/locallibrary-bench.yml` runs the benchmarks (see Benchmarks) under
+[CodSpeed](https://codspeed.io) weekly and on demand, not on pull requests: started by hand on a
+branch (Actions, locallibrary benchmarks, Run workflow), it reports each benchmark's change
+against `main`'s last run. A weekly run skips them when nothing they build from changed, and a
+failed one opens an issue as the scheduled suites do.
 
 Actions are pinned to commits, and Dependabot proposes updates to them and to `Cargo.lock` once a
 month.
@@ -180,8 +188,8 @@ tools/hegel-coverage.sh     # the property tests alone, against the same thresho
 
 `cargo coverage` is an alias in `.cargo/config.toml` for
 [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) over nextest. It fails when line,
-function or region coverage drops below the thresholds there, one set for every OS, just under the
-lowest of what CI measures on macOS, Linux and Windows; raise them when coverage goes up. It
+function or region coverage drops below the thresholds there, just under what CI measures on
+Linux; raise them when coverage goes up. It
 measures only the code that ships: unit tests live in a module's own `tests.rs` (`foo.rs` declares
 `#[cfg(test)] mod tests;`, and the tests are in `foo/tests.rs`), which the alias leaves out with the
 TUI's other test-only files (`props.rs`, `screens.rs`, `testing.rs`) and `test_util.rs`. Keep new
@@ -198,6 +206,24 @@ its nextest filter, so it packs them into filtersets of at most 96 KiB, each its
 Linux's 128 KiB cap on a single argument, and fails if one file's tests alone need more.
 `tools/hegel-coverage.sh --print-filter` prints those filtersets one per line, for other runs of the
 same tests; the scheduled workflow's `hegel` job passes each as a `--filterset`.
+
+## Benchmarks
+
+```bash
+cargo bench -p locallibrary --bench library -- --save-baseline before   # on the code before a change
+cargo bench -p locallibrary --bench library -- --baseline before        # after it: the change in each
+cargo bench -p loclib-mixid --features test-util --bench mixid -- matcher/find   # one group
+```
+
+Crates with work that grows with a library or a recording have
+[criterion](https://bheisler.github.io/criterion.rs/book/) benchmarks in their `benches/`:
+`locallibrary` (reading, querying, comparing, scanning, writing and converting libraries of 5k to
+20k made-up tracks), `loclib-mixid` (fingerprinting, resampling, indexing and finding tracks in a
+mix), `loclib-model`, `loclib-tracklist` and `loclib-interop` (over
+`loclib_model::test_util::library`), `loclib-waveform` (a frame of each widget) and
+`loclib-analysis`. `loclib-mixid` and `loclib-model` need `--features test-util`. The first
+`library` run builds its drives under `target/`, which takes about a minute. Compare on a quiet
+machine and rerun anything close: a few percent is noise.
 
 ## Property-based tests
 
@@ -305,8 +331,8 @@ repository root, `.github/workflows/locallibrary-release.yml`) when a version ta
 The workflow builds an archive for each of macOS (Apple silicon, Intel), Linux (x86_64 glibc) and
 Windows (x86_64), plus `locallibrary-cli-installer.sh`, `locallibrary-cli-installer.ps1` and a
 Homebrew formula, creates the GitHub Release with all of them and pushes the formula to the tap.
-On pull requests that change a `Cargo.toml`, `Cargo.lock`, `dist-workspace.toml`,
-`rust-toolchain.toml`, `.github/actions/install-dist` or the workflow itself, it only runs
+On pull requests that change a `Cargo.toml`, `dist-workspace.toml`, `rust-toolchain.toml`,
+`.github/actions/install-dist` or the workflow itself, `locallibrary-ci.yml`'s lint job runs
 `dist plan`, which checks the configuration. `locallibrary-release.yml` is dist 0.33.0's
 generated workflow with hand-written additions listed at its top, so `dist-workspace.toml` sets
 `allow-dirty = ["ci"]`. After changing the dist configuration or upgrading dist, regenerate the
