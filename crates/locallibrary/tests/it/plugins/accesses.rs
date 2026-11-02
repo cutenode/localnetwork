@@ -16,10 +16,10 @@ use super::*;
 use crate::mock_oauth::sent_at;
 
 /// The mock type's scopes (see `shared_accounts::account_plugin`).
-const SCOPES: [&str; 3] = ["read", "write", "peek"];
+pub(super) const SCOPES: [&str; 3] = ["read", "write", "peek"];
 
 /// What the mock type's scope `scope` asks the service for.
-fn asks(scope: &str) -> &'static [&'static str] {
+pub(super) fn asks(scope: &str) -> &'static [&'static str] {
     match scope {
         "read" => &["read"],
         "write" => &["write", "read"],
@@ -36,12 +36,12 @@ fn covers(scope: &str, method: &str, path: &str) -> bool {
     }
 }
 
-fn account(subject: &str) -> AccountId {
+pub(super) fn account(subject: &str) -> AccountId {
     AccountId { plugin: WITH.into(), subject: subject.into() }
 }
 
 /// Some of [`SCOPES`], as the test draws them.
-fn some(tc: &TestCase) -> Vec<&'static str> {
+pub(super) fn some(tc: &TestCase) -> Vec<&'static str> {
     SCOPES.into_iter().filter(|_| tc.draw(gs::booleans())).collect()
 }
 
@@ -340,6 +340,13 @@ fn signing_in_again(subject: &str, name: &str, scopes: &[&str]) -> Action {
     Action::call("accounts.sign_in.begin", params, format!("Sign in again as {name}, allowing {}", scopes.join(", ")))
 }
 
+/// The action an `account` error a plugin passes on offers to give echo's access to the account
+/// `subject`, shown as `name`, `scopes` it was granted what they ask.
+fn giving(subject: &str, name: &str, scopes: &[&str]) -> Action {
+    let params = json!({ "plugin": "echo", "account": account(subject), "scopes": scopes });
+    Action::call("accounts.access.give", params, format!("Allow {} with {name}", scopes.join(", ")))
+}
+
 /// An account signed out keeps its accesses, which still list, and a request through one fails as
 /// `access` (`signed_out`) naming the access, its account and what signing in again allows, which
 /// passed on says to sign in again as it; signed in again, it has its token.
@@ -452,15 +459,15 @@ fn actions_come_from_the_manifest_whatever_the_plugin_says() {
         assert_eq!(e.detail().actions, resolving(&["a"]), "{kind}");
         assert_eq!(e.to_string(), "it can't (the Echo plugin)");
     }
-    // Given `read` of a, which was granted it: signing in again helps only for `write`.
+    // Given `read` of a, which was granted `read write`: giving it `write` too helps, and only that.
     m.sign_in_for(None, who(json!("b"), None), None, &[]).0.unwrap();
     m.f.plugins.give_access("echo", &account("a"), &[], &m.f.store).unwrap();
     let forged = json!({ "plugin": WITH, "subject": "b" });
-    for (needs, again) in [(json!(["peek", "nope"]), None), (json!(["write", "peek"]), Some("write"))] {
+    for (needs, more) in [(json!(["peek", "nope"]), None), (json!(["write", "peek"]), Some("write"))] {
         let fields = json!({ "type": "mock", "account": forged, "access": "0a1b2c3d", "needs": needs });
         let e = m.passed_on("scope", None, &fields);
-        let again = again.map(|scope| signing_in_again("a", "a", &[scope]));
-        assert_eq!(e.detail().actions, [again.into_iter().collect(), resolving(&["a", "b"])].concat(), "{needs}");
+        let more = more.map(|scope| giving("a", "a", &[scope]));
+        assert_eq!(e.detail().actions, [more.into_iter().collect(), resolving(&["a", "b"])].concat(), "{needs}");
     }
 }
 
@@ -576,15 +583,14 @@ fn a_request_an_access_cant_serve_fails_as_the_host_passes_it_on(tc: TestCase) {
             None => Reason::MissingScope,
         };
         assert_eq!((passed.code(), passed.reason()), ("account", Some(resolves)), "{said}");
-        // Signing in again as the account, when that gives echo what its request was refused.
-        let again: &[&str] = match failing {
-            SignedOut | Refused => &["read"],
-            Ungranted => &["write"],
-            Missing if !lying => &["read"],
-            _ => &[],
+        // Giving echo's access what its request was refused, when the account was granted it, else
+        // signing in again as the account, when that gives it.
+        let mut actions: Vec<Action> = match failing {
+            SignedOut | Refused => vec![signing_in_again("a", "a", &["read"])],
+            Ungranted => vec![signing_in_again("a", "a", &["write"])],
+            Missing if !lying => vec![giving("a", "a", &["read"])],
+            _ => Vec::new(),
         };
-        let mut actions: Vec<Action> =
-            (!again.is_empty()).then(|| signing_in_again("a", "a", again)).into_iter().collect();
         actions.extend(resolving(&[]));
         for k in &kept {
             let params = json!({ "plugin": "echo", "account": { "plugin": k.plugin, "subject": k.subject } });

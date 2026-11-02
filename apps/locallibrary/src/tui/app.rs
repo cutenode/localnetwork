@@ -766,6 +766,8 @@ pub enum Msg {
     /// The suggestion marked so (reviewed or dismissed) is no longer kept, or couldn't be
     /// forgotten: what's kept from now on says whether it's still offered.
     Forgotten(u64),
+    /// A plugin asks whether it may use more of an account, waiting for the answer here.
+    AskAccess(Box<locallibrary::plugin::AccessQuestion>, Sender<bool>),
     /// The playing track's analysis, artwork and matches, for the play with this id.
     TrackInfo(u64, Box<TrackInfo>),
     Details(Box<Details>),
@@ -1905,6 +1907,7 @@ impl App {
             Msg::Notice(notice) => self.told(notice),
             Msg::Suggested(kept) => self.kept(kept),
             Msg::Forgotten(marked) => self.forgotten(marked),
+            Msg::AskAccess(question, reply) => self.ask_access(&question, reply),
             Msg::TrackInfo(id, info) => {
                 let upcoming = self.upcoming.as_mut().map(|u| &mut u.now);
                 if let Some(now) = self.now.as_mut().into_iter().chain(upcoming).find(|n| n.id == id) {

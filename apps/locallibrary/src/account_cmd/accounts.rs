@@ -180,8 +180,20 @@ pub(super) fn declined(plugins: &Plugins, d: &AccountSignedIn) {
     warn(format!("the service didn't allow {} to {}", access.plugin, titles(t, &d.declined).join(", ")));
 }
 
-/// Each of `all`'s accounts: its type, name and account plugin, whether it's signed in and until
-/// when, what it was granted, and which plugins have access to it.
+/// When an account that signs itself out at `at` does: on its day and in how many days, at its
+/// time when that's today, or that it has.
+pub fn signing_out(at: chrono::DateTime<chrono::Utc>) -> String {
+    let left = at - chrono::Utc::now();
+    match left.num_days() {
+        _ if left <= chrono::Duration::zero() => format!("signed itself out at {}", local_time(at, "%Y-%m-%d %H:%M")),
+        0 => format!("signs itself out at {} (today)", local_time(at, "%Y-%m-%d %H:%M")),
+        days => format!("signs itself out on {} ({days} days)", local_time(at, "%Y-%m-%d")),
+    }
+}
+
+/// Each of `all`'s accounts: its type, name and account plugin, whether it's signed in and when
+/// it signs itself out (warning in its last days), what it was granted, and which plugins have
+/// access to it.
 pub(super) fn list(plugins: &Plugins, all: &Accounts) {
     for a in &all.accounts {
         let accesses: Vec<&Access> =
@@ -192,15 +204,21 @@ pub(super) fn list(plugins: &Plugins, all: &Accounts) {
 
 fn show(plugins: &Plugins, a: &Account, accesses: &[&Access]) {
     heading(&called(plugins, a));
-    let state = match (a.signed_in, a.refreshes, a.expires) {
-        (false, ..) => format!("signed out: `locallibrary account {}:{} sign-in` signs in again", a.kind, a.subject),
-        (true, true, _) => "signed in, refreshed on its own".into(),
-        (true, false, Some(at)) => format!("signed in until {}", local_time(at, "%Y-%m-%d %H:%M")),
-        (true, false, None) => "signed in".into(),
+    let again = format!("`locallibrary account {}:{} sign-in` signs in again", a.kind, a.subject);
+    let mut state = match (a.signed_in, a.refreshes) {
+        (false, _) => format!("signed out: {again}"),
+        (true, true) => "signed in, refreshed on its own".into(),
+        (true, false) => "signed in".into(),
     };
+    if let Some(at) = a.signs_out.filter(|_| a.signed_in) {
+        state = format!("{state} · {}", signing_out(at));
+    }
     match a.scopes.is_empty() {
         true => say!("  {}", dim(state)),
         false => say!("  {}", dim(format!("{state} · allowed: {}", a.scopes.join(" ")))),
+    }
+    if let Some(at) = a.signs_out.filter(|_| a.due_soon()) {
+        warn(format!("it {}: {again}", signing_out(at)));
     }
     if !accesses.is_empty() {
         let who: Vec<String> = accesses

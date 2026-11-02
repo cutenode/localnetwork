@@ -62,6 +62,8 @@ pub fn run_command(req: RunCommand, host: &Host) -> Result<Value, RpcError> {
             }
             Ok(Value::Null)
         }
+        // Its params are an `accounts/ensure` request, its answer the host's.
+        "ensure" => Ok(serde_json::to_value(host.ensure_account(&params(req.params)?)?).expect("an answer is JSON")),
         _ => {
             let ctx = host.ctx();
             ctx.phase_start(Phase::Scan, 0, 0);

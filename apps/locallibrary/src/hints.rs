@@ -113,6 +113,12 @@ fn command(a: &Action) -> Option<String> {
             let subject = a.params.get("account").and_then(|x| x.get("subject")).and_then(Value::as_str).map(quote);
             format!("locallibrary plugin access {} --default {}", p("plugin")?, subject?)
         }
+        "accounts.access.give" => {
+            let subject = a.params.get("account").and_then(|x| x.get("subject")).and_then(Value::as_str).map(quote);
+            let scopes = a.params.get("scopes").and_then(Value::as_array).into_iter().flatten();
+            let scopes: String = scopes.filter_map(Value::as_str).map(|s| format!(" --scope {}", quote(s))).collect();
+            format!("locallibrary plugin access {} --give {}{scopes}", p("plugin")?, subject?)
+        }
         "settings.schema" => "locallibrary settings schema".into(),
         "settings.import.plan" => "locallibrary settings import <DRIVE>".into(),
         "library.list" => "locallibrary library ls".into(),

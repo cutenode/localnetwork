@@ -53,6 +53,17 @@ fn settings_publish_and_import_from_the_command_line() {
     let out = env.ok(&["settings", "publish", "--yes"]);
     assert!(out.contains("already published, unchanged"), "{out}");
 
+    // In the session's last two days, publishing warns that it's to sign in again (offering to
+    // only in a terminal, without --yes).
+    env.ok(&["--yes", "settings", "set", "quantize=on"]);
+    let soon = (chrono::Utc::now() + chrono::Duration::hours(30)).to_rfc3339();
+    sign_in(&env.store, &pds.url, &PUBLISHING, json!({ "sign_in_again_by": soon }));
+    let out = env.ok(&["settings", "publish", "--yes"]);
+    assert!(out.contains("! @dj.example.com: sign in again by ") && out.contains("published"), "{out}");
+    assert!(!out.contains("Sign in again now?"), "{out}");
+    env.ok(&["--yes", "settings", "set", "quantize=off"]);
+    env.ok(&["--yes", "settings", "publish"]);
+
     // Another computer imports them, signed out, naming the account.
     let other = Env::new().with_directory(&pds.url);
     let from = ["settings", "import", "--from-handle", DID];

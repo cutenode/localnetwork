@@ -59,6 +59,9 @@ pub enum For {
     Fetch { kind: loclib_plugin::ProviderKind, root: std::path::PathBuf, tracks: Vec<u32> },
     /// Which account of each type the plugin with this id asks for it uses, of those offered.
     Access(&'static str, Vec<AccessChoice>),
+    /// Whether a plugin may use more of an account, the answer going back on this (see
+    /// [`super::plugins::access`]): closed, it's never answered.
+    AskAccess(std::sync::mpsc::Sender<bool>),
 }
 
 pub struct Field {
@@ -215,6 +218,7 @@ impl App {
                         }
                         For::Fetch { kind, root, tracks } => self.fetch(kind, root, tracks, params),
                         For::Access(plugin, choices) => self.save_access(plugin, choices, params),
+                        For::AskAccess(reply) => super::plugins::access::answer(&reply, &params),
                     };
                 }
                 Err((i, why)) => (f.selected, f.error) = (i, Some(why)),

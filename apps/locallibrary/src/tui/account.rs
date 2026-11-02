@@ -117,14 +117,10 @@ impl Account {
                 let again = if a.expired() {
                     Span::styled(" · the session has likely ended; L signs in again", fg(theme::current().warning))
                 } else {
-                    Span::styled(
-                        format!(
-                            " · sign in again by {} ({} days)",
-                            local_time(a.sign_in_again_by, "%Y-%m-%d"),
-                            a.days_left()
-                        ),
-                        dim(),
-                    )
+                    let by = local_time(a.sign_in_again_by, "%Y-%m-%d");
+                    let said = format!(" · sign in again by {by} ({} days)", a.days_left());
+                    // A warning in its last days.
+                    Span::styled(said, if a.due_soon() { fg(theme::current().warning) } else { dim() })
                 };
                 let mut spans = vec![
                     Span::styled(" ● ", fg(theme::current().good)),

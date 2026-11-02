@@ -1,6 +1,7 @@
 //! Accounts in the player: signing in to an account of each type the account plugins provide,
-//! and out of each the store keeps, from the palette beside the plugins' settings. Each runs in the background: nothing here reads
-//! the keychain or reaches a service while the player draws.
+//! and out of each the store keeps, from the palette beside the plugins' settings, and a warning as
+//! it starts of each that signs itself out within `WARN_DAYS`. Each runs in the background: nothing
+//! here reads the keychain or reaches a service while the player draws.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
@@ -50,10 +51,14 @@ fn mark(a: &Account) -> u64 {
 
 /// Opens `url` in the browser to sign in, or shows it when it can't be.
 pub(super) fn open(url: &str, show: &dyn Fn(crate::tui::edits::Done)) {
-    if locallibrary::opener::open_url(url).is_err() {
-        let link = format!("open this in your browser to sign in: {url}");
+    if let Some(link) = unopened(url) {
         show(Box::new(move |app: &mut App| app.toast(link, Level::Info)));
     }
+}
+
+/// Opens `url` in the browser to sign in: what to show instead, when it can't be.
+pub(super) fn unopened(url: &str) -> Option<String> {
+    locallibrary::opener::open_url(url).is_err().then(|| format!("open this in your browser to sign in: {url}"))
 }
 
 impl App {
@@ -71,6 +76,21 @@ impl App {
                 format!("{} signed in", plugins.finish_account_sign_in(&start.id, BROWSER_WAIT, ctx)?.account.name);
             Ok(Box::new(move |app: &mut App| app.toast(said, Level::Info)))
         });
+    }
+
+    /// As the player starts, a warning of each account the store keeps that signs itself out
+    /// within `WARN_DAYS` (read without the keychain), saying where to sign in again.
+    pub(in crate::tui) fn warn_signing_out(&mut self) {
+        let Ok(plugins) = crate::plugins::host() else { return };
+        let Ok(Some(store)) = Store::open_existing(&self.store_root) else { return };
+        let kept = plugins.kept_accounts(&store).unwrap_or_default();
+        let due = kept.iter().filter(|a| a.due_soon()).filter_map(|a| {
+            Some(format!("the {} {} {}", title(plugins, a), a.name, crate::account_cmd::signing_out(a.signs_out?)))
+        });
+        let due: Vec<String> = due.collect();
+        if !due.is_empty() {
+            self.toast(format!("{}: sign in to it again from the palette (:)", due.join("; ")), Level::Info);
+        }
     }
 
     /// Sign out of the account the palette marked `mark` in the background: it's forgotten here,

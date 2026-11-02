@@ -130,8 +130,9 @@ fn the_publish_scopes_cover_exactly_locallibrarys_records(tc: TestCase) {
     assert!(atmosphere::missing_scope(&account, "app.example.thing").is_some());
 }
 
-/// Whole days left until signing in again, and whether that's passed, agree with the time it's
-/// due; an account is named by its handle when it has one, its DID otherwise.
+/// Whole days left until signing in again, whether that's passed, and whether it's due within
+/// `WARN_DAYS` (warned about), agree with the time it's due; an account is named by its handle
+/// when it has one, its DID otherwise.
 #[hegel::test(test_cases = 300)]
 fn days_left_and_expiry_agree_with_the_due_date(tc: TestCase) {
     let day = 86_400;
@@ -142,6 +143,7 @@ fn days_left_and_expiry_agree_with_the_due_date(tc: TestCase) {
     let account = info("did:plc:abc", handle.clone(), vec![], Utc::now() + chrono::Duration::seconds(offset));
     assert_eq!(account.days_left(), offset / day, "{offset}");
     assert_eq!(account.expired(), offset < 0);
+    assert_eq!(account.due_soon(), offset <= locallibrary::plugin::WARN_DAYS * day, "{offset}");
     assert_eq!(account.name(), handle.map_or("did:plc:abc".to_string(), |h| format!("@{h}")));
 }
 

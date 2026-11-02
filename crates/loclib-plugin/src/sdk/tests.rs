@@ -1100,6 +1100,34 @@ fn cancelling_a_hook_reaches_it_and_its_callback(tc: TestCase) {
     s.served.join().unwrap();
 }
 
+/// For any of an account type's scopes, naming an access or not: echo's `ensure` asks the host
+/// which it may use (`accounts/ensure`, its request as the host gets it), and answers what the host
+/// does, which scopes are granted and which declined, or its error, as it is.
+#[hegel::test(test_cases = 25)]
+fn a_hook_asks_the_host_which_scopes_of_an_account_it_may_use(tc: TestCase) {
+    let scopes: Vec<String> =
+        ["read", "write", "upload"].into_iter().filter(|_| tc.draw(gs::booleans())).map(String::from).collect();
+    let access = tc.draw(gs::optional(gs::sampled_from(vec!["0a1b2c3d".to_string()])));
+    let ensure = EnsureAccount { kind: "mock".into(), scopes: scopes.clone(), access: access.clone() };
+    let s = greeted(echo::hooks());
+    let asked = json!({ "type": "mock", "scopes": scopes, "access": access });
+    let pending = s.host.send_request(method::RUN_COMMAND, &run("ensure", asked, None)).unwrap();
+    let Incoming::Request(req) = s.next() else { panic!("not a callback") };
+    assert_eq!(req.method, method::ACCOUNTS_ENSURE);
+    assert_eq!(req.params, serde_json::to_value(&ensure).unwrap());
+    assert_eq!((&req.params["type"], req.params.get("access").is_some()), (&json!("mock"), access.is_some()));
+    let answer = match tc.draw(gs::booleans()) {
+        true => Err(RpcError::failed("scope", "it may not")),
+        false => {
+            let (granted, declined) = scopes.into_iter().partition(|_| tc.draw(gs::booleans()));
+            Ok(Ensured { granted, declined })
+        }
+    };
+    s.host.respond(&req.id, answer.clone().map(|a| serde_json::to_value(a).unwrap()));
+    assert_eq!(pending.wait_timeout::<Ensured>(Duration::from_secs(10)).unwrap(), answer);
+    s.stop();
+}
+
 /// A hook fetches through the host (`net/fetch`, its request as the host gets it), and sends a
 /// view's rows and items in parts, which reach the host's request before its answer, in order.
 #[test]

@@ -375,10 +375,12 @@ Native bindings (napi-rs) can wrap the same `api` functions later without changi
 The accounts a store keeps are signed in to through account plugins, and plugins use them through
 the access they're given (see [plugins.md](plugins.md#accounts)). No answer holds a token.
 `accounts.list` answers `{accounts, accesses}`: each account kept (`{type, plugin, subject, name,
-scopes, expires?, refreshes, signed_in}`, `plugin` the account plugin it was signed in through),
-then each one signed out that a plugin still has access to, `signed_in: false`; and each access
-(`{id, plugin, type, account: {plugin, subject}, name, scopes, default, declined?}`, `declined`
-the scopes the service didn't grant at the last sign-in for that plugin).
+scopes, expires?, refreshes, signs_out?, signed_in}`, `plugin` the account plugin it was signed in
+through, `signs_out` when it signs itself out: as `expires` when it isn't refreshed, else as its
+refresh token runs out when the service said), then each one signed out that a plugin still has
+access to, `signed_in: false`; and each access (`{id, plugin, type, account: {plugin, subject},
+name, scopes, default, declined?}`, `declined` the scopes the user declined when the plugin asked
+for them, or the service didn't grant at a sign-in for that plugin, until they're given again).
 
 `accounts.sign_in.begin {type, with?, for?, account?, scopes?}` starts a sign-in through the
 account plugin `with` (the only one providing the type when it's left out), for the plugin `for`

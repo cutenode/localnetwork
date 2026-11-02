@@ -690,7 +690,7 @@ fn plugins_settings_are_a_form_kept_in_the_store() {
     let f = settings_form(&mut app);
     assert_eq!(
         (f.title.as_str(), texts(f)),
-        ("Echo settings", ["hello", "1.5", "false", "calm", "", "", "", "", ""].map(String::from).to_vec())
+        ("Echo settings", ["hello", "1.5", "false", "calm", "", "", "", "", "", ""].map(String::from).to_vec())
     );
     let s = screen(&mut app, 120, 40);
     for needle in ["Echo settings", "greeting", "Greeting (empty for hello)", "enter save · esc cancel"] {
@@ -719,7 +719,7 @@ fn plugins_settings_are_a_form_kept_in_the_store() {
     let written: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
     assert_eq!(written, json!({ "greeting": "hi", "loud": true, "mood": "wild" }), "only what changed");
     // Open again: as set now. Nothing changed: nothing written.
-    assert_eq!(texts(settings_form(&mut app)), ["hi", "1.5", "true", "wild", "", "", "", "", ""]);
+    assert_eq!(texts(settings_form(&mut app)), ["hi", "1.5", "true", "wild", "", "", "", "", "", ""]);
     press(&mut app, "\n");
     wait(&mut app, |a| a.job.is_none());
     assert_eq!(last_message(&app), "nothing changed");
@@ -2013,7 +2013,7 @@ fn settings_are_kept_as_the_form_has_them(tc: TestCase) {
     let loud = tc.draw(gs::booleans());
     let mood = tc.draw(gs::integers::<usize>().max_value(2));
     press(&mut app, ":echo plugin settings\n");
-    let commands = ["keys.echo", "keys.titles", "keys.steps", "keys.wait", "keys.playlist"];
+    let commands = ["keys.echo", "keys.titles", "keys.steps", "keys.ensure", "keys.wait", "keys.playlist"];
     assert_eq!(form_open(&app).1, [&["greeting", "speed", "loud", "mood"][..], &commands].concat());
     for field in turns(&tc, 4) {
         to_field(&tc, &mut app, field);

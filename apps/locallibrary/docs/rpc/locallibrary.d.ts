@@ -8149,6 +8149,12 @@ export type StoreAccount = {
   expires?: string | null;
   /** It's refreshed without signing in again. */
   refreshes: boolean;
+  /**
+   * When it signs itself out, when it does: as its access token expires when it isn't
+   * refreshed, else as its refresh token runs out, when the service said. Front ends warn
+   * within [`crate::plugin::WARN_DAYS`] of it.
+   */
+  signs_out?: string | null;
   /** Its tokens are kept (the keychain may have lost them). */
   signed_in: boolean;
 };
@@ -8168,9 +8174,10 @@ export type Access = {
   /** It's the plugin's default for the type: `{account:<type>}` names it. */
   default: boolean;
   /**
-   * The scopes (by name) a sign-in for it asked the service for, which didn't grant all they
-   * ask, until it's given them again. Those it needs are in `scopes` too, and still can't be
-   * used.
+   * The scopes (by name) the user declined when the plugin asked for them, or a sign-in for it
+   * asked the service for and the service didn't grant all they ask, until it's given them
+   * again: the plugin isn't asked about them till then. Those it needs are in `scopes` too, and
+   * still can't be used.
    */
   declined?: string[];
 };
@@ -8209,6 +8216,12 @@ export type AccountSignedIn = {
   expires?: string | null;
   /** It's refreshed without signing in again. */
   refreshes: boolean;
+  /**
+   * When it signs itself out, when it does: as its access token expires when it isn't
+   * refreshed, else as its refresh token runs out, when the service said. Front ends warn
+   * within [`crate::plugin::WARN_DAYS`] of it.
+   */
+  signs_out?: string | null;
   /** Its tokens are kept (the keychain may have lost them). */
   signed_in: boolean;
   /**
@@ -8243,6 +8256,12 @@ export type AccountSignedOut = {
   expires?: string | null;
   /** It's refreshed without signing in again. */
   refreshes: boolean;
+  /**
+   * When it signs itself out, when it does: as its access token expires when it isn't
+   * refreshed, else as its refresh token runs out, when the service said. Front ends warn
+   * within [`crate::plugin::WARN_DAYS`] of it.
+   */
+  signs_out?: string | null;
   /** Its tokens are kept (the keychain may have lost them). */
   signed_in: boolean;
   /** The service was told to forget its tokens (it has a revocation endpoint, which answered). */
