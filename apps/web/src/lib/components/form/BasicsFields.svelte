@@ -46,7 +46,7 @@
 </script>
 
 <FormSection title="The basics" {description}>
-	<div class={['grid gap-4', nameAside && 'sm:grid-cols-[1fr_14rem]']}>
+	<div class={['grid gap-4', nameAside && 'sm:grid-cols-[minmax(0,1fr)_14rem]']}>
 		<div>
 			<label class="label" for="name">{nameLabel}</label>
 			<input id="name" class="input" name="name" bind:value={fields.name} required maxlength="64" />
@@ -81,12 +81,12 @@
 <FormSection title="Links" description="Where people find you elsewhere.">
 	<div class="flex flex-col gap-2">
 		{#each links as link, index (index)}
-			<!-- On a phone the URL takes its own row under the type and the remove button. -->
-			<div class="flex flex-wrap gap-2 sm:flex-nowrap">
+			<!-- On a phone, or with large text, the URL takes its own row under the type and the remove button. -->
+			<div class="flex flex-wrap gap-2">
 				<select class="input min-w-0 flex-1 sm:w-44 sm:flex-none" name="linkKind" aria-label="Link type" onchange={(event) => (link.kind = event.currentTarget.value)}>
 					{#each LINK_KINDS as option (option.value)}<option value={option.value} selected={link.kind === option.value}>{option.label}</option>{/each}
 				</select>
-				<input class="input order-last sm:order-none sm:min-w-0 sm:flex-1" name="linkUrl" bind:value={link.url} placeholder="https://" aria-label="Link URL" />
+				<input class="input order-last sm:order-none sm:min-w-0 sm:flex-[1_1_12rem]" name="linkUrl" bind:value={link.url} placeholder="https://" aria-label="Link URL" />
 				<!-- No field edits this here; posting it back keeps it on save. -->
 				<input type="hidden" name="linkLabel" value={link.label ?? ''} />
 				<RemoveRow label="Remove link" onclick={() => (links = links.filter((_, i) => i !== index))} />

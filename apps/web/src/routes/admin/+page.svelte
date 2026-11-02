@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Handle from '#lib/components/Handle.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
-	import { REQUEST_KIND_LABEL, requestSubject, timeAgo } from '#lib/format.ts';
+	import { requestTitle, timeAgo } from '#lib/format.ts';
 	import Card from '#lib/ui/Card.svelte';
 	import Eyebrow from '#lib/ui/Eyebrow.svelte';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
@@ -44,7 +44,7 @@
 				{#each data.pending as request (request.uri)}
 					<li class="flex items-center justify-between gap-3 py-3">
 						<div class="min-w-0">
-							<a class="font-medium text-fg no-underline hover:underline" href="/admin/requests/{request.rkey}">{REQUEST_KIND_LABEL[request.kind]}: {requestSubject(request)}</a>
+							<a class="font-medium text-fg no-underline hover:underline" href="/admin/requests/{request.rkey}">{requestTitle(request)}</a>
 							<p class="text-label text-fg-subtle"><Handle account={request.requester} /> · {timeAgo(request.createdAt)}</p>
 						</div>
 						<StatusPill status={request.status} />

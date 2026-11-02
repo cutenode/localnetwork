@@ -136,7 +136,8 @@ src/
                        button was pressed on (see "Walking a gate from the page")
   offscreen.html, offscreen.ts  the page that worker walks the gate in
   app.css              the shared Local Network theme and fonts, plus what only
-                       the popup needs (its width, `field`, `icon-btn`)
+                       the popup needs (its width, in rem so it grows with
+                       Chrome's font size, `field`, `icon-btn`)
   App.svelte           the shell: the tool menu, and whichever tool is open
   lib/                 what the panels share
     tools.ts           the registry: one entry per tool (name, icon, tone, and
@@ -161,7 +162,9 @@ src/
     source.ts          which of the two a panel is reading: the page, or the queue
     components/        PanelShell, PanelGhost, TrackRow, FilterBar, SourcePicker,
                        QueueButton and SettingsButton (in every header),
-                       QueueSheet and SettingsSheet (over every view), …
+                       QueueSheet and SettingsSheet (over every view) in the
+                       Sheet shell that moves focus in and back out, Badge,
+                       HintSwitch, …
     components/StateTransfer.svelte  the settings sheet's backup section: the
                        whole saved state out to a JSON file and back
     details.svelte.ts  how many tracks have been looked up, for the count that
@@ -169,6 +172,11 @@ src/
     components/ui/     shadcn-svelte's components, copied in
     selection.svelte.ts  the tracks ticked in a list, and the mode that shows
                        the tick boxes — the batch a marker is then put on
+    motion.ts          every transition's parameters, with no duration when the
+                       browser asks for reduced motion
+    frame-height.svelte.ts  how tall a panel's frame may be: 580px, or less once
+                       the popup is seen to have less room (zoomed, a short screen)
+    lookup-errors.ts   what Manager and artists say when a lookup stops short
     chrome.ts soundcloud.ts downloaded.svelte.ts prefs.svelte.ts filter.ts …
   tools/<id>/          one folder per tool: Panel.svelte and its own logic
     manager/listed.svelte.ts   the Manager's own list of tracks, kept for good
@@ -403,7 +411,9 @@ that takes in a run of rows),
 `readPage()` (asks the content script for the active tab's tracks, or hands
 back the sentence explaining why it cannot), `flagPref`/`choicePref`/`textPref`
 (options remembered in localStorage), and `toasts` (the messages that slide in
-at the bottom).
+at the bottom; one saying something went wrong stays about six seconds and has
+a close button, and none counts down while it is under the pointer or holds
+focus).
 
 `downloaded-store.ts` and `state-transfer.ts` stay classic scripts: they define
 page globals, which only a classic script can do, and the content script loads
@@ -471,11 +481,16 @@ in several other ways as well:
   changed), the popup's asset paths (relative, or the extension origin breaks
   them), no `eval` the V3 policy would refuse, no sourcemap, no absolute path
   from the machine that built it, icons that really are PNGs of the size they
-  claim.
+  claim, and the popup's type set on `body` outside every CSS layer, where
+  Chrome's own `body { font-family: system-ui; font-size: 75% }` for extension
+  pages cannot beat it.
 - **Accessibility** (`a11y.test.ts`) — every panel, in every state a test can
   put it in, through an audit: a name for every control, a state attribute for
   every toggle, no duplicate ids, nothing focusable hidden from a screen
-  reader. Rows here are icons and colour; without this none of that is checked.
+  reader, no tab stop that is not a control. Rows here are icons and colour;
+  without this none of that is checked. It also follows focus: into a sheet as
+  it comes up and back to its button, and to the heading of the view a click
+  opened.
 - **Failure** (`resilience.test.ts`) — storage that will not read or write,
   a tab that has gone, site data blocked, a clipboard that refuses, a content
   script left over from before an update. Each panel has to draw something a
@@ -2693,7 +2708,8 @@ as it was.
    in front. Every queued track is listed with its artwork, title and artist,
    and the ones already marked as downloaded are tinted green; the line under
    the heading says how many. Escape, the **×**, or a click on the ground
-   behind the sheet puts it away.
+   behind the sheet puts it away. Focus goes into the sheet as it comes up and
+   back to the button that opened it.
 3. **Mark N tracks as downloaded** marks every track in the queue that is not
    marked yet, in one write. They stay listed, so the batch can be worked
    through further; the button then says _all marked downloaded_.

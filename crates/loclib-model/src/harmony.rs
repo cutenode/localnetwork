@@ -226,12 +226,16 @@ pub fn suggestions(library: &Library, track: &Track, limit: usize) -> Vec<Sugges
     let mut out: Vec<Suggestion> = library
         .tracks
         .iter()
-        .filter(|t| t.file_path != track.file_path && t.fingerprint_key() != me)
+        .filter(|t| t.file_path != track.file_path)
         .filter_map(|t| {
             let other = Camelot::parse(&t.key)?;
             let relation = key.relation(other)?;
             let gap = tempo_gap(track.bpm, t.bpm);
-            (gap <= 0.06).then(|| Suggestion { track: t.clone(), key: other, relation, tempo_gap: gap })
+            // Another copy of the same recording is ruled out last: that normalises its tags.
+            if gap > 0.06 || t.fingerprint_key() == me {
+                return None;
+            }
+            Some(Suggestion { track: t.clone(), key: other, relation, tempo_gap: gap })
         })
         .collect();
     out.sort_by(|a, b| a.relation.cmp(&b.relation).then(a.tempo_gap.total_cmp(&b.tempo_gap)));

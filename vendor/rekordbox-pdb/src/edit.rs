@@ -193,11 +193,56 @@ impl NewTrack {
     }
 }
 
+/// Rows by id, and the largest id, which a new row's id follows: working it out from every id
+/// made adding rows one at a time take quadratic time. (locallibrary patch.)
+struct Ids<V> {
+    rows: HashMap<u32, V>,
+    /// `None` once the row with the largest id is removed, until the next id is needed.
+    max: Option<u32>,
+}
+
+impl<V> Default for Ids<V> {
+    fn default() -> Self {
+        Ids { rows: HashMap::new(), max: Some(0) }
+    }
+}
+
+impl<V> std::ops::Deref for Ids<V> {
+    type Target = HashMap<u32, V>;
+
+    fn deref(&self) -> &HashMap<u32, V> {
+        &self.rows
+    }
+}
+
+impl<V> Ids<V> {
+    fn insert(&mut self, id: u32, row: V) -> Option<V> {
+        if let Some(max) = &mut self.max {
+            *max = (*max).max(id);
+        }
+        self.rows.insert(id, row)
+    }
+
+    fn remove(&mut self, id: &u32) -> Option<V> {
+        let row = self.rows.remove(id)?;
+        if self.max == Some(*id) {
+            self.max = None;
+        }
+        Some(row)
+    }
+
+    /// One more than the largest id (1 when there are none).
+    fn next_id(&mut self) -> u32 {
+        let rows = &self.rows;
+        *self.max.get_or_insert_with(|| rows.keys().max().copied().unwrap_or(0)) + 1
+    }
+}
+
 /// A row of an id + name lookup table (artists, genres, labels, keys).
 #[derive(Default)]
 struct Named {
     /// id -> (row location, name)
-    rows: HashMap<u32, (usize, String)>,
+    rows: Ids<(usize, String)>,
     /// name -> id of the first row with that name
     by_name: HashMap<String, u32>,
 }
@@ -220,8 +265,8 @@ impl Named {
         Some(loc)
     }
 
-    fn next_id(&self) -> u32 {
-        self.rows.keys().max().copied().unwrap_or(0) + 1
+    fn next_id(&mut self) -> u32 {
+        self.rows.next_id()
     }
 }
 
@@ -244,16 +289,16 @@ struct EntryRow {
 /// Where every row the editor works with lives, kept current as rows are added and removed.
 #[derive(Default)]
 struct Index {
-    tracks: HashMap<u32, usize>,
+    tracks: Ids<usize>,
     track_unique_max: u32,
     artists: Named,
     /// id -> (row location, name, artist id)
-    albums: HashMap<u32, (usize, String, u32)>,
+    albums: Ids<(usize, String, u32)>,
     album_by_name: HashMap<(String, u32), u32>,
     genres: Named,
     labels: Named,
     keys: Named,
-    artwork: HashMap<u32, usize>,
+    artwork: Ids<usize>,
     tree: HashMap<u32, Node>,
     entries: HashMap<u32, Vec<EntryRow>>,
     history: HashMap<u32, usize>,
@@ -802,7 +847,7 @@ impl PdbEditor {
         if let Some(&id) = ix.album_by_name.get(&(name.to_string(), artist_id)) {
             return Ok(id);
         }
-        let new_id = ix.albums.keys().max().copied().unwrap_or(0) + 1;
+        let new_id = ix.albums.next_id();
         let s = encode_string(name)?;
         let mut row = vec![0x80u8, 0x00, 0x00, 0x00]; // magic, index_shift
         row.extend_from_slice(&0u32.to_le_bytes()); // unknown
@@ -932,7 +977,7 @@ impl PdbEditor {
         };
 
         let ix = self.ix()?;
-        let track_id = ix.tracks.keys().max().copied().unwrap_or(0) + 1;
+        let track_id = ix.tracks.next_id();
         // Unique per-track value at 0x14 (unknown purpose; kept unique).
         let unique = ix.track_unique_max + 1;
         let file_type = file_type_code(&t.file_path);
@@ -1010,7 +1055,7 @@ impl PdbEditor {
     /// Add an Artwork row pointing at `path` (e.g. `/PIONEER/Artwork/00001/a7.jpg`) and return
     /// its id. Players derive the larger variant by inserting `_m` before the extension.
     pub fn add_artwork(&mut self, path: &str) -> Result<u32> {
-        let new_id = self.ix()?.artwork.keys().max().copied().unwrap_or(0) + 1;
+        let new_id = self.next_artwork_id()?;
         let s = encode_string(path)?;
         let mut row = new_id.to_le_bytes().to_vec();
         row.extend_from_slice(&s);
@@ -1018,6 +1063,12 @@ impl PdbEditor {
         let loc = self.append_row(TableType::Artwork as u32, &row, alloc, None)?;
         self.ix()?.artwork.insert(new_id, loc);
         Ok(new_id)
+    }
+
+    /// The id [`PdbEditor::add_artwork`] gives the next row it adds (to name its image file
+    /// after).
+    pub fn next_artwork_id(&mut self) -> Result<u32> {
+        Ok(self.ix()?.artwork.next_id())
     }
 
     // -- deleting rows (locallibrary patch) -----------------------------------
