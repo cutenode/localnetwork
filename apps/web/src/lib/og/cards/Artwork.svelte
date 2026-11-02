@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { initials } from '#lib/format.ts';
-	import { monogramSwatch } from '#lib/ui/Monogram.svelte';
+	import { monogramSwatch } from '#lib/ui/monogram.ts';
 
 	/** A card's square picture (an avatar, a mix's cover), or the name's monogram when there's none. */
 	let { src, name, size }: { src: string | null; name: string; size: number } = $props();

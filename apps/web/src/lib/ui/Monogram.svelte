@@ -1,15 +1,7 @@
-<script module lang="ts">
-	import { hueFor, initials } from '#lib/format.ts';
-	import colors from '../../../../../packages/tokens/colors.json' with { type: 'json' };
-	import { onColour, type Swatch } from './contrast.ts';
-
-	const palette = Object.values(colors.trackColors);
-
-	/** A name's monogram colours. The colour follows the name, so a project keeps the same one everywhere. */
-	export const monogramSwatch = (name: string): Swatch => onColour(palette[hueFor(name) % palette.length]);
-</script>
-
 <script lang="ts">
+	import { initials } from '#lib/format.ts';
+	import { monogramSwatch } from './monogram.ts';
+
 	/** A project's initials on one of the track colours, the stand-in wherever there's no photo. */
 	let { name, size = 'md' }: { name: string; size?: 'sm' | 'md' | 'lg' | 'xl' } = $props();
 
