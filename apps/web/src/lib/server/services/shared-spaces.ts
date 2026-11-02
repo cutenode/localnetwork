@@ -13,7 +13,7 @@ import {
 import { COLLECTION } from '#lib/nsid.ts';
 import type { SharedSpaceSummary, SpacePerson, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
-import type { RepoWrite, RootRepoClient } from '../atproto/repo-client';
+import { memberSpacePolicy, type RepoWrite, type RootRepoClient } from '../atproto/repo-client';
 import { parseSpaceUri, SHARED_SPACE_TYPES, sharedSpace, sharedSpaceKind } from '../atproto/spaces';
 import type { ActorRole, AuditAction, AuditChange } from '../audit/log';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
@@ -24,8 +24,6 @@ import { reconcileMembers } from './space-members';
 
 /** The one listing status record's key in each space. */
 const LISTING_STATUS_KEY = 'self';
-
-const memberList = { $type: 'com.atproto.simplespace.defs#memberListPolicy' } as const;
 
 const personRecord = z.object({
 	subject: z.string(),
@@ -151,9 +149,7 @@ export class SharedSpaces {
 		await root.createSpace({
 			spaceType: SHARED_SPACE_TYPES[kind],
 			skey,
-			readPolicy: memberList,
-			writePolicy: memberList,
-			appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+			policy: memberSpacePolicy()
 		});
 		await root.applySpaceWrites(space, [
 			{

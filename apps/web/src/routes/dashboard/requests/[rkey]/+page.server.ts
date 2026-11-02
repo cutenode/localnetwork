@@ -1,5 +1,4 @@
 import { error, redirect } from '@sveltejs/kit';
-import { diff } from '#lib/server/services/diff.ts';
 import { parseAvatar, parseDetails, parseProfile, profileToValues, withTracklists } from '#lib/server/forms/project.ts';
 import { formValues } from '#lib/project-form.ts';
 import { parseClaim } from '#lib/server/forms/claim.ts';
@@ -19,10 +18,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	const { request } = await loadOwn(locals, url, params.rkey);
 	const project = request.projectUri ? await locals.app.projects.byUri(request.projectUri) : null;
 
-	const changes =
-		request.kind === 'update' && project
-			? diff({ profile: project.profile }, { profile: request.record.profile ?? project.profile })
-			: [];
+	const changes = request.kind === 'update' ? (await locals.app.requests.changes(request, project)).profile : [];
 
 	const avatar = request.record.profile?.avatar;
 

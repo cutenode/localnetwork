@@ -217,3 +217,20 @@ test_embedded_file_outside_the_filter if {
 test_embedded_file_the_filter_excludes if {
 	"crates/x/README.md: the Rust code embeds it, so add it to the locallibrary paths filter" in workflows.deny with input as embedded(["crates/x/README.md"])
 }
+
+with_codeql_filter(globs) := with_ci(json.patch(ci, [{"op": "replace", "path": "/jobs/changes/steps/1/with/filters", "value": sprintf("run:\n  - 'apps/**'\n  - 'packages/**'\ncodeql_rust:\n%s", [concat("", [sprintf("  - '%s'\n", [g]) | some g in globs])])}]))
+
+test_codeql_filter_without_its_workflow if {
+	".github/workflows/codeql.yml: add it to the codeql_rust paths filter; CodeQL's results change with it" in workflows.deny with input as with_codeql_filter(["**/*.rs", ".github/codeql/**"])
+}
+
+test_codeql_filter_without_its_config if {
+	".github/codeql/codeql-config.yml: add it to the codeql_rust paths filter; CodeQL's results change with it" in workflows.deny with input as with_codeql_filter(["**/*.rs", ".github/workflows/codeql.yml"])
+}
+
+test_codeql_filter_with_both if {
+	denied := workflows.deny with input as with_codeql_filter(["**/*.rs", ".github/codeql/**", ".github/workflows/codeql.yml"])
+	every msg in denied {
+		not contains(msg, "codeql_rust")
+	}
+}

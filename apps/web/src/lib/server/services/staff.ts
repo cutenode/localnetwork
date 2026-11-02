@@ -153,7 +153,7 @@ export class StaffService {
 		await this.core.db.deleteFrom('staffRole').where('uri', '=', uri).execute();
 	}
 
-	/** Adds or removes simplespace membership so staff can read the private spaces from any client. */
+	/** Adds or removes memberspace membership so staff can read the private spaces from any client. */
 	async applyMembership(did: string, isStaff: boolean): Promise<void> {
 		const root = await this.core.root();
 

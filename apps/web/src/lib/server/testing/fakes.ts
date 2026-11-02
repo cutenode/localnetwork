@@ -3,11 +3,11 @@ import { TID } from '@atproto/common-web';
 import {
 	type BlobJson,
 	type JsonRecord,
+	type MemberSpacePolicy,
 	type RecordRef,
 	recordCid,
 	type RepoWrite,
 	type RootRepoClient,
-	type SimpleSpaceConfig,
 	type StoredRecord
 } from '../atproto/repo-client';
 import type { RecordEvent } from './happyview';
@@ -30,7 +30,7 @@ export class FakeNetwork {
 	readonly records = new Map<string, StoredRecord>();
 	readonly spaces = new Map<
 		string,
-		SimpleSpaceConfig & { uri: string; members: Map<string, { read: boolean; write: boolean }> }
+		{ uri: string; policy: MemberSpacePolicy; members: Map<string, { read: boolean; write: boolean }> }
 	>();
 	/** Each blob, by CID, with the type its uploader gave, which a PDS serves it as. */
 	readonly blobs = new Map<string, { bytes: Uint8Array; mimeType: string }>();
@@ -77,11 +77,11 @@ export class FakeNetwork {
 		if (missing) throw new XRPCError(400, 'BlobNotFound', `Could not find blob: ${missing}`);
 	}
 
-	/** Throws, as a PDS does, when a member-list space doesn't let `did` write. */
+	/** Throws, as a PDS does, when a memberspace without public writes doesn't let `did` write. */
 	assertCanWrite(did: string, space: string): void {
 		const found = this.spaces.get(space);
 
-		if (!found || found.writePolicy.$type !== 'com.atproto.simplespace.defs#memberListPolicy') return;
+		if (!found || found.policy.publicWrite) return;
 
 		if (space.startsWith(`at://${did}/`) || found.members.get(did)?.write) return;
 
@@ -217,40 +217,28 @@ export class FakeRootClient implements RootRepoClient {
 		return { $type: 'blob', ref: { $link: cid }, mimeType, size: bytes.length };
 	}
 
-	async createSpace(input: { spaceType: string; skey: string } & SimpleSpaceConfig): Promise<string> {
+	async createSpace(input: { spaceType: string; skey: string; policy: MemberSpacePolicy }): Promise<string> {
 		this.net.maybeFail(this.did);
 		const uri = `at://${this.did}/space/${input.spaceType}/${input.skey}`;
 
 		if (this.net.spaces.has(uri)) throw new XRPCError(400, 'SpaceAlreadyExists');
-		this.net.spaces.set(uri, {
-			uri,
-			readPolicy: input.readPolicy,
-			writePolicy: input.writePolicy,
-			appAccess: input.appAccess,
-			members: new Map()
-		});
+		this.net.spaces.set(uri, { uri, policy: structuredClone(input.policy), members: new Map() });
 
 		return uri;
 	}
 
+	/** Like a PDS, answers only the space's owner, and anyone else as though it didn't exist. */
 	async getSpace(space: string) {
 		const found = this.net.spaces.get(space);
 
-		if (!found) return null;
+		if (!found || !space.startsWith(`at://${this.did}/`)) return null;
 
-		return { uri: found.uri, readPolicy: found.readPolicy, writePolicy: found.writePolicy, appAccess: found.appAccess };
+		return { uri: found.uri, policy: structuredClone(found.policy) };
 	}
 
-	async updateSpace(input: { space: string } & Partial<SimpleSpaceConfig>): Promise<void> {
-		const found = this.net.spaces.get(input.space);
-
-		if (!found) throw new XRPCError(404, 'SpaceNotFound');
-
-		if (input.readPolicy) found.readPolicy = input.readPolicy;
-
-		if (input.writePolicy) found.writePolicy = input.writePolicy;
-
-		if (input.appAccess) found.appAccess = input.appAccess;
+	/** Replaces the whole policy, as a PDS does. */
+	async updateSpace(input: { space: string; policy: MemberSpacePolicy }): Promise<void> {
+		this.owned(input.space).policy = structuredClone(input.policy);
 	}
 
 	/** The space, if this account owns it; a PDS lets only the owner manage a space. */

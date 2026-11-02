@@ -751,7 +751,7 @@ impl Builder<'_, '_> {
                     Some(art) => match artwork.get(&paths::file_key(art)) {
                         Some(id) => *id,
                         None => {
-                            let next = editor.database()?.artwork.iter().map(|a| a.id).max().unwrap_or(0) + 1;
+                            let next = editor.next_artwork_id()?;
                             let id = match self.copy_image(art, 'a', next)? {
                                 Some(key) => editor.add_artwork(&paths::device_path(&key))?,
                                 None => 0,

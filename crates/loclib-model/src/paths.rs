@@ -6,10 +6,11 @@
 //! macOS may hand back NFD names when listing a directory, and the same track must compare equal
 //! either way.
 
+use std::borrow::Cow;
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use unicode_normalization::UnicodeNormalization;
+use unicode_normalization::{IsNormalized, UnicodeNormalization, is_nfc_quick};
 
 /// How file paths are written.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -89,9 +90,14 @@ pub fn without_verbatim_prefix(p: PathBuf) -> PathBuf {
 
 /// Normalise any path-ish string into a key.
 pub fn key(s: &str) -> String {
-    let s: String = s.nfc().collect();
-    let s = s.replace('\\', "/");
-    s.trim_start_matches('/').to_string()
+    // Either slash leads only to become a `/` that's trimmed. Most paths are NFC already (ASCII
+    // always is), which a quick check tells without normalising.
+    let s = s.trim_start_matches(['/', '\\']);
+    let nfc: Cow<str> = match is_nfc_quick(s.chars()) {
+        IsNormalized::Yes => s.into(),
+        _ => s.nfc().collect::<String>().into(),
+    };
+    nfc.replace('\\', "/")
 }
 
 /// A key (or a name) as drives compare it: FAT32, exFAT and HFS+ ignore letter case.

@@ -279,9 +279,10 @@ pub fn check(devices: &[Device], store: Option<&Store>, opts: &CheckOptions, ctx
             drives.push(d);
             continue;
         }
-        let read = Side::from_device(device, ctx).and_then(|side| {
+        let read = Side::scanned(device, ctx).and_then(|(side, mut tree)| {
             let dbs = Databases::read(device)?;
-            let tree = device.scan(Some(&dbs.everything()), ctx)?;
+            // The side's scan covers its library's tracks; both databases' count here.
+            device.scan_more(&mut tree, &dbs.everything())?;
             Ok((side, dbs, tree))
         });
         match read {

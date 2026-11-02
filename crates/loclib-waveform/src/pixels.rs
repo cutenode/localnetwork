@@ -24,11 +24,10 @@ impl Widget for Pixels<'_> {
         if w == 0 || p.plain {
             return;
         }
-        let rows = self.pixels.len() / w / 2;
-        for cy in 0..(rows as u16).min(area.height) {
-            for cx in 0..self.width.min(area.width) {
-                let top = self.pixels[cy as usize * 2 * w + cx as usize];
-                let bottom = self.pixels[(cy as usize * 2 + 1) * w + cx as usize];
+        // A cell's two rows of pixels at a time.
+        for (cy, rows) in (0..area.height).zip(self.pixels.chunks_exact(2 * w)) {
+            let (top, bottom) = rows.split_at(w);
+            for (cx, (&top, &bottom)) in (0..area.width).zip(top.iter().zip(bottom)) {
                 let (x, y) = (area.x + cx, area.y + cy);
                 match (top, bottom) {
                     (Some(t), Some(b)) => p.put(buf, x, y, "▀", image(t), Some(image(b))),
@@ -78,12 +77,13 @@ pub fn vinyl(cols: u16, rows: u16, angle: f32, label: Rgb, record: Rgb) -> Pixel
     let (w, h) = (cols as usize, rows as usize * 2);
     let (cx, cy) = (w as f32 / 2.0, h as f32 / 2.0);
     let radius = cx.min(cy);
-    let mut out = Vec::with_capacity(w * h);
-    for y in 0..h {
-        for x in 0..w {
+    let mut out = vec![None; w * h];
+    // `max(1)`: with no columns there are no pixels, and no rows to fill.
+    for (y, row) in out.chunks_exact_mut(w.max(1)).enumerate() {
+        for (x, px) in row.iter_mut().enumerate() {
             let (dx, dy) = ((x as f32 + 0.5 - cx) / radius, (y as f32 + 0.5 - cy) / radius);
             let r = (dx * dx + dy * dy).sqrt();
-            let px = if !(0.06..=1.0).contains(&r) {
+            *px = if !(0.06..=1.0).contains(&r) {
                 None // outside, or the spindle hole
             } else if r < 0.36 {
                 // Label, lit from the top left.
@@ -97,7 +97,6 @@ pub fn vinyl(cols: u16, rows: u16, angle: f32, label: Rgb, record: Rgb) -> Pixel
                 let streak = theta.cos().abs().powi(10) * (1.1 - r) * 1.4;
                 Some(mix(scale(record, groove), [170, 170, 196], streak))
             };
-            out.push(px);
         }
     }
     out

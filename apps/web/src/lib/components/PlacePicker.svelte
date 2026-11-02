@@ -92,7 +92,7 @@
 			{/if}
 		</div>
 	{/if}
-	<div class="grid gap-3 sm:grid-cols-[1fr_1fr_7rem]">
+	<div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem]">
 		<div>
 			<label class="label" for="city">City</label>
 			<input id="city" class="input" name="city" bind:value={city} oninput={edited} {required} maxlength="100" />

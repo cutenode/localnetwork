@@ -595,6 +595,11 @@ describe('while the lookup is still running', () => {
 			}
 		]);
 		expect(meta()).toBe('2 tracks · 1 download link · 1 not checked');
+
+		// The bar says what it is measuring, and how far, in words.
+		const bar = document.querySelector('[role="progressbar"]')!;
+		expect(bar.getAttribute('aria-label')).toBe('checking download details');
+		expect(bar.getAttribute('aria-valuetext')).toBe('1 of 2');
 	});
 
 	it('settles into the finished list when the details land', async () => {
@@ -764,13 +769,14 @@ describe('grouping links by site', () => {
 
 		const badges = (permalink: string) =>
 			[...rowFor(permalink).querySelectorAll('button')].filter((b) =>
-				(b.getAttribute('aria-label') ?? '').startsWith('search ')
+				(b.getAttribute('aria-label') ?? '').includes(': search ')
 			);
 
 		expect(badges('/nolinkartist/ten').map((b) => b.disabled)).toEqual([false, false, false, false]);
 		expect(badges('/someone/eleven').map((b) => b.disabled)).toEqual([true, true, true, true]);
 		expect(badges('/nolinkartist/ten')[0].title).toBe('search Beatport for “Nolink Artist”');
-		expect(badges('/nolinkartist/ten')[0].getAttribute('aria-label')).toBe('search Beatport for Nolink Artist');
+		// Named by the letters on it, which is what a voice command says; the words searched for are the description.
+		expect(badges('/nolinkartist/ten')[0].getAttribute('aria-label')).toBe('BP: search Beatport');
 	});
 
 	it('explains what each download button does', () => {
@@ -1496,9 +1502,14 @@ describe('preferences', () => {
 		localStorage.setItem('pref:background', '0');
 		panelChrome({ response: answer([track('A', 'One', { details: details() })]) });
 		await load();
-		expect(document.getElementById('background')!.getAttribute('aria-checked')).toBe('false');
+		const background = document.getElementById('background')!;
+		expect(background.getAttribute('aria-checked')).toBe('false');
+		// The hint is a tooltip under the pointer, and the switch's description for a screen reader.
+		expect(document.getElementById(background.getAttribute('aria-describedby')!)?.textContent).toMatch(
+			/opens links behind the popup/
+		);
 
-		await click(document.getElementById('background'));
+		await click(background);
 		expect(localStorage.getItem('pref:background')).toBe('1');
 	});
 
