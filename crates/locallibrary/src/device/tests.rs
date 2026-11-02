@@ -489,3 +489,31 @@ fn a_scan_rewrites_the_hash_cache_only_when_a_file_changed() {
     assert_ne!(d.scan_fingerprinted(None, &Ctx::silent()).unwrap().fingerprint, first);
     assert!(written().1 != before.1, "kept the cache of the old database");
 }
+
+/// One thread looks at a drive's databases (whether it has an export, when it was exported) while
+/// another writes `export.pdb` over and over: every write lands. Regression: on Windows the look's
+/// handle failed a rename over the file ("Access is denied"), as the player's poll of the open
+/// drive failed an edit.
+#[test]
+fn a_drive_looked_at_while_its_written_takes_every_write() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let dir = tempfile::tempdir().unwrap();
+    let pdb = paths::to_fs(dir.path(), paths::EXPORT_PDB);
+    std::fs::create_dir_all(pdb.parent().unwrap()).unwrap();
+    fsutil::write_atomic(&pdb, b"0").unwrap();
+    let d = Device::open(dir.path()).unwrap();
+    let writing = AtomicBool::new(true);
+    // The first write that fails ends the writes, and the looks with them.
+    let failed = std::thread::scope(|s| {
+        s.spawn(|| {
+            while writing.load(Ordering::SeqCst) {
+                assert!(d.has_export() && paths::is_export_root(d.root()) && d.exported_at().is_some());
+            }
+        });
+        let failed = (1..=200).find_map(|n| fsutil::write_atomic(&pdb, n.to_string().as_bytes()).err());
+        writing.store(false, Ordering::SeqCst);
+        failed
+    });
+    assert!(failed.is_none(), "a write failed: {failed:?}");
+    assert_eq!(std::fs::read(&pdb).unwrap(), b"200");
+}

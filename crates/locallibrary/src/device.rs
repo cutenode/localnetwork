@@ -461,14 +461,16 @@ impl Device {
         self.has_device_library() || self.has_library_plus()
     }
 
-    /// `export.pdb`, the Device Library.
+    /// `export.pdb`, the Device Library. Looked for between this process's renames (see
+    /// [`fsutil::unreplaced`]): the player polls whether the open drive still has it while a write
+    /// renames a new one over it, which the look's handle fails on Windows ("Access is denied").
     pub fn has_device_library(&self) -> bool {
-        self.path(paths::EXPORT_PDB).is_file()
+        fsutil::unreplaced(|| self.path(paths::EXPORT_PDB).is_file())
     }
 
-    /// `exportLibrary.db`, OneLibrary.
+    /// `exportLibrary.db`, OneLibrary, looked for as [`Device::has_device_library`] is.
     pub fn has_library_plus(&self) -> bool {
-        self.path(paths::LIBRARY_PLUS_DB).is_file()
+        fsutil::unreplaced(|| self.path(paths::LIBRARY_PLUS_DB).is_file())
     }
 
     pub fn volume_name(&self) -> String {
@@ -579,7 +581,7 @@ impl Device {
     /// CDJ-3000X's playlist edits) while rekordbox writes both, so there a set doesn't look like
     /// an export. With one database, a set can.
     pub fn exported_at(&self) -> Option<DateTime<Utc>> {
-        let modified = |key| std::fs::metadata(self.path(key)).and_then(|m| m.modified()).ok();
+        let modified = |key| fsutil::unreplaced(|| std::fs::metadata(self.path(key)).and_then(|m| m.modified()).ok());
         let pdb = modified(paths::EXPORT_PDB);
         let plus = modified(paths::LIBRARY_PLUS_DB).into_iter().chain(modified(paths::LIBRARY_PLUS_WAL)).max();
         let at: SystemTime = match (pdb, plus) {
@@ -760,7 +762,7 @@ impl Device {
         let drift = self.library_drift(library.as_ref().filter(|_| self.has_device_library()));
         let settings_files = crate::settings::SettingsFile::ALL
             .iter()
-            .filter(|f| self.path(f.key()).is_file())
+            .filter(|f| fsutil::unreplaced(|| self.path(f.key()).is_file()))
             .map(|f| f.file_name().to_string())
             .collect();
         DeviceInfo {

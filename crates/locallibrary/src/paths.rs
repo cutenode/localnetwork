@@ -48,9 +48,10 @@ const PLAYER_DIRS: [&str; 4] = ["LOG", "CDJ", "MPJ", "TRASHBOX"];
 pub const DATABASE_FILES: [&str; 4] = [EXPORT_PDB, EXPORT_EXT_PDB, LIBRARY_PLUS_DB, LIBRARY_PLUS_WAL];
 
 /// Whether `dir` holds a rekordbox export: `export.pdb` (every player), `exportLibrary.db`
-/// (OneLibrary, newer players), or both.
+/// (OneLibrary, newer players), or both. Looked for between this process's renames, as
+/// [`crate::Device::has_export`] is.
 pub fn is_export_root(dir: &Path) -> bool {
-    to_fs(dir, EXPORT_PDB).is_file() || to_fs(dir, LIBRARY_PLUS_DB).is_file()
+    crate::fsutil::unreplaced(|| to_fs(dir, EXPORT_PDB).is_file() || to_fs(dir, LIBRARY_PLUS_DB).is_file())
 }
 
 /// Convert a key back into the absolute device path format used inside `export.pdb`.
