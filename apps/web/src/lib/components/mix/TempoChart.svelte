@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { clock, niceTicks, playColor, playSpeed, timeStep, type MixReport } from '#lib/mix/report.ts';
+	import { bpmAt, clock, niceTicks, playColor, playSpeed, tempoSteps, timeStep, type MixReport } from '#lib/mix/report.ts';
 
 	let { report, selected = $bindable(null) }: { report: MixReport; selected?: number | null } = $props();
 
@@ -10,10 +10,17 @@
 
 	const duration = $derived(Math.max(1, report.mix.durationSecs));
 
-	const rows = $derived(report.plays.flatMap((play, i) => (play.playedBpm !== undefined ? [{ i, play, played: play.playedBpm, recorded: play.track.bpm ?? play.playedBpm }] : [])));
+	// Each play's BPM as played: one step, or one per speed where the pitch fader was ridden.
+	const rows = $derived(
+		report.plays.flatMap((play, i) => {
+			const steps = tempoSteps(play);
+
+			return steps.length ? [{ i, play, steps, recorded: play.track.bpm ?? steps[0].bpm }] : [];
+		})
+	);
 
 	const scale = $derived.by(() => {
-		const values = rows.flatMap((r) => [r.played, r.recorded]);
+		const values = rows.flatMap((r) => [r.recorded, ...r.steps.map((step) => step.bpm)]);
 		const pad = Math.max(2, (Math.max(...values) - Math.min(...values)) * 0.12);
 		const lo = Math.min(...values) - pad;
 		const hi = Math.max(...values) + pad;
@@ -37,9 +44,24 @@
 		return out;
 	});
 
-	let hover = $state<number | null>(null);
+	// The play pointed at, and where in the mix.
+	let hover = $state<{ i: number; t: number } | null>(null);
 
-	const shown = $derived(rows.find((r) => r.i === (hover ?? selected)));
+	const shown = $derived(rows.find((r) => r.i === (hover?.i ?? selected)));
+
+	// Its BPM where it's pointed at; else the one it was played at, or the slowest to the fastest.
+	const shownBpm = $derived.by(() => {
+		if (!shown) return '';
+
+		const at = hover ? bpmAt(shown.steps, Math.min(Math.max(hover.t, shown.play.start), shown.play.end)) : undefined;
+		const bpms = shown.steps.map((step) => step.bpm);
+
+		if (at !== undefined) return `${at.toFixed(1)} BPM`;
+
+		if (bpms.length > 1) return `${Math.min(...bpms).toFixed(1)} to ${Math.max(...bpms).toFixed(1)} BPM`;
+
+		return `${bpms[0].toFixed(1)} BPM`;
+	});
 
 	function onpointermove(event: PointerEvent & { currentTarget: HTMLDivElement }) {
 		const box = event.currentTarget.getBoundingClientRect();
@@ -56,7 +78,7 @@
 			}
 		}
 
-		hover = best?.i ?? null;
+		hover = best ? { i: best.i, t } : null;
 	}
 </script>
 
@@ -74,8 +96,10 @@
 					{/each}
 					{#each rows as r (r.i)}
 						{@const active = shown?.i === r.i}
-						<rect x={x(r.play.start)} y={y(r.played)} width={Math.max(1, x(r.play.end) - x(r.play.start))} height={Math.max(0, H - y(r.played))} class={active ? undefined : 'fill-line-strong'} style:fill={active ? playColor(r.i) : undefined} fill-opacity={active ? 0.45 : 0.6} />
-						<line x1={x(r.play.start)} x2={x(r.play.end)} y1={y(r.played)} y2={y(r.played)} class="stroke-band-high" stroke-width="2" vector-effect="non-scaling-stroke" />
+						{#each r.steps as step (step.from)}
+							<rect x={x(step.from)} y={y(step.bpm)} width={Math.max(1, x(step.to) - x(step.from))} height={Math.max(0, H - y(step.bpm))} class={active ? undefined : 'fill-line-strong'} style:fill={active ? playColor(r.i) : undefined} fill-opacity={active ? 0.45 : 0.6} />
+							<line x1={x(step.from)} x2={x(step.to)} y1={y(step.bpm)} y2={y(step.bpm)} class="stroke-band-high" stroke-width="2" vector-effect="non-scaling-stroke" />
+						{/each}
 						<line x1={x(r.play.start)} x2={x(r.play.end)} y1={y(r.recorded)} y2={y(r.recorded)} class="stroke-fg-subtle" stroke-width="1.5" stroke-dasharray="4 3" vector-effect="non-scaling-stroke" />
 					{/each}
 					<line x1="0" x2={W} y1={H} y2={H} class="stroke-line-strong" vector-effect="non-scaling-stroke" />
@@ -92,7 +116,7 @@
 	</ul>
 	<p class="m-0 mt-1 min-h-10 text-label text-fg-muted" aria-live="polite">
 		{#if shown}
-			{shown.i + 1}. {shown.play.track.title}: <span class="font-mono text-fg">{shown.played.toFixed(1)} BPM</span>, recorded at {shown.recorded.toFixed(1)} ({playSpeed(shown.play)})
+			{shown.i + 1}. {shown.play.track.title}: <span class="font-mono text-fg">{shownBpm}</span>, recorded at {shown.recorded.toFixed(1)} ({playSpeed(shown.play)})
 		{:else}
 			Point at the chart for each track’s tempo.
 		{/if}

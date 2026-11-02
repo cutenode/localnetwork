@@ -7,6 +7,7 @@ import { CALENDAR_EVENT, CALENDAR_RSVP, COLLECTION, PERMISSIONS, SPACE_TYPE } fr
 import { loadConfig } from '../config';
 import { openDatabase } from '../db';
 import { silentLogger } from '../logger';
+import { collectingGarbage } from '../testing/gc';
 import { type Loopback, rebindToLoopback } from '../testing/rebind';
 import { IdentityResolver } from './identity';
 import { permissionSetFor } from './lexicons';
@@ -533,7 +534,10 @@ describe('OAuthService sign-in, given servers a DID document names', () => {
 		try {
 			const started = performance.now();
 
-			expect(await signIn(`http://127.0.0.1:${port}`, true, 200)).toBe('The operation was aborted due to timeout');
+			// Collection runs while it waits, as it does in a busy process, so the limit has to survive it.
+			const outcome = await collectingGarbage(signIn(`http://127.0.0.1:${port}`, true, 200));
+
+			expect(outcome).toBe('The operation was aborted due to timeout');
 			expect(performance.now() - started).toBeLessThan(2_000);
 			expect(held).toHaveLength(1);
 		} finally {

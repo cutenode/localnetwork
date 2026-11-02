@@ -14,12 +14,13 @@
 //
 // The file's shape is specified in docs/manager-state.schema.json
 // (JSON Schema 2020-12), and `parse` below enforces exactly that schema by
-// hand — the extension ships no dependencies, so it cannot run a validator at
-// runtime. The two are held together by test/state-schema.test.ts, which
+// hand, since a classic script cannot import a validator to run. The two are
+// held together by test/state-schema.test.ts, which
 // checks every case against the real schema with Ajv; keep them in step.
 //
-// Loaded by the popup page, which uses the TbxState global it defines; the
-// section that drives it is in the settings sheet
+// Loaded into the popup page when the settings sheet first opens
+// (src/lib/globals.ts), since the sheet is what uses the TbxState global it
+// defines: the section that drives it is there
 // (src/lib/components/StateTransfer.svelte), not in any one tool. What this
 // file owns is the format; the stores own the storage. The marks go through
 // TbxDownloaded, and the session queue and the Manager's list through the

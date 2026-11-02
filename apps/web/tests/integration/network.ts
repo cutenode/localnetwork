@@ -89,6 +89,7 @@ export class TestNetwork {
 			ADMIN_DIDS: (options.admins ?? []).map((name) => users.get(name)!.did).join(','),
 			SYNC_NOTIFY: 'false',
 			GEOCODER: 'none',
+			ACTOR_SEARCH: 'none',
 			AUDIT_MAX_ATTEMPTS: '3',
 			USERINPUT_SPACE: userinputSpace.uri
 		});

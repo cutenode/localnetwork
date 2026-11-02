@@ -60,6 +60,36 @@ export function playSpeed(play: Pick<MixPlay, 'tempo' | 'speedRange'>): string {
 /** Plays at or above this are shown as certain. */
 export const CONFIDENT = 0.5;
 
+/** A stretch of the mix a play was heard at one BPM, in seconds into the mix. */
+export type TempoStep = { from: number; to: number; bpm: number };
+
+/**
+ * A play's BPM across the mix: one step at `playedBpm`, or where the pitch fader was ridden, one
+ * per line at its speed (kept within `speedRange`, which leaves out speeds only searched at).
+ * None without a BPM.
+ */
+export function tempoSteps(play: MixPlay): TempoStep[] {
+	if (play.playedBpm === undefined) return [];
+
+	const lines = play.lines ?? [];
+
+	if (!play.speedRange || !lines.length) return [{ from: play.start, to: play.end, bpm: play.playedBpm }];
+
+	const [slowest, fastest] = play.speedRange;
+	const recorded = play.track.bpm ?? play.playedBpm / play.tempo;
+
+	return lines.map((line, k) => ({
+		from: Math.max(line.start, play.start),
+		to: lines[k + 1]?.start ?? play.end,
+		bpm: recorded * Math.min(Math.max(line.tempo, slowest), fastest)
+	}));
+}
+
+/** The BPM `t` seconds into the mix, of the step heard then (the first, before it starts). */
+export function bpmAt(steps: TempoStep[], t: number): number | undefined {
+	return (steps.findLast((step) => step.from <= t) ?? steps[0])?.bpm;
+}
+
 export type Summary = {
 	tracks: number;
 	confident: number;
@@ -75,6 +105,9 @@ export function summarize(report: MixReport): Summary {
 		.filter((b): b is number => b !== undefined)
 		.sort((a, b) => a - b);
 
+	// The slowest and fastest, a ridden pitch fader's ends included.
+	const stepped = report.plays.flatMap(tempoSteps).map((step) => step.bpm);
+
 	const known = report.transitions.filter((t) => t.harmony);
 
 	return {
@@ -85,9 +118,9 @@ export function summarize(report: MixReport): Summary {
 		tempo: bpms.length
 			? {
 					median: bpms[Math.floor(bpms.length / 2)],
-					low: bpms[0],
-					high: bpms[bpms.length - 1],
-					steady: Math.round(bpms[bpms.length - 1]) - Math.round(bpms[0]) < 2
+					low: Math.min(...stepped),
+					high: Math.max(...stepped),
+					steady: Math.round(Math.max(...stepped)) - Math.round(Math.min(...stepped)) < 2
 				}
 			: null,
 		harmonic: { good: known.filter((t) => t.harmony !== 'clash').length, known: known.length }

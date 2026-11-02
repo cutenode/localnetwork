@@ -14,6 +14,7 @@ use locallibrary::anlz::{TrackAnalysis, Waveform};
 use locallibrary::api;
 use locallibrary::mix::export;
 use locallibrary::mix::index::Cache;
+use locallibrary::mix::prefs::MixPrefs;
 use locallibrary::mix::report::{self, Drive};
 use locallibrary::mix::{self, Identifier, MixReport, MixWaveform, Play, Transition};
 use locallibrary::profile::ProfilePrefs;
@@ -505,7 +506,8 @@ fn identify(
     let device = Device::open(root)?;
     // Fingerprints are cached in the store, made here if there's none yet.
     let store = Store::open_or_init(store_root)?;
-    let id = Identifier::with_library(&device, library.clone(), &Cache::in_store(&store), &ctx)?;
+    let id =
+        Identifier::with_library(&device, library.clone(), &Cache::in_store(&store), &MixPrefs::load(&store)?, &ctx)?;
     let report = id.identify(path, &mix::Options::default(), &ctx)?;
     let analyses = report.plays.iter().map(|p| api::analysis_of(&device, &p.track)).collect();
     let cover = report.mix.cover.as_ref().and_then(|c| c.read().ok()).and_then(|b| Art::decode(&b));
@@ -1216,8 +1218,8 @@ fn draw_report(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
     // Timeline.
     let focus = cx.playhead.or_else(|| selected.map(|i| (r.plays[i].start + r.plays[i].end) / 2.0)).unwrap_or(0.0);
     let win = window(m.duration_secs, t.zoom, focus);
-    let bpms: Vec<f64> = r.plays.iter().filter_map(|p| p.played_bpm).collect();
-    let (lo, hi) = (bpms.iter().copied().fold(f64::INFINITY, f64::min), bpms.iter().copied().fold(0.0, f64::max));
+    let bpms: Vec<(f64, f64)> = r.plays.iter().filter_map(Play::bpm_range).collect();
+    let (lo, hi) = bpms.iter().fold((f64::INFINITY, 0.0f64), |(lo, hi), b| (lo.min(b.0), hi.max(b.1)));
     let mut right = Vec::new();
     if !bpms.is_empty() {
         let range = if hi - lo < 0.5 { format!("{lo:.0} BPM") } else { format!("{lo:.0}–{hi:.0} BPM") };
@@ -1452,7 +1454,8 @@ fn draw_axis(buf: &mut Buffer, area: Rect, (from, to): (f64, f64), selected: Opt
     }
 }
 
-/// The tempo the set was played at, track by track, between the slowest and fastest.
+/// The tempo the set was played at, track by track (and line by line where the pitch fader was
+/// ridden), between the slowest and fastest.
 fn draw_tempo(
     buf: &mut Buffer,
     area: Rect,
@@ -1468,7 +1471,7 @@ fn draw_tempo(
     let rows = area.height as f64;
     for x in 0..area.width {
         let t = from + (x as f64 + 0.5) / area.width as f64 * (to - from);
-        let Some(bpm) = play_at(plays, t).and_then(|i| plays[i].played_bpm) else { continue };
+        let Some(bpm) = play_at(plays, t).and_then(|i| plays[i].bpm_at(t)) else { continue };
         let height = ((bpm - lo) / (hi - lo)).clamp(0.05, 1.0) * rows;
         let played = head.is_some_and(|h| t < h);
         for row in 0..area.height {
@@ -1620,7 +1623,7 @@ fn draw_detail(f: &mut Frame, r: &MixReport, analyses: &[TrackAnalysis], i: usiz
     let inner = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };
     let track_secs = (p.track.duration_secs as f64).max(p.track_end).max(1.0);
     // Where the playhead is in the track, while this play is heard.
-    let in_track = head.filter(|h| *h >= p.start && *h < p.end).map(|h| p.track_start + (h - p.start) * p.tempo);
+    let in_track = head.filter(|h| *h >= p.start && *h < p.end).map(|h| p.track_secs(h));
 
     let graphic = inner.height >= 9 && inner.width >= 30;
     let text_area = if graphic {

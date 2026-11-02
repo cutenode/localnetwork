@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig, serviceDidFor } from './config';
 
 const base = {
@@ -144,5 +144,22 @@ describe('serviceDidFor', () => {
 		expect(serviceDidFor('http://127.0.0.1:5180')).toBe('did:web:localhost%3A5180');
 		expect(serviceDidFor('https://ln.example')).toBe('did:web:ln.example');
 		expect(serviceDidFor('https://ln.example:8443')).toBe('did:web:ln.example%3A8443');
+	});
+});
+
+describe('getConfig', () => {
+	afterEach(() => vi.unstubAllEnvs());
+
+	it('parses the environment once', async () => {
+		for (const [name, value] of Object.entries(base)) vi.stubEnv(name, value);
+		vi.resetModules();
+		const { getConfig } = await import('./config');
+		const config = getConfig();
+
+		expect(config).toMatchObject({ env: 'test', root: { identifier: 'localnetwork.computer' } });
+
+		vi.stubEnv('ROOT_IDENTIFIER', 'other.example');
+
+		expect(getConfig()).toBe(config);
 	});
 });
