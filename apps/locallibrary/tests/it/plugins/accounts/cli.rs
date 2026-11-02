@@ -401,6 +401,7 @@ fn a_destination_warns_of_an_account_signing_itself_out_soon() {
 }
 
 /// Where [`a_plugin_wanting_more_of_an_account_asks_only_in_a_terminal`] runs echo's `ensure`.
+#[cfg(unix)]
 #[derive(Debug, Clone, Copy)]
 enum Asked {
     /// In a terminal, answering yes or no.
