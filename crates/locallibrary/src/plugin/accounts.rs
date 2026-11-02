@@ -186,7 +186,7 @@ impl Plugin {
         }
         let client = self.client().map_err(|e| Unanswered(e.message))?;
         let (parts, body) = request.into_parts();
-        let asked = client.request(parts.method, url).headers(parts.headers).body(body);
+        let asked = client.request(parts.method, url).headers(parts.headers).body(body).timeout(super::net::TIMEOUT);
         let (answer, body) = runtime()
             .block_on(async {
                 let mut response = asked.send().await?;

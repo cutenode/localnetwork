@@ -301,12 +301,7 @@ pub fn upload_blob(root: &Path, did: &str, path: &Path, mime: &str, ctx: &Ctx<'_
     // As long as sending it at 128 KiB/s would take, and half a minute more.
     let timeout = Duration::from_secs(30 + size / (128 * 1024));
     // Each attempt's connection goes with its runtime (see `Requests`).
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .pool_max_idle_per_host(0)
-        .timeout(timeout)
-        .build()
-        .map_err(|e| Error::Account(format!("the network: {e}")))?;
+    let client = crate::net::unpooled().map_err(|e| Error::Account(format!("the network: {e}")))?;
     let mut retried = false;
     loop {
         let (url, token, proof) = block_on(async {
@@ -321,6 +316,7 @@ pub fn upload_blob(root: &Path, did: &str, path: &Path, mime: &str, ctx: &Ctx<'_
         let proof = proof.map_err(|e| Error::Account(format!("signing the upload: {e}")))?;
         let request = client
             .post(&url)
+            .timeout(timeout)
             .header(AUTHORIZATION, format!("DPoP {token}"))
             .header("DPoP", proof.as_str())
             .header(CONTENT_TYPE, mime);
