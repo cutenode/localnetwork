@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { RepoWrite } from '../atproto/repo-client';
+import { memberSpacePolicy, type RepoWrite } from '../atproto/repo-client';
 import { FakeNetwork } from './fakes';
 
 const ROOT = 'did:plc:root';
-
-const policy = { $type: 'com.atproto.simplespace.defs#memberListPolicy' } as const;
 
 describe('FakeRootClient.applySpaceWrites', () => {
 	const setup = async () => {
@@ -14,9 +12,7 @@ describe('FakeRootClient.applySpaceWrites', () => {
 		const space = await root.createSpace({
 			spaceType: 'computer.localnetwork.space.party',
 			skey: '3k',
-			readPolicy: policy,
-			writePolicy: policy,
-			appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+			policy: memberSpacePolicy()
 		});
 
 		const keys = () => net.spaceRecordsIn(space).map((record) => record.uri.split('/').slice(-2).join('/'));

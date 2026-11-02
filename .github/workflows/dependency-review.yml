@@ -12,10 +12,12 @@ name: Dependency review
 # job submits the lockfile's packages to it first, read by Microsoft's Component Detection, which
 # reads both documents, and the review then compares those too.
 #
-# Its own workflow, since it covers all three ecosystems and only reviews pull requests. A push to
-# main runs only the submission, and only when pnpm-lock.yaml changed. It isn't a required check,
-# so it can filter on paths in its trigger: a pull request that changes none of the files the
-# dependency graph reads starts no runner. Those are the lockfiles and manifests (pnpm-lock.yaml,
+# The review compares the snapshot of the pull request's base commit, so main needs one for every
+# commit: ci.yml's changes job submits it on each push, under the same correlator (`pnpm-lock`).
+#
+# Its own workflow, since it covers all three ecosystems and only reviews pull requests. It isn't a
+# required check, so it can filter on paths in its trigger: a pull request that changes none of the
+# files the dependency graph reads starts no runner. Those are the lockfiles and manifests (pnpm-lock.yaml,
 # package-lock.json and package.json, Cargo.lock and Cargo.toml) and the workflows, which only
 # count as manifests in .github/workflows/, so the composite actions in .github/actions/ aren't
 # among them. pnpm-workspace.yaml isn't one either: what its overrides change shows up in
@@ -31,13 +33,6 @@ on:
       - "**/Cargo.lock"
       - "**/Cargo.toml"
       - ".github/workflows/**"
-  # main's own snapshot, for the dependency graph's pages, Dependabot's alerts and the base side of
-  # the review. It only changes with the lockfile, or with this workflow's submission.
-  push:
-    branches: [main]
-    paths:
-      - "pnpm-lock.yaml"
-      - ".github/workflows/dependency-review.yml"
 
 permissions:
   contents: read
@@ -62,34 +57,51 @@ jobs:
       pull-requests: write
     steps:
       # A fork's pull request gets a read-only token, which can't submit, so its review sees only
-      # what the dependency graph reads itself. The checkout is the one file the submission reads,
-      # at the pull request's head, the commit the review compares, rather than the merge commit
-      # checkout picks by default.
-      - if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+      # what the dependency graph reads itself. The checkout is the lockfile the submission reads
+      # and pnpm-workspace.yaml for the advisories pnpm audit ignores, at the pull request's head,
+      # the commit the review compares, rather than the merge commit checkout picks by default.
+      - if: github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
-          sparse-checkout: /pnpm-lock.yaml
+          sparse-checkout: |
+            /pnpm-lock.yaml
+            /pnpm-workspace.yaml
           sparse-checkout-cone-mode: false
       # Before the review, in the same job, so the snapshot is there when the review asks for it
       # (https://docs.github.com/en/code-security/concepts/supply-chain-security/dependency-review).
       # It downloads Component Detection's latest release when it runs, which this pin doesn't fix;
       # pnpm 12's lockfiles need 8.0.5 or later. An empty snapshot fails the job, since that's how
-      # a lockfile read wrong would look.
-      - if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+      # a lockfile read wrong would look. It reads a folder with the lockfile alone, as ci.yml's
+      # does for main, so the two snapshots have the same manifests.
+      - if: github.event.pull_request.head.repo.full_name == github.repository
+        run: mkdir "$RUNNER_TEMP/lockfile" && cp pnpm-lock.yaml "$RUNNER_TEMP/lockfile/"
+      - if: github.event.pull_request.head.repo.full_name == github.repository
         uses: advanced-security/component-detection-dependency-submission-action@a02aeda7a175ad4dd38a13c4d3ff2df9da8f2cf0 # v0.2.0
         with:
+          filePath: ${{ runner.temp }}/lockfile
           detectorsCategories: Npm
           fail-on-empty: true
+          correlator: pnpm-lock
+      # The advisories `pnpm audit` ignores (auditConfig.ignoreGhsas, each with its reason), so
+      # the review ignores the same ones now that it sees the packages they're in. yq is on the
+      # runner.
+      - id: ignored
+        run: |
+          ghsas=""
+          if [ -f pnpm-workspace.yaml ]; then
+            ghsas=$(yq -r '.auditConfig.ignoreGhsas // [] | join(",")' pnpm-workspace.yaml)
+          fi
+          echo "ghsas=$ghsas" >> "$GITHUB_OUTPUT"
       # Reads the base and head commits through the API.
-      - if: github.event_name == 'pull_request'
-        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           # Like `pnpm audit --prod` in npm-advisories.yml: an advisory of any severity fails, in
           # what ships (the runtime scope) and not the dev tooling.
           fail-on-severity: low
           fail-on-scopes: runtime
+          allow-ghsas: ${{ steps.ignored.outputs.ghsas }}
           # The same list as [licenses] allow in deny.toml, so both ecosystems follow one policy.
           # Keep the two in step. OFL-1.1 is added for the website's fonts (@fontsource-variable),
           # which no Rust crate ships, and MITNFA for bowser, which the bug reports read the

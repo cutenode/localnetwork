@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ensureRootSpaces } from './bootstrap';
+import { ensureRootSpaces, ROOT_SPACE_POLICIES } from './bootstrap';
 import { createTestServices } from './testing/core';
 
 describe('ensureRootSpaces', () => {
@@ -28,13 +28,16 @@ describe('ensureRootSpaces', () => {
 
 	it('closes an industry space that any signed-in account could read to staff only', async () => {
 		const industry = t.net.spaces.get(t.spaces.industry)!;
-		industry.readPolicy = { $type: 'com.atproto.simplespace.defs#publicPolicy' };
+		industry.policy = { ...industry.policy, publicRead: true };
 
 		await ensureRootSpaces(t.core);
 
-		expect(industry.readPolicy.$type).toBe('com.atproto.simplespace.defs#memberListPolicy');
+		expect(industry.policy).toEqual(ROOT_SPACE_POLICIES.industry);
 		expect(await t.audit.list({ action: 'system.space', subject: t.spaces.industry })).toMatchObject([
-			{ summary: 'Corrected the industry space policies' },
+			{
+				summary: 'Corrected the industry space policies',
+				changes: JSON.stringify([{ field: 'publicRead', before: 'true', after: 'false' }])
+			},
 			{ summary: 'Created the industry space' }
 		]);
 	});

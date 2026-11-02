@@ -1,5 +1,6 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Color;
 use ratatui::symbols::Marker;
 use ratatui::widgets::Widget;
 use ratatui::widgets::canvas::{Canvas, Line as CanvasLine};
@@ -44,6 +45,16 @@ impl Widget for Spectrum<'_> {
         let used = order.len() as u16 * (bar + gap) - gap;
         let left = area.x + area.width.saturating_sub(used) / 2;
         let h = area.height as f32;
+        // Each row's bar and peak cap colours, the same for every bar.
+        let colors: Vec<(Color, Color)> = (0..area.height)
+            .map(|row| {
+                let mut color = gradient(p.spectrum, (row as f32 + 0.5) / h);
+                if let Some((tint, t)) = self.tint {
+                    color = mix(color, tint, t * 0.7);
+                }
+                (paint(color), paint(mix(color, [255, 255, 255], 0.35)))
+            })
+            .collect();
         for (slot, &band) in order.iter().enumerate() {
             let x0 = left + slot as u16 * (bar + gap);
             if x0 + bar > area.right() {
@@ -51,17 +62,13 @@ impl Widget for Spectrum<'_> {
             }
             let level = self.bands[band] * h;
             let peak = self.peaks.get(band).map_or(0.0, |p| p.0) * h;
-            for row in 0..area.height {
+            for (row, &(bar_color, cap_color)) in (0..area.height).zip(&colors) {
                 let y = area.bottom() - 1 - row;
                 let fill = ((level - row as f32) * 8.0).round().clamp(0.0, 8.0) as usize;
-                let mut color = gradient(p.spectrum, (row as f32 + 0.5) / h);
-                if let Some((tint, t)) = self.tint {
-                    color = mix(color, tint, t * 0.7);
-                }
                 let (symbol, fg) = if fill > 0 {
-                    (LOWER[fill], paint(color))
+                    (LOWER[fill], bar_color)
                 } else if peak > level + 0.25 && peak.floor() as u16 == row && peak > 0.05 {
-                    (if peak.fract() < 0.5 { "▁" } else { "▔" }, paint(mix(color, [255, 255, 255], 0.35)))
+                    (if peak.fract() < 0.5 { "▁" } else { "▔" }, cap_color)
                 } else {
                     continue;
                 };

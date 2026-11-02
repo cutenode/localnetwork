@@ -796,6 +796,28 @@ fn labelled_tuples_are_arrays_named_in_their_schema(tc: TestCase) {
     }
 }
 
+/// The benchmarks' made-up library hangs together: every entry is one of its tracks, each
+/// folder holds the playlists after it, and it diffs empty against itself.
+#[test]
+fn made_up_libraries_hang_together() {
+    let lib = crate::test_util::library(500, 30);
+    let track = lib.track_lookup();
+    assert!(lib.playlists.iter().flat_map(|p| &p.track_ids).all(|&id| track(id).is_some()));
+    assert_eq!(track(501), None);
+    assert_eq!((lib.playlist_path(2), lib.playlist_path(11)), ("Shows 0/light 1".into(), "Shows 10".into()));
+    assert!(LibraryDiff::between(&lib, &lib).is_empty());
+}
+
+/// Text that's NFKC already skips normalising and lands where normalising would: every kind of
+/// whitespace (vertical tab too) collapses, and nothing else changes but case.
+#[hegel::test(test_cases = 200)]
+fn normalised_text_skips_normalising(tc: hegel::TestCase) {
+    let alphabet = "aZ9 \t\n\u{b}\u{c}\r.&'\u{e9}\u{301}\u{3a3}\u{fb01}\u{3000}";
+    let s = tc.draw(hegel::generators::text().alphabet(alphabet).max_size(12));
+    let unicode = s.nfkc().collect::<String>().to_lowercase();
+    assert_eq!(normalize(&s), unicode.split_whitespace().collect::<Vec<_>>().join(" "), "{s:?}");
+}
+
 /// Exporting some playlists keeps them, everything in a chosen folder, the folders above them and
 /// their tracks; a playlist that isn't there is named.
 #[test]

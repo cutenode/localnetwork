@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type EpkAccess, MAX_EPKS_PER_PROJECT } from '#lib/epk.ts';
 import { followSchema } from '#lib/epk-schema.ts';
 import { BSKY_FOLLOW, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
+import { memberSpacePolicy } from '../atproto/repo-client';
 import { ensureRootSpaces } from '../bootstrap';
 import { ForbiddenError, UserError } from '../core';
 import { HappyViewClient, HappyViewError } from '../happyview/client';
@@ -64,7 +65,7 @@ describe('EpkService', () => {
 			[DJ]: { read: true, write: false },
 			[CODJ]: { read: true, write: false }
 		});
-		expect(f.t.net.spaces.get(clubs.space)?.writePolicy.$type).toBe('com.atproto.simplespace.defs#publicPolicy');
+		expect(f.t.net.spaces.get(clubs.space)?.policy).toEqual(memberSpacePolicy({ publicWrite: true }));
 	});
 
 	it('finds a press kit by project and key, and from an old link by the repo that held it', async () => {

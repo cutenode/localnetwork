@@ -17,7 +17,7 @@ import { TID } from '@atproto/common-web';
 import { mockNetworkUtilities, TestPds, TestPlc } from '@atproto/dev-env';
 import { USERINPUT } from '../src/lib/bug-report.ts';
 import { LEXICON_DOCS, publishLexicons, validateRecord } from '../src/lib/server/atproto/lexicons.ts';
-import { AgentRepoClient } from '../src/lib/server/atproto/repo-client.ts';
+import { AgentRepoClient, memberSpacePolicy } from '../src/lib/server/atproto/repo-client.ts';
 import { BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '../src/lib/nsid.ts';
 import { sampleReport } from '../src/lib/mix/sample.ts';
 import { HappyViewClient } from '../src/lib/server/happyview/client.ts';
@@ -268,9 +268,7 @@ async function main() {
 		const space = await owner.createSpace({
 			spaceType: SPACE_TYPE.epk,
 			skey: rkey,
-			readPolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
-			writePolicy: { $type: 'com.atproto.simplespace.defs#publicPolicy' },
-			appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+			policy: memberSpacePolicy({ publicWrite: true })
 		});
 
 		const members = epk.legacy
