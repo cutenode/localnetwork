@@ -1,3 +1,4 @@
+import { decidedNotice } from '#lib/requests.ts';
 import { requireStaff } from '#lib/server/http.ts';
 import { isRequestKind } from '#lib/server/services/requests.ts';
 import type { RequestStatus } from '#lib/types.ts';
@@ -25,5 +26,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		locals.app.requests.counts()
 	]);
 
-	return { requests, counts, status: status ?? 'all', kind: kind ?? '' };
+	return {
+		requests,
+		counts,
+		status: status ?? 'all',
+		kind: kind ?? '',
+		decided: decidedNotice(url.searchParams.get('decided'))
+	};
 };
