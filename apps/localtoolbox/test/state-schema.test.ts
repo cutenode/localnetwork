@@ -2,8 +2,8 @@
 // exported state file, checked with a standard JSON Schema validator (Ajv,
 // draft 2020-12) rather than with the extension's own code.
 //
-// The extension ships no dependencies, so state-transfer.ts validates
-// imported files by hand. That hand-written check and this schema are two
+// state-transfer.ts is a classic script, which cannot import a validator, so
+// it checks imported files by hand. That hand-written check and this schema are two
 // statements of one format, and they drift apart silently unless something
 // holds them together: the tables below feed the same documents to both and
 // require the same verdict from each.

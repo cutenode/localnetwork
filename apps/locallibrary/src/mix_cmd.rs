@@ -8,6 +8,7 @@ use std::process::ExitCode;
 use anyhow::{Context, Result, bail};
 use clap::Args;
 use locallibrary::mix::index::{Cache, IndexReport, LONGEST_TRACK_SECS};
+use locallibrary::mix::prefs::MixPrefs;
 use locallibrary::mix::report::{self, Drive, playable_audio};
 use locallibrary::mix::{CoverSource, Identifier, MixReport, Options, Play, export};
 use locallibrary::profile::ProfilePrefs;
@@ -93,7 +94,7 @@ pub fn run(args: MixArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -
     let device = api::mix_drive(args.drive.as_deref())?;
     // Fingerprints are cached in the store, made here if there's none yet.
     let store = crate::open_store(store)?;
-    let id = Identifier::new(&device, &Cache::in_store(&store), ctx)?;
+    let id = Identifier::new(&device, &Cache::in_store(&store), &MixPrefs::load(&store)?, ctx)?;
     if args.mixes.is_empty() {
         out.emit(&id.report, |r| index_summary(&id.drive, r));
         return Ok(ExitCode::SUCCESS);

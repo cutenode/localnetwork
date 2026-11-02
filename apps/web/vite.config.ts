@@ -4,8 +4,17 @@ import { enhancedImages } from '@sveltejs/enhanced-img';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { playwright } from '@vitest/browser-playwright';
-import type { Rolldown } from 'vite';
+import type { Plugin, Rolldown } from 'vite';
 import { defineConfig } from 'vitest/config';
+
+// Vitest's module cache leaves out a module that calls `import.meta.glob(`, whose output changes when a file the glob
+// matches is added or removed, but it misses a typed call (`import.meta.glob<string>(`), so after a new Lua script or
+// guide a test still saw the old list. This leaves out both.
+const uncachedGlobs: Plugin = {
+	name: 'uncached-globs',
+	configureVitest: ({ defineCacheKeyGenerator }) =>
+		defineCacheKeyGenerator(({ sourceCode }) => (/import\.meta\.glob\s*[<(]/.test(sourceCode) ? false : undefined))
+};
 
 // The browser test projects inherit the dev server's strictPort, which makes Vitest fail on a taken
 // port (63315 and up) instead of moving on, so test runs in two checkouts at once collide.
@@ -32,6 +41,7 @@ const isSmall = (id: string, ctx: Rolldown.ChunkingContext, seen = new Set<strin
 
 export default defineConfig({
 	plugins: [
+		uncachedGlobs,
 		tailwindcss(),
 		// `?enhanced` images: AVIF and WebP at each width, with their size set so nothing shifts as they load.
 		enhancedImages(),

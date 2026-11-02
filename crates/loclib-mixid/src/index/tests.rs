@@ -90,7 +90,8 @@ fn any_bytes_decode_safely(tc: TestCase) {
 }
 
 /// Every landmark of every track is in the bucket of its hash, as (slot, frame), and the
-/// index holds nothing else: a small library has no hash common enough to drop.
+/// index holds nothing else: a small library has no hash common enough to drop. Its size kept is
+/// known before it's written.
 #[hegel::test(test_cases = 25)]
 fn the_index_holds_every_landmark(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().max_value(4));
@@ -109,6 +110,7 @@ fn the_index_holds_every_landmark(tc: TestCase) {
     assert_eq!(index.hashes(), total);
     assert_eq!(index.track_ids, prints.iter().map(|(id, _)| *id).collect::<Vec<_>>());
     assert_eq!(index.durations, vec![30.0; n]);
+    assert_eq!(index.encode().len(), index.encoded_len());
 }
 
 /// A print's frames as its bytes spell them: the header, then each peak's varint frame delta

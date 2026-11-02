@@ -654,37 +654,46 @@ describe('while the lookup is still running', () => {
 	it('draws a screenful first and the rest of a long page after it', async () => {
 		// Five hundred rows are the best part of a second of DOM work and the
 		// popup shows about eight at a time, so the first paint is a screenful and
-		// the rest arrive over the frames after it.
+		// the rest arrive over the frames after it. A hundred and fifty rows show
+		// that over three frames, at under a third of the DOM work of five
+		// hundred mounted twice.
 		vi.useFakeTimers();
-		const many = Array.from({ length: 500 }, (_, i) => track(`A${i}`, `T${i}`));
+		const many = Array.from({ length: 150 }, (_, i) => track(`A${i}`, `T${i}`));
 		slowLookup(many);
 		await load();
 		expect(rows()).toHaveLength(60);
 
 		// Growth is frame-bound, with a timeout behind it for a page that is
-		// hidden and gets no frames. Under fake timers it is the timeout that
-		// drives it, so this is the same number of rounds every run.
+		// hidden and gets no frames. jsdom's frames come from a setInterval,
+		// which the fake timers hold like any other, so each 60ms step is the
+		// same three frames every run.
 		const grown = async () => {
-			for (let i = 0; i < 6; i++) {
+			for (let i = 0; i < 4; i++) {
 				await vi.advanceTimersByTimeAsync(60);
 				await settle();
 			}
 		};
 
 		await grown();
-		expect(rows()).toHaveLength(500);
+		expect(rows()).toHaveLength(150);
 		// Every row drawn once: no duplicates, and none left over from the
 		// screenful that went up first.
-		expect(new Set(rows().map((li) => li.textContent)).size).toBe(500);
+		expect(new Set(rows().map((li) => li.textContent)).size).toBe(150);
 
-		// Filtered down to one row, and the whole list back when that is cleared.
+		// Filtered down to one row, and the whole list back when that is cleared:
+		// a frame's worth at a time again, with the row that stayed left alone
+		// rather than drawn over.
 		const search = document.querySelector('[aria-label="search the list"]');
-		await type(search, 'T499');
+		await type(search, 'T149');
 		expect(rows()).toHaveLength(1);
+		const [stayed] = rows();
 		await type(search, '');
+		expect(rows()).toHaveLength(41);
+		expect(rows()).toContain(stayed);
 		await grown();
-		expect(rows()).toHaveLength(500);
-		expect(new Set(rows().map((li) => li.textContent)).size).toBe(500);
+		expect(rows()).toContain(stayed);
+		expect(rows()).toHaveLength(150);
+		expect(new Set(rows().map((li) => li.textContent)).size).toBe(150);
 	});
 
 	// The screenful is counted across sections, so a long first site fills it
