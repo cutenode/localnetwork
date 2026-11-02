@@ -6,6 +6,7 @@ import type { ProjectView } from '#lib/types.ts';
 import type { PageData } from './$types';
 import Page from './+page.svelte';
 import { PAGE_META } from '#lib/testing/page-meta.ts';
+import { capture } from '#lib/testing/tools.ts';
 
 const project: ProjectView = {
 	uri: 'at://did:plc:root/computer.localnetwork.project/1',
@@ -33,7 +34,8 @@ const base = {
 			name: 'localthing',
 			kind: 'Chrome extension',
 			tagline: 'Does a thing.',
-			features: ['Keeps drives in sync']
+			lines: ['Keeps drives in sync'],
+			capture: capture('localthing at work')
 		}
 	]
 };

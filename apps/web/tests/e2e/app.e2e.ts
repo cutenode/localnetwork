@@ -212,6 +212,55 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 	});
 
+	test('each tool shows itself at work, a capture per hot cue, with its guides a step away', async ({ page }) => {
+		const loaded = (name: string | RegExp) =>
+			expect
+				.poll(() =>
+					page.getByRole('img', { name }).evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth)
+				)
+				.toBeGreaterThan(0);
+
+		await page.goto('/tools');
+		await loaded(/^locallibrary playing a track/);
+		await loaded(/^A SoundCloud playlist with localtoolbox's marks/);
+		await expectAccessible(page);
+		await page.getByRole('link', { name: 'See what locallibrary does' }).click();
+		await expect(page).toHaveURL(/\/tools\/locallibrary$/);
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+
+		const panel = page.getByRole('tabpanel');
+		const height = await panel.evaluate((element) => element.getBoundingClientRect().height);
+		await expect(page.getByRole('tab', { name: 'A Play' })).toHaveAttribute('aria-selected', 'true');
+		await page.getByRole('tab', { name: 'D Check' }).click();
+		await expect(panel.getByRole('heading', { name: 'Check' })).toBeVisible();
+		await loaded(/^locallibrary check on a drive/);
+		await page.keyboard.press('End');
+		await expect(page.getByRole('tab', { name: 'G Report' })).toBeFocused();
+		// Every cue's box is laid out from the start, so picking another moves nothing on the page.
+		expect(await panel.evaluate((element) => element.getBoundingClientRect().height)).toBe(height);
+		await expectAccessible(page);
+
+		const guides = page.getByRole('button', { name: /^Guides/ });
+
+		if (await guides.isVisible()) await guides.click();
+		await page
+			.getByRole('navigation', { name: 'Guides' })
+			.getByRole('link', { name: 'Installing locallibrary' })
+			.click();
+		await expect(page.getByRole('heading', { level: 1, name: 'Installing locallibrary' })).toBeVisible();
+		await expect(
+			page.getByRole('navigation', { name: 'More guides' }).getByRole('link', { name: /^Previous/ })
+		).toHaveAttribute('href', '/tools/locallibrary/docs/readme');
+		await expectAccessible(page);
+	});
+
+	test('the hot cues jump without moving when motion is reduced', async ({ page }) => {
+		await page.emulateMedia({ reducedMotion: 'reduce' });
+		await page.goto('/tools/localtoolbox');
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		await expect(page.getByTestId('playhead')).toHaveCSS('transition-property', 'none');
+	});
+
 	test("a profile's sets link their artists to who played them", async ({ page }) => {
 		// The sets render with the page once the server has them cached (otherwise they stream in after it
 		// hydrates), and a tracklist opened before the page hydrates stays open.
