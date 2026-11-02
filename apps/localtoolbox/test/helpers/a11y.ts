@@ -34,6 +34,23 @@ const STATE_ROLES = {
 	'aria-selected': ['option', 'tab', 'row', 'gridcell']
 } satisfies Record<string, string[]>;
 
+// What a tab stop may be: something a keyboard can operate.
+const CONTROL_ROLES = new Set([
+	'button',
+	'link',
+	'textbox',
+	'searchbox',
+	'combobox',
+	'checkbox',
+	'switch',
+	'radio',
+	'slider',
+	'spinbutton',
+	'menuitem',
+	'option',
+	'tab'
+]);
+
 const IMPLICIT_ROLE = new Map([
 	['BUTTON', 'button'],
 	['A', 'link'],
@@ -106,10 +123,13 @@ export function accessibleName(el: Element) {
 
 	if (wrapping && contentName(wrapping)) return contentName(wrapping);
 
-	if (el.getAttribute('title')?.trim()) return el.getAttribute('title')!.trim();
+	// The content before the title, as browsers compute it: a button's title is
+	// its name only when it has nothing to say for itself.
 	const content = contentName(el);
 
 	if (content) return content;
+
+	if (el.getAttribute('title')?.trim()) return el.getAttribute('title')!.trim();
 
 	if (el.tagName === 'INPUT' && el.getAttribute('placeholder')?.trim()) {
 		return el.getAttribute('placeholder')!.trim();
@@ -208,6 +228,16 @@ export function audit(root: ParentNode = document.body) {
 		if (el instanceof HTMLButtonElement && !el.disabled && el.getAttribute('tabindex') !== '-1') {
 			report(el, 'is aria-disabled but still focusable and clickable');
 		}
+	}
+
+	// 8. Every tab stop is a control. A wrapper made focusable (a tooltip's
+	//    trigger around a switch, say) is a Tab that lands on nothing a
+	//    keyboard can operate, before the control it wraps.
+	for (const el of focusable(root)) {
+		if (el instanceof HTMLInputElement) continue;
+		const role = el.getAttribute('role') ?? IMPLICIT_ROLE.get(el.tagName) ?? 'none';
+
+		if (!CONTROL_ROLES.has(role)) report(el, `is a tab stop but its role is "${role}"`);
 	}
 
 	return problems;

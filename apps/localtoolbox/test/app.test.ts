@@ -354,3 +354,47 @@ describe('the theme', () => {
 		}
 	});
 });
+
+describe('the toasts', () => {
+	const toastsModule = () => import('../src/lib/toast.svelte.ts');
+
+	const shown = () => [...document.querySelectorAll('[aria-live] > *')].map((t) => t.textContent.trim());
+
+	it('lets something that went wrong be put away by hand, and only that', async () => {
+		await mountApp();
+		const { toasts } = await toastsModule();
+		toasts.ok('copied');
+		toasts.bad('couldn’t copy');
+		await settle();
+		expect(shown()).toEqual(['copied', 'couldn’t copy']);
+		expect(document.querySelectorAll('[aria-live] button')).toHaveLength(1);
+
+		await click(document.querySelector('[aria-live] [aria-label="dismiss"]'));
+		expect(shown()).toEqual(['copied']);
+	});
+
+	it('holds one under the pointer or with focus in it, and lets it go after', async () => {
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+		await mountApp();
+		const { toasts } = await toastsModule();
+		toasts.bad('couldn’t save');
+		await settle();
+		const toast = document.querySelector('[aria-live] > *')!;
+
+		toast.dispatchEvent(new PointerEvent('pointerenter'));
+		vi.advanceTimersByTime(60_000);
+		await settle();
+		expect(shown()).toEqual(['couldn’t save']);
+		toast.dispatchEvent(new PointerEvent('pointerleave'));
+
+		toast.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+		vi.advanceTimersByTime(60_000);
+		await settle();
+		expect(shown()).toEqual(['couldn’t save']);
+
+		toast.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+		vi.advanceTimersByTime(6000);
+		await settle();
+		expect(shown()).toEqual([]);
+	});
+});

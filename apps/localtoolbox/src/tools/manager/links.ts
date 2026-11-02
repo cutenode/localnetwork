@@ -11,7 +11,7 @@
 // to be either.
 
 import { titleCase } from '$lib/title-case.ts';
-import type { ListedEntry, DetailsAnswer, LookupError } from '$lib/types';
+import type { ListedEntry, DetailsAnswer } from '$lib/types';
 
 /** One link a track offers, as a row draws it. */
 export interface LinkEntry {
@@ -291,12 +291,6 @@ export function lookupNotes({
 
 	return notes.join(' ');
 }
-
-/** The lookup failures that leave nothing to show at all. '' is no failure, and has no sentence. */
-export const LOOKUP_ERRORS: Partial<Record<LookupError, string>> = {
-	'no-client-id': 'couldn’t find SoundCloud’s API key in the page — reload the tab.',
-	unauthorized: 'SoundCloud rejected the lookups (the page’s API key has expired) — reload the tab.'
-};
 
 // ---- What a row says when it is opened --------------------------------------
 //

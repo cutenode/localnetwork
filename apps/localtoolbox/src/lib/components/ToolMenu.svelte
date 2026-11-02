@@ -28,7 +28,10 @@
 
 <div class="flex flex-col">
   <header class="flex h-13 items-center gap-1 border-b border-line px-3">
-    <h1 class="m-0 flex min-w-0 flex-1 items-center gap-2 text-emphasis font-semibold">
+    <h1
+      class="m-0 flex min-w-0 flex-1 items-center gap-2 text-emphasis font-semibold outline-none"
+      tabindex="-1"
+    >
       <span aria-hidden="true" class="flex h-4 items-center gap-0.5">
         {#each BARS as [height, colour], i (i)}
           <span class="w-0.5 rounded-[1px] {height} {colour}"></span>
