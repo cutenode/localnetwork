@@ -39,11 +39,11 @@ cargo nextest run --workspace
 
 `pnpm dev` runs the website on a local network: a PLC directory and a PDS from `@atproto/dev-env`, HappyView in Docker (so Docker or OrbStack has to be running), and demo accounts, all from `apps/web/scripts/dev-network.ts`, which writes `apps/web/.env.local`. The extension's `dev` is a watch build into `apps/localtoolbox/dist/`.
 
-`lefthook.yml` formats and lints staged files before a commit and runs each app's type check and tests before a push. Each TypeScript app and the lexicons have jobs of their own; Rust has none.
+`lefthook.yml` formats and lints staged files before a commit and runs each app's type check and tests before a push. Each TypeScript app and the lexicons have jobs of their own; Rust has none, but the ast-grep job scans staged Rust, TypeScript and Svelte files.
 
 Lint and format:
 
-- TypeScript: [oxlint](https://oxc.rs) with type-aware rules and the vendored anti-slop plugin (`tools/oxlint/`, see its `UPSTREAM.md`), configured in the root `.oxlintrc.json`, which each app's own `.oxlintrc.json` extends. [oxfmt](https://oxc.rs) formats with the root `.oxfmtrc.json` (tabs, single quotes, 120 columns). `oxlint` and `@oxlint/plugins` are pinned to the same version: upgrade them together.
+- TypeScript: [oxlint](https://oxc.rs) with type-aware rules, the vendored anti-slop plugin (`tools/oxlint/`, see its `UPSTREAM.md`; `pnpm test:tools` runs its rules' tests) and `@stylistic/eslint-plugin`'s `padding-line-between-statements` for blank lines, configured in the root `.oxlintrc.json`, which each app's own `.oxlintrc.json` extends. [oxfmt](https://oxc.rs) formats with the root `.oxfmtrc.json` (tabs, single quotes, 120 columns). `oxlint` and `@oxlint/plugins` are pinned to the same version: upgrade them together.
 - Rust: `cargo fmt` with `rustfmt.toml`, and `cargo clippy -- -D warnings`. `clippy.toml` bans `BTreeMap` (use `indexmap::IndexMap`), and the workspace uses `rustc-hash` for hash maps. Each member has `[lints] workspace = true`, so the lints in the root `Cargo.toml` apply to it.
 - `knip` finds unused files, exports and dependencies in each TypeScript app (`knip.json`).
 

@@ -22,7 +22,7 @@ plugins/              locallibrary's own plugins, each a crate on its plugin SDK
 packages/tokens/      The shared design system: colours for DJ data, and the theme the website and extension use
 packages/atstore/     Makes each tool's AT Store listing pictures and the website's tool captures (pnpm atstore)
 vendor/               Vendored Rust crates
-tools/oxlint/         The vendored anti-slop Oxlint plugin, for every TypeScript app
+tools/oxlint/         The vendored anti-slop Oxlint plugin, for every TypeScript app, and its tests (pnpm test:tools)
 ```
 
 The repo root is both the pnpm workspace and the Cargo workspace, so commands run from here.
