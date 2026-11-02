@@ -95,6 +95,14 @@ fn publish_flow(
     if p.noop {
         return Ok(unchanged(out, &p, what));
     }
+    // In its last days, signing in again is offered first.
+    if account.due_soon() {
+        warn(format!("{}: {}", account.name(), crate::account_cmd::again(&account)));
+        if !out.yes && std::io::stdin().is_terminal() && out.confirm("Sign in again now?") {
+            crate::account_cmd::sign_in_again(root, &account, &[], "publishing", browser, out, ctx)?;
+            p = plan()?;
+        }
+    }
     if p.missing_scope.is_some() {
         let signed_in = match sign_in_to_publish(Run { root, dry_run, browser, out, ctx }, &account)? {
             Ok(signed_in) => signed_in,

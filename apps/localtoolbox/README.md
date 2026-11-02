@@ -177,6 +177,8 @@ src/
     frame-height.svelte.ts  how tall a panel's frame may be: 580px, or less once
                        the popup is seen to have less room (zoomed, a short screen)
     lookup-errors.ts   what Manager and artists say when a lookup stops short
+    painting.svelte.ts which rows of a long list are in the DOM yet: a frame's
+                       worth more each frame, for the Manager and artists lists
     chrome.ts soundcloud.ts downloaded.svelte.ts prefs.svelte.ts filter.ts …
   tools/<id>/          one folder per tool: Panel.svelte and its own logic
     manager/listed.svelte.ts   the Manager's own list of tracks, kept for good
@@ -418,8 +420,10 @@ focus).
 `downloaded-store.ts` and `state-transfer.ts` stay classic scripts: they define
 page globals, which only a classic script can do, and the content script loads
 the first of them too. The build ships them as `downloaded-store.js` and
-`state-transfer.js` and injects both into `popup.html` ahead of the bundle,
-and `src/lib/globals.ts` is the one file that reaches them by name.
+`state-transfer.js`. The store goes into `popup.html` ahead of the bundle; the
+state file's script is only needed by the settings sheet, so
+`src/lib/globals.ts` adds it to the page when the sheet first opens. That file
+is the one place that reaches either of them by name.
 
 ## Tests
 
@@ -453,7 +457,7 @@ pnpm validate:state <file.json>   # check an exported state file
 Everything that is not a component — the content script, the shared classic
 scripts, and every `.ts` file under `src/` — is held to 100% of statements,
 branches, functions and lines, file by file. Components are held to 100% of
-statements and lines too, and clear a floor for branches (see
+statements, functions and lines too, and clear a floor for branches (see
 `vitest.config.ts`): Svelte compiles every value interpolated into text or an
 attribute to `value ?? ''`, and no test can take the `''` half of one whose type
 is never null, so a component's branch percentage says more about the compiler
@@ -1701,8 +1705,8 @@ failure to find one (`unavailable`), or `null` for an artist nobody has asked
 about yet; the importer refuses a profile under a track's path, as it refuses
 a track's permalink where an artist's belongs.
 
-The extension ships no dependencies, so `state-transfer.ts` enforces that
-schema by hand rather than running a validator in the browser. The two are
+`state-transfer.ts` is a classic script, which cannot import a validator, so
+it enforces that schema by hand rather than running one in the browser. The two are
 kept in step by `test/state-schema.test.ts`, which feeds the same documents
 to Ajv and to the importer and requires the same verdict from each. There are
 two deliberate asymmetries, each pinned down by its own test: JSON Schema
@@ -1844,9 +1848,13 @@ The panel used to await the lookup and show a spinner in place of the list
 until it finished, which on a scrolled playlist was several seconds of an
 empty popup. What is left is the shell in about ten milliseconds and the list
 as fast as storage answers — and a long list is painted
-a screenful at a time (sixty rows on the first frame, two hundred on each one
-after) because five hundred rows are the best part of a second of DOM work
-and the popup shows eight of them.
+a screenful at a time (sixty rows on the first frame, forty on each one
+after, `$lib/painting.svelte.ts`) because five hundred rows are the best part
+of a second of DOM work and the popup shows eight of them. Rows a search hid
+come back the same way when it is deleted, beside the rows that stayed, so
+the Backspace that brings back three hundred tracks mounts forty of them
+rather than all three hundred in one go. The artists list is painted the same
+way.
 
 **Four at a time** is what the lookup costs in wall clock. These requests are
 round trips and nothing else — SoundCloud answers one in half a second on a

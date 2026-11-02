@@ -16,6 +16,7 @@ const env = {
 	DEV_DB_PATH: 'data/lighthouse.db',
 	DEV_ENV_FILE: '',
 	GEOCODER: 'none',
+	ACTOR_SEARCH: 'none',
 	LOG_LEVEL: 'warn'
 };
 

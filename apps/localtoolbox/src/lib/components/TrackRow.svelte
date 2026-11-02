@@ -44,8 +44,8 @@
     selectable?: boolean;
     /** Whether this row is ticked. */
     selected?: boolean;
-    /** Called with the click event when the tick box is clicked. */
-    onselect?: ClickHandler;
+    /** Called when the tick box is clicked or pressed with Space; `extend` if Shift was held. */
+    onselect?: ((extend: boolean) => void) | null;
     /** Called with the click event when the artwork is clicked. */
     onartwork?: ClickHandler;
     /** What the artwork button is doing. */
@@ -79,6 +79,13 @@
     actions,
     details = null,
   }: Props = $props();
+
+  // Whether the click or key that is about to tick the box held Shift. The
+  // box's own handler, which does the ticking, runs after these and is not
+  // handed the event.
+  let extend = false;
+
+  const held = (event: MouseEvent | KeyboardEvent) => (extend = event.shiftKey);
 </script>
 
 <li
@@ -94,15 +101,17 @@
 >
   <div class="flex items-center gap-2.5">
     {#if selectable}
-      <!-- The tick box shows what the panel's selection says, and every click on
-           it is the panel's to interpret (a Shift-click takes in a run of rows),
-           so the binding's setter is deliberately empty: the box cannot tick
-           itself. -->
+      <!-- The tick box shows what the panel's selection says, and every tick is
+           the panel's to interpret (Shift takes in a run of rows), so the
+           binding's setter hands it over rather than ticking the box. The
+           setter is the one path both a click and Space take: Chrome makes no
+           click of a Space the box has already handled. -->
       <Checkbox
         class="ml-0.5 shrink-0"
-        bind:checked={() => selected, () => {}}
+        bind:checked={() => selected, () => onselect?.(extend)}
         aria-label={`select ${title}`}
-        onclick={onselect}
+        onclick={held}
+        onkeydown={held}
       />
     {/if}
 

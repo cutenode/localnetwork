@@ -10404,7 +10404,7 @@
             "string",
             "null"
           ],
-          "description": "`club`, `festival`, `radio`, `livestream`, `mix`, or another word.",
+          "description": "`club`, `festival`, `radio`, `livestream`, `studio`, or another word.",
           "default": null
         },
         "venue": {
@@ -10526,7 +10526,7 @@
             "string",
             "null"
           ],
-          "description": "`club`, `festival`, `radio`, `livestream`, `mix`, or another word.",
+          "description": "`club`, `festival`, `radio`, `livestream`, `studio`, or another word.",
           "default": null
         },
         "venue": {
@@ -20851,6 +20851,12 @@
           "description": "The player's preferences ([`PlayerPrefs`]): its theme, columns, sort, visualiser and\nplayback modes.",
           "default": {}
         },
+        "mix": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "What's set for identifying mixes ([`MixPrefs`]): the largest fingerprint index kept.",
+          "default": {}
+        },
         "plugin_host": {
           "type": "object",
           "additionalProperties": true,
@@ -20870,6 +20876,7 @@
         "players",
         "profile",
         "player",
+        "mix",
         "plugin_host",
         "plugins"
       ],
@@ -26330,7 +26337,7 @@
             "string",
             "null"
           ],
-          "description": "`club`, `festival`, `radio`, `livestream`, `mix` (the Lexicon's `knownValues`) or the DJ's\nown word."
+          "description": "`club`, `festival`, `radio`, `livestream`, `studio` (`mix` in older sets), the Lexicon's\n`knownValues`, or the DJ's own word."
         },
         "venue": {
           "type": [
@@ -27373,6 +27380,13 @@
           "maxItems": 2,
           "description": "The slowest and fastest speeds it was played at, when the pitch fader was ridden during it\n(see [`matcher::Found::speed_range`]); `tempo` is then their average."
         },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlayLine"
+          },
+          "description": "Where it was heard at each speed and from which part of the track, in mix order: one line\nfor a steady play, more for a ride or a loop or cue jump. Reports made before these were\nkept have none."
+        },
         "played_bpm": {
           "type": [
             "number",
@@ -27463,6 +27477,32 @@
         "alternates"
       ],
       "description": "One track heard in the mix."
+    },
+    "PlayLine": {
+      "type": "object",
+      "properties": {
+        "start": {
+          "type": "number",
+          "format": "double",
+          "description": "Seconds into the mix."
+        },
+        "track_start": {
+          "type": "number",
+          "format": "double",
+          "description": "Seconds into the track at `start`."
+        },
+        "tempo": {
+          "type": "number",
+          "format": "double",
+          "description": "Playback speed: 1.0 as recorded."
+        }
+      },
+      "required": [
+        "start",
+        "track_start",
+        "tempo"
+      ],
+      "description": "A stretch of a [`Play`] at one speed, from `start` until the next line's."
     },
     "Alternate": {
       "type": "object",
@@ -31210,6 +31250,14 @@
           "type": "boolean",
           "description": "It's refreshed without signing in again."
         },
+        "signs_out": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "When it signs itself out, when it does: as its access token expires when it isn't\nrefreshed, else as its refresh token runs out, when the service said. Front ends warn\nwithin [`crate::plugin::WARN_DAYS`] of it."
+        },
         "signed_in": {
           "type": "boolean",
           "description": "Its tokens are kept (the keychain may have lost them)."
@@ -31264,7 +31312,7 @@
           "items": {
             "type": "string"
           },
-          "description": "The scopes (by name) a sign-in for it asked the service for, which didn't grant all they\nask, until it's given them again. Those it needs are in `scopes` too, and still can't be\nused."
+          "description": "The scopes (by name) the user declined when the plugin asked for them, or a sign-in for it\nasked the service for and the service didn't grant all they ask, until it's given them\nagain: the plugin isn't asked about them till then. Those it needs are in `scopes` too, and\nstill can't be used."
         }
       },
       "required": [
@@ -31347,6 +31395,14 @@
           "type": "boolean",
           "description": "It's refreshed without signing in again."
         },
+        "signs_out": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "When it signs itself out, when it does: as its access token expires when it isn't\nrefreshed, else as its refresh token runs out, when the service said. Front ends warn\nwithin [`crate::plugin::WARN_DAYS`] of it."
+        },
         "signed_in": {
           "type": "boolean",
           "description": "Its tokens are kept (the keychain may have lost them)."
@@ -31424,6 +31480,14 @@
         "refreshes": {
           "type": "boolean",
           "description": "It's refreshed without signing in again."
+        },
+        "signs_out": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "When it signs itself out, when it does: as its access token expires when it isn't\nrefreshed, else as its refresh token runs out, when the service said. Front ends warn\nwithin [`crate::plugin::WARN_DAYS`] of it."
         },
         "signed_in": {
           "type": "boolean",

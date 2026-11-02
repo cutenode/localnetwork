@@ -1,10 +1,12 @@
 //! `locallibrary account`: the accounts the store keeps. With no arguments, the DJ account (an
 //! Atmosphere account, see [`atmosphere`]) then every other; `account TYPE sign-in` signs in to
 //! one through an account plugin, and `account TYPE:NAME status|sign-out` shows one or signs out
-//! of it (see [`accounts`]). [`access`] gives plugins access to them.
+//! of it (see [`accounts`]). [`access`] gives plugins access to them, and [`asking`] asks in the
+//! terminal when a plugin wants more of one.
 
 pub mod access;
 mod accounts;
+pub mod asking;
 #[cfg(feature = "account")]
 mod atmosphere;
 
@@ -19,8 +21,10 @@ use locallibrary::plugin::Accounts;
 use locallibrary::progress::Ctx;
 use serde::Serialize;
 
+#[cfg(feature = "tui")]
+pub use accounts::signing_out;
 #[cfg(feature = "account")]
-pub use atmosphere::sign_in_again;
+pub use atmosphere::{again, sign_in_again};
 
 use crate::output::Output;
 use crate::plugins;
