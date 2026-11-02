@@ -112,16 +112,14 @@
   // once (view.svelte.js), so following the position as it moves costs a small
   // write per frame of actual scrolling. While a restore is still going, the
   // only position it does not record is the one the restore itself put there.
-  function onscroll() {
-    if (!body) return;
-
+  function onscroll({ currentTarget }: { currentTarget: HTMLElement }) {
     if (restoring) {
-      if (body.scrollTop === placed) return;
+      if (currentTarget.scrollTop === placed) return;
       restoring = false;
       done?.();
     }
 
-    scrolled.value = body.scrollTop;
+    scrolled.value = currentTarget.scrollTop;
   }
 </script>
 

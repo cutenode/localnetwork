@@ -525,9 +525,11 @@
           <span>looking up socials…</span>
           <span class="font-mono">{progress.done} / {progress.total}</span>
         </div>
+        <!-- The total is never 0: the page only reports on a lookup that has
+             artists to look up (content.ts). -->
         <Progress
           value={progress.done}
-          max={progress.total || 1}
+          max={progress.total}
           class="h-1"
           aria-label="looking up socials"
           aria-valuetext={`${progress.done} of ${progress.total}`}
@@ -640,9 +642,7 @@
                     </Select.Trigger>
                     <Select.Content>
                       {#each SORTS as option (option.value)}
-                        <Select.Item value={option.value} label={option.label}>
-                          {option.label}
-                        </Select.Item>
+                        <Select.Item value={option.value} label={option.label} />
                       {/each}
                     </Select.Content>
                   </Select.Root>

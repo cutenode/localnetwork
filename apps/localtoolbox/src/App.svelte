@@ -108,11 +108,9 @@
 
     if (!opening || loaded === opening.id) return;
     opening.warm?.();
-    const chunk = loadPanel(opening.id);
-
-    if (!chunk) return;
     void arrive(
-      chunk,
+      // A tool from the registry always has a chunk; only an unknown id has none.
+      loadPanel(opening.id)!,
       (component) => {
         Panel = component;
         loaded = opening.id;

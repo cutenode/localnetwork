@@ -491,9 +491,9 @@
   // --- running ---------------------------------------------------------------
 
   async function run(pending: Row[]) {
+    // Never empty, and never while a run is going: both buttons that start one
+    // are off until there is something left to walk and nothing walking.
     const todo = pending.filter((row) => !settled(row));
-
-    if (running || todo.length === 0) return;
 
     running = true;
     // A trip that needed a person needed one for the account, not for the gate
