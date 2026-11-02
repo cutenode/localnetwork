@@ -21,7 +21,7 @@ export const CAN: { text: string; covers: string[] }[] = [
 	},
 	{ text: 'Upload photos and tracklists', covers: ['blob'] },
 	{
-		text: 'Keep your inquiries, requests, drafts and planner private',
+		text: 'Keep your inquiries, requests, drafts and planner where only the people involved can read them',
 		covers: [
 			'computer.localnetwork.space.performer',
 			'computer.localnetwork.space.booking',
