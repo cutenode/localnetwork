@@ -102,7 +102,7 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 | Managers' Bluesky follows (`app.bsky.graph.follow`)                       | The manager's public repo                                         | The manager, in any Bluesky app      | The app, via HappyView  |
 | The bug report space (`app.userinput.space`)                              | Its owner's public repo on userinput.app                          | userinput.app                        | The app, via HappyView  |
 
-Space policies (`com.atproto.simplespace`):
+Space policies (every space is a `com.atproto.memberspace.policy` with `publicRead: false`; a public write policy is `publicWrite: true`):
 
 | Space                   | Read policy                       | Write policy                                |
 | ----------------------- | --------------------------------- | ------------------------------------------- |
