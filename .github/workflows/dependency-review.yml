@@ -98,6 +98,8 @@ jobs:
           # Keep the two in step. OFL-1.1 is added for the website's fonts (@fontsource-variable),
           # which no Rust crate ships, and MITNFA for bowser, which the bug reports read the
           # browser with: MIT, plus a clause that a changed copy can't claim its authors made it.
+          # BlueOak-1.0.0 is for lru-cache, which keeps the link preview cards in memory: a
+          # permissive licence like MIT, with a patent grant.
           allow-licenses: >-
             0BSD,
             Apache-2.0,
@@ -115,7 +117,8 @@ jobs:
             Unlicense,
             Zlib,
             OFL-1.1,
-            MITNFA
+            MITNFA,
+            BlueOak-1.0.0
           # rust-cache is LGPL-3.0. It runs in CI and nothing it contains ships with the tools.
           # sharp's prebuilt libvips (@img/sharp-libvips-*, and bundled in the win32 and wasm32
           # builds) is LGPL-3.0-or-later. sharp loads it as an unmodified shared library, and the
