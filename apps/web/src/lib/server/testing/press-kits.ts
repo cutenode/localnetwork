@@ -3,6 +3,7 @@ import { ACCESS_PRESETS, type EpkAccess, type EpkFields, type EpkPhoto, type Epk
 import { COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import type { ProjectView } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
+import { memberSpacePolicy } from '../atproto/repo-client';
 import { toJson } from '../services/epk-fields';
 import { createTestServices, ROOT } from './core';
 
@@ -95,9 +96,7 @@ export async function pressKitServices() {
 			const space = await client.createSpace({
 				spaceType: SPACE_TYPE.epk,
 				skey: rkey,
-				readPolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
-				writePolicy: { $type: 'com.atproto.simplespace.defs#publicPolicy' },
-				appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+				policy: memberSpacePolicy({ publicWrite: true })
 			});
 
 			await client.putMember({ space, did: ROOT, read: true, write: true });

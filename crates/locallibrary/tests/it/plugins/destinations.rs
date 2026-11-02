@@ -10,6 +10,7 @@ use hegel::generators as gs;
 use locallibrary::api::{self, RepairRequest, VerifyRequest};
 use locallibrary::catalog::LibraryOutcome;
 use locallibrary::device::Device;
+use locallibrary::error::Reason;
 use locallibrary::hash::Hash;
 use locallibrary::offsite::{self, CopyOptions, RestoreOptions};
 use locallibrary::op::AnyPlanned;
@@ -20,6 +21,7 @@ use locallibrary::sets::{Recording, Set, SetBook, SetEntry};
 use locallibrary::sync::{self, PullOptions};
 use loclib_plugin::StrongRef;
 
+use super::shared_accounts::{WITH, asking, mock_for, who};
 use super::*;
 
 impl Fixture {
@@ -641,6 +643,149 @@ fn a_set_is_published_as_its_dry_run_said(tc: TestCase) {
         None => (before.0, None),
     };
     assert_eq!(now(), (kept.0, kept.1, record), "the host keeps where it's published, and the record");
+}
+
+/// How long the mock service's tokens last in
+/// [`a_destination_starts_only_when_its_accounts_will_last`].
+#[derive(Debug, Clone, Copy)]
+enum Lasting {
+    /// An hour, then they're refreshed.
+    Refreshed,
+    /// Two hours, with nothing to refresh them with.
+    TwoHours,
+    /// Half an hour, with nothing to refresh them with.
+    HalfAnHour,
+    /// Until they're revoked.
+    Ever,
+}
+
+/// What's wrong with echo's access to the account in
+/// [`a_destination_starts_only_when_its_accounts_will_last`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Mistake {
+    /// The account is signed out.
+    SignedOut,
+    /// The account's tokens are lost.
+    Lost,
+    /// The access lacks a scope echo needs now.
+    Ungiven,
+}
+
+/// For echo needing any of the mock type's `read` and `write`, an account signed in for it or not,
+/// the service granting any of what they ask, its tokens refreshed or lasting two hours, half an
+/// hour or until they're revoked, and the account then signed out, its tokens lost or echo's access
+/// lacking a scope it needs, or none of these: echo's store destination, and publishing a set with
+/// a recording small or a gigabyte big (which takes over two hours to send at the slowest), start
+/// only when echo has a default access to an account signed in, with every scope it needs, each
+/// granted what it asks, and staying signed in for an hour besides sending the recording when it
+/// isn't refreshed; otherwise each fails as `account` (`no_access`, `not_signed_in`,
+/// `missing_scope`), offering to sign in again as the account once echo has access, and echo is
+/// never asked. Publishing checks again before it's applied: a plan whose account was signed out
+/// since is refused, and echo isn't asked to publish.
+#[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(
+    needs = vec!["read"],
+    lasting = Lasting::TwoHours,
+    grants = vec!["read"],
+    given = true,
+    mistake = Option::<Mistake>::None,
+    publishing = true,
+    big = false,
+    later = true
+)]
+fn a_destination_starts_only_when_its_accounts_will_last(tc: TestCase) {
+    let some = vec![vec![], vec!["read"], vec!["write"], vec!["read", "write"]];
+    let needs: Vec<&str> = tc.draw(gs::sampled_from(some[1..].to_vec()));
+    let m = mock_for(3600, "/userinfo", "", &asking(&needs, &[]));
+    let lasting =
+        tc.draw(gs::sampled_from(vec![Lasting::Refreshed, Lasting::TwoHours, Lasting::HalfAnHour, Lasting::Ever]));
+    let grants: Vec<&str> = tc.draw(gs::sampled_from(some));
+    {
+        let mut s = m.state.lock().unwrap();
+        s.refreshless = !matches!(lasting, Lasting::Refreshed);
+        s.expires_in = match lasting {
+            Lasting::Refreshed => Some(3600),
+            Lasting::TwoHours => Some(7200),
+            Lasting::HalfAnHour => Some(1800),
+            Lasting::Ever => None,
+        };
+        s.grants = Some(grants.iter().map(|g| g.to_string()).collect());
+    }
+    let given = tc.draw(gs::booleans());
+    m.sign_in_for(given.then_some("echo"), who(json!("a"), None), None, &[]).0.unwrap();
+    let mistake =
+        tc.draw(gs::sampled_from(vec![None, Some(Mistake::SignedOut), Some(Mistake::Lost), Some(Mistake::Ungiven)]));
+    let store = &m.f.store;
+    match mistake {
+        Some(Mistake::SignedOut) => drop(m.f.plugins.sign_out_account(WITH, "a", store).unwrap()),
+        Some(Mistake::Lost) => std::fs::remove_file(store.root().join("secrets/accounts.json")).unwrap(),
+        Some(Mistake::Ungiven) if given => {
+            let file = store.root().join("accounts.json");
+            let mut kept: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+            kept["accesses"][0]["scopes"] = json!(needs[1..]);
+            std::fs::write(&file, kept.to_string()).unwrap();
+        }
+        _ => {}
+    }
+    let publishing = tc.draw(gs::booleans());
+    let big = tc.draw(gs::booleans());
+    let big = big && publishing;
+
+    let recording = store.root().join("friday.wav");
+    std::fs::File::create(&recording).unwrap().set_len(if big { 1 << 30 } else { 4 }).unwrap();
+    let s = Set {
+        id: "3m4nset0000000".into(),
+        title: Some("Friday".into()),
+        date: NaiveDate::from_ymd_opt(2026, 10, 2).unwrap(),
+        recording: Some(Recording { path: recording.clone(), report: None }),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        ..Set::default()
+    };
+    SetBook { sets: vec![s], ..SetBook::default() }.save(store).unwrap();
+
+    let asks = |scope: &str| if scope == "write" { vec!["write", "read"] } else { vec!["read"] };
+    let granted = needs.iter().all(|n| asks(n).iter().all(|a| grants.contains(a)));
+    let lasts = match lasting {
+        Lasting::Refreshed | Lasting::Ever => true,
+        Lasting::TwoHours => !big,
+        Lasting::HalfAnHour => false,
+    };
+    let expected = match mistake {
+        _ if !given => Some(Reason::NoAccess),
+        Some(Mistake::SignedOut | Mistake::Lost) => Some(Reason::NotSignedIn),
+        Some(Mistake::Ungiven) => Some(Reason::MissingScope),
+        None if !granted => Some(Reason::MissingScope),
+        None if !lasts => Some(Reason::NotSignedIn),
+        None => None,
+    };
+    let asked = || std::fs::read_to_string(Fixture::kept(store).with_file_name("asked")).unwrap_or_default();
+    let started = match publishing {
+        true => m.f.plugins.publish_plan("echo:nowhere", "last", &[], store, &Ctx::silent()).map(Some),
+        false => m.f.plugins.store_destination("echo:folder", Some(store)).map(|_| None),
+    };
+    let said = format!("{lasting:?} {mistake:?} given {given} needs {needs:?} grants {grants:?} big {big}");
+    let Some(reason) = expected else {
+        let Some(plan) = started.unwrap() else { return };
+        assert_eq!(asked().lines().count(), 1, "{said}: the dry run");
+        let later = tc.draw(gs::booleans());
+        if later {
+            m.f.plugins.sign_out_account(WITH, "a", store).unwrap();
+        }
+        let done = plan.apply(Some(store), &Ctx::silent());
+        assert_eq!(done.is_ok(), !later, "{said}");
+        if later {
+            assert_eq!(done.unwrap_err().reason(), Some(Reason::NotSignedIn), "{said}");
+            assert_eq!(asked().lines().count(), 1, "{said}: asked to publish");
+        }
+        return;
+    };
+    let e = started.err().unwrap();
+    assert_eq!((e.code(), e.reason()), ("account", Some(reason)), "{said}: {e}");
+    assert!(asked().is_empty(), "{said}: echo was asked");
+    let actions = e.detail().actions;
+    let again = actions.first().is_some_and(|a| a.params.get("account") == Some(&json!("a")));
+    assert_eq!(again, given, "{said}: {actions:?}");
 }
 
 /// A step of [`a_store_copied_through_a_plugin_comes_back_as_it_was_last_copied`].

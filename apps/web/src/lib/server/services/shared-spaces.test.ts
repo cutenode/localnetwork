@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
+import { memberSpacePolicy } from '../atproto/repo-client';
 import { FakeRootClient } from '../testing/fakes';
 import { createTestServices, ROOT } from '../testing/core';
 import { ForbiddenError, NotFoundError, UserError } from '../core';
@@ -49,13 +50,9 @@ describe('SharedSpaces', () => {
 
 	it('starts a space only its people read and write, with its creator in it holding every capability of its kind', async () => {
 		const space = await t.sharedSpaces.create(await t.viewer(ADA), 'performer');
-		const config = t.net.spaces.get(space)!;
 
 		expect(space).toMatch(/^at:\/\/did:plc:root\/space\/computer\.localnetwork\.space\.performer\//);
-		expect([config.readPolicy.$type, config.writePolicy.$type]).toEqual([
-			'com.atproto.simplespace.defs#memberListPolicy',
-			'com.atproto.simplespace.defs#memberListPolicy'
-		]);
+		expect(t.net.spaces.get(space)?.policy).toEqual(memberSpacePolicy());
 		expect(access(space)).toEqual({ [ADA]: readWrite });
 		expect(person(space, ADA)).toMatchObject({ subject: ADA, role: 'member', hidden: false, via: 'created' });
 		expect(await t.sharedSpaces.get(space)).toMatchObject({ kind: 'performer', listed: false, createdBy: ADA });

@@ -197,8 +197,7 @@ fn refused(answer: &Fetched, what: &str) -> RpcError {
     let words = words.map(|w| w.trim().to_string()).find(|w| !w.is_empty());
     let words = words.map_or(status.to_string(), |w| format!("{status}: {w}"));
     let (kind, why) = match status {
-        401 => ("permission", "sign in again: locallibrary account soundcloud sign-in --for soundcloud"),
-        403 => ("permission", ""),
+        401 | 403 => ("permission", ""),
         413 => ("invalid", "the recording is bigger than SoundCloud takes"),
         429 => ("external", "SoundCloud is taking too many requests"),
         400..=499 => ("invalid", ""),
