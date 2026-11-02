@@ -1,5 +1,6 @@
 import adapter from '@sveltejs/adapter-node';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
+import { enhancedImages } from '@sveltejs/enhanced-img';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { playwright } from '@vitest/browser-playwright';
@@ -32,6 +33,8 @@ const isSmall = (id: string, ctx: Rolldown.ChunkingContext, seen = new Set<strin
 export default defineConfig({
 	plugins: [
 		tailwindcss(),
+		// `?enhanced` images: AVIF and WebP at each width, with their size set so nothing shifts as they load.
+		enhancedImages(),
 		sveltekit({
 			adapter: adapter({ precompress: true }),
 			compilerOptions: {
@@ -89,7 +92,8 @@ export default defineConfig({
 								{
 									name: (id, ctx) =>
 										ctx.getModuleInfo(id)?.importedIds.every((dep) => isSmall(dep, ctx)) ? 'shared' : null,
-									test: /[\\/]src[\\/]lib[\\/]|@lucide/,
+									// Not the Tools pages' own components: only those pages load them, and every page loads this.
+									test: /[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|GuideList\.svelte))|@lucide/,
 									minShareCount: 2,
 									maxModuleSize: SHARED_MODULE_SIZE
 								}

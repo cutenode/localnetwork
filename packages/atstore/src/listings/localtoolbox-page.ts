@@ -150,11 +150,12 @@ type Change = { oldValue?: Json; newValue: Json };
 type ChangeListener = (changes: Record<string, Change>, area: string) => void;
 
 /**
- * The chrome.* the popup uses, in memory: storage areas that notify onChanged as Chrome's do,
- * the active tab, and a content script that answers from `page`. Runs in the page, so it can use
- * nothing from outside it (types aside, which are gone by then).
+ * The chrome.* the popup and the content script use, in memory: storage areas that notify
+ * onChanged as Chrome's do (`local` holding `page.local` to begin with), the active tab, and a
+ * content script that answers from `page`. Runs in the page, so it can use nothing from outside it
+ * (types aside, which are gone by then).
  */
-export function installChrome(page: typeof PAGE) {
+export function installChrome(page: typeof PAGE & { local?: Record<string, Json> }) {
 	const event = <Listener>(list: Listener[]) => ({
 		addListener: (listener: Listener) => void list.push(listener),
 		removeListener: (listener: Listener) => void list.splice(list.indexOf(listener) >>> 0, 1)
@@ -162,8 +163,8 @@ export function installChrome(page: typeof PAGE) {
 
 	const changed: ChangeListener[] = [];
 
-	const area = (name: string) => {
-		const data: Record<string, Json> = {};
+	const area = (name: string, held: Record<string, Json> = {}) => {
+		const data: Record<string, Json> = structuredClone(held);
 
 		return {
 			/** The keys asked for that it holds, or everything for none. */
@@ -191,7 +192,7 @@ export function installChrome(page: typeof PAGE) {
 	const answers = new Map(Object.entries(page.answers));
 
 	const chrome = {
-		storage: { local: area('local'), session: area('session'), onChanged: event(changed) },
+		storage: { local: area('local', page.local), session: area('session'), onChanged: event(changed) },
 		runtime: { id: 'localtoolbox', onMessage: event<() => void>([]), sendMessage: async () => undefined },
 		tabs: {
 			query: async () => [page.tab],

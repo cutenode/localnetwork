@@ -2,30 +2,8 @@
 
 ## Install
 
-Each [GitHub Release](https://github.com/cutenode/localnetwork/releases) has `locallibrary` for
-macOS (Apple silicon and Intel), Linux (x86_64) and Windows (x86_64), and installers for it. The
-Linux and Windows builds are experimental and untested on hardware (see [Platforms](#platforms)).
-There hasn't been a release yet (see [Releasing](../CONTRIBUTING.md#releasing)); until then, build
-from source.
-
-```bash
-# macOS and Linux
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/cutenode/localnetwork/releases/latest/download/locallibrary-cli-installer.sh | sh
-
-# Homebrew
-brew install cutenode/tap/locallibrary
-```
-
-```powershell
-# Windows
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/cutenode/localnetwork/releases/latest/download/locallibrary-cli-installer.ps1 | iex"
-```
-
-The shell and PowerShell installers put `locallibrary` in `~/.cargo/bin` (`%USERPROFILE%\.cargo\bin`
-on Windows). The Linux build needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12) and ALSA's library
-(`libasound2`, which desktops already have) for the player's audio.
-
-From source, with Rust 1.91 or newer, in a clone of the repository:
+There hasn't been a release yet (see [Releasing](../CONTRIBUTING.md#releasing)), so for now you
+build it from source, with Rust 1.91 or newer, in a clone of the repository:
 
 ```bash
 cargo install --path apps/locallibrary --locked
@@ -59,6 +37,29 @@ cargo install --path apps/locallibrary --locked --no-default-features --features
 ```
 
 The library (`crates/locallibrary` at the repository root) has the `account` and `peers` features too, on by default.
+
+### Once there's a release
+
+Each [GitHub Release](https://github.com/cutenode/localnetwork/releases) will have `locallibrary` for
+macOS (Apple silicon and Intel), Linux (x86_64) and Windows (x86_64), and installers for it. The
+Linux and Windows builds are experimental and untested on hardware (see [Platforms](#platforms)).
+
+```bash
+# macOS and Linux
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/cutenode/localnetwork/releases/latest/download/locallibrary-cli-installer.sh | sh
+
+# Homebrew
+brew install cutenode/tap/locallibrary
+```
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/cutenode/localnetwork/releases/latest/download/locallibrary-cli-installer.ps1 | iex"
+```
+
+The shell and PowerShell installers put `locallibrary` in `~/.cargo/bin` (`%USERPROFILE%\.cargo\bin`
+on Windows). The Linux build needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12) and ALSA's library
+(`libasound2`, which desktops already have) for the player's audio.
 
 ### Shell completion and man pages
 Tab completes commands and flags, and also the drives mounted now, their playlist paths, My Tags and
