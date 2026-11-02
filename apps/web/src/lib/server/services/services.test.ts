@@ -352,6 +352,53 @@ describe('services', () => {
 			expect(decision?.value).toMatchObject({ outcome: 'approved', decidedBy: MOD, requester: DJ });
 		});
 
+		it("refuses to approve an avatar of a type the site won't serve, whatever its case", async () => {
+			const dj = await t.viewer(DJ);
+			const mod = await t.viewer(MOD);
+			const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>');
+
+			// Another client can write a request record the site's form would have refused.
+			const request = await t.requests.submit({
+				actor: dj,
+				kind: 'create',
+				profile: profile('Vector'),
+				avatar: { bytes: svg, mimeType: 'image/svg+xml' }
+			});
+
+			await expect(t.requests.decide({ actor: mod, uri: request.uri, outcome: 'approved' })).rejects.toThrow(
+				new UserError(
+					"Their avatar is image/svg+xml, which the site can't show. Ask for changes so they can upload a PNG, JPEG, or WebP image"
+				)
+			);
+			expect((await t.requests.get(request.uri))?.status).toBe('pending');
+			expect(await t.projects.bySlug('vector')).toBeNull();
+
+			const shouting = await t.requests.submit({
+				actor: await t.viewer(PROMOTER),
+				kind: 'create',
+				profile: profile('Loud'),
+				avatar: { bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1]), mimeType: 'IMAGE/PNG' }
+			});
+
+			await t.requests.decide({ actor: mod, uri: shouting.uri, outcome: 'approved' });
+			expect((await t.projects.bySlug('loud'))?.avatarUrl).toMatch(/^\/media\/did:plc:root\//);
+		});
+
+		it("publishes without the avatar when the requester's PDS can't serve it", async () => {
+			const request = await t.requests.submit({
+				actor: await t.viewer(DJ),
+				kind: 'create',
+				profile: profile('Gone'),
+				avatar: { bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 2]), mimeType: 'image/png' }
+			});
+
+			t.net.blobs.delete(request.record.profile!.avatar!.ref.$link);
+			await t.requests.decide({ actor: await t.viewer(MOD), uri: request.uri, outcome: 'approved' });
+			const project = await t.projects.bySlug('gone');
+			expect(project?.profile.name).toBe('Gone');
+			expect(project?.profile.avatar).toBeUndefined();
+		});
+
 		it('copies proposed tracklists on approval and keeps published files on updates', async () => {
 			const dj = await t.viewer(DJ);
 			const mod = await t.viewer(MOD);

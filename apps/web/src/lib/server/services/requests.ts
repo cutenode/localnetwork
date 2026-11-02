@@ -24,6 +24,7 @@ import { parseSpaceRecordUri } from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 import type { RequestRow } from '../db/schema';
+import { AVATAR_TYPES } from '../images';
 import { diff } from './diff';
 import type { DjListings } from './dj-listings';
 import type { ProfileService } from './profiles';
@@ -645,6 +646,8 @@ export class RequestService {
 	/**
 	 * Moves an avatar the requester uploaded to their own PDS into the root
 	 * account's repo, so the published record references a blob root hosts.
+	 * Refuses a type /media won't serve: the site's form checks it, but any
+	 * client can write the request record.
 	 */
 	private async copyAvatar(profile: ProjectProfile, repoDid: string): Promise<ProjectProfile> {
 		const avatar = profile.avatar;
@@ -665,11 +668,21 @@ export class RequestService {
 				avatar.ref.$link
 			);
 
+			const type = mimeType || avatar.mimeType;
+
+			// MIME types match whatever their case, as /media compares them.
+			if (!AVATAR_TYPES.has(type.toLowerCase())) {
+				throw new UserError(
+					`Their avatar is ${type}, which the site can't show. Ask for changes so they can upload a PNG, JPEG, or WebP image`
+				);
+			}
+
 			const root = await this.core.root();
-			const blob = await root.uploadBlob(bytes, mimeType || avatar.mimeType);
+			const blob = await root.uploadBlob(bytes, type);
 
 			return { ...profile, avatar: blob };
 		} catch (error) {
+			if (error instanceof UserError) throw error;
 			this.core.logger.warn({ err: error, repoDid }, 'could not copy avatar; publishing without it');
 			const { avatar: _dropped, ...rest } = profile;
 
