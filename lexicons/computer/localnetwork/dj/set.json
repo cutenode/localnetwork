@@ -22,7 +22,7 @@
 						"type": "string",
 						"maxLength": 640,
 						"maxGraphemes": 64,
-						"description": "What sort of set it was. club and festival: played to a crowd. radio: on air. livestream: streamed as it was played. mix: recorded to be listened to later.",
+						"description": "What sort of set it was. club and festival: played to a crowd. radio: on air. livestream: streamed as it was played. studio: recorded at home or in a studio, to be listened to later (older records say mix).",
 						"knownValues": ["club", "festival", "radio", "livestream", "mix"]
 					},
 					"venue": {
