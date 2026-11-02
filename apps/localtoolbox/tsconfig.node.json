@@ -1,7 +1,7 @@
 {
 	"extends": "./tsconfig.json",
 	"compilerOptions": {
-		"types": ["node", "chrome"]
+		"types": ["node", "chrome", "user-agent-data-types"]
 	},
 	"include": ["*.config.ts", "scripts/**/*.mts", "test/**/*.ts", "test/**/*.svelte", "src/**/*.d.ts"]
 }

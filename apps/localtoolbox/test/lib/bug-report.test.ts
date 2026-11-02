@@ -2,7 +2,7 @@
 //
 // The form is read here as GitHub reads it, so a field renamed or an option
 // reworded there fails this rather than leaving the link filling in nothing.
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, onTestFinished } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse } from 'yaml';
@@ -26,11 +26,32 @@ const PARTS = FORM.body.find((field) => field.id === 'tool')!.attributes.options
 
 const MANIFEST_VERSION = manifest.version;
 
-const CHROME_MAC =
-	'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) ' +
-	'Chrome/141.0.7390.65 Safari/537.36';
+// What Chrome 141 on a Mac puts in navigator.userAgentData, made-up brand and all.
+const CHROME_MAC: NavigatorUAData = {
+	brands: [
+		{ brand: 'Google Chrome', version: '141' },
+		{ brand: 'Not?A_Brand', version: '8' },
+		{ brand: 'Chromium', version: '141' }
+	],
+	mobile: false,
+	platform: 'macOS',
+	getHighEntropyValues: () => Promise.resolve({}),
+	toJSON: () => ({ brands: [], mobile: false, platform: '' })
+};
 
-const useAgent = (userAgent: string) => vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(userAgent);
+const agent = (brands: [string, string][], platform = ''): NavigatorUAData => ({
+	...CHROME_MAC,
+	brands: brands.map(([brand, version]) => ({ brand, version })),
+	platform
+});
+
+// jsdom has no userAgentData, as no browser but Chromium's does.
+const useAgent = (data: NavigatorUAData | undefined) => {
+	Object.defineProperty(navigator, 'userAgentData', { value: data, configurable: true });
+	onTestFinished(() => {
+		Reflect.deleteProperty(navigator, 'userAgentData');
+	});
+};
 
 const fieldsOf = (href: string) => {
 	const url = new URL(href);
@@ -55,17 +76,44 @@ describe('the version', () => {
 });
 
 describe('the browser', () => {
-	it('is the name, the major version and the OS, without the OS version Chrome freezes', () => {
+	it('is the name, the major version and the OS', () => {
 		expect(browserLabel(CHROME_MAC)).toBe('Chrome 141, macOS');
 	});
 
-	it('says nothing about an agent that names no browser', () => {
-		expect(browserLabel('')).toBe(undefined);
-		expect(browserLabel('a-made-up-agent')).toBe(undefined);
+	it('is the browser built on Chromium rather than Chromium itself', () => {
+		expect(
+			browserLabel(
+				agent(
+					[
+						['Chromium', '141'],
+						['Microsoft Edge', '141'],
+						['Not A;Brand', '99']
+					],
+					'Windows'
+				)
+			)
+		).toBe('Microsoft Edge 141, Windows');
+		expect(
+			browserLabel(
+				agent(
+					[
+						['Not)A;Brand', '24'],
+						['Chromium', '141']
+					],
+					'Linux'
+				)
+			)
+		).toBe('Chromium 141, Linux');
 	});
 
-	it('drops what the agent does not say', () => {
-		expect(browserLabel('Mozilla/5.0 (X11; Linux x86_64) Gecko/20100101 Firefox')).toBe('Firefox, Linux');
+	it('says nothing about a browser that names none', () => {
+		expect(browserLabel(undefined)).toBe(undefined);
+		expect(browserLabel(agent([]))).toBe(undefined);
+		expect(browserLabel(agent([['Not.A/Brand', '99']]))).toBe(undefined);
+	});
+
+	it('drops what the browser does not say', () => {
+		expect(browserLabel(agent([['Google Chrome', '141']]))).toBe('Chrome 141');
 	});
 });
 
@@ -86,7 +134,7 @@ describe('the link', () => {
 	});
 
 	it('leaves out what it does not know rather than sending it empty', () => {
-		useAgent('');
+		useAgent(undefined);
 
 		expect(fieldsOf(bugReportUrl(null)).fields).toEqual({
 			template: 'localtoolbox-bug.yml',
