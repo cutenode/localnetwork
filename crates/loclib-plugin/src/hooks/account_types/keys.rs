@@ -1,13 +1,13 @@
 //! Account types signed in to with keys (`kind = "keys"`): the keys the user enters, which the
-//! service gave them, and where they go in a request, as each place's value names them.
+//! service gave them, and the `Authorization` header's value they make in a request, which names
+//! them.
 
-use rustc_hash::FxHashSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{AccountType, KEYS_HEADER};
+use super::AccountType;
 use crate::ManifestError;
-use crate::hooks::accounts::{QUERY_NAME_RULE, endpoints, is_query_name};
+use crate::hooks::accounts::endpoints;
 use crate::manifest::{NAME_RULE, invalid, is_name, shown};
 
 /// `[contributes.account_types.keys.<name>]`: a key the user enters.
@@ -17,14 +17,12 @@ pub struct Key {
     pub title: String,
 }
 
-/// `{ header = "Authorization", value = "LOW {access}:{secret}" }` or `{ query = "accesskey", value
-/// = "{access}" }`: where an account goes in a request (the `Authorization` header, or a query
-/// parameter), and what goes there, each of its keys named in braces.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+/// Where an account goes in a request (the `Authorization` header, or a query parameter), and
+/// what goes there, each key or the token it's made of named in braces: see
+/// [`AccountType::place`].
+#[derive(Debug, Clone, PartialEq)]
 pub struct KeyPlace {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub header: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub query: Option<String>,
     pub value: String,
 }
@@ -61,9 +59,9 @@ fn named(value: &str) -> Option<Vec<&str>> {
 }
 
 /// `x` (at `at`) an account type signed in to with keys: none of the fields of one signed in to
-/// in the browser; a key at least, each a name with a title; where the user gets them; and a place
-/// or more, each the `Authorization` header or a query parameter, once, its value printable ASCII
-/// naming some of the keys and nothing else in braces, every key named somewhere.
+/// in the browser; a key at least, each a name with a title; where the user gets them; and the
+/// `Authorization` header's value they make, printable ASCII naming every key and nothing else in
+/// braces.
 pub(super) fn validate(at: &str, x: &AccountType) -> Result<(), ManifestError> {
     let browser = [
         ("authorize_url", x.authorize_url.is_some()),
@@ -95,45 +93,20 @@ pub(super) fn validate(at: &str, x: &AccountType) -> Result<(), ManifestError> {
     }
     let keys_url = x.keys_url.as_deref().ok_or_else(|| invalid(format!("{at}.keys_url"), "is missing"))?;
     endpoints(at, [("keys_url", Some(keys_url))])?;
-    if x.goes.is_empty() {
-        let why = "an account goes in a request somewhere: the Authorization header or a query parameter";
-        return Err(invalid(format!("{at}.goes"), why));
+    let value = x.authorization.as_deref().ok_or_else(|| invalid(format!("{at}.authorization"), "is missing"))?;
+    let wrong = |why: String| invalid(format!("{at}.authorization"), why);
+    if !value.bytes().all(|b| (b' '..=b'~').contains(&b)) {
+        return Err(wrong(format!("{value:?} isn't printable ASCII")));
     }
-    let mut used = FxHashSet::default();
-    for (j, place) in x.goes.iter().enumerate() {
-        let at = format!("{at}.goes[{j}]");
-        match (&place.header, &place.query) {
-            (Some(header), None) if header != KEYS_HEADER => {
-                let why = format!("{header:?} isn't {KEYS_HEADER}, the only header keys go in");
-                return Err(invalid(format!("{at}.header"), why));
-            }
-            (None, Some(query)) if !is_query_name(query) => {
-                return Err(invalid(format!("{at}.query"), format!("{query:?} isn't {QUERY_NAME_RULE}")));
-            }
-            (Some(_), None) | (None, Some(_)) => {}
-            _ => return Err(invalid(at, "goes in the Authorization header or a query parameter, one of them")),
-        }
-        if let Some(i) = x.goes[..j].iter().position(|p| (&p.header, &p.query) == (&place.header, &place.query)) {
-            return Err(invalid(at, format!("goes where goes[{i}] does: a place has one value")));
-        }
-        let value = &place.value;
-        if !value.bytes().all(|b| (b' '..=b'~').contains(&b)) {
-            return Err(invalid(format!("{at}.value"), format!("{value:?} isn't printable ASCII")));
-        }
-        let names = named(value).ok_or_else(|| {
-            invalid(format!("{at}.value"), format!("{value:?} has a {{ or }} that doesn't name a key"))
-        })?;
-        if names.is_empty() {
-            return Err(invalid(format!("{at}.value"), format!("{value:?} names none of its keys, like {{key}}")));
-        }
-        if let Some(name) = names.iter().find(|n| !x.keys.contains_key(**n)) {
-            let why = format!("{value:?} names {{{name}}}, which isn't one of its keys");
-            return Err(invalid(format!("{at}.value"), why));
-        }
-        used.extend(names);
+    let names = named(value).ok_or_else(|| wrong(format!("{value:?} has a {{ or }} that doesn't name a key")))?;
+    if names.is_empty() {
+        return Err(wrong(format!("{value:?} names none of its keys, like {{key}}")));
     }
-    match x.keys.keys().find(|k| !used.contains(k.as_str())) {
-        Some(name) => Err(invalid(format!("{at}.keys.{name}"), "goes nowhere: a place's value names it")),
+    if let Some(name) = names.iter().find(|n| !x.keys.contains_key(**n)) {
+        return Err(wrong(format!("{value:?} names {{{name}}}, which isn't one of its keys")));
+    }
+    match x.keys.keys().find(|k| !names.contains(&k.as_str())) {
+        Some(name) => Err(invalid(format!("{at}.keys.{name}"), "goes nowhere: authorization doesn't name it")),
         None => Ok(()),
     }
 }

@@ -1,8 +1,8 @@
-//! Accounts signed in to with keys, through an account plugin whose type says where they go, at a
-//! mock service on this computer that says who a pair of keys is for at its `/whoami`: the keys
-//! the user enters, checked, kept once per subject and filled in only where the type says; a
-//! service refusing them passed on to the plugin, the account still signed in; and no key
-//! anywhere but the store's secrets.
+//! Accounts signed in to with keys, through an account plugin whose type says the `Authorization`
+//! header they make, at a mock service on this computer that says who a pair of keys is for at its
+//! `/whoami`: the keys the user enters, checked, kept once per subject and filled in only in that
+//! header; a service refusing them passed on to the plugin, the account still signed in; and no
+//! key anywhere but the store's secrets.
 
 use std::collections::VecDeque;
 
@@ -16,53 +16,9 @@ use super::shared_accounts::{Mock, WITH, asking, mock_for, options};
 use super::*;
 use crate::mock_oauth::{json_reply, keys_account_plugin};
 
-/// Where a [`Goes`] puts the keys: the `Authorization` header.
-const HEADER: &str = r#"{ header = "Authorization", value = "LOW {access}:{secret}" }"#;
-/// Or the query, the access key alone.
-const ACCESS: &str = r#"{ query = "accesskey", value = "{access}" }"#;
-/// Or the query, the secret key alone.
-const SECRET: &str = r#"{ query = "secretkey", value = "{secret}" }"#;
-
-/// Where an account type puts the keys, and what a request naming them elsewhere is told.
-#[derive(Debug, Clone, Copy)]
-struct Goes {
-    places: &'static [&'static str],
-    refused: &'static str,
-}
-
-impl Goes {
-    fn toml(self) -> String {
-        format!("[{}]", self.places.join(", "))
-    }
-
-    /// The query parameter the place `query` names gets, of `keys`, when it's one of its places.
-    fn query(self, query: &str, keys: &(String, String)) -> Option<String> {
-        let place = self.places.iter().find(|p| p.contains(&format!("\"{query}\"")))?;
-        Some(if place.contains("{access}") { keys.0.clone() } else { keys.1.clone() })
-    }
-
-    fn header(self) -> bool {
-        self.places.contains(&HEADER)
-    }
-}
-
-const GOES: [Goes; 4] = [
-    Goes { places: &[HEADER], refused: "an account goes only in the Authorization header: {account:<type>}" },
-    Goes {
-        places: &[ACCESS, SECRET],
-        refused: "this account goes only in the query: accesskey={account:<type>}, secretkey={account:<type>}",
-    },
-    Goes {
-        places: &[HEADER, ACCESS],
-        refused: "this account goes only in the Authorization header: {account:<type>} or the query: \
-                  accesskey={account:<type>}",
-    },
-    Goes {
-        places: &[ACCESS, HEADER],
-        refused: "this account goes only in the Authorization header: {account:<type>} or the query: \
-                  accesskey={account:<type>}",
-    },
-];
+/// What a request naming an account signed in to with keys anywhere but the `Authorization`
+/// header is told.
+const REFUSED: &str = "an account goes only in the Authorization header: {account:<type>}";
 
 /// What the mock service says: who each access key is for, at `/whoami` (a 403 for one it doesn't
 /// know), and what it answers other requests with, in turn, before answering what they were sent.
@@ -72,25 +28,21 @@ struct Service {
     script: VecDeque<Reply>,
 }
 
-/// The access key a request to the service was sent: in the `Authorization` header, else as
-/// `accesskey` in its query.
+/// The access key a request to the service was sent in its `Authorization` header.
 fn access_sent(got: &super::net::Got) -> Option<String> {
-    let header = got.headers.get("authorization").and_then(|a| a.strip_prefix("LOW "));
-    let header = header.and_then(|a| a.split_once(':')).map(|(access, _)| access.to_string());
-    let query = got.target.split_once('?').map(|(_, q)| q).unwrap_or_default();
-    let mut query = form_urlencoded::parse(query.as_bytes());
-    header.or_else(|| query.find(|(k, _)| k == "accesskey").map(|(_, v)| v.into_owned()))
+    let header = got.headers.get("authorization")?.strip_prefix("LOW ")?;
+    header.split_once(':').map(|(access, _)| access.to_string())
 }
 
 /// The mock service, the echo plugin needing `read` of a mock account, and an account plugin
-/// whose keys go where `goes` says, asking the service who they're for when `whoami`.
+/// whose keys go in the `Authorization` header, asking the service who they're for when `whoami`.
 struct Keyed {
     service: Arc<Mutex<Service>>,
     server: Server,
     f: Fixture,
 }
 
-fn keyed(goes: Goes, whoami: bool) -> Keyed {
+fn keyed(whoami: bool) -> Keyed {
     let service = Arc::new(Mutex::new(Service::default()));
     let state = service.clone();
     let server = Server::new(move |_, got| {
@@ -106,7 +58,7 @@ fn keyed(goes: Goes, whoami: bool) -> Keyed {
         })
     });
     let asked = format!("{}/whoami", server.url);
-    let manifest = keys_account_plugin(&server.url, whoami.then_some(asked.as_str()), &goes.toml());
+    let manifest = keys_account_plugin(&server.url, whoami.then_some(asked.as_str()));
     let echo = asking(&["read"], &[]);
     let f = Fixture::new(move |dir| vec![spec(dir, &echo, &[]), spec(dir, &manifest, &[])], options());
     Keyed { service, server, f }
@@ -152,8 +104,8 @@ impl Keyed {
     }
 }
 
-/// Where a step of [`keys_land_exactly_where_their_account_type_says`] names the account, as the
-/// whole value.
+/// Where a step of [`keys_land_only_in_the_authorization_header`] names the account, as the whole
+/// value.
 #[derive(Debug, Clone, Copy)]
 enum Named {
     Authorization,
@@ -164,26 +116,18 @@ enum Named {
     Body,
 }
 
-/// For an account type whose keys go in the `Authorization` header, query parameters or both, and
-/// any requests naming the account anywhere: one naming it where the type says reaches the server
-/// with that place's value there, the keys nowhere else in the request, and one sent in the query
-/// is answered to the plugin as the placeholder that named it; one naming it anywhere else is
-/// refused, saying every place it goes, before anything is sent; and no key gets into the plugins'
-/// logs or the store but its secrets.
+/// For any requests naming an account signed in to with keys anywhere: one naming it in the
+/// `Authorization` header reaches the server with the value its type gives there, the keys nowhere
+/// else in the request; one naming it anywhere else (another header, a query parameter, the body)
+/// is refused, saying it goes only in the `Authorization` header, before anything is sent; and no
+/// key gets into the plugins' logs or the store but its secrets.
 #[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn keys_land_exactly_where_their_account_type_says(tc: TestCase) {
-    let goes = tc.draw(gs::sampled_from(GOES.to_vec()));
-    let k = keyed(goes, false);
+#[hegel::explicit_test_case(steps = vec![Named::Query("accesskey"), Named::Authorization, Named::Query("other")])]
+fn keys_land_only_in_the_authorization_header(tc: TestCase) {
+    let k = keyed(false);
     let keys = ("ak-0123456789".to_string(), "sk-9876543210".to_string());
     k.sign_in(&entered(&keys.0, &keys.1), Some("me")).unwrap();
-    let named = [
-        Named::Authorization,
-        Named::Header,
-        Named::Query("accesskey"),
-        Named::Query("secretkey"),
-        Named::Query("other"),
-        Named::Body,
-    ];
+    let named = [Named::Authorization, Named::Header, Named::Query("accesskey"), Named::Query("other"), Named::Body];
     let steps = tc.draw(gs::vecs(gs::sampled_from(named.to_vec())).max_size(4));
     let mut answers = Vec::new();
     for (i, step) in steps.into_iter().enumerate() {
@@ -197,32 +141,19 @@ fn keys_land_exactly_where_their_account_type_says(tc: TestCase) {
             Named::Query(name) => json!({ "url": format!("{url}&{name}={{account:mock}}") }),
             Named::Body => json!({ "url": url, "method": "POST", "body": "{account:mock}" }),
         });
-        let query = match step {
-            Named::Query(name) => goes.query(name, &keys).map(|value| (name, value)),
-            _ => None,
-        };
-        let lands = matches!(step, Named::Authorization) && goes.header() || query.is_some();
-        if !lands {
-            assert_eq!(answer["error"]["message"], goes.refused, "step {i}: not refused, or not saying where it goes");
+        if !matches!(step, Named::Authorization) {
+            assert_eq!(answer["error"]["message"], REFUSED, "step {i}: not refused, or not saying where it goes");
             assert_eq!(k.server.got().len(), sent, "step {i}: something was sent");
             answers.push(answer);
             continue;
         }
         let got = k.server.got().last().cloned().unwrap_or_default();
-        let (target, authorization) = match &query {
-            Some((name, value)) => (format!("{path}&{name}={value}"), None),
-            None => (path.clone(), Some(format!("LOW {}:{}", keys.0, keys.1))),
-        };
-        assert!(got.target == target, "step {i}: the address isn't what it was named in");
-        assert!(got.headers.get("authorization") == authorization.as_ref(), "step {i}: the header isn't");
+        assert!(got.target == path, "step {i}: the address isn't what it was named in");
+        let authorization = format!("LOW {}:{}", keys.0, keys.1);
+        assert!(got.headers.get("authorization") == Some(&authorization), "step {i}: the header isn't");
         let elsewhere = |v: &String| v.contains(&keys.0) || v.contains(&keys.1);
         let others = got.headers.iter().filter(|(name, _)| *name != "authorization").any(|(_, v)| elsewhere(v));
         assert!(!others && !elsewhere(&got.body), "step {i}: a key is elsewhere in the request");
-        if let Some((name, _)) = query {
-            // The server says the address it was asked at back: as the plugin named it.
-            assert_eq!(answer["result"]["body"], format!("{path}&{name}={{account:mock}} -"), "step {i}");
-            answers.push(answer);
-        }
     }
     assert!(!k.leaked(&answers.iter().collect::<Vec<_>>(), &[&keys.0, &keys.1]), "a key is out where it may not be");
 }
@@ -258,7 +189,7 @@ enum Step {
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn a_keys_account_is_kept_once_per_subject_with_the_keys_last_entered(tc: TestCase) {
     let whoami = tc.draw(gs::booleans());
-    let k = keyed(GOES[0], whoami);
+    let k = keyed(whoami);
     for person in PEOPLE {
         for n in 0..2 {
             let who = json!({ "id": person, "name": format!("{person} at mock") });
@@ -343,7 +274,7 @@ fn a_keys_account_is_kept_once_per_subject_with_the_keys_last_entered(tc: TestCa
 /// token to refresh.
 #[test]
 fn a_service_refusing_keys_leaves_the_account_signed_in() {
-    let k = keyed(GOES[0], false);
+    let k = keyed(false);
     let keys = ("ak-0123456789", "sk-9876543210");
     k.sign_in(&entered(keys.0, keys.1), Some("me")).unwrap();
     let challenge = |said: &str| vec![("WWW-Authenticate", format!("Bearer realm=\"mock\", {said}"))];
@@ -376,7 +307,7 @@ fn a_service_refusing_keys_leaves_the_account_signed_in() {
 /// answering with one of them might have it say.
 #[test]
 fn each_key_stays_out_of_the_plugins_log() {
-    let k = keyed(GOES[0], false);
+    let k = keyed(false);
     let keys = ("ak-0123456789", "sk-9876543210");
     k.sign_in(&entered(keys.0, keys.1), Some("me")).unwrap();
     assert_eq!(k.fetch("/r/x", "{account:mock}")["result"]["body"], format!("/r/x LOW {}:{}", keys.0, keys.1));
@@ -393,7 +324,7 @@ fn each_key_stays_out_of_the_plugins_log() {
 /// kept at the shortest a key is.
 #[test]
 fn keys_missing_or_undeclared_or_short_keep_nothing() {
-    let k = keyed(GOES[0], false);
+    let k = keyed(false);
     let start = k.begin();
     assert_eq!((start.url.clone(), start.redirect_uri.clone()), (format!("{}/keys", k.server.url), None));
     let titles: IndexMap<String, String> =
@@ -451,30 +382,25 @@ fn keys_missing_or_undeclared_or_short_keep_nothing() {
     k.sign_in(&entered(access, "sk-12345"), Some("me")).unwrap();
 }
 
-/// Signing in with keys asks the type's whoami who they're for with the keys where its first place
-/// says, and nowhere else: the account kept is the one it says; one it refuses keeps nothing, and
-/// naming the account with a whoami is refused.
+/// Signing in with keys asks the type's whoami who they're for with the keys in the
+/// `Authorization` header, and nowhere else: the account kept is the one it says; one it refuses
+/// keeps nothing, and naming the account with a whoami is refused.
 #[test]
-fn whoami_gets_the_keys_where_the_first_place_says() {
+fn whoami_gets_the_keys_in_the_authorization_header() {
     let (access, secret) = ("ak-0123456789", "sk-9876543210");
-    for goes in [GOES[0], GOES[1], GOES[3]] {
-        let k = keyed(goes, true);
-        let e = k.sign_in(&entered(access, secret), None).unwrap_err().to_string();
-        assert!(e.starts_with("asking Mock who signed in: it answered 403"), "{goes:?}: {e}");
-        let e = k.sign_in(&entered(access, secret), Some("me")).unwrap_err();
-        assert_eq!(e.to_string(), "Mock says who the keys are for: sign in without naming the account");
-        assert!(k.listed().is_empty(), "{goes:?}: kept one it refused");
+    let k = keyed(true);
+    let e = k.sign_in(&entered(access, secret), None).unwrap_err().to_string();
+    assert!(e.starts_with("asking Mock who signed in: it answered 403"), "{e}");
+    let e = k.sign_in(&entered(access, secret), Some("me")).unwrap_err();
+    assert_eq!(e.to_string(), "Mock says who the keys are for: sign in without naming the account");
+    assert!(k.listed().is_empty(), "kept one it refused");
 
-        k.service.lock().unwrap().known.insert(access.into(), json!({ "id": 42, "name": "Uploader" }));
-        let done = k.sign_in(&entered(access, secret), None).unwrap();
-        assert_eq!((done.account.subject.as_str(), done.account.name.as_str()), ("42", "Uploader"), "{goes:?}");
-        let asked = k.server.got().last().cloned().unwrap();
-        let (target, authorization) = match goes.places[0] {
-            HEADER => ("/whoami".to_string(), Some(format!("LOW {access}:{secret}"))),
-            _ => (format!("/whoami?accesskey={access}"), None),
-        };
-        assert_eq!((asked.target, asked.headers.get("authorization").cloned()), (target, authorization), "{goes:?}");
-        assert!(!asked.body.contains(secret), "{goes:?}");
-        assert!(!k.leaked(&[&json!(e.to_string())], &[access, secret]), "{goes:?}: a key is out where it may not be");
-    }
+    k.service.lock().unwrap().known.insert(access.into(), json!({ "id": 42, "name": "Uploader" }));
+    let done = k.sign_in(&entered(access, secret), None).unwrap();
+    assert_eq!((done.account.subject.as_str(), done.account.name.as_str()), ("42", "Uploader"));
+    let asked = k.server.got().last().cloned().unwrap();
+    let authorization = Some(format!("LOW {access}:{secret}"));
+    assert_eq!((asked.target.as_str(), asked.headers.get("authorization").cloned()), ("/whoami", authorization));
+    assert!(!asked.body.contains(secret));
+    assert!(!k.leaked(&[&json!(e.to_string())], &[access, secret]), "a key is out where it may not be");
 }

@@ -8319,7 +8319,8 @@ export type Contributions = {
 /**
  * `[[contributes.account_types]]`: an account type, signed in to in the browser, or by entering
  * keys (`kind = "keys"`). Its OAuth fields are an account type's signed in to in the browser,
- * and only its; `keys`, `keys_url` and `goes` are one's signed in to with keys, and only its.
+ * and only its; `keys`, `keys_url` and `authorization` are one's signed in to with keys, and only
+ * its.
  */
 export type AccountType = {
   /** The account type it provides (`google`), which other account plugins may provide too. */
@@ -8379,8 +8380,11 @@ export type AccountType = {
   keys?: { [key: string]: Key };
   /** Where the user gets them (https). */
   keys_url?: string | null;
-  /** Where they go in a request, each place naming the keys it's made of. */
-  goes?: KeyPlace[];
+  /**
+   * The `Authorization` header's value they make in a request (`LOW {access}:{secret}`), each
+   * key named in braces.
+   */
+  authorization?: string | null;
   /** What a plugin may be given access to, by name (`youtube-upload`). */
   scopes?: { [key: string]: Scope };
 };
@@ -8427,17 +8431,6 @@ export type Whoami = {
 export type Key = {
   /** What it's called where the user gets it (`S3 access key`). */
   title: string;
-};
-
-/**
- * `{ header = "Authorization", value = "LOW {access}:{secret}" }` or `{ query = "accesskey", value
- * = "{access}" }`: where an account goes in a request (the `Authorization` header, or a query
- * parameter), and what goes there, each of its keys named in braces.
- */
-export type KeyPlace = {
-  header?: string | null;
-  query?: string | null;
-  value: string;
 };
 
 /** `[contributes.account_types.scopes.<name>]`: one thing a plugin may do with an account. */

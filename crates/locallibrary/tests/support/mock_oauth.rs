@@ -282,10 +282,10 @@ requests = [{{ method = "GET", url = "{server}/p/*" }}]
 }
 
 /// An account plugin providing the `mock` account type at `server`, signed in to with an `access`
-/// and a `secret` key going where `goes` (a TOML array of places) says, asking `whoami` (an
-/// address) who they're for when it's given. Its scopes: `read` covers GETs under `/r/`, and
-/// `write` POSTs under `/w/`.
-pub fn keys_account_plugin(server: &str, whoami: Option<&str>, goes: &str) -> String {
+/// and a `secret` key going in the `Authorization` header as `LOW <access>:<secret>`, asking
+/// `whoami` (an address) who they're for when it's given. Its scopes: `read` covers GETs under
+/// `/r/`, and `write` POSTs under `/w/`.
+pub fn keys_account_plugin(server: &str, whoami: Option<&str>) -> String {
     let whoami = whoami.map(|w| format!("whoami = {{ url = \"{w}\", subject = \"/id\", name = \"/name\" }}\n"));
     format!(
         r#"id = "{WITH}"
@@ -298,7 +298,7 @@ type = "mock"
 title = "Mock"
 kind = "keys"
 keys_url = "{server}/keys"
-goes = {goes}
+authorization = "LOW {{access}}:{{secret}}"
 {whoami}
 [contributes.account_types.keys.access]
 title = "Access key"

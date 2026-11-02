@@ -26,15 +26,14 @@ fn with_param(url: &Url, name: &str, value: &str) -> Url {
 impl Plugin {
     /// The subject and name of whoever `signed` (an access token or keys) is for at `t`'s service,
     /// from its whoami endpoint: reached as the service's other endpoints are (see
-    /// [`Plugin::send`]), with what the first of `t`'s places says goes there, following redirects
-    /// within the endpoint's origin only, given again in the query when it goes there. A subject is a string or an integer
-    /// (as its digits); the name falls back to it.
+    /// [`Plugin::send`]), with the token or keys where `t` says they go ([`AccountType::place`]),
+    /// following redirects within the endpoint's origin only, given again in the query when they go
+    /// there. A subject is a string or an integer (as its digits); the name falls back to it.
     pub(super) fn whoami(&self, t: &AccountType, signed: &Credential) -> Result<(String, String)> {
         let failed = |why: String| Error::Account(self.net.scrub(&format!("asking {} who signed in: {why}", t.title)));
         let w = t.whoami.as_ref().ok_or_else(|| failed("its account type says nowhere to ask".into()))?;
-        let places = t.places();
-        let place = places.first().ok_or_else(|| failed("its account type says nowhere it goes".into()))?;
-        let filled = signed.filled(place);
+        let place = t.place();
+        let filled = signed.filled(&place);
         self.net.saw(&filled);
         let mut url = Url::parse(&w.url).map_err(|e| failed(e.to_string()))?;
         let mut hops = 0;

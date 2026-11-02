@@ -38,7 +38,8 @@ const KEYS_HEADER: &str = "Authorization";
 
 /// `[[contributes.account_types]]`: an account type, signed in to in the browser, or by entering
 /// keys (`kind = "keys"`). Its OAuth fields are an account type's signed in to in the browser,
-/// and only its; `keys`, `keys_url` and `goes` are one's signed in to with keys, and only its.
+/// and only its; `keys`, `keys_url` and `authorization` are one's signed in to with keys, and only
+/// its.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct AccountType {
     /// The account type it provides (`google`), which other account plugins may provide too.
@@ -98,9 +99,10 @@ pub struct AccountType {
     /// Where the user gets them (https).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keys_url: Option<String>,
-    /// Where they go in a request, each place naming the keys it's made of.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub goes: Vec<KeyPlace>,
+    /// The `Authorization` header's value they make in a request (`LOW {access}:{secret}`), each
+    /// key named in braces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization: Option<String>,
     /// What a plugin may be given access to, by name (`youtube-upload`).
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub scopes: IndexMap<String, Scope>,
@@ -124,19 +126,19 @@ impl SignIn {
 }
 
 impl AccountType {
-    /// Where an account of it goes in a request, and what goes there: its `goes`, or for one
-    /// signed in to in the browser, the access token ([`TOKEN_KEY`]) where its `token` says.
-    pub fn places(&self) -> Vec<KeyPlace> {
+    /// Where an account of it goes in a request, and what goes there: for one signed in to with
+    /// keys, its `authorization` in the `Authorization` header; for one signed in to in the browser,
+    /// the access token ([`TOKEN_KEY`]) where its `token` says.
+    pub fn place(&self) -> KeyPlace {
+        let header = |value: String| KeyPlace { header: Some(KEYS_HEADER.into()), query: None, value };
         if self.kind == SignIn::Keys {
-            return self.goes.clone();
+            return header(self.authorization.clone().unwrap_or_default());
         }
         let token = format!("{{{TOKEN_KEY}}}");
-        vec![match &self.token {
-            TokenPlace::Scheme(scheme) => {
-                KeyPlace { header: Some(KEYS_HEADER.into()), query: None, value: format!("{scheme} {token}") }
-            }
+        match &self.token {
+            TokenPlace::Scheme(scheme) => header(format!("{scheme} {token}")),
             TokenPlace::Query(name) => KeyPlace { header: None, query: Some(name.clone()), value: token },
-        }]
+        }
     }
 }
 
@@ -273,7 +275,11 @@ pub(crate) fn validate(m: &Manifest, built_in: bool) -> Result<(), ManifestError
 /// plugin), a client, where its token goes and the port the browser comes back to, the service's
 /// scopes, a whoami, and authorize params (each set in one place).
 fn browser(at: &str, x: &AccountType, built_in: bool) -> Result<(), ManifestError> {
-    let keyed = [("keys", !x.keys.is_empty()), ("keys_url", x.keys_url.is_some()), ("goes", !x.goes.is_empty())];
+    let keyed = [
+        ("keys", !x.keys.is_empty()),
+        ("keys_url", x.keys_url.is_some()),
+        ("authorization", x.authorization.is_some()),
+    ];
     if let Some((key, _)) = keyed.iter().find(|(_, set)| *set) {
         let why = "is for an account type signed in to with keys (kind = \"keys\")";
         return Err(invalid(format!("{at}.{key}"), why));

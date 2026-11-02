@@ -31822,12 +31822,12 @@
           ],
           "description": "Where the user gets them (https)."
         },
-        "goes": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/KeyPlace"
-          },
-          "description": "Where they go in a request, each place naming the keys it's made of."
+        "authorization": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The `Authorization` header's value they make in a request (`LOW {access}:{secret}`), each\nkey named in braces."
         },
         "scopes": {
           "type": "object",
@@ -31841,7 +31841,7 @@
         "type",
         "title"
       ],
-      "description": "`[[contributes.account_types]]`: an account type, signed in to in the browser, or by entering\nkeys (`kind = \"keys\"`). Its OAuth fields are an account type's signed in to in the browser,\nand only its; `keys`, `keys_url` and `goes` are one's signed in to with keys, and only its."
+      "description": "`[[contributes.account_types]]`: an account type, signed in to in the browser, or by entering\nkeys (`kind = \"keys\"`). Its OAuth fields are an account type's signed in to in the browser,\nand only its; `keys`, `keys_url` and `authorization` are one's signed in to with keys, and only\nits."
     },
     "SignIn": {
       "oneOf": [
@@ -31924,30 +31924,6 @@
         "title"
       ],
       "description": "`[contributes.account_types.keys.<name>]`: a key the user enters."
-    },
-    "KeyPlace": {
-      "type": "object",
-      "properties": {
-        "header": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "query": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "value": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "value"
-      ],
-      "description": "`{ header = \"Authorization\", value = \"LOW {access}:{secret}\" }` or `{ query = \"accesskey\", value\n= \"{access}\" }`: where an account goes in a request (the `Authorization` header, or a query\nparameter), and what goes there, each of its keys named in braces."
     },
     "Scope": {
       "type": "object",

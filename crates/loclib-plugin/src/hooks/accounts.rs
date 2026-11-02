@@ -3,7 +3,7 @@
 //! provides the type (OAuth 2's authorization code flow with PKCE, the browser coming back to this
 //! computer, or keys the user enters, see `account_types`), keeps the tokens or keys, and gives the
 //! plugin access to the account. A plugin never sees a token or a key: a `net/fetch` request names
-//! an account as `{account:<type>}` where the type's [`crate::AccountType::places`] say it goes
+//! an account as `{account:<type>}` where the type's [`crate::AccountType::place`] says it goes
 //! (the `Authorization` header's value unless it says otherwise), which the host fills in once the
 //! request is checked and a scope of the access covers it, refreshing a token first when it's about
 //! to expire. A service
@@ -238,7 +238,7 @@ pub(crate) fn token_endpoint(
 }
 
 /// What [`is_query_name`] takes.
-pub(crate) const QUERY_NAME_RULE: &str = "a query parameter's name: letters, digits, -, ., _ and ~";
+const QUERY_NAME_RULE: &str = "a query parameter's name: letters, digits, -, ., _ and ~";
 
 /// Whether `name` is letters, digits and `allowed`, one at least.
 fn spelled(name: &str, allowed: &str) -> bool {
@@ -247,7 +247,7 @@ fn spelled(name: &str, allowed: &str) -> bool {
 
 /// A query parameter's name, kept to what no query has to escape, so a request names it as the
 /// service does.
-pub(crate) fn is_query_name(name: &str) -> bool {
+fn is_query_name(name: &str) -> bool {
     spelled(name, "-._~")
 }
 

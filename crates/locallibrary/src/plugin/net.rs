@@ -155,18 +155,12 @@ fn invalid(why: impl Into<String>) -> RpcError {
     RpcError::failed("invalid", why)
 }
 
-/// Where an account goes, which is at each of `places` (the `Authorization` header when they're
-/// not known), saying how a request names it there.
-fn misplaced(places: &[KeyPlace]) -> RpcError {
-    let queries: Vec<String> =
-        places.iter().filter_map(|p| p.query.as_ref()).map(|q| format!("{q}={{account:<type>}}")).collect();
-    if queries.is_empty() {
-        return invalid("an account goes only in the Authorization header: {account:<type>}");
-    }
-    let query = format!("the query: {}", queries.join(", "));
-    match places.iter().any(|p| p.header.is_some()) {
-        true => invalid(format!("this account goes only in the Authorization header: {{account:<type>}} or {query}")),
-        false => invalid(format!("this account goes only in {query}")),
+/// Where an account goes, which is `place` (the `Authorization` header when it's not known),
+/// saying how a request names it there.
+fn misplaced(place: Option<&KeyPlace>) -> RpcError {
+    match place.and_then(|p| p.query.as_ref()) {
+        Some(query) => invalid(format!("this account goes only in the query: {query}={{account:<type>}}")),
+        None => invalid("an account goes only in the Authorization header: {account:<type>}"),
     }
 }
 
@@ -489,13 +483,16 @@ impl Plugin {
         let (method, url) = asked;
         let usable = self.usable(live, need, access, method.as_str(), url)?;
         let store = live.store.as_ref().ok_or_else(|| invalid("there's no store"))?;
-        let place = usable.places.iter().find(|p| match query {
-            None => p.header.is_some(),
-            Some(query) => p.query.as_deref() == Some(query),
-        });
-        let Some(place) = place.cloned() else { return Err(misplaced(&usable.places)) };
+        let place = &usable.place;
+        let fits = match query {
+            None => place.header.is_some(),
+            Some(query) => place.query.as_deref() == Some(query),
+        };
+        if !fits {
+            return Err(misplaced(Some(place)));
+        }
         let signed = self.usable_credential(&usable, store)?;
-        let filled = signed.filled(&place);
+        let filled = signed.filled(place);
         self.net.saw(&filled);
         accounts.push(Filled { usable, signed });
         Ok(filled)
@@ -514,8 +511,8 @@ impl Plugin {
         let named = text.split(ACCOUNT_PLACEHOLDER).nth(1).and_then(|rest| rest.split('}').next()).unwrap_or_default();
         let need = self.by_type(&format!("{ACCOUNT_PLACEHOLDER}{named}}}")).map(|(need, _)| need);
         let with = need.and_then(|n| self.host.providing(&n.name).first().and_then(|id| self.host.account_plugin(id)));
-        let places = with.and_then(|w| w.manifest.contributes.account_types.first().map(|t| t.places()));
-        misplaced(&places.unwrap_or_default())
+        let place = with.and_then(|w| w.manifest.contributes.account_types.first().map(|t| t.place()));
+        misplaced(place.as_ref())
     }
 
     /// A form's parts, its text's secrets filled in and its files checked.
