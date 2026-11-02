@@ -358,11 +358,13 @@ pub fn build<E: From<Error>>(
     let located = |t: &Track| paths::to_fs(root, &paths::key(&t.file_path));
 
     let names = crate_names(lib);
+    let track = lib.track_lookup();
     let mut volume = None;
     for (p, name) in &names {
-        let tracks: Vec<String> = lib
-            .tracks_by_id(&p.track_ids)
-            .into_iter()
+        let tracks: Vec<String> = p
+            .track_ids
+            .iter()
+            .filter_map(|&id| track(id))
             .map(|t| {
                 let (rel, vol) = volume_relative(&located(t));
                 volume.get_or_insert(vol);

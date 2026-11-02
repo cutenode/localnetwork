@@ -23,8 +23,14 @@ thiserror.workspace = true
 test-util = []
 
 [dev-dependencies]
+criterion.workspace = true
 hegeltest.workspace = true
 tempfile.workspace = true
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "mixid"
+harness = false
+required-features = ["test-util"]

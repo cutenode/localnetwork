@@ -84,6 +84,9 @@ export async function askPage<T extends keyof PageAnswers>(
 	}
 }
 
+/** What the "background tabs" switch over a list does, which is set `background` below. */
+export const BACKGROUND_HINT = 'opens links behind the popup instead of taking focus.';
+
 /** @param options `background` opens it behind the popup */
 export function openTab(url: string, { background = false }: { background?: boolean } = {}) {
 	return chrome.tabs.create({ url, active: !background });

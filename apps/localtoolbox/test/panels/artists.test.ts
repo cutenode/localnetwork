@@ -106,7 +106,12 @@ const meta = () => document.querySelector('header p')?.textContent.trim() ?? '';
 
 const status = () => document.querySelector('[role="status"], [role="alert"]');
 
-const badges = () => [...document.querySelectorAll('li [aria-label^="open "]')];
+// A link badge is named by its letters and what it does ("IG: open Instagram"), never the address.
+const badges = () => [...document.querySelectorAll('li [aria-label*=": open "]')];
+
+// An opened row's field, named by the value it copies.
+const field = (value: string) =>
+	[...document.querySelectorAll<HTMLButtonElement>('li dd button')].find((b) => b.textContent.trim() === value);
 
 const chevron = (name: string) => byLabel(`about ${name}`);
 
@@ -158,8 +163,8 @@ describe('adding from the tab', () => {
 
 		expect(rowText()).toEqual(['Bicep Belfast, GB · 1.2K followers · 1 link IG', 'Four Tet no public profile']);
 		expect(meta()).toBe('2 artists · 1 with socials');
-		expect(badges().map((b) => b.getAttribute('aria-label'))).toEqual([
-			'open Instagram: https://www.instagram.com/bicepmusic/'
+		expect(badges().map((b) => [b.getAttribute('aria-label'), b.getAttribute('title')])).toEqual([
+			['IG: open Instagram', 'https://www.instagram.com/bicepmusic/']
 		]);
 		expect(document.querySelector('li img')!.getAttribute('src')).toBe(profile('/bicep').avatarUrl);
 		expect(document.querySelector('li [aria-label="verified"]')).toBeTruthy();
@@ -201,6 +206,9 @@ describe('adding from the tab', () => {
 		});
 		await settle();
 		expect(text()).toMatch(/looking up socials… 1 \/ 2/);
+		const bar = document.querySelector('[role="progressbar"]')!;
+		expect(bar.getAttribute('aria-label')).toBe('looking up socials');
+		expect(bar.getAttribute('aria-valuetext')).toBe('1 of 2');
 		// Its own answer is in, so the row shows it — badge and all — while the
 		// other is still being asked about.
 		expect(rowText()).toEqual(['Bicep Belfast, GB · 1.2K followers · 1 link IG', 'Four Tet looking up…']);
@@ -211,6 +219,8 @@ describe('adding from the tab', () => {
 		expect(text()).not.toMatch(/looking up socials/);
 		expect(rowText()).toEqual(['Bicep Belfast, GB · 1.2K followers · 1 link IG', 'Four Tet no public profile']);
 		expect(stored()[1].profile).toMatchObject({ unavailable: true });
+		// Said once, at the end, where a screen reader hears it.
+		expect(document.querySelector('[aria-live]')!.textContent).toMatch(/looked up 2 artists/);
 	});
 
 	it('ignores progress that is not for it', async () => {
@@ -405,7 +415,7 @@ describe('the list', () => {
 		await load();
 		const mid = rows()[1];
 		expect(mid.textContent).toMatch(/99 followers · 7 links/);
-		expect(mid.querySelectorAll('[aria-label^="open "]')).toHaveLength(3);
+		expect(mid.querySelectorAll('[aria-label*=": open "]')).toHaveLength(3);
 		expect(mid.textContent).toMatch(/\+4/);
 		expect(mid.querySelector('[title="no picture"]')).toBeTruthy();
 		expect(mid.querySelector('img')).toBe(null);
@@ -413,12 +423,12 @@ describe('the list', () => {
 
 	it('opens a link in a tab behind the popup, or in front when asked', async () => {
 		await load();
-		await click(byLabel('open Instagram: https://instagram.com/mid'));
+		await click(byLabel('IG: open Instagram'));
 		expect(chrome.tabs.create).toHaveBeenCalledWith({ url: 'https://instagram.com/mid', active: false });
 
 		await click(document.getElementById('background'));
 		expect(localStorage.getItem('pref:background')).toBe('0');
-		await click(byLabel('open Instagram: https://instagram.com/mid'));
+		await click(byLabel('IG: open Instagram'));
 		expect(chrome.tabs.create).toHaveBeenLastCalledWith({ url: 'https://instagram.com/mid', active: true });
 	});
 
@@ -488,11 +498,15 @@ describe('a row opened out', () => {
 		const labels = [...dl.querySelectorAll('dt')].map((dt) => dt.textContent.trim());
 		expect(labels).toEqual(['SoundCloud', 'Instagram', 'name', 'place', 'followers', 'bio', 'tracks', 'from']);
 
-		await click(byLabel('copy the Instagram'));
+		// Each field is named by what it says, so a screen reader reads the value;
+		// that a click copies it is the description.
+		const instagram = field('https://instagram.com/mid')!;
+		expect(instagram.hasAttribute('aria-label')).toBe(false);
+		await click(instagram);
 		expect(clipboard.writeText).toHaveBeenCalledWith('https://instagram.com/mid');
 		expect(text()).toMatch(/copied the Instagram/);
-		expect(labelled('copy the Instagram', HTMLElement).title).toMatch(/the arrow opens it/);
-		expect(labelled('copy the bio', HTMLElement).title).toBe('click to copy');
+		expect(instagram.title).toMatch(/the arrow opens it/);
+		expect(field('hello')?.title).toBe('click to copy');
 
 		await click(byLabel('open Instagram in a new tab'));
 		expect(chrome.tabs.create).toHaveBeenLastCalledWith({ url: 'https://instagram.com/mid', active: false });
@@ -508,14 +522,14 @@ describe('a row opened out', () => {
 	it('searches the shops for the artist, with the badges switched on in settings', async () => {
 		await load();
 		await click(chevron('Mid'));
-		const beatport = labelled('search Beatport for Mid', HTMLElement);
+		const beatport = labelled('BP: search Beatport', HTMLElement);
 		expect(beatport.title).toBe('search Beatport for “Mid”');
 		await click(beatport);
 		expect(chrome.tabs.create).toHaveBeenLastCalledWith({
 			url: 'https://www.beatport.com/search?q=Mid',
 			active: false
 		});
-		expect(byLabel('search Bandcamp for Mid')).toBeTruthy();
+		expect(byLabel('bc: search Bandcamp')).toBeTruthy();
 	});
 
 	it('asks SoundCloud about the one artist again', async () => {

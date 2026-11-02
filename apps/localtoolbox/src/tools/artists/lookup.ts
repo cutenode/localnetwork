@@ -10,17 +10,11 @@
 
 import { activeTab, askPage, isSoundCloudUrl } from '$lib/chrome.ts';
 import { RELOAD_THE_TAB } from '$lib/soundcloud.ts';
-import type { LookupError, PageRead, ProfilesAnswer } from '$lib/types';
+import type { PageRead, ProfilesAnswer } from '$lib/types';
 
 export const OPEN_A_TAB = 'open a SoundCloud tab to look up socials.';
 
 export const LOOKUP_FAILED = 'couldn’t look them up. reload the SoundCloud tab and try again.';
-
-/** What the content script says went wrong, in words for the panel. */
-export const LOOKUP_ERRORS: Partial<Record<LookupError, string>> = {
-	'no-client-id': 'couldn’t find SoundCloud’s API key in the page — reload the tab.',
-	unauthorized: 'SoundCloud rejected the lookups (the page’s API key has expired) — reload the tab.'
-};
 
 /** Whether the tab in front is a SoundCloud page a lookup can be asked of. */
 export async function onSoundCloud() {

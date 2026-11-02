@@ -4,6 +4,7 @@ import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
 import { BOOKING_STATUSES, isOneOf } from '#lib/taxonomy/options.ts';
 import type { BookingEventView, BookingThreadView, ShowDetails, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
+import { memberSpacePolicy } from '../atproto/repo-client';
 import { bookingSpace, parseSpaceRecordUri, parseSpaceUri } from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
@@ -100,9 +101,7 @@ export class BookingService {
 		await root.createSpace({
 			spaceType: SPACE_TYPE.booking,
 			skey,
-			readPolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
-			writePolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
-			appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+			policy: memberSpacePolicy()
 		});
 
 		const participants: { did: string; role: 'promoter' | 'manager' }[] = [

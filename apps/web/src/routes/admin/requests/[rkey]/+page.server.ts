@@ -1,5 +1,5 @@
-import { error } from '@sveltejs/kit';
-import { diff } from '#lib/server/services/diff.ts';
+import { error, redirect } from '@sveltejs/kit';
+import { decidedNotice } from '#lib/requests.ts';
 import { DECISION_OUTCOMES } from '#lib/server/services/requests.ts';
 import { act, requireStaff, text } from '#lib/server/http.ts';
 import type { RequestView } from '#lib/types.ts';
@@ -12,20 +12,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
 	if (!request) error(404, 'Request not found');
 	const project = request.projectUri ? await app.projects.byUri(request.projectUri) : null;
-	const currentDetails = project ? await app.projects.details(project.uri) : null;
 
-	const changes =
-		request.kind === 'create'
-			? diff({}, { profile: request.record.profile })
-			: request.kind === 'update' && project
-				? diff({ profile: project.profile }, { profile: request.record.profile ?? project.profile })
-				: [];
-
-	const detailChanges = request.record.details ? diff(currentDetails ?? {}, request.record.details, 'details') : [];
-
-	const [history, trail] = await Promise.all([
+	const [changes, history, trail, managers] = await Promise.all([
+		app.requests.changes(request, project),
 		app.requests.list({ requester: request.requester.did, limit: 20 }),
-		app.audit.list({ subject: request.uri, limit: 50 })
+		app.audit.list({ subject: request.uri, limit: 50 }),
+		app.accounts.views(project?.managers ?? [])
 	]);
 
 	// A verification vouches for the account itself, so only a claim from the act's own account (or a member's) leads
@@ -38,21 +30,17 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		request.status === 'approved' &&
 		(relationship === 'self' || relationship === 'member');
 
-	const stale =
-		request.kind === 'update' &&
-		project &&
-		request.record.baseRevision !== undefined &&
-		request.record.baseRevision !== project.revision;
-
 	return {
 		request,
 		project,
 		listing: request.kind === 'list' ? await listingReview(locals.app, request) : null,
-		changes,
-		detailChanges,
+		changes: changes.profile,
+		detailChanges: changes.details,
+		stale: changes.stale,
+		managers: (project?.managers ?? []).map((did) => managers.get(did) ?? { did, handle: null }),
+		decided: decidedNotice(url.searchParams.get('decided')),
 		history: history.filter((item) => item.uri !== request.uri),
 		trail,
-		stale,
 		// Streamed, so the page shows while the root's verifications and the requester's profile are read.
 		verification: verifiable
 			? app.verifications
@@ -106,16 +94,14 @@ export const actions: Actions = {
 				reason: text(form, 'reason', 10_000)
 			});
 
-			return {
-				success:
-					outcome === 'approved'
-						? request.kind === 'list'
-							? 'Approved and listed in Find DJs'
-							: 'Approved and published'
-						: outcome === 'rejected'
-							? 'Rejected'
-							: 'Sent back for changes'
-			};
+			// On to the oldest request still waiting that this moderator can review, so a queue is worked through in order.
+			const next = (await locals.app.requests.list({ status: 'pending' })).find(
+				(item) => item.requester.did !== viewer.did
+			);
+
+			const decided = outcome === 'approved' && request.kind === 'list' ? 'listed' : outcome;
+
+			redirect(303, `${next ? `/admin/requests/${next.rkey}` : '/admin/requests'}?decided=${decided}`);
 		});
 	}
 };

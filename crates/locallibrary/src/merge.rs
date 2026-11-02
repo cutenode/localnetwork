@@ -1219,7 +1219,7 @@ fn copy_artwork(
     let Some(src_key) = src_tree.resolve(&paths::key(src_path)).map(|e| e.path.clone()) else {
         return Ok(None);
     };
-    let next_id = editor.database()?.artwork.iter().map(|a| a.id).max().unwrap_or(0) + 1;
+    let next_id = editor.next_artwork_id()?;
     let ext = src_key.rsplit_once('.').map(|(_, e)| e).unwrap_or("jpg");
     let key = crate::artwork::free_artwork_key(target.root(), next_id, ext);
     for (from, to) in [
