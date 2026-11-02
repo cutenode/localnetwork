@@ -563,7 +563,7 @@ fn sync_set(
     on: &mut dyn FnMut(&WatchAction),
 ) -> Result<()> {
     let devices: Vec<Device> = mounted.iter().filter_map(|m| Device::open(&m.root).ok()).collect();
-    let Some(set) = fleet::sets(store, &devices)?.into_iter().find(|s| s.library_id == Some(lib.id)) else {
+    let Some(set) = fleet::sets(Some(store), &devices)?.into_iter().find(|s| s.library_id == Some(lib.id)) else {
         return Ok(());
     };
     if !set.members.contains(&drive.root) || set.members.len() < 2 {

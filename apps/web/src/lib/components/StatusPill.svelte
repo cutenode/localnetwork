@@ -19,6 +19,7 @@
 			confirmed: good,
 			success: good,
 			verified: good,
+			listed: good,
 			pending: warning,
 			hidden: warning,
 			negotiating: warning,

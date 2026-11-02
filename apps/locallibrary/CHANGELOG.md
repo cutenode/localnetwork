@@ -4,7 +4,8 @@ All notable changes to locallibrary are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/). The release workflow takes a version's notes from
 its section here, so rename "Unreleased" to the version (`## [0.1.0] - YYYY-MM-DD`) in the
-commit that gets tagged.
+commit that gets tagged. Pull requests add their lines in [`changes/`](changes/README.md), which
+a release moves in here.
 
 ## [Unreleased]
 
@@ -41,11 +42,17 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
 - **Between computers.** `store serve` prints a code and `store fetch <code>` on another
   computer copies the snapshots and files its store lacks over the network (iroh, directly or
   through relays, or `--local` for the local network alone), checking each file's hash; libraries
-  it lacks are added and ones it has move to the other's newer snapshot.
+  it lacks are added and ones it has move to the other's newer snapshot. The sidecar has them as
+  `store.serve`, which gives its code and says who connects in `serve` notifications until it's
+  cancelled, and `store.fetch`.
 - **Exporting without rekordbox.** `collection export` writes rekordbox's collection to a drive or
   a folder as rekordbox's Export does (tracks, playlists, analysis, cues, artwork and My Tags), so
   a library can be had without a drive rekordbox exported to; tracks Cloud Library Sync keeps in
-  Dropbox or Google Drive come along, online-only ones downloaded as they're copied.
+  Dropbox or Google Drive come along, online-only ones downloaded as they're copied. My Tags go
+  in `exportExt.pdb` too, for the CDJ-3000 and older players. Intelligent playlists hold the
+  tracks their rules match, and one a filter can say gets a rule-based playlist for the drive,
+  so `smart apply` keeps it up to date; the plan names the ones that are only their tracks as
+  they are now.
 - **Editing on the drive.** Playlists and folders (create, rename, move, delete, fill, sort,
   order for mixing, import), track details (BPM, album artist, ISRC and release date too),
   ratings and colours, My Tags, hot cues, memory cues and loops, cover art, replacing duplicates
@@ -82,7 +89,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   far from the library's level (a track whose best keys tie has no key estimate, rather than one
   picked at random). `check` warns about those levels from what was measured, and
   `playlist order` trusts keys the analysis questions less. `analyze --apply key,bpm` writes the
-  estimates to the tracks, as an edit asked about first. `analysis bench` scores rekordbox's keys
+  estimates to the tracks, as an edit asked about first. `doctor --fix-tempo` doubles the beat
+  grid and BPM of each track heard at twice its stored tempo and halves them where it's heard at
+  half, as an edit `undo` takes back; the `.EXT`'s extended grid (`PQT2`) isn't rescaled (the edit
+  takes it out, as with any new grid), and the plan says so. `analysis bench` scores rekordbox's keys
   and tempos, and the analysis, against the GiantSteps datasets (MIREX's weighted key score,
   tempo Accuracy1 and Accuracy2).
 - **Duplicates by sound.** `doctor --by-sound` and `track dedupe --by-sound` find the same
@@ -132,20 +142,29 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
 - **Settings.** One "My Settings" profile for every drive's player and mixer settings, with
   per-drive overrides. `settings publish` puts the profile's base on your Atmosphere account, and
   `settings import --from-account` (or `--from-handle`, for someone else's) adds published
-  settings to yours; `--replace` makes them the whole base.
+  settings to yours; `--replace` makes them the whole base. `settings export [FILE]` writes
+  everything set here to one JSON file (the settings profile, the players `check` uses, the
+  profile's preferences, the player's preferences such as its theme and columns, and every
+  plugin's settings, key bindings included), and `settings import
+  FILE` adds it to another computer's: it shows what it adds, skips what's there already and keeps
+  values that differ unless `--replace` (also `settings.export` and `settings.import_file.*` in the
+  sidecar; `docs/settings-export.schema.json` describes the file).
 - **Cover art** on drives and in audio files (`art auto` given no drive fills in each library
   plugged in, with one question), and rekordbox XML export (`xml`) to take a drive's library back
   into rekordbox.
 - **Mixes.** `mix` finds which of a drive's tracks a recorded set plays, when, at what speed and
   in what key (marking the matches it's unsure of), and writes an interactive report. The report
   and `--export` (the same as data, for showing elsewhere) hold only what they show: no file
-  paths, drive name or size, and tracks your profile hides read "ID - ID". The player's Mixes view
-  lists the drive's recordings next to folders of sets opened from the computer.
+  paths, drive name or size, and tracks your profile hides read "ID - ID". `--cover FILE` (`cover`
+  in the sidecar's `mix.identify` and `mix.export`) gives the recording a cover for both. The
+  player's Mixes view lists the drive's recordings next to folders of sets opened from the
+  computer.
 - **DJ profile.** `profile` sums up how you play from your sets, collection and settings (with no
   drives named, the mounted drives the store knows), with a rounded public view; `account` signs
   in with an Atmosphere (AT Protocol) account, and `profile publish`, `sets publish` and
-  `settings publish` write their records there, asking only to create and update them. Signing
-  in and publishing are alpha.
+  `settings publish` write their records there, asking only to create and update them (and to
+  delete sets and their recordings: `sets delete` takes a published set's record and its
+  recording's off the account first). Signing in and publishing are alpha.
 - **Sets and sessions.** A history list a player recorded (or a Beat Link Trigger log, `plays
   import`) is a *session*: raw, private, never counted or published as a set. `plays` lists sessions
   with an id that's the same on every drive and in the store (any list name argument takes one), the
@@ -168,7 +187,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   `source`), holds up to 500 tracks (not 1,000), and its tracks gain `artists`, `releaseName`,
   `releaseMbId` and `transitionIn` (how a track came in, from the recording's mix report), shaped as
   teal.fm's and skaists' records so readers can map them. MusicBrainz IDs are bare UUIDs, as
-  teal.fm writes them. locallibrary fills them from files Picard tagged, else from a plugin
+  teal.fm writes them. Every string in the three Lexicons has a length limit (a setting or other
+  known value at most 32 bytes, a MusicBrainz ID 64), so a record of any size no longer passes. locallibrary fills them from files Picard tagged, else from a plugin
   analyzer's `recording`, `release` and `artists` roles when its `isrc` and `credits` say they're
   for the track as the set has it, which `sets publish` runs first on the tracks it names, once
   it's signed in and confirmed, and keeps in the set (`--no-lookup` doesn't; over RPC
@@ -310,7 +330,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     `mix RECORDING --drive DRIVE --format serato --export DIR`); and Traktor's `collection.nml`
     read back, `import` adding the keys, BPMs and cues it has for a drive's tracks, and
     `collection export --from interop:traktor` building a drive from it (tracks, cues, beat grids
-    and playlists).
+    and playlists). With `--option include_history=true`, the Traktor, Serato and Engine DJ
+    exports carry a drive's history lists too, as playlists in a `History` folder (the plan warns
+    they're not history there).
   - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
     `sound.bpm`, `sound.key`, `sound.integrated_lufs`... (shown to a tenth, in LUFS, dBTP and
     percentages), which is what `doctor --analyze` runs. It also works out a three-band waveform,
@@ -348,23 +370,23 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     YouTube as a video: FFmpeg makes it from a still picture (the `picture` setting, else a black
     frame) over the recording, and it goes up through YouTube's resumable upload, titled after the
     set, unlisted unless the `privacy` setting says, with the tracklist as chapters in the
-    description, keeping the video's page as the set's link. It signs in to Google through Local
-    Network's token exchange, asking only to upload videos.
+    description, keeping the video's page as the set's link. It asks for a google account, and
+    only to upload videos.
   - `mixcloud`: a set destination, `sets publish SET --to mixcloud:show`, uploading the set's
     recording to Mixcloud as a show in one form, titled after the set, with the tracklist as the
     show's sections (artist, title and start time), the `tags` setting's tags (five at most), the
     `picture` setting's picture and, with `unlisted`, kept private, and keeping the show's page as
     the set's link. A recording or picture Mixcloud wouldn't take is refused first; an upload that
-    fails on the way, or over Mixcloud's rate limit, is sent again whole. It signs in to Mixcloud
-    through Local Network's token exchange, with the token in the query as Mixcloud takes it.
+    fails on the way, or over Mixcloud's rate limit, is sent again whole. It asks for a mixcloud
+    account, to upload with.
   - `soundcloud`: a set destination, `sets publish SET --to soundcloud:track`, uploading the set's
     recording to SoundCloud as a track in one form, titled after the set, its tracklist as the
     description, tagged `dj mix`, not downloadable and private unless the `sharing` setting says,
     with the `genre` and `picture` settings as its genre and artwork, and keeping the track's page
     as the set's link. A recording or artwork SoundCloud wouldn't take is refused before anything
     goes. An upload that fails on the way is sent again whole a few times, once the plugin has
-    checked SoundCloud didn't make the track anyway. It signs in to SoundCloud through Local
-    Network's token exchange.
+    checked SoundCloud didn't make the track anyway. It asks for a soundcloud account, to upload
+    with.
 - **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
   grid (`PQTZ`), phrases (`PSSI`, masked as rekordbox 6 writes them) and waveforms (`PWAV`,
   `PWV2`, `PWV3`, `PWV5`, `PWV6`, `PWV7`) into a track's analysis files as a journaled, undoable
@@ -384,22 +406,14 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   beat grids and waveforms a track brings go into analysis files made for it, read back first.
   The player has "build from …" in the palette and a drive's menu, the sidecar
   `plugins.source.plan/apply`. Not yet tried on players.
-- **Plugins' accounts and destinations.** A plugin may have accounts on other services, which
-  locallibrary signs you in to in the browser (`plugin account PLUGIN ACCOUNT sign-in`, or the
-  player's palette), keeping the tokens in the keychain and refreshing them itself: the plugin
-  never sees one. A service that wants a client secret for its tokens (Mixcloud, SoundCloud,
-  Google) is signed in to through Local Network's token exchange, which holds the secret, so
-  none ships with locallibrary. An account says how its service takes the token: after `Bearer`
-  in the `Authorization` header unless it names another scheme (SoundCloud's `OAuth`) or a query
-  parameter (Mixcloud's `access_token`). It may name the port the browser comes back to, for a
-  service registered with an exact redirect address (SoundCloud). A plugin may keep a copy of the store (`store copy --to PLUGIN:DESTINATION`,
+- **Plugins' destinations.** A plugin may keep a copy of the store (`store copy --to PLUGIN:DESTINATION`,
   `store restore --from`, `drive verify --from`), every file it gives back checked against its
   hash, or publish a set with its recording (`sets publish SET --to`), after a dry run you confirm,
   the link it answers kept in the set. The plugin uploads the recording through locallibrary
   (`net/fetch`'s `body_blob`, perhaps a `body_range` of it, or a `multipart` form's file), which
   reads it as it sends it rather than all at once, shows how much has gone (phase `upload`) and
   lets it send nothing else but files in its request's scratch folder. The sidecar has both as
-  `plugins.account*`, `plugins.store.*` and `plugins.publish.*`.
+  `plugins.store.*` and `plugins.publish.*`.
 - **Where a set's recording plays.** A set destination may name the link it answers (plyr's
   `plyr.fm`, archive's `Internet Archive`, youtube's `YouTube`, mixcloud's `Mixcloud`) and give the
   Atmosphere record holding the recording (plyr's track, as a `com.atproto.repo.strongRef`). The
@@ -425,8 +439,14 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   token exchange. Three ship, a folder each in `plugins/accounts/`: google-account (its scope
   `youtube-upload`), mixcloud-account (`upload`) and soundcloud-account (`upload` and `read`).
   `plugin list` shows the account type each adds and `plugin info` its scopes; the sidecar's
-  `plugins.list` has them as `account_types`. Plugins still sign in through their own accounts
-  for now.
+  `plugins.list` has them as `account_types`. locallibrary signs you in in the browser, keeping
+  the tokens in the keychain and refreshing them itself. A service that wants a client secret for
+  its tokens (Mixcloud, SoundCloud, Google) is signed in to through Local Network's token
+  exchange, which holds the secret, so none ships with locallibrary. An account type says how its
+  service takes the token: after `Bearer` in the `Authorization` header unless it names another
+  scheme (SoundCloud's `OAuth`) or a query parameter (Mixcloud's `access_token`). It may name the
+  port the browser comes back to, for a service registered with an exact redirect address
+  (SoundCloud).
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're
@@ -458,8 +478,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   same plan, before the drive is saved (`operations` over RPC). `status` flags a drive rekordbox exported over recorded edits, and names it in its hint.
   Over RPC, `refresh.plan` and `refresh.apply`.
 - **The night before a set.** `prep [DRIVES...]` saves the drives in the store (history lists
-  first), copies the newest library onto the others, checks them against your player models and
-  ejects them when everything passed; a check with problems, or history lists it couldn't save,
+  first), copies the newest library onto the others (all at once, as `sync` does), checks them
+  against your player models and ejects them when everything passed; a check with problems, or history lists it couldn't save,
   leaves them mounted (exit status 4). `check`, `eject` and `pull` with no drives take the mounted
   drives of one library. Over RPC, `prep.plan` and `prep.apply`.
 - **First run.** `setup [DRIVES...]` asks which drives are copies of your library and what to call
@@ -545,6 +565,15 @@ their old names.
 - Reading a track's analysis from a drive is `anlz::load` and `anlz::load_grid` in the library
   (they were `TrackAnalysis::load` and `TrackAnalysis::load_grid`), now that `TrackAnalysis` is
   loclib-model's.
+
+- Key and BPM imports, `analyze --apply` and metadata picks plan each track's edit on that track
+  alone, so planning them takes time in proportion to the tracks they change rather than growing
+  with the square of the library's size.
+- Deleting tracks from OneLibrary reads each table once, rather than once for each track.
+- Edits to a OneLibrary working copy are one transaction, committed when the database is
+  written, rather than a commit after each statement.
+- A scan that finds nothing new leaves `.locallibrary/index.json` alone, rather than rewriting
+  and syncing it every time.
 
 - "Set" now means a DJ set. The drives of one library that `sync` syncs together are a drive
   *group*: `drive sets` is `drive groups`, `watch --sync-set` is `watch --sync-group`, and over
@@ -675,7 +704,8 @@ their old names.
   between (RPC `store.prune.plan` and `store.prune.apply`; `store.prune` still works), and its dry
   run reports exactly what it frees. `store gc` removes only snapshots of no library, files
   nothing uses and caches no version reads any more, and refuses when it can't read a snapshot. `store copy` refuses, without
-  `--force`, a copy that was written to with `--store` since the last copy.
+  `--force`, a copy that was written to with `--store` since the last copy, and a change planned
+  with `--store` naming such a copy says so first.
 - `format <name>` takes only an adopted drive's name (or a path or disk identifier), never a
   volume label or a folder in the working directory (give `./NAME`), and the typed confirmation is
   that name or the disk identifier. `format` and
@@ -703,8 +733,9 @@ their old names.
 - Each store folder has its own keychain item, so a session kept in the keychain needs one sign-in
   again, and a `--session-file` keeps each account's secrets apart. Publishing asks only to create
   and update locallibrary's records (`repo:<nsid>?action=create&action=update`, where it asked
-  for delete too), through the permission set `computer.localnetwork.locallibraryPublishing`
-  (`include:`), so servers show its description when you approve. The set has to be published
+  for delete too), and to delete sets and their recordings (`repo:computer.localnetwork.dj.set`,
+  `repo:computer.localnetwork.dj.recording`), through the permission set
+  `computer.localnetwork.locallibraryPublishing` (`include:`), so servers show its description when you approve. The set has to be published
   (`pnpm -C apps/web lexicons:publish`) before a sign-in that allows publishing works. Sign-in
   stops when that document is online but doesn't fit, instead of quietly using the development
   client, and `account` and the player say when a session is the development client's. `settings
@@ -746,6 +777,11 @@ their old names.
   `collection` read memory loops as hot cue D and shifted D-H by one. OneLibrary's `cue.kind` is
   written the same way.
 - `mix` no longer reports riding the pitch fader as a loop or skip.
+- `mix` gives the slowest and fastest speeds of a track the pitch fader was ridden through, in the
+  HTML report, the tracklist, the player's Mixes view and `--export` (`speedRange`, which the
+  website's mix report shows too). A ride of a few percent read as one speed (their average, or the
+  speed searched when that was 2% or more off), and how clearly the track was heard was measured
+  at that speed, which it was never played at.
 - `status` and the player's replay offer no longer take a player's writes for a rekordbox export
   on drives with both databases, and replaying field edits already in place changes nothing.
 - `library log` shows snapshots saved beside the latest (drives back from a set) as `beside`;
@@ -759,12 +795,22 @@ their old names.
   decides whether it starts paused. A refused sign-in says why. The Traktor export uses the Mac's
   real startup disk name, and stamps its entries with `SOURCE_DATE_EPOCH` when it's set (refusing
   a value that isn't seconds since 1970).
+- `drive groups` and the sidecar's `drive.groups` with no store list the mounted drives grouped
+  by the library each holds, unnamed and without roles, where they answered nothing.
 - `check`'s items (with `--json`, and over RPC) are findings, the shape plugins' checks report
   in: what was found fine is `info` where it was `ok`, and an item may name the tracks, playlist
   and files it's about (`tracks`, `playlist`, `paths`).
+- A transition is a blend once both tracks are heard together for 8 seconds everywhere: the
+  player's Mixes view called 1 second a blend, where the reports, the website and a published
+  set's `transitionIn.technique` used 8. The value lives in `locallibrary::mix::BLEND_SECS` and
+  `packages/tokens/mix.json`. A shorter overlap is a "quick mix" in the player too, as in the
+  reports (it said "cut").
 
 ### Fixed
 
+- Serato `--write-tags` (`--option write_tags=true`): an AIFF or WAV whose odd-sized last chunk
+  has no pad byte after it is copied without cues, named in the plan's warning, where the plan
+  counted it as tagged and the export failed on it once confirmed.
 - Tracks your profile hides (`profile hide`) are no longer named when a set is published at a
   plugin's set destination (`sets publish --to`) or written out in a format for publishing (`sets
   export` text, Mixcloud, CUE, YouTube, 1001Tracklists). `sets publish --to` takes `--hide` too,
@@ -807,6 +853,9 @@ their old names.
 - When the track queued after the playing one is short enough to play out before the player next
   looks, the player goes on past it at once. It showed it as playing until then, and `n` pressed
   in that moment skipped the track after it.
+- The HTML mix report's light theme draws its up, verse, chorus, down and bridge phrase strips,
+  and hot cues and loops without a colour of their own, in darker colours that stand out at 3:1
+  (they were 1.7 to 2.3:1); dark mode is unchanged.
 
 ### Security
 
@@ -818,7 +867,9 @@ their old names.
 - Text from servers and the browser has control characters removed before it reaches the terminal
   or an error.
 - The sign-in page, `mix --open` and the player's mix report open only `https://` addresses and
-  files that exist, without a shell (on Windows, `rundll32` instead of `cmd /C start`).
+  files that exist, without a shell (on Windows, `rundll32` instead of `cmd /C start`). An
+  address is parsed and opened as parsed: one with a user name or password, or on this computer
+  or its local network, is refused, where anything starting with `https://` went to the browser.
 - A drive's `exportLibrary.db` with a view or trigger is refused, its schema runs with
   `trusted_schema` off and SQLite's defensive mode, and column names from it are quoted safely.
   Audacity projects open with `trusted_schema` off too, and are refused when they hold a view.

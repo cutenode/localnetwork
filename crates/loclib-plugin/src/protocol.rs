@@ -143,18 +143,33 @@ pub enum ProgressReport {
     Unknown(Value),
 }
 
-/// The RPC sidecar's progress event: what happened, the drive (`target`) and step it's about, and
-/// for a coalesced `item`, how many items it stands for (count `items ?? 1`).
+// The one progress event: a plugin sends it, and the RPC sidecar sends it to a front end, whose
+// `schema.json` takes these doc comments.
+/// What happened, which drive and step it's about, and (for a coalesced `item`) how many files
+/// it stands for.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ProgressEvent {
     #[serde(flatten)]
     pub event: Progressed,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub step: Option<StepInfo>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// How many files an `item` stands for, when more than one (count `items ?? 1`).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<u64>,
+}
+
+impl ProgressEvent {
+    /// What a [`loclib_progress::Coalesced`] reports from inside `scope`.
+    pub fn new(scope: &loclib_progress::Scope, report: loclib_progress::Report) -> ProgressEvent {
+        let (event, items) = match report {
+            loclib_progress::Report::Event { event, items } => (Progressed::Event(event), items),
+            loclib_progress::Report::Step => (Progressed::Step(StepStarted::default()), None),
+        };
+        let step = scope.step.map(|s| StepInfo { index: s.index, total: s.total, id: s.id.into() });
+        ProgressEvent { event, target: scope.target.clone(), step, items }
+    }
 }
 
 /// Read by hand: a phase's start has `items` of its own (how many there are), which a derived
@@ -196,8 +211,9 @@ pub enum StepTag {
     Step,
 }
 
-/// Step `index` of `total`, counting from 1, and its name (`id`).
+/// Step `index` of `total`, counting from 1. `id` names it (`format`, `library`, `verify`, ...).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[schemars(rename = "Step")]
 pub struct StepInfo {
     pub index: u32,
     pub total: u32,
@@ -221,10 +237,11 @@ pub struct Partial {
 /// `net/fetch`: an HTTP request the host makes for the plugin, to a host its `net:<host>`
 /// capabilities grant (https only, redirects checked hop by hop), as `locallibrary/<version>`.
 /// `{secret:<key>}` in a header's value, a query value, `body` or a `multipart` part's value
-/// stands for the plugin's secret setting `key`, and `{account:<id>}` as the whole value of the
-/// `Authorization` header, or of the query parameter the account names, for its account `id`
-/// (feature `accounts`): the host fills them in after the checks (an account's access token after
-/// `Bearer`, or the scheme the account names, in the header), and the plugin never sees either.
+/// stands for the plugin's secret setting `key`, and `{account:<type>}` as the whole value of the
+/// `Authorization` header, or of the query parameter the account type names, for the account of
+/// that type it has access to (feature `accounts`): the host fills them in after the checks (an
+/// account's access token after `Bearer`, or the scheme the type names, in the header), and the
+/// plugin never sees either.
 /// The host says how long the body is (`Content-Length`), and for `multipart`, its type.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Fetch {

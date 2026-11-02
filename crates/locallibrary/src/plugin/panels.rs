@@ -37,7 +37,7 @@ impl Plugins {
         let slot = self.slot(plugin)?;
         slot.declared("panel", panel, &slot.manifest.contributes.panels, |p| &p.name)?;
         let context = Context { drive: Some(drive.into()), tracks: vec![track], ..Context::default() };
-        let (context, _) = slot.context(context, store)?;
+        let (context, _, _given) = slot.context(context, store)?;
         let render = RenderPanel { panel: panel.into(), context };
         let read = |answer: Value, scratch: &Scratch, live: &Live| {
             let view = slot.view(panel, answer, scratch, live)?;

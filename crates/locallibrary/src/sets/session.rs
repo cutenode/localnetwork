@@ -5,7 +5,7 @@ use chrono::Utc;
 use rustc_hash::FxHashMap;
 
 use crate::device::Device;
-use crate::plays::{self, HistoryArchive, HistoryList};
+use crate::plays::{self, DriveHistory, HistoryArchive, HistoryList};
 use crate::progress::Ctx;
 use crate::sets::{EntryOrigin, ImportedSession, Session, SetBook, SetEntry, TimedPlay, Window};
 use crate::store::Store;
@@ -21,12 +21,13 @@ pub struct Gathered {
 /// The sessions on `drives`, archived in `store` and imported into `book`, each once.
 pub(crate) fn gather(store: Option<&Store>, drives: &[Device], book: &SetBook, ctx: &Ctx<'_>) -> Result<Gathered> {
     let archive = store.map(|s| plays::archive(s, None, ctx)).transpose()?;
-    Ok(gather_from(archive.as_ref(), drives, book))
+    let drives: Vec<DriveHistory> = drives.iter().map(DriveHistory::read).collect();
+    Ok(gather_from(archive.as_ref(), &drives, book))
 }
 
-/// The sessions on `drives`, in `archive` (the store's lists, read already: of one library, say)
-/// and imported into `book`, each once.
-pub fn gather_from(archive: Option<&HistoryArchive>, drives: &[Device], book: &SetBook) -> Gathered {
+/// The sessions in the history lists read from drives ([`DriveHistory::read`]), in `archive`
+/// (the store's lists, read already: of one library, say) and imported into `book`, each once.
+pub fn gather_from(archive: Option<&HistoryArchive>, drives: &[DriveHistory], book: &SetBook) -> Gathered {
     let mut out = Gathered::default();
     let mut index: FxHashMap<String, usize> = FxHashMap::default();
     for a in archive.iter().flat_map(|a| &a.lists) {
@@ -38,17 +39,10 @@ pub fn gather_from(archive: Option<&HistoryArchive>, drives: &[Device], book: &S
     out.warnings.extend(archive.iter().flat_map(|a| a.warnings.iter().cloned()));
     let archived = out.sessions.len();
     let now = Utc::now();
-    for d in drives {
-        let history = match plays::drive_history(d) {
-            Ok(h) => h,
-            Err(e) => {
-                out.warnings.push(format!("{}: {e}", d.name()));
-                continue;
-            }
-        };
+    for history in drives {
         out.warnings.extend(history.warnings.iter().map(|w| format!("{}: {w}", history.drive)));
         // No snapshot holds a list only on the drive, so it was recorded since the last one.
-        let pulled = archive.and_then(|a| a.last_pulled(d));
+        let pulled = archive.and_then(|a| a.pulled_before(history));
         for list in &history.lists {
             let id = list.fingerprint();
             let Some(&i) = index.get(&id) else {
@@ -73,13 +67,18 @@ pub fn gather_from(archive: Option<&HistoryArchive>, drives: &[Device], book: &S
         s.sets = book.sets_with_session(&s.id).map(|set| set.id.clone()).collect();
         s.dismissed = book.dismissed.contains(&s.id);
     }
-    // History lists count up (`HISTORY 002` is newer than `HISTORY 001`).
-    out.sessions
-        .sort_by(|a, b| (b.window.before, b.window.after, &b.name).cmp(&(a.window.before, a.window.after, &a.name)));
+    newest_first(&mut out.sessions);
     out
 }
 
-fn of_list(id: String, list: &HistoryList, first_seen_on: Option<String>, window: Window) -> Session {
+/// In the order [`gather_from`] answers sessions: newest first, by when they were recorded.
+pub(crate) fn newest_first(sessions: &mut [Session]) {
+    // History lists count up (`HISTORY 002` is newer than `HISTORY 001`).
+    sessions
+        .sort_by(|a, b| (b.window.before, b.window.after, &b.name).cmp(&(a.window.before, a.window.after, &a.name)));
+}
+
+pub(crate) fn of_list(id: String, list: &HistoryList, first_seen_on: Option<String>, window: Window) -> Session {
     Session {
         tracks: list.tracks.iter().map(|t| SetEntry::from_track(t, EntryOrigin::Session, Some(&id))).collect(),
         id,

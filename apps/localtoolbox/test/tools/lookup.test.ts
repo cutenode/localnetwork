@@ -64,11 +64,4 @@ describe('the lookup', () => {
 			});
 		}
 	});
-
-	it('has words for what the content script says went wrong', async () => {
-		const { LOOKUP_ERRORS } = await fresh();
-		expect(LOOKUP_ERRORS['no-client-id']).toMatch(/API key/);
-		expect(LOOKUP_ERRORS.unauthorized).toMatch(/rejected/);
-		expect(LOOKUP_ERRORS['']).toBeUndefined();
-	});
 });

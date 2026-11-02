@@ -5,4 +5,4 @@
 	let { data }: PageProps = $props();
 </script>
 
-<ArtistPage name={data.name} canonical={data.canonical} origin={data.origin} supports={data.supports} />
+<ArtistPage supports={data.supports} />

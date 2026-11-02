@@ -20,10 +20,10 @@ use clap::{CommandFactory, ValueEnum};
 use indexmap::IndexMap;
 use locallibrary::api::RpcFailure;
 use locallibrary::mix::report::ShownField;
-use locallibrary::plugin::{AccountStatus, Launch, Log, Options, PluginSpec, Plugins, Reads};
+use locallibrary::plugin::{Access, Launch, Log, Options, PluginSpec, Plugins, Reads};
 use locallibrary::progress::Ctx;
 use locallibrary::{Error, Result};
-use loclib_plugin::{Capability, ExportFrom, Manifest, SettingType};
+use loclib_plugin::{AccountType, Capability, ExportFrom, Manifest, SettingType};
 use rustc_hash::FxHashMap;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -50,6 +50,12 @@ const TEST_PLUGINS: &str = "LOCALLIBRARY_TEST_PLUGINS";
 /// ([`locallibrary::plugin::Options::test_offline`]). Only in builds with debug assertions.
 #[cfg(debug_assertions)]
 const TEST_OFFLINE: &str = "LOCALLIBRARY_TEST_OFFLINE";
+
+/// Set by the CLI's tests that sign in at a mock service on this computer: plugins and account
+/// plugins may reach it ([`locallibrary::plugin::Options::test_loopback`]). Only in builds with
+/// debug assertions.
+#[cfg(debug_assertions)]
+const TEST_LOOPBACK: &str = "LOCALLIBRARY_TEST_LOOPBACK";
 
 #[cfg(debug_assertions)]
 #[path = "../../../crates/locallibrary/src/bin/test-plugin/plugin.rs"]
@@ -146,6 +152,7 @@ fn load() -> Result<Loaded> {
     #[cfg(debug_assertions)]
     {
         options.test_offline = std::env::var_os(TEST_OFFLINE).is_some();
+        options.test_loopback = std::env::var_os(TEST_LOOPBACK).is_some();
     }
     let plugins = Plugins::new(specs, Arc::new(SidecarReads), options)?;
     events::tell_applied();
@@ -170,16 +177,15 @@ fn exe() -> std::io::Result<PathBuf> {
 }
 
 /// A unit test's binary is the test harness, which can't serve a plugin: the locallibrary binary
-/// cargo builds beside it for the integration tests does.
+/// cargo builds for the tests does. Its path is looked up when the test runs, not built in, so it
+/// holds when nextest runs the tests from an archive somewhere else.
 #[cfg(test)]
 fn exe() -> std::io::Result<PathBuf> {
-    let deps = std::env::current_exe()?;
-    let dir = deps.parent().and_then(|d| d.parent()).ok_or_else(|| std::io::Error::other("no target folder"))?;
-    let exe = dir.join(format!("locallibrary{}", std::env::consts::EXE_SUFFIX));
-    match exe.is_file() {
-        true => Ok(exe),
-        false => Err(std::io::Error::other(format!("{} isn't built (cargo build)", exe.display()))),
-    }
+    std::env::var_os("CARGO_BIN_EXE_locallibrary").map(PathBuf::from).ok_or_else(|| {
+        std::io::Error::other(
+            "CARGO_BIN_EXE_locallibrary isn't set: run the tests with cargo 1.94 or later, or nextest",
+        )
+    })
 }
 
 /// A name a plugin adds where it must be its alone (the command line, `export --format`, `import
@@ -194,10 +200,11 @@ type Claim = (String, String);
 /// that's a namespace of the sidecar's methods (its plans would be named like theirs,
 /// `sync.group`), a command and an operation of one name, a param named like a flag its command
 /// has anyway, and an export format (or an import format) named like another, or like one of
-/// locallibrary's own for what it writes out (`export`'s, `sets export`'s). A place in a group
-/// is under its name, not an alias. Plugins that clash with each other are all left out, since
-/// none is more right than the others; one left out already (clashing with locallibrary) clashes
-/// with none.
+/// locallibrary's own for what it writes out (`export`'s, `sets export`'s), and an account type
+/// named like an `account` command. A place in a group is under its name, not an alias. Plugins
+/// that clash with each other are all left out, since none is more right than the others; one
+/// left out already (clashing with locallibrary) clashes with none. Then a plugin asking for
+/// accounts is left out when an account plugin kept would be no use to it (see [`unmet`]).
 fn check(manifests: &[&Manifest]) -> Vec<Option<String>> {
     let cli = crate::Cli::command();
     let names = |c: &clap::Command| -> Vec<String> {
@@ -285,6 +292,13 @@ fn check(manifests: &[&Manifest]) -> Vec<Option<String>> {
             let what = format!("the {id} plugin's import format {format:?}");
             claim(&mut imports, &FxHashMap::default(), format, format!("the {id} plugin's"), what)?;
         }
+        // `account <type>` names one of its accounts on the command line.
+        if let Some(t) = m.contributes.account_types.iter().find(|t| top.contains_key(&format!("account {}", t.name))) {
+            return Err(format!(
+                "the {id} plugin's account type {:?} is named like the account {} command",
+                t.name, t.name
+            ));
+        }
         Ok([places, exports, imports])
     };
     let mut left_out = Vec::new();
@@ -312,7 +326,46 @@ fn check(manifests: &[&Manifest]) -> Vec<Option<String>> {
             }
         }
     }
+    let kept = manifests.iter().zip(&left_out).filter(|(m, why)| why.is_none() && m.is_account_plugin());
+    let providers: Vec<&Manifest> = kept.map(|(m, _)| *m).collect();
+    for (m, why) in manifests.iter().zip(left_out.iter_mut()).filter(|(_, why)| why.is_none()) {
+        *why = unmet(m, &providers);
+    }
     left_out
+}
+
+/// Why `m` is no use asking for the accounts it asks for, if it is, with the account plugins
+/// `providers`: a scope of a type no account plugin providing the type lists, or a host a request
+/// of one goes to that none of its `net:` capabilities reaches.
+fn unmet(m: &Manifest, providers: &[&Manifest]) -> Option<String> {
+    let id = &m.id;
+    for need in &m.accounts {
+        let kind = &need.name;
+        let types: Vec<(&str, &AccountType)> = providers
+            .iter()
+            .filter_map(|p| Some((p.id.as_str(), p.contributes.account_types.iter().find(|t| t.name == *kind)?)))
+            .collect();
+        if types.is_empty() {
+            return Some(format!("the {id} plugin asks for {kind} accounts, which no account plugin provides"));
+        }
+        for scope in need.scopes.iter().chain(need.optional.iter().flat_map(|o| &o.scopes)) {
+            let listing: Vec<_> = types.iter().filter_map(|(_, t)| t.scopes.get(scope)).collect();
+            if listing.is_empty() {
+                let ids: Vec<&str> = types.iter().map(|(id, _)| *id).collect();
+                let ids = ids.join(", ");
+                return Some(format!(
+                    "the {id} plugin asks for {kind}'s scope {scope:?}, which no account plugin providing {kind} lists ({ids})"
+                ));
+            }
+            let hosts = listing.iter().flat_map(|s| &s.requests).filter_map(|r| r.host());
+            if let Some(host) = hosts.into_iter().find(|h| !m.capabilities.iter().any(|c| c.reaches(h))) {
+                return Some(format!(
+                    "the {id} plugin asks for {kind}'s scope {scope:?}, whose requests go to {host}, which it has no net:{host} capability for"
+                ));
+            }
+        }
+    }
+    None
 }
 
 /// `plugin serve <id>`: serves the plugin over stdin and stdout until its input closes, writing
@@ -349,31 +402,10 @@ impl Reads for SidecarReads {
     }
 }
 
-/// The analyzers installed and what they worked out, for filters and sorts naming their fields
-/// (`sound.bpm:>120`): kept in `store`. Plugins that were refused have none.
-pub struct Installed {
-    store: Option<locallibrary::Store>,
-    analyzers: Vec<locallibrary::fields::Analyzer>,
-    declared: locallibrary::fields::Declared,
-}
-
-impl Installed {
-    pub fn with(store: Option<locallibrary::Store>) -> Installed {
-        let host = host().ok();
-        Installed {
-            store,
-            analyzers: host.map(Plugins::analyzers).unwrap_or_default(),
-            declared: host.map(Plugins::fields).unwrap_or_default(),
-        }
-    }
-
-    pub fn source(&self) -> locallibrary::fields::Source<'_> {
-        locallibrary::fields::Source {
-            store: self.store.as_ref(),
-            analyzers: &self.analyzers,
-            declared: &self.declared,
-        }
-    }
+/// The analyzers installed and what they worked out, kept in `store`, for filters and sorts
+/// naming their fields (`sound.bpm:>120`).
+pub fn installed(store: Option<locallibrary::Store>) -> locallibrary::fields::Installed {
+    locallibrary::fields::Installed::new(store, host().ok())
 }
 
 /// What analyzers worked out for a track on a drive, kept in `store`, that a page shows: each
@@ -450,11 +482,12 @@ pub struct Listed {
     pub name: String,
     pub version: String,
     pub capabilities: Vec<Granted>,
-    /// What it adds: its account types by type, its accounts by id, its commands, destinations,
-    /// operations, panels, analyzers, checks, providers, services, library sources and themes by
-    /// name, the events it listens for, its export and import formats and its settings' keys.
-    pub account_types: Vec<String>,
+    /// The account types it asks for (`[[accounts]]`).
     pub accounts: Vec<String>,
+    /// What it adds: its account types by type, its commands, destinations, operations, panels,
+    /// analyzers, checks, providers, services, library sources and themes by name, the events it
+    /// listens for, its export and import formats and its settings' keys.
+    pub account_types: Vec<String>,
     pub commands: Vec<String>,
     pub destinations: Vec<String>,
     pub events: Vec<String>,
@@ -484,8 +517,8 @@ impl Listed {
             name: m.name.clone(),
             version: m.version.clone(),
             capabilities: Granted::all(m),
+            accounts: m.accounts.iter().map(|x| x.name.clone()).collect(),
             account_types: c.account_types.iter().map(|x| x.name.clone()).collect(),
-            accounts: c.accounts.iter().map(|x| x.id.clone()).collect(),
             commands: c.commands.iter().map(|x| x.name.clone()).collect(),
             destinations: c.destinations.iter().map(|x| x.name.clone()).collect(),
             events: c.events.iter().flat_map(|x| &x.on).map(|e| e.name().to_string()).collect(),
@@ -508,7 +541,7 @@ impl Listed {
 
 /// A plugin in full, as `plugin info` and the sidecar's `plugins.describe` show it: its manifest
 /// (with the JSON Schemas of its params and options, to draw forms from), what its capabilities
-/// let it do, its settings now, and whether each of its accounts is signed in.
+/// let it do, its settings now, and the access it has to your accounts.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct Described {
     pub manifest: Manifest,
@@ -516,9 +549,9 @@ pub struct Described {
     pub settings: IndexMap<String, Value>,
     #[serde(flatten)]
     pub secrets: Secrets,
-    /// Each of its accounts, and whether it's signed in (never a token): none signed in when the
-    /// keychain can't say (see `secrets_unknown`).
-    pub accounts: Vec<AccountStatus>,
+    /// Its access to the accounts the store keeps, of the types it asks for (`manifest.accounts`)
+    /// or any other.
+    pub accesses: Vec<Access>,
     pub running: bool,
 }
 
@@ -526,14 +559,13 @@ impl Described {
     pub fn of(plugin: &str, plugins: &Plugins, store: Option<&locallibrary::Store>) -> Result<Described> {
         let manifest = plugins.manifest(plugin)?;
         let secrets = Secrets::of(plugins, plugin, store)?;
-        // As far as the keychain can say: why it can't is the secrets'.
-        let accounts = plugins.accounts(plugin, store).or_else(|_| plugins.accounts(plugin, None))?;
+        let accesses = store.map(|s| plugins.accesses(s, Some(plugin), None)).transpose()?.unwrap_or_default();
         Ok(Described {
             manifest: manifest.clone(),
             capabilities: Granted::all(manifest),
             settings: plugins.settings(plugin, store)?,
             secrets,
-            accounts,
+            accesses,
             running: plugins.is_running(plugin),
         })
     }

@@ -59,6 +59,7 @@ fn tracks_carry_their_colour_kind_tempos_and_cues() {
         color,
         color_id: 0,
         loop_beats: None,
+        active_loop: false,
     };
     let analysis = TrackAnalysis {
         beats: vec![beat(0, 120.0, 1), beat(500, 120.0, 2), beat(1000, 122.0, 7)],
@@ -146,6 +147,7 @@ fn the_xml_reader_reads_back_what_the_writer_writes(tc: hegel::TestCase) {
                     .map(|(r, g, b)| [r, g, b]),
                 color_id: 0,
                 loop_beats: None,
+                active_loop: false,
             }
         })
         .collect();

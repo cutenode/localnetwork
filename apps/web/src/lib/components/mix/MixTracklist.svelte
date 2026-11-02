@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ArrowDown, AudioLines } from '@lucide/svelte';
-	import { clock, CONFIDENT, handoff, playColor, speed, tracklist, type MixReport } from '#lib/mix/report.ts';
+	import { clock, CONFIDENT, handoff, playColor, playSpeed, tracklist, type MixReport } from '#lib/mix/report.ts';
 	import { onColour } from '#lib/ui/contrast.ts';
 	import TrackOverview from './TrackOverview.svelte';
 
@@ -77,7 +77,7 @@
 						<span class="rounded-xs px-1.5 font-mono text-caption leading-6" style:background-color={swatch.background} style:color={swatch.ink} title={track.key ? `${track.key} in rekordbox` : undefined}>{play.playedKey ?? track.key ?? '?'}</span>
 						{#if shifted}<span class="font-mono text-caption text-fg-subtle">from {play.key}</span>{/if}
 						<span class="font-mono text-small max-sm:hidden">{play.playedBpm ? play.playedBpm.toFixed(1) : '?'} <span class="text-caption text-fg-subtle">BPM</span></span>
-						<span class="font-mono text-caption text-fg-subtle max-sm:hidden" title={track.bpm ? `${track.bpm.toFixed(1)} BPM as recorded` : undefined}>{speed(play.tempo)}</span>
+						<span class="font-mono text-caption text-fg-subtle max-sm:hidden" title={track.bpm ? `${track.bpm.toFixed(1)} BPM as recorded` : undefined}>{playSpeed(play)}</span>
 						<span class="flex h-2 gap-px max-sm:hidden" role="img" title="Confidence {confidence}%" aria-label="Confidence {confidence}%">
 							{#each cells as cell (cell)}<span class={['w-1 rounded-[1px]', cell < Math.round(play.confidence * 10) ? 'bg-good' : 'bg-line-strong']}></span>{/each}
 						</span>

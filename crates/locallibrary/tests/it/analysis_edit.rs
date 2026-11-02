@@ -19,7 +19,8 @@ use locallibrary::edit::{self, Edit, EditOptions, EditPlan, TrackFields};
 use locallibrary::model::Track;
 use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
-use locallibrary::{Hash, backup, paths};
+use locallibrary::sound::{Plausible, TempoFinding, TempoRelation};
+use locallibrary::{Hash, backup, doctor, paths};
 
 fn plan(root: &Path, edits: &[Edit]) -> locallibrary::Result<EditPlan> {
     edit::plan(&Device::open_export(root).unwrap(), edits, &EditOptions::default(), &Ctx::silent())
@@ -101,6 +102,68 @@ fn a_beat_grid_is_written_with_its_bpm_undone_and_replayed() {
     common::replay(&root);
     assert_eq!(files(&root, &t), edited);
     assert_eq!(track(&root, "Demo Track 1").bpm, 125.0);
+}
+
+/// `doctor --fix-tempo`'s edits: a track heard at twice its stored tempo gets its grid doubled
+/// and its BPM with it, one heard at half gets them halved, and the plan says the extended grid
+/// (PQT2) isn't rescaled; undo puts both back. A tempo the library favours as stored, one that's
+/// 3/2 off, and a grid at another tempo than the stored one are left as they are.
+#[test]
+fn doctor_doubles_and_halves_grids_heard_at_double_or_half_tempo() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "USB");
+    let d = Device::open_export(&root).unwrap();
+    let (a, b) = (track(&root, "Demo Track 1"), track(&root, "Demo Track 2"));
+    assert_ne!(a.id, b.id);
+    let heard = |t: &Track, relation, likelier| TempoFinding {
+        track: t.into(),
+        stored: t.bpm,
+        estimate: 0.0,
+        confidence: None,
+        relation,
+        likelier,
+    };
+    let grid = |t: &Track| anlz::beat_grid(files(&root, t)[0].as_ref().unwrap()).unwrap();
+    let (grid_a, grid_b) = (grid(&a), grid(&b));
+    assert!(!grid_a.is_empty() && !grid_b.is_empty());
+
+    let (left, notes) = doctor::tempo_fixes(
+        &d,
+        &[heard(&a, TempoRelation::Double, Some(Plausible::Stored)), heard(&b, TempoRelation::ThreeHalves, None)],
+    )
+    .unwrap();
+    assert!(left.is_empty(), "{left:?}");
+    assert_eq!(notes, ["1 track(s) left as they are: the library's other tempos favour the stored one"]);
+
+    let findings = [heard(&a, TempoRelation::Half, None), heard(&b, TempoRelation::Double, Some(Plausible::Estimate))];
+    let (edits, notes) = doctor::tempo_fixes(&d, &findings).unwrap();
+    assert!(notes.iter().any(|n| n.contains("(PQT2) isn't decoded, so it isn't rescaled")), "{notes:?}");
+    let p = plan(&root, &edits).unwrap();
+    assert_eq!(
+        p.changes[..2],
+        [format!("set the beat grid of {}", a.file_path), format!("set the beat grid of {}", b.file_path)]
+    );
+    let before = [files(&root, &a), files(&root, &b)];
+    edit::apply(&p, &mut Device::open_export(&root).unwrap(), &Ctx::silent()).unwrap();
+    assert_eq!(grid(&a), anlz::doubled_grid(&grid_a));
+    assert_eq!(grid(&b), anlz::halved_grid(&grid_b));
+    let tempo = |t: &Track| NewAnalysis { beats: Some(grid(t)), ..Default::default() }.tempo().unwrap();
+    assert_eq!(track(&root, "Demo Track 1").bpm, tempo(&a));
+    assert_eq!(track(&root, "Demo Track 2").bpm, tempo(&b));
+    assert!((tempo(&a) - 2.0 * a.bpm).abs() < 0.02 && (tempo(&b) - b.bpm / 2.0).abs() < 0.02, "{} {}", a.bpm, b.bpm);
+
+    backup::restore(&mut Device::open_export(&root).unwrap(), None, false).unwrap();
+    assert_eq!([files(&root, &a), files(&root, &b)], before);
+    assert_eq!(track(&root, "Demo Track 1").bpm, a.bpm);
+
+    // Stored at 3/2 of its grid's tempo, doubling the grid wouldn't fix the stored tempo.
+    let fields = TrackFields { bpm: Some(a.bpm * 1.5), ..Default::default() };
+    let p = plan(&root, &[Edit::EditTracks { tracks: TrackSelector::paths([a.file_path.clone()]), fields }]).unwrap();
+    edit::apply(&p, &mut Device::open_export(&root).unwrap(), &Ctx::silent()).unwrap();
+    let d = Device::open_export(&root).unwrap();
+    let (left, notes) = doctor::tempo_fixes(&d, &[heard(&a, TempoRelation::Half, None)]).unwrap();
+    assert!(left.is_empty(), "{left:?}");
+    assert_eq!(notes, ["1 track(s) left as they are: their beat grid isn't at their stored tempo"]);
 }
 
 /// Phrases set on a track go into its `.EXT`, as given, and nothing else there changes.

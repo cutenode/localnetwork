@@ -1,0 +1,64 @@
+id: no-unguarded-fetch
+valid:
+  - |
+    async function avatar(did: string) {
+      const { pds } = await app.identity.resolve(did);
+      return app.identity.fetch(new URL('/xrpc/com.atproto.sync.getBlob', pds), { redirect: 'error' });
+    }
+  - |
+    async function health() {
+      return this.fetch(`${this.url}/health`, { signal: AbortSignal.timeout(2_000) });
+    }
+  - |
+    async function blob(did: string) {
+      const url = new URL('/xrpc/com.atproto.sync.getBlob', (await identity.resolve(did)).pds);
+      return identity.serviceFetch(url, { redirect: 'error' });
+    }
+  - |
+    async function send(input: RequestInput) {
+      return this.deps.identity.serviceFetch(new URL(`/xrpc/${input.nsid}`, input.service), { redirect: 'error' });
+    }
+  - |
+    async function geocode(query: string) {
+      return (this.deps.fetch ?? fetch)(`${this.url}?q=${query}`);
+    }
+  - |
+    const health = async () => fetch(`${this.url}/health`);
+  - |
+    function outer(repo: ResolvedIdentity) {
+      const host = repo.pds;
+      const ping = async () => fetch(RESEND_URL, { method: 'POST' });
+    }
+invalid:
+  - |
+    async function recordingAudio(request: AudioRequest) {
+      const url = new URL('/xrpc/com.atproto.sync.getBlob', await request.pds(request.did));
+      return request.fetch(url, { redirect: 'error' });
+    }
+  - |
+    async function blob(did: string) {
+      const url = new URL('/xrpc/com.atproto.sync.getBlob', (await identity.resolve(did)).pds);
+      return fetch(url, { signal: AbortSignal.timeout(15_000) });
+    }
+  - |
+    async function procedure(input: { service: string }) {
+      await this.deps.identity.assertSafeEndpoint(input.service);
+      return (this.deps.fetch ?? fetch)(new URL(`/xrpc/${input.nsid}`, input.service), { redirect: 'error' });
+    }
+  - |
+    const avatar = async ({ params, fetch }) => {
+      const { pds } = await lookup(params.did);
+      return fetch(new URL('/xrpc/com.atproto.sync.getBlob', pds));
+    };
+  - |
+    const avatar = async (did: string) => {
+      const doc = await app.identity.resolve(did);
+      return fetch(doc.endpoint);
+    };
+  - |
+    class Client {
+      async mint(space: string) {
+        const host = (await this.deps.identity.resolve(space)).pds;
+        return fetch(new URL('/xrpc/com.atproto.space.getSpaceCredential', host), { method: 'POST' });
+      }
+    }

@@ -102,6 +102,26 @@ pub struct EventNotify {
     pub payload: Value,
 }
 
+impl EventNotify {
+    /// The drive whose tracks may be new: one plugged in with a rekordbox export
+    /// (`drive.mounted`, its `payload.has_export` not false), perhaps exported elsewhere, or one
+    /// whose databases changed (`drive.changed`, its `payload.changed` saying `databases`): an
+    /// export, a sync or an edit.
+    pub fn new_tracks(&self) -> Option<&str> {
+        let databases = self.payload["changed"].as_array().is_some_and(|c| c.iter().any(|c| c == "databases"));
+        let may = match self.event {
+            EventName::DriveMounted => self.payload["has_export"] != false,
+            EventName::DriveChanged => databases,
+            _ => false,
+        };
+        self.drive.as_deref().filter(|_| may)
+    }
+}
+
+/// The most tracks one suggested action names: each id takes at most 11 bytes of its params, so
+/// they stay under [`MAX_SUGGESTED_PARAMS`] with room for the rest.
+pub const MAX_SUGGESTED_TRACKS: usize = 4096;
+
 /// `host/notify` (feature `events` or `services`): a line for the user, and something they may
 /// review, which the host plans (and they confirm) only if they choose to: one of the plugin's
 /// operations, or one of the host's actions ([`HostAction`]), never both. An older host, which doesn't
@@ -178,9 +198,10 @@ pub enum Suggestion {
     Action(HostAction),
 }
 
-/// One of the host's own flows a plugin may suggest (`host/notify`'s `action`): the host starts it
-/// with these params filled in, and it's planned and confirmed as when the user starts it. Each is
-/// on the plugin's own contributions alone, so it never starts another plugin's work.
+/// One of the host's own flows, started with these params filled in, and planned and confirmed as
+/// when the user starts it: what a plugin may suggest (`host/notify`'s `action`), each on its own
+/// contributions alone so it never starts another plugin's work, and what fixes one of the host's
+/// own check findings. `pull` and `sync` are only ever the host's: no plugin suggests them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "name", content = "params")]
 pub enum HostAction {
@@ -196,6 +217,20 @@ pub enum HostAction {
     /// Run one of its analyzers on a drive's tracks (`locallibrary analyze`).
     #[serde(rename = "analyze")]
     Analyze(AnalyzeAction),
+    /// Save a drive in the store as a snapshot (`locallibrary pull`).
+    #[serde(rename = "pull")]
+    Pull(DriveAction),
+    /// Sync a drive's library's drives plugged in from the newest of them (`locallibrary sync`).
+    #[serde(rename = "sync")]
+    Sync(DriveAction),
+}
+
+/// `pull`'s and `sync`'s params.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DriveAction {
+    /// The drive, by id or name.
+    pub drive: String,
 }
 
 /// `art.fetch`'s and `track.fetch`'s params.
@@ -207,7 +242,8 @@ pub struct FetchAction {
     /// Only these tracks, by id [default: every one].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tracks: Vec<u32>,
-    /// Only this provider of the plugin's [default: each of its providers of the kind].
+    /// Only this provider of the plugin's [default: each of its providers of the kind; for the
+    /// host's fix, every plugin's].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
 }
@@ -265,7 +301,7 @@ impl HostAction {
         match self {
             HostAction::ArtFetch(f) => Some((ProviderKind::Artwork, f)),
             HostAction::TrackFetch(f) => Some((ProviderKind::Metadata, f)),
-            HostAction::Export(_) | HostAction::Analyze(_) => None,
+            HostAction::Export(_) | HostAction::Analyze(_) | HostAction::Pull(_) | HostAction::Sync(_) => None,
         }
     }
 
@@ -275,6 +311,7 @@ impl HostAction {
             HostAction::ArtFetch(f) | HostAction::TrackFetch(f) => Some(&f.drive),
             HostAction::Export(e) => e.drive.as_deref(),
             HostAction::Analyze(a) => Some(&a.drive),
+            HostAction::Pull(d) | HostAction::Sync(d) => Some(&d.drive),
         }
     }
 
@@ -285,12 +322,16 @@ impl HostAction {
             HostAction::ArtFetch(f) | HostAction::TrackFetch(f) => (Some(&mut f.drive), Some(&mut f.tracks)),
             HostAction::Export(e) => (e.drive.as_mut(), None),
             HostAction::Analyze(a) => (Some(&mut a.drive), Some(&mut a.tracks)),
+            HostAction::Pull(d) | HostAction::Sync(d) => (Some(&mut d.drive), None),
         }
     }
 
     /// Whether it's on `m`'s own contributions, with what they take, and on a drive named by id
     /// or name (never a path, which a host would take for a folder): why not, if it isn't.
     fn check(&self, m: &Manifest) -> Result<(), String> {
+        if let HostAction::Pull(_) | HostAction::Sync(_) = self {
+            return Err("it's the host's own, on no contribution of a plugin".into());
+        }
         let c = &m.contributes;
         let path = |d: &str| d.is_empty() || d.contains(['/', '\\']) || d.starts_with(['.', '~']);
         if let Some(drive) = self.drive().filter(|d| path(d)) {

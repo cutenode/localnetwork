@@ -1,9 +1,10 @@
 import { error } from '@sveltejs/kit';
+import { pageMeta } from '#lib/server/meta.ts';
 import { renderMarkdown } from '#lib/server/tools/markdown.ts';
 import { findTool } from '#lib/tools/index.ts';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ params }) => {
+export const load: PageServerLoad = ({ params, locals }) => {
 	const tool = findTool(params.tool);
 	const doc = tool?.docs.find((candidate) => candidate.slug === params.page);
 
@@ -12,6 +13,11 @@ export const load: PageServerLoad = ({ params }) => {
 	return {
 		tool: { id: tool.id, name: tool.name },
 		doc: { slug: doc.slug, title: doc.title, path: doc.path, html: renderMarkdown(doc.markdown, tool, doc.path) },
-		guides: tool.docs.map(({ slug, title }) => ({ slug, title }))
+		guides: tool.docs.map(({ slug, title }) => ({ slug, title })),
+		meta: pageMeta(locals.app.config.publicUrl, {
+			title: `${doc.title} · ${tool.name}`,
+			description: `${tool.name} guide: ${doc.title}.`,
+			path: `/tools/${tool.id}/docs/${doc.slug}`
+		})
 	};
 };

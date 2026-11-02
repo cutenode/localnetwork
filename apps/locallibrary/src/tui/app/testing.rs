@@ -110,7 +110,16 @@ pub fn demo_drive_in(dir: &Path, name: &str) -> PathBuf {
 
 /// A hot cue (`hot`: 0 is A), or a memory cue, at `start_ms`; a loop when it has an end.
 pub fn cue(hot: Option<u8>, start_ms: u32, end_ms: Option<u32>) -> Cue {
-    Cue { hot_cue: hot, start_ms, end_ms, comment: String::new(), color: None, color_id: 0, loop_beats: None }
+    Cue {
+        hot_cue: hot,
+        start_ms,
+        end_ms,
+        comment: String::new(),
+        color: None,
+        color_id: 0,
+        loop_beats: None,
+        active_loop: false,
+    }
 }
 
 /// A grid at `bpm` from `first_ms`, `n` beats long.
@@ -328,9 +337,9 @@ pub fn wait(app: &mut App, done: impl Fn(&App) -> bool) {
     if !done(app) {
         // Hegel keeps a failure's panic message to itself when its replays pass, so where it
         // waited is written out first.
-        let (job, modal) = (app.job.is_some(), app.modal.is_some());
+        let (job, modal) = (app.job.as_ref().map(|j| j.label.clone()), app.modal.is_some());
         eprintln!(
-            "wait at {} gave up after 60 s (job running: {job}, modal open: {modal})",
+            "wait at {} gave up after 60 s (job running: {job:?}, modal open: {modal})",
             std::panic::Location::caller()
         );
     }
@@ -343,10 +352,43 @@ pub fn wait(app: &mut App, done: impl Fn(&App) -> bool) {
 #[track_caller]
 pub fn outputs_listed(app: &mut App) {
     let listing = |app: &App| app.deck.outputs.as_ref().is_some_and(|o| o.listing.is_some());
+    handle_only(app, listing, |msg| matches!(msg, Msg::Outputs(..)));
+    assert!(app.deck.outputs.as_ref().is_some_and(|o| o.listing.is_none()), "no outputs listed");
+}
+
+/// A gate for a slow output in a test (a Bluetooth or AirPlay device): each test has its own.
+pub type Gate = (std::sync::Mutex<bool>, std::sync::Condvar);
+
+/// The test outputs' `name`, opened once `gate` is let open (see [`let_open`]), else (after 5 s)
+/// not: a player that waits for it fails rather than hangs.
+pub fn open_when_let(gate: &Gate, name: Option<&str>) -> anyhow::Result<Audio> {
+    let (open, cv) = gate;
+    let wait = cv.wait_timeout_while(open.lock().unwrap(), Duration::from_secs(5), |open| !*open);
+    if !*wait.unwrap().0 {
+        anyhow::bail!("never let open");
+    }
+    (super::super::audio::tests::OUTPUTS.open)(name)
+}
+
+pub fn let_open(gate: &Gate) {
+    *gate.0.lock().unwrap() = true;
+    gate.1.notify_all();
+}
+
+/// Wait for the output asked for to open (in the background), and only that, as
+/// [`outputs_listed`] does.
+#[track_caller]
+pub fn output_opened(app: &mut App) {
+    handle_only(app, |app| app.deck.opening.is_some(), |msg| matches!(msg, Msg::Output(..)));
+    assert!(app.deck.opening.is_none(), "the output picked didn't open");
+}
+
+/// Handle the background's `wanted` messages while `pending`, leaving the rest for later.
+fn handle_only(app: &mut App, pending: impl Fn(&App) -> bool, wanted: impl Fn(&Msg) -> bool) {
     let (t, mut later) = (Instant::now(), Vec::new());
-    while listing(app) && t.elapsed() < Duration::from_secs(60) {
+    while pending(app) && t.elapsed() < Duration::from_secs(60) {
         match app.rx.recv_timeout(Duration::from_millis(5)) {
-            Ok(msg @ Msg::Outputs(..)) => app.handle_msg(msg),
+            Ok(msg) if wanted(&msg) => app.handle_msg(msg),
             Ok(msg) => later.push(msg),
             Err(_) => {}
         }
@@ -354,7 +396,6 @@ pub fn outputs_listed(app: &mut App) {
     for msg in later {
         app.sender().send(msg).unwrap();
     }
-    assert!(app.deck.outputs.as_ref().is_some_and(|o| o.listing.is_none()), "no outputs listed");
 }
 
 /// Handle the app's background messages until the store's sets are read. Opening a drive starts
@@ -580,9 +621,31 @@ default = "calm"
     unsafe { std::env::set_var("LOCALLIBRARY_TEST_PLUGINS", &file) };
 }
 
-/// The echo plugin [`echo_plugin`] wrote in `dir` given an account, Echo Cloud (`main`), whose
-/// sign-in page is on this computer, which only tests' plugin hosts reach: signing in fails
-/// before anything is opened. Its secrets are kept in files.
+/// An account plugin providing the `mock` account type (`read`, titled "read things"), whose
+/// sign-in page is on this computer.
+const MOCK_ACCOUNTS: &str = r#"id = "mock-accounts"
+name = "Mock accounts"
+version = "0.1.0"
+protocol = "^0.2"
+
+[[contributes.account_types]]
+type = "mock"
+title = "Mock"
+authorize_url = "http://127.0.0.1:9/authorize"
+token_url = "http://127.0.0.1:9/token"
+client_id = "locallibrary-test"
+whoami = { url = "http://127.0.0.1:9/userinfo", subject = "/sub", name = "/email" }
+
+[contributes.account_types.scopes.read]
+title = "read things"
+asks = ["read"]
+requests = [{ method = "GET", url = "http://127.0.0.1:9/r/*" }]
+"#;
+
+/// The echo plugin [`echo_plugin`] wrote in `dir` asking for a `mock` account, which the account
+/// plugin [`MOCK_ACCOUNTS`] (written beside it) provides, its sign-in page on this computer,
+/// which only tests' plugin hosts reach: signing in fails before anything is opened. Its secrets
+/// are kept in files.
 pub fn echo_account(dir: &Path) {
     let file = dir.join("echo.toml");
     let manifest = std::fs::read_to_string(&file).unwrap();
@@ -590,17 +653,20 @@ pub fn echo_account(dir: &Path) {
     let granted = "capabilities = [";
     assert!(manifest.contains(granted));
     let account = r#"
-[[contributes.accounts]]
-id = "main"
-title = "Echo Cloud"
-authorize_url = "http://127.0.0.1:9/authorize"
-token_url = "http://127.0.0.1:9/token"
-client_id = "echo"
+[[accounts]]
+type = "mock"
+scopes = ["read"]
+why = "Tests"
 "#;
-    let manifest = manifest.replacen(granted, r#"capabilities = ["net:echo.example", "#, 1) + account;
+    let manifest = manifest.replacen(granted, r#"capabilities = ["net:127.0.0.1", "#, 1) + account;
     std::fs::write(&file, manifest).unwrap();
+    let mock = dir.join("mock-accounts.toml");
+    std::fs::write(&mock, MOCK_ACCOUNTS).unwrap();
     // SAFETY: as in `echo_plugin`.
-    unsafe { std::env::set_var("LOCALLIBRARY_SESSION_STORE", "file") };
+    unsafe {
+        std::env::set_var("LOCALLIBRARY_TEST_PLUGINS", std::env::join_paths([file, mock]).unwrap());
+        std::env::set_var("LOCALLIBRARY_SESSION_STORE", "file");
+    }
 }
 
 /// The drives in `dir` taken for mounted ones, for this test: a plugin finds the drive it's

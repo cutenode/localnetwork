@@ -277,3 +277,44 @@ fn any_answers_fill_in_the_candidates_numbered(tc: TestCase) {
     env.ok(&args);
     assert_eq!(years(&usb), want, "{args:?}");
 }
+
+/// Any steps of `plugin providers` (an auto-pick from 0 to 1, or one it can't be, or back to its
+/// default; confirmed or not; shown in text or `--json`): the auto-pick reads back as last set,
+/// 0.9 until then and once put back, and a score it can't be is refused. The text lists every
+/// provider as the JSON does, with the auto-pick.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn the_auto_pick_reads_back_as_last_set(tc: TestCase) {
+    let (env, _usb) = env();
+    let mut kept = 0.9;
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
+        let score = tc.draw(gs::sampled_from(vec![Some(0.0), Some(0.5), Some(0.75), Some(1.0), Some(-1.0), None]));
+        let yes = tc.draw(gs::weighted_booleans(0.8));
+        let set = score.map(|s| format!("--auto-pick={s}"));
+        let mut args = vec!["plugin", "providers", set.as_deref().unwrap_or("--reset")];
+        if yes {
+            args.insert(0, "--yes");
+        }
+        let r = env.run(&args);
+        let said = format!("{args:?}: exit {}\n{}{}", r.code, r.out, r.err);
+        match (score, yes) {
+            (Some(s), true) if s < 0.0 => {
+                assert_eq!(r.code, 1, "{said}");
+                assert!(r.err.contains("a score is 0 to 1 (more than 1: never), not -1"), "{said}");
+            }
+            (_, false) => assert_eq!(r.code, 3, "{said}"),
+            (score, true) => {
+                assert_eq!(r.code, 0, "{said}");
+                kept = score.unwrap_or(0.9);
+            }
+        }
+        let shown = env.json(&["plugin", "providers"]);
+        assert_eq!(shown["auto_pick"].as_f64(), Some(kept), "{said}");
+        let text = env.ok(&["plugin", "providers"]);
+        for p in shown["providers"].as_array().unwrap() {
+            let at = text.find(&format!("{}.{} ", p["plugin"].as_str().unwrap(), p["name"].as_str().unwrap()));
+            let line = text[at.unwrap_or_else(|| panic!("{p} isn't in {text}"))..].lines().next().unwrap();
+            assert!(line.ends_with(p["title"].as_str().unwrap()), "{line}");
+        }
+        assert!(text.ends_with(&format!("a candidate alone scoring {kept} or more is chosen for you\n")), "{text}");
+    }
+}

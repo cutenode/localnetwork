@@ -1196,6 +1196,19 @@
       }
     },
     {
+      "name": "snapshot.library",
+      "aliases": [],
+      "kind": "read",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/SnapshotLibraryRequest"
+      },
+      "result": {
+        "$ref": "#/$defs/LibraryPage"
+      }
+    },
+    {
       "name": "library.list",
       "aliases": [],
       "kind": "read",
@@ -1209,6 +1222,39 @@
         "items": {
           "$ref": "#/$defs/LibraryListing"
         }
+      }
+    },
+    {
+      "name": "store.serve",
+      "aliases": [],
+      "kind": "read",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/ServeOptions"
+      },
+      "result": {
+        "$ref": "#/$defs/ServeReport"
+      }
+    },
+    {
+      "name": "store.fetch",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/FetchRequest"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/FetchReport"
       }
     },
     {
@@ -2245,6 +2291,77 @@
       },
       "result": {
         "$ref": "#/$defs/SettingsProfile"
+      }
+    },
+    {
+      "name": "settings.export",
+      "aliases": [],
+      "kind": "read",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/NoParams"
+      },
+      "result": {
+        "$ref": "#/$defs/SettingsExport"
+      }
+    },
+    {
+      "name": "settings.import_file.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "settings.import_file.apply",
+      "operation": "settings.import_file",
+      "long_running": false,
+      "destructive": true,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/ImportSettingsFile"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/ImportSettingsFilePlan"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "name": "settings.import_file.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "settings.import_file.plan",
+      "operation": "settings.import_file",
+      "long_running": false,
+      "destructive": true,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/ImportSettingsFile"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SettingsExport"
       }
     },
     {
@@ -4834,6 +4951,195 @@
       }
     },
     {
+      "name": "accounts.list",
+      "aliases": [],
+      "kind": "read",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/NoParams"
+      },
+      "result": {
+        "$ref": "#/$defs/Accounts"
+      }
+    },
+    {
+      "name": "accounts.sign_in.begin",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/BeginSignIn"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/AccountSignIn"
+      }
+    },
+    {
+      "name": "accounts.sign_in.finish",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/FinishSignIn"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/AccountSignedIn"
+      }
+    },
+    {
+      "name": "accounts.sign_in.paste",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/PasteSignIn"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/AccountSignedIn"
+      }
+    },
+    {
+      "name": "accounts.sign_in.cancel",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/CancelSignIn"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Cancelled"
+      }
+    },
+    {
+      "name": "accounts.sign_out",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SignOut"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/AccountSignedOut"
+      }
+    },
+    {
+      "name": "accounts.access.list",
+      "aliases": [],
+      "kind": "read",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/ListAccesses"
+      },
+      "result": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/Access"
+        }
+      }
+    },
+    {
+      "name": "accounts.access.give",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/GiveAccess"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Access"
+      }
+    },
+    {
+      "name": "accounts.access.set_default",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/AccessRef"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Access"
+      }
+    },
+    {
+      "name": "accounts.access.take_away",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/AccessRef"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Access"
+      }
+    },
+    {
       "name": "plugins.list",
       "aliases": [],
       "kind": "read",
@@ -4893,122 +5199,6 @@
       },
       "result": {
         "$ref": "#/$defs/Settings"
-      }
-    },
-    {
-      "name": "plugins.accounts",
-      "aliases": [],
-      "kind": "read",
-      "long_running": false,
-      "destructive": false,
-      "params": {
-        "$ref": "#/$defs/PluginRef"
-      },
-      "result": {
-        "type": "array",
-        "items": {
-          "$ref": "#/$defs/PluginAccountStatus"
-        }
-      }
-    },
-    {
-      "name": "plugins.account.sign_in.begin",
-      "aliases": [],
-      "kind": "immediate",
-      "long_running": false,
-      "destructive": false,
-      "params": {
-        "allOf": [
-          {
-            "$ref": "#/$defs/AccountRef"
-          },
-          {
-            "$ref": "#/$defs/WriteOptions"
-          }
-        ]
-      },
-      "result": {
-        "$ref": "#/$defs/SignIn"
-      }
-    },
-    {
-      "name": "plugins.account.sign_in.finish",
-      "aliases": [],
-      "kind": "immediate",
-      "long_running": true,
-      "destructive": false,
-      "params": {
-        "allOf": [
-          {
-            "$ref": "#/$defs/FinishSignIn"
-          },
-          {
-            "$ref": "#/$defs/WriteOptions"
-          }
-        ]
-      },
-      "result": {
-        "$ref": "#/$defs/PluginAccountStatus"
-      }
-    },
-    {
-      "name": "plugins.account.sign_in.paste",
-      "aliases": [],
-      "kind": "immediate",
-      "long_running": false,
-      "destructive": false,
-      "params": {
-        "allOf": [
-          {
-            "$ref": "#/$defs/PasteSignIn"
-          },
-          {
-            "$ref": "#/$defs/WriteOptions"
-          }
-        ]
-      },
-      "result": {
-        "$ref": "#/$defs/PluginAccountStatus"
-      }
-    },
-    {
-      "name": "plugins.account.sign_in.cancel",
-      "aliases": [],
-      "kind": "immediate",
-      "long_running": false,
-      "destructive": false,
-      "params": {
-        "allOf": [
-          {
-            "$ref": "#/$defs/CancelSignIn"
-          },
-          {
-            "$ref": "#/$defs/WriteOptions"
-          }
-        ]
-      },
-      "result": {
-        "$ref": "#/$defs/Cancelled"
-      }
-    },
-    {
-      "name": "plugins.account.sign_out",
-      "aliases": [],
-      "kind": "immediate",
-      "long_running": false,
-      "destructive": false,
-      "params": {
-        "allOf": [
-          {
-            "$ref": "#/$defs/AccountRef"
-          },
-          {
-            "$ref": "#/$defs/WriteOptions"
-          }
-        ]
-      },
-      "result": {
-        "$ref": "#/$defs/SignedOut"
       }
     },
     {
@@ -5732,6 +5922,9 @@
     },
     "event": {
       "$ref": "#/$defs/Notice"
+    },
+    "serve": {
+      "$ref": "#/$defs/ServeParams"
     }
   },
   "error": {
@@ -6831,6 +7024,78 @@
       "required": [
         "label"
       ]
+    },
+    "SnapshotLibraryRequest": {
+      "type": "object",
+      "properties": {
+        "snapshot": {
+          "type": "string",
+          "description": "A label, or an id or its first 4 or more characters, with or without `snapshot:` in front."
+        },
+        "offset": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0,
+          "default": null
+        },
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0,
+          "default": null
+        }
+      },
+      "required": [
+        "snapshot"
+      ],
+      "description": "`snapshot.library`, optionally paged as `drive.library` is."
+    },
+    "ServeOptions": {
+      "type": "object",
+      "properties": {
+        "local_only": {
+          "type": "boolean",
+          "description": "Stay on the local network: no relays, so only computers that can reach this one directly\ncan fetch.",
+          "default": false
+        }
+      }
+    },
+    "FetchRequest": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "The share code the other computer's `store.serve` gave (its `ready` event)."
+        },
+        "libraries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Libraries to fetch, by name or id on the other computer. Empty: all of them.",
+          "default": []
+        },
+        "local_only": {
+          "type": "boolean",
+          "description": "Stay on the local network: no relays.",
+          "default": false
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "Say what would be copied, and copy nothing.",
+          "default": false
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "description": "`store.fetch`: the code to fetch with, and what to fetch."
     },
     "RenameLibrary": {
       "type": "object",
@@ -9072,6 +9337,23 @@
         }
       }
     },
+    "ImportSettingsFile": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "A file `settings.export` wrote (`locallibrary settings export`)."
+        },
+        "replace": {
+          "type": "boolean",
+          "description": "Where one of the file's values differs from the one here, take the file's (for a list of\nnames, the file's whole list). Default: keep the one here.",
+          "default": false
+        }
+      },
+      "required": [
+        "file"
+      ]
+    },
     "ArtworkRequest": {
       "anyOf": [
         {
@@ -10651,6 +10933,14 @@
           "description": "Playback speeds to search, as a fraction: 0.16 is ±16%.",
           "default": null
         },
+        "cover": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The mix's cover, an image file, for its report and export (instead of one embedded in\nthe recording). Checked before identifying.",
+          "default": null
+        },
         "extras": {
           "type": "boolean",
           "description": "Also each play's overview waveform, hot cues and phrases (`extras`), for following\nalong without asking for every track's analysis.",
@@ -10688,6 +10978,14 @@
           ],
           "format": "double",
           "description": "Playback speeds to search, as a fraction: 0.16 is ±16%.",
+          "default": null
+        },
+        "cover": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The mix's cover, an image file, for its report and export (instead of one embedded in\nthe recording). Checked before identifying.",
           "default": null
         },
         "output": {
@@ -11784,51 +12082,48 @@
         "drive"
       ]
     },
-    "PluginRef": {
+    "BeginSignIn": {
       "type": "object",
       "properties": {
-        "plugin": {
+        "type": {
           "type": "string",
-          "description": "The plugin's id."
-        }
-      },
-      "required": [
-        "plugin"
-      ]
-    },
-    "SetPluginSetting": {
-      "type": "object",
-      "properties": {
-        "plugin": {
-          "type": "string"
+          "description": "The account type (`google`)."
         },
-        "key": {
-          "type": "string"
-        },
-        "value": {
-          "description": "Of the setting's type (a secret's, text: kept in the system's keychain and never\nanswered; a service's switch, `services.<name>`, true or false); `null` (or left out)\nputs it back to its default, or forgets a secret.",
+        "with": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The account plugin to sign in through [default: the only one providing the type].",
           "default": null
-        }
-      },
-      "required": [
-        "plugin",
-        "key"
-      ]
-    },
-    "AccountRef": {
-      "type": "object",
-      "properties": {
-        "plugin": {
-          "type": "string"
+        },
+        "for": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The plugin it's for, given access to it: to the scopes it needs, and those of `scopes` it\ncan do without.",
+          "default": null
         },
         "account": {
-          "type": "string",
-          "description": "The account's id, as the plugin's manifest has it."
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "An account the store keeps, or one signed out that plugins still have access to, by\nsubject, to sign in to again (asking for more scopes, say).",
+          "default": null
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The type's scopes to ask for besides, by name.",
+          "default": []
         }
       },
       "required": [
-        "plugin",
-        "account"
+        "type"
       ]
     },
     "FinishSignIn": {
@@ -11836,7 +12131,7 @@
       "properties": {
         "id": {
           "type": "string",
-          "description": "What `plugins.account.sign_in.begin` answered."
+          "description": "What its `sign_in.begin` answered."
         },
         "timeout_secs": {
           "type": [
@@ -11878,6 +12173,117 @@
       },
       "required": [
         "id"
+      ]
+    },
+    "SignOut": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "$ref": "#/$defs/AccountId"
+        }
+      },
+      "required": [
+        "account"
+      ]
+    },
+    "AccountId": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin",
+        "subject"
+      ],
+      "description": "An account kept in a store: the account plugin that signed it in, and its subject there."
+    },
+    "ListAccesses": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Only this plugin's.",
+          "default": null
+        }
+      }
+    },
+    "GiveAccess": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string",
+          "description": "The plugin's id."
+        },
+        "account": {
+          "$ref": "#/$defs/AccountId"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Scopes of the account's type it can do without to give it besides those it needs, by name.",
+          "default": []
+        }
+      },
+      "required": [
+        "plugin",
+        "account"
+      ]
+    },
+    "AccessRef": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string",
+          "description": "The plugin's id."
+        },
+        "account": {
+          "$ref": "#/$defs/AccountId"
+        }
+      },
+      "required": [
+        "plugin",
+        "account"
+      ]
+    },
+    "PluginRef": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string",
+          "description": "The plugin's id."
+        }
+      },
+      "required": [
+        "plugin"
+      ]
+    },
+    "SetPluginSetting": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "description": "Of the setting's type (a secret's, text: kept in the system's keychain and never\nanswered; a service's switch, `services.<name>`, true or false); `null` (or left out)\nputs it back to its default, or forgets a secret.",
+          "default": null
+        }
+      },
+      "required": [
+        "plugin",
+        "key"
       ]
     },
     "ApplyAnalysis": {
@@ -14609,6 +15015,11 @@
             }
           ],
           "description": "A loop's length in beats as rekordbox stored it, numerator and denominator (4/1, 1/2),\nwhen it was set on the grid. Only the extended list has it."
+        },
+        "active_loop": {
+          "type": "boolean",
+          "description": "A loop that plays round by itself once playback reaches it (rekordbox's active loop). Only\nthe basic list has it.",
+          "default": false
         }
       },
       "required": [
@@ -14618,7 +15029,8 @@
         "comment",
         "color",
         "color_id",
-        "loop_beats"
+        "loop_beats",
+        "active_loop"
       ]
     },
     "LoopBeats": {
@@ -15739,6 +16151,17 @@
         "mtime": {
           "type": "integer",
           "format": "int64"
+        },
+        "hash": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Hash"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What it held once the art went in, by content: its size and mtime, taken moments after it\nwas written, can't tell a rewrite in the same second or two (see [`fsutil::settled`]).\nMissing from embeds an earlier version made, which go by size and mtime alone."
         }
       },
       "required": [
@@ -17640,6 +18063,149 @@
         "drives"
       ],
       "description": "A library in the store, for listings."
+    },
+    "ServeReport": {
+      "type": "object",
+      "properties": {
+        "peers": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "Computers that fetched."
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "peers",
+        "files",
+        "bytes"
+      ]
+    },
+    "FetchReport": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Where it was fetched from: the other computer's key, shortened, or a plugin's store\ndestination (`<plugin>:<destination>`)."
+        },
+        "libraries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FetchedLibrary"
+          }
+        },
+        "snapshots": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "Stored files copied, and the store had already."
+        },
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "present": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "dry_run": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "peer",
+        "libraries",
+        "snapshots",
+        "files",
+        "bytes",
+        "present",
+        "dry_run"
+      ]
+    },
+    "FetchedLibrary": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Its name in this store."
+        },
+        "was": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Its name on the other computer, when that was taken here."
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "head": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Hash"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The other computer's latest snapshot."
+        },
+        "outcome": {
+          "$ref": "#/$defs/LibraryOutcome"
+        }
+      },
+      "required": [
+        "name",
+        "id",
+        "head",
+        "outcome"
+      ]
+    },
+    "LibraryOutcome": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "added",
+          "description": "This store didn't have it."
+        },
+        {
+          "type": "string",
+          "const": "updated",
+          "description": "It moved to the other computer's newer latest snapshot."
+        },
+        {
+          "type": "string",
+          "const": "up_to_date",
+          "description": "This store was as new, or newer."
+        },
+        {
+          "type": "string",
+          "const": "diverged",
+          "description": "Both changed: this store keeps its latest, and has the other's beside it."
+        },
+        {
+          "type": "string",
+          "const": "unavailable",
+          "description": "The other computer's latest snapshot couldn't be had (removed there during the fetch, or\nmissing from its store): the library is left as it was."
+        }
+      ]
     },
     "EditPlan": {
       "type": "object",
@@ -20252,6 +20818,137 @@
       ],
       "description": "One setting in the settings profile's base, before and after importing."
     },
+    "SettingsExport": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "The file's format, [`VERSION`]."
+        },
+        "my_settings": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The My Settings profile: `base`, and per-drive `drives` overrides by drive id.",
+          "default": {}
+        },
+        "players": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The player models `check` uses: `default`, and `libraries`' own by library id.",
+          "default": {}
+        },
+        "profile": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The profile's preferences: its sections, precision, pinned and hidden tracks, hidden\nartists, genre spellings and headline.",
+          "default": {}
+        },
+        "player": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The player's preferences ([`PlayerPrefs`]): its theme, columns, sort, visualiser and\nplayback modes.",
+          "default": {}
+        },
+        "plugin_host": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The host's settings for plugins: which analyzer each field role is read from, when a\nprovider's candidate is picked, and whether each check runs.",
+          "default": {}
+        },
+        "plugins": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Each plugin's settings by its id, as it keeps them (`services.<name>` and `keys.<name>`\namong them).",
+          "default": {}
+        }
+      },
+      "required": [
+        "version",
+        "my_settings",
+        "players",
+        "profile",
+        "player",
+        "plugin_host",
+        "plugins"
+      ],
+      "description": "What [`export`] writes and [`merge`] reads. Each section is as the store keeps it, with empty\nmaps and lists left out."
+    },
+    "ImportSettingsFilePlan": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SettingsFileChange"
+          }
+        },
+        "unchanged": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "The file's values that are as they are here already."
+        }
+      },
+      "required": [
+        "file",
+        "changes",
+        "unchanged"
+      ],
+      "description": "What importing a settings file would change: the file's values missing here (added), and\nthose that differ (kept as they are here, or with `replace` taken from the file)."
+    },
+    "SettingsFileChange": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The section, then each key down to the value: `[\"plugins\", \"sound\", \"keys.analyze\"]`."
+        },
+        "action": {
+          "$ref": "#/$defs/SettingsFileAction"
+        },
+        "current": {
+          "description": "The value here (`None`: not set)."
+        },
+        "imported": {
+          "description": "The file's value; for names added to a list, the names it adds."
+        }
+      },
+      "required": [
+        "path",
+        "action",
+        "current",
+        "imported"
+      ],
+      "description": "One of the file's values that isn't as it is here."
+    },
+    "SettingsFileAction": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "add",
+          "description": "It's missing here, or adds names to a list: it's added."
+        },
+        {
+          "type": "string",
+          "const": "keep",
+          "description": "It differs, and the one here stays."
+        },
+        {
+          "type": "string",
+          "const": "replace",
+          "description": "It differs, and the file's takes its place (`replace`)."
+        }
+      ],
+      "description": "What importing does with one of the file's values."
+    },
     "OneOrMany_for_ArtworkImage": {
       "anyOf": [
         {
@@ -21589,7 +22286,7 @@
               "type": "null"
             }
           ],
-          "description": "What fixes it, a plugin's check says: its plugin's operation, planned on the drive and\nconfirmed as any is."
+          "description": "What fixes it, planned on the drive and confirmed as any plan is: a plugin's operation (its\ncheck says), or one of locallibrary's own flows (pulling the drive, syncing it, fetching\nartwork for its tracks without any)."
         }
       },
       "required": [
@@ -21621,6 +22318,17 @@
       "description": "How much a finding matters, least first."
     },
     "Fix": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PluginFix"
+        },
+        {
+          "$ref": "#/$defs/HostAction"
+        }
+      ],
+      "description": "What fixes a finding, planned on the drive it was found on and confirmed as any plan is: a\nplugin's operation (what a plugin's check says), or one of the host's own flows (what its own\nchecks say), each as the sidecar's `check` answers it."
+    },
+    "PluginFix": {
       "type": "object",
       "properties": {
         "plugin": {
@@ -21636,7 +22344,226 @@
         "operation",
         "params"
       ],
-      "description": "The plugin operation that fixes a finding, with its params: planned and confirmed as any is\n(`plugins.op.plan`, with the drive it was found on)."
+      "description": "The plugin operation that fixes a finding, with its params (`plugins.op.plan`)."
+    },
+    "HostAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "art.fetch"
+            },
+            "params": {
+              "$ref": "#/$defs/FetchAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Fetch cover art from its artwork providers (`locallibrary art fetch`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "track.fetch"
+            },
+            "params": {
+              "$ref": "#/$defs/FetchAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Fetch tags from its metadata providers (`locallibrary track fetch`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "export"
+            },
+            "params": {
+              "$ref": "#/$defs/ExportAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Export in one of its formats, to where the user picks."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "analyze"
+            },
+            "params": {
+              "$ref": "#/$defs/AnalyzeAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Run one of its analyzers on a drive's tracks (`locallibrary analyze`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "pull"
+            },
+            "params": {
+              "$ref": "#/$defs/DriveAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Save a drive in the store as a snapshot (`locallibrary pull`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "sync"
+            },
+            "params": {
+              "$ref": "#/$defs/DriveAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Sync a drive's library's drives plugged in from the newest of them (`locallibrary sync`)."
+        }
+      ],
+      "description": "One of the host's own flows, started with these params filled in, and planned and confirmed as\nwhen the user starts it: what a plugin may suggest (`host/notify`'s `action`), each on its own\ncontributions alone so it never starts another plugin's work, and what fixes one of the host's\nown check findings. `pull` and `sync` are only ever the host's: no plugin suggests them."
+    },
+    "FetchAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "drive": {
+          "type": "string",
+          "description": "The drive, by id or name (as events name it)."
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "description": "Only these tracks, by id [default: every one]."
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Only this provider of the plugin's [default: each of its providers of the kind; for the\nhost's fix, every plugin's]."
+        }
+      },
+      "required": [
+        "drive"
+      ],
+      "description": "`art.fetch`'s and `track.fetch`'s params."
+    },
+    "ExportAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "One of the plugin's exporters, by format."
+        },
+        "drive": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The drive, by id or name: a drive exporter's library, else whose tracks to give it."
+        },
+        "set": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A set exporter's set."
+        },
+        "mix": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A mix exporter's mix."
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "As the exporter's `options` schema says."
+        }
+      },
+      "required": [
+        "format"
+      ],
+      "description": "`export`'s params: what its exporter writes out (a drive's library, a set or a mix, as\n`export/write`'s source names them) and its options. Where to is the user's to pick."
+    },
+    "AnalyzeAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "analyzer": {
+          "type": "string",
+          "description": "One of the plugin's analyzers."
+        },
+        "drive": {
+          "type": "string",
+          "description": "The drive, by id or name."
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "description": "Only these tracks, by id [default: every one]."
+        }
+      },
+      "required": [
+        "analyzer",
+        "drive"
+      ],
+      "description": "`analyze`'s params."
+    },
+    "DriveAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "drive": {
+          "type": "string",
+          "description": "The drive, by id or name."
+        }
+      },
+      "required": [
+        "drive"
+      ],
+      "description": "`pull`'s and `sync`'s params."
     },
     "OrphanPlan": {
       "type": "object",
@@ -26303,7 +27230,7 @@
               "type": "null"
             }
           ],
-          "description": "Cover image: embedded in the audio file, else an image next to it named like it."
+          "description": "Cover image: one given (`mix --cover`), else embedded in the audio file, else an image\nnext to it named like it."
         }
       },
       "required": [
@@ -26376,7 +27303,25 @@
           "required": [
             "kind",
             "path"
-          ]
+          ],
+          "description": "An image found next to the recording."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "given"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "description": "An image the DJ gave for it."
         }
       ]
     },
@@ -26408,6 +27353,25 @@
           "type": "number",
           "format": "double",
           "description": "Playback speed: 1.0 as recorded, 1.03 is +3%."
+        },
+        "speed_range": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "prefixItems": [
+            {
+              "type": "number",
+              "format": "double"
+            },
+            {
+              "type": "number",
+              "format": "double"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "The slowest and fastest speeds it was played at, when the pitch fader was ridden during it\n(see [`matcher::Found::speed_range`]); `tempo` is then their average."
         },
         "played_bpm": {
           "type": [
@@ -26883,7 +27847,7 @@
             "string",
             "null"
           ],
-          "description": "The cover embedded in the recording: a JPEG `data:` URL, 320 px square."
+          "description": "The cover given for the recording (`mix --cover`) or embedded in it: a JPEG `data:` URL,\n320 px square."
         }
       },
       "required": [
@@ -26965,6 +27929,25 @@
           "type": "number",
           "format": "double",
           "description": "Playback speed: 1.03 is +3%."
+        },
+        "speedRange": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "prefixItems": [
+            {
+              "type": "number",
+              "format": "double"
+            },
+            {
+              "type": "number",
+              "format": "double"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "The slowest and fastest speeds, when the pitch fader was ridden; `tempo` is their average."
         },
         "playedBpm": {
           "type": [
@@ -29405,7 +30388,8 @@
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Its own warnings; the format's are in `format.warnings` (the plan's `warnings` has both)."
         }
       },
       "required": [
@@ -30023,7 +31007,7 @@
           "type": "integer",
           "format": "uint64",
           "minimum": 0,
-          "description": "Space the export needs on the target: the files it copies, its new databases and the\nbackup of what it replaces."
+          "description": "Space the export needs on the target: the files it copies, its new databases, the backup\nof what it replaces, and the online-only files it downloads when their cloud folder is on\nthe same disk."
         },
         "free_space": {
           "type": [
@@ -30041,6 +31025,13 @@
           "items": {
             "type": "string"
           }
+        },
+        "smart": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SmartPlaylist"
+          },
+          "description": "Intelligent playlists exported with a smart rule for the target (see [`crate::smart`]),\nwhich `smart apply` keeps up to date: kept in the store once the export is applied."
         }
       },
       "required": [
@@ -30067,7 +31058,8 @@
         "needed_bytes",
         "free_space",
         "fits",
-        "warnings"
+        "warnings",
+        "smart"
       ]
     },
     "CollectionExportReport": {
@@ -30158,6 +31150,302 @@
         "backup"
       ]
     },
+    "Accounts": {
+      "type": "object",
+      "properties": {
+        "accounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StoreAccount"
+          },
+          "description": "Those it keeps, in the order they were first signed in, then those signed out that plugins\nstill have access to."
+        },
+        "accesses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Access"
+          }
+        }
+      },
+      "required": [
+        "accounts",
+        "accesses"
+      ],
+      "description": "The accounts a store keeps and the accesses plugins were given to them, as hosts show them."
+    },
+    "StoreAccount": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "plugin": {
+          "type": "string",
+          "description": "The account plugin it was signed in through."
+        },
+        "subject": {
+          "type": "string",
+          "description": "Its id at the service."
+        },
+        "name": {
+          "type": "string",
+          "description": "What it's shown as."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What the service granted, as it names them."
+        },
+        "expires": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "When its access token expires, when the service said: it's refreshed before then when it\ncan be."
+        },
+        "refreshes": {
+          "type": "boolean",
+          "description": "It's refreshed without signing in again."
+        },
+        "signed_in": {
+          "type": "boolean",
+          "description": "Its tokens are kept (the keychain may have lost them)."
+        }
+      },
+      "required": [
+        "type",
+        "plugin",
+        "subject",
+        "name",
+        "scopes",
+        "refreshes",
+        "signed_in"
+      ],
+      "description": "An account a store keeps, as hosts show it: never a token."
+    },
+    "Access": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "8 lowercase hex digits, which `{account:<type>/<id>}` names it by."
+        },
+        "plugin": {
+          "type": "string",
+          "description": "The plugin given it."
+        },
+        "type": {
+          "type": "string"
+        },
+        "account": {
+          "$ref": "#/$defs/AccountId"
+        },
+        "name": {
+          "type": "string",
+          "description": "What the account is shown as, kept so an access to one signed out still says."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The type's scopes, by name."
+        },
+        "default": {
+          "type": "boolean",
+          "description": "It's the plugin's default for the type: `{account:<type>}` names it.",
+          "default": false
+        },
+        "declined": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The scopes (by name) a sign-in for it asked the service for, which didn't grant all they\nask, until it's given them again. Those it needs are in `scopes` too, and still can't be\nused."
+        }
+      },
+      "required": [
+        "id",
+        "plugin",
+        "type",
+        "account",
+        "name",
+        "scopes",
+        "default"
+      ],
+      "description": "The scopes of an account a plugin was given."
+    },
+    "AccountSignIn": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Finishes it: [`Plugins::finish_account_sign_in`],\n[`Plugins::finish_account_sign_in_with_url`]."
+        },
+        "type": {
+          "type": "string"
+        },
+        "plugin": {
+          "type": "string",
+          "description": "The account plugin signing in."
+        },
+        "url": {
+          "type": "string",
+          "description": "Open this in the browser."
+        },
+        "redirect_uri": {
+          "type": "string",
+          "description": "Where the browser comes back to."
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "plugin",
+        "url",
+        "redirect_uri"
+      ],
+      "description": "A sign-in to an account of a type, waiting for the browser."
+    },
+    "AccountSignedIn": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "plugin": {
+          "type": "string",
+          "description": "The account plugin it was signed in through."
+        },
+        "subject": {
+          "type": "string",
+          "description": "Its id at the service."
+        },
+        "name": {
+          "type": "string",
+          "description": "What it's shown as."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What the service granted, as it names them."
+        },
+        "expires": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "When its access token expires, when the service said: it's refreshed before then when it\ncan be."
+        },
+        "refreshes": {
+          "type": "boolean",
+          "description": "It's refreshed without signing in again."
+        },
+        "signed_in": {
+          "type": "boolean",
+          "description": "Its tokens are kept (the keychain may have lost them)."
+        },
+        "instead_of": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The account it was to sign in again, when the browser signed in to another: that one is\nkept too, and this one as it was. The plugin it was for isn't given access to it."
+        },
+        "access": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Access"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The access it gave the plugin it was signed in for, if it was."
+        },
+        "declined": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The scopes (by name) asked for that plugin that the service didn't grant all they ask:\nthose it can do without aren't in its access."
+        }
+      },
+      "required": [
+        "type",
+        "plugin",
+        "subject",
+        "name",
+        "scopes",
+        "refreshes",
+        "signed_in"
+      ],
+      "description": "What signing in to an account of a type did."
+    },
+    "AccountSignedOut": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "plugin": {
+          "type": "string",
+          "description": "The account plugin it was signed in through."
+        },
+        "subject": {
+          "type": "string",
+          "description": "Its id at the service."
+        },
+        "name": {
+          "type": "string",
+          "description": "What it's shown as."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What the service granted, as it names them."
+        },
+        "expires": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "When its access token expires, when the service said: it's refreshed before then when it\ncan be."
+        },
+        "refreshes": {
+          "type": "boolean",
+          "description": "It's refreshed without signing in again."
+        },
+        "signed_in": {
+          "type": "boolean",
+          "description": "Its tokens are kept (the keychain may have lost them)."
+        },
+        "revoked": {
+          "type": "boolean",
+          "description": "The service was told to forget its tokens (it has a revocation endpoint, which answered)."
+        }
+      },
+      "required": [
+        "type",
+        "plugin",
+        "subject",
+        "name",
+        "scopes",
+        "refreshes",
+        "signed_in",
+        "revoked"
+      ],
+      "description": "What signing out of an account of a type did."
+    },
     "Listed": {
       "type": "object",
       "properties": {
@@ -30176,18 +31464,19 @@
             "$ref": "#/$defs/Granted"
           }
         },
+        "accounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The account types it asks for (`[[accounts]]`)."
+        },
         "account_types": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "What it adds: its account types by type, its accounts by id, its commands, destinations,\noperations, panels, analyzers, checks, providers, services, library sources and themes by\nname, the events it listens for, its export and import formats and its settings' keys."
-        },
-        "accounts": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "description": "What it adds: its account types by type, its commands, destinations, operations, panels,\nanalyzers, checks, providers, services, library sources and themes by name, the events it\nlistens for, its export and import formats and its settings' keys."
         },
         "commands": {
           "type": "array",
@@ -30290,8 +31579,8 @@
         "name",
         "version",
         "capabilities",
-        "account_types",
         "accounts",
+        "account_types",
         "commands",
         "destinations",
         "events",
@@ -30394,12 +31683,12 @@
           ],
           "description": "Why the keychain can't say, when it can't: the rest is answered all the same."
         },
-        "accounts": {
+        "accesses": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/PluginAccountStatus"
+            "$ref": "#/$defs/Access"
           },
-          "description": "Each of its accounts, and whether it's signed in (never a token): none signed in when the\nkeychain can't say (see `secrets_unknown`)."
+          "description": "Its access to the accounts the store keeps, of the types it asks for (`manifest.accounts`)\nor any other."
         },
         "running": {
           "type": "boolean"
@@ -30410,10 +31699,10 @@
         "capabilities",
         "settings",
         "secrets",
-        "accounts",
+        "accesses",
         "running"
       ],
-      "description": "A plugin in full, as `plugin info` and the sidecar's `plugins.describe` show it: its manifest\n(with the JSON Schemas of its params and options, to draw forms from), what its capabilities\nlet it do, its settings now, and whether each of its accounts is signed in."
+      "description": "A plugin in full, as `plugin info` and the sidecar's `plugins.describe` show it: its manifest\n(with the JSON Schemas of its params and options, to draw forms from), what its capabilities\nlet it do, its settings now, and the access it has to your accounts."
     },
     "Manifest": {
       "type": "object",
@@ -30441,11 +31730,17 @@
           "description": "What it may call back for (see [`Capability`]).",
           "default": []
         },
+        "accounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccountNeed"
+          },
+          "description": "The account types it asks for, and the scopes of each it needs."
+        },
         "contributes": {
           "$ref": "#/$defs/Contributions",
           "default": {
             "account_types": [],
-            "accounts": [],
             "commands": [],
             "destinations": [],
             "events": [],
@@ -30480,6 +31775,58 @@
       ],
       "description": "Read tolerantly: a key this side doesn't know is left out, and [`Manifest::validate`] refuses\nit only in a plugin locallibrary ships (see [`Manifest::unknown`])."
     },
+    "AccountNeed": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "The account type (`google`), which an account plugin provides."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The type's scopes it needs, by name (`youtube-upload`)."
+        },
+        "why": {
+          "type": "string",
+          "description": "Why it needs them, shown when the user gives it access."
+        },
+        "optional": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OptionalScopes"
+          },
+          "description": "Scopes it asks for besides, which the user may leave out."
+        }
+      },
+      "required": [
+        "type",
+        "scopes",
+        "why"
+      ],
+      "description": "`[[accounts]]`: an account type a plugin asks for, the scopes of it it needs and why, and those\nit can do without."
+    },
+    "OptionalScopes": {
+      "type": "object",
+      "properties": {
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "why": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scopes",
+        "why"
+      ],
+      "description": "`optional = [{ scopes = [\"read\"], why = \"...\" }]`: scopes a plugin can do without, and what\nthey're for."
+    },
     "Contributions": {
       "type": "object",
       "properties": {
@@ -30487,13 +31834,6 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/AccountType"
-          },
-          "default": []
-        },
-        "accounts": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Account"
           },
           "default": []
         },
@@ -30598,7 +31938,6 @@
       },
       "required": [
         "account_types",
-        "accounts",
         "commands",
         "destinations",
         "events",
@@ -30693,6 +32032,13 @@
           },
           "description": "The authorize params that sign in to another account than those the browser has\n(`prompt = \"select_account\"`)."
         },
+        "params": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The authorize params every sign-in sends besides (`access_type = \"offline\"`), none of\n`one_account`'s or `another_account`'s."
+        },
         "scopes": {
           "type": "object",
           "additionalProperties": {
@@ -30739,7 +32085,7 @@
           "description": "This query parameter's value (`?access_token=<token>`), for a service that takes it only\nthere (Mixcloud)."
         }
       ],
-      "description": "Where an account's access token goes in a `net/fetch` request: `token = { scheme = \"OAuth\" }`\nor `token = { query = \"access_token\" }`. The request names the account there, and only there."
+      "description": "Where an account type's access token goes in a `net/fetch` request: `token = { scheme =\n\"OAuth\" }` or `token = { query = \"access_token\" }`. The request names the account there, and\nonly there."
     },
     "Whoami": {
       "type": "object",
@@ -30807,81 +32153,6 @@
         "url"
       ],
       "description": "`{ method = \"POST\", url = \"https://www.googleapis.com/upload/youtube/v3/videos*\" }`: requests\nwith this method to this URL, or to any URL starting with it when it ends in `*`. The URL is\nwritten as it's read (`https://a.com/*`, not `https://a.com*`), so the start it names is a whole\nhost."
-    },
-    "Account": {
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "How requests name it (`{account:<id>}`)."
-        },
-        "title": {
-          "type": "string"
-        },
-        "authorize_url": {
-          "type": "string",
-          "description": "The service's authorization endpoint, where the browser signs in (https)."
-        },
-        "token_url": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Its token endpoint, where the host trades the browser's code for tokens and refreshes\nthem (https). An account has this or `token_exchange`."
-        },
-        "token_exchange": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Local Network's token exchange for its service\n(`https://localnetwork.computer/api/token-exchange/<service>`), in `token_url`'s place, for\na service that wants a client secret there."
-        },
-        "scopes": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "What it asks the service for, as the service names them."
-        },
-        "client_id": {
-          "type": "string",
-          "description": "The plugin's client at the service: a public one, without a secret, or Local Network's,\nwhose secret its token exchange holds."
-        },
-        "pkce": {
-          "type": "boolean",
-          "description": "Signing in uses PKCE: always, and a manifest saying otherwise is refused.",
-          "default": true
-        },
-        "revoke_url": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Where its tokens are revoked at signing out (RFC 7009), when the service has one (https)."
-        },
-        "token": {
-          "$ref": "#/$defs/TokenPlace",
-          "description": "Where its access token goes in a request: `Authorization: Bearer <token>` unless it says."
-        },
-        "redirect_port": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535,
-          "description": "The port on 127.0.0.1 the browser comes back to, for a service that compares the redirect\nURI with the one its client was registered with, port and all (SoundCloud): that's then\n`http://127.0.0.1:<port>/callback`. Any free port otherwise."
-        }
-      },
-      "required": [
-        "id",
-        "title",
-        "authorize_url",
-        "client_id",
-        "pkce"
-      ],
-      "description": "`[[contributes.accounts]]`: an account on a service, signed in to in the browser."
     },
     "Command": {
       "type": "object",
@@ -31569,51 +32840,6 @@
       ],
       "description": "`[[net]]`: at most `per_second` `net/fetch` requests a second to `host`, one of the plugin's\n`net:` capabilities as it's written (`musicbrainz.org`, `*.archive.org`), however many hooks\nare under way: the limit the server asks its clients to keep."
     },
-    "PluginAccountStatus": {
-      "type": "object",
-      "properties": {
-        "plugin": {
-          "type": "string"
-        },
-        "account": {
-          "type": "string"
-        },
-        "title": {
-          "type": "string"
-        },
-        "signed_in": {
-          "type": "boolean"
-        },
-        "expires": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "format": "date-time",
-          "description": "When its access token expires, when the service said: it's refreshed before then when it\ncan be."
-        },
-        "refreshes": {
-          "type": "boolean",
-          "description": "It's refreshed without signing in again."
-        },
-        "scopes": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "What the service granted, as it names them."
-        }
-      },
-      "required": [
-        "plugin",
-        "account",
-        "title",
-        "signed_in",
-        "refreshes",
-        "scopes"
-      ],
-      "description": "An account of a plugin's, as hosts show it: never a token."
-    },
     "Settings": {
       "type": "object",
       "properties": {
@@ -31649,92 +32875,6 @@
         "secrets"
       ],
       "description": "A plugin's settings now: each one set, else its default."
-    },
-    "SignIn": {
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Finishes it: [`Plugins::finish_sign_in`], [`Plugins::finish_sign_in_with_url`]."
-        },
-        "plugin": {
-          "type": "string"
-        },
-        "account": {
-          "type": "string"
-        },
-        "url": {
-          "type": "string",
-          "description": "Open this in the browser."
-        },
-        "redirect_uri": {
-          "type": "string",
-          "description": "Where the browser comes back to."
-        }
-      },
-      "required": [
-        "id",
-        "plugin",
-        "account",
-        "url",
-        "redirect_uri"
-      ],
-      "description": "A sign-in waiting for the browser."
-    },
-    "SignedOut": {
-      "type": "object",
-      "properties": {
-        "plugin": {
-          "type": "string"
-        },
-        "account": {
-          "type": "string"
-        },
-        "title": {
-          "type": "string"
-        },
-        "signed_in": {
-          "type": "boolean"
-        },
-        "expires": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "format": "date-time",
-          "description": "When its access token expires, when the service said: it's refreshed before then when it\ncan be."
-        },
-        "refreshes": {
-          "type": "boolean",
-          "description": "It's refreshed without signing in again."
-        },
-        "scopes": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "What the service granted, as it names them."
-        },
-        "was_signed_in": {
-          "type": "boolean",
-          "description": "It was signed in."
-        },
-        "revoked": {
-          "type": "boolean",
-          "description": "The service was told to forget its tokens (it has a revocation endpoint, which answered)."
-        }
-      },
-      "required": [
-        "plugin",
-        "account",
-        "title",
-        "signed_in",
-        "refreshes",
-        "scopes",
-        "was_signed_in",
-        "revoked"
-      ],
-      "description": "What signing out did."
     },
     "CommandOutput": {
       "anyOf": [
@@ -32229,123 +33369,6 @@
       "required": [
         "title",
         "view"
-      ]
-    },
-    "FetchReport": {
-      "type": "object",
-      "properties": {
-        "peer": {
-          "type": "string",
-          "description": "Where it was fetched from: the other computer's key, shortened, or a plugin's store\ndestination (`<plugin>:<destination>`)."
-        },
-        "libraries": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/FetchedLibrary"
-          }
-        },
-        "snapshots": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        },
-        "files": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0,
-          "description": "Stored files copied, and the store had already."
-        },
-        "bytes": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        },
-        "present": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        },
-        "dry_run": {
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "peer",
-        "libraries",
-        "snapshots",
-        "files",
-        "bytes",
-        "present",
-        "dry_run"
-      ]
-    },
-    "FetchedLibrary": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string",
-          "description": "Its name in this store."
-        },
-        "was": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Its name on the other computer, when that was taken here."
-        },
-        "id": {
-          "type": "string",
-          "format": "uuid"
-        },
-        "head": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Hash"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "The other computer's latest snapshot."
-        },
-        "outcome": {
-          "$ref": "#/$defs/LibraryOutcome"
-        }
-      },
-      "required": [
-        "name",
-        "id",
-        "head",
-        "outcome"
-      ]
-    },
-    "LibraryOutcome": {
-      "oneOf": [
-        {
-          "type": "string",
-          "const": "added",
-          "description": "This store didn't have it."
-        },
-        {
-          "type": "string",
-          "const": "updated",
-          "description": "It moved to the other computer's newer latest snapshot."
-        },
-        {
-          "type": "string",
-          "const": "up_to_date",
-          "description": "This store was as new, or newer."
-        },
-        {
-          "type": "string",
-          "const": "diverged",
-          "description": "Both changed: this store keeps its latest, and has the other's beside it."
-        },
-        {
-          "type": "string",
-          "const": "unavailable",
-          "description": "The other computer's latest snapshot couldn't be had (removed there during the fetch, or\nmissing from its store): the library is left as it was."
-        }
       ]
     },
     "SetPublish": {
@@ -33794,177 +34817,6 @@
       ],
       "description": "What a plugin suggests (`host/notify`): an operation's or an action's name, and its params."
     },
-    "HostAction": {
-      "oneOf": [
-        {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string",
-              "const": "art.fetch"
-            },
-            "params": {
-              "$ref": "#/$defs/FetchAction"
-            }
-          },
-          "required": [
-            "name",
-            "params"
-          ],
-          "description": "Fetch cover art from its artwork providers (`locallibrary art fetch`)."
-        },
-        {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string",
-              "const": "track.fetch"
-            },
-            "params": {
-              "$ref": "#/$defs/FetchAction"
-            }
-          },
-          "required": [
-            "name",
-            "params"
-          ],
-          "description": "Fetch tags from its metadata providers (`locallibrary track fetch`)."
-        },
-        {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string",
-              "const": "export"
-            },
-            "params": {
-              "$ref": "#/$defs/ExportAction"
-            }
-          },
-          "required": [
-            "name",
-            "params"
-          ],
-          "description": "Export in one of its formats, to where the user picks."
-        },
-        {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string",
-              "const": "analyze"
-            },
-            "params": {
-              "$ref": "#/$defs/AnalyzeAction"
-            }
-          },
-          "required": [
-            "name",
-            "params"
-          ],
-          "description": "Run one of its analyzers on a drive's tracks (`locallibrary analyze`)."
-        }
-      ],
-      "description": "One of the host's own flows a plugin may suggest (`host/notify`'s `action`): the host starts it\nwith these params filled in, and it's planned and confirmed as when the user starts it. Each is\non the plugin's own contributions alone, so it never starts another plugin's work."
-    },
-    "FetchAction": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "drive": {
-          "type": "string",
-          "description": "The drive, by id or name (as events name it)."
-        },
-        "tracks": {
-          "type": "array",
-          "items": {
-            "type": "integer",
-            "format": "uint32",
-            "minimum": 0
-          },
-          "description": "Only these tracks, by id [default: every one]."
-        },
-        "provider": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Only this provider of the plugin's [default: each of its providers of the kind]."
-        }
-      },
-      "required": [
-        "drive"
-      ],
-      "description": "`art.fetch`'s and `track.fetch`'s params."
-    },
-    "ExportAction": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "format": {
-          "type": "string",
-          "description": "One of the plugin's exporters, by format."
-        },
-        "drive": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "The drive, by id or name: a drive exporter's library, else whose tracks to give it."
-        },
-        "set": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "A set exporter's set."
-        },
-        "mix": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "A mix exporter's mix."
-        },
-        "options": {
-          "type": "object",
-          "additionalProperties": true,
-          "description": "As the exporter's `options` schema says."
-        }
-      },
-      "required": [
-        "format"
-      ],
-      "description": "`export`'s params: what its exporter writes out (a drive's library, a set or a mix, as\n`export/write`'s source names them) and its options. Where to is the user's to pick."
-    },
-    "AnalyzeAction": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "analyzer": {
-          "type": "string",
-          "description": "One of the plugin's analyzers."
-        },
-        "drive": {
-          "type": "string",
-          "description": "The drive, by id or name."
-        },
-        "tracks": {
-          "type": "array",
-          "items": {
-            "type": "integer",
-            "format": "uint32",
-            "minimum": 0
-          },
-          "description": "Only these tracks, by id [default: every one]."
-        }
-      },
-      "required": [
-        "analyzer",
-        "drive"
-      ],
-      "description": "`analyze`'s params."
-    },
     "PluginNotice": {
       "type": "object",
       "properties": {
@@ -33987,6 +34839,121 @@
         "message"
       ],
       "description": "A line a plugin tells the user (`host/notify`), and what it suggests, with its params: one of\nits operations (`operation`) or one of the host's actions (`action`) on its own contributions.\nThe front end offers to start it, and the user confirms it as when they start it themselves."
+    },
+    "ServeParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RequestId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The `store.serve` request it's about."
+        },
+        "event": {
+          "$ref": "#/$defs/ServeEvent"
+        }
+      },
+      "required": [
+        "id",
+        "event"
+      ],
+      "description": "A `serve` notification's parameters: what `store.serve` is doing."
+    },
+    "ServeEvent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "ready"
+            },
+            "code": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "code"
+          ],
+          "description": "Serving: give `code` to the other computer."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "connected"
+            },
+            "peer": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "peer"
+          ],
+          "description": "A computer with the code connected (`peer`: its key, shortened)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "refused"
+            },
+            "peer": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "peer"
+          ],
+          "description": "A computer without the right code was turned away."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "done"
+            },
+            "peer": {
+              "type": "string"
+            },
+            "snapshots": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "files": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "bytes": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "event",
+            "peer",
+            "snapshots",
+            "files",
+            "bytes"
+          ],
+          "description": "A computer that fetched disconnected, having been sent this much."
+        }
+      ],
+      "description": "What serving is doing, as it happens."
     },
     "ErrorData": {
       "type": "object",
@@ -34217,7 +35184,7 @@
         {
           "type": "string",
           "const": "not_signed_in",
-          "description": "Not signed in to an Atmosphere account."
+          "description": "Not signed in to an Atmosphere account, or the account a plugin's access is to is signed\nout or won't stay signed in long enough: sign in."
         },
         {
           "type": "string",
@@ -34227,7 +35194,12 @@
         {
           "type": "string",
           "const": "missing_scope",
-          "description": "The session may not publish: sign in again allowing it."
+          "description": "The session may not publish, or a plugin's access doesn't reach what it asked: sign in\nagain allowing it."
+        },
+        {
+          "type": "string",
+          "const": "no_access",
+          "description": "A plugin has no access to an account of the type it asked for (`fields.type`): sign in to\none for it, or make one its default."
         },
         {
           "type": "string",

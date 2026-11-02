@@ -103,19 +103,23 @@ export class RecordingService {
 	}
 
 	/**
-	 * What a mix on a profile plays: its linked set's recording or links, else the mix's own link. Never rejects, since
-	 * the mix's page streams it.
+	 * What a mix on a profile plays: its own recording record, then its linked set's recording or links, else the mix's
+	 * own link. Never rejects, since the mix's page streams it.
 	 */
-	async forMix(mix: Pick<ProjectMix, 'url' | 'set'>): Promise<PlayerSource | null> {
+	async forMix(mix: Pick<ProjectMix, 'url' | 'set' | 'recording'>): Promise<PlayerSource | null> {
 		const own = linkSources([{ uri: mix.url }]);
 
 		try {
+			const recording = mix.recording ? await this.recording(mix.recording.uri) : null;
 			const ref = mix.set && parsePublicRecordUri(mix.set.uri);
 			const set = ref && ref.collection === COLLECTION.djSet ? await this.set(ref.did, ref.rkey) : null;
 
-			return preferred([set && (await this.source(set)), ...own]);
+			return preferred([recording, set && (await this.source(set)), ...own]);
 		} catch (error) {
-			this.logger.warn({ err: error, set: mix.set?.uri }, "could not find a mix's linked recording");
+			this.logger.warn(
+				{ err: error, recording: mix.recording?.uri, set: mix.set?.uri },
+				"could not find a mix's linked recording"
+			);
 
 			return preferred(own);
 		}

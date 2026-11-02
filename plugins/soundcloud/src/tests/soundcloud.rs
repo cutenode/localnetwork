@@ -9,18 +9,22 @@ use std::time::Duration;
 
 use chrono::{TimeDelta, Utc};
 use loclib_plugin::{
-    Fetch, Fetched, HelloReply, Incoming, Manifest, PROTOCOL_VERSION, Peer, ProgressReport, Progressed, Published,
-    PublishedSet, RpcError, TokenPlace, TracklistEntry, method,
+    Fetch, Fetched, HelloReply, Incoming, PROTOCOL_VERSION, Peer, ProgressReport, Progressed, Published, PublishedSet,
+    RpcError, TokenPlace, TracklistEntry, method,
 };
 use loclib_progress::Event;
 use serde_json::{Value, json};
 
+use super::account_type;
+use crate::serve;
 use crate::upload::{AUTHORIZATION, NEWEST, TRACKS};
-use crate::{MANIFEST, serve};
 
 /// The access token the host fills in, and the page of the track the fake SoundCloud makes.
 pub(super) const TOKEN: &str = "2-290-tok";
 pub(super) const PAGE: &str = "https://soundcloud.com/dj/closing-set";
+
+/// As the host fails a request for a SoundCloud account that's signed out.
+pub(super) const SIGNED_OUT: &str = "the soundcloud account dj is signed out: sign in again";
 
 /// How SoundCloud answers a request through the host, in place of what it would: a status, its
 /// headers and body; the same, having made the track anyway; the host failing to reach it; or the
@@ -109,10 +113,7 @@ impl SoundCloud {
     /// The host's answer to `fetch`.
     fn answer(&mut self, fetch: &Fetch) -> Result<Fetched, RpcError> {
         if !self.signed_in {
-            // As the host fails a request for an account that isn't signed in.
-            let why =
-                "its SoundCloud account isn't signed in (locallibrary plugin account soundcloud soundcloud sign-in)";
-            return Err(RpcError::failed("invalid", why));
+            return Err(RpcError::failed("access", SIGNED_OUT));
         }
         let accept = fetch.headers.get("Accept").map(String::as_str);
         assert_eq!(accept, Some("application/json; charset=utf-8"), "{fetch:?}");
@@ -153,13 +154,12 @@ impl SoundCloud {
         Ok(Fetched { status, headers, body: Some(body), blob: None })
     }
 
-    /// The form `fetch` sends, its files read whole, with the token where the manifest says the
-    /// host puts it.
+    /// The form `fetch` sends, its files read whole, with the token where the account plugin says
+    /// the host puts it.
     fn form(&self, fetch: &Fetch) -> Form {
         assert!(fetch.body.is_none() && fetch.body_blob.is_none(), "a form alone: {fetch:?}");
         assert_eq!(fetch.headers.get("Authorization").map(String::as_str), Some(AUTHORIZATION), "{fetch:?}");
-        let manifest = Manifest::parse(MANIFEST).unwrap();
-        let TokenPlace::Scheme(scheme) = &manifest.contributes.accounts[0].token else { panic!("in the header") };
+        let TokenPlace::Scheme(scheme) = account_type().token else { panic!("in the header") };
         let mut form = Form {
             authorization: format!("{scheme} {TOKEN}"),
             fields: Vec::new(),

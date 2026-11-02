@@ -19,10 +19,11 @@
 //! * A lock, so the CLI and a running sidecar never spend the same single-use refresh token.
 //! * The network (`net`): servers found from a handle or DID are only reached at public https
 //!   addresses, and answers are read up to a limit.
-//! * Records ([`repo`]): writing the record types locallibrary publishes ([`lexicon`]) with the
-//!   session, which needs the [`PUBLISH_SCOPES`] ([`PUBLISH_SET`] grants them), and uploading a
-//!   set's recording, which needs [`UPLOAD_SCOPE`]. Reading anyone's needs no session, and goes
-//!   through Local Network's directory ([`directory`]).
+//! * Records ([`repo`]): writing the record types locallibrary publishes ([`lexicon`]), and
+//!   deleting a set's and its recording's, with the session, which needs the [`PUBLISH_SCOPES`]
+//!   ([`PUBLISH_SET`] grants them), and uploading a set's recording, which needs
+//!   [`UPLOAD_SCOPE`]. Reading anyone's needs no session, and goes through Local Network's
+//!   directory ([`directory`]).
 //! * Bug reports ([`bug_report`]), posted from the account to userinput.app, which need
 //!   [`REPORT_SCOPE`].
 //!
@@ -39,7 +40,7 @@ pub mod store;
 use rustc_hash::FxHashMap;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex, OnceLock};
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
@@ -69,6 +70,7 @@ use crate::error::{Action, Reason};
 use crate::export::one_line;
 /// Where the session's secrets are kept.
 pub use crate::keychain::Storage;
+use crate::net::runtime;
 use crate::progress::Ctx;
 use crate::{Error, Result};
 
@@ -87,19 +89,20 @@ pub const DEFAULT_SCOPES: [&str; 1] = ["atproto"];
 pub const PUBLISH_SET: &str = "computer.localnetwork.locallibraryPublishing";
 
 /// What publishing needs besides `atproto`, and what [`PUBLISH_SET`] grants: to create and replace
-/// the record types locallibrary writes (see [`lexicon`]), and nothing else in the account (not
-/// even deleting them, which locallibrary doesn't do), and to have Local Network's directory read
+/// the record types locallibrary writes (see [`lexicon`]), to delete a set's and its recording's
+/// (`sets delete` unpublishes them; a server writes all three actions as the bare
+/// `repo:<nsid>`), and nothing else in the account, and to have Local Network's directory read
 /// them again ([`directory::request_index`], a service token for that one method). The set lists
 /// each record type on its own because servers write a permission for several as
-/// `repo?collection=…`, which jacquard can't read. A set may only name `*` as an `rpc`
-/// permission's audience: servers grant `rpc:…?aud=*`, which jacquard (and so the session's
+/// `repo?collection=…`, which jacquard can't read. A set may only name `*` as an `rpc` permission's
+/// audience: servers grant `rpc:…?aud=*`, which jacquard (and so the session's
 /// [`AccountInfo::scopes`]) writes as `rpc:…`. Signing in only asks for them when the DJ publishes
 /// (`account login --publish`, or a publish command that signs in again).
 pub const PUBLISH_SCOPES: [&str; 5] = [
     "repo:computer.localnetwork.locallibrary.settings?action=create&action=update",
     "repo:computer.localnetwork.dj.profile?action=create&action=update",
-    "repo:computer.localnetwork.dj.set?action=create&action=update",
-    "repo:computer.localnetwork.dj.recording?action=create&action=update",
+    "repo:computer.localnetwork.dj.set",
+    "repo:computer.localnetwork.dj.recording",
     "rpc:computer.localnetwork.directory.requestIndex",
 ];
 
@@ -145,6 +148,11 @@ pub fn may_create(info: &AccountInfo, collection: &str) -> bool {
 /// Whether the session may upload a file of the type `mime` (`audio/mp4`).
 pub fn may_upload(info: &AccountInfo, mime: &str) -> bool {
     grants(info, [Scope::parse(&format!("blob:{mime}"))])
+}
+
+/// Whether the session may delete records of `collection`.
+pub fn may_delete(info: &AccountInfo, collection: &str) -> bool {
+    grants(info, [Scope::repo_delete(collection)])
 }
 
 /// What signing `info`'s account in again asks for, so the session keeps what it may do now:
@@ -241,19 +249,7 @@ impl AccountInfo {
 type Oauth = OAuthClient<JacquardResolver<Http>, LocalStore>;
 type Session = OAuthSession<JacquardResolver<Http>, LocalStore>;
 
-/// The async runtime the OAuth client runs on; everything outside this module stays synchronous.
-fn runtime() -> &'static tokio::runtime::Runtime {
-    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_name("atmosphere")
-            .enable_all()
-            .build()
-            .expect("start the network runtime")
-    })
-}
-
+/// Runs `f` on the network's runtime, which the OAuth client runs on.
 fn block_on<F: Future>(f: F) -> F::Output {
     runtime().block_on(f)
 }
@@ -402,6 +398,17 @@ fn take_pending(id: &str) -> Result<Pending> {
     })
 }
 
+/// The sign-in page `sent` (from the server's metadata, for the browser and the terminal) as it
+/// parses, and the server it's on, when it's a public https address. As it parses, it has none of
+/// the line breaks and tabs a parser skips, and its other control characters are percent-encoded,
+/// so it prints as one line and moves no cursor.
+fn sign_in_page(sent: &str) -> Result<(String, String)> {
+    let url = net::public(sent).map_err(|why| {
+        Error::Account(format!("the account's server sent a sign-in page that can't be opened: {why}"))
+    })?;
+    Ok((url.to_string(), url.authority().to_string()))
+}
+
 /// Start signing in with `input`: a handle (`alice.bsky.social`), a DID, or the account's server
 /// (`https://bsky.social`, which also lets people pick an account or make one). Returns the URL
 /// to open; the sign-in finishes with [`finish_login`] or [`finish_login_with_url`].
@@ -436,11 +443,7 @@ pub fn begin_login(root: &Path, input: &str, options: &LoginOptions) -> Result<L
     let store = LocalStore::new(root, options.storage, client.clone(), redirect_uri.clone(), requested.clone());
     let oauth = oauth(store, config, true)?;
     let url = block_on(oauth.start_auth(&input, AuthorizeOptions::default())).map_err(oauth_error)?;
-    // The address comes from the server's metadata, and goes to the browser.
-    net::public(&url).map_err(|why| {
-        Error::Account(format!("the account's server sent a sign-in page that can't be opened: {why}"))
-    })?;
-    let server = url.split("://").nth(1).and_then(|r| r.split(['/', '?']).next()).unwrap_or_default().to_string();
+    let (url, server) = sign_in_page(&url)?;
     let id = uuid::Uuid::new_v4().simple().to_string();
     let mut pending = PENDING.lock().unwrap();
     pending.retain(|_, p| p.started.elapsed() < PENDING_LIMIT);

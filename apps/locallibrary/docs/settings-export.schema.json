@@ -1,0 +1,149 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "settings-export.schema.json",
+	"title": "locallibrary settings",
+	"description": "What `locallibrary settings export` writes and `settings import FILE` reads: everything set in a store, and the player's preferences. Each section is as the store keeps it, with empty maps and lists left out. Plugins' secrets are never in it.",
+	"type": "object",
+	"required": ["version"],
+	"properties": {
+		"$schema": { "type": "string" },
+		"version": {
+			"description": "The file's format.",
+			"const": 1
+		},
+		"my_settings": {
+			"description": "The My Settings profile (`settings set`): the base for every drive, and per-drive overrides by drive id.",
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"base": { "$ref": "#/$defs/values" },
+				"drives": {
+					"type": "object",
+					"propertyNames": { "$ref": "#/$defs/uuid" },
+					"additionalProperties": {
+						"type": "object",
+						"additionalProperties": false,
+						"properties": {
+							"name": {
+								"description": "The drive's name when its override was last edited, for display only.",
+								"type": "string"
+							},
+							"values": { "$ref": "#/$defs/values" }
+						}
+					}
+				}
+			}
+		},
+		"players": {
+			"description": "The player models `check` uses (`players set`): a default, and each library's own by library id.",
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"default": { "$ref": "#/$defs/names" },
+				"libraries": {
+					"type": "object",
+					"propertyNames": { "$ref": "#/$defs/uuid" },
+					"additionalProperties": { "$ref": "#/$defs/names" }
+				}
+			}
+		},
+		"profile": {
+			"description": "The profile's preferences (`profile sections`, `profile hide`...).",
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"sections": {
+					"description": "The sections the profile document includes. Left out: the defaults.",
+					"type": "array",
+					"uniqueItems": true,
+					"items": {
+						"enum": [
+							"summary",
+							"sets",
+							"tempo",
+							"arc",
+							"mixing",
+							"keys",
+							"energy",
+							"genres",
+							"labels",
+							"artists",
+							"era",
+							"signature",
+							"prep",
+							"collection",
+							"style"
+						]
+					}
+				},
+				"precision": { "enum": ["rounded", "exact"] },
+				"pinned": {
+					"description": "Tracks (\"Artist - Title\") listed first among signature tracks, in order.",
+					"$ref": "#/$defs/names"
+				},
+				"hidden": { "description": "Tracks never named.", "$ref": "#/$defs/names" },
+				"hidden_artists": { "description": "Artists never named.", "$ref": "#/$defs/names" },
+				"genre_aliases": {
+					"description": "Genre text as tagged, and the genre as shown.",
+					"type": "object",
+					"additionalProperties": { "type": "string" }
+				},
+				"headline": { "type": "string" }
+			}
+		},
+		"player": {
+			"description": "The player's preferences. Where it was (the drive and list open, the queue, its panels, the volume, the output) never goes in.",
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"theme": { "description": "A plugin's theme, `<plugin>.<name>`.", "type": "string" },
+				"sort": {
+					"type": "object",
+					"required": ["field"],
+					"properties": {
+						"field": {},
+						"descending": { "type": "boolean" }
+					}
+				},
+				"search_all": { "type": "boolean" },
+				"vis": { "description": "The visualiser's name (`spectrum`, `deck`...).", "type": "string" },
+				"ratings": { "description": "The track list's rating column.", "type": "boolean" },
+				"tags_column": { "description": "The track list's My Tags column.", "type": "boolean" },
+				"field_columns": {
+					"description": "The track list's columns of plugins' fields (`sound.bpm`), in order.",
+					"$ref": "#/$defs/names"
+				},
+				"shuffle": { "type": "boolean" },
+				"repeat": { "enum": ["off", "all", "one"] },
+				"quantize": { "type": "boolean" },
+				"single": { "description": "Stop after each track.", "type": "boolean" },
+				"auto_cue": { "description": "Start tracks at their first memory cue or beat.", "type": "boolean" }
+			}
+		},
+		"plugin_host": {
+			"description": "locallibrary's own settings for plugins: which analyzer each field role is read from, when a provider's candidate is picked, and whether each check runs.",
+			"type": "object"
+		},
+		"plugins": {
+			"description": "Each plugin's settings by its id, as it keeps them, with `services.<name>` (a service kept running) and `keys.<name>` (a command's key in the player) among them. A plugin that isn't installed keeps its settings for when it is.",
+			"type": "object",
+			"propertyNames": { "pattern": "^[A-Za-z0-9_+-][A-Za-z0-9._+-]*$" },
+			"additionalProperties": { "type": "object" }
+		}
+	},
+	"$defs": {
+		"uuid": {
+			"type": "string",
+			"pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+		},
+		"values": {
+			"description": "Settings and their values, as `settings schema` lists them.",
+			"type": "object",
+			"additionalProperties": { "type": "string" }
+		},
+		"names": {
+			"type": "array",
+			"items": { "type": "string" }
+		}
+	}
+}

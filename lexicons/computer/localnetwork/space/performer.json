@@ -1,0 +1,19 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.space.performer",
+	"defs": {
+		"main": {
+			"type": "space",
+			"description": "A performer's shared space: an act, or a DJ who works with others under their own name. Owned by the Local Network root account, which writes every record in it and keeps its members to the people in it: each person can read, and those with a capability that writes can write.",
+			"key": "tid",
+			"name": "Local Network performer",
+			"collections": [
+				"computer.localnetwork.people.person",
+				"computer.localnetwork.people.invite",
+				"computer.localnetwork.people.link",
+				"computer.localnetwork.people.request",
+				"computer.localnetwork.listing.status"
+			]
+		}
+	}
+}

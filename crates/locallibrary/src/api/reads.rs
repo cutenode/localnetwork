@@ -19,7 +19,7 @@ use crate::fields::{Analyzer, FieldStore, PluginsFields};
 use crate::mix::export::{self, MixExport};
 use crate::mix::index::Cache;
 use crate::mix::report::{self, Drive};
-use crate::mix::{self, Identifier};
+use crate::mix::{self, Identifier, MixReport};
 use crate::model::{Library, LibrarySummary, Playlist, Track};
 use crate::paths;
 use crate::profile::ProfilePrefs;
@@ -65,12 +65,17 @@ pub struct Page {
 /// The drive's library ([`super::drive_library`]), its tracks paged when asked.
 pub fn drive_library_cached(cache: &LibraryCache, req: &LibraryRequest) -> Result<LibraryPage> {
     let (_, _, lib) = cache.read(&req.library)?;
+    Ok(library_page(&lib, req.offset, req.limit))
+}
+
+/// `lib` with its tracks from `offset`, at most `limit` of them; every track when neither is given.
+pub(super) fn library_page(lib: &Library, offset: Option<usize>, limit: Option<usize>) -> LibraryPage {
     let summary = lib.summary();
-    if req.offset.is_none() && req.limit.is_none() {
-        return Ok(LibraryPage { summary, library: Library::clone(&lib), page: None });
+    if offset.is_none() && limit.is_none() {
+        return LibraryPage { summary, library: lib.clone(), page: None };
     }
-    let offset = req.offset.unwrap_or(0);
-    let tracks: Vec<Track> = lib.tracks.iter().skip(offset).take(req.limit.unwrap_or(usize::MAX)).cloned().collect();
+    let offset = offset.unwrap_or(0);
+    let tracks: Vec<Track> = lib.tracks.iter().skip(offset).take(limit.unwrap_or(usize::MAX)).cloned().collect();
     let page = Page { offset, count: tracks.len(), total: lib.tracks.len() };
     let library = Library {
         tracks,
@@ -78,7 +83,7 @@ pub fn drive_library_cached(cache: &LibraryCache, req: &LibraryRequest) -> Resul
         history_playlists: lib.history_playlists,
         history: lib.history.clone(),
     };
-    Ok(LibraryPage { summary, library, page: Some(page) })
+    LibraryPage { summary, library, page: Some(page) }
 }
 
 /// A playlist or folder in [`PlaylistTree`].
@@ -416,10 +421,16 @@ pub struct AnalysisView {
     pub structure: Option<SongStructure>,
 }
 
+/// A track's beat grid, cues, waveforms and phrases on `device`: what `track.analysis`,
+/// `tracks.analysis`, `track.show` and the player read.
+pub fn analysis_of(device: &Device, track: &Track) -> TrackAnalysis {
+    anlz::load(device, track)
+}
+
 impl AnalysisView {
     /// The track's analysis on `device`, with the waveforms chosen and encoded as asked.
     fn of(device: &Device, track: &Track, waveform: WaveformChoice, encoding: WaveformEncoding) -> AnalysisView {
-        let a: TrackAnalysis = anlz::load(device, track);
+        let a = analysis_of(device, track);
         let encode = |w: Waveform| match encoding {
             WaveformEncoding::Json => WaveformData::Json(w),
             WaveformEncoding::Base64 => WaveformData::Packed(PackedWaveform::pack(&w)),
@@ -565,6 +576,24 @@ fn identifier(
     Ok((device, id))
 }
 
+/// `req`'s mix identified with its drive's identifier (kept in `cache`), with the cover given for
+/// it. The cover is checked first: a bad one is refused before the minutes identifying takes.
+fn identified(
+    cache: &LibraryCache,
+    store: &Store,
+    req: &super::IdentifyMix,
+    ctx: &Ctx<'_>,
+) -> Result<(Device, std::sync::Arc<Identifier>, MixReport)> {
+    let cover = req.cover.as_deref().map(mix::CoverSource::given).transpose()?;
+    let (device, id) = identifier(cache, store, req.drive.as_deref(), ctx)?;
+    let options = mix::Options { tempo_range: req.tempo_range.unwrap_or(mix::DEFAULT_TEMPO_RANGE) };
+    let mut report = id.identify(&req.mix, &options, ctx)?;
+    if cover.is_some() {
+        report.mix.cover = cover;
+    }
+    Ok((device, id, report))
+}
+
 /// Which of a drive's tracks a recorded mix plays, when, at what speed and in what key, with the
 /// drive's identifier kept in `cache`. A report that can't be kept (`save`) is still answered,
 /// with a warning.
@@ -574,9 +603,7 @@ pub fn mix_identify_cached(
     req: &IdentifyMixRequest,
     ctx: &Ctx<'_>,
 ) -> Result<IdentifiedMix> {
-    let (device, id) = identifier(cache, store, req.identify.drive.as_deref(), ctx)?;
-    let options = mix::Options { tempo_range: req.identify.tempo_range.unwrap_or(mix::DEFAULT_TEMPO_RANGE) };
-    let report = id.identify(&req.identify.mix, &options, ctx)?;
+    let (device, id, report) = identified(cache, store, &req.identify, ctx)?;
     let mut saved = None;
     if req.save {
         match report::save(store, &report) {
@@ -597,9 +624,7 @@ pub fn mix_export_cached(
 ) -> Result<MixExport> {
     // Refused before the long run, and checked again as it's written.
     fsutil::refuse_to_replace(req.output.as_deref().as_slice(), req.replace)?;
-    let (device, id) = identifier(cache, store, req.identify.drive.as_deref(), ctx)?;
-    let options = mix::Options { tempo_range: req.identify.tempo_range.unwrap_or(mix::DEFAULT_TEMPO_RANGE) };
-    let report = id.identify(&req.identify.mix, &options, ctx)?;
+    let (device, id, report) = identified(cache, store, &req.identify, ctx)?;
     let doc = export::build(&report, Some(Drive::new(&device, &id.library)), &ProfilePrefs::load(store)?);
     if let Some(path) = &req.output {
         let json = serde_json::to_vec(&doc).map_err(|e| Error::invalid(e.to_string()))?;

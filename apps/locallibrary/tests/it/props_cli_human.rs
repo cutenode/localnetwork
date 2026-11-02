@@ -339,8 +339,8 @@ pub fn build(s: State) -> Env {
 /// (by id too), recorded where `fx`'s were.
 pub fn twin(fx: &Env) -> Env {
     let root = fx.volumes.parent().unwrap();
-    // First every file a moment older than FAT's 2 s: the hash cache distrusts a hash taken within
-    // 2 s of a file's mtime, so until then the two copies, run side by side but not in step, could
+    // First every file settled: the hash cache distrusts a hash taken too soon after a file's mtime
+    // (`fsutil::settled`), so until then the two copies, run side by side but not in step, could
     // count different files verified.
     let secs = || filetime::FileTime::now().unix_seconds();
     let mtimes = walkdir::WalkDir::new(root).into_iter().flatten().filter_map(|e| e.metadata().ok());
@@ -348,7 +348,7 @@ pub fn twin(fx: &Env) -> Env {
     let newest =
         mtimes.map(|m| filetime::FileTime::from_last_modification_time(&m).unix_seconds()).filter(|t| *t <= now);
     if let Some(newest) = newest.max() {
-        while secs() <= newest + 2 {
+        while !locallibrary::fsutil::settled(newest, secs()) {
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
     }

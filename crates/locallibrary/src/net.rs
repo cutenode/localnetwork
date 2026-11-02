@@ -5,10 +5,87 @@
 //! What a name resolves to isn't checked: reqwest resolves a proxy's name the same way, and
 //! proxies are usually on the local network. A name that leads to a private address gets no
 //! request: the server there would need a certificate for that name first.
+//!
+//! Requests that can be cancelled go out on a runtime of their own ([`Requests`]), so they stop at
+//! once, even while a server has stopped reading what they send; the rest go out on one shared
+//! [`runtime`].
 
+use std::io::Read;
 use std::net::IpAddr;
+use std::sync::OnceLock;
+use std::time::Duration;
 
 use crate::export::one_line;
+use crate::progress::CancelToken;
+
+/// How often a request notices being cancelled.
+pub(crate) const CHECK_EVERY: Duration = Duration::from_millis(50);
+/// How much of a file a request's body reads at a time.
+const CHUNK: usize = 64 << 10;
+
+/// The async runtime requests that can't be cancelled go out on; everything outside the network
+/// stays synchronous.
+pub(crate) fn runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_name("network")
+            .enable_all()
+            .build()
+            .expect("start the network runtime")
+    })
+}
+
+/// Requests that stop as soon as they're cancelled, on a runtime of their own. Dropped, it takes
+/// their connections with it, and the files their bodies were reading: hyper keeps a connection
+/// whose request was dropped until it has sent what it buffered, which it never does to a server
+/// that has stopped reading. So their client keeps no connection for later ones.
+pub(crate) struct Requests(tokio::runtime::Runtime);
+
+impl Requests {
+    pub(crate) fn new() -> std::io::Result<Requests> {
+        tokio::runtime::Builder::new_current_thread().enable_all().build().map(Requests)
+    }
+
+    /// What the future `f` makes gives, or `None` once `cancel` is cancelled (checked every
+    /// [`CHECK_EVERY`], and once `f` is done: a body [`streamed`] fails as soon as it's
+    /// cancelled). `f` is called on the runtime: reqwest starts a request's timer there.
+    pub(crate) fn run<F: Future>(&self, f: impl FnOnce() -> F, cancel: &CancelToken) -> Option<F::Output> {
+        let cancelled = async {
+            while !cancel.is_cancelled() {
+                tokio::time::sleep(CHECK_EVERY).await;
+            }
+        };
+        let out = self.0.block_on(async {
+            tokio::select! {
+                out = f() => Some(out),
+                () = cancelled => None,
+            }
+        });
+        out.filter(|_| !cancel.is_cancelled())
+    }
+}
+
+/// `reader` as a request's body, read a chunk at a time as it's sent, off the runtime's own
+/// threads (a file's reads block). Its length is the request's `Content-Length` to say. Once
+/// `cancel` is, it fails at the next chunk: a server reading it gets no more than was read,
+/// where [`Requests::run`] would notice only at its next check, sending meanwhile.
+pub(crate) fn streamed(reader: impl Read + Send + 'static, cancel: CancelToken) -> reqwest::Body {
+    let chunks = futures_util::stream::try_unfold((reader, cancel), |(mut reader, cancel)| async move {
+        let read = tokio::task::spawn_blocking(move || {
+            if cancel.is_cancelled() {
+                return Err(std::io::Error::other("cancelled"));
+            }
+            let mut chunk = vec![0; CHUNK];
+            let n = reader.read(&mut chunk)?;
+            chunk.truncate(n);
+            Ok((n > 0).then_some((chunk, (reader, cancel))))
+        });
+        read.await.map_err(std::io::Error::other)?
+    });
+    reqwest::Body::wrap_stream(chunks)
+}
 
 /// An error and what caused it, each cause once: reqwest's own message leaves the cause out,
 /// and so do some of jacquard's, while others name it.
@@ -25,8 +102,8 @@ pub(crate) fn with_causes(e: &(dyn std::error::Error + 'static)) -> String {
     out
 }
 
-/// `Ok` when `url` is a public https address; otherwise why not.
-pub(crate) fn public(url: &str) -> Result<(), String> {
+/// `url` parsed, when it's a public https address; otherwise why not.
+pub(crate) fn public(url: &str) -> Result<reqwest::Url, String> {
     let shown = one_line(url);
     let parsed = reqwest::Url::parse(url).map_err(|_| format!("{shown} isn't a web address"))?;
     if parsed.scheme() != "https" {
@@ -36,7 +113,7 @@ pub(crate) fn public(url: &str) -> Result<(), String> {
     if host.is_empty() || this_computer(&parsed) || ip(&parsed).is_some_and(local) {
         return Err(format!("{shown} is on this computer or its local network"));
     }
-    Ok(())
+    Ok(parsed)
 }
 
 /// Whether `url` names this computer: `localhost` or a name below it, or a loopback address.

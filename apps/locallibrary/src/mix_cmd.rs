@@ -9,7 +9,7 @@ use anyhow::{Context, Result, bail};
 use clap::Args;
 use locallibrary::mix::index::{Cache, IndexReport, LONGEST_TRACK_SECS};
 use locallibrary::mix::report::{self, Drive, playable_audio};
-use locallibrary::mix::{Identifier, MixReport, Options, Play, export};
+use locallibrary::mix::{CoverSource, Identifier, MixReport, Options, Play, export};
 use locallibrary::profile::ProfilePrefs;
 use locallibrary::progress::Ctx;
 use locallibrary::{Store, api, fsutil};
@@ -53,6 +53,10 @@ pub struct MixArgs {
     /// Audio for the report's player [default: the mix itself, or an export next to a project]
     #[arg(long, value_name = "FILE")]
     audio: Option<PathBuf>,
+    /// The mix's cover, a JPEG, PNG or WebP image, for its report and data [default: the one
+    /// embedded in the recording]
+    #[arg(long, value_name = "FILE")]
+    cover: Option<PathBuf>,
     /// Playback speeds to search, in percent either way
     #[arg(long, value_name = "PERCENT", default_value_t = 16.0)]
     tempo_range: f64,
@@ -81,9 +85,14 @@ pub fn run(args: MixArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -
     if args.format.is_some() && args.mixes.len() != 1 {
         bail!("--format goes with a single mix");
     }
+    if args.cover.is_some() && args.mixes.len() != 1 {
+        bail!("--cover goes with a single mix");
+    }
+    // Checked before the minutes identifying takes.
+    let cover = args.cover.as_deref().map(CoverSource::given).transpose()?;
     let device = api::mix_drive(args.drive.as_deref())?;
     // Fingerprints are cached in the store, made here if there's none yet.
-    let store = Store::open_or_init(store.clone().unwrap_or_else(Store::default_root))?;
+    let store = crate::open_store(store)?;
     let id = Identifier::new(&device, &Cache::in_store(&store), ctx)?;
     if args.mixes.is_empty() {
         out.emit(&id.report, |r| index_summary(&id.drive, r));
@@ -93,7 +102,11 @@ pub fn run(args: MixArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -
     let options = Options { tempo_range: args.tempo_range / 100.0 };
     let mut reports = Vec::new();
     for m in &args.mixes {
-        reports.push(id.identify(m, &options, ctx).with_context(|| format!("identifying {}", m.display()))?);
+        let mut r = id.identify(m, &options, ctx).with_context(|| format!("identifying {}", m.display()))?;
+        if let Some(c) = &cover {
+            r.mix.cover = Some(c.clone());
+        }
+        reports.push(r);
     }
 
     let pages: Vec<PathBuf> = match args.html.is_some() || args.open {
@@ -135,6 +148,17 @@ pub fn run(args: MixArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -
             if reports.first().is_some_and(|r| r.library.fingerprinted > 0) {
                 let fingerprinted = reports[0].library.fingerprinted;
                 say!("{}", dim(format!("fingerprinted {fingerprinted} new track(s) on {}", id.drive)));
+            }
+            let heard = id.cache.heard.load(std::sync::atomic::Ordering::Relaxed);
+            let kept: Vec<String> = [
+                id.cache.index.then(|| "the library's index".to_string()),
+                (heard > 0).then(|| format!("{heard} recording(s) heard before")),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            if !kept.is_empty() {
+                say!("{}", dim(format!("from the cache: {}", kept.join(", "))));
             }
             for p in &written {
                 let what = if p.extension().is_some_and(|e| e == "json") { "data" } else { "report" };
@@ -251,14 +275,19 @@ fn tracklist(r: &MixReport) {
     }
 }
 
-/// The dimmed end of a play's row: the stretch of the track played, and that the match is
-/// tentative when it is (as the HTML report and the TUI say).
+/// The dimmed end of a play's row: the stretch of the track played, the speeds a ridden pitch
+/// fader went between (as the HTML report gives them), and that the match is tentative when it is
+/// (as the HTML report and the TUI say).
 fn played(p: &Play) -> String {
-    let stretch = format!("{}–{} of {}", clock(p.track_start), clock(p.track_end), clock(p.track.duration_secs as f64));
-    match p.is_tentative() {
-        true => format!("{stretch} · tentative ({:.0}%)", p.confidence * 100.0),
-        false => stretch,
+    let mut parts =
+        vec![format!("{}–{} of {}", clock(p.track_start), clock(p.track_end), clock(p.track.duration_secs as f64))];
+    if p.speed_range.is_some() {
+        parts.push(format!("ridden {}", p.speed()));
     }
+    if p.is_tentative() {
+        parts.push(format!("tentative ({:.0}%)", p.confidence * 100.0));
+    }
+    parts.join(" · ")
 }
 
 /// Where a report goes: `--html` as given (a directory when there are several mixes), or the

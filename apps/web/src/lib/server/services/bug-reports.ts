@@ -32,6 +32,8 @@ export class BugReportService {
 		private readonly deps: {
 			/** The space's at:// URI. */
 			space: string | undefined;
+			/** The root account, whose permission set a grant may name. */
+			rootDid: string;
 			/** Where the space is read: HappyView keeps it (lua/app/userinput/space.lua). */
 			indexed: IndexedRepo;
 			userClient: (did: string) => Promise<RepoClient | null>;
@@ -46,7 +48,7 @@ export class BugReportService {
 
 	/** Whether `did` approved posting to userinput.app. Sessions from before the site asked for it haven't. */
 	async canPost(did: string): Promise<boolean> {
-		return grantsAll((await this.deps.accounts.get(did))?.grantedScope, SCOPES.bugReport, did);
+		return grantsAll((await this.deps.accounts.get(did))?.grantedScope, SCOPES.bugReport, did, this.deps.rootDid);
 	}
 
 	/** Posts a report as `did` and returns where userinput.app shows it. */

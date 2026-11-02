@@ -22,7 +22,7 @@ fn a_path_matching_several_rules_only_ignoring_case_removes_none(tc: TestCase) {
             limit: None,
             drives: vec![],
         };
-        rules.set(rule).unwrap();
+        rules.set(rule, &Default::default()).unwrap();
     }
     let asked = tc.draw(gs::sampled_from(CASES));
     let before: BTreeSet<String> = rules.playlists.iter().map(|p| p.path.clone()).collect();

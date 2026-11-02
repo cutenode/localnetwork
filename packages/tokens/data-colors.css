@@ -28,9 +28,20 @@
 	--color-playhead: #ffffff;
 }
 
-/* On the light palette (theme.css) good, warning and critical take their light values. */
+/* On the light palette (theme.css) the phrases, cues, good, warning and critical take their light values. */
 :root {
 	@variant light {
+		--color-phrase-intro: #4670e8;
+		--color-phrase-up: #af7515;
+		--color-phrase-verse: #af7515;
+		--color-phrase-chorus: #ea3d80;
+		--color-phrase-down: #1e8cae;
+		--color-phrase-bridge: #1e8cae;
+		--color-phrase-outro: #845cde;
+		--color-phrase-unknown: #5a5a70;
+		--color-cue-hot: #1b970d;
+		--color-cue-memory: #e83030;
+		--color-cue-loop: #cb6300;
 		--color-good: #1e7b34;
 		--color-warning: #8a5a00;
 		--color-critical: #c62828;

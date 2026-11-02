@@ -87,14 +87,12 @@ impl Plugins {
     ) -> Result<Analyzed> {
         let slot = self.slot(plugin)?;
         let declared = slot.declared("analyzer", analyzer, &slot.manifest.contributes.analyzers, |a| &a.name)?;
-        let (context, device) =
+        let (context, device, _given) =
             slot.context(Context { drive: Some(drive.into()), ..Context::default() }, Some(store))?;
         let device = device.expect("a drive was named");
         let library = device.library()?;
         let selected = match tracks {
-            Some(ids) => {
-                ids.iter().map(|&id| library.track(id).ok_or_else(|| Error::no_track(id))).collect::<Result<_>>()?
-            }
+            Some(ids) => super::tracks_named(&library, ids)?,
             None => library.tracks.iter().collect::<Vec<_>>(),
         };
         let (fields, overlays) = (FieldStore::in_store(store), OverlayStore::in_store(store));

@@ -1,4 +1,4 @@
-//! The browser's half of signing in (to the Atmosphere account, or a plugin's account): an HTTP
+//! The browser's half of signing in (to the Atmosphere account, or an account of a type): an HTTP
 //! listener on 127.0.0.1 that waits for the authorization server's redirect, or the redirect URL
 //! pasted by hand when the browser runs on another computer.
 //!
@@ -190,16 +190,23 @@ pub fn wait(
     let deadline = Instant::now() + timeout;
     loop {
         ctx.check()?;
-        if Instant::now() >= deadline {
-            return Err(Error::Account(format!("no answer from the browser within {}; sign in again", span(timeout))));
-        }
         match listener.accept() {
             Ok((stream, _)) => match read(stream) {
                 Some(request) if request.query.state.as_deref().is_some_and(&expected) => return Ok(request),
                 Some(request) => answer(request.stream, "400 Bad Request"),
                 None => {}
             },
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(100)),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // Given up only once nothing is waiting: a browser that came back in time while
+                // this process wasn't running (a busy machine, a laptop asleep) is still answered.
+                if Instant::now() >= deadline {
+                    return Err(Error::Account(format!(
+                        "no answer from the browser within {}; sign in again",
+                        span(timeout)
+                    )));
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
             Err(e) => return Err(Error::Account(format!("listening for the browser: {e}"))),
         }
     }

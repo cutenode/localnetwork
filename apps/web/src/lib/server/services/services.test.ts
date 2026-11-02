@@ -155,6 +155,11 @@ describe('services', () => {
 			await t.projectAdmin.setStatus({ actor: admin, project: hidden, status: 'hidden' });
 
 			expect((await t.projects.managedBy(DJ)).map((p) => p.profile.name)).toEqual(['Aurora', 'Zephyr']);
+			expect((await t.projects.bySlug(mine.slug))?.counts).toBeUndefined();
+			expect((await t.projects.bySlug(mine.slug, { counts: true }))?.counts).toEqual({
+				pressKits: 0,
+				upcomingShows: 0
+			});
 			expect((await t.projects.recent(2)).map((p) => p.profile.name)).toEqual(['Other', 'Zephyr']);
 			expect(await t.projects.stats()).toMatchObject({
 				total: 3,
@@ -481,6 +486,106 @@ describe('services', () => {
 			expect(await t.projects.details(project.uri)).toEqual({});
 		});
 
+		it('shows what a pending request would change, and what an approved one changed', async () => {
+			const dj = await t.viewer(DJ);
+			const mod = await t.viewer(MOD);
+			const admin = await t.viewer(ADMIN);
+
+			const project = await t.projectAdmin.create({
+				actor: admin,
+				profile: profile('Tide'),
+				details: { bookingEmail: 'a@b.test' },
+				managers: [DJ]
+			});
+
+			const update = await t.requests.submit({
+				actor: dj,
+				kind: 'update',
+				projectUri: project.uri,
+				profile: profile('Tide', { tagline: 'Dub' }),
+				details: { bookingEmail: 'c@d.test' }
+			});
+
+			const tagline = { field: 'profile.tagline', after: 'Dub' };
+			expect(await t.requests.changes(update, project)).toEqual({
+				profile: [tagline],
+				details: [{ field: 'details.bookingEmail', before: 'a@b.test', after: 'c@d.test' }],
+				stale: false
+			});
+
+			// An admin's edit moves the project past the revision the request started from.
+			const edited = await t.projectAdmin.update({
+				actor: admin,
+				project,
+				profile: profile('Tide', { pronouns: 'they/them' })
+			});
+
+			expect((await t.requests.changes(update, edited)).stale).toBe(true);
+
+			// A change to the private details alone leaves the profile as it is.
+			const detailsOnly = { ...update, record: { ...update.record, profile: undefined } };
+			expect((await t.requests.changes(detailsOnly, edited)).profile).toEqual([]);
+
+			await t.requests.decide({ actor: mod, uri: update.uri, outcome: 'approved' });
+			const approved = (await t.requests.byRkey(update.rkey))!;
+			const published = (await t.projects.byUri(project.uri))!;
+
+			// Compared with now it would match; the audit entry kept what approving it changed.
+			expect(await t.requests.changes(approved, published)).toEqual({
+				profile: [{ field: 'profile.pronouns', before: 'they/them' }, tagline],
+				details: [{ field: 'details.bookingEmail', before: '[private]', after: '[private]' }],
+				stale: false
+			});
+
+			const rejected = await t.requests.submit({
+				actor: dj,
+				kind: 'update',
+				projectUri: project.uri,
+				profile: profile('Tide', { tagline: 'Dub techno' })
+			});
+
+			await t.projectAdmin.update({ actor: admin, project: published, profile: profile('Tide') });
+			await t.requests.decide({ actor: mod, uri: rejected.uri, outcome: 'rejected', reason: 'No' });
+			const latest = (await t.projects.byUri(project.uri))!;
+
+			// Only a pending request can still be approved, so only one is ever stale.
+			expect(await t.requests.changes((await t.requests.byRkey(rejected.rkey))!, latest)).toEqual({
+				profile: [{ field: 'profile.tagline', after: 'Dub techno' }],
+				details: [],
+				stale: false
+			});
+
+			const create = await t.requests.submit({
+				actor: dj,
+				kind: 'create',
+				profile: profile('Glow'),
+				details: { bookingEmail: 'g@h.test' }
+			});
+
+			const proposed = await t.requests.changes(create, null);
+			expect(proposed.profile).toContainEqual({ field: 'profile.name', after: 'Glow' });
+			expect(proposed.details).toEqual([{ field: 'details.bookingEmail', after: 'g@h.test' }]);
+			await t.requests.decide({ actor: mod, uri: create.uri, outcome: 'approved' });
+			const created = (await t.requests.byRkey(create.rkey))!;
+			expect((await t.requests.changes(created, null)).profile).toContainEqual({
+				field: 'profile.name',
+				after: 'Glow'
+			});
+
+			// An approval with no audit entry naming it has nothing to show, rather than a comparison with now.
+			const unrecorded = { ...created, uri: `${created.uri}-unrecorded` };
+			expect(await t.requests.changes(unrecorded, null)).toEqual({ profile: [], details: [], stale: false });
+
+			const claim = await t.requests.submit({
+				actor: await t.viewer(PROMOTER),
+				kind: 'claim',
+				projectUri: project.uri,
+				claim: { relationship: 'agent', evidence: 'I book them' }
+			});
+
+			expect(await t.requests.changes(claim, latest)).toEqual({ profile: [], details: [], stale: false });
+		});
+
 		it('supports rejection, withdrawal, and blocks double decisions', async () => {
 			const dj = await t.viewer(DJ);
 			const mod = await t.viewer(MOD);
@@ -598,6 +703,79 @@ describe('services', () => {
 			expect(auditDetails).not.toContain('Yes');
 		});
 
+		it('tells the rest of a booking thread what happened in it, once, without saying who in the act wrote', async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ, LEGACY]
+			});
+
+			const promoter = await t.viewer(PROMOTER);
+			const titles = async (did: string) => (await t.notifications.list(did)).map((item) => item.title);
+
+			const space = await t.bookings.start({
+				actor: promoter,
+				projectUri: project.uri,
+				show: { title: 'Night' },
+				message: 'Free?'
+			});
+
+			expect(await titles(DJ)).toEqual(['New booking inquiry for Bookable']);
+			expect(await titles(LEGACY)).toEqual(['New booking inquiry for Bookable']);
+			expect(await titles(PROMOTER)).toEqual([]);
+
+			await t.bookings.message({ actor: await t.viewer(DJ), space, text: 'Yes' });
+			// Without spaces, the root writes for them, and the thread still hears it from the act.
+			await t.bookings.message({ actor: await t.viewer(LEGACY), space, text: 'Also yes' });
+			await t.bookings.setStatus({ actor: promoter, space, status: 'confirmed' });
+
+			expect(await titles(PROMOTER)).toEqual(['Bookable sent a message', 'Bookable sent a message']);
+			expect(await titles(DJ)).toEqual([
+				'The promoter marked the booking confirmed',
+				'Bookable sent a message',
+				'New booking inquiry for Bookable'
+			]);
+			expect(await titles(LEGACY)).toEqual([
+				'The promoter marked the booking confirmed',
+				'Bookable sent a message',
+				'New booking inquiry for Bookable'
+			]);
+
+			const [item] = await t.notifications.list(PROMOTER);
+			expect(item).toMatchObject({
+				topic: 'bookings',
+				body: 'Night',
+				href: `/dashboard/bookings/${space.split('/').at(-1)}`
+			});
+
+			// Nothing kept says which of the act's people wrote, or what anyone wrote.
+			const stored = await t.db.selectFrom('notification').select('data').execute();
+			expect(stored.map((row) => row.data).join()).not.toMatch(/did:|Yes|Free/);
+
+			// Indexing a record again, as a sync does, tells nobody twice, and an old one tells nobody at all.
+			const [message] = t.net.spaceRecordsIn(space, DJ);
+			await t.bookings.indexEvent({
+				space,
+				uri: message.uri,
+				repoDid: DJ,
+				collection: COLLECTION.bookingMessage,
+				value: { text: 'Yes', createdAt: new Date().toISOString() }
+			});
+			await t.bookings.indexEvent({
+				space,
+				uri: `${space}/${DJ}/${COLLECTION.bookingMessage}/3mold`,
+				repoDid: DJ,
+				collection: COLLECTION.bookingMessage,
+				value: { text: 'Back then', createdAt: '2026-01-01T00:00:00.000Z' }
+			});
+			expect(await titles(PROMOTER)).toHaveLength(2);
+
+			// The inbox is a courtesy: when it fails, the message still goes.
+			await t.db.schema.dropTable('notification').execute();
+			await t.bookings.message({ actor: promoter, space, text: 'See you there' });
+			expect((await t.bookings.thread(promoter, space)).events.at(-1)?.text).toBe('See you there');
+		});
+
 		it('keeps a personal planner and refuses accounts without spaces', async () => {
 			const project = await t.projectAdmin.create({ actor: await t.viewer(ADMIN), profile: profile('Saved') });
 			const promoter = await t.viewer(PROMOTER);
@@ -616,6 +794,38 @@ describe('services', () => {
 			await t.planner.unsave(promoter, project.uri);
 			expect(await t.planner.saves(promoter)).toEqual([]);
 			await expect(t.planner.saves(await t.viewer(LEGACY))).rejects.toThrow(/spaces/);
+		});
+
+		it('writes one save record when saves of a project overlap', async () => {
+			const project = await t.projectAdmin.create({ actor: await t.viewer(ADMIN), profile: profile('Twice') });
+			const promoter = await t.viewer(PROMOTER);
+
+			await Promise.all([t.planner.save(promoter, project.uri), t.planner.save(promoter, project.uri)]);
+
+			const stored = [...t.net.spaceRecords.keys()].filter((key) => key.includes(`|${COLLECTION.plannerSave}|`));
+			expect(stored).toHaveLength(1);
+		});
+
+		it('shows a project once when older saves wrote it twice, and unsaves every copy', async () => {
+			const project = await t.projectAdmin.create({ actor: await t.viewer(ADMIN), profile: profile('Old') });
+			const promoter = await t.viewer(PROMOTER);
+
+			const legacySave = (createdAt: string) =>
+				t.net.client(PROMOTER).createSpaceRecord({
+					space: plannerSpace(PROMOTER),
+					collection: COLLECTION.plannerSave,
+					record: { $type: COLLECTION.plannerSave, project: project.uri, createdAt }
+				});
+
+			await t.planner.saves(promoter);
+			await legacySave('2026-01-01T00:00:00.000Z');
+			await legacySave('2026-02-01T00:00:00.000Z');
+
+			expect(await t.planner.saves(promoter)).toMatchObject([
+				{ project: project.uri, createdAt: '2026-01-01T00:00:00.000Z' }
+			]);
+			await t.planner.unsave(promoter, project.uri);
+			expect(await t.planner.saves(promoter)).toEqual([]);
 		});
 
 		it('creates the planner space when a fresh account loads saves and shows at once', async () => {

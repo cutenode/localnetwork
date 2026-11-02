@@ -17,6 +17,9 @@ fn signed_out_status_and_sign_out() {
     assert!(out.contains("Not signed in to an Atmosphere account"), "{out}");
     let v = env.json(&["account", "status"]);
     assert!(v["account"].is_null() && v["last_handle"].is_null(), "{v}");
+    // The DJ account, then every other account.
+    let v = env.json(&["account"]);
+    assert!(v["account"].is_null() && v["accounts"] == json!([]) && v["accesses"] == json!([]), "{v}");
     let out = env.ok(&["account", "logout"]);
     assert!(out.contains("Not signed in"), "{out}");
     let err = env.fails(1, &["account", "status", "--check"]);

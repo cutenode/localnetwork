@@ -239,7 +239,7 @@ impl Plugins {
                 tracks: tags.iter().map(|t| t.id).collect(),
                 ..Context::default()
             };
-            let (context, _) = slot.context(context, store)?;
+            let (context, _, _given) = slot.context(context, store)?;
             let ask =
                 ProvideCandidates { provider: provider.name.clone(), kind: req.kind, tracks: tags.clone(), context };
             let read =
@@ -429,8 +429,9 @@ pub fn plan_provided(req: &PlanProvided, ctx: &Ctx<'_>) -> Result<Planned<EditPl
     // Each image's tracks, by its id.
     let mut images: IndexMap<&str, Vec<u32>> = IndexMap::new();
     let mut edits = Vec::new();
+    let by_id = super::by_id(&library);
     for p in &req.picks {
-        let t = library.track(p.track).ok_or_else(|| Error::no_track(p.track))?;
+        let t = by_id.get(&p.track).copied().ok_or_else(|| Error::no_track(p.track))?;
         let c = &p.candidate;
         let wrong = || Error::invalid(format!("the candidate for #{} isn't {}'s", t.id, req.kind.name()));
         match req.kind {

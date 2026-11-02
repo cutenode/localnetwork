@@ -435,3 +435,85 @@ fn a_key_from_a_database_stays_on_the_drive(tc: hegel::TestCase) {
         Err(e) => panic!("{e}"),
     }
 }
+
+/// A scan for one library, with another's tracks added, is the scan for both: audio either
+/// keeps outside `Contents/`, once, in order.
+#[test]
+fn a_scan_takes_more_tracks() {
+    let dir = tempfile::tempdir().unwrap();
+    for key in ["Contents/A/x.mp3", "Music/one.mp3", "Music/two.mp3", "PIONEER/rekordbox/export.pdb"] {
+        let p = dir.path().join(key);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, key).unwrap();
+    }
+    let d = Device::open(dir.path()).unwrap();
+    let lib = |paths: &[&str]| Library {
+        tracks: paths.iter().zip(1..).map(|(p, id)| loclib_model::test_util::track(id, "A", "T", p)).collect(),
+        ..Default::default()
+    };
+    let (one, both) = (lib(&["/Music/two.mp3"]), lib(&["/Music/two.mp3", "/Contents/A/x.mp3", "/Music/one.mp3"]));
+    let mut tree = d.scan(Some(&one), &Ctx::silent()).unwrap();
+    d.scan_more(&mut tree, &both).unwrap();
+    let keys = |t: &FileTree| t.entries.keys().cloned().collect::<Vec<_>>();
+    assert_eq!(keys(&tree), keys(&d.scan(Some(&both), &Ctx::silent()).unwrap()));
+    assert_eq!(tree.resolve("music/ONE.mp3").map(|e| e.size), Some(13));
+}
+
+/// A scan that finds no file changed leaves the hash cache as it was; one after a database
+/// changes rewrites it.
+#[test]
+fn a_scan_rewrites_the_hash_cache_only_when_a_file_changed() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let write = |key: &str, bytes: &[u8]| {
+        let p = root.join(key);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, bytes).unwrap();
+        filetime::set_file_mtime(&p, filetime::FileTime::from_unix_time(1_600_000_000, 0)).unwrap();
+    };
+    write(paths::EXPORT_PDB, b"pdb");
+    write("PIONEER/USBANLZ/P000/00000001/ANLZ0000.DAT", b"anlz");
+    let mut d = Device::open(root).unwrap();
+    d.adopt(Some("T")).unwrap();
+    let index = d.state_dir().join("index.json");
+    let written = || {
+        let modified = std::fs::metadata(&index).unwrap().modified().unwrap();
+        (modified, std::fs::read(&index).unwrap())
+    };
+    let first = d.scan_fingerprinted(None, &Ctx::silent()).unwrap().fingerprint;
+    let before = written();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    assert_eq!(d.scan_fingerprinted(None, &Ctx::silent()).unwrap().fingerprint, first);
+    assert!(written() == before, "rewrote the cache with nothing changed");
+    write(paths::EXPORT_PDB, b"pdb, edited");
+    assert_ne!(d.scan_fingerprinted(None, &Ctx::silent()).unwrap().fingerprint, first);
+    assert!(written().1 != before.1, "kept the cache of the old database");
+}
+
+/// One thread looks at a drive's databases (whether it has an export, when it was exported) while
+/// another writes `export.pdb` over and over: every write lands. Regression: on Windows the look's
+/// handle failed a rename over the file ("Access is denied"), as the player's poll of the open
+/// drive failed an edit.
+#[test]
+fn a_drive_looked_at_while_its_written_takes_every_write() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let dir = tempfile::tempdir().unwrap();
+    let pdb = paths::to_fs(dir.path(), paths::EXPORT_PDB);
+    std::fs::create_dir_all(pdb.parent().unwrap()).unwrap();
+    fsutil::write_atomic(&pdb, b"0").unwrap();
+    let d = Device::open(dir.path()).unwrap();
+    let writing = AtomicBool::new(true);
+    // The first write that fails ends the writes, and the looks with them.
+    let failed = std::thread::scope(|s| {
+        s.spawn(|| {
+            while writing.load(Ordering::SeqCst) {
+                assert!(d.has_export() && paths::is_export_root(d.root()) && d.exported_at().is_some());
+            }
+        });
+        let failed = (1..=200).find_map(|n| fsutil::write_atomic(&pdb, n.to_string().as_bytes()).err());
+        writing.store(false, Ordering::SeqCst);
+        failed
+    });
+    assert!(failed.is_none(), "a write failed: {failed:?}");
+    assert_eq!(std::fs::read(&pdb).unwrap(), b"200");
+}

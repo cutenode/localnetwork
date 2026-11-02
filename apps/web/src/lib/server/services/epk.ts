@@ -24,7 +24,7 @@ import {
 import { BSKY_FOLLOW, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import type { ProjectView, Viewer } from '#lib/types.ts';
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
-import { createSpaceIfMissing, type RepoClient } from '../atproto/repo-client';
+import { createSpaceIfMissing, memberSpacePolicy, type RepoClient } from '../atproto/repo-client';
 import { epkSpace, parseSpaceUri } from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso } from '../db';
@@ -299,7 +299,8 @@ export class EpkService {
 
 	/**
 	 * Asks for access. The request goes into the press kit's space from the asker's own PDS (or the root's, on their
-	 * behalf, when theirs can't write to spaces). When the rules approve it at once, the root writes the grant straight
+	 * behalf, when theirs can't write to spaces, or the press kit is a legacy one: the permission set grants requests
+	 * only in the root's press kit spaces). When the rules approve it at once, the root writes the grant straight
 	 * away; for a legacy press kit, only its maker could, so the grant waits for the press kit to move.
 	 */
 	async request(actor: Viewer, kit: PressKit, input: { role?: string; message?: string }): Promise<EpkAccessState> {
@@ -321,7 +322,10 @@ export class EpkService {
 		if (role) draft.role = role;
 
 		if (message) draft.message = message;
-		const { client, onBehalf } = await spaceWriter(this.core, actor);
+
+		const { client, onBehalf } = epk.legacy
+			? { client: await this.core.root(), onBehalf: true }
+			: await spaceWriter(this.core, actor);
 
 		if (onBehalf) draft.onBehalfOf = actor.did;
 		const record = validateRecord(COLLECTION.epkRequest, draft);
@@ -558,10 +562,8 @@ export class EpkService {
 		await createSpaceIfMissing(root, {
 			spaceType: SPACE_TYPE.epk,
 			skey: rkey,
-			readPolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
 			// Anyone signed in can write a request into it; only the root's content and grants count.
-			writePolicy: { $type: 'com.atproto.simplespace.defs#publicPolicy' },
-			appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+			policy: memberSpacePolicy({ publicWrite: true })
 		});
 
 		for (const did of managers) await root.putMember({ space, did, read: true, write: false });

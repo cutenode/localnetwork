@@ -208,3 +208,60 @@ fn archived_lists_were_recorded_after_their_drives_previous_pull() {
     assert_eq!(archive.last_pulled(&Device::open(&backup).unwrap()), Some(other.created));
     assert_eq!(archive.last_pulled(&Device::open(dir.path()).unwrap()), None);
 }
+
+/// Reading the store's history lists again, from what the first read kept in the store's
+/// cache, finds exactly what the first read did (where entries gone from the library were
+/// included) and parses no database; a kept file that can't be read is parsed again.
+#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn the_archive_read_again_from_the_cache_is_the_archive(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let root = common::bigger_drive(dir.path(), "Main");
+    let mut d = Device::open_export(&root).unwrap();
+    let opts = PullOptions { library: Some("Club library".into()), force: true, ..Default::default() };
+    sync::pull(&store, &mut d, &opts, &Ctx::silent()).unwrap();
+    // Sessions between pulls (ids past the library's 12 are tracks gone from it), and rekordbox
+    // taking them off the drive now and then.
+    let sessions: Vec<(Vec<u32>, bool)> = tc.draw(
+        gs::vecs(gs::tuples!(
+            gs::vecs(gs::integers::<u32>().min_value(1).max_value(14)).min_size(1).max_size(5),
+            gs::booleans()
+        ))
+        .min_size(1)
+        .max_size(3),
+    );
+    for (i, (tracks, imported)) in sessions.iter().enumerate() {
+        // The first session played one more track gone from the library since.
+        let tracks = [tracks.as_slice(), if i == 0 { &[13] } else { &[] }].concat();
+        common::add_history(&root, &format!("HISTORY {:03}", i + 1), &tracks);
+        sync::pull(&store, &mut d, &opts, &Ctx::silent()).unwrap();
+        if *imported {
+            rekordbox_imports_history(&root);
+        }
+    }
+
+    let read = || {
+        let a = plays::archive(&store, None, &Ctx::silent()).unwrap();
+        let lists: Vec<(plays::HistoryList, Vec<usize>)> =
+            a.lists.iter().map(|l| (l.list.clone(), l.list.missing_at.clone())).collect();
+        (serde_json::to_value(&a).unwrap(), lists, a.cached)
+    };
+    let (cold, cold_lists, (hits, sets)) = read();
+    assert_eq!(hits, 0);
+    assert!(cold_lists.iter().any(|(_, missing_at)| !missing_at.is_empty()), "{cold_lists:?}");
+    assert!(sets >= 1, "{sets}");
+    let (warm, warm_lists, cached) = read();
+    assert_eq!(cached, (sets, sets), "every set of databases came from the cache");
+    assert_eq!(warm, cold);
+    assert_eq!(warm_lists, cold_lists);
+
+    // A kept file cut short is as good as none.
+    let kept = store.root().join("cache/histories");
+    for f in walkdir::WalkDir::new(&kept).into_iter().flatten().filter(|e| e.file_type().is_file()) {
+        std::fs::write(f.path(), b"[").unwrap();
+    }
+    let (again, again_lists, cached) = read();
+    assert_eq!(cached, (0, sets));
+    assert_eq!((again, again_lists), (cold, cold_lists));
+}

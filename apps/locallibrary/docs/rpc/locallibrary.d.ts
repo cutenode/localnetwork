@@ -449,6 +449,34 @@ export type LabelRequest = {
   remove?: boolean;
 };
 
+/** `snapshot.library`, optionally paged as `drive.library` is. */
+export type SnapshotLibraryRequest = {
+  /** A label, or an id or its first 4 or more characters, with or without `snapshot:` in front. */
+  snapshot: string;
+  offset?: number | null;
+  limit?: number | null;
+};
+
+export type ServeOptions = {
+  /**
+   * Stay on the local network: no relays, so only computers that can reach this one directly
+   * can fetch.
+   */
+  local_only?: boolean;
+};
+
+/** `store.fetch`: the code to fetch with, and what to fetch. */
+export type FetchRequest = {
+  /** The share code the other computer's `store.serve` gave (its `ready` event). */
+  code: string;
+  /** Libraries to fetch, by name or id on the other computer. Empty: all of them. */
+  libraries?: string[];
+  /** Stay on the local network: no relays. */
+  local_only?: boolean;
+  /** Say what would be copied, and copy nothing. */
+  dry_run?: boolean;
+};
+
 export type RenameLibrary = {
   /** The library's name (any case) or id. */
   library: string;
@@ -1218,6 +1246,16 @@ export type ImportSettings = {
   drive?: string | null;
 };
 
+export type ImportSettingsFile = {
+  /** A file `settings.export` wrote (`locallibrary settings export`). */
+  file: string;
+  /**
+   * Where one of the file's values differs from the one here, take the file's (for a list of
+   * names, the file's whole list). Default: keep the one here.
+   */
+  replace?: boolean;
+};
+
 /** One track (`track`) or several (`tracks`). */
 export type ArtworkRequest = {
   drive: string;
@@ -1824,6 +1862,11 @@ export type IdentifyMixRequest = {
   /** Playback speeds to search, as a fraction: 0.16 is ±16%. */
   tempo_range?: number | null;
   /**
+   * The mix's cover, an image file, for its report and export (instead of one embedded in
+   * the recording). Checked before identifying.
+   */
+  cover?: string | null;
+  /**
    * Also each play's overview waveform, hot cues and phrases (`extras`), for following
    * along without asking for every track's analysis.
    */
@@ -1841,6 +1884,11 @@ export type ExportMix = {
   drive?: string | null;
   /** Playback speeds to search, as a fraction: 0.16 is ±16%. */
   tempo_range?: number | null;
+  /**
+   * The mix's cover, an image file, for its report and export (instead of one embedded in
+   * the recording). Checked before identifying.
+   */
+  cover?: string | null;
   /** Also write the document to this file. */
   output?: string | null;
   /** Replace a file already at `output` (refused otherwise). */
@@ -2250,6 +2298,71 @@ export type CollectionExportRequest = {
   overwrite_archive?: boolean;
 };
 
+export type BeginSignIn = {
+  /** The account type (`google`). */
+  type: string;
+  /** The account plugin to sign in through [default: the only one providing the type]. */
+  with?: string | null;
+  /**
+   * The plugin it's for, given access to it: to the scopes it needs, and those of `scopes` it
+   * can do without.
+   */
+  for?: string | null;
+  /**
+   * An account the store keeps, or one signed out that plugins still have access to, by
+   * subject, to sign in to again (asking for more scopes, say).
+   */
+  account?: string | null;
+  /** The type's scopes to ask for besides, by name. */
+  scopes?: string[];
+};
+
+export type FinishSignIn = {
+  /** What its `sign_in.begin` answered. */
+  id: string;
+  /** How long to wait for the browser (default 300, an hour at most). */
+  timeout_secs?: number | null;
+};
+
+export type PasteSignIn = {
+  id: string;
+  /** The address the browser ended up on after approving. */
+  url: string;
+};
+
+export type CancelSignIn = {
+  id: string;
+};
+
+export type SignOut = {
+  account: AccountId;
+};
+
+/** An account kept in a store: the account plugin that signed it in, and its subject there. */
+export type AccountId = {
+  plugin: string;
+  subject: string;
+};
+
+export type ListAccesses = {
+  /** Only this plugin's. */
+  plugin?: string | null;
+};
+
+export type GiveAccess = {
+  /** The plugin's id. */
+  plugin: string;
+  account: AccountId;
+  /** Scopes of the account's type it can do without to give it besides those it needs, by name. */
+  scopes?: string[];
+};
+
+export type AccessRef = {
+  /** The plugin's id. */
+  plugin: string;
+  account: AccountId;
+};
+
 export type PluginRef = {
   /** The plugin's id. */
   plugin: string;
@@ -2264,29 +2377,6 @@ export type SetPluginSetting = {
    * puts it back to its default, or forgets a secret.
    */
   value?: unknown;
-};
-
-export type AccountRef = {
-  plugin: string;
-  /** The account's id, as the plugin's manifest has it. */
-  account: string;
-};
-
-export type FinishSignIn = {
-  /** What `plugins.account.sign_in.begin` answered. */
-  id: string;
-  /** How long to wait for the browser (default 300, an hour at most). */
-  timeout_secs?: number | null;
-};
-
-export type PasteSignIn = {
-  id: string;
-  /** The address the browser ended up on after approving. */
-  url: string;
-};
-
-export type CancelSignIn = {
-  id: string;
 };
 
 /** What to write to a drive's tracks' analysis files, from what one analyzer kept. */
@@ -3191,6 +3281,11 @@ export type Cue = {
    * when it was set on the grid. Only the extended list has it.
    */
   loop_beats: LoopBeats | null;
+  /**
+   * A loop that plays round by itself once playback reaches it (rekordbox's active loop). Only
+   * the basic list has it.
+   */
+  active_loop: boolean;
 };
 
 export type LoopBeats = [numerator: number, denominator: number];
@@ -3560,6 +3655,12 @@ export type EmbeddedFile = {
   /** The file once the art went in: it's only put back while it's still that. */
   size: number;
   mtime: number;
+  /**
+   * What it held once the art went in, by content: its size and mtime, taken moments after it
+   * was written, can't tell a rewrite in the same second or two (see [`fsutil::settled`]).
+   * Missing from embeds an earlier version made, which go by size and mtime alone.
+   */
+  hash?: Hash | null;
 };
 
 export type Comparison = {
@@ -4074,6 +4175,54 @@ export type LibraryListing = {
   /** Drives linked to it, by name. */
   drives: string[];
 };
+
+export type ServeReport = {
+  /** Computers that fetched. */
+  peers: number;
+  files: number;
+  bytes: number;
+};
+
+export type FetchReport = {
+  /**
+   * Where it was fetched from: the other computer's key, shortened, or a plugin's store
+   * destination (`<plugin>:<destination>`).
+   */
+  peer: string;
+  libraries: FetchedLibrary[];
+  snapshots: number;
+  /** Stored files copied, and the store had already. */
+  files: number;
+  bytes: number;
+  present: number;
+  dry_run: boolean;
+};
+
+export type FetchedLibrary = {
+  /** Its name in this store. */
+  name: string;
+  /** Its name on the other computer, when that was taken here. */
+  was?: string | null;
+  id: string;
+  /** The other computer's latest snapshot. */
+  head: Hash | null;
+  outcome: LibraryOutcome;
+};
+
+export type LibraryOutcome =
+  /** This store didn't have it. */
+  | "added"
+  /** It moved to the other computer's newer latest snapshot. */
+  | "updated"
+  /** This store was as new, or newer. */
+  | "up_to_date"
+  /** Both changed: this store keeps its latest, and has the other's beside it. */
+  | "diverged"
+  /**
+   * The other computer's latest snapshot couldn't be had (removed there during the fetch, or
+   * missing from its store): the library is left as it was.
+   */
+  | "unavailable";
 
 export type EditPlan = {
   drive: string;
@@ -4844,6 +4993,70 @@ export type BaseChange = {
   to: string | null;
 };
 
+/**
+ * What [`export`] writes and [`merge`] reads. Each section is as the store keeps it, with empty
+ * maps and lists left out.
+ */
+export type SettingsExport = {
+  /** The file's format, [`VERSION`]. */
+  version: number;
+  /** The My Settings profile: `base`, and per-drive `drives` overrides by drive id. */
+  my_settings: { [key: string]: unknown };
+  /** The player models `check` uses: `default`, and `libraries`' own by library id. */
+  players: { [key: string]: unknown };
+  /**
+   * The profile's preferences: its sections, precision, pinned and hidden tracks, hidden
+   * artists, genre spellings and headline.
+   */
+  profile: { [key: string]: unknown };
+  /**
+   * The player's preferences ([`PlayerPrefs`]): its theme, columns, sort, visualiser and
+   * playback modes.
+   */
+  player: { [key: string]: unknown };
+  /**
+   * The host's settings for plugins: which analyzer each field role is read from, when a
+   * provider's candidate is picked, and whether each check runs.
+   */
+  plugin_host: { [key: string]: unknown };
+  /**
+   * Each plugin's settings by its id, as it keeps them (`services.<name>` and `keys.<name>`
+   * among them).
+   */
+  plugins: { [key: string]: unknown };
+};
+
+/**
+ * What importing a settings file would change: the file's values missing here (added), and
+ * those that differ (kept as they are here, or with `replace` taken from the file).
+ */
+export type ImportSettingsFilePlan = {
+  file: string;
+  changes: SettingsFileChange[];
+  /** The file's values that are as they are here already. */
+  unchanged: number;
+};
+
+/** One of the file's values that isn't as it is here. */
+export type SettingsFileChange = {
+  /** The section, then each key down to the value: `["plugins", "sound", "keys.analyze"]`. */
+  path: string[];
+  action: SettingsFileAction;
+  /** The value here (`None`: not set). */
+  current: unknown;
+  /** The file's value; for names added to a list, the names it adds. */
+  imported: unknown;
+};
+
+/** What importing does with one of the file's values. */
+export type SettingsFileAction =
+  /** It's missing here, or adds names to a list: it's added. */
+  | "add"
+  /** It differs, and the one here stays. */
+  | "keep"
+  /** It differs, and the file's takes its place (`replace`). */
+  | "replace";
+
 /** One answer for `One`, a list in the order asked for `Many`. */
 export type OneOrMany_for_ArtworkImage = (ArtworkImage | null) | TrackArtwork_for_ArtworkImage[];
 
@@ -5249,8 +5462,9 @@ export type CheckItem = {
   /** The files it's about, relative to the drive's root (`Contents/a.mp3`). */
   paths?: string[];
   /**
-   * What fixes it, a plugin's check says: its plugin's operation, planned on the drive and
-   * confirmed as any is.
+   * What fixes it, planned on the drive and confirmed as any plan is: a plugin's operation (its
+   * check says), or one of locallibrary's own flows (pulling the drive, syncing it, fetching
+   * artwork for its tracks without any).
    */
   fix?: Fix | null;
 };
@@ -5265,13 +5479,101 @@ export type Level =
   | "problem";
 
 /**
- * The plugin operation that fixes a finding, with its params: planned and confirmed as any is
- * (`plugins.op.plan`, with the drive it was found on).
+ * What fixes a finding, planned on the drive it was found on and confirmed as any plan is: a
+ * plugin's operation (what a plugin's check says), or one of the host's own flows (what its own
+ * checks say), each as the sidecar's `check` answers it.
  */
-export type Fix = {
+export type Fix = PluginFix | HostAction;
+
+/** The plugin operation that fixes a finding, with its params (`plugins.op.plan`). */
+export type PluginFix = {
   plugin: string;
   operation: string;
   params: unknown;
+};
+
+/**
+ * One of the host's own flows, started with these params filled in, and planned and confirmed as
+ * when the user starts it: what a plugin may suggest (`host/notify`'s `action`), each on its own
+ * contributions alone so it never starts another plugin's work, and what fixes one of the host's
+ * own check findings. `pull` and `sync` are only ever the host's: no plugin suggests them.
+ */
+export type HostAction =
+  /** Fetch cover art from its artwork providers (`locallibrary art fetch`). */
+  | {
+    name: "art.fetch";
+    params: FetchAction;
+  }
+  /** Fetch tags from its metadata providers (`locallibrary track fetch`). */
+  | {
+    name: "track.fetch";
+    params: FetchAction;
+  }
+  /** Export in one of its formats, to where the user picks. */
+  | {
+    name: "export";
+    params: ExportAction;
+  }
+  /** Run one of its analyzers on a drive's tracks (`locallibrary analyze`). */
+  | {
+    name: "analyze";
+    params: AnalyzeAction;
+  }
+  /** Save a drive in the store as a snapshot (`locallibrary pull`). */
+  | {
+    name: "pull";
+    params: DriveAction;
+  }
+  /** Sync a drive's library's drives plugged in from the newest of them (`locallibrary sync`). */
+  | {
+    name: "sync";
+    params: DriveAction;
+  };
+
+/** `art.fetch`'s and `track.fetch`'s params. */
+export type FetchAction = {
+  /** The drive, by id or name (as events name it). */
+  drive: string;
+  /** Only these tracks, by id [default: every one]. */
+  tracks?: number[];
+  /**
+   * Only this provider of the plugin's [default: each of its providers of the kind; for the
+   * host's fix, every plugin's].
+   */
+  provider?: string | null;
+};
+
+/**
+ * `export`'s params: what its exporter writes out (a drive's library, a set or a mix, as
+ * `export/write`'s source names them) and its options. Where to is the user's to pick.
+ */
+export type ExportAction = {
+  /** One of the plugin's exporters, by format. */
+  format: string;
+  /** The drive, by id or name: a drive exporter's library, else whose tracks to give it. */
+  drive?: string | null;
+  /** A set exporter's set. */
+  set?: string | null;
+  /** A mix exporter's mix. */
+  mix?: string | null;
+  /** As the exporter's `options` schema says. */
+  options?: { [key: string]: unknown };
+};
+
+/** `analyze`'s params. */
+export type AnalyzeAction = {
+  /** One of the plugin's analyzers. */
+  analyzer: string;
+  /** The drive, by id or name. */
+  drive: string;
+  /** Only these tracks, by id [default: every one]. */
+  tracks?: number[];
+};
+
+/** `pull`'s and `sync`'s params. */
+export type DriveAction = {
+  /** The drive, by id or name. */
+  drive: string;
 };
 
 export type OrphanPlan = {
@@ -6695,7 +6997,10 @@ export type MixInfo = {
   channels: number;
   /** Labels from an Audacity project's label tracks. */
   labels: Label[];
-  /** Cover image: embedded in the audio file, else an image next to it named like it. */
+  /**
+   * Cover image: one given (`mix --cover`), else embedded in the audio file, else an image
+   * next to it named like it.
+   */
   cover: CoverSource | null;
 };
 
@@ -6706,13 +7011,21 @@ export type Label = {
   title: string;
 };
 
-export type CoverSource = {
-  kind: "embedded";
-  path: string;
-} | {
-  kind: "file";
-  path: string;
-};
+export type CoverSource =
+  | {
+    kind: "embedded";
+    path: string;
+  }
+  /** An image found next to the recording. */
+  | {
+    kind: "file";
+    path: string;
+  }
+  /** An image the DJ gave for it. */
+  | {
+    kind: "given";
+    path: string;
+  };
 
 /** One track heard in the mix. */
 export type Play = {
@@ -6725,6 +7038,11 @@ export type Play = {
   track_end: number;
   /** Playback speed: 1.0 as recorded, 1.03 is +3%. */
   tempo: number;
+  /**
+   * The slowest and fastest speeds it was played at, when the pitch fader was ridden during it
+   * (see [`matcher::Found::speed_range`]); `tempo` is then their average.
+   */
+  speed_range?: [number, number] | null;
   /** The track's BPM at that speed. */
   played_bpm: number | null;
   /** Whether key lock (master tempo) was on: `None` when the speed is too close to 1.0 to tell. */
@@ -6868,7 +7186,10 @@ export type ExportedMix = {
   /** The player that recorded it, when the file says. */
   recorder?: string | null;
   durationSecs: number;
-  /** The cover embedded in the recording: a JPEG `data:` URL, 320 px square. */
+  /**
+   * The cover given for the recording (`mix --cover`) or embedded in it: a JPEG `data:` URL,
+   * 320 px square.
+   */
   cover?: string | null;
 };
 
@@ -6893,6 +7214,8 @@ export type ExportPlay = {
   trackEnd: number;
   /** Playback speed: 1.03 is +3%. */
   tempo: number;
+  /** The slowest and fastest speeds, when the pitch fader was ridden; `tempo` is their average. */
+  speedRange?: [number, number] | null;
   playedBpm?: number | null;
   /** `None` when the speed is too close to 1.0 to tell. */
   keyLock: boolean | null;
@@ -7570,6 +7893,7 @@ export type ProvisionPlan = {
   steps: string[];
   /** The format's plan, when formatting (its `identity` confirms the disk on apply). */
   format: FormatPlan | null;
+  /** Its own warnings; the format's are in `format.warnings` (the plan's `warnings` has both). */
   warnings: string[];
 };
 
@@ -7761,13 +8085,19 @@ export type CollectionExportPlan = {
    */
   unsaved: Unsaved | null;
   /**
-   * Space the export needs on the target: the files it copies, its new databases and the
-   * backup of what it replaces.
+   * Space the export needs on the target: the files it copies, its new databases, the backup
+   * of what it replaces, and the online-only files it downloads when their cloud folder is on
+   * the same disk.
    */
   needed_bytes: number;
   free_space: number | null;
   fits: boolean;
   warnings: string[];
+  /**
+   * Intelligent playlists exported with a smart rule for the target (see [`crate::smart`]),
+   * which `smart apply` keeps up to date: kept in the store once the export is applied.
+   */
+  smart: SmartPlaylist[];
 };
 
 export type CollectionExportReport = {
@@ -7791,19 +8121,148 @@ export type CollectionExportReport = {
   backup: string | null;
 };
 
+/** The accounts a store keeps and the accesses plugins were given to them, as hosts show them. */
+export type Accounts = {
+  /**
+   * Those it keeps, in the order they were first signed in, then those signed out that plugins
+   * still have access to.
+   */
+  accounts: StoreAccount[];
+  accesses: Access[];
+};
+
+/** An account a store keeps, as hosts show it: never a token. */
+export type StoreAccount = {
+  type: string;
+  /** The account plugin it was signed in through. */
+  plugin: string;
+  /** Its id at the service. */
+  subject: string;
+  /** What it's shown as. */
+  name: string;
+  /** What the service granted, as it names them. */
+  scopes: string[];
+  /**
+   * When its access token expires, when the service said: it's refreshed before then when it
+   * can be.
+   */
+  expires?: string | null;
+  /** It's refreshed without signing in again. */
+  refreshes: boolean;
+  /** Its tokens are kept (the keychain may have lost them). */
+  signed_in: boolean;
+};
+
+/** The scopes of an account a plugin was given. */
+export type Access = {
+  /** 8 lowercase hex digits, which `{account:<type>/<id>}` names it by. */
+  id: string;
+  /** The plugin given it. */
+  plugin: string;
+  type: string;
+  account: AccountId;
+  /** What the account is shown as, kept so an access to one signed out still says. */
+  name: string;
+  /** The type's scopes, by name. */
+  scopes: string[];
+  /** It's the plugin's default for the type: `{account:<type>}` names it. */
+  default: boolean;
+  /**
+   * The scopes (by name) a sign-in for it asked the service for, which didn't grant all they
+   * ask, until it's given them again. Those it needs are in `scopes` too, and still can't be
+   * used.
+   */
+  declined?: string[];
+};
+
+/** A sign-in to an account of a type, waiting for the browser. */
+export type AccountSignIn = {
+  /**
+   * Finishes it: [`Plugins::finish_account_sign_in`],
+   * [`Plugins::finish_account_sign_in_with_url`].
+   */
+  id: string;
+  type: string;
+  /** The account plugin signing in. */
+  plugin: string;
+  /** Open this in the browser. */
+  url: string;
+  /** Where the browser comes back to. */
+  redirect_uri: string;
+};
+
+/** What signing in to an account of a type did. */
+export type AccountSignedIn = {
+  type: string;
+  /** The account plugin it was signed in through. */
+  plugin: string;
+  /** Its id at the service. */
+  subject: string;
+  /** What it's shown as. */
+  name: string;
+  /** What the service granted, as it names them. */
+  scopes: string[];
+  /**
+   * When its access token expires, when the service said: it's refreshed before then when it
+   * can be.
+   */
+  expires?: string | null;
+  /** It's refreshed without signing in again. */
+  refreshes: boolean;
+  /** Its tokens are kept (the keychain may have lost them). */
+  signed_in: boolean;
+  /**
+   * The account it was to sign in again, when the browser signed in to another: that one is
+   * kept too, and this one as it was. The plugin it was for isn't given access to it.
+   */
+  instead_of?: string | null;
+  /** The access it gave the plugin it was signed in for, if it was. */
+  access?: Access | null;
+  /**
+   * The scopes (by name) asked for that plugin that the service didn't grant all they ask:
+   * those it can do without aren't in its access.
+   */
+  declined?: string[];
+};
+
+/** What signing out of an account of a type did. */
+export type AccountSignedOut = {
+  type: string;
+  /** The account plugin it was signed in through. */
+  plugin: string;
+  /** Its id at the service. */
+  subject: string;
+  /** What it's shown as. */
+  name: string;
+  /** What the service granted, as it names them. */
+  scopes: string[];
+  /**
+   * When its access token expires, when the service said: it's refreshed before then when it
+   * can be.
+   */
+  expires?: string | null;
+  /** It's refreshed without signing in again. */
+  refreshes: boolean;
+  /** Its tokens are kept (the keychain may have lost them). */
+  signed_in: boolean;
+  /** The service was told to forget its tokens (it has a revocation endpoint, which answered). */
+  revoked: boolean;
+};
+
 /** A plugin, as `plugin list` and the sidecar's `plugins.list` show it. */
 export type Listed = {
   id: string;
   name: string;
   version: string;
   capabilities: Granted[];
+  /** The account types it asks for (`[[accounts]]`). */
+  accounts: string[];
   /**
-   * What it adds: its account types by type, its accounts by id, its commands, destinations,
-   * operations, panels, analyzers, checks, providers, services, library sources and themes by
-   * name, the events it listens for, its export and import formats and its settings' keys.
+   * What it adds: its account types by type, its commands, destinations, operations, panels,
+   * analyzers, checks, providers, services, library sources and themes by name, the events it
+   * listens for, its export and import formats and its settings' keys.
    */
   account_types: string[];
-  accounts: string[];
   commands: string[];
   destinations: string[];
   events: string[];
@@ -7839,7 +8298,7 @@ export type Capability = string;
 /**
  * A plugin in full, as `plugin info` and the sidecar's `plugins.describe` show it: its manifest
  * (with the JSON Schemas of its params and options, to draw forms from), what its capabilities
- * let it do, its settings now, and whether each of its accounts is signed in.
+ * let it do, its settings now, and the access it has to your accounts.
  */
 export type Described = {
   manifest: Manifest;
@@ -7853,10 +8312,10 @@ export type Described = {
   /** Why the keychain can't say, when it can't: the rest is answered all the same. */
   secrets_unknown?: string | null;
   /**
-   * Each of its accounts, and whether it's signed in (never a token): none signed in when the
-   * keychain can't say (see `secrets_unknown`).
+   * Its access to the accounts the store keeps, of the types it asks for (`manifest.accounts`)
+   * or any other.
    */
-  accounts: PluginAccountStatus[];
+  accesses: Access[];
   running: boolean;
 };
 
@@ -7874,14 +8333,39 @@ export type Manifest = {
   protocol: string;
   /** What it may call back for (see [`Capability`]). */
   capabilities: Capability[];
+  /** The account types it asks for, and the scopes of each it needs. */
+  accounts?: AccountNeed[];
   contributes: Contributions;
   /** How often the host may send `net/fetch` requests to some of the hosts it talks to. */
   net?: NetLimit[];
 };
 
+/**
+ * `[[accounts]]`: an account type a plugin asks for, the scopes of it it needs and why, and those
+ * it can do without.
+ */
+export type AccountNeed = {
+  /** The account type (`google`), which an account plugin provides. */
+  type: string;
+  /** The type's scopes it needs, by name (`youtube-upload`). */
+  scopes: string[];
+  /** Why it needs them, shown when the user gives it access. */
+  why: string;
+  /** Scopes it asks for besides, which the user may leave out. */
+  optional?: OptionalScopes[];
+};
+
+/**
+ * `optional = [{ scopes = ["read"], why = "..." }]`: scopes a plugin can do without, and what
+ * they're for.
+ */
+export type OptionalScopes = {
+  scopes: string[];
+  why: string;
+};
+
 export type Contributions = {
   account_types: AccountType[];
-  accounts: Account[];
   commands: Command[];
   destinations: Destination[];
   events: Listener[];
@@ -7943,13 +8427,19 @@ export type AccountType = {
    * (`prompt = "select_account"`).
    */
   another_account?: { [key: string]: string };
+  /**
+   * The authorize params every sign-in sends besides (`access_type = "offline"`), none of
+   * `one_account`'s or `another_account`'s.
+   */
+  params?: { [key: string]: string };
   /** What a plugin may be given access to, by name (`youtube-upload`). */
   scopes?: { [key: string]: Scope };
 };
 
 /**
- * Where an account's access token goes in a `net/fetch` request: `token = { scheme = "OAuth" }`
- * or `token = { query = "access_token" }`. The request names the account there, and only there.
+ * Where an account type's access token goes in a `net/fetch` request: `token = { scheme =
+ * "OAuth" }` or `token = { query = "access_token" }`. The request names the account there, and
+ * only there.
  */
 export type TokenPlace =
   /** The `Authorization` header, as this scheme and the token (`OAuth <token>`). */
@@ -7999,45 +8489,6 @@ export type ScopeRequest = {
   /** `GET`, `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE`. */
   method: string;
   url: string;
-};
-
-/** `[[contributes.accounts]]`: an account on a service, signed in to in the browser. */
-export type Account = {
-  /** How requests name it (`{account:<id>}`). */
-  id: string;
-  title: string;
-  /** The service's authorization endpoint, where the browser signs in (https). */
-  authorize_url: string;
-  /**
-   * Its token endpoint, where the host trades the browser's code for tokens and refreshes
-   * them (https). An account has this or `token_exchange`.
-   */
-  token_url?: string | null;
-  /**
-   * Local Network's token exchange for its service
-   * (`https://localnetwork.computer/api/token-exchange/<service>`), in `token_url`'s place, for
-   * a service that wants a client secret there.
-   */
-  token_exchange?: string | null;
-  /** What it asks the service for, as the service names them. */
-  scopes?: string[];
-  /**
-   * The plugin's client at the service: a public one, without a secret, or Local Network's,
-   * whose secret its token exchange holds.
-   */
-  client_id: string;
-  /** Signing in uses PKCE: always, and a manifest saying otherwise is refused. */
-  pkce: boolean;
-  /** Where its tokens are revoked at signing out (RFC 7009), when the service has one (https). */
-  revoke_url?: string | null;
-  /** Where its access token goes in a request: `Authorization: Bearer <token>` unless it says. */
-  token?: TokenPlace;
-  /**
-   * The port on 127.0.0.1 the browser comes back to, for a service that compares the redirect
-   * URI with the one its client was registered with, port and all (SoundCloud): that's then
-   * `http://127.0.0.1:<port>/callback`. Any free port otherwise.
-   */
-  redirect_port?: number | null;
 };
 
 /** Run with `command/run`. */
@@ -8356,23 +8807,6 @@ export type NetLimit = {
   per_second: number;
 };
 
-/** An account of a plugin's, as hosts show it: never a token. */
-export type PluginAccountStatus = {
-  plugin: string;
-  account: string;
-  title: string;
-  signed_in: boolean;
-  /**
-   * When its access token expires, when the service said: it's refreshed before then when it
-   * can be.
-   */
-  expires?: string | null;
-  /** It's refreshed without signing in again. */
-  refreshes: boolean;
-  /** What the service granted, as it names them. */
-  scopes: string[];
-};
-
 /** A plugin's settings now: each one set, else its default. */
 export type Settings = {
   plugin: string;
@@ -8385,39 +8819,6 @@ export type Settings = {
   secrets: { [key: string]: boolean | null };
   /** Why the keychain can't say, when it can't: the rest is answered all the same. */
   secrets_unknown?: string | null;
-};
-
-/** A sign-in waiting for the browser. */
-export type SignIn = {
-  /** Finishes it: [`Plugins::finish_sign_in`], [`Plugins::finish_sign_in_with_url`]. */
-  id: string;
-  plugin: string;
-  account: string;
-  /** Open this in the browser. */
-  url: string;
-  /** Where the browser comes back to. */
-  redirect_uri: string;
-};
-
-/** What signing out did. */
-export type SignedOut = {
-  plugin: string;
-  account: string;
-  title: string;
-  signed_in: boolean;
-  /**
-   * When its access token expires, when the service said: it's refreshed before then when it
-   * can be.
-   */
-  expires?: string | null;
-  /** It's refreshed without signing in again. */
-  refreshes: boolean;
-  /** What the service granted, as it names them. */
-  scopes: string[];
-  /** It was signed in. */
-  was_signed_in: boolean;
-  /** The service was told to forget its tokens (it has a revocation endpoint, which answered). */
-  revoked: boolean;
 };
 
 /** What a command answers. */
@@ -8580,47 +8981,6 @@ export type Section = {
   title: string;
   view: View;
 };
-
-export type FetchReport = {
-  /**
-   * Where it was fetched from: the other computer's key, shortened, or a plugin's store
-   * destination (`<plugin>:<destination>`).
-   */
-  peer: string;
-  libraries: FetchedLibrary[];
-  snapshots: number;
-  /** Stored files copied, and the store had already. */
-  files: number;
-  bytes: number;
-  present: number;
-  dry_run: boolean;
-};
-
-export type FetchedLibrary = {
-  /** Its name in this store. */
-  name: string;
-  /** Its name on the other computer, when that was taken here. */
-  was?: string | null;
-  id: string;
-  /** The other computer's latest snapshot. */
-  head: Hash | null;
-  outcome: LibraryOutcome;
-};
-
-export type LibraryOutcome =
-  /** This store didn't have it. */
-  | "added"
-  /** It moved to the other computer's newer latest snapshot. */
-  | "updated"
-  /** This store was as new, or newer. */
-  | "up_to_date"
-  /** Both changed: this store keeps its latest, and has the other's beside it. */
-  | "diverged"
-  /**
-   * The other computer's latest snapshot couldn't be had (removed there during the fetch, or
-   * missing from its store): the library is left as it was.
-   */
-  | "unavailable";
 
 /** A set a plugin will publish, as its dry run said. */
 export type SetPublish = {
@@ -9115,70 +9475,6 @@ export type Suggested = {
 };
 
 /**
- * One of the host's own flows a plugin may suggest (`host/notify`'s `action`): the host starts it
- * with these params filled in, and it's planned and confirmed as when the user starts it. Each is
- * on the plugin's own contributions alone, so it never starts another plugin's work.
- */
-export type HostAction =
-  /** Fetch cover art from its artwork providers (`locallibrary art fetch`). */
-  | {
-    name: "art.fetch";
-    params: FetchAction;
-  }
-  /** Fetch tags from its metadata providers (`locallibrary track fetch`). */
-  | {
-    name: "track.fetch";
-    params: FetchAction;
-  }
-  /** Export in one of its formats, to where the user picks. */
-  | {
-    name: "export";
-    params: ExportAction;
-  }
-  /** Run one of its analyzers on a drive's tracks (`locallibrary analyze`). */
-  | {
-    name: "analyze";
-    params: AnalyzeAction;
-  };
-
-/** `art.fetch`'s and `track.fetch`'s params. */
-export type FetchAction = {
-  /** The drive, by id or name (as events name it). */
-  drive: string;
-  /** Only these tracks, by id [default: every one]. */
-  tracks?: number[];
-  /** Only this provider of the plugin's [default: each of its providers of the kind]. */
-  provider?: string | null;
-};
-
-/**
- * `export`'s params: what its exporter writes out (a drive's library, a set or a mix, as
- * `export/write`'s source names them) and its options. Where to is the user's to pick.
- */
-export type ExportAction = {
-  /** One of the plugin's exporters, by format. */
-  format: string;
-  /** The drive, by id or name: a drive exporter's library, else whose tracks to give it. */
-  drive?: string | null;
-  /** A set exporter's set. */
-  set?: string | null;
-  /** A mix exporter's mix. */
-  mix?: string | null;
-  /** As the exporter's `options` schema says. */
-  options?: { [key: string]: unknown };
-};
-
-/** `analyze`'s params. */
-export type AnalyzeAction = {
-  /** One of the plugin's analyzers. */
-  analyzer: string;
-  /** The drive, by id or name. */
-  drive: string;
-  /** Only these tracks, by id [default: every one]. */
-  tracks?: number[];
-};
-
-/**
  * A line a plugin tells the user (`host/notify`), and what it suggests, with its params: one of
  * its operations (`operation`) or one of the host's actions (`action`) on its own contributions.
  * The front end offers to start it, and the user confirms it as when they start it themselves.
@@ -9190,6 +9486,39 @@ export type PluginNotice = {
   operation?: Suggested;
   action?: HostAction;
 };
+
+/** A `serve` notification's parameters: what `store.serve` is doing. */
+export type ServeParams = {
+  /** The `store.serve` request it's about. */
+  id: RequestId | null;
+  event: ServeEvent;
+};
+
+/** What serving is doing, as it happens. */
+export type ServeEvent =
+  /** Serving: give `code` to the other computer. */
+  | {
+    event: "ready";
+    code: string;
+  }
+  /** A computer with the code connected (`peer`: its key, shortened). */
+  | {
+    event: "connected";
+    peer: string;
+  }
+  /** A computer without the right code was turned away. */
+  | {
+    event: "refused";
+    peer: string;
+  }
+  /** A computer that fetched disconnected, having been sent this much. */
+  | {
+    event: "done";
+    peer: string;
+    snapshots: number;
+    files: number;
+    bytes: number;
+  };
 
 /** An error response's `error.data`: what a front end can act on without reading the message. */
 export type ErrorData = {
@@ -9320,12 +9649,23 @@ export type Reason =
   | "empty_profile"
   /** It needs administrator rights: run it again elevated. */
   | "needs_admin"
-  /** Not signed in to an Atmosphere account. */
+  /**
+   * Not signed in to an Atmosphere account, or the account a plugin's access is to is signed
+   * out or won't stay signed in long enough: sign in.
+   */
   | "not_signed_in"
   /** The session ended or was revoked: sign in again. */
   | "session_ended"
-  /** The session may not publish: sign in again allowing it. */
+  /**
+   * The session may not publish, or a plugin's access doesn't reach what it asked: sign in
+   * again allowing it.
+   */
   | "missing_scope"
+  /**
+   * A plugin has no access to an account of the type it asked for (`fields.type`): sign in to
+   * one for it, or make one its default.
+   */
+  | "no_access"
   /** The system keychain isn't available: keep the session in a file instead. */
   | "no_keychain";
 
@@ -9486,7 +9826,13 @@ export interface Methods {
   /** immediate method */
   "snapshot.label": { params: LabelRequest & WriteOptions; result: SnapshotLabel };
   /** read method */
+  "snapshot.library": { params: SnapshotLibraryRequest; result: LibraryPage };
+  /** read method */
   "library.list": { params: NoParams; result: LibraryListing[] };
+  /** read method; long running: sends `progress`, can be cancelled */
+  "store.serve": { params: ServeOptions; result: ServeReport };
+  /** immediate method; long running: sends `progress`, can be cancelled */
+  "store.fetch": { params: FetchRequest & WriteOptions; result: FetchReport };
   /** immediate method */
   "library.rename": { params: RenameLibrary & WriteOptions; result: LibraryRecord };
   /** plan method; paired with `edit.apply`; can delete or overwrite something */
@@ -9581,6 +9927,12 @@ export interface Methods {
   "settings.import.apply": { params: ApplyPlan | (ImportSettings & WriteOptions); result: SettingsProfile };
   /** apply method; paired with `settings.import.plan`; can delete or overwrite something; an older name for `settings.import.apply` */
   "settings.import": { params: ApplyPlan | (ImportSettings & WriteOptions); result: SettingsProfile };
+  /** read method */
+  "settings.export": { params: NoParams; result: SettingsExport };
+  /** plan method; paired with `settings.import_file.apply`; can delete or overwrite something */
+  "settings.import_file.plan": { params: ImportSettingsFile & WriteOptions; result: ImportSettingsFilePlan & PlanFields };
+  /** apply method; paired with `settings.import_file.plan`; can delete or overwrite something */
+  "settings.import_file.apply": { params: ApplyPlan | (ImportSettingsFile & WriteOptions); result: SettingsExport };
   /** read method */
   "art.missing": { params: DriveRef; result: TrackRef[] };
   /** read method */
@@ -9844,6 +10196,26 @@ export interface Methods {
   /** apply method; paired with `collection.export.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "collection.export.apply": { params: ApplyPlan | (CollectionExportRequest & WriteOptions); result: CollectionExportReport };
   /** read method */
+  "accounts.list": { params: NoParams; result: Accounts };
+  /** immediate method */
+  "accounts.sign_in.begin": { params: BeginSignIn & WriteOptions; result: AccountSignIn };
+  /** immediate method; long running: sends `progress`, can be cancelled */
+  "accounts.sign_in.finish": { params: FinishSignIn & WriteOptions; result: AccountSignedIn };
+  /** immediate method */
+  "accounts.sign_in.paste": { params: PasteSignIn & WriteOptions; result: AccountSignedIn };
+  /** immediate method */
+  "accounts.sign_in.cancel": { params: CancelSignIn & WriteOptions; result: Cancelled };
+  /** immediate method */
+  "accounts.sign_out": { params: SignOut & WriteOptions; result: AccountSignedOut };
+  /** read method */
+  "accounts.access.list": { params: ListAccesses; result: Access[] };
+  /** immediate method */
+  "accounts.access.give": { params: GiveAccess & WriteOptions; result: Access };
+  /** immediate method */
+  "accounts.access.set_default": { params: AccessRef & WriteOptions; result: Access };
+  /** immediate method */
+  "accounts.access.take_away": { params: AccessRef & WriteOptions; result: Access };
+  /** read method */
   "plugins.list": { params: NoParams; result: Listed[] };
   /** read method */
   "plugins.describe": { params: PluginRef; result: Described };
@@ -9851,18 +10223,6 @@ export interface Methods {
   "plugins.settings": { params: PluginRef; result: Settings };
   /** immediate method */
   "plugins.settings.set": { params: SetPluginSetting & WriteOptions; result: Settings };
-  /** read method */
-  "plugins.accounts": { params: PluginRef; result: PluginAccountStatus[] };
-  /** immediate method */
-  "plugins.account.sign_in.begin": { params: AccountRef & WriteOptions; result: SignIn };
-  /** immediate method; long running: sends `progress`, can be cancelled */
-  "plugins.account.sign_in.finish": { params: FinishSignIn & WriteOptions; result: PluginAccountStatus };
-  /** immediate method */
-  "plugins.account.sign_in.paste": { params: PasteSignIn & WriteOptions; result: PluginAccountStatus };
-  /** immediate method */
-  "plugins.account.sign_in.cancel": { params: CancelSignIn & WriteOptions; result: Cancelled };
-  /** immediate method */
-  "plugins.account.sign_out": { params: AccountRef & WriteOptions; result: SignedOut };
   /** plan method; paired with `plugins.apply_analysis.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.apply_analysis.plan": { params: ApplyAnalysis & WriteOptions; result: EditPlan & PlanFields };
   /** apply method; paired with `plugins.apply_analysis.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
@@ -9935,4 +10295,5 @@ export type Result<M extends MethodName> = Methods[M]["result"];
 export interface Notifications {
   progress: ProgressParams;
   event: Notice;
+  serve: ServeParams;
 }

@@ -1,7 +1,7 @@
 // The website's Railway project, applied with `railway config apply` (`railway config plan` shows
 // what it would change). It replaces apps/web/railway.json: Railway no longer reads Config as Code
 // for new services, and stops reading it for any service on 2026-12-01.
-import { defineRailway, github, preserve, project, service, volume } from 'railway/iac';
+import { bucket, defineRailway, github, preserve, project, ref, service, volume } from 'railway/iac';
 
 export default defineRailway(() => {
 	// SQLite (the index, OAuth sessions and the audit outbox), so the website runs as one replica.
@@ -11,6 +11,10 @@ export default defineRailway(() => {
 		region: 'us-east4-eqdc4a',
 		sizeMB: 50000
 	});
+
+	// The database's daily backups (apps/web/README.md, Backups), outside the volume they back up.
+	// iad is the bucket region nearest the volume's.
+	const backups = bucket('localnetwork-backups', { region: 'iad' });
 
 	const localnetwork = service('localnetwork', {
 		// Deploys main once its checks pass.
@@ -47,12 +51,21 @@ export default defineRailway(() => {
 			PLC_URL: 'https://plc.directory',
 			ADMIN_DIDS: preserve(),
 			ROOT_PASSWORD: preserve(),
-			HAPPYVIEW_API_KEY: preserve()
+			HAPPYVIEW_API_KEY: preserve(),
+			BACKUP_S3_ENDPOINT: ref(backups, 'ENDPOINT'),
+			BACKUP_S3_REGION: ref(backups, 'REGION'),
+			BACKUP_S3_BUCKET: ref(backups, 'BUCKET'),
+			BACKUP_S3_ACCESS_KEY_ID: ref(backups, 'ACCESS_KEY_ID'),
+			BACKUP_S3_SECRET_ACCESS_KEY: ref(backups, 'SECRET_ACCESS_KEY')
 		}
 	});
 
+	// The CLI's project.variables, which railway 3.16.0's ProjectDefinition doesn't declare yet: project() passes
+	// it through, and a spread isn't checked for unknown properties.
+	const projectVariables: { variables: { managed: boolean } } = { variables: { managed: true } };
+
 	return project('localnetwork.computer', {
-		variables: { managed: true },
-		resources: [localnetwork, localnetworkData]
+		...projectVariables,
+		resources: [localnetwork, localnetworkData, backups]
 	});
 });

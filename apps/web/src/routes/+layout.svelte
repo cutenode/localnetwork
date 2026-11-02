@@ -4,6 +4,8 @@
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import favicon from '#lib/assets/favicon.svg';
+	import { clearSignedOutDrafts } from '#lib/form-draft.svelte.ts';
+	import SocialMeta from '#lib/components/SocialMeta.svelte';
 	import { type NavLink, siteNav } from '#lib/nav.ts';
 	import SiteHeader from '#lib/ui/SiteHeader.svelte';
 	import { hotkeys, hotkeyTarget, loadHotkeyPreference, setHotkeysEnabled } from '#lib/hotkeys.svelte.ts';
@@ -11,8 +13,12 @@
 
 	let { children, data }: LayoutProps = $props();
 
-	// Says the page is interactive, so the end-to-end tests can wait for it instead of guessing.
-	onMount(() => document.documentElement.setAttribute('data-hydrated', ''));
+	onMount(() => {
+		// A sign-out is a full page load, landing here whether or not the page it came from had hydrated.
+		clearSignedOutDrafts();
+		// Says the page is interactive, so the end-to-end tests can wait for it instead of guessing.
+		document.documentElement.setAttribute('data-hydrated', '');
+	});
 
 	/** A key for aria-keyshortcuts, only while keyboard shortcuts are on. */
 	const shortcut = (key: string) => (hotkeys.enabled ? key : undefined);
@@ -57,6 +63,9 @@
 	<link rel="icon" href={favicon} />
 	<meta name="theme-color" content="#09090b" />
 </svelte:head>
+
+<!-- Public pages' loads say what they are. The pages search engines skip (see isUnlisted) set their own title. -->
+{#if page.data.meta}<SocialMeta meta={page.data.meta} />{/if}
 
 <svelte:window {onkeydown} />
 

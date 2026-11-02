@@ -222,7 +222,7 @@ fn a_drive_group_is_synced_from_its_primary() {
     api::sync_apply(Some(&f.store), &common::sync_pair(&main, &backup), &Ctx::silent()).unwrap();
     f.adopt(&backup, "Backup");
     api::drive_role(&f.store, &api::SetRole { drive: "Backup".into(), role: Some("primary".into()) }).unwrap();
-    assert_eq!(api::drive_sets(&f.store).unwrap()[0].members.len(), 2);
+    assert_eq!(api::drive_sets(Some(&f.store)).unwrap()[0].members.len(), 2);
 
     let unknown = api::SyncSetRequest { library: Some("Nope".into()), ..Default::default() };
     assert!(matches!(api::sync_set_plan(&f.store, &unknown, &Ctx::silent()), Err(Error::NotFound(_))));

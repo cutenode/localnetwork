@@ -27,6 +27,7 @@
   import SettingsButton from './SettingsButton.svelte';
   import { Button } from '$lib/components/ui/button/index.ts';
   import * as Tooltip from '$lib/components/ui/tooltip/index.ts';
+  import { frameHeight } from '$lib/frame-height.svelte.ts';
   import { remembered } from '$lib/view.svelte.ts';
   import type { Tool } from '$lib/types';
 
@@ -111,20 +112,18 @@
   // once (view.svelte.js), so following the position as it moves costs a small
   // write per frame of actual scrolling. While a restore is still going, the
   // only position it does not record is the one the restore itself put there.
-  function onscroll() {
-    if (!body) return;
-
+  function onscroll({ currentTarget }: { currentTarget: HTMLElement }) {
     if (restoring) {
-      if (body.scrollTop === placed) return;
+      if (currentTarget.scrollTop === placed) return;
       restoring = false;
       done?.();
     }
 
-    scrolled.value = body.scrollTop;
+    scrolled.value = currentTarget.scrollTop;
   }
 </script>
 
-<div class="flex max-h-[580px] min-h-[200px] flex-col">
+<div class="flex min-h-[200px] flex-col" style:max-height="{frameHeight.max}px">
   <!-- Renders no element of its own: the header, the body and the footer are
        still the flex column's own children. -->
   <Tooltip.Provider delayDuration={350}>
@@ -153,7 +152,11 @@
         <!-- The name is what gives way when the header runs out of room, and
              it truncates rather than wrapping — so it says the whole of
              itself on hover, as the line under it does. -->
-        <h1 class="m-0 truncate text-label leading-tight font-semibold" title={tool.name}>
+        <h1
+          class="m-0 truncate text-label leading-tight font-semibold outline-none"
+          title={tool.name}
+          tabindex="-1"
+        >
           {tool.name}
         </h1>
         {#if meta}

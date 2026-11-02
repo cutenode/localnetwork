@@ -24,6 +24,15 @@ export function mixPlatform(url: string): string | null {
 	return platforms.find(([domain]) => host === domain || host.endsWith(`.${domain}`))?.[1] ?? host;
 }
 
+/** The track a plyr.fm track link (`https://plyr.fm/track/<id>`) is to, by plyr.fm's ID, or null for any other link. */
+export function plyrTrackId(url: string): string | null {
+	const parsed = parse(url);
+
+	if (!parsed || mixPlatform(url) !== 'plyr.fm') return null;
+
+	return /^\/track\/(\d+)\/?$/.exec(parsed.pathname)?.[1] ?? null;
+}
+
 /** The platform's embeddable player for a mix, for SoundCloud, Mixcloud, YouTube and plyr.fm links. */
 export function embedUrl(url: string): string | null {
 	const parsed = parse(url);
@@ -39,7 +48,7 @@ export function embedUrl(url: string): string | null {
 		return `https://player-widget.mixcloud.com/widget/iframe/?hide_cover=1&feed=${encodeURIComponent(parsed.pathname)}`;
 	}
 
-	const plyr = platform === 'plyr.fm' && /^\/track\/(\d+)\/?$/.exec(parsed.pathname)?.[1];
+	const plyr = plyrTrackId(url);
 
 	if (plyr) return `https://plyr.fm/embed/track/${plyr}`;
 

@@ -32,11 +32,27 @@ export const COLLECTION = {
 	epkDraft: `${NS}.epk.draft`,
 	/** A show a manager announced, in their own repo beside its calendar event. */
 	show: `${NS}.show`,
-	follow: `${NS}.follow`
+	follow: `${NS}.follow`,
+	/** Someone in a performer's, party's or venue's space, with their role and capabilities. */
+	person: `${NS}.people.person`,
+	invite: `${NS}.people.invite`,
+	inviteLink: `${NS}.people.link`,
+	joinRequest: `${NS}.people.request`,
+	/** Whether staff list a performer, party or venue in the directory, in its space. */
+	listingStatus: `${NS}.listing.status`,
+	/** A listed act's, party's or venue's directory listing, in the root's public repo. */
+	listing: `${NS}.listing`,
+	/** A person's profile and the sections they turned on, in their own repo. */
+	profile: `${NS}.profile`,
+	/** That staff list a DJ's profile in the directory, keyed by their DID, in the root's public repo. */
+	listingProfile: `${NS}.listing.profile`
 } as const;
 
 /** The lexicon-community calendar event a show is, so other calendar apps can read it. */
 export const CALENDAR_EVENT = 'community.lexicon.calendar.event' as const;
+
+/** The lexicon-community RSVP a guest answers an event with, in their own repo. */
+export const CALENDAR_RSVP = 'community.lexicon.calendar.rsvp' as const;
 
 /** Bluesky's verification, which the root account issues to vouch that an account is who it says it is. */
 export const VERIFICATION = 'app.bsky.graph.verification' as const;
@@ -53,6 +69,7 @@ export const BSKY_FOLLOW = 'app.bsky.graph.follow' as const;
  */
 export const DIRECTORY = {
 	searchProjects: `${NS}.directory.searchProjects`,
+	searchPerformers: `${NS}.directory.searchPerformers`,
 	matchProjects: `${NS}.directory.matchProjects`,
 	getProject: `${NS}.directory.getProject`,
 	getProjects: `${NS}.directory.getProjects`,
@@ -83,7 +100,10 @@ export const SPACE_TYPE = {
 	booking: `${NS}.space.booking`,
 	planner: `${NS}.space.planner`,
 	epk: `${NS}.space.epk`,
-	backstage: `${NS}.space.backstage`
+	backstage: `${NS}.space.backstage`,
+	performer: `${NS}.space.performer`,
+	party: `${NS}.space.party`,
+	venue: `${NS}.space.venue`
 } as const;
 
 export type SpaceType = (typeof SPACE_TYPE)[keyof typeof SPACE_TYPE];

@@ -55,9 +55,11 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   its `kind` (`read`; `plan` and `apply`, paired; `immediate`, a change with no plan step;
   `control`, about the sidecar itself), its `aliases`, whether it's `long_running` (sends
   `progress`, can be cancelled) or `destructive` (can delete or overwrite something), and JSON
-  Schemas for its `params` and `result`, with the `progress` and `event` notifications. A `read`
+  Schemas for its `params` and `result`, with the `progress`, `event` and `serve` notifications. A `read`
   never makes a store: with none, it answers as if the store were empty, or fails with `not_found`
   when it's about the store itself (`store.info`, `store.history`, `store.verify`, `drive.log`).
+  Nor does a change to something the store holds already (`drive.forget`, `sets.delete`,
+  `store.gc.plan`...): with no store it fails with `not_found`.
   [`docs/rpc/locallibrary.d.ts`](../docs/rpc/locallibrary.d.ts) has the same as TypeScript types
   (`Methods["sync.apply"]["params"]`, `Params<"sync.apply">`, `Result<"sync.apply">`).
   `locallibrary rpc --emit-schema DIR` writes both for the version you run, and `rpc.describe`
@@ -125,7 +127,8 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   features a GUI can check for (`progress`, `progress.scope` for the `target`, `step` and
   `items` fields above, `cancel`, `jobs.list`, `shutdown.cancel`, `events`, `plan_id`,
   `describe` for `rpc.describe`, `error.detail` for `error.data`'s `reason`, `fields` and
-  `actions`, and `account` in a build with the Atmosphere account); `methods` lists every name,
+  `actions`, `account` in a build with the Atmosphere account, and `peers` in one with
+  `store.serve` and `store.fetch`); `methods` lists every name,
   aliases included. `protocol`
   changes only when a change would break existing clients. An unknown method gets `-32601`
   (`kind: "method_not_found"`).
@@ -158,7 +161,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `shutdown` and closing stdin.
 - `shutdown` stops reading requests; the process exits once the running ones have answered.
   `shutdown {cancel: true}` cancels them first, so a pending `account.login.finish` doesn't hold
-  the exit for its 5 minutes.
+  the exit for its 5 minutes. `store.serve` stops either way, as it does when stdin closes.
 - A line that isn't JSON (or isn't UTF-8) gets a `-32700` parse error with `id: null`; running
   requests carry on. Closing stdin lets running requests finish before the process exits.
 - SIGINT or SIGTERM (Ctrl-C on Windows) cancels every running request at its next safe point
@@ -201,9 +204,14 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   takes the other's `plan_id`), `compare`, `sync.plan/apply`, `sync.many.plan/apply`,
   `pull.plan/apply` (refuses a `library` the store doesn't have unless `new_library: true`; `label`
   names the snapshot), `snapshot.label` (`{label, snapshot}`, or `{label, remove: true}`),
-  `library.list`, `library.rename`, `store.prune.plan/apply` (`keep_last`, `keep_daily`,
+  `snapshot.library` (`{snapshot, offset?, limit?}`: the library players saw when it was taken,
+  paged as `drive.library` is), `library.list`, `library.rename`, `store.prune.plan/apply` (`keep_last`, `keep_daily`,
   `keep_weekly`, `library`; says why each kept snapshot stays), `store.copy` (`path`, `mirror`,
-  `verify`, `force`, `dry_run`), `store.copies`, `push.plan/apply`, `merge.plan/apply`,
+  `verify`, `force`, `dry_run`), `store.copies`, `store.serve` (`{local_only?}`: serves the store
+  to another computer until it's cancelled, then answers `{peers, files, bytes}`; `serve`
+  notifications `{id, event}` say what happens: `ready` with the `code` to give, `connected`,
+  `refused`, `done`), `store.fetch` (`{code, libraries?, local_only?, dry_run?}`: copies the
+  snapshots the other computer's store has and this one lacks), `push.plan/apply`, `merge.plan/apply`,
   `convert.plan/apply`, `settings.*`, `art.*` (`art.get` returns base64 JPEG previews), `store.*`,
   `disks.list`, `format.plan/apply` (`format.apply` needs the plan's `identity`, so the disk the
   user confirmed is the one erased).
@@ -314,7 +322,8 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `sets` made from it), `sessions.dismiss {sessions, undo?}`, `sessions.import {file, drive?,
   name?}` (a Beat Link Trigger log), `sets.suggest {drive?}` (`candidates`, and the `sessions`
   they're made of), `sets.list`, `sets.get {set | venue}`, `sets.new`, `sets.edit` (both answer
-  the `set` and `notes` to show), `sets.delete`, `sets.export {set, format, output?}` (without
+  the `set` and `notes` to show), `sets.delete` (which deletes a published set's record and its
+  recording's from the account first), `sets.export {set, format, output?}` (without
   `output`, the document comes back as `text`), `sets.played {track}` and
   `sets.playlist.plan/apply`. Sets are written to the store at once, so `sets.new`, `sets.edit`,
   `sets.delete`, `sets.export`, `sessions.dismiss` and `sessions.import` are `immediate`.
@@ -348,28 +357,72 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `playlist.restore.plan`. Their `.apply` applies a plan by `plan_id`, or plans and applies a
   request as before (`settings.write.apply` with a request still writes one `drive`, honouring
   `dry_run`).
+- Settings to and from a file: `settings.export` answers everything set in the store, as
+  `locallibrary settings export` writes it (described by
+  [`settings-export.schema.json`](settings-export.schema.json)), and
+  `settings.import_file.plan/apply` (`file`, optional `replace`) imports one: its `changes` say
+  what each of the file's values does (`add`, `keep` as it is here, or with `replace: true`
+  `replace`), and applying returns what's set then. `settings.import.*` stays the import from a
+  drive or rekordbox.
 - Parameter names are the fields of the request structs in `api.rs`, as `docs/rpc` describes
   them. Results that were pairs keep their JSON (`failed: [["Contents/a.mp3", "unreadable"]]`);
   the schema and the TypeScript types name each element (`[path: string, error: string]`).
 
 Native bindings (napi-rs) can wrap the same `api` functions later without changing behaviour.
 
+## Accounts
+
+The accounts a store keeps are signed in to through account plugins, and plugins use them through
+the access they're given (see [plugins.md](plugins.md#accounts)). No answer holds a token.
+`accounts.list` answers `{accounts, accesses}`: each account kept (`{type, plugin, subject, name,
+scopes, expires?, refreshes, signed_in}`, `plugin` the account plugin it was signed in through),
+then each one signed out that a plugin still has access to, `signed_in: false`; and each access
+(`{id, plugin, type, account: {plugin, subject}, name, scopes, default, declined?}`, `declined`
+the scopes the service didn't grant at the last sign-in for that plugin).
+
+`accounts.sign_in.begin {type, with?, for?, account?, scopes?}` starts a sign-in through the
+account plugin `with` (the only one providing the type when it's left out), for the plugin `for`
+when it's given, again as the account `account` (a subject, of one kept or one signed out that a
+plugin still has access to) when it's given, asking for the type's `scopes` besides; signing in
+again asks for what every access to the account needs too. It answers `{id, type, plugin, url,
+redirect_uri}`. Open `url` in the browser, then `accounts.sign_in.finish {id, timeout_secs?}`
+waits for it to come back (300 seconds unless it says, an hour at most) and answers the account,
+with `instead_of` when the browser signed in to another than `account` (the plugin it was for
+isn't given access then), `access` when it was for a plugin: the access that plugin was given, and
+`declined`: the scopes asked for that plugin that the service didn't grant. The plugin gets those
+it needs all the same, and goes without the others.
+`accounts.sign_in.paste {id, url}` finishes with the address the browser ended up on, and
+`accounts.sign_in.cancel {id}` answers `{cancelled}`. `accounts.sign_out {account: {plugin,
+subject}}` answers the account as it was, with `revoked`; plugins keep their access to it.
+
+`accounts.access.list {plugin?}` answers the accesses, `accounts.access.give {plugin, account,
+scopes?}` gives a plugin access to an account (the scopes it needs, and those of `scopes` it can do
+without, which aren't declined any more), `accounts.access.set_default {plugin, account}` makes
+one the plugin's default for its type (giving the access first when it has none), and
+`accounts.access.take_away {plugin, account}` answers the access taken away. A plugin's `account`
+error with the reason `no_access`, `not_signed_in` or `missing_scope` carries actions calling
+`accounts.sign_in.begin` (again as the account of the plugin's access, for the scopes it's missing,
+when that can help) and `accounts.access.set_default`.
+
 ## Plugins
 
 What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. `plugins.list` answers
-each plugin's `{id, name, version, capabilities: [{capability, means}], accounts, commands,
-destinations, events, operations, panels, analyzers, checks, exporters, importers, providers,
-services, sources, themes, settings, running, left_out}`, `means` saying in plain words what a capability lets it do and `left_out` why
-a plugin isn't loaded, when it clashes with a command, a method or another plugin (else `null`);
+each plugin's `{id, name, version, capabilities: [{capability, means}], accounts, account_types,
+commands, destinations, events, operations, panels, analyzers, checks, exporters, importers,
+providers, services, sources, themes, settings, running, left_out}`, `means` saying in plain words
+what a capability lets it do, `accounts` the account types it asks for, and `left_out` why a
+plugin isn't loaded, when it clashes with a command, a method or another plugin (else `null`);
 `plugins.describe {plugin}` answers `{manifest, capabilities, settings, secrets, secrets_unknown?,
-running}`, the manifest with the JSON Schemas of each command's and operation's `params` and each
+accesses, running}`, `accesses` its access to your accounts (as `accounts.list` answers them),
+the manifest with the JSON Schemas of each command's and operation's `params` and each
 exporter's and importer's `options`, to draw forms from, and where to offer each command and
 operation (`where`: `track`, `playlist`, `drive`), each panel's title, each theme's colours
 (`tokens`) and how each analyzer's fields are shown (`display`). A param's
 `x-from` (`selection.tracks`, `selection.playlist`, `selection.drive`) is filled from the
 request's `context` when it isn't given; given as `null`, it's left out. `plugins.settings
 {plugin}` and `plugins.settings.set {plugin, key, value}` (`value` `null` or left out: back to its
-default; `key` `services.<name>` turns a service on or off) answer `{plugin, settings: {key: value},
+default; `key` `services.<name>` turns a service on or off, `keys.<name>` sets the player's key
+for a command or operation) answer `{plugin, settings: {key: value},
 secrets: {key: set}}`: a secret setting is set
 like any other (text), kept in the system's keychain, and only ever answered as set (`true`) or
 not, never in `settings`; when the keychain can't say, each is `null` and `secrets_unknown` says
@@ -380,18 +433,6 @@ apart from the rest, so planning with plugins never pushes out a plan of localli
 plugin starts when it's first used and stops once it's idle a while, and when the sidecar exits. A
 plugin's errors come with locallibrary's kinds (`not_found`, `invalid`, `io`...), the plugin named
 in the message. Each kind of thing plugins add is below, in a section of its own.
-
-### Accounts
-
-`plugins.accounts {plugin}` answers each of a plugin's accounts, `[{plugin, account, title,
-signed_in, expires?, refreshes, scopes}]` (never a token). `plugins.account.sign_in.begin {plugin,
-account}` answers `{id, plugin, account, url, redirect_uri}`: open `url` in the browser, then
-`plugins.account.sign_in.finish {id, timeout_secs?}` waits for it to come back (300 seconds unless
-it says, an hour at most; `$/cancel` stops it) and answers the account, signed in.
-`plugins.account.sign_in.paste {id, url}` finishes with the address the browser ended up on, when
-it runs on another computer, and `plugins.account.sign_in.cancel {id}` answers `{cancelled}`.
-`plugins.account.sign_out {plugin, account}` answers the account with `{was_signed_in,
-revoked}`.
 
 ### Analysis
 
@@ -414,7 +455,9 @@ What plugins' checks find is in `check`'s `items` and `doctor`'s `checks` (the `
 each named `<plugin>.<check>`, and a plugin's problem counts as one; a check that failed or took
 too long is a warning saying so. An item a plugin can fix has `fix: {plugin, operation, params}`:
 plan it with `plugins.op.plan {plugin, operation, params, context: {drive}}`, confirmed as any
-plan is. Guards (checks run before a plan is applied) add what they say to the `warnings` of a
+plan is. One of locallibrary's own items with a fix has `fix: {name, params: {drive, ...}}`, one
+of its own flows: `pull` (`pull.plan`), `sync` (`sync.group.plan` for the drive's library)
+or `art.fetch` (`plugins.provide` with kind `artwork` for `params.tracks`). Guards (checks run before a plan is applied) add what they say to the `warnings` of a
 plan that edits a library (`edit`, a plugin's operation, `cues`, `playlist.restore`, a contact's
 playlist...); one the user made blocking that finds a warning or a problem sets the plan's `blocked`
 (`<plugin>.<check>`), and applying it fails with reason `blocked`. `plugins.checks` answers

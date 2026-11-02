@@ -103,7 +103,58 @@ pub struct LibraryIndex {
     entries: Vec<u64>,
 }
 
+const INDEX_MAGIC: &[u8; 4] = b"LLIX";
+/// The version of [`LibraryIndex::encode`]'s format. Bump when it changes, or when
+/// [`LibraryIndex::build`] makes another index of the same prints (landmarks, the cap on common
+/// hashes): a kept index is only good while both match.
+pub const INDEX_VERSION: u16 = 1;
+
 impl LibraryIndex {
+    /// `LLIX`, [`VERSION`], [`INDEX_VERSION`], then each array's length and values, little-endian.
+    pub fn encode(&self) -> Vec<u8> {
+        let (ids, durations, offsets, entries) =
+            (self.track_ids.len(), self.durations.len(), self.offsets.len(), self.entries.len());
+        let mut out = Vec::with_capacity(40 + ids * 4 + durations * 4 + offsets * 4 + entries * 8);
+        out.extend_from_slice(INDEX_MAGIC);
+        out.extend_from_slice(&VERSION.to_le_bytes());
+        out.extend_from_slice(&INDEX_VERSION.to_le_bytes());
+        out.extend((ids as u64).to_le_bytes().into_iter().chain(self.track_ids.iter().flat_map(|v| v.to_le_bytes())));
+        out.extend(
+            (durations as u64).to_le_bytes().into_iter().chain(self.durations.iter().flat_map(|v| v.to_le_bytes())),
+        );
+        out.extend((offsets as u64).to_le_bytes().into_iter().chain(self.offsets.iter().flat_map(|v| v.to_le_bytes())));
+        out.extend((entries as u64).to_le_bytes().into_iter().chain(self.entries.iter().flat_map(|v| v.to_le_bytes())));
+        out
+    }
+
+    /// [`LibraryIndex::encode`]'s bytes read back: `None` for anything else, another [`VERSION`]
+    /// or [`INDEX_VERSION`], or an index whose buckets don't fit its entries.
+    pub fn decode(bytes: &[u8]) -> Option<LibraryIndex> {
+        let (head, mut rest) = bytes.split_at_checked(8)?;
+        if &head[..4] != INDEX_MAGIC || head[4..6] != VERSION.to_le_bytes() || head[6..8] != INDEX_VERSION.to_le_bytes()
+        {
+            return None;
+        }
+        fn array<const N: usize, T>(rest: &mut &[u8], from: fn([u8; N]) -> T) -> Option<Vec<T>> {
+            let (len, tail) = rest.split_at_checked(8)?;
+            let len = usize::try_from(u64::from_le_bytes(len.try_into().ok()?)).ok()?;
+            let (values, tail) = tail.split_at_checked(len.checked_mul(N)?)?;
+            *rest = tail;
+            Some(values.chunks_exact(N).map(|c| from(c.try_into().expect("N bytes"))).collect())
+        }
+        let track_ids = array(&mut rest, u32::from_le_bytes)?;
+        let durations = array(&mut rest, f32::from_le_bytes)?;
+        let offsets = array(&mut rest, u32::from_le_bytes)?;
+        let entries = array(&mut rest, u64::from_le_bytes)?;
+        let fits = rest.is_empty()
+            && track_ids.len() == durations.len()
+            && offsets.len() == (1usize << HASH_BITS) + 1
+            && offsets.windows(2).all(|w| w[0] <= w[1])
+            && offsets.last().is_some_and(|&end| end as usize == entries.len())
+            && entries.iter().all(|e| ((e >> 32) as usize) < track_ids.len());
+        fits.then_some(LibraryIndex { track_ids, durations, offsets, entries })
+    }
+
     pub fn bucket(&self, hash: u32) -> &[u64] {
         let h = hash as usize;
         &self.entries[self.offsets[h] as usize..self.offsets[h + 1] as usize]

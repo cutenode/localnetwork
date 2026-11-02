@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { bandColor, clock, colors, phraseAt, phraseColor, type MixPlay } from '#lib/mix/report.ts';
+	import { bandColor, clock, colors, phraseAt, phraseBackground, type MixPlay } from '#lib/mix/report.ts';
 	import Waveform from '#lib/ui/Waveform.svelte';
 
 	let { play }: { play: MixPlay } = $props();
@@ -34,7 +34,7 @@
 <div class="flex flex-col gap-1">
 	<div class="relative pt-1.5">
 		{#each track.cues as cue (cue.label + cue.at)}
-			<span class="absolute top-0 h-1.5 w-0.5" style:left={pct(cue.at)} style:background-color={cue.color ?? colors.cues.hot} title="Hot cue {cue.label} at {clock(cue.at)}"></span>
+			<span class={['absolute top-0 h-1.5 w-0.5', !cue.color && 'bg-cue-hot']} style:left={pct(cue.at)} style:background-color={cue.color} title="Hot cue {cue.label} at {clock(cue.at)}"></span>
 		{/each}
 		<Waveform {heights} colors={fills} align="bottom" label={range} class="h-8" />
 		<span aria-hidden="true" class="absolute bottom-0 w-px bg-playhead" style:left={pct(Math.min(play.trackStart, play.trackEnd))} style:top="0.375rem"></span>
@@ -43,7 +43,7 @@
 	{#if track.phrases.length}
 		<div class="relative h-1">
 			{#each track.phrases as phrase, k (k)}
-				<span class="absolute inset-y-0 rounded-[1px]" style:left={pct(phrase.start)} style:width="calc({pct(phrase.end - phrase.start)} - 1px)" style:background-color={phraseColor(phrase.kind)} title={phrase.kind}></span>
+				<span class="absolute inset-y-0 rounded-[1px] {phraseBackground(phrase.kind)}" style:left={pct(phrase.start)} style:width="calc({pct(phrase.end - phrase.start)} - 1px)" title={phrase.kind}></span>
 			{/each}
 		</div>
 	{/if}

@@ -216,6 +216,11 @@
 					"type": "ref",
 					"ref": "com.atproto.repo.strongRef",
 					"description": "The set this mix is a recording of: a computer.localnetwork.dj.set record in a manager's own repo (locallibrary publishes them). The CID pins the version that was linked; the set can change after."
+				},
+				"recording": {
+					"type": "ref",
+					"ref": "com.atproto.repo.strongRef",
+					"description": "The record where the mix can be played: an fm.plyr.track in a manager's own repo, for a mix whose url is that track on plyr.fm. Players play it where they can, and url stays the mix's link."
 				}
 			}
 		},

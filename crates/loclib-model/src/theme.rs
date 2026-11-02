@@ -56,8 +56,9 @@ pub const SPECTRUM: &[Rgb] = &[[64, 140, 255], [158, 112, 255], [255, 92, 160], 
 /// The default scope: cyan to violet to pink.
 pub const SCOPE: &[Rgb] = &[[92, 214, 255], [158, 112, 255], [255, 92, 160]];
 
-/// Every colour a theme may set, by name: colors.schema.json's (but a light background's status
-/// colours, which hosts work out from the dark ones), in its order, then the player's. One colour
+/// Every colour a theme may set, by name: colors.schema.json's (but a light background's phrase,
+/// cue and status colours, which hosts take from the tokens or work out from the dark ones), in its
+/// order, then the player's. One colour
 /// each, the `waveform` gradients two or more.
 pub const TOKENS: [&str; 36] = [
     "bands.low",

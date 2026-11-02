@@ -84,9 +84,7 @@ impl Plugins {
         let device = api::resolve_drive(&req.drive)?;
         let library = device.library()?;
         let selected: Vec<&Track> = match &req.tracks {
-            Some(ids) => {
-                ids.iter().map(|&id| library.track(id).ok_or_else(|| Error::no_track(id))).collect::<Result<_>>()?
-            }
+            Some(ids) => super::tracks_named(&library, ids)?,
             None => library.tracks.iter().collect(),
         };
         let analyzer =

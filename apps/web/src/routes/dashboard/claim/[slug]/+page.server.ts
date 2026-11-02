@@ -11,7 +11,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
 	if (project.managers.includes(viewer.did)) redirect(303, `/dashboard/projects/${project.slug}`);
 
-	return { project };
+	return { project, claimant: { did: viewer.did, handle: viewer.handle } };
 };
 
 export const actions: Actions = {

@@ -43,6 +43,10 @@ pub struct PluginExport {
     #[serde(skip)]
     #[schemars(skip)]
     slot: Weak<Slot>,
+    /// The drive it's given again while it writes the export (see [`Slot::give`]).
+    #[serde(skip)]
+    #[schemars(skip)]
+    given: Option<(String, PathBuf)>,
 }
 
 /// A file an export writes, as the plugin says, and whether it's there already (and so
@@ -87,10 +91,11 @@ impl Plugins {
         outside_drives(output, store)?;
         let source = of(declared, source, store)?;
         let drive = Some(source.drive.clone()).filter(|d| !d.is_empty());
-        let (context, device) =
+        let (context, device, _given) =
             slot.context(Context { drive, set: source.set.clone(), ..Context::default() }, store)?;
-        let options = super::fitting(declared.options.as_ref(), options, &context)?;
+        let options = super::fitting_options("format", declared.options.as_ref(), options, &context)?;
         let root = device.map(|d| d.root().to_path_buf()).unwrap_or_default();
+        let given = context.drive.clone().map(|name| (name, root.clone()));
         let source = ExportSource { drive: context.drive.clone().unwrap_or_default(), root, ..source };
         let mut write =
             WriteExport { exporter: exporter.into(), source, output: output.into(), options, dry_run: true, context };
@@ -109,7 +114,9 @@ impl Plugins {
         let files: Vec<ExportFile> =
             files.into_iter().map(|file| ExportFile { exists: file.path.exists(), file }).collect();
         let overwrites = files.iter().filter(|f| f.exists).count();
-        let size: u64 = files.iter().map(|f| f.file.bytes).sum();
+        let size = files.iter().try_fold(0u64, |sum, f| sum.checked_add(f.file.bytes));
+        let size =
+            size.ok_or_else(|| slot.misbehaved(format!("its files' sizes add up to more than {} bytes", u64::MAX)))?;
         let size = if size > 0 { format!(" ({})", crate::op::bytes(size)) } else { String::new() };
         let mut summary = vec![format!("write {} file(s){size} to {}", files.len(), output.display())];
         if !counts.is_empty() {
@@ -129,6 +136,7 @@ impl Plugins {
             notes,
             write,
             slot: Arc::downgrade(slot),
+            given,
         };
         Ok(Planned::new(format!("{plugin}.export.{exporter}"), export, ())
             .summary(summary)
@@ -223,6 +231,7 @@ impl Operation for PluginExport {
         let dir = e.output.parent().unwrap_or(&e.output);
         std::fs::create_dir_all(dir).at(dir)?;
         let slot = e.slot.upgrade().ok_or_else(|| Error::stale(format!("the {} plugin", e.plugin), "stopped"))?;
+        let _given = slot.give(e.given.clone());
         let written: Exported = slot.call(method::WRITE_EXPORT, &e.write, store, ctx)?;
         // By path: a file's size is known exactly only once it's written.
         let said: Vec<&Path> = e.files.iter().map(|f| f.file.path.as_path()).collect();

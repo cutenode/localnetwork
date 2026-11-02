@@ -19,7 +19,12 @@ const REDACT = [
 	'token',
 	'*.token',
 	'credential',
-	'*.credential'
+	'*.credential',
+	// Email addresses people share for their inbox.
+	'email',
+	'*.email',
+	'address',
+	'*.address'
 ];
 
 /**

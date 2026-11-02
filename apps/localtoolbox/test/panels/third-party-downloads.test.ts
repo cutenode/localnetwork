@@ -379,6 +379,17 @@ describe('the paste box', () => {
 		await click(exactButton('add links'));
 		expect(text()).toMatch(/already listed: that link/);
 	});
+
+	it('says when several links pasted at once are all there already', async () => {
+		panelChrome({ response: page(HYPE, DROP) });
+		await load();
+		await drawer();
+
+		await type(field('paste'), `${HYPE} ${DROP}`);
+		await click(exactButton('add links'));
+		expect(text()).toMatch(/already listed: all of those/);
+		expect(rows()).toHaveLength(2);
+	});
 });
 
 // --- running -----------------------------------------------------------------
@@ -563,6 +574,15 @@ describe('walking a link', () => {
 		});
 	});
 
+	it('says what a failure that is not an Error said', async () => {
+		panelChrome({ response: page(HYPE) });
+		chrome.downloads.download.mockRejectedValue('Download blocked by policy');
+		await load();
+
+		await click(rowButtons('get')[0]);
+		expect(rows()[0].state).toBe('Hypeddit Download blocked by policy');
+	});
+
 	// Chrome refuses a whole download over a name it does not like, and the name
 	// is the least of what was wanted: the file is asked for again without one.
 	it('saves the file anyway when Chrome refuses the name, and says so', async () => {
@@ -653,6 +673,16 @@ describe('walking a link', () => {
 		await load();
 		await click(rowButtons('get')[0]);
 		expect(rowButtons('get')[0].disabled).toBe(false);
+	});
+
+	it('leaves a row saved when its transfer finishes while the panel is open', async () => {
+		panelChrome({ response: page(HYPE) });
+		await load();
+		await click(rowButtons('get')[0]);
+
+		chrome.testEmitDownloadChange({ id: 1, state: { current: 'complete' } });
+		await settle();
+		expect(rows()[0].state).toBe('Hypeddit saved');
 	});
 
 	it('turns a row red when the transfer is interrupted while the panel is open', async () => {
@@ -961,6 +991,20 @@ describe('what the panel remembers', () => {
 		expect(rowButtons('get')[0].disabled).toBe(false);
 		await click(rowButtons('get')[0]);
 		expect(rows()[0].state).toMatch(/saved/);
+	});
+
+	// A kept row reads a missing field as its default (walked.svelte.ts), so a
+	// failure kept without the page it ended on still has its gate to go to.
+	it('opens the gate for a failed row kept without anywhere else to open', async () => {
+		panelChrome({
+			response: page(HYPE),
+			session: { downloader: { known: { [HYPE]: { url: HYPE, state: 'failed', detail: 'gone wrong' } } } }
+		});
+		await load();
+		expect(rows()[0].state).toBe('Hypeddit gone wrong');
+
+		await click(rowButtons('open')[0]);
+		expect(chrome.tabs.create).toHaveBeenCalledWith({ url: HYPE, active: true });
 	});
 
 	it('gives a row its old state back when the source is switched away and back', async () => {

@@ -147,7 +147,8 @@ such as `REKORDBOX`) or its mount path. `locallibrary --help` lists every comman
   copies
 - [Editing your library](docs/editing.md): after rekordbox exports, playlists, tracks, filters, My
   Tags, cues, cover art
-- [My Settings](docs/settings.md): one settings profile for every drive
+- [My Settings](docs/settings.md): one settings profile for every drive, and taking everything you
+  set to another computer
 - [Sets, history and mixes](docs/sets.md): checking drives before a set, sessions, sets, recorded
   mixes, your DJ profile
 - [Drives](docs/drives.md): your library's drives, roles, health, space, formatting, the doctor's

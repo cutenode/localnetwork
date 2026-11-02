@@ -58,3 +58,26 @@ deny contains msg if {
 	object.get(lib.file(path)["package"], "readme", "") != "README.md"
 	msg := sprintf("%s: set `readme = \"README.md\"`, the crate's docs", [path])
 }
+
+# The crates the dev profile optimises, each a `[profile.dev.package.<name>]` in Cargo.toml (which
+# says why). `cargo remove` deletes the entries for crates no member depends on directly
+# (.github/CONTRIBUTING.md, "Checks"), so they're listed here as well. Only a crate still in
+# Cargo.lock has to keep its entry, so one that really goes away doesn't trip this.
+dev_optimised := {"aes", "blake3", "clap_builder", "hmac", "hybrid-array", "inout", "jsonschema", "referencing", "ring", "sha2", "symphonia-codec-pcm", "symphonia-core"}
+
+# tools/policy.sh gives conftest Cargo.lock as /scratch/Cargo.lock.toml, so it parses it as TOML.
+locked := {p.name | some p in lib.file("/scratch/Cargo.lock.toml")["package"]}
+
+dev_packages := object.get(lib.file("Cargo.toml"), ["profile", "dev", "package"], {})
+
+deny contains msg if {
+	some name in (dev_optimised & locked)
+	not dev_packages[name]
+	msg := sprintf("Cargo.toml: put back [profile.dev.package.%s]; `cargo remove` deletes it (git diff Cargo.toml shows what went)", [name])
+}
+
+deny contains msg if {
+	some name, _ in dev_packages
+	not name in dev_optimised
+	msg := sprintf("Cargo.toml: add \"%s\" to dev_optimised in tools/policy/cargo.rego, so the policies notice if it goes missing", [name])
+}

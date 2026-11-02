@@ -140,6 +140,11 @@ fn keep_exports_in(app: &mut App, dir: &Path) {
 /// Wait for the job and the reads under way, and let a confirmation take keys at once (it
 /// ignores them for a moment from when it shows).
 fn settle(app: &mut App) {
+    // A sign-in from the palette waits for the browser, which a test never opens: it's stopped,
+    // as Esc stops it.
+    if app.job.as_ref().is_some_and(|j| j.label == "Signing in") {
+        app.cancel_job();
+    }
     wait(app, |a| a.job.is_none() && a.loading.is_none());
     if let Some(Modal::Confirm(c)) = &mut app.modal {
         c.shown -= std::time::Duration::from_secs(1);
@@ -1604,9 +1609,10 @@ fn a_smart_playlist_holds_what_the_search_showed(tc: TestCase) {
     assert!(app.modal.is_none(), "x didn't close the panel");
 }
 
-/// The details panel of whichever track is selected lists what mixes into it, as the library
-/// suggests (the other recordings in a key that mixes, near its tempo, best first), names it and
-/// the best of them on screen, and enter there queues those tracks from the one picked.
+/// The details panel of whichever track is selected lists what mixes into it, as the api's
+/// matches (`track.matches`) are (the other recordings in a key that mixes, near its tempo, best
+/// first), names it and the best of them on screen, and enter there queues those tracks from the
+/// one picked.
 #[hegel::test(test_cases = 20, suppress_health_check = [HealthCheck::TooSlow])]
 fn the_details_list_what_mixes_into_the_track(tc: TestCase) {
     use super::app::testing::{app_with, track};
@@ -1629,7 +1635,7 @@ fn the_details_list_what_mixes_into_the_track(tc: TestCase) {
     app.on_key(key_event("i"));
     wait(&mut app, |a| a.details_current());
     let d = app.details.as_ref().unwrap();
-    let want: Vec<usize> = (super::keys::suggestions(&lib, &lib.tracks[at], 60).iter())
+    let want: Vec<usize> = (locallibrary::api::matches_in(&lib, &lib.tracks[at], 60).iter())
         .map(|s| lib.tracks.iter().position(|t| t.id == s.track.id).unwrap())
         .collect();
     assert_eq!(d.matches.items.iter().map(|m| m.index).collect::<Vec<_>>(), want, "for {:?}", lib.tracks[at]);

@@ -2,6 +2,7 @@
 	import { CircleCheck } from '@lucide/svelte';
 	import { enhance } from '$app/forms';
 	import { REPORT_LIMITS, type ReportFacts } from '#lib/bug-report.ts';
+	import { formFields } from '#lib/form-fields.svelte.ts';
 	import FormMessage from './FormMessage.svelte';
 
 	/**
@@ -24,6 +25,8 @@
 		error?: string;
 		sending?: boolean;
 	} = $props();
+
+	const fields = $derived(formFields(values));
 
 	const from = $derived(facts.page ?? '');
 
@@ -72,11 +75,11 @@
 		<FormMessage form={error ? { error } : null} />
 		<div>
 			<label class="label" for="title">Title</label>
-			<input id="title" name="title" class="input" required maxlength={REPORT_LIMITS.title} value={values.title ?? ''} placeholder="The map doesn't load on a show" />
+			<input id="title" name="title" class="input" required maxlength={REPORT_LIMITS.title} bind:value={fields.title} placeholder="The map doesn't load on a show" />
 		</div>
 		<div>
 			<label class="label" for="body">What happened?</label>
-			<textarea id="body" name="body" class="input min-h-36 py-2.5" maxlength={REPORT_LIMITS.body} aria-describedby={added ? 'body-hint' : undefined} placeholder="What you did, what you expected, and what happened instead.">{values.body ?? ''}</textarea>
+			<textarea id="body" name="body" class="input min-h-36 py-2.5" maxlength={REPORT_LIMITS.body} aria-describedby={added ? 'body-hint' : undefined} placeholder="What you did, what you expected, and what happened instead." bind:value={fields.body}></textarea>
 			{#if added}<p id="body-hint" class="hint m-0">Also sent: {added}</p>{/if}
 		</div>
 		<div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">

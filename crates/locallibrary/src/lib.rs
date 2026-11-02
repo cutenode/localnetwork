@@ -131,6 +131,7 @@ mod track_files;
 pub mod tree;
 pub mod upgrade;
 pub mod watch;
+mod workers;
 
 /// Hooks for tests: what a failed write leaves behind, tests that share a process, and big files
 /// that take no room.
@@ -187,6 +188,17 @@ pub mod testing {
     /// whole process, which it can only do once.
     pub fn roles_on_this_thread(offered: Option<crate::fields::roles::Offered>) {
         crate::fields::roles::THREAD_OFFERED.with(|o| *o.borrow_mut() = offered);
+    }
+
+    /// The access token of the account `subject` that the account plugin `with` signed in to in
+    /// `store`, refreshed as a plugin's request has it, without a plugin to make one.
+    pub fn account_token(
+        plugins: &crate::plugin::Plugins,
+        store: &crate::store::Store,
+        with: &str,
+        subject: &str,
+    ) -> crate::Result<String> {
+        plugins.account_token(store, with, subject)
     }
 
     /// Plugins started from this thread are refused as from an elevated process (`Some(true)`),

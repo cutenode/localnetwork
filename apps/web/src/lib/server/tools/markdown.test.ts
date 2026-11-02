@@ -10,7 +10,7 @@ const tool: Tool = {
 	kind: '',
 	tagline: '',
 	summary: '',
-	features: [],
+	cues: [],
 	install: { steps: [] },
 	docs: loadDocs('apps/localthing', {
 		'../../../../localthing/README.md': '# localthing\n\nSee [the guide](docs/guide.md).\n',

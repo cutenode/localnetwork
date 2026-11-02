@@ -202,6 +202,7 @@ fn an_explained_refusal_says_how_to_go_on(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(collection = lexicon::PROFILE, fits = true, scopes = "atproto transition:generic".to_string(), signed_in = Some("did:plc:other"), unreachable = false, rkey = "self")]
 #[hegel::explicit_test_case(collection = lexicon::SET, fits = true, scopes = "atproto transition:generic".to_string(), signed_in = Some("did:plc:abc"), unreachable = true, rkey = "self")]
 #[hegel::explicit_test_case(collection = lexicon::SET, fits = true, scopes = "atproto transition:generic".to_string(), signed_in = Some("did:plc:abc"), unreachable = true, rkey = "a b")]
+#[hegel::explicit_test_case(collection = lexicon::SET, fits = true, scopes = crate::atmosphere::tests::mock_pds::granted(&crate::atmosphere::publish_scopes()).join(" "), signed_in = Some("did:plc:abc"), unreachable = false, rkey = "self")]
 fn a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
     static SERVER: OnceLock<Shared> = OnceLock::new();
     let (pds, next, got) = shared(&SERVER);
@@ -246,7 +247,12 @@ fn a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
 
     let before = got.load(Ordering::SeqCst);
     let err = put_record(dir.path(), "did:plc:abc", collection, rkey, &record, None).unwrap_err();
-    let may_write = scopes.contains("transition:generic") || scopes.contains(&format!("repo:{collection}?"));
+    // A bare `repo:<nsid>` allows every action, as the granted publishing scopes have it for sets
+    // and recordings.
+    let repo = format!("repo:{collection}");
+    let may_write = scopes
+        .split(' ')
+        .any(|s| s == "transition:generic" || s == repo || s == format!("{repo}?action=create&action=update"));
     let sent = got.load(Ordering::SeqCst) > before;
     match signed_in {
         _ if !fits => assert_eq!(err.code(), "invalid", "{err}"),

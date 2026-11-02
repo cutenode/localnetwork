@@ -47,6 +47,10 @@ pub struct IdentifyMix {
     /// Playback speeds to search, as a fraction: 0.16 is ±16%.
     #[serde(default)]
     pub tempo_range: Option<f64>,
+    /// The mix's cover, an image file, for its report and export (instead of one embedded in
+    /// the recording). Checked before identifying.
+    #[serde(default)]
+    pub cover: Option<PathBuf>,
 }
 /// `mix.identify`'s request ([`super::mix_identify_cached`]): the mix, and what to answer with
 /// its report.

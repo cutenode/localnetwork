@@ -270,7 +270,7 @@ export type PageRequest =
 	| { type: 'GET_DOWNLOAD_DETAILS' }
 	| { type: 'GET_ARTIST_PROFILES'; permalinks: string[] };
 
-/** Why a lookup stopped short: '' for no reason, else a key of the panels' LOOKUP_ERRORS. */
+/** Why a lookup stopped short: '' for no reason, else a key of LOOKUP_ERRORS ($lib/lookup-errors.ts). */
 export type LookupError = '' | 'no-client-id' | 'unauthorized';
 
 /** The answer to EXTRACT_TRACKS: the page read off its DOM, nothing asked of SoundCloud. */

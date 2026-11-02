@@ -39,7 +39,7 @@ ConvertTo-Json -InputObject $disks -Depth 5 -Compress
 
 /// Run a script with Windows PowerShell. `-EncodedCommand` (UTF-16LE, base64) avoids both
 /// quoting and `-Command -`'s line-by-line reading of standard input.
-fn powershell(script: &str) -> Cmd {
+pub(crate) fn powershell(script: &str) -> Cmd {
     let script = format!("$ProgressPreference = 'SilentlyContinue'\n{script}");
     let utf16: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
     let encoded = BASE64_STANDARD.encode(&utf16);

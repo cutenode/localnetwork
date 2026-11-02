@@ -2648,7 +2648,10 @@ fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
         | super::form::For::Source { .. }
         | super::form::For::ApplyFields { .. }
         | super::form::For::Fetch { .. } => "run",
-        super::form::For::Settings(_) | super::form::For::ProviderSettings | super::form::For::CheckSettings => "save",
+        super::form::For::Settings(_)
+        | super::form::For::ProviderSettings
+        | super::form::For::CheckSettings
+        | super::form::For::Access(..) => "save",
     };
     let b = block(title(&form.title, true), true)
         .title_bottom(Line::styled(format!(" ↑↓ field · {keys}enter {then} · esc cancel "), faint()).right_aligned())

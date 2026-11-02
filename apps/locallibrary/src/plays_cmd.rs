@@ -303,7 +303,7 @@ fn histories(drive: String, all: bool, store: Option<&Store>, ctx: &Ctx<'_>) -> 
     let req = api::HistoryArchiveRequest { library: None, drive: Some(drive) };
     let archive = store.map(|s| api::history_archive(s, &req, ctx)).transpose()?;
     let book = store.map(SetBook::load).transpose()?.unwrap_or_default();
-    let mut sessions = gather_from(archive.as_ref(), std::slice::from_ref(&d), &book).sessions;
+    let mut sessions = gather_from(archive.as_ref(), std::slice::from_ref(&on_drive), &book).sessions;
     if !all {
         sessions.retain(|s| !s.drives.is_empty());
     }

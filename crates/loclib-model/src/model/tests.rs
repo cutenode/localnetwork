@@ -205,6 +205,24 @@ fn blank_names_in_a_query_are_no_names() {
     assert_eq!((found(" "), found("  "), found(" / ")), (None, None, None));
 }
 
+/// A doubled or blank-padded slash, or one at either end, names the same playlist as the plain
+/// path: `x//y` is `x/y`.
+#[test]
+fn blank_names_inside_a_path_are_left_out() {
+    let node = |id, parent_id, name: &str| Playlist {
+        id,
+        parent_id,
+        name: name.into(),
+        is_folder: parent_id.is_none(),
+        sort_order: id,
+        track_ids: vec![],
+    };
+    let lib = Library { playlists: vec![node(1, None, "x"), node(2, Some(1), "y")], ..Default::default() };
+    let found = |q| lib.find_playlist(q).map(|p| p.id);
+    assert_eq!(found("x/y"), Some(2));
+    assert_eq!((found("x//y"), found("x/ /y"), found("/x/y/")), (Some(2), Some(2), Some(2)));
+}
+
 #[test]
 fn untangled_trees_have_each_id_once_no_loops_and_bounded_depth() {
     let node = |id, parent_id, name: &str| Playlist {
@@ -776,6 +794,28 @@ fn labelled_tuples_are_arrays_named_in_their_schema(tc: TestCase) {
             .collect();
         assert_eq!(titled, [("first", Some("The first value, over two lines.")), ("second", None)]);
     }
+}
+
+/// The benchmarks' made-up library hangs together: every entry is one of its tracks, each
+/// folder holds the playlists after it, and it diffs empty against itself.
+#[test]
+fn made_up_libraries_hang_together() {
+    let lib = crate::test_util::library(500, 30);
+    let track = lib.track_lookup();
+    assert!(lib.playlists.iter().flat_map(|p| &p.track_ids).all(|&id| track(id).is_some()));
+    assert_eq!(track(501), None);
+    assert_eq!((lib.playlist_path(2), lib.playlist_path(11)), ("Shows 0/light 1".into(), "Shows 10".into()));
+    assert!(LibraryDiff::between(&lib, &lib).is_empty());
+}
+
+/// Text that's NFKC already skips normalising and lands where normalising would: every kind of
+/// whitespace (vertical tab too) collapses, and nothing else changes but case.
+#[hegel::test(test_cases = 200)]
+fn normalised_text_skips_normalising(tc: hegel::TestCase) {
+    let alphabet = "aZ9 \t\n\u{b}\u{c}\r.&'\u{e9}\u{301}\u{3a3}\u{fb01}\u{3000}";
+    let s = tc.draw(hegel::generators::text().alphabet(alphabet).max_size(12));
+    let unicode = s.nfkc().collect::<String>().to_lowercase();
+    assert_eq!(normalize(&s), unicode.split_whitespace().collect::<Vec<_>>().join(" "), "{s:?}");
 }
 
 /// Exporting some playlists keeps them, everything in a chosen folder, the folders above them and

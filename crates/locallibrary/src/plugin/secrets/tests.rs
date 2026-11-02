@@ -100,7 +100,7 @@ fn a_failing_keychain_says_how_to_do_without() {
     crate::keychain::tests::mock_keychain();
     let (plugins, _dir, store) = host(Storage::Keychain);
     let slot = plugins.slot("keeper").unwrap();
-    let entry = slot.entry(&store, "token").unwrap();
+    let entry = entry(&slot.place(&store, "token")).unwrap();
     let cred: &keyring_core::mock::Cred = entry.as_any().downcast_ref().unwrap();
     cred.set_error(keyring::Error::NoStorageAccess(std::io::Error::other("locked").into()));
     let e = slot.secret(&store, "token").unwrap_err().to_string();
@@ -141,7 +141,7 @@ fn a_secret_is_what_the_last_change_made_it(tc: TestCase) {
         )));
         let fails = storage == Storage::Keychain && tc.draw(gs::booleans());
         if fails {
-            let entry = slot.entry(&store, "token").unwrap();
+            let entry = entry(&slot.place(&store, "token")).unwrap();
             let cred: &keyring_core::mock::Cred = entry.as_any().downcast_ref().unwrap();
             cred.set_error(keyring::Error::NoStorageAccess(std::io::Error::other("locked").into()));
         }

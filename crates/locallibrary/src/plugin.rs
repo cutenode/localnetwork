@@ -15,10 +15,11 @@
 //! Plugins never write to a drive. They read the library by calling back for the sidecar's read
 //! methods their capabilities grant, within limits (see [`Reads`]), and reach the servers their
 //! `net:` capabilities grant through the host (`net/fetch`), which fills in their secret settings
-//! (kept in the keychain) and their accounts' tokens (signed in to by the host, see
-//! [`Plugins::begin_sign_in`]); an operation's edits are planned and applied by the host as any
-//! edit plan is, and an exporter's overwrites are confirmed first. Answers too big for a message are
-//! files in a folder the host makes for each request (`scratch`), which it reads itself.
+//! (kept in the keychain) and the tokens of the accounts they're given access to (signed in to by
+//! the host, see [`Plugins::begin_account_sign_in`]); an operation's edits are planned and applied
+//! by the host as any edit plan is, and an exporter's overwrites are confirmed first. Answers too
+//! big for a message are files in a folder the host makes for each request (`scratch`), which it
+//! reads itself.
 //! Analyzers' values go to the [`crate::fields`] store, their beat grids, phrases and waveforms
 //! to its overlay store. What providers find for tracks, the host offers the user and makes the
 //! edits of itself (see [`Plugins::provide`]), as it does of what importers read (see
@@ -58,20 +59,24 @@ mod sources;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use indexmap::IndexMap;
 use loclib_plugin::{Command, Context, Manifest, Operation, Selection, check_params};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde_json::{Map, Value};
 
 use crate::fields::Analyzer;
 use crate::fields::roles::{Offered, RoleField};
 use crate::keychain::Storage;
+use crate::model::{Library, Track};
 use crate::{Error, Result};
 
-pub use accounts::{AccountStatus, REFRESH_BEFORE, SignIn, SignedOut};
+pub use accounts::REFRESH_BEFORE;
+pub use accounts::access::{Access, AccountId};
+pub use accounts::ready::Unready;
+pub use accounts::shared::{Account, AccountSignIn, AccountSignedIn, AccountSignedOut, Accounts};
 pub use analysis::{AnalysisPart, ApplyAnalysis, same_grid};
 pub use analyzers::Analyzed;
 pub use apply::ApplyFields;
@@ -79,7 +84,8 @@ pub(crate) use blobs::abandoned as abandoned_scratch;
 pub use callbacks::Reads;
 pub(crate) use checks::hosted;
 pub use checks::{
-    CheckChange, CheckSettings, Fix, MAX_TIMEOUT, MIN_TIMEOUT, TIMEOUT, check_timeout, set_check_timeout, set_hosted,
+    CheckChange, CheckSettings, Fix, MAX_TIMEOUT, MIN_TIMEOUT, PluginFix, TIMEOUT, check_timeout, set_check_timeout,
+    set_hosted,
 };
 pub use commands::CommandOutput;
 pub use destinations::{SetPublish, SetPublished, StoreDestination, destination_spec};
@@ -92,7 +98,7 @@ pub use operations::OpPlanned;
 pub use providers::{
     AUTO_PICK, Found, Offer, Pick, PlanProvided, Provide, Provided, auto_pick, plan_provided, set_auto_pick,
 };
-pub(crate) use settings::{host_settings, set_host_setting};
+pub(crate) use settings::{all_saved_settings, host_settings, save_host_settings, save_settings, set_host_setting};
 pub use sources::SourceExport;
 
 pub(crate) use process::THREAD_ELEVATED;
@@ -205,6 +211,10 @@ pub type Notices = Arc<dyn Fn(PluginNotice) + Send + Sync>;
 /// `services.<name>`.
 pub const SERVICES: &str = "services.";
 
+/// What the player's key for one of a plugin's commands or operations is named with, among its
+/// settings: `keys.<name>`.
+pub const KEYS: &str = "keys.";
+
 impl Default for Options {
     fn default() -> Options {
         Options {
@@ -232,20 +242,27 @@ impl Default for Options {
 /// The plugins the app has, by id.
 pub struct Plugins {
     plugins: IndexMap<String, Arc<Slot>>,
-    /// Sign-ins to plugins' accounts waiting for the browser.
+    /// What every plugin is hosted with.
+    host: Arc<process::Host>,
+    /// Sign-ins to accounts of a type waiting for the browser.
     signing_in: accounts::SigningIn,
 }
 
 impl Plugins {
-    /// The host for `specs`, reading for them through `reads`. Refused: a plugin locallibrary
+    /// The host for `specs` (their manifests' text made printable, as all a plugin tells the host
+    /// is), reading for them through `reads`. Refused: a plugin locallibrary
     /// doesn't ship, an invalid manifest (in builds with debug assertions: see
     /// [`PluginSpec::built_in`]), two plugins with one id, and two commands (or operations) with
     /// one `cli` place (the app checks them against its own commands).
     pub fn new(specs: Vec<PluginSpec>, reads: Arc<dyn Reads>, options: Options) -> Result<Plugins> {
-        let host = Arc::new(process::Host { reads, options, turns: Mutex::default() });
+        let host =
+            Arc::new(process::Host { reads, options, turns: Mutex::default(), account_plugins: OnceLock::new() });
         let mut plugins = IndexMap::new();
         let mut cli: FxHashSet<String> = FxHashSet::default();
         for spec in specs {
+            let manifest = process::printable_manifest(spec.manifest)
+                .map_err(|e| Error::invalid(format!("a plugin's manifest: {e}")))?;
+            let spec = PluginSpec { manifest, ..spec };
             let m = &spec.manifest;
             if !spec.built_in {
                 return Err(Error::invalid(format!("{}: third-party plugins aren't supported yet", m.id)));
@@ -262,7 +279,11 @@ impl Plugins {
             let id = m.id.clone();
             plugins.insert(id, Arc::new(Slot::new(spec.manifest, spec.launch, host.clone())));
         }
-        Ok(Plugins { plugins, signing_in: Default::default() })
+        let account_plugins = plugins.iter().filter(|(_, s)| s.manifest.is_account_plugin());
+        let account_plugins = account_plugins.map(|(id, s)| (id.clone(), Arc::downgrade(&s.plugin))).collect();
+        // Set here only, once every plugin is.
+        let _ = host.account_plugins.set(account_plugins);
+        Ok(Plugins { plugins, host, signing_in: Default::default() })
     }
 
     /// Each plugin's manifest, in the order the app gave them.
@@ -386,6 +407,32 @@ impl Plugin {
     }
 }
 
+/// What `schema` (a contribution's `params` or `options`) says the option `key` takes, or why it
+/// takes no such option, naming the contribution as `what` (`source`, `format`): the command
+/// line's `--option` and the sidecar refuse an undeclared option in the same words.
+pub fn declared_option<'a>(what: &str, schema: Option<&'a Value>, key: &str) -> std::result::Result<&'a Value, String> {
+    let properties = schema.and_then(|s| s["properties"].as_object());
+    if let Some(property) = properties.and_then(|p| p.get(key)) {
+        return Ok(property);
+    }
+    let all: Vec<&str> = properties.into_iter().flatten().map(|(name, _)| name.as_str()).collect();
+    Err(match all.is_empty() {
+        true => format!("this {what} has no options, not even {key:?}"),
+        false => format!("this {what} has no option {key:?}: its options are {}", all.join(", ")),
+    })
+}
+
+/// A source's, an exporter's or an importer's (`what`) `options`, as [`fitting`] makes them,
+/// refusing one `schema` doesn't declare as [`declared_option`] says it. (A command's or an
+/// operation's params aren't held to theirs: plugins take ones they don't list.)
+fn fitting_options(what: &str, schema: Option<&Value>, options: Value, context: &Context) -> Result<Value> {
+    for key in options.as_object().into_iter().flat_map(Map::keys) {
+        let pointer = format!("/{}", key.replace('~', "~0").replace('/', "~1"));
+        declared_option(what, schema, key).map_err(|e| Error::Invalid(e).with("path", pointer))?;
+    }
+    fitting(schema, options, context)
+}
+
 /// `params` as a hook takes them, once they fit `schema` (a contribution's `params` or
 /// `options`): `null` is none, and one filled in from the selection (`x-from`) that isn't given is
 /// what `context` (as the plugin gets it) has selected, if anything; given as `null`, it's none
@@ -415,3 +462,18 @@ fn fitting(schema: Option<&Value>, params: Value, context: &Context) -> Result<V
     })?;
     Ok(params)
 }
+
+/// A library's tracks by id, for finding many: [`Library::track`] for each would scan the library
+/// each time. Collected from the back, so the first of a repeated id wins, as there.
+fn by_id(library: &Library) -> FxHashMap<u32, &Track> {
+    library.tracks.iter().rev().map(|t| (t.id, t)).collect()
+}
+
+/// Each of `ids`' tracks, or an error naming the first the library lacks.
+fn tracks_named<'a>(library: &'a Library, ids: &[u32]) -> Result<Vec<&'a Track>> {
+    let by_id = by_id(library);
+    ids.iter().map(|&id| by_id.get(&id).copied().ok_or_else(|| Error::no_track(id))).collect()
+}
+
+#[cfg(test)]
+mod tests;

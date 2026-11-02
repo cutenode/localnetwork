@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { bookingValues, EVENT_STATUS, isCancelled, showFormDefaults, showHours } from './shows';
+import {
+	bookingValues,
+	EVENT_STATUS,
+	inquiryDefaults,
+	inquiryValues,
+	isCancelled,
+	showFormDefaults,
+	showHours
+} from './shows';
 
 describe('showHours', () => {
 	it("reads the venue's clock off the times, whatever the offset", () => {
@@ -37,5 +45,37 @@ describe('bookingValues', () => {
 			lngE6: '13405000'
 		});
 		expect(bookingValues({ title: 'Someday' })).toEqual({ ...showFormDefaults, name: 'Someday' });
+	});
+});
+
+describe('inquiryValues', () => {
+	it("fills the inquiry form from a planner show, whose date is the venue's clock stored as UTC", () => {
+		expect(
+			inquiryValues({
+				title: 'Rooftop Rave',
+				date: '2026-12-12T23:30:00.000Z',
+				venue: 'The Lot',
+				capacity: 300,
+				budget: { amount: 800, currency: 'EUR' },
+				budgetTier: 'established',
+				setType: 'peak',
+				setMinutes: 120,
+				genres: ['techno', 'electro'],
+				notes: 'Only for the planner'
+			})
+		).toEqual({
+			title: 'Rooftop Rave',
+			date: '2026-12-12',
+			time: '23:30',
+			setMinutes: '120',
+			venue: 'The Lot',
+			capacity: '300',
+			budgetAmount: '800',
+			currency: 'EUR',
+			budgetTier: 'established',
+			setType: 'peak',
+			genres: 'techno, electro'
+		});
+		expect(inquiryValues({ title: 'Someday' })).toEqual({ ...inquiryDefaults, title: 'Someday' });
 	});
 });

@@ -6,19 +6,29 @@ import { type Db, openDatabase } from '../db';
 import { HappyViewClient } from '../happyview/client';
 import { IndexedRepo } from '../happyview/indexed';
 import { silentLogger } from '../logger';
+import { Notifier } from '../notifications/notifier';
+import { RateLimiter } from '../rate-limit';
 import { AccountService } from '../services/accounts';
 import { BookingService } from '../services/bookings';
+import { DjListings } from '../services/dj-listings';
 import { EpkService } from '../services/epk';
+import { EpkViews } from '../services/epk-views';
 import { FollowService } from '../services/follows';
+import { PerformerSearch } from '../services/performers';
 import { PlannerService } from '../services/planner';
+import { ProfileService } from '../services/profiles';
 import { ProjectAdmin } from '../services/project-admin';
 import { ProjectService } from '../services/projects';
 import { RequestService } from '../services/requests';
+import { type ListingSource, ListingWriter } from '../services/listings';
+import { SharedSpaces } from '../services/shared-spaces';
+import { SpaceJoins } from '../services/space-joins';
 import { ShowService } from '../services/shows';
 import { StaffService } from '../services/staff';
 import { SupportService } from '../services/supports';
 import { TracklistService } from '../services/tracklists';
 import { VerificationService } from '../services/verifications';
+import type { SpaceKind } from '#lib/capabilities.ts';
 import type { Viewer } from '#lib/types.ts';
 import { FakeNetwork } from './fakes';
 import { FakeHappyView } from './happyview';
@@ -26,7 +36,9 @@ import { FakeHappyView } from './happyview';
 export const ROOT = 'did:plc:root';
 
 /** A fully wired set of services over an in-memory database, a fake PDS network, and a stand-in HappyView. */
-export async function createTestServices(options: { admins?: string[]; capable?: string[] } = {}) {
+export async function createTestServices(
+	options: { admins?: string[]; capable?: string[]; listingSources?: Partial<Record<SpaceKind, ListingSource>> } = {}
+) {
 	const db: Db = await openDatabase(':memory:');
 	const net = new FakeNetwork();
 	const happyView = new FakeHappyView(ROOT);
@@ -50,6 +62,8 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		maxAttempts: 3
 	});
 
+	const notifications = new Notifier({ db, logger: silentLogger });
+
 	const core: Core = {
 		db,
 		logger: silentLogger,
@@ -60,6 +74,7 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		userClient: async (did) => (capable.has(did) ? net.client(did) : null),
 		audit,
 		accounts,
+		notify: notifications.notify.bind(notifications),
 		watchSpace: async () => {},
 		fetchSpaceBlob: async (_space, _repo, cid) => {
 			const blob = net.blobs.get(cid);
@@ -87,7 +102,6 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 	};
 
 	const projects = new ProjectService(core, directory);
-	const requests = new RequestService(core, projects);
 	const staff = new StaffService(core);
 	const bookings = new BookingService(core, projects);
 	const planner = new PlannerService(core);
@@ -103,7 +117,12 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		throw new Error(`no such handle ${identifier}`);
 	});
 
+	const epkViews = new EpkViews(core, epks, 90);
 	const shows = new ShowService(core, projects, directory, indexedRepo, 0);
+	const profiles = new ProfileService(core, indexedRepo);
+	const djListings = new DjListings(core, indexedRepo);
+	const performers = new PerformerSearch(core, directory, projects, profiles);
+	const requests = new RequestService(core, projects, profiles, djListings);
 	const follows = new FollowService(core, directory, 0);
 
 	/** Each account's handle, as the identity resolver would report it once checked both ways. */
@@ -112,6 +131,10 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 	const verifications = new VerificationService(core, indexedRepo, projects, {
 		resolve: async (did) => ({ handle: handles.get(did) ?? null })
 	});
+
+	const listings = new ListingWriter(core, options.listingSources ?? {});
+	const sharedSpaces = new SharedSpaces(core, listings);
+	const spaceJoins = new SpaceJoins(core, sharedSpaces, new RateLimiter(30, 30 / 60));
 
 	await ensureRootSpaces(core);
 	await audit.idle();
@@ -137,6 +160,7 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		core,
 		audit,
 		accounts,
+		notifications,
 		projects,
 		requests,
 		staff,
@@ -146,11 +170,18 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		tracklists,
 		supports,
 		epks,
+		epkViews,
 		shows,
 		follows,
 		verifications,
+		sharedSpaces,
+		spaceJoins,
+		listings,
 		handles,
 		indexedRepo,
+		profiles,
+		djListings,
+		performers,
 		viewer,
 		capable,
 		spaces

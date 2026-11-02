@@ -1,0 +1,117 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.section.defs",
+	"description": "Sections: the pieces of what a profile, act, party or venue shows. Any of them can hold any section.",
+	"defs": {
+		"basics": {
+			"type": "object",
+			"description": "Who this is: the name, picture and words every profile shows.",
+			"required": ["name"],
+			"properties": {
+				"name": { "type": "string", "minLength": 1, "maxLength": 640, "maxGraphemes": 64 },
+				"avatar": {
+					"type": "blob",
+					"accept": ["image/png", "image/jpeg", "image/webp"],
+					"maxSize": 1000000
+				},
+				"bio": { "type": "string", "maxLength": 30000, "maxGraphemes": 3000 },
+				"pronouns": { "type": "string", "maxLength": 200, "maxGraphemes": 24 },
+				"location": { "type": "ref", "ref": "computer.localnetwork.defs#location" },
+				"links": {
+					"type": "array",
+					"maxLength": 12,
+					"items": { "type": "ref", "ref": "computer.localnetwork.defs#link" }
+				}
+			}
+		},
+		"performer": {
+			"type": "object",
+			"description": "What promoters need to book a performer. Every field is optional, so an empty section still turns it on.",
+			"properties": {
+				"tagline": {
+					"type": "string",
+					"maxLength": 1400,
+					"maxGraphemes": 140,
+					"description": "A one-line pitch to promoters."
+				},
+				"genres": {
+					"type": "array",
+					"maxLength": 12,
+					"items": { "type": "string", "minLength": 1, "maxLength": 48 }
+				},
+				"formats": {
+					"type": "array",
+					"maxLength": 8,
+					"items": {
+						"type": "string",
+						"maxLength": 32,
+						"knownValues": ["vinyl", "cdj", "controller", "hybrid", "live", "modular"]
+					}
+				},
+				"setTypes": {
+					"type": "array",
+					"maxLength": 10,
+					"items": {
+						"type": "string",
+						"maxLength": 32,
+						"knownValues": [
+							"opener",
+							"warmup",
+							"peak",
+							"closing",
+							"allNight",
+							"b2b",
+							"daytime",
+							"afterhours",
+							"liveSet"
+						]
+					}
+				},
+				"setLength": { "type": "ref", "ref": "computer.localnetwork.defs#setLength" },
+				"capacity": { "type": "ref", "ref": "computer.localnetwork.defs#capacity" },
+				"fees": {
+					"type": "array",
+					"maxLength": 12,
+					"description": "Fee levels, like one per kind of booking. Each tier counts for budget matching.",
+					"items": { "type": "ref", "ref": "computer.localnetwork.defs#fee" }
+				},
+				"travel": { "type": "ref", "ref": "computer.localnetwork.defs#travel" },
+				"mixes": {
+					"type": "array",
+					"maxLength": 12,
+					"items": { "type": "ref", "ref": "computer.localnetwork.defs#mix" }
+				},
+				"highlights": {
+					"type": "array",
+					"maxLength": 12,
+					"description": "Notable venues, events, residencies, or releases.",
+					"items": { "type": "string", "maxLength": 1200, "maxGraphemes": 120 }
+				},
+				"lookingFor": {
+					"type": "string",
+					"maxLength": 5000,
+					"maxGraphemes": 500,
+					"description": "The kinds of bookings wanted."
+				},
+				"activeSince": {
+					"type": "integer",
+					"minimum": 1950,
+					"maximum": 2100,
+					"description": "Year they started playing out."
+				}
+			}
+		},
+		"promoter": {
+			"type": "object",
+			"description": "Where a promoter books. Every field is optional, so an empty section still turns it on.",
+			"properties": {
+				"cities": {
+					"type": "array",
+					"maxLength": 12,
+					"description": "The cities they book shows in.",
+					"items": { "type": "ref", "ref": "computer.localnetwork.defs#location" }
+				}
+			}
+		}
+	}
+}

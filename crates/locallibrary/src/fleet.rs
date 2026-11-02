@@ -517,10 +517,12 @@ pub struct DriveSet {
     pub excluded: Vec<String>,
 }
 
-/// Mounted drives grouped by library.
-pub fn sets(store: &Store, mounted: &[Device]) -> Result<Vec<DriveSet>> {
-    let registry = store.drives()?;
-    let libraries: FxHashMap<Uuid, String> = store.libraries()?.into_iter().map(|l| (l.id, l.name)).collect();
+/// Mounted drives grouped by library. With no store, the groups are unnamed and every member is
+/// synced: no drive has a role or is retired without one.
+pub fn sets(store: Option<&Store>, mounted: &[Device]) -> Result<Vec<DriveSet>> {
+    let registry = store.map(Store::drives).transpose()?.unwrap_or_default();
+    let libraries = store.map(Store::libraries).transpose()?.unwrap_or_default();
+    let libraries: FxHashMap<Uuid, String> = libraries.into_iter().map(|l| (l.id, l.name)).collect();
     let mut groups: IndexMap<Option<Uuid>, DriveSet> = IndexMap::new();
     for d in mounted.iter().filter(|d| d.has_export() || d.is_adopted()) {
         let Some(state) = d.state() else { continue };

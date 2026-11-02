@@ -33,6 +33,18 @@
 			}
 		},
 		{
+			"type": "merge_queue",
+			"parameters": {
+				"check_response_timeout_minutes": 120,
+				"grouping_strategy": "ALLGREEN",
+				"max_entries_to_build": 2,
+				"max_entries_to_merge": 5,
+				"merge_method": "MERGE",
+				"min_entries_to_merge": 1,
+				"min_entries_to_merge_wait_minutes": 5
+			}
+		},
+		{
 			"type": "code_scanning",
 			"parameters": {
 				"code_scanning_tools": [
@@ -51,28 +63,7 @@
 				"do_not_enforce_on_create": false,
 				"required_status_checks": [
 					{
-						"context": "Web CI passed"
-					},
-					{
-						"context": "locallibrary CI passed"
-					},
-					{
-						"context": "localtoolbox CI passed"
-					},
-					{
-						"context": "Mix report passed"
-					},
-					{
-						"context": "npm advisories passed"
-					},
-					{
-						"context": "Workflow lint passed"
-					},
-					{
-						"context": "Repo checks passed"
-					},
-					{
-						"context": "atstore CI passed"
+						"context": "CI passed"
 					}
 				]
 			}

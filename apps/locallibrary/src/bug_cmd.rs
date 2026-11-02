@@ -96,12 +96,17 @@ impl Report {
         fields
     }
 
-    /// GitHub's bug report form, filled in: at most [`MAX_URL`] long, cutting the text short.
+    /// GitHub's bug report form, filled in: at most [`MAX_URL`] long, cutting the text short and
+    /// leaving out the fields after it fills up.
     fn github_url(&self) -> String {
         let mut url = NEW_ISSUE.to_string();
         for (id, value) in self.fields() {
-            url.push_str(&format!("&{id}="));
-            let room = MAX_URL.saturating_sub(url.len());
+            let key = format!("&{id}=");
+            if url.len() + key.len() > MAX_URL {
+                break;
+            }
+            url.push_str(&key);
+            let room = MAX_URL - url.len();
             let mut encoded = String::new();
             for c in value.chars() {
                 let piece = utf8_percent_encode(c.encode_utf8(&mut [0; 4]), QUERY).to_string();

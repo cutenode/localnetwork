@@ -41,14 +41,16 @@ listening to your library the way the players see it:
   plan, with what the plugin says about it first, is confirmed and written like any edit, and `u`
   takes it back. A question one asks first (which track an entry is) is a list to pick from
   (`space` marks items when it takes several, `enter` takes them, `esc` stops the run). An
-  operation, or a command of a plugin that reads the drive, needs one plugged in, not a folder
-  opened by path. What plugins log goes to the messages (`!`). See
+  operation, or a command of a plugin that reads the drive, needs a drive open (a folder opened
+  by path too, which the plugin can read only while it runs on it). What plugins log goes to the
+  messages (`!`). See
   [Plugins](plugins.md).
 - **Analyzers**: "analyze the tracks: …" in the palette (or a drive's `e` menu) runs a plugin's
   analyzer over the drive's tracks in the background, those not analysed already. "show the
   sound.bpm column" adds a column of what it worked out (remembered for the next run; `-` where
   it found nothing to show; shown as its analyzer says, in bytes or as a meter, say), sorted by a click on its header like any column, and the search box
-  filters by it: `sound.bpm:>120`. "write keys and BPMs to the tracks: …" writes what an
+  filters by it: `sound.bpm:>120`. Sorted by it, a playlist is sorted on the drive by it too
+  (`s` in the actions menu). "write keys and BPMs to the tracks: …" writes what an
   analyzer heard to the tracks (a form asks which, and whether over what they have), confirmed
   like any edit.
 - **Checks**: a drive's check (in its `e` menu) shows what plugins' checks found too, and a fix
@@ -77,6 +79,10 @@ listening to your library the way the players see it:
   to its default. A secret is never filled in: typed, it's kept in the system's keychain; left
   empty, it stays as it was. A plugin's services are switches there too: turned on, they run
   while the player does.
+- **Accounts**: "sign in to a Google account…" in the palette signs in in the browser, in the
+  background, and "sign out of NAME" signs out. "access for PLUGIN…" opens a form with the
+  account of each type the plugin uses, what it needs it for, and signing in to another; `enter`
+  makes the ones chosen its defaults (see [Accounts](plugins.md#accounts)).
 - **What plugins tell you**: a message, and when a plugin suggests one of its operations (on a
   drive plugged in, say), "review: …" in the palette plans it, confirmed like any edit; when it
   suggests fetching from its providers, exporting in its format or running its analyzer, "review:
@@ -193,11 +199,11 @@ listening to your library the way the players see it:
   recordings opened are remembered; `del` forgets one, or the folder it was found in. The view draws
   the set's 3-band waveform with each track's lane under it (shaded by how clearly it's heard, so
   blends and EQ swaps show), the tempo played, the keys on the way, and the tracklist with every
-  handoff: blend, cut or gap, key move and tempo change. The selected track's own waveform, cues and
-  phrases show the stretch that was played. `enter` or `space` plays the set in the player, and the
-  timeline and tracklist follow along; `n`/`p` jump between its tracks, a click on the timeline
-  seeks, `z` zooms. `o` goes to the selected track in the library, `E` exports the set as data for
-  [Local Network](sets.md#mixes) and `w` writes the HTML report and opens it.
+  handoff: blend, quick mix or gap, key move and tempo change. The selected track's own waveform,
+  cues and phrases show the stretch that was played. `enter` or `space` plays the set in the
+  player, and the timeline and tracklist follow along; `n`/`p` jump between its tracks, a click on
+  the timeline seeks, `z` zooms. `o` goes to the selected track in the library, `E` exports the set
+  as data for [Local Network](sets.md#mixes) and `w` writes the HTML report and opens it.
 
 Colours are the theme's: the default, or a plugin's chosen in the palette ("Night theme",
 "default theme"), kept for the next run in `tui.json`. They're made for a dark terminal. For a

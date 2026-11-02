@@ -1,3 +1,4 @@
+import { SPACE_KINDS, type SpaceKind } from '#lib/capabilities.ts';
 import { ROOT_SPACE_KEY, SELF_SPACE_KEY, SPACE_TYPE, type SpaceType } from '#lib/nsid.ts';
 
 export type SpaceRefParts = { authority: string; type: string; skey: string };
@@ -91,6 +92,23 @@ export function epkSpace(authority: string, rkey: string): string {
 /** A project's backstage: under the root, with the project record's key. */
 export function backstageSpace(rootDid: string, projectRkey: string): string {
 	return spaceUri(rootDid, SPACE_TYPE.backstage, projectRkey);
+}
+
+/** The space type of each kind of shared space: a performer's, party's or venue's, under the root. */
+export const SHARED_SPACE_TYPES = {
+	performer: SPACE_TYPE.performer,
+	party: SPACE_TYPE.party,
+	venue: SPACE_TYPE.venue
+} as const satisfies Record<SpaceKind, SpaceType>;
+
+/** A performer's, party's or venue's space: under the root, with a key of its own. */
+export function sharedSpace(rootDid: string, kind: SpaceKind, skey: string): string {
+	return spaceUri(rootDid, SHARED_SPACE_TYPES[kind], skey);
+}
+
+/** The kind of shared space a space type is for, or null for any other type. */
+export function sharedSpaceKind(type: string): SpaceKind | null {
+	return SPACE_KINDS.find((kind) => SHARED_SPACE_TYPES[kind] === type) ?? null;
 }
 
 export function isSpaceType(value: string): value is SpaceType {

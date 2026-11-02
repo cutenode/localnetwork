@@ -55,10 +55,12 @@ fn analyses_serialise_as_their_schema_describes(tc: TestCase) {
         color: hot_cue_palette(tc.draw(gs::integers())),
         color_id: tc.draw(gs::integers::<u8>().max_value(8)),
         loop_beats,
+        active_loop: tc.draw(gs::booleans()),
     };
     let json = serde_json::to_value(&cue).unwrap();
     let expected = loop_beats.map_or(serde_json::Value::Null, |(n, d)| serde_json::json!([n, d]));
     assert_eq!(json["loop_beats"], expected);
+    assert_eq!(json["active_loop"], cue.active_loop);
     assert_eq!(json["hot_cue"], serde_json::json!(hot_cue));
     assert_eq!(json["comment"], cue.comment.as_str());
 
@@ -146,7 +148,12 @@ fn beats_and_cues_read_back() {
         color: Some([0xe6, 0x28, 0x28]),
         color_id: 0,
         loop_beats: Some((1, 2)),
+        active_loop: true,
     };
     let json = serde_json::to_string(&(beat, &cue)).unwrap();
-    assert_eq!(serde_json::from_str::<(Beat, Cue)>(&json).unwrap(), (beat, cue));
+    assert_eq!(serde_json::from_str::<(Beat, Cue)>(&json).unwrap(), (beat, cue.clone()));
+    // From a host that doesn't send whether a loop is active, it isn't.
+    let mut older = serde_json::to_value(&cue).unwrap();
+    older.as_object_mut().unwrap().remove("active_loop");
+    assert_eq!(serde_json::from_value::<Cue>(older).unwrap(), Cue { active_loop: false, ..cue });
 }

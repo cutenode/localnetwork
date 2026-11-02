@@ -211,7 +211,7 @@ impl OneLibrary {
         }
         let columns = self.columns("cue")?;
         let mut changes = CueRowChanges::default();
-        let tx = self.conn.transaction()?;
+        let tx = self.conn.savepoint()?;
         // Taken before removing anything, so a removed cue's id never comes back as another cue.
         let mut next_id: i64 = tx.query_row("SELECT coalesce(max(cue_id), 0) + 1 FROM cue", [], |r| r.get(0))?;
         let mut lists: Vec<i64> = Vec::new();

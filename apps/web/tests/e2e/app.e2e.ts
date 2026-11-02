@@ -1,6 +1,7 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Page, type Route, test } from '@playwright/test';
 import headline from '../../src/lib/headline.json' with { type: 'json' };
 import { z } from 'zod';
+import { signIn } from '../sign-in.ts';
 import { expectAccessible } from './axe.ts';
 
 /**
@@ -29,20 +30,6 @@ function keepPdsCookies(page: Page) {
 
 test.beforeEach(({ page }) => keepPdsCookies(page));
 
-/** Signs in through the local PDS's OAuth screens with a seeded test account. */
-async function signIn(page: Page, handle: string, password: string, next = '/dashboard') {
-	await page.goto(`/login?next=${encodeURIComponent(next)}`);
-	await page.waitForLoadState('networkidle');
-	await page.getByPlaceholder('alice.bsky.social').fill(handle);
-	await page.getByRole('button', { name: 'Continue' }).click();
-	await page.locator('input[type="password"]').fill(password);
-	await page.getByRole('button', { name: 'Sign in' }).click();
-	await page.getByRole('button', { name: 'Authorize' }).click();
-	const target = new URL(next, 'http://127.0.0.1:5199');
-	await page.waitForURL((url) => url.port === '5199' && url.pathname === target.pathname);
-	await page.waitForLoadState('networkidle');
-}
-
 /**
  * Signs out from the dashboard and waits for the redirect home: /logout records the audit entry and
  * revokes the OAuth session first, and a sign-in started before it finishes would find the old session.
@@ -51,6 +38,26 @@ async function signOut(page: Page) {
 	await page.goto('/dashboard');
 	await page.getByRole('button', { name: 'Sign out' }).click();
 	await page.waitForURL((url) => url.pathname === '/');
+}
+
+/**
+ * Opens `path` with its scripts held back and runs `act` on the server-rendered page, as someone on a slow
+ * connection can, then lets the page hydrate.
+ */
+async function beforeHydration(page: Page, path: string, act: () => Promise<void>) {
+	const { promise: released, resolve: release } = Promise.withResolvers<void>();
+
+	const holdScripts = async (route: Route) => {
+		if (route.request().resourceType() === 'script') await released;
+		await route.fallback();
+	};
+
+	await page.route('**/*', holdScripts);
+	await page.goto(path);
+	await act();
+	release();
+	await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+	await page.unroute('**/*', holdScripts);
 }
 
 test.describe('public pages', () => {
@@ -83,8 +90,49 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 		await page.getByRole('link', { name: 'Halflight' }).click();
 		await expect(page.getByRole('heading', { name: 'Halflight' })).toBeVisible();
-		await expect(page.getByText('Sign in to see booking contacts')).toBeVisible();
+		await expect(page.getByText('Contacts, rates and the tech rider come with a press kit.')).toBeVisible();
+		await expect(page.getByRole('link', { name: 'See the press kits' })).toHaveAttribute(
+			'href',
+			'/projects/halflight/press-kits'
+		);
 		await expectAccessible(page);
+	});
+
+	test('directory filters opened before the page hydrates stay open', async ({ page }) => {
+		await beforeHydration(page, '/projects', async () => {
+			// A phone folds the whole panel away first.
+			const panel = page.locator('summary', { hasText: /^\s*Filters/ });
+
+			if (await panel.isVisible()) await panel.click();
+			await page.locator('summary', { hasText: 'More filters' }).click();
+		});
+		await expect(page.getByRole('group', { name: 'Format' })).toBeVisible();
+	});
+
+	test('directory filters set before the page hydrates stay set', async ({ page }) => {
+		const search = page.getByLabel('Search');
+		const chip = page.getByRole('group', { name: 'Fee tier' }).getByRole('checkbox').first();
+		const sort = page.getByLabel('Sort by');
+
+		await beforeHydration(page, '/projects', async () => {
+			const panel = page.locator('summary', { hasText: /^\s*Filters/ });
+
+			if (await panel.isVisible()) await panel.click();
+			await search.fill('techno');
+			await chip.locator('xpath=..').click();
+			await sort.selectOption('name');
+		});
+		await expect(search).toHaveValue('techno');
+		await expect(chip).toBeChecked();
+		await expect(sort).toHaveValue('name');
+
+		// Kept filters apply, and the form follows the page when they're cleared.
+		await page.getByRole('button', { name: 'Apply' }).click();
+		await expect(page).toHaveURL(/[?&]q=techno(&|$)/);
+		await page.getByRole('link', { name: 'Clear filters' }).first().click();
+		await expect(page).toHaveURL(/\/projects$/);
+		await expect(search).toHaveValue('');
+		await expect(chip).not.toBeChecked();
 	});
 
 	test('a profile shows how the DJ plays, and its press kit prints', async ({ page }) => {
@@ -93,7 +141,7 @@ test.describe('public pages', () => {
 		await expect(page.getByText('126–134')).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Recent sets' })).toBeVisible();
 		await expectAccessible(page);
-		await page.getByRole('link', { name: 'Press kits' }).click();
+		await page.getByRole('link', { name: 'Press kits', exact: true }).click();
 		await expect(page).toHaveURL(/\/projects\/neon-tide\/press-kits$/);
 		await expect(page.getByRole('heading', { level: 1, name: 'Neon Tide' })).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Sound' })).toBeVisible();
@@ -164,26 +212,157 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 	});
 
+	test('each tool shows itself at work, a capture per hot cue, with its guides a step away', async ({ page }) => {
+		const loaded = (name: string | RegExp) =>
+			expect
+				.poll(() =>
+					page.getByRole('img', { name }).evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth)
+				)
+				.toBeGreaterThan(0);
+
+		await page.goto('/tools');
+		await loaded(/^locallibrary playing a track/);
+		await loaded(/^A SoundCloud playlist with localtoolbox's marks/);
+		await expectAccessible(page);
+		await page.getByRole('link', { name: 'See what locallibrary does' }).click();
+		await expect(page).toHaveURL(/\/tools\/locallibrary$/);
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+
+		const panel = page.getByRole('tabpanel');
+		const height = await panel.evaluate((element) => element.getBoundingClientRect().height);
+		await expect(page.getByRole('tab', { name: 'A Play' })).toHaveAttribute('aria-selected', 'true');
+		await page.getByRole('tab', { name: 'D Check' }).click();
+		await expect(panel.getByRole('heading', { name: 'Check' })).toBeVisible();
+		await loaded(/^locallibrary check on a drive/);
+		await page.keyboard.press('End');
+		await expect(page.getByRole('tab', { name: 'G Report' })).toBeFocused();
+		// Every cue's box is laid out from the start, so picking another moves nothing on the page.
+		expect(await panel.evaluate((element) => element.getBoundingClientRect().height)).toBe(height);
+		await expectAccessible(page);
+
+		const guides = page.getByRole('button', { name: /^Guides/ });
+
+		if (await guides.isVisible()) await guides.click();
+		await page
+			.getByRole('navigation', { name: 'Guides' })
+			.getByRole('link', { name: 'Installing locallibrary' })
+			.click();
+		await expect(page.getByRole('heading', { level: 1, name: 'Installing locallibrary' })).toBeVisible();
+		await expect(
+			page.getByRole('navigation', { name: 'More guides' }).getByRole('link', { name: /^Previous/ })
+		).toHaveAttribute('href', '/tools/locallibrary/docs/readme');
+		await expectAccessible(page);
+	});
+
+	test('the hot cues jump without moving when motion is reduced', async ({ page }) => {
+		await page.emulateMedia({ reducedMotion: 'reduce' });
+		await page.goto('/tools/localtoolbox');
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		await expect(page.getByTestId('playhead')).toHaveCSS('transition-property', 'none');
+	});
+
 	test("a profile's sets link their artists to who played them", async ({ page }) => {
-		await page.goto('/projects/neon-tide');
-		await page.locator('summary', { hasText: 'Tracklist' }).first().click();
-		await page.getByRole('link', { name: 'Kestrel Unit' }).first().click();
+		// The sets render with the page once the server has them cached (otherwise they stream in after it
+		// hydrates), and a tracklist opened before the page hydrates stays open.
+		await page.request.get('/projects/neon-tide');
+		await beforeHydration(page, '/projects/neon-tide', () =>
+			page.locator('summary', { hasText: 'Tracklist' }).first().click()
+		);
+		const artist = page.getByRole('link', { name: 'Kestrel Unit' }).first();
+		await expect(artist).toBeVisible();
+		await artist.click();
 		await expect(page).toHaveURL(/\/artists\/name\/Kestrel%20Unit$/);
 		await expect(page.getByRole('heading', { level: 1, name: 'Kestrel Unit' })).toBeVisible();
 		await expectAccessible(page);
 	});
 
-	test('staff pages and the dashboard require sign-in', async ({ page }) => {
+	test("link previews get every public page's title and address without running scripts", async ({ request }) => {
+		// What an unfurler reads: the HTML as served, before any script runs.
+		const head = async (path: string) => {
+			const response = await request.get(path);
+			expect(response.status(), path).toBe(200);
+			const html = (await response.text()).split('</head>')[0];
+
+			const property = (name: string) =>
+				html.match(new RegExp(`<meta (?:property|name)="${name}" content="([^"]*)"`))?.[1];
+
+			return {
+				titles: html.match(/<title>/g)?.length ?? 0,
+				canonical: html.match(/<link rel="canonical" href="([^"]*)"/)?.[1],
+				robots: response.headers()['x-robots-tag'],
+				jsonLd: [...html.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/gs)].map(([, json]) => json),
+				property
+			};
+		};
+
+		for (const path of [
+			'/',
+			'/about',
+			'/for-djs',
+			'/privacy',
+			'/match',
+			'/projects',
+			'/shows',
+			'/artists',
+			'/charts',
+			'/tools',
+			'/tools/locallibrary',
+			'/tools/locallibrary/docs/readme',
+			'/projects/neon-tide',
+			'/projects/neon-tide/press-kits',
+			'/@neon.test'
+		]) {
+			const page = await head(path);
+			expect(page.titles, path).toBe(1);
+			expect(page.property('og:title'), path).toBeTruthy();
+			expect(page.property('description'), path).toBeTruthy();
+			expect(page.property('og:url'), path).toBe(page.canonical);
+			expect(new URL(page.canonical ?? '').pathname, path).toBe(path);
+			expect(page.robots, path).toBeUndefined();
+		}
+
+		// A performer's picture is their card, drawn on the server, which crawlers fetch as a PNG.
+		const performer = await head('/projects/neon-tide');
+		const card = await request.get(new URL(performer.property('og:image') ?? '').pathname);
+		expect(card.status()).toBe(200);
+		expect(card.headers()['content-type']).toBe('image/png');
+		expect(performer.property('og:image:width')).toBe('1200');
+		expect(performer.property('twitter:card')).toBe('summary_large_image');
+
+		// Search engines read who a performer's page is about from its structured data, in the HTML as served.
+		expect(performer.jsonLd).toHaveLength(1);
+		expect(JSON.parse(performer.jsonLd[0] ?? '')).toMatchObject({
+			'@context': 'https://schema.org',
+			'@type': 'ProfilePage',
+			mainEntity: { '@type': 'MusicGroup', name: 'Neon Tide' }
+		});
+
+		// The artist's name reaches the head, not a placeholder written before the plays were counted. The demo sets
+		// reach the directory in a backfill after the app first syncs it, so this waits for them.
+		await expect(async () => {
+			expect((await head('/artists/7d0b9c12-5e64-4f3a-8b21-c4e9a6f05d72')).property('og:title')).toBe('Mira Okonkwo');
+		}).toPass({ timeout: 60_000 });
+
+		expect((await request.get('/login')).headers()['x-robots-tag']).toBe('noindex');
+	});
+
+	test('staff pages and the dashboard require sign-in', async ({ page, request }) => {
 		await page.goto('/admin');
 		await expect(page).toHaveURL(/\/login\?next=%2Fadmin/);
 		await expectAccessible(page);
 		await page.goto('/dashboard/bookings?tab=open');
 		await expect(page).toHaveURL(/\/login\?next=%2Fdashboard%2Fbookings%3Ftab%3Dopen$/);
-		// Routes match the decoded path, so an encoded one is the same page and needs sign-in too.
-		await page.goto('/%64ashboard/bookings');
-		await expect(page).toHaveURL(/\/login\?next=%2F%2564ashboard%2Fbookings$/);
-		await page.goto('/%61dmin');
-		await expect(page).toHaveURL(/\/login\?next=%2F%2561dmin$/);
+
+		// Routes match the decoded path, so an encoded one is the same page and needs sign-in too. Sent
+		// without a browser: WebKit decodes `%64` to `d` before it sends the request.
+		for (const [path, next] of [
+			['/%64ashboard/bookings', '%2F%2564ashboard%2Fbookings'],
+			['/%61dmin', '%2F%2561dmin']
+		]) {
+			const response = await request.get(path, { maxRedirects: 0 });
+			expect(response.status()).toBe(303);
+			expect(response.headers().location).toBe(`/login?next=${next}`);
+		}
 	});
 
 	test('serves OAuth client metadata and the syncer DID document', async ({ request }) => {
@@ -215,12 +394,15 @@ test.describe('signed in', () => {
 		await page.getByRole('link', { name: /Changes: Saffron Social/ }).click();
 		await expect(page.getByText(tagline)).toBeVisible();
 		await expectAccessible(page);
+		await page.getByRole('radio', { name: 'Approve and publish' }).check();
 		await page.getByRole('button', { name: 'Submit decision' }).click();
 		await expect(page.getByText('Approved and published')).toBeVisible();
 
 		await page.goto('/admin/audit');
-		// The newest entry; earlier projects' approvals read the same.
-		await expect(page.getByText("Approved @neon.test's change request for Saffron Social").first()).toBeVisible();
+		// The newest entry; earlier projects' approvals read the same. A phone shows entries as cards, a desktop as rows.
+		await expect(
+			page.getByText("Approved @neon.test's change request for Saffron Social").filter({ visible: true }).first()
+		).toBeVisible();
 		await page.getByRole('button', { name: 'Verify chain' }).click();
 		await expect(page.getByText(/entries verified/)).toBeVisible();
 		await expectAccessible(page);
@@ -228,6 +410,41 @@ test.describe('signed in', () => {
 		await page.goto('/projects/saffron-social');
 		await expect(page.getByText(tagline)).toBeVisible();
 		await expectAccessible(page);
+	});
+
+	test('a DJ asks to be listed in Find DJs, staff list them, and they show up there', async ({ page }) => {
+		await signIn(page, 'neon.test', 'neon-pass', '/dashboard/profile');
+		await expect(page.getByRole('heading', { level: 1, name: 'Your profile' })).toBeVisible();
+		await expectAccessible(page);
+		await page.getByRole('button', { name: 'Ask to be listed' }).click();
+		await expect(page.getByText('Submitted. A moderator will review it soon')).toBeVisible();
+		await signOut(page);
+
+		await signIn(page, 'ada.test', 'ada-pass', '/admin/requests?kind=list');
+		await page.getByRole('link', { name: 'Listing: @neon.test' }).first().click();
+		await expect(page.getByRole('heading', { name: 'Profile to list' })).toBeVisible();
+		// neon.test manages Neon Tide alone, so its card gives way to their profile once they're listed.
+		await expect(page.getByText(/They also manage Neon Tide, a solo project/)).toBeVisible();
+		await expectAccessible(page);
+		await page.getByRole('radio', { name: 'Approve and list' }).check();
+		await page.getByRole('button', { name: 'Submit decision' }).click();
+		await expect(page.getByText('Approved and listed in Find DJs')).toBeVisible();
+
+		await page.goto('/projects?q=neon');
+		await expect(page.getByRole('link', { name: 'Neon', exact: true })).toHaveAttribute('href', '/@neon.test');
+		await expect(page.getByRole('link', { name: 'Neon Tide', exact: true })).toHaveCount(0);
+		await expectAccessible(page);
+
+		// Staff's Manage link on the profile goes to the listing, which takes them out again for the next browser's run.
+		await page.goto('/@neon.test');
+		await page.getByRole('link', { name: 'Manage' }).click();
+		await expect(page.getByText(/Listed in Find DJs since/)).toBeVisible();
+		await expectAccessible(page);
+		page.once('dialog', (dialog) => dialog.accept());
+		await page.getByRole('button', { name: 'Take out of Find DJs' }).click();
+		await expect(page.getByText('Taken out of Find DJs')).toBeVisible();
+		await page.goto('/projects?q=neon');
+		await expect(page.getByRole('link', { name: 'Neon Tide', exact: true })).toBeVisible();
 	});
 
 	test("a project's manager goes from its public page to its dashboard, and others can't", async ({ page }) => {
@@ -502,6 +719,44 @@ test.describe('keeps what people entered', () => {
 		await expect(page.getByText('Request withdrawn')).toBeVisible();
 	});
 
+	test('the profile and press kit editors keep what was entered before the page hydrated', async ({ page }) => {
+		await signIn(page, 'neon.test', 'neon-pass');
+
+		const tagline = page.getByLabel('Tagline');
+		const bio = page.getByLabel('Bio', { exact: true });
+		const modular = page.locator('input[name="formats"][value="modular"]');
+		const fee = page.getByLabel('What this fee covers').first();
+
+		await beforeHydration(page, '/dashboard/projects/neon-tide/profile', async () => {
+			await tagline.fill('Typed before the script loaded');
+			await bio.fill('A bio typed early');
+			await modular.locator('xpath=..').click();
+			await fee.fill('Warehouse nights');
+		});
+		await expect(tagline).toHaveValue('Typed before the script loaded');
+		await expect(bio).toHaveValue('A bio typed early');
+		await expect(modular).toBeChecked();
+		await expect(fee).toHaveValue('Warehouse nights');
+
+		const kitHeadline = page.getByLabel('Headline');
+		const longBio = page.getByLabel('Full bio');
+		const open = page.getByRole('radio', { name: /^Open/ });
+		const quote = page.getByLabel('Quote 1', { exact: true });
+
+		await beforeHydration(page, '/dashboard/projects/neon-tide/press-kits/new', async () => {
+			await kitHeadline.fill('Typed before the script loaded');
+			await longBio.fill('A full bio typed early');
+			await open.check();
+			await quote.fill('Relentless');
+		});
+		await expect(kitHeadline).toHaveValue('Typed before the script loaded');
+		await expect(longBio).toHaveValue('A full bio typed early');
+		await expect(open).toBeChecked();
+		await expect(quote).toHaveValue('Relentless');
+		// Picking a preset before the script loaded still sets the rules it stands for.
+		await expect(page.getByRole('radio', { name: 'Anyone signed in: Approved automatically' })).toBeChecked();
+	});
+
 	test('a claim can change its relationship and links when revised', async ({ page }) => {
 		await signIn(page, 'pat.test', 'pat-pass', '/dashboard/claim/halflight');
 		await expectAccessible(page);
@@ -542,6 +797,52 @@ test.describe('keeps what people entered', () => {
 		await expect(page.locator('#title')).toHaveValue('Echo Night');
 		await expect(page.locator('#venue')).toHaveValue('The Lot');
 		await expect(page.locator('#notes')).toHaveValue('Bring records');
+	});
+
+	test('an inquiry from a planner show starts from its details, and keeps an unsent message', async ({ page }) => {
+		await signIn(page, 'pat.test', 'pat-pass');
+		await page.goto('/match?go=1&title=Rooftop%20Rave&date=2026-12-19&lat=52.52&lng=13.405&radius=50&genres=techno');
+		await page.waitForLoadState('networkidle');
+		await page.locator('ol > li').filter({ hasText: 'Neon Tide' }).getByLabel('Lineup').check();
+		await page.getByRole('button', { name: 'Save show to planner' }).click();
+		await page.getByRole('link', { name: 'Inquire with Neon Tide' }).click();
+		await expect(page.locator('#title')).toHaveValue('Rooftop Rave');
+		await expect(page.locator('#date')).toHaveValue('2026-12-19');
+		await expect(page.getByText('in your planner')).toBeVisible();
+
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		await page.locator('#message').fill('Would you close our rooftop night?');
+		await page.reload();
+		await expect(page.locator('#message')).toHaveValue('Would you close our rooftop night?');
+		await expect(page.getByRole('status').filter({ hasText: 'unsent changes' })).toBeVisible();
+		await expectAccessible(page);
+
+		// Signing out drops it, so the next person on this browser doesn't find it, even when Sign out is
+		// pressed before the dashboard's scripts have run.
+		const inquiry = page.url();
+
+		const holdScripts = (route: Route) =>
+			route.request().resourceType() === 'script' ? route.abort() : route.fallback();
+
+		await page.route('**/*', holdScripts);
+		await page.goto('/dashboard');
+		await page.unroute('**/*', holdScripts);
+		await expect(page.locator('html')).not.toHaveAttribute('data-hydrated');
+		await page.getByRole('button', { name: 'Sign out' }).click();
+		await page.waitForURL((url) => url.pathname === '/');
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		const drafts = () => Object.keys(localStorage).filter((key) => key.startsWith('ln:draft:'));
+		expect(await page.evaluate(drafts)).toEqual([]);
+		await signIn(page, 'pat.test', 'pat-pass', new URL(inquiry).pathname + new URL(inquiry).search);
+		await expect(page.locator('#title')).toHaveValue('Rooftop Rave');
+		await page.locator('#message').fill('Would you close our rooftop night?');
+
+		await page.getByRole('button', { name: 'Send inquiry' }).click();
+		await expect(page.getByRole('heading', { name: 'Rooftop Rave' })).toBeVisible();
+		// Sent, the draft is gone.
+		await page.goto(inquiry);
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		await expect(page.locator('#message')).toHaveValue('');
 	});
 
 	test('a failed save from the matcher keeps the search and the lineup picks', async ({ page }) => {

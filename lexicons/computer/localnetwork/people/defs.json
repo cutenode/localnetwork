@@ -1,0 +1,38 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.people.defs",
+	"description": "What the people in a performer's, party's or venue's space can do there.",
+	"defs": {
+		"capability": {
+			"type": "string",
+			"maxLength": 64,
+			"description": "One thing someone can do for a performer, party or venue. page.edit: edit its page. people.manage: add, change and remove its people. listing.request: ask staff to list it in the directory. presskits.manage: edit its press kits and decide who sees them. bookings.answer: answer booking inquiries. shows.manage: announce its shows. events.manage: run its events. bookings.send: send booking inquiries for it. guests.manage: approve guests, run the waitlist and message guests. guests.checkin: check guests in at the door. venue.approve: approve events that name the venue. venue.block: block profiles, acts and parties from naming the venue.",
+			"knownValues": [
+				"page.edit",
+				"people.manage",
+				"listing.request",
+				"presskits.manage",
+				"bookings.answer",
+				"shows.manage",
+				"events.manage",
+				"bookings.send",
+				"guests.manage",
+				"guests.checkin",
+				"venue.approve",
+				"venue.block"
+			]
+		},
+		"role": {
+			"type": "string",
+			"maxLength": 32,
+			"description": "A named starting set of capabilities. Performers have members and managers, parties have hosts, cohosts and door staff, and venues have owners and bookers.",
+			"knownValues": ["member", "manager", "host", "cohost", "door", "owner", "booker"]
+		},
+		"capabilities": {
+			"type": "array",
+			"maxLength": 32,
+			"description": "Everything someone can do, in full: their role's capabilities with any changes made for them since.",
+			"items": { "type": "ref", "ref": "#capability" }
+		}
+	}
+}

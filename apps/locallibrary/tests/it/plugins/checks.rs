@@ -308,6 +308,8 @@ fn prep_stops_on_a_plugins_problems_never_on_its_failing() {
         assert_eq!((failed, &with["problems"], &with["stopped"]), (code, &report["problems"], &Value::Null), "{with}");
         assert_eq!((mine.len(), &mine[0]["level"]), (1, &json!("warning")), "{answer}");
     }
+    // Long enough to answer on a busy machine: out of time, the problem would be a warning.
+    env.ok(&["--yes", "plugin", "checks", "--timeout", "60"]);
     let (stopped, with, _) = prep(json!({ "findings": [{ "level": "problem", "message": "unplayable" }] }));
     assert_eq!((stopped, &with["problems"]), (4, &json!(true)), "{with}");
 }
@@ -374,14 +376,15 @@ fn a_blocking_guard_stops_an_import() {
     assert!(again.contains("add My Tag Genre/Echo to 1 track(s)"), "not imported: {again}");
 }
 
-/// The command line a fix runs with escapes the C1 control characters (U+0080 to U+009F) JSON
-/// leaves as they are, which some terminals act on: the same JSON, shown safely.
+/// The command line a fix runs with has none of the C1 control characters (U+0080 to U+009F) JSON
+/// leaves as they are, which some terminals act on: the host takes in the plugin's params
+/// printable.
 #[test]
-fn a_fixs_command_line_escapes_c1_control_characters() {
+fn a_fixs_command_line_has_no_c1_control_characters() {
     let env = env();
     let fix = json!({ "operation": "playlist", "params": { "name": "a\u{85}b\u{9b}2J" } });
     find(&env, json!({ "findings": [{ "level": "warning", "message": "odd", "fix": fix }] }));
     let shown = env.run(&["check", "USB"]).out;
-    assert!(shown.contains(r#"--params '{"name":"a\u0085b\u009b2J"}'"#), "{shown:?}");
+    assert!(shown.contains(r#"--params '{"name":"ab2J"}'"#), "{shown:?}");
     assert!(!shown.contains(['\u{85}', '\u{9b}']), "{shown:?}");
 }

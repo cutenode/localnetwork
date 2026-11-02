@@ -1,5 +1,7 @@
 /** View models shared between server and browser code. */
 
+import type { Capability, SpaceKind } from './capabilities.ts';
+
 export type BlobRefJson = { $type: 'blob'; ref: { $link: string }; mimeType: string; size: number };
 
 export type Location = {
@@ -24,6 +26,8 @@ export type ProjectMix = {
 	tracklist?: BlobRefJson;
 	/** The manager's `computer.localnetwork.dj.set` this mix records. */
 	set?: StrongRef;
+	/** The manager's `fm.plyr.track` the mix plays from, when `url` is that track on plyr.fm (see services/mix-recordings.ts). */
+	recording?: StrongRef;
 };
 
 /** A DJ's set as the directory serves it (`computer.localnetwork.directory.defs#setView`). */
@@ -103,6 +107,63 @@ export type ProjectProfile = {
 	avatar?: BlobRefJson;
 };
 
+/** Who a profile is (`computer.localnetwork.section.defs#basics`). */
+export type BasicsSection = {
+	name: string;
+	avatar?: BlobRefJson;
+	bio?: string;
+	pronouns?: string;
+	location?: Location;
+	links?: ProjectLink[];
+};
+
+/** What promoters need to book a performer (`#performer`), with the project profile's field names, all optional. */
+export type PerformerSection = Partial<
+	Pick<
+		ProjectProfile,
+		| 'tagline'
+		| 'genres'
+		| 'formats'
+		| 'setTypes'
+		| 'setLength'
+		| 'capacity'
+		| 'fees'
+		| 'travel'
+		| 'mixes'
+		| 'highlights'
+		| 'lookingFor'
+		| 'activeSince'
+	>
+>;
+
+/** Where a promoter books (`#promoter`). */
+export type PromoterSection = { cities?: Location[] };
+
+/** A person's profile (`computer.localnetwork.profile`). A section is on when it's present, even empty. */
+export type ProfileRecord = {
+	basics: BasicsSection;
+	performer?: PerformerSection;
+	promoter?: PromoterSection;
+	createdAt: string;
+	updatedAt: string;
+};
+
+/** A person's profile as the site shows it, read from what the directory indexed. */
+export type ProfileView = {
+	did: string;
+	uri: string;
+	cid: string;
+	record: ProfileRecord;
+	/** The avatar through this site's `/media`, or null without one. */
+	avatarUrl: string | null;
+};
+
+/** A DJ Find DJs lists: their profile, handle, the genres they were found by, and how far they are from the place searched. */
+export type ListedDj = { profile: ProfileView; handle: string | null; genres: string[]; distanceKm?: number };
+
+/** One Find DJs result: a published project, or a listed DJ. */
+export type PerformerResult = { kind: 'project'; project: ProjectView } | { kind: 'dj'; dj: ListedDj };
+
 export type ProjectDetails = {
 	bookingEmail?: string;
 	bookingPhone?: string;
@@ -145,10 +206,24 @@ export type ProjectFormValues = ProjectDetails & {
 	mixes?: ProjectMix[];
 	highlights?: string;
 	lookingFor?: string;
+	/** A promoter's cities, one row each (the profile form's promoter section). */
+	cities?: CityFormRow[];
 	message?: string;
 	/** Fields only some forms have, like the admin form's `managers`, echo back as text too. */
-	[field: string]: string | number | boolean | string[] | ProjectLink[] | ProjectMix[] | FeeFormRow[] | undefined;
+	[field: string]:
+		| string
+		| number
+		| boolean
+		| string[]
+		| ProjectLink[]
+		| ProjectMix[]
+		| FeeFormRow[]
+		| CityFormRow[]
+		| undefined;
 };
+
+/** A city row in the profile form, as the text its inputs hold. */
+export type CityFormRow = { city: string; region: string; country: string };
 
 export type ProjectStatus = 'active' | 'hidden' | 'archived';
 
@@ -178,7 +253,15 @@ export type ProjectView = {
 	updatedAt: string;
 	avatarUrl: string | null;
 	distanceKm?: number | null;
+	/** Only from a lookup that asked for them (ProjectService.bySlug with `counts`). */
+	counts?: ProjectCounts;
 };
+
+/**
+ * How many press kits and upcoming shows a project's pages list, at most as many as they show, known before those
+ * lists stream in so their placeholders hold that much room.
+ */
+export type ProjectCounts = { pressKits: number; upcomingShows: number };
 
 export type AccountView = { did: string; handle: string | null };
 
@@ -213,7 +296,7 @@ export type ShowView = {
 /** A project's follower count, and whether the viewer is one of them. */
 export type FollowState = { followers: number; following: boolean };
 
-export type RequestKind = 'create' | 'claim' | 'update';
+export type RequestKind = 'create' | 'claim' | 'update' | 'list';
 
 export type RequestStatus = 'pending' | 'approved' | 'rejected' | 'changes_requested' | 'withdrawn';
 
@@ -226,6 +309,8 @@ export type RequestRecord = {
 	profile?: ProjectProfile;
 	details?: ProjectDetails;
 	claim?: ClaimEvidence;
+	/** For a list request: the profile to list, and the version it was asked for with. */
+	listing?: { subject: string; cid?: string };
 	message?: string;
 	onBehalfOf?: string;
 	withdrawnAt?: string;
@@ -251,6 +336,17 @@ export type RequestView = {
 };
 
 export type StaffRole = 'admin' | 'moderator';
+
+/** A staff role. `bootstrap` ones come from `ADMIN_DIDS` and have no record. */
+export type StaffMember = {
+	did: string;
+	handle: string | null;
+	role: StaffRole;
+	grantedBy: string | null;
+	note: string | null;
+	createdAt: string | null;
+	bootstrap: boolean;
+};
 
 /** A Bluesky verification (`app.bsky.graph.verification`) the root account issued: who, under what handle and name. */
 export type IssuedVerification = {
@@ -317,6 +413,45 @@ export type BookingEventView = {
 	show?: ShowDetails;
 };
 
+/** What an inbox item is about, which its icon shows. Email and DM opt-ins choose among these too. */
+export type NotificationTopic = 'bookings' | 'guests' | 'waitlist' | 'events';
+
+/** Where the inbox is also sent, when someone opts in. */
+export type NotificationChannel = 'email' | 'dm';
+
+/** Why a channel stopped sending, which the settings page explains. */
+export type PausedReason =
+	| 'address_rejected'
+	| 'email_unconfirmed'
+	| 'email_unverified'
+	/** Bluesky chat won't deliver the root's DMs to them: they don't follow it, or allow no DMs. */
+	| 'dm_not_allowed';
+
+/**
+ * Whether the root account can DM someone on Bluesky now: yes, not until they change their chat settings or follow
+ * it, or unknown because Bluesky chat didn't answer.
+ */
+export type DmAvailability = 'ok' | 'not_allowed' | 'unavailable';
+
+/** One person's setting for a channel, as the settings page shows it. */
+export type ChannelView = {
+	status: 'active' | 'paused';
+	pausedReason: PausedReason | null;
+	address: string | null;
+	topics: NotificationTopic[];
+};
+
+/** One item in someone's inbox, rendered from what happened. `topic` is null for a kind this version doesn't know. */
+export type NotificationView = {
+	id: string;
+	topic: NotificationTopic | null;
+	title: string;
+	body?: string;
+	href: string;
+	occurredAt: string;
+	read: boolean;
+};
+
 export type PlannerSaveView = { rkey: string; project: string; note?: string; createdAt: string };
 
 export type PlannerShowView = {
@@ -326,3 +461,32 @@ export type PlannerShowView = {
 	createdAt: string;
 	updatedAt?: string;
 };
+
+/** Someone in a performer's, party's or venue's space. */
+export type SpacePerson = AccountView & {
+	role: string;
+	capabilities: Capability[];
+	hidden: boolean;
+	via: string;
+	addedBy: string | null;
+	createdAt: string;
+	updatedAt: string;
+};
+
+/** A performer's, party's or venue's space, as the staff console lists them. */
+export type SharedSpaceSummary = {
+	uri: string;
+	kind: SpaceKind;
+	skey: string;
+	listed: boolean;
+	/** How many people are in it, hidden ones included. */
+	people: number;
+	createdBy: AccountView;
+	createdAt: string;
+};
+
+/** An invite to a space nobody has answered yet. */
+export type PendingInvite = AccountView & { role: string; createdAt: string; expiresAt: string | null };
+
+/** A request to join a space waiting on an answer. */
+export type JoinRequestView = AccountView & { message: string | null; createdAt: string };

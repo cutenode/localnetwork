@@ -42,8 +42,8 @@ use crate::store::{LibraryRecord, SnapshotLabel, Store};
 use crate::{Error, Result};
 
 /// The store's own files a copy takes besides stored files, snapshots and `libraries.json`. Not
-/// the account session (`atmosphere*.json`, secrets that stay on this computer), the lock,
-/// caches or reports.
+/// the accounts (`atmosphere*.json`, `accounts.json` and their secrets, which stay on this
+/// computer), the locks, caches or reports.
 const METADATA: &[&str] = &[
     "drives.json",
     "settings.json",
@@ -134,6 +134,18 @@ pub struct CopyStatus {
 /// The copy record a store holds when it is itself a copy.
 pub fn marker(root: &Path) -> Result<Option<CopyRecord>> {
     fsutil::read_json_opt(&root.join("copy.json"))
+}
+
+/// What to say before a change is made to the store at `root` when it's a copy `store copy`
+/// made: the next copy to it refuses what changed unless forced. `None` for any other store.
+pub fn written_copy_warning(root: &Path) -> Option<String> {
+    let copy = marker(root).ok()??;
+    Some(format!(
+        "{} is a copy of the store at {}: a change written to it makes the next `store copy` there refuse unless \
+         forced (--force)",
+        root.display(),
+        copy.from.display()
+    ))
 }
 
 /// The copies a store has made, most recent first.

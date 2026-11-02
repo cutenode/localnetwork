@@ -133,7 +133,7 @@ fn an_operations_plan_is_stale_once_a_file_it_read_changes() {
 
 #[test]
 fn an_export_is_confirmed_before_it_overwrites() {
-    let f = Fixture::echo();
+    let f = Fixture::exporting();
     let out = f.store.root().parent().unwrap().join("out.m3u");
     let source = ExportSource { drive: "USB".into(), ..ExportSource::default() };
     let plan = |options: Value| {

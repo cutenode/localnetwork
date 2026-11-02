@@ -43,6 +43,7 @@ pub(crate) fn report(plays: &[(u32, f64, f64)]) -> MixReport {
         track_start: 0.0,
         track_end: 200.0,
         tempo: 1.0,
+        speed_range: None,
         played_bpm: None,
         key_lock: None,
         semitones: 0.0,
@@ -362,4 +363,91 @@ fn a_set_is_dated_by_what_knows_best_whatever_it_has(tc: TestCase) {
             assert!(note.is_some_and(|n| n.contains(&seen.to_string()) && n.contains("give the day")));
         }
     }
+}
+
+/// A track whose file no mounted drive holds gets the MusicBrainz IDs the tags of the store's copy
+/// hold, as the latest snapshot of a library keeps it (of the one changed most recently, when
+/// several hold the path, matched in any letter case): none when no library's latest has the
+/// file, its copy is gone, or it has none. A track with IDs already keeps them.
+#[hegel::test(test_cases = 40)]
+fn musicbrainz_ids_come_from_the_store_without_the_drive(tc: TestCase) {
+    use crate::model::LibrarySummary;
+    use crate::progress::Ctx;
+    use crate::store::Snapshot;
+    use crate::tree::FileEntry;
+    use lofty::config::WriteOptions;
+    use lofty::tag::{ItemKey, Tag, TagExt, TagType};
+    use uuid::Uuid;
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("s")).unwrap();
+    let ids = [Uuid::from_u128(1), Uuid::from_u128(2)];
+    // An audio file, tagged with a recording ID or not.
+    let file = |name: &str, id: Option<Uuid>| {
+        let path = dir.path().join(name);
+        std::fs::write(&path, crate::probe::tests::wav(8_000, 16, 0.25)).unwrap();
+        if let Some(id) = id {
+            let mut tag = Tag::new(TagType::Id3v2);
+            tag.insert_text(ItemKey::MusicBrainzRecordingId, id.to_string());
+            tag.save_to_path(&path, WriteOptions::default()).unwrap();
+        }
+        store.import_file(&path, None, &Ctx::silent()).unwrap().0
+    };
+    // A library whose latest snapshot holds `h` at `path`.
+    let library = |name: &str, path: &str, h: Hash| {
+        let lib = store.create_library(name).unwrap();
+        let entry = FileEntry { path: path.into(), size: 0, mtime: 0, class: FileClass::Audio, hash: Some(h) };
+        let s = store
+            .save_snapshot(Snapshot {
+                id: Hash::of(b""),
+                library_id: lib.id,
+                parents: vec![],
+                created: Utc::now(),
+                message: None,
+                source: None,
+                fingerprint: Hash::of(name.as_bytes()),
+                summary: LibrarySummary::default(),
+                lineage: vec![],
+                files: vec![entry],
+            })
+            .unwrap();
+        store.set_head(lib.id, s.id).unwrap();
+    };
+
+    let tagged = tc.draw(gs::booleans());
+    let held = tc.draw(gs::booleans());
+    let kept = tc.draw(gs::booleans());
+    let older = tc.draw(gs::booleans());
+    let had = tc.draw(gs::weighted_booleans(0.2));
+    let path = tc.draw(gs::sampled_from(vec!["Contents/glue.wav", "contents/GLUE.wav"]));
+    let h = file("glue.wav", tagged.then_some(ids[0]));
+    if older {
+        // Changed before the other library: its copy of the path is passed over.
+        library("Older", "Contents/glue.wav", file("other.wav", Some(ids[1])));
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    if held {
+        library("Main", path, h);
+    }
+    if !kept {
+        std::fs::remove_file(store.object_path(&h)).unwrap();
+    }
+    let before = MusicBrainzIds { recording: Some(Uuid::from_u128(3)), ..Default::default() };
+    let mut tracks = vec![
+        SetEntry { file: Some("/Contents/glue.wav".into()), ..SetEntry::added("A - Glue") },
+        SetEntry { file: Some("/Contents/elsewhere.wav".into()), ..SetEntry::added("B - Elsewhere") },
+    ];
+    if had {
+        tracks[0].musicbrainz = before.clone();
+    }
+    read_musicbrainz(&store, &mut tracks, &[]);
+
+    let want = match (had, held, older) {
+        (true, ..) => Some(before.recording.unwrap()),
+        (false, true, _) => (kept && tagged).then_some(ids[0]),
+        (false, false, true) => Some(ids[1]),
+        (false, false, false) => None,
+    };
+    assert_eq!(tracks[0].musicbrainz.recording, want, "tagged {tagged}, held {held}, kept {kept}, older {older}");
+    assert!(tracks[1].musicbrainz.is_empty(), "no library holds it");
 }

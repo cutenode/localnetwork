@@ -52,6 +52,7 @@ fn play(track: &Track, start: f64) -> Play {
         track_start: 0.0,
         track_end: 120.0,
         tempo: 1.0,
+        speed_range: None,
         played_bpm: Some(track.bpm),
         key_lock: None,
         semitones: 0.0,

@@ -92,8 +92,13 @@ fn hosted_metadata_is_a_native_public_client() {
 fn the_published_document_allows_publishing() {
     let doc = client_metadata(CLIENT_ID, &[]).unwrap();
     assert_eq!(check_document(&doc, CLIENT_ID, &publish_scopes()), Ok(()));
-    let mut publish: Vec<String> =
-        lexicon::COLLECTIONS.iter().map(|c| format!("repo:{c}?action=create&action=update")).collect();
+    // Sets and their recordings may be deleted too (`sets delete`), which a server writes as the
+    // bare `repo:<nsid>`.
+    let deletes = |c: &str| [lexicon::SET, lexicon::RECORDING].contains(&c);
+    let mut publish: Vec<String> = lexicon::COLLECTIONS
+        .iter()
+        .map(|&c| if deletes(c) { format!("repo:{c}") } else { format!("repo:{c}?action=create&action=update") })
+        .collect();
     publish.push(format!("rpc:{}", directory::REQUEST_INDEX));
     assert_eq!(PUBLISH_SCOPES.to_vec(), publish);
     // The server grants the permission set's scopes in its place: these, each one jacquard
@@ -108,12 +113,13 @@ fn the_published_document_allows_publishing() {
     for s in PUBLISH_SCOPES {
         assert_eq!(scopes(&["atproto".into(), s.into()]).unwrap().to_normalized_string(), format!("atproto {s}"));
     }
-    // Creating and replacing, and nothing more: not deleting.
+    // Creating and replacing, and nothing more: deleting only sets and their recordings.
     let granted = scopes(&granted).unwrap();
     for c in lexicon::COLLECTIONS {
         assert!(granted.grants(&Scope::repo_create(c).unwrap()) && granted.grants(&Scope::repo_update(c).unwrap()));
-        assert!(!granted.grants(&Scope::repo_delete(c).unwrap()), "{c}");
+        assert_eq!(granted.grants(&Scope::repo_delete(c).unwrap()), deletes(c), "{c}");
     }
+    assert!(!granted.grants(&Scope::repo_create("app.example.thing").unwrap()));
     // A service token for asking the directory to read them again, and for no other method.
     assert!(granted.grants(&Scope::rpc(directory::REQUEST_INDEX).unwrap()));
     assert!(!granted.grants(&Scope::rpc("com.atproto.server.createAccount").unwrap()));
@@ -356,6 +362,20 @@ fn signing_in_only_reaches_public_https_servers() {
     };
     assert!(begin_login(dir.path(), "dj.example.com", &options).unwrap_err().to_string().contains("isn't an https"));
     assert!(listener.accept().is_err(), "no connection was made");
+}
+
+/// The sign-in page a server sends prints as one line: the line breaks and tabs in it are left
+/// out, the control characters at its ends too, and the others percent-encoded, in the link and
+/// the server it names.
+#[test]
+fn a_sign_in_page_prints_as_one_line() {
+    let sent = "https://pds.exa\tmple.com/oauth/authorize?client_id=c&request_uri=urn:x\n\u{1b}[2Jgot\u{7}cha\r\u{7}";
+    let (url, server) = sign_in_page(sent).unwrap();
+    assert_eq!(url, "https://pds.example.com/oauth/authorize?client_id=c&request_uri=urn:x%1B[2Jgot%07cha");
+    assert_eq!(server, "pds.example.com");
+    assert!(!format!("{url}{server}").chars().any(char::is_control));
+    let err = sign_in_page("http://pds.example.com/oauth/authorize").unwrap_err().to_string();
+    assert!(err.starts_with("the account's server sent a sign-in page that can't be opened: "), "{err}");
 }
 
 #[test]

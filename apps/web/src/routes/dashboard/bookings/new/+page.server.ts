@@ -1,7 +1,23 @@
 import { error, redirect } from '@sveltejs/kit';
 import { parseShow } from '#lib/server/forms/show.ts';
 import { act, requireViewer, stringValues, text } from '#lib/server/http.ts';
+import { inquiryDefaults, inquiryValues } from '#lib/shows.ts';
+import type { Viewer } from '#lib/types.ts';
 import type { Actions, PageServerLoad } from './$types';
+
+/** The viewer's planner show `rkey`, to start the inquiry from, or null when it can't be read. */
+async function plannerShow(locals: App.Locals, viewer: Viewer, rkey: string) {
+	if (!rkey || !viewer.spacesCapable) return null;
+
+	try {
+		return await locals.app.planner.show(viewer, rkey);
+	} catch (cause) {
+		// The form still opens, just without the show's details.
+		locals.log.warn({ err: cause, rkey }, 'planner show unavailable for inquiry');
+
+		return null;
+	}
+}
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const viewer = requireViewer(locals, url);
@@ -11,7 +27,14 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 	if (project.managers.includes(viewer.did)) redirect(303, `/projects/${project.slug}`);
 
-	return { project, date: url.searchParams.get('date') ?? '' };
+	// From the planner, the show's details go in; from the matcher, only its date.
+	const show = await plannerShow(locals, viewer, url.searchParams.get('show') ?? '');
+
+	const values = show
+		? inquiryValues(show.details)
+		: { ...inquiryDefaults, date: url.searchParams.get('date')?.slice(0, 10) ?? '' };
+
+	return { project, values, show: show && { rkey: show.rkey, title: show.details.title } };
 };
 
 export const actions: Actions = {

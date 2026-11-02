@@ -15,7 +15,7 @@ use super::*;
 
 /// The echo manifest with an importer, `given`, providing `provides` (TOML's list): the test
 /// plugin answers a JSON file as it is.
-fn given(provides: &str) -> String {
+pub(super) fn given(provides: &str) -> String {
     ECHO.replace(
         "[[contributes.providers]]",
         &format!(
@@ -30,7 +30,7 @@ const EVERYTHING: &str = r#"["fields", "cues", "tags", "sessions"]"#;
 
 impl Fixture {
     /// Imports `read` (what the importer answers) with `options`, from `read.json`.
-    fn import(&self, read: &Value, options: Value) -> Result<Planned<PluginImport>> {
+    pub(super) fn import(&self, read: &Value, options: Value) -> Result<Planned<PluginImport>> {
         let file = self._dir.path().join("read.json");
         std::fs::write(&file, read.to_string()).unwrap();
         self.plugins.import_plan("echo", "given", &file, "USB", options, Some(&self.store), &Ctx::silent())

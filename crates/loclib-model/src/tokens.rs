@@ -18,7 +18,7 @@ pub mod bands {
     pub const SCALES: [f32; 3] = [1.0, 0.66, 0.32];
 }
 
-/// rekordbox's phrase kinds by role.
+/// rekordbox's phrase kinds by role, for a dark background.
 pub mod phrases {
     use super::Rgb;
     pub const INTRO: Rgb = [70, 112, 232];
@@ -31,12 +31,33 @@ pub mod phrases {
     pub const UNKNOWN: Rgb = [90, 90, 112];
 }
 
-/// Cues without a colour of their own.
+/// The phrase kinds for a light background: 3:1 on a near-white page, so the strips stand out.
+pub mod phrases_light {
+    use super::Rgb;
+    pub const INTRO: Rgb = [70, 112, 232];
+    pub const UP: Rgb = [175, 117, 21];
+    pub const VERSE: Rgb = [175, 117, 21];
+    pub const CHORUS: Rgb = [234, 61, 128];
+    pub const DOWN: Rgb = [30, 140, 174];
+    pub const BRIDGE: Rgb = [30, 140, 174];
+    pub const OUTRO: Rgb = [132, 92, 222];
+    pub const UNKNOWN: Rgb = [90, 90, 112];
+}
+
+/// Cues without a colour of their own, for a dark background.
 pub mod cues {
     use super::Rgb;
     pub const HOT: Rgb = [40, 226, 20];
     pub const MEMORY: Rgb = [232, 48, 48];
     pub const LOOP: Rgb = [255, 140, 30];
+}
+
+/// The cue defaults for a light background: 3:1 on a near-white page, so the marks stand out.
+pub mod cues_light {
+    use super::Rgb;
+    pub const HOT: Rgb = [27, 151, 13];
+    pub const MEMORY: Rgb = [232, 48, 48];
+    pub const LOOP: Rgb = [203, 99, 0];
 }
 
 /// rekordbox's track colours (and memory cue colour table), roughly as its players show them.

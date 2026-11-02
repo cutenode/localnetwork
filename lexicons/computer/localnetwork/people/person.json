@@ -1,0 +1,38 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.people.person",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "any",
+			"description": "Someone in a performer's, party's or venue's space, keyed by their DID. Written only by the Local Network root account, which makes them a member of the space: a reader, and a writer when one of their capabilities writes. Deleting it takes them out.",
+			"record": {
+				"type": "object",
+				"required": ["subject", "role", "capabilities", "hidden", "via", "createdAt", "updatedAt"],
+				"properties": {
+					"subject": { "type": "string", "format": "did" },
+					"role": { "type": "ref", "ref": "computer.localnetwork.people.defs#role" },
+					"capabilities": { "type": "ref", "ref": "computer.localnetwork.people.defs#capabilities" },
+					"hidden": {
+						"type": "boolean",
+						"description": "Whether they keep out of public view. Only the people in the space and staff see them."
+					},
+					"via": {
+						"type": "string",
+						"maxLength": 32,
+						"knownValues": ["created", "invite", "link", "request", "staff"],
+						"description": "created: they started it. invite: they accepted an invite. link: they joined with an invite link. request: their request to join was approved. staff: staff added them."
+					},
+					"addedBy": { "type": "string", "format": "did" },
+					"source": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "The invite, invite link or request they came in through."
+					},
+					"createdAt": { "type": "string", "format": "datetime" },
+					"updatedAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

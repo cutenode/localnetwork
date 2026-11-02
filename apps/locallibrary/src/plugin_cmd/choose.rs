@@ -56,7 +56,7 @@ pub(super) fn answers(choice: &Choice, input: &mut impl BufRead) -> Result<Vec<V
 
 /// `choice` asked on stderr (`count` after its title), its items numbered, and its answer read
 /// from `input`, asked again until it's one: refused when `input` ends first.
-pub(super) fn answer(choice: &Choice, count: &str, input: &mut impl BufRead) -> Result<Vec<Value>> {
+pub(crate) fn answer(choice: &Choice, count: &str, input: &mut impl BufRead) -> Result<Vec<Value>> {
     eprintln!("{} {}{count}", style("?").cyan().bold(), choice.title);
     for (i, item) in choice.items.iter().enumerate() {
         let detail = item.detail.as_deref().map(|d| format!("  {}", dim(d))).unwrap_or_default();

@@ -56,7 +56,9 @@
 
   // What there is to turn into text: the queue, or the page once it has been
   // read. Both are plain track objects, and everything below works on either.
-  const listed = $derived(fromQueue ? queue.items : (data?.tracks ?? []));
+  // Only the output reads this, and the output is drawn from the page only
+  // once the page has been read without a problem, which is when `data` is set.
+  const listed = $derived(fromQueue ? queue.items : data!.tracks);
 
   const tracks = $derived(
     processTracks(listed, { splitTitle: splitTitle.value, dedupe: dedupe.value })
@@ -120,26 +122,28 @@
           </Select.Trigger>
           <Select.Content>
             {#each FORMATS as option (option.value)}
-              <Select.Item value={option.value} label={option.label}>{option.label}</Select.Item>
+              <Select.Item value={option.value} label={option.label} />
             {/each}
           </Select.Content>
         </Select.Root>
       </div>
 
       <div class="flex flex-col gap-2">
-        <Tooltip.Root>
-          <Tooltip.Trigger>
-            {#snippet child({ props })}
-              <div {...props} class="flex items-center gap-2">
-                <Checkbox id="split-title" bind:checked={splitTitle.value} />
-                <Label for="split-title" class="text-label font-normal">
-                  pull the artist out of “Artist - Title”
-                </Label>
-              </div>
-            {/snippet}
-          </Tooltip.Trigger>
-          <Tooltip.Content class="max-w-72">{SPLIT_HINT}</Tooltip.Content>
-        </Tooltip.Root>
+        <!-- The tooltip's trigger is the checkbox itself, so the hint is its
+             description and no wrapper becomes a tab stop of its own. -->
+        <div class="flex items-center gap-2">
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <Checkbox {...props} id="split-title" bind:checked={splitTitle.value} />
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content class="max-w-72">{SPLIT_HINT}</Tooltip.Content>
+          </Tooltip.Root>
+          <Label for="split-title" class="text-label font-normal">
+            pull the artist out of “Artist - Title”
+          </Label>
+        </div>
 
         <div class="flex items-center gap-2">
           <Checkbox id="dedupe" bind:checked={dedupe.value} />

@@ -38,9 +38,11 @@ pub(super) fn list(all: &[Listed]) {
         for g in &p.capabilities {
             say!("  {} {}", dim("may"), g.means);
         }
+        if !p.accounts.is_empty() {
+            say!("  {} {} accounts", dim("asks for"), p.accounts.join(", "));
+        }
         let adds: Vec<String> = [
             named("account type", &p.account_types),
-            named("account", &p.accounts),
             named("command", &p.commands),
             named("destination", &p.destinations),
             (!p.events.is_empty()).then(|| format!("listens for {}", p.events.join(", "))),
@@ -92,11 +94,16 @@ pub(super) fn info(d: &Described) {
         section("Account type:", vec![(t.name.clone(), t.title.clone())]);
         section("Scopes:", t.scopes.iter().map(|(name, s)| (name.clone(), s.title.clone())).collect());
     }
-    let accounts = d.accounts.iter().map(|a| {
-        let signed = if a.signed_in { "signed in" } else { "not signed in" };
-        (a.account.clone(), format!("{}: {signed}", a.title))
+    // Each type it asks for, why, and the accounts of it it has access to.
+    let accounts = m.accounts.iter().map(|n| {
+        let names: Vec<&str> = d.accesses.iter().filter(|a| a.kind == n.name).map(|a| a.name.as_str()).collect();
+        let access = match names.is_empty() {
+            true => "no access".to_string(),
+            false => format!("access to {}", names.join(", ")),
+        };
+        (n.name.clone(), format!("{} ({}; {access})", n.why, n.scopes.join(", ")))
     });
-    section(&format!("Accounts (locallibrary plugin account {} ACCOUNT sign-in):", m.id), accounts.collect());
+    section(&format!("Accounts (locallibrary plugin access {}):", m.id), accounts.collect());
     // With the menus that offer it.
     let offered = |title: &str, places: &[Where]| {
         let places: Vec<&str> = places.iter().map(|w| w.name()).collect();

@@ -1,5 +1,6 @@
 import { type HttpError, isHttpError, isRedirect, type Redirect } from '@sveltejs/kit';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { COLLECTION } from '#lib/nsid.ts';
 import type { BlobJson } from '#lib/server/atproto/repo-client.ts';
 import { silentLogger } from '#lib/server/logger.ts';
 import { ROOT } from '#lib/server/testing/core.ts';
@@ -12,6 +13,9 @@ import { GET as photo } from './projects/[slug]/press-kits/[rkey]/photos/[cid]/+
 
 const PDS = 'https://pds.test';
 
+/** Accounts whose PDS the guarded fetch refuses (as it would one on a private address), for a test to fill in. */
+const unsafe = new Set<string>();
+
 /** What a route answers: a response, or the HTTP error or redirect it throws. */
 type Outcome = Response | HttpError | Redirect;
 
@@ -20,6 +24,7 @@ describe('routes serving stored images', () => {
 
 	beforeEach(async () => {
 		f = await pressKitServices();
+		unsafe.clear();
 	});
 	afterEach(async () => {
 		await f.t.audit.idle();
@@ -35,17 +40,34 @@ describe('routes serving stored images', () => {
 			: new Response(null, { status: 404 });
 	};
 
-	/** What `handler` answers a GET of `path` with, as `viewer`. */
+	/**
+	 * What `handler` answers a GET of `path` with, as `viewer`. `fetch` is the route's own (SvelteKit's), which serves
+	 * every PDS's blobs unless a test says otherwise.
+	 */
 	const get = async (
 		handler: (event: never) => Response | Promise<Response>,
 		path: string,
 		params: Record<string, string>,
-		viewer: string | null
+		viewer: string | null,
+		fetch: (url: URL) => Promise<Response> = pds
 	): Promise<Outcome> => {
 		const { t } = f;
-		const app = { ...t, rootDid: ROOT, identity: { resolve: async () => ({ pds: PDS }) } };
+
+		const identity = {
+			resolve: async (did: string) => ({ pds: unsafe.has(did) ? 'https://10.0.0.1' : PDS }),
+			// The guarded fetch: it serves only requests that refuse redirects, and refuses private addresses.
+			fetch: async (url: URL, init?: RequestInit) => {
+				if (init?.redirect !== 'error') throw new Error('this fetch needs an explicit redirect mode');
+
+				if (url.hostname === '10.0.0.1') throw new Error('refusing a private address');
+
+				return pds(url);
+			}
+		};
+
+		const app = { ...t, rootDid: ROOT, identity };
 		const locals = { app, viewer: viewer && (await t.viewer(viewer)), log: silentLogger };
-		const event = { url: new URL(path, 'https://x.test'), params, locals, fetch: pds };
+		const event = { url: new URL(path, 'https://x.test'), params, locals, fetch };
 
 		try {
 			// SAFETY: these routes read only the URL, params, locals and fetch, and the services are the app's own.
@@ -68,6 +90,25 @@ describe('routes serving stored images', () => {
 
 		return { slug: f.project.slug, rkey: kit.rkey, cid: image.ref.$link };
 	};
+
+	/** DJ's profile, with `avatar` as its picture. */
+	const profileWith = (avatar: BlobJson) =>
+		f.t.net.client(DJ).putRecord({
+			collection: COLLECTION.profile,
+			rkey: 'self',
+			record: {
+				$type: COLLECTION.profile,
+				basics: { name: 'Neon Tide', avatar },
+				createdAt: '2026-10-30T00:00:00.000Z',
+				updatedAt: '2026-10-30T00:00:00.000Z'
+			}
+		});
+
+	/** What /media answers for one of DJ's blobs, which only the identity resolver's guarded fetch may ask DJ's PDS for. */
+	const djMedia = (cid: string, query = '') =>
+		get(media, `/media/${DJ}/${cid}${query}`, { did: DJ, cid }, null, async () => {
+			throw new Error("an unguarded fetch of an account's PDS");
+		});
 
 	/** Each route, given a blob of some type to serve, and the query string to ask for it with. */
 	const routes: [string, (bytes: Uint8Array, mimeType: string, query: string) => Promise<Outcome>][] = [
@@ -99,6 +140,15 @@ describe('routes serving stored images', () => {
 				const { ref } = await f.t.net.client(ROOT).uploadBlob(bytes, mimeType);
 
 				return get(media, `/media/${ROOT}/${ref.$link}${query}`, { did: ROOT, cid: ref.$link }, null);
+			}
+		],
+		[
+			"a person's profile avatar",
+			async (bytes, mimeType, query) => {
+				const avatar = await f.t.net.client(DJ).uploadBlob(bytes, mimeType);
+				await profileWith(avatar);
+
+				return djMedia(avatar.ref.$link, query);
 			}
 		],
 		[
@@ -148,6 +198,21 @@ describe('routes serving stored images', () => {
 
 			expect(response.headers.get('content-disposition')).toBe('attachment');
 		});
+	});
+
+	it("serves an account's blob only as the avatar its indexed profile names, and only through the guarded fetch", async () => {
+		const client = f.t.net.client(DJ);
+		const avatar = await client.uploadBlob(new TextEncoder().encode('an avatar'), 'image/png');
+		const other = await client.uploadBlob(new TextEncoder().encode('another picture'), 'image/png');
+
+		// No profile yet, so nothing of theirs is served.
+		expect(await djMedia(avatar.ref.$link)).toMatchObject({ status: 404 });
+		await profileWith(avatar);
+		expect(served(await djMedia(avatar.ref.$link)).status).toBe(200);
+		expect(await djMedia(other.ref.$link)).toMatchObject({ status: 404 });
+
+		unsafe.add(DJ);
+		expect(await djMedia(avatar.ref.$link)).toMatchObject({ status: 404 });
 	});
 
 	it('keeps ?download on an old photo link it sends on', async () => {

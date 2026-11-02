@@ -6,7 +6,10 @@ use std::thread::JoinHandle;
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use loclib_mixid::test_util::{resample, synth, wav_of};
-use loclib_plugin::{FieldType, Incoming, Manifest, Output, PROTOCOL_VERSION, Peer, Pending, Role, code, method};
+use loclib_plugin::{
+    EventName, FieldType, Incoming, Listener, Manifest, Output, PROTOCOL_VERSION, Peer, Pending, Role, Suggestion,
+    code, method,
+};
 use loclib_progress::Ctx;
 use serde_json::{Value, json};
 
@@ -77,10 +80,13 @@ fn recording(dir: &Path, seed: u32, secs: f64, rate: u32, gain: f32) -> PathBuf 
 }
 
 #[test]
-fn describes_one_analyzer_and_asks_for_nothing() {
+fn describes_one_analyzer_and_hears_of_drives_changing() {
     let manifest = manifest();
     manifest.validate(true).unwrap();
-    assert!(manifest.capabilities.is_empty(), "{manifest:?}");
+    let capabilities: Vec<String> = manifest.capabilities.iter().map(ToString::to_string).collect();
+    assert_eq!(capabilities, ["library:read", "analysis:read", "events:drives"]);
+    let on = vec![EventName::DriveMounted, EventName::DriveChanged];
+    assert_eq!(manifest.contributes.events, [Listener { on }]);
     let [analyzer] = &manifest.contributes.analyzers[..] else { panic!("{manifest:?}") };
     assert_eq!((manifest.id.as_str(), analyzer.name.as_str()), ("sound", "tempo-key-loudness"));
     let (structured, columns): (Vec<(&str, FieldType)>, Vec<_>) =
@@ -100,6 +106,133 @@ fn describes_one_analyzer_and_asks_for_nothing() {
     let described: Manifest = s.host.request(method::DESCRIBE, &json!({})).unwrap();
     assert_eq!(described, manifest);
     s.stop();
+}
+
+/// The plugin served over pipes past `hello`, told `events` in order while the host answers each
+/// `drive.library` with tracks 1 to `tracks` and each `track.fields` with those of them in
+/// `analysed`: what it suggests, and the reads it asked for (each one's method and how many tracks).
+fn told(events: &[EventNotify], tracks: u32, analysed: &[u32]) -> (Vec<HostNotify>, Vec<(String, usize)>) {
+    let (plugin_in, to_plugin) = pipe().unwrap();
+    let (from_plugin, plugin_out) = pipe().unwrap();
+    let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
+    let (host, incoming) = Peer::new(from_plugin, to_plugin);
+    let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
+    host.request::<_, Value>(method::HELLO, &hello).unwrap();
+    for e in events {
+        host.notify(method::EVENT_NOTIFY, e);
+    }
+    // One last event that suggests something, so everything before it has been handled.
+    host.notify(method::EVENT_NOTIFY, &databases_changed("LAST"));
+    let (mut suggested, mut reads) = (Vec::new(), Vec::new());
+    for msg in incoming {
+        match msg {
+            Incoming::Request(req) => {
+                let last = req.params["drive"] == "LAST";
+                let answer = match req.method.as_str() {
+                    "drive.library" => {
+                        let n = if last { 1 } else { tracks };
+                        let tracks = (1..=n).map(|id| loclib_plugin::loclib_model::Track { id, ..Default::default() });
+                        let library =
+                            loclib_plugin::loclib_model::Library { tracks: tracks.collect(), ..Default::default() };
+                        json!({ "library": library, "page": { "total": n } })
+                    }
+                    "track.fields" => {
+                        assert_eq!(req.params["plugin"], "sound");
+                        let asked: Vec<u32> = serde_json::from_value(req.params["tracks"].clone()).unwrap();
+                        if !last {
+                            reads.push((req.method.clone(), asked.len()));
+                        }
+                        let kept: Vec<Value> = asked
+                            .iter()
+                            .filter(|t| !last && analysed.contains(t))
+                            .map(|t| json!({ "track": t, "plugins": { "sound": {} } }))
+                            .collect();
+                        json!({ "tracks": kept, "missing": [] })
+                    }
+                    other => panic!("{other}"),
+                };
+                if !last && req.method == "drive.library" {
+                    reads.push((req.method.clone(), 0));
+                }
+                host.respond(&req.id, Ok(answer));
+            }
+            Incoming::Notification { method: m, params } if m == method::HOST_NOTIFY => {
+                let notice: HostNotify = serde_json::from_value(params).unwrap();
+                if notice.action.as_ref().is_some_and(|a| a.params["drive"] == "LAST") {
+                    break;
+                }
+                suggested.push(notice);
+            }
+            Incoming::Notification { .. } => {}
+        }
+    }
+    host.close();
+    served.join().unwrap();
+    (suggested, reads)
+}
+
+/// `drive.changed` for `drive`, its databases changed.
+fn databases_changed(drive: &str) -> EventNotify {
+    EventNotify {
+        event: EventName::DriveChanged,
+        drive: Some(drive.into()),
+        payload: json!({ "changed": ["databases"] }),
+    }
+}
+
+/// Once a drive's databases change, it suggests its analyzer for the tracks the host keeps none
+/// of its fields for (the host leaves out those it suggested before), asking for the fields a
+/// thousand tracks at a time. A drive whose tracks are all analysed, and a change to a drive's
+/// state alone, suggest nothing: the state alone isn't even read.
+#[test]
+fn a_drive_whose_databases_changed_has_its_new_tracks_suggested_for_analysing() {
+    let (suggested, reads) = told(&[databases_changed("USB")], 2500, &[1, 3, 2400]);
+    let tracks: Vec<u32> = (1..=2500).filter(|t| ![1, 3, 2400].contains(t)).collect();
+    let analyze = AnalyzeAction { analyzer: "tempo-key-loudness".into(), drive: "USB".into(), tracks };
+    let expected = HostNotify::action("new tracks have no tempo, key or loudness", &HostAction::Analyze(analyze));
+    assert_eq!(suggested, std::slice::from_ref(&expected));
+    let read = |m: &str, n| (m.to_string(), n);
+    assert_eq!(
+        reads,
+        [read("drive.library", 0), read("track.fields", 1000), read("track.fields", 1000), read("track.fields", 500)]
+    );
+    // The host takes it: it's its own analyzer.
+    let taken = expected.suggestion(&manifest()).unwrap();
+    assert!(matches!(taken, Some(Suggestion::Action(HostAction::Analyze(_)))), "{taken:?}");
+    let state = EventNotify { payload: json!({ "changed": ["state"] }), ..databases_changed("USB") };
+    let (suggested, reads) = told(&[state, databases_changed("USB")], 2, &[1, 2]);
+    assert_eq!((suggested, reads.len()), (vec![], 2), "{reads:?}");
+}
+
+/// A drive plugged in with an export (perhaps exported on another computer) has its tracks
+/// without fields suggested as one whose databases changed does; one without an export isn't
+/// read.
+#[test]
+fn a_drive_plugged_in_has_its_new_tracks_suggested_for_analysing() {
+    let mounted = |has_export: bool| EventNotify {
+        event: EventName::DriveMounted,
+        drive: Some("USB".into()),
+        payload: json!({ "name": "USB", "has_export": has_export }),
+    };
+    let (suggested, reads) = told(&[mounted(false), mounted(true)], 3, &[2]);
+    let analyze = AnalyzeAction { analyzer: "tempo-key-loudness".into(), drive: "USB".into(), tracks: vec![1, 3] };
+    let expected = HostNotify::action("new tracks have no tempo, key or loudness", &HostAction::Analyze(analyze));
+    assert_eq!((suggested, reads.len()), (vec![expected], 2), "{reads:?}");
+}
+
+/// For any library, what it suggests is its tracks without fields, in the library's order, the
+/// first [`MAX_SUGGESTED_TRACKS`] of them, and nothing when there are none.
+#[hegel::test(test_cases = 20)]
+fn it_suggests_the_first_tracks_without_fields(tc: TestCase) {
+    let n: u32 = tc.draw(gs::sampled_from(vec![0, 1, 3, 40, MAX_SUGGESTED_TRACKS as u32 * 2]));
+    let every = tc.draw(gs::integers::<u32>().min_value(1).max_value(4));
+    let analysed: Vec<u32> = (1..=n).filter(|t| t % every == 0).collect();
+    let (suggested, _) = told(&[databases_changed("USB")], n, &analysed);
+    let expected: Vec<u32> = (1..=n).filter(|t| !analysed.contains(t)).take(MAX_SUGGESTED_TRACKS).collect();
+    let tracks_of =
+        |n: &HostNotify| serde_json::from_value::<Vec<u32>>(n.action.clone().unwrap().params["tracks"].clone());
+    let got: Vec<Vec<u32>> = suggested.iter().map(|n| tracks_of(n).unwrap()).collect();
+    assert_eq!(got, if expected.is_empty() { vec![] } else { vec![expected] });
 }
 
 /// The host keeps fields by the analyzer's version, and loclib-analysis's `VERSION` changes

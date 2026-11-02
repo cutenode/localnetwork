@@ -1,4 +1,11 @@
-import { type Agent, type ComAtprotoRepoGetRecord, type ComAtprotoSimplespaceGetSpace, XRPCError } from '@atproto/api';
+import {
+	type $Typed,
+	type Agent,
+	type ComAtprotoMemberspacePolicy,
+	type ComAtprotoRepoGetRecord,
+	type ComAtprotoSpaceGetSpace,
+	XRPCError
+} from '@atproto/api';
 import { cidForLex } from '@atproto/lex-cbor';
 import { lexToJson } from '@atproto/lexicon';
 import { type JsonObject, jsonToLex } from '@atproto/lex-json';
@@ -12,28 +19,27 @@ export type StoredRecord = { uri: string; cid: string; value: JsonRecord };
 
 export type ListedSpaceRecord = { collection: string; rkey: string; cid: string; value: JsonRecord };
 
-/** One write in an applyWrites batch to an account's own public repo. */
+/** One write in an applyWrites batch to an account's own public repo, or to its repo in a space. */
 export type RepoWrite =
 	| { action: 'create' | 'update'; collection: string; rkey: string; record: JsonRecord }
 	| { action: 'delete'; collection: string; rkey: string };
 
 export type BlobJson = { $type: 'blob'; ref: { $link: string }; mimeType: string; size: number };
 
-export type SimpleSpacePolicy =
-	| { $type: 'com.atproto.simplespace.defs#publicPolicy' }
-	| { $type: 'com.atproto.simplespace.defs#memberListPolicy' }
-	| { $type: 'com.atproto.simplespace.defs#managingAppPolicy'; managingApp: string };
+/** The policy of every space the app creates: a member list, where `publicWrite` also tracks anyone's writes. */
+export type MemberSpacePolicy = $Typed<ComAtprotoMemberspacePolicy.Main>;
 
-export type SimpleSpaceConfig = {
-	readPolicy: SimpleSpacePolicy;
-	writePolicy: SimpleSpacePolicy;
-	appAccess:
-		| { $type: 'com.atproto.simplespace.defs#open' }
-		| { $type: 'com.atproto.simplespace.defs#allowList'; allowed: string[] };
-};
+/** A memberspace policy only members read, that publishes nothing and lets any app read. */
+export const memberSpacePolicy = ({ publicWrite = false } = {}): MemberSpacePolicy => ({
+	$type: 'com.atproto.memberspace.policy',
+	publicRead: false,
+	publicWrite,
+	publishPolicy: false,
+	publishMembers: false
+});
 
-/** A space as its host reports it. The policy unions stay open, since a host may know kinds this app doesn't. */
-export type SimpleSpaceView = ComAtprotoSimplespaceGetSpace.OutputSchema;
+/** A space as its host reports it. The policy union stays open, since a host may know policies this app doesn't. */
+export type SpaceView = ComAtprotoSpaceGetSpace.OutputSchema;
 
 /**
  * The narrow set of repo and space operations the app performs as a given
@@ -49,6 +55,11 @@ export interface RepoClient {
 	}): Promise<RecordRef>;
 	putSpaceRecord(input: { space: string; collection: string; rkey: string; record: JsonRecord }): Promise<RecordRef>;
 	deleteSpaceRecord(input: { space: string; collection: string; rkey: string }): Promise<void>;
+	/**
+	 * Several writes to the account's repo in a space, made all together or not at all. A create fails on a record that
+	 * exists, and an update or delete on one that doesn't.
+	 */
+	applySpaceWrites(space: string, writes: RepoWrite[]): Promise<void>;
 	getSpaceRecord(input: {
 		space: string;
 		repo: string;
@@ -76,9 +87,10 @@ export interface RepoClient {
 	/** Several writes to the account's own public repo, made all together or not at all. */
 	applyWrites(writes: RepoWrite[]): Promise<void>;
 	deleteRecord(input: { collection: string; rkey: string }): Promise<void>;
-	/** Simplespace management for spaces under the account's own DID. */
-	createSpace(input: { spaceType: string; skey: string } & SimpleSpaceConfig): Promise<string>;
-	getSpace(space: string): Promise<SimpleSpaceView | null>;
+	/** Management of spaces under the account's own DID. The member methods only work on a memberspace. */
+	createSpace(input: { spaceType: string; skey: string; policy: MemberSpacePolicy }): Promise<string>;
+	/** Only the space's owner can read it. */
+	getSpace(space: string): Promise<SpaceView | null>;
 	deleteSpace(space: string): Promise<void>;
 	putMember(input: { space: string; did: string; read: boolean; write: boolean }): Promise<void>;
 	removeMember(input: { space: string; did: string }): Promise<void>;
@@ -87,7 +99,8 @@ export interface RepoClient {
 
 /** Extra operations only the root account performs. */
 export interface RootRepoClient extends RepoClient {
-	updateSpace(input: { space: string } & Partial<SimpleSpaceConfig>): Promise<void>;
+	/** Replaces the whole policy. A policy of another type drops the old one's member list. */
+	updateSpace(input: { space: string; policy: MemberSpacePolicy }): Promise<void>;
 	getDelegationToken(space: string): Promise<string>;
 	/** Spaces the root holds a repo in (used to rediscover booking spaces). */
 	listSpaces(spaceType: string): Promise<string[]>;
@@ -112,7 +125,7 @@ export function xrpcErrorName(cause: unknown): string | undefined {
  */
 export async function createSpaceIfMissing(
 	client: RepoClient,
-	input: { spaceType: string; skey: string } & SimpleSpaceConfig
+	input: { spaceType: string; skey: string; policy: MemberSpacePolicy }
 ): Promise<boolean> {
 	try {
 		await client.createSpace(input);
@@ -137,6 +150,22 @@ type AgentRecord = ComAtprotoRepoGetRecord.OutputSchema['value'];
 const jsonRecord = z.record(z.string(), z.json());
 
 const asJson = (value: AgentRecord): JsonRecord => jsonRecord.parse(lexToJson(value));
+
+/** `writes` as the `writes` of `nsid`, the applyWrites of a public repo or of a space, which take the same shape. */
+const batch = <N extends 'com.atproto.repo.applyWrites' | 'com.atproto.space.applyWrites'>(
+	nsid: N,
+	writes: RepoWrite[]
+) =>
+	writes.map((write) =>
+		write.action === 'delete'
+			? { $type: `${nsid}#delete` as const, collection: write.collection, rkey: write.rkey }
+			: {
+					$type: `${nsid}#${write.action}` as const,
+					collection: write.collection,
+					rkey: write.rkey,
+					value: write.record
+				}
+	);
 
 export class AgentRepoClient implements RepoClient {
 	constructor(
@@ -170,6 +199,14 @@ export class AgentRepoClient implements RepoClient {
 
 	async deleteSpaceRecord(input: { space: string; collection: string; rkey: string }) {
 		await this.agent.com.atproto.space.deleteRecord({ ...input, repo: this.did });
+	}
+
+	async applySpaceWrites(space: string, writes: RepoWrite[]) {
+		await this.agent.com.atproto.space.applyWrites({
+			space,
+			repo: this.did,
+			writes: batch('com.atproto.space.applyWrites', writes)
+		});
 	}
 
 	async getSpaceRecord(input: { space: string; repo: string; collection: string; rkey: string }) {
@@ -208,15 +245,15 @@ export class AgentRepoClient implements RepoClient {
 		};
 	}
 
-	async createSpace(input: { spaceType: string; skey: string } & SimpleSpaceConfig) {
-		const { data } = await this.agent.com.atproto.simplespace.createSpace(input);
+	async createSpace(input: { spaceType: string; skey: string; policy: MemberSpacePolicy }) {
+		const { data } = await this.agent.com.atproto.space.createSpace(input);
 
 		return data.uri;
 	}
 
 	async getSpace(space: string) {
 		try {
-			const { data } = await this.agent.com.atproto.simplespace.getSpace({ space });
+			const { data } = await this.agent.com.atproto.space.getSpace({ space });
 
 			return data;
 		} catch (error) {
@@ -234,16 +271,7 @@ export class AgentRepoClient implements RepoClient {
 	async applyWrites(writes: RepoWrite[]) {
 		await this.agent.com.atproto.repo.applyWrites({
 			repo: this.did,
-			writes: writes.map((write) =>
-				write.action === 'delete'
-					? { $type: 'com.atproto.repo.applyWrites#delete', collection: write.collection, rkey: write.rkey }
-					: {
-							$type: `com.atproto.repo.applyWrites#${write.action}`,
-							collection: write.collection,
-							rkey: write.rkey,
-							value: write.record
-						}
-			)
+			writes: batch('com.atproto.repo.applyWrites', writes)
 		});
 	}
 
@@ -277,15 +305,15 @@ export class AgentRepoClient implements RepoClient {
 	}
 
 	async deleteSpace(space: string) {
-		await this.agent.com.atproto.simplespace.deleteSpace({ space });
+		await this.agent.com.atproto.space.deleteSpace({ space });
 	}
 
 	async putMember(input: { space: string; did: string; read: boolean; write: boolean }) {
-		await this.agent.com.atproto.simplespace.putMember(input);
+		await this.agent.com.atproto.memberspace.putMember(input);
 	}
 
 	async removeMember(input: { space: string; did: string }) {
-		await this.agent.com.atproto.simplespace.removeMember(input);
+		await this.agent.com.atproto.memberspace.removeMember(input);
 	}
 
 	async listMembers(space: string) {
@@ -293,7 +321,7 @@ export class AgentRepoClient implements RepoClient {
 		let cursor: string | undefined;
 
 		do {
-			const { data } = await this.agent.com.atproto.simplespace.listMembers({ space, limit: 100, cursor });
+			const { data } = await this.agent.com.atproto.memberspace.listMembers({ space, limit: 100, cursor });
 			members.push(...data.members.map(({ did, read, write }) => ({ did, read, write })));
 			cursor = data.cursor;
 		} while (cursor);
@@ -303,8 +331,8 @@ export class AgentRepoClient implements RepoClient {
 }
 
 export class AgentRootClient extends AgentRepoClient implements RootRepoClient {
-	async updateSpace(input: { space: string } & Partial<SimpleSpaceConfig>) {
-		await this.agent.com.atproto.simplespace.updateSpace(input);
+	async updateSpace(input: { space: string; policy: MemberSpacePolicy }) {
+		await this.agent.com.atproto.space.updateSpace(input);
 	}
 
 	async getDelegationToken(space: string) {

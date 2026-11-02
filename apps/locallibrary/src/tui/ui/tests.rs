@@ -662,6 +662,33 @@ fn the_full_screen_player_says_all_it_knows_of_the_track() {
     assert!(screen(&mut app, 160, 45).contains("phrase last"));
 }
 
+/// The hot cue the playhead last passed is underlined, and only that one: none before the first.
+#[test]
+fn the_hot_cue_last_passed_is_underlined() {
+    let (mut app, _dir) = playing_in_full();
+    app.fullscreen = true;
+    // Which of hot cues A (at 0:10) and B (at 1:00) are underlined, `secs` in.
+    let mut underlined = |secs| {
+        app.resume = Some(std::time::Duration::from_secs(secs));
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 45)).unwrap();
+        terminal.draw(|f| draw(f, &mut app)).unwrap();
+        let buf = terminal.backend().buffer();
+        let rows: Vec<Vec<&str>> =
+            (0..buf.area.height).map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect()).collect();
+        // The cues' line: the chips A and B (each after its pad's key), then the memory cue's.
+        let y = rows.iter().position(|row| row.concat().contains("◆1  next")).unwrap_or_else(|| {
+            panic!("no hot cues' line in\n{}", rows.iter().map(|r| r.concat() + "\n").collect::<String>())
+        });
+        let x = |letter| rows[y].iter().position(|s| *s == letter).unwrap() as u16;
+        let y = y as u16;
+        let on = |x| buf[(x, y)].modifier.contains(Modifier::UNDERLINED);
+        (on(x("A")), on(x("B")))
+    };
+    assert_eq!(underlined(5), (false, false));
+    assert_eq!(underlined(30), (true, false));
+    assert_eq!(underlined(70), (false, true));
+}
+
 /// The compact player draws whichever visualiser is picked, the deck from the track's
 /// detail waveform.
 #[test]

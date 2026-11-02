@@ -95,6 +95,96 @@ fn only_plugins_that_clash_are_left_out() {
     assert_eq!(left_out(&[echo, other, manifest("say", "")]), [Some(why.clone()), None, Some(why)]);
 }
 
+/// An account plugin `id` providing the type `kind`, its scopes (`read`, `write`) covering
+/// requests to the hosts given.
+fn account_plugin(id: &str, kind: &str, scopes: &[(&str, &str)]) -> Manifest {
+    let scopes: String = scopes
+        .iter()
+        .map(|(scope, host)| {
+            format!(
+                "[contributes.account_types.scopes.{scope}]\ntitle = \"T\"\nrequests = [{{ method = \"GET\", url = \"https://{host}/*\" }}]\n"
+            )
+        })
+        .collect();
+    let at = "https://accounts.example";
+    manifest(
+        id,
+        &format!(
+            "[[contributes.account_types]]\ntype = \"{kind}\"\ntitle = \"T\"\nauthorize_url = \"{at}/authorize\"\n\
+             token_url = \"{at}/token\"\nclient_id = \"c\"\nwhoami = {{ url = \"{at}/me\", subject = \"/sub\", name = \"/name\" }}\n{scopes}"
+        ),
+    )
+}
+
+/// For any account plugins providing `mock` (or a type named like an `account` command), listing
+/// any of its scopes with requests to any host, and a plugin asking for any of those scopes,
+/// reaching any of the hosts, in any order: an account plugin is left out exactly when its type
+/// is named like an `account` command, and the plugin exactly when no account plugin kept
+/// provides the type, none of those lists a scope it asks for, or one of them that does sends a
+/// request of it to a host the plugin can't reach, saying which.
+#[hegel::test(test_cases = 200)]
+fn only_plugins_whose_accounts_can_be_used_are_kept(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let commands = crate::Cli::command().find_subcommand("account").map(|a| a.get_subcommands().count()).unwrap_or(0);
+    let hosts = ["a.example", "b.example"];
+    let mut providers = Vec::new();
+    for i in 0..tc.draw(gs::integers::<usize>().max_value(2)) {
+        let kind = tc.draw(gs::sampled_from(vec!["mock", "mock", "status"]));
+        let scopes: Vec<(&str, &str)> = ["read", "write"]
+            .into_iter()
+            .filter(|_| tc.draw(gs::booleans()))
+            .map(|s| (s, tc.draw(gs::sampled_from(hosts.to_vec()))))
+            .collect();
+        providers.push((format!("mock-{i}"), kind, scopes));
+    }
+    let needs: Vec<&str> = ["read", "write"].into_iter().filter(|_| tc.draw(gs::booleans())).collect();
+    let needs = if needs.is_empty() { vec!["read"] } else { needs };
+    let reaches: Vec<&str> = hosts.into_iter().filter(|_| tc.draw(gs::booleans())).collect();
+    let capabilities: Vec<String> = ["c.example"].iter().chain(&reaches).map(|h| format!("net:{h}")).collect();
+    let asker = manifest(
+        "asker",
+        &format!("capabilities = {capabilities:?}\n[[accounts]]\ntype = \"mock\"\nscopes = {needs:?}\nwhy = \"W\"\n"),
+    );
+    let mut all: Vec<Manifest> = providers.iter().map(|(id, kind, scopes)| account_plugin(id, kind, scopes)).collect();
+    let at = tc.draw(gs::integers::<usize>().max_value(all.len()));
+    all.insert(at, asker);
+
+    // An `account` command: refused when locallibrary has `account status`.
+    let clashes = |kind: &str| kind == "status" && commands > 0;
+    let kept: Vec<_> = providers.iter().filter(|(_, kind, _)| *kind == "mock").collect();
+    let ids: Vec<&str> = kept.iter().map(|(id, _, _)| id.as_str()).collect();
+    let unmet = || {
+        if kept.is_empty() {
+            return Some("the asker plugin asks for mock accounts, which no account plugin provides".to_string());
+        }
+        for scope in &needs {
+            let listed: Vec<&str> =
+                kept.iter().flat_map(|(_, _, s)| s.iter().filter(|(n, _)| n == scope).map(|(_, h)| *h)).collect();
+            if listed.is_empty() {
+                let ids = ids.join(", ");
+                return Some(format!(
+                    "the asker plugin asks for mock's scope {scope:?}, which no account plugin providing mock lists ({ids})"
+                ));
+            }
+            if let Some(host) = listed.into_iter().find(|h| !reaches.contains(h)) {
+                return Some(format!(
+                    "the asker plugin asks for mock's scope {scope:?}, whose requests go to {host}, which it has no net:{host} capability for"
+                ));
+            }
+        }
+        None
+    };
+    let mut expected: Vec<Option<String>> = providers
+        .iter()
+        .map(|(id, kind, _)| {
+            clashes(kind)
+                .then(|| format!("the {id} plugin's account type {kind:?} is named like the account {kind} command"))
+        })
+        .collect();
+    expected.insert(at, unmet());
+    assert_eq!(left_out(&all), expected);
+}
+
 /// Ids and places on the command line clash with locallibrary's commands, their aliases, the
 /// sidecar's method namespaces and each other's.
 #[test]

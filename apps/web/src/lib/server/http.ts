@@ -45,6 +45,14 @@ export function guardArea(locals: LocalsLike, url: URL, routeId: string | null):
 	if (isUnder(routeId, '/admin')) requireStaff(locals, url);
 }
 
+/** Areas search engines shouldn't list: the signed-in ones, and pages that only mean something to whoever opened them. */
+const UNLISTED = ['/dashboard', '/admin', '/login', '/report', '/notifications', '/mixes/preview'];
+
+/** Whether the route is in an area search engines shouldn't list, which the server hook says in `X-Robots-Tag`. */
+export const isUnlisted = (routeId: string | null) => UNLISTED.some((area) => isUnder(routeId, area));
+
+const SAME_SITE = 'http://same.site';
+
 /**
  * Only allow same-site relative redirects after sign-in. Browsers drop tabs and newlines from a
  * URL and read a backslash as a slash, so those are refused outright, and what's left has to
@@ -52,12 +60,25 @@ export function guardArea(locals: LocalsLike, url: URL, routeId: string | null):
  */
 export function safeNext(value: string | null | undefined, fallback = '/dashboard'): string {
 	if (!value || !value.startsWith('/') || /[\s\\\p{Cc}]/u.test(value)) return fallback;
+	const url = new URL(value, SAME_SITE);
 
-	const base = 'http://same.site';
+	// The path as resolved, since a caller that builds a URL on it gets that: `/.//evil.test` resolves to the path
+	// `//evil.test`, which on its own is another site.
+	if (url.origin !== SAME_SITE || url.pathname.startsWith('//') || url.pathname.includes('\\')) return fallback;
 
-	if (new URL(value, base).origin !== base) return fallback;
+	return url.pathname + url.search + url.hash;
+}
 
-	return value;
+/** A same-site path with `params` added to its query, checked again once built, or `fallback` for any other. */
+export function withQuery(path: string, params: Record<string, string>, fallback = '/dashboard'): string {
+	const safe = safeNext(path, '');
+
+	if (!safe) return fallback;
+	const url = new URL(safe, SAME_SITE);
+
+	for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
+
+	return safeNext(url.pathname + url.search + url.hash, fallback);
 }
 
 /**
@@ -78,11 +99,6 @@ export async function act<T, V extends object = never>(run: () => Promise<T>, va
 			return fail(400, { error: `That doesn't fit the record format: ${cause.message}`, values, reauth: false });
 		throw cause;
 	}
-}
-
-/** Whether `value` is a full http(s) address, the only kind of link pages make clickable. */
-export function isWebUrl(value: string): boolean {
-	return URL.canParse(value) && ['http:', 'https:'].includes(new URL(value).protocol);
 }
 
 export function text(form: FormData, name: string, max = 10_000): string {

@@ -1,7 +1,8 @@
 <script lang="ts">
 	import HeroHeadline from '#lib/components/HeroHeadline.svelte';
 	import NearInput from '#lib/components/NearInput.svelte';
-	import ProjectCard from '#lib/components/ProjectCard.svelte';
+	import PerformerCard from '#lib/components/PerformerCard.svelte';
+	import { projectSummary } from '#lib/performers.ts';
 	import { pluralize } from '#lib/format.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import Card from '#lib/ui/Card.svelte';
@@ -26,11 +27,6 @@
 		['/about#spaces', 'Booking details', 'Email, phone, rate notes, rider and hospitality, for signed-in members.']
 	];
 </script>
-
-<svelte:head>
-	<title>Local Network · Find local DJs for your show</title>
-	<meta name="description" content="Promoters find local DJs who fit their show. DJs get a profile they control, built on the AT Protocol." />
-</svelte:head>
 
 <section aria-labelledby="hero-title" class="border-b border-line bg-canvas bg-grid">
 	<div class="container-page flex flex-col items-center gap-8 py-14 sm:gap-10 sm:py-24">
@@ -89,7 +85,7 @@
 			<!-- A row to swipe on a phone, so the section stays about one screen tall. -->
 			<ul class="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-4 p-0 max-sm:-mx-4 max-sm:flex max-sm:snap-x max-sm:snap-mandatory max-sm:scroll-px-4 max-sm:overflow-x-auto max-sm:px-4 max-sm:pb-2">
 				{#each data.recent as project (project.uri)}
-					<li class="max-sm:w-[82%] max-sm:shrink-0 max-sm:snap-start"><ProjectCard {project} /></li>
+					<li class="max-sm:w-[82%] max-sm:shrink-0 max-sm:snap-start"><PerformerCard performer={projectSummary(project)} /></li>
 				{/each}
 			</ul>
 		{/if}
@@ -149,7 +145,7 @@
 							<span class="text-fg-muted">{tool.tagline}</span>
 						</span>
 						<span class="mt-auto flex flex-col border-t border-line bg-canvas px-5 py-2 sm:px-6">
-							{#each tool.features as feature (feature)}<span class="border-b border-well py-2 text-small text-fg-soft last:border-b-0">{feature}</span>{/each}
+							{#each tool.lines as line (line)}<span class="border-b border-well py-2 text-small text-fg-soft last:border-b-0">{line}</span>{/each}
 						</span>
 					</Card>
 				</li>

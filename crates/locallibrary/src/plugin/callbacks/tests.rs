@@ -1,7 +1,7 @@
 use std::io::pipe;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::mpsc::{self, Sender};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use hegel::TestCase;
@@ -39,7 +39,7 @@ impl Reads for Drives {
 }
 
 fn check(m: &Manifest, method: &str, params: Value) -> Result<Value, RpcFailure> {
-    super::check(m, &Drives, method, params)
+    super::check(m, &|spec| Drives.drive(spec), method, params)
 }
 
 /// One read for each capability: refused without it, let through with it.
@@ -185,7 +185,7 @@ fn errors_reach_plugins_without_paths_or_actions() {
 /// The roots here are said otherwise: the temporary folder and the home folder at least.
 #[test]
 fn the_roots_here_are_known() {
-    let roots = known_roots(None);
+    let roots = known_roots(None, &[]);
     let temp = std::env::temp_dir().to_string_lossy().trim_end_matches(['/', '\\']).to_string();
     assert!(roots.contains(&(temp, "<temp>".into())), "{roots:?}");
     let home = directories::BaseDirs::new().unwrap().home_dir().to_string_lossy().into_owned();
@@ -250,6 +250,7 @@ const SPEC: &[Read] = {
         ("library.list", "store:read", false, &[]),
         ("smart.list", "store:read", false, &[]),
         ("store.history", "store:read", false, &[("library", Plain), ("limit", Limit(500))]),
+        ("snapshot.library", "store:read", false, &[("snapshot", Plain), ("offset", Plain), ("limit", Limit(500))]),
         ("settings.schema", "settings:read", false, &[]),
         ("settings.profile", "settings:read", false, &[]),
         ("players.models", "settings:read", false, &[]),
@@ -618,11 +619,12 @@ fn a_plugin_has_at_most_its_quota_of_calls_under_way(tc: TestCase) {
     let name = tc.draw(gs::sampled_from(vec!["export.pdb", "a b.txt", "x"]));
     let file = std::env::temp_dir().join("PIONEER").join(name);
     // As the plugin is told it, from wherever the temporary folder is (a drive root on Windows CI).
-    let said = super::scrub(&file.display().to_string(), &super::known_roots(None));
+    let said = super::scrub(&file.display().to_string(), &super::known_roots(None, &[]));
     let ((entered_tx, entered), (release, release_rx)) = (mpsc::channel(), mpsc::channel());
     let reads = Held { entered: Mutex::new(entered_tx), release: Mutex::new(release_rx), file };
     let options = Options { callbacks: quota, ..Options::default() };
-    let host = Arc::new(Host { reads: Arc::new(reads), options, turns: Mutex::default() });
+    let host =
+        Arc::new(Host { reads: Arc::new(reads), options, turns: Mutex::default(), account_plugins: OnceLock::new() });
     let launch = Launch { program: "nothing".into(), args: Vec::new(), env_remove: Vec::new() };
     let (host_in, plugin_out) = pipe().unwrap();
     let (plugin_in, host_out) = pipe().unwrap();

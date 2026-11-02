@@ -638,6 +638,18 @@ fn choose_drives(
     Ok(out)
 }
 
+/// A `--role` for the drive that becomes the primary, refused unless it's `primary`: that drive's
+/// role is always primary.
+fn no_role_for_primary(roles: &IndexMap<PathBuf, String>, primary: &DeviceInfo) -> Result<()> {
+    match roles.get(&primary.root) {
+        Some(role) if role_arg(role).ok().as_deref() != Some(Role::Primary.name()) => Err(usage(format!(
+            "--role {role:?} for {}: it's the primary, whose role is primary (--primary chooses another)",
+            label(primary)
+        ))),
+        _ => Ok(()),
+    }
+}
+
 /// The drive `--primary` names among `drives`, if it's given.
 fn given_primary<'d>(primary: Option<&str>, drives: &'d [DeviceInfo]) -> Result<Option<&'d DeviceInfo>> {
     primary.map(|p| being_set_up(&format!("--primary {p:?}"), p, drives)).transpose()
@@ -729,6 +741,10 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
     let player_names = by_drive(&args.player_names, &drives, "--player-name")?;
     let roots: Vec<PathBuf> = drives.iter().map(|d| d.root.clone()).collect();
     let given = given_primary(args.primary.as_deref(), &drives)?;
+    // Refused before anything is written when the primary is known by now.
+    if let Some(primary) = given.or((drives.len() == 1 || !asking).then(|| &drives[0])) {
+        no_role_for_primary(&roles, primary)?;
+    }
     let library = match args.library {
         Some(l) => l,
         None => s.ask("Name for your library", &default_library(&store, given, &drives)?)?,
@@ -797,6 +813,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             pick.expect("chosen")
         }
     };
+    no_role_for_primary(&roles, primary)?;
     let mut chosen: Vec<(&DeviceInfo, String)> = vec![(primary, "primary".into())];
     // Run again, setup keeps the roles drives have unless told otherwise.
     let registry = store.drives()?;
@@ -980,7 +997,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
     };
     let models: Vec<String> = models.split(',').map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).collect();
     if !models.is_empty() {
-        match api::players_set_plan(&store, &api::SetPlayers { models, library: None }) {
+        match api::players_set_plan(Some(&store), &api::SetPlayers { models, library: None }) {
             Ok(plan) => {
                 s.apply("players", "Remember them?", vec![Box::new(plan)])?;
             }

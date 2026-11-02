@@ -4,12 +4,14 @@ import { render } from 'vitest-browser-svelte';
 import { sampleReport } from '#lib/mix/sample.ts';
 import type { DjSetView } from '#lib/types.ts';
 import Avatar from './Avatar.svelte';
+import ClaimFields from './ClaimFields.svelte';
 import DiffTable from './DiffTable.svelte';
 import GenreInput from './GenreInput.svelte';
 import MixList from './MixList.svelte';
 import MixReport from './mix/MixReport.svelte';
 import PlacePicker from './PlacePicker.svelte';
-import ProjectCard from './ProjectCard.svelte';
+import { djSummary, projectSummary } from '#lib/performers.ts';
+import PerformerCard from './PerformerCard.svelte';
 import ProjectForm from './ProjectForm.svelte';
 import ScoreBar from './ScoreBar.svelte';
 import StatusPill from './StatusPill.svelte';
@@ -42,6 +44,41 @@ describe('Avatar', () => {
 	it('falls back to initials when there is no image', async () => {
 		await render(Avatar, { name: 'Neon Tide', src: null });
 		await expect.element(page.getByText('NT')).toBeInTheDocument();
+	});
+});
+
+describe('ClaimFields', () => {
+	it('asks for proof that names the claimant by handle', async () => {
+		await render(ClaimFields, { values: {}, claimant: { did: 'did:plc:neon', handle: 'neon.test' } });
+		await expect
+			.element(page.getByRole('textbox', { name: 'How can a moderator verify this?' }))
+			.toHaveAccessibleDescription(/localnetwork @neon\.test/);
+	});
+
+	it('names the claimant by DID when they have no handle', async () => {
+		await render(ClaimFields, { values: {}, claimant: { did: 'did:plc:neon', handle: null } });
+		await expect.element(page.getByText('localnetwork did:plc:neon')).toBeInTheDocument();
+	});
+
+	it('keeps what was entered, and starts over from new values', async () => {
+		const claimant = { did: 'did:plc:pat', handle: 'pat.test' };
+
+		const { rerender } = await render(ClaimFields, {
+			values: { relationship: 'manager', links: 'https://a.test' },
+			claimant
+		});
+
+		const links = page.getByRole('textbox', { name: 'Supporting links' });
+
+		await expect.element(page.getByRole('radio', { name: "I'm their manager" })).toBeChecked();
+		await page.getByRole('radio', { name: "I'm their booking agent" }).click();
+		await links.fill('https://b.test');
+		await expect.element(page.getByRole('radio', { name: "I'm their booking agent" })).toBeChecked();
+		await expect.element(links).toHaveValue('https://b.test');
+
+		await rerender({ values: { relationship: 'member', links: 'https://c.test' }, claimant });
+		await expect.element(page.getByRole('radio', { name: "I'm a member of this group" })).toBeChecked();
+		await expect.element(links).toHaveValue('https://c.test');
 	});
 });
 
@@ -83,10 +120,10 @@ describe('GenreInput', () => {
 	});
 });
 
-describe('ProjectCard', () => {
+describe('PerformerCard', () => {
 	it('links to the project and marks unclaimed projects', async () => {
-		await render(ProjectCard, {
-			project: {
+		await render(PerformerCard, {
+			performer: projectSummary({
 				uri: 'at://did:plc:root/computer.localnetwork.project/1',
 				rkey: '1',
 				cid: 'c',
@@ -106,11 +143,37 @@ describe('ProjectCard', () => {
 				updatedAt: '2026-01-01T00:00:00Z',
 				avatarUrl: null,
 				distanceKm: 3.2
-			}
+			})
 		});
 		await expect.element(page.getByRole('link', { name: 'Neon Tide' })).toHaveAttribute('href', '/projects/neon-tide');
 		await expect.element(page.getByText('Unclaimed')).toBeInTheDocument();
 		await expect.element(page.getByText('3.2 km')).toBeInTheDocument();
+	});
+
+	it("links a listed DJ to their profile, by the genres they were found by, without a place they didn't give", async () => {
+		await render(PerformerCard, {
+			performer: djSummary({
+				profile: {
+					did: 'did:plc:neon',
+					uri: 'at://did:plc:neon/computer.localnetwork.profile/self',
+					cid: 'c',
+					record: {
+						basics: { name: 'Neon' },
+						performer: { tagline: 'Hypnotic techno', fees: [{ tier: 'emerging' }] },
+						createdAt: '2026-01-01T00:00:00Z',
+						updatedAt: '2026-01-01T00:00:00Z'
+					},
+					avatarUrl: null
+				},
+				handle: 'neon.test',
+				genres: ['Techno', 'Ambient']
+			})
+		});
+		await expect.element(page.getByRole('link', { name: 'Neon' })).toHaveAttribute('href', '/@neon.test');
+		await expect.element(page.getByText('Solo DJ', { exact: true })).toBeInTheDocument();
+		await expect.element(page.getByText('Ambient')).toBeInTheDocument();
+		await expect.element(page.getByText('Emerging')).toBeInTheDocument();
+		await expect.element(page.getByText('Unclaimed')).not.toBeInTheDocument();
 	});
 });
 
@@ -198,6 +261,49 @@ describe('ProjectForm', () => {
 			document.querySelector<HTMLInputElement>(`input[type=hidden][name=${name}]`)?.value;
 
 		expect([hidden('linkLabel'), hidden('mixDuration'), hidden('mixYear')]).toEqual(['Shop', '90', '2024']);
+	});
+
+	it('posts what was entered, and starts over from new values', async () => {
+		const { rerender } = await render(ProjectForm, {
+			values: {
+				name: 'Neon Tide',
+				formats: ['vinyl'],
+				fees: [{ label: 'Club nights', tier: '', currency: '', minAmount: '', maxAmount: '' }]
+			},
+			avatarUrl: '/avatar.png',
+			geocoder: false
+		});
+
+		const posted = () => {
+			const form = new FormData(document.querySelector('form')!);
+
+			return {
+				name: form.get('name'),
+				formats: form.getAll('formats'),
+				removeAvatar: form.get('removeAvatar'),
+				fee: form.get('feeLabel')
+			};
+		};
+
+		await page.getByRole('textbox', { name: 'Project name' }).fill('Neon Tide Live');
+		await page.getByText('Modular').click();
+		await page.getByRole('checkbox', { name: 'Remove the current image' }).click();
+		await page.getByRole('textbox', { name: 'What this fee covers' }).fill('Warehouse nights');
+		expect(posted()).toEqual({
+			name: 'Neon Tide Live',
+			formats: ['vinyl', 'modular'],
+			removeAvatar: 'on',
+			fee: 'Warehouse nights'
+		});
+
+		await rerender({
+			values: { name: 'Halflight', formats: ['cdj'], removeAvatar: 'on' },
+			avatarUrl: '/avatar.png',
+			geocoder: false
+		});
+		await expect.element(page.getByRole('textbox', { name: 'Project name' })).toHaveValue('Halflight');
+		await expect.element(page.getByRole('checkbox', { name: 'Remove the current image' })).toBeChecked();
+		expect(posted()).toMatchObject({ name: 'Halflight', formats: ['cdj'], removeAvatar: 'on' });
 	});
 });
 

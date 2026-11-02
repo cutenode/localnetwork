@@ -12,7 +12,7 @@ use locallibrary::doctor::{
 use locallibrary::format::Verdict;
 use locallibrary::paths::FileClass;
 use locallibrary::progress::Ctx;
-use locallibrary::sound::{AnalysisReport, KeyOutcome, LoudnessProblem, Plausible, TempoRelation};
+use locallibrary::sound::{AnalysisReport, KeyOutcome, LoudnessProblem, Plausible, TempoFinding, TempoRelation};
 
 use crate::each_drive::{self, Reads};
 use crate::output::{self, Outcome, Output, bytes, cap, dim, heading, ok, warn};
@@ -24,7 +24,8 @@ use crate::plugins;
   locallibrary doctor Home --only duplicates,unfiled --hash-audio
   locallibrary doctor Home --only duplicates --by-sound   also a FLAC and an MP3 of one recording
   locallibrary doctor Home --only analysis   tempos and keys to recheck, tracks too loud or clipped
-  locallibrary doctor Home --fix-orphans --dry-run    what deleting the orphaned files would remove")]
+  locallibrary doctor Home --fix-orphans --dry-run    what deleting the orphaned files would remove
+  locallibrary doctor Home --fix-tempo --dry-run    which beat grids would be doubled or halved")]
 pub struct DoctorArgs {
     #[arg(help = crate::DEFAULT_LIBRARY_HELP)]
     drive: Option<String>,
@@ -52,7 +53,12 @@ pub struct DoctorArgs {
     /// given no drive, on the only mounted one or the newest of the one library plugged in)
     #[arg(long)]
     fix_orphans: bool,
-    /// With --fix-orphans: show what would be deleted, delete nothing
+    /// Double the beat grid and BPM of each track the analysis hears at twice its stored tempo,
+    /// and halve them where it hears half (runs the analysis first, as --analyze does; backed up
+    /// first, so `locallibrary undo` takes it back)
+    #[arg(long, conflicts_with = "fix_orphans")]
+    fix_tempo: bool,
+    /// With --fix-orphans or --fix-tempo: show what would change, change nothing
     #[arg(long)]
     dry_run: bool,
     /// List every duplicate group, missing file and orphan (not just the first of each)
@@ -107,6 +113,10 @@ pub fn run(args: DoctorArgs, store: &Option<std::path::PathBuf>, out: Output, ct
         let drive = crate::jobs_cmd::drive_or_default(args.drive, store, "clean up")?;
         return fix_orphans(drive, args.dry_run, out, ctx);
     }
+    if args.fix_tempo {
+        let drive = crate::jobs_cmd::drive_or_default(args.drive, store, "fix tempos on")?;
+        return fix_tempo(drive, store, args.dry_run, out, ctx);
+    }
     let only = args.only.into_iter().map(Into::into).collect();
     let options = DoctorOptions {
         hash_audio: args.hash_audio,
@@ -157,6 +167,20 @@ fn fix_orphans(drive: String, dry_run: bool, out: Output, ctx: &Ctx<'_>) -> Resu
             crate::output::hint(format!("undo with: locallibrary undo {:?} (backup {b})", req.drive));
         }
     }))
+}
+
+fn fix_tempo(
+    drive: String,
+    store: &Option<std::path::PathBuf>,
+    dry_run: bool,
+    out: Output,
+    ctx: &Ctx<'_>,
+) -> Result<ExitCode> {
+    let store = crate::open_store(store)?;
+    let options = DoctorOptions { only: vec![Section::Analysis], analyze: true, ..Default::default() };
+    let report = plugins::roles::doctor(&api::DoctorRequest { drive: drive.clone(), options }, Some(&store), ctx)?;
+    let findings = report.analysis.map(|a| a.tempo).unwrap_or_default();
+    crate::edit_cmd::confirm_and_apply(&drive, api::doctor_tempo_plan(&drive, &findings, ctx)?, dry_run, out, ctx)
 }
 
 fn class_name(c: FileClass) -> &'static str {
@@ -357,7 +381,7 @@ pub fn render(r: &DoctorReport) {
         }
     }
     if let Some(a) = &r.analysis {
-        analysis(a);
+        analysis(a, &r.drive);
     }
     if let Some(c) = &r.compatibility {
         let fs = r.file_system.clone().unwrap_or_else(|| "file system".into());
@@ -399,7 +423,7 @@ fn key_relation(r: KeyOutcome) -> &'static str {
     }
 }
 
-fn analysis(a: &AnalysisReport) {
+fn analysis(a: &AnalysisReport, drive: &str) {
     let fresh = if a.decoded > 0 { format!(", {} just now", a.decoded) } else { String::new() };
     heading(&format!("Analysis ({} track(s) analysed{fresh})", a.analyzed));
     if a.tempo.is_empty() {
@@ -418,7 +442,15 @@ fn analysis(a: &AnalysisReport) {
                 dim(format!("{:.2} vs {:.0} BPM ({}{likelier})", f.stored, f.estimate, tempo_relation(f.relation)))
             )
         });
-        crate::output::hint_at("    ", "rekordbox's x2 and /2 buttons fix a tempo that's half or double");
+        let fixable = |f: &&TempoFinding| f.likelier != Some(Plausible::Stored);
+        if a.tempo.iter().filter(fixable).any(|f| matches!(f.relation, TempoRelation::Half | TempoRelation::Double)) {
+            crate::output::hint_at(
+                "    ",
+                format!(
+                    "`locallibrary doctor {drive:?} --fix-tempo` doubles or halves the beat grids of those half or double"
+                ),
+            );
+        }
     }
     if a.key.is_empty() {
         ok("every stored key agrees with the analysis");

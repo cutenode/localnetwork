@@ -1,3 +1,4 @@
+use loclib_mixid::test_util::{be, m4a, mp4_empty_tables, mp4_full};
 use rodio::buffer::SamplesBuffer;
 
 use super::*;
@@ -115,38 +116,23 @@ fn a_file_that_crashes_the_decoder_fails_to_open() {
 /// the file fails to open there instead of panicking the UI thread when it starts playing.
 #[test]
 fn a_file_whose_decoder_says_0_hz_fails_to_open() {
-    let atom = |kind: &[u8], body: &[u8]| [&(8 + body.len() as u32).to_be_bytes(), kind, body].concat();
-    let full = |kind: &[u8], body: &[u8]| atom(kind, &[&[0; 4], body].concat());
-    let be = |vs: &[u32]| vs.iter().flat_map(|v| v.to_be_bytes()).collect::<Vec<u8>>();
-    let matrix = be(&[0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x4000_0000]);
-    let mvhd = full(
-        b"mvhd",
-        &[be(&[0, 0, 1000, 0, 0x10000, 0x0100_0000, 0, 0]), matrix.clone(), vec![0; 24], be(&[2])].concat(),
-    );
-    let tkhd = full(b"tkhd", &[be(&[0, 0, 1, 0, 0, 0, 0, 0, 0x0100_0000]), matrix, be(&[0, 0])].concat());
-    let mdhd = full(b"mdhd", &be(&[0, 0, 8000, 0, 0x55c4_0000]));
-    let hdlr = full(b"hdlr", &[&be(&[0])[..], b"soun", &[0; 13]].concat());
-    // Frame length, version, bit depth, rice parameters, 2 channels, run, frame and bit rate
-    // limits, and the rate: 0.
-    let cookie = be(&[4096, 16 << 16 | 40 << 8 | 10, 14 << 24 | 2 << 16 | 255, 0, 0, 0]);
-    let entry = atom(b"alac", &[be(&[0, 1, 0, 0, 2 << 16 | 16, 0, 8000 << 16]), full(b"alac", &cookie)].concat());
-    let stbl = [
-        full(b"stsd", &[be(&[1]), entry].concat()),
-        full(b"stts", &be(&[0])),
-        full(b"stsc", &be(&[0])),
-        full(b"stsz", &be(&[0, 0])),
-        full(b"stco", &be(&[0])),
-    ]
-    .concat();
-    let minf = atom(b"minf", &[full(b"smhd", &be(&[0])), atom(b"stbl", &stbl)].concat());
-    let trak = atom(b"trak", &[tkhd, atom(b"mdia", &[mdhd, hdlr, minf].concat())].concat());
-    let m4a = [atom(b"ftyp", b"M4A \0\0\0\0M4A isom"), atom(b"moov", &[mvhd, trak].concat()), atom(b"mdat", &[])];
-
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("zero.m4a");
-    std::fs::write(&path, m4a.concat()).unwrap();
+    std::fs::write(&path, m4a(0, &mp4_empty_tables(), &[])).unwrap();
     let err = open_file(&path).err().expect("no decoder for it");
     assert!(format!("{err:#}").contains("crashed"), "{err:#}");
+}
+
+/// An M4A whose `stsz` claims 4 billion sample sizes it doesn't hold (symphonia would ask for
+/// 16 GiB, aborting the player where memory isn't overcommitted) fails to open instead.
+#[test]
+fn an_m4a_claiming_more_samples_than_it_holds_fails_to_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("huge.m4a");
+    let stsz = mp4_full(b"stsz", &be(&[0, u32::MAX]));
+    std::fs::write(&path, m4a(8_000, &[mp4_empty_tables(), stsz].concat(), &[])).unwrap();
+    let err = open_file(&path).err().expect("refused");
+    assert!(format!("{err:#}").contains("sample table claims more"), "{err:#}");
 }
 
 /// A file opened to start further in (auto cue) plays from there, and says so.
@@ -163,6 +149,26 @@ fn files_start_where_asked() {
     assert_eq!(audio.position(), ms(50));
     let first = out.next().unwrap();
     assert_eq!((first * 32768.0).round(), 400.0);
+}
+
+/// An MP3 plays without the silence its encoder put at either end, as its LAME tag says (the
+/// encoder's delay and padding), and is as long as what's left; one with no tag plays every frame.
+#[test]
+fn mp3s_play_gapless() {
+    use loclib_mixid::test_util::{MP3_FRAME_SAMPLES, mp3};
+
+    let dir = tempfile::tempdir().unwrap();
+    let frames = 40;
+    for (gapless, trimmed) in [(Some((1105, 1000)), 2105), (None, 0)] {
+        let path = dir.path().join("set.mp3");
+        std::fs::write(&path, mp3(frames, gapless)).unwrap();
+        let file = open_file(&path).unwrap();
+        let samples = u64::from(frames * MP3_FRAME_SAMPLES) - trimmed;
+        assert_eq!(file.format, (2, 44_100), "{gapless:?}");
+        let frames_long = file.duration.map(|d| (d.as_secs_f64() * 44_100.0).round() as u64);
+        assert_eq!(frames_long, Some(samples), "{gapless:?}");
+        assert_eq!(file.decoder.count() as u64, samples * 2, "{gapless:?}");
+    }
 }
 
 /// A track queued behind the playing one starts the moment it ends; one queued and dropped

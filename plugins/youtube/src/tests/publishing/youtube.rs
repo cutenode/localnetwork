@@ -23,6 +23,9 @@ pub(super) const SESSION: &str =
     "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&upload_id=xa298";
 pub(super) const VIDEO: &str = "dQw4w9WgXcQ";
 
+/// As the host fails a request for a Google account that's signed out.
+pub(super) const SIGNED_OUT: &str = "the google account dj@example.com is signed out: sign in again";
+
 /// How YouTube answers a request through the host, in place of what it would: a status and body,
 /// the host failing to reach it, or a chunk arriving of which YouTube keeps only so many bytes.
 #[derive(Clone, Debug)]
@@ -89,9 +92,7 @@ impl YouTube {
     /// The host's answer to `fetch`.
     fn answer(&mut self, fetch: &Fetch) -> Result<Fetched, RpcError> {
         if !self.signed_in {
-            // As the host fails a request for an account that isn't signed in.
-            let why = "youtube's account google isn't signed in: locallibrary plugin account youtube google sign-in";
-            return Err(RpcError::failed("invalid", why));
+            return Err(RpcError::failed("access", SIGNED_OUT));
         }
         assert_eq!(fetch.headers.get("Authorization").map(String::as_str), Some(AUTHORIZATION), "{fetch:?}");
         let kind = match (fetch.method.as_str(), fetch.url.as_str()) {

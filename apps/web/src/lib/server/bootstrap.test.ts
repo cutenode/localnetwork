@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ensureRootSpaces } from './bootstrap';
+import { ensureRootSpaces, ROOT_SPACE_POLICIES } from './bootstrap';
 import { createTestServices } from './testing/core';
 
 describe('ensureRootSpaces', () => {
@@ -24,5 +24,28 @@ describe('ensureRootSpaces', () => {
 
 		// One creation entry per space from the test setup, and one from whichever overlapping run created it.
 		for (const space of spaces) expect(await t.audit.list({ action: 'system.space', subject: space })).toHaveLength(2);
+	});
+
+	it('closes an industry space that any signed-in account could read to staff only', async () => {
+		const industry = t.net.spaces.get(t.spaces.industry)!;
+		industry.policy = { ...industry.policy, publicRead: true };
+
+		await ensureRootSpaces(t.core);
+
+		expect(industry.policy).toEqual(ROOT_SPACE_POLICIES.industry);
+		expect(await t.audit.list({ action: 'system.space', subject: t.spaces.industry })).toMatchObject([
+			{
+				summary: 'Corrected the industry space policies',
+				changes: JSON.stringify([{ field: 'publicRead', before: 'true', after: 'false' }])
+			},
+			{ summary: 'Created the industry space' }
+		]);
+	});
+
+	it("watches the root's performer, party and venue spaces again", async () => {
+		const actor = await t.viewer('did:plc:ada');
+		const spaces = [await t.sharedSpaces.create(actor, 'performer'), await t.sharedSpaces.create(actor, 'venue')];
+
+		expect(await ensureRootSpaces(t.core)).toEqual(expect.arrayContaining(spaces));
 	});
 });

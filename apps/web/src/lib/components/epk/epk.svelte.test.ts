@@ -95,6 +95,33 @@ describe('EpkPhotos', () => {
 });
 
 describe('EpkForm', () => {
+	it('keeps what was entered in the rows it adds, and starts over from new values', async () => {
+		const props = { photoBase: null, editHref: '/dashboard/projects/neon-tide/profile', submitLabel: 'Save changes' };
+		const { rerender } = await render(EpkForm, { ...props, values: epkFormDefaults });
+		const extraMix = page.getByRole('textbox', { name: 'Extra mix 2 name' });
+		const quote = page.getByRole('textbox', { name: 'Quote 5', exact: true });
+
+		await extraMix.fill('Promo');
+		await page
+			.getByRole('group', { name: 'Who can play extra mix 2' })
+			.getByRole('radio', { name: 'Everyone' })
+			.click();
+		await quote.fill('Relentless');
+		await expect.element(extraMix).toHaveValue('Promo');
+		await expect
+			.element(page.getByRole('group', { name: 'Who can play extra mix 2' }).getByRole('radio', { name: 'Everyone' }))
+			.toBeChecked();
+		await expect.element(quote).toHaveValue('Relentless');
+
+		await rerender({ ...props, values: { ...epkFormDefaults, quotes: [{ text: 'Patient', source: 'Mixmag' }] } });
+		await expect.element(extraMix).toHaveValue('');
+		await expect
+			.element(page.getByRole('group', { name: 'Who can play extra mix 2' }).getByRole('radio', { name: 'On request' }))
+			.toBeChecked();
+		await expect.element(quote).toHaveValue('');
+		await expect.element(page.getByRole('textbox', { name: 'Quote 1', exact: true })).toHaveValue('Patient');
+	});
+
 	it('shows saved photos with their size, and the press checklist they pass', async () => {
 		await render(EpkForm, {
 			values: {

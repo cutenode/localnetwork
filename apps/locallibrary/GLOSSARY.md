@@ -46,7 +46,8 @@ _Avoid_: local scope, permission, right
 
 **Access**:
 The scopes one plugin may use on one account. The user gives it to the plugin and can take it
-away without signing out. locallibrary's own features don't need it.
+away without signing out; signing out leaves it, unused until the account is signed in again.
+locallibrary's own features don't need it.
 _Avoid_: grant (the website's word for press kits), consent, permission, authorization
 
 **Sign in**:

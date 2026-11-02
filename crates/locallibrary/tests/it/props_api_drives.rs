@@ -280,7 +280,7 @@ impl Registry {
         want.sort();
         assert_eq!(offline, want, "the registered drives not mounted (all: {all}, retired: {retired})");
         assert!(st.libraries.is_empty());
-        assert!(api::drive_sets(&self.store).unwrap().is_empty(), "no drive is in a library");
+        assert!(api::drive_sets(Some(&self.store)).unwrap().is_empty(), "no drive is in a library");
     }
 
     /// The registry agrees with the model, and so does what a spec finds.

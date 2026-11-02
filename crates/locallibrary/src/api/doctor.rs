@@ -3,11 +3,14 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+use super::editing::planned_edit;
 use super::{DriveRef, resolve_drive};
 use crate::Result;
 use crate::doctor::{self, DoctorOptions, DoctorReport, OrphanCleanReport, OrphanPlan};
+use crate::edit::{self, EditOptions, EditPlan};
 use crate::op::{Operation, Planned, Probe, Touched, bytes};
 use crate::progress::Ctx;
+use crate::sound::TempoFinding;
 use crate::store::Store;
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -20,6 +23,18 @@ pub struct DoctorRequest {
 /// A drive's health report. Read-only.
 pub fn doctor(req: &DoctorRequest, ctx: &Ctx<'_>) -> Result<DoctorReport> {
     doctor::run(&resolve_drive(&req.drive)?, &req.options, ctx)
+}
+
+/// The edits doubling or halving the beat grids (and BPMs) of the tracks on `drive` that
+/// `findings` (its doctor report's analysis) hears at half or double their stored tempo (see
+/// [`doctor::tempo_fixes`]): an edit plan, saying what it leaves out and why. Applied, it's backed
+/// up first and journaled, so `undo` takes it back.
+pub fn doctor_tempo_plan(drive: &str, findings: &[TempoFinding], ctx: &Ctx<'_>) -> Result<Planned<EditPlan>> {
+    let d = resolve_drive(drive)?;
+    let (edits, notes) = doctor::tempo_fixes(&d, findings)?;
+    let mut plan = edit::plan(&d, &edits, &EditOptions::default(), ctx)?;
+    plan.warnings.extend(notes);
+    planned_edit("doctor.tempo", plan, Touched::library(&d, true), ctx)
 }
 
 /// Orphaned files a cleanup would delete, from the drive and (as a sync would) its clones.

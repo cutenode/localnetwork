@@ -3,7 +3,7 @@ import type { JsonObject } from '@atproto/lex-json';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { COLLECTION, EPK_CONTENT_KEY } from '#lib/nsid.ts';
 import { z } from 'zod';
-import { recordCid } from '../atproto/repo-client';
+import { memberSpacePolicy, recordCid } from '../atproto/repo-client';
 import { ForbiddenError, NotFoundError, UserError } from '../core';
 import { HappyViewClient } from '../happyview/client';
 import { IndexedRepo } from '../happyview/indexed';
@@ -62,7 +62,7 @@ describe('EpkDrafts', () => {
 			[DJ]: { read: true, write: true },
 			[CODJ]: { read: true, write: true }
 		});
-		expect(f.t.net.spaces.get(backstage)?.writePolicy.$type).toBe('com.atproto.simplespace.defs#memberListPolicy');
+		expect(f.t.net.spaces.get(backstage)?.policy).toEqual(memberSpacePolicy());
 
 		// Changing it back leaves nothing to publish, so the draft goes.
 		expect(await save(CODJ, epk.rkey)).toBeNull();

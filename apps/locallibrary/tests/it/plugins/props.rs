@@ -116,8 +116,9 @@ fn offered(tc: &TestCase, x: &mut Value) {
 /// operations (`op0`...), each at a place of its own on the command line or not and in drawn
 /// menus; analyzers of drawn fields and versions, and the test plugin's `size` (`bytes`, shown
 /// in bytes or not) and `order` (`a`, `b`) it can run; export formats writing a file or a folder;
-/// providers of either kind (granted reading tracks); accounts (granted a server to talk to) and
-/// destinations of either kind; panels; library sources (granted reading folders); themes; and
+/// providers of either kind (granted reading tracks); account types the account plugins
+/// locallibrary ships provide (granted the servers their scopes talk to); destinations of either
+/// kind; panels; library sources (granted reading folders); themes; and
 /// settings of every kind.
 #[hegel::test_helper]
 fn manifest(tc: &TestCase, id: &str) -> Value {
@@ -233,24 +234,20 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
     if !providers.is_empty() && !capabilities.iter().any(|c| c == "library:read") {
         capabilities.push("library:read".into());
     }
-    let accounts: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
-        .map(|j| {
-            let mut a = json!({
-                "id": format!("ac{j}"),
-                "title": title(tc),
-                "authorize_url": "https://auth.example/authorize",
-                "token_url": "https://auth.example/token",
-                "client_id": format!("{id}-client"),
-            });
-            if tc.draw(gs::booleans()) {
-                a["scopes"] = json!(["read", "write"]);
+    let asked: Vec<(&str, &str, &str)> = tc.draw(gs::subsequences(vec![
+        ("google", "youtube-upload", "net:www.googleapis.com"),
+        ("mixcloud", "upload", "net:api.mixcloud.com"),
+        ("soundcloud", "upload", "net:api.soundcloud.com"),
+    ]));
+    let accounts: Vec<Value> = asked
+        .into_iter()
+        .map(|(kind, scope, grant)| {
+            if !capabilities.iter().any(|c| c == grant) {
+                capabilities.push(grant.into());
             }
-            a
+            json!({ "type": kind, "scopes": [scope], "why": title(tc) })
         })
         .collect();
-    if !accounts.is_empty() && !capabilities.iter().any(|c| c.starts_with("net:")) {
-        capabilities.push("net:api.example".into());
-    }
     let destinations: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
         .map(|j| {
             let kind = tc.draw(gs::sampled_from(&["store", "set"][..]));
@@ -300,7 +297,7 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
     let services: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
         .map(|j| json!({ "name": format!("sv{j}"), "title": title(tc) }))
         .collect();
-    json!({
+    let mut manifest = json!({
         "id": id,
         "name": title(tc),
         "version": version,
@@ -308,7 +305,6 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
         "capabilities": capabilities,
         "contributes": {
             "account_types": [],
-            "accounts": accounts,
             "commands": commands,
             "destinations": destinations,
             "events": events,
@@ -324,7 +320,11 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
             "themes": themes,
             "settings": settings,
         },
-    })
+    });
+    if !accounts.is_empty() {
+        manifest["accounts"] = json!(accounts);
+    }
+    manifest
 }
 
 /// An [`Env`] with `manifests` besides the plugins locallibrary ships.
@@ -341,6 +341,13 @@ fn unschema(mut v: Value) -> Value {
         o.shift_remove("schema");
     }
     v
+}
+
+/// Whether `plugin` (as `plugins.list` or `plugins.describe` has it) is running, taken out of
+/// it. The sidecar starts a plugin listening for `job.finished` as each request finishes, on a
+/// thread of its own, so whether it has by the next answer is a race.
+fn running(plugin: &mut Value) -> Value {
+    plugin.as_object_mut().unwrap().shift_remove("running").unwrap()
 }
 
 /// A value as the command line shows it: text as it is, a list joined, nothing as `-`.
@@ -376,9 +383,12 @@ fn listed_text(listed: &[Value]) -> String {
         for c in p["capabilities"].as_array().unwrap() {
             out.push_str(&format!("  may {}\n", c["means"].as_str().unwrap()));
         }
+        let asked = names(&p["accounts"]);
+        if !asked.is_empty() {
+            out.push_str(&format!("  asks for {} accounts\n", asked.join(", ")));
+        }
         let kinds = [
             ("account type", "account_types"),
-            ("account", "accounts"),
             ("command", "commands"),
             ("destination", "destinations"),
             ("listens for", "events"),
@@ -431,12 +441,13 @@ fn described_text(d: &Value) -> String {
     let list = |key: &str| m["contributes"][key].as_array().cloned().unwrap_or_default();
     let means = d["capabilities"].as_array().unwrap().iter().map(|c| (str_of(&c["means"]), String::new()));
     section("May:".into(), means.collect());
-    // None signed in, in a store of the test's own.
-    let accounts = d["accounts"].as_array().unwrap().iter().map(|a| {
-        let signed = if a["signed_in"] == true { "signed in" } else { "not signed in" };
-        (str_of(&a["account"]), format!("{}: {signed}", str_of(&a["title"])))
+    // No access to any, in a store of the test's own.
+    let needs = m["accounts"].as_array().cloned().unwrap_or_default();
+    let accounts = needs.iter().map(|n| {
+        let scopes: Vec<String> = n["scopes"].as_array().unwrap().iter().map(str_of).collect();
+        (str_of(&n["type"]), format!("{} ({}; no access)", str_of(&n["why"]), scopes.join(", ")))
     });
-    section(format!("Accounts (locallibrary plugin account {id} ACCOUNT sign-in):"), accounts.collect());
+    section(format!("Accounts (locallibrary plugin access {id}):"), accounts.collect());
     let invocation = |x: &Value| match x["cli"].as_str() {
         Some(place) => format!("locallibrary {place}"),
         None => format!("locallibrary {id} {}", str_of(&x["name"])),
@@ -577,8 +588,9 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
         let capabilities: Vec<&Value> =
             p["capabilities"].as_array().unwrap().iter().map(|g| &g["capability"]).collect();
         assert_eq!(capabilities, m["capabilities"].as_array().unwrap().iter().collect::<Vec<_>>());
+        let asked: Vec<Value> = m["accounts"].as_array().into_iter().flatten().map(|n| n["type"].clone()).collect();
+        assert_eq!(p["accounts"].as_array().unwrap(), &asked);
         for (key, field) in [
-            ("accounts", "id"),
             ("commands", "name"),
             ("destinations", "name"),
             ("operations", "name"),
@@ -621,15 +633,12 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
         let described = unschema(env.json(&["plugin", "info", id]));
         let mut manifest = m.clone();
         // The manifest as it reads back: nothing left out is written.
-        for key in ["accounts", "commands", "operations", "panels", "analyzers", "checks", "exporters"] {
+        for key in ["commands", "operations", "panels", "analyzers", "checks", "exporters"] {
             for x in manifest["contributes"][key].as_array_mut().unwrap() {
                 if key == "panels" && x.get("where").is_none() {
                     x["where"] = json!("track");
                 }
                 x.as_object_mut().unwrap().retain(|_, v| !v.is_null());
-                if key == "accounts" {
-                    x["pkce"] = json!(true);
-                }
                 if key == "operations" {
                     x["long_running"] = json!(false);
                 }
@@ -647,13 +656,8 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
             }
         }
         assert_eq!(described["manifest"], manifest);
-        // Each account, none signed in yet.
-        let account = |a: &Value, id: &Value| json!({ "plugin": m["id"], "account": id, "title": a["title"] });
-        let accounts: Vec<Value> =
-            m["contributes"]["accounts"].as_array().unwrap().iter().map(|a| account(a, &a["id"])).collect();
-        let said = described["accounts"].as_array().unwrap();
-        assert_eq!(said.iter().map(|a| account(a, &a["account"])).collect::<Vec<_>>(), accounts);
-        assert!(said.iter().all(|a| a["signed_in"] == false), "{said:?}");
+        // No access to any account yet.
+        assert_eq!(described["accesses"], json!([]));
         let defaults: Map<String, Value> = m["contributes"]["settings"]
             .as_array()
             .unwrap()
@@ -679,12 +683,26 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
                 json!({ "key": format!("services.{name}"), "title": format!("{title}: keep it running"), "default": false })
             })
             .collect();
-        let shown: Vec<&Value> = m["contributes"]["settings"].as_array().unwrap().iter().chain(&switches).collect();
+        // Then each command's and operation's key in the player, unset.
+        let keys = player_keys(m);
+        let shown: Vec<&Value> =
+            m["contributes"]["settings"].as_array().unwrap().iter().chain(&switches).chain(&keys).collect();
         assert_eq!(env.ok(&["plugin", "settings", id]), settings_text(id, &shown, &described["settings"]));
     }
     let r = env.run(&["plugin", "info", "plug-z"]);
     assert_eq!((r.code, r.out.as_str()), (1, ""));
     assert!(r.err.contains("not found: plugin \"plug-z\""), "{}", r.err);
+}
+
+/// The settings for the player's key of each of manifest `m`'s commands and operations, as
+/// `plugin settings` lists them after its own: text, with no default.
+fn player_keys(m: &Value) -> Vec<Value> {
+    let hooks = ["commands", "operations"].map(|f| m["contributes"][f].as_array().cloned().unwrap_or_default());
+    let key = |x: &Value| {
+        let (name, title) = (x["name"].as_str().unwrap(), x["title"].as_str().unwrap());
+        json!({ "key": format!("keys.{name}"), "title": format!("{title}: its key in the player") })
+    };
+    hooks.concat().iter().map(key).collect()
 }
 
 /// A setting's value as typed on the command line and what it reads back as, drawn for its kind.
@@ -766,6 +784,7 @@ fn settings_read_back_as_last_set(tc: TestCase) {
     m["contributes"]["services"] = json!([]);
     // A command that answers what it's given, settings included.
     m["contributes"]["commands"] = json!([{ "name": "ask", "title": "Ask", "mode": "headless" }]);
+    let keys = player_keys(&m);
     let env = env_with(&[m]);
     let mut set: Map<String, Value> = Map::new();
     let now = |set: &Map<String, Value>| -> Value {
@@ -839,7 +858,11 @@ fn settings_read_back_as_last_set(tc: TestCase) {
                 if one {
                     args.push(key);
                 }
-                let shown: Vec<&Value> = settings.iter().filter(|s| !one || s["key"] == key).collect();
+                let mut shown: Vec<&Value> = settings.iter().filter(|s| !one || s["key"] == key).collect();
+                // After them, each command's and operation's key in the player, never set here.
+                if !one {
+                    shown.extend(&keys);
+                }
                 let json = unschema(env.json(&args));
                 let mut expected = now(&set);
                 if one {
@@ -1534,15 +1557,24 @@ fn the_sidecar_hosts_plugins_as_the_command_line_does(tc: TestCase) {
     let env = env_with(&manifests);
     let root = env.demo("USB");
     let drive = path(&root).to_string();
-    let listed = env.json(&["plugin", "list"]);
-    let described: Vec<Value> =
+    let mut listed = env.json(&["plugin", "list"]);
+    let mut described: Vec<Value> =
         manifests.iter().map(|m| unschema(env.json(&["plugin", "info", m["id"].as_str().unwrap()]))).collect();
+    for p in listed.as_array_mut().unwrap().iter_mut().chain(&mut described) {
+        assert_eq!(running(p), false, "the command line runs no plugin to list or describe it");
+    }
 
     let mut s = Rpc::start(env.command());
     let call = &mut 0;
-    assert_eq!(answer(&mut s, call, "plugins.list", Value::Null).unwrap(), listed);
+    let mut got = answer(&mut s, call, "plugins.list", Value::Null).unwrap();
+    for p in got.as_array_mut().unwrap() {
+        running(p);
+    }
+    assert_eq!(got, listed);
     for (m, d) in manifests.iter().zip(&described) {
-        assert_eq!(&answer(&mut s, call, "plugins.describe", json!({ "plugin": m["id"] })).unwrap(), d);
+        let mut got = answer(&mut s, call, "plugins.describe", json!({ "plugin": m["id"] })).unwrap();
+        running(&mut got);
+        assert_eq!(&got, d);
     }
     let e = answer(&mut s, call, "plugins.describe", json!({ "plugin": "plug-z" })).unwrap_err();
     assert_eq!(e["kind"], "not_found");

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import ProjectForm from '#lib/components/ProjectForm.svelte';
+	import { draftKey } from '#lib/form-draft.svelte.ts';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
 	import type { PageProps } from './$types';
 
@@ -18,5 +19,5 @@
 		{/if}
 	</div>
 	<FormMessage {form} />
-	<ProjectForm values={form?.values ?? {}} showMessage geocoder={data.geocoder} />
+	<ProjectForm values={form?.values ?? {}} showMessage geocoder={data.geocoder} draft={draftKey(data.viewer, 'project:new')} />
 </div>

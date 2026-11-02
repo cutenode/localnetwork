@@ -1,7 +1,8 @@
 //! What a plugin's `net/fetch` sends: text, a file or part of one, or a `multipart/form-data`
 //! form of text and files. Files are read as they're sent, never held whole, and opened again for
 //! each redirect that asks for the body again; the bytes sent are the progress of the hook call
-//! they're for (the one lent the file, or whose scratch folder it's in).
+//! they're for (the one lent the file, or whose scratch folder it's in). A request cancelled stops
+//! reading them at once ([`crate::net::streamed`]).
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Take};
@@ -10,9 +11,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use loclib_plugin::{ByteRange, RpcError};
-use reqwest::blocking::{RequestBuilder, multipart};
+use reqwest::header::CONTENT_LENGTH;
+use reqwest::{RequestBuilder, multipart};
 
 use super::invalid;
+use crate::net::streamed;
 use crate::plugin::blobs::Under;
 use crate::plugin::process::Live;
 use crate::progress::CancelToken;
@@ -55,12 +58,12 @@ impl FilePart {
         Ok(FilePart { path: path.to_path_buf(), offset, length })
     }
 
-    /// Its bytes, read from the file opened again, as they're sent: stopping once `cancel` is.
-    fn reader(&self, live: &Live, cancel: &CancelToken) -> Result<Sending, RpcError> {
+    /// Its bytes, read from the file opened again, as they're sent.
+    fn reader(&self, live: &Live) -> Result<Sending, RpcError> {
         let (mut file, under) = live.scratches.open(&self.path).map_err(|e| about(&self.path, e))?;
         file.seek(SeekFrom::Start(self.offset)).map_err(|e| about(&self.path, e))?;
         let file = file.take(self.length);
-        Ok(Sending { file, under, cancel: cancel.clone(), unreported: 0, reported: Instant::now() })
+        Ok(Sending { file, under, unreported: 0, reported: Instant::now() })
     }
 }
 
@@ -88,18 +91,17 @@ impl Body {
         live: &Live,
         cancel: &CancelToken,
     ) -> Result<RequestBuilder, RpcError> {
+        let stream = |file: &FilePart| Ok::<_, RpcError>(streamed(file.reader(live)?, cancel.clone()));
         match self {
             Body::Text(bytes) => Ok(request.body(bytes.clone())),
-            Body::File(file) => {
-                Ok(request.body(reqwest::blocking::Body::sized(file.reader(live, cancel)?, file.length)))
-            }
+            Body::File(file) => Ok(request.header(CONTENT_LENGTH, file.length).body(stream(file)?)),
             Body::Form(fields) => {
                 let mut form = multipart::Form::new();
                 for (name, field) in fields {
                     let part = match field {
                         Field::Text(value) => multipart::Part::text(value.clone()),
                         Field::File { file, filename, content_type } => {
-                            let mut part = multipart::Part::reader_with_length(file.reader(live, cancel)?, file.length);
+                            let mut part = multipart::Part::stream_with_length(stream(file)?, file.length);
                             if let Some(filename) = filename {
                                 part = part.file_name(filename.clone());
                             }
@@ -125,11 +127,10 @@ fn about(path: &Path, e: impl std::fmt::Display) -> RpcError {
 }
 
 /// A file's part as it's sent: what's read reported now and then (and once it's all read) to the
-/// hook call it's for, and failing once the request is cancelled.
+/// hook call it's for.
 struct Sending {
     file: Take<File>,
     under: Arc<Under>,
-    cancel: CancelToken,
     unreported: u64,
     reported: Instant,
 }
@@ -146,12 +147,9 @@ impl Sending {
 
 impl Read for Sending {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if self.cancel.is_cancelled() {
-            return Err(std::io::Error::other("cancelled"));
-        }
         let n = self.file.read(buf)?;
         self.unreported += n as u64;
-        // reqwest reads no further than the length it was told, so never to the end.
+        // Once it's all read, before the answer comes: what sends it may let go of it only later.
         if self.file.limit() == 0 || self.reported.elapsed() >= REPORT_EVERY {
             self.report();
         }

@@ -727,7 +727,7 @@ pub fn settings_import(
     let profile = plan.apply(None, ctx)?;
     let (count, from) = (plan.published.values.len(), plan.from.name());
     Ok(out.applied(&plan, &profile, Outcome::Applied, || {
-        ok(format!("imported {count} settings from {from}"));
+        ok(format!("imported {} from {from}", plural(count, "setting")));
         crate::output::hint("Run `locallibrary settings apply` to write the profile to your drives.");
     }))
 }

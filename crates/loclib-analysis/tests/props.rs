@@ -7,6 +7,7 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use loclib_analysis::tempo::TempoRelation;
 use loclib_analysis::{COLUMNS_PER_SEC, Error, VERSION, Want, analyze};
+use loclib_mixid::audio::MAX_RATE;
 use loclib_mixid::test_util::wav_of;
 use loclib_progress::Ctx;
 
@@ -74,9 +75,10 @@ fn a_sine_measures_its_level_whatever_it_is(tc: TestCase) {
 
 /// Any WAV, at any rate a file can say and any length up to a moment, is analysed for what's
 /// asked of it: as long as the file, its loudness and waveform when asked for, and its tempo and
-/// key when asked for and there's sound to estimate. Only the loudness meter refuses a rate, one
-/// outside the 16 Hz to 2.8 MHz it takes, as that file's analyzer error. A cancelled analysis is
-/// cancelled, and a file that isn't there is that file's error.
+/// key when asked for and there's sound to estimate. A rate over [`MAX_RATE`] is refused before
+/// anything is decoded, whatever's asked, as that file's audio error; below it only the loudness
+/// meter refuses a rate, one under the 16 Hz it takes, as that file's analyzer error. A cancelled
+/// analysis is cancelled, and a file that isn't there is that file's error.
 #[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 // A last column of one sample.
 #[hegel::explicit_test_case(rate = 44_100u32, frames = 1_025usize, level = 0.5f64)]
@@ -92,10 +94,14 @@ fn files_are_analysed_for_what_is_asked(tc: TestCase) {
     let gone = dir.path().join("gone.wav");
     for want in (0..8).map(|i| Want { estimate: i & 1 != 0, loudness: i & 2 != 0, waveform: i & 4 != 0 }) {
         let Want { estimate, loudness, waveform } = want;
-        let refused = loudness && !(16..=2_822_400).contains(&rate);
+        let too_fast = rate > MAX_RATE;
+        let refused = loudness && rate < 16;
         match analyze(&path, want, &Ctx::silent()) {
+            Err(Error::Audio(loclib_mixid::Error::Parse { path: at, message })) if too_fast => {
+                assert!(at == path && message.contains("768 kHz"), "{message}")
+            }
             Err(Error::Analyzer { path: at, .. }) if refused => assert_eq!(at, path),
-            Ok(a) if !refused => {
+            Ok(a) if !refused && !too_fast => {
                 assert!((a.duration_secs - frames as f64 / f64::from(rate)).abs() < 1e-9, "{a:?}");
                 let measured = (a.loudness.is_some(), a.estimate.is_some(), a.waveform.is_some());
                 assert_eq!(measured, (loudness, estimate && sound, waveform), "{a:?}");
@@ -118,9 +124,11 @@ fn files_are_analysed_for_what_is_asked(tc: TestCase) {
         let ctx = Ctx::silent();
         ctx.cancel.cancel();
         let cancelled = analyze(&path, want, &ctx);
-        // The meter refuses the rate at the first packet, before the cancel is seen.
+        // The header's rate is refused on opening the file, and the meter's at the first packet,
+        // both before the cancel is seen.
         let stopped = match &cancelled {
-            Err(Error::Cancelled(_)) => true,
+            Err(Error::Cancelled(_)) => !too_fast,
+            Err(Error::Audio(loclib_mixid::Error::Parse { .. })) => too_fast,
             Err(Error::Analyzer { .. }) => refused,
             _ => false,
         };

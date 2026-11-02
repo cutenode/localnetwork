@@ -21,6 +21,9 @@ use crate::upload::UPLOAD;
 const KEY: &str = "/djkit/closing-set/";
 pub(super) const PAGE: &str = "https://www.mixcloud.com/djkit/closing-set/";
 
+/// As the host fails a request for a Mixcloud account that's signed out.
+pub(super) const SIGNED_OUT: &str = "the mixcloud account djkit is signed out: sign in again";
+
 /// A file `name` of `size` bytes.
 pub(super) fn file(dir: &Path, name: &str, size: u64) -> PathBuf {
     let path = dir.join(name);
@@ -92,10 +95,7 @@ impl Mixcloud {
     /// The host's answer to `fetch`.
     fn answer(&mut self, fetch: &Fetch) -> Result<Fetched, RpcError> {
         if !self.signed_in {
-            // As the host fails a request for an account that isn't signed in.
-            let why =
-                "mixcloud's account mixcloud isn't signed in: locallibrary plugin account mixcloud mixcloud sign-in";
-            return Err(RpcError::failed("invalid", why));
+            return Err(RpcError::failed("access", SIGNED_OUT));
         }
         // The token goes in the query alone, and the form is all there is to send.
         assert_eq!((fetch.method.as_str(), fetch.url.as_str()), ("POST", UPLOAD));

@@ -1,8 +1,10 @@
 import { TID } from '@atproto/common-web';
 import type { JsonValue } from '@atproto/lex-json';
+import { MAX_EPKS_PER_PROJECT } from '#lib/epk.ts';
 import { type LatLng, toE6 } from '#lib/geo.ts';
 import { type MatchCriteria, type MatchResult, noteTexts } from '#lib/matching.ts';
 import { BSKY_FOLLOW, COLLECTION } from '#lib/nsid.ts';
+import { PROJECT_SHOWS } from '#lib/shows.ts';
 import { normalizeGenres } from '#lib/taxonomy/genres.ts';
 import type {
 	FieldChange,
@@ -21,9 +23,11 @@ import type { Backfills } from '../happyview/backfills';
 import { type DirectoryProject, type DirectoryStats, type HappyViewClient, QUERY_BYTES } from '../happyview/client';
 import { awaitIndexed, INDEX_WAIT_MS, IndexedRepo, reindex } from '../happyview/indexed';
 import { MANAGER_COLLECTIONS } from '../happyview/refresh';
+import type { PlyrClient } from '../plyr';
 import { truncateUtf8 } from '../utf8';
 import { diff } from './diff';
 import { ManagerSpaces } from './manager-spaces';
+import { withRecordings } from './mix-recordings';
 import { SetService } from './sets';
 
 export type ProjectSearch = {
@@ -49,6 +53,35 @@ export type ProjectSearch = {
 };
 
 export type ProjectSearchResult = { items: ProjectView[]; total: number; page: number; pageSize: number };
+
+/**
+ * The page asked for, and the directory params every performer search takes (searchProjects and searchPerformers):
+ * words, place, the filters, sort, and paging.
+ */
+export function searchQuery(params: ProjectSearch) {
+	const page = Math.max(1, params.page ?? 1);
+	const pageSize = Math.min(60, Math.max(1, params.pageSize ?? 24));
+
+	const query = {
+		q: params.q && truncateUtf8(params.q, QUERY_BYTES),
+		latE6: params.near && toE6(params.near.lat),
+		lngE6: params.near && toE6(params.near.lng),
+		radiusKm: params.radiusKm && Math.round(params.radiusKm),
+		// The directory normalizes genres itself. Doing it here keeps the list within the lexicon's limits.
+		genres: params.genres && normalizeGenres(params.genres, 20),
+		kinds: params.kinds,
+		formats: params.formats,
+		setTypes: params.setTypes,
+		feeTiers: params.feeTiers,
+		country: params.country,
+		unclaimed: params.unclaimed,
+		sort: params.sort,
+		limit: pageSize,
+		cursor: page > 1 ? String((page - 1) * pageSize) : undefined
+	};
+
+	return { page, pageSize, query };
+}
 
 const PROJECT_STATUSES: readonly ProjectStatus[] = ['active', 'hidden', 'archived'];
 
@@ -114,12 +147,16 @@ export class ProjectService {
 	/** The spaces whose members follow each project's managers, which `publish` updates. */
 	private readonly managerSpaces: ManagerSpaces;
 
-	/** `backfills` is the app's, which other re-reads of the same accounts share (SetService makes one without it). */
+	/**
+	 * `backfills` is the app's, which other re-reads of the same accounts share (SetService makes one without it).
+	 * `plyr` finds the records of plyr.fm tracks that mixes link; without it, only recordings already published stay.
+	 */
 	constructor(
 		private readonly core: Core,
 		private readonly directory: HappyViewClient,
 		private readonly indexWaitMs = INDEX_WAIT_MS,
-		backfills?: Backfills
+		backfills?: Backfills,
+		private readonly plyr?: PlyrClient
 	) {
 		this.sets = new SetService(core, directory, backfills);
 		this.managerSpaces = new ManagerSpaces(core, new IndexedRepo(directory, core.logger, indexWaitMs));
@@ -161,11 +198,29 @@ export class ProjectService {
 		return row ? parseJson<ProjectDetails>(row.details, {}) : null;
 	}
 
-	async bySlug(slug: string): Promise<ProjectView | null> {
+	/**
+	 * A project by slug. With `counts`, the same query also counts the press kits and upcoming shows its pages stream in
+	 * afterwards, capped at as many as they list.
+	 */
+	async bySlug(slug: string, options: { counts?: boolean } = {}): Promise<ProjectView | null> {
 		if (!SLUG.test(slug)) return null;
-		const { project } = await this.directory.query('getProject', { slug });
 
-		return project ? this.toView(project) : null;
+		const { project, pressKits, upcomingShows } = await this.directory.query('getProject', {
+			slug,
+			counts: options.counts
+		});
+
+		const view = project && this.toView(project);
+
+		if (!view || pressKits === undefined || upcomingShows === undefined) return view ?? null;
+
+		return {
+			...view,
+			counts: {
+				pressKits: Math.min(pressKits, MAX_EPKS_PER_PROJECT),
+				upcomingShows: Math.min(upcomingShows, PROJECT_SHOWS)
+			}
+		};
 	}
 
 	async byUri(uri: string): Promise<ProjectView | null> {
@@ -234,28 +289,13 @@ export class ProjectService {
 	}
 
 	async search(params: ProjectSearch): Promise<ProjectSearchResult> {
-		const page = Math.max(1, params.page ?? 1);
-		const pageSize = Math.min(60, Math.max(1, params.pageSize ?? 24));
+		const { page, pageSize, query } = searchQuery(params);
 
 		const output = await this.directory.query('searchProjects', {
-			q: params.q && truncateUtf8(params.q, QUERY_BYTES),
-			latE6: params.near && toE6(params.near.lat),
-			lngE6: params.near && toE6(params.near.lng),
-			radiusKm: params.radiusKm && Math.round(params.radiusKm),
-			// The directory normalizes genres itself. Doing it here keeps the list within the lexicon's limits.
-			genres: params.genres && normalizeGenres(params.genres, 20),
-			kinds: params.kinds,
-			formats: params.formats,
-			setTypes: params.setTypes,
-			feeTiers: params.feeTiers,
-			country: params.country,
+			...query,
 			manager: params.manager,
 			status: params.status,
-			includeInactive: params.includeInactive,
-			unclaimed: params.unclaimed,
-			sort: params.sort,
-			limit: pageSize,
-			cursor: page > 1 ? String((page - 1) * pageSize) : undefined
+			includeInactive: params.includeInactive
 		});
 
 		return { items: this.toViews(output.projects), total: output.total, page, pageSize };
@@ -306,7 +346,8 @@ export class ProjectService {
 
 	/**
 	 * Writes a project to the root account's public repo (compare-and-swap on
-	 * the previous CID) once the sets its mixes newly link check out, moves its
+	 * the previous CID) once the sets its mixes newly link check out and its
+	 * plyr.fm mixes point at their tracks' records (see withRecordings), moves its
 	 * spaces' members along when its managers change, optionally updates its
 	 * private details in the industry space, and waits for the directory to
 	 * serve it. Returns field-level changes.
@@ -326,10 +367,11 @@ export class ProjectService {
 		const rkey = existing?.rkey ?? TID.nextStr();
 		const managers = [...new Set(input.managers)].slice(0, 10);
 		await this.sets.assertLinkable(input.profile, existing?.profile, managers);
+		const profile = await withRecordings(input.profile, existing?.profile, managers, this.plyr);
 
 		const record: ProjectRecord = {
-			slug: existing?.slug ?? (await this.uniqueSlug(input.profile.name)),
-			profile: input.profile,
+			slug: existing?.slug ?? (await this.uniqueSlug(profile.name)),
+			profile,
 			managers,
 			status: input.status,
 			revision: (existing?.revision ?? 0) + 1,

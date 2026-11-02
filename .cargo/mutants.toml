@@ -21,3 +21,13 @@ exclude_globs = [
   # Helpers for tests and benchmarks, built into the crates under their `test-util` feature.
   "**/test_util.rs",
 ]
+
+# Mutants that loop forever, so each one waits out the whole timeout (253 s a mutant in the
+# 2026-10-26 run, which pushed every shard past its 90 minutes) to say what a test would have
+# said in a second. split_ci steps through its string by hand: these leave the index where it
+# is, step it back, or past the end, where no char boundary stops it. Without its `Eof` arm,
+# Traktor's reader asks for the next event forever.
+exclude_re = [
+  "loclib-model/src/model\\.rs:.*: replace (< with <=|\\+= with [*-]=) in split_ci$",
+  "loclib-interop/src/traktor/read\\.rs:.*: delete match arm Event::Eof in read$",
+]
