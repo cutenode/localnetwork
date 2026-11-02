@@ -63,9 +63,9 @@ pub(super) fn run(
     }
     if action == Action::SignIn {
         let store = crate::open_store(store_path)?;
-        // Signed in again as an account kept; one signed out is signed in to anew.
-        let kept = plugins.store_accounts(&store)?;
-        let again = named.map(|named| find(&kept, kind, named)).transpose()?;
+        // Signed in again as an account kept, or one signed out that plugins still have access to.
+        let known = plugins.accounts_and_accesses(&store)?.accounts;
+        let again = named.map(|named| find(&known, kind, named)).transpose()?;
         let with = match (args.with, again) {
             (Some(with), _) => with,
             (None, Some(a)) => a.plugin.clone(),
@@ -75,7 +75,7 @@ pub(super) fn run(
         let start =
             plugins.begin_account_sign_in(kind, &with, args.for_plugin.as_deref(), subject, &args.scopes, &store)?;
         let done = come_back(plugins, &start, args.browser, out, ctx)?;
-        return Ok(out.done(&done, |d| signed_in(plugins, d)));
+        return Ok(out.done(&done, |d| signed_in(plugins, d, args.for_plugin.as_deref())));
     }
     let named =
         named.ok_or_else(|| usage(format!("name an account: {kind}:NAME (`locallibrary account` lists them)")))?;
@@ -139,26 +139,45 @@ pub(super) fn account_type<'a>(plugins: &'a Plugins, with: &str, kind: &str) -> 
     plugins.manifest(with).ok()?.contributes.account_types.iter().find(|t| t.name == kind)
 }
 
-/// What `a` is called: its type's title, `account` and its name, then the account plugin it was
-/// signed in through when several provide the type.
+/// What `a` is called: see [`named`].
 pub(super) fn called(plugins: &Plugins, a: &Account) -> String {
-    let title = account_type(plugins, &a.plugin, &a.kind).map_or(a.kind.as_str(), |t| &t.title);
-    match plugins.providing(&a.kind).len() > 1 {
-        true => format!("{title} account {} (through {})", a.name, a.plugin),
-        false => format!("{title} account {}", a.name),
+    named(plugins, &a.kind, &a.plugin, &a.name)
+}
+
+/// What the account of type `kind` shown as `name` that `with` signed in is called: its type's
+/// title, `account` and its name, then the account plugin when several provide the type.
+pub(super) fn named(plugins: &Plugins, kind: &str, with: &str, name: &str) -> String {
+    let title = account_type(plugins, with, kind).map_or(kind, |t| &t.title);
+    match plugins.providing(kind).len() > 1 {
+        true => format!("{title} account {name} (through {with})"),
+        false => format!("{title} account {name}"),
     }
 }
 
-/// What signing in did.
-fn signed_in(plugins: &Plugins, d: &AccountSignedIn) {
+/// The titles of `scopes` (by name) as `t` has them, their names where it doesn't.
+pub(super) fn titles<'a>(t: Option<&'a AccountType>, scopes: &'a [String]) -> Vec<&'a str> {
+    scopes.iter().map(|s| t.and_then(|t| t.scopes.get(s)).map_or(s.as_str(), |s| &s.title)).collect()
+}
+
+/// What signing in did, for `for_plugin` when it was for one.
+fn signed_in(plugins: &Plugins, d: &AccountSignedIn, for_plugin: Option<&str>) {
     ok(format!("Signed in to the {}", called(plugins, &d.account)));
     if let Some(other) = &d.instead_of {
-        warn(format!("the browser signed in to another account than {other}, which is still kept"));
+        let unused = for_plugin.map(|p| format!(", so {p} wasn't given access")).unwrap_or_default();
+        warn(format!("the browser signed in to another account than {other}, which is still kept{unused}"));
     }
     if let Some(access) = &d.access {
         let default = if access.default { ", its default" } else { "" };
         say!("  {}", dim(format!("{} has access to it{default}", access.plugin)));
     }
+    declined(plugins, d);
+}
+
+/// What the service declined of what signing in `d` was to give a plugin, if it declined any.
+pub(super) fn declined(plugins: &Plugins, d: &AccountSignedIn) {
+    let Some(access) = d.access.as_ref().filter(|_| !d.declined.is_empty()) else { return };
+    let t = account_type(plugins, &d.account.plugin, &d.account.kind);
+    warn(format!("the service didn't allow {} to {}", access.plugin, titles(t, &d.declined).join(", ")));
 }
 
 /// Each of `all`'s accounts: its type, name and account plugin, whether it's signed in and until
@@ -174,7 +193,7 @@ pub(super) fn list(plugins: &Plugins, all: &Accounts) {
 fn show(plugins: &Plugins, a: &Account, accesses: &[&Access]) {
     heading(&called(plugins, a));
     let state = match (a.signed_in, a.refreshes, a.expires) {
-        (false, ..) => format!("signed out: `locallibrary account {} sign-in` signs in again", a.kind),
+        (false, ..) => format!("signed out: `locallibrary account {}:{} sign-in` signs in again", a.kind, a.subject),
         (true, true, _) => "signed in, refreshed on its own".into(),
         (true, false, Some(at)) => format!("signed in until {}", local_time(at, "%Y-%m-%d %H:%M")),
         (true, false, None) => "signed in".into(),

@@ -200,7 +200,7 @@ pub enum Reason {
 
     // `account`.
     /// Not signed in to an Atmosphere account, or the account a plugin's access is to is signed
-    /// out: sign in.
+    /// out or won't stay signed in long enough: sign in.
     NotSignedIn,
     /// The session ended or was revoked: sign in again.
     SessionEnded,

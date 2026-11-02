@@ -418,8 +418,9 @@ impl Slot {
     /// plugin never runs elevated, so running locallibrary so can't help) and `stale_plan` (only
     /// the host's plans go stale) too. `access` and `scope` (its request couldn't use an account,
     /// see [`super::accounts::token`]) are `account` errors, whose actions come from its
-    /// manifest, never from what it says. Its connection closing means it stopped. The secrets
-    /// the host filled in for it are left out.
+    /// manifest and the store: of what its fields say, they take only the type, which of its own
+    /// accesses it used and the scopes it needs that the manifest asks for. Its connection
+    /// closing means it stopped. The secrets the host filled in for it are left out.
     fn error(&self, p: &Process, mut e: RpcError) -> Error {
         e.message = self.net.scrub(&e.message);
         let said = format!("{} ({})", e.message, self.label());
@@ -429,7 +430,7 @@ impl Slot {
         let signed_out = e.data.as_ref().is_some_and(|d| d.reason.as_deref() == Some("signed_out"));
         let account = |reason: Reason| {
             let kind = fields.get("type").and_then(Value::as_str);
-            let actions = access::actions(&self.manifest, kind, p.live.store.as_ref());
+            let actions = access::actions(&self.host, &self.manifest, kind, p.live.store.as_ref(), &fields);
             actions.into_iter().fold(Error::Account(said.clone()).because(reason), Error::action)
         };
         let error = match (e.kind(), file) {

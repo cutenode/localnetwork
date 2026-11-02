@@ -1,38 +1,45 @@
 //! Plugins' access to the accounts the store keeps: `plugin access PLUGIN` lists a plugin's,
-//! makes an account its default for the account's type or takes its access away; and before a
-//! plugin's destination is used, a terminal is asked which account it may use of each type it
-//! needs and has no access to.
+//! gives it one, makes an account its default for the account's type or takes its access away;
+//! and before a plugin's destination is used, a terminal is asked about what keeps it from using
+//! an account of each type it needs.
 
+use std::mem::discriminant;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
 use indexmap::IndexSet;
 use locallibrary::Store;
-use locallibrary::plugin::{Access, Account, AccountId, Plugins, destination_spec};
+use locallibrary::plugin::{Access, Account, AccountId, Plugins, Unready, destination_spec};
 use locallibrary::progress::Ctx;
 use loclib_plugin::{AccountNeed, Choice, ChoiceItem};
 use serde_json::json;
 
-use super::accounts::{account_type, called, come_back, find};
+use super::accounts::{account_type, called, come_back, declined, find, named, titles};
 use crate::browser::BrowserArgs;
 use crate::jobs_cmd::usage;
 use crate::output::{Output, dim, heading, ok};
 use crate::plugin_cmd::choose::{answer, interactive};
 use crate::plugins;
 
+/// What `plugin access PLUGIN` changes, at most one of: the account made its default, the one its
+/// access is taken away from, or the one it's given access to, with the scopes it can do without
+/// that it's given besides.
+pub struct Change {
+    pub default: Option<String>,
+    pub take_away: Option<String>,
+    pub give: Option<String>,
+    pub scopes: Vec<String>,
+}
+
 /// `plugin access PLUGIN`: its accesses; with `--default ACCOUNT`, that account made its default
-/// for its type; with `--take-away ACCOUNT`, its access to it taken away.
-pub fn access(
-    plugin: &str,
-    default: Option<String>,
-    take_away: Option<String>,
-    store_path: &Option<PathBuf>,
-    out: Output,
-) -> Result<ExitCode> {
+/// for its type; with `--take-away ACCOUNT`, its access to it taken away; with `--give ACCOUNT`,
+/// access to it given (no longer declined).
+pub fn access(plugin: &str, change: Change, store_path: &Option<PathBuf>, out: Output) -> Result<ExitCode> {
     let plugins = plugins::host()?;
     let manifest = plugins.manifest(plugin)?;
-    let Some(named) = default.as_deref().or(take_away.as_deref()) else {
+    let Change { default, take_away, give, scopes } = change;
+    let Some(named) = default.as_deref().or(take_away.as_deref()).or(give.as_deref()) else {
         let store = crate::diff_cmd::existing_store(store_path)?;
         let accesses = store.as_ref().map(|s| plugins.accesses(s, Some(plugin), None)).transpose()?;
         out.emit(&accesses.unwrap_or_default(), |a| list(plugins, plugin, &manifest.accounts, a));
@@ -47,6 +54,12 @@ pub fn access(
     if default.is_some() {
         let access = plugins.set_default_access(plugin, &account, &store)?;
         return Ok(out.done(&access, |_| ok(format!("{plugin} uses the {}", called(plugins, a)))));
+    }
+    if give.is_some() {
+        let access = plugins.give_access(plugin, &account, &scopes, &store)?;
+        let gave =
+            |x: &Access| ok(format!("Gave {plugin} access to the {}: {}", called(plugins, a), x.scopes.join(", ")));
+        return Ok(out.done(&access, gave));
     }
     let access = plugins.take_away_access(plugin, &account, &store)?;
     Ok(out.done(&access, |_| ok(format!("Took {plugin}'s access to the {} away", called(plugins, a)))))
@@ -93,18 +106,73 @@ fn list(plugins: &Plugins, plugin: &str, needs: &[AccountNeed], accesses: &[Acce
 }
 
 /// Before the plugin a destination `spec` names is used: in a terminal (not with `--json` or
-/// `--yes`), each account type the plugin needs and has no access to is asked about, and the
-/// account chosen made its default, signing in to another when that's chosen. Nothing's asked
-/// elsewhere: the destination is refused, saying how to give it access.
+/// `--yes`), whatever keeps it from using an account of a type it asks for (see [`Unready`]) is
+/// asked about once: which account it may use when it has no access (made its default, signing in
+/// to another when that's chosen), signing in again when the account is signed out, won't stay
+/// signed in or wasn't granted what it needs, and giving it the scopes its access lacks. Nothing's
+/// asked elsewhere: the destination is refused, saying how to resolve it.
 pub fn ask(spec: &str, store: &Store, out: Output, ctx: &Ctx<'_>) -> Result<()> {
     if !interactive(out) || out.yes {
         return Ok(());
     }
     let (plugin, _) = destination_spec(spec)?;
     let plugins = plugins::host()?;
-    for need in plugins.without_access(plugin, store)? {
-        give(plugins, plugin, need, store, out, ctx)?;
+    // One turned down isn't asked again: the destination refuses it.
+    let mut asked = Vec::new();
+    while let Some(u) =
+        plugins.unready(plugin, store)?.into_iter().find(|u| !asked.contains(&(u.kind().to_string(), discriminant(u))))
+    {
+        asked.push((u.kind().to_string(), discriminant(&u)));
+        resolve(plugins, plugin, u, store, out, ctx)?;
     }
+    Ok(())
+}
+
+/// Asks about what keeps `plugin` from using an account of a type (see [`ask`]), and resolves it
+/// as the user says.
+fn resolve(plugins: &Plugins, plugin: &str, u: Unready, store: &Store, out: Output, ctx: &Ctx<'_>) -> Result<()> {
+    let manifest = plugins.manifest(plugin)?;
+    let name = &manifest.name;
+    let a = match &u {
+        Unready::NoAccess(kind) => {
+            let need = manifest.accounts.iter().find(|n| n.name == *kind);
+            return need.map_or(Ok(()), |need| give(plugins, plugin, need, store, out, ctx));
+        }
+        Unready::SignedOut(a) | Unready::Expiring(a) | Unready::Ungiven(a, _) | Unready::Ungranted(a, _) => a,
+    };
+    let t = account_type(plugins, &a.account.plugin, &a.kind);
+    let account = named(plugins, &a.kind, &a.account.plugin, &a.name);
+    let question = match &u {
+        Unready::Ungiven(_, scopes) => {
+            if out.confirm(&format!(
+                "{name} needs to {} with the {account}. Give it access?",
+                titles(t, scopes).join(", ")
+            )) {
+                plugins.give_access(plugin, &a.account, &[], store)?;
+                ok(format!("{name} has access to the {account}"));
+            }
+            return Ok(());
+        }
+        Unready::Ungranted(_, scopes) => {
+            format!("The {account} doesn't allow {name} to {}. Sign in again?", titles(t, scopes).join(", "))
+        }
+        Unready::Expiring(_) => format!("The {account} won't stay signed in long enough for {name}. Sign in again?"),
+        _ => format!("The {account}, which {name} uses, is signed out. Sign in again?"),
+    };
+    if !out.confirm(&question) {
+        return Ok(());
+    }
+    let start = plugins.begin_account_sign_in(
+        &a.kind,
+        &a.account.plugin,
+        Some(plugin),
+        Some(&a.account.subject),
+        &[],
+        store,
+    )?;
+    let done = come_back(plugins, &start, BrowserArgs::default(), out, ctx)?;
+    ok(format!("Signed in to the {}", called(plugins, &done.account)));
+    declined(plugins, &done);
     Ok(())
 }
 
@@ -116,8 +184,7 @@ fn give(plugins: &Plugins, plugin: &str, need: &AccountNeed, store: &Store, out:
     let signed_in: Vec<&Account> = kept.iter().filter(|a| a.kind == *kind && a.signed_in).collect();
     let t = providing.iter().find_map(|with| account_type(plugins, with, kind));
     let title = t.map_or(kind.as_str(), |t| &t.title);
-    let scopes: Vec<&str> =
-        need.scopes.iter().map(|s| t.and_then(|t| t.scopes.get(s)).map_or(s.as_str(), |s| &s.title)).collect();
+    let scopes = titles(t, &need.scopes);
     let several = providing.len() > 1;
     let mut items: Vec<ChoiceItem> = signed_in
         .iter()
@@ -141,7 +208,9 @@ fn give(plugins: &Plugins, plugin: &str, need: &AccountNeed, store: &Store, out:
         None => {
             let with = &providing[i - signed_in.len()];
             let start = plugins.begin_account_sign_in(kind, with, Some(plugin), None, &[], store)?;
-            come_back(plugins, &start, BrowserArgs::default(), out, ctx)?.account
+            let done = come_back(plugins, &start, BrowserArgs::default(), out, ctx)?;
+            declined(plugins, &done);
+            done.account
         }
     };
     plugins.set_default_access(plugin, &AccountId { plugin: a.plugin.clone(), subject: a.subject.clone() }, store)?;
