@@ -223,6 +223,37 @@ describe('adding from the tab', () => {
 		expect(document.querySelector('[aria-live]')!.textContent).toMatch(/looked up 2 artists/);
 	});
 
+	// lookup.ts takes an answer from a content script older than this panel as
+	// long as it lists profiles; what it leaves out is read as nothing.
+	it('takes answers that leave out the profiles or the failures', async () => {
+		let finish!: (value: PageReply) => void;
+		chromeAnswering();
+		chrome.tabs.sendMessage.mockImplementation(
+			(_id, message) =>
+				new Promise((resolve) => {
+					if (message.type === 'EXTRACT_TRACKS') resolve(PAGE);
+					else finish = resolve;
+				})
+		);
+		await load();
+		await addTab();
+
+		await chrome.testSendMessage({ type: 'ARTIST_PROFILES_PROGRESS', done: 1, total: 2, failed: ['/fourtet'] });
+		await settle();
+		expect(rowText()).toEqual(['Bicep looking up…', 'Four Tet no public profile']);
+
+		finish({ ok: true, profiles: [profile('/bicep')], error: '' });
+		await settle();
+		expect(rowText()).toEqual(['Bicep Belfast, GB · 1.2K followers · 1 link IG', 'Four Tet no public profile']);
+	});
+
+	it('files artists from an untitled page of no particular kind under “a playlist”', async () => {
+		chromeAnswering({ page: extraction({ tracks: TRACKS, title: '', pageType: 'other' }) });
+		await load();
+		await addTab();
+		expect(stored().map((one) => one.from)).toEqual(['a playlist', 'a playlist']);
+	});
+
 	it('ignores progress that is not for it', async () => {
 		// An artist the stray answers name, so taking any of them would show.
 		chromeAnswering({ storage: { artists: [entry('/bicep')] } });

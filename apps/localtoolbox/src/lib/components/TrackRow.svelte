@@ -52,7 +52,7 @@
     artworkState?: '' | 'copying' | 'copied';
     /** The artwork button's accessible name. */
     artworkLabel?: string;
-    /** What its tooltip says the two gestures do. */
+    /** What its tooltip says the two gestures do. Given with `onartwork`. */
     artworkHint?: string;
     class?: string;
     /** Buttons for the right-hand side. */
@@ -111,7 +111,7 @@
         type="button"
         class="relative shrink-0 cursor-pointer rounded-md"
         aria-label={artworkLabel}
-        title={artworkHint || artworkLabel}
+        title={artworkHint}
         onclick={onartwork}
       >
         <Artwork src={artworkUrl} class="transition hover:brightness-110" />

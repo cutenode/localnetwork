@@ -830,8 +830,9 @@
   const pageTickHint = $derived.by(() => {
     if (page.reading) return 'still looking at this tab.';
 
+    // A page with tracks on it was read, and a read page always has a name.
     if (pageOrder.length > 0)
-      return `ticks the ${count(pageOrder.length, 'track')} showing from ${page.name || 'this tab'}.`;
+      return `ticks the ${count(pageOrder.length, 'track')} showing from ${page.name}.`;
 
     if (pageHere > 0) return 'every track from this tab is hidden by the filter.';
 
@@ -1129,7 +1130,7 @@
       size="xs"
       variant="ghost"
       class="text-fg-muted hover:text-critical"
-      aria-label={`take ${track.title} off the list`}
+      aria-label={`take ${track.title || 'the track'} off the list`}
       title="off the list. its mark and queue place stay."
       onclick={() => onRemoveRow(track)}
     >
@@ -1257,9 +1258,11 @@
           </span>
           <span class="font-mono">{progress.done} / {progress.total}</span>
         </div>
+        <!-- The total is never 0: the page only reports on a lookup that has
+             tracks to look up (content.ts). -->
         <Progress
           value={progress.done}
-          max={progress.total || 1}
+          max={progress.total}
           class="h-1"
           aria-label="checking download details"
           aria-valuetext={`${progress.done} of ${progress.total}`}
@@ -1308,9 +1311,7 @@
                     </Select.Trigger>
                     <Select.Content>
                       {#each SORTS as option (option.value)}
-                        <Select.Item value={option.value} label={option.label}>
-                          {option.label}
-                        </Select.Item>
+                        <Select.Item value={option.value} label={option.label} />
                       {/each}
                     </Select.Content>
                   </Select.Root>

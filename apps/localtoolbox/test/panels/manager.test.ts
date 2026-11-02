@@ -9,6 +9,7 @@ import {
 	chooseOption,
 	click,
 	extraction,
+	focusHint,
 	listedTracks,
 	mountPanel,
 	openSelect,
@@ -413,6 +414,39 @@ describe('adding a page', () => {
 		expect(kept.at(-1)).toBe('/a/one');
 	});
 
+	it('says there was nothing to add when every new track was refused', async () => {
+		panelChrome({
+			response: answer([]),
+			storage: {
+				listed: Array.from({ length: 5000 }, (_, n) => ({
+					permalink: `/seed/t${n}`,
+					title: `T${n}`,
+					artist: 'Seed',
+					from: 'Seed',
+					at: 1
+				}))
+			},
+			session: {
+				queue: [track('Q', 'Queued')],
+				view: { open: 'manager', panels: { manager: { query: 'zzzz' } } }
+			}
+		});
+		await open();
+		await click(addQueueButton());
+		expect(text()).toMatch(/nothing to add from the session queue\. 1 track wouldn’t fit: the list holds 5000\./);
+		expect(listedTracks()).not.toContain('/q/queued');
+	});
+
+	// An untitled page of a kind with no name of its own (an artist's tracks)
+	// is still filed under something.
+	it('files tracks from an untitled page of no particular kind under “a playlist”', async () => {
+		panelChrome({
+			response: answer([track('A', 'One', { details: details() })], { title: '', pageType: 'other' })
+		});
+		await load();
+		expect(chrome.testStore('local').listed.map((one) => one.from)).toEqual(['a playlist']);
+	});
+
 	it('says why when SoundCloud will not describe the tracks at all', async () => {
 		// A private playlist: the lookup stopped rather than asking about each row
 		// in turn, and the note has to say that rather than leave it at "could not
@@ -651,6 +685,29 @@ describe('while the lookup is still running', () => {
 		await grown();
 		expect(rows()).toHaveLength(500);
 		expect(new Set(rows().map((li) => li.textContent)).size).toBe(500);
+	});
+
+	// The screenful is counted across sections, so a long first site fills it
+	// and the sites under it wait for the next frames.
+	it('draws a long first site’s screenful before the sites under it', async () => {
+		vi.useFakeTimers();
+
+		const many = Array.from({ length: 70 }, (_, i) =>
+			track(`A${i}`, `T${i}`, { details: details({ downloadable: true }) })
+		);
+
+		panelChrome({ response: answer([...many, track('Z', 'Last', { details: details() })]) });
+		await load();
+		expect(rows()).toHaveLength(60);
+		expect(sections().map((section) => section.heading)).toEqual(['soundcloud.com']);
+
+		for (let i = 0; i < 3; i++) {
+			await vi.advanceTimersByTimeAsync(60);
+			await settle();
+		}
+
+		expect(rows()).toHaveLength(71);
+		expect(sections().map((section) => section.heading)).toEqual(['soundcloud.com', 'no download links']);
 	});
 });
 
@@ -1207,6 +1264,15 @@ describe('the session queue', () => {
 		expect(isQueued('/c/three')).toBe(true);
 		expect(isQueued('/a/one')).toBe(false);
 	});
+
+	it('says what the row’s queue button does when it has focus', async () => {
+		panelChrome({ response: answer([track('A', 'One', { details: details() })]) });
+		await load();
+		expect(text()).not.toMatch(/drops this in the session queue/);
+
+		await focusHint(queueButton('/a/one'));
+		expect(text()).toMatch(/drops this in the session queue/);
+	});
 });
 
 // Selecting is its own step: tick the tracks, then put a marker on the lot.
@@ -1373,6 +1439,34 @@ describe('selecting a batch', () => {
 		expect(clean(pageTickButton())).toBe('tick this page');
 		expect(pageTickButton()!.disabled).toBe(true);
 		expect(pageTickButton()!.title).toMatch(/not a SoundCloud playlist, likes or track page/);
+	});
+
+	it('says the tab has nothing on the list yet when its page was never added', async () => {
+		localStorage.setItem('pref:sort', 'page');
+		panelChrome({ response: answer(ROWS), storage: { listed: [ELSEWHERE] } });
+		await open();
+		await click(selectButton());
+		expect(pageTickButton()!.disabled).toBe(true);
+		expect(pageTickButton()!.title).toBe('nothing this tab is showing is on the list yet.');
+	});
+
+	it('ticks the rest when the box at the left is pressed with some ticked', async () => {
+		await start();
+		await tick('/a/one');
+		expect(selectAllBox()!.getAttribute('aria-checked')).toBe('mixed');
+
+		await click(selectAllBox());
+		expect(['/a/one', '/b/two', '/c/three', '/d/four'].map((p) => isTicked(p))).toEqual([true, true, true, true]);
+		expect(selectAllBox()!.getAttribute('aria-checked')).toBe('true');
+	});
+
+	it('says what each batch action does when its button has focus', async () => {
+		await start();
+		await tick('/a/one');
+		expect(text()).not.toMatch(/drops every ticked track in the session queue/);
+
+		await focusHint(batchButton('queue'));
+		expect(text()).toMatch(/drops every ticked track in the session queue/);
 	});
 
 	it('queues the ticked tracks in list order, in one write, and takes them out again', async () => {
@@ -1747,6 +1841,17 @@ describe('filtering', () => {
 		expect(countLine()).toBe('');
 	});
 
+	it('says so when the one track on the list is hidden for being marked', async () => {
+		localStorage.setItem('pref:hide-downloaded', '1');
+		panelChrome({
+			response: answer([track('C', 'Three', { details: details() })]),
+			storage: { downloaded: { '/c/three': ISO } }
+		});
+		await load();
+		expect(shownRows()).toEqual([]);
+		expect(countLine()).toBe('the only track is marked downloaded.');
+	});
+
 	it('narrows the list to the tracks matching the search — title, artist or site — in either order', async () => {
 		localStorage.setItem('pref:hide-downloaded', '1');
 		panelChrome({ response: answer(ROWS), storage: { downloaded: { '/a/one': ISO } } });
@@ -2082,6 +2187,20 @@ describe('opening a row', () => {
 		expect(listedTracks()).toEqual(['/other/track']);
 		expect(rowFor('/bicep/glue')).toBe(undefined);
 		expect(text()).toMatch(/took Glue off the list/);
+	});
+
+	// A state file can hold a track by its permalink alone.
+	it('takes a track with no title off the list, naming it as best it can', async () => {
+		panelChrome({
+			response: answer([]),
+			storage: { listed: [{ permalink: '/no/title', artist: 'Someone', from: 'Seed', at: 1 }] }
+		});
+		await open();
+		await click(chevron('/no/title'));
+
+		await click(byLabel('take the track off the list'));
+		expect(listedTracks()).toEqual([]);
+		expect(text()).toMatch(/took the track off the list/);
 	});
 
 	// An entry restored from a file written by a version that did not record
