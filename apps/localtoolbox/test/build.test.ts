@@ -38,6 +38,9 @@ const walk = (dir = DIST, prefix = ''): string[] =>
 
 let files: string[];
 
+// No deadline (the 0 below). The build blocks this worker (execFileSync), so Vitest can't stop a
+// hung one, only fail a slow one after it finishes, and how long it takes follows the machine's
+// load. CI's job timeout still ends a hung one.
 beforeAll(() => {
 	// The real build, run the way `pnpm build` runs it. Vitest sets NODE_ENV to `test`, which would
 	// make Vite compile the components in Svelte's dev mode (file paths and all), so it is unset.
@@ -48,7 +51,7 @@ beforeAll(() => {
 		stdio: 'pipe'
 	});
 	files = walk();
-}, 120000);
+}, 0);
 
 describe('what the build produces', () => {
 	it('is a folder Chrome can load: a manifest and everything it names', () => {

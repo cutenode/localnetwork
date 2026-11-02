@@ -193,7 +193,8 @@ fn a_sign_in_the_sidecar_cant_begin_says_why() {
 }
 
 /// An access error the echo plugin passes on carries actions: each names a method the sidecar
-/// has, with parameters its contract takes, and calling it does what its label says.
+/// has, with parameters its contract takes, and calling it does what its label says. Given more
+/// scopes, then signed out, echo's access offers first to sign in again as its account.
 #[test]
 fn the_actions_of_an_access_error_are_methods_the_sidecar_has() {
     let m = Mock::new();
@@ -216,6 +217,24 @@ fn the_actions_of_an_access_error_are_methods_the_sidecar_has() {
     }
     let accesses = s.call(20, "accounts.access.list", json!({ "plugin": "echo" }))["result"].clone();
     assert_eq!((&accesses[0]["account"], &accesses[0]["default"]), (&account("a"), &json!(true)), "{accesses}");
+    let more = json!({ "plugin": "echo", "account": account("a"), "scopes": ["write"] });
+    let given = s.call(21, "accounts.access.give", more);
+    assert_eq!(given["result"]["scopes"], json!(["read", "write"]), "{given}");
+
+    s.call(22, "accounts.sign_out", json!({ "account": account("a") }));
+    let failing =
+        json!({ "fail": "access", "message": "it can't", "reason": "signed_out", "fields": { "type": "mock" } });
+    let e = s.call(23, "plugins.run", json!({ "plugin": "echo", "command": "echo", "params": failing }));
+    let again = &e["error"]["data"]["actions"][0];
+    let label = "Sign in again as a@mock.example, allowing read, write";
+    assert_eq!((&again["method"], &again["label"]), (&json!("accounts.sign_in.begin"), &json!(label)), "{e}");
+    let described = contract()["methods"].as_array().unwrap().iter().find(|m| m["name"] == again["method"]).unwrap();
+    assert_eq!(violation(&again["params"], &format!("{}/params", at(described))), None, "{again}");
+    let begun = s.call(24, "accounts.sign_in.begin", again["params"].clone());
+    let (_, query) = begun["result"]["url"].as_str().unwrap().split_once('?').unwrap();
+    let query: Vec<(String, String)> = form_urlencoded::parse(query.as_bytes()).into_owned().collect();
+    let at = |key: &str| query.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());
+    assert_eq!((at("login_hint"), at("scope")), (Some("a"), Some("openid read write")), "{begun}");
 }
 
 /// Who the steps of the property tests here are about, by subject.
