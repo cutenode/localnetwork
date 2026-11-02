@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { silentLogger } from '#lib/server/logger.ts';
-import { NO_SPACES, pressKitServices, PROMOTER } from '#lib/server/testing/press-kits.ts';
+import { ADMIN, NO_SPACES, pressKitServices, PROMOTER } from '#lib/server/testing/press-kits.ts';
 import { inquiryDefaults } from '#lib/shows.ts';
 import type { Viewer } from '#lib/types.ts';
 import { load } from './+page.server.ts';
@@ -16,10 +16,15 @@ afterEach(async () => {
 	await f.t.db.destroy();
 });
 
-/** What the inquiry form opens with for `did` at `query`, with their viewer changed by `as`. */
-async function opened(did: string, query: string, as: Partial<Viewer> = {}) {
-	const locals = { app: f.t, viewer: { ...(await f.t.viewer(did)), ...as }, log: silentLogger };
-	const url = new URL(`https://x.test/dashboard/bookings/new?project=${f.project.slug}&${query}`);
+/** What the inquiry form to `slug` opens with for `did` at `query`, with their viewer changed by `as`. */
+async function opened(did: string, query: string, as: Partial<Viewer> = {}, slug = f.project.slug) {
+	const locals = {
+		app: { ...f.t, geocoder: { enabled: false } },
+		viewer: { ...(await f.t.viewer(did)), ...as },
+		log: silentLogger
+	};
+
+	const url = new URL(`https://x.test/dashboard/bookings/new?project=${slug}&${query}`);
 
 	// SAFETY: the load reads only the URL and locals, and the services are the app's own.
 	const data = await load({ url, locals } as never);
@@ -68,4 +73,19 @@ it("opens with the matcher's date, or empty, when there's no planner show to rea
 		values: inquiryDefaults,
 		show: null
 	});
+});
+
+it("starts the budget in the currency of the project's first fee", async () => {
+	const priced = await f.t.projectAdmin.create({
+		actor: await f.t.viewer(ADMIN),
+		profile: {
+			name: 'Priced',
+			kind: 'solo',
+			genres: ['techno'],
+			location: { city: 'Berlin', country: 'DE' },
+			fees: [{ tier: 'established', currency: 'EUR', minAmount: 600 }]
+		}
+	});
+
+	expect((await opened(PROMOTER, '', {}, priced.slug))?.values.currency).toBe('EUR');
 });

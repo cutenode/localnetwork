@@ -1175,7 +1175,7 @@ describe('Local Network on a real atproto spaces network', () => {
 		const show = { title: 'Warehouse' };
 		const open = await net.app.bookings.start({ actor: lee, projectUri: project.uri, show, message: 'Free?' });
 		const settled = await net.app.bookings.start({ actor: lee, projectUri: project.uri, show, message: 'And now?' });
-		await net.app.bookings.setStatus({ actor: lee, space: settled, status: 'declined' });
+		await net.app.bookings.setStatus({ actor: await net.viewer('pat'), space: settled, status: 'declined' });
 
 		const members = async (space: string) => (await root.listMembers(space)).map((member) => member.did).sort();
 		const threads = async (did: string) => (await net.app.bookings.threadsFor(did)).map((thread) => thread.space);
