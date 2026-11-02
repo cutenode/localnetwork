@@ -34,6 +34,7 @@ export const load: PageServerLoad = async ({ params, locals, setHeaders }) => {
 			n,
 			report,
 			meta: withJsonLd(
+				locals,
 				mixMeta(app.config.publicUrl, project, mix, n, report.plays.length),
 				mixRecording(project, mix, report)
 			)

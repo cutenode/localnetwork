@@ -24,6 +24,7 @@ export const load: PageServerLoad = async (event) => {
 	return {
 		supports,
 		meta: withJsonLd(
+			locals,
 			artistMeta(locals.app.config.publicUrl, supports?.artist?.name ?? null, canonical, !!supports?.artist),
 			supports?.artist ? musicBrainzArtist(supports.artist.name, mbid) : null
 		)

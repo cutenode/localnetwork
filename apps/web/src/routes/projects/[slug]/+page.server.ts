@@ -39,7 +39,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		saved,
 		pendingClaim: openRequests.find((request) => request.kind === 'claim') ?? null,
 		pendingUpdate: openRequests.find((request) => request.kind === 'update') ?? null,
-		meta: withJsonLd(performerMeta(app.config.publicUrl, project), performerProfile(project))
+		meta: withJsonLd(locals, performerMeta(app.config.publicUrl, project), performerProfile(project))
 	};
 };
 

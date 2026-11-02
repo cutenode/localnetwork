@@ -27,6 +27,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 			(page.project.profile.mixes ?? []).flatMap((mix, index) => (mix.tracklist ? [[mix.url, index + 1]] : []))
 		),
 		meta: withJsonLd(
+			locals,
 			pressKitMeta(locals.app.config.publicUrl, page.project, kit.epk),
 			pressKitProfile(page.project, kit.epk.record)
 		)

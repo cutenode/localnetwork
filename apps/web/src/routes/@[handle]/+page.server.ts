@@ -9,5 +9,5 @@ export const load: PageServerLoad = async (event) => {
 
 	const meta = profileMeta(event.locals.app.config.publicUrl, page.account, page.profile, page.name);
 
-	return { ...page, meta: withJsonLd(meta, page.profile && personProfile(page.profile, page.name)) };
+	return { ...page, meta: withJsonLd(event.locals, meta, page.profile && personProfile(page.profile, page.name)) };
 };
