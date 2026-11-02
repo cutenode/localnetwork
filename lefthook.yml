@@ -1,7 +1,13 @@
 # Git hooks (installed by `pnpm install`). Each TypeScript app has its own jobs, which run in the
 # app's folder and only see the files under it; the lexicons have one of their own.
+rc: tools/lefthook-rc.sh
+
+# Each hook installs once before its jobs. pnpm checks the dependencies before every `pnpm exec` and `pnpm <script>`
+# and installs them when the lockfile has moved on (after a merge), so the parallel jobs would each start an install.
 pre-commit:
   parallel: true
+  setup:
+    - run: pnpm install --frozen-lockfile
   jobs:
     - name: format web
       root: apps/web/
@@ -28,6 +34,8 @@ pre-commit:
 
 pre-push:
   parallel: true
+  setup:
+    - run: pnpm install --frozen-lockfile
   jobs:
     - name: typecheck web
       root: apps/web/

@@ -1,6 +1,6 @@
-import { existsSync } from 'node:fs';
 import { z } from 'zod';
 import { type BackupSettings, backupVariables, backupSettings, DEFAULT_DATABASE_PATH } from './backup/config.ts';
+import { loadEnvFiles } from './env-files.ts';
 
 const booleanString = z.enum(['true', 'false', '1', '0', 'yes', 'no']).optional();
 
@@ -209,19 +209,11 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 
 let cached: Config | undefined;
 
-/**
- * Loads `.env.local` then `.env` (without overriding real environment
- * variables) and parses the result once per process.
- */
+/** Loads the env files (in development) and parses the result once per process. */
 export function getConfig(): Config {
 	if (cached) return cached;
 
-	if (process.env.NODE_ENV !== 'production') {
-		for (const file of ['.env.local', '.env']) {
-			if (existsSync(file)) process.loadEnvFile(file);
-		}
-	}
-
+	loadEnvFiles();
 	cached = loadConfig(process.env);
 
 	return cached;
