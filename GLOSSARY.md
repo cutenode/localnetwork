@@ -19,7 +19,7 @@ _Avoid_: admin dashboard, admin panel
 ## People and acts
 
 **Profile**:
-A person's page on the site. Every account has exactly one, and it's who others follow. Being a DJ or a promoter is something a profile opts into, which adds to it rather than creating something separate.
+A person's page on the site. Every account has exactly one, and it's who others follow. Being a DJ or a promoter is something a profile opts into, which adds to the same profile.
 _Avoid_: account (when meaning what others see), user page, DJ page
 
 **DJ**:
