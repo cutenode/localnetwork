@@ -20,6 +20,7 @@ import { validateRecord } from '../atproto/lexicons';
 import {
 	type BlobJson,
 	createSpaceIfMissing,
+	memberSpacePolicy,
 	type RecordRef,
 	type RepoClient,
 	xrpcErrorName
@@ -49,8 +50,6 @@ type DraftRecord = z.infer<typeof epkDraftSchema>;
 
 /** The press kit a draft row stands for: the one it was published as, or the one its record names. */
 const kitKey = (row: EpkDraftTable) => row.publishedRkey ?? row.epkRkey;
-
-const memberList = { $type: 'com.atproto.simplespace.defs#memberListPolicy' } as const;
 
 /** A save only lands on the published version its form was opened on. */
 const staleForm = () => new UserError('This press kit changed since you opened it. Reload and try again.', 409);
@@ -422,9 +421,7 @@ export class EpkDrafts {
 		await createSpaceIfMissing(root, {
 			spaceType: SPACE_TYPE.backstage,
 			skey: project.rkey,
-			readPolicy: memberList,
-			writePolicy: memberList,
-			appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+			policy: memberSpacePolicy()
 		});
 
 		for (const did of project.managers) await root.putMember({ space, did, read: true, write: true });

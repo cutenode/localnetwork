@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_ACCESS, type EpkContent, type EpkFields, type EpkRecord } from '../../src/lib/epk.ts';
 import { COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '../../src/lib/nsid.ts';
 import { validateRecord } from '../../src/lib/server/atproto/lexicons.ts';
+import { memberSpacePolicy } from '../../src/lib/server/atproto/repo-client.ts';
 import { silentLogger } from '../../src/lib/server/logger.ts';
 import { actions as askActions } from '../../src/routes/dashboard/access/[slug]/[rkey]/+page.server.ts';
 import { actions as newKit } from '../../src/routes/dashboard/projects/[slug]/press-kits/new/+page.server.ts';
@@ -82,9 +83,7 @@ describe('shared press kits on a real atproto spaces network', () => {
 		const space = await owner.createSpace({
 			spaceType: SPACE_TYPE.epk,
 			skey: rkey,
-			readPolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
-			writePolicy: { $type: 'com.atproto.simplespace.defs#publicPolicy' },
-			appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+			policy: memberSpacePolicy({ publicWrite: true })
 		});
 
 		await owner.putMember({ space, did: net.rootDid, read: true, write: true });

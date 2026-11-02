@@ -12,7 +12,7 @@
 
 	let busy = $state(false);
 
-	const policy = (type: string) => type.split('#')[1];
+	const access = (open: boolean) => (open ? 'public' : 'members');
 
 	const failing = (space: (typeof data.sync)[number]) => !!space.lastError || space.repos.some((repo) => repo.lastError);
 
@@ -81,7 +81,7 @@
 				<thead><tr><th>Space</th><th>Read</th><th>Write</th><th>URI</th></tr></thead>
 				<tbody>
 					{#each data.spaces as space (space.uri)}
-						<tr><td class="font-medium capitalize">{space.name}</td><td class="font-mono text-label">{policy(space.policy.readPolicy.$type)}</td><td class="font-mono text-label">{policy(space.policy.writePolicy.$type)}</td><td class="mono text-fg-subtle">{space.uri}</td></tr>
+						<tr><td class="font-medium capitalize">{space.name}</td><td class="font-mono text-label">{access(space.policy.publicRead)}</td><td class="font-mono text-label">{access(space.policy.publicWrite)}</td><td class="mono text-fg-subtle">{space.uri}</td></tr>
 					{/each}
 				</tbody>
 			</table>

@@ -1,6 +1,7 @@
 import * as fc from 'fast-check';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SPACE_TYPE } from '#lib/nsid.ts';
+import { memberSpacePolicy } from '../atproto/repo-client';
 import { FakeRootClient } from '../testing/fakes';
 import { createTestServices, ROOT } from '../testing/core';
 import { type MemberAccess, reconcileMembers } from './space-members';
@@ -29,14 +30,11 @@ describe('reconcileMembers', () => {
 	/** A new space under the root with `members` in it. */
 	const space = async (members: Record<string, MemberAccess> = {}) => {
 		const root = t.net.client(ROOT);
-		const policy = { $type: 'com.atproto.simplespace.defs#memberListPolicy' } as const;
 
 		const uri = await root.createSpace({
 			spaceType: SPACE_TYPE.backstage,
 			skey: `s${(spaces += 1)}`,
-			readPolicy: policy,
-			writePolicy: policy,
-			appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+			policy: memberSpacePolicy()
 		});
 
 		for (const [did, access] of Object.entries(members)) await root.putMember({ space: uri, did, ...access });

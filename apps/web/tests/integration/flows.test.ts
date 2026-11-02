@@ -15,7 +15,7 @@ import {
 	VERIFICATION
 } from '../../src/lib/nsid.ts';
 import { grantsAll, SCOPES } from '../../src/lib/server/atproto/oauth.ts';
-import { AgentRepoClient, type RepoClient } from '../../src/lib/server/atproto/repo-client.ts';
+import { AgentRepoClient, memberSpacePolicy, type RepoClient } from '../../src/lib/server/atproto/repo-client.ts';
 import { ROOT_SPACE_POLICIES } from '../../src/lib/server/bootstrap.ts';
 import { ForbiddenError, NotFoundError, ReauthError, UserError } from '../../src/lib/server/core.ts';
 import type { ShowEdit } from '../../src/lib/server/services/shows.ts';
@@ -73,8 +73,7 @@ describe('Local Network on a real atproto spaces network', () => {
 
 		for (const [name, uri] of Object.entries(net.app.spaces)) {
 			const space = await root.getSpace(uri);
-			expect(space?.readPolicy.$type).toBe(policies.get(name)?.readPolicy.$type);
-			expect(space?.writePolicy.$type).toBe(policies.get(name)?.writePolicy.$type);
+			expect(space?.policy).toEqual(policies.get(name));
 		}
 
 		const bootstrap = await net.app.audit.list({ action: 'system' });
@@ -878,7 +877,7 @@ describe('Local Network on a real atproto spaces network', () => {
 		]);
 		expect((await net.app.planner.show(lee, rkey))?.lineup[0]).toMatchObject({ status: 'contacted' });
 		const space = await net.user('lee').client.getSpace(plannerSpace(lee.did));
-		expect(space?.readPolicy.$type).toBe('com.atproto.simplespace.defs#memberListPolicy');
+		expect(space?.policy).toEqual(memberSpacePolicy());
 		await net.app.planner.unsave(lee, projectUri);
 		expect(await net.app.planner.saves(lee)).toEqual([]);
 	});
@@ -1143,9 +1142,7 @@ describe('Local Network on a real atproto spaces network', () => {
 		await root.createSpace({
 			spaceType: SPACE_TYPE.booking,
 			skey: space.split('/').at(-1)!,
-			readPolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
-			writePolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
-			appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+			policy: memberSpacePolicy()
 		});
 		await root.putMember({ space, did: lee.did, read: true, write: true });
 		// The authority learns of a writer from its writes, so the promoter's old repo reappears with a new one.

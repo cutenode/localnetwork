@@ -24,7 +24,7 @@ import {
 import { BSKY_FOLLOW, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import type { ProjectView, Viewer } from '#lib/types.ts';
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
-import { createSpaceIfMissing, type RepoClient } from '../atproto/repo-client';
+import { createSpaceIfMissing, memberSpacePolicy, type RepoClient } from '../atproto/repo-client';
 import { epkSpace, parseSpaceUri } from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso } from '../db';
@@ -562,10 +562,8 @@ export class EpkService {
 		await createSpaceIfMissing(root, {
 			spaceType: SPACE_TYPE.epk,
 			skey: rkey,
-			readPolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
 			// Anyone signed in can write a request into it; only the root's content and grants count.
-			writePolicy: { $type: 'com.atproto.simplespace.defs#publicPolicy' },
-			appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+			policy: memberSpacePolicy({ publicWrite: true })
 		});
 
 		for (const did of managers) await root.putMember({ space, did, read: true, write: false });
