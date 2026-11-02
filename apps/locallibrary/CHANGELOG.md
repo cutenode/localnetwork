@@ -436,8 +436,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   (`[[contributes.account_types]]`) saying how to sign in to the service, who signed in, and the
   scopes a plugin may be given, each with the requests it covers. It has no code, so locallibrary
   never starts one (`plugin serve` refuses), and only the ones it ships may use Local Network's
-  token exchange. Three ship, a folder each in `plugins/accounts/`: google-account (its scope
-  `youtube-upload`), mixcloud-account (`upload`) and soundcloud-account (`upload` and `read`).
+  token exchange. Five ship, a folder each in `plugins/accounts/`: google-account (its scope
+  `youtube-upload`), mixcloud-account (`upload`), soundcloud-account (`upload` and `read`), and
+  archive-account and plyr-account (`upload` each), signed in to with the keys the service gives
+  you (the Archive's S3 keys, a plyr.fm developer token).
   `plugin list` shows the account type each adds and `plugin info` its scopes; the sidecar's
   `plugins.list` has them as `account_types`. locallibrary signs you in in the browser, keeping
   the tokens in the keychain and refreshing them itself. A service that wants a client secret for

@@ -148,11 +148,16 @@ are:
   Local Network's SoundCloud app is registered with the redirect address
   `http://127.0.0.1:47110/callback`, so signing in needs port 47110 free.
 
-- **google-account**: an account plugin (see [Account plugins](#account-plugins)), the `google`
-  account type, signed in to through Local Network's token exchange. Its scope `youtube-upload`
-  uploads videos to YouTube.
+- **archive-account**: an account plugin (see [Account plugins](#account-plugins)), the
+  `archive` account type, signed in to with the pair of S3 keys from
+  archive.org/account/s3.php. The Archive doesn't say whose keys they are, so you name the
+  account. Its scope `upload` uploads items to the Internet Archive.
+- **google-account**: an account plugin, the `google` account type, signed in to through Local
+  Network's token exchange. Its scope `youtube-upload` uploads videos to YouTube.
 - **mixcloud-account**: an account plugin, the `mixcloud` account type, signed in to through the
   token exchange. Its scope `upload` uploads shows to Mixcloud.
+- **plyr-account**: an account plugin, the `plyr` account type, signed in to with a developer
+  token from plyr.fm/settings#developer. Its scope `upload` uploads tracks to plyr.fm.
 - **soundcloud-account**: an account plugin, the `soundcloud` account type, signed in to through
   the token exchange. Its scopes are `upload`, for uploading tracks to SoundCloud, and `read`, for
   reading from SoundCloud as you.
@@ -196,9 +201,10 @@ alone, its `[[contributes.account_types]]`: how to sign in to the service, how t
 signed in, and the scopes a plugin may be given, each with the requests it covers. It has no
 code, so locallibrary never starts one: it runs every sign-in from the manifest and keeps the
 tokens itself (see [the decision](adr/0001-account-plugins-are-manifests.md)). Only the ones
-locallibrary ships may use Local Network's token exchange. Those are google-account,
-mixcloud-account and soundcloud-account, in `plugins/accounts/`. `locallibrary plugin` lists the
-account type each adds, and `plugin info` its scopes.
+locallibrary ships, in `plugins/accounts/`, may use Local Network's token exchange:
+google-account, mixcloud-account and soundcloud-account do, and archive-account and plyr-account
+take keys you enter instead. `locallibrary plugin` lists the account type each adds, and `plugin
+info` its scopes.
 
 A plugin asks for accounts of a type with `[[accounts]]`, naming the scopes it needs and why:
 youtube asks for a google account to upload videos with, mixcloud and soundcloud for an account
