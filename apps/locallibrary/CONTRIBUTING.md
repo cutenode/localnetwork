@@ -164,7 +164,8 @@ rekordcrate (MPL-2.0), including a 3,886-track export database (see the README t
 tests also use the vendored rekordbox-pdb's exports (MIT, `vendor/rekordbox-pdb/tests/data/`).
 The tests cross-check what locallibrary writes against rekordcrate's independent parser. The
 OneLibrary fixtures (`onelibrary/`, rekordbox's schema with synthetic tracks) are made by the
-`sqlcipher` CLI (`make.sh`), so reading is checked against an independent SQLCipher. With
+`sqlcipher` CLI, so reading is checked against an independent SQLCipher. An ignored test remakes
+them: `cargo test -p locallibrary --test it remake_sqlcipher_fixtures -- --ignored`. With
 `sqlcipher` installed, the tests that merge, clean, convert or edit a OneLibrary database also
 have it check the result (`tests/support/sqlcipher.rs`); without it they skip that check, unless
 `LOCALLIBRARY_REQUIRE_SQLCIPHER=1` is set, as in CI, which makes them fail.
@@ -277,8 +278,8 @@ runaway allocation. `fuzz/` is a workspace of its own and needs nightly:
 
 ```bash
 rustup toolchain install nightly --component rust-src && cargo install cargo-fuzz --locked
-fuzz/run.sh anlz                                            # until it finds something; Ctrl-C stops it
-fuzz/run.sh pdb -max_total_time=300                         # libFuzzer options after the target
+cargo +nightly fuzz-anlz                                    # until it finds something; Ctrl-C stops it
+cargo +nightly fuzz-pdb -max_total_time=300                 # libFuzzer options after the target
 cargo +nightly fuzz run anlz fuzz/artifacts/anlz/crash-...  # replay a crash
 ```
 
@@ -299,17 +300,17 @@ counts agree and its player stays consistent. macOS and Linux only, with Node 22
 
 ```bash
 cd bombadil && npm ci       # from this folder
-./tui.sh                    # 2 minutes; TIME_LIMIT=30m ./tui.sh for longer
-./report.sh                 # needs Chrome: npx -y playwright@1.63.0 install --only-shell chromium
+node tui.mjs                # 2 minutes; TIME_LIMIT=30m node tui.mjs for longer
+node report.mjs             # needs Chrome: npx -y playwright@1.63.0 install --only-shell chromium
 ```
 
-`tui.sh` runs the TUI on a throwaway copy of a fixture drive with `LOCALLIBRARY_VOLUMES` pointing
+`tui.mjs` runs the TUI on a throwaway copy of a fixture drive with `LOCALLIBRARY_VOLUMES` pointing
 at the folder that holds only that copy, an empty store, `open` stubbed out and a home and
 working folder of its own, so files it writes stay in the run's folder; it lets the run write
-edits to that copy and checks afterwards that the drive still reads. `report.sh` writes
+edits to that copy and checks afterwards that the drive still reads. `report.mjs` writes
 synthetic audio for a fixture drive's tracks, records a "set" from four of them
 (`make-mix.mjs`), has `locallibrary mix` identify it and explores the report it writes. Both
-print where the trace went; add Bombadil options after the script name (`./tui.sh --columns 80`).
+print where the trace went; add Bombadil options after the script name (`node tui.mjs --columns 80`).
 
 ## Releasing
 

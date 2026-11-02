@@ -1,6 +1,6 @@
 // Bombadil specification for `locallibrary tui`.
 //
-// Run it through `./tui.sh`, which builds the CLI, copies a fixture drive into a temporary
+// Run it through `node tui.mjs`, which builds the CLI, copies a fixture drive into a temporary
 // folder, hides the machine's real drives (LOCALLIBRARY_VOLUMES), points the store at an empty
 // folder and gives the TUI a home and working folder of its own in there, so what random keys
 // write stays in that folder.

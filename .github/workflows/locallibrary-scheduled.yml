@@ -163,14 +163,14 @@ jobs:
       # rather than running Chrome without its sandbox.
       - if: runner.os == 'Linux'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - run: ./tui.sh
+      - run: node tui.mjs
         working-directory: apps/locallibrary/bombadil
         env:
           TIME_LIMIT: 2m
           OUTPUT_PATH: ${{ runner.temp }}/bombadil-tui
       # Even when the TUI run failed: the report is a separate specification.
       - if: ${{ !cancelled() && steps.chrome.outcome == 'success' }}
-        run: ./report.sh
+        run: node report.mjs
         working-directory: apps/locallibrary/bombadil
         env:
           TIME_LIMIT: 2m
@@ -300,8 +300,8 @@ jobs:
 
   # libFuzzer feeds the parsers for what a drive or an import holds (export.pdb and exportExt.pdb,
   # analysis files, the players' settings files, tracklists) inputs grown from the test fixtures,
-  # five minutes a target (fuzz/run.sh, see CONTRIBUTING.md). One job runs them in turn, so the
-  # targets' shared dependencies build once. The corpus a run grows is cached for the next one; a
+  # five minutes a target (the fuzz-<target> aliases in .cargo/config.toml, see CONTRIBUTING.md).
+  # One job runs them in turn, so the targets' shared dependencies build once. The corpus a run grows is cached for the next one; a
   # crash fails the job and uploads its input.
   fuzz:
     needs: changes
@@ -336,7 +336,7 @@ jobs:
         run: |
           status=0
           for target in pdb anlz mysettings tracklist; do
-            fuzz/run.sh "$target" -max_total_time=300 -timeout=10 -rss_limit_mb=2048 || status=1
+            cargo +nightly "fuzz-$target" -max_total_time=300 -timeout=10 -rss_limit_mb=2048 || status=1
             # Down to the inputs that each add coverage, so the cache doesn't grow every week.
             cargo +nightly fuzz cmin "$target" "fuzz/corpus/$target"
           done
