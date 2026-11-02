@@ -75,5 +75,24 @@ jobs:
             OFL-1.1,
             MITNFA
           # rust-cache is LGPL-3.0. It runs in CI and nothing it contains ships with the tools.
-          allow-dependencies-licenses: pkg:githubactions/Swatinem/rust-cache
+          # sharp's prebuilt libvips (@img/sharp-libvips-*, and bundled in the win32 and wasm32
+          # builds) is LGPL-3.0-or-later. sharp loads it as an unmodified shared library, and the
+          # website only runs it on its own server to draw link preview cards, so nothing LGPL is
+          # changed or handed to anyone. sharp itself is Apache-2.0.
+          allow-dependencies-licenses: >-
+            pkg:githubactions/Swatinem/rust-cache,
+            pkg:npm/@img/sharp-libvips-darwin-arm64,
+            pkg:npm/@img/sharp-libvips-darwin-x64,
+            pkg:npm/@img/sharp-libvips-linux-arm,
+            pkg:npm/@img/sharp-libvips-linux-arm64,
+            pkg:npm/@img/sharp-libvips-linux-ppc64,
+            pkg:npm/@img/sharp-libvips-linux-riscv64,
+            pkg:npm/@img/sharp-libvips-linux-s390x,
+            pkg:npm/@img/sharp-libvips-linux-x64,
+            pkg:npm/@img/sharp-libvips-linuxmusl-arm64,
+            pkg:npm/@img/sharp-libvips-linuxmusl-x64,
+            pkg:npm/@img/sharp-win32-arm64,
+            pkg:npm/@img/sharp-win32-ia32,
+            pkg:npm/@img/sharp-win32-x64,
+            pkg:npm/@img/sharp-wasm32
           comment-summary-in-pr: on-failure
