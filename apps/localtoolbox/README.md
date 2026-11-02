@@ -453,7 +453,7 @@ pnpm validate:state <file.json>   # check an exported state file
 Everything that is not a component — the content script, the shared classic
 scripts, and every `.ts` file under `src/` — is held to 100% of statements,
 branches, functions and lines, file by file. Components are held to 100% of
-statements and lines too, and clear a floor for branches (see
+statements, functions and lines too, and clear a floor for branches (see
 `vitest.config.ts`): Svelte compiles every value interpolated into text or an
 attribute to `value ?? ''`, and no test can take the `''` half of one whose type
 is never null, so a component's branch percentage says more about the compiler

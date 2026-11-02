@@ -1349,6 +1349,40 @@ describe('selecting a batch', () => {
 		expect(isTicked('/b/two')).toBe(true);
 	});
 
+	// Chrome sends a tick box's Space to the box's own keydown handler and
+	// never makes a click of it, so a keyboard ticks through that alone.
+	const space = (target: Target, init: KeyboardEventInit = {}) => {
+		target!.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true, ...init }));
+
+		return settle();
+	};
+
+	it('ticks a row, and a run of rows, from the keyboard', async () => {
+		await start();
+		await space(tickBox('/a/one'));
+		expect(isTicked('/a/one')).toBe(true);
+
+		await space(tickBox('/c/three'), { shiftKey: true });
+		expect(['/a/one', '/b/two', '/c/three'].map((p) => isTicked(p))).toEqual([true, true, true]);
+
+		await space(tickBox('/b/two'));
+		expect(isTicked('/b/two')).toBe(false);
+	});
+
+	it('ticks and unticks every track shown from the keyboard', async () => {
+		await start();
+		await space(selectAllBox());
+		expect(text()).toMatch(/4 tracks ticked/);
+
+		await space(selectAllBox());
+		expect(text()).toMatch(/nothing ticked/);
+
+		// From some ticked, it ticks the rest, as a click does.
+		await tick('/a/one');
+		await space(selectAllBox());
+		expect(text()).toMatch(/4 tracks ticked/);
+	});
+
 	it('ticks every track shown, and unticks them all again', async () => {
 		await start();
 		await click(selectAllBox());

@@ -841,8 +841,8 @@
 
   const ticked = $derived(tracks.filter((track) => picks.has(track.permalink)));
 
-  function onTick(event: MouseEvent, permalink: string) {
-    if (event.shiftKey) return picks.extend(shownOrder, permalink);
+  function onTick(extend: boolean, permalink: string) {
+    if (extend) return picks.extend(shownOrder, permalink);
     picks.toggle(permalink);
   }
 
@@ -1338,18 +1338,20 @@
                    bg-canvas px-3 pt-2 pb-2.5"
           >
             <div class="flex items-center gap-2">
-              <!-- Shows what the selection says and never decides anything itself
-                   (as the rows' boxes do not either), so both setters are empty:
-                   the click below is what ticks or unticks the list. -->
+              <!-- Shows what the selection says, and leaves the deciding to it (as
+                   the rows' boxes do): any tick, by a click or by Space, ticks the
+                   whole list unless all of it is ticked already. That goes in the
+                   `checked` setter, the one both gestures reach; a half-ticked box
+                   writes `indeterminate` first, which has nothing to add. -->
               <Checkbox
                 id="select-all"
                 class="ml-0.5"
-                bind:checked={() => picks.count > 0 && picks.count === shownOrder.length, () => {}}
+                bind:checked={() => picks.count > 0 && picks.count === shownOrder.length,
+                () => picks.pick(shownOrder, picks.count < shownOrder.length)}
                 bind:indeterminate={() =>
                   picks.count > 0 && picks.count < shownOrder.length,
                 () => {}}
                 aria-label="select every track shown"
-                onclick={() => picks.pick(shownOrder, picks.count < shownOrder.length)}
               />
               <Label for="select-all" class="tabular text-caption font-semibold">
                 {picks.count === 0 ? 'nothing ticked' : `${count(picks.count, 'track')} ticked`}
@@ -1464,7 +1466,7 @@
                     isDownloaded={downloaded.has(row.track.permalink)}
                     selectable={picks.active}
                     selected={picks.has(row.track.permalink)}
-                    onselect={(event) => onTick(event, row.track.permalink)}
+                    onselect={(extend) => onTick(extend, row.track.permalink)}
                     artworkState={art.get(row.track.permalink) ?? ''}
                     artworkHint={ART_HINT}
                     onartwork={(event) => onArtwork(event, row.track)}
