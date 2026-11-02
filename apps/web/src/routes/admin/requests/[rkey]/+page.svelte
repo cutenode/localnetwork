@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { onMount } from 'svelte';
 	import { ArrowLeft, TriangleAlert } from '@lucide/svelte';
 	import DiffTable from '#lib/components/DiffTable.svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
-	import { formatDateTime, placeLabel, profileHref, REQUEST_KIND_LABEL, requestSubject, timeAgo } from '#lib/format.ts';
+	import { formatDateTime, placeLabel, profileHref, requestTitle, timeAgo } from '#lib/format.ts';
 	import { CLAIM_RELATIONSHIPS, labelFor } from '#lib/taxonomy/options.ts';
 	import Card from '#lib/ui/Card.svelte';
 	import Eyebrow from '#lib/ui/Eyebrow.svelte';
@@ -18,9 +19,16 @@
 
 	const own = $derived(request.requester.did === data.viewer?.did);
 
-	let outcome = $state<'approved' | 'rejected' | 'changesRequested'>('approved');
+	// No outcome to start with, so handing a project over always takes a deliberate pick. Deciding moves on to the next
+	// request on this same page, so the form is cleared then too.
+	let outcome = $state<'approved' | 'rejected' | 'changesRequested'>();
 
 	let busy = $state(false);
+
+	// Without scripts the button stays on and the required radios ask for an outcome instead.
+	let hydrated = $state(false);
+
+	onMount(() => (hydrated = true));
 
 	const choices = $derived([
 		{
@@ -38,10 +46,7 @@
 	<div>
 		<a href="/admin/requests" class="inline-flex items-center gap-1.5 text-small text-fg-muted no-underline hover:text-fg"><ArrowLeft class="size-4" />Queue</a>
 		<div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-3">
-			<h1 class="text-heading font-semibold sm:text-title">
-				{REQUEST_KIND_LABEL[request.kind]}:
-				{requestSubject(request)}
-			</h1>
+			<h1 class="text-heading font-semibold sm:text-title">{requestTitle(request)}</h1>
 			<StatusPill status={request.status} />
 		</div>
 		<p class="mt-2 text-small text-fg-muted">
@@ -50,6 +55,7 @@
 		</p>
 	</div>
 
+	{#if data.decided}<FormMessage form={{ success: `${data.decided}. This is the next oldest request waiting for review.` }} />{/if}
 	<FormMessage {form} />
 
 	<div class="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
@@ -97,12 +103,18 @@
 					{#if request.record.claim?.links?.length}
 						<ul class="list-inside list-disc text-fg-subtle">{#each request.record.claim.links as link, index (index)}<li><a class="link break-all" href={webHref(link)} rel="noopener noreferrer nofollow" target="_blank">{link}</a></li>{/each}</ul>
 					{/if}
-					{#if data.project}<p class="text-fg-muted">Current managers: {data.project.managers.length || 'none'}. <a class="link" href="/projects/{data.project.slug}" target="_blank">Open project</a></p>{/if}
+					{#if data.project}
+						<p class="text-fg-muted">
+							Current managers:
+							{#each data.managers as manager, index (manager.did)}{#if index}, {/if}<Handle account={manager} />{:else}none{/each}.
+							<a class="link" href="/projects/{data.project.slug}" target="_blank">Open project</a>
+						</p>
+					{/if}
 				</Card>
 			{:else}
 				<Card as="section">
 					<div class="mb-3 flex items-center justify-between gap-4">
-						<h2 class="section-title">{request.kind === 'create' ? 'Proposed profile' : 'Proposed changes'}</h2>
+						<h2 class="section-title">{request.kind === 'create' ? 'Proposed profile' : request.status === 'approved' ? 'Published changes' : 'Proposed changes'}</h2>
 						{#if data.hasAvatar}<img src="/dashboard/requests/{request.rkey}/avatar" alt="Proposed" class="size-16 rounded-lg border border-line object-cover" />{/if}
 					</div>
 					<DiffTable changes={data.changes} />
@@ -145,13 +157,13 @@
 				{#if own}
 					<p class="notice notice-info">This is your own request. Another staff member has to review it.</p>
 				{:else}
-					<form method="POST" action="?/decide" class="card flex flex-col gap-4 p-5" use:enhance={() => { busy = true; return async ({ update }) => { await update(); busy = false; }; }}>
+					<form method="POST" action="?/decide" class="card flex flex-col gap-4 p-5" use:enhance={({ formElement }) => { busy = true; return async ({ result, update }) => { await update(); busy = false; if (result.type === 'redirect') { outcome = undefined; formElement.reset(); } }; }}>
 						<h2 class="text-emphasis font-semibold">Decision</h2>
 						<fieldset class="flex flex-col gap-2 text-small">
 							<legend class="sr-only">Outcome</legend>
 							{#each choices as choice (choice.value)}
 								<label class="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-line px-3 transition-colors hover:border-line-strong has-checked:border-fg-subtle has-checked:bg-raised">
-									<input type="radio" class="checkbox rounded-full" name="outcome" value={choice.value} bind:group={outcome} />{choice.label}
+									<input type="radio" class="checkbox rounded-full" name="outcome" value={choice.value} required bind:group={outcome} />{choice.label}
 								</label>
 							{/each}
 						</fieldset>
@@ -159,7 +171,7 @@
 							<label class="label" for="reason">Message to requester {outcome === 'approved' ? '(optional)' : ''}</label>
 							<textarea id="reason" name="reason" class="input min-h-28 py-2.5" required={outcome !== 'approved'} maxlength="1000"></textarea>
 						</div>
-						<button class="{outcome === 'rejected' ? 'btn-danger' : 'btn-primary'} w-full" disabled={busy}>{busy ? 'Working…' : 'Submit decision'}</button>
+						<button class="{outcome === 'rejected' ? 'btn-danger' : 'btn-primary'} w-full" disabled={busy || (hydrated && !outcome)}>{busy ? 'Working…' : 'Submit decision'}</button>
 						<p class="hint mt-0">Recorded as a decision record by the root account and written to the audit log under your account.</p>
 					</form>
 				{/if}
@@ -185,7 +197,7 @@
 				<h2 class="section-title">Requester history</h2>
 				<ul class="mt-1 divide-y divide-line">
 					{#each data.history as item (item.uri)}
-						<li class="flex items-center justify-between gap-2 py-2.5"><a class="truncate text-fg no-underline hover:underline" href="/admin/requests/{item.rkey}">{REQUEST_KIND_LABEL[item.kind]}: {requestSubject(item)}</a><StatusPill status={item.status} /></li>
+						<li class="flex items-center justify-between gap-2 py-2.5"><a class="truncate text-fg no-underline hover:underline" href="/admin/requests/{item.rkey}">{requestTitle(item)}</a><StatusPill status={item.status} /></li>
 					{:else}
 						<li class="py-2.5 text-fg-muted">First request from this account.</li>
 					{/each}

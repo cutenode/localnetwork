@@ -32,6 +32,7 @@
        it is meant to restore.
 -->
 <script lang="ts">
+  import { tick } from 'svelte';
   import { fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import ToolMenu from '$lib/components/ToolMenu.svelte';
@@ -42,6 +43,8 @@
   import { toolById, loadPanel, type PanelComponent } from '$lib/tools.ts';
   import { theme } from '$lib/theme.svelte.ts';
   import { downloaded } from '$lib/downloaded.svelte.ts';
+  import { motion } from '$lib/motion.ts';
+  import { frameHeight } from '$lib/frame-height.svelte.ts';
   import { queue } from '$lib/queue.svelte.ts';
   import { settings } from '$lib/settings.svelte.ts';
   import { view } from '$lib/view.svelte.ts';
@@ -49,6 +52,10 @@
   const tool = $derived(view.open ? toolById(view.open) : null);
 
   theme.start();
+
+  // A panel's frame is as tall as the popup has room for, which is less than
+  // usual zoomed in or on a short screen ($lib/frame-height.svelte.ts).
+  frameHeight.start();
 
   // Every panel shows the marks, and two of them make them; reading the map
   // once here means going back to the menu and into another tool does not
@@ -195,17 +202,65 @@
   // after the click, and never needs to be reactive.
   let navigating = false;
 
-  const enter = () => (navigating ? IN : { duration: 0 });
+  /** Whether the next view to be drawn is one a click asked for, so focus follows it. */
+  let navigated = false;
+
+  const enter = () => motion(navigating ? IN : { duration: 0 });
+
+  const leave = () => motion(OUT);
 
   function open(id: string) {
-    navigating = true;
+    navigating = navigated = true;
     view.open = id;
   }
 
   function back() {
-    navigating = true;
+    navigating = navigated = true;
     view.open = null;
   }
+
+  // --- where focus goes ------------------------------------------------------
+
+  // The button that was pressed goes with the view it was in, which leaves
+  // focus on nothing: a keyboard starts again from the top and a screen reader
+  // says nothing about where it is. So the new view's heading takes focus
+  // after a navigation, and again when a panel replaces its ghost or a sheet
+  // goes away with no opener left to give it back to (Sheet.svelte), as long
+  // as focus really was lost. The popup opening is left alone: Chrome puts
+  // focus in it, and a heading has nothing to say that the popup appearing
+  // does not.
+
+  /** The heading of the view that is staying, not the one sliding out (inert while it goes). */
+  const heading = () =>
+    [...(behind?.children ?? [])]
+      .find((child) => child instanceof HTMLElement && !child.inert)
+      ?.querySelector('h1');
+
+  function lost() {
+    const active = document.activeElement;
+
+    return !active || active === document.body || !!active.closest('[inert]');
+  }
+
+  /** Once the new view is drawn: to its heading if a click asked for it, or if focus is nowhere. */
+  async function follow(asked: boolean) {
+    await tick();
+
+    if (asked || lost()) heading()?.focus();
+  }
+
+  let wasCovered = false;
+
+  $effect(() => {
+    void [tool, showing];
+    const asked = navigated;
+    const uncovered = wasCovered && !covered;
+    navigated = false;
+    wasCovered = covered;
+
+    if (covered || !(asked || uncovered || navigating)) return;
+    void follow(asked);
+  });
 </script>
 
 <!-- Shut away from the keyboard and from screen readers while the sheet is
@@ -220,7 +275,7 @@
 <main bind:this={behind} class="relative overflow-hidden {covered ? 'min-h-[420px]' : ''}">
   {#if tool}
     {#key tool.id}
-      <div in:fly={{ x: 18, ...enter() }} out:fly={{ x: 18, ...OUT }}>
+      <div in:fly={{ x: 18, ...enter() }} out:fly={{ x: 18, ...leave() }}>
         {#if showing}
           {@const Open = showing}
           <Open {tool} onback={back} />
@@ -230,7 +285,7 @@
       </div>
     {/key}
   {:else}
-    <div in:fly={{ x: -18, ...enter() }} out:fly={{ x: -18, ...OUT }}>
+    <div in:fly={{ x: -18, ...enter() }} out:fly={{ x: -18, ...leave() }}>
       <ToolMenu onopen={open} />
     </div>
   {/if}

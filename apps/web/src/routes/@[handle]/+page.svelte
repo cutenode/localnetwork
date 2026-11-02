@@ -22,15 +22,7 @@
 	const promoter = $derived(data.profile?.record.promoter);
 
 	const place = $derived(basics?.location && placeLabel({ location: basics.location }));
-
-	const description = $derived(performer?.tagline ?? (place ? `${data.name}, ${place}` : data.name));
 </script>
-
-<svelte:head>
-	<title>{data.name} · Local Network</title>
-	<meta name="description" content={description} />
-	<link rel="canonical" href={data.canonical} />
-</svelte:head>
 
 <div class="border-b border-line">
 	<div class="container-page flex flex-col gap-6 py-10 sm:py-14">

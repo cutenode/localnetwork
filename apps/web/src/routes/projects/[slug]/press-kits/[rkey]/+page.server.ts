@@ -1,4 +1,5 @@
 import { error } from '@sveltejs/kit';
+import { pressKitMeta } from '#lib/server/meta.ts';
 import { loadProjectPage } from '#lib/server/project-page.ts';
 import type { PageServerLoad } from './$types';
 
@@ -23,6 +24,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		// The project's mixes with tracklists, by URL, so the press kit can link each one's tracklist.
 		tracklists: Object.fromEntries(
 			(page.project.profile.mixes ?? []).flatMap((mix, index) => (mix.tracklist ? [[mix.url, index + 1]] : []))
-		)
+		),
+		meta: pressKitMeta(locals.app.config.publicUrl, page.project, kit.epk)
 	};
 };

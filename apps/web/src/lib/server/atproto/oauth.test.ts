@@ -1,9 +1,14 @@
+import { once } from 'node:events';
+import { createServer } from 'node:http';
+import { type AddressInfo, createServer as createNetServer, type Socket } from 'node:net';
 import { IncludeScope, ScopePermissions, ScopePermissionsTransition, SpacePermission } from '@atproto/oauth-scopes';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CALENDAR_EVENT, CALENDAR_RSVP, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
 import { loadConfig } from '../config';
 import { openDatabase } from '../db';
 import { silentLogger } from '../logger';
+import { type Loopback, rebindToLoopback } from '../testing/rebind';
+import { IdentityResolver } from './identity';
 import { permissionSetFor } from './lexicons';
 import {
 	clientMetadata,
@@ -19,6 +24,11 @@ import {
 	SCOPES,
 	type SignedInAccount
 } from './oauth';
+
+/** A fetch for services whose client never reaches the network. */
+const offline: typeof globalThis.fetch = async (input) => {
+	throw new Error(`no network in this test: ${new Request(input).url}`);
+};
 
 const config = (publicUrl: string) =>
 	loadConfig({
@@ -317,17 +327,27 @@ describe('OAuth scopes', () => {
 describe('OAuthService', () => {
 	/** Signing in at an http PDS from a production build with ALLOW_PRIVATE_NETWORK as given. */
 	const signInAtHttpPds = async (allowPrivateNetwork: string) => {
-		const oauth = new OAuthService({
-			config: loadConfig({
-				NODE_ENV: 'production',
-				ALLOW_PRIVATE_NETWORK: allowPrivateNetwork,
-				ROOT_IDENTIFIER: 'did:plc:root',
-				ROOT_PASSWORD: 'x',
-				PUBLIC_URL: 'https://localnetwork.test',
-				HAPPYVIEW_URL: 'http://127.0.0.1:8000'
-			}),
-			db: await openDatabase(':memory:'),
+		const production = loadConfig({
+			NODE_ENV: 'production',
+			ALLOW_PRIVATE_NETWORK: allowPrivateNetwork,
+			ROOT_IDENTIFIER: 'did:plc:root',
+			ROOT_PASSWORD: 'x',
+			PUBLIC_URL: 'https://localnetwork.test',
+			HAPPYVIEW_URL: 'http://127.0.0.1:8000'
+		});
+
+		// The guarded fetch the app gives it, for the same network.
+		const identity = new IdentityResolver({
+			plcUrl: production.plcUrl,
+			allowPrivateNetwork: production.allowPrivateNetwork,
 			logger: silentLogger
+		});
+
+		const oauth = new OAuthService({
+			config: production,
+			db: await openDatabase(':memory:'),
+			logger: silentLogger,
+			fetch: identity.serviceFetch
 		});
 
 		// Port 9 is one fetch refuses to connect to, so nothing leaves the machine either way.
@@ -367,7 +387,8 @@ describe('OAuthService.authorize', () => {
 		const oauth = new OAuthService({
 			config: config('http://127.0.0.1:5173'),
 			db: await openDatabase(':memory:'),
-			logger: silentLogger
+			logger: silentLogger,
+			fetch: offline
 		});
 
 		const asked: string[] = [];
@@ -443,5 +464,151 @@ describe('OAuthService.authorize', () => {
 			})
 		).rejects.toThrow(OptionalScopeUnsupported);
 		expect(unknown.asked).toHaveLength(3);
+	});
+});
+
+describe('OAuthService sign-in, given servers a DID document names', () => {
+	const PDS = 'pds.rebind.localnetwork.computer';
+	const ISSUER = 'auth.rebind.localnetwork.computer';
+	const did = 'did:plc:visitor';
+	let loopback: Loopback;
+
+	beforeEach(async () => {
+		loopback = await rebindToLoopback([PDS, ISSUER]);
+
+		return async () => {
+			vi.unstubAllGlobals();
+			vi.restoreAllMocks();
+			await loopback.close();
+		};
+	});
+
+	/**
+	 * Signs `did` in as /login does, with the app's guarded fetch, a DID document whose PDS is `pds`, and private
+	 * addresses allowed or not.
+	 */
+	const signIn = async (pds: string, allowPrivateNetwork = false, timeoutMs?: number) => {
+		const identity = new IdentityResolver({
+			plcUrl: 'https://plc.directory',
+			allowPrivateNetwork,
+			logger: silentLogger
+		});
+
+		const oauth = new OAuthService({
+			config: config('https://localnetwork.computer'),
+			db: await openDatabase(':memory:'),
+			logger: silentLogger,
+			fetch: identity.serviceFetch,
+			timeoutMs
+		});
+
+		vi.spyOn(oauth.client.identityResolver, 'resolve').mockResolvedValue({
+			did,
+			handle: 'visitor.localnetwork.computer',
+			didDoc: { id: did, service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: pds }] }
+		});
+
+		// What came of it: the authorization page, or the innermost cause of the error (for a request fetch refused, why).
+		return oauth.authorize(did, '{}').then(
+			(page) => page.href,
+			(error: Error) => {
+				let cause = error;
+
+				while (cause.cause instanceof Error) cause = cause.cause;
+
+				return cause.message;
+			}
+		);
+	};
+
+	it('gives up on a PDS that takes the connection and never answers, once the time limit is up', async () => {
+		// Connections it takes, which it holds open without a word.
+		const held: Socket[] = [];
+		const server = createNetServer((socket) => void held.push(socket));
+
+		await once(server.listen(0, '127.0.0.1'), 'listening');
+		// SAFETY: a server listening on a TCP port reports an AddressInfo.
+		const { port } = server.address() as AddressInfo;
+
+		try {
+			const started = performance.now();
+
+			expect(await signIn(`http://127.0.0.1:${port}`, true, 200)).toBe('The operation was aborted due to timeout');
+			expect(performance.now() - started).toBeLessThan(2_000);
+			expect(held).toHaveLength(1);
+		} finally {
+			for (const socket of held) socket.destroy();
+			await new Promise((resolve) => server.close(resolve));
+		}
+	});
+
+	it('refuses a PDS whose name points at loopback when it connects, and never reaches it', async () => {
+		expect(await signIn(`https://${PDS}:${loopback.port}`)).toBe('Hostname resolved to non-unicast address');
+		expect(loopback.connections()).toBe(0);
+	});
+
+	it("refuses an authorization server, named in the PDS's metadata, whose name points at loopback", async () => {
+		const real = globalThis.fetch;
+		const pds = 'https://pds.localnetwork.computer';
+
+		// The PDS answers from a public address; everything else goes out to the network.
+		vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+			const request = new Request(input, init);
+
+			if (!request.url.startsWith(`${pds}/`)) return real(input, init);
+
+			return Response.json({ resource: pds, authorization_servers: [`https://${ISSUER}:${loopback.port}`] });
+		});
+
+		expect(await signIn(pds)).toBe('Hostname resolved to non-unicast address');
+		expect(loopback.connections()).toBe(0);
+	});
+
+	it('follows no redirect from the authorization server, even where private addresses are allowed', async () => {
+		let inside = 0;
+		let origin = '';
+
+		// A PDS that is its own authorization server, and sends its pushed authorization requests somewhere else.
+		const server = createServer((request, response) => {
+			if (request.url === '/.well-known/oauth-protected-resource') {
+				response.setHeader('content-type', 'application/json');
+				response.end(JSON.stringify({ resource: origin, authorization_servers: [origin] }));
+			} else if (request.url === '/.well-known/oauth-authorization-server') {
+				response.setHeader('content-type', 'application/json');
+
+				response.end(
+					JSON.stringify({
+						issuer: origin,
+						authorization_endpoint: `${origin}/authorize`,
+						token_endpoint: `${origin}/token`,
+						pushed_authorization_request_endpoint: `${origin}/par`,
+						require_pushed_authorization_requests: true,
+						response_types_supported: ['code'],
+						code_challenge_methods_supported: ['S256'],
+						token_endpoint_auth_methods_supported: ['none', 'private_key_jwt'],
+						token_endpoint_auth_signing_alg_values_supported: ['ES256'],
+						dpop_signing_alg_values_supported: ['ES256'],
+						client_id_metadata_document_supported: true
+					})
+				);
+			} else if (request.url === '/par') {
+				response.writeHead(307, { location: '/inside' }).end();
+			} else {
+				inside++;
+				response.writeHead(201, { 'content-type': 'application/json' });
+				response.end(JSON.stringify({ request_uri: 'urn:ietf:params:oauth:request_uri:x', expires_in: 60 }));
+			}
+		});
+
+		await once(server.listen(0, '127.0.0.1'), 'listening');
+		// SAFETY: a server listening on a TCP port reports an AddressInfo.
+		origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+		try {
+			expect(await signIn(origin, true)).toBe('unexpected redirect');
+			expect(inside).toBe(0);
+		} finally {
+			await new Promise((resolve) => server.close(resolve));
+		}
 	});
 });

@@ -3,6 +3,7 @@
 	import { enhance } from '$app/forms';
 	import { PROJECT_KINDS } from '#lib/taxonomy/options.ts';
 	import { FormDraft } from '#lib/form-draft.svelte.ts';
+	import { formFields } from '#lib/form-fields.svelte.ts';
 	import { formValues } from '#lib/project-form.ts';
 	import type { DjSetView, ProjectFormValues } from '#lib/types.ts';
 	import DraftNotice from './DraftNotice.svelte';
@@ -35,7 +36,7 @@
 		draft?: string;
 		/** The managers' published sets (null when they can't be loaded), for a picker on each mix. No picker without. */
 		sets?: Promise<DjSetView[] | null>;
-		/** Extra fields, drawn from the values the form shows (a restored draft's, or `values`). */
+		/** Extra fields, which bind to the values the form shows (a restored draft's, or `values`). */
 		children?: Snippet<[ProjectFormValues]>;
 		footer?: Snippet;
 	} = $props();
@@ -50,6 +51,8 @@
 
 	/** What the fields show: the restored draft, or the values the page passed. */
 	const shown = $derived(formDraft.values ?? values);
+
+	const fields = $derived(formFields(shown));
 
 	const v = (key: string) => String(shown[key] ?? '');
 </script>
@@ -88,36 +91,36 @@
 				<div class="grid gap-4 sm:grid-cols-2">
 					<div>
 						<label class="label" for="bookingEmail">Booking email</label>
-						<input id="bookingEmail" class="input" type="email" name="bookingEmail" value={v('bookingEmail')} />
+						<input id="bookingEmail" class="input" type="email" name="bookingEmail" bind:value={fields.bookingEmail} />
 					</div>
 					<div>
 						<label class="label" for="bookingPhone">Booking phone</label>
-						<input id="bookingPhone" class="input" name="bookingPhone" value={v('bookingPhone')} />
+						<input id="bookingPhone" class="input" name="bookingPhone" bind:value={fields.bookingPhone} />
 					</div>
 				</div>
 				<div>
 					<label class="label" for="rateNotes">Rates</label>
-					<textarea id="rateNotes" class="input py-2.5" name="rateNotes">{v('rateNotes')}</textarea>
+					<textarea id="rateNotes" class="input py-2.5" name="rateNotes" bind:value={fields.rateNotes}></textarea>
 				</div>
 				<div class="grid gap-4 sm:grid-cols-2">
 					<div>
 						<label class="label" for="techRider">Tech rider</label>
-						<textarea id="techRider" class="input min-h-28 py-2.5" name="techRider" placeholder="2× CDJ-3000, DJM-900NXS2, booth monitors">{v('techRider')}</textarea>
+						<textarea id="techRider" class="input min-h-28 py-2.5" name="techRider" placeholder="2× CDJ-3000, DJM-900NXS2, booth monitors" bind:value={fields.techRider}></textarea>
 					</div>
 					<div>
 						<label class="label" for="hospitality">Hospitality</label>
-						<textarea id="hospitality" class="input min-h-28 py-2.5" name="hospitality">{v('hospitality')}</textarea>
+						<textarea id="hospitality" class="input min-h-28 py-2.5" name="hospitality" bind:value={fields.hospitality}></textarea>
 					</div>
 				</div>
 			</FormSection>
 		{/if}
 
-		{#if children}{@render children(shown)}{/if}
+		{#if children}{@render children(fields)}{/if}
 
 		{#if showMessage}
 			<div class="card p-5 sm:p-6">
 				<label class="label" for="message">Note to moderators <span class="font-normal text-fg-subtle">(optional)</span></label>
-				<textarea id="message" class="input py-2.5" name="message" maxlength="2000">{v('message')}</textarea>
+				<textarea id="message" class="input py-2.5" name="message" maxlength="2000" bind:value={fields.message}></textarea>
 			</div>
 		{/if}
 	{/key}

@@ -5,11 +5,6 @@
 	let { data }: PageProps = $props();
 </script>
 
-<svelte:head>
-	<title>{data.doc.title} · {data.tool.name} · Local Network</title>
-	<meta name="description" content="{data.tool.name} guide: {data.doc.title}." />
-</svelte:head>
-
 <div class="container-page flex flex-col gap-8 py-10 sm:gap-12 sm:py-14">
 	<div class="flex flex-col gap-4">
 		<nav aria-label="Breadcrumb" class="flex gap-2 text-small text-fg-subtle">

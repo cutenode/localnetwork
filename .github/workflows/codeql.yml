@@ -12,8 +12,22 @@ name: CodeQL
 # expecting 1 result from CodeQL", and so did #347 when only the languages that changed ran).
 # CodeQL's own result is that check. No weekly run: main gets pushes most days, and each analyses
 # with the queries of the action's pinned bundle.
+#
+# A language whose code, CodeQL config and this workflow are as they were at the commit ci.yml
+# diffed against has that commit's results, so its job uploads that commit's analysis from main
+# again, for this commit, in place of analysing it: about a minute where Rust takes 15 to 19.
+# With no such analysis on main yet (its push run hasn't got there), it analyses.
 on:
   workflow_call:
+    inputs:
+      unchanged:
+        description: The languages whose code didn't change, as a JSON list.
+        type: string
+        required: true
+      base:
+        description: The commit ci.yml diffed a push or a merge queue group against; empty for a pull request, whose merge commit's first parent is the one.
+        type: string
+        required: true
 
 permissions: {}
 
@@ -36,13 +50,43 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # A pull request's merge commit and its first parent.
+          fetch-depth: 2
+      # main's analysis of the base commit in this language, when its code is unchanged and main
+      # has one. The list is filtered here (see .github/actions/last-passed).
+      - id: reuse
+        if: contains(fromJSON(inputs.unchanged), matrix.language)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BASE: ${{ inputs.base }}
+          CATEGORY: /language:${{ matrix.language }}
+        run: |
+          base=${BASE:-$(git rev-parse HEAD^1)}
+          id=$(gh api "repos/$GH_REPO/code-scanning/analyses?ref=refs/heads/main&tool_name=CodeQL&per_page=100" |
+            jq -r --arg category "$CATEGORY" --arg sha "$base" \
+              '[.[] | select(.category == $category and .commit_sha == $sha and .error == "")][0].id // empty')
+          if [ -z "$id" ]; then
+            echo "main has no $CATEGORY analysis of $base yet, so this one analyses"
+            exit 0
+          fi
+          gh api -H "Accept: application/sarif+json" "repos/$GH_REPO/code-scanning/analyses/$id" > "$RUNNER_TEMP/main.sarif"
+          echo "Reusing analysis $id of $base"
+          echo "sarif=$RUNNER_TEMP/main.sarif" >> "$GITHUB_OUTPUT"
+      - if: steps.reuse.outputs.sarif != ''
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: ${{ steps.reuse.outputs.sarif }}
+          category: /language:${{ matrix.language }}
       # Nothing is built: Rust and TypeScript are read from the source, which is also what lets
       # paths-ignore leave files out.
-      - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+      - if: steps.reuse.outputs.sarif == ''
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           languages: ${{ matrix.language }}
           build-mode: none
           config-file: ./.github/codeql/codeql-config.yml
-      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+      - if: steps.reuse.outputs.sarif == ''
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           category: /language:${{ matrix.language }}

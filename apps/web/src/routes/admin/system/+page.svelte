@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { RefreshCw } from '@lucide/svelte';
+	import { CircleCheck, RefreshCw, TriangleAlert } from '@lucide/svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
 	import { shortDid, timeAgo } from '#lib/format.ts';
@@ -13,19 +13,42 @@
 	let busy = $state(false);
 
 	const policy = (type: string) => type.split('#')[1];
+
+	const failing = (space: (typeof data.sync)[number]) => !!space.lastError || space.repos.some((repo) => repo.lastError);
+
+	// Spaces with errors first, so a problem isn't lost among the healthy ones.
+	const spaces = $derived(data.sync.toSorted((a, b) => Number(failing(b)) - Number(failing(a))));
+
+	const failingCount = $derived(spaces.filter(failing).length);
+
+	const problems = $derived(
+		(
+			[
+				[!data.happyView.reachable, "HappyView isn't answering"],
+				[!!data.happyView.sync?.error, "The directory didn't sync"],
+				[failingCount > 0, `${failingCount} of ${spaces.length} spaces have sync errors`],
+				[data.audit.failed > 0, `${data.audit.failed} audit copies failed`],
+				[!!data.backups?.lastAttempt?.error, 'The last backup failed'],
+				[!!data.backups?.stale, 'No backup in two days']
+			] satisfies [boolean, string][]
+		).flatMap(([found, problem]) => (found ? [problem] : []))
+	);
 </script>
 
 <svelte:head><title>System · Staff</title></svelte:head>
 
 <div class="flex flex-col gap-6">
-	<SectionHeader level={1} title="System">
+	<SectionHeader level={1} title="System" lede="Bootstrap and sync creates any missing root spaces, then re-reads every space and the directory. Run it after a deploy or when sync falls behind.">
 		{#snippet actions()}
 			<form method="POST" action="?/retryAudit" use:enhance><button class="btn-secondary w-full">Retry audit copies</button></form>
-			<form method="POST" action="?/resync" use:enhance={() => { busy = true; return async ({ update }) => { await update(); busy = false; }; }}>
-				<button class="btn-primary w-full" disabled={busy}><RefreshCw class="size-4 {busy ? 'animate-spin' : ''}" />Bootstrap and sync</button>
+			<form method="POST" action="?/resync" use:enhance={({ cancel }) => { if (!confirm('Bootstrap and sync every space now? It can take a minute.')) return cancel(); busy = true; return async ({ update }) => { await update(); busy = false; }; }}>
+				<button class="btn-secondary w-full" disabled={busy}><RefreshCw class="size-4 {busy ? 'animate-spin' : ''}" />Bootstrap and sync</button>
 			</form>
 		{/snippet}
 	</SectionHeader>
+	<p role="status" class={['notice flex items-start gap-2', !problems.length && 'notice-ok']}>
+		{#if problems.length}<TriangleAlert aria-hidden="true" class="mt-0.5 size-4 shrink-0 text-warning" />{problems.join(' · ')}{:else}<CircleCheck aria-hidden="true" class="mt-0.5 size-4 shrink-0 text-good" />Everything is running and in sync.{/if}
+	</p>
 	<FormMessage {form} />
 
 	<div class="grid items-start gap-6 xl:grid-cols-2">
@@ -68,10 +91,10 @@
 	<section class="flex flex-col gap-3">
 		<h2 class="section-title">Sync status</h2>
 		<div class="grid gap-3 lg:grid-cols-2">
-			{#each data.sync as space (space.space)}
+			{#each spaces as space (space.space)}
 				<Card padding="sm" class="flex flex-col gap-2">
 					<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-						<p class="font-mono text-label text-fg">{space.type.split('.').at(-1)} / {space.skey}</p>
+						<p class="flex items-baseline gap-2 font-mono text-label text-fg">{space.type.split('.').at(-1)} / {space.skey}{#if failing(space)}<StatusPill status="failed" />{/if}</p>
 						<p class="text-label text-fg-subtle">{space.lastSyncedAt ? `synced ${timeAgo(space.lastSyncedAt)}` : 'never synced'}{space.registrationExpiresAt ? ` · notify until ${timeAgo(space.registrationExpiresAt)}` : ''}</p>
 					</div>
 					{#if space.lastError}<p class="text-small text-critical">{space.lastError}</p>{/if}

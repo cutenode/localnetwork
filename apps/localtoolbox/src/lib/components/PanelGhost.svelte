@@ -18,13 +18,14 @@
   import QueueButton from './QueueButton.svelte';
   import ToolTile from './ToolTile.svelte';
   import SettingsButton from './SettingsButton.svelte';
+  import { frameHeight } from '$lib/frame-height.svelte.ts';
   import type { PanelProps } from '$lib/types';
 
   let { tool, onback }: PanelProps = $props();
 
 </script>
 
-<div class="flex max-h-[580px] min-h-[200px] flex-col" aria-busy="true">
+<div class="flex min-h-[200px] flex-col" style:max-height="{frameHeight.max}px" aria-busy="true">
   <header class="flex h-13 shrink-0 items-center gap-2.5 border-b border-line px-3">
     <button type="button" class="icon-btn -ml-1" aria-label="back to all tools" onclick={onback}>
       <ArrowLeft class="size-4" />
@@ -33,7 +34,9 @@
     <ToolTile icon={tool.icon} tone={tool.tone} />
 
     <div class="min-w-0 flex-1">
-      <h1 class="m-0 truncate text-label leading-tight font-semibold">{tool.name}</h1>
+      <h1 class="m-0 truncate text-label leading-tight font-semibold outline-none" tabindex="-1">
+        {tool.name}
+      </h1>
       <p class="m-0 truncate text-caption leading-tight text-fg-muted">opening…</p>
     </div>
 

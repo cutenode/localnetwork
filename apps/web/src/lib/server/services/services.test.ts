@@ -155,6 +155,11 @@ describe('services', () => {
 			await t.projectAdmin.setStatus({ actor: admin, project: hidden, status: 'hidden' });
 
 			expect((await t.projects.managedBy(DJ)).map((p) => p.profile.name)).toEqual(['Aurora', 'Zephyr']);
+			expect((await t.projects.bySlug(mine.slug))?.counts).toBeUndefined();
+			expect((await t.projects.bySlug(mine.slug, { counts: true }))?.counts).toEqual({
+				pressKits: 0,
+				upcomingShows: 0
+			});
 			expect((await t.projects.recent(2)).map((p) => p.profile.name)).toEqual(['Other', 'Zephyr']);
 			expect(await t.projects.stats()).toMatchObject({
 				total: 3,
@@ -479,6 +484,106 @@ describe('services', () => {
 
 			await t.requests.decide({ actor: await t.viewer(MOD), uri: update.uri, outcome: 'approved' });
 			expect(await t.projects.details(project.uri)).toEqual({});
+		});
+
+		it('shows what a pending request would change, and what an approved one changed', async () => {
+			const dj = await t.viewer(DJ);
+			const mod = await t.viewer(MOD);
+			const admin = await t.viewer(ADMIN);
+
+			const project = await t.projectAdmin.create({
+				actor: admin,
+				profile: profile('Tide'),
+				details: { bookingEmail: 'a@b.test' },
+				managers: [DJ]
+			});
+
+			const update = await t.requests.submit({
+				actor: dj,
+				kind: 'update',
+				projectUri: project.uri,
+				profile: profile('Tide', { tagline: 'Dub' }),
+				details: { bookingEmail: 'c@d.test' }
+			});
+
+			const tagline = { field: 'profile.tagline', after: 'Dub' };
+			expect(await t.requests.changes(update, project)).toEqual({
+				profile: [tagline],
+				details: [{ field: 'details.bookingEmail', before: 'a@b.test', after: 'c@d.test' }],
+				stale: false
+			});
+
+			// An admin's edit moves the project past the revision the request started from.
+			const edited = await t.projectAdmin.update({
+				actor: admin,
+				project,
+				profile: profile('Tide', { pronouns: 'they/them' })
+			});
+
+			expect((await t.requests.changes(update, edited)).stale).toBe(true);
+
+			// A change to the private details alone leaves the profile as it is.
+			const detailsOnly = { ...update, record: { ...update.record, profile: undefined } };
+			expect((await t.requests.changes(detailsOnly, edited)).profile).toEqual([]);
+
+			await t.requests.decide({ actor: mod, uri: update.uri, outcome: 'approved' });
+			const approved = (await t.requests.byRkey(update.rkey))!;
+			const published = (await t.projects.byUri(project.uri))!;
+
+			// Compared with now it would match; the audit entry kept what approving it changed.
+			expect(await t.requests.changes(approved, published)).toEqual({
+				profile: [{ field: 'profile.pronouns', before: 'they/them' }, tagline],
+				details: [{ field: 'details.bookingEmail', before: '[private]', after: '[private]' }],
+				stale: false
+			});
+
+			const rejected = await t.requests.submit({
+				actor: dj,
+				kind: 'update',
+				projectUri: project.uri,
+				profile: profile('Tide', { tagline: 'Dub techno' })
+			});
+
+			await t.projectAdmin.update({ actor: admin, project: published, profile: profile('Tide') });
+			await t.requests.decide({ actor: mod, uri: rejected.uri, outcome: 'rejected', reason: 'No' });
+			const latest = (await t.projects.byUri(project.uri))!;
+
+			// Only a pending request can still be approved, so only one is ever stale.
+			expect(await t.requests.changes((await t.requests.byRkey(rejected.rkey))!, latest)).toEqual({
+				profile: [{ field: 'profile.tagline', after: 'Dub techno' }],
+				details: [],
+				stale: false
+			});
+
+			const create = await t.requests.submit({
+				actor: dj,
+				kind: 'create',
+				profile: profile('Glow'),
+				details: { bookingEmail: 'g@h.test' }
+			});
+
+			const proposed = await t.requests.changes(create, null);
+			expect(proposed.profile).toContainEqual({ field: 'profile.name', after: 'Glow' });
+			expect(proposed.details).toEqual([{ field: 'details.bookingEmail', after: 'g@h.test' }]);
+			await t.requests.decide({ actor: mod, uri: create.uri, outcome: 'approved' });
+			const created = (await t.requests.byRkey(create.rkey))!;
+			expect((await t.requests.changes(created, null)).profile).toContainEqual({
+				field: 'profile.name',
+				after: 'Glow'
+			});
+
+			// An approval with no audit entry naming it has nothing to show, rather than a comparison with now.
+			const unrecorded = { ...created, uri: `${created.uri}-unrecorded` };
+			expect(await t.requests.changes(unrecorded, null)).toEqual({ profile: [], details: [], stale: false });
+
+			const claim = await t.requests.submit({
+				actor: await t.viewer(PROMOTER),
+				kind: 'claim',
+				projectUri: project.uri,
+				claim: { relationship: 'agent', evidence: 'I book them' }
+			});
+
+			expect(await t.requests.changes(claim, latest)).toEqual({ profile: [], details: [], stale: false });
 		});
 
 		it('supports rejection, withdrawal, and blocks double decisions', async () => {

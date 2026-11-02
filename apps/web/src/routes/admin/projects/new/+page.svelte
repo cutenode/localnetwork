@@ -19,10 +19,10 @@
 	<SectionHeader level={1} title="Add a project" lede="Admins publish directly to the root account's repo, and the action is audited. Leave managers empty so the DJ can claim it later." />
 	<FormMessage {form} />
 	<ProjectForm {values} submitLabel="Publish project" geocoder={data.geocoder} draft={draftKey(data.viewer, 'admin:project:new')}>
-		{#snippet children(shown)}
+		{#snippet children(fields)}
 			<Card as="section">
 				<label class="label" for="managers">Managers <span class="font-normal text-fg-subtle">(optional)</span></label>
-				<input id="managers" name="managers" class="input" value={String(shown.managers ?? '')} placeholder="alice.bsky.social, did:plc:…" />
+				<input id="managers" name="managers" class="input" bind:value={fields.managers} placeholder="alice.bsky.social, did:plc:…" />
 				<p class="hint">Handles or DIDs, separated by commas.</p>
 			</Card>
 		{/snippet}

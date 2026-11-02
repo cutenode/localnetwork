@@ -9,6 +9,7 @@ import {
 	cacheBriefly,
 	clientIp,
 	guardArea,
+	isUnlisted,
 	limit,
 	optionalCurrency,
 	requireAdmin,
@@ -174,6 +175,18 @@ describe('guards', () => {
 		expect(guard(null, '/dashboards', null)).toBeUndefined();
 		expect(guard(viewer(), '/projects/neon-tide', '/projects/[slug]')).toBeUndefined();
 		expect(guard(viewer(), '/administer', null)).toBeUndefined();
+	});
+
+	it('keeps signed-in areas and one-off pages out of search, by whole route segments', () => {
+		expect(isUnlisted('/dashboard/bookings/[skey]')).toBe(true);
+		expect(isUnlisted('/admin')).toBe(true);
+		expect(isUnlisted('/login')).toBe(true);
+		expect(isUnlisted('/notifications/unsubscribe')).toBe(true);
+		expect(isUnlisted('/mixes/preview')).toBe(true);
+		expect(isUnlisted('/projects/[slug]')).toBe(false);
+		expect(isUnlisted('/@[handle]')).toBe(false);
+		expect(isUnlisted('/reports')).toBe(false);
+		expect(isUnlisted(null)).toBe(false);
 	});
 
 	it('reads repeated fields and the client address', () => {

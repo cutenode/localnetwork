@@ -46,11 +46,6 @@
 	};
 </script>
 
-<svelte:head>
-	<title>Shows · Local Network</title>
-	<meta name="description" content="Upcoming shows by DJs on Local Network, near you or from the DJs you follow." />
-</svelte:head>
-
 {#snippet action()}
 	{#if data.following && !viewer}
 		<a class="btn-primary btn-sm" href="/login?next=/shows?view=following">Sign in</a>

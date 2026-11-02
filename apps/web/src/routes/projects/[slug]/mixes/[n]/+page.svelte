@@ -2,21 +2,11 @@
 	import LinkedSet from '#lib/components/LinkedSet.svelte';
 	import MixReport from '#lib/components/mix/MixReport.svelte';
 	import PreviewBanner from '#lib/components/PreviewBanner.svelte';
-	import { pluralize } from '#lib/format.ts';
 	import Monogram from '#lib/ui/Monogram.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
-
-	const description = $derived(
-		`The tracklist of ${data.mix.title} by ${data.project.name}: ${pluralize(data.report.plays.length, 'track')}, when each plays, and how they were mixed.`
-	);
 </script>
-
-<svelte:head>
-	<title>{data.mix.title} by {data.project.name} · Local Network</title>
-	<meta name="description" content={description} />
-</svelte:head>
 
 <div class="container-page flex flex-col gap-6 py-10 sm:py-14">
 	<PreviewBanner status={data.project.status} />

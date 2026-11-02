@@ -10,7 +10,8 @@ import { error } from '@sveltejs/kit';
  */
 export async function loadProjectPage(locals: App.Locals, slug: string) {
 	const { app, viewer } = locals;
-	const project = await app.projects.bySlug(slug);
+	// With counts, so the press kits and shows streamed in after it hold their room while they load.
+	const project = await app.projects.bySlug(slug, { counts: true });
 
 	if (!project) error(404, 'No project with that name');
 	const isManager = !!viewer && project.managers.includes(viewer.did);

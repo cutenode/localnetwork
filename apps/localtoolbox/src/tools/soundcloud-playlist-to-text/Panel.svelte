@@ -127,19 +127,21 @@
       </div>
 
       <div class="flex flex-col gap-2">
-        <Tooltip.Root>
-          <Tooltip.Trigger>
-            {#snippet child({ props })}
-              <div {...props} class="flex items-center gap-2">
-                <Checkbox id="split-title" bind:checked={splitTitle.value} />
-                <Label for="split-title" class="text-label font-normal">
-                  pull the artist out of “Artist - Title”
-                </Label>
-              </div>
-            {/snippet}
-          </Tooltip.Trigger>
-          <Tooltip.Content class="max-w-72">{SPLIT_HINT}</Tooltip.Content>
-        </Tooltip.Root>
+        <!-- The tooltip's trigger is the checkbox itself, so the hint is its
+             description and no wrapper becomes a tab stop of its own. -->
+        <div class="flex items-center gap-2">
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <Checkbox {...props} id="split-title" bind:checked={splitTitle.value} />
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content class="max-w-72">{SPLIT_HINT}</Tooltip.Content>
+          </Tooltip.Root>
+          <Label for="split-title" class="text-label font-normal">
+            pull the artist out of “Artist - Title”
+          </Label>
+        </div>
 
         <div class="flex items-center gap-2">
           <Checkbox id="dedupe" bind:checked={dedupe.value} />

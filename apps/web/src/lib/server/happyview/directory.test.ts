@@ -166,6 +166,38 @@ describe('getProject, getProjects, and getStats', () => {
 		expect(await query(hv, 'getProject')).toEqual({});
 	});
 
+	it("counts a project's press kits and upcoming shows when asked, as its pages list them", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const project = await publish(hv, {}, { slug: 'tide', managers: ['did:plc:dj'] });
+		const other = await publish(hv, {}, { managers: ['did:plc:dj'] });
+
+		const epk = (fields: JsonObject = {}) => ({
+			project,
+			title: 'Clubs',
+			access: { anyone: 'review' },
+			createdAt: '2026-10-01T00:00:00.000Z',
+			...fields
+		});
+
+		await ingest(hv, ROOT, COLLECTION.epk, 'clubs', epk());
+		// A legacy press kit counts once it's moved to the root under the same key, and until then.
+		await ingest(hv, 'did:plc:dj', COLLECTION.epk, 'clubs', epk());
+		await ingest(hv, 'did:plc:dj', COLLECTION.epk, 'radio', epk());
+		await ingest(hv, ROOT, COLLECTION.epk, 'elsewhere', epk({ project: other }));
+		await publishShow(hv, 'did:plc:dj', project, { startsAt: fromNow(24) });
+		await publishShow(hv, 'did:plc:dj', project, { startsAt: fromNow(48) });
+		await publishShow(hv, 'did:plc:dj', project, { startsAt: fromNow(-48), endsAt: fromNow(-24) });
+		await publishShow(hv, 'did:plc:dj', other, { startsAt: fromNow(24) });
+
+		expect(await query(hv, 'getProject', { slug: 'tide', counts: true })).toMatchObject({
+			project: { uri: project },
+			pressKits: 2,
+			upcomingShows: 2
+		});
+		expect(await query(hv, 'getProject', { slug: 'tide' })).not.toHaveProperty('pressKits');
+		expect(await query(hv, 'getProject', { slug: 'nope', counts: true })).toEqual({});
+	});
+
 	it('returns projects in the order asked for, once each, without unknown ones', async () => {
 		const hv = new FakeHappyView(ROOT);
 		const a = await publish(hv, { name: 'A' }, { status: 'archived' });
