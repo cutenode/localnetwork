@@ -27,13 +27,13 @@ with `--from-handle` or `--from-account`, `--replace` makes the published settin
 
 `apply`, `import` and `publish` show what they'd change and ask first (`--dry-run` stops there).
 `apply` backs each drive's settings files up before writing them, so `locallibrary undo` takes
-them back.
+them back. My Settings are each drive's own: library sync and edits never touch settings files,
+so per-drive overrides survive a sync, and `settings apply` writes each drive.
+
 The profile only enforces the keys it contains, so a partial profile leaves everything else
 alone. `apply` patches individual bytes in the existing `*SETTING.DAT` files and recomputes their
 checksums, so bytes this tool doesn't understand (including anything newer firmware adds) are
-preserved. My Settings are each drive's own: library sync and edits never touch settings files, so
-per-drive overrides survive a sync, and `settings apply` writes each drive.
-`settings show` lists such bytes: rekordbox 7.2 writes one more display setting
+preserved. `settings show` lists such bytes: rekordbox 7.2 writes one more display setting
 (`DEVSETTING.DAT` data byte 15) and five more mixer settings (`DJMMYSETTING.DAT` bytes 25-29)
 than rekordbox 6. Profiles don't manage them until their meaning is known.
 
