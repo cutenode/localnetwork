@@ -27989,6 +27989,13 @@
           "maxItems": 2,
           "description": "The slowest and fastest speeds, when the pitch fader was ridden; `tempo` is their average."
         },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExportLine"
+          },
+          "description": "Where it was heard at each speed and from which part of the track, in mix order (see\n[`ExportLine`]); left out of reports made before they were kept."
+        },
         "playedBpm": {
           "type": [
             "number",
@@ -28230,6 +28237,32 @@
         "kind"
       ],
       "description": "A phrase from rekordbox's analysis (Intro, Up, Down, Chorus, Verse, Bridge, Outro)."
+    },
+    "ExportLine": {
+      "type": "object",
+      "properties": {
+        "start": {
+          "type": "number",
+          "format": "double",
+          "description": "Seconds into the mix."
+        },
+        "trackStart": {
+          "type": "number",
+          "format": "double",
+          "description": "Seconds into the track at `start`."
+        },
+        "tempo": {
+          "type": "number",
+          "format": "double",
+          "description": "Playback speed: 1.03 is +3%."
+        }
+      },
+      "required": [
+        "start",
+        "trackStart",
+        "tempo"
+      ],
+      "description": "A stretch of a play at one speed, from `start` until the next line's (see\n[`crate::mix::PlayLine`])."
     },
     "ExportTransition": {
       "type": "object",

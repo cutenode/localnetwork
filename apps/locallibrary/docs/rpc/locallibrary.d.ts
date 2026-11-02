@@ -7234,6 +7234,11 @@ export type ExportPlay = {
   tempo: number;
   /** The slowest and fastest speeds, when the pitch fader was ridden; `tempo` is their average. */
   speedRange?: [number, number] | null;
+  /**
+   * Where it was heard at each speed and from which part of the track, in mix order (see
+   * [`ExportLine`]); left out of reports made before they were kept.
+   */
+  lines?: ExportLine[];
   playedBpm?: number | null;
   /** `None` when the speed is too close to 1.0 to tell. */
   keyLock: boolean | null;
@@ -7289,6 +7294,19 @@ export type ExportPhrase = {
   start: number;
   end: number;
   kind: string;
+};
+
+/**
+ * A stretch of a play at one speed, from `start` until the next line's (see
+ * [`crate::mix::PlayLine`]).
+ */
+export type ExportLine = {
+  /** Seconds into the mix. */
+  start: number;
+  /** Seconds into the track at `start`. */
+  trackStart: number;
+  /** Playback speed: 1.03 is +3%. */
+  tempo: number;
 };
 
 export type ExportTransition = {
