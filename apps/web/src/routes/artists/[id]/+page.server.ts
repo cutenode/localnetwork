@@ -2,6 +2,7 @@ import { error, redirect } from '@sveltejs/kit';
 import { cacheBriefly } from '#lib/server/http.ts';
 import { unlessOffline } from '#lib/server/happyview/offline.ts';
 import { artistMeta } from '#lib/server/meta.ts';
+import { musicBrainzArtist, withJsonLd } from '#lib/server/structured-data.ts';
 import { artistHref, bareMbid } from '#lib/supports.ts';
 import type { PageServerLoad } from './$types';
 
@@ -22,6 +23,9 @@ export const load: PageServerLoad = async (event) => {
 
 	return {
 		supports,
-		meta: artistMeta(locals.app.config.publicUrl, supports?.artist?.name ?? null, canonical, !!supports?.artist)
+		meta: withJsonLd(
+			artistMeta(locals.app.config.publicUrl, supports?.artist?.name ?? null, canonical, !!supports?.artist),
+			supports?.artist ? musicBrainzArtist(supports.artist.name, mbid) : null
+		)
 	};
 };

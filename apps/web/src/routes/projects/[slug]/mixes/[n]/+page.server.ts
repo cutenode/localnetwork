@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { UserError } from '#lib/server/core.ts';
 import { mixMeta } from '#lib/server/meta.ts';
+import { mixRecording, withJsonLd } from '#lib/server/structured-data.ts';
 import type { PageServerLoad } from './$types';
 
 /** A mix's tracklist (a locallibrary mix report), by the mix's position on the profile. */
@@ -32,7 +33,10 @@ export const load: PageServerLoad = async ({ params, locals, setHeaders }) => {
 			source: app.recordings.forMix(mix),
 			n,
 			report,
-			meta: mixMeta(app.config.publicUrl, project, mix, n, report.plays.length)
+			meta: withJsonLd(
+				mixMeta(app.config.publicUrl, project, mix, n, report.plays.length),
+				mixRecording(project, mix, report)
+			)
 		};
 	} catch (cause) {
 		if (cause instanceof UserError) error(cause.status, cause.message);

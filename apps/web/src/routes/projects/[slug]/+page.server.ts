@@ -3,6 +3,7 @@ import { unlessOffline } from '#lib/server/happyview/offline.ts';
 import { act, requireViewer } from '#lib/server/http.ts';
 import { performerMeta } from '#lib/server/meta.ts';
 import { loadProjectPage } from '#lib/server/project-page.ts';
+import { performerProfile, withJsonLd } from '#lib/server/structured-data.ts';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
@@ -38,7 +39,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		saved,
 		pendingClaim: openRequests.find((request) => request.kind === 'claim') ?? null,
 		pendingUpdate: openRequests.find((request) => request.kind === 'update') ?? null,
-		meta: performerMeta(app.config.publicUrl, project)
+		meta: withJsonLd(performerMeta(app.config.publicUrl, project), performerProfile(project))
 	};
 };
 

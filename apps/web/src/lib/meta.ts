@@ -1,3 +1,5 @@
+import type { JsonLd } from '#lib/structured-data.ts';
+
 /** The site's name: after each page's title, and what link previews name the site. */
 export const SITE_NAME = 'Local Network';
 
@@ -29,4 +31,6 @@ export type PageMeta = {
 	image?: PageImage;
 	/** Keeps search engines from listing a page only its managers and staff can see. */
 	noindex?: boolean;
+	/** What the page is about as schema.org structured data, which search engines read for richer results. */
+	jsonLd?: JsonLd;
 };

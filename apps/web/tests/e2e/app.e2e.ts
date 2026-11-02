@@ -241,6 +241,7 @@ test.describe('public pages', () => {
 				titles: html.match(/<title>/g)?.length ?? 0,
 				canonical: html.match(/<link rel="canonical" href="([^"]*)"/)?.[1],
 				robots: response.headers()['x-robots-tag'],
+				jsonLd: [...html.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/gs)].map(([, json]) => json),
 				property
 			};
 		};
@@ -278,6 +279,14 @@ test.describe('public pages', () => {
 		expect(card.headers()['content-type']).toBe('image/png');
 		expect(performer.property('og:image:width')).toBe('1200');
 		expect(performer.property('twitter:card')).toBe('summary_large_image');
+
+		// Search engines read who a performer's page is about from its structured data, in the HTML as served.
+		expect(performer.jsonLd).toHaveLength(1);
+		expect(JSON.parse(performer.jsonLd[0] ?? '')).toMatchObject({
+			'@context': 'https://schema.org',
+			'@type': 'ProfilePage',
+			mainEntity: { '@type': 'MusicGroup', name: 'Neon Tide' }
+		});
 
 		// The artist's name reaches the head, not a placeholder written before the plays were counted. The demo sets
 		// reach the directory in a backfill after the app first syncs it, so this waits for them.
