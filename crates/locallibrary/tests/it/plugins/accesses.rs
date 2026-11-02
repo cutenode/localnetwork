@@ -9,8 +9,11 @@ use hegel::generators as gs;
 use locallibrary::error::{Action, Reason};
 use locallibrary::plugin::AccountId;
 
+use super::accounts::{form, has};
+use super::net::Got;
 use super::shared_accounts::{Mock, WITH, asking, mock_for, who};
 use super::*;
+use crate::mock_oauth::sent_at;
 
 /// The mock type's scopes (see `shared_accounts::account_plugin`).
 const SCOPES: [&str; 3] = ["read", "write", "peek"];
@@ -162,6 +165,81 @@ fn a_token_goes_only_where_an_access_scope_covers(tc: TestCase) {
     assert!(!m.leaked(&[answer["error"].clone()]), "a token is out where it may not be");
 }
 
+/// `scopes`, sorted, to compare as a set.
+fn sorted<S: AsRef<str>>(scopes: &[S]) -> Vec<&str> {
+    let mut all: Vec<&str> = scopes.iter().map(AsRef::as_ref).collect();
+    all.sort_unstable();
+    all.dedup();
+    all
+}
+
+/// For an echo plugin needing any of the mock type's scopes (the rest optional) and any sign-ins
+/// for it, as either of two people, maybe again as an account kept, asking for any of the scopes
+/// it can do without, the service granting any of what they ask (or not saying, so granting what
+/// it was asked): its access gets the scopes it needs, whatever was granted, and those it can do
+/// without whose asks were all granted; the sign-in says which scopes the service declined, and
+/// the access remembers them until a sign-in for it grants them; and a sign-in again that comes
+/// back as another person keeps that account but gives echo no access to it.
+#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_plugin_is_given_only_what_the_service_granted(tc: TestCase) {
+    let mut needs = some(&tc);
+    if needs.is_empty() {
+        needs.push(tc.draw(gs::sampled_from(SCOPES.to_vec())));
+    }
+    let optional: Vec<&str> = SCOPES.into_iter().filter(|s| !needs.contains(s)).collect();
+    let m = mock_for(3600, "/userinfo", "", &asking(&needs, &optional));
+    // Echo's access to each of `SUBJECTS[..2]`, if it has one: its scopes, and those declined.
+    let mut model: [Option<(Vec<&str>, Vec<&str>)>; 2] = [None, None];
+    let mut known = Vec::new();
+    for step in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
+        let p = tc.draw(gs::integers::<usize>().max_value(1));
+        let again = match known.is_empty() {
+            true => None,
+            false => tc.draw(gs::optional(gs::sampled_from(known.clone()))),
+        };
+        let asked: Vec<&str> = optional.iter().copied().filter(|_| tc.draw(gs::booleans())).collect();
+        let grants: Option<Vec<&str>> = tc
+            .draw(gs::booleans())
+            .then(|| ["read", "write"].into_iter().filter(|_| tc.draw(gs::booleans())).collect());
+        {
+            let mut s = m.state.lock().unwrap();
+            s.unscoped = grants.is_none();
+            s.grants = grants.as_ref().map(|g| g.iter().map(|s| s.to_string()).collect());
+        }
+        let again_as = again.map(|j: usize| SUBJECTS[j]);
+        let done = m.sign_in(who(json!(SUBJECTS[p]), None), again_as, &asked).0.unwrap();
+        if !known.contains(&p) {
+            known.push(p);
+        }
+        if again.is_some_and(|j| j != p) {
+            assert_eq!((done.instead_of.as_deref(), &done.access, done.declined.len()), (again_as, &None, 0));
+            assert!(m.listed().iter().any(|a| a.subject == SUBJECTS[p]), "step {step}: not kept");
+        } else {
+            let given: Vec<&str> = needs.iter().chain(&asked).copied().collect();
+            let granted = |s: &str| grants.as_ref().is_none_or(|g| asks(s).iter().all(|a| g.contains(a)));
+            let declined: Vec<&str> = given.iter().copied().filter(|s| !granted(s)).collect();
+            let giving: Vec<&str> = given.iter().copied().filter(|s| needs.contains(s) || granted(s)).collect();
+            let (scopes, was) = model[p].take().unwrap_or_default();
+            let still: Vec<&str> = was.into_iter().filter(|s| !giving.contains(s)).chain(declined.clone()).collect();
+            let now = ([scopes, giving].concat(), still);
+            assert_eq!(sorted(&done.declined), sorted(&declined), "step {step}");
+            let access = done.access.unwrap();
+            assert_eq!(
+                (sorted(&access.scopes), sorted(&access.declined)),
+                (sorted(&now.0), sorted(&now.1)),
+                "step {step}"
+            );
+            model[p] = Some(now);
+        }
+        for (i, expected) in model.iter().enumerate() {
+            let listed = m.f.plugins.accesses(&m.f.store, Some("echo"), Some(&account(SUBJECTS[i]))).unwrap();
+            let said = listed.first().map(|a| (sorted(&a.scopes), sorted(&a.declined)));
+            let expected = expected.as_ref().map(|(scopes, declined)| (sorted(scopes), sorted(declined)));
+            assert_eq!(said, expected, "step {step}");
+        }
+    }
+}
+
 /// A step of [`the_default_access_answers_the_type_alone`], naming accounts by their place in
 /// [`SUBJECTS`].
 #[derive(Debug, Clone, Copy)]
@@ -255,8 +333,16 @@ fn resolving(accounts: &[&str]) -> Vec<Action> {
     actions
 }
 
+/// The action an `account` error a plugin passes on offers to sign in again as the account
+/// `subject`, shown as `name`, for echo, allowing `scopes`.
+fn signing_in_again(subject: &str, name: &str, scopes: &[&str]) -> Action {
+    let params = json!({ "type": "mock", "with": WITH, "account": subject, "for": "echo", "scopes": scopes });
+    Action::call("accounts.sign_in.begin", params, format!("Sign in again as {name}, allowing {}", scopes.join(", ")))
+}
+
 /// An account signed out keeps its accesses, which still list, and a request through one fails as
-/// `access` (`signed_out`), which passed on says to sign in; signed in again, it has its token.
+/// `access` (`signed_out`) naming the access, its account and what signing in again allows, which
+/// passed on says to sign in again as it; signed in again, it has its token.
 #[test]
 fn a_signed_out_accounts_access_lists_and_says_to_sign_in() {
     let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
@@ -269,20 +355,95 @@ fn a_signed_out_accounts_access_lists_and_says_to_sign_in() {
     let answer = m.fetch_as("GET", "/r/x", "{account:mock}", None);
     let failed = &answer["error"]["data"];
     assert_eq!((&failed["kind"], &failed["reason"]), (&json!("access"), &json!("signed_out")), "{answer}");
+    let named = (&failed["fields"]["access"], &failed["fields"]["account"], &failed["fields"]["needs"]);
+    assert_eq!(named, (&json!(listed[0].id), &json!(account("a")), &json!(["read"])), "{answer}");
     let e = m.passed_on("access", Some("signed_out"), &failed["fields"]);
     assert_eq!((e.code(), e.reason()), ("account", Some(Reason::NotSignedIn)), "{e}");
-    assert_eq!(e.detail().actions, resolving(&[]));
+    let again = signing_in_again("a", "a@mock.example", &["read"]);
+    assert_eq!(e.detail().actions, [vec![again], resolving(&[])].concat());
 
-    m.sign_in(who(json!("a"), Some("a@mock.example")), None, &[]).0.unwrap();
+    m.sign_in(who(json!("a"), Some("a@mock.example")), Some("a"), &["read"]).0.unwrap();
     assert_eq!(m.fetch_as("GET", "/r/x", "{account:mock}", None)["result"]["body"], "/r/x Bearer at-2");
     assert_eq!(m.f.plugins.accesses(&m.f.store, Some("echo"), None).unwrap(), listed, "one access, as it was");
 }
 
+/// For an account granted what any of the mock type's scopes ask, echo's access to it and another
+/// plugin's (each with any scopes, or none), signed out or not, and signed in to again (for echo or
+/// not) asking for any scopes besides, the service answering a new refresh token or none: the
+/// browser is asked to sign in as the account, for what the type always asks, what the account
+/// was granted, what every access's scopes ask and what's asked for besides; the refresh token it
+/// had is kept when the service answers none; and one signed out that no plugin has access to
+/// can't be signed in to again.
+#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn signing_in_again_asks_for_what_every_access_needs(tc: TestCase) {
+    let m = mock_for(30, "/userinfo", "", &asking(&["read"], &["write", "peek"]));
+    m.state.lock().unwrap().unscoped = true;
+    let first = some(&tc);
+    m.sign_in_for(None, who(json!("a"), None), None, &first).0.unwrap();
+    // The scopes whose asks the sign-in again asks for.
+    let mut named: Vec<String> = Vec::new();
+    let echo = tc.draw(gs::booleans()).then(|| some(&tc));
+    if let Some(extra) = &echo {
+        let extra: Vec<String> = extra.iter().map(|s| s.to_string()).collect();
+        named.extend(m.f.plugins.give_access("echo", &account("a"), &extra, &m.f.store).unwrap().scopes);
+    }
+    let other = tc.draw(gs::booleans()).then(|| some(&tc));
+    if let Some(scopes) = &other {
+        let file = m.f.store.root().join("accounts.json");
+        let mut kept: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        let access = json!({ "id": "0a1b2c3d", "plugin": "other", "type": "mock", "account": account("a"),
+                             "name": "a", "scopes": scopes, "default": true });
+        kept["accesses"].as_array_mut().unwrap().push(access);
+        std::fs::write(&file, kept.to_string()).unwrap();
+        named.extend(scopes.iter().map(|s| s.to_string()));
+    }
+    let signed_out = tc.draw(gs::booleans());
+    match signed_out {
+        true => drop(m.f.plugins.sign_out_account(WITH, "a", &m.f.store).unwrap()),
+        false => named.extend(first.iter().map(|s| s.to_string())),
+    }
+    let refreshless = tc.draw(gs::booleans());
+    m.state.lock().unwrap().refreshless = refreshless;
+    let for_echo = tc.draw(gs::booleans());
+    let added = some(&tc);
+    let (done, opened) = m.sign_in_for(for_echo.then_some("echo"), who(json!("a"), None), Some("a"), &added);
+    if signed_out && echo.is_none() && other.is_none() {
+        assert_eq!(done.unwrap_err().code(), "not_found");
+        return;
+    }
+    let done = done.unwrap();
+    named.extend(added.iter().map(|s| s.to_string()));
+    if for_echo {
+        named.push("read".into());
+    }
+    let mut expected: Vec<&str> = named.iter().flat_map(|s| asks(s)).copied().chain(["openid"]).collect();
+    expected.sort_unstable();
+    expected.dedup();
+    let mut asked: Vec<&str> = opened["scope"].split(' ').collect();
+    asked.sort_unstable();
+    assert_eq!((asked, opened["login_hint"].as_str()), (expected, "a"));
+    // Refreshed with the refresh token it had, when the service answered none.
+    let refreshes = !(refreshless && signed_out);
+    assert_eq!(done.account.refreshes, refreshes);
+    let token = m.token("a");
+    let tokens: Vec<Got> = m.server.got().into_iter().filter(|g| g.target == "/token").collect();
+    match refreshes {
+        true => {
+            assert!(token.is_ok_and(|t| t == "at-3"), "not refreshed");
+            let spent = if refreshless { "rt-1" } else { "rt-2" };
+            assert!(has(&form(tokens.last().unwrap()), "refresh_token", spent), "not the refresh token it had");
+        }
+        false => assert_eq!(token.unwrap_err().code(), "account"),
+    }
+}
+
 /// What resolves an `access` or `scope` error a plugin passes on comes from its manifest and the
-/// accounts the store keeps, whatever type, plugin or account plugins its fields name.
+/// accounts and accesses the store keeps, whatever type, plugin, account plugins or account its
+/// fields name: of the scopes they say it needs, only those its manifest asks for are signed in
+/// again for, as the account of its own access.
 #[test]
 fn actions_come_from_the_manifest_whatever_the_plugin_says() {
-    let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
+    let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &["write"]));
     m.sign_in_for(None, who(json!("a"), None), None, &[]).0.unwrap();
     let lying = json!({ "type": "evil", "for": "other", "account_plugins": ["evil-accounts"] });
     for (kind, reason) in [("access", Reason::NoAccess), ("scope", Reason::MissingScope)] {
@@ -290,6 +451,16 @@ fn actions_come_from_the_manifest_whatever_the_plugin_says() {
         assert_eq!((e.code(), e.reason()), ("account", Some(reason)), "{e}");
         assert_eq!(e.detail().actions, resolving(&["a"]), "{kind}");
         assert_eq!(e.to_string(), "it can't (the Echo plugin)");
+    }
+    // Given `read` of a, which was granted it: signing in again helps only for `write`.
+    m.sign_in_for(None, who(json!("b"), None), None, &[]).0.unwrap();
+    m.f.plugins.give_access("echo", &account("a"), &[], &m.f.store).unwrap();
+    let forged = json!({ "plugin": WITH, "subject": "b" });
+    for (needs, again) in [(json!(["peek", "nope"]), None), (json!(["write", "peek"]), Some("write"))] {
+        let fields = json!({ "type": "mock", "account": forged, "access": "0a1b2c3d", "needs": needs });
+        let e = m.passed_on("scope", None, &fields);
+        let again = again.map(|scope| signing_in_again("a", "a", &[scope]));
+        assert_eq!(e.detail().actions, [again.into_iter().collect(), resolving(&["a", "b"])].concat(), "{needs}");
     }
 }
 
@@ -405,11 +576,169 @@ fn a_request_an_access_cant_serve_fails_as_the_host_passes_it_on(tc: TestCase) {
             None => Reason::MissingScope,
         };
         assert_eq!((passed.code(), passed.reason()), ("account", Some(resolves)), "{said}");
-        let mut actions = resolving(&[]);
+        // Signing in again as the account, when that gives echo what its request was refused.
+        let again: &[&str] = match failing {
+            SignedOut | Refused => &["read"],
+            Ungranted => &["write"],
+            Missing if !lying => &["read"],
+            _ => &[],
+        };
+        let mut actions: Vec<Action> =
+            (!again.is_empty()).then(|| signing_in_again("a", "a", again)).into_iter().collect();
+        actions.extend(resolving(&[]));
         for k in &kept {
             let params = json!({ "plugin": "echo", "account": { "plugin": k.plugin, "subject": k.subject } });
             actions.push(Action::call("accounts.access.set_default", params, format!("Use {}", k.name)));
         }
         assert_eq!(passed.detail().actions, actions, "{said}");
     }
+}
+
+/// What the mock service answers a request echo makes through its access, in
+/// [`a_refused_token_is_refreshed_once_then_given_up`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Reply {
+    /// 401, saying nothing more.
+    Unauthorized,
+    /// 401, its challenge saying `error="invalid_token"`.
+    InvalidToken,
+    /// This status, its challenge saying `error="insufficient_scope"` for the service's `write`.
+    Insufficient(u16),
+    /// 403, Google's body saying `ACCESS_TOKEN_SCOPE_INSUFFICIENT`.
+    Google,
+    /// 403, its body saying only `insufficientPermissions`.
+    Forbidden,
+    /// 200.
+    Fine,
+}
+
+impl Reply {
+    fn status(self) -> u16 {
+        match self {
+            Reply::Unauthorized | Reply::InvalidToken => 401,
+            Reply::Insufficient(status) => status,
+            Reply::Google | Reply::Forbidden => 403,
+            Reply::Fine => 200,
+        }
+    }
+
+    fn reply(self) -> super::net::Reply {
+        let challenge = |said: &str| vec![("WWW-Authenticate", format!("Bearer realm=\"mock\", {said}"))];
+        let headers = match self {
+            Reply::InvalidToken => challenge(r#"error="invalid_token", error_description="revoked""#),
+            Reply::Insufficient(_) => challenge(r#"error="insufficient_scope", scope="write""#),
+            _ => Vec::new(),
+        };
+        let body = match self {
+            Reply::Google => json!({ "error": { "code": 403, "errors": [{ "reason": "insufficientPermissions" }],
+                                                "details": [{ "reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT" }] } }),
+            Reply::Forbidden => {
+                json!({ "error": { "code": 403, "errors": [{ "reason": "insufficientPermissions" }] } })
+            }
+            _ => json!({ "said": self.status() }),
+        };
+        super::net::Reply { status: self.status(), headers, body: body.to_string().into_bytes() }
+    }
+
+    /// The scopes the service says the token lacks, by echo's names, when it says that's why.
+    fn needs(self) -> Option<&'static [&'static str]> {
+        match self {
+            Reply::Insufficient(_) => Some(&["write"]),
+            Reply::Google => Some(&["read"]),
+            _ => None,
+        }
+    }
+}
+
+/// How the account's token refreshes in [`a_refused_token_is_refreshed_once_then_given_up`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Refreshing {
+    Refreshes,
+    /// It has no refresh token.
+    Never,
+    /// The service refuses its refresh token (`invalid_grant`).
+    Refused,
+}
+
+/// For a request echo makes through its access to an account (its token in the header or the
+/// query, and redirected to where no scope covers or not), and anything the service answers it
+/// with twice (refusing the token, saying it lacks a scope in a challenge or Google's body,
+/// forbidding it otherwise, or answering): an answer to a request that still had the token
+/// refusing it (a 401) gets the token refreshed once and the request sent again, its answer
+/// passed on; a 401 that isn't sent again (the second, or the first without a refresh token) is
+/// passed on too, signing the account out only when it says `invalid_token`, and otherwise the
+/// next request still gets the token. An account whose refresh token the service refuses is
+/// signed out, failing `access` (`signed_out`); one the service says lacks a scope fails
+/// `scope`, naming what signing in again needs to allow, and is no longer granted what the
+/// service named (else what those ask); anything else, and any answer once the token was
+/// dropped, is passed on. No request is sent more than twice, and no token gets out.
+#[hegel::test(test_cases = 24, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_refused_token_is_refreshed_once_then_given_up(tc: TestCase) {
+    let query = tc.draw(gs::sampled_from(vec![None, Some("access_token")]));
+    let place = query.map_or(String::new(), |name| format!("token = {{ query = \"{name}\" }}"));
+    let m = mock_for(3600, "/userinfo", &place, &asking(&["read"], &["write"]));
+    let refreshing = tc.draw(gs::sampled_from(vec![Refreshing::Refreshes, Refreshing::Never, Refreshing::Refused]));
+    m.state.lock().unwrap().refreshless = refreshing == Refreshing::Never;
+    m.sign_in(who(json!("a"), None), None, &[]).0.unwrap();
+    let all = vec![
+        Reply::Unauthorized,
+        Reply::InvalidToken,
+        Reply::Insufficient(401),
+        Reply::Insufficient(403),
+        Reply::Google,
+        Reply::Forbidden,
+        Reply::Fine,
+    ];
+    let replies = tc.draw(gs::vecs(gs::sampled_from(all)).min_size(1).max_size(2));
+    let redirected = tc.draw(gs::booleans());
+    {
+        let mut s = m.state.lock().unwrap();
+        s.script = replies.iter().map(|r| r.reply()).collect();
+        if refreshing == Refreshing::Refused {
+            s.refuses = Some(("invalid_grant".into(), "spent".into()));
+        }
+    }
+    let path = if redirected { "/r/go/o/x" } else { "/r/x" };
+    let answer = m.fetch_as("GET", path, "{account:mock}", query);
+    let said = format!("{replies:?} {refreshing:?} redirected {redirected} {query:?}: {answer}");
+
+    let at = if redirected { "/o/x" } else { "/r/x" };
+    let sent: Vec<Got> = m.server.got().into_iter().filter(|g| g.target.starts_with(at)).collect();
+    let refreshed = m.refreshes();
+    let refused = !redirected && matches!(replies[0], Reply::Unauthorized | Reply::InvalidToken);
+    let again = refused && refreshing == Refreshing::Refreshes;
+    let last = if again { replies.get(1).copied().unwrap_or(Reply::Fine) } else { replies[0] };
+    assert_eq!(sent.len(), if again { 2 } else { 1 }, "{said}");
+    assert_eq!(refreshed, usize::from(refused && refreshing != Refreshing::Never), "{said}");
+    if again {
+        assert_eq!(sent_at(&sent[1]), Some(2), "{said}: not sent again with the token refreshed");
+    }
+    let refresh_refused = refused && refreshing == Refreshing::Refused;
+    let signed_out = refresh_refused || (refused && last == Reply::InvalidToken);
+    let kept = m.listed();
+    assert_eq!(kept.is_empty(), signed_out, "{said}");
+    let e = &answer["error"]["data"];
+    match last.needs().filter(|_| !redirected) {
+        _ if refresh_refused => {
+            assert_eq!((e["kind"].as_str(), e["reason"].as_str()), (Some("access"), Some("signed_out")), "{said}")
+        }
+        Some(needs) => {
+            assert_eq!((e["kind"].as_str(), &e["fields"]["needs"]), (Some("scope"), &json!(needs)), "{said}");
+            assert!(answer["result"].is_null(), "{said}: its body passed on");
+            let lost = if last == Reply::Google { "read" } else { "write" };
+            assert!(!kept[0].scopes.iter().any(|s| s == lost), "{said}: still granted {lost}");
+        }
+        None => assert_eq!(answer["result"]["status"], last.status(), "{said}"),
+    }
+    let mut answers = vec![answer["error"].clone()];
+    if refused && !signed_out && last.needs().is_none() {
+        m.state.lock().unwrap().script.clear();
+        let next = m.fetch_as("GET", "/r/x", "{account:mock}", query);
+        assert_eq!(next["result"]["status"], 200, "{said}: then {next}");
+        let got = m.server.got().into_iter().rfind(|g| g.target.starts_with("/r/x"));
+        assert_eq!(got.as_ref().and_then(sent_at), Some(1 + usize::from(again)), "{said}: then not sent its token");
+        answers.push(next["error"].clone());
+    }
+    // What the service answered is the service's: it echoes the token it got.
+    assert!(!m.leaked(&answers), "a token is out: {said}");
 }

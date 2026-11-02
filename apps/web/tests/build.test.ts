@@ -22,6 +22,9 @@ let initialLoad: Set<string>;
 
 let routes: [id: string, files: Set<string>][];
 
+// No deadline (the 0 below). The build blocks this worker (execFileSync), so Vitest can't stop a hung
+// one, only fail a slow one after it finishes. How long it takes follows the machine's load (about 10s
+// on a quiet one, over 300s with other test runs going), and CI's job timeout still ends a hung one.
 beforeAll(async () => {
 	// Vitest sets NODE_ENV to `test`, which would make Vite compile the components in Svelte's dev
 	// mode, so it is unset.
@@ -71,7 +74,7 @@ beforeAll(async () => {
 
 		return [[id, new Set(scripts.filter((file) => !initialLoad.has(file)))]];
 	});
-}, 120_000);
+}, 0);
 
 const bytes = (extension: string) =>
 	files.filter((file) => file.endsWith(extension)).reduce((sum, file) => sum + statSync(file).size, 0);

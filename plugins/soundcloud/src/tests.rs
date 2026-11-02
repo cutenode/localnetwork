@@ -370,7 +370,7 @@ fn a_track_made_anyway_is_the_answer() {
         (Reply::Unreachable, "connection reset"),
         (
             Reply::Status(401, Vec::new(), refusal(401, "Unauthorized")),
-            "SoundCloud refused the account's tracks (401: Unauthorized): sign in again: locallibrary account soundcloud sign-in --for soundcloud",
+            "SoundCloud refused the account's tracks (401: Unauthorized)",
         ),
         (
             Reply::Status(200, Vec::new(), "[]".into()),
@@ -402,18 +402,14 @@ fn a_track_made_anyway_is_the_answer() {
 }
 
 /// SoundCloud refusing says why, in its words, and what to do where there's something to do: a
-/// sign-in it doesn't take, a track it won't take. None is sent again.
+/// track it won't take. A token it doesn't take (which locallibrary refreshes or signs out of
+/// before it gets here) is refused as it says. None is sent again.
 #[test]
 fn soundcloud_refusing_says_why() {
     let dir = tempfile::tempdir().unwrap();
     let path = file(dir.path(), "set.ogg", 10);
     let cases = [
-        (
-            401,
-            refusal(401, "invalid_token"),
-            "permission",
-            "SoundCloud refused the set (401: invalid_token): sign in again: locallibrary account soundcloud sign-in --for soundcloud",
-        ),
+        (401, refusal(401, "invalid_token"), "permission", "SoundCloud refused the set (401: invalid_token)"),
         (403, refusal(403, "Forbidden"), "permission", "SoundCloud refused the set (403: Forbidden)"),
         (
             422,
