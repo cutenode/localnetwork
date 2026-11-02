@@ -98,6 +98,7 @@
   import { createSelection } from '$lib/selection.svelte.ts';
   import { createFilter } from '$lib/list-filter.svelte.ts';
   import { LOOKUP_ERRORS } from '$lib/lookup-errors.ts';
+  import { createPainting } from '$lib/painting.svelte.ts';
   import { choicePref, flagPref } from '$lib/prefs.svelte.ts';
   import { remembered, view, type Remembered } from '$lib/view.svelte.ts';
   import { count, OPEN_A_PAGE, readPage } from '$lib/soundcloud.ts';
@@ -668,51 +669,16 @@
 
   // --- painting --------------------------------------------------------------
   //
-  // A row is a picture, a title, three or four buttons and their tooltips, and
-  // five hundred of them are the best part of a second of DOM work. The popup
-  // shows about eight at a time. So the first frame draws a screenful and the
-  // rest arrive over the following few: the same work, done behind the list
-  // rather than in front of it.
-  const FIRST_PAINT = 60;
+  // `visible`, cut down to the rows drawn so far ($lib/painting.svelte.ts).
+  // Sections keep their own counts: those are about the filter, not about how
+  // much of the list has made it into the DOM yet.
+  const drawing = createPainting(() => visible.flatMap((section) => section.rows.map((row) => row.key)));
 
-  const PER_FRAME = 200;
-
-  let drawn = $state(FIRST_PAINT);
-
-  const rowCount = $derived(visible.reduce((n, section) => n + section.rows.length, 0));
-
-  // A frame if there is one, a timeout if there is not. `requestAnimationFrame`
-  // is what says "after the paint", which is the whole point of chunking — but
-  // it does not run at all while the page is hidden, and a list that stopped
-  // growing there would still be sixty rows long when it came back.
-  $effect(() => {
-    if (drawn >= rowCount) return;
-    const grow = () => (drawn += PER_FRAME);
-    const frame = requestAnimationFrame(grow);
-    const timer = setTimeout(grow, 50);
-
-    return () => {
-      cancelAnimationFrame(frame);
-      clearTimeout(timer);
-    };
-  });
-
-  // `visible`, cut off at what has been drawn so far. Sections keep their own
-  // counts: those are about the filter, not about how much of the list has
-  // made it into the DOM yet.
-  const painted = $derived.by(() => {
-    if (drawn >= rowCount) return visible;
-    let left = drawn;
-    const out = [];
-
-    for (const section of visible) {
-      if (left <= 0) break;
-      out.push({ ...section, rows: section.rows.slice(0, left) });
-      left -= Math.min(left, section.rows.length);
-    }
-
-    return out;
-  });
+  const painted = $derived(
+    visible
+      .map((section) => ({ ...section, rows: section.rows.filter((row) => drawing.has(row.key)) }))
+      .filter((section) => section.rows.length > 0)
+  );
 
   const listedTracks = $derived(
     new Set(sections.flatMap((s) => s.rows.map((row) => row.track.permalink))).size
