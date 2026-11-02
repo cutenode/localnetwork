@@ -145,7 +145,7 @@
 							<span class="text-fg-muted">{tool.tagline}</span>
 						</span>
 						<span class="mt-auto flex flex-col border-t border-line bg-canvas px-5 py-2 sm:px-6">
-							{#each tool.features as feature (feature)}<span class="border-b border-well py-2 text-small text-fg-soft last:border-b-0">{feature}</span>{/each}
+							{#each tool.lines as line (line)}<span class="border-b border-well py-2 text-small text-fg-soft last:border-b-0">{line}</span>{/each}
 						</span>
 					</Card>
 				</li>

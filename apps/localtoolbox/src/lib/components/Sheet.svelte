@@ -14,6 +14,7 @@
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import type { UIEventHandler } from 'svelte/elements';
   import type { LucideIcon } from '@lucide/svelte';
   import { fly, fade } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
@@ -37,7 +38,7 @@
     actions?: Snippet;
     /** The scrolling body, for a sheet that remembers how far down it was. */
     body?: HTMLElement | null;
-    onscroll?: () => void;
+    onscroll?: UIEventHandler<HTMLDivElement>;
     children: Snippet;
   }
 

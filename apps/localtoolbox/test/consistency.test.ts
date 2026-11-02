@@ -147,12 +147,14 @@ describe('the build', () => {
 
 	it('loads the shared classic scripts into the popup page', () => {
 		// downloaded-store.js and state-transfer.js define page globals, which
-		// only a classic script can do; the build injects them, and src/lib
-		// reaches them by name (see globals.js).
+		// only a classic script can do. The build injects the store, globals.ts
+		// adds the state file's script when the settings sheet asks for it, and
+		// src/lib reaches both by name there.
 		const classic = /const classicScripts = \[([^\]]+)\]/.exec(viteConfig)![1];
 		expect(classic).toContain('downloaded-store.js');
-		expect(classic).toContain('state-transfer.js');
+		expect(classic).not.toContain('state-transfer.js');
 		const globals = read('src/lib/globals.ts');
+		expect(globals).toContain("'./state-transfer.js'");
 		expect(globals).toContain('TbxDownloaded');
 		expect(globals).toContain('TbxState');
 		// A module import would give each its own copy, so there must not be one.

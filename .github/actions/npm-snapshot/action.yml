@@ -1,0 +1,30 @@
+name: npm snapshot
+description: >-
+  Submits pnpm-lock.yaml's packages to the dependency graph, which can't read pnpm 12's
+  two-document lockfile itself, for the commit checked out. Microsoft's Component Detection reads
+  a copy of the lockfile alone, under the `pnpm-lock` correlator, so main's snapshots (ci.yml) and
+  a pull request's (dependency-review.yml) have the same manifests. Needs `contents: write`.
+
+runs:
+  using: composite
+  steps:
+    # Component Detection walks a snapshot's `dependencies` to tell dev packages from runtime ones,
+    # but not its `optionalDependencies` (Pnpm9Detector reads no such field), so a package only an
+    # optional dependency pulls in, such as sharp's platform binaries under @atproto/dev-env, was
+    # reported as runtime. The copy has each snapshot's optional dependencies folded into its
+    # dependencies, which is what the detector walks. yq is on the runner.
+    - shell: bash
+      run: |
+        mkdir -p "$RUNNER_TEMP/lockfile"
+        cp pnpm-lock.yaml "$RUNNER_TEMP/lockfile/"
+        yq -i 'with(.snapshots[] | select(has("optionalDependencies")); .dependencies = ((.dependencies // {}) * .optionalDependencies))' \
+          "$RUNNER_TEMP/lockfile/pnpm-lock.yaml"
+    # It downloads Component Detection's latest release when it runs, which this pin doesn't fix;
+    # pnpm 12's lockfiles need 8.0.5 or later. An empty snapshot fails, since that's how a
+    # lockfile read wrong would look.
+    - uses: advanced-security/component-detection-dependency-submission-action@a02aeda7a175ad4dd38a13c4d3ff2df9da8f2cf0 # v0.2.0
+      with:
+        filePath: ${{ runner.temp }}/lockfile
+        detectorsCategories: Npm
+        fail-on-empty: true
+        correlator: pnpm-lock

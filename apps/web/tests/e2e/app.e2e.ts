@@ -1,3 +1,4 @@
+import { AtUri } from '@atproto/syntax';
 import { expect, type Page, type Route, test } from '@playwright/test';
 import headline from '../../src/lib/headline.json' with { type: 'json' };
 import { z } from 'zod';
@@ -212,6 +213,55 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 	});
 
+	test('each tool shows itself at work, a capture per hot cue, with its guides a step away', async ({ page }) => {
+		const loaded = (name: string | RegExp) =>
+			expect
+				.poll(() =>
+					page.getByRole('img', { name }).evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth)
+				)
+				.toBeGreaterThan(0);
+
+		await page.goto('/tools');
+		await loaded(/^locallibrary playing a track/);
+		await loaded(/^A SoundCloud playlist with localtoolbox's marks/);
+		await expectAccessible(page);
+		await page.getByRole('link', { name: 'See what locallibrary does' }).click();
+		await expect(page).toHaveURL(/\/tools\/locallibrary$/);
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+
+		const panel = page.getByRole('tabpanel');
+		const height = await panel.evaluate((element) => element.getBoundingClientRect().height);
+		await expect(page.getByRole('tab', { name: 'A Play' })).toHaveAttribute('aria-selected', 'true');
+		await page.getByRole('tab', { name: 'D Check' }).click();
+		await expect(panel.getByRole('heading', { name: 'Check' })).toBeVisible();
+		await loaded(/^locallibrary check on a drive/);
+		await page.keyboard.press('End');
+		await expect(page.getByRole('tab', { name: 'G Report' })).toBeFocused();
+		// Every cue's box is laid out from the start, so picking another moves nothing on the page.
+		expect(await panel.evaluate((element) => element.getBoundingClientRect().height)).toBe(height);
+		await expectAccessible(page);
+
+		const guides = page.getByRole('button', { name: /^Guides/ });
+
+		if (await guides.isVisible()) await guides.click();
+		await page
+			.getByRole('navigation', { name: 'Guides' })
+			.getByRole('link', { name: 'Installing locallibrary' })
+			.click();
+		await expect(page.getByRole('heading', { level: 1, name: 'Installing locallibrary' })).toBeVisible();
+		await expect(
+			page.getByRole('navigation', { name: 'More guides' }).getByRole('link', { name: /^Previous/ })
+		).toHaveAttribute('href', '/tools/locallibrary/docs/readme');
+		await expectAccessible(page);
+	});
+
+	test('the hot cues jump without moving when motion is reduced', async ({ page }) => {
+		await page.emulateMedia({ reducedMotion: 'reduce' });
+		await page.goto('/tools/localtoolbox');
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		await expect(page.getByTestId('playhead')).toHaveCSS('transition-property', 'none');
+	});
+
 	test("a profile's sets link their artists to who played them", async ({ page }) => {
 		// The sets render with the page once the server has them cached (otherwise they stream in after it
 		// hydrates), and a tracklist opened before the page hydrates stays open.
@@ -241,6 +291,7 @@ test.describe('public pages', () => {
 				titles: html.match(/<title>/g)?.length ?? 0,
 				canonical: html.match(/<link rel="canonical" href="([^"]*)"/)?.[1],
 				robots: response.headers()['x-robots-tag'],
+				jsonLd: [...html.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/gs)].map(([, json]) => json),
 				property
 			};
 		};
@@ -271,11 +322,35 @@ test.describe('public pages', () => {
 			expect(page.robots, path).toBeUndefined();
 		}
 
+		// A performer's picture is their card, drawn on the server, which crawlers fetch as a PNG.
+		const performer = await head('/projects/neon-tide');
+		const card = await request.get(new URL(performer.property('og:image') ?? '').pathname);
+		expect(card.status()).toBe(200);
+		expect(card.headers()['content-type']).toBe('image/png');
+		expect(performer.property('og:image:width')).toBe('1200');
+		expect(performer.property('twitter:card')).toBe('summary_large_image');
+
+		// Search engines read who a performer's page is about from its structured data, in the HTML as served.
+		expect(performer.jsonLd).toHaveLength(1);
+		expect(JSON.parse(performer.jsonLd[0] ?? '')).toMatchObject({
+			'@context': 'https://schema.org',
+			'@type': 'ProfilePage',
+			mainEntity: { '@type': 'MusicGroup', name: 'Neon Tide' }
+		});
+
 		// The artist's name reaches the head, not a placeholder written before the plays were counted. The demo sets
 		// reach the directory in a backfill after the app first syncs it, so this waits for them.
 		await expect(async () => {
 			expect((await head('/artists/7d0b9c12-5e64-4f3a-8b21-c4e9a6f05d72')).property('og:title')).toBe('Mira Okonkwo');
 		}).toPass({ timeout: 60_000 });
+
+		// The records behind a page, as at-tags, by DID so a handle change doesn't break them.
+		const record = new AtUri(performer.property('at:canonical') ?? '');
+		expect(record.host).toMatch(/^did:/);
+		expect(record.collection).toBe('computer.localnetwork.project');
+		expect((await head('/@neon.test')).property('at:canonical')).toMatch(
+			/^at:\/\/did:[^/]+\/computer\.localnetwork\.profile\/self$/
+		);
 
 		expect((await request.get('/login')).headers()['x-robots-tag']).toBe('noindex');
 	});
@@ -311,6 +386,29 @@ test.describe('public pages', () => {
 });
 
 test.describe('signed in', () => {
+	test('makes an account at a host and comes back signed in to follow', async ({ page }, testInfo) => {
+		// A handle of its own for each run and browser: the PDS takes 3 to 18 letters, numbers or hyphens.
+		const handle = `new${testInfo.project.name.slice(0, 6)}${Date.now().toString(36).slice(-5)}`;
+		await page.goto(`/login?next=${encodeURIComponent('/projects/neon-tide#follow')}`);
+		await expect(page.getByText('Sign in with your Atmosphere account to follow Neon Tide.')).toBeVisible();
+		await expectAccessible(page);
+		await page.getByRole('link', { name: 'Make an account' }).click();
+		await expect(page.getByRole('heading', { name: 'Where should it live?' })).toBeVisible();
+		await expectAccessible(page);
+
+		// The dev network's own PDS comes first, and sign-up there is its OAuth page with prompt=create.
+		await page.getByRole('button', { name: /^This dev network/ }).click();
+		await page.locator('input[name="handle"]').fill(handle);
+		await page.getByRole('button', { name: 'Next' }).click();
+		await page.locator('input[type="email"]').fill(`${handle}@example.test`);
+		await page.locator('input[type="password"]').fill(`${handle}-pass`);
+		await page.getByRole('button', { name: 'Sign up' }).click();
+		await page.getByRole('button', { name: 'Authorize' }).click();
+
+		await page.waitForURL((url) => url.port === '5199' && url.pathname === '/projects/neon-tide');
+		await expect(page.getByRole('button', { name: /^Follow/ })).toBeVisible();
+	});
+
 	test('a DJ proposes a change and an admin approves it', async ({ page }, testInfo) => {
 		// Every project runs against the same network, so each proposes a tagline of its own: the same
 		// one again would be no change at all.

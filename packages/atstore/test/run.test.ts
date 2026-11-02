@@ -55,6 +55,15 @@ describe('start', () => {
 		);
 	});
 
+	it('fails with only the last 20 lines of a long output', async () => {
+		const failure = start('sh', ['-c', 'for i in $(seq 1 25); do echo "line $i"; done; exit 1'], {
+			ready: /Listening/
+		});
+
+		await expect(failure).rejects.toThrow(/before it was ready:\nline 6\n[\s\S]*\nline 25$/);
+		await expect(failure).rejects.not.toThrow(/line 5\n/);
+	});
+
 	it('gives up, and stops it, when nothing matches in time', async () => {
 		await expect(start('sh', ['-c', 'echo waiting; sleep 60'], { ready: /Listening/, timeout: 300 })).rejects.toThrow(
 			/wasn't ready in 0.3s:\nwaiting/

@@ -205,11 +205,8 @@
   }
 
   async function onImport() {
-    const doc = reading?.doc;
-
-    // Nothing but a race gets here without one — the button is off until the
-    // box reads — so this says what it is rather than reporting anything.
-    if (!doc) return;
+    // The button is off until the box reads, so there is a file by now.
+    const doc = reading!.doc!;
     const replace = replacing;
 
     let result;

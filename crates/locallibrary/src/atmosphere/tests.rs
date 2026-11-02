@@ -364,6 +364,20 @@ fn signing_in_only_reaches_public_https_servers() {
     assert!(listener.accept().is_err(), "no connection was made");
 }
 
+/// The sign-in page a server sends prints as one line: the line breaks and tabs in it are left
+/// out, the control characters at its ends too, and the others percent-encoded, in the link and
+/// the server it names.
+#[test]
+fn a_sign_in_page_prints_as_one_line() {
+    let sent = "https://pds.exa\tmple.com/oauth/authorize?client_id=c&request_uri=urn:x\n\u{1b}[2Jgot\u{7}cha\r\u{7}";
+    let (url, server) = sign_in_page(sent).unwrap();
+    assert_eq!(url, "https://pds.example.com/oauth/authorize?client_id=c&request_uri=urn:x%1B[2Jgot%07cha");
+    assert_eq!(server, "pds.example.com");
+    assert!(!format!("{url}{server}").chars().any(char::is_control));
+    let err = sign_in_page("http://pds.example.com/oauth/authorize").unwrap_err().to_string();
+    assert!(err.starts_with("the account's server sent a sign-in page that can't be opened: "), "{err}");
+}
+
 #[test]
 fn the_development_client_stands_in_only_while_the_document_is_offline() {
     let (client, note) = own_client(Ok(())).unwrap();

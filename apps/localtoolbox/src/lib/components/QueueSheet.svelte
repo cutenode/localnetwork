@@ -105,11 +105,11 @@
   // local storage and outlast the session (downloaded-store.js). Nothing is
   // lost that the marks do not already hold, so unlike "clear" this does not
   // ask twice — it is the Manager's `unqueue` on the tracks the queue itself
-  // can pick out.
+  // can pick out. The button is only there while something is marked, so
+  // there is always something to take.
   function removeMarked() {
     const permalinks = queue.permalinks.filter((permalink) => downloaded.has(permalink));
 
-    if (permalinks.length === 0) return;
     queue.removeMany(permalinks);
     toasts.ok(`took ${count(permalinks.length, 'track')} out of the queue`);
   }
@@ -164,8 +164,8 @@
     if (body && startAt > 0) body.scrollTop = startAt;
   });
 
-  function onscroll() {
-    if (body) scrolled.value = body.scrollTop;
+  function onscroll({ currentTarget }: { currentTarget: HTMLElement }) {
+    scrolled.value = currentTarget.scrollTop;
   }
 </script>
 
