@@ -20,6 +20,8 @@ declare global {
 			requestId: string;
 			log: Logger;
 			sessionToken?: string;
+			/** Tags only crawlers read, which a public page's load sets and the server hook writes into its HTML. */
+			crawlerHead?: string;
 		}
 
 		interface PageData {

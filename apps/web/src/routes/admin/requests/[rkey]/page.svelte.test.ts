@@ -67,7 +67,7 @@ it('shows staff the profile to list, and flags a change since the request and a 
 			trail: [],
 			stale: false,
 			verification: null,
-			hasAvatar: false,
+			avatar: null,
 			tracklists: []
 		},
 		form: null
@@ -96,7 +96,7 @@ const base = {
 	history: [],
 	trail: [],
 	verification: null,
-	hasAvatar: false,
+	avatar: null,
 	tracklists: []
 };
 
@@ -156,4 +156,22 @@ it('shows an approved request as the changes it published', async () => {
 	await expect.element(page.getByRole('heading', { name: 'Published changes' })).toBeInTheDocument();
 	await expect.element(page.getByText('Dub')).toBeInTheDocument();
 	await expect.element(page.getByRole('button', { name: 'Submit decision' })).not.toBeInTheDocument();
+});
+
+it("warns before approving an avatar the site can't show, in place of the broken image", async () => {
+	const svg = { type: 'image/svg+xml', shown: false };
+	const { rerender } = await render(Page, { params: { rkey: '3kupdate' }, data: { ...base, avatar: svg }, form: null });
+
+	const warning = page.getByText(/Their avatar is image\/svg\+xml, which the site can't show/);
+	const image = page.getByRole('img', { name: 'Proposed' });
+	await expect.element(warning).toBeInTheDocument();
+	await expect.element(image).not.toBeInTheDocument();
+
+	// Only a pending request can still be approved.
+	await rerender({ data: { ...base, avatar: svg, request: projectRequest('update', { status: 'rejected' }) } });
+	await expect.element(warning).not.toBeInTheDocument();
+
+	await rerender({ data: { ...base, avatar: { type: 'image/png', shown: true } } });
+	await expect.element(image).toBeInTheDocument();
+	await expect.element(warning).not.toBeInTheDocument();
 });

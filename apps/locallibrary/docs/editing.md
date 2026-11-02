@@ -148,9 +148,9 @@ plain "Artist - Title" lists. Tracks are matched by file path, then ISRC, then a
 length (within 2 s), then artist and title alone, then fuzzily; for an entry that fits several
 tracks you're asked which, one entry at a time (`--choose 3=812` answers for entry 3, numbered as
 the warnings number them, `--choose 3=null` leaves it out; without a terminal it stops at the
-first one not answered, saying so), never guessed. It works offline: export a streaming
-playlist to CSV first. The tracklist plugin does it (see [Plugins](plugins.md)): `--dry-run` shows
-how many entries were found, and which weren't, without changing anything.
+first one not answered, saying so). It works offline: export a streaming playlist to CSV first.
+The tracklist plugin does it (see [Plugins](plugins.md)): `--dry-run` shows how many entries were
+found, and which weren't, without changing anything.
 
 ### Upgrading to lossless
 

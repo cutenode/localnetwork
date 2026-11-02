@@ -351,6 +351,26 @@ describe('Local Network on a real atproto spaces network', () => {
 		expect(new Uint8Array(await blob.arrayBuffer())).toEqual(png);
 	});
 
+	it("tells staff reviewing a request when its avatar is a type the site can't show", async () => {
+		// The site's form refuses an SVG, but another client can upload one and file the request.
+		const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>');
+
+		const request = await net.app.requests.submit({
+			actor: await net.viewer('neon'),
+			kind: 'create',
+			profile: profile('Vector Party'),
+			avatar: { bytes: svg, mimeType: 'image/svg+xml' }
+		});
+
+		const review = await adminRequest({
+			params: { rkey: request.rkey },
+			url: new URL(`http://localhost/admin/requests/${request.rkey}`),
+			locals: { app: net.app, viewer: await net.viewer('ada'), log: silentLogger }
+		});
+
+		expect(review.avatar).toEqual({ type: 'image/svg+xml', shown: false });
+	});
+
 	it('lets a DJ signed in with OAuth propose a mix tracklist that root publishes on approval', async () => {
 		const remy = await net.viewer('remy');
 

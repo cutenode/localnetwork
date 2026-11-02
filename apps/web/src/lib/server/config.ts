@@ -76,6 +76,7 @@ const envSchema = z.object({
 	SYNC_POLL_INTERVAL_MS: intString(60_000, 1_000),
 	SYNC_NOTIFY: booleanString,
 	GEOCODER: z.enum(['open-meteo', 'nominatim', 'none']).default('open-meteo'),
+	ACTOR_SEARCH: z.enum(['bluesky', 'none']).default('bluesky'),
 	ALLOW_PRIVATE_NETWORK: booleanString,
 	AUDIT_MAX_ATTEMPTS: intString(12, 1, 100),
 	SESSION_DAYS: intString(30, 1, 365),
@@ -109,6 +110,8 @@ export type Config = {
 	syncPollIntervalMs: number;
 	syncNotify: boolean;
 	geocoder: 'open-meteo' | 'nominatim' | 'none';
+	/** Where the sign-in page's account typeahead searches. */
+	actorSearch: 'bluesky' | 'none';
 	allowPrivateNetwork: boolean;
 	auditMaxAttempts: number;
 	sessionDays: number;
@@ -193,6 +196,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		syncPollIntervalMs: value.SYNC_POLL_INTERVAL_MS,
 		syncNotify: truthy(value.SYNC_NOTIFY, isHttps || dev),
 		geocoder: value.GEOCODER,
+		actorSearch: value.ACTOR_SEARCH,
 		allowPrivateNetwork: truthy(value.ALLOW_PRIVATE_NETWORK, dev),
 		auditMaxAttempts: value.AUDIT_MAX_ATTEMPTS,
 		sessionDays: value.SESSION_DAYS,

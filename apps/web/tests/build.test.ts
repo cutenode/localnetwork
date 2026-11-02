@@ -97,8 +97,8 @@ it('ships no sourcemaps to the browser', () => {
 
 it('keeps what every page loads within its budget', () => {
 	// The entry, the root layout and the root error page with everything they import: SvelteKit's and
-	// Svelte's runtimes, devalue, and the small components pages share (vite.config.ts). About 181 KiB.
-	expect(size(initialLoad)).toBeLessThan(184 * 1024);
+	// Svelte's runtimes, devalue, and the small components pages share (vite.config.ts). About 180 KiB.
+	expect(size(initialLoad)).toBeLessThan(181 * 1024);
 });
 
 it("keeps each page's own JavaScript within its budget", () => {
