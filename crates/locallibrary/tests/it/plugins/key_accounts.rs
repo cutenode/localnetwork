@@ -65,7 +65,7 @@ fn keyed(whoami: bool) -> Keyed {
 }
 
 /// A pair of keys, as entered.
-fn entered(access: &str, secret: &str) -> IndexMap<String, String> {
+pub(super) fn entered(access: &str, secret: &str) -> IndexMap<String, String> {
     IndexMap::from_iter([("access".to_string(), access.to_string()), ("secret".to_string(), secret.to_string())])
 }
 

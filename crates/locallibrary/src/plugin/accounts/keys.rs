@@ -13,7 +13,7 @@ use super::kept::{self, Kept};
 use super::shared::{AccountSignedIn, Asked, find};
 use crate::error::Reason;
 use crate::plugin::Plugins;
-use crate::plugin::process::Plugin;
+use crate::plugin::process::{Host, Plugin};
 use crate::plugin::secrets::secret;
 use crate::store::Store;
 use crate::{Error, Result};
@@ -163,9 +163,23 @@ impl Plugins {
         entered: &IndexMap<String, String>,
         name: Option<&str>,
     ) -> Result<AccountSignedIn> {
-        let Waiting::Keys { asked, store, .. } = self.host.pending(id)? else {
+        self.host.finish_sign_in_with_keys(id, entered, name)
+    }
+}
+
+impl Host {
+    /// [`Plugins::finish_account_sign_in_with_keys`].
+    pub(super) fn finish_sign_in_with_keys(
+        &self,
+        id: &str,
+        entered: &IndexMap<String, String>,
+        name: Option<&str>,
+    ) -> Result<AccountSignedIn> {
+        let Waiting::Keys { asked, store, .. } = self.pending(id)? else {
             return Err(Error::invalid(format!("sign-in {id:?} finishes in the browser")));
         };
-        self.slot(&asked.with)?.signed_in_with_keys(*asked, &store, entered, name)
+        let with =
+            self.account_plugin(&asked.with).ok_or_else(|| Error::NotFound(format!("plugin {:?}", asked.with)))?;
+        with.signed_in_with_keys(*asked, &store, entered, name)
     }
 }

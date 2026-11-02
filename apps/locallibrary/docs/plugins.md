@@ -240,11 +240,12 @@ and in the sidecar, nothing is asked: it fails and says how to resolve it.
 
 In the player's palette, "sign in to a TYPE account…" signs in to one, "sign out of NAME" signs
 out of one, and "access for PLUGIN…" opens a form choosing which account of each type the plugin
-uses, saying what for, or signing in to another.
+uses, saying what for, or signing in to another. Signing in with keys there opens a form saying
+where to get them, each typed unseen, then the account's name when the service doesn't say.
 
 A plugin asks for the scopes it can do without when it needs them. In a terminal, and in the
 player, you're asked whether it may, and why it wants them; when the account wasn't granted them,
-allowing it signs in again in the browser. A no is remembered: it isn't asked again until
+allowing it signs in again in the browser, or asks for the account's keys. A no is remembered: it isn't asked again until
 `locallibrary plugin access PLUGIN --give ACCOUNT --scope SCOPE` gives the scope. With `--json`,
 `--yes` or no terminal, in `watch` and in the sidecar, nothing's asked: the plugin fails, saying
 how to give it the scope.
