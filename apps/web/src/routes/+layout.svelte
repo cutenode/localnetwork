@@ -88,7 +88,8 @@
 		<a class="menu-link" href="/about" aria-keyshortcuts={shortcut('A')}>How it works</a>
 		<a class="menu-link" href="/privacy" aria-keyshortcuts={shortcut('P')}>Privacy</a>
 		<a class="menu-link" href="/tools">Tools</a>
-		<a class="menu-link" href="/report?from={encodeURIComponent(page.url.pathname)}">Report a bug</a>
+		<!-- Signed out, /report sends people on to GitHub, so the link says so. -->
+		<a class="menu-link" href="/report?from={encodeURIComponent(page.url.pathname)}">{data.viewer ? 'Report a bug' : 'Report a bug on GitHub'}</a>
 		<button type="button" class="menu-link inline-flex min-h-9 items-center gap-2" aria-pressed={hotkeys.enabled} onclick={() => setHotkeysEnabled(!hotkeys.enabled)}>Keyboard shortcuts: {hotkeys.enabled ? 'on' : 'off'}</button>
 		<span class="text-fg-subtle sm:ml-auto">Records on the AT Protocol · private data in spaces only their members can read</span>
 	</div>

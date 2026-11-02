@@ -6,9 +6,10 @@
 //
 // The website's own report form describes a browser the same way
 // (`browserLabel` in apps/web/src/lib/server/services/bug-reports.ts), so
-// reports from both read alike.
+// reports from both read alike. The website has only a User-Agent header to
+// go on and parses it; the extension runs in Chromium alone, which says the
+// same thing outright in navigator.userAgentData.
 
-import Bowser from 'bowser';
 import { TOOLS } from './tools.ts';
 
 const NEW_ISSUE = 'https://github.com/cutenode/localnetwork/issues/new';
@@ -21,16 +22,27 @@ export function extensionVersion(): string {
 	return commit ? `${version} (${commit})` : version;
 }
 
-/** "Chrome 141, macOS" from a User-Agent, or undefined when it names no browser. */
-export function browserLabel(userAgent: string): string | undefined {
-	if (!userAgent) return undefined;
-	const { browser, os } = Bowser.parse(userAgent);
+// Besides the browser itself, the brand list names "Chromium" for the engine
+// and a made-up brand such as "Not A;Brand", there to break code that expects
+// a fixed list. The browser is the brand that is neither.
+const ENGINE = 'Chromium';
 
-	if (!browser.name) return undefined;
-	const major = browser.version?.split('.')[0];
+const MADE_UP = /not.a.brand/i;
 
-	// Browsers freeze the OS version in the User-Agent (Chrome says macOS 10.15 on every Mac), so only its name goes in.
-	return [[browser.name, major].filter(Boolean).join(' '), os.name].filter(Boolean).join(', ');
+/** "Chrome 141, macOS" from what the browser says about itself, or undefined when it says nothing. */
+export function browserLabel(agent: NavigatorUAData | undefined): string | undefined {
+	if (!agent) return undefined;
+	const brands = agent.brands.filter(({ brand }) => !MADE_UP.test(brand));
+	const browser = brands.find(({ brand }) => brand !== ENGINE) ?? brands[0];
+
+	if (!browser) return undefined;
+
+	// Chrome calls itself "Google Chrome" here and "Chrome" in a User-Agent, which is what the
+	// website's reports say. The version is the major one only, and the OS is its name alone: the
+	// low-entropy hints, unlike a User-Agent, carry nothing more.
+	const name = browser.brand.replace(/^Google /, '');
+
+	return [`${name} ${browser.version}`, agent.platform].filter(Boolean).join(', ');
 }
 
 /**
@@ -45,7 +57,7 @@ export function bugReportUrl(openTool: string | null): string {
 		template: 'localtoolbox-bug.yml',
 		tool: TOOLS.find((tool) => tool.id === openTool)?.name,
 		version: extensionVersion(),
-		browser: browserLabel(navigator.userAgent)
+		browser: browserLabel(navigator.userAgentData)
 	};
 
 	for (const [id, value] of Object.entries(fields)) if (value) url.searchParams.set(id, value);

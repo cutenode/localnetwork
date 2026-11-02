@@ -43,6 +43,7 @@ export default defineConfig({
 			DEV_DB_PATH: 'data/e2e.db',
 			DEV_ENV_FILE: '',
 			GEOCODER: 'none',
+			ACTOR_SEARCH: 'none',
 			LOG_LEVEL: 'warn'
 		}
 	}

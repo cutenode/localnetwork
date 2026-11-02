@@ -130,11 +130,15 @@ describe('the popup page', () => {
 		}
 	});
 
-	it('loads the two shared page scripts before the bundle that reads them', () => {
+	it('loads the shared page script before the bundle that reads it', () => {
 		const html = read('popup.html');
 		const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => m[1]);
-		expect(scripts.slice(0, 2)).toEqual(['./downloaded-store.js', './state-transfer.js']);
-		expect(scripts.slice(2).every((src) => src.includes('assets/'))).toBe(true);
+		expect(scripts[0]).toBe('./downloaded-store.js');
+		expect(scripts.slice(1).every((src) => src.includes('assets/'))).toBe(true);
+		// The state file's script is the settings sheet's alone, which puts it on
+		// the page when it opens (src/lib/globals.ts), so no popup waits for it.
+		expect(html).not.toContain('state-transfer.js');
+		expect(there('state-transfer.js')).toBe(true);
 		// They define globals, which a module cannot do.
 		expect(html).not.toMatch(/<script[^>]+type="module"[^>]+downloaded-store/);
 	});

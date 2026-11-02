@@ -1,3 +1,4 @@
+import { AtUri } from '@atproto/syntax';
 import { expect, type Page, type Route, test } from '@playwright/test';
 import headline from '../../src/lib/headline.json' with { type: 'json' };
 import { z } from 'zod';
@@ -290,6 +291,7 @@ test.describe('public pages', () => {
 				titles: html.match(/<title>/g)?.length ?? 0,
 				canonical: html.match(/<link rel="canonical" href="([^"]*)"/)?.[1],
 				robots: response.headers()['x-robots-tag'],
+				jsonLd: [...html.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/gs)].map(([, json]) => json),
 				property
 			};
 		};
@@ -328,11 +330,27 @@ test.describe('public pages', () => {
 		expect(performer.property('og:image:width')).toBe('1200');
 		expect(performer.property('twitter:card')).toBe('summary_large_image');
 
+		// Search engines read who a performer's page is about from its structured data, in the HTML as served.
+		expect(performer.jsonLd).toHaveLength(1);
+		expect(JSON.parse(performer.jsonLd[0] ?? '')).toMatchObject({
+			'@context': 'https://schema.org',
+			'@type': 'ProfilePage',
+			mainEntity: { '@type': 'MusicGroup', name: 'Neon Tide' }
+		});
+
 		// The artist's name reaches the head, not a placeholder written before the plays were counted. The demo sets
 		// reach the directory in a backfill after the app first syncs it, so this waits for them.
 		await expect(async () => {
 			expect((await head('/artists/7d0b9c12-5e64-4f3a-8b21-c4e9a6f05d72')).property('og:title')).toBe('Mira Okonkwo');
 		}).toPass({ timeout: 60_000 });
+
+		// The records behind a page, as at-tags, by DID so a handle change doesn't break them.
+		const record = new AtUri(performer.property('at:canonical') ?? '');
+		expect(record.host).toMatch(/^did:/);
+		expect(record.collection).toBe('computer.localnetwork.project');
+		expect((await head('/@neon.test')).property('at:canonical')).toMatch(
+			/^at:\/\/did:[^/]+\/computer\.localnetwork\.profile\/self$/
+		);
 
 		expect((await request.get('/login')).headers()['x-robots-tag']).toBe('noindex');
 	});
@@ -368,6 +386,29 @@ test.describe('public pages', () => {
 });
 
 test.describe('signed in', () => {
+	test('makes an account at a host and comes back signed in to follow', async ({ page }, testInfo) => {
+		// A handle of its own for each run and browser: the PDS takes 3 to 18 letters, numbers or hyphens.
+		const handle = `new${testInfo.project.name.slice(0, 6)}${Date.now().toString(36).slice(-5)}`;
+		await page.goto(`/login?next=${encodeURIComponent('/projects/neon-tide#follow')}`);
+		await expect(page.getByText('Sign in with your Atmosphere account to follow Neon Tide.')).toBeVisible();
+		await expectAccessible(page);
+		await page.getByRole('link', { name: 'Make an account' }).click();
+		await expect(page.getByRole('heading', { name: 'Where should it live?' })).toBeVisible();
+		await expectAccessible(page);
+
+		// The dev network's own PDS comes first, and sign-up there is its OAuth page with prompt=create.
+		await page.getByRole('button', { name: /^This dev network/ }).click();
+		await page.locator('input[name="handle"]').fill(handle);
+		await page.getByRole('button', { name: 'Next' }).click();
+		await page.locator('input[type="email"]').fill(`${handle}@example.test`);
+		await page.locator('input[type="password"]').fill(`${handle}-pass`);
+		await page.getByRole('button', { name: 'Sign up' }).click();
+		await page.getByRole('button', { name: 'Authorize' }).click();
+
+		await page.waitForURL((url) => url.port === '5199' && url.pathname === '/projects/neon-tide');
+		await expect(page.getByRole('button', { name: /^Follow/ })).toBeVisible();
+	});
+
 	test('a DJ proposes a change and an admin approves it', async ({ page }, testInfo) => {
 		// Every project runs against the same network, so each proposes a tagline of its own: the same
 		// one again would be no change at all.
