@@ -119,7 +119,11 @@ export default defineConfig({
 			{
 				name: 'budget',
 				description:
-					"Measures a limit (Lua instructions) that coverage doesn't change but whose wall time it multiplies, so test:coverage leaves it to pnpm test"
+					"Measures a limit (Lua instructions) that coverage doesn't change but whose wall time it multiplies, so test:coverage leaves it to pnpm test",
+				// No deadline for these tests. Their time goes to the Lua VM running queries over a thousand-odd
+				// records, which a busy machine stretches past the 5s default, and the instruction limit
+				// (src/lib/server/testing/happyview.ts) already stops a script that runs away.
+				timeout: 0
 			}
 		],
 		coverage: {

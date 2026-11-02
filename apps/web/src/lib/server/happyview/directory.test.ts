@@ -1906,7 +1906,7 @@ describe('instruction budget', () => {
 
 	it(
 		'keeps a 500-track set and counts supports over 2,000 sets and 500-track ones well under the limit',
-		{ tags: ['budget'], timeout: 120_000 },
+		{ tags: ['budget'] },
 		async () => {
 			const hv = new FakeHappyView(ROOT);
 			const djs = Array.from({ length: 50 }, (_, i) => `did:plc:dj${i}`);
