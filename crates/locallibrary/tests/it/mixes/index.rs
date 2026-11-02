@@ -6,6 +6,7 @@ use crate::common::{self, Warnings};
 use locallibrary::device::Device;
 use locallibrary::mix::Identifier;
 use locallibrary::mix::index::Cache;
+use locallibrary::mix::prefs::MixPrefs;
 use locallibrary::progress::Ctx;
 use locallibrary::{Store, paths};
 
@@ -21,7 +22,7 @@ fn a_drive_is_indexed_with_what_can_be_read() {
     let cache = Cache::in_store(&store);
     let warnings = Warnings::default();
 
-    let id = Identifier::new(&device, &cache, &warnings.ctx()).unwrap();
+    let id = Identifier::new(&device, &cache, &MixPrefs::default(), &warnings.ctx()).unwrap();
     let r = &id.report;
     assert_eq!((r.tracks, r.indexed, r.fingerprinted, r.hashes), (2, 0, 0, 0));
     assert_eq!(r.missing.iter().map(|t| t.id).collect::<Vec<_>>(), [2]);
@@ -33,7 +34,7 @@ fn a_drive_is_indexed_with_what_can_be_read() {
     // Remembered: the next run reports it from the cache, as it was.
     let audio = paths::to_fs(&root, &paths::key(&library.track(1).unwrap().file_path));
     assert_eq!(cache.failure(&Cache::key(&audio).unwrap()), Some(r.failed[0].error.clone()));
-    let again = Identifier::new(&device, &cache, &Ctx::silent()).unwrap();
+    let again = Identifier::new(&device, &cache, &MixPrefs::default(), &Ctx::silent()).unwrap();
     assert_eq!(again.report.failed[0].error, r.failed[0].error);
     assert!(cache.root().starts_with(store.root()));
 }
@@ -45,7 +46,7 @@ fn a_cache_that_cant_be_written_is_only_a_warning() {
     let device = Device::open_export(common::demo_drive(dir.path(), "DNA")).unwrap();
     std::fs::write(dir.path().join("cache"), b"a file where the folder goes").unwrap();
     let warnings = Warnings::default();
-    let id = Identifier::new(&device, &Cache::new(dir.path().join("cache")), &warnings.ctx());
+    let id = Identifier::new(&device, &Cache::new(dir.path().join("cache")), &MixPrefs::default(), &warnings.ctx());
     assert_eq!(id.unwrap().report.failed.len(), 2);
     let said = warnings.said();
     assert!(said.iter().any(|w| w.starts_with("couldn't cache a fingerprint")), "{said:?}");

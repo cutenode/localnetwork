@@ -18,6 +18,7 @@ fn report() -> MixReport {
         track_end: 130.0,
         tempo: 1.0234567,
         speed_range: None,
+        lines: Vec::new(),
         played_bpm: Some(131.0),
         key_lock: Some(true),
         semitones: 0.0,
