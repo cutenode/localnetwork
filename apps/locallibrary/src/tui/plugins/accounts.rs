@@ -12,7 +12,7 @@ use std::time::Duration;
 use locallibrary::Store;
 use locallibrary::plugin::{Account, AccountSignIn, AccountSignedIn, Plugins};
 use locallibrary::progress::Ctx;
-use loclib_plugin::Manifest;
+use loclib_plugin::{Manifest, a_or_an};
 
 use super::keys::entered_keys;
 use crate::tui::app::{App, Level, Msg};
@@ -25,9 +25,8 @@ pub(super) const BROWSER_WAIT: Duration = Duration::from_secs(300);
 /// Signing in to an account of each type the account plugin `m` provides.
 pub(super) fn sign_in_items(m: &'static Manifest) -> Vec<(Act, Item)> {
     let types = m.contributes.account_types.iter();
-    types
-        .map(|t| (Act::AccountSignIn(&t.name, &m.id), Item::new(format!("sign in to a {} account…", t.title), &m.name)))
-        .collect()
+    let item = |title| Item::new(format!("sign in to {} account…", a_or_an(title)), &m.name);
+    types.map(|t| (Act::AccountSignIn(&t.name, &m.id), item(&t.title))).collect()
 }
 
 /// Signing out of each account the store at `store_root` keeps.

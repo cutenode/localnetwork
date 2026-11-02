@@ -5,7 +5,7 @@
 //! refreshes keys: a service refusing them is answered to the plugin as it is, and they stay kept.
 
 use indexmap::IndexMap;
-use loclib_plugin::{AccountType, KeyPlace, SignIn};
+use loclib_plugin::{AccountType, KeyPlace, SignIn, a_or_an};
 use serde::{Deserialize, Serialize};
 
 use super::Waiting;
@@ -67,7 +67,7 @@ impl Plugin {
     /// [`SHORTEST_KEY`] printable ASCII characters without spaces. Never saying what one is.
     fn entered(&self, t: &AccountType, entered: &IndexMap<String, String>) -> Result<Keys> {
         if let Some(name) = entered.keys().find(|n| !t.keys.contains_key(*n)) {
-            return Err(Error::invalid(format!("{name:?} isn't one of the keys of a {} account", t.title)));
+            return Err(Error::invalid(format!("{name:?} isn't one of the keys of {} account", a_or_an(&t.title))));
         }
         let mut keys = IndexMap::new();
         for (name, key) in &t.keys {

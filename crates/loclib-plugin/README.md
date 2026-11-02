@@ -263,7 +263,8 @@ assert!(!upload.covers("POST", &Url::parse("https://www.googleapis.com.evil.exam
   `title`, `whoami` and its scopes, which ask the service for nothing. Without a `whoami` the
   user names the account; with one, it's at a host the scopes' requests go to, since the host
   sends it the keys (in the `Authorization` header). The user enters the keys when signing in
-  (`locallibrary account TYPE sign-in` reads them from stdin).
+  (`locallibrary account TYPE sign-in` reads them from stdin). Nothing refreshes them: a request
+  the service refuses is answered to the plugin as it is, and the account stays signed in.
 
 ### accounts
 

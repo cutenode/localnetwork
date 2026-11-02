@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use loclib_plugin::{AccountNeed, AccountType, ErrorData, KeyPlace, RpcError, Scope};
+use loclib_plugin::{AccountNeed, AccountType, ErrorData, KeyPlace, RpcError, Scope, a_or_an};
 use reqwest::Url;
 use serde_json::{Map, json};
 
@@ -123,14 +123,15 @@ impl Plugin {
         let kind = &need.name;
         let no_access = |why: String| failed("access", why, need, &need.scopes, self.host.providing(kind));
         let Some(store) = live.store.as_ref() else {
-            return Err(no_access(format!("it has no access to a {kind} account without a store")));
+            return Err(no_access(format!("it has no access to {} account without a store", a_or_an(kind))));
         };
         let book = kept::read(store).map_err(|e| RpcError::failed("external", e.to_string()))?;
         let mut its = book.accesses.iter().filter(|a| a.plugin == self.manifest.id && a.kind == *kind);
         let a = match access {
             Some(id) => its.find(|a| a.id == id).ok_or_else(|| no_access(format!("it has no {kind} access {id}")))?,
             None => {
-                its.find(|a| a.default).ok_or_else(|| no_access(format!("it has no access to a {kind} account")))?
+                let why = || format!("it has no access to {} account", a_or_an(kind));
+                its.find(|a| a.default).ok_or_else(|| no_access(why()))?
             }
         };
         let (on, at) = (&a.account.plugin, &a.name);

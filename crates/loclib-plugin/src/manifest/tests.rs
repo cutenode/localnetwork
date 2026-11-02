@@ -25,6 +25,14 @@ fn problem(rest: &str) -> String {
     }
 }
 
+/// A field of type `kind`, as a manifest's problems say it: "an integer", "a number".
+fn a_field_of(kind: FieldType) -> String {
+    match serde_json::to_value(kind).unwrap().as_str().unwrap() {
+        "integer" => "an integer".into(),
+        name => format!("a {name}"),
+    }
+}
+
 #[test]
 fn the_example_manifest_is_valid() {
     let m = Manifest::parse(ECHO).unwrap();
@@ -1171,6 +1179,8 @@ fn analyzers_give_fields_roles_of_their_type() {
     assert_eq!(e, "contributes.analyzers[0].roles.artists: mbids isn't a string[], which the role is");
     let e = problem(&analyzer("names = \"string\"", "credits = \"names\""));
     assert_eq!(e, "contributes.analyzers[0].roles.credits: names isn't a string[], which the role is");
+    let e = problem(&analyzer("runs = \"number\"", "clipped_runs = \"runs\""));
+    assert_eq!(e, "contributes.analyzers[0].roles.clipped_runs: runs isn't an integer, which the role is");
     let ids = analyzer(
         "song = \"string\", album = \"string\", mbids = \"string[]\", code = \"string\", names = \"string[]\"",
         "recording = \"song\", release = \"album\", artists = \"mbids\", isrc = \"code\", credits = \"names\"",
@@ -1230,7 +1240,7 @@ fn a_theme_sets_colours_by_their_names() {
 fn an_analyzers_fields_say_how_theyre_shown() {
     let analyzer = |display: &str| {
         format!(
-            "[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nversion = \"1\"\nfields = {{ lufs = \"number\", camelot = \"string\" }}\n{display}"
+            "[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nversion = \"1\"\nfields = {{ lufs = \"number\", camelot = \"string\", runs = \"integer\" }}\n{display}"
         )
     };
     let ok = analyzer(
@@ -1253,6 +1263,10 @@ fn an_analyzers_fields_say_how_theyre_shown() {
     assert_eq!(
         problem(&analyzer("display.camelot = { format = \"db\" }")),
         format!("{at}.camelot.format: camelot is a string, which db isn't for")
+    );
+    assert_eq!(
+        problem(&analyzer("display.runs = { format = \"key\" }")),
+        format!("{at}.runs.format: runs is an integer, which key isn't for")
     );
     assert_eq!(
         problem(&analyzer("display.lufs = { precision = 7 }")),
@@ -2376,8 +2390,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                 let others: Vec<FieldType> = others.into_iter().filter(|t| *t != role.kind()).collect();
                 a.fields.insert(field.clone(), tc.draw(gs::sampled_from(others)));
                 a.roles.insert(role, field.clone());
-                let kind = serde_json::to_value(role.kind()).unwrap();
-                (format!("{at}: {field} isn't a {}, which the role is", kind.as_str().unwrap()), false)
+                (format!("{at}: {field} isn't {}, which the role is", a_field_of(role.kind())), false)
             }
         }
         "file or folder" | "extension" => {
@@ -2513,13 +2526,8 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     let unfit: Vec<FieldFormat> = all.into_iter().filter(|f| !fits(kind, *f)).collect();
                     let f = tc.draw(gs::sampled_from(unfit));
                     d.format = Some(f);
-                    let named = serde_json::to_value(kind).unwrap();
                     let format = serde_json::to_value(f).unwrap();
-                    format!(
-                        ".format: {field} is a {}, which {} isn't for",
-                        named.as_str().unwrap(),
-                        format.as_str().unwrap()
-                    )
+                    format!(".format: {field} is {}, which {} isn't for", a_field_of(kind), format.as_str().unwrap())
                 }
                 "display precision" => {
                     d.precision = Some(tc.draw(gs::integers::<u8>().min_value(FieldDisplay::MAX_PRECISION + 1)));

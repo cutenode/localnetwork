@@ -203,7 +203,7 @@ code, so locallibrary never starts one: it runs every sign-in from the manifest 
 tokens itself (see [the decision](adr/0001-account-plugins-are-manifests.md)). Only the ones
 locallibrary ships, in `plugins/accounts/`, may use Local Network's token exchange:
 google-account, mixcloud-account and soundcloud-account do, and archive-account and plyr-account
-take keys you enter instead. `locallibrary plugin` lists the account type each adds, and `plugin
+take keys you enter instead (see [the decision](adr/0002-keys-accounts.md)). `locallibrary plugin` lists the account type each adds, and `plugin
 info` its scopes.
 
 A plugin asks for accounts of a type with `[[accounts]]`, naming the scopes it needs and why:
@@ -270,6 +270,12 @@ one for an account with no refresh token) is passed on to the plugin, and signs 
 only when the service says the token is no good (`error="invalid_token"`); one the service won't
 refresh signs it out too. When the service says the token lacks a
 scope, the request fails saying which, and signing in again is offered.
+
+Keys are kept in the keychain the same way, and go only in the `Authorization` header, as the
+account type spells it out (`LOW {access}:{secret}` for the Archive), never in the address.
+Nothing refreshes them: when the service refuses them, the plugin is told what it answered and
+the account stays signed in. Signing in again with the keys the service has now replaces them,
+and a sign-in whose keys the service refuses says to check them where you got them.
 
 Some services (SoundCloud) only take the browser back at the exact address their app was
 registered with, port included. An account type on one of those names its port, and its

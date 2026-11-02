@@ -28,7 +28,8 @@ impl Plugin {
     /// from its whoami endpoint: reached as the service's other endpoints are (see
     /// [`Plugin::send`]), with the token or keys where `t` says they go ([`AccountType::place`]),
     /// following redirects within the endpoint's origin only, given again in the query when they go
-    /// there. A subject is a string or an integer (as its digits); the name falls back to it.
+    /// there. A subject is a string or an integer (as its digits); the name falls back to it. Keys
+    /// it refuses (a 401 or 403) are said to be, with where the user checks them.
     pub(super) fn whoami(&self, t: &AccountType, signed: &Credential) -> Result<(String, String)> {
         let failed = |why: String| Error::Account(self.net.scrub(&format!("asking {} who signed in: {why}", t.title)));
         let w = t.whoami.as_ref().ok_or_else(|| failed("its account type says nowhere to ask".into()))?;
@@ -61,8 +62,14 @@ impl Plugin {
             }
             url = next;
         };
-        if !answer.status().is_success() {
-            return Err(failed(format!("it answered {}", answer.status())));
+        let status = answer.status();
+        // Only a type signed in to with keys has a keys page.
+        if let (Some(at), 401 | 403) = (&t.keys_url, status.as_u16()) {
+            let why = format!("{} refused the keys: check them at {at} and sign in again", t.title);
+            return Err(Error::Account(self.net.scrub(&why)));
+        }
+        if !status.is_success() {
+            return Err(failed(format!("it answered {status}")));
         }
         let who: Value = serde_json::from_slice(answer.body()).map_err(|_| failed("its answer isn't JSON".into()))?;
         let subject = match who.pointer(&w.subject) {

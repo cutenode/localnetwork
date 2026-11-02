@@ -7,6 +7,7 @@ use std::sync::mpsc::{Sender, channel};
 
 use indexmap::IndexMap;
 use locallibrary::plugin::{AccountSignIn, EnteredKeys};
+use loclib_plugin::a_or_an;
 use serde_json::{Map, Value, json};
 
 use crate::account_cmd::{account_type, getting_keys};
@@ -45,7 +46,7 @@ impl App {
         let required: Vec<&String> = properties.keys().collect();
         let schema = json!({ "type": "object", "properties": properties, "required": required });
         let form = Form::with(
-            format!("Sign in to a {title} account"),
+            format!("Sign in to {} account", a_or_an(title)),
             Some(schema),
             &Map::new(),
             For::Keys(start.keys.clone(), reply),

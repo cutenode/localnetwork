@@ -21,10 +21,12 @@ use crate::mock_oauth::{json_reply, keys_account_plugin};
 const REFUSED: &str = "an account goes only in the Authorization header: {account:<type>}";
 
 /// What the mock service says: who each access key is for, at `/whoami` (a 403 for one it doesn't
-/// know), and what it answers other requests with, in turn, before answering what they were sent.
+/// know, a 401 for one `revoked`), and what it answers other requests with, in turn, before
+/// answering what they were sent.
 #[derive(Default)]
 struct Service {
     known: IndexMap<String, Value>,
+    revoked: Vec<String>,
     script: VecDeque<Reply>,
 }
 
@@ -48,8 +50,10 @@ fn keyed(whoami: bool) -> Keyed {
     let server = Server::new(move |_, got| {
         let mut s = state.lock().unwrap();
         if got.target.split('?').next() == Some("/whoami") {
-            return match access_sent(got).and_then(|a| s.known.get(&a).cloned()) {
-                Some(who) => json_reply(200, who),
+            let access = access_sent(got).unwrap_or_default();
+            return match s.known.get(&access) {
+                Some(who) => json_reply(200, who.clone()),
+                None if s.revoked.contains(&access) => json_reply(401, json!({ "error": "revoked keys" })),
                 None => json_reply(403, json!({ "error": "unknown keys" })),
             };
         }
@@ -385,15 +389,20 @@ fn keys_missing_or_undeclared_or_short_keep_nothing() {
 }
 
 /// Signing in with keys asks the type's whoami who they're for with the keys in the
-/// `Authorization` header, and nowhere else: the account kept is the one it says; one it refuses
-/// keeps nothing, and naming the account with a whoami is refused.
+/// `Authorization` header, and nowhere else: the account kept is the one it says; keys it refuses
+/// (a 403, or a 401) keep nothing, saying to check them where the user got them, and naming the
+/// account with a whoami is refused.
 #[test]
 fn whoami_gets_the_keys_in_the_authorization_header() {
     let (access, secret) = ("ak-0123456789", "sk-9876543210");
     let k = keyed(true);
     assert!(!k.begin().named, "the user names an account its whoami says");
-    let e = k.sign_in(&entered(access, secret), None).unwrap_err().to_string();
-    assert!(e.starts_with("asking Mock who signed in: it answered 403"), "{e}");
+    let refused = format!("Mock refused the keys: check them at {}/keys and sign in again", k.server.url);
+    let unknown = k.sign_in(&entered(access, secret), None).unwrap_err();
+    assert_eq!(unknown.to_string(), refused);
+    k.service.lock().unwrap().revoked.push(access.into());
+    let revoked = k.sign_in(&entered(access, secret), None).unwrap_err();
+    assert_eq!(revoked.to_string(), refused);
     let e = k.sign_in(&entered(access, secret), Some("me")).unwrap_err();
     assert_eq!(e.to_string(), "Mock says who the keys are for: sign in without naming the account");
     assert!(k.listed().is_empty(), "kept one it refused");
@@ -405,5 +414,7 @@ fn whoami_gets_the_keys_in_the_authorization_header() {
     let authorization = Some(format!("LOW {access}:{secret}"));
     assert_eq!((asked.target.as_str(), asked.headers.get("authorization").cloned()), ("/whoami", authorization));
     assert!(!asked.body.contains(secret));
-    assert!(!k.leaked(&[&json!(e.to_string())], &[access, secret]), "a key is out where it may not be");
+    let said = [unknown, revoked, e].map(|e| json!(e.to_string()));
+    let said: Vec<&Value> = said.iter().collect();
+    assert!(!k.leaked(&said, &[access, secret]), "a key is out where it may not be");
 }

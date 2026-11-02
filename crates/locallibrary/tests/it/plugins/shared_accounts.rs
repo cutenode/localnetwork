@@ -436,17 +436,19 @@ enum Whoami {
     Around,
     /// Another origin, which answers 500.
     Broken,
+    /// Another origin, which refuses the token with a 401.
+    Refusing,
 }
 
 /// For any whoami endpoint (the service's, one sending there, one answering what isn't JSON, or
-/// one at another origin sending there, around in circles or failing), its token given in the
-/// `Authorization` header or the query, and anyone it says signed in (a string or integer
-/// subject, or none): the account kept is the one it says, named by its email or subject, or the
-/// sign-in fails saying why and nothing is kept.
+/// one at another origin sending there, around in circles, failing or refusing the token), its
+/// token given in the `Authorization` header or the query, and anyone it says signed in (a string
+/// or integer subject, or none): the account kept is the one it says, named by its email or
+/// subject, or the sign-in fails saying why and nothing is kept.
 #[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn whoever_whoami_says_signed_in_is_kept_or_nobody_is(tc: TestCase) {
     use Whoami::*;
-    let at = tc.draw(gs::sampled_from(vec![Service, Moved, NotJson, Away, Around, Broken]));
+    let at = tc.draw(gs::sampled_from(vec![Service, Moved, NotJson, Away, Around, Broken, Refusing]));
     let token = tc.draw(gs::sampled_from(vec!["", "token = { query = \"access_token\" }"]));
     let subject = tc.draw(gs::sampled_from(vec![json!("a"), json!(42), json!(1.5), Value::Null]));
     let email = tc.draw(gs::sampled_from(vec![None, Some("a@mock.example")]));
@@ -466,6 +468,7 @@ fn whoever_whoami_says_signed_in_is_kept_or_nobody_is(tc: TestCase) {
             Away => elsewhere(|_, to| moved(to.into())),
             Around => elsewhere(|base, _| moved(format!("{base}/who"))),
             Broken => elsewhere(|_, _| Reply { status: 500, headers: Vec::new(), body: Vec::new() }),
+            Refusing => elsewhere(|_, _| Reply { status: 401, headers: Vec::new(), body: Vec::new() }),
         };
         account_plugin(server, &whoami, token)
     };
@@ -485,6 +488,7 @@ fn whoever_whoami_says_signed_in_is_kept_or_nobody_is(tc: TestCase) {
         (Away, _) => "it sent the token on to 127.0.0.1, which isn't where it was asked",
         (Around, _) => "too many redirects (it follows 5)",
         (Broken, _) => "it answered 500 Internal Server Error",
+        (Refusing, _) => "it answered 401 Unauthorized",
         (NotJson, _) => "its answer isn't JSON",
         (_, None) => "its answer has no subject at /sub",
         (_, Some(kept)) => {
