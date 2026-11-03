@@ -952,13 +952,8 @@ describe('services', () => {
 			expect(await t.bookings.threadsFor(PROMOTER)).toEqual([]);
 		});
 
-		it("keeps the promoter in their thread when a sync indexes a manager's inquiry first", async () => {
-			let project = await t.projectAdmin.create({
-				actor: await t.viewer(ADMIN),
-				profile: profile('Bookable'),
-				managers: [DJ, LEGACY]
-			});
-
+		/** A booking thread the promoter opened with the project, and a manager's own inquiry written into it. */
+		const threadWithManagerInquiry = async (project: { uri: string }, named = project.uri) => {
 			const space = await t.bookings.start({
 				actor: await t.viewer(PROMOTER),
 				projectUri: project.uri,
@@ -966,21 +961,26 @@ describe('services', () => {
 				message: 'Free?'
 			});
 
-			// A manager writes an inquiry of their own into the thread, and a fresh sync reads their repo first.
 			await t.net.client(DJ).createSpaceRecord({
 				space,
 				collection: COLLECTION.bookingInquiry,
 				record: {
 					$type: COLLECTION.bookingInquiry,
-					project: project.uri,
+					project: named,
 					show: { title: 'Mine now' },
 					message: 'Hi',
 					createdAt: new Date().toISOString()
 				}
 			});
+
+			return space;
+		};
+
+		/** Indexes the thread again from nothing, as a fresh sync does, reading the repos in `order`. */
+		const reindex = async (space: string, order: string[]) => {
 			await t.bookings.forget(space);
 
-			for (const did of [DJ, PROMOTER, ROOT]) {
+			for (const did of order) {
 				for (const record of t.net.spaceRecordsIn(space, did)) {
 					await t.bookings.indexEvent({
 						space,
@@ -993,12 +993,102 @@ describe('services', () => {
 					});
 				}
 			}
+		};
 
+		/** Takes the promoter out of the root's opening record, as on a thread opened before the record named one. */
+		const openedBeforePromoters = (space: string) => {
+			for (const [key, stored] of t.net.spaceRecords) {
+				if (key.startsWith(`${space}|${ROOT}|${COLLECTION.bookingStatus}|`)) delete stored.value.promoter;
+			}
+		};
+
+		const members = (space: string) => [...(t.net.spaces.get(space)?.members.keys() ?? [])].sort();
+
+		it("keeps the promoter in their thread when a sync indexes a manager's inquiry first", async () => {
+			let project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ, LEGACY]
+			});
+
+			const space = await threadWithManagerInquiry(project);
+			await reindex(space, [DJ, PROMOTER, ROOT]);
 			project = await t.projectAdmin.setManagers({ actor: await t.viewer(ADMIN), project, managers: [LEGACY] });
 
 			const [thread] = await t.bookings.threadsFor(PROMOTER);
 			expect(thread).toMatchObject({ promoter: { did: PROMOTER }, title: 'Night' });
-			expect([...(t.net.spaces.get(space)?.members.keys() ?? [])].sort()).toEqual([LEGACY, PROMOTER]);
+			expect(members(space)).toEqual([LEGACY, PROMOTER]);
+		});
+
+		it("keeps the promoter when a manager's inquiry names a project they don't manage", async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ, LEGACY]
+			});
+
+			const elsewhere = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Elsewhere'),
+				managers: [LEGACY]
+			});
+
+			const space = await threadWithManagerInquiry(project, elsewhere.uri);
+			await reindex(space, [DJ, PROMOTER, ROOT]);
+
+			const [thread] = await t.bookings.threadsFor(PROMOTER);
+			expect(thread).toMatchObject({ promoter: { did: PROMOTER }, title: 'Night', project: { uri: project.uri } });
+		});
+
+		it('opens the thread from its promoter even once they manage the project too', async () => {
+			let project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ]
+			});
+
+			const space = await t.bookings.start({
+				actor: await t.viewer(PROMOTER),
+				projectUri: project.uri,
+				show: { title: 'Night' },
+				message: 'Free?'
+			});
+
+			project = await t.projectAdmin.setManagers({ actor: await t.viewer(ADMIN), project, managers: [DJ, PROMOTER] });
+			await reindex(space, [PROMOTER, ROOT]);
+
+			const [thread] = await t.bookings.threadsFor(DJ);
+			expect(thread).toMatchObject({ promoter: { did: PROMOTER }, title: 'Night' });
+		});
+
+		it('goes by the managers for a thread whose opening record names no promoter', async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ, LEGACY]
+			});
+
+			const space = await threadWithManagerInquiry(project);
+			openedBeforePromoters(space);
+			await reindex(space, [DJ, PROMOTER, ROOT]);
+
+			const [thread] = await t.bookings.threadsFor(PROMOTER);
+			expect(thread).toMatchObject({ promoter: { did: PROMOTER }, title: 'Night' });
+		});
+
+		it("goes by the managers when the root's repo can't be read", async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ, LEGACY]
+			});
+
+			const space = await threadWithManagerInquiry(project);
+			vi.spyOn(FakeRootClient.prototype, 'listSpaceRecords').mockRejectedValueOnce(new Error('PDS unreachable'));
+			await reindex(space, [DJ, PROMOTER, ROOT]);
+
+			const [thread] = await t.bookings.threadsFor(PROMOTER);
+			expect(thread).toMatchObject({ promoter: { did: PROMOTER }, title: 'Night' });
 		});
 
 		it('opens no thread for an inquiry that fails its lexicon', async () => {
