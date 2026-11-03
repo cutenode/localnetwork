@@ -3,11 +3,7 @@
  * artists and labels are invented.
  */
 import { MIX_REPORT_FORMAT, MIX_REPORT_VERSION, type MixReport } from './report';
-
-const wave = (n: number, seed: number, base: number, swing: number) =>
-	Array.from({ length: n }, (_, i) =>
-		Math.round(base + swing * Math.abs(Math.sin(i / 7 + seed) * Math.cos(i / 31 + seed)))
-	);
+import { madeUpBands, madeUpWave as wave } from './wave';
 
 const overview = (seed: number) => ({
 	heights: wave(200, seed, 60, 180),
@@ -41,9 +37,7 @@ export const sampleReport: MixReport = {
 	coverage: 0.93,
 	waveform: {
 		secondsPerColumn: 1.45,
-		low: wave(1200, 1, 40, 200),
-		mid: wave(1200, 2, 30, 160),
-		high: wave(1200, 3, 20, 120)
+		...madeUpBands(1200)
 	},
 	plays: plays.map(([title, artist, label, bpm, key, start, end], i) => ({
 		track: {
@@ -86,4 +80,28 @@ export const sampleReport: MixReport = {
 		{ from: 3, to: 4, at: 1360, overlap: 20, harmony: 'clash', tempoChange: 3.2 }
 	],
 	unidentified: [{ start: 980, end: 1020 }]
+};
+
+/**
+ * The sample with the pitch fader ridden through its second track, a 124 BPM track: +0% from
+ * 5:00, a line only searched at (+12%, outside the ride) from 6:00, then +8% from 7:00.
+ */
+export const riddenReport: MixReport = {
+	...sampleReport,
+	plays: sampleReport.plays.map((play, i) =>
+		i === 1
+			? {
+					...play,
+					track: { ...play.track, bpm: 124 },
+					tempo: 1.04,
+					speedRange: [1, 1.08],
+					playedBpm: 128.96,
+					lines: [
+						{ start: 300, trackStart: 10, tempo: 1 },
+						{ start: 360, trackStart: 70, tempo: 1.12 },
+						{ start: 420, trackStart: 135, tempo: 1.08 }
+					]
+				}
+			: play
+	)
 };

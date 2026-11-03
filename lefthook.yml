@@ -1,7 +1,14 @@
 # Git hooks (installed by `pnpm install`). Each TypeScript app has its own jobs, which run in the
-# app's folder and only see the files under it; the lexicons have one of their own.
+# app's folder and only see the files under it; the lexicons have one of their own, and ast-grep
+# one over the whole repo.
+rc: tools/lefthook-rc.sh
+
+# Each hook installs once before its jobs. pnpm checks the dependencies before every `pnpm exec` and `pnpm <script>`
+# and installs them when the lockfile has moved on (after a merge), so the parallel jobs would each start an install.
 pre-commit:
   parallel: true
+  setup:
+    - run: pnpm install --frozen-lockfile
   jobs:
     - name: format web
       root: apps/web/
@@ -25,9 +32,16 @@ pre-commit:
       root: apps/localtoolbox/
       glob: '*.{ts,mts,js,svelte}'
       run: pnpm exec oxlint {staged_files}
+    # The languages sgconfig.yml's rules are written for: TypeScript and Rust, and Svelte, whose
+    # scripts the TypeScript rules check.
+    - name: ast-grep
+      glob: '*.{ts,mts,cts,rs,svelte}'
+      run: pnpm exec ast-grep scan {staged_files}
 
 pre-push:
   parallel: true
+  setup:
+    - run: pnpm install --frozen-lockfile
   jobs:
     - name: typecheck web
       root: apps/web/

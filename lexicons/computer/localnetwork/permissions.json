@@ -84,7 +84,7 @@
 				{
 					"type": "permission",
 					"resource": "space",
-					"spaceType": "computer.localnetwork.space.epk",
+					"spaceType": "computer.localnetwork.space.epkRequests",
 					"authority": "did:web:root.invalid",
 					"collection": ["computer.localnetwork.epk.request"],
 					"action": ["read_self", "create", "delete"]

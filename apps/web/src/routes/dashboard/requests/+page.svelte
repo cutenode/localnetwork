@@ -7,9 +7,9 @@
 	let { data }: PageProps = $props();
 </script>
 
-<svelte:head><title>Requests · Local Network</title></svelte:head>
+<svelte:head><title>Submissions · Local Network</title></svelte:head>
 
 <div class="flex max-w-4xl flex-col gap-8">
-	<SectionHeader level={1} title="Your requests" lede="New projects, claims and changes you've sent to the moderators." />
+	<SectionHeader level={1} title="Your submissions" lede="New projects, claims and changes you've sent to the moderators." />
 	<Card padding="none"><RequestList requests={data.requests} /></Card>
 </div>

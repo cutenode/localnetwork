@@ -44,6 +44,18 @@ impl Default for BrowserArgs {
     }
 }
 
+/// Opens `url` in the browser to sign in when it `opens` and can, saying so on stderr, or says to
+/// open it.
+pub fn open(url: &str, opens: bool) {
+    match opens && locallibrary::opener::open_url(url).is_ok() {
+        true => {
+            eprintln!("Opening your browser to sign in…");
+            eprintln!("{}", dim(format!("If it didn't open: {url}")));
+        }
+        false => eprintln!("Sign in: open this link\n  {url}"),
+    }
+}
+
 /// The browser round trip of a sign-in begun at `url`: opened (or printed), then `finish`ed
 /// once the browser comes back (waiting as long as `browser` says), or `paste`d the address it
 /// ended up on, read from the terminal; `cancel`led when there's no terminal to paste into. The
@@ -56,14 +68,7 @@ pub fn round_trip<T>(
     paste: impl FnOnce(&str) -> locallibrary::Result<T>,
     cancel: impl FnOnce() -> bool,
 ) -> Result<T> {
-    let opened = browser.opens() && locallibrary::opener::open_url(url).is_ok();
-    match opened {
-        true => {
-            eprintln!("Opening your browser to sign in…");
-            eprintln!("{}", dim(format!("If it didn't open: {url}")));
-        }
-        false => eprintln!("Sign in: open this link\n  {url}"),
-    }
+    open(url, browser.opens());
     if !browser.paste {
         eprintln!("{}", dim(format!("Waiting for you to approve (up to {}; Ctrl-C stops)…", span(browser.wait()))));
         return Ok(finish(browser.wait())?);

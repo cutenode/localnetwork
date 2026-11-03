@@ -19,6 +19,7 @@
 pub mod aup;
 pub mod export;
 pub mod index;
+pub mod prefs;
 pub mod report;
 
 pub use loclib_mixid::{Heard, audio, fingerprint, matcher};
@@ -39,6 +40,7 @@ use self::aup::{Label, Project};
 use self::fingerprint::{Analyzer, FRAMES_PER_SEC, FrameLevels, LevelColumns, QUERY, RATE};
 use self::index::{Cache, IndexReport, LibraryIndex};
 use self::matcher::Found;
+use self::prefs::MixPrefs;
 use crate::device::Device;
 use crate::error::IoContext;
 use crate::harmony::Camelot;
@@ -147,6 +149,11 @@ pub struct Play {
     /// (see [`matcher::Found::speed_range`]); `tempo` is then their average.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speed_range: Option<(f64, f64)>,
+    /// Where it was heard at each speed and from which part of the track, in mix order: one line
+    /// for a steady play, more for a ride or a loop or cue jump. Reports made before these were
+    /// kept have none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lines: Vec<PlayLine>,
     /// The track's BPM at that speed.
     pub played_bpm: Option<f64>,
     /// Whether key lock (master tempo) was on: `None` when the speed is too close to 1.0 to tell.
@@ -189,6 +196,72 @@ impl Play {
             None => percent(self.tempo),
         }
     }
+
+    /// The line heard `secs` into the mix: the last to start by then, else the first.
+    fn line_at(&self, secs: f64) -> Option<&PlayLine> {
+        self.lines.get(self.lines.partition_point(|l| l.start <= secs).saturating_sub(1))
+    }
+
+    /// Seconds into the track `secs` into the mix, along its lines (at `tempo` from `track_start`
+    /// in a report without them).
+    pub fn track_secs(&self, secs: f64) -> f64 {
+        match self.line_at(secs) {
+            Some(l) => l.track_start + (secs - l.start) * l.tempo,
+            None => self.track_start + (secs - self.start) * self.tempo,
+        }
+    }
+
+    /// The track's BPM `secs` into the mix: where the pitch fader was ridden, at that line's speed
+    /// (within [`Play::speed_range`], which leaves out speeds only searched at), else `played_bpm`.
+    pub fn bpm_at(&self, secs: f64) -> Option<f64> {
+        let bpm = self.played_bpm?;
+        match (self.speed_range, self.line_at(secs)) {
+            (Some((slowest, fastest)), Some(l)) => Some(self.track.bpm * l.tempo.clamp(slowest, fastest)),
+            _ => Some(bpm),
+        }
+    }
+
+    /// The slowest and fastest BPM it was played at.
+    pub fn bpm_range(&self) -> Option<(f64, f64)> {
+        let bpm = self.played_bpm?;
+        Some(
+            self.speed_range
+                .map_or((bpm, bpm), |(slowest, fastest)| (self.track.bpm * slowest, self.track.bpm * fastest)),
+        )
+    }
+}
+
+/// A stretch of a [`Play`] at one speed, from `start` until the next line's.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PlayLine {
+    /// Seconds into the mix.
+    pub start: f64,
+    /// Seconds into the track at `start`.
+    pub track_start: f64,
+    /// Playback speed: 1.0 as recorded.
+    pub tempo: f64,
+}
+
+/// `f`'s lines ([`Found::fits`]) as [`PlayLine`]s, each taking over where it's the nearest one,
+/// as [`matcher`] traces a play: where two meet, half way across a gap, or where the one before
+/// ends when they overlap. A line inside another is never the nearest.
+fn play_lines(f: &Found) -> Vec<PlayLine> {
+    let mut lines: Vec<PlayLine> = Vec::new();
+    let mut reach = f64::NEG_INFINITY;
+    for fit in &f.fits {
+        if fit.end <= reach {
+            continue;
+        }
+        let from = match lines.is_empty() {
+            true => f.start * FRAMES_PER_SEC,
+            false if fit.start <= reach => reach,
+            false => (reach + fit.start) / 2.0,
+        };
+        reach = fit.end;
+        let track_start = fit.track_frame(from) / FRAMES_PER_SEC;
+        lines.push(PlayLine { start: from / FRAMES_PER_SEC, track_start, tempo: fit.ratio });
+    }
+    lines
 }
 
 /// A playback speed as a signed percentage: 1.023 is `+2.3%`.
@@ -318,18 +391,25 @@ pub struct Kept {
 }
 
 impl Identifier {
-    /// Fingerprint the drive's tracks (from `cache` where possible) and index them.
-    pub fn new(device: &Device, cache: &Cache, ctx: &Ctx<'_>) -> Result<Identifier> {
-        Self::with_library(device, Arc::new(device.library()?), cache, ctx)
+    /// Fingerprint the drive's tracks (from `cache` where possible) and index them, keeping the
+    /// index beside `cache` as `prefs` say.
+    pub fn new(device: &Device, cache: &Cache, prefs: &MixPrefs, ctx: &Ctx<'_>) -> Result<Identifier> {
+        Self::with_library(device, Arc::new(device.library()?), cache, prefs, ctx)
     }
 
     /// [`Identifier::new`], with the drive's library already read.
-    pub fn with_library(device: &Device, library: Arc<Library>, cache: &Cache, ctx: &Ctx<'_>) -> Result<Identifier> {
+    pub fn with_library(
+        device: &Device,
+        library: Arc<Library>,
+        cache: &Cache,
+        prefs: &MixPrefs,
+        ctx: &Ctx<'_>,
+    ) -> Result<Identifier> {
         let (prints, mut report) = index::fingerprint_library(device, &library, cache, ctx)?;
         let slots = prints.iter().enumerate().map(|(slot, f)| (f.key.clone(), slot as u32)).collect();
         ctx.phase_start(Phase::Index, 0, 0);
         let drive = device.id().map_or_else(|| device.name(), |id| id.to_string());
-        let (index, index_kept) = index::library_index(cache, &drive, prints, ctx);
+        let (index, index_kept) = index::library_index(cache, &drive, prints, prefs.index_limit(), ctx);
         ctx.phase_end(Phase::Index);
         report.hashes = index.hashes();
         Ok(Identifier {
@@ -407,6 +487,7 @@ impl Identifier {
             track_end: f.track_end,
             tempo: f.tempo,
             speed_range: f.speed_range(),
+            lines: play_lines(f),
             key_lock: f.key_lock,
             semitones,
             key,
@@ -600,7 +681,9 @@ fn transitions(plays: &[Play]) -> Vec<Transition> {
                 }
                 _ => None,
             };
-            let tempo_change = match (a.played_bpm, b.played_bpm) {
+            // As each was played when the next came in: a ride's average is a speed it may never
+            // have been at then.
+            let tempo_change = match (a.bpm_at(b.start), b.bpm_at(b.start)) {
                 (Some(x), Some(y)) if x > 0.0 => Some(((y / x - 1.0) * 1000.0).round() / 10.0),
                 _ => None,
             };

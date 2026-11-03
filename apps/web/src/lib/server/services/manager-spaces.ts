@@ -1,6 +1,6 @@
 import { COLLECTION } from '#lib/nsid.ts';
 import type { RootRepoClient } from '../atproto/repo-client';
-import { backstageSpace, epkSpace, parsePublicRecordUri } from '../atproto/spaces';
+import { backstageSpace, epkRequestSpace, epkSpace, parsePublicRecordUri } from '../atproto/spaces';
 import type { Core } from '../core';
 import type { IndexedRepo } from '../happyview/indexed';
 import { auditedProjects, openedProjects } from './bookings';
@@ -44,8 +44,9 @@ export class ManagerSpaces {
 	}
 
 	/**
-	 * The project's backstage, once a manager has made one, where managers read and write, and the spaces of the press
-	 * kits the root holds for it, which managers read beside the people granted access, who stay.
+	 * The project's backstage, once a manager has made one, where managers read and write, its request space, once
+	 * someone has asked, which only managers read, and the spaces of the press kits the root holds for it, which managers
+	 * read beside the people granted access, who stay.
 	 */
 	private async pressKitSpaces(projectUri: string): Promise<ManagerSpace[]> {
 		const project = parsePublicRecordUri(projectUri);
@@ -54,8 +55,11 @@ export class ManagerSpaces {
 		const root = await this.core.root();
 		const spaces: ManagerSpace[] = [];
 		const backstage = backstageSpace(root.did, project.rkey);
+		const requests = epkRequestSpace(root.did, project.rkey);
 
 		if (await root.getSpace(backstage)) spaces.push({ uri: backstage, joinable: true, write: true, others: [] });
+
+		if (await root.getSpace(requests)) spaces.push({ uri: requests, joinable: true, write: false, others: [] });
 
 		for (const { uri, value } of await this.indexed.listAll(root.did, COLLECTION.epk, { strict: true })) {
 			if (value.project !== projectUri) continue;

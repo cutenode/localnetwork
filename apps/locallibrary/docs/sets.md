@@ -207,8 +207,12 @@ written with `--html` names it by its file alone, so it plays once the recording
 It works like Shazam for one library. Each track is fingerprinted once (peaks in its spectrum,
 hashed in pairs) and cached in the store (made then, if there's none yet), so a few thousand
 tracks take a couple of minutes the first time and a second after that (`locallibrary mix --drive
-Home` on its own just does this). A file that doesn't decode is reported and remembered, so it
-isn't tried again until it changes. Tracks over 20 minutes (recorded sets, not tracks) are left
+Home` on its own just does this). The drive's index of those prints is kept beside them too, up
+to 512 MiB a drive (about 3,000 tracks); a bigger one is built again each run, which takes a few
+seconds. `locallibrary store index-limit 256` changes the limit (in MiB; `0` keeps none,
+`default` goes back to 512), and `settings export` takes it with your other settings. A file that
+doesn't decode is reported and remembered, so it isn't tried again until it changes. Tracks over
+20 minutes (recorded sets, not tracks) are left
 out, and so is the recording itself when it's on the drive too. The recording is fingerprinted as
 it decodes, and every speed within `--tempo-range` (±16% by default) is tried both with and
 without key lock. Pioneer recorders' files (`REC046`, recorded on an XDJ-RX2) are recognised as

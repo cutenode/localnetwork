@@ -26,7 +26,7 @@ pub struct SetFields {
     /// The day it was played, `2026-10-03`.
     #[serde(default)]
     pub date: Option<String>,
-    /// `club`, `festival`, `radio`, `livestream`, `mix`, or another word.
+    /// `club`, `festival`, `radio`, `livestream`, `studio`, or another word.
     #[serde(default)]
     pub kind: Option<String>,
     #[serde(default)]

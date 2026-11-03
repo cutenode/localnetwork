@@ -91,9 +91,10 @@ pub fn get_record(did: &str, collection: &str, rkey: &str) -> Result<Option<Fetc
     let unreachable =
         |e: net::NetError| Error::Account(one_line(&format!("couldn't reach Local Network's directory ({e})")));
     block_on(async {
-        let http = net::client().timeout(Duration::from_secs(20)).build().map_err(|e| unreachable(e.into()))?;
-        let response = http
+        let response = net::client()
+            .map_err(|e| unreachable(net::NetError::Refused(e)))?
             .get(format!("{base}/xrpc/{GET_RECORDS}"))
+            .timeout(Duration::from_secs(20))
             .query(&[("uris", &uri)])
             .send()
             .await
@@ -183,9 +184,9 @@ fn service_token(root: &Path, aud: &str) -> Result<String> {
 /// whether it has.
 fn ask(website: &str, token: &str) -> std::result::Result<bool, String> {
     block_on(async {
-        let http = net::client().timeout(Duration::from_secs(30)).build().map_err(|e| e.to_string())?;
-        let response = http
+        let response = net::client()?
             .post(format!("{website}/xrpc/{REQUEST_INDEX}"))
+            .timeout(Duration::from_secs(30))
             .bearer_auth(token)
             .send()
             .await

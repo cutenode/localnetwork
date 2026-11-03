@@ -32,7 +32,7 @@ COPY --from=build --chown=node:node /app/apps/web/build ./build
 # scripts/db-backup.ts and what it imports, which plain Node runs from source, for restoring a
 # backup over `railway ssh` (README.md, Backups).
 COPY --from=build --chown=node:node /app/apps/web/scripts/db-backup.ts ./scripts/
-COPY --from=build --chown=node:node /app/apps/web/src/lib/server/logger.ts ./src/lib/server/
+COPY --from=build --chown=node:node /app/apps/web/src/lib/server/logger.ts /app/apps/web/src/lib/server/env-files.ts ./src/lib/server/
 COPY --from=build --chown=node:node /app/apps/web/src/lib/server/backup ./src/lib/server/backup/
 # The database lives on a volume mounted at /data (`-v` locally, a Railway volume in production);
 # Railway refuses a `VOLUME` line. With BACKUP_S3_* set, the app backs it up to a bucket each day.

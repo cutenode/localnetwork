@@ -35,9 +35,10 @@ pub struct Access {
     /// It's the plugin's default for the type: `{account:<type>}` names it.
     #[serde(default)]
     pub default: bool,
-    /// The scopes (by name) a sign-in for it asked the service for, which didn't grant all they
-    /// ask, until it's given them again. Those it needs are in `scopes` too, and still can't be
-    /// used.
+    /// The scopes (by name) the user declined when the plugin asked for them, or a sign-in for it
+    /// asked the service for and the service didn't grant all they ask, until it's given them
+    /// again: the plugin isn't asked about them till then. Those it needs are in `scopes` too, and
+    /// still can't be used.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub declined: Vec<String>,
 }
@@ -47,6 +48,19 @@ pub struct Access {
 pub struct AccountId {
     pub plugin: String,
     pub subject: String,
+}
+
+impl Access {
+    /// Gives it `scopes` besides those it has, remembering that `declined` were declined (and no
+    /// longer any it's given).
+    pub(super) fn more(&mut self, scopes: &[String], declined: &[String]) {
+        let mut all: IndexSet<String> = self.scopes.drain(..).collect();
+        all.extend(scopes.iter().cloned());
+        self.scopes = all.into_iter().collect();
+        let mut still: IndexSet<String> = self.declined.drain(..).filter(|s| !scopes.contains(s)).collect();
+        still.extend(declined.iter().cloned());
+        self.declined = still.into_iter().collect();
+    }
 }
 
 impl AccountId {
@@ -82,14 +96,8 @@ impl Book {
                 self.accesses.len() - 1
             }
         };
-        let a = &mut self.accesses[i];
-        let mut all: IndexSet<String> = a.scopes.drain(..).collect();
-        all.extend(scopes.iter().cloned());
-        a.scopes = all.into_iter().collect();
-        let mut still: IndexSet<String> = a.declined.drain(..).filter(|s| !scopes.contains(s)).collect();
-        still.extend(declined.iter().cloned());
-        a.declined = still.into_iter().collect();
-        a.clone()
+        self.accesses[i].more(scopes, declined);
+        self.accesses[i].clone()
     }
 
     /// The accesses to `k` say what it's shown as now.
@@ -189,9 +197,9 @@ impl Plugins {
 }
 
 /// What resolves a plugin (its `manifest`) having no access, or not enough, to an account of
-/// type `kind` (one it asks for; any it asks for when it doesn't), as its error `said`: signing in
-/// again as the account of its access (see [`sign_in_again`]), signing in to one for it, and
-/// making each `store` keeps of the type its default.
+/// type `kind` (one it asks for; any it asks for when it doesn't), as its error `said`: giving its
+/// access more, or signing in again as its account (see [`more_of`]), signing in to one for it,
+/// and making each `store` keeps of the type its default.
 pub(crate) fn actions(
     host: &Host,
     manifest: &Manifest,
@@ -208,7 +216,7 @@ pub(crate) fn actions(
     let plugin = &manifest.id;
     let mut actions = Vec::new();
     for kind in kinds {
-        actions.extend(sign_in_again(host, manifest, kind, &book, said));
+        actions.extend(more_of(host, manifest, kind, &book, said).into_iter().flatten());
         let begin = json!({ "type": kind, "for": plugin });
         actions.push(Action::call("accounts.sign_in.begin", begin, format!("Sign in to a {kind} account")));
         for k in book.accounts.iter().filter(|k| k.kind == kind) {
@@ -219,19 +227,20 @@ pub(crate) fn actions(
     actions
 }
 
-/// Signing in again as the account of the plugin's (its `manifest`'s) access of type `kind` that
-/// its error `said` it used, else its default, when signing in again can give it more: the
-/// account is signed out (and so has none of the access's scopes), or wasn't granted what one of
-/// them asks, or the error says it `needs` one (a fresh token for it, or one the access hasn't).
-/// Only scopes the manifest asks for are allowed, whatever the error says, and the access and
-/// account are the store's.
-fn sign_in_again(
+/// Giving the plugin (its `manifest`) more of the account of its access of type `kind` that its
+/// error `said` it used, else its default: giving the access the scopes the error says it `needs`
+/// that it hasn't and the account was granted what they ask, and signing in again as the account
+/// when that can give it more: the account is signed out (and so has none of the access's
+/// scopes), or wasn't granted what one of them asks, or the error says it needs another (a fresh
+/// token for it, or one the account wasn't granted). Only scopes the manifest asks for are given
+/// or allowed, whatever the error says, and the access and account are the store's.
+fn more_of(
     host: &Host,
     manifest: &Manifest,
     kind: &str,
     book: &Book,
     said: &Map<String, Value>,
-) -> Option<Action> {
+) -> Option<Vec<Action>> {
     let need = manifest.accounts.iter().find(|n| n.name == kind)?;
     let its = || book.accesses.iter().filter(|a| a.plugin == manifest.id && a.kind == kind);
     let named = said.get("access").and_then(Value::as_str);
@@ -242,25 +251,32 @@ fn sign_in_again(
     let needs: Vec<&str> =
         said.get("needs").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
     let granted = |scope: &Scope| k.is_some_and(|k| scope.asks.iter().all(|asks| k.scopes.contains(asks)));
-    let allowing: Vec<(&String, &Scope)> = need
-        .scopes
-        .iter()
-        .chain(need.optional.iter().flat_map(|o| &o.scopes))
+    let needed = |name: &String| needs.contains(&name.as_str());
+    let givable = |name: &String, scope: &Scope| needed(name) && !a.scopes.contains(name) && granted(scope);
+    let asked = need.scopes.iter().chain(need.optional.iter().flat_map(|o| &o.scopes));
+    type Named<'a> = Vec<(&'a String, &'a Scope)>;
+    let (giving, allowing): (Named, Named) = asked
         .filter_map(|name| Some((name, t.scopes.get(name)?)))
-        .filter(|(name, scope)| needs.contains(&name.as_str()) || a.scopes.contains(name) && !granted(scope))
-        .collect();
-    if allowing.is_empty() {
-        return None;
+        .filter(|(name, scope)| needed(name) || a.scopes.contains(name) && !granted(scope))
+        .partition(|(name, scope)| givable(name, scope));
+    let titles = |of: &Named| of.iter().map(|(_, s)| s.title.as_str()).collect::<Vec<_>>().join(", ");
+    let names = |of: &Named| of.iter().map(|(name, _)| name.to_string()).collect::<Vec<_>>();
+    let mut actions = Vec::new();
+    if !giving.is_empty() {
+        let params = json!({ "plugin": manifest.id, "account": a.account, "scopes": names(&giving) });
+        let label = format!("Allow {} with {}", titles(&giving), a.name);
+        actions.push(Action::call("accounts.access.give", params, label));
     }
-    let titles: Vec<&str> = allowing.iter().map(|(_, scope)| scope.title.as_str()).collect();
-    let label = format!("Sign in again as {}, allowing {}", a.name, titles.join(", "));
-    let scopes: Vec<&String> = allowing.iter().map(|(name, _)| *name).collect();
-    let params = json!({
-        "type": kind,
-        "with": a.account.plugin,
-        "account": a.account.subject,
-        "for": manifest.id,
-        "scopes": scopes,
-    });
-    Some(Action::call("accounts.sign_in.begin", params, label))
+    if !allowing.is_empty() {
+        let label = format!("Sign in again as {}, allowing {}", a.name, titles(&allowing));
+        let params = json!({
+            "type": kind,
+            "with": a.account.plugin,
+            "account": a.account.subject,
+            "for": manifest.id,
+            "scopes": names(&allowing),
+        });
+        actions.push(Action::call("accounts.sign_in.begin", params, label));
+    }
+    Some(actions)
 }

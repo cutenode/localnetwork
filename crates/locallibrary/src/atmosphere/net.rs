@@ -8,6 +8,8 @@
 //! this computer, for testing), are taken as they are, but their redirects too only go to public
 //! https addresses. Answers are read up to [`MAX_BODY`].
 
+use std::sync::OnceLock;
+
 use jacquard_common::SmolStr;
 use jacquard_common::http_client::HttpClient;
 use jacquard_oauth::scopes::Scopes;
@@ -32,15 +34,21 @@ pub(crate) enum NetError {
     Http(#[from] reqwest::Error),
 }
 
-/// A client builder whose redirects only go to public https addresses, at most five.
-pub(crate) fn client() -> reqwest::ClientBuilder {
-    let redirects = reqwest::redirect::Policy::custom(|attempt| {
-        match redirect_refused(attempt.previous().len(), attempt.url().as_str()) {
-            Some(why) => attempt.error(why),
-            None => attempt.follow(),
-        }
+/// The client whose redirects only go to public https addresses, at most five. Built once (see
+/// [`crate::net::unpooled`]), and its requests go out on the shared [`crate::net::runtime`], whose
+/// connections it keeps for later ones. Each request sets its own time limit.
+pub(crate) fn client() -> Result<&'static reqwest::Client, String> {
+    static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+    let made = CLIENT.get_or_init(|| {
+        let redirects = reqwest::redirect::Policy::custom(|attempt| {
+            match redirect_refused(attempt.previous().len(), attempt.url().as_str()) {
+                Some(why) => attempt.error(why),
+                None => attempt.follow(),
+            }
+        });
+        reqwest::Client::builder().redirect(redirects).build().map_err(|e| with_causes(&e))
     });
-    reqwest::Client::builder().redirect(redirects)
+    made.as_ref().map_err(Clone::clone)
 }
 
 /// Why a redirect to `url` isn't followed, if it isn't, after `previous` requests in its chain
@@ -68,13 +76,13 @@ pub(crate) async fn body(mut response: reqwest::Response) -> Result<Vec<u8>, Net
 /// with `public_only` (servers found from someone's handle or DID) only to [`public`] addresses.
 #[derive(Clone)]
 pub(crate) struct Http {
-    client: reqwest::Client,
+    client: &'static reqwest::Client,
     public_only: bool,
 }
 
 impl Http {
     pub(crate) fn new(public_only: bool) -> crate::Result<Http> {
-        let client = client().build().map_err(|e| crate::Error::Account(format!("the network: {e}")))?;
+        let client = client().map_err(|e| crate::Error::Account(format!("the network: {e}")))?;
         Ok(Http { client, public_only })
     }
 }

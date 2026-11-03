@@ -2,6 +2,7 @@ import { USERINPUT } from '#lib/bug-report.ts';
 import { BSKY_FOLLOW, COLLECTION, VERIFICATION } from '#lib/nsid.ts';
 import type { SpaceKind } from '#lib/capabilities.ts';
 import type { NotificationChannel, Viewer } from '#lib/types.ts';
+import { ActorSearch } from './actor-search';
 import { SpaceCredentialManager } from './atproto/credentials';
 import { IdentityResolver } from './atproto/identity';
 import { grantsSpaces, OAuthService } from './atproto/oauth';
@@ -38,6 +39,7 @@ import { DjListings } from './services/dj-listings';
 import { PerformerSearch } from './services/performers';
 import { ProfileService } from './services/profiles';
 import { EpkService } from './services/epk';
+import { moveKitRequests } from './services/epk-request-move';
 import { EpkViews } from './services/epk-views';
 import { FollowService } from './services/follows';
 import { PlannerService } from './services/planner';
@@ -301,6 +303,11 @@ export async function createApp(options: CreateAppOptions) {
 			})
 		: undefined;
 
+	const actorSearch = new ActorSearch({
+		logger: logger.child({ component: 'actor-search' }),
+		provider: config.actorSearch
+	});
+
 	const timers: NodeJS.Timeout[] = [];
 	let bootstrapped = false;
 	/** How the last directory sync went. Stays null when this app doesn't manage HappyView. */
@@ -369,6 +376,7 @@ export async function createApp(options: CreateAppOptions) {
 		bugReports,
 		sessions,
 		geocoder,
+		actorSearch,
 		limits,
 
 		/**
@@ -468,8 +476,9 @@ export async function createApp(options: CreateAppOptions) {
 			await sharedSpaces.reconcile();
 			bootstrapped = true;
 			await syncer.syncAll();
-			// After the sync, so the index has every space's people.
+			// After the sync, so the index has every space's people, and every request still in a press kit's space.
 			await listings.reconcile();
+			await moveKitRequests(core, epks);
 		},
 
 		start() {

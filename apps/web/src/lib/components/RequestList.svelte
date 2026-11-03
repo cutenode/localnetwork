@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { requestTitle, timeAgo } from '#lib/format.ts';
 	import type { RequestView } from '#lib/types.ts';
+	import Button from '#lib/ui/Button.svelte';
+	import EmptyState from './EmptyState.svelte';
 	import StatusPill from './StatusPill.svelte';
 
-	/** The viewer's own requests to staff, newest first, each linking to where they can follow or revise it. */
+	/** The viewer's own submissions to staff, newest first, each linking to where they can follow or revise it. Sits inside a card. */
 	let { requests }: { requests: RequestView[] } = $props();
 </script>
 
@@ -20,5 +22,7 @@
 		{/each}
 	</ul>
 {:else}
-	<p class="m-0 px-5 py-6 text-small text-fg-muted">No requests yet.</p>
+	<EmptyState framed={false} title="No submissions yet" body="New projects, claims and profile changes you send to the moderators show up here.">
+		<Button variant="secondary" size="sm" href="/dashboard/projects/new">List a project</Button>
+	</EmptyState>
 {/if}

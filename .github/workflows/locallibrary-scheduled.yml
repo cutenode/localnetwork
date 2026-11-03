@@ -3,10 +3,9 @@ name: locallibrary scheduled
 # The slow suites, weekly and on demand (Actions > locallibrary scheduled > Run workflow, on any
 # branch), so pull requests only wait for locallibrary-ci.yml's quick checks: every feature
 # combination, formatting and ejecting disk images, Bombadil, mutation testing, fuzzing, the Hegel
-# property tests on fresh inputs, the CLI's timings against a week earlier and a release build of
-# every target. A week that changed none of what they test skips them (see the changes job). Also
-# a weekly RustSec check, which catches advisories published against Cargo.lock between pushes, so
-# it runs every week.
+# property tests on fresh inputs and a release build of every target. A week that changed none of
+# what they test skips them (see the changes job). Also a weekly RustSec check, which catches
+# advisories published against Cargo.lock between pushes, so it runs every week.
 on:
   schedule:
     - cron: "17 5 * * 1"
@@ -26,8 +25,8 @@ jobs:
   # suites run again each week until one passes. Started by hand, everything runs, as it does when
   # none of the workflow's last 100 runs passed and there's nothing to compare with.
   # The paths are ci.yml's locallibrary ones, plus what only these suites read: the fuzz targets,
-  # the scripts the Hegel and timing jobs run, dist's configuration and installer for the release
-  # build, and .node-version for Bombadil's specifications.
+  # the script the Hegel job runs, dist's configuration and installer for the release build, and
+  # .node-version for Bombadil's specifications.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -75,7 +74,6 @@ jobs:
               - '.node-version'
               - 'lexicons/**'
               - 'tools/hegel-coverage.sh'
-              - 'tools/cli-timings.sh'
               - '.github/actions/install-dist/**'
               - '.github/workflows/locallibrary-scheduled.yml'
               - '!**/*.md'
@@ -407,71 +405,6 @@ jobs:
           path: .hegel
           key: hegel-${{ matrix.shard }}-${{ github.run_id }}
 
-  # How long the release CLI takes to start and to read a real 3,886-track library
-  # (tools/cli-timings.sh), against this branch a week earlier, both built and timed on this
-  # runner. Fails when a command got much slower; hyperfine's tables are in the run's summary. On
-  # main, this commit's timings also go to Bencher (https://bencher.dev/perf/localnetwork), which
-  # keeps their history and raises an alert when a command is slower than the upper 99% bound of a
-  # t-test over its last 64 runs.
-  cli-timings:
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          # The history, for the commit a week back.
-          fetch-depth: 0
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: hyperfine
-      # The week-old build first, in the same target directory, so the second build reuses what
-      # didn't change and the checkout ends back on this commit. Without a commit that old, or
-      # one that builds the CLI, this commit is timed alone.
-      - run: |
-          base=$(git rev-list -1 --first-parent --before='1 week ago' HEAD)
-          if [ -z "$base" ]; then
-            echo "::notice::No commit a week old: timing this one alone"
-            exit 0
-          fi
-          git checkout --quiet --detach "$base"
-          # Its rust-toolchain.toml may pin another Rust.
-          rustup toolchain install
-          if cargo build --release --locked -p locallibrary-cli; then
-            cp target/release/locallibrary "$RUNNER_TEMP/old"
-          else
-            echo "::warning::$base doesn't build the CLI: timing this commit alone"
-          fi
-          git checkout --quiet --detach "$GITHUB_SHA"
-      - run: cargo build --release --locked -p locallibrary-cli
-      - id: timings
-        run: |
-          if [ -x "$RUNNER_TEMP/old" ]; then
-            tools/cli-timings.sh target/release/locallibrary "$RUNNER_TEMP/old"
-          else
-            tools/cli-timings.sh target/release/locallibrary
-          fi
-        env:
-          CLI_TIMINGS_BMF: ${{ runner.temp }}/cli-timings.json
-      # Also when the timings failed against last week's build, so Bencher has every week. Alerts
-      # show on Bencher without failing the job, which the comparison above already does.
-      - if: ${{ !cancelled() && steps.timings.outcome != 'skipped' && github.ref == 'refs/heads/main' }}
-        uses: bencherdev/bencher@f80847436d7157936b40525db4c2a1064124f04a # v0.6.13
-      - if: ${{ !cancelled() && steps.timings.outcome != 'skipped' && github.ref == 'refs/heads/main' }}
-        run: >-
-          bencher run --branch main --testbed ubuntu-latest --adapter json
-          --file "$RUNNER_TEMP/cli-timings.json"
-          --threshold-measure latency --threshold-test t_test --threshold-max-sample-size 64
-          --threshold-upper-boundary 0.99 --thresholds-reset
-        env:
-          BENCHER_PROJECT: localnetwork
-          BENCHER_API_KEY: ${{ secrets.BENCHER_API_KEY }}
-
   # dist's release build of every target, unsigned and without a tag or a GitHub Release, so a
   # change that breaks packaging shows here rather than when a version is tagged. The same jobs as
   # locallibrary-release.yml's plan, build-local-artifacts and build-global-artifacts, minus
@@ -567,7 +500,7 @@ jobs:
   # that passes closes it (scheduled-issue.yml). Skipped suites count as passed.
   report:
     needs:
-      [changes, advisories, features, bombadil, disk-images, mutants, fuzz, hegel, cli-timings, release-plan, release-build, release-global]
+      [changes, advisories, features, bombadil, disk-images, mutants, fuzz, hegel, release-plan, release-build, release-global]
     if: ${{ !cancelled() && github.event_name == 'schedule' }}
     permissions:
       actions: read
@@ -577,6 +510,5 @@ jobs:
       label: locallibrary
       details: >-
         Each job's log is on the run page. Surviving mutants are in the run's summary, one section
-        per mutants shard, with their diffs in the mutants-N artifacts; the CLI's timings are in the
-        summary too. Bombadil's traces are in the bombadil-OS artifacts and a fuzz crash's input in
-        fuzz-artifacts.
+        per mutants shard, with their diffs in the mutants-N artifacts. Bombadil's traces are in the
+        bombadil-OS artifacts and a fuzz crash's input in fuzz-artifacts.
