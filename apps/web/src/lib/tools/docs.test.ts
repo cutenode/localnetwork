@@ -24,13 +24,25 @@ describe('loadDocs', () => {
 		expect(docs[4]).toMatchObject({ title: 'docs/untitled.md', markdown: 'No heading.\n' });
 	});
 
+	it("leads with docs/overview.md when there's no README, in the order it links its neighbours", () => {
+		const docs = loadDocs('apps/localthing', {
+			'../../../../localthing/docs/zebra.md': '# Zebra\n\nZ.\n',
+			'../../../../localthing/docs/apple.md': '# Apple\n\nA.\n',
+			'../../../../localthing/docs/mango.md': '# Mango\n\nM.\n',
+			'../../../../localthing/docs/overview.md': '# Overview\n\nSee [Mango](mango.md) and [Zebra](./zebra.md#x).\n'
+		});
+
+		expect(docs.map((doc) => doc.slug)).toEqual(['overview', 'mango', 'zebra', 'apple']);
+		expect(docs[0]).toMatchObject({ title: 'Overview', path: 'apps/localthing/docs/overview.md' });
+	});
+
 	it('refuses files that are neither', () => {
 		expect(() => loadDocs('apps/x', { '../x/src/notes.md': '' })).toThrow("isn't a README");
 	});
 });
 
 describe('the registry', () => {
-	it("bundles each tool's README and docs, but not the generated RPC contract", () => {
+	it("bundles each tool's guides, but not the generated RPC contract", () => {
 		const locallibrary = findTool('locallibrary')!;
 		const slugs = locallibrary.docs.map((doc) => doc.slug);
 		expect(slugs[0]).toBe('readme');
@@ -40,7 +52,16 @@ describe('the registry', () => {
 			path: 'apps/locallibrary/docs/install.md'
 		});
 		expect(locallibrary.docs.some((doc) => doc.path.includes('/rpc/'))).toBe(false);
-		expect(findTool('localtoolbox')?.docs.map((doc) => doc.slug)).toEqual(['readme']);
+		// localtoolbox's README is its developers' spec, so its guides are its docs alone.
+		expect(findTool('localtoolbox')?.docs.map((doc) => doc.slug)).toEqual([
+			'overview',
+			'install',
+			'marks',
+			'downloads',
+			'playlist-to-text',
+			'artists',
+			'saving'
+		]);
 		expect(findTool('nope')).toBeUndefined();
 	});
 

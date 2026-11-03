@@ -66,9 +66,11 @@ export const localtoolbox: Tool = {
 			{ text: 'Click Load unpacked and pick the apps/localtoolbox/dist folder.' }
 		]
 	},
+	status: 'Free. Not in the Chrome Web Store yet: you build it and load it into Chrome.',
+	// Its README is the developers' spec, so the guides are docs/*.md, led by docs/overview.md.
 	docs: loadDocs(
 		'apps/localtoolbox',
-		import.meta.glob<string>('../../../../localtoolbox/{README.md,docs/*.md}', {
+		import.meta.glob<string>('../../../../localtoolbox/docs/*.md', {
 			query: '?raw',
 			import: 'default',
 			eager: true
