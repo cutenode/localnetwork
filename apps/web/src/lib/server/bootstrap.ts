@@ -92,9 +92,15 @@ export async function ensureRootSpaces(core: Core): Promise<string[]> {
 		watched.push(space);
 	}
 
-	// The root's spaces per booking thread, press kit, project backstage, performer, party and venue, which it creates
-	// as they're needed.
-	for (const type of [SPACE_TYPE.booking, SPACE_TYPE.epk, SPACE_TYPE.backstage, ...Object.values(SHARED_SPACE_TYPES)]) {
+	// The root's spaces per booking thread, press kit, project backstage and press kit requests, performer, party and
+	// venue, which it creates as they're needed.
+	for (const type of [
+		SPACE_TYPE.booking,
+		SPACE_TYPE.epk,
+		SPACE_TYPE.backstage,
+		SPACE_TYPE.epkRequests,
+		...Object.values(SHARED_SPACE_TYPES)
+	]) {
 		try {
 			watched.push(...(await root.listSpaces(type)));
 		} catch (error) {

@@ -3,7 +3,7 @@ import { DEFAULT_ACCESS } from '#lib/epk.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { JsonRecord } from '../atproto/repo-client';
 import type { ProjectView } from '#lib/types.ts';
-import { spaceRecordUri } from '../atproto/spaces';
+import { epkRequestSpace, spaceRecordUri } from '../atproto/spaces';
 import { ForbiddenError } from '../core';
 import { createTestServices, ROOT } from '../testing/core';
 import type { BookingRecord } from './bookings';
@@ -302,7 +302,7 @@ describe('ManagerSpaces', () => {
 		});
 	});
 
-	it("keeps a project's backstage and press kit spaces to its managers, leaving the people granted access", async () => {
+	it("keeps a project's backstage, request and press kit spaces to its managers, leaving the people granted access", async () => {
 		const old = await t.viewer(OLD);
 		const draft = await t.epks.drafts.save(old, project, { values: { title: 'Clubs', access: DEFAULT_ACCESS } });
 		const result = await t.epks.drafts.publish(old, project, draft!.rkey);
@@ -310,11 +310,15 @@ describe('ManagerSpaces', () => {
 		if (result.kind !== 'published') throw new Error('the draft conflicts');
 		const { epk } = result;
 		await t.epks.invite(old, { epk, project }, PROMOTER);
+		await t.epks.request(await t.viewer(ADMIN), { epk, project }, {});
 		const backstage = t.epks.drafts.space(project);
+		const requests = epkRequestSpace(ROOT, project.rkey);
 		const access = (space: string) => Object.fromEntries(t.net.spaces.get(space)!.members);
 
 		await setManagers([OLD, NEW]);
 		expect(access(backstage)).toEqual({ [OLD]: { read: true, write: true }, [NEW]: { read: true, write: true } });
+		// Nobody granted a press kit reads its requests.
+		expect(access(requests)).toEqual({ [OLD]: { read: true, write: false }, [NEW]: { read: true, write: false } });
 		expect(access(epk.space)).toEqual({
 			[OLD]: { read: true, write: false },
 			[NEW]: { read: true, write: false },
@@ -323,6 +327,7 @@ describe('ManagerSpaces', () => {
 
 		await setManagers([NEW]);
 		expect(access(backstage)).toEqual({ [NEW]: { read: true, write: true } });
+		expect(access(requests)).toEqual({ [NEW]: { read: true, write: false } });
 		expect(access(epk.space)).toEqual({
 			[NEW]: { read: true, write: false },
 			[PROMOTER]: { read: true, write: false }
