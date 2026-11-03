@@ -241,9 +241,10 @@ describe('MixReport', () => {
 			await expect.element(page.getByRole('heading', { level: 2, name })).toBeInTheDocument();
 		}
 
-		const halogen = page.getByRole('button', { name: /^3\. Halogen by Two Rooms/ });
-		await halogen.first().click();
-		await expect.element(halogen.last()).toHaveAttribute('aria-pressed', 'true');
+		await page.getByRole('button', { name: '3 Halogen by Two Rooms, 10:10 to 16:20' }).click();
+		await expect
+			.element(page.getByRole('button', { name: '3 Halogen Two Rooms', exact: true }))
+			.toHaveAttribute('aria-pressed', 'true');
 		await expect.element(page.getByText(/key clash/).first()).toBeInTheDocument();
 	});
 });
