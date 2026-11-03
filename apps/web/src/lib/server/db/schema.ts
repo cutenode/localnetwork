@@ -104,6 +104,8 @@ export interface RequestTable {
 	decidedAt: string | null;
 	decisionReason: string | null;
 	resultProjectUri: string | null;
+	/** When its requester deleted the root's record of it, after it was decided. The row stays, without the content. */
+	deletedAt: string | null;
 }
 
 export interface StaffRoleTable {
@@ -230,6 +232,8 @@ export interface EpkRequestTable {
 	status: 'pending' | 'approved' | 'declined' | 'withdrawn';
 	createdAt: string;
 	decidedAt: string | null;
+	/** When its asker deleted the root's record of it, after it was answered. The row stays, without role or message. */
+	deletedAt: string | null;
 }
 
 export interface EpkGrantTable {

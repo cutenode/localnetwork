@@ -42,6 +42,7 @@ import { EpkService } from './services/epk';
 import { moveKitRequests } from './services/epk-request-move';
 import { EpkViews } from './services/epk-views';
 import { FollowService } from './services/follows';
+import { HeldRecords } from './services/held-records';
 import { PlannerService } from './services/planner';
 import { ProjectAdmin } from './services/project-admin';
 import { ProjectService } from './services/projects';
@@ -263,6 +264,7 @@ export async function createApp(options: CreateAppOptions) {
 	};
 
 	const spaceJoins = new SpaceJoins(core, sharedSpaces, limits.write);
+	const heldRecords = new HeldRecords(core, requests, projects, limits.write);
 
 	const bugReports = new BugReportService({
 		space: config.userinputSpace,
@@ -372,6 +374,7 @@ export async function createApp(options: CreateAppOptions) {
 		verifications,
 		sharedSpaces,
 		spaceJoins,
+		heldRecords,
 		listings,
 		bugReports,
 		sessions,

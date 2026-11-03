@@ -28,6 +28,6 @@
 		<p>If you turn on email for your inbox, we keep the email address your account's host shares with us, to send it to, and delete it as soon as you turn email off. We send one email with a link to confirm the address is yours, and nothing else until you open it. Each email goes through our email provider, Resend, and has a link that turns email off without signing in.</p>
 		<p>If you turn on Bluesky DMs for your inbox, they come from Local Network's own Bluesky account. Bluesky's chat service carries and keeps them like any other DM, and all we keep is that you turned them on.</p>
 		<h2>Deleting data</h2>
-		<p>Your requests, messages, and audit copies live in your own repo; you can delete them with any atproto tool. Ask an admin to archive a project you manage.</p>
+		<p>Anything you wrote with your own account is in your own repo, where any atproto tool can delete it. What Local Network wrote for you when your account's server couldn't, you can delete from <a href="/dashboard/data">Your data</a>; audit log entries and booking status changes stay, and so do the decisions on requests you delete. Ask an admin to archive a project you manage.</p>
 	</div>
 </div>

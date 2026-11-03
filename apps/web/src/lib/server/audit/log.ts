@@ -62,6 +62,7 @@ export const AUDIT_ACTIONS = [
 	'people.link',
 	'listing.list',
 	'listing.unlist',
+	'record.delete',
 	'system.bootstrap',
 	'system.space'
 ] as const;
