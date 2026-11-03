@@ -71,12 +71,26 @@ fn manifest() -> Manifest {
 /// `doctor --analyze` tests use.
 fn recording(dir: &Path, seed: u32, secs: f64, rate: u32, gain: f32) -> PathBuf {
     let path = dir.join(format!("{seed}.wav"));
-    let pcm: Vec<i32> = resample(&synth(secs, seed), loclib_mixid::fingerprint::RATE, rate)
+    std::fs::write(&path, wav_of(rate, 16, pcm(seed, secs, rate, gain).into_iter())).unwrap();
+    path
+}
+
+/// The 16-bit samples [`recording`] writes to each of its two channels.
+fn pcm(seed: u32, secs: f64, rate: u32, gain: f32) -> Vec<i32> {
+    resample(&synth(secs, seed), loclib_mixid::fingerprint::RATE, rate)
         .iter()
         .map(|s| ((s * gain) as i32).clamp(-32_768, 32_767))
-        .collect();
-    std::fs::write(&path, wav_of(rate, 16, pcm.into_iter())).unwrap();
-    path
+        .collect()
+}
+
+/// The clipped runs loclib-analysis counts in a recording of `pcm`: runs of three or more
+/// full-scale samples in a row (32,767 or more either way, as 16-bit audio decodes), in each of
+/// its two channels. Gain over full scale doesn't make one: a short or quiet stretch can clip
+/// only one or two samples at a time.
+fn clipped_runs(pcm: &[i32]) -> u64 {
+    let full = |s: &i32| s.abs() >= 32_767;
+    let runs = pcm.chunk_by(|a, b| full(a) == full(b)).filter(|run| full(&run[0]) && run.len() >= 3);
+    2 * runs.count() as u64
 }
 
 #[test]
@@ -253,6 +267,7 @@ fn the_analyzers_version_is_loclib_analysis_s() {
 #[hegel::explicit_test_case(seed = 31u32, secs = 5.0f64, rate = 11_025u32, gain = 200_000.0f32)]
 #[hegel::explicit_test_case(seed = 5u32, secs = 3.0f64, rate = 48_000u32, gain = 0.0f32)]
 #[hegel::explicit_test_case(seed = 5u32, secs = 0.05f64, rate = 44_100u32, gain = 12_000.0f32)]
+#[hegel::explicit_test_case(seed = 44_276_527u32, secs = 0.0625f64, rate = 11_025u32, gain = 200_000.0f32)]
 fn fields_are_what_doctor_reports(tc: TestCase) {
     let seed = tc.draw(gs::integers::<u32>());
     let secs = tc.draw(gs::floats::<f64>().min_value(0.05).max_value(8.0));
@@ -288,6 +303,7 @@ fn fields_are_what_doctor_reports(tc: TestCase) {
     assert_eq!(number("integrated_lufs"), l.integrated_lufs);
     assert_eq!(number("true_peak_dbtp"), Some(l.true_peak_dbtp()).filter(|db| db.is_finite()));
     assert_eq!(fields["clipped_runs"], FieldValue::Integer(l.clipped_runs as i64));
+    assert_eq!(l.clipped_runs, clipped_runs(&pcm(seed, secs, rate, gain)), "{fields:?}");
     // A waveform but for silence.
     let columns = a.waveform.unwrap().columns;
     assert_eq!(drawn, columns.iter().any(|c| *c != [0; 3]).then(|| columns.as_flattened().to_vec()));
@@ -296,8 +312,8 @@ fn fields_are_what_doctor_reports(tc: TestCase) {
         let shown: Vec<(&String, &FieldValue)> = fields.iter().filter(|(_, v)| **v != FieldValue::Null).collect();
         assert_eq!(shown, [(&"clipped_runs".to_string(), &FieldValue::Integer(0))]);
     } else if gain > 32_768.0 {
-        // What doctor calls over 0 dBTP and clipped.
-        assert!(number("true_peak_dbtp").unwrap() > 0.0 && l.clipped_runs > 0, "{fields:?}");
+        // What doctor calls over 0 dBTP.
+        assert!(number("true_peak_dbtp").unwrap() > 0.0, "{fields:?}");
     }
 }
 

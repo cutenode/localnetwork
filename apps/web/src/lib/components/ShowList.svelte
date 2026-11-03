@@ -84,9 +84,9 @@
 						{#if show.distanceKm !== undefined}<span aria-hidden="true">·</span><span class="font-mono">{formatDistance(show.distanceKm)}</span>{/if}
 					</p>
 					{#if (record.tickets && !isCancelled(record)) || edit}
-						<p class="m-0 flex flex-wrap items-center gap-x-4 gap-y-1 text-small">
-							{#if record.tickets && !isCancelled(record)}<a class="link inline-flex items-center gap-1" href={webHref(record.tickets)} rel="noopener noreferrer nofollow" target="_blank">Tickets<ExternalLink class="size-3" /></a>{/if}
-							{#if edit}<a class="link inline-flex items-center gap-1" href={edit} aria-label="Edit {record.name}"><Pencil class="size-3" />Edit</a>{/if}
+						<p class="m-0 -ml-2.5 flex flex-wrap items-center gap-1">
+							{#if record.tickets && !isCancelled(record)}<a class="btn-ghost btn-sm gap-1.5 px-2.5" href={webHref(record.tickets)} rel="noopener noreferrer nofollow" target="_blank">Tickets<ExternalLink class="size-3.5" /></a>{/if}
+							{#if edit}<a class="btn-ghost btn-sm gap-1.5 px-2.5" href={edit} aria-label="Edit {record.name}"><Pencil class="size-3.5" />Edit</a>{/if}
 						</p>
 					{/if}
 					{#if edit && edited.includes(show.uri)}

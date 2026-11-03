@@ -93,6 +93,7 @@ pub(crate) fn play(track: Track) -> Play {
         track_end: 190.0,
         tempo: 1.0,
         speed_range: None,
+        lines: Vec::new(),
         played_bpm: Some(128.0),
         key_lock: None,
         semitones: 0.0,
@@ -713,18 +714,26 @@ fn a_page_shows_only_the_cover_the_recording_embeds(tc: TestCase) {
 }
 
 /// The page holds a ridden pitch fader's slowest and fastest speeds, which it shows in place of
-/// the average, and none for a play at one speed.
+/// the average, and the lines its tempo chart steps between; none for a play at one speed.
 #[test]
 fn a_page_holds_the_speeds_a_ridden_fader_went_between() {
+    use crate::mix::PlayLine;
     use loclib_model::test_util::track;
     let mut r = report("set");
+    let lines = vec![
+        PlayLine { start: 10.0, track_start: 0.0, tempo: 1.0 },
+        PlayLine { start: 100.0, track_start: 90.0, tempo: 1.04 },
+    ];
     let ridden =
-        Play { tempo: 1.02, speed_range: Some((1.0, 1.04)), ..play(track(1, "A", "One", "/Contents/one.wav")) };
+        Play { tempo: 1.02, speed_range: Some((1.0, 1.04)), lines, ..play(track(1, "A", "One", "/Contents/one.wav")) };
     r.plays = vec![ridden, play(track(2, "B", "Two", "/Contents/two.wav"))];
     let html = page(&r, None, None, Path::new("/r/x.html"), &ProfilePrefs::default(), true);
     let data = html.split_once(r#"<script id="data" type="application/json">"#).unwrap().1;
     let v: serde_json::Value = serde_json::from_str(data.split_once("</script>").unwrap().0).unwrap();
-    let ranges: Vec<&serde_json::Value> =
-        v["report"]["plays"].as_array().unwrap().iter().map(|p| &p["speed_range"]).collect();
+    let plays = v["report"]["plays"].as_array().unwrap();
+    let ranges: Vec<&serde_json::Value> = plays.iter().map(|p| &p["speed_range"]).collect();
     assert_eq!(ranges, [&serde_json::json!([1.0, 1.04]), &serde_json::Value::Null]);
+    let starts: Vec<serde_json::Value> =
+        plays.iter().map(|p| p["lines"].as_array().unwrap().iter().map(|l| l["start"].clone()).collect()).collect();
+    assert_eq!(starts, [serde_json::json!([10.0, 100.0]), serde_json::json!([])]);
 }

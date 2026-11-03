@@ -89,6 +89,11 @@ export function epkSpace(authority: string, rkey: string): string {
 	return spaceUri(authority, SPACE_TYPE.epk, rkey);
 }
 
+/** Where people ask to see a project's press kits: under the root, with the project record's key. */
+export function epkRequestSpace(rootDid: string, projectRkey: string): string {
+	return spaceUri(rootDid, SPACE_TYPE.epkRequests, projectRkey);
+}
+
 /** A project's backstage: under the root, with the project record's key. */
 export function backstageSpace(rootDid: string, projectRkey: string): string {
 	return spaceUri(rootDid, SPACE_TYPE.backstage, projectRkey);

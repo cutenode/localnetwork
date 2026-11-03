@@ -646,6 +646,13 @@ enum StoreCommand {
     },
     /// Re-hash every stored file
     Verify,
+    /// The largest fingerprint index `mix` keeps for a drive between runs (a bigger one is built
+    /// again each run): show it, or set it
+    IndexLimit {
+        /// The limit in MiB (0 keeps none), or `default` (512)
+        #[arg(value_name = "MIB", value_parser = store_cmd::parse_index_limit)]
+        limit: Option<store_cmd::IndexLimit>,
+    },
     /// Label a snapshot ("before NYE"): shown in `library log`, usable as its id, kept by `store prune`
     Label {
         /// Snapshot id (prefix) or another label
@@ -1430,6 +1437,7 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
                     };
                 }
                 StoreCommand::Copies => return store_cmd::copies(&cli.store, out),
+                StoreCommand::IndexLimit { limit } => return store_cmd::index_limit(&cli.store, limit, out),
                 StoreCommand::Restore { from, libraries, dry_run } => {
                     let options = locallibrary::offsite::RestoreOptions { libraries, dry_run };
                     return store_cmd::restore(&store()?, &from, &options, out, &ctx);

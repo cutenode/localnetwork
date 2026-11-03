@@ -1,6 +1,6 @@
 import { normalizeGenres } from '#lib/taxonomy/genres.ts';
 import { FEE_TIERS, isOneOf, SET_TYPES } from '#lib/taxonomy/options.ts';
-import type { ShowDetails } from '#lib/types.ts';
+import type { Location, ShowDetails } from '#lib/types.ts';
 import { UserError } from '../core';
 import { limit, optionalCurrency, optionalInt, optionalText, text } from '../http';
 
@@ -19,6 +19,33 @@ export function showDate(date: string, time = '20:00'): string {
 	return value.toISOString();
 }
 
+/**
+ * The venue's city from the inquiry form's place picker, when it has one. Its coordinates come only with a city picked
+ * from the search, so the show can be announced from the booking later without asking again.
+ */
+function parseLocation(form: FormData): Location | undefined {
+	const city = limit('City', optionalText(form, 'city', 1000), 100);
+
+	if (!city) return undefined;
+	const country = text(form, 'country', 8).toUpperCase();
+
+	if (!/^[A-Z]{2}$/.test(country))
+		throw new UserError('Use a two-letter country code for the venue (like US, GB, or DE)');
+	const location: Location = { city, country };
+	const region = limit('Region', optionalText(form, 'region', 1000), 100);
+	const latE6 = optionalInt(form, 'latE6', -90_000_000, 90_000_000);
+	const lngE6 = optionalInt(form, 'lngE6', -180_000_000, 180_000_000);
+
+	if (region) location.region = region;
+
+	if (latE6 !== undefined && lngE6 !== undefined) {
+		location.latE6 = latE6;
+		location.lngE6 = lngE6;
+	}
+
+	return location;
+}
+
 /** Parses the inquiry and planner show forms. Each posts only the fields it has. */
 export function parseShow(form: FormData): ShowDetails {
 	const title = limit('Show name', text(form, 'title', 1200), 120);
@@ -26,6 +53,7 @@ export function parseShow(form: FormData): ShowDetails {
 	if (!title) throw new UserError('Give the show a name');
 	const date = text(form, 'date', 10);
 	const venue = limit('Venue', optionalText(form, 'venue', 1200), 120);
+	const location = parseLocation(form);
 	const capacity = optionalInt(form, 'capacity', 1, 1_000_000);
 	const budget = optionalInt(form, 'budgetAmount', 0, 10_000_000);
 	const currency = optionalCurrency(form, 'currency');
@@ -42,6 +70,8 @@ export function parseShow(form: FormData): ShowDetails {
 	if (date) show.date = showDate(date, text(form, 'time', 5) || undefined);
 
 	if (venue) show.venue = venue;
+
+	if (location) show.location = location;
 
 	if (capacity) show.capacity = capacity;
 

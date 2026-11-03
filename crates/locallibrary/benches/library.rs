@@ -1,7 +1,7 @@
 //! Benchmarks of the library operations whose cost grows with the size of a drive's library:
-//! reading it, filtering, sorting and exporting its tracks, comparing two libraries, planning a
-//! merge, a sync, a pack and a check of drives, converting between the two databases, and
-//! planning and applying an edit for each track.
+//! reading it, filtering, sorting and exporting its tracks, comparing two libraries, summarising
+//! its play history, planning a merge, a sync, a pack and a check of drives, converting between
+//! the two databases, and planning and applying an edit for each track.
 //!
 //! The libraries are synthetic (see [`build_pdb`]): rekordbox-pdb's editor writes them from the
 //! empty rekordbox export in the test fixtures, with lookup rows and covers shared the way a real
@@ -20,6 +20,7 @@ use locallibrary::device::Device;
 use locallibrary::edit::{self, Edit, EditOptions, TrackFields};
 use locallibrary::merge::{self, MergeOptions};
 use locallibrary::pack::{self, PackOptions};
+use locallibrary::profile::{self, ProfileOptions, Sources};
 use locallibrary::progress::Ctx;
 use locallibrary::query::{Filter, QueryContext, TrackSelector, parse_sort, sort_tracks};
 use locallibrary::sync::{self, SyncOptions};
@@ -84,6 +85,20 @@ fn build_pdb(first: usize, count: usize) -> Vec<u8> {
         let list = ed.create_playlist(&format!("Playlist {p}"), folder, false).unwrap();
         for k in 0..100 {
             ed.add_to_playlist(list, ids[(p * 50 + k * 7) % count], None).unwrap();
+        }
+    }
+    ed.to_bytes()
+}
+
+/// `pdb` with a history list per 100 of its tracks, each holding 30 of them, as a drive's players
+/// write one per session.
+fn with_history(pdb: Vec<u8>) -> Vec<u8> {
+    let ids: Vec<u32> = library(&pdb).tracks.iter().map(|t| t.id).collect();
+    let mut ed = PdbEditor::from_bytes(pdb);
+    for h in 0..ids.len() / 100 {
+        let list = ed.create_history_playlist(&format!("HISTORY {:03}", h + 1)).unwrap();
+        for k in 0..30 {
+            ed.add_to_history(list, ids[(h * 100 + k * 13) % ids.len()]).unwrap();
         }
     }
     ed.to_bytes()
@@ -186,6 +201,20 @@ fn compare(c: &mut Criterion) {
     let right = library(&build_pdb(2_000, 20_000));
     let mut g = c.benchmark_group("compare");
     g.bench_function("diff/20k", |b| b.iter(|| diff::between(black_box(&left), &right, ("a", "b"), None)));
+    g.finish();
+}
+
+/// The profile `locallibrary profile` shows for a drive's sessions, without reading analysis
+/// files (the drive has none).
+fn play_history(c: &mut Criterion) {
+    let dir = tempfile::tempdir().unwrap();
+    write(&dir.path().join(paths::EXPORT_PDB), &with_history(build_pdb(0, 20_000)));
+    let sources = Sources { drives: vec![Device::open(dir.path()).unwrap()], store: None, libraries: None };
+    let options = ProfileOptions { analysis: false, ..Default::default() };
+    let ctx = Ctx::silent();
+    let mut g = c.benchmark_group("profile");
+    g.sample_size(10);
+    g.bench_function("build/20k", |b| b.iter(|| profile::build(black_box(&sources), &options, &ctx).unwrap()));
     g.finish();
 }
 
@@ -316,5 +345,5 @@ fn edits(c: &mut Criterion) {
     g.finish();
 }
 
-criterion_group!(benches, read, query, compare, drives, write_pdb, convert, edits);
+criterion_group!(benches, read, query, compare, play_history, drives, write_pdb, convert, edits);
 criterion_main!(benches);

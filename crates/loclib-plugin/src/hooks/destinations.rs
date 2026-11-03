@@ -176,7 +176,7 @@ pub struct PublishedSet {
     pub date: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    /// `club`, `festival`, `radio`, `livestream`, `mix` or the DJ's own word.
+    /// `club`, `festival`, `radio`, `livestream`, `studio` (`mix` in older sets) or the DJ's own word.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
