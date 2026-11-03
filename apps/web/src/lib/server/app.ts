@@ -39,6 +39,7 @@ import { DjListings } from './services/dj-listings';
 import { PerformerSearch } from './services/performers';
 import { ProfileService } from './services/profiles';
 import { EpkService } from './services/epk';
+import { moveKitRequests } from './services/epk-request-move';
 import { EpkViews } from './services/epk-views';
 import { FollowService } from './services/follows';
 import { PlannerService } from './services/planner';
@@ -475,8 +476,9 @@ export async function createApp(options: CreateAppOptions) {
 			await sharedSpaces.reconcile();
 			bootstrapped = true;
 			await syncer.syncAll();
-			// After the sync, so the index has every space's people.
+			// After the sync, so the index has every space's people, and every request still in a press kit's space.
 			await listings.reconcile();
+			await moveKitRequests(core, epks);
 		},
 
 		start() {

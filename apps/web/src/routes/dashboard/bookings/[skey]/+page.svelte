@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { ArrowLeft, Megaphone, Send } from '@lucide/svelte';
+	import { invalidateAll } from '$app/navigation';
+	import { ArrowLeft, ChevronDown, Megaphone, Send } from '@lucide/svelte';
+	import { tick } from 'svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
+	import { type BookingAction, bookingActions } from '#lib/bookings.ts';
 	import { formatDateTime, formatShowDate } from '#lib/format.ts';
 	import { BOOKING_STATUSES, FEE_TIERS, labelFor, SET_TYPES } from '#lib/taxonomy/options.ts';
 	import Card from '#lib/ui/Card.svelte';
@@ -25,7 +28,7 @@
 	const details = $derived(
 		[
 			['Date', show?.date ? formatShowDate(show.date, true) : null],
-			['Venue', show?.venue],
+			['Venue', [show?.venue, show?.location?.city].filter(Boolean).join(', ')],
 			['Capacity', show?.capacity?.toLocaleString('en')],
 			['Budget', budget],
 			['Set', set]
@@ -34,12 +37,32 @@
 
 	let draft = $state('');
 
+	const role = $derived(thread.participants.find((p) => p.did === data.viewer?.did)?.role);
+
+	// The promoter can confirm an open inquiry only once a manager has written in the thread, as the server checks.
+	const answered = $derived(data.events.some((event) => thread.participants.some((p) => p.did === event.author.did && p.role === 'manager')));
+
+	const actions = $derived(role ? bookingActions(role, thread.status, answered) : []);
+
+	let changing = $state(false);
+
+	/** The settling change waiting for its confirm. */
+	let pending = $state<BookingAction>();
+
+	let submitting = $state(false);
+
+	/** Which form sent last, so its error shows by it; none without JavaScript, when the error shows up top. */
+	let sent = $state<'status' | 'message'>();
+
+	const formError = $derived(form && 'error' in form ? form.error : undefined);
+
+	/** Read out once a change lands; the pill and the conversation show it. */
+	let announced = $state('');
+
+	let toggle = $state<HTMLButtonElement>();
+
 	// A confirmed booking is a show the project's managers can announce, filled in from these details.
-	const announce = $derived(
-		thread.status === 'confirmed' && thread.project && thread.participants.some((p) => p.did === data.viewer?.did && p.role === 'manager')
-			? `/dashboard/projects/${thread.project.slug}/shows/new?booking=${thread.skey}`
-			: null
-	);
+	const announce = $derived(thread.status === 'confirmed' && thread.project && role === 'manager' ? `/dashboard/projects/${thread.project.slug}/shows/new?booking=${thread.skey}` : null);
 </script>
 
 <svelte:head><title>{thread.title ?? 'Booking'} · Local Network</title></svelte:head>
@@ -56,7 +79,8 @@
 		</p>
 	</header>
 
-	<FormMessage {form} />
+	<!-- Without JavaScript, errors come back here; with it, each shows by its own control. -->
+	{#if !sent}<FormMessage {form} />{/if}
 
 	<Card as="section" padding="none" class="overflow-hidden">
 		<div class="flex flex-col gap-4 p-5">
@@ -77,20 +101,72 @@
 				<div class="flex flex-wrap gap-1.5">{#each show.genres as genre (genre)}<Tag>{genre}</Tag>{/each}</div>
 			{/if}
 		</div>
-		<form method="POST" action="?/status" class="flex flex-col gap-3 border-t border-line bg-sunken p-5" use:enhance>
+		<div class="flex flex-col gap-4 border-t border-line bg-sunken p-5">
 			<div class="flex flex-wrap items-center gap-2.5">
 				<h2 class="m-0 text-small font-medium text-fg-soft">Status</h2>
 				<StatusPill status={thread.status} />
-				{#if announce}<a class="btn-secondary btn-sm ml-auto" href={announce}><Megaphone class="size-4" />Announce this show</a>{/if}
+				<p role="status" class="sr-only">{announced}</p>
+				<div class="ml-auto flex flex-wrap gap-2">
+					{#if announce}<a class="btn-secondary btn-sm" href={announce}><Megaphone class="size-4" />Announce this show</a>{/if}
+					{#if actions.length}
+						<button bind:this={toggle} type="button" class="btn-secondary btn-sm" aria-expanded={changing} aria-controls="change-status" onclick={() => ((changing = !changing), (pending = undefined), (sent = undefined))}>
+							Change status<ChevronDown class={['size-4 transition-transform', changing && 'rotate-180']} aria-hidden="true" />
+						</button>
+					{/if}
+				</div>
 			</div>
-			<div class="flex flex-col gap-2 sm:flex-row">
-				<select name="status" class="input sm:w-44" aria-label="Status">
-					{#each BOOKING_STATUSES as option (option.value)}<option value={option.value} selected={thread.status === option.value}>{option.label}</option>{/each}
-				</select>
-				<input name="note" class="input sm:flex-1" placeholder="Note (optional)" aria-label="Note" maxlength="500" />
-				<button class="btn-secondary">Update status</button>
-			</div>
-		</form>
+			{#if changing && actions.length}
+				<form
+					id="change-status"
+					method="POST"
+					action="?/status"
+					class="flex flex-col gap-3"
+					use:enhance={() => {
+						submitting = true;
+						sent = 'status';
+
+						return async ({ result, update }) => {
+							await update();
+
+							// A refused change usually means the other side moved first: reload to show where the thread is now.
+							if (result.type === 'failure') {
+								await invalidateAll();
+								pending = undefined;
+							}
+
+							submitting = false;
+
+							if (result.type !== 'success') return;
+							announced = `Marked ${labelFor(BOOKING_STATUSES, thread.status).toLowerCase()}`;
+							changing = false;
+							pending = undefined;
+							await tick();
+							toggle?.focus();
+						};
+					}}
+				>
+					<input name="note" class="input" placeholder="Note for the thread (optional)" aria-label="Note" maxlength="500" />
+					{#if pending?.settles}
+						<p class="m-0 text-small text-fg">{pending.settles.ask}</p>
+						<div class="flex flex-wrap gap-2">
+							<button name="status" value={pending.status} class={[pending.status === 'confirmed' ? 'btn-primary' : 'btn-danger', 'btn-sm']} disabled={submitting}>{pending.label}</button>
+							<button type="button" class="btn-ghost btn-sm" onclick={() => (pending = undefined)} disabled={submitting}>Back</button>
+						</div>
+					{:else}
+						<div class="flex flex-wrap gap-2">
+							{#each actions as action (action.label)}
+								{#if action.settles}
+									<button type="button" class={[action.status === 'confirmed' ? 'btn-primary' : 'btn-secondary', 'btn-sm']} onclick={() => (pending = action)}>{action.label}</button>
+								{:else}
+									<button name="status" value={action.status} class="btn-secondary btn-sm" disabled={submitting}>{action.label}</button>
+								{/if}
+							{/each}
+						</div>
+					{/if}
+				</form>
+			{/if}
+			{#if sent === 'status' && formError}<p role="alert" class="notice notice-error m-0">{formError}</p>{/if}
+		</div>
 	</Card>
 
 	<section aria-labelledby="conversation" class="flex flex-col gap-4">
@@ -112,12 +188,24 @@
 				{/if}
 			{/each}
 		</ol>
-		<form method="POST" action="?/message" class="card flex items-end gap-2 p-2" use:enhance={() => async ({ update, result }) => { await update(); if (result.type === 'success') draft = ''; }}>
+		{#if sent === 'message' && formError}<p role="alert" class="notice notice-error m-0">{formError}</p>{/if}
+		<form
+			method="POST"
+			action="?/message"
+			class="card flex items-end gap-2 p-2"
+			use:enhance={() => {
+				sent = 'message';
+
+				return async ({ update, result }) => {
+					await update();
+
+					if (result.type === 'success') draft = '';
+				};
+			}}
+		>
 			<label class="sr-only" for="text">Message</label>
 			<textarea id="text" name="text" class="input max-h-60 min-h-11 flex-1 field-sizing-content resize-none border-transparent bg-transparent py-2.5" placeholder="Write a message…" bind:value={draft} required maxlength="2000"></textarea>
 			<button class="btn-primary px-3.5" aria-label="Send"><Send class="size-4" /><span class="max-sm:hidden">Send</span></button>
 		</form>
 	</section>
-
-	<p class="m-0 font-mono text-caption break-all text-fg-subtle">{thread.space}</p>
 </div>

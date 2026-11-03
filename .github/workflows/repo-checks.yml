@@ -48,6 +48,8 @@ jobs:
       - run: tools/policy.sh
       - run: pnpm exec ast-grep test --skip-snapshot-tests
       - run: pnpm exec ast-grep scan
+      - name: Tools tests
+        run: pnpm test:tools
 
   # Weekly too: `breaking` compares with the published lexicons, which change outside the repo.
   # Scheduled and manual runs have no inputs. (An empty input compares equal to false, so

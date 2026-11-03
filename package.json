@@ -14,16 +14,20 @@
 		"test": "pnpm -r test",
 		"knip": "pnpm -r knip",
 		"verify": "pnpm lexicons:format --check && pnpm -r verify",
-		"atstore": "pnpm -C packages/atstore assets"
+		"atstore": "pnpm -C packages/atstore assets",
+		"test:tools": "vitest run --coverage"
 	},
 	"devDependencies": {
 		"@ast-grep/cli": "^0.51.0",
 		"@oxlint/plugins": "1.86.0",
+		"@stylistic/eslint-plugin": "^5.10.0",
+		"@vitest/coverage-v8": "^5.0.5",
 		"lefthook": "^2.1.16",
 		"oxfmt": "^0.71.0",
 		"oxlint": "1.86.0",
 		"railway": "^3.16.0",
-		"typescript": "^6.0.3"
+		"typescript": "^6.0.3",
+		"vitest": "^5.0.5"
 	},
 	"engines": {
 		"node": ">=24.12"

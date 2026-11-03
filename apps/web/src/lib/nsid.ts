@@ -100,6 +100,7 @@ export const SPACE_TYPE = {
 	booking: `${NS}.space.booking`,
 	planner: `${NS}.space.planner`,
 	epk: `${NS}.space.epk`,
+	epkRequests: `${NS}.space.epkRequests`,
 	backstage: `${NS}.space.backstage`,
 	performer: `${NS}.space.performer`,
 	party: `${NS}.space.party`,

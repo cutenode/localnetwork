@@ -109,12 +109,6 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
   `rekordbox-pdb` with [cargo-mutants](https://mutants.rs) (settings in `.cargo/mutants.toml`), in
   shards. Missed mutants don't fail it: the run's summary lists them, and each shard's
   `mutants.out` artifact has their diffs. `cargo mutants -p loclib-progress` runs it locally;
-- the release CLI's timings with [hyperfine](https://github.com/sharkdp/hyperfine) against the
-  same branch a week earlier (`tools/cli-timings.sh NEW [OLD]` runs them locally), failing when a
-  command's fastest run is more than 25% (and 3 ms) slower. On `main`, each run's timings also go
-  to [Bencher](https://bencher.dev/perf/localnetwork), which charts them over time and raises an
-  alert when one is slower than its last 64 runs suggest (it needs the `BENCHER_API_KEY` secret,
-  a project key for the `localnetwork` project);
 - dist's release build of every target, unsigned and without a tag (see Releasing);
 - the fuzz targets, five minutes each (see Fuzzing);
 - the Hegel property tests on fresh inputs, 40 minutes a shard (see Property-based tests);
@@ -219,9 +213,9 @@ cargo bench -p loclib-mixid --features test-util --bench mixid -- matcher/find  
 
 Crates with work that grows with a library or a recording have
 [criterion](https://bheisler.github.io/criterion.rs/book/) benchmarks in their `benches/`:
-`locallibrary` (reading, querying, comparing, scanning, writing and converting libraries of 5k to
-20k made-up tracks), `loclib-mixid` (fingerprinting, resampling, indexing and finding tracks in a
-mix), `loclib-model`, `loclib-tracklist` and `loclib-interop` (over
+`locallibrary` (reading, querying, comparing, profiling, scanning, writing and converting libraries
+of 5k to 20k made-up tracks), `loclib-mixid` (fingerprinting, resampling, indexing and finding
+tracks in a mix), `loclib-model`, `loclib-tracklist` and `loclib-interop` (over
 `loclib_model::test_util::library`), `loclib-waveform` (a frame of each widget) and
 `loclib-analysis`. `loclib-mixid` and `loclib-model` need `--features test-util`. The first
 `library` run builds its drives under `target/`, which takes about a minute. Compare on a quiet

@@ -404,6 +404,8 @@ export interface NotificationDeliveryTable {
 
 export type RequestRow = Selectable<RequestTable>;
 
+export type EpkRequestRow = Selectable<EpkRequestTable>;
+
 export type AuditEntryRow = Selectable<AuditEntryTable>;
 
 export type AccountRow = Selectable<AccountTable>;

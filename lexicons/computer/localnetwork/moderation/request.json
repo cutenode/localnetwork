@@ -5,7 +5,7 @@
 		"main": {
 			"type": "record",
 			"key": "tid",
-			"description": "A request to create, claim, or change a project, or to list a DJ in the directory. Written by the requesting account into its own repo in the moderation space; only staff (through the app) can see it.",
+			"description": "A request to create, claim, or change a project, or to list a DJ in the directory. Written by the requesting account into its own repo in the moderation space; only staff, who are members of that space, can read it.",
 			"record": {
 				"type": "object",
 				"required": ["kind", "createdAt"],

@@ -39,11 +39,11 @@ cargo nextest run --workspace
 
 `pnpm dev` runs the website on a local network: a PLC directory and a PDS from `@atproto/dev-env`, HappyView in Docker (so Docker or OrbStack has to be running), and demo accounts, all from `apps/web/scripts/dev-network.ts`, which writes `apps/web/.env.local`. The extension's `dev` is a watch build into `apps/localtoolbox/dist/`.
 
-`lefthook.yml` formats and lints staged files before a commit and runs each app's type check and tests before a push. Each TypeScript app and the lexicons have jobs of their own; Rust has none. Each hook installs dependencies once before its jobs, and runs them under the Node in `.node-version` when fnm is installed (`tools/lefthook-rc.sh`).
+`lefthook.yml` formats and lints staged files before a commit and runs each app's type check and tests before a push. Each TypeScript app and the lexicons have jobs of their own; Rust has none, but the ast-grep job scans staged Rust, TypeScript and Svelte files. Each hook installs dependencies once before its jobs, and runs them under the Node in `.node-version` when fnm is installed (`tools/lefthook-rc.sh`).
 
 Lint and format:
 
-- TypeScript: [oxlint](https://oxc.rs) with type-aware rules and the vendored anti-slop plugin (`tools/oxlint/`, see its `UPSTREAM.md`), configured in the root `.oxlintrc.json`, which each app's own `.oxlintrc.json` extends. [oxfmt](https://oxc.rs) formats with the root `.oxfmtrc.json` (tabs, single quotes, 120 columns). `oxlint` and `@oxlint/plugins` are pinned to the same version: upgrade them together.
+- TypeScript: [oxlint](https://oxc.rs) with type-aware rules, the vendored anti-slop plugin (`tools/oxlint/`, see its `UPSTREAM.md`; `pnpm test:tools` runs its rules' tests) and `@stylistic/eslint-plugin`'s `padding-line-between-statements` for blank lines, configured in the root `.oxlintrc.json`, which each app's own `.oxlintrc.json` extends. [oxfmt](https://oxc.rs) formats with the root `.oxfmtrc.json` (tabs, single quotes, 120 columns). `oxlint` and `@oxlint/plugins` are pinned to the same version: upgrade them together.
 - Rust: `cargo fmt` with `rustfmt.toml`, and `cargo clippy -- -D warnings`. `clippy.toml` bans `BTreeMap` (use `indexmap::IndexMap`), and the workspace uses `rustc-hash` for hash maps. Each member has `[lints] workspace = true`, so the lints in the root `Cargo.toml` apply to it.
 - `knip` finds unused files, exports and dependencies in each TypeScript app (`knip.json`).
 
@@ -73,7 +73,7 @@ Pull requests run on Linux. The plan's 5 macOS runners can't keep up with every 
 
 The "Protect Main" ruleset requires "CI passed", which passes when it's skipped, so a tool's checks never block a pull request that doesn't touch it. The ruleset is `.github/rulesets/protect-main.json`: an admin applies it with `tools/ruleset.sh apply` once the pull request that changes it merges, and the Repo checks workflow fails on `main` while GitHub's copy differs. A pull request that renames or drops a required check is the exception: GitHub won't merge it while the old name is required, so the admin applies the file from its branch first, and open pull requests then merge `main` to report the new name. It merges through a merge queue, which builds at most 2 groups of up to 5 pull requests at once, and requires CI passed and code scanning, which is `codeql.yml`'s CodeQL analysis of the workflows, the TypeScript and the Rust, leaving out the Rust tests (`.github/codeql/codeql-config.yml`). `ci.yml` calls it with every language on every pull request, group and push, whatever changed: the rule holds a commit until it has a result in each category `main` has. A language whose code, CodeQL config and `codeql.yml` didn't change uploads `main`'s analysis of the commit it was diffed against for this commit, where `main` has one, rather than analysing again.
 
-Changes reach `main` only through a pull request, merged as a merge commit. Each one needs an approval from a code owner (`.github/CODEOWNERS`) given after its last push, and a new push dismisses earlier approvals, so an agent's pull request waits for a person to approve it.
+Changes reach `main` only through a pull request, merged as a merge commit. Each one needs an approval from a code owner (`.github/CODEOWNERS`) given after its last push, and a new push dismisses earlier approvals, so every pull request waits for a code owner to approve its latest push.
 
 Workflow conventions, which `workflow-lint.yml` checks with [actionlint](https://github.com/rhysd/actionlint) and [zizmor](https://zizmor.sh):
 
