@@ -150,8 +150,8 @@
 		<div class="relative overflow-hidden">
 			<Waveform {heights} colors={fills} align="bottom" label="{tool}'s hot cues on a track's waveform" class="h-20 sm:h-32" />
 			{#if look === 'soundcloud'}
-				<!-- The part played up to the picked cue, revealed by clipping alone, so nothing reflows. -->
-				<div aria-hidden="true" class="absolute inset-0 transition-[clip-path] duration-300 ease-out motion-reduce:transition-none" style:clip-path="inset(0 {100 - points[selected]}% 0 0)">
+				<!-- The part played up to the picked cue, this look's playhead: revealed by clipping alone, so nothing reflows. -->
+				<div aria-hidden="true" data-testid="playhead" class="absolute inset-0 transition-[clip-path] duration-300 ease-out motion-reduce:transition-none" style:clip-path="inset(0 {100 - points[selected]}% 0 0)">
 					<Waveform {heights} colors={played} align="bottom" class="h-20 sm:h-32" />
 				</div>
 				{#each points as point, i (i)}
