@@ -5,18 +5,19 @@
 //! (see [`Plugin::whoami`]), and the same account signed in again through the same account plugin
 //! is changed in place, keeping its refresh token when the service answers none.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
-use indexmap::IndexSet;
-use loclib_plugin::{AccountType, SUBJECT_PLACEHOLDER};
+use indexmap::{IndexMap, IndexSet};
+use loclib_plugin::{AccountType, SUBJECT_PLACEHOLDER, SignIn};
 use oauth2::TokenResponse;
 use schemars::JsonSchema;
 use serde::Serialize;
 
 use super::access::Access;
 use super::kept::{self, Kept};
-use super::{Pending, Tokens, come_back, pasted};
+use super::keys::Credential;
+use super::{Pending, Tokens, Waiting, come_back, pasted};
 use crate::callback::CallbackQuery;
 use crate::error::Reason;
 use crate::keychain::Storage;
@@ -72,20 +73,31 @@ pub struct Accounts {
     pub accesses: Vec<Access>,
 }
 
-/// A sign-in to an account of a type, waiting for the browser.
+/// A sign-in to an account of a type, waiting for the browser, or for the user's keys.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct AccountSignIn {
-    /// Finishes it: [`Plugins::finish_account_sign_in`],
-    /// [`Plugins::finish_account_sign_in_with_url`].
+    /// Finishes it: [`Plugins::finish_account_sign_in`] or
+    /// [`Plugins::finish_account_sign_in_with_url`], or with keys
+    /// [`Plugins::finish_account_sign_in_with_keys`].
     pub id: String,
     #[serde(rename = "type")]
     pub kind: String,
+    /// What the account type is called (`Mixcloud`), from its plugin's manifest.
+    pub title: String,
     /// The account plugin signing in.
     pub plugin: String,
-    /// Open this in the browser.
+    /// Open this in the browser: the service's sign-in page, or where the user gets the keys.
     pub url: String,
-    /// Where the browser comes back to.
-    pub redirect_uri: String,
+    /// Where the browser comes back to, when it signs in there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redirect_uri: Option<String>,
+    /// The keys to enter, by name, and what each is called, when it's signed in to with keys.
+    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    pub keys: IndexMap<String, String>,
+    /// The user names the account, since its type's keys don't say who they're for: the sign-in
+    /// finishes with its name besides the keys.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub named: bool,
 }
 
 /// What signing in to an account of a type did.
@@ -118,9 +130,9 @@ pub struct AccountSignedOut {
 
 /// What a sign-in to an account of a type asks for (see [`Plugins::begin_account_sign_in`]).
 pub(crate) struct Asked {
-    kind: String,
+    pub(super) kind: String,
     /// The account plugin signing in.
-    with: String,
+    pub(super) with: String,
     /// The plugin it's for, the type's scopes (by name) it's given of the account as far as the
     /// service grants them, and those it needs, which it's given whatever the service grants.
     for_plugin: Option<(String, Vec<String>, Vec<String>)>,
@@ -151,7 +163,7 @@ pub(super) fn not_kept(with: &str, subject: &str) -> Error {
 }
 
 /// The account `subject` that `with` signed in, of those `store` keeps.
-fn find(store: &Store, with: &str, subject: &str) -> Result<Kept> {
+pub(super) fn find(store: &Store, with: &str, subject: &str) -> Result<Kept> {
     kept::read(store)?.account(with, subject).cloned().ok_or_else(|| not_kept(with, subject))
 }
 
@@ -188,12 +200,19 @@ impl Plugin {
         self.token(store, subject, Some(refused))
     }
 
-    /// [`Plugin::account_token`], or with `refused`, [`Plugin::account_token_refused`].
+    /// [`Plugin::account_token`], or with `refused`, [`Plugin::account_token_refused`]. An account
+    /// signed in to with keys has no token, and is never signed out here.
     fn token(&self, store: &Store, subject: &str, refused: Option<&str>) -> Result<String> {
         let with = &self.manifest.id;
         let _one = kept::hold(store, with, subject)?;
         let k = find(store, with, subject)?;
         let t = self.account_type(&k.kind)?;
+        if t.kind == SignIn::Keys {
+            return Err(Error::Account(format!(
+                "the {} account {} is signed in with keys, not a token",
+                t.title, k.name
+            )));
+        }
         let signed_out = || {
             let why = format!("the {} account {} is signed out: sign in again", t.title, k.name);
             Error::Account(why).because(Reason::SessionEnded)
@@ -320,7 +339,9 @@ impl Plugins {
     /// given access to those, and to those of `scopes` it can do without that the service grants
     /// (see [`Plugins::give_access`]). Finished with [`Plugins::finish_account_sign_in`] (or
     /// [`Plugins::finish_account_sign_in_with_url`], when the browser runs on another computer),
-    /// within a quarter of an hour.
+    /// within a quarter of an hour. A type signed in to with keys asks the service for nothing:
+    /// the address is where the user gets the keys, and the sign-in finishes with them
+    /// ([`Plugins::finish_account_sign_in_with_keys`]), listening for no browser.
     pub fn begin_account_sign_in(
         &self,
         kind: &str,
@@ -344,7 +365,7 @@ impl Plugins {
     /// Finishes sign-in `id` with the address the browser ended up on, pasted from another
     /// computer.
     pub fn finish_account_sign_in_with_url(&self, id: &str, url: &str) -> Result<AccountSignedIn> {
-        let p = self.host.pending(id)?;
+        let p = self.host.browser_pending(id)?;
         let query = pasted(&p, url)?;
         self.slot(&p.asked.with)?.signed_in(p, &query)
     }
@@ -353,7 +374,7 @@ impl Plugins {
 impl Host {
     /// [`Plugins::finish_account_sign_in`].
     pub(super) fn finish_sign_in(&self, id: &str, timeout: Duration, ctx: &Ctx<'_>) -> Result<AccountSignedIn> {
-        let p = self.pending(id)?;
+        let p = self.browser_pending(id)?;
         let with =
             self.account_plugin(&p.asked.with).ok_or_else(|| Error::NotFound(format!("plugin {:?}", p.asked.with)))?;
         come_back(p, timeout, ctx, |p, query| with.signed_in(p, query), |s| s.account.name.clone())
@@ -412,24 +433,28 @@ impl Plugin {
             account: account.map(String::from),
             scopes: scopes.clone(),
         };
+        if t.kind == SignIn::Keys {
+            let id =
+                self.host.wait(Waiting::Keys { asked: Box::new(asked), store: store.clone(), started: Instant::now() });
+            let keys = t.keys.iter().map(|(name, key)| (name.clone(), key.title.clone())).collect();
+            let (url, named) = (t.keys_url.clone().unwrap_or_default(), t.whoami.is_none());
+            let (kind, title, plugin) = (kind.into(), t.title.clone(), with.into());
+            return Ok(AccountSignIn { id, kind, title, plugin, url, redirect_uri: None, keys, named });
+        }
         let (id, url, redirect_uri) = self.begin(t, &scopes, &params, asked, store)?;
-        Ok(AccountSignIn { id, kind: kind.into(), plugin: with.into(), url, redirect_uri })
+        let (title, redirect_uri, keys) = (t.title.clone(), Some(redirect_uri), IndexMap::new());
+        Ok(AccountSignIn { id, kind: kind.into(), title, plugin: with.into(), url, redirect_uri, keys, named: false })
     }
 
     /// The account `p` asked for, signed in through it from what the browser came back to `p`
     /// with.
     fn signed_in(&self, p: Pending, query: &CallbackQuery) -> Result<AccountSignedIn> {
-        let asked = p.asked;
+        let mut asked = p.asked;
         let t = self.account_type(&asked.kind)?;
         let answer = self.traded(t, &p.client, p.verifier, query)?;
         let access_token = answer.access_token().secret();
         self.net.saw(access_token);
-        let (subject, name) = self.whoami(t, access_token)?;
-        let instead_of = asked.account.filter(|a| *a != subject);
-        // The plugin it's for is given the scopes it needs whatever the service grants (a request
-        // through one not granted says to sign in again), those it can do without only when
-        // granted, and nothing when the browser signed in to another account than asked.
-        let for_plugin = asked.for_plugin.filter(|_| instead_of.is_none());
+        let (subject, name) = self.whoami(t, &Credential::Token(access_token.clone()))?;
         let (store, storage) = (&p.store, self.host.options.secrets);
         let _one = kept::hold(store, &asked.with, &subject)?;
         // Signed in again, it keeps the refresh token it had when the service answers none. One
@@ -439,9 +464,32 @@ impl Plugin {
         let mut tokens = Tokens::from(&answer, had);
         // A service that doesn't say what it granted granted what it was asked (RFC 6749 5.1).
         if answer.scopes().is_none() {
-            tokens.scopes = asked.scopes;
+            tokens.scopes = std::mem::take(&mut asked.scopes);
         }
         self.seen(&tokens);
+        self.keep(asked, store, subject, name, |k| {
+            k.granted(&tokens);
+            kept::keep(storage, store, k, Some(&tokens))
+        })
+    }
+
+    /// Keeps the account `subject`, shown as `name`, that `asked` signed in to in `store`, with
+    /// what `keep` keeps of its sign-in (the caller holding [`kept::hold`]): changed in place when
+    /// it's kept already, and the plugin it was for given access to it.
+    pub(super) fn keep(
+        &self,
+        asked: Asked,
+        store: &Store,
+        subject: String,
+        name: String,
+        keep: impl FnOnce(&mut Kept) -> Result<()>,
+    ) -> Result<AccountSignedIn> {
+        let t = self.account_type(&asked.kind)?;
+        let instead_of = asked.account.filter(|a| *a != subject);
+        // The plugin it's for is given the scopes it needs whatever the service grants (a request
+        // through one not granted says to sign in again), those it can do without only when
+        // granted, and nothing when the browser signed in to another account than asked.
+        let for_plugin = asked.for_plugin.filter(|_| instead_of.is_none());
         let (account, access, declined) = kept::update(store, |book| {
             let all = &mut book.accounts;
             let i = match all.iter().position(|k| k.is(&asked.with, &subject)) {
@@ -453,8 +501,7 @@ impl Plugin {
             };
             let k = &mut all[i];
             (k.kind, k.name) = (asked.kind, name);
-            k.granted(&tokens);
-            kept::keep(storage, store, k, Some(&tokens))?;
+            keep(k)?;
             let k = k.clone();
             book.renamed(&k);
             let Some((plugin, scopes, needs)) = &for_plugin else { return Ok((listed(k, true), None, Vec::new())) };
@@ -479,8 +526,9 @@ impl Plugins {
 
     /// Signs out of the account `subject` that `with` signed in to in `store`: it's forgotten here,
     /// and its tokens are revoked at the service when its type has a revocation endpoint (as far
-    /// as it answers: they're forgotten here all the same). Plugins keep their accesses to it,
-    /// which have no token until it's signed in again.
+    /// as it answers: they're forgotten here all the same). An account signed in to with keys has
+    /// nothing to revoke: they're forgotten. Plugins keep their accesses to it, which have no
+    /// token until it's signed in again.
     pub fn sign_out_account(&self, with: &str, subject: &str, store: &Store) -> Result<AccountSignedOut> {
         let slot = self.slot(with)?;
         let _one = kept::hold(store, with, subject)?;
@@ -489,7 +537,8 @@ impl Plugins {
         let storage = self.host.options.secrets;
         let kept_secret = secret(storage, &kept::place(store, with, subject))?;
         // One that can't be read is forgotten all the same, with nothing to revoke it with.
-        let tokens = kept_secret.as_deref().and_then(|s| slot.read_tokens(&k.name, s).ok());
+        let tokens = kept_secret.as_deref().filter(|_| t.kind == SignIn::Oauth);
+        let tokens = tokens.and_then(|s| slot.read_tokens(&k.name, s).ok());
         let revoked = tokens.is_some_and(|tokens| slot.revoke(t, &tokens));
         forget(store, storage, &k)?;
         Ok(AccountSignedOut { account: listed(k, kept_secret.is_some()), revoked })

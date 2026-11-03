@@ -4,10 +4,10 @@
 	"defs": {
 		"main": {
 			"type": "space",
-			"description": "The private part of one press kit, owned by the Local Network root account, which alone writes its content and grants; only its members (the project's managers and the people granted access) can read it. Requests to see it go into the project's computer.localnetwork.space.epkRequests space, which the people granted access can't read. Spaces made before the root held press kits are owned by the manager who made them, and may still hold requests, until that manager's next visit moves them.",
+			"description": "The private part of one press kit, owned by the Local Network root account, which alone writes its content; only its members (the project's managers and the people granted access) can read it. Requests to see it, and the root's grant records, go into the project's computer.localnetwork.space.epkRequests space, which the people granted access can't read. Spaces made before that may still hold computer.localnetwork.epk.grant records until they move: the root's at its next start, and those owned by the manager who made the press kit, with any requests, on that manager's next visit.",
 			"key": "tid",
 			"name": "Local Network press kit",
-			"collections": ["computer.localnetwork.epk.content", "computer.localnetwork.epk.grant"]
+			"collections": ["computer.localnetwork.epk.content"]
 		}
 	}
 }

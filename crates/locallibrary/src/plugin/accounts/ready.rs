@@ -7,6 +7,7 @@
 use std::time::Duration;
 
 use chrono::Utc;
+use loclib_plugin::a_or_an;
 use serde_json::{Map, json};
 
 use super::access::{Access, actions};
@@ -101,7 +102,7 @@ impl Plugin {
         let name = &self.manifest.name;
         let (reason, why, about) = match &u {
             Unready::NoAccess(kind) => {
-                (Reason::NoAccess, format!("the {name} plugin has no access to a {kind} account"), None)
+                (Reason::NoAccess, format!("the {name} plugin has no access to {} account", a_or_an(kind)), None)
             }
             Unready::SignedOut(a) => {
                 let why = format!("the {} account {} is signed out: sign in again", a.kind, a.name);

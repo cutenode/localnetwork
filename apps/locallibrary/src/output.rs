@@ -1,4 +1,5 @@
-//! Terminal output: JSON or human-readable rendering, progress bars, confirmation prompts.
+//! Terminal output: JSON or human-readable rendering, progress bars, confirmation and entry
+//! prompts.
 
 use std::borrow::Cow;
 use std::io::{IsTerminal, Write};
@@ -483,6 +484,25 @@ pub fn clones<P, R>(plan: &Planned<P, R>) {
     for why in plan.clones.iter().filter_map(|c| c.left_alone.as_ref()) {
         warn(why);
     }
+}
+
+/// What the user enters for `what` on stdin: typed in a terminal after a prompt on stderr (without
+/// being shown when `hidden`), else its next line, empty when there's none.
+pub fn read_entry(what: &str, hidden: bool) -> std::io::Result<String> {
+    use std::io::BufRead;
+    let terminal = std::io::stdin().is_terminal();
+    if terminal {
+        eprint!("{what}: ");
+    }
+    let entered = match terminal && hidden {
+        true => console::Term::stderr().read_secure_line()?,
+        false => {
+            let mut line = String::new();
+            std::io::stdin().lock().read_line(&mut line)?;
+            line
+        }
+    };
+    Ok(entered.trim_end_matches(['\r', '\n']).into())
 }
 
 pub fn heading(s: &str) {

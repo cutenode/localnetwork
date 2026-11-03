@@ -1,5 +1,6 @@
 -- Two tracks for the WAL fixture: the first is checkpointed into the database file, the second
--- (with a playlist entry) only exists in the WAL. See make.sh.
+-- (with a playlist entry) only exists in the WAL. See remake_sqlcipher_fixtures in
+-- tests/it/onelibrary.rs.
 INSERT INTO artist VALUES(1,'Alpha',NULL);
 INSERT INTO "key" VALUES(1,'Am');
 INSERT INTO content (content_id, title, subtitle, bpmx100, length, artist_id_artist, artist_id_lyricist, key_id, color_id, djComment, releaseDate, dateAdded, path, fileName, fileSize, fileType, analysisDataFilePath, analysedBits)

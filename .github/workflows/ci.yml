@@ -202,7 +202,7 @@ jobs:
               - '!tools/oxlint/**'
               - '!.dockerignore'
               - '!apps/web/Dockerfile'
-              - '!apps/web/scripts/docker-smoke.sh'
+              - '!apps/web/tests/docker.test.ts'
               - '!apps/web/tests/e2e/**'
               - '!apps/web/playwright.config.ts'
               - '!apps/web/lighthouserc.cjs'
@@ -229,12 +229,12 @@ jobs:
               - '!apps/web/.storybook/**'
               - '!apps/web/tests/integration/**'
               - '!apps/web/Dockerfile'
-              - '!apps/web/scripts/docker-smoke.sh'
+              - '!apps/web/tests/docker.test.ts'
               - '!apps/web/lighthouserc.cjs'
               - '!apps/web/knip.json'
-            # What the Docker image is built from (.dockerignore lets in only these) and the smoke
-            # test that starts it, which runs the dev network from the workspace. Left out: the
-            # app's tests, stories and the configs only they read.
+            # What the Docker image is built from (.dockerignore lets in only these) and the test
+            # that starts it (tests/docker.test.ts), which runs the dev network from the workspace.
+            # Left out: the app's other tests, stories and the configs only they read.
             web_docker:
               - 'apps/web/**'
               - 'apps/*/README.md'
@@ -247,11 +247,12 @@ jobs:
               - 'patches/**'
               - '.dockerignore'
               - '.github/workflows/web-ci.yml'
-              - '!apps/web/**/*.test.ts'
+              - '!apps/web/{src,scripts}/**/*.test.ts'
               - '!apps/web/**/*.stories.svelte'
               - '!apps/web/**/*.mdx'
               - '!apps/web/.storybook/**'
-              - '!apps/web/tests/**'
+              - '!apps/web/tests/{e2e,integration}/**'
+              - '!apps/web/tests/{build.test,sign-in}.ts'
               - '!apps/web/playwright.config.ts'
               - '!apps/web/lighthouserc.cjs'
               - '!apps/web/knip.json'
@@ -307,6 +308,7 @@ jobs:
             atstore:
               - 'packages/atstore/**'
               - 'apps/locallibrary/assets/icon.svg'
+              - 'apps/locallibrary/bombadil/lib.mjs'
               # The playlist page's markup, which the marks capture draws from.
               - 'apps/localtoolbox/test/helpers/dom.ts'
               - 'apps/localtoolbox/test/helpers/json.ts'

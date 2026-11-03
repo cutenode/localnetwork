@@ -12142,6 +12142,25 @@
           "minimum": 0,
           "description": "How long to wait for the browser (default 300, an hour at most).",
           "default": null
+        },
+        "keys": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "For a sign-in with keys, which finishes at once: each key its `sign_in.begin` listed, by\nname, as the user entered it. The host keeps them in the keychain and never answers them;\npass them straight from the user's input, nowhere else.",
+          "default": null
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "With `keys`, when its `sign_in.begin` answered `named`: what the user calls the account.",
+          "default": null
         }
       },
       "required": [
@@ -31364,10 +31383,14 @@
       "properties": {
         "id": {
           "type": "string",
-          "description": "Finishes it: [`Plugins::finish_account_sign_in`],\n[`Plugins::finish_account_sign_in_with_url`]."
+          "description": "Finishes it: [`Plugins::finish_account_sign_in`] or\n[`Plugins::finish_account_sign_in_with_url`], or with keys\n[`Plugins::finish_account_sign_in_with_keys`]."
         },
         "type": {
           "type": "string"
+        },
+        "title": {
+          "type": "string",
+          "description": "What the account type is called (`Mixcloud`), from its plugin's manifest."
         },
         "plugin": {
           "type": "string",
@@ -31375,21 +31398,35 @@
         },
         "url": {
           "type": "string",
-          "description": "Open this in the browser."
+          "description": "Open this in the browser: the service's sign-in page, or where the user gets the keys."
         },
         "redirect_uri": {
-          "type": "string",
-          "description": "Where the browser comes back to."
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Where the browser comes back to, when it signs in there."
+        },
+        "keys": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The keys to enter, by name, and what each is called, when it's signed in to with keys."
+        },
+        "named": {
+          "type": "boolean",
+          "description": "The user names the account, since its type's keys don't say who they're for: the sign-in\nfinishes with its name besides the keys."
         }
       },
       "required": [
         "id",
         "type",
+        "title",
         "plugin",
-        "url",
-        "redirect_uri"
+        "url"
       ],
-      "description": "A sign-in to an account of a type, waiting for the browser."
+      "description": "A sign-in to an account of a type, waiting for the browser, or for the user's keys."
     },
     "AccountSignedIn": {
       "type": "object",
@@ -32061,8 +32098,15 @@
         "title": {
           "type": "string"
         },
+        "kind": {
+          "$ref": "#/$defs/SignIn",
+          "description": "How it's signed in to: in the browser unless it says."
+        },
         "authorize_url": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "The service's authorization endpoint, where the browser signs in (https)."
         },
         "token_url": {
@@ -32070,7 +32114,7 @@
             "string",
             "null"
           ],
-          "description": "Its token endpoint, where the host trades the browser's code for tokens and refreshes\nthem (https). An account type has this or `token_exchange`."
+          "description": "Its token endpoint, where the host trades the browser's code for tokens and refreshes\nthem (https). An account type signed in to in the browser has this or `token_exchange`."
         },
         "token_exchange": {
           "type": [
@@ -32080,7 +32124,10 @@
           "description": "Local Network's token exchange for its service, in `token_url`'s place: only in an\naccount plugin locallibrary ships, since it signs people in as Local Network."
         },
         "client_id": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Its client at the service: a public one, without a secret, or Local Network's, whose\nsecret the token exchange holds."
         },
         "revoke_url": {
@@ -32112,8 +32159,15 @@
           "description": "The service's scopes every sign-in asks for, as the service names them (`openid`)."
         },
         "whoami": {
-          "$ref": "#/$defs/Whoami",
-          "description": "Where the host asks the service who signed in."
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Whoami"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the host asks the service who signed in. One signed in to with keys may leave it\nout: the user names the account then."
         },
         "one_account": {
           "type": "object",
@@ -32136,6 +32190,27 @@
           },
           "description": "The authorize params every sign-in sends besides (`access_type = \"offline\"`), none of\n`one_account`'s or `another_account`'s."
         },
+        "keys": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Key"
+          },
+          "description": "The keys the user enters, by name (`access`), which the service gave them."
+        },
+        "keys_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Where the user gets them (https)."
+        },
+        "authorization": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The `Authorization` header's value they make in a request (`LOW {access}:{secret}`), each\nkey named in braces."
+        },
         "scopes": {
           "type": "object",
           "additionalProperties": {
@@ -32146,12 +32221,24 @@
       },
       "required": [
         "type",
-        "title",
-        "authorize_url",
-        "client_id",
-        "whoami"
+        "title"
       ],
-      "description": "`[[contributes.account_types]]`: an account type, signed in to in the browser."
+      "description": "`[[contributes.account_types]]`: an account type, signed in to in the browser, or by entering\nkeys (`kind = \"keys\"`). Its OAuth fields are an account type's signed in to in the browser,\nand only its; `keys`, `keys_url` and `authorization` are one's signed in to with keys, and only\nits."
+    },
+    "SignIn": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "oauth",
+          "description": "In the browser, with OAuth 2: `oauth`."
+        },
+        {
+          "type": "string",
+          "const": "keys",
+          "description": "By entering the keys the service gave the user: `keys`."
+        }
+      ],
+      "description": "How an account of a type is signed in to."
     },
     "TokenPlace": {
       "oneOf": [
@@ -32205,7 +32292,20 @@
         "subject",
         "name"
       ],
-      "description": "`whoami = { url = \"...\", subject = \"/sub\", name = \"/email\" }`: the endpoint the host gets with a\nnew access token, and JSON pointers into its answer."
+      "description": "`whoami = { url = \"...\", subject = \"/sub\", name = \"/email\" }`: the endpoint the host gets with a\nnew access token, or keys just entered, and JSON pointers into its answer."
+    },
+    "Key": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "What it's called where the user gets it (`S3 access key`)."
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "description": "`[contributes.account_types.keys.<name>]`: a key the user enters."
     },
     "Scope": {
       "type": "object",

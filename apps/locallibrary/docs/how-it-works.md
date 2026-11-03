@@ -42,9 +42,12 @@ crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one messag
                             reads lines and reports errors with it
 plugins/accounts/           the account plugins: a manifest each and no crate, which locallibrary signs in from
                             and never starts
+  archive-account/          the `archive` account type, signed in to with the account's S3 keys; its scope
+                            `upload`
   google-account/           the `google` account type, signed in to through Local Network's token exchange;
                             its scope `youtube-upload`
   mixcloud-account/         the `mixcloud` account type, through the token exchange; its scope `upload`
+  plyr-account/             the `plyr` account type, signed in to with a developer token; its scope `upload`
   soundcloud-account/       the `soundcloud` account type, through the token exchange; its scopes `upload`
                             and `read`
 plugins/archive/            the archive plugin: the `item` set destination, a set's recording uploaded to the
