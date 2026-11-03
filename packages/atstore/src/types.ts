@@ -29,6 +29,9 @@ export interface Listing {
 	screenshots: string[];
 	/** Whether the tool has a page on the website, which shows everything `capture` makes. */
 	page: boolean;
-	/** Builds what it needs and makes its captures: the screenshots above, and all its page shows. */
-	capture(browser: Browser): Promise<Capture[]>;
+	/**
+	 * Builds what it needs and makes its captures: the screenshots above, and all its page shows.
+	 * `signal` is aborted when the run is interrupted, which ends the commands it's running.
+	 */
+	capture(browser: Browser, signal: AbortSignal): Promise<Capture[]>;
 }

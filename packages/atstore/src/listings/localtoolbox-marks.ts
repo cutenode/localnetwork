@@ -10,8 +10,16 @@ const { EXTRACT_TRACKS: playlist, GET_DOWNLOAD_DETAILS: looked } = PAGE.answers;
 /** The tracks marked downloaded, by their place in the playlist. The others are marked as their details say. */
 const DOWNLOADED = [0, 3, 4, 7];
 
-/** The track in the player bar. */
-const PLAYING = 0;
+/** The track in the player bar, one of those downloaded, so the bar's cover is marked too. */
+const PLAYING = DOWNLOADED[0];
+
+/** The tracks whose details say they have no download at all, which get a "nodl" mark. */
+const NO_DOWNLOAD = looked.tracks.flatMap(({ details }, i) =>
+	!details.downloadable && !details.purchaseUrl && !DOWNLOADED.includes(i) ? [i] : []
+);
+
+/** How many marks the content script puts on the page: the rows', and the player bar's. */
+export const MARKS = DOWNLOADED.length + NO_DOWNLOAD.length + 1;
 
 /**
  * What chrome.storage.local holds as the page opens: the downloaded marks, and every track's

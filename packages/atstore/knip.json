@@ -3,5 +3,6 @@
 	"entry": ["test/**/*.test.ts"],
 	"project": ["src/**/*.ts", "test/**/*.ts"],
 	"ignoreDependencies": ["@fontsource-variable/instrument-sans", "@fontsource-variable/jetbrains-mono"],
+	"ignoreBinaries": ["hdiutil", "plutil"],
 	"ignoreExportsUsedInFile": true
 }
