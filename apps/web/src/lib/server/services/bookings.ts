@@ -422,37 +422,51 @@ export class BookingService {
 			// The promoter can rewrite their inquiry, so the root's opening record names the project when it's in.
 			const opened = await openedProjects(this.core).where('spaceUri', '=', input.space).executeTakeFirst();
 			const projectUri = opened?.project ?? value.project;
-			await db
-				.insertInto('bookingThread')
-				.values({
-					spaceUri: input.space,
-					skey: ref.skey,
-					projectUri,
-					promoterDid: author,
-					status: 'open',
-					title: value.show?.title ?? null,
-					showDate: value.show?.date ?? null,
-					createdAt,
-					updatedAt: createdAt,
-					lastActivityAt: createdAt
-				})
-				.onConflict((oc) => oc.doNothing())
-				.execute();
 			const project = await this.projects.byUri(projectUri);
 
-			const members = [
-				{ did: author, role: 'promoter' as const },
-				...(project?.managers ?? [])
-					.filter((did) => participants.has(did))
-					.map((did) => ({ did, role: 'manager' as const }))
-			];
+			// The inquiry that opens a thread names its promoter, and a sync may read a manager's repo first. Nobody can
+			// send an inquiry to their own project (start), so one from the act's side never opens it.
+			if (project?.managers.includes(author)) {
+				this.core.logger.warn(
+					{ space: input.space, repo: input.repoDid },
+					"not opening a booking thread from a manager's inquiry"
+				);
+			} else {
+				await db
+					.insertInto('bookingThread')
+					.values({
+						spaceUri: input.space,
+						skey: ref.skey,
+						projectUri,
+						promoterDid: author,
+						status: 'open',
+						title: value.show?.title ?? null,
+						showDate: value.show?.date ?? null,
+						createdAt,
+						updatedAt: createdAt,
+						lastActivityAt: createdAt
+					})
+					.onConflict((oc) => oc.doNothing())
+					.execute();
 
-			await db
-				.insertInto('bookingParticipant')
-				.values(members.map((m) => ({ spaceUri: input.space, ...m })))
-				.onConflict((oc) => oc.doNothing())
-				.execute();
-			thread = await db.selectFrom('bookingThread').selectAll().where('spaceUri', '=', input.space).executeTakeFirst();
+				const members = [
+					{ did: author, role: 'promoter' as const },
+					...(project?.managers ?? [])
+						.filter((did) => participants.has(did))
+						.map((did) => ({ did, role: 'manager' as const }))
+				];
+
+				await db
+					.insertInto('bookingParticipant')
+					.values(members.map((m) => ({ spaceUri: input.space, ...m })))
+					.onConflict((oc) => oc.doNothing())
+					.execute();
+				thread = await db
+					.selectFrom('bookingThread')
+					.selectAll()
+					.where('spaceUri', '=', input.space)
+					.executeTakeFirst();
+			}
 		}
 
 		await db

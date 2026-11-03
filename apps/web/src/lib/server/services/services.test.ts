@@ -9,6 +9,7 @@ import { ForbiddenError, NotFoundError, UserError } from '../core';
 import { HappyViewClient } from '../happyview/client';
 import { createTestServices, ROOT } from '../testing/core';
 import { FakeRootClient } from '../testing/fakes';
+import type { BookingRecord } from './bookings';
 import { ProjectService, slugify } from './projects';
 
 const ADMIN = 'did:plc:admin';
@@ -949,6 +950,55 @@ describe('services', () => {
 			).rejects.toMatchObject({ status: 503, message: "Couldn't send your inquiry. Try again in a minute." });
 
 			expect(await t.bookings.threadsFor(PROMOTER)).toEqual([]);
+		});
+
+		it("keeps the promoter in their thread when a sync indexes a manager's inquiry first", async () => {
+			let project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ, LEGACY]
+			});
+
+			const space = await t.bookings.start({
+				actor: await t.viewer(PROMOTER),
+				projectUri: project.uri,
+				show: { title: 'Night' },
+				message: 'Free?'
+			});
+
+			// A manager writes an inquiry of their own into the thread, and a fresh sync reads their repo first.
+			await t.net.client(DJ).createSpaceRecord({
+				space,
+				collection: COLLECTION.bookingInquiry,
+				record: {
+					$type: COLLECTION.bookingInquiry,
+					project: project.uri,
+					show: { title: 'Mine now' },
+					message: 'Hi',
+					createdAt: new Date().toISOString()
+				}
+			});
+			await t.bookings.forget(space);
+
+			for (const did of [DJ, PROMOTER, ROOT]) {
+				for (const record of t.net.spaceRecordsIn(space, did)) {
+					await t.bookings.indexEvent({
+						space,
+						uri: record.uri,
+						repoDid: did,
+						collection: record.uri.split('/').at(-2)!,
+						// SAFETY: every record in a booking space here is an inquiry, message or status that start() or this
+						// test wrote, each a subset of BookingRecord.
+						value: record.value as BookingRecord
+					});
+				}
+			}
+
+			project = await t.projectAdmin.setManagers({ actor: await t.viewer(ADMIN), project, managers: [LEGACY] });
+
+			const [thread] = await t.bookings.threadsFor(PROMOTER);
+			expect(thread).toMatchObject({ promoter: { did: PROMOTER }, title: 'Night' });
+			expect([...(t.net.spaces.get(space)?.members.keys() ?? [])].sort()).toEqual([LEGACY, PROMOTER]);
 		});
 
 		it('opens no thread for an inquiry that fails its lexicon', async () => {
