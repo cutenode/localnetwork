@@ -1099,11 +1099,20 @@ fn track_edits_take_only_tempos_codes_dates_and_album_artists_there_are(tc: hege
 }
 
 /// An edit setting the fields of tracks named by id, as imports and analyses make one for each
-/// track: at times one with no album to keep an album artist with, or an id no track has.
+/// track, or by file, as a replay names them (spelt another way at times): at times one with no
+/// album to keep an album artist with, or an id or a file no track has.
 #[hegel::test_helper]
 fn draw_fields_edit(tc: &hegel::TestCase) -> Edit {
     use hegel::generators as gs;
-    let ids = tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(9)).min_size(1).max_size(3));
+    let by_file = tc.draw(gs::weighted_booleans(0.3));
+    let ids = tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(9)).max_size(3));
+    let files =
+        ["/Contents/2.mp3", "/contents/3.MP3", "/Contents/other.mp3", "/Contents/copy.mp3", "/Contents/none.mp3"];
+    let paths = match by_file {
+        true => tc.draw(gs::vecs(gs::sampled_from(files.to_vec())).min_size(1).max_size(3)),
+        false => Vec::new(),
+    };
+    let ids = if by_file || !ids.is_empty() { ids } else { vec![1] };
     let fields = TrackFields {
         key: tc.draw(gs::optional(gs::sampled_from(vec!["8A", "11B", " "]))).map(String::from),
         bpm: tc.draw(gs::optional(gs::sampled_from(vec![120.0, 128.5]))),
@@ -1112,7 +1121,8 @@ fn draw_fields_edit(tc: &hegel::TestCase) -> Edit {
         rating: tc.draw(gs::optional(gs::integers::<u8>().max_value(6))),
         ..Default::default()
     };
-    Edit::EditTracks { tracks: TrackSelector { ids, ..Default::default() }, fields }
+    let paths = paths.into_iter().map(String::from).collect();
+    Edit::EditTracks { tracks: TrackSelector { ids, paths, ..Default::default() }, fields }
 }
 
 /// What planning `edits` one by one makes, each result as text, and the model after, edits that
@@ -1172,8 +1182,7 @@ fn edits_to_fields_plan_alike_on_the_tracks_they_name(tc: hegel::TestCase) {
     let (mut index, mut warn_a, mut warn_b) = (None, Vec::new(), Vec::new());
     for op in &ops {
         let made_a = apply_op(&mut a, op, false, "other", &mut warn_a).map_err(|e| e.to_string());
-        let made_b = track_index::apply_op_indexed(&mut b, &mut index, op, false, "other", &mut warn_b)
-            .map_err(|e| e.to_string());
+        let made_b = apply_op_indexed(&mut b, &mut index, op, false, "other", &mut warn_b).map_err(|e| e.to_string());
         assert_eq!(made_b, made_a, "{op:?}");
     }
     assert_eq!((b.lib, warn_b), (a.lib, warn_a));

@@ -160,6 +160,9 @@ opt-level = 3
 opt-level = 3
 
 [profile.release]
+# Thin, not fat: on 2026-11-02, fat LTO made the CLI 13% smaller (45.8 MB, from 53.0 MB) and its
+# clean build 68% longer, and no run time (the CLI's timings, the check and convert benches) beat
+# the spread between runs.
 lto = "thin"
 codegen-units = 1
 strip = true
