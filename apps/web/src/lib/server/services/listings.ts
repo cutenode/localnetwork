@@ -91,7 +91,8 @@ export class ListingWriter {
 		const spaces = await this.core.db.selectFrom('sharedSpace').select('spaceUri').execute();
 
 		for (const { spaceUri } of spaces) {
-			const skey = parseSpaceUri(spaceUri)?.skey ?? '';
+			// Every sharedSpace row's URI parses: saveStatus only runs for a space index() or live() parsed.
+			const skey = parseSpaceUri(spaceUri)!.skey;
 
 			try {
 				await this.update(spaceUri, published.get(skey) ?? null);
