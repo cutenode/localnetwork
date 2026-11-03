@@ -28,6 +28,8 @@ mod command_line;
 mod commands;
 mod completion_candidates;
 mod drives;
+#[cfg(all(unix, feature = "tui"))]
+mod hangup;
 mod interop;
 mod jobs;
 #[cfg(feature = "peers")]
