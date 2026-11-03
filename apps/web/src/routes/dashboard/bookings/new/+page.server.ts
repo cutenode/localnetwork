@@ -1,4 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
+import { performerFacts } from '#lib/components/PerformerFacts.svelte';
+import { feeLevels } from '#lib/format.ts';
 import { parseShow } from '#lib/server/forms/show.ts';
 import { act, requireViewer, stringValues, text } from '#lib/server/http.ts';
 import { inquiryDefaults, inquiryValues } from '#lib/shows.ts';
@@ -27,14 +29,29 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 	if (project.managers.includes(viewer.did)) redirect(303, `/projects/${project.slug}`);
 
-	// From the planner, the show's details go in; from the matcher, only its date.
+	// From the planner, the show's details go in; from the matcher, only its date, with the budget in the project's
+	// currency.
 	const show = await plannerShow(locals, viewer, url.searchParams.get('show') ?? '');
 
 	const values = show
 		? inquiryValues(show.details)
-		: { ...inquiryDefaults, date: url.searchParams.get('date')?.slice(0, 10) ?? '' };
+		: {
+				...inquiryDefaults,
+				date: url.searchParams.get('date')?.slice(0, 10) ?? '',
+				currency: feeLevels(project.profile)[0]?.currency ?? inquiryDefaults.currency
+			};
 
-	return { project, values, show: show && { rkey: show.rkey, title: show.details.title } };
+	return {
+		project,
+		values,
+		show: show && { rkey: show.rkey, title: show.details.title },
+		// What the project asks for, shown beside the budget so the offer can match it. Worded here, so the form's
+		// page doesn't share PerformerFacts with the project's public page (one more script for it to fetch).
+		asks: performerFacts(project.profile)
+			.filter((fact) => ['Fee', 'Fees', 'Slots', 'Set length'].includes(fact.term))
+			.map((fact) => `${fact.term}: ${[fact.value].flat().join('; ')}.`),
+		geocoder: locals.app.geocoder.enabled
+	};
 };
 
 export const actions: Actions = {

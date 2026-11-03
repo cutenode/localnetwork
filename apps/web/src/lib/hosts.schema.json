@@ -1,0 +1,53 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "hosts.schema.json",
+	"title": "Account hosts",
+	"description": "The hosts \"Make an account\" offers, in the order it lists them. The first is the one most people should pick. Each must accept new accounts through atproto OAuth (its authorization server lists \"create\" in prompt_values_supported).",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["hosts"],
+	"properties": {
+		"$schema": { "type": "string" },
+		"hosts": {
+			"type": "array",
+			"minItems": 1,
+			"items": { "$ref": "#/$defs/host" }
+		}
+	},
+	"$defs": {
+		"host": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["name", "domain", "service", "country"],
+			"properties": {
+				"name": {
+					"description": "What the host calls itself: \"Bluesky\".",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 40
+				},
+				"domain": {
+					"description": "The domain new handles end in: \"bsky.social\".",
+					"type": "string",
+					"pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)+$"
+				},
+				"service": {
+					"description": "The PDS or entryway sign-up starts at, with no trailing slash.",
+					"type": "string",
+					"pattern": "^https://[a-z0-9.-]+$"
+				},
+				"country": {
+					"description": "Where the host is based, in English.",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 40
+				},
+				"note": {
+					"description": "A short tag after the name: \"most people start here\".",
+					"type": "string",
+					"maxLength": 40
+				}
+			}
+		}
+	}
+}

@@ -4,6 +4,7 @@
 	import { clock } from '#lib/mix/report.ts';
 	import { type PlayerSource, type PlayerTrack, playable } from '#lib/mix/source.ts';
 	import { musicBrainzUrl, trackArtists } from '#lib/supports.ts';
+	import { labelFor, SET_KINDS } from '#lib/taxonomy/options.ts';
 	import DateBlock from '#lib/ui/DateBlock.svelte';
 	import Tag from '#lib/ui/Tag.svelte';
 	import SetPlayer from './mix/SetPlayer.svelte';
@@ -58,7 +59,7 @@
 				<div class="flex min-w-0 flex-1 flex-col gap-1">
 					<p class="m-0 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
 						<span class="text-emphasis font-semibold">{name(set)}</span>
-						{#if set.kind}<Tag variant="mono">{set.kind}</Tag>{/if}
+						{#if set.kind}<Tag variant="mono">{labelFor(SET_KINDS, set.kind)}</Tag>{/if}
 					</p>
 					<p class="m-0 text-small text-fg-muted">
 						{[setPlace(set), set.playedWith?.length && `with ${set.playedWith.map((partner) => partner.name).join(', ')}`, `${set.tracks.length} ${set.tracks.length === 1 ? 'track' : 'tracks'}`].filter(Boolean).join(' · ')}

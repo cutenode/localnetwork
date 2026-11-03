@@ -5,6 +5,9 @@
 	import Handle from '#lib/components/Handle.svelte';
 	import ShowList from '#lib/components/ShowList.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
+	import type { DjActivity } from '#lib/dj.ts';
+	import type { EpkDashboard } from '#lib/epk.ts';
+	import { pluralize, timeAgo } from '#lib/format.ts';
 	import Card from '#lib/ui/Card.svelte';
 	import type { PageProps } from './$types';
 
@@ -16,10 +19,36 @@
 
 	const visibility = { active: 'Public. Anyone can find it.', hidden: 'Not public yet. Only its managers and staff can see it.', archived: 'Archived. Only its managers and staff can see it.' } as const;
 
+	/** "3 press kits · 2 drafts, 1 behind": what's published, and the drafts waiting to be. */
+	function kitSummary({ kits, drafts }: EpkDashboard): string {
+		const all = [...kits.flatMap((kit) => kit.drafts), ...drafts];
+		const behind = all.filter((draft) => draft.status === 'behind').length;
+
+		if (kits.length === 0 && all.length === 0) return 'No press kits yet';
+
+		return [pluralize(kits.length, 'press kit'), all.length && `${pluralize(all.length, 'draft')}${behind ? `, ${behind} behind` : ''}`].filter(Boolean).join(' · ');
+	}
+
+	/** "Stats published 3 days ago · 9 sets", from the viewer's own records. */
+	function statsSummary([own]: DjActivity[]): string {
+		const parts = [own?.profile && `Stats published ${timeAgo(own.profile.generatedAt)}`, own?.sets.length && pluralize(own.sets.length, 'set')].filter(Boolean);
+
+		return parts.length ? parts.join(' · ') : 'Nothing published yet';
+	}
+
 	const editable = $derived((show: { did: string; rkey: string }) => (show.did === data.viewer?.did ? `${base}/shows/${show.rkey}` : null));
 </script>
 
 <svelte:head><title>{project.profile.name} · Dashboard</title></svelte:head>
+
+<!-- A card's state in one line, held at its height while it loads so the card doesn't jump. -->
+{#snippet summary(line: Promise<string | null>)}
+	{#await line}
+		<p class="m-0 h-5.5 w-40 animate-pulse rounded-md bg-raised" aria-hidden="true"></p>
+	{:then text}
+		{#if text}<p class="m-0 text-small font-medium text-fg">{text}</p>{/if}
+	{/await}
+{/snippet}
 
 <div class="flex flex-col gap-8">
 	<header class="flex flex-wrap items-center justify-between gap-x-6 gap-y-4">
@@ -41,7 +70,7 @@
 			<h2 class="m-0 text-emphasis font-semibold">Profile</h2>
 			{#if data.pendingUpdate}
 				<p class="m-0 text-small text-fg-muted">Your proposed changes are waiting for a moderator.</p>
-				<a href="/dashboard/requests/{data.pendingUpdate.rkey}" class="btn-secondary btn-sm self-start">View request<ArrowRight class="size-4" /></a>
+				<a href="/dashboard/requests/{data.pendingUpdate.rkey}" class="btn-secondary btn-sm self-start">View submission<ArrowRight class="size-4" /></a>
 			{:else}
 				<p class="m-0 text-small text-fg-muted">Changes go to a moderator before they're published.</p>
 				<a href="{base}/profile" class="btn-secondary btn-sm self-start"><Pencil class="size-4" />Propose changes</a>
@@ -49,6 +78,7 @@
 		</Card>
 		<Card as="section" class="flex flex-col gap-3">
 			<h2 class="m-0 text-emphasis font-semibold">Press kits</h2>
+			{@render summary(data.kits.then((kits) => (kits ? kitSummary(kits) : null)))}
 			<p class="m-0 text-small text-fg-muted">One for each kind of booking, and who can see the rest of each.</p>
 			<a href="{base}/press-kits" class="btn-secondary btn-sm self-start"><FileText class="size-4" />Press kits</a>
 		</Card>
@@ -74,6 +104,7 @@
 		</Card>
 		<Card as="section" class="flex flex-col gap-3">
 			<h2 class="m-0 text-emphasis font-semibold">How you play</h2>
+			{@render summary(Promise.resolve(data.stats).then(statsSummary))}
 			<p class="m-0 text-small text-fg-muted">Publish your playing stats and sets from <a class="link" href="/tools/locallibrary">locallibrary</a> and they appear on your page and in your press kits.</p>
 		</Card>
 	</div>

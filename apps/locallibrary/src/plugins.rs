@@ -20,7 +20,7 @@ use clap::{CommandFactory, ValueEnum};
 use indexmap::IndexMap;
 use locallibrary::api::RpcFailure;
 use locallibrary::mix::report::ShownField;
-use locallibrary::plugin::{Access, Launch, Log, Options, PluginSpec, Plugins, Reads};
+use locallibrary::plugin::{Access, AccessQuestion, AskAccess, Launch, Log, Options, PluginSpec, Plugins, Reads};
 use locallibrary::progress::Ctx;
 use locallibrary::{Error, Result};
 use loclib_plugin::{AccountType, Capability, ExportFrom, Manifest, SettingType};
@@ -147,7 +147,8 @@ fn load() -> Result<Loaded> {
         Some(log) => log(id, line),
         None => stderr(id, line),
     });
-    let mut options = Options { notices: events::notices(log.clone()), log, ..Options::default() };
+    let ask: Arc<dyn AskAccess> = Arc::new(Asking);
+    let mut options = Options { notices: events::notices(log.clone()), log, ask: Some(ask), ..Options::default() };
     // The CLI's tests: no plugin they run goes online (to MusicBrainz, say).
     #[cfg(debug_assertions)]
     {
@@ -168,6 +169,36 @@ static LOG: Mutex<Option<Log>> = Mutex::new(None);
 #[cfg(feature = "tui")]
 pub fn log_to(log: Option<Log>) {
     *LOG.lock().unwrap_or_else(PoisonError::into_inner) = log;
+}
+
+/// Who asks the user whether a plugin may use more of an account it has access to: nobody until
+/// a front end that can ask says so (see [`ask_to`]).
+static ASK: Mutex<Option<Arc<dyn AskAccess>>> = Mutex::new(None);
+
+/// Has `ask` ask the user whether a plugin may use more of an account it has access to (the
+/// terminal a command runs in, the player), or with `None` nobody: the plugin is told how to give
+/// it instead.
+pub fn ask_to(ask: Option<Arc<dyn AskAccess>>) {
+    *ASK.lock().unwrap_or_else(PoisonError::into_inner) = ask;
+}
+
+/// Asks through whoever [`ask_to`] said, when anyone.
+struct Asking;
+
+impl Asking {
+    fn asker() -> Option<Arc<dyn AskAccess>> {
+        ASK.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+}
+
+impl AskAccess for Asking {
+    fn allow(&self, question: &AccessQuestion) -> Option<bool> {
+        Asking::asker()?.allow(question)
+    }
+
+    fn sign_in(&self, url: &str) {
+        Asking::asker().into_iter().for_each(|ask| ask.sign_in(url));
+    }
 }
 
 /// The locallibrary binary, which serves the plugins.

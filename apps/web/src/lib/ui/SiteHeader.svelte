@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Menu, X } from '@lucide/svelte';
+	import Mark from './Mark.svelte';
 	import Monogram from './Monogram.svelte';
 
 	/**
@@ -85,11 +86,7 @@
 <header class="border-b border-line bg-canvas print:hidden">
 	<div class="container-page flex min-h-16 items-center gap-x-8">
 		<a href="/" class="flex shrink-0 items-center gap-2.5 text-emphasis font-semibold whitespace-nowrap text-fg no-underline">
-			<span aria-hidden="true" class="flex h-5 items-center gap-0.5">
-				{#each [['h-2', 'bg-band-low'], ['h-4.5', 'bg-band-low'], ['h-3', 'bg-band-mid'], ['h-5', 'bg-band-high'], ['h-2.5', 'bg-band-low']] as [height, colour], i (i)}<span
-						class="w-0.75 rounded-[1px] {height} {colour}"
-					></span>{/each}
-			</span>
+			<Mark />
 			Local Network
 		</a>
 		<nav aria-label="Main" class="hidden flex-auto gap-x-6.5 text-small md:flex">

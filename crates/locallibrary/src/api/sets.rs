@@ -12,6 +12,7 @@ use super::{mix_drive, parse_day, resolve_drive};
 use crate::edit::{self, Edit, EditOptions, EditPlan, EditReport};
 use crate::export::{Locator, PathStyle};
 use crate::mix::index::Cache;
+use crate::mix::prefs::MixPrefs;
 use crate::mix::{Identifier, MixReport, Options, report};
 use crate::model::Library;
 use crate::op::{Planned, Touched};
@@ -250,7 +251,11 @@ fn recording(
                 )));
             }
             let device = mix_drive(drive)?;
-            let r = Identifier::new(&device, &Cache::in_store(store), ctx)?.identify(path, &Options::default(), ctx)?;
+            let r = Identifier::new(&device, &Cache::in_store(store), &MixPrefs::load(store)?, ctx)?.identify(
+                path,
+                &Options::default(),
+                ctx,
+            )?;
             let id = report::save(store, &r)?;
             Ok(Some((r, id)))
         }

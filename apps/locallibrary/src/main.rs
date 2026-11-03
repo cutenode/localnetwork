@@ -50,6 +50,7 @@ use indexmap::IndexMap;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, FromArgMatches, Parser, Subcommand, ValueEnum};
@@ -645,6 +646,13 @@ enum StoreCommand {
     },
     /// Re-hash every stored file
     Verify,
+    /// The largest fingerprint index `mix` keeps for a drive between runs (a bigger one is built
+    /// again each run): show it, or set it
+    IndexLimit {
+        /// The limit in MiB (0 keeps none), or `default` (512)
+        #[arg(value_name = "MIB", value_parser = store_cmd::parse_index_limit)]
+        limit: Option<store_cmd::IndexLimit>,
+    },
     /// Label a snapshot ("before NYE"): shown in `library log`, usable as its id, kept by `store prune`
     Label {
         /// Snapshot id (prefix) or another label
@@ -1193,6 +1201,13 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
     // operations.
     locallibrary::plugin::set_hosted(|| plugins::host().ok());
     let progress = out.progress();
+    // A plugin wanting more of an account asks in the terminal: not with `--json` or `--yes`, and
+    // never in `watch`, the sidecar or a plugin serving, which run on their own.
+    let alone = cli.command.as_ref().is_some_and(|c| c.handles_signals() || matches!(c, Command::Watch(_)));
+    if plugin_cmd::choose::interactive(out) && !out.yes && !alone {
+        let drawing = progress.drawing();
+        plugins::ask_to(Some(Arc::new(account_cmd::asking::Terminal { out, drawing })));
+    }
     let ctx = Ctx::new(&progress, cancel);
     let store = || open_store(&cli.store);
 
@@ -1422,6 +1437,7 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
                     };
                 }
                 StoreCommand::Copies => return store_cmd::copies(&cli.store, out),
+                StoreCommand::IndexLimit { limit } => return store_cmd::index_limit(&cli.store, limit, out),
                 StoreCommand::Restore { from, libraries, dry_run } => {
                     let options = locallibrary::offsite::RestoreOptions { libraries, dry_run };
                     return store_cmd::restore(&store()?, &from, &options, out, &ctx);

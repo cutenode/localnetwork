@@ -129,6 +129,7 @@ its drives.
 | `locallibrary library push <drive> [--snapshot ID]` | Write the latest (or any) snapshot onto a drive |
 | `locallibrary library prune [--keep-last N] ...` | Remove old snapshots (as `store prune`), see [Pruning old snapshots](store.md#pruning-old-snapshots) |
 | `locallibrary store [info\|gc\|verify\|label\|unlabel\|prune]` | Store size, garbage collection, integrity check, snapshot labels, removing old snapshots |
+| `locallibrary store index-limit [MIB\|default]` | The largest fingerprint index `mix` keeps for a drive (512 MiB unless set), see [Mixes](sets.md#mixes) |
 | `locallibrary store serve` / `store fetch <code>` | Copy snapshots between computers over the network: one serves its store, the other fetches what it lacks, see [From another computer](store.md#from-another-computer) |
 | `locallibrary store copy <dir>` / `store copies` | Copy the store somewhere else (a NAS, another disk, a cloud-synced folder), only what's new; where copies were made, see [Off-site copies](store.md#off-site-copies) |
 | `locallibrary store copy --to PLUGIN:DESTINATION [--dry-run]` / `store restore --from PLUGIN:DESTINATION [--library L]... [--dry-run]` | Copy the store to a plugin's store destination, and bring back what a copy there has that this store lacks (nothing here is replaced), see [Plugins](plugins.md) |

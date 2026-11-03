@@ -118,6 +118,10 @@ pub struct ExportPlay {
     /// The slowest and fastest speeds, when the pitch fader was ridden; `tempo` is their average.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub speed_range: Option<(f64, f64)>,
+    /// Where it was heard at each speed and from which part of the track, in mix order (see
+    /// [`ExportLine`]); left out of reports made before they were kept.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub lines: Vec<ExportLine>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub played_bpm: Option<f64>,
     /// `None` when the speed is too close to 1.0 to tell.
@@ -135,6 +139,19 @@ pub struct ExportPlay {
     pub presence_step: f64,
     /// Loops and cue jumps.
     pub jumps: u32,
+}
+
+/// A stretch of a play at one speed, from `start` until the next line's (see
+/// [`crate::mix::PlayLine`]).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportLine {
+    /// Seconds into the mix.
+    pub start: f64,
+    /// Seconds into the track at `start`.
+    pub track_start: f64,
+    /// Playback speed: 1.03 is +3%.
+    pub tempo: f64,
 }
 
 /// A track: "ID" for its artist and title (and no more that names it) when the DJ hides it.
@@ -379,6 +396,11 @@ fn play(p: &Play, i: usize, drive: Option<Drive<'_>>, prefs: &ProfilePrefs) -> E
         track_end: r2(p.track_end),
         tempo: r4(p.tempo),
         speed_range: p.speed_range.map(|(slowest, fastest)| (r4(slowest), r4(fastest))),
+        lines: p
+            .lines
+            .iter()
+            .map(|l| ExportLine { start: r2(l.start), track_start: r2(l.track_start), tempo: r4(l.tempo) })
+            .collect(),
         played_bpm: p.played_bpm.map(|b| (b * 10.0).round() / 10.0),
         key_lock: p.key_lock,
         semitones: r2(p.semitones),

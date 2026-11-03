@@ -2,7 +2,7 @@
 name = "locallibrary"
 description = "Store, sync, compare, merge and configure rekordbox USB library exports"
 # Not on crates.io: it's built on the vendored rekordbox-pdb, which isn't published either, it's to
-# be renamed `locallibrary-core` first (TODO.md), and it carries the test plugin below. The
+# be renamed `locallibrary-core` first (LOC-69), and it carries the test plugin below. The
 # loclib-* crates are its parts that can be.
 publish = false
 version.workspace = true

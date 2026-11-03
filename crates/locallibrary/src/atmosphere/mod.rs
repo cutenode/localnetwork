@@ -240,6 +240,12 @@ impl AccountInfo {
     pub fn expired(&self) -> bool {
         Utc::now() >= self.sign_in_again_by
     }
+
+    /// Whether signing in again is due within [`crate::plugin::WARN_DAYS`], or was: front ends
+    /// warn, offering to.
+    pub fn due_soon(&self) -> bool {
+        crate::plugin::due_soon(self.sign_in_again_by)
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -498,12 +504,8 @@ async fn document_check(client_id: &str, requested: &[String]) -> std::result::R
     // Checked before anything is fetched: a client ID is a public https address.
     net::public(client_id).map_err(Unusable::Unfit)?;
     let offline = Unusable::Offline;
-    let http = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| offline(e.to_string()))?;
-    let response = http.get(client_id).send().await.map_err(|e| {
+    let http = crate::net::unpooled().map_err(offline)?;
+    let response = http.get(client_id).timeout(Duration::from_secs(5)).send().await.map_err(|e| {
         offline(if e.is_timeout() {
             "it didn't answer within 5 seconds".to_string()
         } else if e.is_connect() {
