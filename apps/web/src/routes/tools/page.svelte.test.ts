@@ -53,11 +53,12 @@ describe('/tools', () => {
 			)
 			.toBeInTheDocument();
 		await expect
-			.element(page.getByRole('link', { name: 'localthing, Terminal app for Mac' }))
+			.element(page.getByRole('link', { name: 'localthing', exact: true }))
 			.toHaveAttribute('href', '/tools/localthing');
 		await expect
-			.element(page.getByRole('link', { name: 'localother, Chrome extension' }))
+			.element(page.getByRole('link', { name: 'localother', exact: true }))
 			.toHaveAttribute('href', '/tools/localother');
+		await expect.element(page.getByText('Chrome extension')).toBeVisible();
 		await expect
 			.element(page.getByRole('img', { name: "The tools' hot cues on a track's waveform" }))
 			.toBeInTheDocument();
@@ -69,7 +70,7 @@ describe('/tools', () => {
 		).toEqual(['A Sync', 'B Edit', 'C Check', 'A Marks', 'B Text']);
 		await expect
 			.element(page.getByRole('tab', { name: 'A Marks' }))
-			.toHaveAccessibleDescription('localother, Chrome extension');
+			.toHaveAccessibleDescription('localother Chrome extension');
 	});
 
 	it('opens on the first cue, with its line, its capture and its tool, loading no other capture', async () => {

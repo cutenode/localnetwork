@@ -30,11 +30,11 @@
 	}
 </script>
 
-<div class="grid aspect-[39/70] overflow-hidden rounded-2xl border border-line bg-sunken p-2 sm:aspect-[16/10] sm:p-3">
+<div class="grid aspect-(--phone) overflow-hidden rounded-2xl border border-line bg-sunken p-2 sm:aspect-(--wide)" style:--phone="39 / 70" style:--wide="16 / 10">
 	{#each captures as capture, i (i)}
 		{#if picked.has(i)}
-			<div class={['grid min-h-0 [grid-area:1/1] [&_img]:size-full! [&_img]:min-h-0 [&_img]:object-contain [&_picture]:contents', showing !== i && 'invisible']} aria-hidden={showing !== i}>
-				<Capture {capture} sizes="(min-width: 1280px) 780px, (min-width: 1024px) 62vw, 100vw" onload={() => onload(i)} />
+			<div class={['relative [grid-area:1/1]', showing !== i && 'invisible']} aria-hidden={showing !== i}>
+				<Capture {capture} class="absolute inset-0 h-full object-contain" sizes="(min-width: 1280px) 780px, (min-width: 1024px) 62vw, 100vw" onload={() => onload(i)} />
 			</div>
 		{/if}
 	{/each}
