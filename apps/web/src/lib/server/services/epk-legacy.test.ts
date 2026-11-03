@@ -1,7 +1,7 @@
 import { XRPCError } from '@atproto/api';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EpkView } from '#lib/epk.ts';
-import { epkContentSchema } from '#lib/epk-schema.ts';
+import { epkContentSchema, epkGrantSchema } from '#lib/epk-schema.ts';
 import { COLLECTION, EPK_CONTENT_KEY } from '#lib/nsid.ts';
 import { validateRecord } from '../atproto/lexicons';
 import { epkRequestSpace, epkSpace } from '../atproto/spaces';
@@ -108,11 +108,25 @@ describe('LegacyEpks', () => {
 
 		const [request] = await f.t.epks.requests(epk);
 		expect(request).toMatchObject({ requester: { did: STRANGER }, message: 'Please', status: 'pending' });
-		// Both open requests moved into the project's request space, which those let in can't read, and none into the
-		// press kit's.
-		expect(f.t.net.spaceRecordsIn(requestSpace(), ROOT).map((record) => record.value.epk)).toEqual([epk.uri, epk.uri]);
+
+		// Both open requests and both grants moved into the project's request space, which those let in can't read, and
+		// none into the press kit's, which holds only its private part.
+		const inRequestSpace = (collection: string) =>
+			f.t.net
+				.spaceRecordsIn(requestSpace(), ROOT)
+				.filter((record) => record.uri.includes(`/${collection}/`))
+				.map((record) => record.value);
+
+		expect(inRequestSpace(COLLECTION.epkRequest).map((value) => value.epk)).toEqual([epk.uri, epk.uri]);
+		const grants = inRequestSpace(COLLECTION.epkGrant).map((value) => epkGrantSchema.parse(value));
+		expect(grants.map((grant) => `${grant.epk} ${grant.subject}`).sort()).toEqual([
+			`${epk.uri} ${FRIEND}`,
+			`${epk.uri} ${PROMOTER}`
+		]);
 		expect(request.uri).toContain(requestSpace());
-		expect(f.t.net.spaceRecordsIn(space()).filter((record) => record.uri.includes(COLLECTION.epkRequest))).toEqual([]);
+		expect(f.t.net.spaceRecordsIn(space()).map((record) => record.uri.split('/').at(-2))).toEqual([
+			COLLECTION.epkContent
+		]);
 
 		expect(f.t.net.records.has(`${DJ}|${COLLECTION.epk}|${legacy.rkey}`)).toBe(false);
 		expect(f.t.net.spaces.has(legacy.space)).toBe(false);

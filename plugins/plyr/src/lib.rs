@@ -2,8 +2,8 @@
 //! Protocol audio host) as a track of the user's (see `upload`), titled after the set and with its
 //! tracklist as the description (see `track`), and answers the track's page, which locallibrary
 //! keeps as the set's link, and the track's `fm.plyr.track` record, which the set's record points
-//! to. plyr.fm takes a developer token, the secret setting `token`, which the host fills into the
-//! plugin's requests.
+//! to. plyr.fm takes a developer token: each request names a `plyr` account (plyr-account's),
+//! whose token the host fills in.
 
 mod track;
 mod upload;

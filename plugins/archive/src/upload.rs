@@ -9,7 +9,9 @@
 //! multipart upload but that it has one. A PUT that doesn't arrive, or that the Archive fails, is
 //! sent again whole, a few times, waiting longer each time. The Archive answers `503 SlowDown`
 //! when its queue is full, often after the whole file has gone, so before each PUT its S3 is asked
-//! whether it's over its limit (`check_limit`), and while it is the PUT waits its turn instead.
+//! whether it's over its limit for the item (`check_limit`), and while it is the PUT waits its turn
+//! instead. The check goes without the access key, which the `internetarchive` library leaves out
+//! too when it has none: the plugin never sees the keys, and they never go in an address.
 //! The Archive's derive (the MP3s it plays the item from, its waveform) is left to run.
 
 use std::path::Path;
@@ -28,8 +30,8 @@ pub(crate) const S3: &str = "https://s3.us.archive.org";
 /// Where the Archive says whether an identifier is free.
 pub(crate) const CHECK: &str = "https://archive.org/services/check_identifier.php";
 
-/// The keys, as the host fills them in.
-pub(crate) const AUTHORIZATION: &str = "LOW {secret:access}:{secret:secret}";
+/// The account, which the host fills in with its keys.
+pub(crate) const AUTHORIZATION: &str = "{account:archive}";
 
 /// How many times the recording is sent before the upload fails.
 pub(crate) const TRIES: u32 = 4;
@@ -106,7 +108,7 @@ pub(crate) fn upload(
                 Ok(answer) if matches!(answer.status, 408 | 429 | 500..) => refused(&answer, filename),
                 Ok(answer) => return Err(refused(&answer, filename)),
                 Err(e) if e.kind() == Some("external") => reaching(e, filename),
-                // Cancelled, or no keys: sending it again changes nothing.
+                // Cancelled, or no account: sending it again changes nothing.
                 Err(e) => return Err(e),
             }
         };
@@ -120,14 +122,14 @@ pub(crate) fn upload(
     }
 }
 
-/// Whether the Archive's S3 says it's over its limit for `id`'s uploads with these keys. An
-/// answer that can't be read says nothing, and the PUT goes: its own answer says.
+/// Whether the Archive's S3 says it's over its limit for `id`'s uploads. An answer that can't be
+/// read says nothing, and the PUT goes: its own answer says.
 fn busy(host: &Host, id: &str) -> Result<bool, RpcError> {
     #[derive(Deserialize)]
     struct Limit {
         over_limit: u8,
     }
-    let check = Fetch::get(format!("{S3}/?check_limit=1&accesskey={{secret:access}}&bucket={id}"));
+    let check = Fetch::get(format!("{S3}/?check_limit=1&bucket={id}"));
     match host.fetch(&check) {
         Ok(Fetched { status: 200..=299, body, .. }) => {
             Ok(serde_json::from_str::<Limit>(body.as_deref().unwrap_or_default()).is_ok_and(|l| l.over_limit != 0))
@@ -171,7 +173,10 @@ fn refused(answer: &Fetched, what: &str) -> RpcError {
     match status {
         401 | 403 => RpcError::failed(
             "permission",
-            format!("the Archive refused the keys ({status}{said}): check them at archive.org/account/s3.php"),
+            format!(
+                "the Archive refused the account's keys ({status}{said}): sign in again with new ones from \
+                 archive.org/account/s3.php (locallibrary account archive sign-in)"
+            ),
         ),
         _ if spam(answer) => RpcError::failed("invalid", format!("the Archive took {what} for spam ({status}{said})")),
         400..=499 => RpcError::failed("invalid", format!("the Archive refused {what} ({status}{said})")),

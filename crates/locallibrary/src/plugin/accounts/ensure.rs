@@ -9,12 +9,14 @@
 
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use loclib_plugin::{AccountNeed, EnsureAccount, Ensured, RpcError, params};
 use serde_json::Value;
 
 use super::PENDING_LIMIT;
 use super::access::Access;
 use super::kept;
+use super::shared::AccountSignIn;
 use super::token::{about, failed};
 use crate::Error;
 use crate::api::RpcFailure;
@@ -42,6 +44,10 @@ pub struct AccessQuestion {
     pub sign_in: bool,
 }
 
+/// The keys a user enters to sign in to an account with keys, by name, and the account's name
+/// when they name it (see [`AskAccess::enter_keys`]).
+pub type EnteredKeys = (IndexMap<String, String>, Option<String>);
+
 /// How a front end asks the user whether a plugin may use more of an account it has access to
 /// (see [`crate::plugin::Options::ask`]).
 pub trait AskAccess: Send + Sync {
@@ -51,6 +57,14 @@ pub trait AskAccess: Send + Sync {
     /// Opens `url` in the browser to sign in again (or says to): the host waits for the browser
     /// to come back.
     fn sign_in(&self, url: &str);
+
+    /// The keys the user enters to sign in again with keys (`start`: its `keys` are the ones to
+    /// enter, its `url` where they get them), by name, and the account's name when `start` is
+    /// `named`: `None` when they can't be asked here, or don't enter them. Never opens the browser.
+    fn enter_keys(&self, start: &AccountSignIn) -> Option<EnteredKeys> {
+        let _ = start;
+        None
+    }
 }
 
 /// Where the scopes a plugin asks about stand, as the store has them now.
@@ -111,8 +125,9 @@ impl Plugin {
     }
 
     /// Asks the user about `s`'s question, and does as they say: gives the access its scopes
-    /// (signing in again first when it has to) or remembers they declined them. Fails as the
-    /// module's docs say when nobody can be asked.
+    /// (signing in again first when it has to, in the browser or with the keys they enter) or
+    /// remembers they declined them. Fails as the module's docs say when nobody can be asked, nor
+    /// the keys entered (the sign-in is over then).
     fn ask(&self, live: &Live, need: &AccountNeed, s: Standing, ctx: &Ctx<'_>) -> Result<(), RpcError> {
         let Standing { with, question: q, .. } = s;
         let store = live.store.as_ref().expect("an access is to an account a store keeps");
@@ -128,8 +143,15 @@ impl Plugin {
         }
         let account = &q.access.account.subject;
         let start = with.begin_sign_in(&q.access.kind, Some(self), Some(account), scopes, store).map_err(external)?;
-        ask.sign_in(&start.url);
-        self.host.finish_sign_in(&start.id, PENDING_LIMIT, ctx).map(drop).map_err(external)
+        if start.keys.is_empty() {
+            ask.sign_in(&start.url);
+            return self.host.finish_sign_in(&start.id, PENDING_LIMIT, ctx).map(drop).map_err(external);
+        }
+        let Some((keys, name)) = ask.enter_keys(&start) else {
+            drop(self.host.pending(&start.id));
+            return Err(unasked(need, &q));
+        };
+        self.host.finish_sign_in_with_keys(&start.id, &keys, name.as_deref()).map(drop).map_err(external)
     }
 }
 

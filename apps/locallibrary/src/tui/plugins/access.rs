@@ -9,11 +9,12 @@ use std::sync::Arc;
 use std::sync::mpsc::{Sender, channel};
 
 use locallibrary::Store;
-use locallibrary::plugin::{AccessQuestion, AccountId, AskAccess, Plugins};
+use locallibrary::plugin::{AccessQuestion, AccountId, AccountSignIn, AskAccess, EnteredKeys, Plugins};
 use loclib_plugin::Manifest;
 use serde_json::{Map, Value, json};
 
-use super::accounts::{BROWSER_WAIT, open, unopened};
+use super::accounts::{finish_sign_in, unopened};
+use super::keys::entered_keys;
 use crate::account_cmd::asking::wants;
 use crate::tui::app::{App, Level, Msg};
 use crate::tui::edits::Modal;
@@ -117,7 +118,7 @@ impl App {
     pub(in crate::tui) fn save_access(&mut self, plugin: &'static str, all: Vec<AccessChoice>, given: Value) {
         let Ok(plugins) = crate::plugins::host() else { return };
         let Ok(name) = plugins.manifest(plugin).map(|m| m.name.clone()) else { return };
-        let store_root = self.store_root.clone();
+        let (store_root, tx) = (self.store_root.clone(), self.sender());
         self.task_showing("Giving access".into(), move |ctx, show| {
             let store = Store::open_or_init(&store_root)?;
             let (mut used, mut declined) = (Vec::new(), Vec::new());
@@ -128,8 +129,7 @@ impl App {
                     Pick::Account(id) => id.clone(),
                     Pick::SignIn(with) => {
                         let start = plugins.begin_account_sign_in(&c.kind, with, Some(plugin), None, &[], &store)?;
-                        open(&start.url, show);
-                        let done = plugins.finish_account_sign_in(&start.id, BROWSER_WAIT, ctx)?;
+                        let done = finish_sign_in(plugins, &start, &tx, ctx, show)?;
                         declined.extend(titles(plugins, &c.kind, &done.declined));
                         AccountId { plugin: done.account.plugin, subject: done.account.subject }
                     }
@@ -158,7 +158,8 @@ impl App {
 
     /// Where plugins ask whether they may use more of an account while the player runs: the
     /// form ([`App::ask_access`]), each waiting for its answer; a sign-in it takes opens the
-    /// browser, saying where to go when it can't.
+    /// browser, saying where to go when it can't, or takes the account's keys in a form
+    /// ([`App::enter_keys`]).
     pub(in crate::tui) fn plugin_asker(&self) -> Arc<dyn AskAccess> {
         Arc::new(Asking(self.sender()))
     }
@@ -191,5 +192,9 @@ impl AskAccess for Asking {
         if let Some(link) = unopened(url) {
             let _ = self.0.send(Msg::Note(link, Level::Info));
         }
+    }
+
+    fn enter_keys(&self, start: &AccountSignIn) -> Option<EnteredKeys> {
+        entered_keys(&self.0, start)
     }
 }

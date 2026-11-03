@@ -81,6 +81,26 @@ export async function pressKitServices() {
 			return result.epk;
 		},
 
+		/**
+		 * A grant the root wrote into the press kit's space, as grants were, with the subject's place there, indexed as the
+		 * sync would. Returns the record's URI.
+		 */
+		async grantedBefore(epk: EpkView, value: { subject: string; via: string; createdAt: string }): Promise<string> {
+			const root = t.net.client(ROOT);
+			await root.putMember({ space: epk.space, did: value.subject, read: true, write: false });
+
+			const ref = await root.putSpaceRecord({
+				space: epk.space,
+				collection: COLLECTION.epkGrant,
+				rkey: value.subject,
+				record: validateRecord(COLLECTION.epkGrant, value)
+			});
+
+			await t.epks.indexGrant({ space: epk.space, uri: ref.uri, repoDid: ROOT, value });
+
+			return ref.uri;
+		},
+
 		/** A photo uploaded to `did`'s repo. */
 		async photo(did: string, name: string): Promise<EpkPhoto> {
 			return { image: await t.net.client(did).uploadBlob(new TextEncoder().encode(name), 'image/png'), alt: name };

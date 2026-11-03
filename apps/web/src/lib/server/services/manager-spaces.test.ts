@@ -17,6 +17,9 @@ const OLD = 'did:plc:old';
 
 const NEW = 'did:plc:new';
 
+/** Someone let into a press kit before its grants moved out of its space. */
+const EARLY = 'did:plc:early';
+
 describe('ManagerSpaces', () => {
 	let t: Awaited<ReturnType<typeof createTestServices>>;
 	let project: ProjectView;
@@ -310,6 +313,15 @@ describe('ManagerSpaces', () => {
 		if (result.kind !== 'published') throw new Error('the draft conflicts');
 		const { epk } = result;
 		await t.epks.invite(old, { epk, project }, PROMOTER);
+		// Someone let in before grants moved out of the press kit's space.
+		const root = t.net.client(ROOT);
+		await root.putMember({ space: epk.space, did: EARLY, read: true, write: false });
+		await root.putSpaceRecord({
+			space: epk.space,
+			collection: COLLECTION.epkGrant,
+			rkey: EARLY,
+			record: { subject: EARLY, via: 'invited', createdAt: new Date().toISOString() }
+		});
 		await t.epks.request(await t.viewer(ADMIN), { epk, project }, {});
 		const backstage = t.epks.drafts.space(project);
 		const requests = epkRequestSpace(ROOT, project.rkey);
@@ -322,26 +334,41 @@ describe('ManagerSpaces', () => {
 		expect(access(epk.space)).toEqual({
 			[OLD]: { read: true, write: false },
 			[NEW]: { read: true, write: false },
-			[PROMOTER]: { read: true, write: false }
+			[PROMOTER]: { read: true, write: false },
+			[EARLY]: { read: true, write: false }
 		});
 
 		await setManagers([NEW]);
 		expect(access(backstage)).toEqual({ [NEW]: { read: true, write: true } });
 		expect(access(requests)).toEqual({ [NEW]: { read: true, write: false } });
-		expect(access(epk.space)).toEqual({
-			[NEW]: { read: true, write: false },
-			[PROMOTER]: { read: true, write: false }
-		});
 
-		// A space whose grants or members can't be read is left for the next sync.
-		const left = { [NEW]: { read: true, write: false }, [PROMOTER]: { read: true, write: false } };
-		vi.spyOn(FakeRootClient.prototype, 'listSpaceRecords').mockRejectedValueOnce(new Error('down'));
+		const left = {
+			[NEW]: { read: true, write: false },
+			[PROMOTER]: { read: true, write: false },
+			[EARLY]: { read: true, write: false }
+		};
+
+		expect(access(epk.space)).toEqual(left);
+
+		// A space whose grants or members can't be read is left for the next sync: the request space's grants count for
+		// every press kit, and a press kit's own for it.
+		const spy = vi.spyOn(FakeRootClient.prototype, 'listSpaceRecords').mockRejectedValueOnce(new Error('down'));
 		await setManagers([OLD]);
 		expect(access(epk.space)).toEqual(left);
 		expect(access(backstage)).toEqual({ [OLD]: { read: true, write: true } });
 
-		vi.spyOn(FakeRootClient.prototype, 'listMembers').mockRejectedValue(new Error('down'));
+		spy.mockImplementation(async (input) => {
+			if (input.space === epk.space) throw new Error('down');
+
+			return { records: [] };
+		});
 		await setManagers([NEW]);
+		expect(access(epk.space)).toEqual(left);
+		expect(access(backstage)).toEqual({ [NEW]: { read: true, write: true } });
+		spy.mockRestore();
+
+		vi.spyOn(FakeRootClient.prototype, 'listMembers').mockRejectedValue(new Error('down'));
+		await setManagers([OLD]);
 		expect(access(epk.space)).toEqual(left);
 	});
 

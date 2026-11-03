@@ -1,17 +1,21 @@
-//! Accounts in the player: signing in to an account of each type the account plugins provide,
-//! and out of each the store keeps, from the palette beside the plugins' settings, and a warning as
-//! it starts of each that signs itself out within `WARN_DAYS`. Each runs in the background: nothing
-//! here reads the keychain or reaches a service while the player draws.
+//! Accounts in the player: signing in to an account of each type the account plugins provide (in
+//! the browser, or with keys, see [`super::keys`]), and out of each the store keeps, from the
+//! palette beside the plugins' settings, and a warning as it starts of each that signs itself out
+//! within `WARN_DAYS`. Each runs in the background: nothing here reads the keychain or reaches a
+//! service while the player draws.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
+use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 use locallibrary::Store;
-use locallibrary::plugin::{Account, Plugins};
-use loclib_plugin::Manifest;
+use locallibrary::plugin::{Account, AccountSignIn, AccountSignedIn, Plugins};
+use locallibrary::progress::Ctx;
+use loclib_plugin::{Manifest, a_or_an};
 
-use crate::tui::app::{App, Level};
+use super::keys::entered_keys;
+use crate::tui::app::{App, Level, Msg};
 use crate::tui::keymap::Act;
 use crate::tui::palette::Item;
 
@@ -21,9 +25,8 @@ pub(super) const BROWSER_WAIT: Duration = Duration::from_secs(300);
 /// Signing in to an account of each type the account plugin `m` provides.
 pub(super) fn sign_in_items(m: &'static Manifest) -> Vec<(Act, Item)> {
     let types = m.contributes.account_types.iter();
-    types
-        .map(|t| (Act::AccountSignIn(&t.name, &m.id), Item::new(format!("sign in to a {} account…", t.title), &m.name)))
-        .collect()
+    let item = |title| Item::new(format!("sign in to {} account…", a_or_an(title)), &m.name);
+    types.map(|t| (Act::AccountSignIn(&t.name, &m.id), item(&t.title))).collect()
 }
 
 /// Signing out of each account the store at `store_root` keeps.
@@ -61,19 +64,39 @@ pub(super) fn unopened(url: &str) -> Option<String> {
     locallibrary::opener::open_url(url).is_err().then(|| format!("open this in your browser to sign in: {url}"))
 }
 
+/// Finishes the sign-in `start` began, off the UI thread: once the browser comes back from the
+/// service's sign-in page (opened, or its link shown with `show`), or with the keys entered in
+/// the form asked for over `tx` (see [`entered_keys`]). The form closed, the sign-in is over.
+pub(super) fn finish_sign_in(
+    plugins: &Plugins,
+    start: &AccountSignIn,
+    tx: &Sender<Msg>,
+    ctx: &Ctx<'_>,
+    show: &dyn Fn(crate::tui::edits::Done),
+) -> locallibrary::Result<AccountSignedIn> {
+    if start.keys.is_empty() {
+        open(&start.url, show);
+        return plugins.finish_account_sign_in(&start.id, BROWSER_WAIT, ctx);
+    }
+    let Some((keys, name)) = entered_keys(tx, start) else {
+        plugins.cancel_sign_in(&start.id);
+        return Err(locallibrary::Error::Cancelled);
+    };
+    plugins.finish_account_sign_in_with_keys(&start.id, &keys, name.as_deref())
+}
+
 impl App {
     /// Sign in to an account of type `kind` through the account plugin `with` in the background:
-    /// the browser opens on the service's sign-in page (the link is shown when it can't), and
-    /// once it comes back the store keeps the account. Esc stops waiting.
+    /// the browser opens on the service's sign-in page (the link is shown when it can't), or for
+    /// a type signed in to with keys a form takes them, and once it comes back (or they're
+    /// entered) the store keeps the account. Esc stops waiting, or closes the form.
     pub(in crate::tui) fn account_sign_in(&mut self, kind: &'static str, with: &'static str) {
         let Ok(plugins) = crate::plugins::host() else { return };
-        let store_root = self.store_root.clone();
+        let (store_root, tx) = (self.store_root.clone(), self.sender());
         self.task_showing("Signing in".into(), move |ctx, show| {
             let store = Store::open_or_init(&store_root)?;
             let start = plugins.begin_account_sign_in(kind, with, None, None, &[], &store)?;
-            open(&start.url, show);
-            let said =
-                format!("{} signed in", plugins.finish_account_sign_in(&start.id, BROWSER_WAIT, ctx)?.account.name);
+            let said = format!("{} signed in", finish_sign_in(plugins, &start, &tx, ctx, show)?.account.name);
             Ok(Box::new(move |app: &mut App| app.toast(said, Level::Info)))
         });
     }

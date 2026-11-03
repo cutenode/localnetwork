@@ -165,7 +165,7 @@ export async function checkDocker(): Promise<void> {
 }
 
 /** Runs the docker CLI and returns everything it printed. */
-async function docker(...args: string[]): Promise<string> {
+export async function docker(...args: string[]): Promise<string> {
 	try {
 		const { stdout, stderr } = await execFileAsync('docker', args);
 

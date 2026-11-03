@@ -1,0 +1,25 @@
+id = "archive-account"
+name = "Internet Archive Account"
+version = "0.1.0"
+protocol = "^0.2"
+
+# The Archive's S3 API takes an account's pair of S3 keys in the Authorization header, as
+# `LOW <access>:<secret>`. The Archive says whose keys they are only at archive.org
+# (`services/user.php?op=whoami`), which no scope sends them to, so the user names the account.
+[[contributes.account_types]]
+type = "archive"
+title = "Internet Archive"
+kind = "keys"
+keys_url = "https://archive.org/account/s3.php"
+authorization = "LOW {access}:{secret}"
+
+[contributes.account_types.keys.access]
+title = "S3 access key"
+
+[contributes.account_types.keys.secret]
+title = "S3 secret key"
+
+# A file PUT into an item, which makes the item when it's new.
+[contributes.account_types.scopes.upload]
+title = "upload items to the Internet Archive"
+requests = [{ method = "PUT", url = "https://s3.us.archive.org/*" }]

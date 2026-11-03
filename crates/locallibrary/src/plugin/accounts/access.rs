@@ -5,7 +5,7 @@
 //! or the one left when the default is taken away.
 
 use indexmap::IndexSet;
-use loclib_plugin::{AccountNeed, Manifest, Scope};
+use loclib_plugin::{AccountNeed, Manifest, Scope, a_or_an};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -218,7 +218,7 @@ pub(crate) fn actions(
     for kind in kinds {
         actions.extend(more_of(host, manifest, kind, &book, said).into_iter().flatten());
         let begin = json!({ "type": kind, "for": plugin });
-        actions.push(Action::call("accounts.sign_in.begin", begin, format!("Sign in to a {kind} account")));
+        actions.push(Action::call("accounts.sign_in.begin", begin, format!("Sign in to {} account", a_or_an(kind))));
         for k in book.accounts.iter().filter(|k| k.kind == kind) {
             let params = json!({ "plugin": plugin, "account": AccountId::of(k) });
             actions.push(Action::call("accounts.access.set_default", params, format!("Use {}", k.name)));

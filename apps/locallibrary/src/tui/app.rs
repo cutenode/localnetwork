@@ -768,6 +768,8 @@ pub enum Msg {
     Forgotten(u64),
     /// A plugin asks whether it may use more of an account, waiting for the answer here.
     AskAccess(Box<locallibrary::plugin::AccessQuestion>, Sender<bool>),
+    /// A sign-in waits here for the keys it takes, entered in a form.
+    EnterKeys(Box<locallibrary::plugin::AccountSignIn>, Sender<locallibrary::plugin::EnteredKeys>),
     /// The playing track's analysis, artwork and matches, for the play with this id.
     TrackInfo(u64, Box<TrackInfo>),
     Details(Box<Details>),
@@ -1908,6 +1910,7 @@ impl App {
             Msg::Suggested(kept) => self.kept(kept),
             Msg::Forgotten(marked) => self.forgotten(marked),
             Msg::AskAccess(question, reply) => self.ask_access(&question, reply),
+            Msg::EnterKeys(start, reply) => self.enter_keys(&start, reply),
             Msg::TrackInfo(id, info) => {
                 let upcoming = self.upcoming.as_mut().map(|u| &mut u.now);
                 if let Some(now) = self.now.as_mut().into_iter().chain(upcoming).find(|n| n.id == id) {
