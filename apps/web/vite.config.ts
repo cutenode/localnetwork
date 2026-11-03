@@ -4,8 +4,17 @@ import { enhancedImages } from '@sveltejs/enhanced-img';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { playwright } from '@vitest/browser-playwright';
-import type { Rolldown } from 'vite';
+import type { Plugin, Rolldown } from 'vite';
 import { defineConfig } from 'vitest/config';
+
+// Vitest's module cache leaves out a module that calls `import.meta.glob(`, whose output changes when a file the glob
+// matches is added or removed, but it misses a typed call (`import.meta.glob<string>(`), so after a new Lua script or
+// guide a test still saw the old list. This leaves out both.
+const uncachedGlobs: Plugin = {
+	name: 'uncached-globs',
+	configureVitest: ({ defineCacheKeyGenerator }) =>
+		defineCacheKeyGenerator(({ sourceCode }) => (/import\.meta\.glob\s*[<(]/.test(sourceCode) ? false : undefined))
+};
 
 // The browser test projects inherit the dev server's strictPort, which makes Vitest fail on a taken
 // port (63315 and up) instead of moving on, so test runs in two checkouts at once collide.
@@ -32,6 +41,7 @@ const isSmall = (id: string, ctx: Rolldown.ChunkingContext, seen = new Set<strin
 
 export default defineConfig({
 	plugins: [
+		uncachedGlobs,
 		tailwindcss(),
 		// `?enhanced` images: AVIF and WebP at each width, with their size set so nothing shifts as they load.
 		enhancedImages(),
@@ -48,7 +58,8 @@ export default defineConfig({
 					// Mixcloud's and SoundCloud's widget APIs, loaded when someone opens one of their players.
 					'script-src': ['self', 'https://widget.mixcloud.com', 'https://w.soundcloud.com'],
 					'style-src': ['self', 'unsafe-inline'],
-					'img-src': ['self', 'data:', 'blob:'],
+					// cdn.bsky.app: the avatars in sign-in's account suggestions (src/lib/server/actor-search.ts).
+					'img-src': ['self', 'data:', 'blob:', 'https://cdn.bsky.app'],
 					'font-src': ['self'],
 					'connect-src': ['self'],
 					// Recordings the set player plays: DJs' own (/media/audio), plyr.fm's CDN, and archive.org downloads,
@@ -92,8 +103,9 @@ export default defineConfig({
 								{
 									name: (id, ctx) =>
 										ctx.getModuleInfo(id)?.importedIds.every((dep) => isSmall(dep, ctx)) ? 'shared' : null,
-									// Not the Tools pages' own components: only those pages load them, and every page loads this.
-									test: /[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|GuideList\.svelte))|@lucide/,
+									// Not the Tools pages' own components, or the booking rules the dashboard's booking pages
+									// share: only those pages load them, and every page loads this.
+									test: /[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|GuideList\.svelte)|bookings\.ts$)|@lucide/,
 									minShareCount: 2,
 									maxModuleSize: SHARED_MODULE_SIZE
 								}

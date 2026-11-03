@@ -7,6 +7,7 @@ import { CALENDAR_EVENT, CALENDAR_RSVP, COLLECTION, PERMISSIONS, SPACE_TYPE } fr
 import { loadConfig } from '../config';
 import { openDatabase } from '../db';
 import { silentLogger } from '../logger';
+import { collectingGarbage } from '../testing/gc';
 import { type Loopback, rebindToLoopback } from '../testing/rebind';
 import { IdentityResolver } from './identity';
 import { permissionSetFor } from './lexicons';
@@ -55,6 +56,10 @@ describe('OAuth scopes', () => {
 		...full.split(' ').filter((scope) => !scope.startsWith('include:'))
 	];
 
+	/** Where requests to see a press kit went before, and where they go now. */
+	const KIT_REQUESTS = `space:computer.localnetwork.space.epk?authority=${root}&collection=computer.localnetwork.epk.request&action=read_self&action=create&action=delete`;
+	const PROJECT_REQUESTS = KIT_REQUESTS.replace('space.epk?', 'space.epkRequests?');
+
 	/**
 	 * What accounts hold from before the profiles permissions: the grant `full` got from the permission set and scopes as
 	 * they were, with the shared spaces pinned to the root, written out as the PDS stores it, so it doesn't change with
@@ -70,7 +75,7 @@ describe('OAuth scopes', () => {
 		'repo:computer.localnetwork.follow?action=create&action=delete',
 		`space:computer.localnetwork.space.epk?authority=${user}&collection=computer.localnetwork.epk.content&collection=computer.localnetwork.epk.grant&manage=create&manage=update&manage=delete`,
 		`space:computer.localnetwork.space.backstage?authority=${root}&collection=computer.localnetwork.epk.draft&action=read_self&action=create&action=update&action=delete`,
-		`space:computer.localnetwork.space.epk?authority=${root}&collection=computer.localnetwork.epk.request&action=read_self&action=create&action=delete`,
+		KIT_REQUESTS,
 		'atproto',
 		'blob?accept=image/jpeg&accept=image/png&accept=image/webp&accept=application/json',
 		'repo:community.lexicon.calendar.event?action=create&action=update&action=delete'
@@ -118,18 +123,23 @@ describe('OAuth scopes', () => {
 		).toBe(false);
 	});
 
-	it("lets a DJ run their own press kit spaces, and anyone ask for access to the root's", () => {
+	it("lets a DJ run their own press kit spaces, and anyone ask for access in a project's request space", () => {
 		const permissions = new ScopePermissions(granted);
 		const own = { type: SPACE_TYPE.epk, authority: user, skey: '3mabc' } as const;
 		const theirs = { ...own, authority: root } as const;
-		// Another DJ's own press kit space, made before the root held them: the root asks there on the user's behalf.
+		const requests = { type: SPACE_TYPE.epkRequests, authority: root, skey: '3mproj' } as const;
+		// Another DJ's own press kit space, made before the root held them.
 		const legacy = { ...own, authority: 'did:plc:other' } as const;
 
 		expect(permissions.allowsRepo({ collection: COLLECTION.epk, action: 'create' })).toBe(true);
 		expect(permissions.allowsRepo({ collection: COLLECTION.project, action: 'create' })).toBe(false);
 		expect(permissions.allowsSpace({ ...own, manage: 'update' })).toBe(true);
 		expect(permissions.allowsSpace({ ...own, action: 'create', collection: COLLECTION.epkGrant })).toBe(true);
-		expect(permissions.allowsSpace({ ...theirs, action: 'create', collection: COLLECTION.epkRequest })).toBe(true);
+		expect(permissions.allowsSpace({ ...requests, action: 'create', collection: COLLECTION.epkRequest })).toBe(true);
+		expect(permissions.allowsSpace({ ...requests, action: 'read' })).toBe(false);
+		// Not in a press kit's own space, which everyone granted the press kit reads.
+		expect(permissions.allowsSpace({ ...theirs, action: 'create', collection: COLLECTION.epkRequest })).toBe(false);
+		expect(permissions.allowsSpace({ ...theirs, action: 'delete', collection: COLLECTION.epkRequest })).toBe(false);
 		expect(permissions.allowsSpace({ ...theirs, action: 'create', collection: COLLECTION.epkGrant })).toBe(false);
 		expect(permissions.allowsSpace({ ...theirs, action: 'read' })).toBe(false);
 		expect(permissions.allowsSpace({ ...legacy, action: 'create', collection: COLLECTION.epkRequest })).toBe(false);
@@ -218,7 +228,7 @@ describe('OAuth scopes', () => {
 			{ type: SPACE_TYPE.moderation, skey: 'main', collection: COLLECTION.request },
 			{ type: SPACE_TYPE.booking, skey: '3mxq3whd6gi2d', collection: COLLECTION.bookingInquiry },
 			{ type: SPACE_TYPE.backstage, skey: '3mabc', collection: COLLECTION.epkDraft },
-			{ type: SPACE_TYPE.epk, skey: '3mabc', collection: COLLECTION.epkRequest }
+			{ type: SPACE_TYPE.epkRequests, skey: '3mproj', collection: COLLECTION.epkRequest }
 		] as const;
 
 		for (const write of writes) {
@@ -241,7 +251,10 @@ describe('OAuth scopes', () => {
 	});
 
 	it('counts a grant from before profiles as one with spaces, so nobody is signed out at deploy', () => {
-		const before = beforeProfiles.join(' ');
+		// Requests have moved to a project's own request space since, so the grant held then asks to write them there.
+		const held = beforeProfiles.flatMap((scope) => (scope === KIT_REQUESTS ? [PROJECT_REQUESTS] : [scope]));
+
+		const before = held.join(' ');
 
 		// The app signs a spaces-capable account out when this is false for its stored grant.
 		expect(grantsSpaces(before, user, root)).toBe(true);
@@ -253,8 +266,16 @@ describe('OAuth scopes', () => {
 		// Every space write it had is still needed, drafts in a project's backstage included.
 		const publicRecords = (scope: string) => /localnetwork\.(show|follow)|calendar\.event/.test(scope);
 
-		for (const dropped of beforeProfiles.filter((scope) => !publicRecords(scope)))
-			expect(grantsSpaces(beforeProfiles.filter((scope) => scope !== dropped).join(' '), user, root)).toBe(false);
+		for (const dropped of held.filter((scope) => !publicRecords(scope)))
+			expect(grantsSpaces(held.filter((scope) => scope !== dropped).join(' '), user, root)).toBe(false);
+	});
+
+	it('signs in again an account whose grant asks to write requests into a press kit space, where everyone let in reads them', () => {
+		// The app signs a spaces-capable account out when this is false for its stored grant, and the new one gets the
+		// project's request space instead.
+		expect(grantsSpaces(beforeProfiles.join(' '), user, root)).toBe(false);
+		expect(granted).toContain(PROJECT_REQUESTS);
+		expect(granted).not.toContain(KIT_REQUESTS);
 	});
 
 	it('declares every scope it may ask for in its client metadata', () => {
@@ -533,7 +554,10 @@ describe('OAuthService sign-in, given servers a DID document names', () => {
 		try {
 			const started = performance.now();
 
-			expect(await signIn(`http://127.0.0.1:${port}`, true, 200)).toBe('The operation was aborted due to timeout');
+			// Collection runs while it waits, as it does in a busy process, so the limit has to survive it.
+			const outcome = await collectingGarbage(signIn(`http://127.0.0.1:${port}`, true, 200));
+
+			expect(outcome).toBe('The operation was aborted due to timeout');
 			expect(performance.now() - started).toBeLessThan(2_000);
 			expect(held).toHaveLength(1);
 		} finally {

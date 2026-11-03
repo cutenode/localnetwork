@@ -1,5 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import { decidedNotice } from '#lib/requests.ts';
+import { AVATAR_TYPES } from '#lib/server/images.ts';
 import { DECISION_OUTCOMES } from '#lib/server/services/requests.ts';
 import { act, requireStaff, text } from '#lib/server/http.ts';
 import type { RequestView } from '#lib/types.ts';
@@ -23,6 +24,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	// A verification vouches for the account itself, so only a claim from the act's own account (or a member's) leads
 	// to one: a manager's or agent's account belongs to someone else.
 	const relationship = request.record.claim?.relationship;
+	const avatar = request.record.profile?.avatar;
 
 	const verifiable =
 		locals.viewer?.isAdmin &&
@@ -47,7 +49,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 					.statuses([request.requester.did])
 					.then((statuses) => statuses?.[request.requester.did] ?? null)
 			: null,
-		hasAvatar: !!request.record.profile?.avatar,
+		// Read from the record, so the page doesn't wait on the requester's PDS. Approval refuses a type /media won't serve.
+		avatar: avatar ? { type: avatar.mimeType, shown: AVATAR_TYPES.has(avatar.mimeType.toLowerCase()) } : null,
 		tracklists: (request.record.profile?.mixes ?? []).flatMap((mix, index) =>
 			mix.tracklist ? [{ n: index + 1, title: mix.title }] : []
 		)

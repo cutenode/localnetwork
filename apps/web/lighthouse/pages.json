@@ -6,6 +6,7 @@
 		{ "path": "/for-djs" },
 		{ "path": "/privacy" },
 		{ "path": "/login" },
+		{ "path": "/login/create" },
 		{ "path": "/projects" },
 		{ "path": "/projects?genres=house" },
 		{ "path": "/projects/halflight", "pr": true },

@@ -138,6 +138,30 @@ fn several_recordings_are_written_into_a_folder() {
     assert!(written[0].starts_with("friday_") && written[1].starts_with("saturday_"), "{written:?}");
 }
 
+/// `store index-limit` sets the largest index `mix` keeps for a drive: under it, the drive keeps
+/// none (and the one it kept goes), back at the default it keeps one again. The limit goes out
+/// with the store's settings.
+#[test]
+fn the_index_limit_decides_whether_a_drives_index_is_kept() {
+    let env = Env::ascii();
+    let drive = env.demo("Demo");
+    let indexes = || std::fs::read_dir(env.store.join("cache/fingerprints/index")).map_or(0, Iterator::count);
+    let shown = env.ok(&["store", "index-limit"]);
+    assert_eq!(shown.trim(), "fingerprint indexes are kept up to 512 MiB a drive (the default)");
+    env.ok(&["mix", "--drive", path(&drive)]);
+    assert_eq!(indexes(), 1);
+
+    assert_eq!(env.ok(&["store", "index-limit", "0"]).trim(), "v fingerprint indexes aren't kept");
+    let out = env.ok(&["mix", "--drive", path(&drive)]);
+    assert_eq!(indexes(), 0, "{out}");
+    assert_eq!(env.json(&["settings", "export"])["mix"], serde_json::json!({ "index_limit_mib": 0 }));
+
+    env.ok(&["store", "index-limit", "default"]);
+    env.ok(&["mix", "--drive", path(&drive)]);
+    assert_eq!(indexes(), 1);
+    assert_eq!(env.json(&["store", "index-limit"])["default"], true);
+}
+
 #[test]
 fn indexing_says_which_tracks_it_couldnt_fingerprint() {
     let env = Env::ascii();

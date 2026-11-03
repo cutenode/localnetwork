@@ -106,7 +106,7 @@ fn the_status_says_what_the_session_allows_and_until_when() {
     let day =
         |t: &str| locallibrary::local_time(chrono::DateTime::parse_from_rfc3339(t).unwrap(), "%Y-%m-%d").to_string();
     let (signed_in, again) = (day("2026-10-05T00:00:00Z"), day("2099-01-01T00:00:00Z"));
-    assert!(out.contains(&format!("  signed in {signed_in} - sign in again by {again} (")), "{out}");
+    assert!(out.contains(&format!("\n  signed in {signed_in} - sign in again by {again} (")), "{out}");
     assert!(out.contains("allowed: atproto transition:generic - session kept "), "{out}");
     if cfg!(target_os = "macos") {
         assert!(out.contains("session kept in the macOS Keychain"), "{out}");
@@ -114,9 +114,13 @@ fn the_status_says_what_the_session_allows_and_until_when() {
     assert!(out.contains("  client https://dj.example.com/c.json\n"), "{out}");
 
     // Signed in to publish: the server granted the permission set's scopes in its place.
+    // Within its last two days, it's a warning.
     sign_in(&env.store, pds, &PUBLISHING, json!({ "sign_in_again_by": from_now(2) }));
     let out = env.ok(&["account", "status"]);
-    assert!(out.contains(" (today)\n"), "{out}");
+    assert!(
+        out.contains(&format!("! signed in {signed_in} - sign in again by ")) && out.contains(" (today)\n"),
+        "{out}"
+    );
     assert!(
         out.contains(
             "can publish your My Settings, profile, sets and their recordings; can't post or change anything else"

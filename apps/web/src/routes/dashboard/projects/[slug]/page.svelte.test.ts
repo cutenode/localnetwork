@@ -1,6 +1,8 @@
 import { page } from 'vitest/browser';
 import { expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import type { DjActivity } from '#lib/dj.ts';
+import type { EpkDashboard, EpkDraftView, EpkView } from '#lib/epk.ts';
 import { EVENT_STATUS } from '#lib/shows.ts';
 import type { ProjectView, RequestView, ShowView, Viewer } from '#lib/types.ts';
 import Page from './+page.svelte';
@@ -61,7 +63,9 @@ const base = {
 	],
 	pendingUpdate: null,
 	shows: Promise.resolve([]),
-	edited: Promise.resolve([])
+	edited: Promise.resolve([]),
+	kits: Promise.resolve(null),
+	stats: []
 };
 
 it("lists the project's shows, with edit links on the viewer's own and a note on ones another app changed", async () => {
@@ -102,7 +106,7 @@ it("links to the project's sections, its public page, and how to publish stats",
 	await expect.element(page.getByText('No upcoming shows')).toBeInTheDocument();
 });
 
-it('sends a manager with changes waiting to their request, and holds shows for a hidden project', async () => {
+it('sends a manager with changes waiting to their submission, and holds shows for a hidden project', async () => {
 	// SAFETY: the page reads only the open request's key.
 	const pendingUpdate = { rkey: '3kreq' } as RequestView;
 
@@ -113,7 +117,7 @@ it('sends a manager with changes waiting to their request, and holds shows for a
 	});
 
 	await expect
-		.element(page.getByRole('link', { name: 'View request' }))
+		.element(page.getByRole('link', { name: 'View submission' }))
 		.toHaveAttribute('href', '/dashboard/requests/3kreq');
 	await expect.element(page.getByRole('link', { name: 'Propose changes' })).not.toBeInTheDocument();
 	await expect.element(page.getByText('Not public yet. Only its managers and staff can see it.')).toBeInTheDocument();
@@ -137,4 +141,41 @@ it('holds a row of room for each upcoming show the project has while they load',
 	const placeholder = page.getByRole('list', { name: 'Loading shows' });
 	await expect.element(placeholder).toBeInTheDocument();
 	expect(placeholder.element().children).toHaveLength(3);
+});
+
+it('sums up the press kits, their drafts, and what the viewer has published', async () => {
+	// SAFETY: the summary reads only each draft's status.
+	const draft = (status: EpkDraftView['status']) => ({ status }) as EpkDraftView;
+
+	// SAFETY: and only how many press kits there are.
+	const epk = {} as EpkView;
+
+	const kits: EpkDashboard = {
+		kits: [
+			{ epk, drafts: [draft('behind')] },
+			{ epk, drafts: [] }
+		],
+		drafts: [draft('new')]
+	};
+
+	const stats: DjActivity[] = [
+		{
+			did: 'did:plc:neon',
+			handle: 'neon.test',
+			profile: { generatedAt: new Date(Date.now() - 3 * 86_400_000).toISOString() },
+			sets: []
+		}
+	];
+
+	const { rerender } = await render(Page, {
+		params: { slug: 'neon-tide' },
+		data: { ...base, kits: Promise.resolve(kits), stats },
+		form: null
+	});
+
+	await expect.element(page.getByText('2 press kits · 2 drafts, 1 behind')).toBeInTheDocument();
+	await expect.element(page.getByText('Stats published 3 days ago')).toBeInTheDocument();
+	await rerender({ data: { ...base, kits: Promise.resolve({ kits: [], drafts: [] }), stats: [] } });
+	await expect.element(page.getByText('No press kits yet')).toBeInTheDocument();
+	await expect.element(page.getByText('Nothing published yet')).toBeInTheDocument();
 });

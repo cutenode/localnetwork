@@ -81,7 +81,7 @@ export class IdentityResolver {
 	private readonly handleCache = new Map<string, { did: string | null; at: number }>();
 
 	constructor(private readonly options: IdentityOptions) {
-		const base = options.fetch ?? globalThis.fetch;
+		const base = holdingRequests(options.fetch ?? globalThis.fetch);
 
 		this.fetch = safeFetchWrap({
 			fetch: base,
@@ -208,6 +208,23 @@ export class IdentityResolver {
 	async signingKey(did: string, forceRefresh = false): Promise<string> {
 		return (await this.resolve(did, forceRefresh)).signingKey;
 	}
+}
+
+/**
+ * `fetch`, keeping each Request it's given alive as long as the request runs and its response is held. A Request
+ * passes its signal on to the one fetch builds from it through a weak reference, and safeFetchWrap hands fetch a
+ * Request of its own that nothing else holds. A garbage collection while the request waited could drop the link, so
+ * an abort or a time limit never reached the request, and a server that never answered held it forever.
+ */
+function holdingRequests(fetch: typeof globalThis.fetch): typeof globalThis.fetch {
+	const held = new WeakMap<Response, Parameters<typeof globalThis.fetch>[0]>();
+
+	return async (input, init) => {
+		const response = await fetch(input, init);
+		held.set(response, input);
+
+		return response;
+	};
 }
 
 /** The account's KEM key, or an error saying why its space repos can't be read without one. */

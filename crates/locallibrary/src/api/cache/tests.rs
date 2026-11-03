@@ -3,6 +3,7 @@ use std::sync::mpsc;
 use super::*;
 use crate::Error;
 use crate::mix::index::Cache;
+use crate::mix::prefs::MixPrefs;
 use crate::progress::{CancelToken, Event};
 
 /// A request for the identifier while another builds it waits for that build, and can be
@@ -30,7 +31,7 @@ fn the_identifier_is_built_once_and_waiting_for_it_can_be_cancelled() {
             cached.identifier(root, &Ctx::silent(), move |library| {
                 started.send(()).unwrap();
                 released.recv().unwrap();
-                Identifier::with_library(&device, library.into(), &fingerprints, &Ctx::silent())
+                Identifier::with_library(&device, library.into(), &fingerprints, &MixPrefs::default(), &Ctx::silent())
             })
         });
         building.recv().unwrap();
@@ -79,7 +80,7 @@ fn requests_waiting_for_the_identifier_share_one_build(tc: hegel::TestCase) {
     let builds = AtomicUsize::new(0);
     let build = &|library: Library| {
         builds.fetch_add(1, Ordering::SeqCst);
-        Identifier::with_library(&device, library.into(), &fingerprints, &Ctx::silent())
+        Identifier::with_library(&device, library.into(), &fingerprints, &MixPrefs::default(), &Ctx::silent())
     };
     let (started, building) = mpsc::channel();
     let (release, released) = mpsc::channel::<()>();

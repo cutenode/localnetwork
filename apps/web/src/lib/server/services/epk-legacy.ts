@@ -1,7 +1,7 @@
 import { epkGrantSchema } from '#lib/epk-schema.ts';
 import type { EpkView } from '#lib/epk.ts';
 import { COLLECTION, EPK_CONTENT_KEY } from '#lib/nsid.ts';
-import type { Viewer } from '#lib/types.ts';
+import type { ProjectView, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
 import type { RepoClient } from '../atproto/repo-client';
 import type { Core } from '../core';
@@ -139,7 +139,7 @@ export class LegacyEpks {
 				});
 			}
 
-			const requests = await this.carryRequests(epk, space, uri);
+			const requests = await this.carryRequests(epk, project, space, uri);
 			await this.carryGrants(owner, epk, space, requests);
 			this.core.logger.info(
 				{ ...log, space, requests: requests.size },
@@ -177,63 +177,35 @@ export class LegacyEpks {
 	}
 
 	/**
-	 * Rewrites the old space's open requests into the new one as the root, on the askers' behalf,
-	 * and grants the ones the rules approved, which waited for the move. Returns each old request's new URI.
+	 * Moves the press kit's requests over to the root's copy: the open ones still in the old space are rewritten into the
+	 * project's request space as the root, on the askers' behalf, and the ones made there since only change press kit.
+	 * Grants the open ones the rules approved, which waited for the move. Returns each old request's URI now.
 	 */
-	private async carryRequests(epk: EpkView, space: string, uri: string): Promise<Map<string, string>> {
-		const root = await this.core.root();
+	private async carryRequests(
+		epk: EpkView,
+		project: ProjectView,
+		space: string,
+		uri: string
+	): Promise<Map<string, string>> {
 		const carried = new Map<string, string>();
-
-		const rows = await this.core.db
-			.selectFrom('epkRequest')
-			.selectAll()
-			.where('spaceUri', '=', epk.space)
-			.where('status', '=', 'pending')
-			.execute();
+		const rows = await this.core.db.selectFrom('epkRequest').selectAll().where('epkUri', '=', epk.uri).execute();
 
 		for (const row of rows) {
-			const record = toJson({
-				epk: uri,
-				role: row.role ?? undefined,
-				message: row.message ?? undefined,
-				onBehalfOf: row.requesterDid,
-				createdAt: row.createdAt
-			});
+			const inOldSpace = row.spaceUri === epk.space;
 
-			// Each asker picked their own request's key, so two can share one; the root writes each under a key of its own,
-			// once per asker, which an earlier, unfinished move may have done already.
-			const moved = await this.core.db
-				.selectFrom('epkRequest')
-				.select('uri')
-				.where('spaceUri', '=', space)
-				.where('requesterDid', '=', row.requesterDid)
-				.executeTakeFirst();
+			if (inOldSpace && row.status !== 'pending') continue;
 
-			const ref =
-				moved ??
-				(await root.createSpaceRecord({
-					space,
-					collection: COLLECTION.epkRequest,
-					record: validateRecord(COLLECTION.epkRequest, record)
-				}));
+			if (inOldSpace) carried.set(row.uri, await this.epks.copyRequest(row, project, uri));
+			else {
+				await this.core.db.updateTable('epkRequest').set({ epkUri: uri }).where('uri', '=', row.uri).execute();
+				carried.set(row.uri, row.uri);
+			}
 
-			await this.epks.saveRequest({
-				uri: ref.uri,
-				space,
-				epk: uri,
-				requester: row.requesterDid,
-				role: row.role,
-				message: row.message,
-				rule: row.rule,
-				createdAt: row.createdAt
-			});
-			carried.set(row.uri, ref.uri);
-
-			if (row.rule === 'auto')
+			if (row.status === 'pending' && row.rule === 'auto')
 				await this.epks.writeGrant(space, {
 					subject: row.requesterDid,
 					via: 'auto',
-					request: ref.uri,
+					request: carried.get(row.uri),
 					createdAt: nowIso()
 				});
 		}

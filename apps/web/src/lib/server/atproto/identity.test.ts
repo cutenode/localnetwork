@@ -1,6 +1,9 @@
+import { once } from 'node:events';
+import { type AddressInfo, createServer, type Socket } from 'node:net';
 import { Secp256k1Keypair } from '@atproto/crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger';
+import { collectingGarbage } from '../testing/gc';
 import type { DidDocument } from '@atproto-labs/did-resolver';
 import type { AtprotoHandleResolverNode } from '@atproto-labs/handle-resolver-node';
 import { IdentityError, IdentityResolver } from './identity';
@@ -133,4 +136,34 @@ describe('IdentityResolver, given names someone else chose', () => {
 			expect(await refusal('https://dj.localnetwork.computer/')).toBe('Request redirect must be "error" or "manual"');
 		}
 	);
+
+	it("gives a service up at the caller's time limit when it never answers, while garbage is collected", async () => {
+		// Connections it takes, which it holds open without a word.
+		const held: Socket[] = [];
+		const server = createServer((socket) => void held.push(socket));
+
+		await once(server.listen(0, '127.0.0.1'), 'listening');
+		// SAFETY: a server listening on a TCP port reports an AddressInfo.
+		const { port } = server.address() as AddressInfo;
+
+		const dev = new IdentityResolver({
+			plcUrl: 'https://plc.directory',
+			allowPrivateNetwork: true,
+			logger: silentLogger
+		});
+
+		try {
+			// The caller's limit, as SpaceCredentialManager, fetchBlob and the recording route pass theirs.
+			const asked = dev.serviceFetch(`http://127.0.0.1:${port}/`, {
+				redirect: 'error',
+				signal: AbortSignal.timeout(200)
+			});
+
+			await expect(collectingGarbage(asked)).rejects.toMatchObject({ name: 'TimeoutError' });
+			expect(held).toHaveLength(1);
+		} finally {
+			for (const socket of held) socket.destroy();
+			await new Promise((resolve) => server.close(resolve));
+		}
+	});
 });

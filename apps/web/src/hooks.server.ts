@@ -15,6 +15,10 @@ const fallbackLogger = createLogger({
 });
 
 export const init: ServerInit = async () => {
+	// Vitest's browser projects serve their assets through SvelteKit's dev server, which runs this. A test run has no
+	// configuration for the app, so starting it would only log that it couldn't.
+	if (process.env.NODE_ENV === 'test') return;
+
 	try {
 		await getApp();
 	} catch (error) {

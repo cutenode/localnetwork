@@ -281,8 +281,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   plans applied (capabilities `events:drives`, `events:jobs`, `events:plans`), told by the player,
   the sidecar, `watch` and any command applying a plan, through a bounded queue for each plugin
   that never holds them up; and run services, turned on with `plugin settings ID services.NAME on`
-  and run by the player, the sidecar and `watch` (never a command run once), started again when
-  they fail and left off after five failures in a row. What a plugin tells you back is a message
+  and run by the player, the sidecar and `watch` (never a command run once), started again up to
+  five times in a row when they fail, then left off. What a plugin tells you back is a message
   in the player (what it suggests reviewed from the palette or dismissed, and kept until it is:
   one of its operations, planned and confirmed as any, or one of locallibrary's own flows on its
   own contributions, fetching from its providers, exporting in its format or running its
@@ -494,8 +494,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   Windows (x86_64), with shell and PowerShell installers and a Homebrew formula.
 - **Smaller builds.** Cargo features: `account` (the Atmosphere account and publishing, in the
   library and the CLI), `tui` (the player) and `playback` (its audio output, and ALSA on Linux),
-  all on by default. `--no-default-features` builds a headless sidecar of about 150 crates
-  instead of 430, with no ALSA; without `account`, the account and publishing commands and RPC
+  all on by default. `--no-default-features` builds a headless sidecar of about 440 crates
+  instead of 610, with no ALSA; without `account`, the account and publishing commands and RPC
   methods aren't there and `initialize` doesn't list the `account` capability.
 - **Reporting a bug.** `bug` posts a report from your Atmosphere account to Local Network's space on
   userinput.app (asking first, and signing in again to allow only that), or opens GitHub's bug

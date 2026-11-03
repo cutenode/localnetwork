@@ -42,9 +42,40 @@ pub fn account_placeholder(value: &str) -> Option<(&str, Option<&str>)> {
 const EXCHANGE_ORIGIN: &str = "https://localnetwork.computer";
 const EXCHANGE_PATH: &str = "/api/token-exchange/";
 
-// Every plugin written with the SDK has it: what's an account in a request is the host's to fill.
+/// Plugin to host (feature `accounts`): [`EnsureAccount`] -> [`Ensured`].
+pub const ACCOUNTS_ENSURE: &str = "accounts/ensure";
+
+// Every plugin written with the SDK has it: what's an account in a request is the host's to fill,
+// and what more of one it may use the host's to ask.
 pub(crate) const FEATURE: Feature =
-    Feature { name: "accounts", methods: &[], sends: &[], contributed: |m| !m.accounts.is_empty() };
+    Feature { name: "accounts", methods: &[], sends: &[ACCOUNTS_ENSURE], contributed: |m| !m.accounts.is_empty() };
+
+/// `accounts/ensure`: that the plugin may use `scopes` (the type's, by name, of those its
+/// `[[accounts]]` asks for) of the account its access of the type names, its default for the type
+/// unless it names another. The host answers which it may use and which the user declined, asking
+/// the user about the rest first where it can (which takes as long as they do), and otherwise
+/// fails as a `net/fetch` request naming the account would (`access` or `scope`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct EnsureAccount {
+    /// The account type (`google`).
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub scopes: Vec<String>,
+    /// The access, by its id (8 lowercase hex digits), when it isn't the default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access: Option<String>,
+}
+
+/// What `accounts/ensure` answers: each scope it asked about, by name, in one list or the other.
+/// Never a token.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Ensured {
+    /// It may use these.
+    pub granted: Vec<String>,
+    /// The user (or the service) declined these: they're not asked about again until the user
+    /// gives them.
+    pub declined: Vec<String>,
+}
 
 /// `[[accounts]]`: an account type a plugin asks for, the scopes of it it needs and why, and those
 /// it can do without.

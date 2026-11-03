@@ -20,6 +20,7 @@ fn play(i: usize, start: f64, end: f64, key: &str, bpm: f64) -> Play {
         track_end: 10.0 + (end - start),
         tempo: bpm / 124.0,
         speed_range: None,
+        lines: Vec::new(),
         played_bpm: Some(bpm),
         key_lock: Some(i.is_multiple_of(2)),
         semitones: 0.0,
@@ -1526,4 +1527,47 @@ fn a_ridden_pitch_fader_shows_both_speeds() {
     t.rows.select(Some(0));
     let screen = render(&mut t, &quiet(), 160, 60);
     assert!(screen.contains("126.0 BPM (+1.6% from 124.0)") && !screen.contains("+1.6% to"), "{screen}");
+}
+
+/// The second track, ridden from +0% at first to +8% from 7:50 in the set (2:00 into it), 2:50
+/// into the track by then: at +4% throughout, it would be at 3:06.
+fn ridden(r: &mut MixReport) {
+    let p = &mut r.plays[1];
+    (p.tempo, p.speed_range, p.played_bpm) = (1.04, Some((1.0, 1.08)), Some(124.0 * 1.04));
+    p.lines = vec![
+        mix::PlayLine { start: 300.0, track_start: 10.0, tempo: 1.0 },
+        mix::PlayLine { start: 470.0, track_start: 180.0, tempo: 1.08 },
+    ];
+}
+
+/// The playhead on a ridden track's waveform is where its lines put it in the track, not where
+/// its average speed would.
+#[test]
+fn the_playhead_follows_a_ride_through_the_track() {
+    let mut r = report();
+    ridden(&mut r);
+    let analyses = [TrackAnalysis::default(), analysis(), TrackAnalysis::default()];
+    let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(122, 16)).unwrap();
+    term.draw(|f| draw_detail(f, &r, &analyses, 1, f.area(), Some(470.0))).unwrap();
+    let buf = term.backend().buffer();
+    let head = rgb3(theme::current().playhead);
+    let col = (0..122).find(|&x| (0..16).any(|y| buf[(x, y)].fg == head)).expect("the playhead");
+    // Inside the border and a column either side, the waveform is 118 wide for 400 s of track.
+    assert_eq!(col - 2, (180.0 / 400.0 * 118.0) as u16);
+}
+
+/// The tempo under the timeline steps up where the pitch fader was ridden, and stays flat through
+/// a track played at one speed.
+#[test]
+fn the_tempo_steps_where_the_pitch_fader_was_ridden() {
+    let mut r = report();
+    ridden(&mut r);
+    let area = Rect::new(0, 0, 100, 2);
+    let mut buf = Buffer::empty(area);
+    draw_tempo(&mut buf, area, &r.plays, (0.0, 1000.0), (124.0, 124.0 * 1.08), None);
+    // How full a column is, in eighths.
+    let fill =
+        |x: u16| (0..2).map(|y| LOWER.iter().position(|s| *s == buf[(x, y)].symbol()).unwrap_or(0)).sum::<usize>();
+    assert!(fill(40) < fill(55), "slower before the ride: {} then {}", fill(40), fill(55));
+    assert_eq!(fill(5), fill(25), "steady through the first track");
 }
