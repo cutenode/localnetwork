@@ -106,6 +106,7 @@ export const locallibrary: Tool = {
 			{ text: 'Plug in your drives and set it up.', command: 'locallibrary setup' }
 		]
 	},
+	status: 'Free. No download yet: you build it from source on a Mac.',
 	sections: [
 		{
 			title: 'Signing in',
