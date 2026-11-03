@@ -8,7 +8,7 @@ publish = false
 cargo-fuzz = true
 
 # Its own workspace, so the root workspace's builds, lints and Cargo.lock never see it: the
-# targets need nightly and libFuzzer (`fuzz/run.sh`).
+# targets need nightly and libFuzzer (the `fuzz-<target>` aliases in .cargo/config.toml).
 [workspace]
 members = ["."]
 
