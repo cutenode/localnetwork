@@ -15,13 +15,18 @@
 	<div class="flex flex-col gap-5">
 		<nav aria-label="Breadcrumb"><a class="menu-link text-small" href="/tools">Tools</a></nav>
 		<div class="flex flex-wrap items-end justify-between gap-x-10 gap-y-6">
-			<div class="flex max-w-3xl flex-col gap-3">
+			<div class="flex max-w-3xl min-w-0 flex-col gap-3">
 				<p class="m-0 text-small text-fg-muted">{tool.kind}</p>
+				<!-- The name is one long word: with text enlarged on a phone it breaks rather than runs off the screen. -->
 				<h1 class="m-0 text-display font-semibold wrap-anywhere">{tool.name}</h1>
 				<p class="m-0 text-intro text-fg-muted">{tool.tagline}</p>
 				<p class="m-0 max-w-[65ch] text-fg-soft">{tool.summary}</p>
 			</div>
-			<Button href="#install">How to install it</Button>
+			<div class="flex max-w-xs min-w-0 flex-col items-start gap-2">
+				<!-- Wraps for the same reason. -->
+				<Button href="#install" class="max-w-full text-center whitespace-normal">How to install it</Button>
+				{#if tool.status}<p class="m-0 text-small text-fg-muted">{tool.status}</p>{/if}
+			</div>
 		</div>
 	</div>
 

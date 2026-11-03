@@ -1,12 +1,14 @@
-//! Accounts in the player: signing in to an account of a type and out of one the store keeps, and
-//! giving a plugin access to one, from the palette, in the background.
+//! Accounts in the player: signing in to an account of a type (in the browser, or with keys in a
+//! form) and out of one the store keeps, and giving a plugin access to one, from the palette, in
+//! the background.
 
 use hegel::TestCase;
 use hegel::generators as gs;
-use locallibrary::plugin::{Access, AccessQuestion, AccountId};
+use indexmap::IndexMap;
+use locallibrary::plugin::{Access, AccessQuestion, AccountId, AccountSignIn};
 use ratatui::crossterm::event::KeyCode;
 
-use super::super::super::app::testing::{blank, key, last_message, plugins_once, press, wait};
+use super::super::super::app::testing::{blank, key, keys_accounts, last_message, plugins_once, press, wait};
 use super::super::super::app::{App, View as Screen};
 use super::super::super::ui::screen;
 use super::{entry, picker};
@@ -239,4 +241,117 @@ fn a_plugin_wanting_more_of_an_account_asks_in_a_form(tc: TestCase) {
 
     app.plugin_asker().sign_in("http://127.0.0.1:9/authorize?state=x");
     wait(&mut app, |app| last_message(app).contains("open this in your browser to sign in"));
+}
+
+/// The keys a test enters.
+const ACCESS: &str = "ak-0123456789";
+const SECRET: &str = "sk-9876543210";
+
+/// What's drawn of `app`, checked to show neither key.
+fn unseen(app: &mut App) -> String {
+    let shown = screen(app, 120, 30);
+    assert!(!shown.contains(ACCESS) && !shown.contains(SECRET), "a key is shown:\n{shown}");
+    shown
+}
+
+/// Types the keys in the form open, unseen as they're typed, then the account's name when `named`.
+fn type_keys(app: &mut App, named: Option<&str>) {
+    for typed in [ACCESS, SECRET] {
+        for c in typed.chars() {
+            press(app, &c.to_string());
+            unseen(app);
+        }
+        key(app, KeyCode::Tab);
+    }
+    if let Some(name) = named {
+        press(app, name);
+    }
+}
+
+/// Signing in to a Mock keys account from the palette opens a form, never the browser, saying
+/// where to get the keys and taking each unseen, then the account's name as it's typed; entered,
+/// the store keeps the account (the keys in its secrets alone), and the palette offers to sign out
+/// of it. Closed, the form ends the sign-in, keeping nothing more.
+#[test]
+fn a_keys_sign_in_is_typed_unseen_and_kept() {
+    keys_accounts();
+    let (mut app, _store) = blank(Screen::Library);
+    press(&mut app, ":sign in to a mock keys account\n");
+    assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Signing in"));
+    wait(&mut app, |a| a.modal.is_some());
+    let shown = unseen(&mut app);
+    for text in [
+        "Sign in to a Mock keys account",
+        "Access key",
+        "Secret key",
+        "Account name",
+        "Get the Mock keys account's Access key and Secret key at",
+        "http://127.0.0.1:9/keys",
+        "enter sign in",
+    ] {
+        assert!(shown.contains(text), "{text:?} isn't shown:\n{shown}");
+    }
+    type_keys(&mut app, Some("me"));
+    let shown = unseen(&mut app);
+    let dots = "•".repeat(ACCESS.len());
+    assert_eq!(shown.matches(&dots).count(), 2, "each key as a dot a character:\n{shown}");
+    for text in ["Account name  me", "What to call the account: Mock keys doesn't say who the keys are for"] {
+        assert!(shown.contains(text), "{text:?} isn't shown:\n{shown}");
+    }
+    press(&mut app, "\n");
+    assert!(app.modal.is_none(), "the form stayed open");
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!(last_message(&app), "me signed in");
+    let messages: Vec<&str> = app.log.iter().map(|(m, ..)| m.as_str()).collect();
+    assert!(!messages.iter().any(|m| m.contains(ACCESS) || m.contains(SECRET)), "{messages:?}");
+    assert_eq!(subjects(&app), ["me"]);
+    let kept = std::fs::read_to_string(app.store_root.join("accounts.json")).unwrap();
+    assert!(!kept.contains(ACCESS) && !kept.contains(SECRET), "a key is in accounts.json");
+    press(&mut app, ":");
+    assert_eq!(entry(&app, "sign out of me").0.detail, "Mock keys account");
+    press(&mut app, "\u{1b}");
+
+    press(&mut app, ":sign in to a mock keys account\n");
+    wait(&mut app, |a| a.modal.is_some());
+    press(&mut app, "\u{1b}");
+    assert!(app.modal.is_none(), "the form stayed open");
+    wait(&mut app, |a| a.job.is_none());
+    let said: Vec<&str> = app.log.iter().map(|(m, ..)| m.as_str()).collect();
+    assert_eq!(said.iter().filter(|m| m.contains("sign")).collect::<Vec<_>>(), [&"me signed in"], "{said:?}");
+    assert_eq!(subjects(&app), ["me"]);
+}
+
+/// For a plugin's sign-in again with keys, the player's asker takes them in the form, the
+/// account's name only when the sign-in asks for it: entered, they go back by key; closed,
+/// nothing does.
+#[hegel::test(test_cases = 6)]
+fn the_players_asker_takes_keys_in_the_form(tc: TestCase) {
+    keys_accounts();
+    let (mut app, _store) = blank(Screen::Library);
+    let named = tc.draw(gs::booleans());
+    let entered = tc.draw(gs::booleans());
+    let keys = IndexMap::from_iter([("access".into(), "Access key".into()), ("secret".into(), "Secret key".into())]);
+    let start = AccountSignIn {
+        id: "x".into(),
+        kind: "mock-keys".into(),
+        title: "Mock keys".into(),
+        plugin: "keys-accounts".into(),
+        url: "http://127.0.0.1:9/keys".into(),
+        redirect_uri: None,
+        keys,
+        named,
+    };
+    let ask = app.plugin_asker();
+    let asking = std::thread::spawn(move || ask.enter_keys(&start));
+    wait(&mut app, |app| app.modal.is_some());
+    assert_eq!(unseen(&mut app).contains("Account name"), named);
+    if !entered {
+        press(&mut app, "\u{1b}");
+        assert_eq!(asking.join().unwrap(), None);
+        return;
+    }
+    type_keys(&mut app, named.then_some("me"));
+    press(&mut app, "\n");
+    let keys = IndexMap::from_iter([("access".to_string(), ACCESS.to_string()), ("secret".into(), SECRET.into())]);
+    assert_eq!(asking.join().unwrap(), Some((keys, named.then(|| "me".to_string()))));
 }

@@ -39,9 +39,10 @@ import { DjListings } from './services/dj-listings';
 import { PerformerSearch } from './services/performers';
 import { ProfileService } from './services/profiles';
 import { EpkService } from './services/epk';
-import { moveKitRequests } from './services/epk-request-move';
+import { moveKitSpaces } from './services/epk-space-move';
 import { EpkViews } from './services/epk-views';
 import { FollowService } from './services/follows';
+import { HeldRecords } from './services/held-records';
 import { PlannerService } from './services/planner';
 import { ProjectAdmin } from './services/project-admin';
 import { ProjectService } from './services/projects';
@@ -263,6 +264,7 @@ export async function createApp(options: CreateAppOptions) {
 	};
 
 	const spaceJoins = new SpaceJoins(core, sharedSpaces, limits.write);
+	const heldRecords = new HeldRecords(core, requests, projects, limits.write);
 
 	const bugReports = new BugReportService({
 		space: config.userinputSpace,
@@ -372,6 +374,7 @@ export async function createApp(options: CreateAppOptions) {
 		verifications,
 		sharedSpaces,
 		spaceJoins,
+		heldRecords,
 		listings,
 		bugReports,
 		sessions,
@@ -476,9 +479,9 @@ export async function createApp(options: CreateAppOptions) {
 			await sharedSpaces.reconcile();
 			bootstrapped = true;
 			await syncer.syncAll();
-			// After the sync, so the index has every space's people, and every request still in a press kit's space.
+			// After the sync, so the index has every space's people, and the requests and grants left in press kit spaces.
 			await listings.reconcile();
-			await moveKitRequests(core, epks);
+			await moveKitSpaces(core, epks);
 		},
 
 		start() {

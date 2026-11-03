@@ -376,7 +376,7 @@ pub fn b_image(artwork_path: &str) -> String {
 }
 
 /// A OneLibrary database holding `lib` (tracks, artwork as `b` images, playlists), built on the
-/// empty database the sqlcipher CLI made (see fixtures/onelibrary/make.sh).
+/// empty database the sqlcipher CLI made (see `remake_sqlcipher_fixtures` in it/onelibrary.rs).
 pub fn onelibrary_for(lib: &Library) -> OneLibrary {
     let mut one = OneLibrary::from_encrypted(&fs::read(fixtures().join("onelibrary/empty.db")).unwrap(), None).unwrap();
     let defaults = one.content_defaults().unwrap();

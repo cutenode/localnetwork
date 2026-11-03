@@ -25,11 +25,11 @@
 	const guides = (id: string) => (findTool(id)?.docs ?? []).map(({ slug, title }) => ({ slug, title }));
 
 	const toolData = (id: string) => {
-		const { name, kind, tagline, summary, cues, install } = findTool(id) ?? tools[0];
+		const { name, kind, tagline, summary, cues, install, status } = findTool(id) ?? tools[0];
 
 		const others = tools.filter((other) => other.id !== id).map((other) => ({ id: other.id, name: other.name, tagline: other.tagline }));
 
-		return { ...layout, tool: { id, name, kind, tagline, summary, cues, install }, track: demoTrack, look: lookOf(id), others, sections: [], guides: guides(id) };
+		return { ...layout, tool: { id, name, kind, tagline, summary, cues, install, status }, track: demoTrack, look: lookOf(id), others, sections: [], guides: guides(id) };
 	};
 
 	// The second cue's capture never arrives: 192.0.2.1 is reserved for documentation, so nothing answers.
@@ -40,11 +40,26 @@
 		i === 1 ? { ...cue, capture: { alt: cue.capture.alt, picture: { sources: { webp: `${STALLED} 2560w` }, img: { ...cue.capture.picture.img, src: STALLED } } } } : cue
 	);
 
+	// A guide long enough to open on its sections, with a line under each.
+	const contents = [
+		{ id: 'the-managers-list', title: "The Manager's list" },
+		{ id: 'where-each-track-downloads', title: 'Where each track downloads' },
+		{ id: 'the-session-queue', title: 'The session queue' },
+		{ id: 'download-gates', title: 'Download gates' },
+		{ id: 'when-a-gate-needs-you', title: 'When a gate needs you' }
+	];
+
 	const guide = {
 		...layout,
-		tool: { id: 'locallibrary', name: 'locallibrary' },
-		doc: { slug: 'install', title: 'Installing locallibrary', path: 'apps/locallibrary/docs/install.md', html: '<h2 id="install">Install</h2><p>There hasn’t been a release yet, so for now you build it from source.</p>' },
-		guides: guides('locallibrary')
+		tool: { id: 'localtoolbox', name: 'localtoolbox' },
+		doc: {
+			slug: 'downloads',
+			title: 'Downloads and gates',
+			path: 'apps/localtoolbox/docs/downloads.md',
+			html: contents.map(({ id, title }) => `<h2 id="${id}">${title}</h2><p>Nothing goes on the list by itself. Open a SoundCloud playlist, Likes page or track page, scroll a long list to the end, then open the Manager.</p>`).join('')
+		},
+		contents,
+		guides: guides('localtoolbox')
 	};
 </script>
 
@@ -61,7 +76,7 @@
 {/snippet}
 
 {#snippet guidePage()}
-	<Layout data={layout} params={{}}><GuidePage data={guide} params={{ tool: 'locallibrary', page: 'install' }} form={null} /></Layout>
+	<Layout data={layout} params={{}}><GuidePage data={guide} params={{ tool: 'localtoolbox', page: 'downloads' }} form={null} /></Layout>
 {/snippet}
 
 <Story name="Tools" asChild>{@render tools_()}</Story>

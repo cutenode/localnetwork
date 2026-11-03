@@ -388,7 +388,7 @@ describe('every tool', () => {
 });
 
 describe('/tools/[tool]/docs/[page]', () => {
-	const renderGuide = (slug: string, title: string) =>
+	const renderGuide = (slug: string, title: string, contents: { id: string; title: string }[] = []) =>
 		render(GuidePage, {
 			params: { tool: 'localthing', page: slug },
 			form,
@@ -401,6 +401,7 @@ describe('/tools/[tool]/docs/[page]', () => {
 					path: `apps/localthing/docs/${slug}.md`,
 					html: '<h2 id="from-source">From source</h2><p>Run it.</p>'
 				},
+				contents,
 				guides
 			}
 		});
@@ -458,9 +459,54 @@ describe('/tools/[tool]/docs/[page]', () => {
 				...layout,
 				tool: { id: 'localthing', name: 'localthing' },
 				doc: { slug: 'player', title: 'The player', path: 'apps/localthing/docs/player.md', html: '<p>Play.</p>' },
+				contents: [],
 				guides
 			}
 		});
 		await expect.element(fold('Guides: The player')).toHaveAttribute('aria-expanded', 'false');
+	});
+
+	it('opens on a list of its sections when it has one', async () => {
+		await renderGuide('install', 'Installing localthing', [
+			{ id: 'from-source', title: 'From source' },
+			{ id: 'updating', title: "What's new" }
+		]);
+		const contents = page.getByRole('navigation', { name: 'On this page' });
+		await expect.element(contents.getByRole('link', { name: 'From source' })).toHaveAttribute('href', '#from-source');
+		await expect.element(contents.getByRole('link', { name: "What's new" })).toHaveAttribute('href', '#updating');
+	});
+
+	it('leaves the list out without one', async () => {
+		await renderGuide('install', 'Installing localthing');
+		await expect.element(page.getByRole('navigation', { name: 'On this page' })).not.toBeInTheDocument();
+	});
+});
+
+describe('/tools/[tool] header', () => {
+	it('says what installing it means today, by the install button', async () => {
+		await render(ToolPage, {
+			params: { tool: 'localthing' },
+			form,
+			data: {
+				...layout,
+				tool: {
+					id: 'localthing',
+					name: 'localthing',
+					kind: 'Chrome extension',
+					tagline: 'Does a thing.',
+					summary: 'It does the thing well.',
+					cues,
+					install: { steps: [{ text: 'Build it.' }] },
+					status: 'Free. No download yet.'
+				},
+				track,
+				look: 'rekordbox',
+				others: [],
+				sections: [],
+				guides
+			}
+		});
+		await expect.element(page.getByRole('link', { name: 'How to install it' })).toBeInTheDocument();
+		await expect.element(page.getByText('Free. No download yet.')).toBeVisible();
 	});
 });

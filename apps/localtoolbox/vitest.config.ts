@@ -24,7 +24,14 @@ const here = import.meta.dirname;
 // coverage, file by file. Components are held to less: a rendered panel has
 // branches (a hover card, a transition's end state) that a jsdom test cannot
 // reach, and chasing them teaches nothing about the tool.
-const LOGIC = ['content.ts', 'downloaded-store.ts', 'state-transfer.ts', 'src/lib/*.ts', 'src/tools/**/*.ts'];
+const LOGIC = [
+	'content.ts',
+	'downloaded-store.ts',
+	'state-transfer.ts',
+	'src/*.ts',
+	'src/lib/*.ts',
+	'src/tools/**/*.ts'
+];
 
 // The page scripts: classic scripts written in TypeScript, which the build
 // ships with their types blanked out (vite.config.ts, `pageScripts`). The tests

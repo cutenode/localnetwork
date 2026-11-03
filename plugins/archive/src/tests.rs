@@ -7,8 +7,9 @@ use std::time::Duration;
 use hegel::TestCase;
 use hegel::generators as gs;
 use loclib_plugin::{
-    Capability, DestinationKind, Fetch, Fetched, HelloReply, Incoming, Manifest, PROTOCOL_VERSION, Peer,
-    ProgressReport, Progressed, PublishedSet, SettingType, TracklistEntry, method,
+    ACCOUNT_PLACEHOLDER, AccountType, Capability, DestinationKind, Fetch, Fetched, HelloReply, Incoming, Manifest,
+    PROTOCOL_VERSION, Peer, ProgressReport, Progressed, PublishedSet, SettingType, SignIn, TracklistEntry,
+    account_placeholder, method,
 };
 use loclib_progress::{Event, Phase};
 use percent_encoding::percent_decode_str;
@@ -17,6 +18,21 @@ use serde_json::json;
 use super::item::{IDENTIFIERS, MAX_IDENTIFIER, MAX_VALUE, header_value};
 use super::upload::{AUTHORIZATION, CHECK, S3, TRIES};
 use super::*;
+
+/// The account type the plugin asks for, as the Internet Archive account plugin provides it.
+fn account_type() -> AccountType {
+    let manifest = Manifest::parse(include_str!("../../accounts/archive-account/locallibrary-plugin.toml"));
+    let [account_type] = &manifest.unwrap().contributes.account_types[..] else { panic!("one account type") };
+    account_type.clone()
+}
+
+/// The account's keys, as the host fills them in, and the `Authorization` header they make.
+const ACCESS: &str = "s3-access-key";
+const SECRET: &str = "s3-secret-key";
+const KEYS: &str = "LOW s3-access-key:s3-secret-key";
+
+/// As the host fails a request for an archive account that's signed out.
+const SIGNED_OUT: &str = "the archive account dj is signed out: sign in again";
 
 /// How the Archive answers a request through the host, in place of what it would: a status and
 /// body, or the host failing to reach it.
@@ -61,6 +77,8 @@ impl Put {
 struct Received {
     /// Each request's method and URL, in order.
     requests: Vec<(String, String)>,
+    /// The requests that named the account, as [`Script`] names them, in order.
+    signed: Vec<String>,
     puts: Vec<Put>,
 }
 
@@ -76,17 +94,17 @@ impl Received {
 }
 
 /// The Archive as `check_identifier.php` and ias3 answer, with the items `taken`, but as `script`
-/// says, through a host with the keys set or not.
+/// says, through a host with the account signed in or not.
 struct Archive {
     taken: Vec<String>,
-    keys: bool,
+    signed_in: bool,
     script: Script,
     received: Received,
 }
 
 impl Archive {
     fn new() -> Archive {
-        Archive { taken: Vec::new(), keys: true, script: Box::new(|_, _| None), received: Received::default() }
+        Archive { taken: Vec::new(), signed_in: true, script: Box::new(|_, _| None), received: Received::default() }
     }
 
     fn scripted(script: impl Fn(&str, usize) -> Option<Reply> + Send + 'static) -> Archive {
@@ -95,39 +113,75 @@ impl Archive {
 
     /// The host's answer to `fetch`.
     fn answer(&mut self, fetch: &Fetch) -> Result<Fetched, RpcError> {
-        let secret = fetch.url.contains("{secret:") || fetch.headers.values().any(|v| v.contains("{secret:"));
-        if secret && !self.keys {
-            // As the host fails a request whose secret isn't set.
-            return Err(RpcError::failed(
-                "invalid",
-                "its secret access isn't set (locallibrary plugin settings archive access --secret)",
-            ));
-        }
+        let headers = self.filled(fetch)?;
         let r = &mut self.received;
         r.requests.push((fetch.method.clone(), fetch.url.clone()));
         let route = match (fetch.method.as_str(), fetch.url.as_str()) {
             ("GET", url) if url.starts_with(&format!("{CHECK}?output=json&identifier=")) => {
                 format!("check {}", url.rsplit_once('=').unwrap().1)
             }
-            ("GET", url) if url.starts_with(&format!("{S3}/?check_limit=1&accesskey={{secret:access}}&bucket=")) => {
-                "limit".into()
-            }
+            ("GET", url) if url.starts_with(&format!("{S3}/?check_limit=1&bucket=")) => "limit".into(),
             ("PUT", url) if url.starts_with(&format!("{S3}/")) => "put".into(),
             other => panic!("the Archive has no {other:?}"),
         };
+        if fetch.headers.values().any(|v| v.contains(ACCOUNT_PLACEHOLDER)) {
+            r.signed.push(route.clone());
+        }
         let asked = r.requests.iter().filter(|(m, u)| (m, u) == (&fetch.method, &fetch.url)).count() - 1;
         let (status, body) = match (self.script)(&route, asked) {
             Some(Reply::Unreachable) => return Err(RpcError::failed("external", "connection reset")),
             Some(Reply::Status(status, body)) => (status, body),
-            None => as_archive(&self.taken, r, &route, fetch),
+            None => as_archive(&self.taken, r, &route, fetch, headers),
         };
         Ok(Fetched { status, headers: Default::default(), body: Some(body), blob: None })
     }
+
+    /// `fetch`'s headers as the host sends them, with the account's keys filled in where the
+    /// account is named: only as the whole `Authorization` header (never in the address), for a
+    /// request its `upload` scope covers, while it's signed in.
+    fn filled(&self, fetch: &Fetch) -> Result<Vec<(String, String)>, RpcError> {
+        let misplaced = || RpcError::failed("invalid", "an account goes only in the Authorization header");
+        if fetch.url.contains(ACCOUNT_PLACEHOLDER) {
+            return Err(misplaced());
+        }
+        let account_type = account_type();
+        let keys = |key: &str| match key {
+            "access" => ACCESS,
+            "secret" => SECRET,
+            other => panic!("archive-account has no key {other}"),
+        };
+        let mut headers = Vec::new();
+        for (name, value) in &fetch.headers {
+            if !value.contains(ACCOUNT_PLACEHOLDER) {
+                headers.push((name.clone(), value.clone()));
+                continue;
+            }
+            if !name.eq_ignore_ascii_case("authorization") || account_placeholder(value) != Some(("archive", None)) {
+                return Err(misplaced());
+            }
+            if !self.signed_in {
+                return Err(RpcError::failed("access", SIGNED_OUT));
+            }
+            let url = url::Url::parse(&fetch.url).unwrap();
+            if !account_type.scopes["upload"].covers(&fetch.method, &url) {
+                let why = format!("none of its scopes on the archive account dj covers {} {url}", fetch.method);
+                return Err(RpcError::failed("scope", why));
+            }
+            headers.push((name.clone(), account_type.place().filled(keys)));
+        }
+        Ok(headers)
+    }
 }
 
-/// What the Archive, with the items `taken`, answers `fetch`, the request `route` (as [`Script`]
-/// names it), having been sent `r`.
-fn as_archive(taken: &[String], r: &mut Received, route: &str, fetch: &Fetch) -> (u16, String) {
+/// What the Archive, with the items `taken`, answers `fetch` (its `headers` as the host sent
+/// them), the request `route` (as [`Script`] names it), having been sent `r`.
+fn as_archive(
+    taken: &[String],
+    r: &mut Received,
+    route: &str,
+    fetch: &Fetch,
+    headers: Vec<(String, String)>,
+) -> (u16, String) {
     if let Some(id) = route.strip_prefix("check ") {
         // check_identifier.php is case insensitive.
         let code = if taken.iter().any(|t| t.eq_ignore_ascii_case(id)) { "not_available" } else { "available" };
@@ -137,10 +191,8 @@ fn as_archive(taken: &[String], r: &mut Received, route: &str, fetch: &Fetch) ->
         let detail = json!({ "accesskey_ration": 1200, "bucket_ration": 40, "total_tasks_queued": 0 });
         return (200, json!({ "bucket": "b", "accesskey": "a", "over_limit": 0, "detail": detail }).to_string());
     }
-    assert_eq!(fetch.headers.get("authorization").map(String::as_str), Some(AUTHORIZATION), "{fetch:?}");
     assert_eq!((&fetch.body, &fetch.body_range, fetch.multipart.is_empty()), (&None, &None, true));
     let bytes = std::fs::read(fetch.body_blob.as_ref().expect("the recording")).unwrap();
-    let headers = fetch.headers.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     r.puts.push(Put { url: fetch.url.clone(), headers, bytes });
     (200, String::new())
 }
@@ -282,8 +334,9 @@ fn published(id: &str, warnings: &[&str]) -> Published {
     Published { url, name: Some("Internet Archive".into()), record: None, warnings }
 }
 
-/// It reaches archive.org and its S3 alone, publishes sets at one destination, and keeps the keys
-/// as secrets.
+/// It reaches archive.org and its S3 alone, publishes sets at one destination, asks for an
+/// Internet Archive account to upload with, naming it where the account plugin puts its keys (the
+/// `Authorization` header), and keeps the creator as a setting.
 #[test]
 fn the_manifest_is_a_built_in_set_destination_on_the_archive() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
@@ -293,24 +346,42 @@ fn the_manifest_is_a_built_in_set_destination_on_the_archive() {
     let [destination] = &manifest.contributes.destinations[..] else { panic!("{manifest:?}") };
     assert_eq!((manifest.id.as_str(), destination.name.as_str()), ("archive", "item"));
     assert_eq!(destination.kind, DestinationKind::Set);
+    let [need] = &manifest.accounts[..] else { panic!("{manifest:?}") };
+    assert_eq!((need.name.as_str(), need.scopes.as_slice()), ("archive", ["upload".to_string()].as_slice()));
+    assert!(need.optional.is_empty(), "{need:?}");
+    let account_type = account_type();
+    assert_eq!(format!("{{account:{}}}", account_type.name), AUTHORIZATION);
+    assert_eq!((account_type.kind, account_type.place().header.as_deref()), (SignIn::Keys, Some("Authorization")));
     let settings: Vec<(&str, SettingType)> =
         manifest.contributes.settings.iter().map(|s| (s.key.as_str(), s.kind)).collect();
-    assert_eq!(
-        settings,
-        [("access", SettingType::Secret), ("secret", SettingType::Secret), ("creator", SettingType::String)]
-    );
+    assert_eq!(settings, [("creator", SettingType::String)]);
 
-    // Served as a real one is: it says it's this manifest, publishing sets through fetches.
+    // Served as a real one is: it says it's this manifest, publishing sets through fetches with an
+    // account.
     let s = start(Archive::new());
     let has = |f: &&str| s.hello.features.iter().any(|had| had == f);
-    assert!(["destinations", "net"].iter().all(has), "{:?}", s.hello.features);
+    assert!(["destinations", "net", "accounts"].iter().all(has), "{:?}", s.hello.features);
     let described: Manifest = s.host.request(method::DESCRIBE, &json!({})).unwrap();
     assert_eq!(described, manifest);
     s.stop();
 }
 
-/// The recording goes up in one PUT of the file itself to the identifier checked free, the keys,
-/// the item's making and its metadata in the headers, and the item's page is the answer.
+/// The Internet Archive account plugin's `upload` scope covers a file PUT into any item on the
+/// Archive's S3, and nothing else there or on archive.org.
+#[test]
+fn the_archives_upload_scope_covers_the_put() {
+    let account_type = account_type();
+    let scope = &account_type.scopes["upload"];
+    let covers = |method: &str, url: &str| scope.covers(method, &url::Url::parse(url).unwrap());
+    assert!(covers("PUT", &format!("{S3}/{ID}/Closing%20Set.FLAC")));
+    assert!(!covers("DELETE", &format!("{S3}/{ID}/set.flac")));
+    assert!(!covers("GET", &format!("{S3}/?check_limit=1&bucket={ID}")));
+    assert!(!covers("PUT", &format!("https://archive.org/details/{ID}")));
+}
+
+/// The recording goes up in one PUT of the file itself to the identifier checked free, the
+/// account's keys, the item's making and its metadata in the headers, and the item's page is the
+/// answer. Only the PUT names the account: the limit check goes without the keys.
 #[test]
 fn a_set_goes_up_in_one_put_and_answers_its_page() {
     let dir = tempfile::tempdir().unwrap();
@@ -327,16 +398,17 @@ fn a_set_goes_up_in_one_put_and_answers_its_page() {
     assert_eq!(answer.unwrap(), published(ID, &[]));
     let requests: Vec<(&str, String)> = vec![
         ("GET", format!("{CHECK}?output=json&identifier={ID}")),
-        ("GET", format!("{S3}/?check_limit=1&accesskey={{secret:access}}&bucket={ID}")),
+        ("GET", format!("{S3}/?check_limit=1&bucket={ID}")),
         ("PUT", format!("{S3}/{ID}/Closing%20Set.FLAC")),
     ];
     assert_eq!(r.requests, requests.into_iter().map(|(m, u)| (m.to_string(), u)).collect::<Vec<_>>());
+    assert_eq!(r.signed, ["put"]);
     let [put] = &r.puts[..] else { panic!("{:?}", r.puts) };
     assert_eq!(put.bytes, std::fs::read(&path).unwrap());
     assert_eq!((started, ended), (vec![2500], 1));
     let description = "00:00 Young Fathers - In My View<br>05:30 ID - ID<br>1:02:03 Chris Lake &amp; &lt;Friends&gt; - Turn Off the Lights<br>Someone - Unplaced";
     let headers = [
-        ("authorization", AUTHORIZATION),
+        ("authorization", KEYS),
         ("x-archive-auto-make-bucket", "1"),
         ("x-archive-size-hint", "2500"),
         ("x-archive-meta-mediatype", "audio"),
@@ -494,7 +566,7 @@ fn the_archive_refusing_says_why() {
         (
             s3_error(403, "InvalidAccessKeyId", "The AWS Access Key Id you provided does not exist in our records."),
             "permission",
-            "the Archive refused the keys (403 InvalidAccessKeyId: The AWS Access Key Id you provided does not exist in our records.): check them at archive.org/account/s3.php",
+            "the Archive refused the account's keys (403 InvalidAccessKeyId: The AWS Access Key Id you provided does not exist in our records.): sign in again with new ones from archive.org/account/s3.php (locallibrary account archive sign-in)",
         ),
         (s3_error(400, "InvalidBucketName", ""), "invalid", "the Archive refused set.ogg (400 InvalidBucketName)"),
         (
@@ -512,19 +584,18 @@ fn the_archive_refusing_says_why() {
     }
 }
 
-/// Without the keys set, nothing goes up: the host's error says how to set them.
+/// With the account signed out, nothing goes up, and the PUT isn't sent again: the host's error
+/// (`access`, which it passes on saying how to sign in) is the answer.
 #[test]
-fn without_the_keys_nothing_goes() {
+fn signed_out_nothing_goes() {
     let dir = tempfile::tempdir().unwrap();
     let path = recording(dir.path(), "set.flac", 10);
-    let s = start(Archive { keys: false, ..Archive::new() });
+    let s = start(Archive { signed_in: false, ..Archive::new() });
     let e = s.publish(&set(), &path, &[], false).0.unwrap_err();
     let r = s.stop();
-    assert_eq!(
-        kind(&e),
-        ("invalid", "its secret access isn't set (locallibrary plugin settings archive access --secret)")
-    );
-    assert_eq!(r.requests.len(), 1, "only the identifier check: {:?}", r.requests);
+    assert_eq!(kind(&e), ("access", SIGNED_OUT));
+    let sent: Vec<&str> = r.requests.iter().map(|(_, u)| u.split_once('?').unwrap().1).collect();
+    assert_eq!(sent, [format!("output=json&identifier={ID}"), format!("check_limit=1&bucket={ID}")]);
     assert!(r.puts.is_empty());
 }
 
@@ -766,7 +837,7 @@ fn put_refusals() -> Vec<(Reply, &'static str)> {
 /// before taking it, the recording arrives whole at the first free identifier, and the publish
 /// answers its page; a limit check that can't be read lets it go. The Archive refusing a step, or
 /// failing it every time, stops it there, saying why. A dry run, an empty or missing recording, or
-/// a host without the keys, sends nothing up.
+/// a host with the account signed out, sends nothing up.
 #[hegel::test(test_cases = 100)]
 fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
     // 0: empty, 1: gone; else as long as it's drawn.
@@ -779,7 +850,7 @@ fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
     let fails = tc.draw(gs::integers::<u32>().max_value(TRIES));
     let unreachable = tc.draw(gs::booleans());
     let put_refused = tc.draw(gs::optional(gs::sampled_from(put_refusals())));
-    let keys = tc.draw(gs::weighted_booleans(0.9));
+    let signed_in = tc.draw(gs::weighted_booleans(0.9));
     let dry_run = tc.draw(gs::weighted_booleans(0.1));
     let size = tc.draw(gs::integers::<u64>().min_value(1).max_value(4000));
     let dir = tempfile::tempdir().unwrap();
@@ -807,7 +878,7 @@ fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
     // case shrinks through hundreds of them.
     static SESSION: LazyLock<Mutex<Session>> = LazyLock::new(|| Mutex::new(start(Archive::new())));
     let s = SESSION.lock().unwrap_or_else(PoisonError::into_inner);
-    s.script(Archive { taken: taken.clone(), keys, ..archive });
+    s.script(Archive { taken: taken.clone(), signed_in, ..archive });
     let (answer, started, ended) = s.publish_by(creator, &set(), &path, &[], dry_run);
     let r = s.received();
     drop(s);
@@ -842,17 +913,20 @@ fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
         assert_eq!(r.requests.len(), checks);
         return;
     }
-    if !keys {
-        assert_eq!(answer.unwrap_err().kind(), Some("invalid"));
-        assert_eq!(r.requests.len(), checks);
-        return;
-    }
     let puts = r.count("PUT");
+    // Only a PUT names the account, so S3 over its limit stops the publish whether it's signed in
+    // or not.
     if limit == 0 {
         let e = answer.unwrap_err();
         assert_eq!((e.kind(), puts, started.len()), (Some("external"), 0, 0), "{e:?}");
         return;
     }
+    if !signed_in {
+        assert_eq!(answer.unwrap_err().kind(), Some("access"));
+        assert_eq!((r.requests.len(), r.signed.len()), (checks + 1, 0), "the checks and the limit");
+        return;
+    }
+    assert_eq!(r.signed, vec!["put"; puts]);
     assert_eq!(puts, (fails + 1).min(TRIES) as usize);
     assert!(started.iter().all(|b| *b == size) && started.len() == puts, "{started:?}");
     if fails == TRIES {

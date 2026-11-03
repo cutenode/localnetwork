@@ -1,0 +1,10 @@
+# An account type's name and title come from its plugin's manifest and can start with a vowel, so
+# "a {kind} account" reads "a archive account".
+id: account-type-article
+language: Rust
+severity: error
+message: This puts "a" before an account type's name or title, which can start with a vowel.
+note: Say it with `loclib_plugin::a_or_an`, like `format!("{} account", a_or_an(kind))`.
+rule:
+  any: [{ kind: string_literal }, { kind: raw_string_literal }]
+  regex: '\b[Aa] \{[^}]*\} account'

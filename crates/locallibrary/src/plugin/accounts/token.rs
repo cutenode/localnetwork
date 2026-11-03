@@ -12,26 +12,27 @@
 
 use std::sync::Arc;
 
-use loclib_plugin::{AccountNeed, AccountType, ErrorData, RpcError, Scope, TokenPlace};
+use loclib_plugin::{AccountNeed, AccountType, ErrorData, KeyPlace, RpcError, Scope, a_or_an};
 use reqwest::Url;
 use serde_json::{Map, json};
 
 use super::access::Access;
 use super::kept::{self, Kept};
+use super::keys::Credential;
 use crate::Error;
 use crate::error::Reason;
 use crate::plugin::process::{Live, Plugin};
 use crate::store::Store;
 
-/// An access a request may use, of the type `need` asks for: where its account's token goes, and
-/// the scopes (by name) it may use it for (those the account was granted what they ask), which a
-/// redirect has to stay within.
+/// An access a request may use, of the type `need` asks for: where its account goes (see
+/// [`AccountType::place`]), and the scopes (by name) it may use it for (those the account was
+/// granted what they ask), which a redirect has to stay within.
 pub(crate) struct Usable {
     /// The account plugin, which gets the token.
     with: Arc<Plugin>,
     access: Access,
     need: AccountNeed,
-    pub(crate) place: TokenPlace,
+    pub(crate) place: KeyPlace,
     pub(crate) scopes: Vec<(String, Scope)>,
 }
 
@@ -104,7 +105,7 @@ impl Plugin {
                 return Err(scope_failed(why, &names, &names));
             }
             let scopes = scopes().filter(|(_, s)| is_granted(s)).map(|(n, s)| (n.clone(), s.clone())).collect();
-            Ok(Usable { with: with.clone(), access: a.clone(), need: need.clone(), place: t.token.clone(), scopes })
+            Ok(Usable { with: with.clone(), access: a.clone(), need: need.clone(), place: t.place(), scopes })
         })
     }
 
@@ -122,14 +123,15 @@ impl Plugin {
         let kind = &need.name;
         let no_access = |why: String| failed("access", why, need, &need.scopes, self.host.providing(kind));
         let Some(store) = live.store.as_ref() else {
-            return Err(no_access(format!("it has no access to a {kind} account without a store")));
+            return Err(no_access(format!("it has no access to {} account without a store", a_or_an(kind))));
         };
         let book = kept::read(store).map_err(|e| RpcError::failed("external", e.to_string()))?;
         let mut its = book.accesses.iter().filter(|a| a.plugin == self.manifest.id && a.kind == *kind);
         let a = match access {
             Some(id) => its.find(|a| a.id == id).ok_or_else(|| no_access(format!("it has no {kind} access {id}")))?,
             None => {
-                its.find(|a| a.default).ok_or_else(|| no_access(format!("it has no access to a {kind} account")))?
+                let why = || format!("it has no access to {} account", a_or_an(kind));
+                its.find(|a| a.default).ok_or_else(|| no_access(why()))?
             }
         };
         let (on, at) = (&a.account.plugin, &a.name);
@@ -142,16 +144,18 @@ impl Plugin {
         f(a, book.account(on, &a.account.subject), with, t)
     }
 
-    /// The token of `usable`'s account, told to [`crate::plugin::net::State::scrub`]: `access`
-    /// (`signed_out`) when it's signed out, or the service signs it out.
-    pub(crate) fn usable_token(&self, usable: &Usable, store: &Store) -> Result<String, RpcError> {
-        let token = usable.with.account_token(store, &usable.access.account.subject);
-        let token = token.map_err(|e| self.token_failed(usable, e))?;
-        self.net.saw(&token);
-        Ok(token)
+    /// What `usable`'s account is signed in with (its token, or keys), told to
+    /// [`crate::plugin::net::State::scrub`]: `access` (`signed_out`) when it's signed out, or the
+    /// service signs it out.
+    pub(crate) fn usable_credential(&self, usable: &Usable, store: &Store) -> Result<Credential, RpcError> {
+        let signed = usable.with.account_credential(store, &usable.access.account.subject);
+        let signed = signed.map_err(|e| self.token_failed(usable, e))?;
+        signed.secrets().into_iter().for_each(|s| self.net.saw(s));
+        Ok(signed)
     }
 
-    /// `e`, which getting `usable`'s token failed with, as the plugin is told it.
+    /// `e`, which getting what `usable`'s account is signed in with failed with, as the plugin is
+    /// told it.
     fn token_failed(&self, usable: &Usable, e: Error) -> RpcError {
         let why = self.net.scrub(&e.to_string());
         match e.reason() {

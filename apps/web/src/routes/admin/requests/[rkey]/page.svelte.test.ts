@@ -34,7 +34,8 @@ const request: RequestView = {
 	createdAt: '2026-10-30T00:00:00Z',
 	updatedAt: '2026-10-30T00:00:00Z',
 	decision: null,
-	resultProjectSlug: null
+	resultProjectSlug: null,
+	deletedAt: null
 };
 
 const profile: ProfileView = {
@@ -174,4 +175,23 @@ it("warns before approving an avatar the site can't show, in place of the broken
 	await rerender({ data: { ...base, avatar: { type: 'image/png', shown: true } } });
 	await expect.element(image).toBeInTheDocument();
 	await expect.element(warning).not.toBeInTheDocument();
+});
+
+it('tells staff when the requester deleted what a decided request said', async () => {
+	const decided = {
+		status: 'rejected' as const,
+		decision: { by: ada, at: '2026-10-02T00:00:00Z', reason: 'Duplicate' }
+	};
+
+	const { rerender } = await render(Page, {
+		params: { rkey: '3kupdate' },
+		data: { ...base, request: projectRequest('update', decided) },
+		form: null
+	});
+
+	await expect.element(page.getByText(/they deleted what it said/)).not.toBeInTheDocument();
+	await rerender({
+		data: { ...base, request: projectRequest('update', { ...decided, deletedAt: '2026-10-05T12:00:00Z' }) }
+	});
+	await expect.element(page.getByText(/they deleted what it said/)).toBeVisible();
 });

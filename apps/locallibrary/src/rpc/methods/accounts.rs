@@ -1,9 +1,10 @@
-//! `accounts.*`: the accounts a store keeps, signed in to in the browser through account plugins
-//! (the host keeps the tokens, never answered) and out of, and the access plugins are given to
-//! them.
+//! `accounts.*`: the accounts a store keeps, signed in to through account plugins in the browser
+//! or with keys (the host keeps the tokens and keys, never answered) and out of, and the access
+//! plugins are given to them.
 
 use std::time::Duration;
 
+use indexmap::IndexMap;
 use locallibrary::api::{Cancelled, NoParams};
 use locallibrary::plugin::AccountId;
 use schemars::JsonSchema;
@@ -40,6 +41,14 @@ struct FinishSignIn {
     /// How long to wait for the browser (default 300, an hour at most).
     #[serde(default)]
     timeout_secs: Option<u64>,
+    /// For a sign-in with keys, which finishes at once: each key its `sign_in.begin` listed, by
+    /// name, as the user entered it. The host keeps them in the keychain and never answers them;
+    /// pass them straight from the user's input, nowhere else.
+    #[serde(default)]
+    keys: Option<IndexMap<String, String>>,
+    /// With `keys`, when its `sign_in.begin` answered `named`: what the user calls the account.
+    #[serde(default)]
+    name: Option<String>,
 }
 
 impl FinishSignIn {
@@ -99,7 +108,11 @@ pub(super) fn register(r: &mut Registry) {
     })
     .keeps_cache();
     r.immediate("accounts.sign_in.finish", |c, req: FinishSignIn| {
-        Ok(host()?.finish_account_sign_in(&req.id, req.timeout(), c.ctx)?)
+        let plugins = host()?;
+        match &req.keys {
+            Some(keys) => Ok(plugins.finish_account_sign_in_with_keys(&req.id, keys, req.name.as_deref())?),
+            None => Ok(plugins.finish_account_sign_in(&req.id, req.timeout(), c.ctx)?),
+        }
     })
     .long()
     .keeps_cache();

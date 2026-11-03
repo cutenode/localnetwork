@@ -1,8 +1,8 @@
 //! The archive plugin: a set destination, `item`, that uploads a set's recording to the Internet
 //! Archive as an item in Community Audio (see `upload`), titled after the set and with its
 //! tracklist as the description (see `item`), and answers the item's page, which locallibrary
-//! keeps as the set's link. The Archive's S3 API takes an account's pair of keys, the secret
-//! settings `access` and `secret`, which the host fills into the plugin's requests.
+//! keeps as the set's link. The Archive's S3 API takes an account's pair of S3 keys: the upload
+//! names an `archive` account (archive-account's), whose keys the host fills in.
 
 mod item;
 mod upload;

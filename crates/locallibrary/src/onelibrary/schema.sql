@@ -1,6 +1,7 @@
 -- rekordbox's OneLibrary (exportLibrary.db) schema and the rows every export starts with
 -- (colours, browse menus, sort columns), as rekordbox 7 writes them. New databases are created
--- from it; tests/fixtures/onelibrary/make.sh builds the test fixtures from it with sqlcipher.
+-- from it; remake_sqlcipher_fixtures (tests/it/onelibrary.rs) builds the test fixtures from it
+-- with sqlcipher.
 CREATE TABLE content(content_id integer primary key, title varchar, titleForSearch varchar, subtitle varchar, bpmx100 integer, length integer, trackNo integer, discNo integer, artist_id_artist integer, artist_id_remixer integer, artist_id_originalArtist integer, artist_id_composer integer, artist_id_lyricist integer, album_id integer, genre_id integer, label_id integer, key_id integer, color_id integer, image_id integer, djComment varchar, rating integer, releaseYear integer, releaseDate varchar, dateCreated varchar, dateAdded varchar, path varchar, fileName varchar, fileSize integer, fileType integer, bitrate integer, bitDepth integer, samplingRate integer, isrc varchar, djPlayCount integer, isHotCueAutoLoadOn integer, isKuvoDeliverStatusOn integer, kuvoDeliveryComment varchar, masterDbId integer, masterContentId integer, analysisDataFilePath varchar, analysedBits integer, contentLink integer, hasModified integer, cueUpdateCount integer, analysisDataUpdateCount integer, informationUpdateCount integer);
 CREATE TABLE genre(genre_id integer primary key, name varchar);
 CREATE TABLE artist(artist_id integer primary key, name varchar, nameForSearch varchar);

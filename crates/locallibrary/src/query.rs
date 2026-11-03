@@ -31,6 +31,7 @@
 //! Sort orders name a plugin's field the same way (`-sound.bpm`), where its values are at hand
 //! ([`parse_sort_with`]).
 
+use loclib_plugin::a_or_an;
 use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -500,8 +501,9 @@ impl Filter {
         for term in &self.terms {
             match &term.cond {
                 Cond::Plugin { name, .. } if ctx.fields.is_none() => {
+                    let term = a_or_an(&format!("{name}:"));
                     return Err(Error::invalid(format!(
-                        "a {name}: term needs what analyzers worked out, and none was read"
+                        "{term} term needs what analyzers worked out, and none was read"
                     )));
                 }
                 Cond::Plugin { .. } => term.check_field(&ctx.fields.expect("given").declared)?,

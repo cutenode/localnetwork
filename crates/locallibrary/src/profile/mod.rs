@@ -493,12 +493,23 @@ impl<'a> Files<'a> {
         self.snapshots.len() - 1
     }
 
-    fn read(&self, origin: Origin, key: &str) -> Option<Vec<u8>> {
+    /// Where the file `key` of `origin` is, and what names its contents for the cache: a stored
+    /// file's hash, or a drive file's path, size and modification time. `None` when there's no
+    /// such file. On a drive, a file that isn't there costs one look before
+    /// [`Device::checked_path`] resolves it: a drive without analysis files has none of any
+    /// track's, and the profile looks for two of each.
+    fn locate(&self, origin: Origin, key: &str) -> Option<(std::path::PathBuf, Option<String>)> {
         match origin {
-            Origin::Drive(i) => self.drives[i].checked_path(key).ok().and_then(|p| std::fs::read(p).ok()),
+            Origin::Drive(i) => {
+                let meta = std::fs::metadata(self.drives[i].path(key)).ok()?;
+                let path = self.drives[i].checked_path(key).ok()?;
+                let mtime = meta.modified().ok().and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok());
+                let content = mtime.map(|m| format!("{}\u{1f}{}\u{1f}{}", path.display(), meta.len(), m.as_nanos()));
+                Some((path, content))
+            }
             Origin::Snapshot(i) => {
                 let h = self.snapshots[i].get(&key.to_lowercase())?;
-                std::fs::read(self.store?.object_path(h)).ok()
+                Some((self.store?.object_path(h), Some(h.to_hex())))
             }
         }
     }

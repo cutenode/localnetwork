@@ -5,12 +5,17 @@
 		"main": {
 			"type": "record",
 			"key": "any",
-			"description": "Access to the private part of a press kit, keyed by the subject's DID. Written by the Local Network root account into the press kit's space, which also lists the subject as a reader. Deleting it, and removing the member, takes access away.",
+			"description": "Access to the private part of a press kit. Written by the Local Network root account into the project's computer.localnetwork.space.epkRequests space, which only the project's managers read, keyed by the press kit record's key and the subject's DID (with every % as ~), joined by a colon; the press kit's space lists the subject as a reader. Grants made before that sit in the press kit's space, keyed by the subject's DID, until the root moves them. Deleting it, and removing the member, takes access away.",
 			"record": {
 				"type": "object",
 				"required": ["subject", "via", "createdAt"],
 				"properties": {
 					"subject": { "type": "string", "format": "did" },
+					"epk": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "The press kit record it grants access to. Grants made before they moved out of the press kit's space have none."
+					},
 					"via": {
 						"type": "string",
 						"maxLength": 32,

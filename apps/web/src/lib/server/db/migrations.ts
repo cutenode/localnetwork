@@ -396,6 +396,13 @@ const migrations = {
 			await sql.raw('ALTER TABLE request ADD COLUMN subject_uri TEXT').execute(db);
 			await sql.raw('CREATE INDEX request_subject ON request (subject_uri)').execute(db);
 		}
+	},
+	// When the root's record of a decided request was deleted for its requester, whose row stays without its content.
+	'010_deleted_requests': {
+		async up(db) {
+			await sql.raw('ALTER TABLE request ADD COLUMN deleted_at TEXT').execute(db);
+			await sql.raw('ALTER TABLE epk_request ADD COLUMN deleted_at TEXT').execute(db);
+		}
 	}
 } satisfies Record<string, Migration>;
 

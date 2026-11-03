@@ -22,7 +22,7 @@ use locallibrary::progress::Ctx;
 use serde::Serialize;
 
 #[cfg(feature = "tui")]
-pub use accounts::signing_out;
+pub use accounts::{getting_keys, signing_out};
 #[cfg(feature = "account")]
 pub use atmosphere::{again, sign_in_again};
 
