@@ -120,15 +120,15 @@ pub(super) fn finish_sign_in(
 /// Finishes the sign-in `start` began with the keys it asks for (see [`read_keys`]). What
 /// finishing says goes as it is, never holding a key.
 fn with_keys(plugins: &Plugins, start: &AccountSignIn) -> Result<AccountSignedIn> {
-    let (entered, name) = read_keys(plugins, start)?;
+    let (entered, name) = read_keys(start)?;
     Ok(plugins.finish_account_sign_in_with_keys(&start.id, &entered, name.as_deref())?)
 }
 
 /// The keys the sign-in `start` asks for, by name, read after saying where to get them (never
 /// opening the browser): each typed without being shown in a terminal, else a line each in the
 /// order it lists them; then, when the user names the account, its name, typed or the next line.
-pub(super) fn read_keys(plugins: &Plugins, start: &AccountSignIn) -> std::io::Result<EnteredKeys> {
-    eprintln!("{}\n  {}", getting_keys(plugins, start), start.url);
+pub(super) fn read_keys(start: &AccountSignIn) -> std::io::Result<EnteredKeys> {
+    eprintln!("{}\n  {}", getting_keys(start), start.url);
     let mut entered = IndexMap::new();
     for (name, title) in &start.keys {
         entered.insert(name.clone(), read_entry(title, true)?);
@@ -139,8 +139,8 @@ pub(super) fn read_keys(plugins: &Plugins, start: &AccountSignIn) -> std::io::Re
 
 /// Where the keys the sign-in `start` asks for are got, its `url` to follow: "Get the Mock
 /// account's Access key and Secret key at".
-pub fn getting_keys(plugins: &Plugins, start: &AccountSignIn) -> String {
-    let title = account_type(plugins, &start.plugin, &start.kind).map_or(start.kind.as_str(), |t| &t.title);
+pub fn getting_keys(start: &AccountSignIn) -> String {
+    let title = &start.title;
     let titles: Vec<&str> = start.keys.values().map(String::as_str).collect();
     let (last, rest) = titles.split_last().unwrap_or((&"", &[]));
     let which = if rest.is_empty() { last.to_string() } else { format!("{} and {last}", rest.join(", ")) };
@@ -171,7 +171,7 @@ pub(super) fn find<'a>(all: &'a [Account], kind: &str, named: &str) -> Result<&'
 }
 
 /// The account type `kind` as the account plugin `with` provides it, if it's installed.
-pub fn account_type<'a>(plugins: &'a Plugins, with: &str, kind: &str) -> Option<&'a AccountType> {
+pub(super) fn account_type<'a>(plugins: &'a Plugins, with: &str, kind: &str) -> Option<&'a AccountType> {
     plugins.manifest(with).ok()?.contributes.account_types.iter().find(|t| t.name == kind)
 }
 

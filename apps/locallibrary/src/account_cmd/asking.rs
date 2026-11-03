@@ -35,7 +35,6 @@ impl AskAccess for Terminal {
     }
 
     fn enter_keys(&self, start: &AccountSignIn) -> Option<EnteredKeys> {
-        let plugins = crate::plugins::host().ok()?;
-        self.drawing.suspend(|| super::accounts::read_keys(plugins, start).ok())
+        self.drawing.suspend(|| super::accounts::read_keys(start).ok())
     }
 }

@@ -31388,6 +31388,10 @@
         "type": {
           "type": "string"
         },
+        "title": {
+          "type": "string",
+          "description": "What the account type is called (`Mixcloud`), from its plugin's manifest."
+        },
         "plugin": {
           "type": "string",
           "description": "The account plugin signing in."
@@ -31418,6 +31422,7 @@
       "required": [
         "id",
         "type",
+        "title",
         "plugin",
         "url"
       ],

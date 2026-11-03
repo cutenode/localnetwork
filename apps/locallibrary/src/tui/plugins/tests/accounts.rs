@@ -334,6 +334,7 @@ fn the_players_asker_takes_keys_in_the_form(tc: TestCase) {
     let start = AccountSignIn {
         id: "x".into(),
         kind: "mock-keys".into(),
+        title: "Mock keys".into(),
         plugin: "keys-accounts".into(),
         url: "http://127.0.0.1:9/keys".into(),
         redirect_uri: None,

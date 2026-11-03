@@ -82,6 +82,8 @@ pub struct AccountSignIn {
     pub id: String,
     #[serde(rename = "type")]
     pub kind: String,
+    /// What the account type is called (`Mixcloud`), from its plugin's manifest.
+    pub title: String,
     /// The account plugin signing in.
     pub plugin: String,
     /// Open this in the browser: the service's sign-in page, or where the user gets the keys.
@@ -436,12 +438,12 @@ impl Plugin {
                 self.host.wait(Waiting::Keys { asked: Box::new(asked), store: store.clone(), started: Instant::now() });
             let keys = t.keys.iter().map(|(name, key)| (name.clone(), key.title.clone())).collect();
             let (url, named) = (t.keys_url.clone().unwrap_or_default(), t.whoami.is_none());
-            let (kind, plugin) = (kind.into(), with.into());
-            return Ok(AccountSignIn { id, kind, plugin, url, redirect_uri: None, keys, named });
+            let (kind, title, plugin) = (kind.into(), t.title.clone(), with.into());
+            return Ok(AccountSignIn { id, kind, title, plugin, url, redirect_uri: None, keys, named });
         }
         let (id, url, redirect_uri) = self.begin(t, &scopes, &params, asked, store)?;
-        let (redirect_uri, keys) = (Some(redirect_uri), IndexMap::new());
-        Ok(AccountSignIn { id, kind: kind.into(), plugin: with.into(), url, redirect_uri, keys, named: false })
+        let (title, redirect_uri, keys) = (t.title.clone(), Some(redirect_uri), IndexMap::new());
+        Ok(AccountSignIn { id, kind: kind.into(), title, plugin: with.into(), url, redirect_uri, keys, named: false })
     }
 
     /// The account `p` asked for, signed in through it from what the browser came back to `p`

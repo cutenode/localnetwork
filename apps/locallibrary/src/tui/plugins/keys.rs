@@ -10,7 +10,7 @@ use locallibrary::plugin::{AccountSignIn, EnteredKeys};
 use loclib_plugin::a_or_an;
 use serde_json::{Map, Value, json};
 
-use crate::account_cmd::{account_type, getting_keys};
+use crate::account_cmd::getting_keys;
 use crate::tui::app::{App, Msg};
 use crate::tui::edits::Modal;
 use crate::tui::form::{For, Form};
@@ -31,9 +31,8 @@ impl App {
     /// account's name when `start` is `named`; what's entered goes back on `reply`. Closed, it's
     /// never answered.
     pub(in crate::tui) fn enter_keys(&mut self, start: &AccountSignIn, reply: Sender<EnteredKeys>) {
-        let Ok(plugins) = crate::plugins::host() else { return };
-        let title = account_type(plugins, &start.plugin, &start.kind).map_or(start.kind.as_str(), |t| &t.title);
-        let getting = format!("{} {}", getting_keys(plugins, start), start.url);
+        let title = &start.title;
+        let getting = format!("{} {}", getting_keys(start), start.url);
         let mut properties: Map<String, Value> = start
             .keys
             .values()

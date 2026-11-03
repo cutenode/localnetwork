@@ -199,7 +199,8 @@ fn the_sidecar_signs_in_with_keys_for_a_plugin() {
     let id = &begun["result"]["id"];
     let keys = json!({ "access": "Access key", "secret": "Secret key" });
     let url = format!("{}/keys", m.server.url);
-    let expected = json!({ "id": id, "type": "mock", "plugin": WITH, "url": url, "keys": keys, "named": true });
+    let expected =
+        json!({ "id": id, "type": "mock", "title": "Mock", "plugin": WITH, "url": url, "keys": keys, "named": true });
     assert_eq!(begun["result"], expected, "{begun}");
     let short = json!({ "id": id, "keys": { "access": access, "secret": "sk-1234" }, "name": "me" });
     let refused = s.call(2, "accounts.sign_in.finish", short);

@@ -8235,6 +8235,8 @@ export type AccountSignIn = {
    */
   id: string;
   type: string;
+  /** What the account type is called (`Mixcloud`), from its plugin's manifest. */
+  title: string;
   /** The account plugin signing in. */
   plugin: string;
   /** Open this in the browser: the service's sign-in page, or where the user gets the keys. */
