@@ -52,6 +52,7 @@
 		<p class="mt-2 text-small text-fg-muted">
 			From <Handle account={request.requester} /> · submitted {formatDateTime(request.createdAt)}
 			{#if request.record.onBehalfOf}· filed by the root account because their PDS lacks spaces support{/if}
+			{#if request.deletedAt}· they deleted what it said on {formatDateTime(request.deletedAt)}{/if}
 		</p>
 	</div>
 
