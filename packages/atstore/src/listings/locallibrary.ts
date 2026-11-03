@@ -8,6 +8,7 @@ import { copyFileSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Browser } from 'playwright';
+import { fixtureDrive } from '../../../../apps/locallibrary/bombadil/lib.mjs';
 import { ROOT, run } from '../run.ts';
 import { mountSticks } from '../sticks.ts';
 import type { Capture, Listing } from '../types.ts';
@@ -166,7 +167,7 @@ async function record(browser: Browser, bin: string, work: string, volumes: stri
 	const [dj, demo] = [join(volumes, 'DJ'), join(volumes, 'DEMO')];
 	const set = join(dj, 'PIONEER REC/REC001.WAV');
 
-	await run('bash', ['-c', '. "$0/lib.sh" && fixture_drive "$1"', BOMBADIL, dj]);
+	fixtureDrive(dj);
 	cpSync(join(ROOT, 'crates/locallibrary/tests/fixtures/rekordcrate/demo_tracks/PIONEER'), join(demo, 'PIONEER'), {
 		recursive: true
 	});

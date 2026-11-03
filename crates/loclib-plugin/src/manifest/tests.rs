@@ -8,9 +8,9 @@ use super::*;
 use crate::hooks::account_types::{AUTHORIZE_PARAMS, METHODS};
 use crate::{
     AccountNeed, AccountType, Analyzer, Check, Command, Destination, DestinationKind, EventName, ExportFrom,
-    ExportSources, Exporter, FieldDisplay, FieldFormat, FieldType, FieldValue, ImportKind, Importer, LibrarySource,
-    Listener, Mode, Operation, OptionalScopes, Panel, Provider, ProviderKind, Role, SUBJECT_PLACEHOLDER, Scope,
-    ScopeRequest, Service, Theme, TokenPlace, When, Whoami, account_placeholder, code,
+    ExportSources, Exporter, FieldDisplay, FieldFormat, FieldType, FieldValue, ImportKind, Importer, Key,
+    LibrarySource, Listener, Mode, Operation, OptionalScopes, Panel, Provider, ProviderKind, Role, SUBJECT_PLACEHOLDER,
+    Scope, ScopeRequest, Service, SignIn, Theme, TokenPlace, When, Whoami, account_placeholder, code,
 };
 
 const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n";
@@ -22,6 +22,14 @@ fn problem(rest: &str) -> String {
     match Manifest::parse(&format!("{HEAD}{rest}")).and_then(|m| m.validate(false)) {
         Ok(()) => String::new(),
         Err(e) => e.to_string(),
+    }
+}
+
+/// A field of type `kind`, as a manifest's problems say it: "an integer", "a number".
+fn a_field_of(kind: FieldType) -> String {
+    match serde_json::to_value(kind).unwrap().as_str().unwrap() {
+        "integer" => "an integer".into(),
+        name => format!("a {name}"),
     }
 }
 
@@ -567,6 +575,106 @@ fn an_account_type_says_where_its_token_goes_and_where_the_browser_comes_back() 
     assert!(said("redirect_port = 70000\n").contains("redirect_port"));
 }
 
+/// An account plugin for the Internet Archive's S3 API, signed in to with a pair of keys.
+const ARCHIVE: &str = r#"
+[[contributes.account_types]]
+type = "archive"
+title = "Internet Archive"
+kind = "keys"
+keys_url = "https://archive.org/account/s3.php"
+keys = { access = { title = "S3 access key" }, secret = { title = "S3 secret key" } }
+authorization = "LOW {access}:{secret}"
+
+[contributes.account_types.scopes.upload]
+title = "upload items to the Internet Archive"
+requests = [{ method = "PUT", url = "https://s3.us.archive.org/*" }]
+"#;
+
+/// What's wrong with [`ARCHIVE`] once `change` has been made to it, for a third-party plugin.
+fn archive_with(change: impl FnOnce(&mut AccountType)) -> String {
+    let mut m = Manifest::parse(&format!("{HEAD}{ARCHIVE}")).unwrap();
+    change(&mut m.contributes.account_types[0]);
+    problem_with(&m, false)
+}
+
+/// An account type signed in to with keys names them, where the user gets them and the
+/// `Authorization` header's value they make, which names every key in braces and nothing else:
+/// they go nowhere else, never the query. It has none of the fields of one signed in to in the
+/// browser, which has none of its, and its scopes ask the service for nothing; its whoami, when
+/// it has one, is at a host its scopes' requests go to.
+#[test]
+fn a_keys_account_type_names_its_keys_and_the_header_they_make() {
+    let m = Manifest::parse(&format!("{HEAD}{ARCHIVE}")).unwrap();
+    m.validate(false).unwrap();
+    assert!(m.is_account_plugin());
+    let archive = &m.contributes.account_types[0];
+    assert_eq!(archive.kind, SignIn::Keys);
+    let key = |name: &str| if name == "access" { "AK" } else { "SK" };
+    let place = archive.place();
+    let header = Some("Authorization".to_string());
+    assert_eq!(
+        (place.header.clone(), place.query.clone(), place.filled(key)),
+        (header.clone(), None, "LOW AK:SK".into())
+    );
+    let google = Manifest::parse(&format!("{HEAD}{GOOGLE}")).unwrap().contributes.account_types[0].clone();
+    let token = |place: TokenPlace| {
+        let p = AccountType { token: place, ..google.clone() }.place();
+        (p.header.clone(), p.query.clone(), p.filled(|_| "t"))
+    };
+    assert_eq!(token(TokenPlace::default()), (header.clone(), None, "Bearer t".into()));
+    assert_eq!(token(TokenPlace::Scheme("OAuth".into())), (header, None, "OAuth t".into()));
+    assert_eq!(token(TokenPlace::Query("access_token".into())), (None, Some("access_token".into()), "t".into()));
+
+    let at = "contributes.account_types[0]";
+    let browser = "is for an account type signed in to in the browser, not with keys";
+    assert_eq!(archive_with(|x| x.client_id = Some("x".into())), format!("{at}.client_id: {browser}"));
+    assert_eq!(archive_with(|x| x.token = TokenPlace::Scheme("OAuth".into())), format!("{at}.token: {browser}"));
+    assert_eq!(archive_with(|x| x.token = TokenPlace::default()), "");
+    let keyed = "is for an account type signed in to with keys (kind = \"keys\")";
+    let keys_url = google_with(|m| m.contributes.account_types[0].keys_url = Some("https://a.example/".into()));
+    assert_eq!(keys_url, format!("{at}.keys_url: {keyed}"));
+    let authorization = google_with(|m| m.contributes.account_types[0].authorization = Some("LOW {token}".into()));
+    assert_eq!(authorization, format!("{at}.authorization: {keyed}"));
+    assert_eq!(
+        archive_with(|x| x.keys.clear()),
+        format!("{at}.keys: an account type signed in to with keys has a key at least")
+    );
+    assert_eq!(archive_with(|x| x.keys_url = None), format!("{at}.keys_url: is missing"));
+    assert_eq!(archive_with(|x| x.authorization = None), format!("{at}.authorization: is missing"));
+    // Keys can't be put in the query: a type saying so says nothing about the header.
+    let query = ARCHIVE
+        .replace("authorization = \"LOW {access}:{secret}\"", "goes = [{ query = \"k\", value = \"{access}\" }]");
+    let m = Manifest::parse(&format!("{HEAD}{query}")).unwrap();
+    assert_eq!(problem_with(&m, false), format!("{at}.authorization: is missing"));
+    for (value, why) in [
+        ("LOW {access}:{secret}\n", "isn't printable ASCII"),
+        ("LOW {access}:{secret", "has a { or } that doesn't name a key"),
+        ("LOW {access}:{Secret}", "has a { or } that doesn't name a key"),
+        ("LOW {access}:{secret}}", "has a { or } that doesn't name a key"),
+        ("LOW {access}:{secrets}", "names {secrets}, which isn't one of its keys"),
+        ("LOW", "names none of its keys, like {key}"),
+    ] {
+        let said = archive_with(|x| x.authorization = Some(value.into()));
+        assert_eq!(said, format!("{at}.authorization: {value:?} {why}"), "{value}");
+    }
+    let unused = archive_with(|x| x.authorization = Some("LOW {access}:{access}".into()));
+    assert_eq!(unused, format!("{at}.keys.secret: goes nowhere: authorization doesn't name it"));
+    let asks = archive_with(|x| x.scopes["upload"].asks.push("upload".into()));
+    let why = "asks the service for nothing: an account signed in to with keys was granted nothing there";
+    assert_eq!(asks, format!("{at}.scopes.upload.asks: {why}"));
+    let whoami = |url: &str| {
+        let w = Whoami { url: url.into(), subject: "/id".into(), name: "/name".into() };
+        archive_with(|x| x.whoami = Some(w))
+    };
+    assert_eq!(whoami("https://s3.us.archive.org/?check_limit=1"), "");
+    assert_eq!(
+        whoami("https://archive.org/whoami"),
+        format!("{at}.whoami.url: archive.org isn't a host its scopes' requests go to: it's sent the keys")
+    );
+    let kind = Manifest::parse(&format!("{HEAD}{}", ARCHIVE.replace("\"keys\"", "\"password\""))).unwrap_err();
+    assert!(kind.to_string().contains("unknown variant `password`"), "{kind}");
+}
+
 /// An account type sets only the authorize params that can't change where a code goes or what it's
 /// for, each in one place, and names the account only as `{subject}`, only to sign in to it again.
 #[test]
@@ -621,16 +729,19 @@ fn an_account_types_params_name_the_account_only_as_its_subject() {
 #[test]
 fn whoami_says_where_in_its_answer_with_json_pointers() {
     let at = "contributes.account_types[0].whoami";
-    let subject = |pointer: &str| google_with(|m| m.contributes.account_types[0].whoami.subject = pointer.into());
+    let subject = |pointer: &str| {
+        google_with(|m| m.contributes.account_types[0].whoami.as_mut().unwrap().subject = pointer.into())
+    };
     for pointer in ["", "/", "/sub", "/a~0b~1c/0", "/~01"] {
         assert_eq!(subject(pointer), "", "{pointer}");
     }
     for pointer in ["sub", "#/sub", "/a~2", "/a~", "/~/b"] {
         assert_eq!(subject(pointer), format!("{at}.subject: {pointer:?} isn't a JSON pointer, like /sub"));
     }
-    let name = google_with(|m| m.contributes.account_types[0].whoami.name = "email".into());
+    let name = google_with(|m| m.contributes.account_types[0].whoami.as_mut().unwrap().name = "email".into());
     assert_eq!(name, format!("{at}.name: \"email\" isn't a JSON pointer, like /sub"));
-    let url = google_with(|m| m.contributes.account_types[0].whoami.url = "http://example.com/me".into());
+    let url =
+        google_with(|m| m.contributes.account_types[0].whoami.as_mut().unwrap().url = "http://example.com/me".into());
     let said = "\"http://example.com/me\" isn't an https:// address without a user name or password";
     assert_eq!(url, format!("{at}.url: {said}"));
 }
@@ -1068,6 +1179,8 @@ fn analyzers_give_fields_roles_of_their_type() {
     assert_eq!(e, "contributes.analyzers[0].roles.artists: mbids isn't a string[], which the role is");
     let e = problem(&analyzer("names = \"string\"", "credits = \"names\""));
     assert_eq!(e, "contributes.analyzers[0].roles.credits: names isn't a string[], which the role is");
+    let e = problem(&analyzer("runs = \"number\"", "clipped_runs = \"runs\""));
+    assert_eq!(e, "contributes.analyzers[0].roles.clipped_runs: runs isn't an integer, which the role is");
     let ids = analyzer(
         "song = \"string\", album = \"string\", mbids = \"string[]\", code = \"string\", names = \"string[]\"",
         "recording = \"song\", release = \"album\", artists = \"mbids\", isrc = \"code\", credits = \"names\"",
@@ -1127,7 +1240,7 @@ fn a_theme_sets_colours_by_their_names() {
 fn an_analyzers_fields_say_how_theyre_shown() {
     let analyzer = |display: &str| {
         format!(
-            "[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nversion = \"1\"\nfields = {{ lufs = \"number\", camelot = \"string\" }}\n{display}"
+            "[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nversion = \"1\"\nfields = {{ lufs = \"number\", camelot = \"string\", runs = \"integer\" }}\n{display}"
         )
     };
     let ok = analyzer(
@@ -1150,6 +1263,10 @@ fn an_analyzers_fields_say_how_theyre_shown() {
     assert_eq!(
         problem(&analyzer("display.camelot = { format = \"db\" }")),
         format!("{at}.camelot.format: camelot is a string, which db isn't for")
+    );
+    assert_eq!(
+        problem(&analyzer("display.runs = { format = \"key\" }")),
+        format!("{at}.runs.format: runs is an integer, which key isn't for")
     );
     assert_eq!(
         problem(&analyzer("display.lufs = { precision = 7 }")),
@@ -2273,8 +2390,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                 let others: Vec<FieldType> = others.into_iter().filter(|t| *t != role.kind()).collect();
                 a.fields.insert(field.clone(), tc.draw(gs::sampled_from(others)));
                 a.roles.insert(role, field.clone());
-                let kind = serde_json::to_value(role.kind()).unwrap();
-                (format!("{at}: {field} isn't a {}, which the role is", kind.as_str().unwrap()), false)
+                (format!("{at}: {field} isn't {}, which the role is", a_field_of(role.kind())), false)
             }
         }
         "file or folder" | "extension" => {
@@ -2410,13 +2526,8 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     let unfit: Vec<FieldFormat> = all.into_iter().filter(|f| !fits(kind, *f)).collect();
                     let f = tc.draw(gs::sampled_from(unfit));
                     d.format = Some(f);
-                    let named = serde_json::to_value(kind).unwrap();
                     let format = serde_json::to_value(f).unwrap();
-                    format!(
-                        ".format: {field} is a {}, which {} isn't for",
-                        named.as_str().unwrap(),
-                        format.as_str().unwrap()
-                    )
+                    format!(".format: {field} is {}, which {} isn't for", a_field_of(kind), format.as_str().unwrap())
                 }
                 "display precision" => {
                     d.precision = Some(tc.draw(gs::integers::<u8>().min_value(FieldDisplay::MAX_PRECISION + 1)));
@@ -2933,6 +3044,12 @@ fn scope(tc: &TestCase) -> Scope {
     Scope { title: title(tc), asks: service_scopes(tc), requests }
 }
 
+/// Where a service says who signed in.
+#[hegel::test_helper]
+fn whoami(tc: &TestCase) -> Whoami {
+    Whoami { url: endpoint(tc), subject: pointer(tc), name: pointer(tc) }
+}
+
 /// An account type with endpoints it may have (Local Network's token exchange only when
 /// `built_in`), authorize params, pointers into who signed in and some scopes.
 #[hegel::test_helper]
@@ -2943,18 +3060,22 @@ fn account_type(tc: &TestCase, built_in: bool) -> AccountType {
     AccountType {
         name: tc.draw(gs::from_regex(DRAWN_NAME)),
         title: title(tc),
-        authorize_url: endpoint(tc),
+        kind: SignIn::Oauth,
+        authorize_url: Some(endpoint(tc)),
         token_url: (!exchanges).then(|| endpoint(tc)),
         token_exchange: exchanges.then(|| exchange(tc)),
-        client_id: title(tc),
+        client_id: Some(title(tc)),
         revoke_url: tc.draw(gs::booleans()).then(|| endpoint(tc)),
         token: token_place(tc),
         redirect_port: tc.draw(gs::optional(gs::integers::<u16>().min_value(1024))),
         always: service_scopes(tc),
-        whoami: Whoami { url: endpoint(tc), subject: pointer(tc), name: pointer(tc) },
+        whoami: Some(whoami(tc)),
         one_account,
         another_account,
         params,
+        keys: IndexMap::new(),
+        keys_url: None,
+        authorization: None,
         scopes: drawn_names(tc, 3).into_iter().map(|name| (name, scope(tc))).collect(),
     }
 }
@@ -3026,6 +3147,8 @@ fn each_kind_of_account_type_mistake_is_refused_saying_where(tc: TestCase) {
         "method",
         "pattern",
         "unread pattern",
+        "keys field",
+        "missing",
     ];
     let mistake = tc.draw(gs::sampled_from(mistakes));
     let at = "contributes.account_types[0]";
@@ -3068,7 +3191,7 @@ fn each_kind_of_account_type_mistake_is_refused_saying_where(tc: TestCase) {
                 "title" | "client" => {
                     let (text, key) = match mistake {
                         "title" => (&mut x.title, "title"),
-                        _ => (&mut x.client_id, "client_id"),
+                        _ => (x.client_id.get_or_insert_default(), "client_id"),
                     };
                     *text = tc.draw(gs::text().alphabet(" \t\r\n").max_size(3));
                     format!("{at}.{key}: is empty")
@@ -3084,10 +3207,10 @@ fn each_kind_of_account_type_mistake_is_refused_saying_where(tc: TestCase) {
                         "https://a.example/a b",
                     ]));
                     match key {
-                        "authorize_url" => x.authorize_url = wrong.into(),
+                        "authorize_url" => x.authorize_url = Some(wrong.into()),
                         "token_url" => (x.token_url, x.token_exchange) = (Some(wrong.into()), None),
                         "revoke_url" => x.revoke_url = Some(wrong.into()),
-                        _ => x.whoami.url = wrong.into(),
+                        _ => x.whoami.as_mut().unwrap().url = wrong.into(),
                     }
                     format!("{at}.{key}: {wrong:?} isn't an https:// address without a user name or password")
                 }
@@ -3125,6 +3248,24 @@ fn each_kind_of_account_type_mistake_is_refused_saying_where(tc: TestCase) {
                         format!("{at}.token.query: {wrong:?} isn't {rule}")
                     }
                 },
+                "keys field" => {
+                    let key = tc.draw(gs::sampled_from(vec!["keys", "keys_url", "authorization"]));
+                    match key {
+                        "keys" => _ = x.keys.insert("access".into(), Key { title: title(&tc) }),
+                        "keys_url" => x.keys_url = Some(endpoint(&tc)),
+                        _ => x.authorization = Some("LOW {access}".into()),
+                    }
+                    format!("{at}.{key}: is for an account type signed in to with keys (kind = \"keys\")")
+                }
+                "missing" => {
+                    let key = tc.draw(gs::sampled_from(vec!["authorize_url", "client_id", "whoami"]));
+                    match key {
+                        "authorize_url" => x.authorize_url = None,
+                        "client_id" => x.client_id = None,
+                        _ => x.whoami = None,
+                    }
+                    format!("{at}.{key}: is missing")
+                }
                 "port" => {
                     let port = tc.draw(gs::integers::<u16>().max_value(1023));
                     x.redirect_port = Some(port);
@@ -3166,8 +3307,8 @@ fn each_kind_of_account_type_mistake_is_refused_saying_where(tc: TestCase) {
                         format!("/~x{w}"),
                     ]));
                     match key {
-                        "subject" => x.whoami.subject = wrong.clone(),
-                        _ => x.whoami.name = wrong.clone(),
+                        "subject" => x.whoami.as_mut().unwrap().subject = wrong.clone(),
+                        _ => x.whoami.as_mut().unwrap().name = wrong.clone(),
                     }
                     format!("{at}.whoami.{key}: {wrong:?} isn't a JSON pointer, like /sub")
                 }
@@ -3281,6 +3422,201 @@ fn each_kind_of_account_type_mistake_is_refused_saying_where(tc: TestCase) {
         }
     };
     assert_eq!(problem_with(&m, built_in), said);
+}
+
+/// Text the `Authorization` header's value of keys may have between the keys it names: printable
+/// ASCII but braces.
+const VALUE_TEXT: &str = "[ -z|~]{0,4}";
+
+/// A query parameter's name.
+const QUERY_NAME: &str = "[A-Za-z0-9._~-]{1,12}";
+
+/// An account type signed in to with keys: some keys, where the user gets them, the
+/// `Authorization` header's value they make (naming each key once at least, in any order, some
+/// more than once), and scopes asking the service for nothing, maybe with a whoami at a host one
+/// of their requests goes to.
+#[hegel::test_helper]
+fn keys_account_type(tc: &TestCase) -> AccountType {
+    let names = tc.draw(gs::vecs(gs::from_regex(DRAWN_NAME)).min_size(1).max_size(3).unique(true));
+    let keys: IndexMap<String, Key> = names.iter().map(|n| (n.clone(), Key { title: title(tc) })).collect();
+    let mut named = tc.draw(gs::vecs(gs::sampled_from(names.clone())).max_size(4));
+    let unnamed: Vec<String> = names.iter().filter(|n| !named.contains(n)).cloned().collect();
+    named.extend(unnamed);
+    let text = |tc: &TestCase| tc.draw(gs::from_regex(VALUE_TEXT).fullmatch(true));
+    let value: String = named.iter().map(|n| format!("{}{{{n}}}", text(tc))).collect();
+    let authorization = Some(format!("{value}{}", text(tc)));
+    let unasking = |tc: &TestCase| Scope { asks: Vec::new(), ..scope(tc) };
+    let mut scopes: IndexMap<String, Scope> = drawn_names(tc, 3).into_iter().map(|name| (name, unasking(tc))).collect();
+    let whoami = tc.draw(gs::booleans()).then(|| {
+        if scopes.is_empty() {
+            scopes.insert("added-scope-name".into(), unasking(tc));
+        }
+        let requests: Vec<&ScopeRequest> = scopes.values().flat_map(|s| &s.requests).collect();
+        let url = requests[index(tc, requests.len())].url.trim_end_matches('*').to_string();
+        Whoami { url, ..whoami(tc) }
+    });
+    AccountType {
+        name: tc.draw(gs::from_regex(DRAWN_NAME)),
+        title: title(tc),
+        kind: SignIn::Keys,
+        authorize_url: None,
+        token_url: None,
+        token_exchange: None,
+        client_id: None,
+        revoke_url: None,
+        token: TokenPlace::default(),
+        redirect_port: None,
+        always: Vec::new(),
+        whoami,
+        one_account: IndexMap::new(),
+        another_account: IndexMap::new(),
+        params: IndexMap::new(),
+        keys,
+        keys_url: Some(endpoint(tc)),
+        authorization,
+        scopes,
+    }
+}
+
+/// Any account plugin signed in to with keys that keeps the rules validates, built in or not,
+/// reads back as it was written from TOML and from JSON, fits the manifest's JSON Schema, and goes
+/// in the `Authorization` header only, with the keys its value names; and any one thing wrong with it is
+/// refused, saying where it is and what's wrong with it.
+#[hegel::test(test_cases = 500)]
+fn a_drawn_keys_account_type_is_valid_and_broken_in_one_place_is_refused_there(tc: TestCase) {
+    let mut m = account_plugin(&tc, false);
+    m.contributes.account_types = vec![keys_account_type(&tc)];
+    assert_eq!((problem_with(&m, false), problem_with(&m, true)), (String::new(), String::new()));
+    let json = serde_json::to_value(&m).unwrap();
+    let toml = toml_of(&json);
+    assert_eq!(Manifest::parse(&toml).unwrap(), m, "{toml}");
+    assert_eq!(serde_json::from_value::<Manifest>(json.clone()).unwrap(), m);
+    let schema = serde_json::to_value(schemars::schema_for!(Manifest)).unwrap();
+    assert!(jsonschema::validator_for(&schema).unwrap().is_valid(&json), "{json}");
+    let x = &mut m.contributes.account_types[0];
+    let place = x.place();
+    assert_eq!((place.header.as_deref(), place.query.as_deref()), (Some("Authorization"), None), "{place:?}");
+    assert_eq!(Some(&place.value), x.authorization.as_ref());
+    let angled: IndexMap<&str, String> = x.keys.keys().map(|k| (k.as_str(), format!("<{k}>"))).collect();
+    let filled = place.filled(|name| angled.get(name).map_or("", String::as_str));
+    assert_eq!(filled, place.value.replace('{', "<").replace('}', ">"), "{place:?}");
+
+    let mistake = tc.draw(gs::sampled_from(vec![
+        "browser field",
+        "no keys",
+        "key name",
+        "key title",
+        "no keys_url",
+        "keys_url",
+        "no authorization",
+        "unprintable",
+        "brace",
+        "undeclared",
+        "names none",
+        "unused",
+        "asks",
+        "whoami host",
+    ]));
+    let at = "contributes.account_types[0]";
+    let at_value = format!("{at}.authorization");
+    let said = match mistake {
+        "browser field" => {
+            let key = tc.draw(gs::sampled_from(vec![
+                "authorize_url",
+                "token_url",
+                "token_exchange",
+                "client_id",
+                "revoke_url",
+                "token",
+                "redirect_port",
+                "always",
+                "one_account",
+                "another_account",
+                "params",
+            ]));
+            match key {
+                "authorize_url" => x.authorize_url = Some(endpoint(&tc)),
+                "token_url" => x.token_url = Some(endpoint(&tc)),
+                "token_exchange" => x.token_exchange = Some(exchange(&tc)),
+                "client_id" => x.client_id = Some(title(&tc)),
+                "revoke_url" => x.revoke_url = Some(endpoint(&tc)),
+                "token" => x.token = TokenPlace::Query(tc.draw(gs::from_regex(QUERY_NAME).fullmatch(true))),
+                "redirect_port" => x.redirect_port = Some(tc.draw(gs::integers::<u16>().min_value(1024))),
+                "always" => x.always.push("openid".into()),
+                "one_account" => _ = x.one_account.insert("login_hint".into(), SUBJECT_PLACEHOLDER.into()),
+                "another_account" => _ = x.another_account.insert("prompt".into(), "select_account".into()),
+                _ => _ = x.params.insert("access_type".into(), "offline".into()),
+            }
+            format!("{at}.{key}: is for an account type signed in to in the browser, not with keys")
+        }
+        "no keys" => {
+            x.keys.clear();
+            format!("{at}.keys: an account type signed in to with keys has a key at least")
+        }
+        "key name" => {
+            let name = bad_name(&tc);
+            x.keys.insert(name.clone(), Key { title: title(&tc) });
+            format!("{at}.keys.{name}: isn't a name: {NAME_RULE}")
+        }
+        "key title" => {
+            let name = tc.draw(gs::sampled_from(x.keys.keys().cloned().collect::<Vec<_>>()));
+            x.keys[&name].title = tc.draw(gs::text().alphabet(" \t\r\n").max_size(3));
+            format!("{at}.keys.{name}.title: is empty")
+        }
+        "no keys_url" => {
+            x.keys_url = None;
+            format!("{at}.keys_url: is missing")
+        }
+        "keys_url" => {
+            let wrong = tc.draw(gs::sampled_from(vec!["http://a.example/", "https://someone@a.example/", "a.example"]));
+            x.keys_url = Some(wrong.into());
+            format!("{at}.keys_url: {wrong:?} isn't an https:// address without a user name or password")
+        }
+        "no authorization" => {
+            x.authorization = None;
+            format!("{at_value}: is missing")
+        }
+        "unused" => {
+            x.keys.insert("unused-key-name".into(), Key { title: title(&tc) });
+            format!("{at}.keys.unused-key-name: goes nowhere: authorization doesn't name it")
+        }
+        "asks" => {
+            if x.scopes.is_empty() {
+                x.scopes.insert("added-scope-name".into(), Scope { asks: Vec::new(), ..scope(&tc) });
+            }
+            let key = tc.draw(gs::sampled_from(x.scopes.keys().cloned().collect::<Vec<_>>()));
+            x.scopes[&key].asks.push(tc.draw(gs::from_regex(SERVICE_SCOPE)));
+            let why = "asks the service for nothing: an account signed in to with keys was granted nothing there";
+            format!("{at}.scopes.{key}.asks: {why}")
+        }
+        "whoami host" => {
+            x.whoami = Some(Whoami { url: "https://elsewhere-host.example/me".into(), ..whoami(&tc) });
+            let why = "isn't a host its scopes' requests go to: it's sent the keys";
+            format!("{at}.whoami.url: elsewhere-host.example {why}")
+        }
+        _ => {
+            let value = x.authorization.as_mut().unwrap();
+            match mistake {
+                "unprintable" => {
+                    value.push(tc.draw(gs::sampled_from(vec!['\n', '\t', 'é', '\u{7f}'])));
+                    format!("{at_value}: {value:?} isn't printable ASCII")
+                }
+                "brace" => {
+                    value.push_str(tc.draw(gs::sampled_from(vec!["{", "}", "{}", "{A}", "}{", "{a b}"])));
+                    format!("{at_value}: {value:?} has a {{ or }} that doesn't name a key")
+                }
+                "undeclared" => {
+                    value.push_str("{undeclared-key-name}");
+                    format!("{at_value}: {value:?} names {{undeclared-key-name}}, which isn't one of its keys")
+                }
+                _ => {
+                    *value = tc.draw(gs::from_regex(VALUE_TEXT).fullmatch(true));
+                    format!("{at_value}: {value:?} names none of its keys, like {{key}}")
+                }
+            }
+        }
+    };
+    assert_eq!(problem_with(&m, false), said);
 }
 
 /// A scope's request covers its method (in any case) to its address, or to any address starting

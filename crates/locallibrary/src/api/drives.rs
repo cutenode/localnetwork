@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 
+use loclib_plugin::a_or_an;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -1171,8 +1172,7 @@ pub(super) fn plan_provision(
         steps.push("write the My Settings profile".into());
     }
     if let Some(r) = role {
-        let article = if r == Role::Archive { "an" } else { "a" };
-        steps.push(format!("mark it as {article} {} drive", r.name()));
+        steps.push(format!("mark it as {} drive", a_or_an(r.name())));
     }
     if req.player_name.is_some() || req.player_colour.is_some() {
         steps.push("set the name and colour players show".into());

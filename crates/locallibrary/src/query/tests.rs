@@ -357,6 +357,8 @@ fn plugins_fields_are_refused_when_they_cant_be_answered() {
     assert!(f.uses_fields() && !Filter::parse("bpm:>120").unwrap().uses_fields());
     let said = f.check(&QueryContext::new(&lib)).unwrap_err().to_string();
     assert!(said.contains("a sound.bpm: term needs what analyzers worked out"), "{said}");
+    let said = Filter::parse("echo.bpm:>120").unwrap().check(&QueryContext::new(&lib)).unwrap_err().to_string();
+    assert!(said.contains("an echo.bpm: term needs what analyzers worked out"), "{said}");
 }
 
 /// A value worked out with nothing to show (null) matches no comparison, so negated every one,

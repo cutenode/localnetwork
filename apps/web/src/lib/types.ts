@@ -333,6 +333,20 @@ export type RequestView = {
 	updatedAt: string;
 	decision: { by: AccountView | null; at: string | null; reason: string | null } | null;
 	resultProjectSlug: string | null;
+	/** When the requester deleted what it said (the root's record of it), after it was decided. */
+	deletedAt: string | null;
+};
+
+/** The kinds of record the root writes into a space on someone's behalf, naming them in `onBehalfOf`. */
+export type HeldRecordKind = 'request' | 'booking' | 'epkRequest' | 'epkDraft';
+
+/** A record the root wrote for the viewer, as their data page lists it. `excerpt` is what they wrote in it, if anything. */
+export type HeldRecordView = {
+	uri: string;
+	kind: HeldRecordKind;
+	title: string;
+	excerpt: string | null;
+	createdAt: string;
 };
 
 export type StaffRole = 'admin' | 'moderator';

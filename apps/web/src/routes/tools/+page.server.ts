@@ -13,7 +13,7 @@ export const load: PageServerLoad = ({ locals }) => ({
 	meta: pageMeta(locals.app.config.publicUrl, {
 		title: 'Tools',
 		description:
-			'Tools for DJs from Local Network. Each one stands on its own and signs in with your Atmosphere account.',
+			'Free tools for DJs. Each one stands on its own, and locallibrary signs in with your Atmosphere account.',
 		path: '/tools'
 	})
 });

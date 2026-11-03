@@ -52,9 +52,9 @@ are:
   as many as plyr.fm's 5,000 bytes hold) and tagged `dj mix`, and keeps the track's page as the
   set's link, named plyr.fm, and the track's `fm.plyr.track` record as the set's recording.
   plyr.fm takes mp3, wav, m4a, aiff, flac, webm and ogg recordings of up to 1536 MiB, and the
-  plugin refuses others before anything goes. It needs a developer token from
-  plyr.fm/settings#developer, kept as a secret: `locallibrary plugin settings plyr token
-  --secret`. The recording goes straight from its file in the parts plyr.fm asks for (10 MiB),
+  plugin refuses others before anything goes. It uploads with a plyr.fm account (plyr-account's),
+  signed in to with a developer token from plyr.fm/settings#developer: `locallibrary account plyr
+  sign-in`. The recording goes straight from its file in the parts plyr.fm asks for (10 MiB),
   each sent again a few times when it doesn't arrive, with the time locallibrary gives a request
   sending a file (enough for about 1 Mbit/s up). An upload that stops partway is dropped by
   plyr.fm after a day, and publishing again starts over.
@@ -65,9 +65,9 @@ are:
   (`05:30 Artist - Title` lines, as many as fit in the 8,000-byte header it's sent in) and tagged
   `dj mix` and the set's kind, venue and city, and keeps the item's page as the set's link. The item
   is called `CREATOR-DATE-TITLE` (`dj-kit-2026-10-03-closing-set`), with `-2` and on when that's
-  taken. It needs the pair of S3 keys from archive.org/account/s3.php, kept as secrets:
-  `locallibrary plugin settings archive access --secret` and `locallibrary plugin settings archive
-  secret --secret`. The recording goes in one upload, sent again a few times (waiting while the
+  taken. It uploads with an Internet Archive account (archive-account's), signed in to with the
+  pair of S3 keys from archive.org/account/s3.php: `locallibrary account archive sign-in`. The
+  recording goes in one upload, sent again a few times (waiting while the
   Archive says it's busy) when it doesn't arrive; locallibrary gives it as long as 128 KiB/s
   would take, so a 2 GB recording needs about 1 Mbit/s up. The Archive takes a few minutes, sometimes longer, to show a
   new item while it processes it, and the link works once it has. The Archive is only for what
@@ -148,11 +148,16 @@ are:
   Local Network's SoundCloud app is registered with the redirect address
   `http://127.0.0.1:47110/callback`, so signing in needs port 47110 free.
 
-- **google-account**: an account plugin (see [Account plugins](#account-plugins)), the `google`
-  account type, signed in to through Local Network's token exchange. Its scope `youtube-upload`
-  uploads videos to YouTube.
+- **archive-account**: an account plugin (see [Account plugins](#account-plugins)), the
+  `archive` account type, signed in to with the pair of S3 keys from
+  archive.org/account/s3.php. The Archive doesn't say whose keys they are, so you name the
+  account. Its scope `upload` uploads items to the Internet Archive.
+- **google-account**: an account plugin, the `google` account type, signed in to through Local
+  Network's token exchange. Its scope `youtube-upload` uploads videos to YouTube.
 - **mixcloud-account**: an account plugin, the `mixcloud` account type, signed in to through the
   token exchange. Its scope `upload` uploads shows to Mixcloud.
+- **plyr-account**: an account plugin, the `plyr` account type, signed in to with a developer
+  token from plyr.fm/settings#developer. Its scope `upload` uploads tracks to plyr.fm.
 - **soundcloud-account**: an account plugin, the `soundcloud` account type, signed in to through
   the token exchange. Its scopes are `upload`, for uploading tracks to SoundCloud, and `read`, for
   reading from SoundCloud as you.
@@ -195,13 +200,14 @@ alone, its `[[contributes.account_types]]`: how to sign in to the service, how t
 signed in, and the scopes a plugin may be given, each with the requests it covers. It has no
 code, so locallibrary never starts one: it runs every sign-in from the manifest and keeps the
 tokens itself (see [the decision](adr/0001-account-plugins-are-manifests.md)). Only the ones
-locallibrary ships may use Local Network's token exchange. Those are google-account,
-mixcloud-account and soundcloud-account, in `plugins/accounts/`. `locallibrary plugin` lists the
-account type each adds, and `plugin info` its scopes.
+locallibrary ships, in `plugins/accounts/`, may use Local Network's token exchange:
+google-account, mixcloud-account and soundcloud-account do, and archive-account and plyr-account
+take keys you enter instead (see [the decision](adr/0002-keys-accounts.md)). `locallibrary plugin` lists the account type each adds, and `plugin
+info` its scopes.
 
 A plugin asks for accounts of a type with `[[accounts]]`, naming the scopes it needs and why:
-youtube asks for a google account to upload videos with, mixcloud and soundcloud for an account
-of their own type to upload with.
+youtube asks for a google account to upload videos with; archive, mixcloud, plyr and soundcloud
+each for an account of their own type to upload with.
 
 ## Accounts
 
@@ -211,6 +217,9 @@ account` lists your accounts after the DJ account, each with whether it's signed
 plugins that have access to it. `locallibrary account TYPE sign-in` opens the service's sign-in
 page in the browser and waits for it to come back to this computer (`--no-browser` prints the
 link, `--paste` takes the address the browser ended up on when it runs on another computer).
+For a service that gives you keys instead, it prints where to get them and reads them from
+stdin, typed without being shown in a terminal or a line each in the order it lists them, then
+the account's name when the service doesn't say whose they are.
 `--for PLUGIN` gives a plugin access to it, `--with PLUGIN` picks the account plugin when several
 provide the type, and `--scope NAME` asks for one of the type's scopes besides. A service may let
 you leave some of that out on its page: a plugin then goes without the scopes it can do without
@@ -236,11 +245,12 @@ and in the sidecar, nothing is asked: it fails and says how to resolve it.
 
 In the player's palette, "sign in to a TYPE account…" signs in to one, "sign out of NAME" signs
 out of one, and "access for PLUGIN…" opens a form choosing which account of each type the plugin
-uses, saying what for, or signing in to another.
+uses, saying what for, or signing in to another. Signing in with keys there opens a form saying
+where to get them, each typed unseen, then the account's name when the service doesn't say.
 
 A plugin asks for the scopes it can do without when it needs them. In a terminal, and in the
 player, you're asked whether it may, and why it wants them; when the account wasn't granted them,
-allowing it signs in again in the browser. A no is remembered: it isn't asked again until
+allowing it signs in again in the browser, or asks for the account's keys. A no is remembered: it isn't asked again until
 `locallibrary plugin access PLUGIN --give ACCOUNT --scope SCOPE` gives the scope. With `--json`,
 `--yes` or no terminal, in `watch` and in the sidecar, nothing's asked: the plugin fails, saying
 how to give it the scope.
@@ -259,6 +269,12 @@ one for an account with no refresh token) is passed on to the plugin, and signs 
 only when the service says the token is no good (`error="invalid_token"`); one the service won't
 refresh signs it out too. When the service says the token lacks a
 scope, the request fails saying which, and signing in again is offered.
+
+Keys are kept in the keychain the same way, and go only in the `Authorization` header, as the
+account type spells it out (`LOW {access}:{secret}` for the Archive), never in the address.
+Nothing refreshes them: when the service refuses them, the plugin is told what it answered and
+the account stays signed in. Signing in again with the keys the service has now replaces them,
+and a sign-in whose keys the service refuses says to check them where you got them.
 
 Some services (SoundCloud) only take the browser back at the exact address their app was
 registered with, port included. An account type on one of those names its port, and its

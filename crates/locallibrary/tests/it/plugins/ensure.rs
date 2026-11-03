@@ -8,17 +8,20 @@ use std::thread::JoinHandle;
 
 use hegel::TestCase;
 use hegel::generators as gs;
+use indexmap::IndexMap;
 use locallibrary::error::Reason;
-use locallibrary::plugin::{AccessQuestion, AskAccess};
+use locallibrary::plugin::{AccessQuestion, AccountSignIn, AskAccess, EnteredKeys};
 
 use super::accesses::{SCOPES, account, asks, some};
 use super::accounts::{come_back_to, opened_at};
+use super::key_accounts::entered;
 use super::shared_accounts::{Mock, WITH, asking, mock_with, options, who};
 use super::*;
-use crate::mock_oauth::{Service, account_plugin};
+use crate::mock_oauth::{Service, account_plugin, keys_account_plugin};
 
 /// A front end asking as the test says: answering `answer` to every question (`None`: it can't
-/// ask), and signing in again in the browser with the mock service granting `grants`.
+/// ask), signing in again in the browser with the mock service granting `grants`, and with keys
+/// entering `keys` (`None`: it can't), keeping the sign-ins it was asked keys for.
 #[derive(Default)]
 struct Script {
     answer: Mutex<Option<bool>>,
@@ -26,6 +29,8 @@ struct Script {
     asked: Mutex<Vec<AccessQuestion>>,
     service: OnceLock<Arc<Mutex<Service>>>,
     browser: Mutex<Vec<JoinHandle<String>>>,
+    keys: Mutex<Option<EnteredKeys>>,
+    keyed: Mutex<Vec<AccountSignIn>>,
 }
 
 impl AskAccess for Script {
@@ -43,6 +48,11 @@ impl AskAccess for Script {
         }
         let back = come_back_to(&query["redirect_uri"], format!("code=c0de&state={}", query["state"]));
         self.browser.lock().unwrap().push(back);
+    }
+
+    fn enter_keys(&self, start: &AccountSignIn) -> Option<EnteredKeys> {
+        self.keyed.lock().unwrap().push(start.clone());
+        self.keys.lock().unwrap().clone()
     }
 }
 
@@ -211,6 +221,44 @@ fn ensure_answers_granted_or_declined_never_a_token(tc: TestCase) {
         let left_out: Vec<&str> = access.declined.iter().map(String::as_str).collect();
         assert_eq!((sorted(&have), sorted(&left_out)), (sorted(&model.scopes), sorted(&model.declined)), "{said}");
     }
+}
+
+/// A plugin wanting more of an account signed in to with keys, signed out since, signs in again
+/// with the keys the front end enters once the user allows it, the sign-in saying which keys and
+/// where to get them: the access is given the scope, and a request through it gets the keys. With
+/// no keys from the front end, the plugin fails as it does when nobody can be asked, and that
+/// sign-in is over.
+#[test]
+fn ensure_signs_in_again_with_the_keys_entered() {
+    let script = Arc::new(Script { answer: Mutex::new(Some(true)), ..Script::default() });
+    let ask = Some(script.clone() as Arc<dyn AskAccess>);
+    let manifest = |server: &str| keys_account_plugin(server, None);
+    let m: Mock = mock_with(3600, manifest, &asking(&["read"], &["write"]), Options { ask, ..options() });
+    let (old, new) = (entered("ak-0123456789", "sk-9876543210"), entered("ak-1111111111", "sk-2222222222"));
+    let start = m.f.plugins.begin_account_sign_in("mock", WITH, Some("echo"), None, &[], &m.f.store).unwrap();
+    m.f.plugins.finish_account_sign_in_with_keys(&start.id, &old, Some("me")).unwrap();
+    m.f.plugins.sign_out_account(WITH, "me", &m.f.store).unwrap();
+    let ensure = || m.f.command("ensure", json!({ "type": "mock", "scopes": ["write"] }), &Ctx::silent());
+    let signed_in = || m.listed().iter().any(|a| a.subject == "me" && a.signed_in);
+
+    let e = ensure().unwrap_err();
+    assert_eq!((e.code(), e.reason()), ("account", Some(Reason::MissingScope)), "{e}");
+    let [start] = script.keyed.lock().unwrap().drain(..).collect::<Vec<_>>().try_into().unwrap();
+    let titles = IndexMap::from_iter([("access".into(), "Access key".into()), ("secret".into(), "Secret key".into())]);
+    assert_eq!(
+        (&start.keys, start.url.as_str(), start.named),
+        (&titles, format!("{}/keys", m.server.url).as_str(), true)
+    );
+    let over = m.f.plugins.finish_account_sign_in_with_keys(&start.id, &new, Some("me"));
+    assert_eq!(over.unwrap_err().code(), "not_found", "the sign-in isn't over");
+    assert!(!signed_in(), "signed in without keys");
+
+    *script.keys.lock().unwrap() = Some((new, Some("me".into())));
+    let CommandOutput::Headless(answered) = ensure().unwrap() else { panic!("not an answer") };
+    assert_eq!((&answered["granted"], &answered["declined"]), (&json!(["write"]), &json!([])));
+    assert!(signed_in(), "not signed in again");
+    let sent = m.fetch_as("POST", "/w/x", "{account:mock}", None);
+    assert_eq!(sent["result"]["body"], "/w/x LOW ak-1111111111:sk-2222222222", "{sent}");
 }
 
 /// The scopes an action's `params` name.

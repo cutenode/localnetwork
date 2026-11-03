@@ -1,8 +1,10 @@
 import type { JsonObject } from '@atproto/lex-json';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
-import { backstageSpace, bookingSpace, epkSpace, sharedSpace } from '../atproto/spaces';
+import { backstageSpace, bookingSpace, epkRequestSpace, epkSpace, sharedSpace } from '../atproto/spaces';
+import { grantKey } from '../services/epk';
 import { createTestServices, ROOT } from '../testing/core';
+import { DJ, pressKitServices } from '../testing/press-kits';
 import { createProjections } from './projections';
 
 const ALICE = 'did:plc:alice';
@@ -193,6 +195,38 @@ describe('createProjections', () => {
 			uri: `${space}/${ALICE}/${COLLECTION.epkGrant}/${BOB}`
 		});
 		expect(await t.db.selectFrom('epkGrant').selectAll().execute()).toEqual([]);
+	});
+
+	it("counts a press kit grant in its project's request space for the press kit it names", async () => {
+		const f = await pressKitServices();
+		const epk = await f.publish(DJ);
+		const space = epkRequestSpace(ROOT, f.project.rkey);
+		const rkey = grantKey(epk.rkey, BOB);
+		const uri = `${space}/${ROOT}/${COLLECTION.epkGrant}/${rkey}`;
+		const sync = createProjections(f.t);
+		const grant = { subject: BOB, epk: epk.uri, via: 'invited', createdAt: new Date().toISOString() };
+
+		try {
+			await sync({
+				kind: 'upsert',
+				space,
+				repoDid: ROOT,
+				collection: COLLECTION.epkGrant,
+				rkey,
+				uri,
+				cid: 'bafyreiabc',
+				value: { $type: COLLECTION.epkGrant, ...grant }
+			});
+			expect(await f.t.db.selectFrom('epkGrant').select(['spaceUri', 'subjectDid']).execute()).toEqual([
+				{ spaceUri: epk.space, subjectDid: BOB }
+			]);
+
+			await sync({ kind: 'delete', space, repoDid: ROOT, collection: COLLECTION.epkGrant, rkey, uri });
+			expect(await f.t.db.selectFrom('epkGrant').selectAll().execute()).toEqual([]);
+		} finally {
+			await f.t.audit.idle();
+			await f.t.db.destroy();
+		}
 	});
 
 	it("indexes press kit drafts only from a backstage under the root, and drops them when they're deleted", async () => {

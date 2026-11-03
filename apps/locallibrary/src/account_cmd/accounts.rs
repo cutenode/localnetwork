@@ -1,27 +1,29 @@
 //! `account TYPE sign-in` and `account TYPE:NAME status|sign-out`: the accounts the store keeps
-//! besides the DJ account, signed in to in the browser through account plugins (their tokens
-//! never shown), and listed with the plugins that have access to them.
+//! besides the DJ account, signed in to through account plugins in the browser or with keys
+//! (their tokens and keys never shown), and listed with the plugins that have access to them.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::{Args, ValueEnum};
+use indexmap::IndexMap;
 use locallibrary::local_time;
-use locallibrary::plugin::{Access, Account, AccountSignIn, AccountSignedIn, Accounts, Plugins};
+use locallibrary::plugin::{Access, Account, AccountSignIn, AccountSignedIn, Accounts, EnteredKeys, Plugins};
 use locallibrary::progress::Ctx;
 use loclib_plugin::AccountType;
 
 use crate::browser::{BrowserArgs, round_trip};
 use crate::jobs_cmd::usage;
-use crate::output::{Output, dim, heading, ok, warn};
+use crate::output::{Output, dim, heading, ok, read_entry, warn};
 use crate::plugins;
 
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub(super) enum Action {
     /// Show it
     Status,
-    /// Sign in to an account of the type in the browser (TYPE:NAME: again, as that account)
+    /// Sign in to an account of the type in the browser, or with its keys read from stdin
+    /// (TYPE:NAME: again, as that account)
     SignIn,
     /// Sign out: its tokens are removed from this computer, and the service is told when it can
     /// be; plugins keep their access, unused until it's signed in again
@@ -74,7 +76,7 @@ pub(super) fn run(
         let subject = again.map(|a| a.subject.as_str());
         let start =
             plugins.begin_account_sign_in(kind, &with, args.for_plugin.as_deref(), subject, &args.scopes, &store)?;
-        let done = come_back(plugins, &start, args.browser, out, ctx)?;
+        let done = finish_sign_in(plugins, &start, args.browser, out, ctx)?;
         return Ok(out.done(&done, |d| signed_in(plugins, d, args.for_plugin.as_deref())));
     }
     let named =
@@ -98,17 +100,51 @@ pub(super) fn run(
     }))
 }
 
-/// The browser round trip of the sign-in `start` began.
-pub(super) fn come_back(
+/// Finishes the sign-in `start` began: with the keys the user enters when it asks for keys (see
+/// [`with_keys`]), else with the browser round trip.
+pub(super) fn finish_sign_in(
     plugins: &Plugins,
     start: &AccountSignIn,
     browser: BrowserArgs,
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<AccountSignedIn> {
+    if !start.keys.is_empty() {
+        return with_keys(plugins, start);
+    }
     let finish = |wait| plugins.finish_account_sign_in(&start.id, wait, ctx);
     let paste = |url: &str| plugins.finish_account_sign_in_with_url(&start.id, url);
     round_trip(&start.url, browser, out, finish, paste, || plugins.cancel_sign_in(&start.id))
+}
+
+/// Finishes the sign-in `start` began with the keys it asks for (see [`read_keys`]). What
+/// finishing says goes as it is, never holding a key.
+fn with_keys(plugins: &Plugins, start: &AccountSignIn) -> Result<AccountSignedIn> {
+    let (entered, name) = read_keys(start)?;
+    Ok(plugins.finish_account_sign_in_with_keys(&start.id, &entered, name.as_deref())?)
+}
+
+/// The keys the sign-in `start` asks for, by name, read after saying where to get them (never
+/// opening the browser): each typed without being shown in a terminal, else a line each in the
+/// order it lists them; then, when the user names the account, its name, typed or the next line.
+pub(super) fn read_keys(start: &AccountSignIn) -> std::io::Result<EnteredKeys> {
+    eprintln!("{}\n  {}", getting_keys(start), start.url);
+    let mut entered = IndexMap::new();
+    for (name, title) in &start.keys {
+        entered.insert(name.clone(), read_entry(title, true)?);
+    }
+    let name = start.named.then(|| read_entry("Account name", false)).transpose()?;
+    Ok((entered, name))
+}
+
+/// Where the keys the sign-in `start` asks for are got, its `url` to follow: "Get the Mock
+/// account's Access key and Secret key at".
+pub fn getting_keys(start: &AccountSignIn) -> String {
+    let title = &start.title;
+    let titles: Vec<&str> = start.keys.values().map(String::as_str).collect();
+    let (last, rest) = titles.split_last().unwrap_or((&"", &[]));
+    let which = if rest.is_empty() { last.to_string() } else { format!("{} and {last}", rest.join(", ")) };
+    format!("Get the {title} account's {which} at")
 }
 
 /// The account of type `kind` named `named` (its subject, or what it's shown as) among `all`.

@@ -39,28 +39,27 @@
 			{@const confidence = Math.round(play.confidence * 100)}
 			{@const shifted = play.key && play.playedKey && play.key !== play.playedKey}
 			<li id="mix-track-{i}" class="scroll-mt-20 border-t border-well" aria-current={playing === i || undefined}>
+				<!-- The title is the button, named by what it shows; the rest of the row is a bigger target for a pointer, and its details stay readable. -->
+				<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 				<div
-					role="button"
-					tabindex="0"
-					aria-pressed={selected === i}
-					aria-label="{playing === i ? 'Playing now: ' : ''}{i + 1}. {track.title}{track.artist ? ` by ${track.artist}` : ''}, {clock(play.start)} to {clock(play.end)}"
-					class={[grid, 'cursor-pointer items-start rounded-md py-2.5 transition-colors hover:bg-raised', selected === i && 'bg-well hover:bg-well']}
+					class={[
+						grid,
+						'cursor-pointer items-start rounded-md py-2.5 transition-colors hover:bg-raised has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-link',
+						selected === i && 'bg-well hover:bg-well'
+					]}
 					style:box-shadow={selected === i ? `inset 3px 0 0 ${playColor(i)}` : undefined}
 					onclick={() => toggle(i)}
-					onkeydown={(event) => {
-						if (event.key !== 'Enter' && event.key !== ' ') return;
-						event.preventDefault();
-						toggle(i);
-					}}
 				>
 					<span class={['pl-2 font-mono text-caption leading-6', playing === i ? 'font-semibold text-fg' : 'text-fg-subtle']}>{clock(play.start)}</span>
 					<div class="flex min-w-0 gap-3">
 						{#if track.artwork}<img src={track.artwork} alt="" class="size-10 shrink-0 rounded-md bg-well object-cover" loading="lazy" />{/if}
 						<div class="flex min-w-0 flex-col gap-1">
-							<p class="m-0 text-small leading-6">
-								{#if playing === i}<AudioLines class="mr-1 inline size-3.5 align-[-2px]" aria-hidden="true" />{/if}<span class="mr-1 font-mono text-caption text-fg-subtle">{i + 1}</span><span class="font-semibold">{track.title}</span>
+							<!-- Its click reaches the row's handler, so the button has none of its own. -->
+							<button type="button" aria-pressed={selected === i} class="cursor-pointer text-left text-small leading-6 focus-visible:outline-none">
+								{#if playing === i}<AudioLines class="mr-1 inline size-3.5 align-[-2px]" aria-hidden="true" /><span class="sr-only">{'Playing now: '}</span>{/if}<span class="font-mono text-caption text-fg-subtle">{i + 1}</span>
+								<span class="font-semibold">{track.title}</span>
 								{#if track.artist}<span class="text-fg-muted max-sm:block"> {track.artist}</span>{/if}
-							</p>
+							</button>
 							{#if track.label || play.keyLock || pitched || play.jumps > 0 || play.confidence < CONFIDENT}
 								<p class="m-0 flex flex-wrap gap-1.5 text-caption">
 									{#if track.label}<span class="text-fg-subtle">{track.label}</span>{/if}

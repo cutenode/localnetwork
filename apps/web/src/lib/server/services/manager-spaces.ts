@@ -1,5 +1,7 @@
+import type { z } from 'zod';
+import { epkGrantSchema } from '#lib/epk-schema.ts';
 import { COLLECTION } from '#lib/nsid.ts';
-import type { RootRepoClient } from '../atproto/repo-client';
+import { listAllSpaceRecords, type RootRepoClient } from '../atproto/repo-client';
 import { backstageSpace, epkRequestSpace, epkSpace, parsePublicRecordUri } from '../atproto/spaces';
 import type { Core } from '../core';
 import type { IndexedRepo } from '../happyview/indexed';
@@ -16,6 +18,8 @@ function isLiveBooking(status: string, showDate: string | null): boolean {
 
 	return status === 'confirmed' && (showDate === null || Date.parse(showDate) > Date.now());
 }
+
+type Grant = z.infer<typeof epkGrantSchema>;
 
 /** A space whose member list follows a project's managers. A manager who leaves the project leaves every space. */
 type ManagerSpace = Omit<MemberSync, 'wanted'> & {
@@ -45,8 +49,8 @@ export class ManagerSpaces {
 
 	/**
 	 * The project's backstage, once a manager has made one, where managers read and write, its request space, once
-	 * someone has asked, which only managers read, and the spaces of the press kits the root holds for it, which managers
-	 * read beside the people granted access, who stay.
+	 * someone has asked or been let in, which only managers read, and the spaces of the press kits the root holds for it,
+	 * which managers read beside the people granted access, who stay.
 	 */
 	private async pressKitSpaces(projectUri: string): Promise<ManagerSpace[]> {
 		const project = parsePublicRecordUri(projectUri);
@@ -59,16 +63,32 @@ export class ManagerSpaces {
 
 		if (await root.getSpace(backstage)) spaces.push({ uri: backstage, joinable: true, write: true, others: [] });
 
-		if (await root.getSpace(requests)) spaces.push({ uri: requests, joinable: true, write: false, others: [] });
+		const asked = await root.getSpace(requests);
+
+		if (asked) spaces.push({ uri: requests, joinable: true, write: false, others: [] });
+
+		let granted: Grant[] = [];
+
+		try {
+			if (asked) granted = await this.grants(root, requests);
+		} catch (error) {
+			// Without the grants, the sync can't tell a grantee from a manager who left, so it leaves the press kits' spaces
+			// for next time.
+			this.core.logger.warn({ err: error, space: requests }, "could not read a project's press kit grants");
+
+			return spaces;
+		}
 
 		for (const { uri, value } of await this.indexed.listAll(root.did, COLLECTION.epk, { strict: true })) {
 			if (value.project !== projectUri) continue;
 			const space = epkSpace(root.did, uri.split('/').at(-1)!);
 
 			try {
-				spaces.push({ uri: space, joinable: true, write: false, others: await this.grantees(root, space) });
+				// Grants not moved out of the press kit's space yet count too.
+				const others = [...granted.filter((grant) => grant.epk === uri), ...(await this.grants(root, space))];
+				spaces.push({ uri: space, joinable: true, write: false, others: others.map((grant) => grant.subject) });
 			} catch (error) {
-				// Without the grants, the sync can't tell a grantee from a manager who left, so it leaves the space for next time.
+				// As above, for this press kit's space only.
 				this.core.logger.warn({ err: error, space }, "could not read a press kit's grants");
 			}
 		}
@@ -76,18 +96,11 @@ export class ManagerSpaces {
 		return spaces;
 	}
 
-	/** Who the root's grant records in a press kit's space let in. */
-	private async grantees(root: RootRepoClient, space: string): Promise<string[]> {
-		const subjects: string[] = [];
-		let cursor: string | undefined;
+	/** The root's grant records in `space`. */
+	private async grants(root: RootRepoClient, space: string): Promise<Grant[]> {
+		const records = await listAllSpaceRecords(root, { space, repo: root.did, collection: COLLECTION.epkGrant });
 
-		do {
-			const page = await root.listSpaceRecords({ space, repo: root.did, collection: COLLECTION.epkGrant, cursor });
-			subjects.push(...page.records.map((record) => record.rkey));
-			cursor = page.cursor;
-		} while (cursor);
-
-		return subjects;
+		return records.flatMap((record) => epkGrantSchema.safeParse(record.value).data ?? []);
 	}
 
 	/**

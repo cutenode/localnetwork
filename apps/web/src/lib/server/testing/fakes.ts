@@ -1,5 +1,6 @@
 import { XRPCError } from '@atproto/api';
 import { TID } from '@atproto/common-web';
+import { isValidRecordKey } from '@atproto/syntax';
 import {
 	type BlobJson,
 	type JsonRecord,
@@ -138,6 +139,8 @@ export class FakeRootClient implements RootRepoClient {
 		rkey: string,
 		record: JsonRecord
 	): Promise<RecordRef> {
+		// A PDS turns down a key that isn't one.
+		if (!isValidRecordKey(rkey)) throw new XRPCError(400, 'InvalidRequest', 'Invalid record key');
 		this.net.assertBlobsHeld(this.did, record);
 		this.net.assertCanWrite(this.did, space);
 		const uri = `${space}/${this.did}/${collection}/${rkey}`;

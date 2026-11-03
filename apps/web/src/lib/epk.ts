@@ -238,6 +238,9 @@ export type EpkGrantView = {
 	createdAt: string;
 };
 
+/** How a grant came about, from its record or index row, where a value this app doesn't know reads as approved. */
+export const grantVia = (via: string): EpkGrantView['via'] => (via === 'auto' || via === 'invited' ? via : 'approved');
+
 /** A receipt of someone with access viewing a press kit's private part, for its project's managers. */
 export type EpkViewReceipt = {
 	/** The audit entry recording the view. */

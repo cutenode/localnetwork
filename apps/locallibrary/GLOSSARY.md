@@ -50,6 +50,12 @@ away without signing out; signing out leaves it, unused until the account is sig
 locallibrary's own features don't need it.
 _Avoid_: grant (the website's word for press kits), consent, permission, authorization
 
+**Keys**:
+What some services give you to sign in to an account with instead of the browser, such as the
+Internet Archive's S3 keys or a plyr.fm developer token. You enter them once, and the store keeps
+them as it keeps any account's sign-in.
+_Avoid_: credentials, API key, password, secret setting
+
 **Sign in**:
 To add an account, in the browser or by entering its keys, or to give one more scopes. Signing
 out removes the account.

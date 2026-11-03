@@ -2,12 +2,13 @@
 //! that provide it and kept once per store ([`shared`]), which plugins reach through the
 //! [`access`]es they're given. The host signs the user in to each in the browser, with OAuth 2's
 //! authorization code flow and PKCE (the `oauth2` crate), the browser coming back to this computer
-//! ([`crate::callback`]), at the port the account type names if it names one. An account's tokens
-//! go nowhere but where the store keeps them (see [`kept`]): not to a plugin, a log, an error, an
+//! ([`crate::callback`]), at the port the account type names if it names one; or with the keys the
+//! user enters, for a type signed in to with keys ([`keys`]). An account's tokens or keys go
+//! nowhere but where the store keeps them (see [`kept`]): not to a plugin, a log, an error, an
 //! answer or a copy of the store. A `net/fetch` request naming an account by type,
-//! `{account:<type>}`, in its `Authorization` header or the query parameter the type names, gets
-//! the access token there instead (see [`token`]), once it's checked (see [`super::net`]),
-//! refreshed first when it's within [`REFRESH_BEFORE`] of expiring. The service's endpoints are
+//! `{account:<type>}`, in its `Authorization` header or a query parameter the type names, gets what
+//! the type says goes there instead (see [`token`]), once it's checked (see [`super::net`]), an
+//! access token refreshed first when it's within [`REFRESH_BEFORE`] of expiring. The service's endpoints are
 //! reached as `net/fetch` reaches servers: at public https addresses (servers on this computer in
 //! tests), following no redirect. An account type whose service wants a client secret for its
 //! tokens names Local Network's token exchange instead of the service's token endpoint: the host
@@ -44,6 +45,7 @@ use crate::{Error, Result, lock};
 pub(super) mod access;
 pub(super) mod ensure;
 mod kept;
+pub(super) mod keys;
 pub(super) mod ready;
 pub(super) mod shared;
 pub(super) mod token;
@@ -151,8 +153,24 @@ pub(crate) struct Pending {
     started: Instant,
 }
 
-/// The sign-ins waiting for the browser, by id.
-pub(crate) type SigningIn = std::sync::Mutex<FxHashMap<String, Pending>>;
+/// A sign-in waiting: for the browser, or for the user's keys (see
+/// [`Plugins::finish_account_sign_in_with_keys`]).
+pub(crate) enum Waiting {
+    Browser(Box<Pending>),
+    Keys { asked: Box<shared::Asked>, store: Store, started: Instant },
+}
+
+impl Waiting {
+    fn started(&self) -> Instant {
+        match self {
+            Waiting::Browser(p) => p.started,
+            Waiting::Keys { started, .. } => *started,
+        }
+    }
+}
+
+/// The sign-ins waiting, by id.
+pub(crate) type SigningIn = std::sync::Mutex<FxHashMap<String, Waiting>>;
 
 /// Why a request to a service's endpoint wasn't answered: its words, never a token.
 #[derive(Debug, thiserror::Error)]
@@ -168,9 +186,12 @@ impl Plugin {
             self.misbehaved(format!("its {} account's {what} can't be used: {e}", t.title))
         };
         let token_url = t.token_url.as_ref().or(t.token_exchange.as_ref()).cloned().unwrap_or_default();
-        let client = Client::<EndpointNotSet, EndpointNotSet>::new(ClientId::new(t.client_id.clone()))
-            .set_auth_uri(AuthUrl::new(t.authorize_url.clone()).map_err(|e| bad("authorize_url", e))?)
-            .set_token_uri(TokenUrl::new(token_url).map_err(|e| bad("token_url", e))?);
+        let client =
+            Client::<EndpointNotSet, EndpointNotSet>::new(ClientId::new(t.client_id.clone().unwrap_or_default()))
+                .set_auth_uri(
+                    AuthUrl::new(t.authorize_url.clone().unwrap_or_default()).map_err(|e| bad("authorize_url", e))?,
+                )
+                .set_token_uri(TokenUrl::new(token_url).map_err(|e| bad("token_url", e))?);
         Ok(match redirect {
             Some(redirect) => client.set_redirect_uri(redirect),
             None => client,
@@ -234,7 +255,7 @@ impl Plugin {
         let form = form_urlencoded::Serializer::new(String::new())
             .append_pair("token", token)
             .append_pair("token_type_hint", hint)
-            .append_pair("client_id", &t.client_id)
+            .append_pair("client_id", t.client_id.as_deref().unwrap_or_default())
             .finish();
         let request = oauth2::http::Request::post(url)
             .header(oauth2::http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
@@ -322,7 +343,11 @@ impl Plugin {
         let signing_in = &self.host.signing_in;
         if let Some(port) = t.redirect_port {
             // A sign-in still waiting on its port gives way: the browser comes back to the newest.
-            lock(signing_in).retain(|_, p| p.listener.local_addr().map_or(true, |a| a.port() != port));
+            let on_port = |w: &Waiting| match w {
+                Waiting::Browser(p) => p.listener.local_addr().is_ok_and(|a| a.port() == port),
+                Waiting::Keys { .. } => false,
+            };
+            lock(signing_in).retain(|_, w| !on_port(w));
         }
         let (listener, redirect_uri) = callback::bind(t.redirect_port.unwrap_or(0))?;
         let redirect = RedirectUrl::new(redirect_uri.clone()).map_err(|e| Error::Account(e.to_string()))?;
@@ -337,25 +362,38 @@ impl Plugin {
         if let Some(why) = unreachable(&url, self.loopback()) {
             return Err(self.misbehaved(format!("its {} account's sign-in page can't be opened: {why}", t.title)));
         }
-        let id = uuid::Uuid::new_v4().simple().to_string();
-        let mut pending = lock(signing_in);
-        pending.retain(|_, p| p.started.elapsed() < PENDING_LIMIT);
         let waiting =
             Pending { asked, store: store.clone(), listener, client, state, verifier, started: Instant::now() };
-        pending.insert(id.clone(), waiting);
-        Ok((id, url.to_string(), redirect_uri))
+        Ok((self.host.wait(Waiting::Browser(Box::new(waiting))), url.to_string(), redirect_uri))
     }
 }
 
 impl Host {
-    /// Takes sign-in `id` from those waiting for the browser.
-    fn pending(&self, id: &str) -> Result<Pending> {
+    /// Keeps `waiting` with the sign-ins waiting, forgetting those nobody finished in time: its id.
+    fn wait(&self, waiting: Waiting) -> String {
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let mut pending = lock(&self.signing_in);
+        pending.retain(|_, w| w.started().elapsed() < PENDING_LIMIT);
+        pending.insert(id.clone(), waiting);
+        id
+    }
+
+    /// Takes sign-in `id` from those waiting.
+    fn pending(&self, id: &str) -> Result<Waiting> {
         lock(&self.signing_in).remove(id).ok_or_else(|| {
             Error::NotFound(format!(
                 "sign-in {id:?} (it finished, was cancelled, or is over {} minutes old)",
                 PENDING_LIMIT.as_secs() / 60
             ))
         })
+    }
+
+    /// Takes sign-in `id` from those waiting, when it's waiting for the browser.
+    fn browser_pending(&self, id: &str) -> Result<Pending> {
+        match self.pending(id)? {
+            Waiting::Browser(p) => Ok(*p),
+            Waiting::Keys { .. } => Err(Error::invalid(format!("sign-in {id:?} finishes with the account's keys"))),
+        }
     }
 }
 

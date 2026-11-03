@@ -145,7 +145,10 @@ export default defineConfig({
 		coverage: {
 			provider: 'v8',
 			include: ['src/lib/**/*.{ts,svelte}'],
+			// The tests, their harness (fakes and request builders that only tests import), stories and types.
 			exclude: [
+				'src/lib/server/testing/**',
+				'src/lib/testing/**',
 				'src/lib/**/*.{test,spec}.ts',
 				'src/lib/**/*.svelte.{test,spec}.ts',
 				'src/lib/**/*.stories.svelte',
@@ -153,7 +156,7 @@ export default defineConfig({
 			],
 			// CI's pull request comment reads the summary, and json for each changed file's uncovered lines.
 			reporter: ['text', 'html', 'lcov', 'json-summary', 'json'],
-			thresholds: { lines: 93, functions: 92, statements: 91, branches: 80 }
+			thresholds: { lines: 96, functions: 94.7, statements: 94.5, branches: 85 }
 		},
 		projects: [
 			{
@@ -197,6 +200,12 @@ export default defineConfig({
 				// Builds the app (`pnpm test:build`), so it stays out of runs with the client tests, whose
 				// dev server a rebuild would reload.
 				test: { name: 'build', environment: 'node', include: ['tests/build.test.ts'] }
+			},
+			{
+				extends: './vite.config.ts',
+				// Starts the Docker image (`pnpm test:docker`), which has to be built first, so it stays out
+				// of the other runs.
+				test: { name: 'docker', environment: 'node', include: ['tests/docker.test.ts'] }
 			},
 			{
 				extends: './vite.config.ts',

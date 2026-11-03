@@ -254,6 +254,17 @@ assert!(!upload.covers("POST", &Url::parse("https://www.googleapis.com.evil.exam
   none for one only locallibrary knows) and `requests`, each a `method` (`GET`, `HEAD`, `POST`,
   `PUT`, `PATCH` or `DELETE`) and a `url` written as it's read (`https://a.example/`, not
   `https://a.example`), maybe ending in `*` for any address starting with it.
+- `kind = "keys"` is for a service that gives the user keys to enter instead of signing in in
+  the browser (the Internet Archive's S3 keys). Such a type has `keys` (each
+  `[contributes.account_types.keys.<name>]` with a `title`), `keys_url` (where the user gets
+  them, https) and `authorization`, the `Authorization` header's value they make in a request
+  (`authorization = "LOW {access}:{secret}"`): printable ASCII naming every key in braces and
+  nothing else. Keys never go in a request's address. It has none of the fields above but
+  `title`, `whoami` and its scopes, which ask the service for nothing. Without a `whoami` the
+  user names the account; with one, it's at a host the scopes' requests go to, since the host
+  sends it the keys (in the `Authorization` header). The user enters the keys when signing in
+  (`locallibrary account TYPE sign-in` reads them from stdin). Nothing refreshes them: a request
+  the service refuses is answered to the plugin as it is, and the account stays signed in.
 
 ### accounts
 
@@ -288,9 +299,11 @@ The type's `token` says where the token goes: `Authorization: Bearer <token>` un
 otherwise. `token = { scheme = "OAuth" }` sends `Authorization: OAuth <token>` (SoundCloud), and
 `token = { query = "access_token" }` sends it as that query parameter instead (Mixcloud). The
 request names the account there, `?access_token={account:<type>}`, and the `Authorization` header
-can't. The host never carries a token in the query to another server a redirect leads to, and
-where the answer's headers or text say the address back (a next page's link, say), the token is
-given back as the placeholder that named it, so the link can be fetched as it is. An answer
+can't. An account signed in to with keys goes only in the `Authorization` header, named the same
+way and filled with its type's `authorization`. The host never carries a token in the query to
+another server a redirect leads to, and where the answer's headers or text say the address back (a
+next page's link, say), the token is given back as the placeholder that named it, so the link can
+be fetched as it is. An answer
 written to `into_blob` is kept as the server sent it.
 
 Each type is a name, asked for once; each scope is a name, asked for once, and each list has one

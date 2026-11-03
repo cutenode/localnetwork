@@ -124,7 +124,10 @@ jobs:
           # builds) is LGPL-3.0-or-later. sharp loads it as an unmodified shared library, and the
           # website only runs it on its own server to draw link preview cards, so nothing LGPL is
           # changed or handed to anyone. sharp itself is Apache-2.0.
+          # brotli-decompressor declares "BSD-3-Clause/MIT", the old Cargo form of BSD-3-Clause OR MIT,
+          # both allowed above, which the dependency graph can't parse and reports as a LicenseRef.
           allow-dependencies-licenses: >-
+            pkg:cargo/brotli-decompressor,
             pkg:githubactions/Swatinem/rust-cache,
             pkg:npm/@img/sharp-libvips-darwin-arm64,
             pkg:npm/@img/sharp-libvips-darwin-x64,
