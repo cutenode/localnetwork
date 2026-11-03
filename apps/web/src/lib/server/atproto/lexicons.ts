@@ -93,13 +93,31 @@ export class RecordValidationError extends Error {
 	}
 }
 
-/** Whether `value` holds a legacy `{ cid, mimeType }` blob ref anywhere. */
-function hasLegacyBlob(value: JsonValue | undefined): boolean {
-	if (Array.isArray(value)) return value.some(hasLegacyBlob);
+/**
+ * atproto's suggested MAX_CBOR_NESTED_LEVELS (https://atproto.com/guides/data-validation). @atproto/lexicon sets no
+ * limit, and its lex conversion recurses, so a deep enough record would overflow the stack instead of failing to fit.
+ */
+const MAX_LEVELS = 32;
 
-	if (!isObject(value)) return false;
+/**
+ * Why `record` can't be used: nested deeper than MAX_LEVELS (the record itself being the first), or holding a legacy
+ * `{ cid, mimeType }` blob ref anywhere. Walks with a stack, since a record that deep is what overflows recursion.
+ */
+function structureProblem(record: JsonObject): string | undefined {
+	const stack: [JsonValue | undefined, number][] = [[record, 1]];
 
-	return ('cid' in value && 'mimeType' in value && !('$type' in value)) || Object.values(value).some(hasLegacyBlob);
+	for (let next = stack.pop(); next; next = stack.pop()) {
+		const [value, level] = next;
+
+		if (!isObject(value) && !Array.isArray(value)) continue;
+
+		if (level > MAX_LEVELS) return `nested deeper than ${MAX_LEVELS} levels`;
+
+		if (!Array.isArray(value) && 'cid' in value && 'mimeType' in value && !('$type' in value))
+			return 'legacy blob refs are not supported';
+
+		for (const item of Object.values(value)) stack.push([item, level + 1]);
+	}
 }
 
 /**
@@ -107,12 +125,14 @@ function hasLegacyBlob(value: JsonValue | undefined): boolean {
  * returns it (still in JSON form, e.g. `{ $link }` blob refs) with `$type` set.
  * Validation runs on the lex form so blob refs and CIDs are checked as such.
  * Legacy blob refs pass lexicon validation, but every record type here assumes
- * the typed `{ $type: 'blob', ref }` form, so they're rejected too.
+ * the typed `{ $type: 'blob', ref }` form, so they're rejected too, as are
+ * records nested deeper than atproto suggests.
  */
 export function validateRecord<T extends JsonObject>(collection: string, record: T): T & { $type: string } {
 	const typed = { ...record, $type: collection };
+	const problem = structureProblem(typed);
 
-	if (hasLegacyBlob(typed)) throw new RecordValidationError(collection, 'legacy blob refs are not supported');
+	if (problem) throw new RecordValidationError(collection, problem);
 
 	try {
 		lexicons.assertValidRecord(collection, jsonToLex(typed));

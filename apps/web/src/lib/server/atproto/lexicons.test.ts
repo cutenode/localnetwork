@@ -1,5 +1,6 @@
 import type { JsonObject } from '@atproto/lex-json';
 import type { LexiconDoc } from '@atproto/lexicon';
+import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { COLLECTION, PERMISSIONS } from '#lib/nsid.ts';
@@ -94,6 +95,47 @@ describe('validateRecord', () => {
 		expect(() => validateRecord(COLLECTION.project, project({ cid, mimeType: 'image/png' }))).toThrow(
 			RecordValidationError
 		);
+	});
+
+	describe('nesting', () => {
+		const avatar = { $type: 'blob', ref: { $link: cid }, mimeType: 'image/png', size: 100 };
+
+		// The record is the first level, so `arrays` nested arrays in a field make 1 + `arrays` levels.
+		const nestedProject = (arrays: number) => ({
+			...project(avatar),
+			extra: JSON.parse(`${'['.repeat(arrays)}0${']'.repeat(arrays)}`)
+		});
+
+		it('accepts a record 32 levels deep', () => {
+			expect(validateRecord(COLLECTION.project, nestedProject(31)).slug).toBe('neon-tide');
+		});
+
+		it("rejects a record deeper than 32 levels, atproto's suggested limit", () => {
+			expect(() => validateRecord(COLLECTION.project, nestedProject(32))).toThrow(
+				new RecordValidationError(COLLECTION.project, 'nested deeper than 32 levels')
+			);
+		});
+
+		it('rejects a record too deep for the call stack as invalid, rather than overflowing it', () => {
+			expect(() => validateRecord(COLLECTION.project, nestedProject(20_000))).toThrow(RecordValidationError);
+		});
+
+		it('accepts a record at any depth up to 32 levels', () => {
+			fc.assert(
+				fc.property(fc.nat({ max: 31 }), (arrays) => {
+					expect(() => validateRecord(COLLECTION.project, nestedProject(arrays))).not.toThrow();
+				})
+			);
+		});
+
+		it('rejects a record at any depth past 32 levels', () => {
+			// Bounded so each record stays under atproto's suggested 2 MiB JSON record limit.
+			fc.assert(
+				fc.property(fc.integer({ min: 32, max: 500_000 }), (arrays) => {
+					expect(() => validateRecord(COLLECTION.project, nestedProject(arrays))).toThrow(RecordValidationError);
+				})
+			);
+		});
 	});
 
 	describe('profiles', () => {
