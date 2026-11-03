@@ -307,6 +307,9 @@ jobs:
             atstore:
               - 'packages/atstore/**'
               - 'apps/locallibrary/assets/icon.svg'
+              # The playlist page's markup, which the marks capture draws from.
+              - 'apps/localtoolbox/test/helpers/dom.ts'
+              - 'apps/localtoolbox/test/helpers/json.ts'
               - '.oxlintrc.json'
               - '.oxfmtrc.json'
               - 'tools/oxlint/**'

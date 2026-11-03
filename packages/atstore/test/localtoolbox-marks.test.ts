@@ -1,6 +1,6 @@
 import { chromium, type Browser, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { marksPage, marksStorage } from '../src/listings/localtoolbox-marks.ts';
+import { MARKS, marksPage, marksStorage } from '../src/listings/localtoolbox-marks.ts';
 import { ARTWORK_HOST, PAGE } from '../src/listings/localtoolbox-page.ts';
 
 const { tracks } = PAGE.answers.EXTRACT_TRACKS;
@@ -22,6 +22,10 @@ describe('marksStorage', () => {
 		const none = Object.values(details).filter((d) => !d.downloadable && !d.purchaseUrl);
 		expect(none.map((d) => d.permalink)).toEqual(['/velvet-arcade/night-bus-to-ostend']);
 		expect(downloaded).not.toHaveProperty(none[0].permalink);
+	});
+
+	it('expects a mark on each downloaded row, the row with no download, and the player bar', () => {
+		expect(MARKS).toBe(Object.keys(downloaded).length + 1 + 1);
 	});
 });
 
