@@ -47,6 +47,7 @@ The repository's own conventions (see [NEW_PROJECT.md](NEW_PROJECT.md)), with Do
 ```bash
 tools/policy.sh
 pnpm exec ast-grep test --skip-snapshot-tests && pnpm exec ast-grep scan
+pnpm test:tools
 ```
 
 ast-grep's rules (`sgconfig.yml`, in `tools/ast-grep/rules/` with their cases in `tools/ast-grep/tests/`) include `no-direct-pds-read`, which fails a record read that skips HappyView, in TypeScript, Svelte or Rust. Its exceptions are in the rule. clippy (`clippy.toml`) bans jacquard's typed requests for the same reads.

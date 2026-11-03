@@ -38,15 +38,13 @@ export const actions: Actions = {
 		const space = await spaceFor(locals, params.skey);
 		const form = await request.formData();
 
-		return act(async () => {
-			await locals.app.bookings.setStatus({
-				actor: viewer,
-				space,
-				status: text(form, 'status', 32),
-				note: optionalText(form, 'note', 5000)
-			});
+		const status = text(form, 'status', 32);
 
-			return { success: 'Status updated' };
+		return act(async () => {
+			await locals.app.bookings.setStatus({ actor: viewer, space, status, note: optionalText(form, 'note', 5000) });
+
+			// The pill and the conversation show the change; the page announces it by the status control.
+			return { status };
 		});
 	}
 };

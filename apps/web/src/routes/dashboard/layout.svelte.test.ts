@@ -48,7 +48,7 @@ it('lists the sections, each project the viewer manages, and the way back to the
 		['Inbox', '/dashboard/inbox'],
 		['Bookings', '/dashboard/bookings'],
 		['Planner', '/dashboard/planner'],
-		['Requests', '/dashboard/requests'],
+		['Submissions', '/dashboard/requests'],
 		['Activity', '/dashboard/activity'],
 		['View site', '/']
 	]) {

@@ -1,7 +1,7 @@
 {
 	"lexicon": 1,
 	"id": "computer.localnetwork.defs",
-	"description": "Shared definitions for Local Network, a platform connecting promoters with local DJ projects.",
+	"description": "Shared definitions for Local Network, where promoters find local DJ projects.",
 	"defs": {
 		"projectProfile": {
 			"type": "object",
@@ -94,7 +94,7 @@
 		},
 		"projectDetails": {
 			"type": "object",
-			"description": "Private booking details, visible only to signed-in members via the industry space.",
+			"description": "Private booking details, kept in the industry space. The app shows them to the project's managers and to people granted one of its press kits.",
 			"properties": {
 				"bookingEmail": { "type": "string", "maxLength": 320 },
 				"bookingPhone": { "type": "string", "maxLength": 64 },

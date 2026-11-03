@@ -24,7 +24,7 @@
 					"createdBy": { "type": "string", "format": "did" },
 					"staff": {
 						"type": "boolean",
-						"description": "Set when staff made it. It works whoever is in the space, where one someone in it made stops working once they can't add people."
+						"description": "Set when staff made it. It works whoever is in the space. One made by someone in the space stops working once they can't add people."
 					},
 					"createdAt": { "type": "string", "format": "datetime" },
 					"expiresAt": { "type": "string", "format": "datetime" }
