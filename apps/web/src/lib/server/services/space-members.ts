@@ -1,6 +1,29 @@
+import { createSpaceIfMissing, type MemberSpacePolicy } from '../atproto/repo-client';
+import { spaceUri } from '../atproto/spaces';
 import type { Core } from '../core';
 
 export type MemberAccess = { read: boolean; write: boolean };
+
+/**
+ * A space under the root, created the first time with `members` in it, and watched from then on. After that,
+ * ManagerSpaces keeps its members in step with their project.
+ */
+export async function ensureRootSpace(
+	core: Core,
+	input: { spaceType: string; skey: string; policy: MemberSpacePolicy; members: string[]; access: MemberAccess }
+): Promise<string> {
+	const root = await core.root();
+	const space = spaceUri(root.did, input.spaceType, input.skey);
+
+	if (await root.getSpace(space)) return space;
+	await createSpaceIfMissing(root, input);
+
+	for (const did of input.members) await root.putMember({ space, did, ...input.access });
+	await core.watchSpace?.(space);
+	core.logger.info({ space, members: input.members.length }, 'created a space');
+
+	return space;
+}
 
 /** A space whose member list the app keeps in step with a list of the people who should be in it. */
 export type MemberSync = {

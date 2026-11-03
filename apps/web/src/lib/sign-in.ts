@@ -26,6 +26,7 @@ export const CAN: { text: string; covers: string[] }[] = [
 			'computer.localnetwork.space.performer',
 			'computer.localnetwork.space.booking',
 			'computer.localnetwork.space.moderation',
+			'computer.localnetwork.space.epkRequests',
 			'computer.localnetwork.space.planner',
 			'computer.localnetwork.space.backstage'
 		]
