@@ -21,7 +21,7 @@ What each one needs on the machine:
 
 The website also gets locallibrary's Drives and Snapshots views and a `check` in the terminal, and localtoolbox's content script marking the made-up playlist's page. Its popup shots show the popup over that page as Chrome draws it, and for phones the popup alone on a transparent background.
 
-Nothing reaches the machine's drives or store, a real PDS or SoundCloud, and nothing plays aloud: locallibrary runs on throwaway copies of its fixture drives with `LOCALLIBRARY_AUDIO=silent`, each on a 32 GB FAT32 disk image mounted like a USB stick (`src/sticks.ts`) out of the Finder's sight, so its screenshots show a stick's space rather than this Mac's. They're made in `/tmp/atstore`, the same folder every run so the paths on screen don't change, which `/tmp/atstore.lock` keeps to one run at a time.
+Nothing reaches the machine's drives or store, a real PDS or SoundCloud, and nothing plays aloud: locallibrary runs on throwaway copies of its fixture drives with `LOCALLIBRARY_AUDIO=silent`, each on a 32 GB FAT32 disk image mounted like a USB stick (`src/sticks.ts`) out of the Finder's sight, so its screenshots show a stick's space rather than this Mac's. They're made in `/tmp/atstore`, the same folder every run so the paths on screen don't change, which `/tmp/atstore.lock` keeps to one run at a time. As /tmp is anyone's, a run refuses either one when it's a symlink or another user's, and only ejects disk images kept in `/tmp/atstore`.
 
 Ctrl-C stops a run and cleans up after it: the commands it started end, the players are closed, the sticks ejected and `/tmp/atstore` removed. A run killed outright leaves its sticks mounted, and the next one ejects them first.
 

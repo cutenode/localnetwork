@@ -2,7 +2,8 @@
 // mounted under a folder of the run's own, so locallibrary sees volumes mounted at their own roots
 // with a stick's space, rather than folders on this Mac's disk. Mounted with `nobrowse`, out of
 // /Volumes and the Finder. macOS only (hdiutil and diskutil).
-import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { run } from './run.ts';
 
@@ -39,20 +40,28 @@ async function ejectAll(mountPoints: string[]): Promise<boolean> {
 	return ejected;
 }
 
+/** A disk image attached to this Mac, as `hdiutil info` lists it. */
+interface Attached {
+	'image-path': string;
+	'system-entities': { 'mount-point'?: string }[];
+}
+
 /**
- * Ejects the sticks a run that never got to eject them left mounted in `dir`, and says whether
- * they all went. A folder is a mount point when it's on another device than the folder it's in.
+ * Ejects the sticks a run that never got to eject them left mounted, and says whether they all
+ * went: those whose images are in `dir`, as hdiutil has them attached. Nothing else is touched,
+ * whatever `dir` holds, so a mount point or a symlink someone else put there ejects nothing.
  */
 export async function ejectLeftovers(dir: string): Promise<boolean> {
-	const volumes = join(dir, 'Volumes');
+	const plist = execFileSync('hdiutil', ['info', '-plist']);
 
-	if (!existsSync(volumes)) return true;
-	const { dev } = statSync(volumes);
+	const { images = [] }: { images?: Attached[] } = JSON.parse(
+		execFileSync('plutil', ['-convert', 'json', '-o', '-', '-'], { input: plist, encoding: 'utf8' })
+	);
 
 	return ejectAll(
-		readdirSync(volumes)
-			.map((name) => join(volumes, name))
-			.filter((path) => statSync(path).dev !== dev)
+		images
+			.filter((image) => image['image-path'].startsWith(`${dir}/`))
+			.flatMap((image) => image['system-entities'].flatMap((entity) => entity['mount-point'] ?? []))
 	);
 }
 

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -43,6 +43,24 @@ describe('lock', () => {
 			expect(readFileSync(at, 'utf8')).toBe(String(process.pid));
 			unlock();
 		}
+	});
+
+	it('refuses a lock that is a symlink, and leaves what it points at alone', () => {
+		const at = path();
+		const target = join(at, '..', 'elsewhere');
+		writeFileSync(target, 'theirs');
+		symlinkSync(target, at);
+
+		expect(() => lock(at)).toThrow(/work.lock is a symlink/);
+		expect(readFileSync(target, 'utf8')).toBe('theirs');
+	});
+
+	it("refuses a lock that's someone else's file", () => {
+		const at = path();
+		writeFileSync(at, '');
+
+		expect(() => lock(at, process.getuid!() + 1)).toThrow(/belongs to user/);
+		expect(readFileSync(at, 'utf8')).toBe('');
 	});
 
 	it("fails as the file system does when the lock can't be made", () => {

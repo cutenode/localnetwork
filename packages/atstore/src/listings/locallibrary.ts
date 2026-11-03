@@ -10,6 +10,7 @@ import { pathToFileURL } from 'node:url';
 import type { Browser } from 'playwright';
 import { lock } from '../lock.ts';
 import { ROOT, run } from '../run.ts';
+import { ownedOrAbsent } from '../owned.ts';
 import { ejectLeftovers, mountSticks } from '../sticks.ts';
 import type { Capture, Listing } from '../types.ts';
 import { killPlayers, tape, TERMINALS } from './locallibrary-tape.ts';
@@ -19,7 +20,7 @@ const BOMBADIL = join(ROOT, 'apps/locallibrary/bombadil');
 /**
  * The run's own folder: fixed, so the paths the Drives view shows are the same every run, and
  * short, as it shows them whole: /private/tmp/atstore/Volumes/DJ. A lock beside it keeps a second
- * run (from another checkout, say) out of it.
+ * run (from another checkout, say) out of it. Only this user's own, not symlinks, and made 0700.
  */
 const WORK = '/tmp/atstore';
 
@@ -205,10 +206,14 @@ export const locallibrary: Listing = {
 		const unlock = lock(`${WORK}.lock`);
 
 		try {
+			// /tmp is anyone's: a WORK someone else made, or a symlink, is refused rather than used.
+			ownedOrAbsent(WORK, 'directory');
+
 			// A run killed before it could clean up leaves its sticks mounted in WORK.
 			if (!(await ejectLeftovers(WORK))) throw new Error(`sticks in ${WORK} are still mounted`);
 			rmSync(WORK, { recursive: true, force: true });
-			mkdirSync(WORK);
+			// Not recursive, so it fails if anyone made WORK again since.
+			mkdirSync(WORK, { mode: 0o700 });
 			const sticks = await mountSticks(WORK, ['DJ', 'DEMO']);
 
 			try {

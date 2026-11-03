@@ -112,6 +112,17 @@ describe.runIf(process.platform === 'darwin')('mountSticks', () => {
 			expect([mounted(join(dir, 'Volumes/LEFT')), mounted(join(dir, 'Volumes/OVER'))]).toEqual([false, false]);
 		}, 60_000);
 
+		it("leaves a stick of another folder's alone, even with a symlink to it in this one", async () => {
+			const other = tmp();
+			await mountSticks(other, ['THEIRS']);
+			const dir = tmp();
+			mkdirSync(join(dir, 'Volumes'));
+			symlinkSync(join(other, 'Volumes/THEIRS'), join(dir, 'Volumes/THEIRS'));
+
+			expect(await ejectLeftovers(dir)).toBe(true);
+			expect(mounted(join(other, 'Volumes/THEIRS'))).toBe(true);
+		}, 60_000);
+
 		it('has nothing to do in a folder with no sticks', async () => {
 			await expect(ejectLeftovers(tmp())).resolves.toBe(true);
 		});
