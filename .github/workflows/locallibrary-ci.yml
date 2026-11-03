@@ -255,8 +255,8 @@ jobs:
           merge-multiple: true
           path: target/llvm-cov-target
       # Runs no tests: it unpacks the archive for the binaries and reports on the shards' profiles,
-      # which --no-clean keeps. Its totals go to JSON for the summary below, in place of the
-      # per-file table.
+      # which --no-clean keeps. Its totals and each file's go to JSON, for the summary and the
+      # artifact below, in place of the per-file table.
       - run: >-
           cargo coverage --no-clean --archive-file tests.tar.zst -E "none()" --no-tests=pass
           --json --summary-only --output-path target/coverage.json
@@ -287,6 +287,16 @@ jobs:
             totals All target/coverage.json
             totals "Hegel property tests alone" target/hegel/coverage-hegel.json
           } | tee coverage.md >> "$GITHUB_STEP_SUMMARY"
+      # Both runs' JSON, with each file's totals, to see which files a change moved. It keeps the
+      # repository's default retention, as the web app's and the extension's coverage do.
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rust-coverage-files
+          path: |
+            target/coverage.json
+            target/hegel/coverage-hegel.json
+          if-no-files-found: ignore
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
