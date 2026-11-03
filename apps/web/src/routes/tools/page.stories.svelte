@@ -1,7 +1,8 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { PAGE_META } from '#lib/testing/page-meta.ts';
-	import { demoTrack, findTool, toolCards, tools } from '#lib/tools/index.ts';
+	import { cuePoints } from '#lib/tools/cues.ts';
+	import { demoTrack, findTool, tools } from '#lib/tools/index.ts';
 	import Layout from '../+layout.svelte';
 	import ToolsPage from './+page.svelte';
 	import ToolPage from './[tool]/+page.svelte';
@@ -21,6 +22,9 @@
 
 	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
+	// As the page's load places them: every tool's cues along the demo track.
+	const deckTrack = { ...demoTrack, cues: cuePoints(tools.flatMap((tool) => tool.cues).length, demoTrack.durationSecs, demoTrack.phrases) };
+
 	const guides = (id: string) => (findTool(id)?.docs ?? []).map(({ slug, title }) => ({ slug, title }));
 
 	const toolData = (id: string) => {
@@ -38,7 +42,7 @@
 </script>
 
 {#snippet tools_()}
-	<Layout data={layout} params={{}}><ToolsPage data={{ ...layout, tools: toolCards() }} params={{}} form={null} /></Layout>
+	<Layout data={layout} params={{}}><ToolsPage data={{ ...layout, tools, track: deckTrack }} params={{}} form={null} /></Layout>
 {/snippet}
 
 {#snippet tool(id: string)}
