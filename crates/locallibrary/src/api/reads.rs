@@ -18,6 +18,7 @@ use crate::device::{Device, dunce_canonicalize, without_verbatim_prefix};
 use crate::fields::{Analyzer, FieldStore, PluginsFields};
 use crate::mix::export::{self, MixExport};
 use crate::mix::index::Cache;
+use crate::mix::prefs::MixPrefs;
 use crate::mix::report::{self, Drive};
 use crate::mix::{self, Identifier, MixReport};
 use crate::model::{Library, LibrarySummary, Playlist, Track};
@@ -571,7 +572,7 @@ fn identifier(
     let device = super::mix_drive(drive)?;
     let cached = cache.get(&device)?;
     let id = cached.identifier(store.root(), ctx, |library| {
-        Identifier::with_library(&device, library.into(), &Cache::in_store(store), ctx)
+        Identifier::with_library(&device, library.into(), &Cache::in_store(store), &MixPrefs::load(store)?, ctx)
     })?;
     Ok((device, id))
 }

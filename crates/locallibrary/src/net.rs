@@ -67,6 +67,19 @@ impl Requests {
     }
 }
 
+/// The client for requests that follow no redirect (one that wants it follows them itself,
+/// checking each), [`Requests`]' among them: it keeps no connection for a later request, so
+/// it serves any runtime. Built once, since building a client loads the system's root
+/// certificates, which under load took seconds. Each request sets its own time limit.
+pub(crate) fn unpooled() -> Result<&'static reqwest::Client, String> {
+    static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+    let made = CLIENT.get_or_init(|| {
+        let none = reqwest::redirect::Policy::none();
+        reqwest::Client::builder().redirect(none).pool_max_idle_per_host(0).build().map_err(|e| with_causes(&e))
+    });
+    made.as_ref().map_err(Clone::clone)
+}
+
 /// `reader` as a request's body, read a chunk at a time as it's sent, off the runtime's own
 /// threads (a file's reads block). Its length is the request's `Content-Length` to say. Once
 /// `cancel` is, it fails at the next chunk: a server reading it gets no more than was read,

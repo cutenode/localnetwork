@@ -23,7 +23,7 @@ mod challenge;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
@@ -45,12 +45,12 @@ use super::accounts::token::Usable;
 use super::blobs;
 use super::process::{Live, Plugin, printable};
 use crate::export::one_line;
-use crate::net::{CHECK_EVERY, Requests, public, this_computer, with_causes};
+use crate::net::{CHECK_EVERY, Requests, public, this_computer, unpooled, with_causes};
 use crate::progress::CancelToken;
 use crate::{lock, op};
 
 /// The longest a request may take, besides sending files.
-const TIMEOUT: Duration = Duration::from_secs(30);
+pub(super) const TIMEOUT: Duration = Duration::from_secs(30);
 /// The slowest a request sending files may send them, in bytes a second (a slow home connection's
 /// upload, about a megabit): it may take as long as that would, besides [`TIMEOUT`].
 const SLOWEST: u64 = 128 << 10;
@@ -67,7 +67,6 @@ pub(super) fn sending(bytes: u64) -> Duration {
 /// A plugin's `net/fetch` state, whichever of its processes asks.
 #[derive(Default)]
 pub(crate) struct State {
-    client: OnceLock<Result<Client, String>>,
     /// The secrets filled into its requests, and its accounts' tokens (and how URLs spell
     /// them), while this host runs.
     seen: Mutex<Vec<String>>,
@@ -204,15 +203,10 @@ impl Plugin {
             .then(|| format!("{} isn't on this computer, and tests stay offline", url.host_str().unwrap_or_default()))
     }
 
-    /// The plugin's client, which follows no redirect: [`Plugin::fetch`] does, checking each.
-    pub(super) fn client(&self) -> Result<&Client, RpcError> {
-        let made = self.net.client.get_or_init(|| {
-            let none = reqwest::redirect::Policy::none();
-            // Each request's connections go with its runtime (see `Requests`).
-            let builder = Client::builder().redirect(none).timeout(TIMEOUT).pool_max_idle_per_host(0);
-            builder.build().map_err(|e| with_causes(&e))
-        });
-        made.as_ref().map_err(|e| RpcError::internal(format!("the network: {e}")))
+    /// The plugins' client ([`unpooled`]), which follows no redirect: [`Plugin::fetch`] does,
+    /// checking each. Each request is given [`TIMEOUT`], and more for files it sends.
+    pub(super) fn client(&self) -> Result<&'static Client, RpcError> {
+        unpooled().map_err(|e| RpcError::internal(format!("the network: {e}")))
     }
 
     /// Waits for the turn of a request to `url` under the `[[net]]` limit for its host, if it has
@@ -567,7 +561,7 @@ impl Plugin {
                 }
                 None => self.client()?.request(sent.method.clone(), url.clone()),
             };
-            request = request.headers(sent.plain.clone()).headers(sent.filled.clone());
+            request = request.headers(sent.plain.clone()).headers(sent.filled.clone()).timeout(TIMEOUT);
             if let Some(body) = &sent.body {
                 let files = body.file_bytes();
                 if files > 0 {

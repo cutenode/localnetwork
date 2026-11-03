@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	BLEND_SECS,
 	bandColor,
+	bpmAt,
 	clock,
 	colors,
 	handoff,
@@ -16,11 +17,12 @@ import {
 	playSpeed,
 	speed,
 	summarize,
+	tempoSteps,
 	tracklist
 } from './report';
 import { parseMixReport, parseMixReportText } from './schema';
 import exported from './fixtures/v2.mix.json' with { type: 'json' };
-import { sampleReport } from './sample';
+import { riddenReport, sampleReport } from './sample';
 
 const parsed = () => {
 	const result = parseMixReport(structuredClone(sampleReport));
@@ -140,6 +142,28 @@ describe('display helpers', () => {
 		const s = summarize(parsed());
 		expect(s).toMatchObject({ tracks: 5, confident: 4, coverage: 93, gaps: 1, harmonic: { good: 3, known: 4 } });
 		expect(s.tempo).toMatchObject({ median: 126, steady: true });
+	});
+
+	it('steps a ridden track between its speeds, and the summary takes in both ends', () => {
+		const result = parseMixReport(structuredClone(riddenReport));
+
+		if (!result.ok) throw new Error(result.error);
+
+		const steps = tempoSteps(result.report.plays[1]);
+		expect(steps.map((s) => [s.from, s.to, +s.bpm.toFixed(2)])).toEqual([
+			[300, 360, 124],
+			[360, 420, 133.92],
+			[420, 640, 133.92]
+		]);
+		expect([bpmAt(steps, 200), bpmAt(steps, 359), bpmAt(steps, 500)].map((b) => b?.toFixed(2))).toEqual([
+			'124.00',
+			'124.00',
+			'133.92'
+		]);
+		expect(summarize(result.report).tempo).toMatchObject({ low: 124, high: expect.closeTo(133.92), steady: false });
+		// A steady play is one step at its BPM, and one without a BPM has none.
+		expect(tempoSteps(result.report.plays[0])).toEqual([{ from: 0, to: result.report.plays[0].end, bpm: 126 }]);
+		expect(tempoSteps({ ...result.report.plays[0], playedBpm: undefined })).toEqual([]);
 	});
 
 	it('describes handoffs', () => {

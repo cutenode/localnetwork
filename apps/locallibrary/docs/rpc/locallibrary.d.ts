@@ -1663,7 +1663,7 @@ export type NewSet = {
   title?: string | null;
   /** The day it was played, `2026-10-03`. */
   date?: string | null;
-  /** `club`, `festival`, `radio`, `livestream`, `mix`, or another word. */
+  /** `club`, `festival`, `radio`, `livestream`, `studio`, or another word. */
   kind?: string | null;
   venue?: string | null;
   city?: string | null;
@@ -1710,7 +1710,7 @@ export type EditSet = {
   title?: string | null;
   /** The day it was played, `2026-10-03`. */
   date?: string | null;
-  /** `club`, `festival`, `radio`, `livestream`, `mix`, or another word. */
+  /** `club`, `festival`, `radio`, `livestream`, `studio`, or another word. */
   kind?: string | null;
   venue?: string | null;
   city?: string | null;
@@ -5022,6 +5022,8 @@ export type SettingsExport = {
    * playback modes.
    */
   player: { [key: string]: unknown };
+  /** What's set for identifying mixes ([`MixPrefs`]): the largest fingerprint index kept. */
+  mix: { [key: string]: unknown };
   /**
    * The host's settings for plugins: which analyzer each field role is read from, when a
    * provider's candidate is picked, and whether each check runs.
@@ -6693,8 +6695,8 @@ export type Set = {
   /** The day it was played (local). */
   date: string;
   /**
-   * `club`, `festival`, `radio`, `livestream`, `mix` (the Lexicon's `knownValues`) or the DJ's
-   * own word.
+   * `club`, `festival`, `radio`, `livestream`, `studio` (`mix` in older sets), the Lexicon's
+   * `knownValues`, or the DJ's own word.
    */
   kind?: string | null;
   venue?: string | null;
@@ -7051,6 +7053,12 @@ export type Play = {
    * (see [`matcher::Found::speed_range`]); `tempo` is then their average.
    */
   speed_range?: [number, number] | null;
+  /**
+   * Where it was heard at each speed and from which part of the track, in mix order: one line
+   * for a steady play, more for a ride or a loop or cue jump. Reports made before these were
+   * kept have none.
+   */
+  lines?: PlayLine[];
   /** The track's BPM at that speed. */
   played_bpm: number | null;
   /** Whether key lock (master tempo) was on: `None` when the speed is too close to 1.0 to tell. */
@@ -7074,6 +7082,16 @@ export type Play = {
   jumps: number;
   /** Other library tracks matching the same stretch of the mix. */
   alternates: Alternate[];
+};
+
+/** A stretch of a [`Play`] at one speed, from `start` until the next line's. */
+export type PlayLine = {
+  /** Seconds into the mix. */
+  start: number;
+  /** Seconds into the track at `start`. */
+  track_start: number;
+  /** Playback speed: 1.0 as recorded. */
+  tempo: number;
 };
 
 export type Alternate = {
@@ -7224,6 +7242,11 @@ export type ExportPlay = {
   tempo: number;
   /** The slowest and fastest speeds, when the pitch fader was ridden; `tempo` is their average. */
   speedRange?: [number, number] | null;
+  /**
+   * Where it was heard at each speed and from which part of the track, in mix order (see
+   * [`ExportLine`]); left out of reports made before they were kept.
+   */
+  lines?: ExportLine[];
   playedBpm?: number | null;
   /** `None` when the speed is too close to 1.0 to tell. */
   keyLock: boolean | null;
@@ -7279,6 +7302,19 @@ export type ExportPhrase = {
   start: number;
   end: number;
   kind: string;
+};
+
+/**
+ * A stretch of a play at one speed, from `start` until the next line's (see
+ * [`crate::mix::PlayLine`]).
+ */
+export type ExportLine = {
+  /** Seconds into the mix. */
+  start: number;
+  /** Seconds into the track at `start`. */
+  trackStart: number;
+  /** Playback speed: 1.03 is +3%. */
+  tempo: number;
 };
 
 export type ExportTransition = {

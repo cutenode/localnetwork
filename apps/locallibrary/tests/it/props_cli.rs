@@ -174,6 +174,7 @@ const READS: &[&[&str]] = &[
     &["store", "info"],
     &["store", "verify"],
     &["store", "copies"],
+    &["store", "index-limit"],
     &["tracks", "@d"],
     &["tracks", "@d", "-f", "@f", "--sort", "@s", "-n", "3"],
     &["tracks", "@d", "-p", "@p"],

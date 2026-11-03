@@ -18,6 +18,7 @@ fn report() -> MixReport {
         track_end: 130.0,
         tempo: 1.0234567,
         speed_range: None,
+        lines: Vec::new(),
         played_bpm: Some(131.0),
         key_lock: Some(true),
         semitones: 0.0,
@@ -196,9 +197,9 @@ fn analysis(tc: &TestCase) -> TrackAnalysis {
 
 /// Whatever a report found, its export has as many plays, transitions and unidentified
 /// stretches, every time to the hundredth, a mix waveform of at most 1,200 columns keeping
-/// its loudest that spans the same time, and each play's presence in percent. The tracks the
-/// profile hides are "ID - ID", and from the drive each track has its overview (at most 200
-/// columns), its hot cues and its phrases on the grid, as the HTML report has them.
+/// its loudest that spans the same time, and each play's presence in percent and its lines. The
+/// tracks the profile hides are "ID - ID", and from the drive each track has its overview (at most
+/// 200 columns), its hot cues and its phrases on the grid, as the HTML report has them.
 #[hegel::test(test_cases = 60)]
 fn exports_count_what_the_report_found(tc: TestCase) {
     let mut r = report();
@@ -215,6 +216,18 @@ fn exports_count_what_the_report_found(tc: TestCase) {
                     gs::floats::<f64>().min_value(1.0).max_value(1.16)
                 ))),
                 presence: tc.draw(gs::vecs(gs::floats::<f32>().min_value(-0.5).max_value(1.5)).max_size(20)),
+                lines: tc
+                    .draw(
+                        gs::vecs(gs::tuples!(
+                            gs::floats::<f64>().min_value(0.0).max_value(3600.0),
+                            gs::floats::<f64>().min_value(0.0).max_value(600.0),
+                            gs::floats::<f64>().min_value(0.84).max_value(1.16)
+                        ))
+                        .max_size(3),
+                    )
+                    .into_iter()
+                    .map(|(start, track_start, tempo)| crate::mix::PlayLine { start, track_start, tempo })
+                    .collect(),
                 ..base.clone()
             };
             p.track.id = i + 1;
@@ -278,6 +291,11 @@ fn exports_count_what_the_report_found(tc: TestCase) {
         let near = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).abs() <= 5e-5 && (a.1 - b.1).abs() <= 5e-5;
         assert!(x.speed_range.is_some() == p.speed_range.is_some(), "{:?}", p.speed_range);
         assert!(x.speed_range.zip(p.speed_range).is_none_or(|(a, b)| near(a, b)), "{:?}", p.speed_range);
+        assert_eq!(x.lines.len(), p.lines.len());
+        for (a, b) in x.lines.iter().zip(&p.lines) {
+            assert!(hundredth(a.start, b.start) && hundredth(a.track_start, b.track_start), "{b:?}");
+            assert!((a.tempo - b.tempo).abs() <= 5e-5, "{b:?}");
+        }
         let presence: Vec<u8> = p.presence.iter().map(|v| (v.clamp(0.0, 1.0) * 100.0).round() as u8).collect();
         assert_eq!(x.presence, presence);
         let named = may_name(&prefs, &p.track);
