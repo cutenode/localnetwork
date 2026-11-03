@@ -1,0 +1,9 @@
+id: account-type-article
+valid:
+  - 'let why = format!("it has no access to {} account", a_or_an(kind));'
+  - 'let why = format!("the {kind} account {at} is signed out: sign in again");'
+  - 'let why = format!("a {unit} of tracks");'
+invalid:
+  - 'let why = format!("it has no access to a {kind} account");'
+  - 'let item = format!("sign in to a {} account…", t.title);'
+  - 'let title = format!("Sign in to a {title} account");'

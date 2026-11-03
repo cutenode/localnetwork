@@ -4,8 +4,8 @@
   "description": "Bombadil specifications for the locallibrary TUI and mix report",
   "type": "module",
   "scripts": {
-    "tui": "./tui.sh",
-    "report": "./report.sh",
+    "tui": "node tui.mjs",
+    "report": "node report.mjs",
     "typecheck": "tsc"
   },
   "devDependencies": {

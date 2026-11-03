@@ -74,7 +74,7 @@ use crate::model::{Library, Track};
 use crate::{Error, Result};
 
 pub use accounts::access::{Access, AccountId};
-pub use accounts::ensure::{AccessQuestion, AskAccess};
+pub use accounts::ensure::{AccessQuestion, AskAccess, EnteredKeys};
 pub use accounts::ready::Unready;
 pub use accounts::shared::{Account, AccountSignIn, AccountSignedIn, AccountSignedOut, Accounts};
 pub use accounts::{REFRESH_BEFORE, WARN_DAYS, due_soon};

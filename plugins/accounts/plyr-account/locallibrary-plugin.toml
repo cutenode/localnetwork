@@ -1,0 +1,28 @@
+id = "plyr-account"
+name = "plyr.fm Account"
+version = "0.1.0"
+protocol = "^0.2"
+
+# plyr.fm signs scripts in with a developer token, sent as `Bearer <token>` in the Authorization
+# header. Its `/auth/me` says whose it is: the account's DID and handle.
+[[contributes.account_types]]
+type = "plyr"
+title = "plyr.fm"
+kind = "keys"
+keys_url = "https://plyr.fm/settings#developer"
+authorization = "Bearer {token}"
+whoami = { url = "https://api.plyr.fm/auth/me", subject = "/did", name = "/handle" }
+
+[contributes.account_types.keys.token]
+title = "Developer token"
+
+# The resumable upload: the POST that opens a session and the one that finishes it, the PUT of
+# each part and the GET of the upload's progress.
+[contributes.account_types.scopes.upload]
+title = "upload tracks to plyr.fm"
+requests = [
+    { method = "POST", url = "https://api.plyr.fm/tracks/uploads" },
+    { method = "POST", url = "https://api.plyr.fm/tracks/uploads/*" },
+    { method = "PUT", url = "https://api.plyr.fm/tracks/uploads/*" },
+    { method = "GET", url = "https://api.plyr.fm/tracks/uploads/*" },
+]

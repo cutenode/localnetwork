@@ -2322,6 +2322,14 @@ export type FinishSignIn = {
   id: string;
   /** How long to wait for the browser (default 300, an hour at most). */
   timeout_secs?: number | null;
+  /**
+   * For a sign-in with keys, which finishes at once: each key its `sign_in.begin` listed, by
+   * name, as the user entered it. The host keeps them in the keychain and never answers them;
+   * pass them straight from the user's input, nowhere else.
+   */
+  keys?: { [key: string]: string } | null;
+  /** With `keys`, when its `sign_in.begin` answered `named`: what the user calls the account. */
+  name?: string | null;
 };
 
 export type PasteSignIn = {
@@ -8218,20 +8226,30 @@ export type Access = {
   declined?: string[];
 };
 
-/** A sign-in to an account of a type, waiting for the browser. */
+/** A sign-in to an account of a type, waiting for the browser, or for the user's keys. */
 export type AccountSignIn = {
   /**
-   * Finishes it: [`Plugins::finish_account_sign_in`],
-   * [`Plugins::finish_account_sign_in_with_url`].
+   * Finishes it: [`Plugins::finish_account_sign_in`] or
+   * [`Plugins::finish_account_sign_in_with_url`], or with keys
+   * [`Plugins::finish_account_sign_in_with_keys`].
    */
   id: string;
   type: string;
+  /** What the account type is called (`Mixcloud`), from its plugin's manifest. */
+  title: string;
   /** The account plugin signing in. */
   plugin: string;
-  /** Open this in the browser. */
+  /** Open this in the browser: the service's sign-in page, or where the user gets the keys. */
   url: string;
-  /** Where the browser comes back to. */
-  redirect_uri: string;
+  /** Where the browser comes back to, when it signs in there. */
+  redirect_uri?: string | null;
+  /** The keys to enter, by name, and what each is called, when it's signed in to with keys. */
+  keys?: { [key: string]: string };
+  /**
+   * The user names the account, since its type's keys don't say who they're for: the sign-in
+   * finishes with its name besides the keys.
+   */
+  named?: boolean;
 };
 
 /** What signing in to an account of a type did. */
@@ -8437,16 +8455,23 @@ export type Contributions = {
   settings: Setting[];
 };
 
-/** `[[contributes.account_types]]`: an account type, signed in to in the browser. */
+/**
+ * `[[contributes.account_types]]`: an account type, signed in to in the browser, or by entering
+ * keys (`kind = "keys"`). Its OAuth fields are an account type's signed in to in the browser,
+ * and only its; `keys`, `keys_url` and `authorization` are one's signed in to with keys, and only
+ * its.
+ */
 export type AccountType = {
   /** The account type it provides (`google`), which other account plugins may provide too. */
   type: string;
   title: string;
+  /** How it's signed in to: in the browser unless it says. */
+  kind?: SignIn;
   /** The service's authorization endpoint, where the browser signs in (https). */
-  authorize_url: string;
+  authorize_url?: string | null;
   /**
    * Its token endpoint, where the host trades the browser's code for tokens and refreshes
-   * them (https). An account type has this or `token_exchange`.
+   * them (https). An account type signed in to in the browser has this or `token_exchange`.
    */
   token_url?: string | null;
   /**
@@ -8458,7 +8483,7 @@ export type AccountType = {
    * Its client at the service: a public one, without a secret, or Local Network's, whose
    * secret the token exchange holds.
    */
-  client_id: string;
+  client_id?: string | null;
   /** Where its tokens are revoked at signing out (RFC 7009), when the service has one (https). */
   revoke_url?: string | null;
   /** Where its access token goes in a request: `Authorization: Bearer <token>` unless it says. */
@@ -8470,8 +8495,11 @@ export type AccountType = {
   redirect_port?: number | null;
   /** The service's scopes every sign-in asks for, as the service names them (`openid`). */
   always?: string[];
-  /** Where the host asks the service who signed in. */
-  whoami: Whoami;
+  /**
+   * Where the host asks the service who signed in. One signed in to with keys may leave it
+   * out: the user names the account then.
+   */
+  whoami?: Whoami | null;
   /**
    * The authorize params that sign in again as one account the host knows (`login_hint =
    * "{subject}"`): their values may name it only as [`SUBJECT_PLACEHOLDER`].
@@ -8487,9 +8515,25 @@ export type AccountType = {
    * `one_account`'s or `another_account`'s.
    */
   params?: { [key: string]: string };
+  /** The keys the user enters, by name (`access`), which the service gave them. */
+  keys?: { [key: string]: Key };
+  /** Where the user gets them (https). */
+  keys_url?: string | null;
+  /**
+   * The `Authorization` header's value they make in a request (`LOW {access}:{secret}`), each
+   * key named in braces.
+   */
+  authorization?: string | null;
   /** What a plugin may be given access to, by name (`youtube-upload`). */
   scopes?: { [key: string]: Scope };
 };
+
+/** How an account of a type is signed in to. */
+export type SignIn =
+  /** In the browser, with OAuth 2: `oauth`. */
+  | "oauth"
+  /** By entering the keys the service gave the user: `keys`. */
+  | "keys";
 
 /**
  * Where an account type's access token goes in a `net/fetch` request: `token = { scheme =
@@ -8511,7 +8555,7 @@ export type TokenPlace =
 
 /**
  * `whoami = { url = "...", subject = "/sub", name = "/email" }`: the endpoint the host gets with a
- * new access token, and JSON pointers into its answer.
+ * new access token, or keys just entered, and JSON pointers into its answer.
  */
 export type Whoami = {
   /** Where (https). */
@@ -8520,6 +8564,12 @@ export type Whoami = {
   subject: string;
   /** What the account is shown as (`/email`). */
   name: string;
+};
+
+/** `[contributes.account_types.keys.<name>]`: a key the user enters. */
+export type Key = {
+  /** What it's called where the user gets it (`S3 access key`). */
+  title: string;
 };
 
 /** `[contributes.account_types.scopes.<name>]`: one thing a plugin may do with an account. */

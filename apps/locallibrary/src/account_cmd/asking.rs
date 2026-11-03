@@ -1,8 +1,9 @@
 //! A plugin wanting more of an account it has access to (`accounts/ensure`), asked about in the
 //! terminal a command runs in, with its progress bar out of the way: allowing it, or signing in
-//! again in the browser to, when the account wasn't granted what it asks.
+//! again to, in the browser or with keys read as `account TYPE sign-in` reads them, when the
+//! account wasn't granted what it asks.
 
-use locallibrary::plugin::{AccessQuestion, AskAccess};
+use locallibrary::plugin::{AccessQuestion, AccountSignIn, AskAccess, EnteredKeys};
 
 use crate::browser;
 use crate::output::{Drawing, Output, dim};
@@ -31,5 +32,9 @@ impl AskAccess for Terminal {
             browser::open(url, true);
             eprintln!("{}", dim("Waiting for you to approve (Ctrl-C stops)…"));
         });
+    }
+
+    fn enter_keys(&self, start: &AccountSignIn) -> Option<EnteredKeys> {
+        self.drawing.suspend(|| super::accounts::read_keys(start).ok())
     }
 }

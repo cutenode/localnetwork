@@ -20,7 +20,9 @@ use clap::{CommandFactory, ValueEnum};
 use indexmap::IndexMap;
 use locallibrary::api::RpcFailure;
 use locallibrary::mix::report::ShownField;
-use locallibrary::plugin::{Access, AccessQuestion, AskAccess, Launch, Log, Options, PluginSpec, Plugins, Reads};
+use locallibrary::plugin::{
+    Access, AccessQuestion, AccountSignIn, AskAccess, EnteredKeys, Launch, Log, Options, PluginSpec, Plugins, Reads,
+};
 use locallibrary::progress::Ctx;
 use locallibrary::{Error, Result};
 use loclib_plugin::{AccountType, Capability, ExportFrom, Manifest, SettingType};
@@ -198,6 +200,10 @@ impl AskAccess for Asking {
 
     fn sign_in(&self, url: &str) {
         Asking::asker().into_iter().for_each(|ask| ask.sign_in(url));
+    }
+
+    fn enter_keys(&self, start: &AccountSignIn) -> Option<EnteredKeys> {
+        Asking::asker()?.enter_keys(start)
     }
 }
 

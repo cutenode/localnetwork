@@ -19,6 +19,7 @@ pub(super) mod checks;
 mod events;
 mod exporters;
 pub(super) mod importers;
+pub(super) mod keys;
 pub(super) mod panels;
 pub(super) mod providers;
 mod sources;

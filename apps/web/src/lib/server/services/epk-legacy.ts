@@ -1,14 +1,17 @@
 import { epkGrantSchema } from '#lib/epk-schema.ts';
-import type { EpkView } from '#lib/epk.ts';
+import { type EpkView, grantVia } from '#lib/epk.ts';
 import { COLLECTION, EPK_CONTENT_KEY } from '#lib/nsid.ts';
 import type { ProjectView, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
-import type { RepoClient } from '../atproto/repo-client';
+import { listAllSpaceRecords, type RepoClient } from '../atproto/repo-client';
 import type { Core } from '../core';
 import { nowIso } from '../db';
 import type { EpkService } from './epk';
 import { toJson } from './epk-fields';
 import type { ProjectService } from './projects';
+
+/** A legacy press kit as the root holds it once moved. */
+type MovedKit = Pick<EpkView, 'uri' | 'rkey' | 'space'>;
 
 /** The keys of the press kits a visit moved, and of those it couldn't. */
 export type LegacyMigration = { migrated: string[]; failed: string[] };
@@ -139,8 +142,9 @@ export class LegacyEpks {
 				});
 			}
 
-			const requests = await this.carryRequests(epk, project, space, uri);
-			await this.carryGrants(owner, epk, space, requests);
+			const moved = { uri, rkey: epk.rkey, space };
+			const requests = await this.carryRequests(epk, project, moved);
+			await this.carryGrants(owner, epk, project, moved, requests);
 			this.core.logger.info(
 				{ ...log, space, requests: requests.size },
 				"copied a legacy press kit's private part, requests and grants"
@@ -181,12 +185,7 @@ export class LegacyEpks {
 	 * project's request space as the root, on the askers' behalf, and the ones made there since only change press kit.
 	 * Grants the open ones the rules approved, which waited for the move. Returns each old request's URI now.
 	 */
-	private async carryRequests(
-		epk: EpkView,
-		project: ProjectView,
-		space: string,
-		uri: string
-	): Promise<Map<string, string>> {
+	private async carryRequests(epk: EpkView, project: ProjectView, moved: MovedKit): Promise<Map<string, string>> {
 		const carried = new Map<string, string>();
 		const rows = await this.core.db.selectFrom('epkRequest').selectAll().where('epkUri', '=', epk.uri).execute();
 
@@ -195,14 +194,14 @@ export class LegacyEpks {
 
 			if (inOldSpace && row.status !== 'pending') continue;
 
-			if (inOldSpace) carried.set(row.uri, await this.epks.copyRequest(row, project, uri));
+			if (inOldSpace) carried.set(row.uri, await this.epks.copyRequest(row, project, moved.uri));
 			else {
-				await this.core.db.updateTable('epkRequest').set({ epkUri: uri }).where('uri', '=', row.uri).execute();
+				await this.core.db.updateTable('epkRequest').set({ epkUri: moved.uri }).where('uri', '=', row.uri).execute();
 				carried.set(row.uri, row.uri);
 			}
 
 			if (row.status === 'pending' && row.rule === 'auto')
-				await this.epks.writeGrant(space, {
+				await this.epks.writeGrant(project, moved, {
 					subject: row.requesterDid,
 					via: 'auto',
 					request: carried.get(row.uri),
@@ -213,39 +212,35 @@ export class LegacyEpks {
 		return carried;
 	}
 
-	/** Rewrites the maker's grants as the root's, read from their repo in the old space. */
+	/**
+	 * Rewrites the maker's grants as the root's, read from their repo in the old space, into the project's request space.
+	 */
 	private async carryGrants(
 		owner: RepoClient,
 		epk: EpkView,
-		space: string,
+		project: ProjectView,
+		moved: MovedKit,
 		requests: Map<string, string>
 	): Promise<void> {
-		let cursor: string | undefined;
+		const records = await listAllSpaceRecords(owner, {
+			space: epk.space,
+			repo: owner.did,
+			collection: COLLECTION.epkGrant
+		});
 
-		do {
-			const page = await owner.listSpaceRecords({
-				space: epk.space,
-				repo: owner.did,
-				collection: COLLECTION.epkGrant,
-				cursor
+		for (const record of records) {
+			const grant = epkGrantSchema.safeParse(record.value);
+
+			if (!grant.success) continue;
+			const { subject, via, request, createdAt } = grant.data;
+
+			await this.epks.writeGrant(project, moved, {
+				subject,
+				via: grantVia(via),
+				// The old request goes with the old space, unless it was still open and moved too.
+				request: request && requests.get(request),
+				createdAt
 			});
-
-			for (const record of page.records) {
-				const grant = epkGrantSchema.safeParse(record.value);
-
-				if (!grant.success) continue;
-				const { subject, via, request, createdAt } = grant.data;
-
-				await this.epks.writeGrant(space, {
-					subject,
-					via: via === 'auto' || via === 'invited' ? via : 'approved',
-					// The old request goes with the old space, unless it was still open and moved too.
-					request: request && requests.get(request),
-					createdAt
-				});
-			}
-
-			cursor = page.cursor;
-		} while (cursor);
+		}
 	}
 }
