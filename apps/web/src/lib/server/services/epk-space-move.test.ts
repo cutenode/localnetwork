@@ -9,9 +9,10 @@ import { epkRequestSpace } from '../atproto/spaces';
 import { ROOT } from '../testing/core';
 import { FakeRootClient } from '../testing/fakes';
 import { DJ, FRIEND, NO_SPACES, pressKitServices, STRANGER } from '../testing/press-kits';
-import { moveKitRequests } from './epk-request-move';
+import { grantKey } from './epk';
+import { moveKitSpaces } from './epk-space-move';
 
-describe('moveKitRequests', () => {
+describe('moveKitSpaces', () => {
 	let f: Awaited<ReturnType<typeof pressKitServices>>;
 	let epk: EpkView;
 
@@ -37,7 +38,13 @@ describe('moveKitRequests', () => {
 		return ref.uri;
 	};
 
-	const move = () => moveKitRequests(f.t.core, f.t.epks);
+	const grantsIn = (space: string) =>
+		f.t.net.spaceRecordsIn(space, ROOT).filter((record) => record.uri.includes(COLLECTION.epkGrant));
+
+	const grantedBefore = (subject: string, via = 'invited', createdAt = '2026-10-01T00:00:00.000Z') =>
+		f.grantedBefore(epk, { subject, via, createdAt });
+
+	const move = () => moveKitSpaces(f.t.core, f.t.epks);
 
 	beforeEach(async () => {
 		f = await pressKitServices();
@@ -86,7 +93,11 @@ describe('moveKitRequests', () => {
 
 		// The grant names the request where it is now.
 		const copy = rows.find((row) => row.requesterDid === STRANGER)!.uri;
-		const grant = f.t.net.spaceRecords.get(`${epk.space}|${ROOT}|${COLLECTION.epkGrant}|${STRANGER}`)?.value;
+
+		const grant = f.t.net.spaceRecords.get(
+			`${requestSpace()}|${ROOT}|${COLLECTION.epkGrant}|${grantKey(epk.rkey, STRANGER)}`
+		)?.value;
+
 		expect(grant).toMatchObject({ subject: STRANGER, request: copy });
 		expect(await f.t.epks.accessState(kit, await f.t.viewer(STRANGER))).toMatchObject({ kind: 'granted' });
 		expect(await f.t.epks.accessState(kit, await f.t.viewer(FRIEND))).toEqual({ kind: 'declined' });
@@ -97,6 +108,76 @@ describe('moveKitRequests', () => {
 		// Once moved, a space is left alone.
 		await move();
 		expect(requestsIn(requestSpace())).toHaveLength(3);
+		expect(await f.t.audit.list({ action: 'system.space', subject: epk.space })).toHaveLength(1);
+	});
+
+	it("moves the root's grants out of a press kit's space, leaving everyone let in, once", async () => {
+		const kit = f.kit(epk);
+		// Press kit spaces whose requests moved already take no one's writes.
+		await f.t.net.client(ROOT).updateSpace({ space: epk.space, policy: memberSpacePolicy() });
+		const old = await grantedBefore(FRIEND);
+		await grantedBefore(STRANGER, 'approved', '2026-10-02T00:00:00.000Z');
+
+		await move();
+
+		// Nobody let into the press kit can list who else is: only the managers read the request space.
+		expect(grantsIn(epk.space)).toEqual([]);
+		expect(grantsIn(requestSpace()).map((record) => record.value)).toMatchObject([
+			{ subject: FRIEND, epk: epk.uri, via: 'invited', createdAt: '2026-10-01T00:00:00.000Z' },
+			{ subject: STRANGER, epk: epk.uri, via: 'approved', createdAt: '2026-10-02T00:00:00.000Z' }
+		]);
+		expect(grantsIn(requestSpace()).map((record) => record.uri.split('/').at(-1))).toEqual([
+			grantKey(epk.rkey, FRIEND),
+			grantKey(epk.rkey, STRANGER)
+		]);
+		expect(Object.fromEntries(f.t.net.spaces.get(epk.space)!.members)).toMatchObject({
+			[FRIEND]: { read: true, write: false },
+			[STRANGER]: { read: true, write: false }
+		});
+		expect(await f.t.audit.list({ action: 'system.space', subject: epk.space })).toHaveLength(1);
+
+		// The sync then hears the old record went, which leaves the grant it indexed from the new one.
+		await f.t.epks.unindexGrant(old);
+		expect(await f.t.epks.accessState(kit, await f.t.viewer(FRIEND))).toMatchObject({ kind: 'granted' });
+		expect((await f.t.epks.grants(epk)).map((grant) => grant.subject.did).sort()).toEqual([FRIEND, STRANGER].sort());
+
+		await move();
+		expect(grantsIn(requestSpace())).toHaveLength(2);
+		expect(await f.t.audit.list({ action: 'system.space', subject: epk.space })).toHaveLength(1);
+	});
+
+	it('finishes moving grants on a later start when one stopped part way', async () => {
+		await f.t.net.client(ROOT).updateSpace({ space: epk.space, policy: memberSpacePolicy() });
+		await grantedBefore(FRIEND);
+		await grantedBefore(STRANGER);
+		vi.spyOn(FakeRootClient.prototype, 'deleteSpaceRecord').mockRejectedValueOnce(
+			new XRPCError(502, 'UpstreamFailure')
+		);
+
+		await expect(move()).resolves.toBeUndefined();
+		expect(grantsIn(epk.space)).toHaveLength(2);
+		expect(await f.t.audit.list({ action: 'system.space', subject: epk.space })).toEqual([]);
+
+		await move();
+		expect(grantsIn(epk.space)).toEqual([]);
+		expect(grantsIn(requestSpace()).map((record) => record.value.subject)).toEqual([FRIEND, STRANGER]);
+	});
+
+	it("leaves a grant record that doesn't validate, and moves the rest", async () => {
+		await f.t.net.client(ROOT).updateSpace({ space: epk.space, policy: memberSpacePolicy() });
+		await f.t.net
+			.client(ROOT)
+			.putSpaceRecord({ space: epk.space, collection: COLLECTION.epkGrant, rkey: FRIEND, record: { subject: FRIEND } });
+
+		await move();
+		expect(grantsIn(epk.space)).toHaveLength(1);
+		expect(f.t.net.spaces.has(requestSpace())).toBe(false);
+		expect(await f.t.audit.list({ action: 'system.space', subject: epk.space })).toEqual([]);
+
+		await grantedBefore(STRANGER);
+		await move();
+		expect(grantsIn(epk.space).map((record) => record.value)).toEqual([{ subject: FRIEND }]);
+		expect(grantsIn(requestSpace()).map((record) => record.value.subject)).toEqual([STRANGER]);
 		expect(await f.t.audit.list({ action: 'system.space', subject: epk.space })).toHaveLength(1);
 	});
 
@@ -136,15 +217,23 @@ describe('moveKitRequests', () => {
 		);
 	});
 
-	it('leaves the requests of a press kit space whose press kit is gone, and carries on with the rest', async () => {
+	it('leaves the grants and requests of a press kit space whose press kit is gone, and carries on with the rest', async () => {
 		await askedInKitSpace(NO_SPACES, ROOT);
 		const gone = await f.publish(DJ, { title: 'Gone' });
-		await f.t.net.client(ROOT).updateSpace({ space: gone.space, policy: memberSpacePolicy({ publicWrite: true }) });
-		await f.t.net.client(ROOT).deleteRecord({ collection: COLLECTION.epk, rkey: gone.rkey });
+		const root = f.t.net.client(ROOT);
+		await root.updateSpace({ space: gone.space, policy: memberSpacePolicy({ publicWrite: true }) });
+		await root.putSpaceRecord({
+			space: gone.space,
+			collection: COLLECTION.epkGrant,
+			rkey: FRIEND,
+			record: { subject: FRIEND, via: 'invited', createdAt: '2026-10-01T00:00:00.000Z' }
+		});
+		await root.deleteRecord({ collection: COLLECTION.epk, rkey: gone.rkey });
 		f.t.epks.forget();
 
 		await move();
 		expect(requestsIn(epk.space)).toEqual([]);
+		expect(grantsIn(gone.space)).toHaveLength(1);
 		expect(f.t.net.spaces.get(gone.space)?.policy).toEqual(memberSpacePolicy({ publicWrite: true }));
 	});
 

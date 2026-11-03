@@ -78,6 +78,7 @@ export const epkRequestSchema = z.object({
 
 export const epkGrantSchema = z.object({
 	subject: z.string(),
+	epk: z.string().optional(),
 	via: z.string(),
 	request: z.string().optional(),
 	createdAt: z.string()

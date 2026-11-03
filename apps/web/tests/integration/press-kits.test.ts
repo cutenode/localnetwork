@@ -30,7 +30,7 @@ import { GET as oldKit } from '../../src/routes/epk/[did]/[rkey]/+server.ts';
 import { GET as oldPhoto } from '../../src/routes/epk/[did]/[rkey]/photos/[cid]/+server.ts';
 import { GET as oldList } from '../../src/routes/projects/[slug]/epk/+server.ts';
 import { load as publicKit } from '../../src/routes/projects/[slug]/press-kits/[rkey]/+page.server.ts';
-import type { PressKit } from '../../src/lib/server/services/epk.ts';
+import { grantKey, type PressKit } from '../../src/lib/server/services/epk.ts';
 import type { ProjectView } from '../../src/lib/types.ts';
 import { TestNetwork } from './network.ts';
 
@@ -123,10 +123,10 @@ describe('shared press kits on a real atproto spaces network', () => {
 	};
 
 	/**
-	 * Every record of `collection` that `name` can read in `space`, in anyone's repo, with a space credential minted for
-	 * their own account, as any atproto client of theirs would get one.
+	 * Every record of `collection` (or of any) that `name` can read in `space`, in anyone's repo, with a space credential
+	 * minted for their own account, as any atproto client of theirs would get one.
 	 */
-	const readable = async (name: string, space: string, collection: string) => {
+	const readable = async (name: string, space: string, collection?: string) => {
 		const credentials = new SpaceCredentialManager({
 			source: async () => new AgentRootClient(net.user(name).did, net.user(name).agent),
 			identity: net.app.identity,
@@ -139,11 +139,17 @@ describe('shared press kits on a real atproto spaces network', () => {
 		const { repos } = await read(net.rootDid, 'com.atproto.space.listRepos', {}, listReposOutput);
 
 		const pages = await Promise.all(
-			repos.map(({ did }) => read(did, 'com.atproto.space.listRecords', { repo: did, collection }, listRecordsOutput))
+			repos.map(({ did }) =>
+				read(did, 'com.atproto.space.listRecords', { repo: did, ...(collection && { collection }) }, listRecordsOutput)
+			)
 		);
 
 		return pages.flatMap((page) => page.records.map((record) => record.value));
 	};
+
+	/** Who the grant records `name` can read in `space` let in. */
+	const grantees = async (name: string, space: string) =>
+		(await readable(name, space, COLLECTION.epkGrant)).map((value) => String(value.subject)).sort();
 
 	/** A press kit `name` publishes for `owned`. */
 	const published = async (name: string, owned: ProjectView): Promise<PressKit> => {
@@ -222,13 +228,13 @@ describe('shared press kits on a real atproto spaces network', () => {
 		expect(await members(epk.space)).toMatchObject({ [pat]: { read: true, write: false } });
 
 		const grant = await root.getSpaceRecord({
-			space: epk.space,
+			space: epkRequestSpace(net.rootDid, tide.rkey),
 			repo: net.rootDid,
 			collection: COLLECTION.epkGrant,
-			rkey: pat
+			rkey: grantKey(epk.rkey, pat)
 		});
 
-		expect(grant?.value).toMatchObject({ subject: pat, via: 'invited' });
+		expect(grant?.value).toMatchObject({ subject: pat, epk: epk.uri, via: 'invited' });
 		expect(await net.app.epks.accessState(shared, await net.viewer('pat'))).toMatchObject({ kind: 'granted' });
 
 		tide = await net.app.projectAdmin.setManagers({
@@ -252,16 +258,27 @@ describe('shared press kits on a real atproto spaces network', () => {
 		const [asked] = await net.app.epks.requests(shared.epk);
 		await net.app.epks.decide(neon, shared, asked.uri, 'approve');
 		await net.app.epks.request(lou, shared, { role: 'promoter', message: "Lou's rates, just for the managers" });
+		await net.app.epks.invite(neon, shared, 'remy.test');
 
-		// Pat, let in, reads the private part with their own credential, but no request in its space, Lou's or their own.
-		expect(await readable('pat', shared.epk.space, COLLECTION.epkContent)).toMatchObject([{ bio: 'The long bio' }]);
-		expect(await readable('pat', shared.epk.space, COLLECTION.epkRequest)).toEqual([]);
+		// Pat, let in, reads the private part with their own credential, and nothing else in its space: no request, Lou's
+		// or their own, and no grant, Remy's or their own.
+		expect(await readable('pat', shared.epk.space)).toMatchObject([
+			{ $type: COLLECTION.epkContent, bio: 'The long bio' }
+		]);
+		expect(await readable('pat', shared.epk.space, COLLECTION.epkGrant)).toEqual([]);
 		// Nor can they, or Lou, read the space the requests are in: only the project's managers can.
 		await expect(readable('pat', requests, COLLECTION.epkRequest)).rejects.toBeInstanceOf(XrpcResponseError);
 		await expect(readable('lou', requests, COLLECTION.epkRequest)).rejects.toBeInstanceOf(XrpcResponseError);
 		expect(
 			(await readable('neon', requests, COLLECTION.epkRequest)).map((value) => String(value.message)).sort()
 		).toEqual(["Lou's rates, just for the managers", 'Pat asking'].sort());
+		// They read who's let in there too, which the people let in can't.
+		expect(
+			(await readable('neon', requests, COLLECTION.epkGrant))
+				.map((value) => `${String(value.subject)} ${String(value.via)}`)
+				.sort()
+		).toEqual([`${pat.did} approved`, `${net.user('remy').did} invited`].sort());
+		await expect(readable('pat', requests, COLLECTION.epkGrant)).rejects.toBeInstanceOf(XrpcResponseError);
 		expect(await members(requests)).toEqual({ [neon.did]: { read: true, write: false } });
 
 		// Lou's PDS still takes a request written straight into the press kit's space, but its authority no longer counts
@@ -310,6 +327,48 @@ describe('shared press kits on a real atproto spaces network', () => {
 			{ uri: expect.stringContaining(requests), requester: { did: lou }, message: 'An old note', status: 'pending' }
 		]);
 		expect((await root.getSpace(epk.space))?.policy).toMatchObject({ publicWrite: false });
+	});
+
+	it("moves grants out of a press kit's space, where everyone let in could list them, at startup", async () => {
+		const neon = await net.viewer('neon');
+		const [pat, lou] = [net.user('pat').did, net.user('lou').did];
+		const shared = await published('neon', await project('Old Doors', ['neon']));
+		const { epk } = shared;
+		const root = await net.app.core.root();
+
+		// As grants were: the root's record of each person let in sat in the press kit's space, beside the private part.
+		for (const subject of [pat, lou]) {
+			await root.putMember({ space: epk.space, did: subject, read: true, write: false });
+			await root.putSpaceRecord({
+				space: epk.space,
+				collection: COLLECTION.epkGrant,
+				rkey: subject,
+				record: validateRecord(COLLECTION.epkGrant, { subject, via: 'invited', createdAt: new Date().toISOString() })
+			});
+		}
+
+		await net.settle();
+		expect(await grantees('pat', epk.space)).toEqual([pat, lou].sort());
+
+		await net.app.bootstrap();
+
+		expect(await readable('pat', epk.space)).toMatchObject([{ $type: COLLECTION.epkContent }]);
+		const requests = epkRequestSpace(net.rootDid, shared.project.rkey);
+		expect(await grantees('neon', requests)).toEqual([pat, lou].sort());
+		expect(await members(epk.space)).toEqual({
+			[neon.did]: { read: true, write: false },
+			[pat]: { read: true, write: false },
+			[lou]: { read: true, write: false }
+		});
+
+		await net.settle();
+		expect((await net.app.epks.grants(epk)).map((grant) => grant.subject.did).sort()).toEqual([pat, lou].sort());
+		expect(await net.app.epks.accessState(shared, await net.viewer('lou'))).toMatchObject({ kind: 'granted' });
+
+		// Any manager still takes access away.
+		await net.app.epks.revoke(neon, shared, lou);
+		expect(await grantees('neon', requests)).toEqual([pat]);
+		expect(await members(epk.space)).not.toHaveProperty(lou);
 	});
 
 	it("won't follow a redirect from the PDS an account's DID document names when fetching its blob", async () => {
@@ -376,10 +435,16 @@ describe('shared press kits on a real atproto spaces network', () => {
 		});
 		expect(await net.app.epks.content(moved)).toMatchObject({ bio: 'The long bio', photos: [{ alt: 'Backstage' }] });
 		expect((await net.app.core.fetchBlob!(net.rootDid, wide.ref.$link, 1_000_000)).bytes).toEqual(PNG);
-		expect(
-			(await root.getSpaceRecord({ space: moved.space, repo: net.rootDid, collection: COLLECTION.epkGrant, rkey: pat }))
-				?.value
-		).toMatchObject({ subject: pat, via: 'invited' });
+
+		const grant = await root.getSpaceRecord({
+			space: epkRequestSpace(net.rootDid, halflight.rkey),
+			repo: net.rootDid,
+			collection: COLLECTION.epkGrant,
+			rkey: grantKey(rkey, pat)
+		});
+
+		expect(grant?.value).toMatchObject({ subject: pat, epk: moved.uri, via: 'invited' });
+		expect(await readable('pat', moved.space)).toMatchObject([{ $type: COLLECTION.epkContent }]);
 		expect(await members(moved.space)).toEqual({
 			[neon.did]: { read: true, write: false },
 			[net.user('remy').did]: { read: true, write: false },

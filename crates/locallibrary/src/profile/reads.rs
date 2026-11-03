@@ -55,33 +55,20 @@ impl Files<'_> {
     /// The analysis file `key` of `origin` read ([`Read::of`]), and whether that came from the
     /// cache; `None` when there's no such file.
     pub(super) fn analysis(&self, origin: Origin, key: &str, warn: &mut WarningLimiter) -> Option<(Read, bool)> {
-        let cache_key = self.cache.as_ref().and_then(|_| self.content_key(origin, key));
+        // Found once, for its cache key and for reading it.
+        let (path, content) = self.locate(origin, key)?;
+        let cache_key = self.cache.as_ref().and(content).map(|c| Cache::<Reads>::key_of(&c));
         if let (Some(cache), Some(k)) = (&self.cache, &cache_key)
             && let Some(read) = cache.get(k)
         {
             return Some((read, true));
         }
-        let read = Read::of(&self.read(origin, key)?);
+        let read = Read::of(&std::fs::read(path).ok()?);
         if let (Some(cache), Some(k)) = (&self.cache, &cache_key)
             && let Err(e) = cache.put(k, &read)
         {
             warn.warn("uncached analysis files", format!("couldn't cache {}: {e}", Reads::WHAT));
         }
         Some((read, false))
-    }
-
-    /// What names the file's contents: a stored file's hash, or a drive file's path, size and
-    /// modification time.
-    fn content_key(&self, origin: Origin, key: &str) -> Option<String> {
-        let content = match origin {
-            Origin::Drive(i) => {
-                let path = self.drives[i].checked_path(key).ok()?;
-                let meta = std::fs::metadata(&path).ok()?;
-                let mtime = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
-                format!("{}\u{1f}{}\u{1f}{mtime}", path.display(), meta.len())
-            }
-            Origin::Snapshot(i) => self.snapshots[i].get(&key.to_lowercase())?.to_hex(),
-        };
-        Some(Cache::<Reads>::key_of(&content))
     }
 }
