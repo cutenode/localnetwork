@@ -1,12 +1,14 @@
 import type { JsonValue } from '@atproto/lex-json';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sampleReport } from '#lib/mix/sample.ts';
-import { COLLECTION } from '#lib/nsid.ts';
+import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
 import type { ProjectProfile } from '#lib/types.ts';
+import { RecordValidationError } from '../atproto/lexicons';
 import { plannerSpace } from '../atproto/spaces';
 import { ForbiddenError, NotFoundError, UserError } from '../core';
 import { HappyViewClient } from '../happyview/client';
 import { createTestServices, ROOT } from '../testing/core';
+import { FakeRootClient } from '../testing/fakes';
 import { ProjectService, slugify } from './projects';
 
 const ADMIN = 'did:plc:admin';
@@ -874,6 +876,100 @@ describe('services', () => {
 			await expect(t.bookings.setStatus({ actor: dj, space: declined, status: 'negotiating' })).rejects.toThrow(
 				/negotiating while it's declined/
 			);
+		});
+
+		it('leaves no thread behind when the inquiry write fails, and asks the promoter to send it again', async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ]
+			});
+
+			t.net.failWrites(PROMOTER);
+
+			await expect(
+				t.bookings.start({
+					actor: await t.viewer(PROMOTER),
+					projectUri: project.uri,
+					show: { title: 'Night' },
+					message: 'Free?'
+				})
+			).rejects.toMatchObject({
+				name: 'UserError',
+				status: 503,
+				message: "Couldn't send your inquiry. Try again in a minute."
+			});
+
+			expect(await t.bookings.threadsFor(PROMOTER)).toEqual([]);
+			expect(await t.bookings.threadsFor(DJ)).toEqual([]);
+			expect([...t.net.spaces.keys()].filter((space) => space.includes(SPACE_TYPE.booking))).toEqual([]);
+		});
+
+		it("still asks the promoter to send the inquiry again when its space can't be deleted", async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ]
+			});
+
+			t.net.failWrites(PROMOTER);
+			vi.spyOn(FakeRootClient.prototype, 'deleteSpace').mockRejectedValueOnce(new Error('PDS unreachable'));
+
+			await expect(
+				t.bookings.start({
+					actor: await t.viewer(PROMOTER),
+					projectUri: project.uri,
+					show: { title: 'Night' },
+					message: 'Free?'
+				})
+			).rejects.toMatchObject({ status: 503, message: "Couldn't send your inquiry. Try again in a minute." });
+
+			expect(await t.bookings.threadsFor(PROMOTER)).toEqual([]);
+			expect(await t.bookings.threadsFor(DJ)).toEqual([]);
+		});
+
+		it("asks the promoter to send the inquiry again when the thread's space can't be made", async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ]
+			});
+
+			// The root's next write is the space, once the audit copies of creating the project are in.
+			await t.audit.idle();
+			t.net.failWrites(ROOT);
+
+			await expect(
+				t.bookings.start({
+					actor: await t.viewer(PROMOTER),
+					projectUri: project.uri,
+					show: { title: 'Night' },
+					message: 'Free?'
+				})
+			).rejects.toMatchObject({ status: 503, message: "Couldn't send your inquiry. Try again in a minute." });
+
+			expect(await t.bookings.threadsFor(PROMOTER)).toEqual([]);
+		});
+
+		it('opens no thread for an inquiry that fails its lexicon', async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ]
+			});
+
+			// The form takes up to 20,000 characters; the inquiry record holds 2,000 graphemes.
+			await expect(
+				t.bookings.start({
+					actor: await t.viewer(PROMOTER),
+					projectUri: project.uri,
+					show: { title: 'Night' },
+					message: 'a'.repeat(2001)
+				})
+			).rejects.toBeInstanceOf(RecordValidationError);
+
+			expect(await t.bookings.threadsFor(DJ)).toEqual([]);
+			expect([...t.net.spaces.keys()].filter((space) => space.includes(SPACE_TYPE.booking))).toEqual([]);
 		});
 
 		it('keeps a personal planner and refuses accounts without spaces', async () => {
