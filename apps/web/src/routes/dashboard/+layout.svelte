@@ -15,7 +15,7 @@
 				{ href: '/dashboard/profile', label: 'Profile', icon: UserRound },
 				{ href: '/dashboard/inbox', label: 'Inbox', icon: Inbox, badge: data.unread },
 				{ href: '/dashboard/bookings', label: 'Bookings', icon: CalendarPlus },
-				{ href: '/dashboard/requests', label: 'Requests', icon: ClipboardList },
+				{ href: '/dashboard/requests', label: 'Submissions', icon: ClipboardList },
 				{ href: '/dashboard/activity', label: 'Activity', icon: History }
 			]
 		},

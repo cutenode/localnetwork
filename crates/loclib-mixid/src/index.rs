@@ -110,11 +110,16 @@ const INDEX_MAGIC: &[u8; 4] = b"LLIX";
 pub const INDEX_VERSION: u16 = 1;
 
 impl LibraryIndex {
+    /// How many bytes [`LibraryIndex::encode`] writes.
+    pub fn encoded_len(&self) -> usize {
+        40 + (self.track_ids.len() + self.durations.len() + self.offsets.len()) * 4 + self.entries.len() * 8
+    }
+
     /// `LLIX`, [`VERSION`], [`INDEX_VERSION`], then each array's length and values, little-endian.
     pub fn encode(&self) -> Vec<u8> {
         let (ids, durations, offsets, entries) =
             (self.track_ids.len(), self.durations.len(), self.offsets.len(), self.entries.len());
-        let mut out = Vec::with_capacity(40 + ids * 4 + durations * 4 + offsets * 4 + entries * 8);
+        let mut out = Vec::with_capacity(self.encoded_len());
         out.extend_from_slice(INDEX_MAGIC);
         out.extend_from_slice(&VERSION.to_le_bytes());
         out.extend_from_slice(&INDEX_VERSION.to_le_bytes());

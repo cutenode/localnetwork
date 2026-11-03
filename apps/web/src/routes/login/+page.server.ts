@@ -1,12 +1,16 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { clientIp, safeNext, text } from '#lib/server/http.ts';
+import { signInPurpose } from '#lib/server/sign-in.ts';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ locals, url }) => {
-	if (locals.viewer) redirect(303, safeNext(url.searchParams.get('next')));
+export const load: PageServerLoad = async ({ locals, url }) => {
+	const next = safeNext(url.searchParams.get('next'));
+
+	if (locals.viewer) redirect(303, next);
 
 	return {
-		next: safeNext(url.searchParams.get('next')),
+		next,
+		purpose: await signInPurpose(next, { bySlug: (slug) => locals.app.projects.bySlug(slug), log: locals.log }),
 		error: url.searchParams.get('error'),
 		reauth: locals.reauth === true
 	};
@@ -37,7 +41,7 @@ export const actions: Actions = {
 			locals.log.info({ err: error, handle }, 'authorize failed');
 
 			return fail(400, {
-				error: "We couldn't find that account or reach its server. Check the handle and try again.",
+				error: `We couldn't find @${handle} or reach its host. Check the handle, or make an account.`,
 				handle
 			});
 		}

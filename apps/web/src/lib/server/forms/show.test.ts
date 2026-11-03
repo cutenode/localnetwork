@@ -59,6 +59,28 @@ describe('parseShow', () => {
 		expect(parseShow(form({ title: 'Plain', currency: 'USD' }))).toEqual({ title: 'Plain' });
 	});
 
+	it("keeps the venue's city, with coordinates only when a place was picked", () => {
+		const place = {
+			title: 'Night',
+			city: 'Berlin',
+			region: 'Berlin',
+			country: 'de',
+			latE6: '52520000',
+			lngE6: '13405000'
+		};
+
+		expect(parseShow(form(place)).location).toEqual({
+			city: 'Berlin',
+			region: 'Berlin',
+			country: 'DE',
+			latE6: 52_520_000,
+			lngE6: 13_405_000
+		});
+		expect(parseShow(form({ ...place, region: '', latE6: '' })).location).toEqual({ city: 'Berlin', country: 'DE' });
+		expect(parseShow(form({ title: 'Night', city: '', country: 'DE' })).location).toBeUndefined();
+		expect(() => parseShow(form({ title: 'Night', city: 'Berlin', country: 'Germany' }))).toThrow(/two-letter/);
+	});
+
 	it('refuses a budget it would have to drop', () => {
 		expect(() => parseShow(form({ title: 'x', budgetAmount: '500', currency: 'EU' }))).toThrow(/three-letter currency/);
 		expect(() => parseShow(form({ title: 'x', budgetAmount: '500', currency: '' }))).toThrow(/currency for the budget/);

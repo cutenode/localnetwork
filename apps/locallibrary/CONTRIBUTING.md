@@ -44,14 +44,15 @@ CLI's tests run them through the real one. Account plugins are the exception: ea
 `locallibrary-plugin.toml` alone in `plugins/accounts/<id>/`, outside the workspace, which
 `build.rs` includes and nothing runs, so adding one is adding its folder.
 
-**Toolchain:** `rust-toolchain.toml` pins the Rust that CI and release builds use (1.96.1, with
-clippy, rustfmt and llvm-tools), and rustup installs it the first time cargo runs in the checkout. A Rust that doesn't come from rustup (Homebrew's, say) ignores the
-file, and its clippy may disagree with CI's. The oldest Rust locallibrary supports (its MSRV) is
-`rust-version` in Cargo.toml, 1.91; check it with `cargo +1.91 check --workspace --locked`.
-Change either on purpose: bump the pin in a commit of its own, fixing what the newer clippy
-finds, and raise `rust-version` together with the msrv job in `locallibrary-ci.yml`.
+`rust-toolchain.toml` pins the Rust that CI and release builds use (1.96.1, with clippy, rustfmt
+and llvm-tools), and rustup installs it the first time cargo runs in the checkout. A Rust that
+doesn't come from rustup (Homebrew's, say) ignores the file, and its clippy may disagree with
+CI's. The oldest Rust locallibrary supports (its MSRV) is `rust-version` in Cargo.toml, 1.91;
+check it with `cargo +1.91 check --workspace --locked`. Change either on purpose: bump the pin in
+a commit of its own, fixing what the newer clippy finds, and raise `rust-version` together with
+the msrv job in `locallibrary-ci.yml`.
 
-**CI** (`.github/workflows/locallibrary-ci.yml`, which `ci.yml` calls) runs the quick checks on
+CI (`.github/workflows/locallibrary-ci.yml`, which `ci.yml` calls) runs the quick checks on
 pull requests and pushes to `main` that change the workspace (not when only Markdown changed), on
 Linux. macOS and Windows run in the merge queue, once for each group of pull requests about to
 merge, or on a pull request with the `all-os` label (add it, then re-run CI):
@@ -108,12 +109,6 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
   `rekordbox-pdb` with [cargo-mutants](https://mutants.rs) (settings in `.cargo/mutants.toml`), in
   shards. Missed mutants don't fail it: the run's summary lists them, and each shard's
   `mutants.out` artifact has their diffs. `cargo mutants -p loclib-progress` runs it locally;
-- the release CLI's timings with [hyperfine](https://github.com/sharkdp/hyperfine) against the
-  same branch a week earlier (`tools/cli-timings.sh NEW [OLD]` runs them locally), failing when a
-  command's fastest run is more than 25% (and 3 ms) slower. On `main`, each run's timings also go
-  to [Bencher](https://bencher.dev/perf/localnetwork), which charts them over time and raises an
-  alert when one is slower than its last 64 runs suggest (it needs the `BENCHER_API_KEY` secret,
-  a project key for the `localnetwork` project);
 - dist's release build of every target, unsigned and without a tag (see Releasing);
 - the fuzz targets, five minutes each (see Fuzzing);
 - the Hegel property tests on fresh inputs, 40 minutes a shard (see Property-based tests);
@@ -217,9 +212,9 @@ cargo bench -p loclib-mixid --features test-util --bench mixid -- matcher/find  
 
 Crates with work that grows with a library or a recording have
 [criterion](https://bheisler.github.io/criterion.rs/book/) benchmarks in their `benches/`:
-`locallibrary` (reading, querying, comparing, scanning, writing and converting libraries of 5k to
-20k made-up tracks), `loclib-mixid` (fingerprinting, resampling, indexing and finding tracks in a
-mix), `loclib-model`, `loclib-tracklist` and `loclib-interop` (over
+`locallibrary` (reading, querying, comparing, profiling, scanning, writing and converting libraries
+of 5k to 20k made-up tracks), `loclib-mixid` (fingerprinting, resampling, indexing and finding
+tracks in a mix), `loclib-model`, `loclib-tracklist` and `loclib-interop` (over
 `loclib_model::test_util::library`), `loclib-waveform` (a frame of each widget) and
 `loclib-analysis`. `loclib-mixid` and `loclib-model` need `--features test-util`. The first
 `library` run builds its drives under `target/`, which takes about a minute. Compare on a quiet
@@ -343,14 +338,14 @@ over. Upgrading dist also takes the new version and its archives' checksums in
 Still to set up before the first release (the workflow runs without them, and says what it
 skipped):
 
-- **Third-party notices.** dist puts `LICENSE` in the archives and the Homebrew formula, but the
+- Third-party notices: dist puts `LICENSE` in the archives and the Homebrew formula, but the
   binary also holds code under other licences (the dependencies, and the vendored rekordbox-pdb
   with its `template.pdb`), whose notices have to ship with it: generate a notices file at
   release (with `cargo about`, say) and include it.
-- **The Homebrew tap.** Create the `cutenode/homebrew-tap` repository, and save a fine-grained
+- The Homebrew tap: create the `cutenode/homebrew-tap` repository, and save a fine-grained
   token that can write to its contents as the `HOMEBREW_TAP_TOKEN` secret. Until then the
   formula is only attached to the release.
-- **macOS signing and notarization**, with an Apple Developer Program membership. Without these
+- macOS signing and notarization, with an Apple Developer Program membership. Without these
   secrets the macOS binaries ship unsigned, and macOS refuses one downloaded with a browser
   until its quarantine flag is removed (the installers and Homebrew don't set it). Signing
   (dist runs `codesign` with the hardened runtime before archiving) needs:

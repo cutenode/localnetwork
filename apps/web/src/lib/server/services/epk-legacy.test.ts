@@ -4,7 +4,7 @@ import type { EpkView } from '#lib/epk.ts';
 import { epkContentSchema } from '#lib/epk-schema.ts';
 import { COLLECTION, EPK_CONTENT_KEY } from '#lib/nsid.ts';
 import { validateRecord } from '../atproto/lexicons';
-import { epkSpace } from '../atproto/spaces';
+import { epkRequestSpace, epkSpace } from '../atproto/spaces';
 import { ROOT } from '../testing/core';
 import { FakeRootClient } from '../testing/fakes';
 import { ADMIN, CODJ, DJ, FRIEND, PROMOTER, preset, pressKitServices, STRANGER, values } from '../testing/press-kits';
@@ -15,6 +15,27 @@ describe('LegacyEpks', () => {
 
 	/** The press kit's new space under the root. */
 	const space = () => epkSpace(ROOT, legacy.rkey);
+
+	/** Where the project's requests go now. */
+	const requestSpace = () => epkRequestSpace(ROOT, f.project.rkey);
+
+	/** A request as the root wrote one for `did` into the maker's space, before requests had a space of their own. */
+	const askedBefore = async (did: string, message?: string) => {
+		const record = validateRecord(COLLECTION.epkRequest, {
+			epk: legacy.uri,
+			onBehalfOf: did,
+			createdAt: new Date().toISOString(),
+			...(message && { message })
+		});
+
+		const ref = await f.t.net.client(ROOT).createSpaceRecord({
+			space: legacy.space,
+			collection: COLLECTION.epkRequest,
+			record
+		});
+
+		await f.t.epks.indexRequest({ space: legacy.space, uri: ref.uri, repoDid: ROOT, value: record });
+	};
 
 	const migrate = async (did = DJ) => f.t.epks.migrateLegacy(await f.t.viewer(did));
 
@@ -49,8 +70,8 @@ describe('LegacyEpks', () => {
 		const promoter = await f.t.viewer(PROMOTER);
 		await f.t.bookings.start({ actor: promoter, projectUri: elsewhere.uri, show: { title: 'Night' }, message: 'Hi' });
 		// The promoter's rule approves them at once, but only the maker's session can write that grant until it moves.
-		await f.t.epks.request(promoter, f.kit(legacy), {});
-		await f.t.epks.request(await f.t.viewer(STRANGER), f.kit(legacy), { message: 'Please' });
+		await askedBefore(promoter.did);
+		await askedBefore(STRANGER, 'Please');
 	});
 	afterEach(async () => {
 		vi.restoreAllMocks();
@@ -87,10 +108,11 @@ describe('LegacyEpks', () => {
 
 		const [request] = await f.t.epks.requests(epk);
 		expect(request).toMatchObject({ requester: { did: STRANGER }, message: 'Please', status: 'pending' });
-		expect(
-			f.t.net.spaceRecordsIn(space(), ROOT).filter((record) => record.uri.includes(COLLECTION.epkRequest))
-		).toHaveLength(2);
-		expect(request.uri).toContain(space());
+		// Both open requests moved into the project's request space, which those let in can't read, and none into the
+		// press kit's.
+		expect(f.t.net.spaceRecordsIn(requestSpace(), ROOT).map((record) => record.value.epk)).toEqual([epk.uri, epk.uri]);
+		expect(request.uri).toContain(requestSpace());
+		expect(f.t.net.spaceRecordsIn(space()).filter((record) => record.uri.includes(COLLECTION.epkRequest))).toEqual([]);
 
 		expect(f.t.net.records.has(`${DJ}|${COLLECTION.epk}|${legacy.rkey}`)).toBe(false);
 		expect(f.t.net.spaces.has(legacy.space)).toBe(false);
@@ -200,14 +222,23 @@ describe('LegacyEpks', () => {
 		expect(f.t.net.records.has(`${DJ}|${COLLECTION.epk}|${legacy.rkey}`)).toBe(true);
 	});
 
-	it("asks for a legacy press kit from the root, on the asker's behalf, since sessions can't write to its space", async () => {
-		const requests = f.t.net
-			.spaceRecordsIn(legacy.space)
-			.filter((record) => record.uri.includes(COLLECTION.epkRequest));
+	it("asks for a legacy press kit in the project's request space, and moves the request with it", async () => {
+		const kit = f.kit(legacy);
+		await f.t.epks.request(await f.t.viewer(ADMIN), kit, { message: 'Me too' });
 
-		expect(f.t.capable.has(STRANGER)).toBe(true);
-		expect(requests.map((record) => record.uri.slice(legacy.space.length + 1).split('/')[0])).toEqual([ROOT, ROOT]);
-		expect(new Set(requests.map((record) => record.value.onBehalfOf))).toEqual(new Set([PROMOTER, STRANGER]));
+		// From the asker's own session, since the request space is the root's, like any other press kit's.
+		const [asked] = f.t.net.spaceRecordsIn(requestSpace(), ADMIN);
+		expect(asked.value).toMatchObject({ epk: legacy.uri, message: 'Me too' });
+		expect(f.t.net.spaceRecordsIn(legacy.space, ADMIN)).toEqual([]);
+		expect(await f.t.epks.accessState(kit, await f.t.viewer(ADMIN))).toMatchObject({ kind: 'pending' });
+
+		expect(await migrate()).toEqual({ migrated: [legacy.rkey], failed: [] });
+		const [moved] = await f.t.epks.forProject(f.project);
+		const requests = await f.t.epks.requests(moved);
+
+		// It stays where it is, and now counts for the press kit the root holds.
+		expect(requests.find((request) => request.requester.did === ADMIN)?.uri).toBe(asked.uri);
+		expect(await f.t.epks.accessState(f.kit(moved), await f.t.viewer(ADMIN))).toMatchObject({ kind: 'pending' });
 	});
 
 	it('carries one request per asker, even when two askers picked the same key', async () => {

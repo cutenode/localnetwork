@@ -8,6 +8,8 @@
 # cargo-mutants' results (.cargo/mutants.toml).
 /mutants.out*
 node_modules/
+# The coverage report from `pnpm test:tools`.
+/coverage/
 .DS_Store
 Thumbs.db
 # Local secrets, in any app.

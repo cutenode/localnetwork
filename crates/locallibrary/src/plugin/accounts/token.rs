@@ -12,12 +12,12 @@
 
 use std::sync::Arc;
 
-use loclib_plugin::{AccountNeed, ErrorData, RpcError, Scope, TokenPlace};
+use loclib_plugin::{AccountNeed, AccountType, ErrorData, RpcError, Scope, TokenPlace};
 use reqwest::Url;
 use serde_json::{Map, json};
 
 use super::access::Access;
-use super::kept;
+use super::kept::{self, Kept};
 use crate::Error;
 use crate::error::Reason;
 use crate::plugin::process::{Live, Plugin};
@@ -36,7 +36,7 @@ pub(crate) struct Usable {
 }
 
 /// A failure of kind `kind` naming the type `need` asks for, `scopes` and the account `plugins`.
-fn failed(kind: &str, why: String, need: &AccountNeed, scopes: &[String], plugins: Vec<String>) -> RpcError {
+pub(super) fn failed(kind: &str, why: String, need: &AccountNeed, scopes: &[String], plugins: Vec<String>) -> RpcError {
     let fields = Map::from_iter([
         ("type".to_string(), json!(need.name)),
         ("scopes".to_string(), json!(scopes)),
@@ -55,7 +55,7 @@ fn signed_out(why: String, need: &AccountNeed, a: &Access) -> RpcError {
 
 /// `e`, naming the access `a` it's about, its account, and the scopes signing in again `needs` to
 /// allow.
-fn about(mut e: RpcError, a: &Access, needs: &[String]) -> RpcError {
+pub(super) fn about(mut e: RpcError, a: &Access, needs: &[String]) -> RpcError {
     for d in e.data.iter_mut() {
         d.fields.insert("access".into(), json!(a.id));
         d.fields.insert("account".into(), json!(a.account));
@@ -76,6 +76,50 @@ impl Plugin {
         url: &Url,
     ) -> Result<Usable, RpcError> {
         let kind = &need.name;
+        self.with_access(live, need, access, |a, k, with, t| {
+            let (on, at) = (&a.account.plugin, &a.name);
+            let gone = || signed_out(format!("the {kind} account {at} is signed out: sign in again"), need, a);
+            let k = k.ok_or_else(gone)?;
+            // Each naming the scopes signing in again needs to allow: none, when it can't help.
+            let scope_failed = |why: String, scopes: &[String], needs: &[String]| {
+                about(failed("scope", why, need, scopes, vec![on.clone()]), a, needs)
+            };
+            let missing: Vec<String> = need.scopes.iter().filter(|s| !a.scopes.contains(s)).cloned().collect();
+            if !missing.is_empty() {
+                let why =
+                    format!("its access to the {kind} account {at} doesn't have every scope it needs: give it again");
+                return Err(scope_failed(why, &missing, &missing));
+            }
+            let scopes = || a.scopes.iter().filter_map(|n| Some((n, t.scopes.get(n)?)));
+            let covering: Vec<(&String, &Scope)> = scopes().filter(|(_, s)| s.covers(method, url)).collect();
+            if covering.is_empty() {
+                let why = format!("none of its scopes on the {kind} account {at} covers {method} {url}");
+                return Err(scope_failed(why, &a.scopes, &[]));
+            }
+            let is_granted = |s: &Scope| s.asks.iter().all(|asks| k.scopes.contains(asks));
+            if !covering.iter().any(|(_, s)| is_granted(s)) {
+                let names: Vec<String> = covering.iter().map(|(n, _)| n.to_string()).collect();
+                let why =
+                    format!("the {kind} account {at} wasn't granted what {} asks: sign in again", names.join(", "));
+                return Err(scope_failed(why, &names, &names));
+            }
+            let scopes = scopes().filter(|(_, s)| is_granted(s)).map(|(n, s)| (n.clone(), s.clone())).collect();
+            Ok(Usable { with: with.clone(), access: a.clone(), need: need.clone(), place: t.token.clone(), scopes })
+        })
+    }
+
+    /// What `f` makes of its access of the type `need` asks for that `access` names, else its
+    /// default for the type: the access, its account unless it's signed out, and the account plugin
+    /// that signed it in with the type as it provides it. `access` when it has no such access, or
+    /// that account plugin isn't installed.
+    pub(super) fn with_access<T>(
+        &self,
+        live: &Live,
+        need: &AccountNeed,
+        access: Option<&str>,
+        f: impl FnOnce(&Access, Option<&Kept>, &Arc<Plugin>, &AccountType) -> Result<T, RpcError>,
+    ) -> Result<T, RpcError> {
+        let kind = &need.name;
         let no_access = |why: String| failed("access", why, need, &need.scopes, self.host.providing(kind));
         let Some(store) = live.store.as_ref() else {
             return Err(no_access(format!("it has no access to a {kind} account without a store")));
@@ -89,37 +133,13 @@ impl Plugin {
             }
         };
         let (on, at) = (&a.account.plugin, &a.name);
-        let gone = || signed_out(format!("the {kind} account {at} is signed out: sign in again"), need, a);
-        let k = book.account(on, &a.account.subject).ok_or_else(gone)?;
         let with = self.host.account_plugin(on);
         let t = with.as_ref().and_then(|w| w.account_type(kind).ok());
-        let (Some(with), Some(t)) = (with.clone(), t) else {
+        let (Some(with), Some(t)) = (&with, t) else {
             let why = format!("the {kind} account {at} was signed in through {on}, which isn't installed");
             return Err(about(no_access(why), a, &[]));
         };
-        // Each naming the scopes signing in again needs to allow: none, when it can't help.
-        let scope_failed = |why: String, scopes: &[String], needs: &[String]| {
-            about(failed("scope", why, need, scopes, vec![on.clone()]), a, needs)
-        };
-        let missing: Vec<String> = need.scopes.iter().filter(|s| !a.scopes.contains(s)).cloned().collect();
-        if !missing.is_empty() {
-            let why = format!("its access to the {kind} account {at} doesn't have every scope it needs: give it again");
-            return Err(scope_failed(why, &missing, &missing));
-        }
-        let scopes = || a.scopes.iter().filter_map(|n| Some((n, t.scopes.get(n)?)));
-        let covering: Vec<(&String, &Scope)> = scopes().filter(|(_, s)| s.covers(method, url)).collect();
-        if covering.is_empty() {
-            let why = format!("none of its scopes on the {kind} account {at} covers {method} {url}");
-            return Err(scope_failed(why, &a.scopes, &[]));
-        }
-        let is_granted = |s: &Scope| s.asks.iter().all(|asks| k.scopes.contains(asks));
-        if !covering.iter().any(|(_, s)| is_granted(s)) {
-            let names: Vec<String> = covering.iter().map(|(n, _)| n.to_string()).collect();
-            let why = format!("the {kind} account {at} wasn't granted what {} asks: sign in again", names.join(", "));
-            return Err(scope_failed(why, &names, &names));
-        }
-        let scopes = scopes().filter(|(_, s)| is_granted(s)).map(|(n, s)| (n.clone(), s.clone())).collect();
-        Ok(Usable { with, access: a.clone(), need: need.clone(), place: t.token.clone(), scopes })
+        f(a, book.account(on, &a.account.subject), with, t)
     }
 
     /// The token of `usable`'s account, told to [`crate::plugin::net::State::scrub`]: `access`

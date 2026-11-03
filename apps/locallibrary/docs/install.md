@@ -18,18 +18,19 @@ off:
 
 - `account`: the Atmosphere account and publishing to it (`account`, `profile publish`, `sets
   publish`, `settings publish`, `settings import --from-handle` and `--from-account`, posting
-  with `bug`, the player's sign-in, and the sidecar's `account.*` and `*.publish.*` methods). Half
-  the dependencies are for this alone (an HTTP client, an async runtime, TLS, DNS, the system
-  keychain): about 220 of the 530 crates the command builds. Without it the profile and its
-  document are still made, just not published, and `bug` opens GitHub's bug report form.
+  with `bug`, the player's sign-in, and the sidecar's `account.*` and `*.publish.*` methods). The
+  AT Protocol sign-in and identity clients and their DNS lookups are for this alone, about 40 of
+  the 600 crates the command builds; the HTTP client, async runtime, TLS and keychain are built
+  either way, for plugins. Without it the profile and its document are still made, just not
+  published, and `bug` opens GitHub's bug report form.
 - `tui`: the player (`locallibrary tui`, and `locallibrary` on its own in a terminal).
 - `playback`: the player's audio output, and with it ALSA on Linux. Without it the player
   browses, edits and shows waveforms, but has no output to play through.
 - `peers`: `store serve` and `store fetch`, copying snapshots between computers over the network
-  ([iroh](https://iroh.computer)'s QUIC connections, about 80 more crates).
+  ([iroh](https://iroh.computer)'s QUIC connections, about 100 more crates).
 
 ```bash
-# A headless sidecar for a desktop app: no player, no account (about 160 crates)
+# A headless sidecar for a desktop app: no player, no account (about 440 crates)
 cargo install --path localnetwork/apps/locallibrary --locked --no-default-features
 # The same, with the account
 cargo install --path localnetwork/apps/locallibrary --locked --no-default-features --features account
@@ -63,6 +64,7 @@ on Windows). The Linux build needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12)
 (`libasound2`, which desktops already have) for the player's audio.
 
 ### Shell completion and man pages
+
 Tab completes commands and flags, and also the drives mounted now, their playlist paths, My Tags and
 history lists, the libraries, sets and sessions in the store (a library's name wherever one is
 taken), player models and the steps `refresh --skip` leaves out: the shell asks `locallibrary`

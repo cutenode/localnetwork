@@ -19,7 +19,6 @@ import type { AccountView, ProjectView, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
 import {
 	type BlobJson,
-	createSpaceIfMissing,
 	memberSpacePolicy,
 	type RecordRef,
 	type RepoClient,
@@ -45,6 +44,7 @@ import {
 } from './epk-fields';
 import { spaceWriter } from './own-repo';
 import { actorRole } from './requests';
+import { ensureRootSpace } from './space-members';
 
 type DraftRecord = z.infer<typeof epkDraftSchema>;
 
@@ -413,22 +413,14 @@ export class EpkDrafts {
 	 * The project's backstage, created the first time a manager saves a draft, with the managers as its members. After
 	 * that, ManagerSpaces keeps them in step with the project.
 	 */
-	private async ensureBackstage(project: ProjectView): Promise<string> {
-		const root = await this.core.root();
-		const space = this.space(project);
-
-		if (await root.getSpace(space)) return space;
-		await createSpaceIfMissing(root, {
+	private ensureBackstage(project: ProjectView): Promise<string> {
+		return ensureRootSpace(this.core, {
 			spaceType: SPACE_TYPE.backstage,
 			skey: project.rkey,
-			policy: memberSpacePolicy()
+			policy: memberSpacePolicy(),
+			members: project.managers,
+			access: { read: true, write: true }
 		});
-
-		for (const did of project.managers) await root.putMember({ space, did, read: true, write: true });
-		await this.core.watchSpace?.(space);
-		this.core.logger.info({ space, project: project.uri }, 'created a backstage');
-
-		return space;
 	}
 
 	/**

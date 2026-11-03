@@ -352,6 +352,53 @@ describe('services', () => {
 			expect(decision?.value).toMatchObject({ outcome: 'approved', decidedBy: MOD, requester: DJ });
 		});
 
+		it("refuses to approve an avatar of a type the site won't serve, whatever its case", async () => {
+			const dj = await t.viewer(DJ);
+			const mod = await t.viewer(MOD);
+			const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>');
+
+			// Another client can write a request record the site's form would have refused.
+			const request = await t.requests.submit({
+				actor: dj,
+				kind: 'create',
+				profile: profile('Vector'),
+				avatar: { bytes: svg, mimeType: 'image/svg+xml' }
+			});
+
+			await expect(t.requests.decide({ actor: mod, uri: request.uri, outcome: 'approved' })).rejects.toThrow(
+				new UserError(
+					"Their avatar is image/svg+xml, which the site can't show. Ask for changes so they can upload a PNG, JPEG, or WebP image"
+				)
+			);
+			expect((await t.requests.get(request.uri))?.status).toBe('pending');
+			expect(await t.projects.bySlug('vector')).toBeNull();
+
+			const shouting = await t.requests.submit({
+				actor: await t.viewer(PROMOTER),
+				kind: 'create',
+				profile: profile('Loud'),
+				avatar: { bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1]), mimeType: 'IMAGE/PNG' }
+			});
+
+			await t.requests.decide({ actor: mod, uri: shouting.uri, outcome: 'approved' });
+			expect((await t.projects.bySlug('loud'))?.avatarUrl).toMatch(/^\/media\/did:plc:root\//);
+		});
+
+		it("publishes without the avatar when the requester's PDS can't serve it", async () => {
+			const request = await t.requests.submit({
+				actor: await t.viewer(DJ),
+				kind: 'create',
+				profile: profile('Gone'),
+				avatar: { bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 2]), mimeType: 'image/png' }
+			});
+
+			t.net.blobs.delete(request.record.profile!.avatar!.ref.$link);
+			await t.requests.decide({ actor: await t.viewer(MOD), uri: request.uri, outcome: 'approved' });
+			const project = await t.projects.bySlug('gone');
+			expect(project?.profile.name).toBe('Gone');
+			expect(project?.profile.avatar).toBeUndefined();
+		});
+
 		it('copies proposed tracklists on approval and keeps published files on updates', async () => {
 			const dj = await t.viewer(DJ);
 			const mod = await t.viewer(MOD);
@@ -774,6 +821,59 @@ describe('services', () => {
 			await t.db.schema.dropTable('notification').execute();
 			await t.bookings.message({ actor: promoter, space, text: 'See you there' });
 			expect((await t.bookings.thread(promoter, space)).events.at(-1)?.text).toBe('See you there');
+		});
+
+		it('lets each side of a booking make only its own status changes', async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Turns'),
+				managers: [DJ]
+			});
+
+			const promoter = await t.viewer(PROMOTER);
+			const dj = await t.viewer(DJ);
+
+			const open = () =>
+				t.bookings.start({ actor: promoter, projectUri: project.uri, show: { title: 'x' }, message: 'hi' });
+
+			const status = async (space: string) => (await t.bookings.thread(promoter, space)).thread.status;
+			const space = await open();
+
+			// The promoter can't decline their own inquiry, or confirm one nobody has answered.
+			await expect(t.bookings.setStatus({ actor: promoter, space, status: 'declined' })).rejects.toThrow(
+				"You can't mark this booking declined while it's open"
+			);
+			await expect(t.bookings.setStatus({ actor: promoter, space, status: 'confirmed' })).rejects.toMatchObject({
+				status: 409
+			});
+			await expect(t.bookings.setStatus({ actor: dj, space, status: 'open' })).rejects.toThrow(
+				'This booking is already open'
+			);
+			expect((await t.audit.list({ action: 'booking.status' })).map((entry) => entry.outcome)).toEqual([
+				'denied',
+				'denied',
+				'denied'
+			]);
+
+			await t.bookings.setStatus({ actor: dj, space, status: 'negotiating' });
+			await t.bookings.setStatus({ actor: promoter, space, status: 'confirmed' });
+			// Once it's booked, either side can only call it off, and nothing reopens it.
+			await expect(t.bookings.setStatus({ actor: dj, space, status: 'declined' })).rejects.toThrow(/declined while/);
+			await t.bookings.setStatus({ actor: dj, space, status: 'cancelled' });
+			await expect(t.bookings.setStatus({ actor: promoter, space, status: 'confirmed' })).rejects.toThrow(
+				/confirmed while it's cancelled/
+			);
+			expect(await status(space)).toBe('cancelled');
+
+			const withdrawn = await open();
+			await t.bookings.setStatus({ actor: promoter, space: withdrawn, status: 'cancelled' });
+			expect(await status(withdrawn)).toBe('cancelled');
+
+			const declined = await open();
+			await t.bookings.setStatus({ actor: dj, space: declined, status: 'declined' });
+			await expect(t.bookings.setStatus({ actor: dj, space: declined, status: 'negotiating' })).rejects.toThrow(
+				/negotiating while it's declined/
+			);
 		});
 
 		it('keeps a personal planner and refuses accounts without spaces', async () => {
