@@ -4,8 +4,11 @@ import { type PageImage, type PageMeta, SITE_NAME } from '#lib/meta.ts';
 import { CARD } from '#lib/og/style.ts';
 import { bareMbid } from '#lib/supports.ts';
 import type { AccountView, ProfileRecord, ProfileView, ProjectView } from '#lib/types.ts';
+import { type PageRecords, recordTags } from './meta-records';
 import { isDrawable } from './og/drawable';
 import { cardPaths } from './og/paths';
+import { jsonLdScript } from '#lib/structured-data.ts';
+import { type JsonLdBuilder, jsonLdFor } from './structured-data';
 
 /** About as much of a description as link previews show; longer ones are cut at a word. */
 const DESCRIPTION_LENGTH = 200;
@@ -193,3 +196,21 @@ export const mixMeta = (
 		),
 		type: 'music.song'
 	});
+
+/**
+ * `meta`, with what only a page search engines may list carries set aside for the server hook to write into its head:
+ * the records behind it as at-tags, and its structured data (see crawler-head.ts). A page kept out of search gets
+ * neither, and its records aren't even looked up.
+ */
+export async function listed(
+	locals: Pick<App.Locals, 'crawlerHead'>,
+	meta: PageMeta,
+	{ records, jsonLd }: { records?: () => PageRecords | Promise<PageRecords>; jsonLd?: JsonLdBuilder | null }
+): Promise<PageMeta> {
+	if (meta.noindex) return meta;
+	const head = [records && recordTags(await records()), jsonLd && jsonLdScript(jsonLdFor(meta, jsonLd))];
+
+	locals.crawlerHead = head.filter(Boolean).join('');
+
+	return meta;
+}

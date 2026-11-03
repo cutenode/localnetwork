@@ -1,4 +1,5 @@
 use super::*;
+use crate::mix::prefs::MixPrefs;
 use loclib_mixid::fingerprint::{FrameLevels, Peak};
 
 #[test]
@@ -213,13 +214,13 @@ fn identifying_again_from_the_cache_says_what_the_first_time_did(tc: TestCase) {
     let ctx = Ctx::new(&count, CancelToken::new());
     let options = Options { tempo_range: 0.02 };
 
-    let cold = Identifier::with_library(&device, library.clone(), &cache, &ctx).unwrap();
+    let cold = Identifier::with_library(&device, library.clone(), &cache, &MixPrefs::default(), &ctx).unwrap();
     let first = cold.identify(&recording, &options, &ctx).unwrap();
     assert!(!cold.cache.index);
     assert_eq!(cold.cache.heard.load(std::sync::atomic::Ordering::Relaxed), 0);
     assert_eq!(decoded.swap(0, std::sync::atomic::Ordering::Relaxed), seeds.len());
 
-    let warm = Identifier::with_library(&device, library.clone(), &cache, &ctx).unwrap();
+    let warm = Identifier::with_library(&device, library.clone(), &cache, &MixPrefs::default(), &ctx).unwrap();
     let again = warm.identify(&recording, &options, &ctx).unwrap();
     assert!(warm.cache.index, "the index is the one kept");
     assert_eq!(warm.cache.heard.load(std::sync::atomic::Ordering::Relaxed), 1, "the recording was heard before");
@@ -238,10 +239,42 @@ fn identifying_again_from_the_cache_says_what_the_first_time_did(tc: TestCase) {
         .unwrap()
         .set_modified(modified + std::time::Duration::from_secs(5))
         .unwrap();
-    let rebuilt = Identifier::with_library(&device, library, &cache, &ctx).unwrap();
+    let rebuilt = Identifier::with_library(&device, library, &cache, &MixPrefs::default(), &ctx).unwrap();
     assert!(!rebuilt.cache.index);
     assert_eq!(rebuilt.index.encode(), cold.index.encode(), "the same audio indexes the same");
     assert_eq!(std::fs::read_dir(cache.root().join(INDEX_DIR)).unwrap().count(), 1, "one index per drive");
+}
+
+/// A drive's index is kept only when its file would be within the limit; one over it isn't, and
+/// the one kept from the drive's older prints goes, so the drive keeps none, as does one kept
+/// under a higher limit once it's read. The limit doesn't change the index.
+#[hegel::test(test_cases = 20)]
+fn only_an_index_within_the_limit_is_kept(tc: TestCase) {
+    let prints = |n: u32, tag: &str| -> Vec<Fingerprinted> {
+        let peaks = (0..n * 3).map(|t| Peak { t: t * 7, f: (t % 50) as u8 }).collect();
+        let print = TrackPrint { duration_secs: 30.0, peaks };
+        (0..n).map(|id| Fingerprinted { id, key: format!("{tag}{id}"), print: print.clone() }).collect()
+    };
+    let n = tc.draw(gs::integers::<u32>().max_value(20));
+    let dir = tempfile::tempdir().unwrap();
+    // What the index takes kept, from a cache with no limit.
+    let whole = Cache::new(dir.path().join("whole"));
+    let (unlimited, _) = library_index(&whole, "Main", prints(n, "b"), u64::MAX, &Ctx::silent());
+    let size = std::fs::metadata(index_file(&whole, "Main")).unwrap().len();
+    let limit = tc.draw(hegel::one_of!(gs::just(0), gs::integers::<u64>().min_value(size - 64).max_value(size + 64)));
+
+    let cache = Cache::new(dir.path().join("cache"));
+    library_index(&cache, "Main", prints(2, "a"), u64::MAX, &Ctx::silent());
+    let (index, kept) = library_index(&cache, "Main", prints(n, "b"), limit, &Ctx::silent());
+    assert!(!kept);
+    assert_eq!(index.encode(), unlimited.encode());
+    let within = size <= limit;
+    assert_eq!(index_file(&cache, "Main").exists(), within, "{size} bytes, limit {limit}");
+    assert_eq!(library_index(&cache, "Main", prints(n, "b"), limit, &Ctx::silent()).1, within);
+    // Kept under a higher limit, it's read once more, then goes.
+    library_index(&cache, "Main", prints(n, "b"), u64::MAX, &Ctx::silent());
+    assert!(library_index(&cache, "Main", prints(n, "b"), limit, &Ctx::silent()).1);
+    assert_eq!(index_file(&cache, "Main").exists(), within, "{size} bytes, limit {limit}");
 }
 
 /// An index reads back as it was written, and nothing else does: bytes cut short or added to,
@@ -333,7 +366,7 @@ fn gc_removes_what_older_versions_fingerprinted() {
     old[4..8].copy_from_slice(&(Recordings::VERSION - 1).to_le_bytes());
     std::fs::create_dir_all(cache.root().join("bb")).unwrap();
     std::fs::write(heard.file("bb02", Recordings::EXT), &old).unwrap();
-    let (_, kept) = library_index(&cache, "Main", Vec::new(), &Ctx::silent());
+    let (_, kept) = library_index(&cache, "Main", Vec::new(), u64::MAX, &Ctx::silent());
     assert!(!kept);
     let mut stale = std::fs::read(index_file(&cache, "Main")).unwrap();
     stale[38..40].copy_from_slice(&(INDEX_VERSION - 1).to_le_bytes());
@@ -350,5 +383,5 @@ fn gc_removes_what_older_versions_fingerprinted() {
     assert!(older.iter().all(|f| !f.exists()));
     assert_eq!(cache.get("aa01"), Some(print));
     assert!(heard.get("bb01").is_some());
-    assert!(library_index(&cache, "Main", Vec::new(), &Ctx::silent()).1, "the current index stays");
+    assert!(library_index(&cache, "Main", Vec::new(), u64::MAX, &Ctx::silent()).1, "the current index stays");
 }

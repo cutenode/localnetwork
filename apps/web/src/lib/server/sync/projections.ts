@@ -78,7 +78,7 @@ export function createProjections(deps: {
 				await core.db.deleteFrom('bookingEvent').where('uri', '=', change.uri).execute();
 			} else if (type === SPACE_TYPE.epk && change.collection === COLLECTION.epkGrant) {
 				await epks.unindexGrant(change.space, change.uri);
-			} else if (type === SPACE_TYPE.epk && change.collection === COLLECTION.epkRequest) {
+			} else if (change.collection === COLLECTION.epkRequest) {
 				await epks.unindexRequest(change.uri);
 			} else if (type === SPACE_TYPE.backstage && change.collection === COLLECTION.epkDraft) {
 				await epks.drafts.unindex(change.uri);
@@ -180,8 +180,8 @@ export function createProjections(deps: {
 
 				return;
 			case COLLECTION.epkRequest:
-				if (type === SPACE_TYPE.epk)
-					await epks.indexRequest({ space: change.space, uri: change.uri, repoDid: change.repoDid, value });
+				// indexRequest checks the space: a project's request space, or a press kit's, where requests went before.
+				await epks.indexRequest({ space: change.space, uri: change.uri, repoDid: change.repoDid, value });
 
 				return;
 			case COLLECTION.epkGrant:

@@ -16,10 +16,12 @@
 		<h2>Staff only</h2>
 		<p>Requests, claim evidence, decisions, staff roles, and the audit log live in spaces only staff can read. Audit entries record what happened (who, what, when, and which fields changed); booking message contents are never copied into the audit log.</p>
 		<h2>Press kits</h2>
-		<p>A press kit's public part is a record in Local Network's repo that anyone can read. The rest sits in a space under Local Network's account that only the project's managers, Local Network, and the people they let in can read. Asking to see it shares your handle and any message you write with the project's managers. Each person let in gets a record in that space saying so, which any of the managers can have deleted to take access away. Drafts of a press kit sit in each manager's repo in a space only the project's current managers can read.</p>
+		<p>A press kit's public part is a record in Local Network's repo that anyone can read. The rest sits in a space under Local Network's account that only the project's managers, Local Network, and the people they let in can read. Asking to see it shares your handle, and any role and message you give, with the project's managers only: requests sit in a separate space that only they and Local Network can read. Each person let in gets a record in the press kit's space saying so, which the others let in can see, and which any of the managers can have deleted to take access away. Drafts of a press kit sit in each manager's repo in a space only the project's current managers can read.</p>
 		<p>When someone let in opens a press kit on this site, its project's managers see who and when. Local Network keeps that receipt for {data.retentionDays} days, and any of the managers can delete it sooner. The audit log keeps a record that the press kit was viewed, but not by whom.</p>
-		<h2>Just you and the other party</h2>
-		<p>Booking threads are readable only by the promoter and the project's managers. Your planner is readable only by you.</p>
+		<h2>Acts, parties and venues</h2>
+		<p>Each act, party and venue has a space under Local Network's account with who's in it, their roles, invites and requests to join, and whether it's listed in the directory. Only its people are members of the space, and staff see it through this site.</p>
+		<h2>Booking threads and your planner</h2>
+		<p>Each booking thread is a space under Local Network's account whose only members are the promoter and the project's managers. Local Network indexes the thread so the site can show it to them. Your planner is readable only by you.</p>
 		<h2>On our server</h2>
 		<p>We keep a search index derived from the records above, OAuth tokens needed to act on your behalf (encrypted at rest by your host's disk encryption), hashed browser session tokens, and an outbox of audit entries waiting to be written. Signing out revokes our OAuth session.</p>
 		<p>Your inbox lives only on our server. Each item says what happened and where (a new inquiry or message in one of your booking threads, say) but not what anyone wrote. Read items are deleted after 90 days and unread ones after 180.</p>

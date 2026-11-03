@@ -256,8 +256,8 @@ async function main() {
 	log(`Seeded ${DEMO_PROJECTS.length} demo projects`);
 
 	// Neon Tide's press kits, written as the site writes them: a space per press kit (under the root, whose members are
-	// the project's managers as readers, or for the legacy one under neon.test with the root as a member), the private
-	// part in it, then the public record.
+	// the project's managers as readers and which only the root writes, or for the legacy one under neon.test with the
+	// root as a member, which took requests too), the private part in it, then the public record.
 	const rootClient = new AgentRepoClient(root.did, rootAgent);
 	const neonClient = new AgentRepoClient(dids['neon.test'], neon);
 
@@ -268,7 +268,7 @@ async function main() {
 		const space = await owner.createSpace({
 			spaceType: SPACE_TYPE.epk,
 			skey: rkey,
-			policy: memberSpacePolicy({ publicWrite: true })
+			policy: memberSpacePolicy({ publicWrite: epk.legacy })
 		});
 
 		const members = epk.legacy

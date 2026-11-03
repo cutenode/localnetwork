@@ -278,3 +278,29 @@ fn only_recordings_mix_can_read_are_taken(tc: TestCase) {
     };
     assert!(said.contains(&why), "{why:?}: {said}");
 }
+
+/// `store index-limit` keeps the last limit set (or none, back at the default), says so in text
+/// as its `--json` does, and `settings export` carries what's set.
+#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+fn the_index_limit_set_is_the_one_shown_and_exported(tc: TestCase) {
+    let fx = Env::new();
+    let mut set: Option<u64> = None;
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
+        let limit = tc.draw(gs::optional(gs::sampled_from(vec![0u64, 1, 512, 4096, u64::MAX])));
+        let arg = limit.map_or("default".to_string(), |mib| mib.to_string());
+        let r = fx.json(&["store", "index-limit", &arg]);
+        assert_eq!(r["outcome"], "applied", "{r}");
+        set = limit;
+    }
+    let shown = fx.json(&["store", "index-limit"]);
+    let mib = set.unwrap_or(512);
+    assert_eq!((shown["index_limit_mib"].as_u64(), shown["default"].as_bool()), (Some(mib), Some(set.is_none())));
+    let said = fx.ok(&["store", "index-limit"]);
+    match mib {
+        0 => assert_eq!(said.trim(), "fingerprint indexes aren't kept"),
+        _ => assert!(said.contains(&format!("up to {mib} MiB a drive")), "{said}"),
+    }
+    assert_eq!(said.contains("(the default)"), set.is_none(), "{said}");
+    let exported = &fx.json(&["settings", "export"])["mix"];
+    assert_eq!(exported.get("index_limit_mib").and_then(Value::as_u64), set, "{exported}");
+}

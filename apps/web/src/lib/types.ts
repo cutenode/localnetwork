@@ -399,6 +399,8 @@ export type BookingThreadView = {
 	project: { uri: string; slug: string; name: string } | null;
 	promoter: AccountView;
 	participants: (AccountView & { role: 'promoter' | 'manager' })[];
+	/** Who wrote in the thread last (a message, the inquiry, or a status change), to tell whose turn it is. */
+	lastAuthor: string | null;
 	lastActivityAt: string;
 	createdAt: string;
 };
@@ -490,3 +492,6 @@ export type PendingInvite = AccountView & { role: string; createdAt: string; exp
 
 /** A request to join a space waiting on an answer. */
 export type JoinRequestView = AccountView & { message: string | null; createdAt: string };
+
+/** Somewhere to make an Atmosphere account (hosts.json): sign-up starts at `service`, and handles end in `domain`. */
+export type AccountHost = { name: string; domain: string; service: string; country: string; note?: string };

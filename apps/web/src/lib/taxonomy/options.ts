@@ -30,6 +30,16 @@ export const SET_TYPES = [
 	{ value: 'liveSet', label: 'Live set' }
 ] as const satisfies readonly Option[];
 
+/** A DJ set's `kind`. `mix` came before `studio` and means the same, so it reads as Studio too. */
+export const SET_KINDS = [
+	{ value: 'club', label: 'Club' },
+	{ value: 'festival', label: 'Festival' },
+	{ value: 'radio', label: 'Radio' },
+	{ value: 'livestream', label: 'Livestream' },
+	{ value: 'mix', label: 'Studio' },
+	{ value: 'studio', label: 'Studio' }
+] as const satisfies readonly Option[];
+
 export const FEE_TIERS = [
 	{ value: 'community', label: 'Community', hint: 'DIY, benefit, and community shows' },
 	{ value: 'emerging', label: 'Emerging', hint: 'Club nights and local support slots' },

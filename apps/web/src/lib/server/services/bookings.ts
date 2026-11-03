@@ -1,7 +1,8 @@
 import { TID } from '@atproto/common-web';
 import { sql } from 'kysely';
+import { bookingActions, type BookingRole } from '#lib/bookings.ts';
 import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
-import { BOOKING_STATUSES, isOneOf } from '#lib/taxonomy/options.ts';
+import { BOOKING_STATUSES, isOneOf, labelFor } from '#lib/taxonomy/options.ts';
 import type { BookingEventView, BookingThreadView, ShowDetails, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
 import { memberSpacePolicy } from '../atproto/repo-client';
@@ -190,7 +191,7 @@ export class BookingService {
 		return space;
 	}
 
-	private async requireParticipant(actor: Viewer, space: string): Promise<BookingThreadRow> {
+	private async requireParticipant(actor: Viewer, space: string): Promise<BookingThreadRow & { role: BookingRole }> {
 		const thread = await this.core.db
 			.selectFrom('bookingThread')
 			.selectAll()
@@ -208,7 +209,24 @@ export class BookingService {
 
 		if (!participant) throw new ForbiddenError('You are not part of this booking thread');
 
-		return thread;
+		return { ...thread, role: participant.role };
+	}
+
+	/** Whether any of the thread's managers has written in it yet. */
+	private async answered(space: string): Promise<boolean> {
+		const reply = await this.core.db
+			.selectFrom('bookingEvent')
+			.innerJoin('bookingParticipant', (join) =>
+				join
+					.onRef('bookingParticipant.spaceUri', '=', 'bookingEvent.spaceUri')
+					.onRef('bookingParticipant.did', '=', 'bookingEvent.authorDid')
+			)
+			.select('bookingEvent.uri')
+			.where('bookingEvent.spaceUri', '=', space)
+			.where('bookingParticipant.role', '=', 'manager')
+			.executeTakeFirst();
+
+		return reply !== undefined;
 	}
 
 	async message(input: { actor: Viewer; space: string; text: string }): Promise<void> {
@@ -248,8 +266,31 @@ export class BookingService {
 	async setStatus(input: { actor: Viewer; space: string; status: string; note?: string }): Promise<void> {
 		if (!isOneOf(BOOKING_STATUSES, input.status)) throw new UserError('Unknown status');
 		const thread = await this.requireParticipant(input.actor, input.space);
+		const allowed = bookingActions(thread.role, thread.status, await this.answered(input.space));
 
-		if (thread.status === input.status) return;
+		// Each side has its own moves (bookingActions); anything else, including the status it already has, is refused.
+		if (!allowed.some((action) => action.status === input.status)) {
+			const [from, to] = [thread.status, input.status].map((status) =>
+				labelFor(BOOKING_STATUSES, status).toLowerCase()
+			);
+
+			const message =
+				from === to ? `This booking is already ${to}` : `You can't mark this booking ${to} while it's ${from}`;
+
+			await this.core.audit.record({
+				actor: input.actor.did,
+				actorRole: actorRole(input.actor),
+				action: 'booking.status',
+				subject: input.space,
+				subjectKind: 'booking',
+				summary: `Denied: ${message}`,
+				outcome: 'denied',
+				reason: message,
+				details: { role: thread.role, from: thread.status, to: input.status }
+			});
+			throw new UserError(message, 409);
+		}
+
 		const { client, onBehalf } = await spaceWriter(this.core, input.actor);
 
 		const draft: BookingRecord = { status: input.status, createdAt: nowIso() };
@@ -524,6 +565,19 @@ export class BookingService {
 		const accounts = await this.core.accounts.views(participants.map((p) => p.did));
 		const projects = await this.projects.byUris(rows.map((row) => row.projectUri));
 
+		// Newest first, so the first one seen for each thread is its last author. The root only opens threads.
+		const latest = await this.core.db
+			.selectFrom('bookingEvent')
+			.select(['spaceUri', 'authorDid'])
+			.where('spaceUri', 'in', spaces)
+			.where('authorDid', '!=', this.core.rootDid)
+			.orderBy('createdAt', 'desc')
+			.execute();
+
+		const lastAuthors = new Map<string, string>();
+
+		for (const event of latest) if (!lastAuthors.has(event.spaceUri)) lastAuthors.set(event.spaceUri, event.authorDid);
+
 		return rows.map((row) => {
 			const project = projects.get(row.projectUri);
 
@@ -538,6 +592,7 @@ export class BookingService {
 				participants: participants
 					.filter((p) => p.spaceUri === row.spaceUri)
 					.map((p) => ({ ...(accounts.get(p.did) ?? { did: p.did, handle: null }), role: p.role })),
+				lastAuthor: lastAuthors.get(row.spaceUri) ?? null,
 				lastActivityAt: row.lastActivityAt,
 				createdAt: row.createdAt
 			};

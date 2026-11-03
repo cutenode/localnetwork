@@ -98,6 +98,7 @@
   import { createSelection } from '$lib/selection.svelte.ts';
   import { createFilter } from '$lib/list-filter.svelte.ts';
   import { LOOKUP_ERRORS } from '$lib/lookup-errors.ts';
+  import { createPainting } from '$lib/painting.svelte.ts';
   import { choicePref, flagPref } from '$lib/prefs.svelte.ts';
   import { remembered, view, type Remembered } from '$lib/view.svelte.ts';
   import { count, OPEN_A_PAGE, readPage } from '$lib/soundcloud.ts';
@@ -668,51 +669,16 @@
 
   // --- painting --------------------------------------------------------------
   //
-  // A row is a picture, a title, three or four buttons and their tooltips, and
-  // five hundred of them are the best part of a second of DOM work. The popup
-  // shows about eight at a time. So the first frame draws a screenful and the
-  // rest arrive over the following few: the same work, done behind the list
-  // rather than in front of it.
-  const FIRST_PAINT = 60;
+  // `visible`, cut down to the rows drawn so far ($lib/painting.svelte.ts).
+  // Sections keep their own counts: those are about the filter, not about how
+  // much of the list has made it into the DOM yet.
+  const drawing = createPainting(() => visible.flatMap((section) => section.rows.map((row) => row.key)));
 
-  const PER_FRAME = 200;
-
-  let drawn = $state(FIRST_PAINT);
-
-  const rowCount = $derived(visible.reduce((n, section) => n + section.rows.length, 0));
-
-  // A frame if there is one, a timeout if there is not. `requestAnimationFrame`
-  // is what says "after the paint", which is the whole point of chunking — but
-  // it does not run at all while the page is hidden, and a list that stopped
-  // growing there would still be sixty rows long when it came back.
-  $effect(() => {
-    if (drawn >= rowCount) return;
-    const grow = () => (drawn += PER_FRAME);
-    const frame = requestAnimationFrame(grow);
-    const timer = setTimeout(grow, 50);
-
-    return () => {
-      cancelAnimationFrame(frame);
-      clearTimeout(timer);
-    };
-  });
-
-  // `visible`, cut off at what has been drawn so far. Sections keep their own
-  // counts: those are about the filter, not about how much of the list has
-  // made it into the DOM yet.
-  const painted = $derived.by(() => {
-    if (drawn >= rowCount) return visible;
-    let left = drawn;
-    const out = [];
-
-    for (const section of visible) {
-      if (left <= 0) break;
-      out.push({ ...section, rows: section.rows.slice(0, left) });
-      left -= Math.min(left, section.rows.length);
-    }
-
-    return out;
-  });
+  const painted = $derived(
+    visible
+      .map((section) => ({ ...section, rows: section.rows.filter((row) => drawing.has(row.key)) }))
+      .filter((section) => section.rows.length > 0)
+  );
 
   const listedTracks = $derived(
     new Set(sections.flatMap((s) => s.rows.map((row) => row.track.permalink))).size
@@ -841,8 +807,8 @@
 
   const ticked = $derived(tracks.filter((track) => picks.has(track.permalink)));
 
-  function onTick(event: MouseEvent, permalink: string) {
-    if (event.shiftKey) return picks.extend(shownOrder, permalink);
+  function onTick(extend: boolean, permalink: string) {
+    if (extend) return picks.extend(shownOrder, permalink);
     picks.toggle(permalink);
   }
 
@@ -1338,18 +1304,20 @@
                    bg-canvas px-3 pt-2 pb-2.5"
           >
             <div class="flex items-center gap-2">
-              <!-- Shows what the selection says and never decides anything itself
-                   (as the rows' boxes do not either), so both setters are empty:
-                   the click below is what ticks or unticks the list. -->
+              <!-- Shows what the selection says, and leaves the deciding to it (as
+                   the rows' boxes do): any tick, by a click or by Space, ticks the
+                   whole list unless all of it is ticked already. That goes in the
+                   `checked` setter, the one both gestures reach; a half-ticked box
+                   writes `indeterminate` first, which has nothing to add. -->
               <Checkbox
                 id="select-all"
                 class="ml-0.5"
-                bind:checked={() => picks.count > 0 && picks.count === shownOrder.length, () => {}}
+                bind:checked={() => picks.count > 0 && picks.count === shownOrder.length,
+                () => picks.pick(shownOrder, picks.count < shownOrder.length)}
                 bind:indeterminate={() =>
                   picks.count > 0 && picks.count < shownOrder.length,
                 () => {}}
                 aria-label="select every track shown"
-                onclick={() => picks.pick(shownOrder, picks.count < shownOrder.length)}
               />
               <Label for="select-all" class="tabular text-caption font-semibold">
                 {picks.count === 0 ? 'nothing ticked' : `${count(picks.count, 'track')} ticked`}
@@ -1464,7 +1432,7 @@
                     isDownloaded={downloaded.has(row.track.permalink)}
                     selectable={picks.active}
                     selected={picks.has(row.track.permalink)}
-                    onselect={(event) => onTick(event, row.track.permalink)}
+                    onselect={(extend) => onTick(extend, row.track.permalink)}
                     artworkState={art.get(row.track.permalink) ?? ''}
                     artworkHint={ART_HINT}
                     onartwork={(event) => onArtwork(event, row.track)}

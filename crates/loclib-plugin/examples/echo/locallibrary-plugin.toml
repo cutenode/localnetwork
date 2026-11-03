@@ -21,6 +21,12 @@ title = "Report progress in steps"
 mode = "headless"
 
 [[contributes.commands]]
+name = "ensure"
+title = "Ask for more of an account"
+mode = "headless"
+params = { type = "object", properties = { type = { type = "string" }, scopes = { type = "array", items = { type = "string" } }, access = { type = "string" } }, required = ["type", "scopes"] }
+
+[[contributes.commands]]
 name = "wait"
 title = "Wait until cancelled"
 mode = "headless"

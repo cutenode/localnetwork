@@ -314,9 +314,10 @@ export class OAuthService {
 	}
 
 	/**
-	 * Starts an authorization for `identifier` (a handle or DID). If the user's PDS rejects the spaces scopes (it does
-	 * not run the spaces alpha yet), falls back to the base scopes and the root account writes on the user's behalf,
-	 * then to plain `atproto` for a PDS that doesn't know granular scopes at all.
+	 * Starts an authorization for `identifier`, a handle or DID, or a host's URL with `prompt: 'create'` to make an
+	 * account there first. If the user's PDS rejects the spaces scopes (it does not run the spaces alpha yet), falls
+	 * back to the base scopes and the root account writes on the user's behalf, then to plain `atproto` for a PDS that
+	 * doesn't know granular scopes at all.
 	 *
 	 * A grant replaces the one before it, so the optional scopes `account` already holds are asked for again, or
 	 * approving one would drop another. Asking for `optional` too never falls back below the tier `account` signed in
@@ -326,9 +327,9 @@ export class OAuthService {
 	async authorize(
 		identifier: string,
 		state: string,
-		options: { account?: SignedInAccount; optional?: OptionalScope } = {}
+		options: { account?: SignedInAccount; optional?: OptionalScope; prompt?: 'create' } = {}
 	): Promise<URL> {
-		const { account, optional } = options;
+		const { account, optional, prompt } = options;
 		const held = account ? heldOptionalScopes(account.grantedScope, account.did) : [];
 		const floor = optional && account ? TIERS.indexOf(tierOf(account)) : TIERS.length - 1;
 		const extras = optional ? OPTIONAL_SCOPES[optional] : [''];
@@ -342,7 +343,7 @@ export class OAuthService {
 
 		for (;;) {
 			try {
-				return await this.client.authorize(identifier, { scope, state });
+				return await this.client.authorize(identifier, { scope, state, prompt });
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				const next = rest.shift();

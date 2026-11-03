@@ -3,9 +3,9 @@ name: locallibrary CI
 # The quick checks of the Rust workspace, which ci.yml calls when a pull request, merge queue group
 # or push touches it: on Linux, everything below but other-os, and on macOS and Windows, other-os,
 # which ci.yml runs for each merge queue group (and on pull requests with the `all-os` label). The
-# slow suites (Bombadil, every feature combination, mutation testing, fuzzing, the CLI's timings, a
-# release build) and a weekly advisory check are in locallibrary-scheduled.yml, and
-# locallibrary-cache.yml keeps other-os's caches on main.
+# slow suites (Bombadil, every feature combination, mutation testing, fuzzing, a release build)
+# and a weekly advisory check are in locallibrary-scheduled.yml, and locallibrary-cache.yml keeps
+# other-os's caches on main.
 on:
   workflow_call:
     inputs:

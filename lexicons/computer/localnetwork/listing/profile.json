@@ -5,7 +5,7 @@
 		"main": {
 			"type": "record",
 			"key": "any",
-			"description": "That staff list a DJ's profile in the directory, keyed by the DJ's DID. Written only by the Local Network root account into its public repo, and deleted when the DJ is unlisted. The profile itself stays in the DJ's repo.",
+			"description": "A record that staff list a DJ's profile in the directory, keyed by the DJ's DID. Written only by the Local Network root account into its public repo, and deleted when the DJ is unlisted. The profile itself stays in the DJ's repo.",
 			"record": {
 				"type": "object",
 				"required": ["subject", "createdAt"],

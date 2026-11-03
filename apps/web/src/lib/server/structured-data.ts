@@ -6,7 +6,7 @@
 import type { EpkRecord } from '#lib/epk.ts';
 import type { PageMeta } from '#lib/meta.ts';
 import type { MixReport } from '#lib/mix/report.ts';
-import { type JsonLd, type JsonLdNode, jsonLdScript } from '#lib/structured-data.ts';
+import type { JsonLd, JsonLdNode } from '#lib/structured-data.ts';
 import { musicBrainzUrl } from '#lib/supports.ts';
 import type {
 	BasicsSection,
@@ -22,25 +22,11 @@ import { isWebUrl } from '#lib/web-url.ts';
 /** A page's structured data, from its metadata. */
 export type JsonLdBuilder = (meta: PageMeta) => JsonLdNode;
 
-/** A page's structured data in schema.org's vocabulary. */
+/** A page's structured data in schema.org's vocabulary (see `listed` for which pages get it). */
 export const jsonLdFor = (meta: PageMeta, build: JsonLdBuilder): JsonLd => ({
 	'@context': 'https://schema.org',
 	...build(meta)
 });
-
-/**
- * `meta`, with the page's structured data set aside for the server hook to write into its head as the script tag search
- * engines read (see crawler-head.ts). A page search engines are told to skip, or with none, gets none.
- */
-export function withJsonLd(
-	locals: Pick<App.Locals, 'crawlerHead'>,
-	meta: PageMeta,
-	build: JsonLdBuilder | null
-): PageMeta {
-	if (!meta.noindex && build) locals.crawlerHead = jsonLdScript(jsonLdFor(meta, build));
-
-	return meta;
-}
 
 /** Other pages about the same performer or person: the links they listed that a page would make clickable. */
 function sameAs(links: ProjectLink[] | undefined): { sameAs?: string[] } {

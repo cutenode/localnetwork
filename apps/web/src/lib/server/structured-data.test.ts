@@ -9,8 +9,7 @@ import {
 	performerProfile,
 	personProfile,
 	jsonLdFor,
-	pressKitProfile,
-	withJsonLd
+	pressKitProfile
 } from './structured-data';
 
 const SITE = 'https://localnetwork.test';
@@ -83,23 +82,13 @@ const report = (mix: Partial<MixReport['mix']>): Pick<MixReport, 'mix'> => ({
 	mix: { title: 'Sunday Warm-up', durationSecs: 7092, ...mix }
 });
 
-describe('withJsonLd', () => {
-	it('sets the script tag search engines read aside for the head, with the schema.org context', () => {
-		const meta = performerMeta(SITE, project);
-		const locals: Pick<App.Locals, 'crawlerHead'> = {};
-
-		expect(withJsonLd(locals, meta, () => ({ '@type': 'Thing', name: 'x' }))).toBe(meta);
-		expect(locals.crawlerHead).toBe(
-			'<script type="application/ld+json">{"@context":"https://schema.org","@type":"Thing","name":"x"}</script>'
-		);
-	});
-
-	it('leaves out pages search engines are told to skip, and pages with nothing to say', () => {
-		const locals: Pick<App.Locals, 'crawlerHead'> = {};
-
-		withJsonLd(locals, performerMeta(SITE, { ...project, status: 'hidden' }), performerProfile(project));
-		withJsonLd(locals, performerMeta(SITE, project), null);
-		expect(locals.crawlerHead).toBeUndefined();
+describe('jsonLdFor', () => {
+	it('adds the schema.org context to what the page is about', () => {
+		expect(jsonLdFor(performerMeta(SITE, project), () => ({ '@type': 'Thing', name: 'x' }))).toEqual({
+			'@context': 'https://schema.org',
+			'@type': 'Thing',
+			name: 'x'
+		});
 	});
 });
 

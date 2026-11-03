@@ -20,7 +20,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-use super::accounts::access;
+use super::accounts::{self, access};
 use super::blobs::{Scratch, Scratches};
 use super::events::Queue;
 use super::services::Running;
@@ -51,9 +51,19 @@ pub(crate) struct Host {
     /// The account plugins, by id, once every plugin is: those whose accounts plugins' requests
     /// name. Weak, since each holds the host.
     pub(crate) account_plugins: OnceLock<IndexMap<String, Weak<Plugin>>>,
+    /// Sign-ins to accounts of a type waiting for the browser, whichever account plugin began
+    /// them.
+    pub(crate) signing_in: accounts::SigningIn,
 }
 
 impl Host {
+    /// Hosting plugins as `options` say, reading for them through `reads`: with no account plugins
+    /// until they're set.
+    pub(crate) fn new(reads: Arc<dyn Reads>, options: Options) -> Host {
+        let (turns, account_plugins, signing_in) = Default::default();
+        Host { reads, options, turns, account_plugins, signing_in }
+    }
+
     /// Logs `line` as the plugin `id`'s.
     pub(crate) fn log(&self, id: &str, line: &str) {
         (self.options.log)(id, line);

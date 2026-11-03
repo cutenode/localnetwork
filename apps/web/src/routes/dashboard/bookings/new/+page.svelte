@@ -4,6 +4,7 @@
 	import DraftNotice from '#lib/components/DraftNotice.svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import GenreInput from '#lib/components/GenreInput.svelte';
+	import PlacePicker from '#lib/components/PlacePicker.svelte';
 	import { draftKey, FormDraft } from '#lib/form-draft.svelte.ts';
 	import { formFields } from '#lib/form-fields.svelte.ts';
 	import { placeLabel } from '#lib/format.ts';
@@ -65,17 +66,21 @@
 				<div><label class="label" for="venue">Venue</label><input id="venue" name="venue" class="input" bind:value={fields.venue} /></div>
 				<div><label class="label" for="capacity">Capacity</label><input id="capacity" type="number" min="1" name="capacity" class="input" bind:value={fields.capacity} /></div>
 			</div>
-			<div class="grid grid-cols-2 gap-4 md:grid-cols-4">
-				<div><label class="label" for="budgetAmount">Budget</label><input id="budgetAmount" type="number" min="0" name="budgetAmount" class="input" bind:value={fields.budgetAmount} /></div>
-				<div><label class="label" for="currency">Currency</label><input id="currency" name="currency" class="input font-mono uppercase" maxlength="3" bind:value={fields.currency} /></div>
-				<div>
-					<label class="label" for="budgetTier">Tier</label>
-					<select id="budgetTier" name="budgetTier" class="input"><option value="">Not set</option>{#each FEE_TIERS as option (option.value)}<option value={option.value} selected={v.budgetTier === option.value}>{option.label}</option>{/each}</select>
+			<PlacePicker values={v} geocoder={data.geocoder} required={false} missing="Pick the venue's city from the search, so a confirmed booking can be announced with it." />
+			<div class="flex flex-col gap-1.5">
+				<div class="grid grid-cols-2 gap-4 md:grid-cols-4">
+					<div><label class="label" for="budgetAmount">Budget</label><input id="budgetAmount" type="number" min="0" name="budgetAmount" class="input" bind:value={fields.budgetAmount} aria-describedby={data.asks.length ? 'asks' : undefined} /></div>
+					<div><label class="label" for="currency">Currency</label><input id="currency" name="currency" class="input font-mono uppercase" maxlength="3" bind:value={fields.currency} /></div>
+					<div>
+						<label class="label" for="budgetTier">Tier</label>
+						<select id="budgetTier" name="budgetTier" class="input"><option value="">Not set</option>{#each FEE_TIERS as option (option.value)}<option value={option.value} selected={v.budgetTier === option.value}>{option.label}</option>{/each}</select>
+					</div>
+					<div>
+						<label class="label" for="setType">Slot</label>
+						<select id="setType" name="setType" class="input"><option value="">Not set</option>{#each SET_TYPES as option (option.value)}<option value={option.value} selected={v.setType === option.value}>{option.label}</option>{/each}</select>
+					</div>
 				</div>
-				<div>
-					<label class="label" for="setType">Slot</label>
-					<select id="setType" name="setType" class="input"><option value="">Not set</option>{#each SET_TYPES as option (option.value)}<option value={option.value} selected={v.setType === option.value}>{option.label}</option>{/each}</select>
-				</div>
+				{#if data.asks.length}<p id="asks" class="hint m-0">{data.asks.join(' ')}</p>{/if}
 			</div>
 			<div><label class="label" for="genres">Sound of the night</label><GenreInput value={v.genres ?? ''} /></div>
 			<div>

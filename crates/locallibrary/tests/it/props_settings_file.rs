@@ -11,6 +11,7 @@ use hegel::generators as gs;
 use indexmap::IndexMap;
 use locallibrary::api::{self, ImportSettingsFile};
 use locallibrary::equipment::Remembered;
+use locallibrary::mix::prefs::MixPrefs;
 use locallibrary::profile::{Precision, ProfilePrefs, Section};
 use locallibrary::query::{SortField, SortKey};
 use locallibrary::settings::transfer::{Action, PlayerPrefs, SettingsExport};
@@ -27,6 +28,7 @@ struct Contents {
     prefs: Option<ProfilePrefs>,
     /// What the player remembers (`tui.json`), its preferences and where it was.
     player: Option<Map<String, Value>>,
+    mix: Option<MixPrefs>,
     host: Map<String, Value>,
     plugins: Map<String, Value>,
 }
@@ -40,6 +42,9 @@ impl Contents {
         }
         if let Some(player) = &self.player {
             fs::write(store.root().join("tui.json"), serde_json::to_vec(player).unwrap()).unwrap();
+        }
+        if let Some(mix) = &self.mix {
+            mix.save(store).unwrap();
         }
         let plugins = store.root().join("plugins");
         fs::create_dir_all(&plugins).unwrap();
@@ -140,6 +145,10 @@ fn contents(tc: &TestCase) -> Contents {
         }
         c.player = Some(player);
     }
+    if tc.draw(gs::booleans()) {
+        let limit = gs::sampled_from(vec![0, 64, 256, 1024]);
+        c.mix = Some(MixPrefs { index_limit_mib: tc.draw(gs::optional(limit)) });
+    }
     for key in tc.draw(gs::vecs(gs::sampled_from(vec!["checks.sound.bpm.on", "providers.auto_pick"])).max_size(2)) {
         c.host.insert(key.into(), scalar(tc));
     }
@@ -205,7 +214,8 @@ fn holds(before: &Value, after: &Value, at: &str) {
 fn an_export_fits_its_schema(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path(), "store");
-    contents(&tc).write(&store);
+    let c = contents(&tc);
+    c.write(&store);
     let schema = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/locallibrary/docs/settings-export.schema.json");
     let schema: Value = serde_json::from_slice(&fs::read(schema).unwrap()).unwrap();
     let validator = jsonschema::validator_for(&schema).unwrap();
@@ -213,6 +223,7 @@ fn an_export_fits_its_schema(tc: TestCase) {
     for (key, _) in SESSION.iter() {
         assert!(export["player"].get(key).is_none(), "{key} went out: {export}");
     }
+    assert_eq!(export["mix"], serde_json::to_value(c.mix.unwrap_or_default()).unwrap(), "{export}");
     let errors: Vec<String> = validator.iter_errors(&export).map(|e| format!("{}: {e}", e.instance_path())).collect();
     assert!(errors.is_empty(), "{errors:?}\n{export:#}");
 }

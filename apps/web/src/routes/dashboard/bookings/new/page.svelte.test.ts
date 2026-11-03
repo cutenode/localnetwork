@@ -38,7 +38,9 @@ const fromShow = {
 	projects: Promise.resolve([]),
 	project,
 	values: inquiryValues({ title: 'Rooftop Rave', date: '2026-12-12T23:30:00.000Z', venue: 'The Lot', capacity: 300 }),
-	show: { rkey: '3kshow', title: 'Rooftop Rave' }
+	show: { rkey: '3kshow', title: 'Rooftop Rave' },
+	asks: [],
+	geocoder: false
 };
 
 const posted = () => new FormData(page.getByRole('button', { name: 'Send inquiry' }).element().closest('form')!);
@@ -82,4 +84,32 @@ it('opens without a planner show, with only the defaults', async () => {
 
 	await expect.element(page.getByText(/in your planner/)).not.toBeInTheDocument();
 	expect(Object.fromEntries(posted())).toMatchObject({ title: '', time: '22:00', currency: 'USD' });
+});
+
+it('shows what the project asks for beside the budget, and leaves the venue city optional', async () => {
+	await render(Page, {
+		params: {},
+		data: { ...fromShow, values: inquiryDefaults, show: null, asks: ['Fee: Established.', 'Slots: Peak time.'] },
+		form: null
+	});
+
+	await expect
+		.element(page.getByLabelText('Budget'))
+		.toHaveAccessibleDescription('Fee: Established. Slots: Peak time.');
+	await expect.element(page.getByLabelText('City')).not.toBeRequired();
+});
+
+it('keeps the venue city after a failed send, with nothing beside the budget for a project that asks nothing', async () => {
+	await render(Page, {
+		params: {},
+		data: { ...fromShow, values: inquiryDefaults, show: null },
+		form: {
+			error: 'Give the show a name',
+			values: { ...inquiryDefaults, city: 'Leipzig', country: 'DE' },
+			reauth: false
+		}
+	});
+
+	await expect.element(page.getByLabelText('City')).toHaveValue('Leipzig');
+	await expect.element(page.getByLabelText('Budget')).not.toHaveAttribute('aria-describedby');
 });
