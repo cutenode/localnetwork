@@ -66,7 +66,7 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 ### Tools
 
-- `/tools` lists Local Network's other tools, [locallibrary](../locallibrary) and [localtoolbox](../localtoolbox). Each has a page at `/tools/<id>` that shows what it does as hot cues on a real track's waveform, each with a capture of the tool at work, then how to install it and its guides (its README and `docs/*.md`), which are bundled from the repo at build time. See [Tools' pages and hosts](#tools-pages-and-hosts).
+- `/tools` lists Local Network's other tools, [locallibrary](../locallibrary) and [localtoolbox](../localtoolbox). Each has a page at `/tools/<id>` that shows what it does as hot cues on a real track's waveform, each with a capture of the tool at work, then how to install it and its guides, which are bundled from the repo at build time: its README and `docs/*.md`, or only `docs/*.md` led by `docs/overview.md` when the README is written for developers, as localtoolbox's is. A guide with four or more sections opens on a list of them. See [Tools' pages and hosts](#tools-pages-and-hosts).
 
 ### Bug reports
 
@@ -331,7 +331,7 @@ A restore downloads the backup, checks its integrity, keeps the database it repl
 
 ### Tools' pages and hosts
 
-Each tool has an entry in `src/lib/tools/` (name, tagline, what it does with a capture for each, install steps) and a page at `/tools/<id>`. The captures in `src/lib/tools/captures/`, and the demo track their hot cues sit on, come from `pnpm atstore` at the repo root ([packages/atstore](../../packages/atstore)); the build turns them into AVIF and WebP at the widths they're shown at. A tool's guides are its own `README.md` and `docs/*.md` in `apps/<tool>/`, bundled at build time and rendered on the server with GitHub's heading ids. Links to the tool's other guides stay on this site, links to other files in the repo go to GitHub, and raw HTML in the Markdown shows as text. Adding a tool is one file there, listed in `src/lib/tools/index.ts`, plus the steps in [Adding an app or plugin](../../.github/NEW_PROJECT.md).
+Each tool has an entry in `src/lib/tools/` (name, tagline, what it does with a capture for each, install steps) and a page at `/tools/<id>`. The captures in `src/lib/tools/captures/`, and the demo track their hot cues sit on, come from `pnpm atstore` at the repo root ([packages/atstore](../../packages/atstore)); the build turns them into AVIF and WebP at the widths they're shown at. A tool's guides are its own `README.md` and `docs/*.md` in `apps/<tool>/` (localtoolbox leaves out its README, which is for developers, and leads with `docs/overview.md`), bundled at build time and rendered on the server with GitHub's heading ids. Links to the tool's other guides stay on this site, links to other files in the repo go to GitHub, and raw HTML in the Markdown shows as text. Adding a tool is one file there, listed in `src/lib/tools/index.ts`, plus the steps in [Adding an app or plugin](../../.github/NEW_PROJECT.md).
 
 A tool with a host of its own lists it in its entry, and this app answers that host before anything else runs, so it works even while the app isn't configured. `/` redirects (308) to the tool's page on `PUBLIC_URL` (`https://localnetwork.computer` when it isn't set), `/oauth-client-metadata.json` serves the tool's OAuth client document if it has one, and every other path is a 404.
 
