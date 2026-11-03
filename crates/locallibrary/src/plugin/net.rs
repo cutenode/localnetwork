@@ -4,14 +4,15 @@
 //! `locallibrary/<version>` (with the plugin's `contact` setting, when it has one), spaced out as
 //! its manifest's `[[net]]` limits say, together with every other plugin's to that host. Its
 //! secret settings go only where a request names them (`{secret:<key>}`), and its accounts' access
-//! tokens only where a request names one by type (`{account:<type>}`, see [`super::accounts`]) and
-//! the account type says its token goes: the `Authorization` header, or a query parameter; and only
-//! into a request a scope of the plugin's access covers (see [`super::accounts::token`]). They're
+//! tokens or keys only where a request names one by type (`{account:<type>}`, see
+//! [`super::accounts`]) and the account type says it goes: the `Authorization` header, or a query
+//! parameter; and only into a request a scope of the plugin's access covers (see
+//! [`super::accounts::token`]). They're
 //! filled in once it's checked, never on to another server a redirect leads to, nor to an address
 //! no scope of the access covers, and left out of its log and the errors it's told (see
 //! [`State::scrub`]); what a server answers is passed on as it is, but for a token it was sent in
 //! the query, given back as the placeholder it was named with, and a server refusing a token it was
-//! sent, which the host answers (see [`Plugin::answered`]).
+//! sent, which the host answers (see [`Plugin::answered`]); a server refusing keys is passed on.
 //! Answers are given up to [`super::Options::max_body`], or written to a file in the request's
 //! scratch folder; nothing is kept. What it sends is text, or files it was given (see [`body`]).
 //! A request cancelled stops at once, sending or reading its answer ([`Requests`]).
@@ -27,7 +28,7 @@ use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
 use loclib_plugin::{
-    ACCOUNT_PLACEHOLDER, AccountNeed, Capability, Fetch, Fetched, FormPart, RpcError, SettingType, TokenPlace,
+    ACCOUNT_PLACEHOLDER, AccountNeed, Capability, Fetch, Fetched, FormPart, KeyPlace, RpcError, SettingType,
     account_placeholder,
 };
 use reqwest::header::{
@@ -39,6 +40,7 @@ use serde_json::Value;
 
 use self::body::{Body, Field, FilePart};
 use self::challenge::{Challenge, challenges, insufficient_scope};
+use super::accounts::keys::Credential;
 use super::accounts::token::Usable;
 use super::blobs;
 use super::process::{Live, Plugin, printable};
@@ -119,10 +121,20 @@ struct Sent {
     query: Option<Vec<(String, String)>>,
 }
 
-/// An account's token filled into a request, and the access it's through.
+/// An account filled into a request, what it's signed in with, and the access it's through.
 struct Filled {
     usable: Usable,
-    token: String,
+    signed: Credential,
+}
+
+/// The accounts' tokens of `filled`, and their accesses: what a service refusing one is about.
+/// Keys aren't: nothing refreshes them, and a service refusing them is passed on.
+fn tokens(filled: Vec<Filled>) -> Vec<(Usable, String)> {
+    let token = |f: Filled| match f.signed {
+        Credential::Token(token) => Some((f.usable, token)),
+        Credential::Keys(_) => None,
+    };
+    filled.into_iter().filter_map(token).collect()
 }
 
 /// The accounts' tokens filled into a request's query, and the placeholders that named them.
@@ -145,14 +157,12 @@ fn invalid(why: impl Into<String>) -> RpcError {
     RpcError::failed("invalid", why)
 }
 
-/// Where an account's token goes, which is at `place` (the `Authorization` header when it's not
-/// known), saying how a request names it.
-fn misplaced(place: Option<&TokenPlace>) -> RpcError {
-    match place {
-        Some(TokenPlace::Query(name)) => {
-            invalid(format!("this account goes only in the query: {name}={{account:<type>}}"))
-        }
-        _ => invalid("an account goes only in the Authorization header: {account:<type>}"),
+/// Where an account goes, which is `place` (the `Authorization` header when it's not known),
+/// saying how a request names it there.
+fn misplaced(place: Option<&KeyPlace>) -> RpcError {
+    match place.and_then(|p| p.query.as_ref()) {
+        Some(query) => invalid(format!("this account goes only in the query: {query}={{account:<type>}}")),
+        None => invalid("an account goes only in the Authorization header: {account:<type>}"),
     }
 }
 
@@ -300,9 +310,10 @@ impl Plugin {
         serde_json::to_value(fetched).map_err(|e| RpcError::internal(e.to_string()))
     }
 
-    /// The response `followed`, which `req` was answered on a hop it went to with the tokens that
-    /// went with it (see [`Plugin::follow`]), or what's answered instead when the server refused
-    /// one (a 401 or 403; not after a hop that dropped them, which isn't about them): saying the
+    /// The response `followed`, which `req` was answered on a hop it went to with the accounts that
+    /// went with it (see [`Plugin::follow`]), or what's answered instead when the server refused a
+    /// token (a 401 or 403 to a request with one; not after a hop that dropped them, which isn't
+    /// about them, nor to one with keys alone, passed on as it is): saying the
     /// token lacks scopes (see [`insufficient_scope`]), `scope`, its body not passed on (see
     /// [`Plugin::scope_refused`]); a 401 otherwise, the request sent again once with the account's
     /// token refreshed (see [`Plugin::refused_token`]), and its answer passed on. A 401 that isn't
@@ -318,7 +329,8 @@ impl Plugin {
         requests: &Requests,
         cancel: &CancelToken,
     ) -> Result<(Answer, InQuery), RpcError> {
-        let (mut response, mut attached) = followed;
+        let (mut response, attached) = followed;
+        let mut attached = tokens(attached);
         let mut again = false;
         loop {
             let (status, headers) = (response.status().as_u16(), response.headers().clone());
@@ -341,17 +353,17 @@ impl Plugin {
             let body = read.map_err(|e| RpcError::failed("external", self.net.scrub(&e)))?;
             if let Some(scopes) = insufficient_scope(status, &said, &body) {
                 let written = Url::parse(&req.url).map_err(|_| invalid("it isn't a web address"))?;
-                return Err(self.scope_refused(&attached[0].usable, &scopes, &req.method, &written, store));
+                return Err(self.scope_refused(&attached[0].0, &scopes, &req.method, &written, store));
             }
             let resend = status == 401 && !again && {
-                let refreshed = attached.iter().map(|f| self.refused_token(&f.usable, &f.token, store));
+                let refreshed = attached.iter().map(|(usable, token)| self.refused_token(usable, token, store));
                 refreshed.collect::<Result<Vec<bool>, _>>()?.contains(&true)
             };
             if !resend {
                 let invalid = status == 401 && said.iter().any(|c| c.param("error") == Some("invalid_token"));
                 if invalid {
-                    for f in &attached {
-                        self.invalid_token(&f.usable, &f.token, store)?;
+                    for (usable, token) in &attached {
+                        self.invalid_token(usable, token, store)?;
                     }
                 }
                 return Ok((Answer { status, headers, read: body, response }, in_query));
@@ -360,7 +372,8 @@ impl Plugin {
             let url = self.address(req)?;
             let (sent, query) = self.prepare(live, req, &url)?;
             in_query = query;
-            (response, attached) = self.follow(live, url, sent, requests, cancel)?;
+            let (followed, filled) = self.follow(live, url, sent, requests, cancel)?;
+            (response, attached) = (followed, tokens(filled));
         }
     }
 
@@ -456,9 +469,9 @@ impl Plugin {
 
     /// What goes where a request (`asked`, its method and URL as the plugin wrote it) names an
     /// account by type as the whole of `value`, `{account:<type>}` of a type the plugin asks for:
-    /// in the `Authorization` header (`query` is `None`), its scheme and access token; as the query
-    /// parameter `query`, the token. Only where the account type says its token goes, and where the
-    /// plugin's access may go (see [`Plugin::usable`]), which `accounts` gets.
+    /// in the `Authorization` header (`query` is `None`) or as the query parameter `query`, the
+    /// value the account type gives that place, filled in. Only where the account type says it
+    /// goes, and where the plugin's access may go (see [`Plugin::usable`]), which `accounts` gets.
     fn account(
         &self,
         live: &Live,
@@ -476,17 +489,18 @@ impl Plugin {
         let (method, url) = asked;
         let usable = self.usable(live, need, access, method.as_str(), url)?;
         let store = live.store.as_ref().ok_or_else(|| invalid("there's no store"))?;
-        let filled = |token: &str| match (&usable.place, query) {
-            (TokenPlace::Scheme(scheme), None) => Some(format!("{scheme} {token}")),
-            (TokenPlace::Query(name), Some(query)) if name == query => Some(token.to_string()),
-            _ => None,
+        let place = &usable.place;
+        let fits = match query {
+            None => place.header.is_some(),
+            Some(query) => place.query.as_deref() == Some(query),
         };
-        if filled("").is_none() {
-            return Err(misplaced(Some(&usable.place)));
+        if !fits {
+            return Err(misplaced(Some(place)));
         }
-        let token = self.usable_token(&usable, store)?;
-        let filled = filled(&token).unwrap_or_default();
-        accounts.push(Filled { usable, token });
+        let signed = self.usable_credential(&usable, store)?;
+        let filled = signed.filled(place);
+        self.net.saw(&filled);
+        accounts.push(Filled { usable, signed });
         Ok(filled)
     }
 
@@ -497,13 +511,13 @@ impl Plugin {
         Some((self.manifest.accounts.iter().find(|n| n.name == kind)?, access))
     }
 
-    /// Why `text`, which names an account, can't be where it is: where that account's token goes,
-    /// as the first account plugin providing its type says.
+    /// Why `text`, which names an account, can't be where it is: where that account goes, as the
+    /// first account plugin providing its type says.
     fn misplaced(&self, text: &str) -> RpcError {
         let named = text.split(ACCOUNT_PLACEHOLDER).nth(1).and_then(|rest| rest.split('}').next()).unwrap_or_default();
         let need = self.by_type(&format!("{ACCOUNT_PLACEHOLDER}{named}}}")).map(|(need, _)| need);
         let with = need.and_then(|n| self.host.providing(&n.name).first().and_then(|id| self.host.account_plugin(id)));
-        let place = with.and_then(|w| w.manifest.contributes.account_types.first().map(|t| t.token.clone()));
+        let place = with.and_then(|w| w.manifest.contributes.account_types.first().map(|t| t.place()));
         misplaced(place.as_ref())
     }
 

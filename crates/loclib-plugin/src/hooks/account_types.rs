@@ -1,8 +1,9 @@
 //! Account types: how to sign in to a service and what each of its scopes lets a plugin do there,
 //! as data. An account plugin is a manifest that provides one and nothing else. No feature and no
 //! method: the host runs every sign-in from it (OAuth 2's authorization code flow with PKCE, the
-//! browser coming back to this computer), keeps the tokens and never runs the plugin. Plugins ask
-//! for accounts of a type with `accounts`.
+//! browser coming back to this computer, or the user entering keys the service gave them), keeps
+//! the tokens or keys and never runs the plugin. Plugins ask for accounts of a type with
+//! `accounts`.
 
 use indexmap::IndexMap;
 use rustc_hash::FxHashSet;
@@ -10,9 +11,12 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+pub use self::keys::{Key, KeyPlace};
 use crate::hooks::accounts::{endpoint, endpoints, redirect_port, token_endpoint, token_place};
 use crate::manifest::{NAME_RULE, invalid, is_name, shown};
 use crate::{Contributions, Manifest, ManifestError, TokenPlace};
+
+mod keys;
 
 /// What an [`AccountType::one_account`] param's value names the account by: its subject, as
 /// [`Whoami::subject`] found it.
@@ -25,17 +29,31 @@ pub(crate) const AUTHORIZE_PARAMS: [&str; 4] = ["login_hint", "prompt", "hd", "a
 /// The methods a scope's requests may name.
 pub(crate) const METHODS: [&str; 6] = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"];
 
-/// `[[contributes.account_types]]`: an account type, signed in to in the browser.
+/// What an account signed in to in the browser is named by in a [`KeyPlace`]'s value: its access
+/// token.
+pub const TOKEN_KEY: &str = "token";
+
+/// The only header keys go in.
+const KEYS_HEADER: &str = "Authorization";
+
+/// `[[contributes.account_types]]`: an account type, signed in to in the browser, or by entering
+/// keys (`kind = "keys"`). Its OAuth fields are an account type's signed in to in the browser,
+/// and only its; `keys`, `keys_url` and `authorization` are one's signed in to with keys, and only
+/// its.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct AccountType {
     /// The account type it provides (`google`), which other account plugins may provide too.
     #[serde(rename = "type")]
     pub name: String,
     pub title: String,
+    /// How it's signed in to: in the browser unless it says.
+    #[serde(default, skip_serializing_if = "SignIn::is_browser")]
+    pub kind: SignIn,
     /// The service's authorization endpoint, where the browser signs in (https).
-    pub authorize_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorize_url: Option<String>,
     /// Its token endpoint, where the host trades the browser's code for tokens and refreshes
-    /// them (https). An account type has this or `token_exchange`.
+    /// them (https). An account type signed in to in the browser has this or `token_exchange`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_url: Option<String>,
     /// Local Network's token exchange for its service, in `token_url`'s place: only in an
@@ -44,7 +62,8 @@ pub struct AccountType {
     pub token_exchange: Option<String>,
     /// Its client at the service: a public one, without a secret, or Local Network's, whose
     /// secret the token exchange holds.
-    pub client_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
     /// Where its tokens are revoked at signing out (RFC 7009), when the service has one (https).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revoke_url: Option<String>,
@@ -58,8 +77,10 @@ pub struct AccountType {
     /// The service's scopes every sign-in asks for, as the service names them (`openid`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub always: Vec<String>,
-    /// Where the host asks the service who signed in.
-    pub whoami: Whoami,
+    /// Where the host asks the service who signed in. One signed in to with keys may leave it
+    /// out: the user names the account then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub whoami: Option<Whoami>,
     /// The authorize params that sign in again as one account the host knows (`login_hint =
     /// "{subject}"`): their values may name it only as [`SUBJECT_PLACEHOLDER`].
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
@@ -72,13 +93,57 @@ pub struct AccountType {
     /// `one_account`'s or `another_account`'s.
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub params: IndexMap<String, String>,
+    /// The keys the user enters, by name (`access`), which the service gave them.
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub keys: IndexMap<String, Key>,
+    /// Where the user gets them (https).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keys_url: Option<String>,
+    /// The `Authorization` header's value they make in a request (`LOW {access}:{secret}`), each
+    /// key named in braces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization: Option<String>,
     /// What a plugin may be given access to, by name (`youtube-upload`).
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub scopes: IndexMap<String, Scope>,
 }
 
+/// How an account of a type is signed in to.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SignIn {
+    /// In the browser, with OAuth 2: `oauth`.
+    #[default]
+    Oauth,
+    /// By entering the keys the service gave the user: `keys`.
+    Keys,
+}
+
+impl SignIn {
+    fn is_browser(&self) -> bool {
+        *self == SignIn::Oauth
+    }
+}
+
+impl AccountType {
+    /// Where an account of it goes in a request, and what goes there: for one signed in to with
+    /// keys, its `authorization` in the `Authorization` header; for one signed in to in the browser,
+    /// the access token ([`TOKEN_KEY`]) where its `token` says.
+    pub fn place(&self) -> KeyPlace {
+        let header = |value: String| KeyPlace { header: Some(KEYS_HEADER.into()), query: None, value };
+        if self.kind == SignIn::Keys {
+            return header(self.authorization.clone().unwrap_or_default());
+        }
+        let token = format!("{{{TOKEN_KEY}}}");
+        match &self.token {
+            TokenPlace::Scheme(scheme) => header(format!("{scheme} {token}")),
+            TokenPlace::Query(name) => KeyPlace { header: None, query: Some(name.clone()), value: token },
+        }
+    }
+}
+
 /// `whoami = { url = "...", subject = "/sub", name = "/email" }`: the endpoint the host gets with a
-/// new access token, and JSON pointers into its answer.
+/// new access token, or keys just entered, and JSON pointers into its answer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Whoami {
     /// Where (https).
@@ -134,10 +199,10 @@ impl Scope {
 }
 
 /// `[[contributes.account_types]]`: one, in a manifest with nothing else; its type and scopes'
-/// names, titles, endpoints (a token endpoint, or Local Network's token exchange in a built-in
-/// plugin), where its token goes and the port the browser comes back to, the service's scopes,
-/// pointers into who signed in, authorize params (each set in one place), and the requests each
-/// scope covers.
+/// names and titles; how it's signed in to (see [`browser`] and [`keys::validate`]); pointers
+/// into who signed in; the requests each scope covers, and the service's scopes each asks for,
+/// none when it's signed in to with keys; and its whoami at a host its scopes' requests go to
+/// then, since that's sent the keys.
 pub(crate) fn validate(m: &Manifest, built_in: bool) -> Result<(), ManifestError> {
     let (at, c) = ("contributes.account_types", &m.contributes);
     let Some(x) = c.account_types.first() else { return Ok(()) };
@@ -156,42 +221,30 @@ pub(crate) fn validate(m: &Manifest, built_in: bool) -> Result<(), ManifestError
         return Err(invalid(format!("{at}.type"), format!("{:?} isn't a name: {NAME_RULE}", x.name)));
     }
     shown(format!("{at}.title"), &x.title)?;
-    shown(format!("{at}.client_id"), &x.client_id)?;
-    let urls = [
-        ("authorize_url", Some(x.authorize_url.as_str())),
-        ("token_url", x.token_url.as_deref()),
-        ("revoke_url", x.revoke_url.as_deref()),
-        ("whoami.url", Some(x.whoami.url.as_str())),
-    ];
-    endpoints(&at, urls)?;
-    token_endpoint(&at, x.token_url.as_deref(), x.token_exchange.as_deref())?;
-    if x.token_exchange.is_some() && !built_in {
-        let why = "is only for account plugins locallibrary ships: it signs people in as Local Network";
-        return Err(invalid(format!("{at}.token_exchange"), why));
+    match x.kind {
+        SignIn::Oauth => browser(&at, x, built_in)?,
+        SignIn::Keys => keys::validate(&at, x)?,
     }
-    token_place(&at, &x.token)?;
-    redirect_port(&at, x.redirect_port)?;
-    service_scopes(&format!("{at}.always"), &x.always)?;
-    for (key, pointer) in [("subject", &x.whoami.subject), ("name", &x.whoami.name)] {
-        if !is_pointer(pointer) {
-            return Err(invalid(format!("{at}.whoami.{key}"), format!("{pointer:?} isn't a JSON pointer, like /sub")));
+    if let Some(w) = &x.whoami {
+        endpoints(&at, [("whoami.url", Some(w.url.as_str()))])?;
+        for (key, pointer) in [("subject", &w.subject), ("name", &w.name)] {
+            if !is_pointer(pointer) {
+                let why = format!("{pointer:?} isn't a JSON pointer, like /sub");
+                return Err(invalid(format!("{at}.whoami.{key}"), why));
+            }
         }
     }
-    params(&format!("{at}.one_account"), &x.one_account, true)?;
-    params(&format!("{at}.another_account"), &x.another_account, false)?;
-    params(&format!("{at}.params"), &x.params, false)?;
-    let elsewhere = [("one_account", &x.one_account), ("another_account", &x.another_account)];
-    for key in x.params.keys() {
-        if let Some((which, _)) = elsewhere.iter().find(|(_, set)| set.contains_key(key)) {
-            return Err(invalid(format!("{at}.params.{key}"), format!("is in {which} too: set it in one place")));
-        }
-    }
+    let keyed = x.kind == SignIn::Keys;
     for (name, scope) in &x.scopes {
         let at = format!("{at}.scopes.{name}");
         if !is_name(name) {
             return Err(invalid(at, format!("isn't a name: {NAME_RULE}")));
         }
         shown(format!("{at}.title"), &scope.title)?;
+        if keyed && !scope.asks.is_empty() {
+            let why = "asks the service for nothing: an account signed in to with keys was granted nothing there";
+            return Err(invalid(format!("{at}.asks"), why));
+        }
         service_scopes(&format!("{at}.asks"), &scope.asks)?;
         if scope.requests.is_empty() {
             return Err(invalid(format!("{at}.requests"), "a scope covers a request at least"));
@@ -203,6 +256,62 @@ pub(crate) fn validate(m: &Manifest, built_in: bool) -> Result<(), ManifestError
                 return Err(invalid(format!("{at}.method"), why));
             }
             pattern(&format!("{at}.url"), &r.url)?;
+        }
+    }
+    let Some(w) = x.whoami.as_ref().filter(|_| keyed) else { return Ok(()) };
+    let host = Url::parse(&w.url).ok().and_then(|u| u.host_str().map(String::from));
+    match x.scopes.values().flat_map(|s| &s.requests).any(|r| r.host() == host) {
+        true => Ok(()),
+        false => {
+            let why =
+                format!("{} isn't a host its scopes' requests go to: it's sent the keys", host.unwrap_or_default());
+            Err(invalid(format!("{at}.whoami.url"), why))
+        }
+    }
+}
+
+/// `x` (at `at`) an account type signed in to in the browser: none of the fields of one signed in
+/// to with keys; endpoints (a token endpoint, or Local Network's token exchange in a built-in
+/// plugin), a client, where its token goes and the port the browser comes back to, the service's
+/// scopes, a whoami, and authorize params (each set in one place).
+fn browser(at: &str, x: &AccountType, built_in: bool) -> Result<(), ManifestError> {
+    let keyed = [
+        ("keys", !x.keys.is_empty()),
+        ("keys_url", x.keys_url.is_some()),
+        ("authorization", x.authorization.is_some()),
+    ];
+    if let Some((key, _)) = keyed.iter().find(|(_, set)| *set) {
+        let why = "is for an account type signed in to with keys (kind = \"keys\")";
+        return Err(invalid(format!("{at}.{key}"), why));
+    }
+    let missing = |key: &str| invalid(format!("{at}.{key}"), "is missing");
+    let authorize_url = x.authorize_url.as_deref().ok_or_else(|| missing("authorize_url"))?;
+    let client_id = x.client_id.as_deref().ok_or_else(|| missing("client_id"))?;
+    if x.whoami.is_none() {
+        return Err(missing("whoami"));
+    }
+    shown(format!("{at}.client_id"), client_id)?;
+    let urls = [
+        ("authorize_url", Some(authorize_url)),
+        ("token_url", x.token_url.as_deref()),
+        ("revoke_url", x.revoke_url.as_deref()),
+    ];
+    endpoints(at, urls)?;
+    token_endpoint(at, x.token_url.as_deref(), x.token_exchange.as_deref())?;
+    if x.token_exchange.is_some() && !built_in {
+        let why = "is only for account plugins locallibrary ships: it signs people in as Local Network";
+        return Err(invalid(format!("{at}.token_exchange"), why));
+    }
+    token_place(at, &x.token)?;
+    redirect_port(at, x.redirect_port)?;
+    service_scopes(&format!("{at}.always"), &x.always)?;
+    params(&format!("{at}.one_account"), &x.one_account, true)?;
+    params(&format!("{at}.another_account"), &x.another_account, false)?;
+    params(&format!("{at}.params"), &x.params, false)?;
+    let elsewhere = [("one_account", &x.one_account), ("another_account", &x.another_account)];
+    for key in x.params.keys() {
+        if let Some((which, _)) = elsewhere.iter().find(|(_, set)| set.contains_key(key)) {
+            return Err(invalid(format!("{at}.params.{key}"), format!("is in {which} too: set it in one place")));
         }
     }
     Ok(())

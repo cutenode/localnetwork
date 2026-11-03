@@ -1,11 +1,12 @@
 //! Feature `accounts`: the accounts a plugin asks for by type, `[[accounts]]`, and the scopes of
 //! each type it needs, saying why. The host signs the user in through an account plugin that
 //! provides the type (OAuth 2's authorization code flow with PKCE, the browser coming back to this
-//! computer, see `account_types`), keeps the tokens, and gives the plugin access to the account. A
-//! plugin never sees a token: a `net/fetch` request names an account as `{account:<type>}` where
-//! the type's [`TokenPlace`] says the token goes (the `Authorization` header's value unless it says
-//! otherwise), which the host fills in with the account's access token once the request is checked
-//! and a scope of the access covers it, refreshing it first when it's about to expire. A service
+//! computer, or keys the user enters, see `account_types`), keeps the tokens or keys, and gives the
+//! plugin access to the account. A plugin never sees a token or a key: a `net/fetch` request names
+//! an account as `{account:<type>}` where the type's [`crate::AccountType::place`] says it goes
+//! (the `Authorization` header's value unless it says otherwise), which the host fills in once the
+//! request is checked and a scope of the access covers it, refreshing a token first when it's about
+//! to expire. A service
 //! whose token endpoint wants a client secret is reached through Local Network's token exchange,
 //! which holds the secret: a secret can't ship inside an app people download.
 

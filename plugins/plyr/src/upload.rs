@@ -30,8 +30,8 @@ use crate::track::{TAGS, Track};
 /// plyr.fm's API.
 pub(crate) const API: &str = "https://api.plyr.fm";
 
-/// The developer token, as the host fills it in.
-pub(crate) const AUTHORIZATION: &str = "Bearer {secret:token}";
+/// The account, which the host fills in with its developer token.
+pub(crate) const AUTHORIZATION: &str = "{account:plyr}";
 
 /// How many times a part, or the progress, is asked for before the upload fails.
 pub(crate) const TRIES: u32 = 4;
@@ -164,7 +164,7 @@ fn published(host: &Host, ctx: &Ctx<'_>, id: &str) -> Result<Uploaded, RpcError>
     Err(RpcError::failed("external", format!("plyr.fm's progress kept stopping before upload {id} was published")))
 }
 
-/// A request to plyr.fm's `path`, with the token, saying what its body is when it has one.
+/// A request to plyr.fm's `path`, with the account, saying what its body is when it has one.
 fn request(method: &str, path: &str, content_type: Option<&str>) -> Fetch {
     let headers = [("Authorization", AUTHORIZATION)].into_iter().chain(content_type.map(|t| ("Content-Type", t)));
     Fetch {
@@ -186,7 +186,7 @@ fn ask(host: &Host, fetch: &Fetch, what: &str, tries: u32) -> Result<String, Rpc
             Err(e) if e.kind() == Some("external") => {
                 RpcError { message: format!("couldn't send {what} to plyr.fm: {}", e.message), ..e }
             }
-            // Cancelled, or no token: asking again changes nothing.
+            // Cancelled, or no account: asking again changes nothing.
             Err(e) => return Err(e),
         };
         if tried == tries {
@@ -211,7 +211,10 @@ fn refused(answer: &Fetched, what: &str) -> RpcError {
     match status {
         401 | 403 => RpcError::failed(
             "permission",
-            format!("plyr.fm refused the token ({status}{detail}): make a new one at plyr.fm/settings#developer"),
+            format!(
+                "plyr.fm refused the account's token ({status}{detail}): sign in again with a new one from \
+                 plyr.fm/settings#developer (locallibrary account plyr sign-in)"
+            ),
         ),
         400..=499 => RpcError::failed("invalid", format!("plyr.fm refused {what} ({status}{detail})")),
         _ => RpcError::failed("external", format!("plyr.fm failed {what} ({status}{detail})")),

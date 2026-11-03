@@ -357,14 +357,14 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     doesn't arrive), titled after the set, its tracklist as the description and tagged `dj mix`,
     and keeping the track's page as the set's link and its `fm.plyr.track` record as the set's
     recording. A recording plyr.fm wouldn't take (another format, or over 1536 MiB) is refused
-    before anything goes. It signs in with a plyr.fm developer token, kept as a secret setting, and
-    goes online only to publish.
+    before anything goes. It uploads with a `plyr` account, signed in to with a plyr.fm developer
+    token, and goes online only to publish.
   - `archive`: a set destination, `sets publish SET --to archive:item`, uploading the set's
     recording to the Internet Archive in one PUT as an item in Community Audio, at an identifier
     no item has (`CREATOR-DATE-TITLE`, with `-2` and on when it's taken), titled after the set,
     by the `creator` setting, its tracklist as the description and tagged `dj mix`, sent again a
     few times when it doesn't arrive or the Archive says to slow down, and keeping the item's page
-    as the set's link. It signs in with the account's S3 keys, kept as secret settings, goes
+    as the set's link. It uploads with an `archive` account, signed in to with its S3 keys, goes
     online only to publish, and never waits for the Archive to process the item.
   - `youtube`: a set destination, `sets publish SET --to youtube:video`, publishing the set to
     YouTube as a video: FFmpeg makes it from a still picture (the `picture` setting, else a black
@@ -436,8 +436,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   (`[[contributes.account_types]]`) saying how to sign in to the service, who signed in, and the
   scopes a plugin may be given, each with the requests it covers. It has no code, so locallibrary
   never starts one (`plugin serve` refuses), and only the ones it ships may use Local Network's
-  token exchange. Three ship, a folder each in `plugins/accounts/`: google-account (its scope
-  `youtube-upload`), mixcloud-account (`upload`) and soundcloud-account (`upload` and `read`).
+  token exchange. Five ship, a folder each in `plugins/accounts/`: google-account (its scope
+  `youtube-upload`), mixcloud-account (`upload`), soundcloud-account (`upload` and `read`), and
+  archive-account and plyr-account (`upload` each), signed in to with the keys the service gives
+  you (the Archive's S3 keys, a plyr.fm developer token).
   `plugin list` shows the account type each adds and `plugin info` its scopes; the sidecar's
   `plugins.list` has them as `account_types`. locallibrary signs you in in the browser, keeping
   the tokens in the keychain and refreshing them itself. A service that wants a client secret for

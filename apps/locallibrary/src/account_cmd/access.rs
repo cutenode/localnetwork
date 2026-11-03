@@ -15,7 +15,7 @@ use locallibrary::progress::Ctx;
 use loclib_plugin::{AccountNeed, Choice, ChoiceItem};
 use serde_json::json;
 
-use super::accounts::{account_type, called, come_back, declined, find, named, signing_out, titles};
+use super::accounts::{account_type, called, declined, find, finish_sign_in, named, signing_out, titles};
 use crate::browser::BrowserArgs;
 use crate::jobs_cmd::usage;
 use crate::output::{Output, dim, heading, ok, warn};
@@ -151,7 +151,7 @@ fn signing_out_soon(
             continue;
         }
         let start = plugins.begin_account_sign_in(&a.kind, &a.plugin, Some(plugin), Some(&a.subject), &[], store)?;
-        let done = come_back(plugins, &start, BrowserArgs::default(), out, ctx)?;
+        let done = finish_sign_in(plugins, &start, BrowserArgs::default(), out, ctx)?;
         ok(format!("Signed in to the {}", called(plugins, &done.account)));
     }
     Ok(())
@@ -199,7 +199,7 @@ fn resolve(plugins: &Plugins, plugin: &str, u: Unready, store: &Store, out: Outp
         &[],
         store,
     )?;
-    let done = come_back(plugins, &start, BrowserArgs::default(), out, ctx)?;
+    let done = finish_sign_in(plugins, &start, BrowserArgs::default(), out, ctx)?;
     ok(format!("Signed in to the {}", called(plugins, &done.account)));
     declined(plugins, &done);
     Ok(())
@@ -237,7 +237,7 @@ fn give(plugins: &Plugins, plugin: &str, need: &AccountNeed, store: &Store, out:
         None => {
             let with = &providing[i - signed_in.len()];
             let start = plugins.begin_account_sign_in(kind, with, Some(plugin), None, &[], store)?;
-            let done = come_back(plugins, &start, BrowserArgs::default(), out, ctx)?;
+            let done = finish_sign_in(plugins, &start, BrowserArgs::default(), out, ctx)?;
             declined(plugins, &done);
             done.account
         }

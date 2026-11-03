@@ -25,6 +25,27 @@ impl Mock {
         (out.status.code().unwrap(), said(out.stdout), said(out.stderr))
     }
 
+    /// [`Mock::run`], with `input` piped to its stdin.
+    fn piped(&self, args: &[&str], input: &str) -> (i32, String, String) {
+        use std::io::Write;
+        use std::process::Stdio;
+        let mut c = self.command();
+        c.args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut child = c.spawn().unwrap();
+        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        let said = |b: Vec<u8>| String::from_utf8(b).unwrap();
+        (out.status.code().unwrap(), said(out.stdout), said(out.stderr))
+    }
+
+    /// What's in the files of the store but its secrets.
+    fn kept_but_secrets(&self) -> String {
+        let secrets = self.env.store.join("secrets");
+        let files =
+            crate::support::Env::files_in(&self.env.store).into_iter().filter(|(p, _)| !p.starts_with(&secrets));
+        files.map(|(_, b)| String::from_utf8_lossy(&b).into_owned()).collect()
+    }
+
     /// `account mock sign-in` with `more`, approved in the browser as `subject`.
     fn sign_in(&self, subject: &str, more: &[&str]) -> (i32, String, String) {
         let mut c = self.command();
@@ -134,6 +155,61 @@ fn an_account_is_signed_in_listed_and_signed_out_on_the_command_line() {
     assert!(code == 2 && err.contains("--with, --for and --scope go with sign-in"), "{err}");
     let (code, _, err) = m.run(&["account", "nope", "sign-in"]);
     assert!(code == 1 && err.contains("not found: an account plugin providing nope accounts"), "{err}");
+}
+
+/// An account signed in to with keys, for a plugin, takes its keys and then its name piped on
+/// stdin, a line each: it says where to get them and which, sends nothing to the service nor the
+/// browser anywhere, and is listed with the access it gave. Too few lines, or a key the host
+/// refuses, end the sign-in with what the host says and keep nothing. No key is printed or kept
+/// in the store but in its secrets.
+#[test]
+fn a_keys_account_is_signed_in_from_stdin_listed_and_never_shown() {
+    let m = Mock::keyed();
+    let (access, secret, short, spaced) = ("ak-0123456789", "sk-9876543210", "sk-1234", "ak 0123456789");
+    let sign_in = ["account", "mock", "sign-in", "--for", "echo"];
+    let asked = format!("Get the Mock account's Access key and Secret key at\n  {}/keys\n", m.server.url);
+    let mut said = String::new();
+    for (input, host) in [
+        (String::new(), "the Mock account's Access key (access) is missing"),
+        (format!("{access}\n"), "the Mock account's Secret key (secret) is missing"),
+        (format!("{access}\n{secret}\n"), "name the Mock account: Mock doesn't say who the keys are for"),
+        (
+            format!("{access}\n{short}\nme\n"),
+            "the Mock account's Secret key (secret) is 7 characters: a key is 8 at least",
+        ),
+        (
+            format!("{spaced}\n{secret}\nme\n"),
+            "the Mock account's Access key (access) isn't printable ASCII without spaces",
+        ),
+    ] {
+        let (code, out, err) = m.piped(&sign_in, &input);
+        assert_eq!((code, out.as_str()), (1, ""), "{input:?}: {err}");
+        assert!(err.ends_with(&format!("\n{asked}error: {host}\n")), "{input:?}: {err}");
+        said.push_str(&err);
+    }
+    let (_, out, _) = m.run(&["--json", "account"]);
+    assert_eq!(serde_json::from_str::<Value>(&out).unwrap()["accounts"], json!([]), "a refused sign-in kept one");
+
+    let (code, out, err) = m.piped(&sign_in, &format!("{access}\n{secret}\nme\n"));
+    assert_eq!(code, 0, "{err}");
+    let browser = err.contains("browser") || err.contains("open this link");
+    assert!(err.ends_with(&format!("\n{asked}")) && !browser, "{err}");
+    assert_eq!(out, "✓ Signed in to the Mock account me\n  echo has access to it, its default\n");
+    said.push_str(&(out + &err));
+    let (_, out, _) = m.run(&["account"]);
+    assert!(out.ends_with("Mock account me\n  signed in\n  access: echo (default)\n"), "{out}");
+    said.push_str(&out);
+    let (_, out, _) = m.run(&["--json", "account"]);
+    let listed: Value = serde_json::from_str(&out).unwrap();
+    let account = json!({ "plugin": WITH, "subject": "me" });
+    assert_eq!((&listed["accounts"][0]["subject"], &listed["accesses"][0]["account"]), (&json!("me"), &account));
+    said.push_str(&out);
+    assert!(m.server.got().is_empty(), "the service was sent something: {:?}", m.server.got());
+
+    let kept = m.kept_but_secrets();
+    for key in [access, secret, short, spaced] {
+        assert!(!said.contains(key) && !kept.contains(key), "{key} is out where it may not be");
+    }
 }
 
 /// A step of [`an_account_reads_back_the_same_wherever_its_asked`], naming people by their place

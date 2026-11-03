@@ -669,6 +669,45 @@ why = "Tests"
     }
 }
 
+/// An account plugin providing the `mock-keys` account type, signed in to with an access and a
+/// secret key that don't say whose they are, got at a page on this computer.
+const KEYS_ACCOUNTS: &str = r#"id = "keys-accounts"
+name = "Keys accounts"
+version = "0.1.0"
+protocol = "^0.2"
+
+[[contributes.account_types]]
+type = "mock-keys"
+title = "Mock keys"
+kind = "keys"
+keys_url = "http://127.0.0.1:9/keys"
+authorization = "LOW {access}:{secret}"
+
+[contributes.account_types.keys.access]
+title = "Access key"
+
+[contributes.account_types.keys.secret]
+title = "Secret key"
+
+[contributes.account_types.scopes.read]
+title = "read things"
+requests = [{ method = "GET", url = "http://127.0.0.1:9/r/*" }]
+"#;
+
+/// [`plugins_once`]'s plugins, and [`KEYS_ACCOUNTS`] written beside them, for this test's process
+/// (the first call sets it up). Call it before anything opens the palette or a menu.
+pub fn keys_accounts() {
+    static DONE: std::sync::Once = std::sync::Once::new();
+    DONE.call_once(|| {
+        let file = plugins_once().join("keys-accounts.toml");
+        std::fs::write(&file, KEYS_ACCOUNTS).unwrap();
+        let listed = std::env::var_os("LOCALLIBRARY_TEST_PLUGINS").unwrap();
+        let all: Vec<PathBuf> = std::env::split_paths(&listed).chain([file]).collect();
+        // SAFETY: as in `echo_plugin`.
+        unsafe { std::env::set_var("LOCALLIBRARY_TEST_PLUGINS", std::env::join_paths(all).unwrap()) };
+    });
+}
+
 /// The drives in `dir` taken for mounted ones, for this test: a plugin finds the drive it's
 /// given by its name among those (the echo plugin's exporter reads the drive). Call it before the
 /// app starts.

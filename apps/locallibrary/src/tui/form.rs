@@ -1,5 +1,5 @@
 //! A form for a plugin's params, its settings (or providers', or checks'), its access to
-//! accounts, an export's, a build from a library source, or fetching from providers: a field for each property of a JSON Schema,
+//! accounts or an account's keys, an export's, a build from a library source, or fetching from providers: a field for each property of a JSON Schema,
 //! each typed as the command line takes it (see [`crate::plugins::params`]), and checked against
 //! the schema before anything runs or is saved. A switch and a choice of a few values are picked
 //! rather than typed.
@@ -62,6 +62,9 @@ pub enum For {
     /// Whether a plugin may use more of an account, the answer going back on this (see
     /// [`super::plugins::access`]): closed, it's never answered.
     AskAccess(std::sync::mpsc::Sender<bool>),
+    /// The keys a sign-in takes (their titles, by name) and the account's name, going back on
+    /// this (see [`super::plugins::keys`]): closed, they're never entered.
+    Keys(indexmap::IndexMap<String, String>, std::sync::mpsc::Sender<locallibrary::plugin::EnteredKeys>),
 }
 
 pub struct Field {
@@ -219,6 +222,7 @@ impl App {
                         For::Fetch { kind, root, tracks } => self.fetch(kind, root, tracks, params),
                         For::Access(plugin, choices) => self.save_access(plugin, choices, params),
                         For::AskAccess(reply) => super::plugins::access::answer(&reply, &params),
+                        For::Keys(keys, reply) => super::plugins::keys::answer(&keys, &reply, &params),
                     };
                 }
                 Err((i, why)) => (f.selected, f.error) = (i, Some(why)),
