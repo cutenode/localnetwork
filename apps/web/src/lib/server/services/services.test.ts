@@ -1091,6 +1091,55 @@ describe('services', () => {
 			expect(thread).toMatchObject({ promoter: { did: PROMOTER }, title: 'Night' });
 		});
 
+		it("skips the root's status records that don't fit their lexicon when looking for the opening one", async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ, LEGACY]
+			});
+
+			const elsewhere = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Elsewhere'),
+				managers: [LEGACY]
+			});
+
+			const space = await threadWithManagerInquiry(project, elsewhere.uri);
+
+			await t.net.client(ROOT).createSpaceRecord({
+				space,
+				collection: COLLECTION.bookingStatus,
+				record: { $type: COLLECTION.bookingStatus, status: 42 }
+			});
+			await reindex(space, [DJ, PROMOTER]);
+
+			const [thread] = await t.bookings.threadsFor(PROMOTER);
+			expect(thread).toMatchObject({ promoter: { did: PROMOTER }, title: 'Night' });
+		});
+
+		it("keeps the error of a failed start that isn't the PDS's", async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ]
+			});
+
+			const start = async () =>
+				t.bookings.start({
+					actor: await t.viewer(PROMOTER),
+					projectUri: project.uri,
+					show: { title: 'Night' },
+					message: 'Free?'
+				});
+
+			vi.spyOn(FakeRootClient.prototype, 'createSpace').mockRejectedValueOnce(new Error('broken space'));
+			await expect(start()).rejects.toThrow('broken space');
+
+			vi.spyOn(FakeRootClient.prototype, 'putMember').mockRejectedValueOnce(new Error('broken member'));
+			await expect(start()).rejects.toThrow('broken member');
+			expect(await t.bookings.threadsFor(PROMOTER)).toEqual([]);
+		});
+
 		it('opens no thread for an inquiry that fails its lexicon', async () => {
 			const project = await t.projectAdmin.create({
 				actor: await t.viewer(ADMIN),
