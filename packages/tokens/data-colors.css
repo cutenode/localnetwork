@@ -14,6 +14,7 @@
 	--color-cue-hot: #28e214;
 	--color-cue-memory: #e83030;
 	--color-cue-loop: #ff8c1e;
+	--color-cue-hot-text: #28e214;
 	--color-track-pink: #f852c9;
 	--color-track-red: #e83030;
 	--color-track-orange: #ff8c1e;
@@ -28,7 +29,7 @@
 	--color-playhead: #ffffff;
 }
 
-/* On the light palette (theme.css) the phrases, cues, good, warning and critical take their light values. */
+/* On the light palette (theme.css) the phrases, cues, good, warning, critical and playhead take their light values. */
 :root {
 	@variant light {
 		--color-phrase-intro: #4670e8;
@@ -42,8 +43,10 @@
 		--color-cue-hot: #1b970d;
 		--color-cue-memory: #e83030;
 		--color-cue-loop: #cb6300;
+		--color-cue-hot-text: #157a0a;
 		--color-good: #1e7b34;
 		--color-warning: #8a5a00;
 		--color-critical: #c62828;
+		--color-playhead: #09090b;
 	}
 }

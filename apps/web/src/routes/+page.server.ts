@@ -7,10 +7,10 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ locals }) => {
 	const { projects, geocoder, config } = locals.app;
 
-	// The tools' docs are bundled server-side, so the page gets only what its cards show.
+	// The tools' docs are bundled server-side, so the page gets only what its cards show: no captures.
 	const page = {
 		geocoder: geocoder.enabled,
-		tools: toolCards(),
+		tools: toolCards().map(({ id, name, kind, tagline, lines }) => ({ id, name, kind, tagline, lines })),
 		meta: pageMeta(config.publicUrl, {
 			title: SITE_NAME,
 			documentTitle: `${SITE_NAME} · Find local DJs for your show`,

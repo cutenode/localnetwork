@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { cues } from '#lib/testing/tools.ts';
 import { loadDocs } from '#lib/tools/docs.ts';
 import { tools } from '#lib/tools/index.ts';
 import type { Tool } from '#lib/tools/types.ts';
@@ -10,7 +11,7 @@ const tool: Tool = {
 	kind: '',
 	tagline: '',
 	summary: '',
-	cues: [],
+	cues,
 	install: { steps: [] },
 	docs: loadDocs('apps/localthing', {
 		'../../../../localthing/README.md': '# localthing\n\nSee [the guide](docs/guide.md).\n',

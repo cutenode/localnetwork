@@ -19,7 +19,7 @@
 		{ "path": "/tools" },
 		{ "path": "/tools/locallibrary", "pr": true },
 		{ "path": "/tools/locallibrary/docs/install" },
-		{ "path": "/tools/localtoolbox" },
+		{ "path": "/tools/localtoolbox", "pr": true },
 		{ "path": "/dashboard", "account": "dj" },
 		{ "path": "/dashboard/activity", "account": "dj" },
 		{ "path": "/dashboard/bookings", "account": "dj" },

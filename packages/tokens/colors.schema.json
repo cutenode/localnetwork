@@ -5,7 +5,7 @@
 	"description": "Colours that mean the same thing wherever DJ data is drawn: the website's mix report, locallibrary's HTML report and its terminal player. Each surface keeps its own chrome and accent.",
 	"type": "object",
 	"additionalProperties": false,
-	"required": ["bands", "phrases", "phrasesLight", "cues", "cuesLight", "trackColors", "status", "playhead"],
+	"required": ["bands", "phrases", "phrasesLight", "cues", "cuesLight", "trackColors", "status", "hotCueTextLight", "playhead", "playheadLight"],
 	"properties": {
 		"$schema": { "type": "string" },
 		"bands": {
@@ -72,7 +72,15 @@
 				"light": { "$ref": "#/$defs/status" }
 			}
 		},
-		"playhead": { "$ref": "#/$defs/hex" }
+		"hotCueTextLight": {
+			"description": "Hot cue labels on a light background, and the fill behind a picked one's white label: 4.5:1 against a near-white page, where cuesLight.hot is too pale for text. On a dark one they're cues.hot.",
+			"$ref": "#/$defs/hex"
+		},
+		"playhead": { "$ref": "#/$defs/hex" },
+		"playheadLight": {
+			"description": "The playhead on a light background, where the white one disappears.",
+			"$ref": "#/$defs/hex"
+		}
 	},
 	"$defs": {
 		"hex": { "type": "string", "pattern": "^#[0-9a-f]{6}$" },
