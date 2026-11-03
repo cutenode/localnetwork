@@ -1,9 +1,11 @@
+import { isRedirect } from '@sveltejs/kit';
 import { afterEach, beforeEach, expect, it } from 'vitest';
-import { silentLogger } from '#lib/server/logger.ts';
-import { ADMIN, NO_SPACES, pressKitServices, PROMOTER } from '#lib/server/testing/press-kits.ts';
+import { ADMIN, DJ, NO_SPACES, pressKitServices, PROMOTER } from '#lib/server/testing/press-kits.ts';
 import { inquiryDefaults } from '#lib/shows.ts';
+import { callRoute, loadRoute } from '#lib/testing/route-event.ts';
 import type { Viewer } from '#lib/types.ts';
-import { load } from './+page.server.ts';
+import { actions, load } from './+page.server.ts';
+import type { PageServerData } from './$types';
 
 let f: Awaited<ReturnType<typeof pressKitServices>>;
 
@@ -17,24 +19,18 @@ afterEach(async () => {
 });
 
 /** The inquiry form's load for `did` at `query` to `slug`, with their viewer changed by `as`. */
-async function loaded(did: string, query: string, as: Partial<Viewer> = {}, slug = f.project.slug) {
-	const locals = {
+const loaded = async (did: string, query: string, as: Partial<Viewer> = {}, slug = f.project.slug) =>
+	loadRoute<PageServerData>(load, {
 		app: { ...f.t, geocoder: { enabled: false } },
 		viewer: { ...(await f.t.viewer(did)), ...as },
-		log: silentLogger
-	};
-
-	const url = new URL(`https://x.test/dashboard/bookings/new?project=${slug}&${query}`);
-
-	// SAFETY: the load reads only the URL and locals, and the services are the app's own.
-	return load({ url, locals } as never);
-}
+		url: `/dashboard/bookings/new?project=${slug}&${query}`
+	});
 
 /** What the inquiry form opens with: its values, and the planner show they came from. */
 async function opened(did: string, query: string, as: Partial<Viewer> = {}) {
 	const data = await loaded(did, query, as);
 
-	return data && { values: data.values, show: data.show };
+	return { values: data.values, show: data.show };
 }
 
 it('fills the inquiry in from the planner show it was opened from', async () => {
@@ -96,12 +92,82 @@ it("starts the budget in the currency of the project's first fee, with what the 
 
 	const data = await loaded(PROMOTER, '', {}, priced.slug);
 
-	expect(data?.values.currency).toBe('EUR');
-	expect(data?.asks).toEqual([
+	expect(data.values.currency).toBe('EUR');
+	expect(data.asks).toEqual([
 		'Fee: Established · €600–€1,500.',
 		'Slots: Peak time, Closing.',
 		'Set length: 90–240 minutes.'
 	]);
 	// The demo project asks for nothing, so nothing shows beside the budget.
-	expect((await loaded(PROMOTER, ''))?.asks).toEqual([]);
+	expect((await loaded(PROMOTER, '')).asks).toEqual([]);
+});
+
+it("won't open an inquiry to a project that's missing or not active, or to the viewer's own", async () => {
+	const admin = await f.t.viewer(ADMIN);
+	const hidden = await f.t.projectAdmin.create({ actor: admin, profile: { ...f.project.profile, name: 'Hidden Act' } });
+	await f.t.projectAdmin.setStatus({ actor: admin, project: hidden, status: 'hidden' });
+
+	await expect(loaded(PROMOTER, '', {}, 'nobody')).rejects.toMatchObject({
+		status: 404,
+		body: { message: 'Pick a project to contact first' }
+	});
+	await expect(loaded(PROMOTER, '', {}, hidden.slug)).rejects.toMatchObject({ status: 404 });
+	await expect(
+		callRoute(load, { app: f.t, viewer: await f.t.viewer(PROMOTER), url: '/dashboard/bookings/new' })
+	).rejects.toMatchObject({ status: 404 });
+	await expect(loaded(DJ, '')).rejects.toMatchObject({ status: 303, location: `/projects/${f.project.slug}` });
+});
+
+/** Sends the inquiry form to `slug` as `did`, the way the browser posts it. */
+const inquire = async (did: string, form: Record<string, string>, slug = f.project.slug) =>
+	callRoute(actions.default, {
+		app: f.t,
+		viewer: await f.t.viewer(did),
+		url: `/dashboard/bookings/new?project=${slug}`,
+		form
+	});
+
+/** Where `running` redirects to, as SvelteKit throws it, or null when it doesn't redirect. */
+async function redirectOf(running: Promise<unknown>) {
+	try {
+		await running;
+	} catch (thrown) {
+		if (isRedirect(thrown)) return thrown;
+		throw thrown;
+	}
+
+	return null;
+}
+
+it('starts a booking thread from the inquiry and opens it', async () => {
+	const redirect = await redirectOf(
+		inquire(PROMOTER, { title: 'Rooftop Rave', date: '2026-12-12', message: 'Are you free?' })
+	);
+
+	const [thread] = await f.t.bookings.threadsFor(PROMOTER);
+
+	expect(thread).toMatchObject({ title: 'Rooftop Rave', project: { name: 'Neon Tide' } });
+	expect(redirect).toMatchObject({ status: 303, location: `/dashboard/bookings/${thread.skey}` });
+});
+
+it('keeps what was typed when the inquiry is refused', async () => {
+	const result = await inquire(PROMOTER, { title: '', message: 'Are you free?' });
+
+	expect(result).toMatchObject({
+		status: 400,
+		data: { error: 'Give the show a name', values: { title: '', message: 'Are you free?' } }
+	});
+	expect(await f.t.bookings.threadsFor(PROMOTER)).toEqual([]);
+});
+
+it("refuses an inquiry to a project that doesn't exist", async () => {
+	await expect(inquire(PROMOTER, { title: 'Rooftop Rave' }, 'nobody')).rejects.toMatchObject({ status: 404 });
+	await expect(
+		callRoute(actions.default, {
+			app: f.t,
+			viewer: await f.t.viewer(PROMOTER),
+			url: '/dashboard/bookings/new',
+			form: { title: 'Rooftop Rave' }
+		})
+	).rejects.toMatchObject({ status: 404, body: { message: 'Project not found' } });
 });
