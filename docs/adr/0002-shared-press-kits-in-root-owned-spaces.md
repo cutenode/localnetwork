@@ -1,6 +1,6 @@
 # Shared press kits live in root-owned spaces
 
-A press kit belongs to its project, and every manager of the project has the same control over it. Only a space's authority can manage its members or delete it, so a press kit's space moved from the manager who created it to the Local Network root account. The root alone writes the published content and the grants there. Managers and grantees are read members.
+A press kit belongs to its project, and every manager of the project has the same control over it. Only a space's authority can manage its members or delete it, so a press kit's space moved from the manager who created it to the Local Network root account. The root alone writes the published content there. Managers and grantees are read members. The root's grant records, and the requests to see a kit, sit in a separate root-owned space per project that only its managers read, so grantees can't see who else asked or got in.
 
 Managers edit through drafts kept in the project's backstage, a root-owned space whose write members are exactly the current managers. Publishing a draft applies only the fields it changed onto the published copy, and the dashboard asks before overwriting a field someone else published in the meantime. On publish, photos are copied into the root's repo so they outlive a manager leaving. When `project.managers` changes, one sync step updates the members of the project's backstage, its press kit spaces and its open booking threads.
 

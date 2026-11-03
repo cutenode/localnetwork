@@ -1,7 +1,7 @@
 # Advisories osv-scanner (https://google.github.io/osv-scanner/) reports in fuzz/Cargo.lock, each
 # with why. OpenSSF Scorecard's Vulnerabilities check runs osv-scanner and reads this file; the
 # root osv-scanner.toml doesn't reach this directory. The fuzz targets only build on the machine
-# that runs them (run.sh) and never ship. A package override names one version, so it stops
+# that runs them and never ship. A package override names one version, so it stops
 # matching once that version changes.
 
 [[PackageOverrides]]

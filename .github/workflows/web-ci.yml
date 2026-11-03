@@ -187,7 +187,7 @@ jobs:
           path: apps/web/lighthouse-report/
 
   # The image as it's deployed: built from the repo root, then started with an empty volume at
-  # /data against the local network and asked for a few pages (scripts/docker-smoke.sh). The
+  # /data against the local network and asked for a few pages (tests/docker.test.ts). The
   # network runs from the workspace, so it's installed here too.
   docker:
     name: Docker image
@@ -213,11 +213,11 @@ jobs:
         with:
           context: .
           file: apps/web/Dockerfile
-          tags: localnetwork:ci
+          tags: localnetwork
           load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - run: scripts/docker-smoke.sh localnetwork:ci
+      - run: pnpm test:docker
 
   # Coverage and size on the pull request, in one comment each push updates: the integration job's
   # coverage against main's latest (davelosert/vitest-coverage-report-action, with each changed

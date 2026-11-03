@@ -200,6 +200,12 @@ export default defineConfig({
 			},
 			{
 				extends: './vite.config.ts',
+				// Starts the Docker image (`pnpm test:docker`), which has to be built first, so it stays out
+				// of the other runs.
+				test: { name: 'docker', environment: 'node', include: ['tests/docker.test.ts'] }
+			},
+			{
+				extends: './vite.config.ts',
 				// Each story renders in a browser and fails on an accessibility violation (.storybook/preview.ts).
 				plugins: [storybookTest({ configDir: `${import.meta.dirname}/.storybook` })],
 				server: BROWSER_TEST_SERVER,

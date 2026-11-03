@@ -27,6 +27,11 @@ pub(super) fn opened_at(url: &str) -> IndexMap<String, String> {
     reqwest::Url::parse(url).unwrap().query_pairs().into_owned().collect()
 }
 
+/// Where the browser comes back to sign-in `start`.
+pub(super) fn back(start: &AccountSignIn) -> &str {
+    start.redirect_uri.as_deref().expect("a sign-in in the browser is come back to")
+}
+
 /// Comes back from the browser to `redirect_uri` with `query`, once it's waited for.
 pub(super) fn come_back_to(redirect_uri: &str, query: String) -> std::thread::JoinHandle<String> {
     let url = format!("{redirect_uri}?{query}");
@@ -68,7 +73,7 @@ impl Mock {
     /// The address the browser ends up on after `start`, pasted, as `a`.
     fn paste(&self, start: &AccountSignIn) -> locallibrary::Result<AccountSignedIn> {
         self.expect(start, who(json!("a"), None));
-        let pasted = format!("{}?code=c0de&state={}", start.redirect_uri, opened_at(&start.url)["state"]);
+        let pasted = format!("{}?code=c0de&state={}", back(start), opened_at(&start.url)["state"]);
         self.f.plugins.finish_account_sign_in_with_url(&start.id, &pasted)
     }
 
@@ -76,7 +81,7 @@ impl Mock {
     /// was told.
     fn decline(&self, start: &AccountSignIn) -> (Error, String) {
         let declined = format!("error=access_denied&state={}", opened_at(&start.url)["state"]);
-        let browser = come_back_to(&start.redirect_uri, declined);
+        let browser = come_back_to(back(start), declined);
         let e = self.f.plugins.finish_account_sign_in(&start.id, Duration::from_secs(10), &Ctx::silent()).unwrap_err();
         (e, browser.join().unwrap())
     }
@@ -119,20 +124,20 @@ fn a_sign_in_trades_the_code_the_browser_comes_back_with_once() {
         ("response_type", "code"),
         ("client_id", "locallibrary-test"),
         ("code_challenge_method", "S256"),
-        ("redirect_uri", start.redirect_uri.as_str()),
+        ("redirect_uri", back(&start)),
     ] {
         assert_eq!(query.get(key).map(String::as_str), Some(value), "{key}");
     }
-    assert!(start.redirect_uri.starts_with("http://127.0.0.1:"), "{}", start.redirect_uri);
+    assert!(back(&start).starts_with("http://127.0.0.1:"), "{}", back(&start));
     m.expect(&start, who(json!("a"), Some("a@mock.example")));
-    let browser = come_back_to(&start.redirect_uri, format!("code=c0de&state={}", query["state"]));
+    let browser = come_back_to(back(&start), format!("code=c0de&state={}", query["state"]));
     let done = m.f.plugins.finish_account_sign_in(&start.id, Duration::from_secs(10), &Ctx::silent()).unwrap();
     assert!(browser.join().unwrap().contains("a@mock.example is signed in."));
     assert_eq!((done.account.signed_in, done.account.refreshes), (true, true));
     assert!(done.account.expires.is_some_and(|at| at > chrono::Utc::now() + chrono::Duration::minutes(59)));
     let traded = form(&m.server.got()[0]);
     assert!(has(&traded, "grant_type", "authorization_code") && has(&traded, "code", "c0de"), "the code is traded");
-    assert_eq!(traded["redirect_uri"], start.redirect_uri);
+    assert_eq!(traded["redirect_uri"], back(&start));
     let again = m.f.plugins.finish_account_sign_in(&start.id, Duration::from_secs(1), &Ctx::silent()).unwrap_err();
     assert_eq!(again.code(), "not_found");
 }
@@ -178,7 +183,7 @@ fn a_declined_or_foreign_sign_in_keeps_nothing() {
     assert!(m.listed().is_empty());
 
     let start = m.begin();
-    let foreign = format!("{}?code=c0de&state=guess", start.redirect_uri);
+    let foreign = format!("{}?code=c0de&state=guess", back(&start));
     let e = m.f.plugins.finish_account_sign_in_with_url(&start.id, &foreign).unwrap_err();
     assert_eq!(e.to_string(), "that address is from another sign-in: sign in again");
     assert!(m.paste(&m.begin()).unwrap().account.signed_in);
@@ -338,7 +343,7 @@ fn an_account_is_signed_in_exactly_when_its_last_sign_in_finished(tc: TestCase) 
             }
             Signing::Foreign => {
                 let start = m.begin();
-                let foreign = format!("{}?code=c0de&state=guess", start.redirect_uri);
+                let foreign = format!("{}?code=c0de&state=guess", back(&start));
                 let e = m.f.plugins.finish_account_sign_in_with_url(&start.id, &foreign).unwrap_err();
                 assert!(!m.f.plugins.cancel_sign_in(&start.id), "step {i}: a sign-in pasted to is over");
                 Some((e, "that address is from another sign-in: sign in again"))
@@ -538,10 +543,7 @@ fn an_account_type_naming_a_port_is_come_back_to_there() {
     let m = mock_with(3600, manifest, &asking(&["read"], &[]), options());
     let waiting = m.begin();
     let redirect_uri = format!("http://127.0.0.1:{port}/callback");
-    assert_eq!(
-        (waiting.redirect_uri.as_str(), opened_at(&waiting.url)["redirect_uri"].as_str()),
-        (&*redirect_uri, &*redirect_uri)
-    );
+    assert_eq!((back(&waiting), opened_at(&waiting.url)["redirect_uri"].as_str()), (&*redirect_uri, &*redirect_uri));
     assert!(m.sign_in(who(json!("a"), None), None, &[]).0.unwrap().account.signed_in);
     assert_eq!(form(&m.server.got()[0])["redirect_uri"], redirect_uri);
     assert!(!m.f.plugins.cancel_sign_in(&waiting.id), "the sign-in waiting didn't give way");

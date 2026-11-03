@@ -138,6 +138,23 @@ export async function createSpaceIfMissing(
 	}
 }
 
+/** Every record of one collection in `repo`'s repo in a space, read page by page. */
+export async function listAllSpaceRecords(
+	client: RepoClient,
+	input: { space: string; repo: string; collection: string }
+): Promise<ListedSpaceRecord[]> {
+	const records: ListedSpaceRecord[] = [];
+	let cursor: string | undefined;
+
+	do {
+		const page = await client.listSpaceRecords({ ...input, cursor });
+		records.push(...page.records);
+		cursor = page.cursor;
+	} while (cursor);
+
+	return records;
+}
+
 const NOT_FOUND = new Set(['RecordNotFound', 'SpaceNotFound', 'RepoNotFound']);
 
 // XRPCError types `status` as its ResponseType enum, where an HTTP 404 is the member `XRPCNotSupported` (404).

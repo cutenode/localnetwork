@@ -1,6 +1,7 @@
 //! Where a store keeps its accounts: `accounts.json` in the store's folder, readable only by the
-//! user and left out of its copies, has each account but its tokens, and the accesses plugins were
-//! given to them, changed under `accounts.lock`. Its tokens are a secret (see [`Place`]): the keychain item
+//! user and left out of its copies, has each account but its tokens (or keys), and the accesses
+//! plugins were given to them, changed under `accounts.lock`. Its tokens, or the keys it was signed
+//! in to with (`{"keys": {...}}`), are a secret (see [`Place`]): the keychain item
 //! `account:<account plugin>:<subject>@<store id>` of `locallibrary`, or with
 //! [`Storage::File`] in `secrets/accounts.json`. Each account's tokens are read and refreshed
 //! under a lock of their own, in `accounts/`.
@@ -10,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Tokens;
 use super::access::Access;
+use super::keys::Keys;
 use crate::error::IoContext;
 use crate::fsutil::{self, FileLock};
 use crate::hash::Hash;
@@ -74,6 +76,11 @@ impl Kept {
         self.refresh_expires_at = tokens.refresh_expires_at;
     }
 
+    /// Signed in to with keys: granted nothing at the service, never expiring nor refreshed.
+    pub fn keyed(&mut self) {
+        (self.scopes, self.expires_at, self.refreshes, self.refresh_expires_at) = (Vec::new(), None, false, None);
+    }
+
     /// When it signs itself out, when it does: as its access token expires when it isn't
     /// refreshed, else as its refresh token runs out, when the service said.
     pub fn signs_out(&self) -> Option<DateTime<Utc>> {
@@ -132,6 +139,12 @@ pub(super) fn keep(storage: Storage, store: &Store, kept: &Kept, tokens: Option<
         })
         .transpose()?;
     set_secret(storage, &place(store, &kept.plugin, &kept.subject), json.as_deref())
+}
+
+/// Keeps `keys` as what the account `kept` was signed in to with, where its tokens would be.
+pub(super) fn keep_keys(storage: Storage, store: &Store, kept: &Kept, keys: &Keys) -> Result<()> {
+    let json = serde_json::to_string(keys).map_err(|e| Error::invalid(e.to_string()))?;
+    set_secret(storage, &place(store, &kept.plugin, &kept.subject), Some(&json))
 }
 
 /// Held while the tokens of the account `subject` that `plugin` signed in are read, refreshed

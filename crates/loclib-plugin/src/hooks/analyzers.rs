@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::manifest::{NAME_RULE, invalid, is_name, shown, unique_names};
 use crate::sdk::declared;
-use crate::{Context, Contributions, Feature, Hook, Manifest, ManifestError, RpcError};
+use crate::{Context, Contributions, Feature, Hook, Manifest, ManifestError, RpcError, a_or_an};
 
 /// Host to plugin: [`AnalyzeTrack`] -> [`Analysis`].
 pub const ANALYZE_TRACK: &str = "track/analyze";
@@ -405,7 +405,7 @@ pub(crate) fn validate(m: &Manifest) -> Result<(), ManifestError> {
             let kind = x.fields.get(field).ok_or_else(|| invalid(&at, format!("{field:?} isn't its field")))?;
             if *kind != role.kind() {
                 let kind = serde_json::to_value(role.kind()).unwrap_or_default();
-                let message = format!("{field} isn't a {}, which the role is", kind.as_str().unwrap_or("?"));
+                let message = format!("{field} isn't {}, which the role is", a_or_an(kind.as_str().unwrap_or("?")));
                 return Err(invalid(at, message));
             }
         }
@@ -414,7 +414,8 @@ pub(crate) fn validate(m: &Manifest) -> Result<(), ManifestError> {
             let kind = x.fields.get(field).ok_or_else(|| invalid(&at, format!("{field:?} isn't its field")))?;
             if let Some(f) = d.format.filter(|f| !f.fits(*kind)) {
                 let kind = serde_json::to_value(kind).unwrap_or_default();
-                let message = format!("{field} is a {}, which {} isn't for", kind.as_str().unwrap_or("?"), f.name());
+                let message =
+                    format!("{field} is {}, which {} isn't for", a_or_an(kind.as_str().unwrap_or("?")), f.name());
                 return Err(invalid(format!("{at}.format"), message));
             }
             if d.precision.is_some_and(|p| p > FieldDisplay::MAX_PRECISION) {
