@@ -42,9 +42,11 @@ export function linkSources(links: { uri: string }[] | undefined): PlayerSource[
 		const archive = archiveAudio(uri);
 
 		if (archive) return [archive];
+		// embedUrl only knows links on a named platform, so a link with an embed always has a platform.
+		const platform = mixPlatform(uri);
 		const embed = embedUrl(uri);
 
-		return embed ? [{ kind: 'embed' as const, src: embed, platform: mixPlatform(uri) ?? 'the web', link: uri }] : [];
+		return platform && embed ? [{ kind: 'embed' as const, src: embed, platform, link: uri }] : [];
 	});
 }
 
@@ -71,14 +73,14 @@ export type PlayerTrack = { title: string; artist?: string; startSeconds?: numbe
 /** The track playing `seconds` into the recording: the last one started by then, or -1 before the first. */
 export function trackAt(tracks: PlayerTrack[], seconds: number): number {
 	let current = -1;
+	let latest = -Infinity;
 
-	for (const [i, track] of tracks.entries())
-		if (
-			track.startSeconds !== undefined &&
-			track.startSeconds <= seconds &&
-			(current < 0 || track.startSeconds >= (tracks[current].startSeconds ?? 0))
-		)
+	for (const [i, { startSeconds }] of tracks.entries()) {
+		if (startSeconds !== undefined && startSeconds <= seconds && startSeconds >= latest) {
 			current = i;
+			latest = startSeconds;
+		}
+	}
 
 	return current;
 }
