@@ -399,6 +399,8 @@ export type BookingThreadView = {
 	project: { uri: string; slug: string; name: string } | null;
 	promoter: AccountView;
 	participants: (AccountView & { role: 'promoter' | 'manager' })[];
+	/** Who wrote in the thread last (a message, the inquiry, or a status change), to tell whose turn it is. */
+	lastAuthor: string | null;
 	lastActivityAt: string;
 	createdAt: string;
 };

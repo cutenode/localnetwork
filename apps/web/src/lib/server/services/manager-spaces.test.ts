@@ -41,7 +41,10 @@ describe('ManagerSpaces', () => {
 		await t.db.destroy();
 	});
 
-	/** Opens a booking thread with the project, for a show on `date` if given, and moves it to `status`. */
+	/**
+	 * Opens a booking thread with the project, for a show on `date` if given, and moves it to `status`: the promoter
+	 * withdraws it, and the project's first manager answers it otherwise.
+	 */
 	const thread = async (status: string, date?: string) => {
 		const promoter = await t.viewer(PROMOTER);
 
@@ -52,7 +55,12 @@ describe('ManagerSpaces', () => {
 			message: 'Free?'
 		});
 
-		if (status !== 'open') await t.bookings.setStatus({ actor: promoter, space, status });
+		if (status !== 'open')
+			await t.bookings.setStatus({
+				actor: status === 'cancelled' ? promoter : await t.viewer(project.managers[0]),
+				space,
+				status
+			});
 
 		return space;
 	};
