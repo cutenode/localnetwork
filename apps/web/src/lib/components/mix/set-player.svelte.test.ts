@@ -501,7 +501,9 @@ describe('MixReport with a recording', () => {
 	it('stops marking the track playing once the player closes', async () => {
 		await render(MixReport, { report: sampleReport, source: Promise.resolve(sources(silence(700)).pds) });
 		await page.getByRole('button', { name: 'Play', exact: true }).click();
-		await expect.element(page.getByRole('button', { name: /^Playing now: 1\. Night Bus/ })).toBeInTheDocument();
+		await expect
+			.element(page.getByRole('button', { name: 'Playing now: 1 Night Bus Ferrule', exact: true }))
+			.toBeInTheDocument();
 
 		await page.getByRole('button', { name: 'Close player' }).click();
 
@@ -515,7 +517,9 @@ describe('MixReport with a recording', () => {
 
 		await render(MixReport, { report, source: Promise.resolve(sources(silence(700)).pds) });
 		await page.getByRole('button', { name: 'Play', exact: true }).click();
-		await expect.element(page.getByRole('button', { name: /^Playing now: 1\. Night Bus/ })).toBeInTheDocument();
+		await expect
+			.element(page.getByRole('button', { name: 'Playing now: 1 Night Bus', exact: true }))
+			.toBeInTheDocument();
 
 		expect(navigator.mediaSession.metadata).toMatchObject({ title: 'Night Bus', artist: 'Sample DJ' });
 	});

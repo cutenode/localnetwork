@@ -63,7 +63,7 @@ describe('MixReport', () => {
 		await expect.element(page.getByText('late summer', { exact: true })).toBeInTheDocument();
 		await expect.element(page.getByText('2 stretches not in the library')).toBeInTheDocument();
 
-		const id = page.getByRole('button', { name: '1. ID, 0:00 to 5:30', exact: true });
+		const id = trackRow('1 ID');
 		await expect.element(id.getByText('Pitched −1.2 st')).toBeInTheDocument();
 		await expect.element(id.getByText('2 jumps or loops')).toBeInTheDocument();
 		await expect.element(id.getByText('Tentative')).toBeInTheDocument();
@@ -73,12 +73,11 @@ describe('MixReport', () => {
 		await expect.element(id.getByTitle('Hot cue A at 0:20')).toBeInTheDocument();
 		await expect.element(page.getByRole('listitem', { name: 'Transition: quick mix' })).toBeInTheDocument();
 
-		// The timeline names each track as the tracklist does, so the tracklist's row is the last.
-		const signal = page.getByRole('button', { name: '2. Signal Path, 5:00 to 10:40', exact: true }).last();
+		const signal = trackRow('2 Signal Path');
 		await expect.element(signal.getByText('from 8A')).toBeInTheDocument();
 		expect(signal.element().querySelector('img')?.getAttribute('src')).toBe(PIXEL);
 
-		await page.getByRole('button', { name: '2. Signal Path, 5:00 to 10:40', exact: true }).first().click();
+		await page.getByRole('button', { name: '2 Signal Path, 5:00 to 10:40', exact: true }).click();
 		await expect.element(page.getByText('recorded at 126.0', { exact: false })).toBeInTheDocument();
 	});
 
@@ -108,29 +107,31 @@ describe('MixReport', () => {
 });
 
 describe('MixTracklist', () => {
-	const row = (name: RegExp) => page.getByRole('button', { name });
+	const nightBus = () => page.getByRole('button', { name: '1 Night Bus Ferrule', exact: true });
 
 	it('selects a track and lets it go again, by click or from the keyboard', async () => {
 		await render(MixTracklist, { report: sampleReport });
 
-		await row(/^1\. Night Bus/).click();
-		await expect.element(row(/^1\. Night Bus/)).toHaveAttribute('aria-pressed', 'true');
-		await row(/^1\. Night Bus/).click();
-		await expect.element(row(/^1\. Night Bus/)).toHaveAttribute('aria-pressed', 'false');
+		await nightBus().click();
+		await expect.element(nightBus()).toHaveAttribute('aria-pressed', 'true');
+		await nightBus().click();
+		await expect.element(nightBus()).toHaveAttribute('aria-pressed', 'false');
 
 		await userEvent.keyboard('{Enter}');
-		await expect.element(row(/^1\. Night Bus/)).toHaveAttribute('aria-pressed', 'true');
+		await expect.element(nightBus()).toHaveAttribute('aria-pressed', 'true');
 		await userEvent.keyboard(' ');
-		await expect.element(row(/^1\. Night Bus/)).toHaveAttribute('aria-pressed', 'false');
+		await expect.element(nightBus()).toHaveAttribute('aria-pressed', 'false');
 		await userEvent.keyboard('a');
-		await expect.element(row(/^1\. Night Bus/)).toHaveAttribute('aria-pressed', 'false');
+		await expect.element(nightBus()).toHaveAttribute('aria-pressed', 'false');
 	});
 
 	it('marks the track the player is at', async () => {
 		await render(MixTracklist, { report: sampleReport, playing: 2 });
 
-		await expect.element(row(/^Playing now: 3\. Halogen by Two Rooms/)).toBeInTheDocument();
-		await expect.element(row(/^1\. Night Bus/)).toBeInTheDocument();
+		await expect
+			.element(page.getByRole('button', { name: 'Playing now: 3 Halogen Two Rooms', exact: true }))
+			.toBeInTheDocument();
+		await expect.element(nightBus()).toBeInTheDocument();
 	});
 });
 
@@ -207,7 +208,7 @@ describe('MixTimeline', () => {
 
 	it('zooms in, and picks a track and lets it go', async () => {
 		await render(MixTimeline, { report: sampleReport });
-		const track = page.getByRole('button', { name: /^3\. Halogen/ });
+		const track = page.getByRole('button', { name: '3 Halogen by Two Rooms, 10:10 to 16:20', exact: true });
 
 		await page.getByRole('button', { name: '2×' }).click();
 		await expect.element(page.getByRole('button', { name: '2×' })).toHaveAttribute('aria-pressed', 'true');
@@ -234,6 +235,10 @@ describe('TempoChart', () => {
 });
 
 // Helpers
+
+/** A tracklist row, found by its title button's name; its details sit beside the button in the row. */
+const trackRow = (name: string) =>
+	page.getByRole('listitem').filter({ has: page.getByRole('button', { name, exact: true }) });
 
 const PIXEL =
 	'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
