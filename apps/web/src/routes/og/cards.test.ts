@@ -3,15 +3,17 @@ import { imageSize } from 'image-size';
 import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { MixReport } from '#lib/mix/report.ts';
+import ArtistCard from '#lib/og/cards/ArtistCard.svelte';
 import { sampleReport } from '#lib/mix/sample.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import { silentLogger } from '#lib/server/logger.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
-import { MAX_CARD_BYTES } from '#lib/server/og/render.ts';
+import { MAX_CARD_BYTES, renderCard } from '#lib/server/og/render.ts';
 import type { SupportService } from '#lib/server/services/supports.ts';
+import type { TracklistService } from '#lib/server/services/tracklists.ts';
 import { ROOT } from '#lib/server/testing/core.ts';
 import { ADMIN, DJ, pressKitServices } from '#lib/server/testing/press-kits.ts';
-import type { ProjectView } from '#lib/types.ts';
+import type { ProjectView, TrackPlays } from '#lib/types.ts';
 import { GET as artistCard } from './artist/[mbid].png/+server.ts';
 import { GET as mixCard } from './mix/[slug]/[n]/[cid].png/+server.ts';
 import { GET as pressKitCard } from './press-kit/[slug]/[rkey]/[cid].png/+server.ts';
@@ -70,7 +72,7 @@ describe('link-preview cards', () => {
 	const get = async (
 		handler: (event: never) => Response | Promise<Response>,
 		params: Record<string, string>,
-		services: { supports?: Pick<SupportService, 'artist'> } = {}
+		services: { supports?: Pick<SupportService, 'artist'>; tracklists?: Pick<TracklistService, 'published'> } = {}
 	): Promise<Outcome> => {
 		const locals = { app: { ...f.t, rootDid: ROOT, ...services }, viewer: null, log: silentLogger };
 
@@ -149,6 +151,27 @@ describe('link-preview cards', () => {
 			for (const n of ['3', '4', '0', 'x']) {
 				expect(await get(mixCard, { slug: project.slug, n, cid: project.cid })).toMatchObject({ status: 404 });
 			}
+
+			expect(await get(mixCard, { slug: 'nobody', n: '1', cid: project.cid })).toMatchObject({ status: 404 });
+		});
+
+		it("answers with the tracklist's own error when it can't be fetched, and lets anything else through", async () => {
+			const params = { slug: project.slug, n: '1', cid: project.cid };
+			const failing = new Error('out of memory');
+
+			const tracklists = {
+				published: async () => {
+					throw failing;
+				}
+			};
+
+			f.t.net.blobs.delete(project.profile.mixes?.[0]?.tracklist?.ref.$link ?? '');
+
+			expect(await get(mixCard, params)).toMatchObject({
+				status: 502,
+				body: { message: 'This tracklist could not be fetched right now.' }
+			});
+			await expect(get(mixCard, params, { tracklists })).rejects.toBe(failing);
 		});
 	});
 
@@ -163,6 +186,18 @@ describe('link-preview cards', () => {
 				status: 302,
 				location: `/og/press-kit/${project.slug}/${kit.rkey}/${kit.cid}.png`
 			});
+		});
+
+		it('is drawn for a kit without a headline, and a 404 once the project is no longer active', async () => {
+			const kit = await f.publish(DJ, { headline: undefined });
+			const params = { slug: project.slug, rkey: kit.rkey, cid: kit.cid };
+
+			expect(kit.record.headline).toBeUndefined();
+			expect(await card(await get(pressKitCard, params))).toBe(IMMUTABLE);
+
+			await f.t.projectAdmin.setStatus({ actor: await f.t.viewer(ADMIN), project, status: 'hidden' });
+
+			expect(await get(pressKitCard, params)).toMatchObject({ status: 404 });
 		});
 
 		it("is the performer card without a photo, and a 404 for a kit that isn't there", async () => {
@@ -212,6 +247,39 @@ describe('link-preview cards', () => {
 
 			expect(await card(await get(artistCard, { mbid: MBID }))).toBe('public, max-age=3600');
 			expect(await card(await get(artistCard, { mbid: MBID }, offline))).toBe('public, max-age=3600');
+		});
+
+		it('draws their three most supported tracks, most supported first, whatever order the directory gives', async () => {
+			const mbid = '7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+
+			const track = (title: string, supports: number): TrackPlays => ({
+				track: { id: `name:${title}`, title, artists: [{ name: 'Ferrule', mbid }], supports },
+				plays: []
+			});
+
+			const supports = {
+				artist: async () => ({
+					artist: { name: 'Ferrule', mbid, supports: 10, djCount: 4 },
+					tracks: [track('Night Bus', 1), track('Dawn Chorus', 4), track('Tidal Hours', 2), track('Kiln', 3)],
+					djs: {}
+				})
+			};
+
+			const answer = await get(artistCard, { mbid }, { supports });
+
+			const expected = await renderCard(ArtistCard, {
+				name: 'Ferrule',
+				djCount: 4,
+				tracks: [
+					{ title: 'Dawn Chorus', supports: 4 },
+					{ title: 'Kiln', supports: 3 },
+					{ title: 'Tidal Hours', supports: 2 }
+				]
+			});
+
+			if (!(answer instanceof Response)) throw new Error(`expected a card, got ${answer.status}`);
+
+			expect(new Uint8Array(await answer.arrayBuffer())).toEqual(expected);
 		});
 
 		it('asks a crawler to come back while the directory is offline', async () => {
