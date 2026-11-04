@@ -4,6 +4,7 @@ import { type Loopback, rebindToLoopback } from '../testing/rebind';
 import { FakeSpaceHost } from '../testing/space-host';
 import { SpaceCredentialManager } from './credentials';
 import { IdentityResolver } from './identity';
+import { RecordValidationError } from './lexicons';
 import { bookingSpace } from './spaces';
 
 const SPACE = bookingSpace('did:plc:root', 'gig');
@@ -63,6 +64,16 @@ describe('SpaceCredentialManager', () => {
 			value: { $type: NOTE, text: 'hi' }
 		});
 		await expect(credentials.readRecord({ ...record, rkey: 'b' })).resolves.toBeNull();
+	});
+
+	it('refuses a record nested deeper than 32 levels as invalid', async () => {
+		// The record is the first level, so 32 nested arrays in a field make 33.
+		const extra = JSON.parse(`${'['.repeat(32)}0${']'.repeat(32)}`);
+		await host.put(DJ, NOTE, 'a', { $type: NOTE, extra });
+
+		await expect(credentials.readRecord({ space: SPACE, repo: DJ, collection: NOTE, rkey: 'a' })).rejects.toThrow(
+			new RecordValidationError(NOTE, 'nested deeper than 32 levels')
+		);
 	});
 
 	it('refuses a record whose MAC does not verify, after once refreshing the KEM key', async () => {
