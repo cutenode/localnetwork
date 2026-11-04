@@ -90,24 +90,28 @@
 				{/each}
 				{#each report.plays as play, i (i)}
 					{@const tentative = play.confidence < CONFIDENT}
+					<!-- A tentative lane mixes its colour 45% into the surface and takes the theme's ink, which keeps 4.5:1 on every track colour in both themes. -->
 					<button
 						type="button"
 						class={[
 							'absolute flex h-[calc(var(--lane)-0.25rem)] cursor-pointer flex-col overflow-hidden rounded-sm px-2 text-left',
-							tentative && 'opacity-60',
+							tentative && 'text-fg',
 							selected === i && 'z-10 ring-2 ring-fg ring-offset-2 ring-offset-surface'
 						]}
 						style:left={pct(play.start)}
 						style:width="max(0.75rem, {pct(play.end - play.start)})"
 						style:top="calc({laneOf[i]} * var(--lane))"
-						style:background-color={swatches[i].background}
-						style:color={swatches[i].ink}
-						aria-label="{i + 1}. {play.track.title}{play.track.artist ? ` by ${play.track.artist}` : ''}, {clock(play.start)} to {clock(play.end)}{tentative ? ', tentative' : ''}"
+						style:background-color={tentative ? `color-mix(in srgb, ${swatches[i].background} 45%, var(--color-surface))` : swatches[i].background}
+						style:color={tentative ? undefined : swatches[i].ink}
 						aria-pressed={selected === i}
 						onclick={() => (selected = selected === i ? null : i)}
 					>
-						<span class="relative z-10 flex min-w-0 items-baseline gap-1.5 pt-1 text-caption leading-tight font-semibold whitespace-nowrap max-sm:hidden">
-							<span class="font-mono opacity-70">{i + 1}</span><span class="truncate">{play.track.title}</span>
+						<!-- Named by what it shows, so voice control can say it; on a phone the bar shows no text, so the name is only read out. -->
+						<span class="relative z-10 flex min-w-0 items-baseline gap-1.5 pt-1 text-caption leading-tight font-semibold whitespace-nowrap max-sm:sr-only">
+							<!-- The space makes "1 Night Bus" two words to voice control (the gap spaces them on screen). A faded number would fall under 4.5:1. -->
+							<span class="font-mono font-normal">{i + 1}</span> <span class="truncate">{play.track.title}</span><span class="sr-only"
+								>{`${play.track.artist ? ` by ${play.track.artist}` : ''}, ${clock(play.start)} to ${clock(play.end)}${tentative ? ', tentative' : ''}`}</span
+							>
 						</span>
 						<svg viewBox="0 0 100 40" preserveAspectRatio="none" class="absolute inset-x-0 bottom-0 h-7 w-full opacity-60 max-sm:hidden" aria-hidden="true">
 							<path d={presencePath(play.presence)} class="fill-none stroke-current" stroke-width="1.5" vector-effect="non-scaling-stroke" shape-rendering="crispEdges" />

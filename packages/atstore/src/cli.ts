@@ -18,10 +18,11 @@ const log = (message: string) => console.log(`\x1b[35m▸\x1b[0m ${message}`);
 
 async function make(
 	listing: Listing,
-	browser: Parameters<Listing['capture']>[0]
+	browser: Parameters<Listing['capture']>[0],
+	signal: AbortSignal
 ): Promise<{ assets: Asset[]; captures: Capture[] }> {
 	log(`${listing.id}: screenshots`);
-	const captures = await listing.capture(browser);
+	const captures = await listing.capture(browser, signal);
 	const svg = readFileSync(join(ROOT, listing.icon), 'utf8');
 	const heroShots = pick(captures, listing.hero.shots);
 
@@ -65,12 +66,24 @@ async function main() {
 	// First, so a store that moved its lexicon stops the run before anything is built.
 	const rules = await fetchRules();
 	log(`${LISTING}: what the AT Store takes now`);
-	const browser = await chromium.launch();
+	// Ctrl-C or a kill ends the commands running and lets every `finally` clean up (ejecting the
+	// sticks, stopping servers and players) before the run ends. Playwright's own handlers would
+	// close the browser and exit first.
+	const interrupt = new AbortController();
+
+	const stop = (signal: NodeJS.Signals) => {
+		log(`${signal}: stopping, and cleaning up`);
+		interrupt.abort();
+	};
+
+	process.on('SIGINT', stop).on('SIGTERM', stop);
+	const browser = await chromium.launch({ handleSIGINT: false, handleSIGTERM: false });
 	let failed = false;
 
 	try {
 		for (const listing of chosen) {
-			const { assets, captures } = await make(listing, browser);
+			interrupt.signal.throwIfAborted();
+			const { assets, captures } = await make(listing, browser, interrupt.signal);
 			write(
 				join(OUT, listing.id),
 				assets.map(({ file, png }) => ({ file, bytes: png }))
@@ -82,6 +95,9 @@ async function main() {
 
 			if (listing.page) write(join(SITE, listing.id), captures);
 		}
+	} catch (error) {
+		if (!interrupt.signal.aborted) throw error;
+		process.exitCode = 130;
 	} finally {
 		await browser.close();
 	}

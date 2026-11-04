@@ -21,8 +21,16 @@
 	</div>
 	<WithGuides tool={data.tool.id} guides={data.guides} current={data.doc.slug}>
 		<article class="flex min-w-0 flex-col gap-8">
-			<!-- Rendered on the server from the tool's own Markdown, with raw HTML escaped. -->
-			<div class="prose prose-site">{@html data.doc.html}</div>
+			{#if data.contents.length}
+				<nav aria-labelledby="contents-title" class="flex max-w-[38rem] flex-col gap-2 border-b border-line pb-6">
+					<p id="contents-title" class="m-0 text-small text-fg-muted">On this page</p>
+					<ul class="m-0 list-none columns-1 gap-8 p-0 sm:columns-2">
+						{#each data.contents as section (section.id)}<li class="break-inside-avoid py-1"><a class="link" href="#{section.id}">{section.title}</a></li>{/each}
+					</ul>
+				</nav>
+			{/if}
+			<!-- Rendered on the server from the tool's own Markdown, with raw HTML escaped. Capped at 38rem, about 80 characters a line; prose's own 65ch ran past 90. -->
+			<div class="prose prose-site max-w-[38rem]">{@html data.doc.html}</div>
 			<p class="m-0 max-w-[65ch] border-t border-line pt-6 text-small text-fg-muted">
 				<a class="link" href="https://github.com/cutenode/localnetwork/blob/main/{data.doc.path}">{data.doc.path}</a> on GitHub
 			</p>

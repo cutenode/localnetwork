@@ -59,7 +59,7 @@ export const locallibrary: Tool = {
 			capture: {
 				picture: check,
 				phone: checkPhone,
-				alt: 'locallibrary check on a drive for CDJ-3000 and CDJ-2000NXS2 players: ready, with a warning that twelve tracks have no waveform, beat grid or cues'
+				alt: "locallibrary check on a drive for CDJ-3000 and CDJ-2000NXS2 players: a 176.4 kHz WAV neither player will load, and warnings that twelve tracks have no waveform, beat grid or cues and that the drive's file system wasn't checked"
 			}
 		},
 		{
@@ -68,7 +68,7 @@ export const locallibrary: Tool = {
 			capture: {
 				picture: snapshots,
 				phone: snapshotsPhone,
-				alt: "locallibrary's Snapshots view: the library's saved versions over time, any of which can go back on a drive"
+				alt: "locallibrary's Snapshots view: two snapshots of the DJ library, as exported and after a hi-res upgrade, and one of DEMO"
 			}
 		},
 		{
@@ -82,11 +82,11 @@ export const locallibrary: Tool = {
 		},
 		{
 			name: 'Report',
-			line: 'Makes a report of a recorded set to share, with its waveform, tracklist and tempo',
+			line: 'Makes a report of a recorded set to share, with its waveform, tracks on a timeline and tempo',
 			capture: {
 				picture: report,
 				phone: reportPhone,
-				alt: "A recorded set's report in a browser: the mix's waveform with each track along a timeline, the tracklist and a tempo chart"
+				alt: "A recorded set's report in a browser: the mix's waveform with each track along a timeline, and a chart of its tempo"
 			}
 		}
 	],
@@ -106,6 +106,7 @@ export const locallibrary: Tool = {
 			{ text: 'Plug in your drives and set it up.', command: 'locallibrary setup' }
 		]
 	},
+	status: 'Free. No download yet: you build it from source on a Mac.',
 	sections: [
 		{
 			title: 'Signing in',

@@ -261,9 +261,9 @@ jobs:
             # data it measures them on, its build and Lighthouse config, the dependencies, and the
             # README and guides of the one tool page lighthouse/pages.json marks `pr` (add a tool here
             # when its page is marked). Left out: the app's tests and the helpers and fixture only
-            # they import (src/lib/server/testing, the mix fixture), stories and Storybook docs, and
-            # everything outside these paths (tests/, .storybook/, the lint and format configs, the
-            # website's README, the Dockerfile).
+            # they import (src/lib/server/testing, src/lib/testing, the mix fixture), stories and
+            # Storybook docs, and everything outside these paths (tests/, .storybook/, the lint and
+            # format configs, the website's README, the Dockerfile).
             web_lighthouse:
               - 'apps/web/src/**'
               - 'apps/web/static/**'
@@ -289,6 +289,7 @@ jobs:
               - '!apps/web/**/*.stories.svelte'
               - '!apps/web/**/*.mdx'
               - '!apps/web/src/lib/server/testing/**'
+              - '!apps/web/src/lib/testing/**'
               - '!apps/web/src/lib/mix/fixtures/**'
             localtoolbox:
               - 'apps/localtoolbox/**'
@@ -309,6 +310,9 @@ jobs:
               - 'packages/atstore/**'
               - 'apps/locallibrary/assets/icon.svg'
               - 'apps/locallibrary/bombadil/lib.mjs'
+              # The playlist page's markup, which the marks capture draws from.
+              - 'apps/localtoolbox/test/helpers/dom.ts'
+              - 'apps/localtoolbox/test/helpers/json.ts'
               - '.oxlintrc.json'
               - '.oxfmtrc.json'
               - 'tools/oxlint/**'
