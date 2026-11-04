@@ -325,3 +325,64 @@ fn inits_over_what_locallibrary_left_there() {
     Store::open_or_init(dir.path()).unwrap();
     assert!(dir.path().join("store.json").is_file());
 }
+
+/// A store whose making was cut off (by a crash, after its folders and before `store.json`) is
+/// made when it's next opened: nothing but locallibrary wrote what's there.
+#[test]
+fn a_store_whose_making_was_cut_off_is_made_next_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("s");
+    for d in ["objects", "snapshots"] {
+        fs::create_dir_all(root.join(d)).unwrap();
+    }
+    fs::write(root.join("lock"), "").unwrap();
+    Store::open_or_init(&root).unwrap();
+    assert!(root.join("store.json").is_file());
+}
+
+/// Whatever a cut-off make left (its folders, its lock, the temp file `store.json` was being
+/// written through, in any mix), the store is made there next time, and a temp file left beside
+/// it doesn't stop it opening again. Anything locallibrary didn't write, beside them or in its
+/// folders, keeps the folder refused, under the lock too.
+#[hegel::test(test_cases = 100)]
+fn prop_a_cut_off_make_is_finished_unless_something_else_is_there(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("s");
+    fs::create_dir(&root).unwrap();
+    for d in ["objects", "snapshots"] {
+        if tc.draw(gs::booleans()) {
+            fs::create_dir(root.join(d)).unwrap();
+        }
+    }
+    if tc.draw(gs::booleans()) {
+        fs::write(root.join("lock"), "").unwrap();
+    }
+    if tc.draw(gs::booleans()) {
+        fs::write(root.join(format!("{}store.json", crate::paths::TEMP_PREFIX)), "{\"form").unwrap();
+    }
+    let foreign = tc.draw(gs::sampled_from(vec![
+        None,
+        Some("notes.txt"),
+        Some("objects/notes.txt"),
+        Some("snapshots/notes.txt"),
+    ]));
+    if let Some(f) = foreign {
+        let path = root.join(f);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "mine").unwrap();
+    }
+    let made = Store::open_or_init(&root).and_then(|s| s.id());
+    match foreign {
+        Some(f) => {
+            assert!(matches!(made, Err(Error::Invalid(_))), "{made:?}");
+            assert!(!root.join("store.json").exists());
+            assert_eq!(fs::read_to_string(root.join(f)).unwrap(), "mine");
+        }
+        None => {
+            let id = made.unwrap();
+            assert!(root.join("store.json").is_file());
+            assert_eq!(Store::open_or_init(&root).unwrap().id().unwrap(), id);
+        }
+    }
+}

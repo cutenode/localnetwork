@@ -236,3 +236,102 @@ fn a_reads_error_comes_back_as_it_is() {
     assert_eq!(read.unwrap_err(), refused);
     assert_eq!(calls.len(), 1);
 }
+
+/// The drive the host refuses every read of.
+const REFUSED: &str = "refused";
+
+/// Every read of a drive whatever its size, read whole or combined, paged as the host chooses
+/// (or all at once), and asked about any number of tracks: each gets what the host has, in
+/// order, asking with the drive (and `combined`, but for its info); and of a drive the host
+/// refuses, each read fails with the host's error.
+#[hegel::test(test_cases = 15)]
+fn prop_every_read_gets_what_the_host_has_or_its_error(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let n = tc.draw(gs::integers::<u32>().max_value(9));
+    let size = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
+    let paged = tc.draw(gs::booleans());
+    let combined = tc.draw(gs::booleans());
+    let drive = tc.draw(gs::from_regex("[A-Z]{1,6}").fullmatch(true));
+    let asked = tc.draw(gs::integers::<u32>().min_value(1).max_value(MAX_IDS as u32 + 2));
+    let named = drive.clone();
+    let refused = RpcError::failed("denied", "no");
+    let answer_refused = refused.clone();
+    let answer = move |method: &str, params: &Value| {
+        if params["drive"] == REFUSED {
+            return Err(answer_refused.clone());
+        }
+        let offset = params["offset"].as_u64().unwrap_or_default() as usize;
+        let all: Vec<Track> = (1..=n).map(track).collect();
+        let page: Vec<Track> = match paged {
+            true => all.iter().skip(offset).take(size).cloned().collect(),
+            false => all.clone(),
+        };
+        let ids = |key: &str| -> Vec<u32> { serde_json::from_value(params[key].clone()).unwrap() };
+        Ok(match method {
+            "drive.info" => {
+                json!({ "volume_name": params["drive"], "has_device_library": true, "has_library_plus": false })
+            }
+            "drive.library" => {
+                let library = Library { tracks: page, ..Library::default() };
+                let page = paged.then(|| json!({ "offset": offset, "count": library.tracks.len(), "total": n }));
+                json!({ "summary": library.summary(), "library": library, "page": page })
+            }
+            "tracks.query" => json!({ "total": n, "total_duration_secs": 0, "tracks": page }),
+            "playlists.tree" => json!({ "playlists": [], "history": [] }),
+            "tracks.get" => {
+                let (found, missing): (Vec<u32>, Vec<u32>) = ids("ids").into_iter().partition(|id| *id <= n);
+                json!({ "tracks": found.into_iter().map(track).collect::<Vec<_>>(), "missing": missing })
+            }
+            "track.analysis" => serde_json::to_value(TrackAnalysis::default()).unwrap(),
+            "tracks.analysis" => {
+                let tracks = ids("ids").into_iter().map(|id| AnalysedTrack { track: id, analysis: Default::default() });
+                json!({ "tracks": tracks.collect::<Vec<_>>(), "missing": [] })
+            }
+            _ => json!(ids("tracks").into_iter().map(|id| TrackArtwork { track: id, image: None }).collect::<Vec<_>>()),
+        })
+    };
+    let reads = move |host: &Host| {
+        let mut all = Vec::new();
+        for name in [drive.as_str(), REFUSED] {
+            let mut drive = host.drive(name);
+            if combined {
+                drive = drive.combined();
+            }
+            let ids: Vec<u32> = (1..=asked).collect();
+            let few = &ids[..ids.len().min(MAX_ANALYSES + 1)];
+            let each = [
+                drive.info().map(|i| json!(i.volume_name)),
+                drive.library().map(|l| json!(l.tracks.iter().map(|t| t.id).collect::<Vec<_>>())),
+                drive.playlists().map(|p| json!(p.playlists.len())),
+                drive.tracks(&ids).map(|t| json!([t.tracks.len(), t.missing.len()])),
+                drive.query(&TracksQuery::default()).map(|t| json!(t.iter().map(|t| t.id).collect::<Vec<_>>())),
+                drive.analysis(1).map(|_| json!(1)),
+                drive.analyses(few).map(|a| json!(a.tracks.len())),
+                drive.artwork(few).map(|a| json!(a.len())),
+            ];
+            all.push(each.map(|r| r.map_err(|e| e.message)));
+        }
+        Ok(serde_json::to_value(all).unwrap())
+    };
+    let (read, calls) = reading(reads, answer);
+    let [ours, theirs]: [[Result<Value, String>; 8]; 2] = serde_json::from_value(read.unwrap()).unwrap();
+    let ids: Vec<u32> = (1..=n).collect();
+    let few = asked.min(MAX_ANALYSES as u32 + 1);
+    let found = asked.min(n);
+    let expected = [
+        json!(named),
+        json!(ids),
+        json!(0),
+        json!([found, asked - found]),
+        json!(ids),
+        json!(1),
+        json!(few),
+        json!(few),
+    ];
+    assert_eq!(ours, expected.map(Ok));
+    assert!(theirs.iter().all(|r| r.as_ref().unwrap_err() == &refused.message), "{theirs:?}");
+    for (method, params) in &calls {
+        let combines = method != "drive.info" && combined;
+        assert_eq!(params.get("combined") == Some(&json!(true)), combines, "{method} {params}");
+    }
+}

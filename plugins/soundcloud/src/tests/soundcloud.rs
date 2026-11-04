@@ -8,6 +8,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use chrono::{TimeDelta, Utc};
+use loclib_plugin::test_util::Canceller;
 use loclib_plugin::{
     Fetch, Fetched, HelloReply, Incoming, PROTOCOL_VERSION, Peer, ProgressReport, Progressed, Published, PublishedSet,
     RpcError, TokenPlace, TracklistEntry, method,
@@ -27,14 +28,16 @@ pub(super) const PAGE: &str = "https://soundcloud.com/dj/closing-set";
 pub(super) const SIGNED_OUT: &str = "the soundcloud account dj is signed out: sign in again";
 
 /// How SoundCloud answers a request through the host, in place of what it would: a status, its
-/// headers and body; the same, having made the track anyway; the host failing to reach it; or the
-/// host's request cancelled while this one is under way.
+/// headers and body; the same, having made the track anyway; the host failing to reach it; the
+/// host's request cancelled while this one is under way; or any of those and then the host
+/// cancelling the publish.
 #[derive(Clone, Debug)]
 pub(super) enum Reply {
     Status(u16, Vec<(&'static str, String)>, String),
     MadeAnyway(u16),
     Unreachable,
     Cancelled,
+    Cancels(Box<Reply>),
 }
 
 /// SoundCloud's error, as its API answers one.
@@ -87,6 +90,8 @@ pub(super) struct SoundCloud {
     received: Received,
     /// The account's tracks, oldest first.
     pub(super) tracks: Vec<Made>,
+    /// Cancels the publish once the call in hand is answered, when [`Reply::Cancels`] says to.
+    cancel: Arc<Canceller>,
 }
 
 impl SoundCloud {
@@ -100,7 +105,8 @@ impl SoundCloud {
     }
 
     pub(super) fn scripted(script: impl Fn(&str, usize) -> Option<Reply> + Send + 'static) -> SoundCloud {
-        SoundCloud { signed_in: true, script: Box::new(script), received: Received::default(), tracks: Vec::new() }
+        let (received, tracks) = (Received::default(), Vec::new());
+        SoundCloud { signed_in: true, script: Box::new(script), received, tracks, cancel: Arc::default() }
     }
 
     /// With a track of the account's titled `title`, made `ago` before now.
@@ -133,7 +139,15 @@ impl SoundCloud {
                 self.received.listed - 1
             }
         };
-        let (status, headers, body) = match (self.script)(route, before) {
+        let reply = match (self.script)(route, before) {
+            Some(Reply::Cancels(then)) => {
+                self.cancel.arm();
+                Some(*then)
+            }
+            reply => reply,
+        };
+        let (status, headers, body) = match reply {
+            Some(Reply::Cancels(_)) => panic!("a cancel cancels once"),
             Some(Reply::Unreachable) => return Err(RpcError::failed("external", "connection reset")),
             Some(Reply::Cancelled) => return Err(RpcError::cancelled()),
             Some(Reply::Status(status, headers, body)) => (status, headers, body),
@@ -215,8 +229,11 @@ pub(super) fn start(soundcloud: SoundCloud) -> Session {
             let Incoming::Request(req) = msg else { continue };
             assert_eq!(req.method, method::NET_FETCH, "the plugin reads nothing else");
             let fetch: Fetch = serde_json::from_value(req.params).unwrap();
-            let answer = answers.lock().unwrap().answer(&fetch).map(|f| serde_json::to_value(f).unwrap());
-            to.respond(&req.id, answer);
+            let mut soundcloud = answers.lock().unwrap();
+            let answer = soundcloud.answer(&fetch).map(|f| serde_json::to_value(f).unwrap());
+            let cancel = soundcloud.cancel.clone();
+            drop(soundcloud);
+            cancel.respond(&to, &req.id, answer);
         }
     });
     let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
@@ -241,7 +258,8 @@ impl Session {
         let context = json!({ "scratch": self.scratch.path(), "settings": settings });
         let req = json!({ "destination": "track", "set": set, "recording": recording, "tracklist": tracklist,
             "dry_run": dry_run, "context": context });
-        let pending = self.host.send_request_reporting(method::SET_PUBLISH, &req).unwrap();
+        let cancel = self.soundcloud.lock().unwrap().cancel.clone();
+        let pending = cancel.send(|| self.host.send_request_reporting(method::SET_PUBLISH, &req).unwrap());
         let answer = pending.wait_timeout(Duration::from_secs(60)).expect("an answer in a minute");
         let events = pending.progress().filter_map(|p| match p {
             ProgressReport::Known(e) => match e.event {
@@ -255,7 +273,8 @@ impl Session {
 
     /// Its fetches answered by `soundcloud` from now on.
     pub(super) fn script(&self, soundcloud: SoundCloud) {
-        *self.soundcloud.lock().unwrap() = soundcloud;
+        let mut answering = self.soundcloud.lock().unwrap();
+        *answering = SoundCloud { cancel: answering.cancel.clone(), ..soundcloud };
     }
 
     /// What SoundCloud has been sent.

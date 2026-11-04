@@ -22,6 +22,7 @@ export interface Database {
 	auditCopy: AuditCopyTable;
 	spaceWatch: SpaceWatchTable;
 	syncedRepo: SyncedRepoTable;
+	syncRepoRetry: SyncRepoRetryTable;
 	spaceRecord: SpaceRecordTable;
 	bookingThread: BookingThreadTable;
 	bookingParticipant: BookingParticipantTable;
@@ -180,6 +181,14 @@ export interface SyncedRepoTable {
 	commitHash: Uint8Array | null;
 	lastSyncedAt: string;
 	lastError: string | null;
+}
+
+export interface SyncRepoRetryTable {
+	spaceUri: string;
+	repoDid: string;
+	attempts: number;
+	nextAttemptAt: string;
+	lastError: string;
 }
 
 export interface SpaceRecordTable {

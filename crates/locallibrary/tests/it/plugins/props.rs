@@ -1053,3 +1053,359 @@ fn an_idle_plugin_stops_on_its_own_and_starts_again(tc: TestCase) {
         assert!(!f.plugins.is_running("echo"));
     }
 }
+
+/// How a plugin is started, or fails to be, as
+/// [`prop_a_plugin_that_cant_start_or_answer_fails_saying_why`] draws it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Starting {
+    /// Used from two threads at once while it starts.
+    AtOnce,
+    /// Where its folder can't be made.
+    NoFolder,
+    /// Writing a response nothing waits for.
+    Garbage,
+    /// Answering `hello`, then stopping.
+    NoDescribe,
+    /// Stopping before it answers `hello`.
+    NoHello,
+    /// Where its scratch folder can't be made.
+    NoScratch,
+    /// Given a file for a request, without the `blobs` feature.
+    NoBlobs,
+    /// Crashing, and left past its time idle.
+    CrashIdle,
+    /// Without a feature its manifest needs.
+    Lacking,
+    /// Leaving more in its scratch folder than a request may.
+    TooMuch,
+    /// Told of an event, where it can't be started.
+    EventUnstarted,
+    /// Telling the user something without the events or services feature.
+    NotifyWithout,
+    /// Telling the user what isn't `host/notify`'s.
+    NotifyWrong,
+    /// Started without a variable of the host's.
+    EnvRemoved,
+    /// Given a drive known here by its name alone (it has no id).
+    Unadopted,
+}
+
+/// For any way a plugin starts: used from two threads at once, it starts once; where its folder or
+/// a request's scratch folder can't be made, or when it stops before answering `hello` or
+/// `describe`, or it's given a file without the `blobs` feature, the use fails, saying why; a
+/// response it writes that nothing waits for is logged; and crashed, it starts again when used
+/// next, its time idle up or not. One without a feature its manifest needs, or leaving more in a request's scratch folder
+/// than it may, fails the use; an event for one that can't start isn't sent, saying so; and what
+/// it tells the user without the feature for it, or that isn't `host/notify`'s, is logged.
+#[hegel::test(test_cases = 1, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_plugin_that_cant_start_or_answer_fails_saying_why(tc: TestCase) {
+    for starting in [
+        Starting::AtOnce,
+        Starting::NoFolder,
+        Starting::Garbage,
+        Starting::NoDescribe,
+        Starting::NoHello,
+        Starting::NoScratch,
+        Starting::NoBlobs,
+        Starting::CrashIdle,
+        Starting::Lacking,
+        Starting::TooMuch,
+        Starting::EventUnstarted,
+        Starting::NotifyWithout,
+        Starting::NotifyWrong,
+        Starting::EnvRemoved,
+        Starting::Unadopted,
+    ] {
+        prop_a_plugin_that_cant_start_or_answer_fails_saying_why_case(&tc, starting);
+    }
+}
+
+/// [`prop_a_plugin_that_cant_start_or_answer_fails_saying_why`] for one `starting`.
+#[hegel::test_helper]
+fn prop_a_plugin_that_cant_start_or_answer_fails_saying_why_case(tc: &TestCase, starting: Starting) {
+    use locallibrary::offsite::Destination;
+    let mut go = PathBuf::new();
+    let n = tc.draw(gs::integers::<u32>());
+    let options = Options { idle: Duration::from_millis(300), max_blobs: 10, ..Options::default() };
+    let manifest = match starting {
+        Starting::EventUnstarted => super::events::listening(&["plan.applied"]),
+        _ => ECHO.to_string(),
+    };
+    let f = Fixture::new(
+        |dir| {
+            go = dir.join("go");
+            let args: Vec<String> = match starting {
+                Starting::AtOnce => vec!["--paused".into(), go.display().to_string()],
+                Starting::NoDescribe => vec!["--protocol".into(), PROTOCOL_VERSION.into()],
+                Starting::NoHello => vec!["--late".into(), "0".into(), "not a message".into()],
+                Starting::NoBlobs => vec!["--without".into(), "blobs".into()],
+                Starting::Lacking => vec!["--without".into(), "analyzers".into()],
+                Starting::NotifyWithout => ["--without", "events", "--without", "services"].map(String::from).to_vec(),
+                _ => Vec::new(),
+            };
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            let mut spec = spec(dir, &manifest, &args);
+            if starting == Starting::EventUnstarted {
+                spec.launch.program = dir.join("no-such-program");
+            }
+            if starting == Starting::EnvRemoved {
+                spec.launch.env_remove = vec!["PATH".into()];
+            }
+            vec![spec]
+        },
+        options,
+    );
+    let in_store = |params: Value| {
+        f.plugins.run_command("echo", "echo", params, f.context(), Some(&f.store), &Ctx::silent(), &|_| {})
+    };
+    let own = f.store.root().join("plugins").join("echo");
+    match starting {
+        Starting::AtOnce => {
+            // Without a drive: the fixture's drives are this thread's.
+            let (plugins, context) = (&f.plugins, Context::default());
+            std::thread::scope(|s| {
+                let run = || {
+                    let ctx = Ctx::silent();
+                    plugins.run_command("echo", "echo", json!({ "n": n }), context.clone(), None, &ctx, &|_| {})
+                };
+                // Both at once, whichever starts it first: the other waits for it, however long its
+                // start takes, and finds it running.
+                let (first, second) = (s.spawn(run), s.spawn(run));
+                std::fs::write(&go, "").unwrap();
+                for answered in [first.join().unwrap(), second.join().unwrap()] {
+                    assert!(matches!(answered, Ok(CommandOutput::Headless(v)) if v == json!({ "n": n })));
+                }
+            });
+            // Each start of it says `paused` before it serves, so before either answer.
+            let started = || f.logs.lock().unwrap().iter().filter(|(_, l)| l == "paused").count();
+            eventually("its start is logged", || started() > 0);
+            assert_eq!(started(), 1, "started once");
+        }
+        Starting::NoFolder | Starting::NoScratch => {
+            let blocked = match starting {
+                Starting::NoFolder => own.clone(),
+                _ => own.join("scratch"),
+            };
+            std::fs::create_dir_all(blocked.parent().unwrap()).unwrap();
+            if starting == Starting::NoScratch {
+                std::fs::create_dir_all(own.join("work")).unwrap();
+            }
+            std::fs::write(&blocked, "").unwrap();
+            let e = in_store(json!({ "n": n })).unwrap_err();
+            assert!(e.to_string().contains(&blocked.display().to_string()), "{starting:?}: {e}");
+        }
+        Starting::Garbage => {
+            let said = format!("late-{n}");
+            // A response nothing waits for.
+            let late = json!({ "lines": [{ "jsonrpc": "2.0", "id": said, "result": 1 }] });
+            f.echo_params(json!({ "late": late })).unwrap();
+            eventually("what isn't a message is logged", || {
+                f.logs.lock().unwrap().iter().any(|(_, l)| l.contains(&said))
+            });
+        }
+        Starting::NoDescribe | Starting::NoHello => {
+            let e = failure(f.echo_params(json!({ "n": n })).unwrap_err());
+            assert!(e.starts_with("the Echo plugin failed: "), "{e}");
+            assert!(!f.plugins.is_running("echo"));
+        }
+        Starting::Unadopted => {
+            common::demo_drive(f.drive.parent().unwrap(), "Plain");
+            let context = Context { drive: Some("Plain".into()), ..Context::default() };
+            let answered = f.plugins.run_command(
+                "echo",
+                "echo",
+                json!({ "context": true }),
+                context,
+                None,
+                &Ctx::silent(),
+                &|_| {},
+            );
+            let CommandOutput::Headless(context) = answered.unwrap() else { panic!("headless") };
+            assert_eq!(context["drive"], "Plain");
+        }
+        Starting::EnvRemoved => {
+            assert_eq!(f.echo_params(json!({ "env": "PATH" })).unwrap(), Value::Null);
+        }
+        Starting::NoBlobs => {
+            assert_eq!(f.echo_params(json!({ "n": n })).unwrap(), json!({ "n": n }), "it runs, given no folder");
+            let dest = f.plugins.store_destination("echo:folder", Some(&f.store)).unwrap();
+            let e = dest.put_manifest("store.json", n.to_string().as_bytes(), &Ctx::silent()).unwrap_err();
+            assert_eq!(failure(e), "the Echo plugin failed: it has no scratch folder for files (the blobs feature)");
+        }
+        Starting::Lacking => {
+            let e = failure(f.echo_params(json!({ "n": n })).unwrap_err());
+            assert!(e.ends_with("it says it doesn't have the analyzers feature, which its manifest needs"), "{e}");
+        }
+        Starting::TooMuch => {
+            let e = failure(f.echo_params(json!({ "n": n, "blobs": { "big": vec![0; 11] } })).unwrap_err());
+            assert_eq!(
+                e,
+                "the Echo plugin failed: it left 11 B in its scratch folder, more than the 10 B a request may"
+            );
+        }
+        Starting::EventUnstarted => {
+            let event = locallibrary::plugin::Event {
+                name: loclib_plugin::EventName::PlanApplied,
+                drive: None,
+                payload: json!({ "n": n }),
+            };
+            f.plugins.deliver(&event, Some(&f.store));
+            let said = |l: &str| l.starts_with("the plan.applied event wasn't sent: ");
+            eventually("it says the event wasn't sent", || f.logs.lock().unwrap().iter().any(|(_, l)| said(l)));
+        }
+        Starting::NotifyWithout | Starting::NotifyWrong => {
+            let message = if starting == Starting::NotifyWrong { json!(n) } else { json!(format!("late-{n}")) };
+            let line = json!({ "jsonrpc": "2.0", "method": "host/notify", "params": { "message": message } });
+            f.echo_params(json!({ "late": { "lines": [line] } })).unwrap();
+            let why = match starting {
+                Starting::NotifyWrong => "what it tells the user isn't host/notify's: ",
+                _ => "it tells the user something without the events or services feature",
+            };
+            eventually("it says why it's not told", || f.logs.lock().unwrap().iter().any(|(_, l)| l.starts_with(why)));
+        }
+        Starting::CrashIdle => {
+            f.echo_params(json!({ "n": n })).unwrap();
+            assert!(f.echo_params(json!({ "exit": 3 })).is_err());
+            std::thread::sleep(Duration::from_millis(600));
+            assert!(!f.plugins.is_running("echo"));
+            assert_eq!(f.echo_params(json!({ "n": n })).unwrap(), json!({ "n": n }), "started again");
+        }
+    }
+}
+
+/// For any plugins the app gives the host, it hosts them only when each is one locallibrary
+/// ships, with a manifest that reads and is valid, an id of its own and command line places of
+/// its own: otherwise it says which and why.
+#[hegel::test(test_cases = 1)]
+fn prop_only_valid_plugins_locallibrary_ships_are_hosted(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let name: String = tc.draw(gs::from_regex("[a-z]{1,6}").fullmatch(true));
+    let echo = spec(dir.path(), ECHO, &[]);
+    let new = |specs: Vec<PluginSpec>| Plugins::new(specs, Arc::new(NoReads), Options::default()).err();
+    assert!(new(vec![echo.clone()]).is_none());
+    let third = PluginSpec { built_in: false, ..echo.clone() };
+    assert_eq!(new(vec![third]).unwrap().to_string(), "echo: third-party plugins aren't supported yet");
+    assert_eq!(new(vec![echo.clone(), echo.clone()]).unwrap().to_string(), "two plugins are called \"echo\"");
+    let placed = |id: &str| {
+        let toml = ECHO
+            .replace("id = \"echo\"", &format!("id = \"{id}\""))
+            .replace("title = \"Answer the params\"", &format!("title = \"Answer the params\"\ncli = \"{name}\""));
+        spec(dir.path(), &toml, &[])
+    };
+    let e = new(vec![placed("one"), placed("two")]).unwrap();
+    assert_eq!(e.to_string(), format!("the two plugin's command \"{name}\" is another plugin's too"));
+    let mut invalid = echo;
+    invalid.manifest.name = " ".into();
+    assert_eq!(new(vec![invalid]).unwrap().to_string(), "the echo plugin's manifest: name: is empty");
+    let e = PluginSpec::built_in(&format!("id = {}", name.len()), launch_nothing()).unwrap_err();
+    assert!(e.to_string().starts_with("a plugin's manifest: "), "{e}");
+    let e = PluginSpec::built_in(&ECHO.replace("name = \"Echo\"", "name = \"\""), launch_nothing()).unwrap_err();
+    assert_eq!(e.to_string(), "the echo plugin's manifest: name: is empty");
+    // A manifest is taken in as it prints, as all a plugin says is.
+    let colored = ECHO.replace("title = \"Answer the params\"", &format!("title = \"\\u001b[31m{name}\""));
+    let hosted = Plugins::new(vec![spec(dir.path(), &colored, &[])], Arc::new(NoReads), Options::default()).unwrap();
+    let titles: Vec<&str> =
+        hosted.manifests().flat_map(|m| m.contributes.commands.iter().map(|c| c.title.as_str())).collect();
+    assert_eq!(titles[0], name);
+}
+
+/// For any selection and params, a param from the selection (`x-from`) that isn't given is what's
+/// selected, one given is as it's given, and one given as null is left out; params that don't fit
+/// the schema are refused, naming where.
+#[hegel::test(test_cases = 10)]
+fn prop_a_param_from_the_selection_is_filled_in_unless_given(tc: TestCase) {
+    let from = r#"params = { type = "object", properties = { ids = { type = "array", items = { type = "integer" }, x-from = "selection.tracks" }, list = { type = "string", x-from = "selection.playlist" }, n = { type = "integer" } } }"#;
+    let manifest = ECHO.replacen("params = { type = \"object\" }", from, 1);
+    let f = Fixture::new(|dir| vec![spec(dir, &manifest, &[])], Options::default());
+    let playlist: Option<String> = tc.draw(gs::optional(gs::from_regex("[A-Za-z]{1,8}").fullmatch(true)));
+    let tracks: Vec<u32> = tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(9)).max_size(3));
+    let given = tc.draw(gs::sampled_from(vec![None, Some(Value::Null), Some(json!("given"))]));
+    let context = Context { playlist: playlist.clone(), tracks: tracks.clone(), ..Context::default() };
+    let params = match &given {
+        Some(list) => json!({ "list": list }),
+        None => Value::Null,
+    };
+    let run =
+        |params: Value| f.plugins.run_command("echo", "echo", params, context.clone(), None, &Ctx::silent(), &|_| {});
+    let CommandOutput::Headless(answer) = run(params).unwrap() else { panic!("headless") };
+    let list = match given {
+        Some(Value::Null) => None,
+        Some(list) => Some(list),
+        None => playlist.map(Value::from),
+    };
+    let mut expected = serde_json::Map::new();
+    if !tracks.is_empty() {
+        expected.insert("ids".into(), json!(tracks));
+    }
+    if let Some(list) = list {
+        expected.insert("list".into(), list);
+    }
+    assert_eq!(answer, Value::Object(expected));
+    let e = run(json!({ "n": "many" })).unwrap_err();
+    assert_eq!((e.code(), e.detail().fields["path"].clone()), ("invalid", json!("/n")), "{e}");
+}
+
+/// For any plugin the host doesn't have, asking anything of it fails as not found: its settings,
+/// secrets, checks, hooks and contributions.
+#[hegel::test(test_cases = 5)]
+fn prop_a_plugin_that_isnt_there_has_nothing(tc: TestCase) {
+    use locallibrary::plugin::{AnalysisPart, ApplyAnalysis, ApplyFields, CheckChange, SourceExport};
+    let nope: String = tc.draw(gs::from_regex("[a-z]{1,6}").fullmatch(true)) + "-nope";
+    let f = Fixture::echo();
+    let (store, ctx) = (&f.store, Ctx::silent());
+    let fields = ApplyFields {
+        plugin: nope.clone(),
+        analyzer: "size".into(),
+        drive: "USB".into(),
+        fields: Vec::new(),
+        tracks: None,
+        overwrite: false,
+        min_confidence: None,
+    };
+    let analysis = ApplyAnalysis {
+        plugin: nope.clone(),
+        analyzer: "size".into(),
+        drive: "USB".into(),
+        parts: vec![AnalysisPart::Grid],
+        tracks: None,
+        overwrite: false,
+    };
+    let source = SourceExport {
+        plugin: nope.clone(),
+        source: "folder".into(),
+        options: Value::Null,
+        grants: Vec::new(),
+        drive: "USB".into(),
+        export: Default::default(),
+    };
+    let file = f._dir.path().join("in.txt");
+    std::fs::write(&file, "").unwrap();
+    let out = f._dir.path().join("out.m3u");
+    let codes = [
+        f.plugins.settings(&nope, Some(store)).err().map(|e| e.code()),
+        f.plugins.setting_list(&nope).err().map(|e| e.code()),
+        f.plugins.set_setting(&nope, store, "greeting", None).err().map(|e| e.code()),
+        f.plugins.check_settings(&nope, "untitled", None).err().map(|e| e.code()),
+        f.plugins.set_check(store, &nope, "untitled", CheckChange::default()).err().map(|e| e.code()),
+        f.plugins.analyze(&nope, "size", "USB", None, store, &ctx).err().map(|e| e.code()),
+        f.plugins.plan_apply_fields(&fields, store, &ctx).err().map(|e| e.code()),
+        f.plugins.plan_apply_analysis(&analysis, store, &ctx).err().map(|e| e.code()),
+        f.plugins.export_plan(&nope, "m3u", Default::default(), &out, Value::Null, None, &ctx).err().map(|e| e.code()),
+        f.plugins.import_plan(&nope, "lines", &file, "USB", Value::Null, None, &ctx).err().map(|e| e.code()),
+        f.plugins.plan_op(&nope, "playlist", Value::Null, f.context(), None, &ctx).err().map(|e| e.code()),
+        f.plugins.render_panel(&nope, "about", "USB", 1, None, &ctx).err().map(|e| e.code()),
+        f.plugins.plan_source_export(&source, None, &ctx).err().map(|e| e.code()),
+        f.plugins
+            .run_command(&nope, "echo", Value::Null, Context::default(), None, &ctx, &|_| {})
+            .err()
+            .map(|e| e.code()),
+        f.plugins
+            .run_command("echo", &nope, Value::Null, Context::default(), None, &ctx, &|_| {})
+            .err()
+            .map(|e| e.code()),
+    ];
+    assert!(codes.iter().all(|c| *c == Some("not_found")), "{codes:?}");
+    assert!(!f.plugins.service_running(&nope, "beat"));
+    let checks: Vec<&str> = f.plugins.checks(None).into_iter().map(|(_, c, _)| c.name.as_str()).collect();
+    assert_eq!(checks, ["untitled", "edits"]);
+}

@@ -251,6 +251,19 @@ fn plain_lists_and_path_lists_are_told_apart(tc: TestCase) {
     }
 }
 
+/// After a cue time, a `#` with no number after it isn't numbering: it stays part of the artist.
+/// (At the start of a line it's a comment.)
+#[hegel::test(test_cases = 100)]
+fn prop_a_hash_without_a_number_is_part_of_the_line(tc: TestCase) {
+    let names: Vec<(String, String)> =
+        tc.draw(gs::vecs(gs::tuples!(plain_name(), plain_name())).min_size(1).max_size(5));
+    let lines: Vec<String> = names.iter().map(|(a, t)| format!("1:00 #{a} - {t}")).collect();
+    let entries = loclib_tracklist::parse_as(lines.join("\n").as_bytes(), Format::Text).unwrap();
+    let read: Vec<(String, String)> = entries.iter().map(|e| (e.artist.clone(), e.title.clone())).collect();
+    let want: Vec<(String, String)> = names.iter().map(|(a, t)| (format!("#{a}"), t.clone())).collect();
+    assert_eq!(read, want);
+}
+
 /// A line whose dash has nothing after it ("Title–", an unspaced en or em dash at the end) has
 /// no artist to split off: it's all title, dash and all.
 #[hegel::test(test_cases = 100)]

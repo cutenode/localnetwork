@@ -267,3 +267,31 @@ fn any_set_or_mix_exports_the_tracks_played_on_the_drive(tc: TestCase) {
     let asked = Asked { software, root: root.unwrap_or(drive.root.clone()), skip, tags, on_drive: on_drive_paths };
     is_built(&want, &asked, &drive, &output, &done, left_out);
 }
+
+/// A set or mix the store hasn't is not found, as the host says, before anything is written; and
+/// a mix with neither a day nor a title still gets a playlist named `Mix`.
+#[hegel::test(test_cases = 20)]
+fn prop_a_set_or_mix_is_read_as_the_store_has_it(tc: TestCase) {
+    let mut answer = mix(&[on_drive(DEMO_1)]);
+    answer["mix"] = json!({ "title": "", "kind": "audio" });
+    let drive = kept(drive(), "live", answer);
+    let session = start(&drive);
+    let output = drive.dir.path().join("out");
+    let (what, id) = tc.draw(gs::sampled_from(vec![("set", "nope"), ("mix", "nope"), ("mix", "live")]));
+    let dry_run = tc.draw(gs::booleans());
+    let mut source = json!({ "drive": "USB" });
+    source[what] = json!(id);
+    let done = session.export_of("traktor", source, &output, json!({}), dry_run);
+    session.stop();
+    if id == "nope" {
+        let e = done.unwrap_err();
+        assert_eq!((e.kind(), e.message.as_str()), (Some("not_found"), "not found: \"nope\""));
+        assert!(!output.exists());
+        return;
+    }
+    assert_eq!(done.unwrap().counts["playlists"], 1);
+    if !dry_run {
+        let nml = std::fs::read_to_string(output.join("collection.nml")).unwrap();
+        assert!(nml.contains("<NODE TYPE=\"PLAYLIST\" NAME=\"Mix\">"), "{nml}");
+    }
+}

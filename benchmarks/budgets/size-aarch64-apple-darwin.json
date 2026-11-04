@@ -1,0 +1,17 @@
+{
+	"$schema": "../budget.schema.json",
+	"job": "aarch64-apple-darwin",
+	"tolerance_percent": 0.5,
+	"metrics": {
+		"locallibrary": {
+			"limit": null,
+			"unit": "bytes",
+			"measures": "The release binary, stripped."
+		},
+		"archive": {
+			"limit": null,
+			"unit": "bytes",
+			"measures": "The release archive."
+		}
+	}
+}

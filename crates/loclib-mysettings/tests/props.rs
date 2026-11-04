@@ -59,6 +59,10 @@ fn default_files_hold_every_default(tc: TestCase) {
     assert_eq!(blob.version(), "0.001");
     assert_eq!(SettingsBlob::parse(file, blob.as_bytes().to_vec()).unwrap(), blob);
     assert_eq!(file.key(), format!("PIONEER/{}", file.file_name()));
+    // Every other kind too, whichever was drawn.
+    for other in SettingsFile::ALL {
+        assert_eq!(other.key(), format!("PIONEER/{}", other.file_name()));
+    }
     let mut snap = SettingsSnapshot::default();
     snap.insert(&blob);
     assert!(snap.problems.is_empty() && snap.undecoded.is_empty() && snap.missing_files.is_empty());
@@ -234,8 +238,11 @@ fn snapshot(files: &IndexMap<SettingsFile, SettingsBlob>) -> SettingsSnapshot {
 /// Planning makes every wanted setting (by id or label) what was asked and keeps every other
 /// value and undecoded byte; it creates the missing files it needs (all of them with
 /// `create_missing`) from the defaults, reports a change for each wanted value that differs or
-/// lands in a new file, writes files with sound checksums, and planning again finds nothing.
-#[hegel::test(test_cases = 200)]
+/// lands in a new file, writes files with sound checksums, and planning again finds nothing. A
+/// setting there's no such thing as, or a file whose contents can't be read, stops the plan with
+/// that error, before any file after it is read.
+// Enough that the plans nothing stops (about 77%) still run about 200 times.
+#[hegel::test(test_cases = 270)]
 fn planned_changes_reach_the_wanted_values_and_settle(tc: TestCase) {
     let mut files: IndexMap<SettingsFile, SettingsBlob> =
         SettingsFile::ALL.iter().filter_map(|&f| seeded(&tc, f).map(|b| (f, b))).collect();
@@ -247,15 +254,37 @@ fn planned_changes_reach_the_wanted_values_and_settle(tc: TestCase) {
         let by_label = tc.draw(gs::booleans());
         desired.insert(def.key.to_string(), if by_label { choice.label } else { choice.id }.to_string());
     }
+    let unknown = tc.draw(gs::weighted_booleans(0.1));
+    if unknown {
+        desired.insert("no such setting".into(), "on".into());
+    }
+    let unreadable = match tc.draw(gs::weighted_booleans(0.15)) {
+        true => Some(settings_file(&tc)),
+        false => None,
+    };
     let wanted = |def: &SettingDef| desired.get(def.key).map(|v| validate(def.key, v).unwrap().1);
     let create_missing = tc.draw(gs::booleans());
     let before = files.clone();
     let reads = Cell::new(0);
     let existing = |f: SettingsFile| {
         reads.set(reads.get() + 1);
-        Ok::<_, Error>(before.get(&f).cloned())
+        match Some(f) == unreadable {
+            true => Err(Error::Parse { file: f, message: "unreadable".into() }),
+            false => Ok(before.get(&f).cloned()),
+        }
     };
-    let (report, written) = changes(existing, &desired, create_missing).unwrap();
+    let planned = changes(existing, &desired, create_missing);
+    if unknown {
+        assert!(matches!(&planned, Err(Error::UnknownSetting(key)) if key == "no such setting"), "{planned:?}");
+        assert_eq!(reads.get(), 0);
+        return;
+    }
+    if let Some(broken) = unreadable {
+        assert!(matches!(&planned, Err(Error::Parse { file, .. }) if *file == broken), "{planned:?}");
+        assert_eq!(reads.get(), SettingsFile::ALL.iter().position(|f| *f == broken).unwrap() + 1);
+        return;
+    }
+    let (report, written) = planned.unwrap();
     assert_eq!(reads.get(), SettingsFile::ALL.len());
     assert!(!report.dry_run);
 

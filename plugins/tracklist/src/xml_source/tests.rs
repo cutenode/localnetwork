@@ -282,3 +282,194 @@ fn any_collection_pages_through_each_track_once(tc: TestCase) {
         assert!(t.beats.iter().all(|b| b.time_ms < *end), "{:?}", t.beats.last());
     }
 }
+
+/// What the source can't read is refused, saying why: a cursor that isn't three numbers between
+/// colons (`i:len:mtime_ns`), whichever part of it isn't a number or is missing, or one past the
+/// collection's end; options without a file; a file that isn't there; and a cursor of the file
+/// as it was before it was saved (`conflict`).
+#[hegel::test(test_cases = 10)]
+fn prop_what_cant_be_read_is_refused(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write(dir.path(), "rekordbox.xml", &collection_with(&[], ""));
+    let meta = std::fs::metadata(&file).unwrap();
+    let mtime_ns = meta.modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let invalid =
+        |said: String| (loclib_plugin::code::INVALID_PARAMS, Some("invalid_params"), format!("invalid params: {said}"));
+    // Each part missing or not a number in turn, and one too many.
+    let cursors = ["", "x", "-1", "7", "7:", "7:x", "7:7", "7:7:", "7:7:x", "x:7:7", "7:7:7:7"];
+    let mut cases: Vec<_> = cursors
+        .into_iter()
+        .map(|cursor| {
+            let said = format!("{cursor:?} isn't a cursor of {file}'s collection");
+            (json!({ "file": file }), Some(cursor.to_string()), invalid(said))
+        })
+        .collect();
+    let from = tc.draw(gs::integers::<u32>().min_value(1));
+    let past_the_end = format!("{from}:{}:{mtime_ns}", meta.len());
+    cases.push((
+        json!({ "file": file }),
+        Some(past_the_end),
+        invalid(format!("{file}'s collection has no track {from}")),
+    ));
+    cases.push((json!({}), None, invalid("missing field `file`".into())));
+    // The system's words for it after the file's name.
+    let gone = dir.path().join("gone.xml");
+    cases.push((
+        json!({ "file": gone }),
+        None,
+        (loclib_plugin::code::FAILED, Some("io"), format!("{}: ", gone.display())),
+    ));
+    let saved = format!("0:{}:{mtime_ns}", meta.len() + 1);
+    let said = format!("{file} changed while it was read: build again");
+    cases.push((json!({ "file": file }), Some(saved), (loclib_plugin::code::FAILED, Some("conflict"), said)));
+    for (options, cursor, (code, kind, said)) in cases {
+        let e = asked(options, cursor.as_deref()).unwrap_err();
+        assert_eq!((e.code, e.kind()), (code, kind), "{e:?}");
+        assert!(e.message.starts_with(&said), "{e:?}, not {said:?}");
+    }
+}
+
+/// A track's hot cue reads with its colour as `#rrggbb` (none without one), and a playlist names
+/// the files of the collection's tracks it holds, in order: an entry for a track the collection
+/// hasn't, or one without a file, is left out, counted with the last page.
+#[hegel::test(test_cases = 10)]
+fn prop_cues_and_playlists_read_as_the_file_says(tc: TestCase) {
+    cues_and_playlists(&tc, false);
+}
+
+/// Playlists naming a file a mebibyte long more times than PLAYLIST_BYTES of files hold leave
+/// the entries past that out, counted with the last page. Once: the page is 64 MiB.
+#[hegel::test(test_cases = 1)]
+fn prop_playlists_past_their_bound_leave_the_rest_out(tc: TestCase) {
+    cues_and_playlists(&tc, true);
+}
+
+/// [`prop_cues_and_playlists_read_as_the_file_says`], with track 1's file `long` or not.
+#[hegel::test_helper]
+fn cues_and_playlists(tc: &TestCase, long: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = if long { format!("/m/{}.mp3", "x".repeat((1 << 20) - 7)) } else { "/m/1.mp3".into() };
+    let rgb = tc.draw(gs::optional(gs::arrays::<_, _, 3>(gs::integers::<u8>())));
+    let colour = rgb.map_or(String::new(), |[r, g, b]| format!(r#" Red="{r}" Green="{g}" Blue="{b}""#));
+    let mark = format!(r#"<POSITION_MARK Name="" Type="0" Start="1.000" Num="0"{colour}/>"#);
+    let tracks = [
+        (format!(r#"TrackID="1" Name="A" Location="{path}""#), mark),
+        (r#"TrackID="2" Name="B""#.to_string(), String::new()),
+    ];
+    let mut keys = tc.draw(gs::vecs(gs::sampled_from(vec![1, 2, 99])).max_size(6));
+    // A track the collection hasn't, always.
+    keys.push(99);
+    if long {
+        // More than PLAYLIST_BYTES of it.
+        keys.extend([1; 66]);
+    }
+    let entries: String = keys.iter().map(|k| format!(r#"<TRACK Key="{k}"/>"#)).collect();
+    let list = format!(r#"<NODE Type="1" Name="Set" KeyType="0">{entries}</NODE>"#);
+    let file = write(dir.path(), "rekordbox.xml", &collection_with(&tracks, &list));
+    let (pages, _) = pages(&file, Some(dir.path()));
+    let [page] = &pages[..] else { panic!("{} pages", pages.len()) };
+
+    let color = rgb.map(|[r, g, b]| format!("#{r:02x}{g:02x}{b:02x}"));
+    let cue = SourceCue { hot_cue: Some(0), start_ms: 1000, color, ..SourceCue::default() };
+    assert_eq!(page.tracks.iter().map(|t| &t.cues).collect::<Vec<_>>(), [&vec![cue]]);
+    let ones = keys.iter().filter(|k| **k == 1).count();
+    let kept = ones.min(PLAYLIST_BYTES / path.len());
+    let [playlist] = &page.playlists[..] else { panic!("{:?}", page.playlists.len()) };
+    assert_eq!((playlist.path.as_str(), playlist.tracks.len()), ("Set", kept));
+    assert!(playlist.tracks.iter().all(|t| *t == Path::new(&path)));
+    let mut warnings = vec!["1 track(s) left out: no audio file (Location)".to_string()];
+    let (absent, past) = (keys.len() - ones, ones - kept);
+    if absent > 0 {
+        warnings.push(format!("{absent} playlist entr(ies) left out: not a collection track with an audio file"));
+    }
+    if past > 0 {
+        warnings.push(format!("{past} playlist entr(ies) left out: the playlists name more than 64 MiB of files"));
+    }
+    assert_eq!(page.warnings, warnings);
+}
+
+/// However many pages a collection takes, the file is read once for them all: the pages after the
+/// first come from what the first read, even with the file's bytes changed since (its length and
+/// time kept), every track once.
+#[hegel::test(test_cases = 10)]
+fn prop_a_collection_is_read_once_for_all_its_pages(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let n = tc.draw(gs::integers::<usize>().min_value(PER_PAGE + 1).max_value(3 * PER_PAGE));
+    let tracks: Vec<(String, String)> =
+        (0..n).map(|id| (format!(r#"TrackID="{id}" Name="t{id}" Location="/m/{id}.mp3""#), String::new())).collect();
+    let file = write(dir.path(), "rekordbox.xml", &collection_with(&tracks, ""));
+    let s = start(Library::default());
+    let read = |cursor: Option<&str>| {
+        let req = json!({ "source": "rekordbox-xml", "options": { "file": file }, "roots": ["/"], "cursor": cursor });
+        s.host.request::<_, LibraryPage>(method::READ_LIBRARY, &req).unwrap()
+    };
+    let mut page = read(None);
+    let mut count = page.tracks.len();
+    // The same length and time, other bytes.
+    let meta = std::fs::metadata(&file).unwrap();
+    std::fs::write(&file, " ".repeat(meta.len() as usize)).unwrap();
+    std::fs::File::options().write(true).open(&file).unwrap().set_modified(meta.modified().unwrap()).unwrap();
+    while let Some(next) = page.next.clone() {
+        page = read(Some(&next));
+        count += page.tracks.len();
+    }
+    s.stop();
+    assert_eq!(count, n);
+}
+
+/// What stops a read of the first page fails it as what it is: a file that isn't rekordbox XML
+/// is refused (`invalid`), naming it; cancelled while it reads the file, it answers `cancelled`;
+/// and a page too big for a message, without the scratch folder it goes in, fails as `io`,
+/// naming the file it couldn't write.
+#[hegel::test(test_cases = 5)]
+fn prop_a_first_page_stops_as_what_stopped_it(tc: TestCase) {
+    // Cancelled while it reads a FIFO, which only Unix has.
+    let stops = [Stop::NotXml, Stop::NoFolder].into_iter().chain(cfg!(unix).then_some(Stop::Cancelled));
+    let name = tc.draw(gs::sampled_from(vec!["rekordbox.xml", "Library Export.xml"]));
+    for stop in stops {
+        first_page_stops(stop, name);
+    }
+}
+
+/// What stops [`prop_a_first_page_stops_as_what_stopped_it`].
+#[derive(Clone, Copy, Debug)]
+enum Stop {
+    NotXml,
+    Cancelled,
+    NoFolder,
+}
+
+/// [`prop_a_first_page_stops_as_what_stopped_it`] for the file `name` and `stop`.
+fn first_page_stops(stop: Stop, name: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    // A grid as long as it goes makes the first page too big for a message.
+    let long = r#"<TEMPO Inizio="0" Bpm="655.35"/>"#.to_string();
+    let tracks = [(r#"TrackID="0" Name="Long" TotalTime="36000" Location="/m/long.mp3""#.to_string(), long)];
+    let text = match stop {
+        Stop::NotXml => "#EXTM3U\n/Music/a.mp3\n".to_string(),
+        _ => collection_with(&tracks, ""),
+    };
+    let file = match stop {
+        #[cfg(unix)]
+        Stop::Cancelled => crate::xml_import::tests::fifo(dir.path(), name),
+        _ => write(dir.path(), name, &text),
+    };
+    let s = start(Library::default());
+    let scratch = dir.path().join("gone");
+    let req = json!({ "source": "rekordbox-xml", "options": { "file": file }, "roots": ["/"], "context": { "scratch": scratch } });
+    let pending = s.host.send_request(method::READ_LIBRARY, &req).unwrap();
+    #[cfg(unix)]
+    if let Stop::Cancelled = stop {
+        crate::xml_import::tests::cancel_while_reading(&s.host, &pending, &file, &text);
+    }
+    let e = pending.wait_timeout::<LibraryPage>(std::time::Duration::from_secs(60)).expect("an answer").unwrap_err();
+    assert!(s.stop().is_empty(), "it reads nothing through the host");
+    match stop {
+        Stop::NotXml => {
+            let said = format!("{file}: not a rekordbox XML file (no DJ_PLAYLISTS element)");
+            assert_eq!(kind(&e), ("invalid", said.as_str()));
+        }
+        Stop::Cancelled => assert_eq!(e, RpcError::cancelled()),
+        Stop::NoFolder => assert!(kind(&e).0 == "io" && kind(&e).1.starts_with("page.json: "), "{e:?}"),
+    }
+}

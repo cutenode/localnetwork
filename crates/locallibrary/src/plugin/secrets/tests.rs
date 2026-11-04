@@ -289,3 +289,91 @@ fn a_secret_is_what_the_last_change_made_it(tc: TestCase) {
         assert!(!plugins.settings("keeper", Some(&store)).unwrap().contains_key("token"));
     }
 }
+
+/// How a store's secrets can't be read or kept, as
+/// [`prop_secrets_that_cant_be_read_or_kept_fail_and_stay`] draws it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Unkept {
+    /// The secrets file isn't JSON.
+    Damaged,
+    /// The store's id can't be read (so its keychain item can't be named).
+    NoStoreId,
+    /// A file where the folder for secrets files goes.
+    NoFolder,
+    /// The first builds' secrets file, with no folder to move it to.
+    OldNoFolder,
+    /// The first builds' secrets file, with a folder it can't be moved into (on Unix).
+    OldUnmovable,
+}
+
+/// For any way a store's secrets can't be read (a damaged file, a store whose id can't be read,
+/// an old file that can't be moved where they're kept now), whether a secret is set can't be said
+/// and the secret can't be read; for one where they can't be kept, setting one fails. A plugin
+/// that isn't there has none. The old file stays where it was.
+#[hegel::test(test_cases = 1)]
+fn prop_secrets_that_cant_be_read_or_kept_fail_and_stay(tc: TestCase) {
+    for unkept in [Unkept::Damaged, Unkept::NoStoreId, Unkept::NoFolder, Unkept::OldNoFolder, Unkept::OldUnmovable] {
+        prop_secrets_that_cant_be_read_or_kept_fail_and_stay_case(&tc, unkept);
+    }
+}
+
+/// Makes `dir`, if there is one, a folder the host can write in or can't (on Unix).
+fn writable(dir: Option<&std::path::Path>, can: bool) {
+    #[cfg(not(unix))]
+    let _ = (dir, can);
+    #[cfg(unix)]
+    if let Some(dir) = dir {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = if can { 0o700 } else { 0o500 };
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+}
+
+/// [`prop_secrets_that_cant_be_read_or_kept_fail_and_stay`] for one `unkept`.
+#[hegel::test_helper]
+fn prop_secrets_that_cant_be_read_or_kept_fail_and_stay_case(tc: &TestCase, unkept: Unkept) {
+    crate::keychain::tests::mock_keychain();
+    let storage = match unkept {
+        Unkept::NoStoreId => Storage::Keychain,
+        _ => Storage::File,
+    };
+    let (plugins, _dir, store) = host(storage);
+    assert_eq!(plugins.secrets("nope", Some(&store)).unwrap_err().code(), "not_found");
+    let slot = plugins.slot("keeper").unwrap();
+    let secrets = store.root().join("secrets");
+    let old = store.root().join("plugins/keeper/secrets.json");
+    let secret: String = tc.draw(gs::from_regex("[a-z0-9]{1,8}").fullmatch(true));
+    let blocked = (unkept == Unkept::OldUnmovable).then(|| secrets.join("plugins"));
+    match unkept {
+        Unkept::Damaged => {
+            std::fs::create_dir_all(secrets.join("plugins")).unwrap();
+            std::fs::write(secrets.join("plugins/keeper.json"), "damaged").unwrap();
+        }
+        Unkept::NoStoreId => std::fs::write(store.root().join("store.json"), "damaged").unwrap(),
+        Unkept::NoFolder | Unkept::OldNoFolder => std::fs::write(&secrets, "").unwrap(),
+        Unkept::OldUnmovable => std::fs::create_dir_all(secrets.join("plugins")).unwrap(),
+    }
+    if matches!(unkept, Unkept::OldNoFolder | Unkept::OldUnmovable) {
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        std::fs::write(&old, json!({ "token": secret }).to_string()).unwrap();
+    }
+    writable(blocked.as_deref(), false);
+    let said = plugins.secrets("keeper", Some(&store));
+    let read = slot.secret(&store, "token");
+    let set = plugins.set_setting("keeper", &store, "token", Some(json!(secret)));
+    writable(blocked.as_deref(), true);
+    if unkept == Unkept::OldUnmovable && cfg!(not(unix)) {
+        return;
+    }
+    match unkept {
+        // One that can't be read is written anew.
+        Unkept::Damaged => assert!(set.is_ok(), "{set:?}"),
+        _ => assert!(set.is_err(), "{unkept:?}: {set:?}"),
+    }
+    if unkept != Unkept::NoFolder {
+        assert!(said.is_err() && read.is_err(), "{unkept:?}");
+    }
+    if matches!(unkept, Unkept::OldNoFolder | Unkept::OldUnmovable) {
+        assert!(old.is_file(), "the old file stays");
+    }
+}

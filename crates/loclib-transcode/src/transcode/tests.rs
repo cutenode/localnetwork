@@ -758,3 +758,38 @@ fn a_damaged_frame_anywhere_fails_the_copy(tc: TestCase) {
     let skipped = loclib_mixid::audio::decode(&source, 44_100, &Ctx::silent(), &mut |s| heard += s.len()).unwrap();
     assert!(heard < frames && skipped.duration_secs < frames as f64 / 44_100.0, "frame {k}: {heard} of {frames}");
 }
+
+/// A source tag an AIFF or WAV copy can't hold (an ID3v2 comment whose language isn't three
+/// letters, which lofty reads but won't write) fails the copy as its tag error, naming it; a FLAC
+/// copy carries the comment over as a Vorbis comment, where it has no language.
+#[hegel::test(test_cases = 10)]
+fn prop_source_tags_a_copy_cant_hold_fail_it(tc: TestCase) {
+    let container = tc.draw(gs::sampled_from(Container::ALL.to_vec()));
+    let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(300));
+    let language: [u8; 3] = tc.draw(gs::sampled_from(vec![*b"en1", *b"e n", *b"\0\0\0"]));
+    // ID3v2.3: its header, then one COMM frame of Latin-1 text with no description.
+    let comm = [&[0][..], &language, &[0], b"hi"].concat();
+    let frame = [b"COMM".as_slice(), &(comm.len() as u32).to_be_bytes(), &[0, 0], &comm].concat();
+    let id3 = [b"ID3\x03\0\0\0\0\0".as_slice(), &[frame.len() as u8], &frame].concat();
+    let mut bytes = wav_of_channels(48_000, 16, 1, &noise(frames, 16));
+    bytes.extend_from_slice(b"id3 ");
+    bytes.extend_from_slice(&(id3.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&id3);
+    if id3.len() % 2 == 1 {
+        bytes.push(0);
+    }
+    let riff = (bytes.len() as u32 - 8).to_le_bytes();
+    bytes[4..8].copy_from_slice(&riff);
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("master.wav");
+    std::fs::write(&source, &bytes).unwrap();
+    let out = dir.path().join(format!("copy.{}", container.extension()));
+    match transcode_quietly(&source, &recipe(container, 48_000, 16, Dither::None), &out) {
+        Ok(made) if container == Container::Flac => {
+            assert_eq!(made.frames, frames as u64);
+            assert_eq!(tagged(&out).comment().as_deref(), Some("hi"));
+        }
+        Err(Error::Tags { path, .. }) if container != Container::Flac => assert_eq!(path, out),
+        other => panic!("{container:?}: {other:?}"),
+    }
+}

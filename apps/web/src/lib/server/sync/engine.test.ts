@@ -1,7 +1,7 @@
 import { RepoCommit, WANT_MAC_HEADER } from '@atproto/space';
 import pino from 'pino';
 import { SPACE_TYPE } from '#lib/nsid.ts';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { SpaceCredentialManager, XrpcResponseError } from '../atproto/credentials';
 import { IdentityResolver } from '../atproto/identity';
 import { bookingSpace } from '../atproto/spaces';
@@ -284,6 +284,114 @@ describe('SpaceSyncer against a repo host', () => {
 		expect(await records()).toEqual([['b', 'two']]);
 		expect(changes.findLast((change) => change.rkey === 'a')).toMatchObject({ kind: 'delete' });
 		expect((await repoRow())?.lastError).toBeNull();
+	});
+
+	describe('with one failing repo among good ones', () => {
+		const BAD = 'did:plc:bad';
+		const NOON = new Date('2026-11-04T12:00:00.000Z').getTime();
+
+		const watch = () => db.selectFrom('spaceWatch').selectAll().executeTakeFirstOrThrow();
+		const retries = () => db.selectFrom('syncRepoRetry').selectAll().execute();
+
+		/** Two repos on a page each, the failing one first, synced once at noon. */
+		const failOnce = async () => {
+			vi.useFakeTimers({ toFake: ['Date'], now: NOON });
+			onTestFinished(() => void vi.useRealTimers());
+			const s = await syncer();
+			host.repoPageSize = 1;
+			await host.put(BAD, NOTE, 'a', note('late'));
+			await host.put(DJ, NOTE, 'b', note('good'));
+			host.repoErrors.set(BAD, 'UpstreamFailure');
+			await expect(s.sync(SPACE)).rejects.toThrow('UpstreamFailure');
+
+			return s;
+		};
+
+		it('syncs the later pages, and moves the cursor past it', async () => {
+			await failOnce();
+
+			expect(await records()).toEqual([['b', 'good']]);
+			expect(await watch()).toMatchObject({ spaceRev: expect.any(String), lastError: 'UpstreamFailure' });
+			expect(await retries()).toEqual([
+				{
+					spaceUri: SPACE,
+					repoDid: BAD,
+					attempts: 1,
+					nextAttemptAt: '2026-11-04T12:01:00.000Z',
+					lastError: 'UpstreamFailure'
+				}
+			]);
+		});
+
+		it('retries it after its backoff, though listRepos no longer lists it', async () => {
+			const s = await failOnce();
+			host.repoErrors.clear();
+
+			vi.setSystemTime(NOON + 59_000);
+			await s.sync(SPACE);
+			expect(await records()).toEqual([['b', 'good']]);
+			expect((await watch()).lastError).toBe('UpstreamFailure');
+
+			vi.setSystemTime(NOON + 60_000);
+			await s.sync(SPACE);
+			expect(await records()).toEqual([
+				['a', 'late'],
+				['b', 'good']
+			]);
+			expect(await retries()).toEqual([]);
+			expect((await watch()).lastError).toBeNull();
+		});
+
+		it('keeps to the backoff when the repo changes again', async () => {
+			const s = await failOnce();
+			const downloads = calls('getRepo').length;
+			host.repoErrors.clear();
+			await host.put(BAD, NOTE, 'c', note('later'));
+
+			await s.sync(SPACE);
+
+			expect(calls('getRepo')).toHaveLength(downloads);
+			expect(await records()).toEqual([['b', 'good']]);
+		});
+
+		it('waits twice as long each time it fails again, up to an hour', async () => {
+			const s = await failOnce();
+			const minutes: number[] = [];
+
+			for (let attempt = 0; attempt < 8; attempt++) {
+				const [retry] = await retries();
+				const at = Date.parse(retry.nextAttemptAt);
+				minutes.push((at - Date.now()) / 60_000);
+				vi.setSystemTime(at);
+				await expect(s.sync(SPACE)).rejects.toThrow('UpstreamFailure');
+			}
+
+			expect(minutes).toEqual([1, 2, 4, 8, 16, 32, 60, 60]);
+		});
+
+		it('forgets it when the space is deleted', async () => {
+			const s = await failOnce();
+
+			await s.onSpaceDeleted(SPACE);
+
+			expect(await retries()).toEqual([]);
+		});
+	});
+
+	it('stops at a credential it cannot get, without blaming the repo or moving the cursor', async () => {
+		const s = await syncer();
+		await host.put(DJ, NOTE, 'a', note('one'));
+		await s.sync(SPACE);
+		const before = await db.selectFrom('spaceWatch').select('spaceRev').executeTakeFirstOrThrow();
+
+		// The cached credential lists repos, then the repo host rejects it and a new one can't be had.
+		await host.put(DJ, NOTE, 'b', note('two'));
+		host.repoError = 'CredentialRevoked';
+		host.credentialError = 'InvalidDelegationToken';
+
+		await expect(s.sync(SPACE)).rejects.toThrow('InvalidDelegationToken');
+		expect(await db.selectFrom('syncRepoRetry').selectAll().execute()).toEqual([]);
+		expect(await db.selectFrom('spaceWatch').select('spaceRev').executeTakeFirstOrThrow()).toEqual(before);
 	});
 
 	it('refreshes a KEM key that rotated, and tries again', async () => {

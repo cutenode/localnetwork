@@ -226,6 +226,48 @@ fn files_are_found_by_their_path(tc: TestCase) {
     assert_eq!(matcher.find(&e), want);
 }
 
+/// A version of a track (a mix name), its title misspelled, is still found as that version, by
+/// its words.
+#[hegel::test(test_cases = 100)]
+fn prop_a_misspelled_version_is_found_as_that_version(tc: TestCase) {
+    let mut lib = library(&tc, 1, 30);
+    let which = tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() - 1));
+    lib.tracks[which].mix_name = "Ferrous Remix".into();
+    let t = lib.tracks[which].clone();
+    let e = Entry { mix: Some("Ferrous Remix".into()), ..entry(&respelled(&tc, &t.artist), &typo(&tc, &t.title)) };
+    assert_eq!(Matcher::new(&lib).find(&e), Status::Found { track_id: t.id, how: MatchKind::Fuzzy }, "{e:?}");
+}
+
+/// A file under folders of another name is found by its name when the entry's words are the
+/// track's or its file name's (by file name alone, a name is a weak thing to go on); tracks
+/// without a file or a title, which nothing names, change nothing.
+#[hegel::test(test_cases = 150)]
+fn prop_files_elsewhere_are_found_by_name_and_words(tc: TestCase) {
+    let mut lib = library(&tc, 1, 30);
+    let t = tc.draw(gs::sampled_from(&lib.tracks)).clone();
+    let blanks = tc.draw(gs::integers::<u32>().min_value(1).max_value(3));
+    for i in 0..blanks {
+        let blank = track(1000 + i, "", "", if i % 2 == 0 { "" } else { "/Contents/" });
+        lib.tracks.push(blank);
+    }
+    // A file named with a word its tags don't have, which no other track's name or tags have.
+    lib.tracks.push(track(2000, "Quill", "Mosaic", "/Contents/Quill/Mosaic Ferrous.mp3"));
+    let matcher = Matcher::new(&lib);
+    let e = Entry {
+        path: Some(format!("/Elsewhere/{}.mp3", t.title)),
+        ..entry(&respelled(&tc, &t.artist), &respelled(&tc, &t.title))
+    };
+    let named: Vec<u32> = lib.tracks.iter().filter(|u| u.title == t.title).map(|u| u.id).collect();
+    match matcher.find(&e) {
+        Status::Found { track_id, how: MatchKind::Path } => assert_eq!(track_id, t.id, "of {named:?}"),
+        Status::Ambiguous { candidates } => assert!(named.len() > 1 && candidates.contains(&t.id), "{candidates:?}"),
+        other => panic!("{e:?}: {other:?}"),
+    }
+    // Found by that word of its name.
+    let e = Entry { path: Some("/Elsewhere/Mosaic Ferrous.mp3".into()), ..entry("", "Ferrous") };
+    assert_eq!(matcher.find(&e), Status::Found { track_id: 2000, how: MatchKind::Path });
+}
+
 /// An ISRC finds its track however it's written (case, dashes, spaces), whatever the entry's
 /// artist and title say.
 #[hegel::test(test_cases = 100)]

@@ -255,10 +255,23 @@ impl Fixture {
 
     /// What the echo command answers with `params`.
     fn echo_params(&self, params: Value) -> Result<Value> {
-        match self.command("echo", params, &Ctx::silent())? {
+        self.echo_under(params, &Ctx::silent())
+    }
+
+    /// [`Fixture::echo_params`], run under `ctx`.
+    fn echo_under(&self, params: Value, ctx: &Ctx<'_>) -> Result<Value> {
+        match self.command("echo", params, ctx)? {
             CommandOutput::Headless(v) => Ok(v),
             view => panic!("a headless command answers JSON: {view:?}"),
         }
+    }
+
+    /// The folder the echo plugin runs in, started in `store` if it isn't running.
+    fn work_folder(&self, store: Option<&Store>) -> PathBuf {
+        let params = json!({ "cwd": true });
+        let answer = self.plugins.run_command("echo", "echo", params, self.context(), store, &Ctx::silent(), &|_| {});
+        let CommandOutput::Headless(Value::String(dir)) = answer.unwrap() else { panic!("a folder") };
+        PathBuf::from(dir).canonicalize().unwrap()
     }
 }
 
@@ -462,13 +475,7 @@ fn a_plugin_must_speak_the_protocol_and_be_what_its_manifest_says() {
 #[test]
 fn a_plugin_runs_in_a_folder_of_its_own() {
     let f = Fixture::echo();
-    let folder = |store: Option<&Store>| {
-        let answer =
-            f.plugins.run_command("echo", "echo", json!({ "cwd": true }), f.context(), store, &Ctx::silent(), &|_| {});
-        let CommandOutput::Headless(Value::String(dir)) = answer.unwrap() else { panic!("a folder") };
-        PathBuf::from(dir).canonicalize().unwrap()
-    };
-    let work = folder(None);
+    let work = f.work_folder(None);
     let scratch = work.parent().unwrap();
     assert_eq!(
         (work.file_name().unwrap(), scratch.parent()),
@@ -478,7 +485,7 @@ fn a_plugin_runs_in_a_folder_of_its_own() {
     f.plugins.shutdown();
     assert!(!scratch.exists(), "{scratch:?} is left");
     let own = f.store.root().join("plugins").join("echo").join("work");
-    assert_eq!(folder(Some(&f.store)), own.canonicalize().unwrap());
+    assert_eq!(f.work_folder(Some(&f.store)), own.canonicalize().unwrap());
     f.plugins.set_setting("echo", &f.store, "greeting", Some(json!("hi"))).unwrap();
     let beside = own.parent().unwrap().join("settings.json");
     assert!(beside.is_file() && !own.join("settings.json").exists(), "its settings are the host's, beside it");

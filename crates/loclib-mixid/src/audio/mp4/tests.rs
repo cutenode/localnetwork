@@ -151,3 +151,112 @@ fn a_tag_claiming_terabytes_is_refused() {
         assert_eq!(read.as_deref(), Some("an atom runs past the one holding it"));
     }
 }
+
+/// The sample table atom `kind` holding the first `held` bytes of a table of one entry: version
+/// and flags, `stsz`'s sample size (0, so entries follow), the count, the entry.
+fn table_cut_at(kind: &[u8; 4], held: usize) -> Vec<u8> {
+    let body = if kind == b"stsz" { be(&[0, 0, 1, 7]) } else { be(&[0, 1, 7, 7, 7]) };
+    mp4_atom(kind, &body[..held.min(body.len())])
+}
+
+/// `inner` inside each of `kinds` in turn, the last outermost.
+fn nest(inner: Vec<u8>, kinds: &[&[u8; 4]]) -> Vec<u8> {
+    kinds.iter().fold(inner, |inner, kind| mp4_atom(*kind, &inner))
+}
+
+const FTYP: &[u8] = b"\0\0\0\x14ftypM4A \0\0\0\0M4A ";
+
+/// An MP4 that ends inside what an atom says next (the 64-bit size of the file's last atom, or
+/// the counts of a sample table that's the file's last bytes) is the decoder's to report, and so
+/// is anything that isn't a regular file (a folder named as an M4A): vetting passes them.
+#[hegel::test(test_cases = 100)]
+fn prop_files_ending_inside_what_an_atom_says_are_left_to_the_decoder(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.m4a");
+    if tc.draw(gs::booleans()) {
+        // A 64-bit size cut short: `size` 1, then fewer than its 8 bytes.
+        let held = tc.draw(gs::integers::<usize>().max_value(7));
+        let last = [be(&[1]), b"free".to_vec(), vec![0; held]].concat();
+        std::fs::write(&path, [m4a(8_000, &mp4_empty_tables(), &[]), last].concat()).unwrap();
+    } else {
+        let kind = tc.draw(gs::sampled_from(vec![b"stsz", b"stco", b"co64", b"stts", b"stsc"]));
+        // Short of the count (and for `stsz`, maybe of its sample size too).
+        let held = tc.draw(gs::integers::<usize>().max_value(if kind == b"stsz" { 11 } else { 7 }));
+        let moov = nest(table_cut_at(kind, held), &[b"stbl", b"minf", b"mdia", b"trak", b"moov"]);
+        std::fs::write(&path, [FTYP, &moov].concat()).unwrap();
+    }
+    vet_container(&path).unwrap();
+    let folder = dir.path().join("folder.m4a");
+    std::fs::create_dir(&folder).unwrap();
+    // Windows won't open a folder as a file, which is that folder's error sooner.
+    assert_eq!(vet_container(&folder).is_ok(), cfg!(unix));
+}
+
+/// An atom whose size is 0 runs to the end of what holds it (the file, for one of the file's
+/// own), and is walked like any other: one holding a sample table claiming more than it holds is
+/// refused, one holding what it claims passes.
+#[hegel::test(test_cases = 100)]
+fn prop_atoms_of_size_0_run_to_the_end_of_what_holds_them(tc: TestCase) {
+    let claim = tc.draw(gs::integers::<u32>().max_value(4));
+    let held = tc.draw(gs::integers::<usize>().max_value(4));
+    let top = tc.draw(gs::booleans());
+    let stco = mp4_full(b"stco", &be(&[claim, 7, 7, 7, 7][..1 + held]));
+    // `stbl` of size 0, the last atom of `minf`.
+    let stbl = [be(&[0]), b"stbl".to_vec(), stco].concat();
+    let mut moov = nest(stbl, &[b"minf", b"mdia", b"trak", b"moov"]);
+    if top {
+        // The file's own last atom, of size 0.
+        moov[..4].copy_from_slice(&be(&[0]));
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.m4a");
+    std::fs::write(&path, [FTYP, &moov].concat()).unwrap();
+    match vet_container(&path) {
+        Ok(()) => assert!(claim as usize <= held, "{claim} entries passed in {held}"),
+        Err(Error::Parse { message, .. }) => {
+            assert!(claim as usize > held, "{claim} in {held}: {message}");
+            assert_eq!(message, "a sample table claims more entries than the file holds");
+        }
+        Err(e) => panic!("{e}"),
+    }
+}
+
+/// An atom saying it's smaller than its own header (8 bytes, or 16 with a 64-bit size), the
+/// file's own or inside another, is refused by every way of reading the file.
+#[hegel::test(test_cases = 100)]
+fn prop_atoms_smaller_than_their_header_are_refused(tc: TestCase) {
+    let wide = tc.draw(gs::booleans());
+    // A 32-bit size of 0 or 1 says where the size is rather than what it is.
+    let size = tc.draw(gs::integers::<u64>().min_value(if wide { 0 } else { 2 }).max_value(if wide { 15 } else { 7 }));
+    let atom = match wide {
+        true => [be(&[1]), b"free".to_vec(), size.to_be_bytes().to_vec(), vec![0; 8]].concat(),
+        false => [be(&[size as u32]), b"free".to_vec()].concat(),
+    };
+    let file = if tc.draw(gs::booleans()) {
+        m4a(8_000, &mp4_empty_tables(), &mp4_atom(b"udta", &atom))
+    } else {
+        [m4a(8_000, &mp4_empty_tables(), &[]), atom].concat()
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.m4a");
+    std::fs::write(&path, &file).unwrap();
+    for read in read_all(&path) {
+        assert_eq!(read.as_deref(), Some("an atom is smaller than its header"));
+    }
+}
+
+/// A file that can't be read is that file's I/O error, before anything reads its atoms.
+#[cfg(unix)]
+#[hegel::test(test_cases = 5)]
+fn prop_a_file_that_cant_be_read_is_its_io_error(tc: TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(tc.draw(gs::sampled_from(vec!["x.m4a", "x.wav"])));
+    std::fs::write(&path, m4a(8_000, &mp4_empty_tables(), &[])).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    match vet_container(&path) {
+        Err(Error::Io { path: at, .. }) => assert_eq!(at, path),
+        other => panic!("{other:?}"),
+    }
+}

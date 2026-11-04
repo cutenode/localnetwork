@@ -262,3 +262,67 @@ fn a_relative_path_leads_from_the_folder_to_the_file(tc: TestCase) {
     assert_eq!(at, to, "{from_path:?} + {r:?}");
     assert_eq!(r.split('/').filter(|s| *s == "..").count(), from.len() - common, "{r:?}");
 }
+
+/// Below a real folder without links, a path resolves to the folder's real path with its parts
+/// folded on: `.` is nothing and `..` takes away the part before it, whether that part exists
+/// yet or not.
+#[hegel::test(test_cases = 100)]
+fn prop_paths_below_a_real_folder_resolve_folded(tc: TestCase) {
+    let parts: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(vec!["a", "b", "..", ".", "c d"])).max_size(6));
+    let dir = tempfile::tempdir().unwrap();
+    let root = without_verbatim_prefix(dir.path().canonicalize().unwrap());
+    if tc.draw(gs::booleans()) {
+        std::fs::create_dir_all(root.join("a/b")).unwrap();
+    }
+    let mut folded = root.clone();
+    for p in &parts {
+        match *p {
+            ".." => drop(folded.pop()),
+            "." => {}
+            name => folded.push(name),
+        }
+    }
+    assert_eq!(resolved(&dir.path().join(parts.join("/"))), folded, "{parts:?}");
+    // From a relative folder there's no way to anywhere, even one below it.
+    let below = PathBuf::from("a").join(parts.join("/"));
+    assert_eq!(relative(Path::new("a"), &below), None);
+}
+
+/// With the current folder gone (removed under the process), a relative path has nothing to be
+/// absolute from: it's folded part by part as it is, `.` being nothing and `..` taking away the
+/// part before it. A rooted path is folded the same way from its root, as it always is.
+#[cfg(unix)]
+#[hegel::test(test_cases = 50)]
+fn prop_without_a_current_folder_relative_paths_are_folded_as_they_are(tc: TestCase) {
+    // One closure for both calls: coverage counts `absolute_with` by its best instance.
+    let unknown = |_: &Path| None;
+    let parts: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(vec!["a", "b", ".", ".."])).min_size(1).max_size(6));
+    let path = PathBuf::from(parts.join("/"));
+    let mut want = PathBuf::new();
+    for p in &parts {
+        match *p {
+            ".." => drop(want.pop()),
+            "." => {}
+            name => want.push(name),
+        }
+    }
+    /// Goes back to the folder the process was in, failing assertions or not.
+    struct Back(PathBuf);
+    impl Drop for Back {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.0);
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let gone = dir.path().join("gone");
+    std::fs::create_dir(&gone).unwrap();
+    // The current folder is the process's: nextest runs each test in a process of its own, so
+    // nothing else reads it meanwhile.
+    let back = Back(std::env::current_dir().unwrap());
+    std::env::set_current_dir(&gone).unwrap();
+    std::fs::remove_dir(&gone).unwrap();
+    let got = absolute_with(&path, unknown);
+    drop(back);
+    assert_eq!(got, want, "{path:?}");
+    assert_eq!(absolute_with(&Path::new("/").join(&path), unknown), Path::new("/").join(&want), "{path:?}");
+}

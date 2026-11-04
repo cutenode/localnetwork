@@ -1,9 +1,10 @@
 //! Stand-ins for FFmpeg's `ffmpeg` and `ffprobe`, first on `PATH`: shell scripts (so not on
 //! Windows) that note their arguments and answer as a test says.
 
+use std::ffi::OsString;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
+use std::sync::{LazyLock, OnceLock};
 
 /// What the stand-in ffprobe says of a 25-second AAC recording.
 pub(super) const AAC: &str = r#"{"streams": [{"codec_name": "aac"}], "format": {"duration": "25.000000"}}"#;
@@ -17,12 +18,15 @@ pub(super) const PROGRESS: &str = "out_time_us=N/A\nprogress=continue\nout_time_
 /// process (nextest runs each test in one of its own), first on its `PATH` from the first use.
 static DIR: LazyLock<tempfile::TempDir> = LazyLock::new(|| {
     let dir = tempfile::tempdir().unwrap();
+    // The tools it runs by their paths: [`unrunnable`] leaves `PATH` without them.
     for tool in ["ffmpeg", "ffprobe"] {
         let script = format!(
             "#!/bin/sh\nd='{}'\nprintf '%s\\n' \"$@\" >\"$d/{tool}-args\"\nfor last; do :; done\n\
-             if [ -f \"$d/{tool}-writes\" ]; then cp \"$d/{tool}-writes\" \"$last\"; fi\n\
-             cat \"$d/{tool}-out\"\ncat \"$d/{tool}-err\" >&2\n\
-             if [ -f \"$d/{tool}-stalls\" ]; then exec sleep 60; fi\nexit \"$(cat \"$d/{tool}-status\")\"\n",
+             if [ -f \"$d/{tool}-writes\" ]; then /bin/cp \"$d/{tool}-writes\" \"$last\"; fi\n\
+             /bin/cat \"$d/{tool}-out\"\n/bin/cat \"$d/{tool}-err\" >&2\n\
+             if [ -f \"$d/{tool}-after\" ]; then ( exec 2>/dev/null; /bin/sleep 0.3; /bin/cat \"$d/{tool}-after\"; \
+             : >\"$d/{tool}-wrote\" ) & fi\n\
+             if [ -f \"$d/{tool}-stalls\" ]; then exec /bin/sleep 60; fi\nexit \"$(/bin/cat \"$d/{tool}-status\")\"\n",
             dir.path().display()
         );
         let path = dir.path().join(tool);
@@ -36,9 +40,22 @@ static DIR: LazyLock<tempfile::TempDir> = LazyLock::new(|| {
     .unwrap();
     // SAFETY: nextest gives each test a process of its own, and nothing else in it reads the
     // environment while this runs (before the plugin is served).
-    unsafe { std::env::set_var("PATH", path) };
+    unsafe { std::env::set_var("PATH", &path) };
+    STANDING_IN.set(path).unwrap();
     dir
 });
+
+/// `PATH` as [`DIR`] set it, the stand-ins first.
+static STANDING_IN: OnceLock<OsString> = OnceLock::new();
+
+/// Both stand-ins runnable and first on `PATH` again, after [`unrunnable`] or [`uninstalled`].
+pub(super) fn restore() {
+    for tool in ["ffmpeg", "ffprobe"] {
+        std::fs::set_permissions(DIR.path().join(tool), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    // SAFETY: as above, while no hook runs.
+    unsafe { std::env::set_var("PATH", STANDING_IN.get().unwrap()) };
+}
 
 /// The stand-in `tool` from now on: what it writes to the file it's given last (none when
 /// `None`), says on standard output and standard error, and exits with.
@@ -52,14 +69,27 @@ pub(super) fn answer(tool: &str, writes: Option<&[u8]>, out: &str, err: &str, st
     std::fs::write(at("out"), out).unwrap();
     std::fs::write(at("err"), err).unwrap();
     std::fs::write(at("status"), status.to_string()).unwrap();
-    let _ = std::fs::remove_file(at("args"));
-    let _ = std::fs::remove_file(at("stalls"));
+    for what in ["args", "stalls", "after", "wrote"] {
+        let _ = std::fs::remove_file(at(what));
+    }
 }
 
 /// The stand-in `tool`, once it has said what it says, waiting a minute rather than exiting
 /// (itself, not a shell waiting on it), until [`answer`] is called again.
 pub(super) fn stall(tool: &str) {
     std::fs::write(DIR.path().join(format!("{tool}-stalls")), "").unwrap();
+}
+
+/// The stand-in `tool` leaving behind a process of its own that says `out` on its standard output
+/// a moment later, after the tool itself is gone, until [`answer`] is called again; and
+/// [`written`] once it has.
+pub(super) fn after(tool: &str, out: &str) {
+    std::fs::write(DIR.path().join(format!("{tool}-after")), out).unwrap();
+}
+
+/// Whether what [`after`] has `tool` say has been said.
+pub(super) fn written(tool: &str) -> bool {
+    DIR.path().join(format!("{tool}-wrote")).exists()
 }
 
 /// The stand-in `tool` can't be run, and `PATH` has no other.
