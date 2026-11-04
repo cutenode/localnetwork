@@ -4,6 +4,9 @@ import { type Db, nowIso } from '../db';
 import type { AccountRow } from '../db/schema';
 import type { Logger } from '../logger';
 
+/** Accounts by DID, from {@link AccountService.views}. */
+type AccountViews = { get(did: string): AccountView };
+
 export class AccountService {
 	constructor(
 		private readonly db: Db,
@@ -58,26 +61,28 @@ export class AccountService {
 		return (await this.get(did))?.spacesCapable === 1;
 	}
 
-	/** Handles for a set of DIDs from the local cache, resolving unknown ones in the background. */
-	async views(dids: Iterable<string>): Promise<Map<string, AccountView>> {
+	/**
+	 * Handles for a set of DIDs from the local cache, resolving unknown ones in the background. Any DID can be looked
+	 * up: one without a cached handle has none yet.
+	 */
+	async views(dids: Iterable<string>): Promise<AccountViews> {
 		const unique = [...new Set(dids)].filter(Boolean);
-		const map = new Map<string, AccountView>();
+		const known = new Map<string, AccountView>();
+		const views = { get: (did: string) => known.get(did) ?? { did, handle: null } };
 
-		if (unique.length === 0) return map;
+		if (unique.length === 0) return views;
 		const rows = await this.db.selectFrom('account').select(['did', 'handle']).where('did', 'in', unique).execute();
 
-		for (const row of rows) map.set(row.did, { did: row.did, handle: row.handle });
-		const missing = unique.filter((did) => !map.has(did) || !map.get(did)?.handle);
-
-		for (const did of unique) if (!map.has(did)) map.set(did, { did, handle: null });
+		for (const row of rows) known.set(row.did, { did: row.did, handle: row.handle });
+		const missing = unique.filter((did) => !known.get(did)?.handle);
 
 		if (missing.length > 0) void this.learn(missing);
 
-		return map;
+		return views;
 	}
 
 	async view(did: string): Promise<AccountView> {
-		return (await this.views([did])).get(did) ?? { did, handle: null };
+		return (await this.views([did])).get(did);
 	}
 
 	/** Resolves and caches handles for DIDs the app has not seen sign in. */

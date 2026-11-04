@@ -948,7 +948,7 @@ export class RequestService {
 				rkey: row.rkey,
 				kind: record.kind,
 				status: row.status,
-				requester: accounts.get(row.requesterDid) ?? { did: row.requesterDid, handle: null },
+				requester: accounts.get(row.requesterDid),
 				repoDid: row.repoDid,
 				projectUri: row.projectUri,
 				project: project ? { slug: project.slug, name: project.profile.name } : null,
@@ -957,7 +957,7 @@ export class RequestService {
 				updatedAt: row.updatedAt,
 				decision: row.decidedAt
 					? {
-							by: row.decidedBy ? (accounts.get(row.decidedBy) ?? null) : null,
+							by: row.decidedBy ? accounts.get(row.decidedBy) : null,
 							at: row.decidedAt,
 							reason: row.decisionReason
 						}
@@ -969,13 +969,12 @@ export class RequestService {
 	}
 }
 
-/** The record a request row was indexed from; `index` stores it as JSON, so it always parses. */
+/**
+ * The record a request row was indexed from. `index` stores it as JSON of an object, and forgetting a deleted one only
+ * removes fields, so it always parses to one.
+ */
 function storedRecord(row: RequestRow): RequestRecord {
-	const record = parseJson<RequestRecord | null>(row.record, null);
-
-	if (!record) throw new Error(`Request ${row.uri} has no stored record`);
-
-	return record;
+	return parseJson<RequestRecord | null>(row.record, null)!;
 }
 
 export function actorRole(viewer: Viewer): 'admin' | 'moderator' | 'member' {
