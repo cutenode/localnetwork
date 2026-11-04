@@ -252,6 +252,65 @@ describe('createProjections', () => {
 		expect(await drafts()).toEqual([]);
 	});
 
+	it("marks the root's audit copy failed when it's deleted", async () => {
+		const entry = await t.audit.record({ actor: ALICE, action: 'auth.login', summary: 'in' }, { awaitDelivery: true });
+		const stored = await t.audit.get(entry.id);
+		await project({
+			kind: 'delete',
+			space: t.spaces.audit,
+			repoDid: ROOT,
+			collection: COLLECTION.auditEntry,
+			rkey: entry.id,
+			uri: stored!.rootUri!
+		});
+		expect(await t.audit.get(entry.id)).toMatchObject({
+			rootStatus: 'failed',
+			rootError: 'Copy was deleted from the repo',
+			actorStatus: stored!.actorStatus
+		});
+	});
+
+	it('ignores records of these collections outside the spaces they belong in', async () => {
+		const now = new Date().toISOString();
+		const p1 = 'at://did:plc:root/computer.localnetwork.project/p1';
+
+		await upsert(t.spaces.staff, ROOT, COLLECTION.request, 'r1', {
+			kind: 'create',
+			profile: { name: 'A', kind: 'solo', genres: ['x'], location: { city: 'c', country: 'DE' } },
+			createdAt: now
+		});
+		expect(await t.requests.byRkey('r1')).toBeNull();
+
+		await upsert(t.spaces.moderation, ROOT, COLLECTION.projectDetails, 'p1', {
+			project: p1,
+			details: { bookingEmail: 'x@y.test' },
+			updatedAt: now
+		});
+		await upsert(t.spaces.industry, ALICE, COLLECTION.projectDetails, 'p1', {
+			project: p1,
+			details: { bookingEmail: 'x@y.test' },
+			updatedAt: now
+		});
+		expect(await t.projects.details(p1)).toBeNull();
+
+		await upsert(t.spaces.staff, ROOT, COLLECTION.bookingMessage, 'm1', { text: 'hi', createdAt: now });
+		await upsert(bookingSpace(ALICE, 'b1'), ALICE, COLLECTION.bookingMessage, 'm2', { text: 'hi', createdAt: now });
+		expect(await t.db.selectFrom('bookingEvent').selectAll().execute()).toEqual([]);
+
+		await upsert(epkSpace(ROOT, '3kit'), ALICE, COLLECTION.epkDraft, '3kit', {
+			changes: { title: 'Clubs' },
+			createdAt: now,
+			updatedAt: now
+		});
+		expect(await t.db.selectFrom('epkDraft').selectAll().execute()).toEqual([]);
+
+		// A real audit copy, as the actor wrote it, synced from the wrong space.
+		const entry = await t.audit.record({ actor: ALICE, action: 'auth.login', summary: 'in' }, { awaitDelivery: true });
+		const copy = t.net.spaceRecordsIn(t.spaces.audit, ALICE).find((record) => record.uri.endsWith(entry.id))!;
+		await upsert(t.spaces.moderation, ALICE, COLLECTION.auditEntry, entry.id, copy.value);
+		expect(await t.db.selectFrom('auditCopy').selectAll().execute()).toEqual([]);
+	});
+
 	describe("a performer's, party's or venue's space", () => {
 		const space = sharedSpace(ROOT, 'party', '3party');
 		const now = new Date().toISOString();

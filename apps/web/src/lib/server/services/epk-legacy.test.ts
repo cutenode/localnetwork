@@ -311,4 +311,41 @@ describe('LegacyEpks', () => {
 		expect(await migrate()).toEqual({ migrated: [], failed: [] });
 		expect(f.t.net.records.has(`${DJ}|${COLLECTION.epk}|${legacy.rkey}`)).toBe(true);
 	});
+
+	it("moves one without a private part, leaving answered requests and broken grants, and repoints a grant's request", async () => {
+		const owner = f.t.net.client(DJ);
+		const requests = await f.t.epks.requests(legacy);
+		const of = (did: string) => requests.find((request) => request.requester.did === did)!.uri;
+
+		await owner.deleteSpaceRecord({ space: legacy.space, collection: COLLECTION.epkContent, rkey: EPK_CONTENT_KEY });
+		await f.t.db.updateTable('epkRequest').set({ status: 'declined' }).where('uri', '=', of(STRANGER)).execute();
+
+		const grant = (subject: string, record: Record<string, string>) =>
+			owner.putSpaceRecord({ space: legacy.space, collection: COLLECTION.epkGrant, rkey: subject, record });
+
+		await grant(STRANGER, { subject: STRANGER });
+		await grant(PROMOTER, {
+			subject: PROMOTER,
+			via: 'approved',
+			request: of(PROMOTER),
+			createdAt: legacy.record.createdAt
+		});
+
+		expect(await migrate()).toEqual({ migrated: [legacy.rkey], failed: [] });
+		const [moved] = await f.t.epks.forProject(f.project);
+
+		expect(f.t.net.spaceRecordsIn(space())).toEqual([]);
+		expect((await f.t.epks.requests(moved)).map((request) => request.requester.did)).toEqual([]);
+		expect((await f.t.epks.grants(moved)).map((entry) => entry.subject.did).sort()).toEqual([FRIEND, PROMOTER].sort());
+
+		const carried = f.t.net
+			.spaceRecordsIn(requestSpace(), ROOT)
+			.find((record) => record.uri.includes(`/${COLLECTION.epkRequest}/`))!.uri;
+
+		const promoterGrant = f.t.net
+			.spaceRecordsIn(requestSpace(), ROOT)
+			.find((record) => record.value.subject === PROMOTER)?.value;
+
+		expect(promoterGrant).toMatchObject({ via: 'approved', request: carried });
+	});
 });
