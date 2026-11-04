@@ -1,0 +1,12 @@
+{
+	"$schema": "../budget.schema.json",
+	"job": "pull-request",
+	"tolerance_percent": 0,
+	"metrics": {
+		"locallibrary-cli": {
+			"limit": 625,
+			"unit": "packages",
+			"measures": "Packages the CLI with default features builds on Linux, by cargo tree."
+		}
+	}
+}

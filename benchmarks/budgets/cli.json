@@ -1,0 +1,37 @@
+{
+	"$schema": "../budget.schema.json",
+	"job": "release",
+	"tolerance_percent": 1,
+	"metrics": {
+		"version": {
+			"limit": null,
+			"unit": "instructions",
+			"measures": "Instructions `--version` runs on the 3,886-track fixture, under cachegrind."
+		},
+		"drive_ls": {
+			"limit": null,
+			"unit": "instructions",
+			"measures": "Instructions `drive ls` runs on the 3,886-track fixture, under cachegrind."
+		},
+		"tracks_filter": {
+			"limit": null,
+			"unit": "instructions",
+			"measures": "Instructions `tracks --filter` runs on the 3,886-track fixture, under cachegrind."
+		},
+		"diff": {
+			"limit": null,
+			"unit": "instructions",
+			"measures": "Instructions `diff` runs on the 3,886-track fixture, under cachegrind."
+		},
+		"check": {
+			"limit": null,
+			"unit": "instructions",
+			"measures": "Instructions `check` runs on the 3,886-track fixture, under cachegrind."
+		},
+		"doctor": {
+			"limit": null,
+			"unit": "instructions",
+			"measures": "Instructions `doctor` runs on the 3,886-track fixture, under cachegrind."
+		}
+	}
+}

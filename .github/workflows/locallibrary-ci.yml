@@ -184,6 +184,87 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # The exact counts a pull request can't change without saying so, against benchmarks/budgets/ (see
+  # benchmarks/README.md): what everyday operations allocate and how many packages the CLI builds,
+  # from the shards' archive and `cargo tree`, so no build of its own. And that no budget was
+  # loosened without a `budget-raise:` line in the pull request's body.
+  budgets:
+    needs: build
+    if: inputs.linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # The pull request's body.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      # nextest lists what's in every binary of the archive, and the CLI's links ALSA.
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-nextest
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tests
+      - run: echo "LOCALLIBRARY_BUDGETS_OUT=$PWD/target/budgets" >> "$GITHUB_ENV"
+      - run: cargo nextest run --archive-file tests.tar.zst -E 'binary(counters)'
+      - run: |
+          cargo tree --locked --target x86_64-unknown-linux-gnu -e normal -p locallibrary-cli --prefix none |
+            sed 's/ (.*//' | sort -u | wc -l | jq '{"locallibrary-cli": .}' > "$LOCALLIBRARY_BUDGETS_OUT/deps.json"
+      - run: node tools/budgets/cli.ts check "$LOCALLIBRARY_BUDGETS_OUT" pull-request
+      - if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          git fetch --depth=1 origin "$BASE"
+          # From the API: a body edited since this run's event wouldn't be in it.
+          gh api "repos/$GH_REPO/pulls/$NUMBER" --jq '.body // ""' > "$RUNNER_TEMP/body.md"
+          node tools/budgets/cli.ts raises FETCH_HEAD "$RUNNER_TEMP/body.md"
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: budgets
+          path: target/budgets
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # What only a release build can tell, against benchmarks/budgets/: when a manifest or the
+  # lockfile changed, since a dependency is what moves these most. Everything else that does is
+  # caught by locallibrary-bench.yml's weekly run of the same.
+  release-budgets:
+    if: inputs.deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - uses: ./.github/actions/release-budgets
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-budgets
+          path: target/budgets
+          if-no-files-found: ignore
+          retention-days: 14
+
   # The Hegel property tests alone, under coverage and held to the same thresholds
   # (tools/hegel-coverage.sh): the properties have to reach what the whole suite does. They run
   # from the archive the shards use, beside the shards, and the coverage job puts their totals next

@@ -1,0 +1,67 @@
+{
+	"$schema": "../budget.schema.json",
+	"job": "pull-request",
+	"tolerance_percent": 1,
+	"metrics": {
+		"read_library.2k.allocations": {
+			"limit": 38415,
+			"unit": "allocations",
+			"measures": "Allocations made parsing a 2,000-track export.pdb into a library."
+		},
+		"read_library.2k.bytes": {
+			"limit": 6815373,
+			"unit": "bytes",
+			"measures": "Bytes allocated parsing a 2,000-track export.pdb into a library."
+		},
+		"filter.2k.allocations": {
+			"limit": 11824,
+			"unit": "allocations",
+			"measures": "Allocations made filtering 2,000 tracks by artist, tempo and genre."
+		},
+		"filter.2k.bytes": {
+			"limit": 327810,
+			"unit": "bytes",
+			"measures": "Bytes allocated filtering 2,000 tracks by artist, tempo and genre."
+		},
+		"compare.2k.allocations": {
+			"limit": 85834,
+			"unit": "allocations",
+			"measures": "Allocations made comparing two 2,000-track libraries."
+		},
+		"compare.2k.bytes": {
+			"limit": 5942116,
+			"unit": "bytes",
+			"measures": "Bytes allocated comparing two 2,000-track libraries."
+		},
+		"merge_plan.500.allocations": {
+			"limit": 113830,
+			"unit": "allocations",
+			"measures": "Allocations made planning a merge of two 500-track drives."
+		},
+		"merge_plan.500.bytes": {
+			"limit": 15442102,
+			"unit": "bytes",
+			"measures": "Bytes allocated planning a merge of two 500-track drives."
+		},
+		"sync_plan.500.allocations": {
+			"limit": 138267,
+			"unit": "allocations",
+			"measures": "Allocations made planning a sync of two 500-track drives."
+		},
+		"sync_plan.500.bytes": {
+			"limit": 44551803,
+			"unit": "bytes",
+			"measures": "Bytes allocated planning a sync of two 500-track drives."
+		},
+		"check.500.allocations": {
+			"limit": 212525,
+			"unit": "allocations",
+			"measures": "Allocations made checking two 500-track drives."
+		},
+		"check.500.bytes": {
+			"limit": 182759934,
+			"unit": "bytes",
+			"measures": "Bytes allocated checking two 500-track drives."
+		}
+	}
+}

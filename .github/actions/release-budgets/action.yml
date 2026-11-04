@@ -1,0 +1,44 @@
+name: Release budgets
+description: >-
+  Builds the release CLI on Linux and holds it to benchmarks/budgets/ (see benchmarks/README.md):
+  the size of its binary and archive, and the instructions everyday commands run under cachegrind,
+  which counts them exactly, on the 3,886-track fixture. Leaves what it measured in target/budgets
+  for an upload.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: sudo apt-get update && sudo apt-get install -y libasound2-dev valgrind
+    - shell: bash
+      run: cargo build --profile dist -p locallibrary-cli --locked
+    - shell: bash
+      run: |
+        mkdir -p target/budgets
+        tar -C target/dist -cJf target/budgets/archive.tar.xz locallibrary
+        jq -n --argjson binary "$(wc -c < target/dist/locallibrary)" \
+          --argjson archive "$(wc -c < target/budgets/archive.tar.xz)" \
+          '{"locallibrary": $binary, "archive": $archive}' > target/budgets/size-x86_64-unknown-linux-gnu.json
+        rm target/budgets/archive.tar.xz
+    - shell: bash
+      run: |
+        export LOCALLIBRARY_VOLUMES="$RUNNER_TEMP/volumes" LOCALLIBRARY_STORE="$RUNNER_TEMP/store" HOME="$RUNNER_TEMP/home"
+        for drive in LARGE LARGE2; do
+          mkdir -p "$LOCALLIBRARY_VOLUMES/$drive/PIONEER/rekordbox"
+          cp crates/locallibrary/tests/fixtures/rekordcrate/large/export.pdb "$LOCALLIBRARY_VOLUMES/$drive/PIONEER/rekordbox/"
+        done
+        mkdir -p "$HOME"
+        instructions() {
+          valgrind --tool=cachegrind --cache-sim=no --cachegrind-out-file=/dev/null target/dist/locallibrary "$@" 2>&1 >/dev/null |
+            sed -n 's/.*I *refs: *//p' | tr -d ,
+        }
+        {
+          echo "version $(instructions --version)"
+          echo "drive_ls $(instructions drive ls)"
+          echo "tracks_filter $(instructions tracks LARGE --filter 'bpm:120-130 -genre:techno')"
+          echo "diff $(instructions diff LARGE LARGE2)"
+          echo "check $(instructions check LARGE LARGE2)"
+          echo "doctor $(instructions doctor LARGE)"
+        } | jq -Rn '[inputs | split(" ") | {(.[0]): (.[1] | tonumber)}] | add' > target/budgets/cli.json
+    - shell: bash
+      run: node tools/budgets/cli.ts check target/budgets release
