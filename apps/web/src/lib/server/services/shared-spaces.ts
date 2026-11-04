@@ -219,7 +219,7 @@ export class SharedSpaces {
 			skey: parseSpaceUri(row.spaceUri)!.skey,
 			listed: row.listed === 1,
 			people: Number(row.people),
-			createdBy: accounts.get(row.createdBy) ?? { did: row.createdBy, handle: null },
+			createdBy: accounts.get(row.createdBy),
 			createdAt: row.createdAt
 		}));
 	}
@@ -239,7 +239,7 @@ export class SharedSpaces {
 
 		return shown.map((row) => ({
 			did: row.did,
-			handle: accounts.get(row.did)?.handle ?? null,
+			handle: accounts.get(row.did).handle,
 			role: row.role,
 			capabilities: parseJson<Capability[]>(row.capabilities, []),
 			hidden: row.hidden === 1,

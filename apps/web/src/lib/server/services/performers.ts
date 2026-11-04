@@ -42,7 +42,7 @@ export class PerformerSearch {
 					kind: 'dj',
 					dj: {
 						profile,
-						handle: accounts.get(did)?.handle ?? null,
+						handle: accounts.get(did).handle,
 						genres,
 						...(distanceM !== undefined && { distanceKm: distanceM / 1000 })
 					}

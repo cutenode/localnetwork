@@ -24,7 +24,7 @@ export async function loadProjectPage(locals: App.Locals, slug: string) {
 		app.accounts.views(project.managers)
 	]);
 
-	const managers = project.managers.map((did) => accounts.get(did) ?? { did, handle: null });
+	const managers = project.managers.map((did) => accounts.get(did));
 
 	return {
 		project,

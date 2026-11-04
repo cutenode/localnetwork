@@ -496,7 +496,7 @@ export class EpkService {
 
 		return rows.map((row) => ({
 			uri: row.uri,
-			requester: accounts.get(row.requesterDid) ?? { did: row.requesterDid, handle: null },
+			requester: accounts.get(row.requesterDid),
 			role: REQUEST_ROLES.find((role): role is RequestRole => role === row.role) ?? null,
 			message: row.message,
 			status: row.status,
@@ -517,7 +517,7 @@ export class EpkService {
 		const accounts = await this.core.accounts.views(rows.map((row) => row.subjectDid));
 
 		return rows.map((row) => ({
-			subject: accounts.get(row.subjectDid) ?? { did: row.subjectDid, handle: null },
+			subject: accounts.get(row.subjectDid),
 			via: grantVia(row.via),
 			createdAt: row.createdAt
 		}));
