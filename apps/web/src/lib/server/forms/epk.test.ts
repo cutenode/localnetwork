@@ -1,7 +1,9 @@
 import { deflateSync } from 'node:zlib';
+import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import type { EpkPhoto } from '#lib/epk.ts';
 import type { ProjectMix } from '#lib/types.ts';
+import { UserError } from '../core';
 import { epkFormValues, parseEpkForm, submittedValues } from './epk';
 
 const tracklist = { $type: 'blob' as const, ref: { $link: 'bafytracks' }, mimeType: 'application/json', size: 10 };
@@ -196,6 +198,217 @@ describe('parseEpkForm', () => {
 				[]
 			)
 		).rejects.toThrow(/isn't the image type/);
+		await expect(
+			parseEpkForm(
+				form([
+					['title', 'x'],
+					['newPhotos', new File(['GIF89a'], 'x.gif', { type: 'image/gif' })]
+				]),
+				[],
+				[]
+			)
+		).rejects.toThrow("x.gif isn't a PNG, JPEG or WebP image");
+		await expect(
+			parseEpkForm(
+				form([
+					['title', 'x'],
+					['newPhotos', new File([new Uint8Array(5_000_001)], 'big.png', { type: 'image/png' })]
+				]),
+				[],
+				[]
+			)
+		).rejects.toThrow('big.png is over 5 MB');
+	});
+
+	it('uploads a photo whose size it can’t read without one', async () => {
+		const signatureOnly = new File([(await png(1, 1).bytes()).subarray(0, 8)], 'cut.png', { type: 'image/png' });
+
+		const parsed = await parseEpkForm(
+			form([
+				['title', 'x'],
+				['newPhotos', png(0, 0)],
+				['newPhotos', signatureOnly]
+			]),
+			[],
+			[]
+		);
+
+		expect(parsed.uploads.map((upload) => [upload.visibility, upload.aspectRatio, upload.credit])).toEqual([
+			['public', undefined, undefined],
+			['public', undefined, undefined]
+		]);
+	});
+
+	it('leaves out mixes the form says nothing about, hidden extras, and extras the project already has', async () => {
+		const parsed = await parseEpkForm(
+			form([
+				['title', 'Clubs'],
+				[`mixVisibility.${projectMixes[1].url}`, 'private'],
+				['extraMixTitle', 'Promo'],
+				['extraMixUrl', 'https://soundcloud.com/neon/promo'],
+				['extraMixVisibility.0', 'public'],
+				['extraMixTitle', 'Secret'],
+				['extraMixUrl', 'https://soundcloud.com/neon/secret'],
+				['extraMixVisibility.1', 'hidden'],
+				['extraMixTitle', 'Again'],
+				['extraMixUrl', projectMixes[0].url],
+				['extraMixVisibility.2', 'public'],
+				['extraMixTitle', ''],
+				['extraMixUrl', ''],
+				['extraMixTitle', 'Last'],
+				['extraMixUrl', 'https://soundcloud.com/neon/last'],
+				['extraMixVisibility.4', 'private']
+			]),
+			projectMixes,
+			[]
+		);
+
+		expect(parsed.publicMixes).toEqual([{ title: 'Promo', url: 'https://soundcloud.com/neon/promo' }]);
+		expect(parsed.privateMixes.map((mix) => mix.title)).toEqual(['Late show', 'Last']);
+		await expect(
+			parseEpkForm(
+				form([
+					['title', 'x'],
+					['extraMixTitle', 'Promo']
+				]),
+				[],
+				[]
+			)
+		).rejects.toThrow('Give each extra mix a name and a web address');
+	});
+
+	it('shows at most 12 mixes to each audience', async () => {
+		const extras = (count: number, place: string) =>
+			Array.from({ length: count }, (_, index): [string, string][] => [
+				['extraMixTitle', `Mix ${index}`],
+				['extraMixUrl', `https://m.test/${index}`],
+				[`extraMixVisibility.${index}`, place]
+			]).flat();
+
+		for (const place of ['public', 'private']) {
+			await expect(parseEpkForm(form([['title', 'x'], ...extras(13, place)]), [], [])).rejects.toThrow(
+				/at most 12 mixes/
+			);
+			expect((await parseEpkForm(form([['title', 'x'], ...extras(12, place)]), [], [])).cid).toBe('');
+		}
+	});
+
+	it('keeps a photo’s own alt text when the form’s is empty, and drops a credit that was cleared', async () => {
+		const parsed = await parseEpkForm(
+			form([
+				['title', 'Clubs'],
+				['photoCid', 'bafyone'],
+				['photoAlt', new File(['not text'], 'alt.txt')],
+				['photoCredit', ''],
+				['photoVisibility.0', 'public'],
+				['photoCid', 'bafytwo'],
+				['photoVisibility.1', 'hidden']
+			]),
+			[],
+			[{ ...photo('bafyone'), credit: 'Old credit' }, photo('bafytwo')]
+		);
+
+		expect(parsed.publicPhotos).toEqual([photo('bafyone')]);
+		expect(parsed.privatePhotos).toEqual([]);
+	});
+
+	it('holds at most 10 photos for everyone and 20 for people with access', async () => {
+		const held = Array.from({ length: 21 }, (_, index) => photo(`bafy${index}`));
+
+		const photos = (count: number, place: string) =>
+			held.slice(0, count).flatMap((entry, index): [string, string][] => [
+				['photoCid', entry.image.ref.$link],
+				[`photoVisibility.${index}`, place]
+			]);
+
+		const parse = (count: number, place: string) =>
+			parseEpkForm(form([['title', 'x'], ...photos(count, place)]), [], held);
+
+		await expect(parse(11, 'public')).rejects.toThrow('at most 10 photos to everyone');
+		await expect(parse(21, 'private')).rejects.toThrow('at most 20 photos for people with access');
+		expect((await parse(10, 'public')).publicPhotos).toHaveLength(10);
+		expect((await parse(20, 'private')).privatePhotos).toHaveLength(20);
+	});
+
+	it('keeps a quote’s link and the tech rider, and refuses a link that isn’t one', async () => {
+		const parsed = await parseEpkForm(
+			form([
+				['title', 'Clubs'],
+				['quoteText', 'Best set all year'],
+				['quoteSource', 'Halle Nord'],
+				['quoteUrl', 'https://halle.test/review'],
+				['techRider', 'Two CDJ-3000s']
+			]),
+			[],
+			[]
+		);
+
+		expect(parsed.content).toEqual({
+			quotes: [{ text: 'Best set all year', source: 'Halle Nord', url: 'https://halle.test/review' }],
+			techRider: 'Two CDJ-3000s'
+		});
+		await expect(
+			parseEpkForm(
+				form([
+					['title', 'x'],
+					['quoteText', 'Loved it'],
+					['quoteSource', 'Halle Nord'],
+					['quoteUrl', 'halle']
+				]),
+				[],
+				[]
+			)
+		).rejects.toThrow("“halle” isn't a web address");
+		await expect(
+			parseEpkForm(
+				form([
+					['title', 'x'],
+					['quoteText', 'Loved it']
+				]),
+				[],
+				[]
+			)
+		).rejects.toThrow(/who said it/);
+	});
+});
+
+describe('parseEpkForm on any submission', () => {
+	const field = fc.constantFrom(
+		'cid',
+		'title',
+		'preset',
+		`mixVisibility.${projectMixes[0].url}`,
+		'extraMixTitle',
+		'extraMixUrl',
+		'extraMixVisibility.0',
+		'photoCid',
+		'photoAlt',
+		'photoCredit',
+		'photoVisibility.0',
+		'quoteText',
+		'quoteSource',
+		'quoteUrl',
+		'email',
+		'techRider'
+	);
+
+	const value = fc.oneof(fc.string(), fc.constantFrom('', 'public', 'private', 'hidden', 'bafyone', 'https://x.test'));
+
+	it('either reads it or says what to fix, and can always give it back to the form', async () => {
+		await fc.assert(
+			fc.asyncProperty(fc.array(fc.tuple(field, value), { maxLength: 30 }), async (entries) => {
+				const data = form(entries);
+
+				// A title, since a press kit can't be saved without one, or an error saying what to fix.
+				const readOrExplained = await parseEpkForm(data, projectMixes, [photo('bafyone')]).then(
+					(parsed) => parsed.title !== '',
+					(error: Error) => error instanceof UserError
+				);
+
+				expect(readOrExplained).toBe(true);
+				expect(submittedValues(data, projectMixes).mixes).toHaveLength(projectMixes.length);
+			})
+		);
 	});
 });
 
@@ -249,5 +462,50 @@ describe('form values', () => {
 
 		expect(values.mixes[1].visibility).toBe('private');
 		expect(values.extraMixes).toEqual([{ title: 'Promo', url: 'bad', visibility: 'public' }]);
+	});
+
+	it('gives back each photo row, with empty text for fields a row is missing', () => {
+		const values = submittedValues(
+			form([
+				['photoCid', 'bafyone'],
+				['photoAlt', 'At Halle Nord'],
+				['photoCredit', 'Mara Okafor'],
+				['photoVisibility.0', 'private'],
+				['photoCid', 'bafytwo'],
+				['extraMixTitle', ''],
+				['extraMixUrl', '']
+			]),
+			[]
+		);
+
+		expect(values.photos).toEqual([
+			{ cid: 'bafyone', alt: 'At Halle Nord', credit: 'Mara Okafor', visibility: 'private' },
+			{ cid: 'bafytwo', alt: '', credit: '', visibility: 'public' }
+		]);
+		expect(values.extraMixes).toEqual([]);
+	});
+
+	it('shows project mixes and photos kept for people with access as private', () => {
+		const values = epkFormValues(projectMixes, {
+			title: 'Clubs',
+			access: { bookedWith: 'auto', following: 'none', promoters: 'none', anyone: 'none' },
+			content: {
+				mixes: [{ title: 'Late show', url: projectMixes[1].url }],
+				photos: [{ ...photo('bafyone'), credit: 'Mara Okafor' }]
+			}
+		});
+
+		expect(values.mixes.map((mix) => mix.visibility)).toEqual(['hidden', 'private', 'hidden']);
+		expect(values.extraMixes).toEqual([]);
+		expect(values.photos).toEqual([
+			{
+				cid: 'bafyone',
+				alt: 'Neon Tide, press photo',
+				credit: 'Mara Okafor',
+				visibility: 'private',
+				width: 3200,
+				height: 1800
+			}
+		]);
 	});
 });
