@@ -19,6 +19,7 @@ import {
 import { z } from 'zod';
 import type { Logger } from '../logger';
 import { type IdentityResolver, type ResolvedIdentity, requireKemKey } from './identity';
+import { isTooDeep, RecordValidationError, TOO_DEEP } from './lexicons';
 import type { StoredRecord } from './repo-client';
 import { parseSpaceUri, spaceRecordUri } from './spaces';
 
@@ -198,26 +199,17 @@ export class SpaceCredentialManager {
 	}
 
 	/**
-	 * Calls a credential-authenticated space query (listRepos, listRepoOps,
-	 * getRecord, ...), decodes the response as lex JSON (bytes and CIDs
-	 * decoded), and parses it with the method's output `schema`. Retries once
-	 * with a fresh credential if it was rejected.
+	 * Calls a credential-authenticated space query (listRepos, ...), decodes
+	 * the response as lex JSON (bytes and CIDs decoded), and parses it with
+	 * the method's output `schema`. Retries once with a fresh credential if it
+	 * was rejected. Responses that carry records are read with {@link macRequest}
+	 * instead, which leaves their depth to the caller to check.
 	 */
 	async query<T>(input: RequestInput & { schema: z.ZodType<T> }): Promise<T> {
 		const response = await this.request(input);
 		const text = await response.text();
 
 		return input.schema.parse(lexParse(text));
-	}
-
-	/** Like {@link query}, for a method that answers with a MAC (see {@link macRequest}). */
-	async macQuery<T>(
-		input: RequestInput & { schema: z.ZodType<T>; mac: MacRequest }
-	): Promise<{ body: T; macParams: MacParams }> {
-		const { response, macParams } = await this.macRequest(input);
-		const text = await response.text();
-
-		return { body: input.schema.parse(lexParse(text)), macParams };
 	}
 
 	/** Calls a credential-authenticated space procedure (e.g. registerNotify) with a JSON body and parses the response with `schema`. */
@@ -311,7 +303,11 @@ export class SpaceCredentialManager {
 					mac: { type: RECORD_MAC_TYPE, kemKey }
 				});
 
-				const record = spaceRecordOutput.parse(await response.json());
+				const body: JsonValue = await response.json();
+
+				// z.json() and jsonToLex recurse, so the record, one level into the body, is checked with a stack first.
+				if (isTooDeep(body, 0)) throw new RecordValidationError(input.collection, TOO_DEEP);
+				const record = spaceRecordOutput.parse(body);
 				// verifyRecord re-encodes the value to check its CID, so it needs the CIDs and bytes decoded.
 				const value = jsonToLex(record.value);
 

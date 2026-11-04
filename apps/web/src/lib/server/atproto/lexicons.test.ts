@@ -129,9 +129,9 @@ describe('validateRecord', () => {
 		});
 
 		it('rejects a record at any depth past 32 levels', () => {
-			// Bounded so each record stays under atproto's suggested 2 MiB JSON record limit.
+			// Well past the 3,700 or so levels where a recursive walk overflowed, without building huge arrays every run.
 			fc.assert(
-				fc.property(fc.integer({ min: 32, max: 500_000 }), (arrays) => {
+				fc.property(fc.integer({ min: 32, max: 20_000 }), (arrays) => {
 					expect(() => validateRecord(COLLECTION.project, nestedProject(arrays))).toThrow(RecordValidationError);
 				})
 			);

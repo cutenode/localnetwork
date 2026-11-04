@@ -99,25 +99,35 @@ export class RecordValidationError extends Error {
  */
 const MAX_LEVELS = 32;
 
+export const TOO_DEEP = `nested deeper than ${MAX_LEVELS} levels`;
+
 /**
- * Why `record` can't be used: nested deeper than MAX_LEVELS (the record itself being the first), or holding a legacy
- * `{ cid, mimeType }` blob ref anywhere. Walks with a stack, since a record that deep is what overflows recursion.
+ * Whether `record` is nested deeper than MAX_LEVELS, counting it as the first level, or as `startLevel` when it sits
+ * inside a response. Walks with a stack, since a record that deep is what overflows recursion.
  */
-function structureProblem(record: JsonObject): string | undefined {
-	const stack: [JsonValue | undefined, number][] = [[record, 1]];
+export function isTooDeep(record: JsonValue | undefined, startLevel = 1): boolean {
+	const stack: [JsonValue | undefined, number][] = [[record, startLevel]];
 
 	for (let next = stack.pop(); next; next = stack.pop()) {
 		const [value, level] = next;
 
-		if (!isObject(value) && !Array.isArray(value)) continue;
+		if (!isObject(value)) continue;
 
-		if (level > MAX_LEVELS) return `nested deeper than ${MAX_LEVELS} levels`;
-
-		if (!Array.isArray(value) && 'cid' in value && 'mimeType' in value && !('$type' in value))
-			return 'legacy blob refs are not supported';
+		if (level > MAX_LEVELS) return true;
 
 		for (const item of Object.values(value)) stack.push([item, level + 1]);
 	}
+
+	return false;
+}
+
+/** Whether `value` holds a legacy `{ cid, mimeType }` blob ref anywhere. Recursive, so only for checked depths. */
+function hasLegacyBlob(value: JsonValue | undefined): boolean {
+	if (Array.isArray(value)) return value.some(hasLegacyBlob);
+
+	if (!isObject(value)) return false;
+
+	return ('cid' in value && 'mimeType' in value && !('$type' in value)) || Object.values(value).some(hasLegacyBlob);
 }
 
 /**
@@ -130,9 +140,10 @@ function structureProblem(record: JsonObject): string | undefined {
  */
 export function validateRecord<T extends JsonObject>(collection: string, record: T): T & { $type: string } {
 	const typed = { ...record, $type: collection };
-	const problem = structureProblem(typed);
 
-	if (problem) throw new RecordValidationError(collection, problem);
+	if (isTooDeep(typed)) throw new RecordValidationError(collection, TOO_DEEP);
+
+	if (hasLegacyBlob(typed)) throw new RecordValidationError(collection, 'legacy blob refs are not supported');
 
 	try {
 		lexicons.assertValidRecord(collection, jsonToLex(typed));
