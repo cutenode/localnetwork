@@ -120,6 +120,36 @@ describe('linked sets', () => {
 		);
 	});
 
+	it("passes on an answer that doesn't fit the query's lexicon, rather than reading it as HappyView being down", async () => {
+		const asked: string[] = [];
+
+		const garbled = new SetService(
+			t.core,
+			new HappyViewClient({
+				url: 'http://happyview.test',
+				fetch: async (input, init) => {
+					asked.push(new URL(new Request(input, init).url).pathname);
+
+					return Response.json({ sets: 'garbled' });
+				}
+			})
+		);
+
+		const set = { uri: `at://${DJ}/${COLLECTION.djSet}/3kset`, cid: project.cid };
+
+		for (const call of [
+			() => garbled.published([DJ]),
+			() => garbled.linked([set]),
+			() => garbled.assertLinkable(profile([mix(set)]), undefined, [DJ])
+		])
+			await expect(call()).rejects.toThrow(/Output/);
+		expect(asked).toEqual([`/xrpc/${DIRECTORY.listSets}`, ...Array(2).fill(`/xrpc/${DIRECTORY.getSets}`)]);
+
+		// No links, no lookup.
+		expect(await garbled.linked([])).toEqual(new Map());
+		expect(asked).toHaveLength(3);
+	});
+
 	it("has HappyView re-read an account's sets at most every ten minutes, and again after a failure", async () => {
 		const calls: string[] = [];
 		let failing = true;

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CALENDAR_EVENT, COLLECTION } from '#lib/nsid.ts';
 import { EVENT_STATUS } from '#lib/shows.ts';
 import type { ProjectView } from '#lib/types.ts';
+import { recordCid } from '../atproto/repo-client';
 import { ForbiddenError, NotFoundError, ReauthError, UserError } from '../core';
 import { HappyViewClient, HappyViewError } from '../happyview/client';
 import { IndexedRepo } from '../happyview/indexed';
@@ -506,6 +507,66 @@ describe('shows and follows', () => {
 				'Deleted the show “Tidal Hours” for Neon Tide'
 			);
 		});
+
+		it("fills the form from the show's copy when its event doesn't fit, and skips a show that doesn't fit", async () => {
+			const dj = await t.viewer(DJ);
+			const ref = await t.shows.save(dj, project, input({ venue: undefined, tickets: undefined }));
+			const rkey = ref.uri.split('/').at(-1)!;
+			const event = record(DJ, CALENDAR_EVENT, ref.uri)!;
+			const fromCopy = { name: 'Tidal Hours', start: '23:00', end: '06:00', venue: '', tickets: '' };
+
+			// Another calendar app writes an event its lexicon doesn't allow.
+			await t.net.client(DJ).putRecord({ collection: CALENDAR_EVENT, rkey, record: { ...event, startsAt: 'soon' } });
+			expect(await t.shows.values(dj, project, rkey)).toMatchObject(fromCopy);
+
+			// Or one the lexicon allows, with a place of a kind the form can't read.
+			await t.net.client(DJ).putRecord({
+				collection: CALENDAR_EVENT,
+				rkey,
+				record: { ...event, name: 'Renamed', locations: [{ $type: 'example.place', name: 7 }] }
+			});
+			expect(await t.shows.values(dj, project, rkey)).toMatchObject(fromCopy);
+
+			// A show the directory holds that its lexicon doesn't allow is neither listed nor opened.
+			const broken = { ...record(DJ, COLLECTION.show, ref.uri), name: '' };
+			const cid = await recordCid(broken);
+			t.happyView.seed([{ did: DJ, collection: COLLECTION.show, rkey: 'broken', cid, record: broken }]);
+			expect((await t.shows.forProject(project)).map((show) => show.uri)).toEqual([ref.uri]);
+			expect(await t.shows.values(dj, project, 'broken')).toBeNull();
+		});
+
+		it("reads a show without coordinates on the clock it was written in, since there's no venue clock", async () => {
+			const show = {
+				$type: COLLECTION.show,
+				project: project.uri,
+				event: { uri: `at://${DJ}/${CALENDAR_EVENT}/bare`, cid: await recordCid({ name: 'elsewhere' }) },
+				name: 'Tidal Hours',
+				startsAt: `${YEAR}-11-07T22:00:00Z`,
+				endsAt: `${YEAR}-11-08T05:00:00Z`,
+				location: { city: 'Berlin', country: 'DE' },
+				createdAt: '2026-10-01T00:00:00.000Z'
+			};
+
+			const cid = await recordCid(show);
+
+			t.happyView.seed([{ did: DJ, collection: COLLECTION.show, rkey: 'bare', cid, record: show }]);
+			expect(await t.shows.values(await t.viewer(DJ), project, 'bare')).toEqual({
+				name: 'Tidal Hours',
+				date: `${YEAR}-11-07`,
+				start: '22:00',
+				end: '05:00',
+				venue: '',
+				city: 'Berlin',
+				region: '',
+				country: 'DE',
+				latE6: '',
+				lngE6: '',
+				tickets: '',
+				cancelled: false,
+				showCid: cid,
+				eventCid: ''
+			});
+		});
 	});
 
 	describe('eventRecord', () => {
@@ -529,6 +590,19 @@ describe('shows and follows', () => {
 			const moved = listed(`${YEAR}-11-07T23:00:00+01:00`, EVENT_STATUS.rescheduled);
 			expect(eventRecord(input(), null, moved).status).toBe(EVENT_STATUS.rescheduled);
 			expect(eventRecord(input()).status).toBe(EVENT_STATUS.scheduled);
+		});
+
+		it('ends a show the same day when its end is after its start, and keeps the region', () => {
+			const event = eventRecord(
+				input({
+					start: '20:00',
+					end: '23:30',
+					location: { city: 'Berlin', region: 'Berlin', country: 'DE', ...BERLIN }
+				})
+			);
+
+			expect(event.endsAt).toBe(`${YEAR}-11-07T23:30:00+01:00`);
+			expect(event.locations).toContainEqual(expect.objectContaining({ locality: 'Berlin', region: 'Berlin' }));
 		});
 	});
 });
