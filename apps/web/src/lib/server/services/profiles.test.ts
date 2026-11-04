@@ -54,6 +54,13 @@ describe('ProfileService', () => {
 		expect(await t.profiles.get(DJ)).toBeNull();
 	});
 
+	it('skips a profile nested too deep to check, rather than failing the read', () => {
+		// About 40 KB of JSON, which the directory serves as it would any record.
+		const record = JSON.parse(`{"basics":{"name":"Neon Tide"},"extra":${'['.repeat(20_000)}${']'.repeat(20_000)}}`);
+
+		expect(t.profiles.toView(DJ, `at://${DJ}/${COLLECTION.profile}/self`, 'bafy', record)).toBeNull();
+	});
+
 	it('fails while the directory is down, rather than reading as no profile', async () => {
 		const down = new HappyViewClient({
 			url: 'http://happyview.test',

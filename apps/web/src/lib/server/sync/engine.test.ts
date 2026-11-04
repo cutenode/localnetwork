@@ -190,6 +190,23 @@ describe('SpaceSyncer against a repo host', () => {
 		expect((await repoRow())?.lastError).toBeNull();
 	});
 
+	it('drops a record its oplog serves nested deeper than 32 levels, and syncs the rest', async () => {
+		const s = await syncer();
+		await host.put(DJ, NOTE, 'a', note('one'));
+		await s.sync(SPACE);
+
+		// The record is the first level, so 32 nested arrays in a field make 33.
+		const extra = JSON.parse(`${'['.repeat(32)}0${']'.repeat(32)}`);
+		await host.put(DJ, NOTE, 'a', { ...note('deep'), extra });
+		await host.put(DJ, NOTE, 'b', note('two'));
+		await s.sync(SPACE);
+
+		expect(calls('listRepoOps')).toHaveLength(1);
+		expect(await records()).toEqual([['b', 'two']]);
+		expect(changes.findLast((change) => change.rkey === 'a')).toMatchObject({ kind: 'delete' });
+		expect((await repoRow())?.lastError).toBeNull();
+	});
+
 	it('refreshes a KEM key that rotated, and tries again', async () => {
 		const s = await syncer();
 		await host.put(DJ, NOTE, 'a', note('one'));
