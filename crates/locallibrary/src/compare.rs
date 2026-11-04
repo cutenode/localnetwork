@@ -107,7 +107,7 @@ impl Side {
         let (library, sequence) = match snapshot_object(store, snapshot, paths::EXPORT_PDB)? {
             Some((path, bytes)) => {
                 let sequence = pdb::read_header(&bytes).map(|h| h.sequence);
-                (pdb::library_from_database(&pdb::parse_database(bytes, &path)?), sequence)
+                (pdb::into_library(pdb::parse_database(bytes, &path)?), sequence)
             }
             None => (Databases::from_snapshot(store, snapshot)?.primary().clone(), None),
         };

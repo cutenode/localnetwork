@@ -204,7 +204,8 @@ fn dedupe_edits(d: &Device, req: &DedupeRequest, ctx: &Ctx<'_>) -> Result<(Vec<E
     };
     let groups = doctor::run(d, &opts, ctx)?.duplicates.unwrap_or_default();
     let library = d.library()?;
-    let track = |id: u32| library.track(id).ok_or_else(|| Error::no_track(id));
+    let by_id = library.track_lookup();
+    let track = |id: u32| by_id(id).ok_or_else(|| Error::no_track(id));
     let (mut edits, mut warnings) = (Vec::new(), Vec::new());
     for g in groups {
         // Several rows for one file can't be told apart by file: rekordbox's next export fixes those.

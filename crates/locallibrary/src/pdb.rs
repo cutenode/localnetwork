@@ -113,13 +113,33 @@ pub(crate) fn validate(bytes: &[u8], path: &Path) -> Result<()> {
     Ok(())
 }
 
+// A track's strings ([`rekordbox_pdb::pdb::Track::strings`]).
+const ISRC: usize = 0;
+const DATE_ADDED: usize = 10;
+const RELEASE_DATE: usize = 11;
+const MIX_NAME: usize = 12;
+const ANALYZE_PATH: usize = 14;
+const COMMENT: usize = 16;
+const TITLE: usize = 17;
+const FILE_PATH: usize = 20;
+
 pub fn read_library(path: &Path) -> Result<Library> {
     let bytes = crate::fsutil::read(path).at(path)?;
-    let db = parse_database(bytes, path)?;
-    Ok(library_from_database(&db))
+    Ok(into_library(parse_database(bytes, path)?))
 }
 
+/// [`into_library`] for a database that's needed after.
 pub fn library_from_database(db: &Database) -> Library {
+    into_library(db.clone())
+}
+
+/// The library `db` holds, its strings moved rather than copied: a track has a dozen.
+pub fn into_library(mut db: Database) -> Library {
+    let (db_tracks, tree, lists) = (
+        std::mem::take(&mut db.tracks),
+        std::mem::take(&mut db.playlist_tree),
+        std::mem::take(&mut db.history_playlists),
+    );
     let artists: FxHashMap<u32, &str> = db.artists.iter().map(|a| (a.id, a.name.as_str())).collect();
     let albums: FxHashMap<u32, (&str, u32)> =
         db.albums.iter().map(|a| (a.id, (a.name.as_str(), a.artist_id))).collect();
@@ -129,14 +149,14 @@ pub fn library_from_database(db: &Database) -> Library {
     let artwork: FxHashMap<u32, &str> = db.artwork.iter().map(|a| (a.id, a.path.as_str())).collect();
     let name = |m: &FxHashMap<u32, &str>, id: u32| m.get(&id).copied().unwrap_or_default().to_string();
 
-    let tracks = db
-        .tracks
-        .iter()
-        .map(|t| {
+    let tracks = db_tracks
+        .into_iter()
+        .map(|mut t| {
             let (album, album_artist_id) = albums.get(&t.album_id).copied().unwrap_or(("", 0));
+            let mut own = |i: usize| std::mem::take(&mut t.strings[i]);
             Track {
                 id: t.id,
-                title: t.title().to_string(),
+                title: own(TITLE),
                 artist: name(&artists, t.artist_id),
                 album: album.to_string(),
                 album_artist: name(&artists, album_artist_id),
@@ -146,9 +166,9 @@ pub fn library_from_database(db: &Database) -> Library {
                 remixer: name(&artists, t.remixer_id),
                 original_artist: name(&artists, t.original_artist_id),
                 composer: name(&artists, t.composer_id),
-                comment: t.comment().to_string(),
-                mix_name: t.mix_name().to_string(),
-                isrc: t.strings[0].clone(),
+                comment: own(COMMENT),
+                mix_name: own(MIX_NAME),
+                isrc: own(ISRC),
                 bpm: t.tempo as f64 / 100.0,
                 duration_secs: t.duration as u32,
                 year: t.year,
@@ -161,10 +181,10 @@ pub fn library_from_database(db: &Database) -> Library {
                 sample_rate: t.sample_rate,
                 sample_depth: t.sample_depth,
                 file_size: t.file_size as u64,
-                file_path: t.file_path().to_string(),
-                analyze_path: t.analyze_path().to_string(),
-                date_added: t.date_added().to_string(),
-                release_date: t.release_date().to_string(),
+                file_path: own(FILE_PATH),
+                analyze_path: own(ANALYZE_PATH),
+                date_added: own(DATE_ADDED),
+                release_date: own(RELEASE_DATE),
                 artwork_id: (t.artwork_id != 0 && artwork.contains_key(&t.artwork_id)).then_some(t.artwork_id),
                 artwork_path: artwork.get(&t.artwork_id).map(|p| p.to_string()),
             }
@@ -176,15 +196,14 @@ pub fn library_from_database(db: &Database) -> Library {
         entries.entry(e.playlist_id).or_default().push((e.entry_index, e.track_id));
     }
     let playlists = untangle(
-        db.playlist_tree
-            .iter()
+        tree.into_iter()
             .map(|n| {
                 let mut list = entries.remove(&n.id).unwrap_or_default();
                 list.sort_unstable();
                 Playlist {
                     id: n.id,
                     parent_id: (n.parent_id != 0).then_some(n.parent_id),
-                    name: n.name.clone(),
+                    name: n.name,
                     is_folder: n.is_folder,
                     sort_order: n.sort_order,
                     track_ids: list.into_iter().map(|(_, t)| t).collect(),
@@ -197,9 +216,9 @@ pub fn library_from_database(db: &Database) -> Library {
     for e in &db.history_entries {
         history_entries.entry(e.playlist_id).or_default().push((e.entry_index, e.track_id));
     }
-    let history = db
-        .history_playlists
-        .iter()
+    let history_lists = lists.len();
+    let history = lists
+        .into_iter()
         .enumerate()
         .map(|(i, h)| {
             let mut list = history_entries.remove(&h.id).unwrap_or_default();
@@ -207,7 +226,7 @@ pub fn library_from_database(db: &Database) -> Library {
             Playlist {
                 id: h.id,
                 parent_id: None,
-                name: h.name.clone(),
+                name: h.name,
                 is_folder: false,
                 sort_order: i as u32,
                 track_ids: list.into_iter().map(|(_, t)| t).collect(),
@@ -215,7 +234,7 @@ pub fn library_from_database(db: &Database) -> Library {
         })
         .collect();
 
-    Library { tracks, playlists, history_playlists: db.history_playlists.len(), history }
+    Library { tracks, playlists, history_playlists: history_lists, history }
 }
 
 #[cfg(test)]

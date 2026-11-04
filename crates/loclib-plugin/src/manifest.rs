@@ -553,6 +553,12 @@ impl Manifest {
         Ok(manifest)
     }
 
+    /// A manifest the app's build read from TOML and wrote as JSON: what it ships parses in a
+    /// tenth of the time, on every start.
+    pub fn from_json(json: &str) -> serde_json::Result<Manifest> {
+        serde_json::from_str(json)
+    }
+
     /// The keys [`Manifest::parse`] left out, where they were (`contributes.commands[0].colour`):
     /// a newer locallibrary's, or mistakes, which [`Manifest::validate`] refuses in a plugin
     /// locallibrary ships.

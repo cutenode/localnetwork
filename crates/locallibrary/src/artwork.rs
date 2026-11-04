@@ -762,8 +762,9 @@ fn folder_image(audio: &Path) -> Option<PathBuf> {
 pub fn apply_auto(device: &mut Device, plan: &AutoArtworkPlan, ctx: &Ctx<'_>) -> Result<ArtworkReport> {
     let mut groups: FxHashMap<Hash, (Vec<u32>, Vec<u8>)> = FxHashMap::default();
     let library = device.library()?;
+    let track = library.track_lookup();
     for item in &plan.found {
-        let Some(t) = library.track(item.track.id) else { continue };
+        let Some(t) = track(item.track.id) else { continue };
         let bytes = if item.source == "embedded" {
             read_embedded(&device.checked_path(&paths::key(&t.file_path))?)?
         } else {

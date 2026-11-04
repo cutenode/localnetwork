@@ -317,7 +317,7 @@ impl Databases {
             true => {
                 let db = pdb::parse_database(device.pdb_bytes()?, &device.path(paths::EXPORT_PDB))?;
                 images.extend(db.artwork.iter().map(|a| a.path.clone()));
-                Some(pdb::library_from_database(&db))
+                Some(pdb::into_library(db))
             }
             false => None,
         };
@@ -339,7 +339,7 @@ impl Databases {
     pub fn from_snapshot(store: &Store, snapshot: &Snapshot) -> Result<Databases> {
         let object = |key: &str| crate::compare::snapshot_object(store, snapshot, key);
         let pdb = match object(paths::EXPORT_PDB)? {
-            Some((path, bytes)) => Some(pdb::library_from_database(&pdb::parse_database(bytes, &path)?)),
+            Some((path, bytes)) => Some(pdb::into_library(pdb::parse_database(bytes, &path)?)),
             None => None,
         };
         let (plus, plus_error) = match object(paths::LIBRARY_PLUS_DB)? {

@@ -189,8 +189,9 @@ pub struct CollectReport {
 /// "01. Artist - Title" lines for a history list.
 pub fn tracklist_text(lib: &Library, history: &crate::model::Playlist) -> String {
     let mut out = format!("{}\n\n", history.name);
+    let track = lib.track_lookup();
     for (i, id) in history.track_ids.iter().enumerate() {
-        let name = lib.track(*id).map(|t| t.display_name()).unwrap_or_else(|| format!("(track {id})"));
+        let name = track(*id).map(|t| t.display_name()).unwrap_or_else(|| format!("(track {id})"));
         out.push_str(&format!("{:02}. {name}\n", i + 1));
     }
     out
