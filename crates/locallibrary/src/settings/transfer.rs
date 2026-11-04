@@ -127,11 +127,11 @@ fn player_file(store: &Store) -> Option<PathBuf> {
     }
 }
 
-/// What the player remembers, as a JSON object (none when it's missing or can't be read: the
-/// player starts afresh then too).
-fn player_state(store: &Store) -> Map<String, Value> {
-    let read = player_file(store).and_then(|f| fsutil::read_json_opt::<Map<String, Value>>(&f).ok().flatten());
-    read.unwrap_or_default()
+/// What the player remembers, as a JSON object (none when it's missing or damaged: the player
+/// starts afresh then too). An error when it can't be read right now: importing writes it back.
+fn player_state(store: &Store) -> Result<Map<String, Value>> {
+    let Some(file) = player_file(store) else { return Ok(Map::new()) };
+    Ok(fsutil::unless_damaged(fsutil::read_json_opt(&file))?.unwrap_or_default())
 }
 
 /// What importing does with one of the file's values.
@@ -219,7 +219,7 @@ impl Target {
             Target::Profile => typed::<ProfilePrefs>(value)?.save(store),
             Target::Player => {
                 // Into what the player remembers, where it was kept as it was.
-                let mut state = player_state(store);
+                let mut state = player_state(store)?;
                 state.extend(untyped(&typed::<PlayerPrefs>(value)?));
                 fsutil::write_json_atomic(&store.root().join(PLAYER_FILE), &state)
             }
@@ -379,11 +379,11 @@ pub fn export(store: &Store) -> Result<SettingsExport> {
         players: kept::<Remembered>(store, &Target::Players.file())?,
         profile: kept::<ProfilePrefs>(store, &Target::Profile.file())?,
         // A value the player can't read means it starts afresh, so there are none to export.
-        player: serde_json::from_value::<PlayerPrefs>(player_state(store).into())
+        player: serde_json::from_value::<PlayerPrefs>(player_state(store)?.into())
             .map(|p| untyped(&p))
             .unwrap_or_default(),
         mix: kept::<MixPrefs>(store, mix_prefs::PREFS_FILE)?,
-        plugin_host: plugin::host_settings(Some(store)).into_iter().collect(),
+        plugin_host: plugin::host_settings_to_change(store)?.into_iter().collect(),
         plugins: plugins.collect(),
     };
     doc.normalized()

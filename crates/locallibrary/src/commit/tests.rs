@@ -224,6 +224,45 @@ fn a_plan_is_applied_only_to_the_databases_it_was_made_from(tc: hegel::TestCase)
     drop(lock(&device, Some(database_state(&device))).unwrap());
 }
 
+/// A drive whose state can't be read right now isn't committed to: the rollback of a commit that
+/// then failed would take the state for one that was never there, and delete it.
+#[cfg(unix)]
+#[hegel::test(test_cases = 5)]
+fn a_commit_leaves_a_state_it_cant_read_alone(tc: hegel::TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("drive");
+    std::fs::create_dir_all(root.join("Contents")).unwrap();
+    let mut device = Device::open(&root).unwrap();
+    let mut opts = Options::new(LineageOp::Edit, "an earlier commit");
+    opts.lineage = false;
+    let changes = Changes { files: vec![NewFile::bytes("Contents/a.mp3", b"a".to_vec())], ..Default::default() };
+    commit(&mut device, changes, opts, &Ctx::silent()).unwrap();
+    let state = device.state_dir().join("state.json");
+    let before = std::fs::read(&state).unwrap();
+    let mode = |bits: u32| std::fs::set_permissions(&state, std::fs::Permissions::from_mode(bits)).unwrap();
+    mode(0o000);
+    // Root reads anything.
+    if std::fs::read(&state).is_ok() {
+        return mode(0o644);
+    }
+    let mut opts = Options::new(LineageOp::Edit, "a commit that fails");
+    opts.lineage = false;
+    let failing = NewFile {
+        key: format!("Contents/{}.mp3", tc.draw(gs::from_regex("[a-z]{1,6}").fullmatch(true))),
+        content: Content::Make(Box::new(|| Err(Error::invalid("can't make it")))),
+        mtime: None,
+        size: 1,
+        optional: false,
+    };
+    let changes = Changes { files: vec![failing], ..Default::default() };
+    let failed = commit(&mut device, changes, opts, &Ctx::silent());
+    mode(0o644);
+    let failed = failed.unwrap_err();
+    assert!(matches!(&failed, Error::Io { path, .. } if *path == state), "{failed}");
+    assert_eq!(std::fs::read(&state).unwrap(), before);
+}
+
 /// A swap makes its steps in order, and one that can't be made (a file put where a folder with
 /// something in it is) stops it there: what came before is made, what comes after isn't.
 #[hegel::test(test_cases = 40)]

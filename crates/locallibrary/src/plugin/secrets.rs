@@ -88,8 +88,7 @@ pub(super) fn set_secret(storage: Storage, place: &Place, secret: Option<&str>) 
         }
         .map_err(keychain_error);
     }
-    // One that can't be read has nothing usable in it: it's written anew.
-    let mut all = secrets_file(place).unwrap_or_default();
+    let mut all = fsutil::unless_damaged(secrets_file(place))?;
     match secret {
         Some(secret) => all.insert(place.key.clone(), secret.into()),
         None => all.shift_remove(&place.key),
