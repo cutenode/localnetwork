@@ -43,7 +43,7 @@ account = ["locallibrary/account"]
 # `store serve` and `store fetch`: copying snapshots between computers over the network.
 peers = ["locallibrary/peers"]
 # The interactive player (`locallibrary tui`, and `locallibrary` on its own in a terminal).
-tui = ["dep:ratatui", "dep:rodio", "dep:rustfft", "dep:loclib-waveform"]
+tui = ["dep:ratatui", "dep:rodio", "dep:rustfft", "dep:loclib-waveform", "dep:crossterm"]
 # The player's audio output: cpal, and ALSA on Linux. Without it the player browses, edits and
 # shows waveforms, but there's no output to play through.
 playback = ["tui", "rodio/playback"]
@@ -109,6 +109,12 @@ locallibrary-plugin-mixcloud = { version = "0.1.0", path = "../../plugins/mixclo
 locallibrary-plugin-soundcloud = { version = "0.1.0", path = "../../plugins/soundcloud" }
 
 [target.'cfg(unix)'.dependencies]
+# Only for `use-dev-tty`: the player's input read with poll(2) rather than mio (ratatui brings the
+# rest). A terminal that has gone away (closed, or taken from the player as the shell it ran in
+# exits) reads empty at once, forever. mio's reader retries those reads without end, so the player
+# spun at full CPU and never got back to quit on SIGHUP or SIGTERM; this one returns at the poll's
+# timeout, or with the error.
+crossterm = { version = "0.29", default-features = false, features = ["use-dev-tty"], optional = true }
 # Sending a long listing through a pager (dup2), and SIGPIPE for output piped into `head`.
 libc = "0.2"
 # SIGTERM for the RPC sidecar; the TUI also lets a drive write finish and saves its state when the
