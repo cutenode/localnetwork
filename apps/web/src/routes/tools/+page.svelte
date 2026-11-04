@@ -8,7 +8,7 @@
 
 <div class="container-page flex flex-col gap-4 pt-12 pb-4 sm:pt-20">
 	<h1 class="m-0 text-display font-semibold text-balance">From the crate to the booth.</h1>
-	<p class="m-0 max-w-2xl text-intro text-fg-muted">Tools for DJs. Each one stands on its own and signs in with your Atmosphere account.</p>
+	<p class="m-0 max-w-2xl text-intro text-fg-muted">Free tools for DJs. Each one stands on its own, and locallibrary signs in with your Atmosphere account.</p>
 </div>
 
 <!-- A band per tool, led by a capture of it at work; every other one has its capture on the left. -->

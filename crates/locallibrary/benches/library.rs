@@ -1,7 +1,7 @@
 //! Benchmarks of the library operations whose cost grows with the size of a drive's library:
 //! reading it, filtering, sorting and exporting its tracks, comparing two libraries, summarising
-//! its play history, planning a merge, a sync, a pack and a check of drives, and converting between
-//! the two databases.
+//! its play history, planning a merge, a sync, a pack and a check of drives, converting between
+//! the two databases, and planning and applying an edit for each track.
 //!
 //! The libraries are synthetic (see [`build_pdb`]): rekordbox-pdb's editor writes them from the
 //! empty rekordbox export in the test fixtures, with lookup rows and covers shared the way a real
@@ -17,11 +17,12 @@ use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use locallibrary::check::{self, CheckOptions};
 use locallibrary::convert::{self, ConvertOptions, Target};
 use locallibrary::device::Device;
+use locallibrary::edit::{self, Edit, EditOptions, TrackFields};
 use locallibrary::merge::{self, MergeOptions};
 use locallibrary::pack::{self, PackOptions};
 use locallibrary::profile::{self, ProfileOptions, Sources};
 use locallibrary::progress::Ctx;
-use locallibrary::query::{Filter, QueryContext, parse_sort, sort_tracks};
+use locallibrary::query::{Filter, QueryContext, TrackSelector, parse_sort, sort_tracks};
 use locallibrary::sync::{self, SyncOptions};
 use locallibrary::{Library, api, artwork, diff, export, paths, pdb};
 use rekordbox_pdb::{NewTrack, PdbEditor};
@@ -298,5 +299,51 @@ fn convert(c: &mut Criterion) {
     g.finish();
 }
 
-criterion_group!(benches, read, query, compare, play_history, drives, write_pdb, convert);
+/// Setting every track's key and tempo in a 5,000-track library, one edit for each, as an import
+/// or `analyze --apply` does: planned with the tracks named by id, and by file as a replay names
+/// them, and applied to both databases.
+fn edits(c: &mut Criterion) {
+    let ctx = Ctx::silent();
+    let dir = tempfile::tempdir().unwrap();
+    let both = dir.path().join("D");
+    write(&both.join(paths::EXPORT_PDB), &build_pdb(0, 5_000));
+    write_covers(&both, 0, 5_000);
+    let mut device = Device::open(&both).unwrap();
+    let to = ConvertOptions { to: Target::OneLibrary, replace: false };
+    convert::apply(&convert::plan(&device, &to, &ctx).unwrap(), &mut device, &to, &ctx).unwrap();
+    let lib = device.library().unwrap();
+    let fields = |i: usize| TrackFields {
+        key: Some(KEYS[(i + 5) % KEYS.len()].into()),
+        bpm: Some(120.0 + (i % 10) as f64),
+        ..Default::default()
+    };
+    let each = |select: &dyn Fn(&locallibrary::Track) -> TrackSelector| -> Vec<Edit> {
+        lib.tracks.iter().enumerate().map(|(i, t)| Edit::EditTracks { tracks: select(t), fields: fields(i) }).collect()
+    };
+    let by_id = each(&|t| TrackSelector { ids: vec![t.id], ..Default::default() });
+    let by_file = each(&|t| TrackSelector::paths([t.file_path.clone()]));
+    let opts = EditOptions { no_journal: true, ..Default::default() };
+    let mut g = c.benchmark_group("edit");
+    g.sample_size(10);
+    g.bench_function("plan_fields/5k", |b| b.iter(|| edit::plan(&device, black_box(&by_id), &opts, &ctx).unwrap()));
+    g.bench_function("plan_fields_by_file/5k", |b| {
+        b.iter(|| edit::plan(&device, black_box(&by_file), &opts, &ctx).unwrap())
+    });
+    g.bench_function("apply_fields/5k", |b| {
+        b.iter_batched(
+            || {
+                let (dir, root) = copy_with(&both, paths::EXPORT_PDB);
+                write(&root.join(paths::LIBRARY_PLUS_DB), &fs::read(both.join(paths::LIBRARY_PLUS_DB)).unwrap());
+                let device = Device::open(&root).unwrap();
+                let plan = edit::plan(&device, &by_id, &opts, &ctx).unwrap();
+                (dir, device, plan)
+            },
+            |(_dir, mut device, plan)| edit::apply(&plan, &mut device, &ctx).unwrap(),
+            BatchSize::PerIteration,
+        )
+    });
+    g.finish();
+}
+
+criterion_group!(benches, read, query, compare, play_history, drives, write_pdb, convert, edits);
 criterion_main!(benches);
