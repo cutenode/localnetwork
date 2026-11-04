@@ -216,7 +216,7 @@ jobs:
       - run: echo "LOCALLIBRARY_BUDGETS_OUT=$PWD/target/budgets" >> "$GITHUB_ENV"
       - run: cargo nextest run --archive-file tests.tar.zst -E 'binary(counters)'
       - run: |
-          cargo tree --locked --target x86_64-unknown-linux-gnu -e normal -p locallibrary-cli --prefix none |
+          cargo tree --locked --target x86_64-unknown-linux-gnu -e normal,no-proc-macro -p locallibrary-cli --prefix none |
             sed 's/ (.*//' | sort -u | wc -l | jq '{"locallibrary-cli": .}' > "$LOCALLIBRARY_BUDGETS_OUT/deps.json"
       - run: node tools/budgets/cli.ts check "$LOCALLIBRARY_BUDGETS_OUT" pull-request
       - if: github.event_name == 'pull_request'
