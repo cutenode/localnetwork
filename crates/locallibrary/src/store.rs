@@ -328,9 +328,9 @@ impl Store {
     /// Open a store, creating it if the directory is empty or missing, or holds only what
     /// locallibrary itself keeps beside a store (an older version wrote some of it before the
     /// store was made: fingerprints, mix reports, the profile document), or what a make cut off
-    /// before `store.json` left (see [`Store::left_by_making`]), which it finishes. Two making it
-    /// at once (the sidecar's workers, a CLI beside them) make one store: one makes it under its
-    /// lock while the others wait, then open it.
+    /// before `store.json` left, which it finishes. Two making it at once (the sidecar's workers,
+    /// a CLI beside them) make one store: one makes it under its lock while the others wait, then
+    /// open it.
     pub fn open_or_init(root: impl AsRef<Path>) -> Result<Store> {
         let root = root.as_ref().to_path_buf();
         let meta_path = root.join("store.json");
