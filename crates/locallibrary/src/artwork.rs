@@ -399,8 +399,9 @@ pub(crate) fn stage(device: &Device, image: &ImageSource) -> Result<(Hash, Optio
     Ok((Hash::of(&bytes), Some(bytes)))
 }
 
-/// The images, in each database, of the tracks of these audio files (device paths): what setting
-/// their artwork may replace in place, for the backup made first.
+/// The images, in each database, of the tracks of these audio files (device paths), with their
+/// medium copies: what setting their artwork may replace in place, for the backup made first
+/// (which notes those not there as added).
 pub(crate) fn image_files(device: &Device, files: &[String]) -> Result<Vec<String>> {
     let wanted: FxHashSet<String> = files.iter().map(|f| paths::file_key(f)).collect();
     let mut libraries = vec![device.library()?];
@@ -413,7 +414,7 @@ pub(crate) fn image_files(device: &Device, files: &[String]) -> Result<Vec<Strin
         };
         let key = paths::key(image);
         for k in [medium_variant(&key), key] {
-            if paths::is_safe_key(&k) && device.checked_path(&k).is_ok_and(|p| p.is_file()) {
+            if paths::is_safe_key(&k) && device.checked_path(&k).is_ok() {
                 out.push(k);
             }
         }
@@ -604,11 +605,16 @@ fn apply_batches(
     let mut pdb_bytes = None;
     let mut editor = if has_pdb { Some(PdbEditor::from_bytes(device.pdb_bytes()?)) } else { None };
     let mut pdb_changed = false;
+    // Keys of images replaced in place, for the backup.
+    let mut in_place = Vec::new();
     for (i, (_, Sizes { thumb, medium })) in batches.iter().enumerate() {
         ctx.check()?;
         if let Some(editor) = &mut editor {
             let key = match &pdb_in_place[i] {
-                Some(k) => k.clone(),
+                Some(k) => {
+                    in_place.push(k.clone());
+                    k.clone()
+                }
                 None => {
                     pdb_changed = true;
                     report.artwork_rows_added += 1;
@@ -630,7 +636,10 @@ fn apply_batches(
                 continue;
             }
             let key = match &p.in_place[i] {
-                Some(k) => k.clone(),
+                Some(k) => {
+                    in_place.push(k.clone());
+                    k.clone()
+                }
                 None => {
                     report.artwork_rows_added += 1;
                     let key = free_image_key(&root, 'b', one.next_image_id()?, "jpg");
@@ -676,6 +685,7 @@ fn apply_batches(
     };
     let mut opts = Options::new(LineageOp::Artwork, "set artwork");
     opts.backup = backup.map(str::to_string);
+    opts.in_place = in_place.iter().flat_map(|k| [medium_variant(k), k.clone()]).collect();
     let done = commit::commit(device, changes, opts, ctx)?;
     report.backup = done.backup;
     report.fingerprint = done.fingerprint;

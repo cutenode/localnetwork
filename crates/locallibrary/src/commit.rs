@@ -197,6 +197,9 @@ pub(crate) struct Options<'a> {
     pub source: Option<Uuid>,
     /// Edits to add to the drive's journal, with what they did.
     pub journal: Option<(&'a [Edit], &'a [String])>,
+    /// Files it writes in place of ones the databases name (artwork replaced in place), for the
+    /// backup: kept like those overwritten, or noted as added when they aren't there.
+    pub in_place: Vec<String>,
 }
 
 impl Options<'_> {
@@ -209,6 +212,7 @@ impl Options<'_> {
             lineage: true,
             source: None,
             journal: None,
+            in_place: Vec::new(),
         }
     }
 
@@ -454,7 +458,7 @@ fn prepare(
     if let Some(reason) = &opts.backup {
         let mut extra: Vec<String> =
             files.iter().zip(&targets).filter(|(_, p)| p.is_file()).map(|(f, _)| f.key.clone()).collect();
-        extra.extend(deletes.iter().cloned());
+        extra.extend(deletes.iter().chain(&opts.in_place).cloned());
         let info = backup::create(device, reason, &extra, opts.undoes.as_deref())?;
         undo.backup = Some(backup::dir(device, &info.id));
         done.backup = Some(info.id);
