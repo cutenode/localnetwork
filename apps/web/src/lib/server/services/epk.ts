@@ -25,7 +25,7 @@ import {
 import { BSKY_FOLLOW, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import type { ProjectView, Viewer } from '#lib/types.ts';
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
-import { memberSpacePolicy, type RepoClient } from '../atproto/repo-client';
+import { memberSpacePolicy, type RepoClient, type StoredRecord } from '../atproto/repo-client';
 import {
 	epkSpace,
 	parsePublicRecordUri,
@@ -212,12 +212,22 @@ export class EpkService {
 
 	/** The private part, read with the root account's membership. */
 	async content(epk: EpkView): Promise<EpkContent | null> {
-		const stored = await this.core.readSpaceRecord?.({
-			space: epk.space,
-			repo: epk.did,
-			collection: COLLECTION.epkContent,
-			rkey: EPK_CONTENT_KEY
-		});
+		let stored: StoredRecord | null | undefined;
+
+		try {
+			stored = await this.core.readSpaceRecord?.({
+				space: epk.space,
+				repo: epk.did,
+				collection: COLLECTION.epkContent,
+				rkey: EPK_CONTENT_KEY
+			});
+		} catch (error) {
+			// The reader refuses a record nested too deep to check its MAC.
+			if (!(error instanceof RecordValidationError)) throw error;
+			this.core.logger.warn({ space: epk.space, err: error }, 'press kit content does not validate');
+
+			return null;
+		}
 
 		if (!stored) return null;
 

@@ -3,6 +3,7 @@ import { type EpkAccess, type EpkView, MAX_EPKS_PER_PROJECT } from '#lib/epk.ts'
 import { followSchema } from '#lib/epk-schema.ts';
 import { BSKY_FOLLOW, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import { isValidDid, isValidRecordKey } from '@atproto/syntax';
+import { RecordValidationError, TOO_DEEP } from '../atproto/lexicons';
 import { memberSpacePolicy } from '../atproto/repo-client';
 import { epkRequestSpace } from '../atproto/spaces';
 import { ensureRootSpaces } from '../bootstrap';
@@ -199,6 +200,16 @@ describe('EpkService', () => {
 		expect(f.t.net.spaces.get(requestSpace())?.policy).toEqual(memberSpacePolicy({ publicWrite: true }));
 		expect((await f.t.epks.content(epk))?.techRider).toBe('2x CDJ-3000');
 		expect(await f.t.epks.request(stranger, kit, {})).toMatchObject({ kind: 'granted' });
+	});
+
+	it('reads the private part as none when the space host serves it too deep to read', async () => {
+		const epk = await f.publish(DJ);
+		// What the real reader throws for a record nested deeper than 32 levels.
+		f.t.core.readSpaceRecord = async () => {
+			throw new RecordValidationError(COLLECTION.epkContent, TOO_DEEP);
+		};
+
+		expect(await f.t.epks.content(epk)).toBeNull();
 	});
 
 	it('approves at once when the rules say so', async () => {
