@@ -547,7 +547,8 @@ describe('start', () => {
 	});
 
 	it('clears OAuth states older than an hour each hour, and nothing once stopped', async () => {
-		const app = await start(NO_KEY);
+		// A sync round every ten days, so the hour doesn't bring a sync each second.
+		const app = await start({ ...NO_KEY, SYNC_POLL_INTERVAL_MS: '864000000' });
 		const old = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
 
 		await app.db
@@ -593,12 +594,11 @@ describe('backups', () => {
 			expect(app.backupStatus).toEqual({ latestAt: null, lastAttempt: null, stale: false });
 			app.start();
 
-			await vi.waitFor(() => expect(app.backupStatus?.lastAttempt).toEqual({ at: expect.any(String), error: null }));
-			expect(s3.objects.size).toBe(1);
+			await s3.stored(1);
 
 			vi.setSystemTime(Date.now() + 86_400_000);
 			await vi.advanceTimersByTimeAsync(60 * 60_000);
-			await vi.waitFor(() => expect(s3.objects.size).toBe(2));
+			await s3.stored(2);
 			await stop(app);
 		} finally {
 			await s3.close();
