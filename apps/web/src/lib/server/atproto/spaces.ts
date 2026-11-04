@@ -51,6 +51,11 @@ export function publicRecordUri(did: string, collection: string, rkey: string): 
 	return `at://${did}/${collection}/${rkey}`;
 }
 
+/** A record URI's last segment, its rkey. */
+export function rkeyOf(uri: string): string {
+	return uri.slice(uri.lastIndexOf('/') + 1);
+}
+
 export function parsePublicRecordUri(uri: string): { did: string; collection: string; rkey: string } | null {
 	const match = PUBLIC_RECORD_URI.exec(uri);
 

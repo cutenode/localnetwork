@@ -215,14 +215,16 @@ export class SpaceSyncer {
 					schema: listReposOutput
 				});
 
-				if (page.repos.length === 0) break;
+				const last = page.repos.at(-1);
+
+				if (!last) break;
 
 				const results = await Promise.all(
 					page.repos.map((repo) => this.repoQueue.add(() => this.syncRepoIfBehind(space, repo)))
 				);
 
 				changed += results.filter(Boolean).length;
-				cursor = page.cursor ?? page.repos.at(-1)?.spaceRev ?? cursor;
+				cursor = page.cursor ?? last.spaceRev;
 
 				if (!page.cursor) break;
 			}

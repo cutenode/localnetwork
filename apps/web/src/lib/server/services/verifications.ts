@@ -4,6 +4,7 @@ import type { IssuedVerification, LiveIdentity, VerificationStatus, Viewer } fro
 import { isCurrent } from '#lib/verification.ts';
 import { validateRecord } from '../atproto/lexicons';
 import { type RecordRef, xrpcErrorName } from '../atproto/repo-client';
+import { rkeyOf } from '../atproto/spaces';
 import { type Core, ForbiddenError, UserError } from '../core';
 import { nowIso } from '../db';
 import type { IndexedRepo } from '../happyview/indexed';
@@ -48,7 +49,7 @@ export class VerificationService {
 
 				if (!parsed.success) return [];
 
-				return [{ uri: record.uri, cid: record.cid, rkey: record.uri.split('/').at(-1) ?? '', ...parsed.data }];
+				return [{ uri: record.uri, cid: record.cid, rkey: rkeyOf(record.uri), ...parsed.data }];
 			})
 			.toSorted((a, b) => b.createdAt.localeCompare(a.createdAt));
 	}
@@ -133,7 +134,7 @@ export class VerificationService {
 			throw new UserError(`@${handle}'s verification changed since this page loaded. Reload and try again.`, 409);
 		}
 
-		await this.indexed.awaitWrite(this.core.rootDid, VERIFICATION, ref.uri.split('/').at(-1) ?? '', ref.cid);
+		await this.indexed.awaitWrite(this.core.rootDid, VERIFICATION, rkeyOf(ref.uri), ref.cid);
 
 		await this.core.audit.record({
 			actor: actor.did,

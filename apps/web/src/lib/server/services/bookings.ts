@@ -542,7 +542,8 @@ export class BookingService {
 					return {
 						uri: event.uri,
 						kind: event.kind,
-						author: accounts.get(event.authorDid) ?? { did: event.authorDid, handle: null },
+						// views() has every non-empty DID, and indexEvent writes a DID it resolved or validated.
+						author: accounts.get(event.authorDid)!,
 						createdAt: event.createdAt,
 						text: record.text ?? record.message ?? record.note,
 						status: record.status,
@@ -591,7 +592,8 @@ export class BookingService {
 				promoter: accounts.get(row.promoterDid) ?? { did: row.promoterDid, handle: null },
 				participants: participants
 					.filter((p) => p.spaceUri === row.spaceUri)
-					.map((p) => ({ ...(accounts.get(p.did) ?? { did: p.did, handle: null }), role: p.role })),
+					// The same participants built accounts, and each one's DID is a viewer's or a validated record's.
+					.map((p) => ({ ...accounts.get(p.did)!, role: p.role })),
 				lastAuthor: lastAuthors.get(row.spaceUri) ?? null,
 				lastActivityAt: row.lastActivityAt,
 				createdAt: row.createdAt
