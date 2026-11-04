@@ -8,6 +8,8 @@ import { ForbiddenError } from '../core';
 import { createTestServices, ROOT } from '../testing/core';
 import type { BookingRecord } from './bookings';
 import { FakeRootClient } from '../testing/fakes';
+import { IndexedRepo } from '../happyview/indexed';
+import { ManagerSpaces } from './manager-spaces';
 
 const ADMIN = 'did:plc:admin';
 
@@ -389,5 +391,32 @@ describe('ManagerSpaces', () => {
 		const open = await thread('open');
 		expect(members(open)).toEqual([NEW, OLD, PROMOTER].sort());
 		expect(await threadsOf(NEW)).toEqual([open]);
+	});
+
+	it("skips a grant record it can't read and still syncs the press kit's space", async () => {
+		const old = await t.viewer(OLD);
+		const draft = await t.epks.drafts.save(old, project, { values: { title: 'Clubs', access: DEFAULT_ACCESS } });
+		const result = await t.epks.drafts.publish(old, project, draft!.rkey);
+
+		if (result.kind !== 'published') throw new Error('the draft conflicts');
+		const { epk } = result;
+		await t.epks.request(await t.viewer(ADMIN), { epk, project }, {});
+		await t.net.client(ROOT).putSpaceRecord({
+			space: epkRequestSpace(ROOT, project.rkey),
+			collection: COLLECTION.epkGrant,
+			rkey: 'broken',
+			record: { via: 'invited' }
+		});
+
+		await setManagers([NEW]);
+		expect(members(epk.space)).toEqual([NEW]);
+	});
+
+	it('syncs nothing for a URI that names no public record', async () => {
+		const spaces = new ManagerSpaces(t.core, new IndexedRepo(t.directory, t.core.logger, 0));
+		const before = [...t.net.spaces.keys()];
+
+		await spaces.sync(`at://${ROOT}/space/${project.rkey}`, [NEW]);
+		expect([...t.net.spaces.keys()]).toEqual(before);
 	});
 });

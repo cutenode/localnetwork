@@ -427,3 +427,108 @@ describe('EpkDrafts', () => {
 		expect((await f.t.epks.dashboard(f.project)).kits[0].drafts).toHaveLength(1);
 	});
 });
+
+describe('EpkDrafts edges', () => {
+	let f: Awaited<ReturnType<typeof pressKitServices>>;
+
+	beforeEach(async () => {
+		f = await pressKitServices();
+	});
+	afterEach(async () => {
+		vi.restoreAllMocks();
+		await f.t.audit.idle();
+		await f.t.db.destroy();
+	});
+
+	const backstageDrafts = () => f.t.net.spaceRecordsIn(f.t.epks.drafts.space(f.project));
+
+	it('saves nothing when the form matches the published press kit, and discards a draft that was never saved', async () => {
+		const epk = await f.publish(DJ);
+		const dj = await f.t.viewer(DJ);
+
+		expect(await f.t.epks.drafts.save(dj, f.project, { rkey: epk.rkey, cid: epk.cid, values: values() })).toBeNull();
+		await f.t.epks.drafts.discard(dj, f.project, epk.rkey);
+		expect(backstageDrafts()).toEqual([]);
+	});
+
+	it('passes on a PDS failure while publishing other than a lost race, keeping the draft', async () => {
+		const epk = await f.publish(DJ);
+		const dj = await f.t.viewer(DJ);
+		await f.t.epks.drafts.save(dj, f.project, {
+			rkey: epk.rkey,
+			cid: epk.cid,
+			values: values({ title: 'Clubs 2027' })
+		});
+		vi.spyOn(FakeRootClient.prototype, 'putRecord').mockRejectedValueOnce(new XRPCError(502, 'UpstreamFailure'));
+
+		await expect(f.t.epks.drafts.publish(dj, f.project, epk.rkey)).rejects.toMatchObject({ status: 502 });
+		expect(backstageDrafts()).toHaveLength(1);
+	});
+
+	it('serves the photos a draft names, and nothing for one it does not or without a blob reader', async () => {
+		const epk = await f.publish(DJ);
+		const square = await f.photo(CODJ, 'square');
+
+		const draft = await f.t.epks.drafts.save(await f.t.viewer(CODJ), f.project, {
+			rkey: epk.rkey,
+			cid: epk.cid,
+			values: values({ photos: [square] })
+		});
+
+		const cid = square.image.ref.$link;
+
+		const found = await f.t.epks.drafts.photo(f.project, draft!, cid);
+		expect(found && new TextDecoder().decode(found.bytes)).toBe('square');
+		expect(await f.t.epks.drafts.photo(f.project, draft!, 'bafkreinotthere')).toBeNull();
+
+		const blind = new EpkService(
+			{ ...f.t.core, fetchSpaceBlob: undefined },
+			f.t.projects,
+			f.t.indexedRepo,
+			async (id) => id
+		);
+
+		expect(await blind.drafts.photo(f.project, draft!, cid)).toBeNull();
+	});
+
+	it("doesn't index a draft outside the root's backstages, or one that isn't a draft", async () => {
+		const epk = await f.publish(DJ);
+		const space = f.t.epks.drafts.space(f.project);
+		const now = new Date().toISOString();
+		const elsewhere = space.replace(ROOT, STRANGER);
+
+		const draft = {
+			changes: { title: 'Synced' },
+			base: { uri: epk.uri, cid: epk.cid },
+			createdAt: now,
+			updatedAt: now
+		};
+
+		const index = (into: string, value: JsonObject) =>
+			f.t.epks.drafts.index({
+				space: into,
+				uri: `${into}/${CODJ}/${COLLECTION.epkDraft}/${epk.rkey}`,
+				repoDid: CODJ,
+				rkey: epk.rkey,
+				cid: 'c',
+				value
+			});
+
+		await index(elsewhere, draft);
+		await index(space, { changes: { title: 'No dates' } });
+		expect(await f.t.db.selectFrom('epkDraft').selectAll().execute()).toEqual([]);
+	});
+
+	it('leaves out a stored draft that no longer parses', async () => {
+		const epk = await f.publish(DJ);
+		await f.t.epks.drafts.save(await f.t.viewer(CODJ), f.project, {
+			rkey: epk.rkey,
+			cid: epk.cid,
+			values: values({ title: 'Clubs 2027' })
+		});
+		// As a row an older version of the app indexed would read now.
+		await f.t.db.updateTable('epkDraft').set({ record: '{"changes":1}' }).execute();
+
+		expect((await f.t.epks.dashboard(f.project)).kits[0].drafts).toEqual([]);
+	});
+});

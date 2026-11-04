@@ -35,7 +35,8 @@ describe('verifyServiceJwt', () => {
 
 	it.each([
 		['missing token', undefined, 'Missing'],
-		['malformed token', 'Bearer abc', 'Malformed']
+		['malformed token', 'Bearer abc', 'Malformed'],
+		['token whose parts are not JSON', 'Bearer a.b.c', 'Malformed']
 	])('rejects a %s', async (_label, header, message) => {
 		await expect(verifyServiceJwt(header, { audience, lxm, getSigningKey: async () => '' })).rejects.toThrow(message);
 	});
@@ -61,5 +62,11 @@ describe('verifyServiceJwt', () => {
 
 		const forged = await serviceJwt(other, { iss: 'did:plc:a', aud: audience, lxm, exp: now + 60 });
 		await expect(verifyServiceJwt(forged, opts)).rejects.toBeInstanceOf(ServiceAuthError);
+
+		// A signing key it can't read verifies nothing.
+		const signed = await serviceJwt(key, { iss: 'did:plc:a', aud: audience, lxm, exp: now + 60 });
+		await expect(verifyServiceJwt(signed, { ...opts, getSigningKey: async () => 'did:key:nope' })).rejects.toThrow(
+			'Invalid service auth signature'
+		);
 	});
 });

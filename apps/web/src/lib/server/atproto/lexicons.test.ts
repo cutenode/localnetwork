@@ -1,3 +1,4 @@
+import { Agent } from '@atproto/api';
 import type { JsonObject } from '@atproto/lex-json';
 import type { LexiconDoc } from '@atproto/lexicon';
 import * as fc from 'fast-check';
@@ -9,12 +10,14 @@ import { DEMO_DJ_SETS } from '../../../../scripts/seed-data.ts';
 import {
 	LEXICON_DOCS,
 	permissionSetFor,
+	publishLexicons,
 	RecordValidationError,
 	REFERENCED_DOCS,
 	ROOT_AUTHORITY,
 	schemaRecord,
 	validateRecord
 } from './lexicons.ts';
+import { recordCid } from './repo-client.ts';
 
 describe('the bundled lexicons', () => {
 	// The scripts' loader reads lexicons/ from disk, so this also checks the two loaders agree.
@@ -62,6 +65,35 @@ describe('schemaRecord', () => {
 	it('publishes every other lexicon as written', () => {
 		for (const doc of LEXICON_DOCS.filter((lexicon) => lexicon.id !== PERMISSIONS))
 			expect(schemaRecord(doc, root)).toEqual({ $type: 'com.atproto.lexicon.schema', ...doc });
+	});
+});
+
+describe('publishLexicons', () => {
+	it("puts every lexicon in the agent's own repo under its NSID, with the agent as the root", async () => {
+		const did = 'did:plc:root';
+		const cid = await recordCid({});
+		const puts: { repo: string; collection: string; rkey: string; record: unknown }[] = [];
+
+		// A PDS that takes every putRecord.
+		const agent = new Agent({
+			did,
+			fetchHandler: async (_url, init) => {
+				puts.push(await new Response(init.body).json());
+
+				return Response.json({ uri: `at://${did}/com.atproto.lexicon.schema/x`, cid });
+			}
+		});
+
+		await publishLexicons(agent);
+
+		expect(puts).toEqual(
+			LEXICON_DOCS.map((doc) => ({
+				repo: did,
+				collection: 'com.atproto.lexicon.schema',
+				rkey: doc.id,
+				record: schemaRecord(doc, did)
+			}))
+		);
 	});
 });
 

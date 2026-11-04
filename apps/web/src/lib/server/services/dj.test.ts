@@ -17,13 +17,18 @@ type DemoSet = (typeof DEMO_DJ_SETS)[number];
 
 /** A HappyView that has `records` of each account, as Jetstream would have brought them, and counts the queries. */
 async function happyView(
-	records: Record<string, { profile?: typeof DEMO_DJ_PROFILE; sets?: DemoSet[] }>,
+	records: Record<string, { profile?: Partial<typeof DEMO_DJ_PROFILE>; sets?: DemoSet[] }>,
 	down = false
 ) {
 	const hv = new FakeHappyView('did:plc:root');
 	const calls: string[] = [];
 
-	const ingest = async (did: string, collection: string, rkey: string, value: typeof DEMO_DJ_PROFILE | DemoSet) => {
+	const ingest = async (
+		did: string,
+		collection: string,
+		rkey: string,
+		value: Partial<typeof DEMO_DJ_PROFILE> | DemoSet
+	) => {
 		const record: JsonObject = JSON.parse(JSON.stringify({ $type: collection, ...value }));
 		await hv.ingest({ did, collection, rkey, cid: (await cidForLex(jsonToLex(record))).toString(), record });
 	};
@@ -78,6 +83,26 @@ describe('DjService', () => {
 		expect(activity).toHaveLength(1);
 		expect(activity[0].profile).toBeNull();
 		expect(activity[0].sets).toHaveLength(1);
+	});
+
+	it("reads stats that don't parse as none, keeping the account's sets", async () => {
+		const { generatedAt: _generatedAt, ...profile } = DEMO_DJ_PROFILE;
+		const { repo } = await happyView({ [DJ]: { profile, sets: [DEMO_DJ_SETS[0]] } });
+
+		const [activity] = await new DjService(repo, silentLogger).activity([{ did: DJ, handle: null }]);
+
+		expect(activity.profile).toBeNull();
+		expect(activity.sets).toHaveLength(1);
+	});
+
+	it('keeps only the 200 accounts read most recently in memory', async () => {
+		const { repo } = await happyView({});
+		const service = new DjService(repo, silentLogger);
+		const accounts = Array.from({ length: 201 }, (_, i) => ({ did: `did:plc:dj${i}`, handle: null }));
+
+		await service.activity(accounts);
+		expect(service.fresh(accounts.slice(1))).toEqual([]);
+		expect(service.fresh(accounts.slice(0, 1))).toBeUndefined();
 	});
 
 	it('treats a HappyView that is down as nothing on file', async () => {
