@@ -384,13 +384,17 @@ fn fit(chain: &Chain, variants: &[Variant]) -> Fit {
         offsets.sort_by(f64::total_cmp);
         intercept = offsets[offsets.len() / 2];
     }
-    // Drop outliers (stray votes that landed in the cell) and refit.
+    // Drop outliers (stray votes that landed in the cell) and refit, while what's left is still
+    // long enough to measure.
     drop_strays(&mut pairs, |p| p.1 - intercept - ratio * p.0);
-    if pairs.len() >= 2 && measurable {
+    let (first, last) = span(&pairs);
+    let measured = measurable && last - first >= 8.0 * FRAMES_PER_SEC;
+    if measured {
         (ratio, intercept) = line(&pairs);
     }
-    // A slope far outside the searched speeds means the fit locked onto noise.
-    let plausible = (ratio - guess).abs() < 0.02;
+    // A slope far outside the searched speeds means the fit locked onto noise. One that needed the
+    // strays to reach far enough is no better.
+    let plausible = measured == measurable && (ratio - guess).abs() < 0.02;
     if !plausible {
         ratio = guess;
         let mut offsets: Vec<f64> = pairs.iter().map(|p| p.1 - guess * p.0).collect();
@@ -402,7 +406,7 @@ fn fit(chain: &Chain, variants: &[Variant]) -> Fit {
         None if pairs.is_empty() => (lo, hi),
         None => span(&pairs),
     };
-    Fit { ratio, intercept, start, end, measured: measurable && plausible }
+    Fit { ratio, intercept, start, end, measured: measured && plausible }
 }
 
 /// A chain's matching (mix frame, track frame) pairs, in mix order.
@@ -443,7 +447,9 @@ fn least_squares(pairs: &[(f64, f64)], fallback: f64) -> (f64, f64) {
     let n = pairs.len() as f64;
     let (mt, mtau) = pairs.iter().fold((0.0, 0.0), |a, p| (a.0 + p.0 / n, a.1 + p.1 / n));
     let (sxy, sxx) = pairs.iter().fold((0.0, 0.0), |a, p| (a.0 + (p.0 - mt) * (p.1 - mtau), a.1 + (p.0 - mt).powi(2)));
-    let ratio = if sxx > 0.0 { sxy / sxx } else { fallback };
+    // Asked of the times themselves: when `mt` rounds, `sxx` of times all alike is just above 0.
+    let one_time = pairs.iter().all(|p| p.0 == pairs[0].0);
+    let ratio = if one_time { fallback } else { sxy / sxx };
     (ratio, mtau - ratio * mt)
 }
 
