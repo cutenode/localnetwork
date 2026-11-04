@@ -79,8 +79,8 @@
 /*
  * The same tokens with light values: printed pages (a press kit saved as PDF), and anything under a
  * `light` class (localtoolbox's light theme). The DJ-data colours stay as they are, apart from the
- * phrases, cue defaults, good, warning and critical, which have light values of their own in
- * data-colors.css.
+ * phrases, cue defaults, hot cue labels, good, warning, critical and the playhead, which have light
+ * values of their own in data-colors.css.
  */
 @custom-variant light {
 	@media print {

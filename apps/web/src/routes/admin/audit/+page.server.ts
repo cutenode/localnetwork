@@ -28,7 +28,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const accounts = await app.accounts.views(entries.map((entry) => entry.actorDid));
 
 	return {
-		entries: entries.map((entry) => ({ ...entry, actor: accounts.get(entry.actorDid)! })),
+		entries: entries.map((entry) => ({ ...entry, actor: accounts.get(entry.actorDid) })),
 		stats,
 		orphans: orphans.length,
 		actionGroups: [...new Set(AUDIT_ACTIONS.map((action) => action.split('.')[0]))],

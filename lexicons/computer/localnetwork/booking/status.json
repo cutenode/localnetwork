@@ -20,6 +20,11 @@
 						"format": "at-uri",
 						"description": "The project the thread is with. Set on the root account's opening record, which the app trusts over the project the inquiry names."
 					},
+					"promoter": {
+						"type": "string",
+						"format": "did",
+						"description": "Who opened the thread. Set on the root account's opening record, which the app trusts over the author of whichever inquiry it reads first."
+					},
 					"note": {
 						"type": "string",
 						"maxLength": 5000,

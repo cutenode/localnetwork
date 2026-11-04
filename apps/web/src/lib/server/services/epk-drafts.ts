@@ -87,7 +87,7 @@ export class EpkDrafts {
 		const accounts = await this.core.accounts.views(current.map((row) => row.authorDid));
 
 		return current.flatMap((row) => {
-			const author = accounts.get(row.authorDid) ?? { did: row.authorDid, handle: null };
+			const author = accounts.get(row.authorDid);
 
 			return this.view(row, author, kits.find((epk) => epk.rkey === kitKey(row)) ?? null) ?? [];
 		});

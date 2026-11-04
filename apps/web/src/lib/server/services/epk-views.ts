@@ -98,7 +98,7 @@ export class EpkViews {
 
 		return rows.map((row) => ({
 			id: row.id,
-			viewer: accounts.get(row.viewerDid) ?? { did: row.viewerDid, handle: null },
+			viewer: accounts.get(row.viewerDid),
 			epk: { uri: row.epkUri, rkey: parsePublicRecordUri(row.epkUri)?.rkey ?? '', title: row.epkTitle },
 			viewedAt: row.createdAt
 		}));

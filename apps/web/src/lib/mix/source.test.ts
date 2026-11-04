@@ -1,7 +1,10 @@
+import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { linkSources, playable, preferred, type PlayerSource, trackAt } from './source';
 
 const ARCHIVE = 'https://archive.org/download/neon-tidal-hours/tidal-hours.mp3';
+
+const trackArb = fc.record({ title: fc.string(), startSeconds: fc.double() }, { requiredKeys: ['title'] });
 
 describe('linkSources', () => {
 	it('plays an archive.org audio download as it is, linking its item page', () => {
@@ -104,5 +107,40 @@ describe('trackAt', () => {
 		expect(trackAt(unsorted, 100)).toBe(1);
 		expect(trackAt(unsorted, 400)).toBe(0);
 		expect(trackAt(unsorted, 700)).toBe(2);
+	});
+
+	it('takes the later track when two start together', () => {
+		const repeated = [
+			{ title: 'Intro', startSeconds: 0 },
+			{ title: 'Reprise', startSeconds: 0 }
+		];
+
+		expect(trackAt(repeated, 10)).toBe(1);
+	});
+
+	it('always takes a track with the latest start by then', () => {
+		fc.assert(
+			fc.property(fc.array(trackArb), fc.double(), (list, seconds) => {
+				const starts = list.flatMap(({ startSeconds: s }) => (s !== undefined && s <= seconds ? [s] : []));
+				const latest = starts.length > 0 ? Math.max(...starts) : undefined;
+
+				const current = trackAt(list, seconds);
+
+				// `===`, since 0 and -0 tie as starts.
+				expect(list[current]?.startSeconds === latest).toBe(true);
+			})
+		);
+	});
+
+	it('always takes the second copy of a list played twice over', () => {
+		fc.assert(
+			fc.property(fc.array(trackArb), fc.double(), (list, seconds) => {
+				const once = trackAt(list, seconds);
+
+				const twice = trackAt([...list, ...list], seconds);
+
+				expect(twice).toBe(once < 0 ? -1 : once + list.length);
+			})
+		);
 	});
 });

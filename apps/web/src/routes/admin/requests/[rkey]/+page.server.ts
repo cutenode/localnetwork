@@ -39,7 +39,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		changes: changes.profile,
 		detailChanges: changes.details,
 		stale: changes.stale,
-		managers: (project?.managers ?? []).map((did) => managers.get(did) ?? { did, handle: null }),
+		managers: (project?.managers ?? []).map((did) => managers.get(did)),
 		decided: decidedNotice(url.searchParams.get('decided')),
 		history: history.filter((item) => item.uri !== request.uri),
 		trail,
