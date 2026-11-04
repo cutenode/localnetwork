@@ -6,7 +6,7 @@
 		"locallibrary-cli": {
 			"limit": 555,
 			"unit": "packages",
-			"measures": "Packages linked into the CLI with default features on Linux, by cargo tree: proc macros and what only they use are left out, as cargo counts those only on a host of that target."
+			"measures": "Packages linked into the CLI with default features on Linux, by cargo tree: proc macros and what only they use are left out, as the host decides those."
 		}
 	}
 }
