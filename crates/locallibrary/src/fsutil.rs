@@ -153,6 +153,16 @@ pub fn read_json_opt<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Opti
     }
 }
 
+/// What was `read` from a file that's about to be written over: damaged JSON has nothing usable in
+/// it, so it counts as empty and the file is written anew. Any other error stands, as a file that
+/// can't be read right now may hold everything it should.
+pub fn unless_damaged<T: Default>(read: Result<T>) -> Result<T> {
+    match read {
+        Err(Error::Parse { .. }) => Ok(T::default()),
+        read => read,
+    }
+}
+
 /// Copy `src` to `dst` via a temp file + rename, hashing on the way and stamping `mtime`
 /// (unix seconds) on the result. If `expected` is given the copy is verified against it.
 ///

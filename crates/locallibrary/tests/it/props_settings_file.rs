@@ -359,6 +359,68 @@ fn a_plan_is_stale_once_the_store_changes() {
     assert!(!store.settings_profile().unwrap().base.contains_key("quantize"));
 }
 
+/// Importing into a store with a section it can't read right now is refused, and the file stays as
+/// it was: read as empty, importing would write just the file's values over it.
+#[cfg(unix)]
+#[hegel::test(test_cases = 5)]
+fn importing_over_a_file_that_cant_be_read_leaves_it_alone(tc: TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path(), "store");
+    let doc = dir.path().join("settings.json");
+    let value = tc.draw(gs::integers::<u8>());
+    let set = json!({ "version": 1, "player": { "ratings": true }, "plugin_host": { "new": value } });
+    fs::write(&doc, set.to_string()).unwrap();
+    let plugins = store.root().join("plugins");
+    fs::create_dir_all(&plugins).unwrap();
+    let (player, host) = (store.root().join("tui.json"), plugins.join("settings.json"));
+    fs::write(&player, json!({ "root": "/Volumes/USB" }).to_string()).unwrap();
+    fs::write(&host, json!({ "kept": 2 }).to_string()).unwrap();
+    for file in [&player, &host] {
+        let before = fs::read(file).unwrap();
+        let mode = |bits: u32| fs::set_permissions(file, fs::Permissions::from_mode(bits)).unwrap();
+        mode(0o000);
+        // Root reads anything.
+        if fs::read(file).is_ok() {
+            return mode(0o644);
+        }
+        let imported = api::settings_import_file(&store, &ImportSettingsFile { file: doc.clone(), replace: false });
+        mode(0o644);
+        assert!(matches!(imported, Err(locallibrary::Error::Io { path, .. }) if path == *file));
+        assert_eq!(fs::read(file).unwrap(), before, "{}", file.display());
+    }
+}
+
+/// Importing into a store whose plugins can't be listed right now is refused: their settings read
+/// as none, importing would write just the file's values over a plugin's.
+#[cfg(unix)]
+#[hegel::test(test_cases = 5)]
+fn importing_when_the_plugins_cant_be_listed_leaves_theirs_alone(tc: TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path(), "store");
+    let doc = dir.path().join("settings.json");
+    let value = tc.draw(gs::integers::<u8>());
+    fs::write(&doc, json!({ "version": 1, "plugins": { "echo": { "new": value } } }).to_string()).unwrap();
+    let plugins = store.root().join("plugins");
+    let kept = plugins.join("echo/settings.json");
+    fs::create_dir_all(kept.parent().unwrap()).unwrap();
+    fs::write(&kept, json!({ "kept": 2 }).to_string()).unwrap();
+    let before = fs::read(&kept).unwrap();
+    let mode = |bits: u32| fs::set_permissions(&plugins, fs::Permissions::from_mode(bits)).unwrap();
+    mode(0o311);
+    // Root lists anything.
+    if fs::read_dir(&plugins).is_ok() {
+        return mode(0o755);
+    }
+    let imported = api::settings_import_file(&store, &ImportSettingsFile { file: doc.clone(), replace: false });
+    let exported = api::settings_export(&store);
+    mode(0o755);
+    assert!(matches!(imported, Err(locallibrary::Error::Io { path, .. }) if path == plugins));
+    assert!(matches!(exported, Err(locallibrary::Error::Io { path, .. }) if path == plugins));
+    assert_eq!(fs::read(&kept).unwrap(), before);
+}
+
 /// Importing the player's preferences keeps where it was: the queue and the drive stay, and a
 /// player that kept its state beside the store (there was none yet) finds it in the store.
 #[test]
