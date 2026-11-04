@@ -70,17 +70,20 @@
 {/if}
 
 <div class="max-sm:hidden">
-	<svg viewBox="0 0 {S} {S}" class="mx-auto block w-full max-w-72 font-mono" role="img" aria-label="Keys as played, in order, on the Camelot wheel">
-		{#each cells as n (n)}
-			{#each [true, false] as major (major)}
-				{@const id = `${n}${major ? 'B' : 'A'}`}
-				{#if !used.has(id)}
-					{@const [x, y] = pos({ n, major })}
-					<circle cx={x} cy={y} r={R} class="fill-well" />
-					<text {x} y={y + 4.5} text-anchor="middle" font-size="13" class="fill-fg-subtle">{id}</text>
-				{/if}
+	<!-- A group, since it holds the played keys' buttons. The keys not played only mark their place on the wheel. -->
+	<svg viewBox="0 0 {S} {S}" class="mx-auto block w-full max-w-72 font-mono" role="group" aria-label="Keys as played, in order, on the Camelot wheel">
+		<g aria-hidden="true">
+			{#each cells as n (n)}
+				{#each [true, false] as major (major)}
+					{@const id = `${n}${major ? 'B' : 'A'}`}
+					{#if !used.has(id)}
+						{@const [x, y] = pos({ n, major })}
+						<circle cx={x} cy={y} r={R} class="fill-well" />
+						<text {x} y={y + 4.5} text-anchor="middle" font-size="13" class="fill-fg-subtle">{id}</text>
+					{/if}
+				{/each}
 			{/each}
-		{/each}
+		</g>
 		{#each moves as m (m.key)}
 			<path d={m.d} class={['fill-none', m.clash ? 'stroke-critical' : 'stroke-fg-muted']} stroke-width="2" stroke-dasharray={m.clash ? '5 4' : undefined} />
 		{/each}
@@ -88,7 +91,6 @@
 			{@const [x, y] = pos(parseCamelot(id)!)}
 			{@const tile = swatch(plays)}
 			{@const active = plays.includes(selected ?? -1)}
-			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<g
 				role="button"
 				tabindex="0"
@@ -100,6 +102,11 @@
 				onfocus={() => (focus = id)}
 				onblur={() => (focus = null)}
 				onclick={() => (selected = plays[0])}
+				onkeydown={(event) => {
+					if (event.key !== 'Enter' && event.key !== ' ') return;
+					event.preventDefault();
+					selected = plays[0];
+				}}
 			>
 				{#if active || focus === id}<circle cx={x} cy={y} r={R + 4} class="fill-none stroke-fg" stroke-width="2" />{/if}
 				<circle cx={x} cy={y} r={R} style:fill={tile.background} />

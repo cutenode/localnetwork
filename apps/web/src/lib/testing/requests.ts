@@ -51,5 +51,6 @@ export const request = (kind: RequestKind, overrides: Partial<RequestView> = {})
 	updatedAt: '2026-10-01T00:00:00Z',
 	decision: null,
 	resultProjectSlug: null,
+	deletedAt: null,
 	...overrides
 });

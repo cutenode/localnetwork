@@ -34,9 +34,11 @@ export type Tool = {
 	/** What it does, in the order its page's hot cues show it. The first is the hero on /tools. */
 	cues: Cue[];
 	install: { note?: string; steps: InstallStep[] };
+	/** What installing it means today, in a line, shown by the page's install button. */
+	status?: string;
 	/** More sections for the tool's page, in Markdown. */
 	sections?: { title: string; markdown: string }[];
-	/** The README first, then the guides in the order the README links them. */
+	/** The overview first, then the guides in the order it links them (see `loadDocs`). */
 	docs: ToolDoc[];
 	/** The hosts this app answers for the tool (read per request, so an environment variable can override them). */
 	hosts?: () => string[];
