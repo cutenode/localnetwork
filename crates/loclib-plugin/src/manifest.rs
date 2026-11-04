@@ -528,9 +528,7 @@ pub fn check_params(schema: Option<&Value>, params: &Value) -> Result<(), RpcErr
 /// `invalid_params` about the param at `path` (a JSON pointer).
 fn invalid_at(path: &str, message: &str) -> RpcError {
     let mut error = RpcError::invalid_params(format!("{path}: {message}"));
-    if let Some(data) = error.data.as_mut() {
-        data.fields.insert("path".into(), path.into());
-    }
+    error.data.as_mut().expect("invalid_params has data").fields.insert("path".into(), path.into());
     error
 }
 
