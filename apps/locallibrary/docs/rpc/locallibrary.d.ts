@@ -3493,6 +3493,11 @@ export type BackupInfo = {
    * absent). Missing when the change didn't finish, or an earlier version made the backup.
    */
   after?: { [key: string]: Hash | null } | null;
+  /**
+   * Files its change was to write in place that weren't there when it was taken (an image's
+   * medium copy rekordbox didn't leave): putting it back removes them.
+   */
+  added?: string[];
 };
 
 export type RestorePreview = {
@@ -3635,6 +3640,11 @@ export type UndoableBackup = {
    * absent). Missing when the change didn't finish, or an earlier version made the backup.
    */
   after?: { [key: string]: Hash | null } | null;
+  /**
+   * Files its change was to write in place that weren't there when it was taken (an image's
+   * medium copy rekordbox didn't leave): putting it back removes them.
+   */
+  added?: string[];
   /** Recorded edits putting it back takes off the journal. */
   journal: number;
   /** It's the one `undo` puts back. */

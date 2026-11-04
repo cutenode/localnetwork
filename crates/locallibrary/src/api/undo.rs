@@ -134,11 +134,9 @@ pub fn undo_plan(req: &UndoRequest) -> Result<Planned<UndoPlan, bool>> {
             files.push(FileChange { path: key.clone(), change: "replaced", bytes });
         }
     }
-    for key in paths::DATABASE_FILES {
-        if !info.files.iter().any(|f| f == key) && d.path(key).is_file() {
-            let bytes = std::fs::metadata(d.path(key)).map(|m| m.len()).unwrap_or(0);
-            files.push(FileChange { path: key.to_string(), change: "removed", bytes });
-        }
+    for key in backup::removed(&d, &info) {
+        let bytes = std::fs::metadata(d.path(&key)).map(|m| m.len()).unwrap_or(0);
+        files.push(FileChange { path: key, change: "removed", bytes });
     }
     let put_back = Device::open(&dir)?;
     let label = format!("backup {}", info.id);
