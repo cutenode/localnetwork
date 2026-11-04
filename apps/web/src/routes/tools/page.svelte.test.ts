@@ -23,36 +23,132 @@ const guides = [
 	{ slug: 'player', title: 'The player' }
 ];
 
+const renderTools = () =>
+	render(ToolsPage, {
+		params: {},
+		form,
+		data: {
+			...layout,
+			tools: [
+				{ id: 'localthing', name: 'localthing', kind: 'Terminal app for Mac', cues },
+				{
+					id: 'localother',
+					name: 'localother',
+					kind: 'Chrome extension',
+					cues: [
+						{ name: 'Marks', line: 'Marks what you have', capture: capture('The marks') },
+						{ name: 'Text', line: 'Turns a playlist into text', capture: capture('The text view', { w: 800, h: 1160 }) }
+					]
+				}
+			],
+			track: { ...track, cues: [20, 100, 180, 200, 220] }
+		}
+	});
+
 describe('/tools', () => {
-	it('gives every tool a band with what it does and a capture of it, linking to its page', async () => {
-		await render(ToolsPage, {
-			params: {},
-			form,
-			data: {
-				...layout,
-				tools: [
-					{
-						id: 'localthing',
-						name: 'localthing',
-						kind: 'Chrome extension',
-						tagline: 'Does a thing.',
-						lines: ['Keeps drives in sync'],
-						capture: capture('localthing at work')
-					}
-				]
-			}
-		});
-		await expect.element(page.getByRole('heading', { level: 1 })).toBeInTheDocument();
+	it("lays every tool's cues on one track, and links each tool to its page", async () => {
+		await renderTools();
+		await expect
+			.element(page.getByRole('heading', { level: 1, name: 'From the crate to the booth.' }))
+			.toBeInTheDocument();
+		await expect
+			.element(
+				page.getByText(
+					'Free tools for DJs. Each one stands on its own, and locallibrary signs in with your Atmosphere account.'
+				)
+			)
+			.toBeInTheDocument();
 		await expect
 			.element(page.getByRole('link', { name: 'localthing', exact: true }))
 			.toHaveAttribute('href', '/tools/localthing');
 		await expect
-			.element(page.getByRole('link', { name: 'See what localthing does' }))
+			.element(page.getByRole('link', { name: 'localother', exact: true }))
+			.toHaveAttribute('href', '/tools/localother');
+		await expect.element(page.getByText('Chrome extension')).toBeVisible();
+		await expect
+			.element(page.getByRole('img', { name: "The tools' hot cues on a track's waveform" }))
+			.toBeInTheDocument();
+		expect(
+			page
+				.getByRole('tab')
+				.elements()
+				.map((tab) => tab.textContent?.replace(/\s+/g, ' ').trim())
+		).toEqual(['A Sync', 'B Edit', 'C Check', 'A Marks', 'B Text']);
+		await expect
+			.element(page.getByRole('tab', { name: 'A Marks' }))
+			.toHaveAccessibleDescription('localother Chrome extension');
+	});
+
+	it('opens on the first cue, with its line, its capture and its tool, loading no other capture', async () => {
+		await renderTools();
+		await expect.element(page.getByRole('tab', { name: 'A Sync' })).toHaveAttribute('aria-selected', 'true');
+		const panel = page.getByRole('tabpanel', { name: 'A Sync' });
+		await expect.element(panel.getByRole('heading', { level: 3, name: 'Sync' })).toBeInTheDocument();
+		await expect.element(panel.getByText('Keeps drives in sync.')).toBeVisible();
+		await expect
+			.element(panel.getByRole('link', { name: 'See what localthing does' }))
 			.toHaveAttribute('href', '/tools/localthing');
-		await expect.element(page.getByText('Chrome extension')).toBeInTheDocument();
-		await expect.element(page.getByText('Does a thing.')).toBeInTheDocument();
-		await expect.element(page.getByText('Keeps drives in sync')).toBeInTheDocument();
-		await expect.element(page.getByRole('img', { name: 'localthing at work' })).toHaveAttribute('width', '2560');
+		await expect.element(panel.getByRole('img', { name: 'The drives view' })).toBeVisible();
+		await expect.element(page.getByRole('img', { name: 'The marks', includeHidden: true })).not.toBeInTheDocument();
+	});
+
+	it("shows another tool's cue when it's picked, and keeps the last capture until the new one loads", async () => {
+		await renderTools();
+		await page.getByRole('tab', { name: 'B Text' }).click();
+		await expect.element(page.getByRole('tab', { name: 'B Text' })).toHaveAttribute('aria-selected', 'true');
+		const panel = page.getByRole('tabpanel', { name: 'B Text' });
+		await expect.element(panel.getByRole('heading', { level: 3, name: 'Text' })).toBeInTheDocument();
+		await expect.element(panel.getByText('Turns a playlist into text.')).toBeVisible();
+		await expect.element(panel.getByRole('heading', { name: 'Sync' })).not.toBeInTheDocument();
+		await expect
+			.element(panel.getByRole('link', { name: 'See what localother does' }))
+			.toHaveAttribute('href', '/tools/localother');
+		await expect.element(panel.getByRole('img', { name: 'The text view' })).toBeVisible();
+		await expect.element(page.getByRole('img', { name: 'The drives view' })).not.toBeInTheDocument();
+		await expect.element(page.getByRole('img', { name: 'The drives view', includeHidden: true })).toBeInTheDocument();
+	});
+
+	it("moves along the track with arrows, Home and End, and picks within a tool's cues by number or letter", async () => {
+		await renderTools();
+		const tab = (name: string) => page.getByRole('tab', { name });
+
+		await tab('A Sync').click();
+		await userEvent.keyboard('{End}');
+		await expect.element(tab('B Text')).toHaveFocus();
+		await expect.element(tab('B Text')).toHaveAttribute('aria-selected', 'true');
+		await userEvent.keyboard('{ArrowRight}');
+		await expect.element(tab('A Sync')).toHaveFocus();
+		await userEvent.keyboard('3');
+		await expect.element(tab('C Check')).toHaveAttribute('aria-selected', 'true');
+		await userEvent.keyboard('{ArrowRight}');
+		await expect.element(tab('A Marks')).toHaveFocus();
+		// Numbers and letters count within the tool's own cues.
+		await userEvent.keyboard('2');
+		await expect.element(tab('B Text')).toHaveAttribute('aria-selected', 'true');
+		await userEvent.keyboard('a');
+		await expect.element(tab('A Marks')).toHaveAttribute('aria-selected', 'true');
+		await userEvent.keyboard('3');
+		await expect.element(tab('A Marks')).toHaveAttribute('aria-selected', 'true');
+		await userEvent.keyboard('{ArrowLeft}');
+		await expect.element(tab('C Check')).toHaveFocus();
+		await userEvent.keyboard('{Home}');
+		await expect.element(tab('A Sync')).toHaveAttribute('aria-selected', 'true');
+	});
+
+	it("keeps letter keys from the site's shortcuts while a cue has focus", async () => {
+		await renderTools();
+		const prevented: string[] = [];
+
+		const listen = (event: KeyboardEvent) => {
+			if (event.defaultPrevented) prevented.push(event.key);
+		};
+
+		window.addEventListener('keydown', listen);
+		await page.getByRole('tab', { name: 'A Sync' }).click();
+		await userEvent.keyboard('hpz');
+		window.removeEventListener('keydown', listen);
+		expect(prevented).toEqual(['h', 'p', 'z']);
+		await expect.element(page.getByRole('tab', { name: 'A Sync' })).toHaveAttribute('aria-selected', 'true');
 	});
 });
 
