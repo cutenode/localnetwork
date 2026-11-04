@@ -6,7 +6,12 @@
 
 	const id = $props.id();
 
-	let open = $state(false);
+	// Folded again on each guide, so after Previous, Next or Back the list doesn't cover the new page.
+	let open = $derived.by(() => {
+		void current;
+
+		return false;
+	});
 
 	const here = $derived(guides.find((guide) => guide.slug === current));
 </script>

@@ -32,7 +32,7 @@ export type Tool = {
 	tagline: string;
 	summary: string;
 	/** What it does, in the order its page's hot cues show it. The first is the hero on /tools. */
-	cues: Cue[];
+	cues: [Cue, ...Cue[]];
 	install: { note?: string; steps: InstallStep[] };
 	/** What installing it means today, in a line, shown by the page's install button. */
 	status?: string;
