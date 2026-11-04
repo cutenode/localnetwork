@@ -3,10 +3,11 @@
 ## Install
 
 There hasn't been a release yet (see [Releasing](../CONTRIBUTING.md#releasing)), so for now you
-build it from source, with Rust 1.91 or newer, in a clone of the repository:
+build it from source, with Rust 1.91 or newer:
 
 ```bash
-cargo install --path apps/locallibrary --locked
+git clone https://github.com/cutenode/localnetwork.git
+cargo install --path localnetwork/apps/locallibrary --locked
 ```
 
 This installs `locallibrary`. On Linux, the player's audio output needs the ALSA headers
@@ -30,11 +31,11 @@ off:
 
 ```bash
 # A headless sidecar for a desktop app: no player, no account (about 440 crates)
-cargo install --path apps/locallibrary --locked --no-default-features
+cargo install --path localnetwork/apps/locallibrary --locked --no-default-features
 # The same, with the account
-cargo install --path apps/locallibrary --locked --no-default-features --features account
+cargo install --path localnetwork/apps/locallibrary --locked --no-default-features --features account
 # The player without audio output: no ALSA headers needed on Linux
-cargo install --path apps/locallibrary --locked --no-default-features --features tui,account
+cargo install --path localnetwork/apps/locallibrary --locked --no-default-features --features tui,account
 ```
 
 The library (`crates/locallibrary` at the repository root) has the `account` and `peers` features too, on by default.

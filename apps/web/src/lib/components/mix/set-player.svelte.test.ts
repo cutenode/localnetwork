@@ -491,11 +491,10 @@ describe('MixReport with a recording', () => {
 		await page.getByRole('button', { name: 'Play', exact: true }).click();
 		await expect.element(position()).toBeEnabled();
 
-		await page
-			.getByRole('button', { name: /^3\. Halogen by Two Rooms/ })
-			.last()
-			.click();
-		await expect.element(page.getByRole('button', { name: /^Playing now: 3\. Halogen/ })).toBeInTheDocument();
+		await page.getByRole('button', { name: '3 Halogen Two Rooms', exact: true }).click();
+		await expect
+			.element(page.getByRole('button', { name: 'Playing now: 3 Halogen Two Rooms', exact: true }))
+			.toBeInTheDocument();
 		await expect.element(position()).toHaveAttribute('aria-valuetext', '10:10 of 11:40');
 	});
 
