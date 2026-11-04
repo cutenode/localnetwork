@@ -188,7 +188,8 @@ fn prop_files_ending_inside_what_an_atom_says_are_left_to_the_decoder(tc: TestCa
     vet_container(&path).unwrap();
     let folder = dir.path().join("folder.m4a");
     std::fs::create_dir(&folder).unwrap();
-    vet_container(&folder).unwrap();
+    // Windows won't open a folder as a file, which is that folder's error sooner.
+    assert_eq!(vet_container(&folder).is_ok(), cfg!(unix));
 }
 
 /// An atom whose size is 0 runs to the end of what holds it (the file, for one of the file's
