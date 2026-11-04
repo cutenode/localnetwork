@@ -93,7 +93,35 @@ export class RecordValidationError extends Error {
 	}
 }
 
-/** Whether `value` holds a legacy `{ cid, mimeType }` blob ref anywhere. */
+/**
+ * atproto's suggested MAX_CBOR_NESTED_LEVELS (https://atproto.com/guides/data-validation). @atproto/lexicon sets no
+ * limit, and its lex conversion recurses, so a deep enough record would overflow the stack instead of failing to fit.
+ */
+const MAX_LEVELS = 32;
+
+export const TOO_DEEP = `nested deeper than ${MAX_LEVELS} levels`;
+
+/**
+ * Whether `record` is nested deeper than MAX_LEVELS, counting it as the first level, or as `startLevel` when it sits
+ * inside a response. Walks with a stack, since a record that deep is what overflows recursion.
+ */
+export function isTooDeep(record: JsonValue | undefined, startLevel = 1): boolean {
+	const stack: [JsonValue | undefined, number][] = [[record, startLevel]];
+
+	for (let next = stack.pop(); next; next = stack.pop()) {
+		const [value, level] = next;
+
+		if (!isObject(value)) continue;
+
+		if (level > MAX_LEVELS) return true;
+
+		for (const item of Object.values(value)) stack.push([item, level + 1]);
+	}
+
+	return false;
+}
+
+/** Whether `value` holds a legacy `{ cid, mimeType }` blob ref anywhere. Recursive, so only for checked depths. */
 function hasLegacyBlob(value: JsonValue | undefined): boolean {
 	if (Array.isArray(value)) return value.some(hasLegacyBlob);
 
@@ -107,10 +135,13 @@ function hasLegacyBlob(value: JsonValue | undefined): boolean {
  * returns it (still in JSON form, e.g. `{ $link }` blob refs) with `$type` set.
  * Validation runs on the lex form so blob refs and CIDs are checked as such.
  * Legacy blob refs pass lexicon validation, but every record type here assumes
- * the typed `{ $type: 'blob', ref }` form, so they're rejected too.
+ * the typed `{ $type: 'blob', ref }` form, so they're rejected too, as are
+ * records nested deeper than atproto suggests.
  */
 export function validateRecord<T extends JsonObject>(collection: string, record: T): T & { $type: string } {
 	const typed = { ...record, $type: collection };
+
+	if (isTooDeep(typed)) throw new RecordValidationError(collection, TOO_DEEP);
 
 	if (hasLegacyBlob(typed)) throw new RecordValidationError(collection, 'legacy blob refs are not supported');
 
