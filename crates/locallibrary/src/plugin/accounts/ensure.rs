@@ -82,9 +82,8 @@ impl Plugin {
     /// as the module's docs say; cancelled through `ctx`. A scope it doesn't ask for is refused.
     pub(crate) fn ensure(&self, live: &Live, asked: Value, ctx: &Ctx<'_>) -> Result<Value, RpcError> {
         let req: EnsureAccount = params(asked)?;
-        let refused = |e: Error| RpcError::invalid_params(e.to_string());
-        self.scopes_given(&req.kind, &req.scopes).map_err(refused)?;
-        let need = self.needs(&req.kind).map_err(refused)?;
+        self.scopes_given(&req.kind, &req.scopes).map_err(|e| RpcError::invalid_params(e.to_string()))?;
+        let need = self.needs(&req.kind).expect("scopes_given checked it");
         let mut now = self.standing(live, need, &req)?;
         if !now.question.scopes.is_empty() {
             self.ask(live, need, now, ctx)?;

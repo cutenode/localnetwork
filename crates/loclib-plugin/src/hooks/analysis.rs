@@ -44,7 +44,7 @@ impl Output {
         if *value == FieldValue::Null {
             return Ok(None);
         }
-        let json = serde_json::to_value(value).map_err(|e| e.to_string())?;
+        let json = serde_json::to_value(value).expect("a field's value is JSON");
         let parsed = match kind {
             FieldType::Beats => serde_json::from_value(json).map(Output::Beats),
             FieldType::Phrases => serde_json::from_value(json).map(Output::Phrases),

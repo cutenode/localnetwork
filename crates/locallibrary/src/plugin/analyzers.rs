@@ -207,8 +207,7 @@ impl Slot {
     ) -> Result<Overlay> {
         let mut o = Overlay::default();
         for (name, value) in structured {
-            let output =
-                Output::of(declared[name], value).map_err(|why| self.misbehaved(format!("its {name}: {why}")))?;
+            let output = Output::of(declared[name], value).expect("accepts checked it");
             match output {
                 None => {}
                 Some(Output::Beats(beats)) if beats.is_empty() => {}
