@@ -48,6 +48,7 @@ mod watch_cmd;
 use indexmap::IndexMap;
 #[cfg(feature = "tui")]
 use std::io::IsTerminal;
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -1034,14 +1035,19 @@ enum PlaylistArg {
 fn main() -> ExitCode {
     // A shell asking what to complete (`COMPLETE=bash locallibrary -- ...`) is answered here.
     completion::complete();
-    let cmd = help::command();
-    let mut matches = match cmd.clone().try_get_matches() {
+    if answered_directly() {
+        return ExitCode::SUCCESS;
+    }
+    let mut cmd = help::for_this_run();
+    let mut matches = match cmd.try_get_matches_from_mut(std::env::args_os()) {
         Ok(m) => m,
         Err(e) => match help::prep_moved(&e) {
-            Some(moved) => return usage_error(cmd.clone().error(clap::error::ErrorKind::InvalidSubcommand, moved)),
+            Some(moved) => return usage_error(cmd.error(clap::error::ErrorKind::InvalidSubcommand, moved)),
             None => return usage_error(help::tidy_suggestions(e, &cmd)),
         },
     };
+    // Dropping it takes as long as a tenth of building it, for nothing: the process is ending.
+    std::mem::forget(cmd);
     let contributed = plugin_cmd::take(&mut matches);
     let cli = match Cli::from_arg_matches(&matches) {
         Ok(cli) => cli,
@@ -1097,6 +1103,28 @@ fn main() -> ExitCode {
             }
         }
     }
+}
+
+/// Answers what needs no command line built, whose every flag and command take most of the time
+/// of a run: `--version` alone, and `plugin serve <id>` for a plugin locallibrary ships, which is
+/// every plugin's start.
+fn answered_directly() -> bool {
+    let args: Option<Vec<String>> = std::env::args_os().skip(1).take(4).map(|a| a.into_string().ok()).collect();
+    let args = args.unwrap_or_default();
+    match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
+        ["--version" | "-V"] => {
+            // Quietly when piped into something that's gone, as clap does.
+            let _ = std::io::stdout().write_all(version_line().as_bytes());
+            true
+        }
+        ["plugin", "serve", id] => plugins::serve_shipped(id),
+        _ => false,
+    }
+}
+
+/// What `--version` prints, as clap words it.
+fn version_line() -> String {
+    format!("locallibrary {}\n", env!("CARGO_PKG_VERSION"))
 }
 
 /// An error under `--json`: `kind` as the sidecar's `error.data.kind` (`code`, its old name, is

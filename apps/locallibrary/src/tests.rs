@@ -34,3 +34,9 @@ fn every_filter_flag_has_the_syntax_after_it() {
     walk(&super::help::command(), "locallibrary", &mut missing);
     assert!(missing.is_empty(), "no filter syntax after {missing:?}");
 }
+
+/// `--version` is answered before clap is, in its words.
+#[test]
+fn the_version_is_what_clap_would_say() {
+    assert_eq!(super::help::command().render_version(), super::version_line());
+}

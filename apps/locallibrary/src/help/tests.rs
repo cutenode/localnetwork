@@ -206,3 +206,15 @@ fn a_slip_in_a_group_keeps_the_groups_suggestion() {
     let top = suggested(&["qlaylists"]);
     assert!(top.contains(&"playlist ls".to_string()) && !top.contains(&"playlists".to_string()), "{top:?}");
 }
+
+/// What might show the top-level help gets the groups it lists; anything else skips building them.
+#[test]
+fn the_top_level_help_is_built_when_it_may_be_shown() {
+    let asks = |args: &[&str]| help_may_be_asked(args.iter().map(Into::into));
+    for args in [&[][..], &["--help"], &["-h"], &["help"], &["help", "tracks"], &["-qh"], &["--quiet", "-h"]] {
+        assert!(asks(args), "{args:?}");
+    }
+    for args in [&["tracks"][..], &["drive", "ls"], &["--json", "status"], &["tracks", "--search", "house"]] {
+        assert!(!asks(args), "{args:?}");
+    }
+}
