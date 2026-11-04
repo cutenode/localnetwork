@@ -3238,29 +3238,16 @@ pub(crate) struct Subset {
     pub warnings: Vec<String>,
 }
 
-/// The source drive's databases holding only `playlists` (paths of playlists or folders; a
-/// folder brings everything in it), the folders above them and the tracks they use, plus the
-/// history lists when `history`. Nothing on the drive changes.
 /// The playlists and folders `specs` name in `lib`, with everything below them and the folders
 /// above them.
 pub(crate) fn chosen_nodes(lib: &Library, specs: &[String]) -> Result<FxHashSet<u32>> {
-    let mut keep: FxHashSet<u32> = FxHashSet::default();
-    for spec in specs {
-        let p = playlist(lib, spec)?;
-        let mut queue = vec![p.id];
-        while let Some(id) = queue.pop() {
-            if keep.insert(id) {
-                queue.extend(lib.children(Some(id)).iter().map(|c| c.id));
-            }
-        }
-        let mut up = p.parent_id;
-        while let Some(id) = up.filter(|id| keep.insert(*id)) {
-            up = lib.playlist(id).and_then(|q| q.parent_id);
-        }
-    }
-    Ok(keep)
+    let ids = specs.iter().map(|spec| playlist(lib, spec).map(|p| p.id));
+    Ok(lib.with_relatives(ids.collect::<Result<Vec<u32>>>()?))
 }
 
+/// The source drive's databases holding only `playlists` (paths of playlists or folders; a
+/// folder brings everything in it), the folders above them and the tracks they use, plus the
+/// history lists when `history`. Nothing on the drive changes.
 pub(crate) fn subset(device: &Device, playlists: &[String], history: bool, ctx: &Ctx<'_>) -> Result<Subset> {
     let mut warnings = Vec::new();
     let dbs = open_databases(device, &mut warnings)?;

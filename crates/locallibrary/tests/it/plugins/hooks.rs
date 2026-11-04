@@ -353,7 +353,7 @@ fn settings_are_checked_kept_and_handed_to_hooks() {
     let unset = set("greeting", None).unwrap();
     assert_eq!(serde_json::to_value(unset).unwrap(), json!({ "greeting": "hello" }));
 
-    // One that can't be read leaves the defaults, said in the log, and is written anew.
+    // A damaged one leaves the defaults, said in the log, and is written anew.
     std::fs::write(&file, "{ not json").unwrap();
     let context = f.echo_params(json!({ "context": true })).unwrap();
     assert_eq!(context["settings"], json!({ "greeting": "hello" }));

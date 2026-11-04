@@ -59,6 +59,10 @@ describe('parseShow', () => {
 		expect(parseShow(form({ title: 'Plain', currency: 'USD' }))).toEqual({ title: 'Plain' });
 	});
 
+	it('puts a show with a date and no time at 20:00', () => {
+		expect(parseShow(form({ title: 'Night', date: '2026-12-12' })).date).toBe('2026-12-12T20:00:00.000Z');
+	});
+
 	it("keeps the venue's city, with coordinates only when a place was picked", () => {
 		const place = {
 			title: 'Night',

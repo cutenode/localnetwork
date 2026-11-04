@@ -1,4 +1,4 @@
-import { once } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { buffer } from 'node:stream/consumers';
@@ -13,6 +13,7 @@ const escapeXml = (value: string) => value.replace(/[<>&]/g, (c) => ({ '<': '&lt
  */
 export async function fakeS3({ bucket = 'backups', pageSize = 1000, silent = false } = {}) {
 	const objects = new Map<string, Buffer>();
+	const puts = new EventEmitter();
 
 	const unanswered = new Set<IncomingMessage>();
 
@@ -45,6 +46,7 @@ export async function fakeS3({ bucket = 'backups', pageSize = 1000, silent = fal
 
 		if (request.method === 'PUT') {
 			objects.set(key, await buffer(request));
+			puts.emit('put');
 
 			return void response.writeHead(200).end();
 		}
@@ -102,6 +104,10 @@ export async function fakeS3({ bucket = 'backups', pageSize = 1000, silent = fal
 			BACKUP_S3_ACCESS_KEY_ID: 'test',
 			BACKUP_S3_SECRET_ACCESS_KEY: 'test',
 			BACKUP_S3_PATH_STYLE: 'true'
+		},
+		/** Resolves once the bucket holds `count` objects, for uploads that run in the background. */
+		stored: async (count: number) => {
+			while (objects.size < count) await once(puts, 'put');
 		},
 		/** The requests taken and not answered yet, as `METHOD /path?query`: what a client is waiting on. */
 		unanswered: () => [...unanswered].map(({ method, url }) => `${method} ${url}`),

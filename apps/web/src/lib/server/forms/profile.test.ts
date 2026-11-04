@@ -128,6 +128,21 @@ describe('parseProfileForm', () => {
 		expect(input.avatar).toBe('remove');
 		expect(input.promoter).toEqual({ cities: [{ city: 'Leipzig', country: 'DE' }] });
 	});
+
+	it('takes a new avatar over removing the old one', async () => {
+		const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0])], 'a.png', {
+			type: 'image/png'
+		});
+
+		const data = form([
+			['name', 'Neon'],
+			['removeAvatar', 'on']
+		]);
+
+		data.append('avatar', png);
+
+		expect((await parseProfileForm(data, undefined)).avatar).toMatchObject({ upload: { mimeType: 'image/png' } });
+	});
 });
 
 describe('profileFormValues and sectionsOf', () => {
@@ -152,6 +167,16 @@ describe('profileFormValues and sectionsOf', () => {
 			performer: false,
 			promoter: false
 		});
+	});
+
+	it('leave the section fields empty for a profile with only the basics', () => {
+		expect(
+			profileFormValues({
+				basics: { name: 'Neon' },
+				createdAt: '2026-10-30T00:00:00.000Z',
+				updatedAt: '2026-10-30T00:00:00.000Z'
+			})
+		).toMatchObject({ name: 'Neon', genres: '', mixes: [], cities: [] });
 	});
 
 	it('echo the city rows back after an error', () => {
