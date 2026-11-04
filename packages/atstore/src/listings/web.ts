@@ -28,8 +28,8 @@ export const web: Listing = {
 	hero: { shots: ['profile'], frame: { kind: 'browser', url: 'localnetwork.computer/projects/neon-tide' } },
 	screenshots: PAGES.map((page) => page.name),
 	page: false,
-	async capture(browser) {
-		await run('pnpm', ['-C', 'apps/web', 'build']);
+	async capture(browser, signal) {
+		await run('pnpm', ['-C', 'apps/web', 'build'], { signal });
 
 		const app = await start('pnpm', ['exec', 'tsx', 'scripts/dev-network.ts', '--app', '--production'], {
 			cwd: join(ROOT, 'apps/web'),
@@ -43,7 +43,8 @@ export const web: Listing = {
 				LOG_LEVEL: 'warn'
 			},
 			// adapter-node prints this once the app has connected its root account and is serving.
-			ready: /Listening on/
+			ready: /Listening on/,
+			signal
 		});
 
 		try {

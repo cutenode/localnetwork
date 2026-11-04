@@ -1,6 +1,7 @@
 // The SoundCloud page the localtoolbox screenshots are taken over: a playlist of made-up tracks by
 // made-up artists, with the answers its content script would give about them, and the stand-in
 // for chrome.* that hands those to the popup.
+import type { Json } from '../../../../apps/localtoolbox/test/helpers/json.ts';
 
 const TRACKS = [
 	['Halflight', 'Glass Hours', 'Deep House'],
@@ -140,9 +141,6 @@ export function cover(url: string): string {
 
 	return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${hue} 70% 58%)"/><stop offset="1" stop-color="hsl(${(hue + 70) % 360} 60% 28%)"/></linearGradient></defs><rect width="10" height="10" fill="url(#g)"/><circle cx="6.5" cy="3.5" r="1.6" fill="hsl(${(hue + 180) % 360} 80% 75% / 0.55)"/></svg>`;
 }
-
-/** What chrome.storage keeps: JSON. */
-type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
 
 /** A key's change, as onChanged hands it over. */
 type Change = { oldValue?: Json; newValue: Json };
