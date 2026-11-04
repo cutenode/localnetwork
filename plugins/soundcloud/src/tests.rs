@@ -884,7 +884,7 @@ fn prop_a_recording_too_big_is_refused_first(tc: TestCase) {
     let s = start(SoundCloud::new());
     for case in 0..3 {
         let path = file(dir.path(), "set.flac", 0);
-        // Sparse: it takes no room.
+        // Sparse where the file system can be, so it takes little room.
         let size = if case == 1 { MAX_BYTES + 1 } else { size };
         std::fs::File::options().write(true).open(&path).unwrap().set_len(size).unwrap();
         if case == 2 {

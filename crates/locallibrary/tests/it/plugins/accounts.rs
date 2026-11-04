@@ -779,7 +779,7 @@ enum Refusing {
 #[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn prop_a_store_damaged_as_a_service_refuses_a_token_says_so(tc: TestCase) {
     let query = tc.draw(gs::sampled_from(vec!["", "token = { query = \"access_token\" }"]));
-    let damaged = Damage::ALL.into_iter().filter(|d| *d != Damage::Lock).map(Refusing::Damaged);
+    let damaged = Damage::here().filter(|d| *d != Damage::Lock).map(Refusing::Damaged);
     let others =
         [Refusing::Forgotten, Refusing::Replaced, Refusing::Scoped, Refusing::Unrefreshable, Refusing::SignedOut];
     for refusing in damaged.chain(others) {

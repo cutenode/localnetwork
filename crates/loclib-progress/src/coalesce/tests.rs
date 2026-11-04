@@ -225,7 +225,8 @@ fn prop_a_flusher_waits_for_a_reporter_and_stops_when_told(tc: TestCase) {
     let live = tc.draw(gs::booleans());
     let flusher = Arc::new(Flusher::default());
     let passed = Passed::default();
-    let p = Arc::new(coalesced(&passed, Duration::from_millis(5)));
+    // Long enough for the gone reporter's one event never to come due, however late this runs.
+    let p = Arc::new(coalesced(&passed, Duration::from_secs(if live { 0 } else { 3600 }) + Duration::from_millis(5)));
     flusher.watch(&p);
     Ctx::new(&*p, CancelToken::new()).emit(Event::Bytes { phase: Phase::Copy, bytes: 1 });
     if !live {

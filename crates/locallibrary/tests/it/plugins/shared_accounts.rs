@@ -646,6 +646,12 @@ pub(super) enum Damage {
 impl Damage {
     pub(super) const ALL: [Damage; 5] = [Damage::Book, Damage::Lock, Damage::Holds, Damage::Locker, Damage::Secrets];
 
+    /// Those that damage a store on this system. Windows finds no file under a file, where other
+    /// systems fail to open it, so the secrets file behind a file is only not there.
+    pub(super) fn here() -> impl Iterator<Item = Damage> {
+        Damage::ALL.into_iter().filter(|d| !cfg!(windows) || *d != Damage::Locker)
+    }
+
     /// Damages the store at `root` so.
     pub(super) fn to(self, root: &Path) {
         let [book, lock, holds, secrets] = files(root);
@@ -869,7 +875,7 @@ fn prop_a_damaged_store_fails_what_reads_it_and_changes_nothing(tc: TestCase) {
     m.sign_in(who(json!("a"), None), None, &["read"]).0.unwrap();
     let snapshot = Snapshot::of(m.f.store.root());
     let mut answers = Vec::new();
-    for damage in Damage::ALL {
+    for damage in Damage::here() {
         for u in Use::ALL {
             let done = m.use_damaged(u, damage, query);
             let said = format!("{u:?} with {damage:?}: {done:?}");
