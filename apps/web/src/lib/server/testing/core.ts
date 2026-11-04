@@ -14,6 +14,7 @@ import { DjListings } from '../services/dj-listings';
 import { EpkService } from '../services/epk';
 import { EpkViews } from '../services/epk-views';
 import { FollowService } from '../services/follows';
+import { HeldRecords } from '../services/held-records';
 import { PerformerSearch } from '../services/performers';
 import { PlannerService } from '../services/planner';
 import { ProfileService } from '../services/profiles';
@@ -135,6 +136,7 @@ export async function createTestServices(
 	const listings = new ListingWriter(core, options.listingSources ?? {});
 	const sharedSpaces = new SharedSpaces(core, listings);
 	const spaceJoins = new SpaceJoins(core, sharedSpaces, new RateLimiter(30, 30 / 60));
+	const heldRecords = new HeldRecords(core, requests, projects, new RateLimiter(30, 30 / 60));
 
 	await ensureRootSpaces(core);
 	await audit.idle();
@@ -176,6 +178,7 @@ export async function createTestServices(
 		verifications,
 		sharedSpaces,
 		spaceJoins,
+		heldRecords,
 		listings,
 		handles,
 		indexedRepo,

@@ -11,7 +11,10 @@ pub fn capture(log: impl Fn(&str) + Send + 'static) {
     let _ = log;
 }
 
-/// Point stderr back where it was, for what's printed after the player (or as it panics).
+/// Point stderr back where it was, for what's printed after the player (or as it panics). Not
+/// to a terminal that has gone away (its window closed): it fails every write, and a print that
+/// fails panics (ratatui's, putting the cursor back as the player ends, then the panic hook's),
+/// so what's printed after goes nowhere.
 pub fn restore() {
     #[cfg(unix)]
     unix::restore();
@@ -21,10 +24,12 @@ pub fn restore() {
 mod unix {
     use std::io::{BufRead, BufReader};
     use std::os::fd::AsRawFd;
-    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
     /// stderr as it was, while it's captured (-1 otherwise).
     static SAVED: AtomicI32 = AtomicI32::new(-1);
+    /// Whether it was a terminal.
+    static TERMINAL: AtomicBool = AtomicBool::new(false);
 
     pub fn capture(log: impl Fn(&str) + Send + 'static) {
         if SAVED.load(Ordering::Relaxed) >= 0 {
@@ -41,6 +46,8 @@ mod unix {
             return;
         }
         drop(write);
+        // SAFETY: isatty only asks about a descriptor this process owns.
+        TERMINAL.store(unsafe { libc::isatty(saved) } == 1, Ordering::Relaxed);
         SAVED.store(saved, Ordering::Relaxed);
         // Not joined: it ends once nothing writes to the pipe, when stderr is put back and any
         // program started meanwhile (which got it as its stderr) has exited.
@@ -59,9 +66,14 @@ mod unix {
         if saved < 0 {
             return;
         }
-        // SAFETY: stderr goes back to what it was, closing this end of the pipe.
+        // A terminal that has gone away fails even a write of nothing (EIO), which one that's
+        // there takes without showing anything. (Not asked of a pipe, whose reader may be gone.)
+        // SAFETY: a write of no bytes, to a descriptor this process owns.
+        let gone = TERMINAL.load(Ordering::Relaxed) && unsafe { libc::write(saved, [0u8; 0].as_ptr().cast(), 0) } < 0;
+        let null = gone.then(|| std::fs::File::options().write(true).open("/dev/null").ok()).flatten();
+        // SAFETY: stderr goes back to what it was (or to /dev/null), closing this end of the pipe.
         unsafe {
-            libc::dup2(saved, 2);
+            libc::dup2(null.as_ref().map_or(saved, AsRawFd::as_raw_fd), 2);
             libc::close(saved);
         }
     }

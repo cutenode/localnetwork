@@ -58,7 +58,7 @@
 			<h1 class="m-0 text-title font-semibold">{title}</h1>
 			<StatusPill status={request.status} />
 		</div>
-		<p class="m-0 text-small text-fg-muted">Submitted {formatDateTime(request.createdAt)}{request.updatedAt !== request.createdAt ? ` · revised ${formatDateTime(request.updatedAt)}` : ''}</p>
+		<p class="m-0 text-small text-fg-muted">Submitted {formatDateTime(request.createdAt)}{request.updatedAt !== request.createdAt ? ` · revised ${formatDateTime(request.updatedAt)}` : ''}{request.deletedAt ? ` · you deleted what it said ${formatDateTime(request.deletedAt)}` : ''}</p>
 	</header>
 
 	{#if data.submitted}

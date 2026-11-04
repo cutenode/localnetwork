@@ -48,3 +48,22 @@ it('shows an approved request as the changes it published', async () => {
 	await expect.element(page.getByRole('heading', { name: 'Published changes' })).toBeInTheDocument();
 	await expect.element(page.getByText('Dub')).toBeInTheDocument();
 });
+
+it('says when the requester deleted what a decided request said', async () => {
+	const decided = {
+		status: 'rejected' as const,
+		decision: { by: ada, at: '2026-10-02T00:00:00Z', reason: 'Duplicate' }
+	};
+
+	const { rerender } = await render(Page, {
+		params: { rkey: '3kupdate' },
+		data: { ...base, submitted: false, request: request('update', decided) },
+		form: null
+	});
+
+	await expect.element(page.getByText(/you deleted what it said/)).not.toBeInTheDocument();
+	await rerender({
+		data: { ...base, submitted: false, request: request('update', { ...decided, deletedAt: '2026-10-05T12:00:00Z' }) }
+	});
+	await expect.element(page.getByText(/you deleted what it said/)).toBeVisible();
+});

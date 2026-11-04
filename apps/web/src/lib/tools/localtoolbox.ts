@@ -1,9 +1,13 @@
-import artists from './captures/localtoolbox/artists.png?enhanced';
-import manager from './captures/localtoolbox/manager.png?enhanced';
+import artists from './captures/localtoolbox/artists.png?enhanced&w=2560;1600;960';
+import artistsPhone from './captures/localtoolbox/artists-phone.png?enhanced';
+import manager from './captures/localtoolbox/manager.png?enhanced&w=2560;1600;960';
+import managerPhone from './captures/localtoolbox/manager-phone.png?enhanced';
 import marks from './captures/localtoolbox/marks.png?enhanced&w=2560;1600;960';
 import marksPhone from './captures/localtoolbox/marks-phone.png?enhanced';
-import menu from './captures/localtoolbox/menu.png?enhanced';
-import playlistToText from './captures/localtoolbox/playlist-to-text.png?enhanced';
+import menu from './captures/localtoolbox/menu.png?enhanced&w=2560;1600;960';
+import menuPhone from './captures/localtoolbox/menu-phone.png?enhanced';
+import playlistToText from './captures/localtoolbox/playlist-to-text.png?enhanced&w=2560;1600;960';
+import playlistToTextPhone from './captures/localtoolbox/playlist-to-text-phone.png?enhanced';
 import { loadDocs } from './docs.ts';
 import type { Tool } from './types.ts';
 
@@ -29,7 +33,8 @@ export const localtoolbox: Tool = {
 			line: 'Shows where each track can be downloaded, and works through gates like Hypeddit, ToneDen and Droploud',
 			capture: {
 				picture: manager,
-				alt: "localtoolbox's manager: a playlist's tracks grouped by where each one downloads, with buttons to download, queue or mark each"
+				phone: managerPhone,
+				alt: "localtoolbox's manager, open on a SoundCloud playlist: its tracks grouped by the site each one downloads from, with buttons to download, queue or mark each"
 			}
 		},
 		{
@@ -37,6 +42,7 @@ export const localtoolbox: Tool = {
 			line: 'Turns a playlist, Likes page or track page into plain text, CSV, TSV or JSON',
 			capture: {
 				picture: playlistToText,
+				phone: playlistToTextPhone,
 				alt: 'localtoolbox turning a SoundCloud playlist into ten lines of artist and title, ready to copy or download'
 			}
 		},
@@ -45,13 +51,14 @@ export const localtoolbox: Tool = {
 			line: 'Keeps a list of artists with their socials and contact addresses',
 			capture: {
 				picture: artists,
+				phone: artistsPhone,
 				alt: "localtoolbox's artist list: each artist with their city, socials and contact address"
 			}
 		},
 		{
 			name: 'Tools',
 			line: 'Opens from the toolbar on any SoundCloud page, and saves everything to one JSON file',
-			capture: { picture: menu, alt: "localtoolbox's menu, listing each of its tools" }
+			capture: { picture: menu, phone: menuPhone, alt: "localtoolbox's menu, listing each of its tools" }
 		}
 	],
 	install: {
@@ -66,9 +73,11 @@ export const localtoolbox: Tool = {
 			{ text: 'Click Load unpacked and pick the apps/localtoolbox/dist folder.' }
 		]
 	},
+	status: 'Free. Not in the Chrome Web Store yet: you build it and load it into Chrome.',
+	// Its README is the developers' spec, so the guides are docs/*.md, led by docs/overview.md.
 	docs: loadDocs(
 		'apps/localtoolbox',
-		import.meta.glob<string>('../../../../localtoolbox/{README.md,docs/*.md}', {
+		import.meta.glob<string>('../../../../localtoolbox/docs/*.md', {
 			query: '?raw',
 			import: 'default',
 			eager: true

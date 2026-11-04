@@ -4,7 +4,7 @@ import { trackSchema } from '#lib/mix/schema.ts';
 import exported from './captures/locallibrary/demo-track.json' with { type: 'json' };
 import { locallibrary } from './locallibrary.ts';
 import { localtoolbox } from './localtoolbox.ts';
-import type { Tool } from './types.ts';
+import type { Capture, Tool } from './types.ts';
 
 export const tools: Tool[] = [locallibrary, localtoolbox];
 
@@ -18,13 +18,20 @@ export const demoTrack = (({ durationSecs, overview, phrases }) => ({ durationSe
 	trackSchema.parse(exported)
 );
 
-/** What /tools and the home page show of each tool: its first three things, and the capture of the first. */
+/**
+ * What /tools and the home page show of a tool. `status`, what installing it means today, is
+ * there for a card that wants to say so.
+ */
+type ToolCard = Pick<Tool, 'id' | 'name' | 'kind' | 'tagline' | 'status'> & { lines: string[]; capture: Capture };
+
+/** Each tool's card: its first three things, and the capture of the first. */
 export const toolCards = () =>
-	tools.map(({ id, name, kind, tagline, cues }) => ({
+	tools.map(({ id, name, kind, tagline, status, cues }): ToolCard => ({
 		id,
 		name,
 		kind,
 		tagline,
+		status,
 		lines: cues.slice(0, 3).map((cue) => cue.line),
 		capture: cues[0].capture
 	}));

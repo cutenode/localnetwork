@@ -2,6 +2,7 @@
 // mounted under a folder of the run's own, so locallibrary sees volumes mounted at their own roots
 // with a stick's space, rather than folders on this Mac's disk. Mounted with `nobrowse`, out of
 // /Volumes and the Finder. macOS only (hdiutil and diskutil).
+import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { run } from './run.ts';
@@ -16,28 +17,59 @@ const SIZE = '62500000b';
 export interface Sticks {
 	/** The folder they're mounted in, `<dir>/Volumes`, each at its name. */
 	volumes: string;
-	/** Ejects every one of them, trying them all before failing over any that wouldn't go. */
-	eject(): Promise<void>;
+	/** Ejects every one of them, and says whether they all went. One that wouldn't is logged. */
+	eject(): Promise<boolean>;
+}
+
+/**
+ * Ejects each of `mountPoints`, and says whether they all went. A process with a file open on one
+ * keeps diskutil from ejecting it, and the run is over by then: then it's forced off.
+ */
+async function ejectAll(mountPoints: string[]): Promise<boolean> {
+	let ejected = true;
+
+	for (const mountPoint of mountPoints) {
+		await run('diskutil', ['eject', mountPoint])
+			.catch(() => run('diskutil', ['eject', 'force', mountPoint]))
+			.catch((error: Error) => {
+				console.error(`${mountPoint} wouldn't eject: ${error.message}`);
+				ejected = false;
+			});
+	}
+
+	return ejected;
+}
+
+/** A disk image attached to this Mac, as `hdiutil info` lists it. */
+interface Attached {
+	'image-path': string;
+	'system-entities': { 'mount-point'?: string }[];
+}
+
+/**
+ * Ejects the sticks a run that never got to eject them left mounted, and says whether they all
+ * went: those whose images are in `dir`, as hdiutil has them attached. Nothing else is touched,
+ * whatever `dir` holds, so a mount point or a symlink someone else put there ejects nothing.
+ */
+export async function ejectLeftovers(dir: string): Promise<boolean> {
+	const plist = execFileSync('hdiutil', ['info', '-plist']);
+
+	const { images = [] }: { images?: Attached[] } = JSON.parse(
+		execFileSync('plutil', ['-convert', 'json', '-o', '-', '-'], { input: plist, encoding: 'utf8' })
+	);
+
+	return ejectAll(
+		images
+			.filter((image) => image['image-path'].startsWith(`${dir}/`))
+			.flatMap((image) => image['system-entities'].flatMap((entity) => entity['mount-point'] ?? []))
+	);
 }
 
 /** Makes a stick for each of `names` (a FAT32 volume name: 11 letters at most) in `dir`, and mounts it. */
 export async function mountSticks(dir: string, names: string[]): Promise<Sticks> {
 	const volumes = join(dir, 'Volumes');
 	const mounted: string[] = [];
-
-	const eject = async () => {
-		const failed: Error[] = [];
-
-		for (const mountPoint of mounted.splice(0).toReversed()) {
-			// A process with a file open on it keeps diskutil from ejecting it, and the run is over:
-			// then it's forced off.
-			await run('diskutil', ['eject', mountPoint])
-				.catch(() => run('hdiutil', ['detach', '-force', mountPoint]))
-				.catch((error: Error) => failed.push(error));
-		}
-
-		if (failed.length > 0) throw new AggregateError(failed, `${failed.length} stick(s) wouldn't eject`);
-	};
+	const eject = () => ejectAll(mounted.splice(0).toReversed());
 
 	try {
 		for (const name of names) {
@@ -70,7 +102,7 @@ export async function mountSticks(dir: string, names: string[]): Promise<Sticks>
 		}
 	} catch (error) {
 		// The sticks made so far go too, and the error that stopped them is the one that's thrown.
-		await eject().catch((ejecting: Error) => console.error(ejecting));
+		await eject();
 		throw error;
 	}
 

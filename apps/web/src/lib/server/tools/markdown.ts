@@ -71,3 +71,10 @@ export function renderMarkdown(markdown: string, tool: Tool, from: string): stri
 
 	return html;
 }
+
+/** A tool page's sections as HTML, their links resolved like the overview's, which `loadDocs` puts first. */
+export const renderSections = (tool: Tool) =>
+	(tool.sections ?? []).map((section) => ({
+		title: section.title,
+		html: renderMarkdown(section.markdown, tool, tool.docs[0].path)
+	}));

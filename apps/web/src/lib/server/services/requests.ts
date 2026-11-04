@@ -962,7 +962,8 @@ export class RequestService {
 							reason: row.decisionReason
 						}
 					: null,
-				resultProjectSlug: result?.slug ?? null
+				resultProjectSlug: result?.slug ?? null,
+				deletedAt: row.deletedAt
 			};
 		});
 	}

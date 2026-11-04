@@ -24,16 +24,31 @@
 	const guides = (id: string) => (findTool(id)?.docs ?? []).map(({ slug, title }) => ({ slug, title }));
 
 	const toolData = (id: string) => {
-		const { name, kind, tagline, summary, cues, install } = findTool(id) ?? tools[0];
+		const { name, kind, tagline, summary, cues, install, status } = findTool(id) ?? tools[0];
 
-		return { ...layout, tool: { id, name, kind, tagline, summary, cues, install }, track: demoTrack, sections: [], guides: guides(id) };
+		return { ...layout, tool: { id, name, kind, tagline, summary, cues, install, status }, track: demoTrack, sections: [], guides: guides(id) };
 	};
+
+	// A guide long enough to open on its sections, with a line under each.
+	const contents = [
+		{ id: 'the-managers-list', title: "The Manager's list" },
+		{ id: 'where-each-track-downloads', title: 'Where each track downloads' },
+		{ id: 'the-session-queue', title: 'The session queue' },
+		{ id: 'download-gates', title: 'Download gates' },
+		{ id: 'when-a-gate-needs-you', title: 'When a gate needs you' }
+	];
 
 	const guide = {
 		...layout,
-		tool: { id: 'locallibrary', name: 'locallibrary' },
-		doc: { slug: 'install', title: 'Installing locallibrary', path: 'apps/locallibrary/docs/install.md', html: '<h2 id="install">Install</h2><p>There hasn’t been a release yet, so for now you build it from source.</p>' },
-		guides: guides('locallibrary')
+		tool: { id: 'localtoolbox', name: 'localtoolbox' },
+		doc: {
+			slug: 'downloads',
+			title: 'Downloads and gates',
+			path: 'apps/localtoolbox/docs/downloads.md',
+			html: contents.map(({ id, title }) => `<h2 id="${id}">${title}</h2><p>Nothing goes on the list by itself. Open a SoundCloud playlist, Likes page or track page, scroll a long list to the end, then open the Manager.</p>`).join('')
+		},
+		contents,
+		guides: guides('localtoolbox')
 	};
 </script>
 
@@ -46,7 +61,7 @@
 {/snippet}
 
 {#snippet guidePage()}
-	<Layout data={layout} params={{}}><GuidePage data={guide} params={{ tool: 'locallibrary', page: 'install' }} form={null} /></Layout>
+	<Layout data={layout} params={{}}><GuidePage data={guide} params={{ tool: 'localtoolbox', page: 'downloads' }} form={null} /></Layout>
 {/snippet}
 
 <Story name="Tools" asChild>{@render tools_()}</Story>
