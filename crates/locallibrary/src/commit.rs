@@ -296,15 +296,21 @@ struct Undo {
 }
 
 impl Undo {
-    fn new(device: &Device) -> Self {
+    fn new(device: &Device) -> Result<Self> {
         let state_path = device.state_dir().join("state.json");
-        Undo {
-            state: std::fs::read(&state_path).ok(),
+        // None means there was no state, and a rollback removes the one this commit wrote.
+        let state = match fsutil::read(&state_path) {
+            Ok(bytes) => Some(bytes),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(Error::Io { path: state_path, source: e }),
+        };
+        Ok(Undo {
+            state,
             state_path,
             backup: None,
             had_backups: device.state_dir().join("backups").is_dir(),
             dirs: Vec::new(),
-        }
+        })
     }
 
     /// Make `dir` (and the folders above it), remembering which were new.
@@ -338,7 +344,7 @@ impl Undo {
 /// Write `changes` to the drive (locked by the caller, see [`lock`]) as the module docs describe.
 pub(crate) fn commit(device: &mut Device, changes: Changes<'_>, opts: Options<'_>, ctx: &Ctx<'_>) -> Result<Committed> {
     ctx.check()?;
-    let mut undo = Undo::new(device);
+    let mut undo = Undo::new(device)?;
     let mut done = Committed::default();
     let Changes { databases, files, deletes, remove_first } = changes;
     let staged = match prepare(device, &databases, files, &deletes, &opts, &mut undo, &mut done, ctx) {
