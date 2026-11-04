@@ -104,14 +104,107 @@ fn a_collection_answers_each_tracks_match_key_tempo_and_cues() {
     assert_eq!((importer.format.as_str(), importer.extension.as_deref()), ("rekordbox-xml", Some("xml")));
 }
 
+/// A collection of 10,000 tracks with long names, whose answer is too big for a message.
+fn big() -> String {
+    let name = "n".repeat(500);
+    let tracks: Vec<(String, String)> =
+        (0..10_000).map(|id| (format!(r#"TrackID="{id}" Name="{name}" Artist="{id}""#), String::new())).collect();
+    collection(&tracks)
+}
+
+/// A FIFO at `name` in `dir`, which a read waits on until it's fed.
+#[cfg(unix)]
+pub(crate) fn fifo(dir: &Path, name: &str) -> String {
+    let path = dir.join(name);
+    assert!(std::process::Command::new("mkfifo").arg(&path).status().unwrap().success());
+    path.to_string_lossy().into_owned()
+}
+
+/// Cancels `pending`, sent by `host`, once its hook is reading the FIFO `file` (opening it to
+/// write waits for the hook to open it: cancelled before it starts, a hook never runs), then
+/// feeds it `text` once the plugin has taken the cancel in.
+#[cfg(unix)]
+pub(crate) fn cancel_while_reading(
+    host: &loclib_plugin::Peer,
+    pending: &loclib_plugin::Pending,
+    file: &str,
+    text: &str,
+) {
+    let (opened, fifo) = std::sync::mpsc::channel();
+    let path = file.to_string();
+    std::thread::spawn(move || opened.send(std::fs::OpenOptions::new().write(true).open(path).unwrap()));
+    let mut fifo = fifo.recv_timeout(std::time::Duration::from_secs(30)).expect("the hook reads the file");
+    pending.cancel();
+    // The plugin reads what the host sends in order: once it has answered this, it has the cancel.
+    host.request::<_, serde_json::Value>(method::DESCRIBE, &json!({})).unwrap();
+    std::io::Write::write_all(&mut fifo, text.as_bytes()).unwrap();
+}
+
+/// A big collection's answer is a file in the request's scratch folder, holding every track; and
+/// what stops its read fails it as what it is: a file that isn't there as `io`, naming it;
+/// cancelled once it's asked, `cancelled`; without the scratch folder its answer goes in, `io`,
+/// naming the file it couldn't write.
+#[hegel::test(test_cases = 3)]
+fn prop_a_big_read_is_a_blob_or_stops_as_what_stopped_it(tc: TestCase) {
+    // Cancelled while it reads a FIFO, which only Unix has.
+    let reads = [Read::Whole, Read::NotThere, Read::NoFolder].into_iter().chain(cfg!(unix).then_some(Read::Cancelled));
+    let name = tc.draw(gs::sampled_from(vec!["big.xml", "Library Export.xml"]));
+    for read in reads {
+        big_read(read, name);
+    }
+}
+
+/// How [`prop_a_big_read_is_a_blob_or_stops_as_what_stopped_it`] reads.
+#[derive(Clone, Copy, Debug)]
+enum Read {
+    Whole,
+    NotThere,
+    Cancelled,
+    NoFolder,
+}
+
+/// [`prop_a_big_read_is_a_blob_or_stops_as_what_stopped_it`] for the file `name`, read as `read`.
+fn big_read(read: Read, name: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    let file = match read {
+        Read::NotThere => dir.path().join(name).to_string_lossy().into_owned(),
+        #[cfg(unix)]
+        Read::Cancelled => fifo(dir.path(), name),
+        _ => write(dir.path(), name, &big()),
+    };
+    let scratch = match read {
+        Read::NoFolder => dir.path().join("gone"),
+        _ => dir.path().to_path_buf(),
+    };
+    let s = start(Library::default());
+    let req = json!({ "importer": "rekordbox-xml", "file": file, "context": { "scratch": scratch } });
+    let pending = s.host.send_request(method::READ_IMPORT, &req).unwrap();
+    #[cfg(unix)]
+    if let Read::Cancelled = read {
+        cancel_while_reading(&s.host, &pending, &file, &big());
+    }
+    let answer = pending.wait_timeout::<ImportAnswer>(std::time::Duration::from_secs(60)).expect("an answer");
+    assert!(s.stop().is_empty(), "it reads nothing through the host");
+    let e = match (read, answer) {
+        (Read::Whole, Ok(answer)) => {
+            assert_eq!(answer, ImportAnswer::Blob(Blob { blob: "read.json".into() }));
+            let read: Imported = serde_json::from_slice(&std::fs::read(dir.path().join("read.json")).unwrap()).unwrap();
+            return assert_eq!(read.tracks.len(), 10_000);
+        }
+        (_, answer) => answer.unwrap_err(),
+    };
+    match read {
+        Read::NotThere => assert!(kind(&e).0 == "io" && kind(&e).1.starts_with(&format!("{file}: ")), "{e:?}"),
+        Read::Cancelled => assert_eq!(e, RpcError::cancelled()),
+        _ => assert!(kind(&e).0 == "io" && kind(&e).1.starts_with("read.json: "), "{e:?}"),
+    }
+}
+
 /// An answer bigger than a quarter of a message is a file in the request's scratch folder.
 #[test]
 fn a_big_answer_comes_in_a_blob() {
     let dir = tempfile::tempdir().unwrap();
-    let name = "n".repeat(500);
-    let tracks: Vec<(String, String)> =
-        (0..10_000).map(|id| (format!(r#"TrackID="{id}" Name="{name}" Artist="{id}""#), String::new())).collect();
-    let file = write(dir.path(), "big.xml", &collection(&tracks));
+    let file = write(dir.path(), "big.xml", &big());
     let scratch = tempfile::tempdir().unwrap();
     let answer = answer(&file, Some(scratch.path())).unwrap();
     assert_eq!(answer, ImportAnswer::Blob(Blob { blob: "read.json".into() }));

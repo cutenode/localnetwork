@@ -577,3 +577,316 @@ fn any_answer_is_held_within_what_a_call_holds(tc: TestCase) {
     assert_eq!(ids, p.images.keys().collect(), "only the candidates'");
     assert_eq!(p.warnings, past);
 }
+
+/// For any way a provider misbehaves (a candidate for a track it wasn't asked about, scoring
+/// past 0 to 1, of the other kind, or an image that isn't in its scratch folder), what it found is
+/// a warning saying so, nothing of it offered; one that fails is a warning too, one cancelled
+/// cancels, and tags that are all blank, or that the track has, are no candidate. Its parts of a
+/// view, sent as any request's may be, change nothing.
+#[hegel::test(test_cases = 1)]
+fn prop_a_provider_misbehaving_is_a_warning(tc: TestCase) {
+    use ProviderKind::{Artwork, Metadata};
+    let either = [0, 1, 2, 3, 5].into_iter().flat_map(|case| [(case, Metadata), (case, Artwork)]);
+    let one = [(4, Artwork), (6, Metadata), (7, Metadata)];
+    for (case, kind) in either.chain(one) {
+        prop_a_provider_misbehaving_is_a_warning_case(&tc, case, kind);
+    }
+}
+
+/// [`prop_a_provider_misbehaving_is_a_warning`] for one `case`.
+#[hegel::test_helper]
+fn prop_a_provider_misbehaving_is_a_warning_case(tc: &TestCase, case: u8, kind: ProviderKind) {
+    let f = Fixture::new(|dir| vec![spec(dir, &providing("echo"), &["--partials"])], Options::default());
+    let t = common::library(&f.drive).tracks[0].clone();
+    let id = t.id;
+    let tag: String = tc.draw(gs::from_regex("[a-z]{1,8}").fullmatch(true));
+    let image = json!({ "score": 1, "source": "S", "label": "L", "artwork": { "blob": "a.jpg" } });
+    let (title, own, other) = match kind {
+        ProviderKind::Metadata => ("Found", tags(1.0, &tag), image),
+        ProviderKind::Artwork => ("Covers", image, tags(1.0, &tag)),
+    };
+    let scoring = |mut c: Value, score: f64| {
+        c["score"] = score.into();
+        c
+    };
+    let failed = |why: &str| Some(format!("{title}: the Echo plugin failed: {why}"));
+    let (answer, warned) = match case {
+        0 => (
+            json!({ "candidates": [for_track(9999, own)] }),
+            failed("its candidate 0 is for track #9999, not asked about"),
+        ),
+        1 => (
+            json!({ "candidates": [for_track(id, scoring(own, 2.5))] }),
+            failed("its candidate 0 scores 2.5, not 0 to 1"),
+        ),
+        2 => {
+            let why = format!("its candidate 0 isn't {}'s: an image for artwork, tags for metadata", kind.name());
+            (json!({ "candidates": [for_track(id, other)] }), failed(&why))
+        }
+        3 => (json!({ "fail": "not_found" }), Some(format!("{title}: not found: it failed (the Echo plugin)"))),
+        4 => (json!({ "candidates": [for_track(id, own)] }), failed("its candidate 0: its file \"a.jpg\" isn't there")),
+        7 => (json!({ "candidates": [for_track(id, tags(1.0, "  "))] }), None),
+        // Tags the track has: nothing to offer.
+        6 => (json!({ "candidates": [for_track(id, tags(1.0, &t.title))] }), None),
+        _ => (json!({ "fail": "cancelled" }), None),
+    };
+    let cancelled = answer["fail"] == "cancelled";
+    f.answer("echo", answer);
+    let provided = f.provide(kind, Some("echo"), true);
+    if cancelled {
+        assert!(matches!(provided, Err(Error::Cancelled)), "{provided:?}");
+        return;
+    }
+    let p = provided.unwrap();
+    assert!(p.offers.is_empty(), "{:?}", titles(&p));
+    match warned {
+        Some(warned) => assert!(p.warnings.len() == 1 && p.warnings[0].starts_with(&warned), "{:?}", p.warnings),
+        None => assert_eq!(p.warnings, Vec::<String>::new()),
+    }
+}
+
+/// For any drive that isn't known here or whose library can't be read, nothing is asked of the
+/// providers; and for any drive no edit is planned for, a pick isn't planned: each fails, saying
+/// why.
+#[hegel::test(test_cases = 1)]
+fn prop_providing_on_a_drive_it_cant_read_or_plan_for_fails(tc: TestCase) {
+    use super::analysis::Unplannable;
+    for how in Unplannable::ALL {
+        prop_providing_on_a_drive_it_cant_read_or_plan_for_fails_case(&tc, how);
+    }
+}
+
+/// [`prop_providing_on_a_drive_it_cant_read_or_plan_for_fails`] for one `how`.
+#[hegel::test_helper]
+fn prop_providing_on_a_drive_it_cant_read_or_plan_for_fails_case(tc: &TestCase, how: super::analysis::Unplannable) {
+    use super::analysis::Unplannable;
+    let f = Fixture::providers(&["echo"]);
+    let t = common::library(&f.drive).tracks[0].clone();
+    let (drive, code) = how.make(&f);
+    let req = Provide {
+        kind: ProviderKind::Metadata,
+        drive: drive.into(),
+        tracks: TrackSelector::default(),
+        from: None,
+        replace: true,
+    };
+    let provided = f.plugins.provide(&req, Some(&f.store), &Ctx::silent());
+    match how {
+        Unplannable::Unknown | Unplannable::Library => assert_eq!(provided.unwrap_err().code(), code),
+        Unplannable::Journal | Unplannable::Archive => assert!(provided.is_ok(), "{provided:?}"),
+    }
+    let metadata = TrackMetadata {
+        title: Some(format!("{} {}", t.title, tc.draw(gs::from_regex("[a-z]{1,6}").fullmatch(true)))),
+        ..TrackMetadata::default()
+    };
+    let found = Found {
+        provider: "echo.found".into(),
+        source: "Tags".into(),
+        label: "L".into(),
+        score: 1.0,
+        artwork: None,
+        metadata: Some(metadata),
+    };
+    let picks = vec![locallibrary::plugin::Pick { track: t.id, candidate: found }];
+    let plan = PlanProvided {
+        kind: ProviderKind::Metadata,
+        drive: drive.into(),
+        picks,
+        images: Default::default(),
+        replace: true,
+    };
+    let e = plan_provided(&plan, &Ctx::silent()).unwrap_err();
+    assert_eq!(e.code(), code, "{how:?}: {e}");
+}
+
+/// For any pick of a track the drive doesn't have, or of the other kind, nothing is planned,
+/// saying why; a pick changing nothing (cover art on a track that has some, or tags it has,
+/// without replacing) is left out.
+#[hegel::test(test_cases = 1)]
+fn prop_a_pick_that_isnt_one_is_refused_or_left_out(tc: TestCase) {
+    for case in 0..=4 {
+        prop_a_pick_that_isnt_one_is_refused_or_left_out_case(&tc, case);
+    }
+}
+
+/// [`prop_a_pick_that_isnt_one_is_refused_or_left_out`] for one `case`.
+#[hegel::test_helper]
+fn prop_a_pick_that_isnt_one_is_refused_or_left_out_case(tc: &TestCase, case: u8) {
+    let f = Fixture::providers(&["echo"]);
+    let t = common::library(&f.drive).tracks[0].clone();
+    let source: String = tc.draw(gs::from_regex("[A-Z]{1,8}").fullmatch(true));
+    let images: indexmap::IndexMap<String, String> =
+        [("cover".to_string(), BASE64_STANDARD.encode(jpeg(16)))].into_iter().collect();
+    let found = |artwork: Option<&str>, metadata: Option<TrackMetadata>| Found {
+        provider: "echo.found".into(),
+        source: source.clone(),
+        label: "L".into(),
+        score: 1.0,
+        artwork: artwork.map(String::from),
+        metadata,
+    };
+    let same = TrackMetadata { title: Some(t.title.clone()), ..TrackMetadata::default() };
+    let plan = |kind: ProviderKind, track: u32, candidate: Found, replace: bool| {
+        let picks = vec![locallibrary::plugin::Pick { track, candidate }];
+        let req = PlanProvided { kind, drive: "USB".into(), picks, images: images.clone(), replace };
+        plan_provided(&req, &Ctx::silent())
+    };
+    match case {
+        0 => {
+            let e = plan(ProviderKind::Metadata, 9999, found(None, Some(same)), true).unwrap_err();
+            assert_eq!(e.code(), "not_found", "{e}");
+        }
+        1 => {
+            let e = plan(ProviderKind::Metadata, t.id, found(Some("cover"), None), true).unwrap_err();
+            assert_eq!(e.to_string(), format!("the candidate for #{} isn't metadata's", t.id));
+        }
+        2 => {
+            let e = plan(ProviderKind::Artwork, t.id, found(None, Some(same)), true).unwrap_err();
+            assert_eq!(e.to_string(), format!("the candidate for #{} isn't artwork's", t.id));
+        }
+        3 => {
+            for replace in [false, true] {
+                assert!(plan(ProviderKind::Metadata, t.id, found(None, Some(same.clone())), replace).unwrap().noop);
+            }
+        }
+        _ => {
+            let set = plan(ProviderKind::Artwork, t.id, found(Some("cover"), None), true).unwrap();
+            set.apply(None, &Ctx::silent()).unwrap();
+            assert!(plan(ProviderKind::Artwork, t.id, found(Some("cover"), None), false).unwrap().noop, "it has some");
+        }
+    }
+}
+
+/// For any year a track has with all its text tags, nothing is left to find; with those tags and
+/// no year, it's asked about without replacing.
+#[hegel::test(test_cases = 1)]
+fn prop_a_track_with_every_text_tag_lacks_only_a_year(tc: TestCase) {
+    use locallibrary::api::{EditRequest, edit_plan};
+    use locallibrary::edit::{Edit, EditOptions, TrackFields};
+    let f = Fixture::providers(&["echo"]);
+    let year = tc.draw(gs::integers::<u16>().min_value(1950).max_value(2025));
+    let tagged = |track: u32, year: u16| Edit::EditTracks {
+        tracks: TrackSelector { ids: vec![track], ..TrackSelector::default() },
+        fields: TrackFields {
+            title: Some("Title".into()),
+            artist: Some("Artist".into()),
+            album: Some("Album".into()),
+            genre: Some("Genre".into()),
+            label: Some("Label".into()),
+            isrc: Some("GBDUW0000059".into()),
+            year: Some(year),
+            ..TrackFields::default()
+        },
+    };
+    let ids: Vec<u32> = common::library(&f.drive).tracks.iter().map(|t| t.id).collect();
+    let edits = vec![tagged(ids[0], 0), tagged(ids[1], year)];
+    let req = EditRequest { drive: "USB".into(), edits, options: EditOptions::default() };
+    edit_plan(&req, &Ctx::silent()).unwrap().apply(Some(&f.store), &Ctx::silent()).unwrap();
+    let found = json!({ "score": 1, "source": "S", "label": "L", "metadata": { "year": year } });
+    f.answer("echo", json!({ "each": [found] }));
+    let p = f.provide(ProviderKind::Metadata, None, false).unwrap();
+    assert_eq!((p.asked, p.offers.iter().map(|o| o.track).collect::<Vec<_>>()), (1, vec![ids[0]]));
+}
+
+/// For any providers asked (both kinds, two plugins, without replacing: only tracks lacking what
+/// the kind finds), what they find is offered, each ISRC as one is written (capitals, without
+/// hyphens) and an offer picks one only when one alone scores the setting; asking for a kind no
+/// plugin provides, with tracks a selector can't select, or once cancelled, fails.
+#[hegel::test(test_cases = 1)]
+fn prop_providers_are_asked_about_what_tracks_lack(tc: TestCase) {
+    for kind in [ProviderKind::Metadata, ProviderKind::Artwork] {
+        for score in [0.2, 0.95] {
+            prop_providers_are_asked_about_what_tracks_lack_case(&tc, kind, score);
+        }
+    }
+}
+
+/// [`prop_providers_are_asked_about_what_tracks_lack`] for one `kind`, its candidates scoring
+/// `score`.
+#[hegel::test_helper]
+fn prop_providers_are_asked_about_what_tracks_lack_case(tc: &TestCase, kind: ProviderKind, score: f64) {
+    let f = Fixture::providers(&["echo", "second"]);
+    let tracks = common::library(&f.drive).tracks;
+    let year: u16 = tc.draw(gs::integers::<u16>().min_value(1950).max_value(2025));
+    for (plugin, side) in [("echo", 16), ("second", 24)] {
+        let answer = match kind {
+            ProviderKind::Metadata => {
+                let tags = json!({ "isrc": "gb-duw-00-00059", "title": plugin, "year": year });
+                json!({ "each": [{ "score": score, "source": plugin, "label": plugin, "metadata": tags }] })
+            }
+            ProviderKind::Artwork => {
+                let c = json!({ "score": score, "source": plugin, "label": plugin, "artwork": { "blob": "a.jpg" } });
+                json!({ "blobs": { "a.jpg": jpeg(side) }, "each": [c] })
+            }
+        };
+        f.answer(plugin, answer);
+    }
+    let lacking = tracks
+        .iter()
+        .filter(|t| match kind {
+            ProviderKind::Artwork => t.artwork_path.is_none(),
+            ProviderKind::Metadata => lacks_a_tag(t),
+        })
+        .count();
+    let p = f.provide(kind, None, false).unwrap();
+    assert_eq!(p.asked, lacking);
+    let first = TrackSelector { ids: vec![tracks[0].id], ..TrackSelector::default() };
+    let req = Provide { kind, drive: "USB".into(), tracks: first, from: None, replace: true };
+    assert_eq!(f.plugins.provide(&req, Some(&f.store), &Ctx::silent()).unwrap().asked, 1);
+    assert!(lacking > 0);
+    assert_eq!(p.offers.len(), lacking);
+    for o in &p.offers {
+        assert_eq!(o.candidates.len(), 2);
+        assert_eq!(o.picked, None, "two score the same");
+        assert!(o.pick().is_none() && o.chosen(&json!(3)).is_none());
+        let said: Vec<String> = o.choice().items.iter().filter_map(|i| i.detail.clone()).collect();
+        assert_eq!(said.len(), 2);
+        if kind == ProviderKind::Metadata {
+            assert!(said.iter().all(|d| d.ends_with(&format!(", {year}, GBDUW0000059"))), "{said:?}");
+        }
+        if kind == ProviderKind::Metadata {
+            assert_eq!(o.candidates[0].metadata.as_ref().unwrap().isrc.as_deref(), Some("GBDUW0000059"));
+        }
+    }
+    let one = f.provide(kind, Some("echo"), true).unwrap();
+    for o in &one.offers {
+        assert_eq!(o.picked, (score >= AUTO_PICK).then_some(0));
+        assert_eq!(o.pick().map(|p| p.candidate.label), o.picked.map(|_| "echo".to_string()));
+    }
+    let unselectable = TrackSelector { filter: Some("((".into()), ..TrackSelector::default() };
+    let req = Provide { kind, drive: "USB".into(), tracks: unselectable, from: None, replace: true };
+    assert!(f.plugins.provide(&req, Some(&f.store), &Ctx::silent()).is_err());
+    let cancel = locallibrary::CancelToken::new();
+    cancel.cancel();
+    let req = Provide { tracks: TrackSelector::default(), ..req };
+    let cancelled = f.plugins.provide(&req, Some(&f.store), &Ctx::new(&locallibrary::progress::NoProgress, cancel));
+    assert!(matches!(cancelled, Err(Error::Cancelled)), "{cancelled:?}");
+    // Last: another fixture's drives are the thread's from then on.
+    let e = Fixture::echo().provide(ProviderKind::Artwork, None, false).unwrap_err();
+    assert_eq!(e.to_string(), "no plugin provides artwork");
+}
+
+/// The score picked for the user, and a plugin's settings, can't be kept where the store can't
+/// be written (on Unix): the score stays as it was.
+#[cfg(unix)]
+#[hegel::test(test_cases = 5)]
+fn prop_the_score_picked_cant_be_set_where_it_cant_be_kept(tc: TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::providers(&["echo"]);
+    let before = tc.draw(gs::sampled_from(vec![0.3, 0.6]));
+    set_auto_pick(&f.store, Some(before)).unwrap();
+    let wrong = tc.draw(gs::sampled_from(vec![-0.1, f64::NAN, f64::NEG_INFINITY]));
+    assert!(set_auto_pick(&f.store, Some(wrong)).unwrap_err().to_string().starts_with("a score is 0 to 1"));
+    f.answer("echo", json!({}));
+    let (plugins, own) = (f.store.root().join("plugins"), f.store.root().join("plugins/echo"));
+    for dir in [&plugins, &own] {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+    }
+    let set = set_auto_pick(&f.store, Some(0.9));
+    let answered = f.plugins.set_setting("echo", &f.store, "answer", Some(json!("{}")));
+    for dir in [&plugins, &own] {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    assert_eq!((set.unwrap_err().code(), answered.unwrap_err().code()), ("io", "io"));
+    assert_eq!(auto_pick(Some(&f.store)), before);
+}

@@ -66,3 +66,34 @@ fn insufficient_scope_is_read_from_the_challenge_or_googles_body() {
     assert_eq!(said(403, "", r#"{"error":{"errors":[{"reason":"insufficientPermissions"}]}}"#), None);
     assert_eq!(said(403, "", "not json"), None);
 }
+
+/// For any header with what can't be read around a challenge (characters no token has, an
+/// auth-param before any scheme, a quoted string left open), what can be is read: the rest
+/// skipped, a param with no scheme dropped, and an open quote's text, its escapes taken, to the
+/// end.
+#[hegel::test(test_cases = 100)]
+fn prop_what_cant_be_read_in_a_challenge_is_skipped(tc: TestCase) {
+    let junk: String = tc.draw(gs::from_regex("[@()<>/?{}\\[\\];:]{1,3}").fullmatch(true));
+    let (scheme, name) = (tc.draw(token()), tc.draw(token()));
+    let value: String = tc.draw(gs::from_regex("[a-z \"\\\\]{0,8}").fullmatch(true)) + "\"";
+    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+    let header = format!("{junk} {name}=1, {junk} {scheme} {name}=\"{escaped}");
+    let expected = Challenge { scheme, params: vec![(name.to_ascii_lowercase(), value)] };
+    assert_eq!(challenges(&header), [expected], "{header:?}");
+}
+
+/// For any 403 whose JSON body gives details, the token's scopes are insufficient exactly when
+/// one says Google's `ACCESS_TOKEN_SCOPE_INSUFFICIENT`, naming none; without details, they aren't.
+#[hegel::test(test_cases = 50)]
+fn prop_a_403_body_names_insufficient_scopes_by_its_reasons(tc: TestCase) {
+    let all = vec!["ACCESS_TOKEN_SCOPE_INSUFFICIENT", "insufficientPermissions", "other"];
+    let reasons: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(all)).max_size(3));
+    let details: Vec<serde_json::Value> = reasons.iter().map(|r| serde_json::json!({ "reason": r })).collect();
+    let body = serde_json::json!({ "error": { "details": details } }).to_string();
+    let insufficient = reasons.contains(&"ACCESS_TOKEN_SCOPE_INSUFFICIENT");
+    assert_eq!(insufficient_scope(403, &[], body.as_bytes()), insufficient.then(Vec::new));
+    // Without details, it says nothing of scopes.
+    let reason = reasons.first().copied().unwrap_or("other");
+    let bare = serde_json::json!({ "error": { "errors": [{ "reason": reason }] } }).to_string();
+    assert_eq!(insufficient_scope(403, &[], bare.as_bytes()), None);
+}

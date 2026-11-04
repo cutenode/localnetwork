@@ -642,7 +642,10 @@ fn playlists_are_found_by_the_paths_they_are_shown_with(tc: TestCase) {
 fn pick_prefers_exact_paths_then_one_case_insensitive_path(tc: TestCase) {
     let paths = tc.draw(gs::vecs(gs::text().alphabet("aAb/").max_size(3)).max_size(6));
     let query = tc.draw(gs::text().alphabet("aAb/").max_size(3));
-    let picked = pick(paths.iter().enumerate().map(|(i, p)| (p.as_str(), i)), &query);
+    let pick_in = |paths: &[String], query: &str| pick(paths.iter().enumerate().map(|(i, p)| (p.as_str(), i)), query);
+    // Two paths matching only ignoring case, and each other only so: none.
+    assert_eq!(pick_in(&["Ab".into(), "aB".into()], "ab"), None);
+    let picked = pick_in(&paths, &query);
     let exact = paths.iter().position(|p| *p == query);
     let loose: Vec<usize> = (0..paths.len()).filter(|&i| paths[i].eq_ignore_ascii_case(&query)).collect();
     let one_path = loose.iter().all(|&i| paths[i] == paths[loose[0]]);
@@ -910,4 +913,139 @@ fn isrcs_are_one_however_tagged(tc: TestCase) {
     assert_eq!(isrc("GBCFB17005 86"), None, "a space inside");
     assert_eq!(isrc("1BCFB1700586"), None, "a digit in the country code");
     assert_eq!(isrc("GBCFB17005X6"), None, "a letter in the number");
+}
+
+/// Some playlists of a library, overlapping however they do (a folder and a playlist in it, one
+/// asked for twice), keep what each of them keeps on its own, together, asked for in the tree's
+/// order (a folder before what's in it).
+#[hegel::test(test_cases = 200)]
+fn prop_a_subset_of_some_playlists_is_what_each_keeps(tc: TestCase) {
+    let node = |id, parent_id, name: &str, track_ids: Vec<u32>| Playlist {
+        id,
+        parent_id,
+        name: name.into(),
+        is_folder: track_ids.is_empty(),
+        sort_order: id,
+        track_ids,
+    };
+    let library = Library {
+        tracks: (1..=4).map(|id| track(id, "A", "T", &format!("/Contents/{id}.mp3"))).collect(),
+        playlists: vec![
+            node(1, None, "Sets", vec![]),
+            node(2, Some(1), "Shows", vec![]),
+            node(3, Some(2), "Friday", vec![1]),
+            node(4, Some(1), "Saturday", vec![2, 3]),
+            node(5, None, "All", vec![1, 2, 3, 4]),
+        ],
+        ..Default::default()
+    };
+    let kept = |only: &[&str]| {
+        let s = library.clone().subset(&only.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap();
+        let ids = |v: Vec<u32>| v.into_iter().collect::<FxHashSet<u32>>();
+        (ids(s.playlists.iter().map(|p| p.id).collect()), ids(s.tracks.iter().map(|t| t.id).collect()))
+    };
+    let names = vec!["Sets", "Sets/Shows", "Friday", "Saturday", "All"];
+    let mut only: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(names.clone())).min_size(1).max_size(5));
+    // Folders before what's in them: `names` is in the tree's order.
+    only.sort_by_key(|n| names.iter().position(|m| m == n));
+    let mut each = (FxHashSet::default(), FxHashSet::default());
+    for name in &only {
+        let (lists, tracks) = kept(&[name]);
+        each.0.extend(lists);
+        each.1.extend(tracks);
+    }
+    assert_eq!(kept(&only), each, "{only:?}");
+    // None asked for is the whole library; one that isn't there is named.
+    assert_eq!(library.clone().subset(&[]), Ok(library.clone()));
+    let missing = [only[0].to_string(), "Sunday".to_string()];
+    assert_eq!(library.clone().subset(&missing), Err("Sunday"));
+}
+
+/// A finding about the library as a whole names no track, playlist or file, and reads back from
+/// its JSON (where those are left out) as it was.
+#[hegel::test(test_cases = 100)]
+fn prop_findings_about_the_whole_library_name_nothing_else(tc: TestCase) {
+    use crate::finding::{Finding, Level};
+
+    let level = tc.draw(gs::sampled_from(vec![Level::Info, Level::Warning, Level::Problem]));
+    let (check, message) = (tc.draw(gs::text()), tc.draw(gs::text()));
+    let f = Finding::new(level, check.clone(), message.clone());
+    assert_eq!((f.level, f.check.as_str(), f.message.as_str()), (level, check.as_str(), message.as_str()));
+    assert!(f.tracks.is_empty() && f.playlist.is_none() && f.paths.is_empty());
+    let json = serde_json::to_value(&f).unwrap();
+    assert_eq!(json.as_object().unwrap().len(), 3, "{json}");
+    assert_eq!(serde_json::from_value::<Finding>(json).unwrap(), f);
+}
+
+/// Tracks only OneLibrary has (their id's top bit set) are numbered on from the highest other id,
+/// in library order; every other track keeps its id; playlists and history lists name each
+/// track by its new id; and each new id answers the old one.
+#[hegel::test(test_cases = 200)]
+fn prop_onelibrary_only_tracks_are_numbered_on_from_the_others(tc: TestCase) {
+    let ids: Vec<u32> = tc.draw(
+        gs::vecs(hegel::one_of!(
+            gs::integers::<u32>().min_value(1).max_value(50),
+            gs::integers::<u32>().min_value(1).max_value(50).map(|id| id | ONELIBRARY_ONLY)
+        ))
+        .max_size(8)
+        .unique(true),
+    );
+    let list = |id| {
+        let picks: Vec<usize> = tc.draw(gs::vecs(gs::integers::<usize>()).max_size(6));
+        let track_ids = picks.iter().filter(|_| !ids.is_empty()).map(|i| ids[i % ids.len()]).collect();
+        Playlist { id, parent_id: None, name: "L".into(), is_folder: false, sort_order: 0, track_ids }
+    };
+    let mut library = Library {
+        tracks: ids.iter().map(|&id| track(id, "A", "T", &format!("/Contents/{id}.mp3"))).collect(),
+        playlists: vec![list(1)],
+        history: vec![list(2)],
+        ..Default::default()
+    };
+    let before = library.clone();
+    let old = library.number_for_files();
+    let only = |id: u32| id & ONELIBRARY_ONLY != 0;
+    let mut next = ids.iter().copied().filter(|&id| !only(id)).max().unwrap_or(0);
+    let mut new_of = FxHashMap::default();
+    for (t, &id) in library.tracks.iter().zip(&ids) {
+        let want = if only(id) {
+            next += 1;
+            new_of.insert(id, next);
+            next
+        } else {
+            id
+        };
+        assert_eq!(t.id, want, "{id:#x}");
+    }
+    let lists = library.playlists.iter().chain(&library.history);
+    for (now, was) in lists.zip(before.playlists.iter().chain(&before.history)) {
+        let renumbered: Vec<u32> = was.track_ids.iter().map(|id| new_of.get(id).copied().unwrap_or(*id)).collect();
+        assert_eq!(now.track_ids, renumbered);
+    }
+    assert_eq!(old, new_of.into_iter().map(|(was, now)| (now, was)).collect());
+}
+
+/// A credit's artists are its names in order, split at commas, semicolons and featuring credits
+/// written in any case, each named once however it's spelled again, with the spaces and brackets
+/// around it trimmed; `&` doesn't split one.
+#[hegel::test(test_cases = 300)]
+fn prop_credits_name_each_artist_once_in_order(tc: TestCase) {
+    // No word starts with F, so none reads as a featuring credit ("Ft").
+    let name = gs::from_regex("[A-EG-Z][a-zé]{1,6}( & [A-EG-Z][a-zé]{1,6})?").fullmatch(true);
+    let names: Vec<String> = tc.draw(gs::vecs(name).min_size(1).max_size(5));
+    let seps = vec![",", ";", " feat. ", " FEAT ", " ft. ", " Ft ", " featuring ", ", ", " (feat. ", " (ft. "];
+    let mut credit = names[0].clone();
+    for n in &names[1..] {
+        credit.push_str(tc.draw(gs::sampled_from(seps.clone())));
+        credit.push_str(n);
+    }
+    if credit.contains('(') {
+        credit.push(')');
+    }
+    let mut want: Vec<String> = Vec::new();
+    for n in names {
+        if !want.iter().any(|w| normalize(w) == normalize(&n)) {
+            want.push(n);
+        }
+    }
+    assert_eq!(artist_credits(&credit), want, "{credit:?}");
 }

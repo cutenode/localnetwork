@@ -126,6 +126,17 @@ fn describes_one_analyzer_and_hears_of_drives_changing() {
 /// `drive.library` with tracks 1 to `tracks` and each `track.fields` with those of them in
 /// `analysed`: what it suggests, and the reads it asked for (each one's method and how many tracks).
 fn told(events: &[EventNotify], tracks: u32, analysed: &[u32]) -> (Vec<HostNotify>, Vec<(String, usize)>) {
+    told_failing(events, tracks, analysed, None)
+}
+
+/// [`told`], with the host failing each read of the method `failing` (`not_found`, as for a drive
+/// that has gone).
+fn told_failing(
+    events: &[EventNotify],
+    tracks: u32,
+    analysed: &[u32],
+    failing: Option<&str>,
+) -> (Vec<HostNotify>, Vec<(String, usize)>) {
     let (plugin_in, to_plugin) = pipe().unwrap();
     let (from_plugin, plugin_out) = pipe().unwrap();
     let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
@@ -168,7 +179,10 @@ fn told(events: &[EventNotify], tracks: u32, analysed: &[u32]) -> (Vec<HostNotif
                 if !last && req.method == "drive.library" {
                     reads.push((req.method.clone(), 0));
                 }
-                host.respond(&req.id, Ok(answer));
+                let fails = !last && failing == Some(req.method.as_str());
+                let answer =
+                    if fails { Err(RpcError::failed("not_found", "not found: drive USB")) } else { Ok(answer) };
+                host.respond(&req.id, answer);
             }
             Incoming::Notification { method: m, params } if m == method::HOST_NOTIFY => {
                 let notice: HostNotify = serde_json::from_value(params).unwrap();
@@ -232,6 +246,24 @@ fn a_drive_plugged_in_has_its_new_tracks_suggested_for_analysing() {
     let analyze = AnalyzeAction { analyzer: "tempo-key-loudness".into(), drive: "USB".into(), tracks: vec![1, 3] };
     let expected = HostNotify::action("new tracks have no tempo, key or loudness", &HostAction::Analyze(analyze));
     assert_eq!((suggested, reads.len()), (vec![expected], 2), "{reads:?}");
+}
+
+/// Whichever of its reads the host fails (the drive's library, or the fields it keeps), nothing
+/// is suggested for that drive, nothing more is read for it, and the events after it are still
+/// handled; a change to a drive's state alone isn't read at all.
+#[hegel::test(test_cases = 10)]
+fn prop_a_read_that_fails_suggests_nothing(tc: TestCase) {
+    let failing = tc.draw(gs::sampled_from(vec!["drive.library", "track.fields"]));
+    let tracks = tc.draw(gs::integers::<u32>().min_value(1).max_value(2500));
+    let state = EventNotify { payload: json!({ "changed": ["state"] }), ..databases_changed("USB") };
+    let (suggested, reads) = told_failing(&[state, databases_changed("USB")], tracks, &[], Some(failing));
+    assert_eq!(suggested, []);
+    let methods: Vec<&str> = reads.iter().map(|(m, _)| m.as_str()).collect();
+    let read = match failing {
+        "drive.library" => &["drive.library"][..],
+        _ => &["drive.library", "track.fields"][..],
+    };
+    assert_eq!(methods, read);
 }
 
 /// For any library, what it suggests is its tracks without fields, in the library's order, the
@@ -550,18 +582,32 @@ fn waveforms_are_kept_for_up_to_a_day(tc: TestCase) {
     assert_eq!(within_a_day(columns), columns as u64 * 1024 <= 86_400 * 44_100, "{columns}");
 }
 
-/// The waveform goes in the request's scratch folder: without one (a host without `blobs`) it's
-/// left out and the rest answered, and one that's gone fails the track as `io`, naming the file.
-#[test]
-fn the_waveform_needs_a_scratch_folder() {
+/// Whatever the recording, its waveform goes in the request's scratch folder, a file of its
+/// columns; without one (a host without `blobs`) it's left out and the rest answered, and one
+/// that's gone fails the track as `io`, naming the file.
+#[hegel::test(test_cases = 4)]
+fn prop_the_waveform_is_a_file_in_the_scratch_folder(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
-    let audio = recording(dir.path(), 7919, 1.0, 44_100, 12_000.0);
+    let seed = tc.draw(gs::integers::<u32>().max_value(10_000));
+    let audio = recording(dir.path(), seed, 1.0, 44_100, 12_000.0);
     let s = start();
-    let fields = s.analyze_in(&audio, None).wait::<Analysis>().unwrap().fields;
-    assert!(!fields.contains_key("waveform") && fields.contains_key("clipped_runs"), "{fields:?}");
     let gone = dir.path().join("gone");
-    let e = s.analyze_in(&audio, Some(&gone)).wait::<Analysis>().unwrap_err();
-    assert_eq!((e.code, e.kind()), (code::FAILED, Some("io")), "{e:?}");
-    assert!(e.message.starts_with(&gone.join(WAVEFORM_BLOB).display().to_string()), "{e:?}");
+    for case in 0..3 {
+        match case {
+            0 => {
+                let fields = s.analyze(&audio).wait::<Analysis>().unwrap().fields;
+                assert!(!s.waveform(&fields["waveform"]).is_empty());
+            }
+            1 => {
+                let fields = s.analyze_in(&audio, None).wait::<Analysis>().unwrap().fields;
+                assert!(!fields.contains_key("waveform") && fields.contains_key("clipped_runs"), "{fields:?}");
+            }
+            _ => {
+                let e = s.analyze_in(&audio, Some(&gone)).wait::<Analysis>().unwrap_err();
+                assert_eq!((e.code, e.kind()), (code::FAILED, Some("io")), "{e:?}");
+                assert!(e.message.starts_with(&gone.join(WAVEFORM_BLOB).display().to_string()), "{e:?}");
+            }
+        }
+    }
     s.stop();
 }

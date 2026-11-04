@@ -167,3 +167,96 @@ fn hashes_too_common_to_tell_tracks_apart_are_left_out(tc: TestCase) {
     }
     assert_eq!(index.hashes(), counts.values().filter(|&&n| n <= 512).sum::<usize>());
 }
+
+/// How a kept index is damaged in [`prop_kept_indexes_read_back_and_damaged_ones_dont`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Damage {
+    Intact,
+    /// A duration more or less than there are tracks.
+    Durations,
+    /// A bucket short.
+    Buckets,
+    /// A bucket starting after the next.
+    Order,
+    /// An entry past the last bucket's end.
+    Entries,
+    /// An entry naming a track slot that isn't there.
+    Slot,
+    /// A byte to spare at the end.
+    Trailing,
+    /// Another magic, version or index version.
+    Header,
+    /// Cut short.
+    Cut,
+    /// An array claiming more than any memory holds.
+    Huge,
+}
+
+/// An index reads back from its bytes as it was, and a damaged one (sizes that don't agree,
+/// buckets out of order or not ending at the entries' end, an entry of a track that isn't there,
+/// a byte to spare or short, another format, an array claiming more than the bytes hold) doesn't
+/// read at all.
+#[hegel::test(test_cases = 60)]
+fn prop_kept_indexes_read_back_and_damaged_ones_dont(tc: TestCase) {
+    use Damage::*;
+
+    let n = tc.draw(gs::integers::<usize>().max_value(3));
+    // The first track's peaks make landmarks, so an index of any track has entries.
+    let landmarked: Vec<Peak> = (0..50).map(|i| Peak { t: i * 5, f: (10 + (i * 37) % 200) as u8 }).collect();
+    let prints: Vec<(u32, TrackPrint)> = (0..n)
+        .map(|i| {
+            let peaks = if i == 0 { landmarked.clone() } else { sorted_peaks(&tc, 6, 40) };
+            (i as u32 + 1, TrackPrint { duration_secs: 30.0, peaks })
+        })
+        .collect();
+    let mut index = LibraryIndex::build(prints);
+    let damage =
+        tc.draw(gs::sampled_from(vec![Intact, Durations, Buckets, Order, Entries, Slot, Trailing, Header, Cut, Huge]));
+    tc.assume(damage != Slot || !index.entries.is_empty());
+    match damage {
+        Durations if n == 0 || tc.draw(gs::booleans()) => index.durations.push(1.0),
+        Durations => index.durations.truncate(n.saturating_sub(1)),
+        Buckets => drop(index.offsets.pop()),
+        Order => index.offsets[0] = u32::MAX,
+        Entries => index.entries.push(0),
+        Slot => index.entries[0] |= (n as u64) << 32,
+        _ => {}
+    }
+    let mut bytes = index.encode();
+    // Where the header, and each of the four arrays (its length first), start.
+    let durations = 16 + 4 * n;
+    let offsets = durations + 8 + 4 * n;
+    let entries = offsets + 8 + 4 * index.offsets.len();
+    let starts = [0, 8, durations, offsets, entries];
+    // Whatever the damage drawn, every index is also cut inside its header and each length, and
+    // has each length past what any memory holds and past what its bytes hold: none of those read.
+    for cut in starts.iter().flat_map(|&at| at..at + 8) {
+        assert!(LibraryIndex::decode(&bytes[..cut]).is_none(), "cut at {cut}");
+    }
+    for &at in &starts[1..] {
+        for len in [u64::MAX, 1 << 32] {
+            let mut huge = bytes.clone();
+            huge[at..at + 8].copy_from_slice(&len.to_le_bytes());
+            assert!(LibraryIndex::decode(&huge).is_none(), "{len} at {at}");
+        }
+    }
+    match damage {
+        Trailing => bytes.push(tc.draw(gs::integers::<u8>())),
+        Header => {
+            let at = tc.draw(gs::integers::<usize>().max_value(7));
+            bytes[at] ^= tc.draw(gs::integers::<u8>().min_value(1));
+        }
+        Cut => bytes.truncate(tc.draw(gs::integers::<usize>().max_value(bytes.len() - 1))),
+        Huge => {
+            let at = tc.draw(gs::sampled_from(starts[1..].to_vec()));
+            let len = tc.draw(gs::integers::<u64>().min_value(1 << 32));
+            bytes[at..at + 8].copy_from_slice(&len.to_le_bytes());
+        }
+        _ => {}
+    }
+    let read = LibraryIndex::decode(&bytes);
+    match damage {
+        Intact => assert_eq!(read.map(|i| i.encode()), Some(bytes)),
+        _ => assert!(read.is_none(), "{damage:?} read"),
+    }
+}

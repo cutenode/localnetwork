@@ -4,8 +4,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use hegel::TestCase;
 use hegel::generators as gs;
+use hegel::{Generator, TestCase};
 use loclib_interop::{Content, Error, Export, Source, traktor};
 use loclib_model::{Library, Track, TrackColor};
 use loclib_progress::{CancelToken, Ctx, Event, Phase};
@@ -424,5 +424,35 @@ fn progress_and_cancelling(tc: TestCase) {
         }
         Ok(export) => assert_eq!((n, export.tracks), (0, 0)),
         Err(e) => panic!("{e}"),
+    }
+}
+
+/// The collection is stamped at `SOURCE_DATE_EPOCH` when that's set, in this computer's time
+/// zone; a value that isn't a number of seconds since 1970 a date can hold is refused.
+#[hegel::test(test_cases = 30)]
+fn prop_source_date_epoch_stamps_the_collection(tc: TestCase) {
+    let epoch: String = tc.draw(hegel::one_of!(
+        gs::integers::<i64>().min_value(0).max_value(4_102_444_800).map(|s| s.to_string()),
+        gs::sampled_from(vec!["soon".to_string(), String::new(), "1.5".into(), i64::MAX.to_string()]),
+    ));
+    let track = Track { id: 1, file_path: "/Contents/a.mp3".into(), ..Default::default() };
+    let library = Library { tracks: vec![track], ..Default::default() };
+    let src = Source { library: &library, root: PathBuf::from("/Volumes/USB"), analysis: None };
+    // SAFETY: nextest runs each test in a process of its own, so nothing else reads the
+    // environment meanwhile.
+    unsafe { std::env::set_var("SOURCE_DATE_EPOCH", &epoch) };
+    let export = traktor::build(&src, Path::new("out"), &Ctx::silent());
+    unsafe { std::env::remove_var("SOURCE_DATE_EPOCH") };
+    let at = epoch.parse().ok().and_then(|s| chrono::DateTime::from_timestamp(s, 0));
+    match (export, at) {
+        (Ok(export), Some(at)) => {
+            let at = at.with_timezone(&chrono::Local);
+            let Content::Bytes(nml) = &export.files[0].content else { panic!("the NML is written out") };
+            use chrono::Datelike;
+            let stamp = format!("MODIFIED_DATE=\"{}/{}/{}\"", at.year(), at.month(), at.day());
+            assert!(String::from_utf8_lossy(nml).contains(&stamp), "{stamp}");
+        }
+        (Err(Error::Invalid(message)), None) => assert!(message.contains("SOURCE_DATE_EPOCH"), "{message}"),
+        (export, at) => panic!("{epoch:?} at {at:?}: {export:?}"),
     }
 }

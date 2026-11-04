@@ -291,6 +291,87 @@ fn rekordbox_xml_reads_back(tc: TestCase) {
     assert_eq!(read, lists);
 }
 
+/// Every way of reading a rekordbox XML file agrees with reading it whole: the collection alone
+/// is its tracks without playlists; a playlist asked for by its path is the first of that path's
+/// entries, and one no playlist has is none; each entry's file is the one its entry names. An
+/// end tag nothing opened changes nothing, and a file cut off inside a tag's attribute is an
+/// error however it's read.
+#[hegel::test(test_cases = 100)]
+fn prop_a_library_xml_reads_alike_every_way(tc: TestCase) {
+    let (xml, _, _) = library_xml(&tc);
+    let bytes = xml.as_bytes();
+    let library = loclib_tracklist::read_xml_library(bytes).unwrap();
+    let collection = loclib_tracklist::read_xml_collection(bytes).unwrap();
+    assert_eq!((&collection.tracks, collection.playlists.len()), (&library.tracks, 0));
+    for p in &library.playlists {
+        let first = library.playlists.iter().find(|q| q.path == p.path).unwrap();
+        let want: Vec<Entry> = first.entries.iter().map(|e| library.entry(e)).collect();
+        assert_eq!(loclib_tracklist::xml_playlist(bytes, &p.path).unwrap(), Some(want), "{}", p.path);
+        for e in &p.entries {
+            assert_eq!(library.file(e), library.entry(e).path.as_deref());
+        }
+    }
+    assert_eq!(loclib_tracklist::xml_playlist(bytes, "\u{1}nowhere").unwrap(), None);
+    let stray = xml.replacen("</COLLECTION>", "</STRAY></COLLECTION>", 1);
+    assert_eq!(loclib_tracklist::read_xml_library(stray.as_bytes()).unwrap(), library);
+    let cut = format!("{}<TRACK Name=", &xml[..xml.find("</COLLECTION>").unwrap()]);
+    assert!(loclib_tracklist::xml_playlist(cut.as_bytes(), "x").is_err());
+}
+
+/// A cue has a colour when its `Red`, `Green` and `Blue` are all there and each a byte; any one
+/// missing or not a byte leaves it without one, and the cue is kept either way. A cue whose
+/// start isn't a number isn't kept.
+#[hegel::test(test_cases = 200)]
+fn prop_a_cue_has_a_colour_only_with_all_three_channels(tc: TestCase) {
+    let mut attrs = String::new();
+    let mut rgb = Some([0u8; 3]);
+    for (i, channel) in ["Red", "Green", "Blue"].into_iter().enumerate() {
+        match tc.draw(gs::sampled_from(vec![Some("12"), Some(" 255 "), Some("256"), Some("x"), None])) {
+            Some(v) => {
+                attrs.push_str(&format!(" {channel}=\"{v}\""));
+                match (v.trim().parse::<u8>(), rgb.as_mut()) {
+                    (Ok(byte), Some(c)) => c[i] = byte,
+                    _ => rgb = None,
+                }
+            }
+            None => rgb = None,
+        }
+    }
+    let xml = format!(
+        "<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION Entries=\"1\"><TRACK TrackID=\"1\" Name=\"t\" \
+         Location=\"file://localhost/x.mp3\"><POSITION_MARK Name=\"\" Type=\"0\" Start=\"1.000\" Num=\"0\"{attrs}/>\
+         <POSITION_MARK Name=\"\" Type=\"0\" Start=\"soon\" Num=\"1\"{attrs}/></TRACK></COLLECTION></DJ_PLAYLISTS>"
+    );
+    let library = loclib_tracklist::read_xml_library(xml.as_bytes()).unwrap();
+    let marks: Vec<Option<[u8; 3]>> = library.tracks[0].marks.iter().map(|m| m.rgb).collect();
+    assert_eq!(marks, [rgb], "{xml}");
+}
+
+/// A grid's beats run from its first tempo to the track's end, and are cut at [`MAX_BEATS`]
+/// (saying so) when there'd be more: a long track at a high tempo.
+/// The same tempo set again on a later downbeat, or set before the track starts, is the same grid.
+#[hegel::test(test_cases = 50)]
+fn prop_a_grid_is_cut_at_the_most_beats(tc: TestCase) {
+    let secs = tc.draw(gs::integers::<u32>().min_value(1).max_value(86_400));
+    let bpm = tc.draw(gs::sampled_from(vec![60.0, 128.0, 600.0]));
+    let track = XmlTrack {
+        entry: Entry { duration_secs: Some(secs), ..Entry::default() },
+        tempos: vec![Tempo { start_ms: 0.0, bpm, beats_per_bar: 4, beat: 1 }],
+        ..XmlTrack::default()
+    };
+    let (beats, cut) = track.beats();
+    // Every beat before the end, half a millisecond short of it.
+    let all = ((f64::from(secs) * 1000.0 - 0.5) / (60_000.0 / bpm)).ceil() as usize;
+    assert_eq!((beats.len(), cut), (all.min(MAX_BEATS), all > MAX_BEATS), "{secs} s at {bpm}");
+    // The same tempo again on a downbeat four beats in is the same grid.
+    let again = Tempo { start_ms: 4.0 * 60_000.0 / bpm, ..track.tempos[0] };
+    let twice = XmlTrack { tempos: vec![track.tempos[0], again], ..track.clone() };
+    assert_eq!(twice.beats(), (beats.clone(), cut));
+    // As is the grid set four beats before the track starts.
+    let early = Tempo { start_ms: -4.0 * 60_000.0 / bpm, ..track.tempos[0] };
+    assert_eq!(XmlTrack { tempos: vec![early], ..track.clone() }.beats(), (beats, cut));
+}
+
 /// An XML file cut off anywhere reads as the tracks whose tags it still holds whole, or fails
 /// naming the line of the tag it cuts through, or (cut before the root element) isn't
 /// rekordbox XML at all.
@@ -574,11 +655,14 @@ fn any_numbers_read_in_range_with_bounded_grids(tc: TestCase) {
 /// folder paths come to at most MAX_PATH_BYTES, each part costing 16 bytes besides its name.
 /// Those past it are left out in the file's order, counted.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+// Folder paths past the most: 40 of a MiB each.
+#[hegel::explicit_test_case(folder_len = 1usize << 20, comment_len = 0usize, lists = 40usize, refs = 1usize)]
 fn long_names_and_many_entries_stay_bounded(tc: TestCase) {
-    let folder = "f".repeat(tc.draw(gs::sampled_from(vec![0, 1_000, 300_000, 1 << 20])));
-    let comment = "c".repeat(tc.draw(gs::sampled_from(vec![0, 1 << 20])));
-    let (lists, refs) =
-        (tc.draw(gs::integers::<usize>().max_value(40)), tc.draw(gs::integers::<usize>().max_value(2_000)));
+    let folder_len = tc.draw(gs::sampled_from(vec![0, 1_000, 300_000, 1 << 20]));
+    let comment_len = tc.draw(gs::sampled_from(vec![0, 1 << 20]));
+    let (folder, comment) = ("f".repeat(folder_len), "c".repeat(comment_len));
+    let lists = tc.draw(gs::integers::<usize>().max_value(40));
+    let refs = tc.draw(gs::integers::<usize>().max_value(2_000));
     let mut xml =
         format!("<DJ_PLAYLISTS><COLLECTION><TRACK TrackID=\"1\" Name=\"A\" Comments=\"{comment}\"/></COLLECTION>");
     xml += &format!("<PLAYLISTS><NODE Type=\"0\" Name=\"ROOT\"><NODE Type=\"0\" Name=\"{folder}\">");

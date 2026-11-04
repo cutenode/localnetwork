@@ -185,12 +185,28 @@ fn gridded(tc: &TestCase) -> Entry {
     }
 }
 
+/// Two grid markers at 120 BPM a third of a millisecond apart, on a ten-second track: the second's
+/// first beat rounds to the first's.
+fn markers_a_third_of_a_millisecond_apart() -> Entry {
+    let grid = |start_ms| Marker {
+        kind: MarkerKind::Grid,
+        name: String::new(),
+        start_ms,
+        len_ms: 0.0,
+        hot_cue: None,
+        color: None,
+        bpm: Some(120.0),
+    };
+    Entry { duration_secs: Some(10.0), markers: vec![grid(1000.0), grid(1000.3)], ..Entry::default() }
+}
+
 /// Without a grid marker there's no grid; without a length or with a tempo a grid can't hold it
 /// says so; otherwise the grid is every beat at or after the start of the track and before its
 /// end: from each marker at its tempo (or the track's) up to the next, the first reaching back to
 /// the start, each marker a downbeat, and a beat less than a millisecond after the one before
 /// left out.
 #[hegel::test(test_cases = 300)]
+#[hegel::explicit_test_case(e = markers_a_third_of_a_millisecond_apart())]
 fn grid_markers_lay_down_the_grid(tc: TestCase) {
     let e = tc.draw(gridded());
     let mut grid: Vec<&Marker> = e.markers.iter().collect();
@@ -394,4 +410,105 @@ fn playlist_paths_stay_bounded(tc: TestCase) {
             assert_eq!(e.to_string(), refused("its playlists' paths come to more than 16 MiB"));
         }
     }
+}
+
+/// Markers of every kind read with their own colour (a `#rrggbb` the file gives, lower-case, or
+/// none) and the kind's colour; ones of a type Traktor doesn't document, and entries without a
+/// file, are counted and left out. A folder's or playlist's name with a `/` is warned of (a path
+/// reads it as folders), a smart list's isn't. Text that isn't UTF-8, an attribute naming an
+/// entity XML doesn't have, or a collection cut off before its end isn't a collection.
+#[hegel::test(test_cases = 100)]
+fn prop_markers_entries_and_names_read_as_traktor_has_them(tc: TestCase) {
+    let colours = vec!["#00FF7f", "#0f0", "#gg0000", "", "#1234567"];
+    let markers: Vec<(u8, &str)> =
+        tc.draw(gs::vecs(gs::tuples!(gs::integers::<u8>().max_value(8), gs::sampled_from(colours))).max_size(6));
+    let fileless = tc.draw(gs::integers::<usize>().max_value(2));
+    let nodes: Vec<(&str, bool)> = tc.draw(
+        gs::vecs(gs::tuples!(gs::sampled_from(vec!["FOLDER", "PLAYLIST", "SMARTLIST"]), gs::booleans())).max_size(4),
+    );
+    let cues: String = markers
+        .iter()
+        .map(|(kind, colour)| format!("<CUE_V2 TYPE=\"{kind}\" START=\"100\" COLOR=\"{colour}\"></CUE_V2>"))
+        .collect();
+    let lists: String = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, (kind, slash))| {
+            format!("<NODE TYPE=\"{kind}\" NAME=\"{}{i}\"></NODE>", if *slash { "a/" } else { "" })
+        })
+        .collect();
+    let nml = format!(
+        "<NML><COLLECTION><ENTRY TITLE=\"a\"><LOCATION VOLUME=\"C:\" DIR=\"/:\" FILE=\"y.wav\"/>{cues}</ENTRY>{}\
+         </COLLECTION><PLAYLISTS><NODE TYPE=\"FOLDER\" NAME=\"$ROOT\">{lists}</NODE></PLAYLISTS></NML>",
+        "<ENTRY TITLE=\"b\"></ENTRY>".repeat(fileless)
+    );
+    let c = traktor::read(nml.as_bytes()).unwrap();
+    let kinds = [Some("blue"), Some("orange"), Some("orange"), Some("yellow"), None, Some("green")];
+    let documented: Vec<&(u8, &str)> = markers.iter().filter(|(kind, _)| *kind < 6).collect();
+    let read = &c.entries[0].markers;
+    assert_eq!(read.len(), documented.len());
+    for (m, (kind, colour)) in read.iter().zip(documented) {
+        assert_eq!(m.kind.colour(), kinds[usize::from(*kind)], "{kind}");
+        let hex = colour.len() == 7 && colour.starts_with('#') && colour[1..].bytes().all(|b| b.is_ascii_hexdigit());
+        assert_eq!(m.color, hex.then(|| colour.to_ascii_lowercase()), "{colour}");
+    }
+    let unknown = markers.len() - read.len();
+    let mut warnings = Vec::new();
+    if fileless > 0 {
+        warnings.push(format!("{fileless} entr(ies) without a file left out"));
+    }
+    if unknown > 0 {
+        warnings.push(format!("{unknown} marker(s) of a type Traktor doesn't document left out"));
+    }
+    assert_eq!(c.warnings, warnings);
+    let slashed: Vec<String> = nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, (kind, slash))| *slash && *kind != "SMARTLIST")
+        .map(|(i, (kind, _))| {
+            let kind = kind.to_lowercase();
+            format!("the {kind} \"a/{i}\" has a / in its name, which a path reads as a folder")
+        })
+        .collect();
+    let named: Vec<&String> = c.playlist_warnings.iter().filter(|w| w.contains("has a / in its name")).collect();
+    assert_eq!(named, slashed.iter().collect::<Vec<_>>());
+
+    let refused = |bytes: &[u8]| matches!(traktor::read(bytes), Err(Error::Invalid(why)) if why.starts_with("not a Traktor collection: "));
+    let mut broken = nml.clone().into_bytes();
+    broken.insert(tc.draw(gs::integers::<usize>().max_value(broken.len())), 0xff);
+    assert!(refused(&broken));
+    assert!(refused(nml.replacen("TITLE=\"a\"", "TITLE=\"&bogus;\"", 1).as_bytes()));
+    assert!(refused(nml.strip_suffix("</NML>").unwrap().as_bytes()));
+}
+
+/// A smart list's entries (Traktor fills one from its rules) belong to no playlist: among
+/// playlists and smart lists in any order, each playlist reads back with its own entries alone,
+/// and the smart lists with none.
+#[hegel::test(test_cases = 60)]
+fn prop_smart_lists_entries_are_no_playlists(tc: TestCase) {
+    let nodes: Vec<(bool, usize)> =
+        tc.draw(gs::vecs(gs::tuples!(gs::booleans(), gs::integers::<usize>().max_value(3))).max_size(5));
+    let key = "C:/:y.wav";
+    let entry = format!("<ENTRY><PRIMARYKEY TYPE=\"TRACK\" KEY=\"{key}\"/></ENTRY>");
+    let lists: String = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, &(smart, entries))| {
+            let kind = if smart { "SMARTLIST" } else { "PLAYLIST" };
+            format!("<NODE TYPE=\"{kind}\" NAME=\"{i}\"><{kind}>{}</{kind}></NODE>", entry.repeat(entries))
+        })
+        .collect();
+    let nml = format!(
+        "<NML><COLLECTION><ENTRY TITLE=\"b\"><LOCATION VOLUME=\"C:\" DIR=\"/:\" FILE=\"y.wav\"/></ENTRY></COLLECTION>\
+         <PLAYLISTS><NODE TYPE=\"FOLDER\" NAME=\"$ROOT\">{lists}</NODE></PLAYLISTS></NML>"
+    );
+    let c = traktor::read(nml.as_bytes()).unwrap();
+    let want: Vec<(Vec<String>, Vec<String>)> = nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, (smart, _))| !smart)
+        .map(|(i, &(_, entries))| (vec![i.to_string()], vec![key.to_string(); entries]))
+        .collect();
+    let got: Vec<(Vec<String>, Vec<String>)> = c.lists.iter().map(|l| (l.path.clone(), l.keys.clone())).collect();
+    assert_eq!(got, want, "{nml}");
 }

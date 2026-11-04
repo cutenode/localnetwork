@@ -67,3 +67,19 @@ fn plain_text_paths() {
     assert_eq!(e[1].path.as_deref(), Some("/Users/me/Music/Bicep - Glue.mp3"));
     assert_eq!((e[1].artist.as_str(), e[1].title.as_str(), e[1].line), ("Bicep", "Glue", 2));
 }
+
+/// A timestamp at the start of a line, bare or in the brackets it opens with, is taken off it
+/// with the seconds it says; one whose bracket isn't closed (or closed by another) isn't one.
+#[hegel::test(test_cases = 200)]
+fn prop_timestamps_are_taken_off_only_whole(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+
+    let (m, s) = (tc.draw(gs::integers::<u32>().max_value(99)), tc.draw(gs::integers::<u32>().max_value(59)));
+    let (open, close) = tc.draw(gs::sampled_from(vec![("", ""), ("[", "]"), ("(", ")"), ("[", ""), ("(", "]")]));
+    let rest = "Artist - Title";
+    let line = format!("{open}{m}:{s:02}{close} {rest}");
+    let whole = matches!((open, close), ("", "") | ("[", "]") | ("(", ")"));
+    assert_eq!(super::strip_timestamp(&line), whole.then_some((rest, m * 60 + s)), "{line:?}");
+    // A line without one keeps it all.
+    assert_eq!(super::strip_timestamp(&format!("{open}{rest}")), None);
+}

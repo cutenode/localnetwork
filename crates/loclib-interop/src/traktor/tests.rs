@@ -152,3 +152,56 @@ fn key_values_read_back() {
     assert_eq!(key_of(21).map(Camelot::code).as_deref(), Some("8A"));
     assert_eq!(key_of(24), None);
 }
+
+use hegel::TestCase;
+use hegel::generators as gs;
+
+/// A date is written as Traktor writes it when its first ten characters are a year, month and day
+/// that can be, between dashes; anything else (a letter in a number, a dash missing) has none.
+#[hegel::test(test_cases = 200)]
+fn prop_dates_are_three_numbers_between_dashes(tc: TestCase) {
+    let (y, m, d) = (
+        tc.draw(gs::integers::<u32>().max_value(9999)),
+        tc.draw(gs::integers::<u32>().max_value(13)),
+        tc.draw(gs::integers::<u32>().max_value(32)),
+    );
+    let mut s = format!("{y:04}-{m:02}-{d:02}").into_bytes();
+    // Where it's damaged: a letter in the year, month or day, or the first, second or both dashes
+    // a digit (11).
+    let damage = tc.draw(gs::sampled_from(vec![None, Some(0), Some(5), Some(8), Some(4), Some(7), Some(11)]));
+    match damage {
+        Some(11) => (s[4], s[7]) = (b'0', b'0'),
+        Some(at @ (4 | 7)) => s[at] = b'0',
+        Some(at) => s[at] = b'x',
+        None => {}
+    }
+    let s = String::from_utf8(s).unwrap() + tc.draw(gs::sampled_from(vec!["", " 10:00:00"]));
+    let can_be = y > 0 && (1..=12).contains(&m) && (1..=31).contains(&d);
+    let want = (damage.is_none() && can_be).then(|| format!("{y}/{m}/{d}"));
+    assert_eq!(date(&s), want, "{s}");
+    // Short of ten characters, it isn't one.
+    let short = tc.draw(gs::integers::<usize>().max_value(9));
+    assert_eq!(date(&s[..short]), None);
+}
+
+/// The startup disk is the volume that's a link to `/`, among any others; a folder of volumes
+/// without one, or no such folder (this isn't a Mac), names none.
+#[cfg(unix)]
+#[hegel::test(test_cases = 30)]
+fn prop_the_startup_disk_is_the_volume_linked_to_the_root(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let volumes = dir.path().join("Volumes");
+    let others: Vec<String> =
+        tc.draw(gs::vecs(gs::sampled_from(vec!["USB".to_string(), "Backup".into()])).max_size(2).unique(true));
+    let startup = tc.draw(gs::optional(gs::sampled_from(vec!["Macintosh HD", "Disk"])));
+    if tc.draw(gs::booleans()) || startup.is_some() || !others.is_empty() {
+        std::fs::create_dir(&volumes).unwrap();
+    }
+    for other in &others {
+        std::fs::create_dir(volumes.join(other)).unwrap();
+    }
+    if let Some(name) = startup {
+        std::os::unix::fs::symlink("/", volumes.join(name)).unwrap();
+    }
+    assert_eq!(startup_volume(&volumes).as_deref(), startup);
+}

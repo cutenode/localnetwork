@@ -182,3 +182,53 @@ fn a_plugin_reads_in_its_hosts_store() {
     let CommandOutput::Headless(answer) = ran.unwrap() else { panic!("a headless command answers JSON") };
     assert_eq!(answer, json!({ "result": "<store>" }));
 }
+
+/// For any line a plugin sends once its host has let go of it (a process it started holding its
+/// output), what it tells the user never reaches the front end, and what it asks is never read.
+#[hegel::test(test_cases = 1)]
+fn prop_what_a_plugin_sends_once_let_go_of_is_never_taken(tc: hegel::TestCase) {
+    use super::events::{listening, told};
+    use hegel::generators as gs;
+    let message = format!("told {}", tc.draw(gs::from_regex("[a-z]{1,8}").fullmatch(true)));
+    let (f, notices) = told(|dir| vec![spec(dir, &listening(&["plan.applied"]), &[])], Options::default());
+    let notify = json!({ "jsonrpc": "2.0", "method": "host/notify", "params": { "message": message } });
+    let ask = json!({ "jsonrpc": "2.0", "id": "late", "method": "track.show", "params": {} });
+    // Logged as it's read, by whoever holds the plugin: the others were read by then.
+    let last = json!({ "jsonrpc": "2.0", "id": "last", "result": 1 });
+    let go = f._dir.path().join("go");
+    f.echo_params(json!({ "late": { "after": go, "lines": [notify, ask, last] } })).unwrap();
+    let (entered, logs) = (f.entered, f.logs.clone());
+    f.plugins.shutdown();
+    drop(f.plugins);
+    std::fs::write(&go, "").unwrap();
+    let read = "a response to \"last\", which no request is waiting for";
+    eventually("its lines are read", || logs.lock().unwrap().iter().any(|(_, l)| l == read));
+    // Taken, each would go on to a thread of its own: time for that to show.
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(notices.lock().unwrap().len(), 0);
+    assert!(entered.lock().unwrap().try_recv().is_err(), "it isn't read");
+    assert!(logs.lock().unwrap().iter().all(|(_, l)| !l.contains(&message)), "{:?}", logs.lock().unwrap());
+}
+
+/// The app's reads that don't say how a drive a plugin names is found.
+struct Plain;
+
+impl locallibrary::plugin::Reads for Plain {
+    fn read(&self, method: &str, _: Value, _: &Ctx<'_>) -> locallibrary::Result<Value, locallibrary::api::RpcFailure> {
+        unreachable!("nothing reads here: {method}")
+    }
+}
+
+/// For any drive a plugin names, the app's reads find it as the host knows drives by default: one
+/// known here (by its name) at its root, and none that isn't.
+#[hegel::test(test_cases = 1)]
+fn prop_a_drive_named_is_found_as_the_host_knows_drives(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use locallibrary::plugin::Reads;
+    let f = Fixture::echo();
+    for named in ["USB", "usb"] {
+        assert_eq!(Plain.drive(named).unwrap().canonicalize().unwrap(), f.drive.canonicalize().unwrap());
+    }
+    let elsewhere: String = tc.draw(gs::from_regex("[A-Z]{3,8}").fullmatch(true)) + "-ELSEWHERE";
+    assert_eq!(Plain.drive(&elsewhere).unwrap_err().code(), "not_found");
+}

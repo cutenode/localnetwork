@@ -59,6 +59,51 @@ fn setting_a_token_changes_it_alone(tc: TestCase) {
     assert_eq!(t.clone().set(&unknown, &[[0, 0, 0]]).is_ok(), TOKENS.contains(&unknown.as_str()));
 }
 
+/// A name is a theme's colour exactly when it's one of [`TOKENS`], however near one it is (a
+/// group's key it doesn't have, a key of another group); and each phrase kind (every verse
+/// alike) and track colour is drawn in its token's colour. A gradient takes two colours or more,
+/// any other token one.
+#[hegel::test(test_cases = 300)]
+fn prop_a_theme_has_its_tokens_and_nothing_else(tc: TestCase) {
+    let groups = vec!["bands", "phrases", "trackColors", "cues", "status", "ui", "waveform", "playhead", "x"];
+    let keys = vec!["", "low", "verse", "aqua", "hot", "dark.good", "text", "scope", "unknown", "x"];
+    let name = match tc.draw(gs::sampled_from(keys)) {
+        "" => tc.draw(gs::sampled_from(groups)).to_string(),
+        key => format!("{}.{key}", tc.draw(gs::sampled_from(groups))),
+    };
+    let mut t = Theme::default();
+    assert_eq!(t.get(&name).is_some(), TOKENS.contains(&name.as_str()), "{name}");
+    assert_eq!(t.set(&name, &[[1, 2, 3]]).is_err(), !TOKENS.contains(&name.as_str()) || name.starts_with("waveform"));
+    assert!(t.set("waveform.scope", &[[1, 2, 3]]).is_err() && t.set("ui.text", &[[1, 2, 3], [4, 5, 6]]).is_err());
+    t.set("waveform.scope", &[[1, 2, 3], [4, 5, 6]]).unwrap();
+
+    let theme = Theme::default();
+    let kind = tc.draw(gs::sampled_from(vec![
+        (PhraseKind::Intro, "intro"),
+        (PhraseKind::Up, "up"),
+        (PhraseKind::Verse(tc.draw(gs::integers())), "verse"),
+        (PhraseKind::Chorus, "chorus"),
+        (PhraseKind::Down, "down"),
+        (PhraseKind::Bridge, "bridge"),
+        (PhraseKind::Outro, "outro"),
+        (PhraseKind::Unknown(tc.draw(gs::integers())), "unknown"),
+    ]));
+    assert_eq!(Some(vec![theme.phrase(kind.0)]), theme.get(&format!("phrases.{}", kind.1)), "{kind:?}");
+    let colour = TrackColor::from_id(tc.draw(gs::integers::<u8>().min_value(1).max_value(8))).unwrap();
+    let name = format!("trackColors.{}", format!("{colour:?}").to_lowercase());
+    assert_eq!(Some(vec![theme.track_color(colour)]), theme.get(&name), "{name}");
+}
+
+/// Only `#` and six lower-case hex digits is a colour: upper case, another length, other
+/// letters or no `#` aren't.
+#[hegel::test(test_cases = 200)]
+fn prop_hex_is_six_lower_case_digits_after_a_hash(tc: TestCase) {
+    let s = tc.draw(gs::text().alphabet("#0aAfFg9").max_size(8));
+    let well_formed =
+        s.len() == 7 && s.starts_with('#') && s[1..].bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+    assert_eq!(hex(&s).is_some(), well_formed, "{s:?}");
+}
+
 /// Any colour written `#rrggbb` reads back as itself.
 #[hegel::test(test_cases = 200)]
 fn hex_reads_back_what_it_writes(tc: TestCase) {

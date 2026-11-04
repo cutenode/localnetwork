@@ -133,26 +133,75 @@ pub fn mp4_empty_tables() -> Vec<u8> {
 /// setup says is `rate` Hz, with `tables` for its sample tables (see [`mp4_empty_tables`]) and
 /// `moov` (a `udta`, say) after the track.
 pub fn m4a(rate: u32, tables: &[u8], moov: &[u8]) -> Vec<u8> {
+    m4a_tracks(rate, &[tables.to_vec()], moov, &[])
+}
+
+/// An M4A of `tracks` ALAC tracks (each as [`m4a`] makes its one, `rate` its ALAC setup's) holding
+/// `packets` in its `mdat`, each a sample of `frames` frames, every track reading all of them.
+pub fn m4a_with_audio(rate: u32, tracks: usize, packets: &[Vec<u8>], frames: u32) -> Vec<u8> {
+    let sizes: Vec<u32> = packets.iter().map(|p| p.len() as u32).collect();
+    let count = packets.len() as u32;
+    let tables = |offset: u32| {
+        if packets.is_empty() {
+            return mp4_empty_tables();
+        }
+        [
+            mp4_full(b"stts", &be(&[1, count, frames])),
+            mp4_full(b"stsc", &be(&[1, 1, count, 1])),
+            mp4_full(b"stsz", &[be(&[0, count]), be(&sizes)].concat()),
+            mp4_full(b"stco", &be(&[1, offset])),
+        ]
+        .concat()
+    };
+    let mdat = packets.concat();
+    // The samples start after everything else and the `mdat` header, which no offset changes.
+    let at = m4a_tracks(rate, &vec![tables(0); tracks], &[], &mdat).len() - mdat.len();
+    m4a_tracks(rate, &vec![tables(at as u32); tracks], &[], &mdat)
+}
+
+/// `samples` (left, right) as one uncompressed ALAC frame of a 16-bit stereo stream: a channel
+/// pair element saying how many frames it holds, then the end tag.
+pub fn alac_frame(samples: &[(i16, i16)]) -> Vec<u8> {
+    let mut bits: Vec<bool> = Vec::new();
+    let mut put = |v: u32, n: u32| bits.extend((0..n).rev().map(|i| v >> i & 1 == 1));
+    // A pair element, instance 0, the 12 unused bits, a partial frame, no shift, uncompressed.
+    put(1, 3);
+    put(0, 4 + 12);
+    put(0b1001, 4);
+    put(samples.len() as u32, 32);
+    for &(l, r) in samples {
+        put(u32::from(l as u16), 16);
+        put(u32::from(r as u16), 16);
+    }
+    put(7, 3);
+    bits.chunks(8).map(|byte| byte.iter().enumerate().fold(0u8, |b, (i, &on)| b | u8::from(on) << (7 - i))).collect()
+}
+
+fn m4a_tracks(rate: u32, tracks: &[Vec<u8>], moov: &[u8], mdat: &[u8]) -> Vec<u8> {
     let matrix = be(&[0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x4000_0000]);
     let mvhd = mp4_full(
         b"mvhd",
         &[be(&[0, 0, 1000, 0, 0x10000, 0x0100_0000, 0, 0]), matrix.clone(), vec![0; 24], be(&[2])].concat(),
     );
-    let tkhd = mp4_full(b"tkhd", &[be(&[0, 0, 1, 0, 0, 0, 0, 0, 0x0100_0000]), matrix, be(&[0, 0])].concat());
-    let mdhd = mp4_full(b"mdhd", &be(&[0, 0, 8000, 0, 0x55c4_0000]));
-    let hdlr = mp4_full(b"hdlr", &[&be(&[0])[..], b"soun", &[0; 13]].concat());
-    // Frame length, version, bit depth, rice parameters, 2 channels, run, frame and bit rate
-    // limits, and the rate.
-    let cookie = be(&[4096, 16 << 16 | 40 << 8 | 10, 14 << 24 | 2 << 16 | 255, 0, 0, rate]);
-    let entry =
-        mp4_atom(b"alac", &[be(&[0, 1, 0, 0, 2 << 16 | 16, 0, 8000 << 16]), mp4_full(b"alac", &cookie)].concat());
-    let stbl = [mp4_full(b"stsd", &[be(&[1]), entry].concat()), tables.to_vec()].concat();
-    let minf = mp4_atom(b"minf", &[mp4_full(b"smhd", &be(&[0])), mp4_atom(b"stbl", &stbl)].concat());
-    let trak = mp4_atom(b"trak", &[tkhd, mp4_atom(b"mdia", &[mdhd, hdlr, minf].concat())].concat());
+    let trak = |id: u32, tables: &[u8]| {
+        let tkhd =
+            mp4_full(b"tkhd", &[be(&[0, 0, id, 0, 0, 0, 0, 0, 0x0100_0000]), matrix.clone(), be(&[0, 0])].concat());
+        let mdhd = mp4_full(b"mdhd", &be(&[0, 0, 8000, 0, 0x55c4_0000]));
+        let hdlr = mp4_full(b"hdlr", &[&be(&[0])[..], b"soun", &[0; 13]].concat());
+        // Frame length, version, bit depth, rice parameters, 2 channels, run, frame and bit rate
+        // limits, and the rate.
+        let cookie = be(&[4096, 16 << 16 | 40 << 8 | 10, 14 << 24 | 2 << 16 | 255, 0, 0, rate]);
+        let entry =
+            mp4_atom(b"alac", &[be(&[0, 1, 0, 0, 2 << 16 | 16, 0, 8000 << 16]), mp4_full(b"alac", &cookie)].concat());
+        let stbl = [mp4_full(b"stsd", &[be(&[1]), entry].concat()), tables.to_vec()].concat();
+        let minf = mp4_atom(b"minf", &[mp4_full(b"smhd", &be(&[0])), mp4_atom(b"stbl", &stbl)].concat());
+        mp4_atom(b"trak", &[tkhd, mp4_atom(b"mdia", &[mdhd, hdlr, minf].concat())].concat())
+    };
+    let traks: Vec<u8> = tracks.iter().zip(1..).flat_map(|(tables, id)| trak(id, tables)).collect();
     [
         mp4_atom(b"ftyp", b"M4A \0\0\0\0M4A isom"),
-        mp4_atom(b"moov", &[mvhd, trak, moov.to_vec()].concat()),
-        mp4_atom(b"mdat", &[]),
+        mp4_atom(b"moov", &[mvhd, traks, moov.to_vec()].concat()),
+        mp4_atom(b"mdat", mdat),
     ]
     .concat()
 }

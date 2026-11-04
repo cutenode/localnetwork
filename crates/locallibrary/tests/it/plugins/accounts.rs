@@ -7,7 +7,9 @@
 //! never in an error, a log or on to another origin. Keeping the accounts is
 //! [`super::shared_accounts`]'s, and plugins' accesses to them [`super::accesses`]'.
 
+use std::collections::VecDeque;
 use std::net::TcpListener;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use hegel::TestCase;
@@ -17,7 +19,9 @@ use locallibrary::keychain::Storage;
 use locallibrary::plugin::{AccountSignIn, AccountSignedIn};
 
 use super::net::{Reply, Server, ok};
-use super::shared_accounts::{Mock, WITH, asking, mock_for, mock_with, options, who};
+use super::shared_accounts::{
+    Damage, Mock, Snapshot, WITH, asking, edit_json, keys_plugin, mock_among, mock_for, mock_with, options, who,
+};
 use super::*;
 use crate::mock_oauth::{EXCHANGE, account_plugin, fields, json_reply};
 pub(super) use crate::mock_oauth::{Service, form, service};
@@ -210,20 +214,23 @@ fn an_account_type_is_only_reached_at_a_public_https_address_outside_tests() {
     assert_eq!(begin("nope").unwrap_err().to_string(), "not found: the mock-accounts plugin's account type \"nope\"");
 }
 
-/// A kept sign-in that can't be read says to sign in again, and both signing in again and signing
-/// out (with nothing to revoke) put it right.
-#[test]
-fn a_sign_in_that_cant_be_read_is_signed_in_again_or_out() {
+/// For an account named by its email or its subject, a kept sign-in that can't be read says to
+/// sign in again, naming it, and both signing in again and signing out (with nothing to revoke)
+/// put it right.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_sign_in_that_cant_be_read_is_signed_in_again_or_out(tc: TestCase) {
+    let email = tc.draw(gs::sampled_from(vec![Some("a@mock.example"), None]));
     let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
     let garble = || {
         let file = m.f.store.root().join("secrets/accounts.json");
         std::fs::write(&file, format!("{{\"account:{WITH}:a\": \"not json\"}}")).unwrap();
     };
-    let a = || who(json!("a"), Some("a@mock.example"));
+    let a = || who(json!("a"), email);
     m.sign_in(a(), None, &[]).0.unwrap();
     garble();
     let e = m.fetch_as("GET", "/r/x", "{account:mock}", None);
-    assert_eq!(e["error"]["message"], "the a@mock.example account's sign-in can't be read: sign in again");
+    let name = email.unwrap_or("a");
+    assert_eq!(e["error"]["message"], format!("the {name} account's sign-in can't be read: sign in again"));
     m.sign_in(a(), Some("a"), &[]).0.unwrap();
     assert_eq!(m.fetch_as("GET", "/r/x", "{account:mock}", None)["result"]["body"], "/r/x Bearer at-2");
     garble();
@@ -533,22 +540,305 @@ fn a_token_in_the_query_stays_out_of_errors_logs_and_other_origins() {
     assert!(!m.leaked(&answers), "a token is out where it may not be");
 }
 
-/// An account type naming the port the browser comes back to is signed in there, and a sign-in
-/// still waiting on it gives way to a new one; another program holding it is said.
-#[test]
-fn an_account_type_naming_a_port_is_come_back_to_there() {
+/// For anyone signing in, an account type naming the port the browser comes back to is signed in
+/// there, and a sign-in still waiting on it gives way to a new one, while one waiting for the keys
+/// of another type keeps waiting; another program holding the port is said.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_an_account_type_naming_a_port_is_come_back_to_there(tc: TestCase) {
+    let subject = tc.draw(gs::sampled_from(vec![json!("a"), json!(42)]));
     let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
-    let manifest =
-        |server: &str| account_plugin(server, &format!("{server}/userinfo"), &format!("redirect_port = {port}"));
-    let m = mock_with(3600, manifest, &asking(&["read"], &[]), options());
+    let manifests = |server: &str| {
+        let manifest = account_plugin(server, &format!("{server}/userinfo"), &format!("redirect_port = {port}"));
+        vec![manifest, keys_plugin(server, "keyed-accounts", "keyed")]
+    };
+    let m = mock_among(3600, manifests, &asking(&["read"], &[]), options());
+    let keyed = m.f.plugins.begin_account_sign_in("keyed", "keyed-accounts", None, None, &[], &m.f.store).unwrap();
     let waiting = m.begin();
     let redirect_uri = format!("http://127.0.0.1:{port}/callback");
     assert_eq!((back(&waiting), opened_at(&waiting.url)["redirect_uri"].as_str()), (&*redirect_uri, &*redirect_uri));
-    assert!(m.sign_in(who(json!("a"), None), None, &[]).0.unwrap().account.signed_in);
+    assert!(m.sign_in(who(subject, None), None, &[]).0.unwrap().account.signed_in);
     assert_eq!(form(&m.server.got()[0])["redirect_uri"], redirect_uri);
     assert!(!m.f.plugins.cancel_sign_in(&waiting.id), "the sign-in waiting didn't give way");
+    assert!(m.f.plugins.cancel_sign_in(&keyed.id), "the sign-in waiting for keys gave way");
 
     let _held = TcpListener::bind(("127.0.0.1", port)).unwrap();
     let e = m.f.plugins.begin_account_sign_in("mock", WITH, None, None, &[], &m.f.store).unwrap_err().to_string();
     assert!(e.starts_with(&format!("can't listen for the browser on 127.0.0.1:{port}: ")), "{e}");
+}
+
+/// For a sign-in for a plugin or not: the browser coming back with neither a code nor an error
+/// signs nobody in, and is told why; an address pasted with no sign-in result in it is refused;
+/// and a browser that never comes back is given up on. Sign-ins waiting for the browser wait side
+/// by side.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_browser_coming_back_without_a_code_signs_nobody_in(tc: TestCase) {
+    let plugin = tc.draw(gs::sampled_from(vec![None, Some("echo")]));
+    let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
+    let begin = || m.f.plugins.begin_account_sign_in("mock", WITH, plugin, None, &[], &m.f.store).unwrap();
+    let finish = |start: &AccountSignIn, wait: u64| {
+        let done = m.f.plugins.finish_account_sign_in(&start.id, Duration::from_secs(wait), &Ctx::silent());
+        done.unwrap_err().to_string()
+    };
+    // Sign-ins waiting for the browser wait side by side.
+    let (one, other) = (begin(), begin());
+    assert!(m.f.plugins.cancel_sign_in(&one.id) && m.f.plugins.cancel_sign_in(&other.id), "one gave way");
+    let start = begin();
+    let browser = come_back_to(back(&start), format!("state={}", opened_at(&start.url)["state"]));
+    assert_eq!(finish(&start, 10), "the browser came back without a code");
+    assert!(browser.join().unwrap().contains("the browser came back without a code"));
+    let start = begin();
+    let e = m.f.plugins.finish_account_sign_in_with_url(&start.id, "http://127.0.0.1/callback").unwrap_err();
+    assert_eq!(e.to_string(), "that address has no sign-in result in it (nothing after `?`)");
+    assert_eq!(finish(&begin(), 1), "no answer from the browser within 1 second; sign in again");
+    assert!(m.listed().is_empty() && !m.server.got().iter().any(|g| g.target == "/token"));
+}
+
+/// For anyone signing in, an address pasted from another computer signs in only when it's this
+/// sign-in's, and outside tests a service is reached only at a public https address.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_pasted_address_signs_in_only_when_its_this_sign_ins(tc: TestCase) {
+    let subject = tc.draw(gs::sampled_from(vec!["a", "b"]));
+    let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
+    let start = m.begin();
+    let foreign = format!("{}?code=c0de&state=guess", back(&start));
+    let e = m.f.plugins.finish_account_sign_in_with_url(&start.id, &foreign).unwrap_err();
+    assert_eq!(e.to_string(), "that address is from another sign-in: sign in again");
+    let start = m.begin();
+    m.expect(&start, who(json!(subject), None));
+    let pasted = format!("{}?code=c0de&state={}", back(&start), opened_at(&start.url)["state"]);
+    let done = m.f.plugins.finish_account_sign_in_with_url(&start.id, &pasted).unwrap();
+    assert_eq!(done.account.subject, subject);
+
+    let manifest = |server: &str| account_plugin(server, &format!("{server}/userinfo"), "");
+    let outside =
+        mock_with(3600, manifest, &asking(&["read"], &[]), Options { secrets: Storage::File, ..Options::default() });
+    let e = outside.f.plugins.begin_account_sign_in("mock", WITH, None, None, &[], &outside.f.store).unwrap_err();
+    assert!(e.to_string().ends_with("isn't an https address"), "{e}");
+}
+
+/// What a scripted server answers next: the store damaged first as `.0` does, when it does.
+type Turn = (Option<Box<dyn FnOnce(&Path) + Send>>, Reply);
+
+/// A server answering its turns in order, damaging the store at `root` (once it's given) first
+/// when one says; once they've run out, tokens `at-9` and `rt-9` lasting half a minute.
+pub(super) struct Scripted {
+    pub(super) url: String,
+    root: Arc<OnceLock<PathBuf>>,
+    turns: Arc<Mutex<VecDeque<Turn>>>,
+}
+
+impl Scripted {
+    pub(super) fn new() -> Scripted {
+        let (root, turns): (Arc<OnceLock<PathBuf>>, Arc<Mutex<VecDeque<Turn>>>) = Default::default();
+        let (at, script) = (root.clone(), turns.clone());
+        let fresh =
+            || json!({ "access_token": "at-9", "token_type": "bearer", "expires_in": 30, "refresh_token": "rt-9" });
+        let server = Server::new(move |_, _| {
+            let Some((damage, reply)) = script.lock().unwrap().pop_front() else { return json_reply(200, fresh()) };
+            if let Some(damage) = damage {
+                damage(at.get().unwrap());
+            }
+            reply
+        });
+        Scripted { url: server.url, root, turns }
+    }
+
+    /// It answers `reply`, damaging the store first as `damage` does.
+    pub(super) fn then(&self, damage: Option<Damage>, reply: Reply) {
+        let damage = damage.map(|d| Box::new(move |root: &Path| d.to(root)) as Box<dyn FnOnce(&Path) + Send>);
+        self.turns.lock().unwrap().push_back((damage, reply));
+    }
+
+    /// It damages the store of `m` from now on.
+    fn damages(&self, m: &Mock) {
+        self.root.set(m.f.store.root().into()).unwrap();
+    }
+}
+
+/// [`Mock`], its account type trading codes and refresh tokens at `base`'s token endpoint, or
+/// at `base`'s Local Network's token exchange when it `exchanges`; whoever it's asked about signed
+/// in as `a`.
+pub(super) fn trading_at(base: &str, exchanges: bool) -> Mock {
+    let whoami = anyone();
+    let trades = match exchanges {
+        true => format!("token_exchange = \"{base}{EXCHANGE}\""),
+        false => format!("token_url = \"{base}/token\""),
+    };
+    let manifest = move |server: &str| {
+        account_plugin(server, &whoami, "").replace(&format!("token_url = \"{server}/token\""), &trades)
+    };
+    mock_with(3600, manifest, &asking(&["read"], &[]), options())
+}
+
+/// A server that answers every request with the head of a body it then cuts short.
+fn cut_short() -> String {
+    let headers = vec![("Content-Type", "application/json".into()), ("Content-Length", "100".into())];
+    Server::new(move |_, _| Reply { status: 200, headers: headers.clone(), body: b"{\"access".to_vec() }).url
+}
+
+/// How the token endpoint fails in [`prop_a_token_endpoint_failing_says_why_and_keeps_nothing`].
+#[derive(Debug, Clone, Copy)]
+enum Trade {
+    /// It names an error, describing nothing.
+    Said,
+    /// It answers an error with nothing in it.
+    Empty,
+    /// Nothing listens there.
+    Closed,
+    /// Its answer is cut short.
+    CutShort,
+    /// It answers a token that can't go in a header.
+    Unsendable,
+    /// It answers what isn't tokens.
+    Garbled,
+}
+
+/// For an account type trading its codes at a token endpoint or Local Network's token exchange,
+/// one that fails (naming an error without describing it, answering an empty error, not
+/// listening, cutting its answer short, answering what isn't tokens, or a token no request can
+/// carry) signs nobody in, saying why.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_token_endpoint_failing_says_why_and_keeps_nothing(tc: TestCase) {
+    let exchanges = tc.draw(gs::booleans());
+    for trade in [Trade::Said, Trade::Empty, Trade::Closed, Trade::CutShort, Trade::Unsendable, Trade::Garbled] {
+        let scripted = Scripted::new();
+        let base = match trade {
+            Trade::Closed => format!("http://{}", TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap()),
+            Trade::CutShort => cut_short(),
+            _ => scripted.url.clone(),
+        };
+        let reply = match trade {
+            Trade::Said => json_reply(400, json!({ "error": "invalid_grant" })),
+            Trade::Unsendable => json_reply(200, json!({ "access_token": "at\n1", "token_type": "bearer" })),
+            Trade::Garbled => json_reply(200, json!({ "token_type": "bearer" })),
+            _ => Reply { status: 400, headers: Vec::new(), body: Vec::new() },
+        };
+        scripted.then(None, reply);
+        let m = trading_at(&base, exchanges);
+        let e = m.sign_in(who(json!("a"), None), None, &[]).0.unwrap_err().to_string();
+        let said = match trade {
+            Trade::Said => "signing in to Mock: it said invalid_grant",
+            Trade::Empty => "signing in to Mock: server returned empty error response",
+            Trade::Closed => "signing in to Mock: error sending request",
+            Trade::CutShort => "signing in to Mock: error decoding response body",
+            Trade::Unsendable => "asking Mock who signed in: ",
+            Trade::Garbled => "signing in to Mock: its answer couldn't be read",
+        };
+        assert!(e.starts_with(said), "{trade:?}: {e}");
+        assert!(m.listed().is_empty(), "{trade:?}");
+    }
+}
+
+/// For an account type trading its tokens at a token endpoint or Local Network's token exchange,
+/// a store whose `accounts.json` can't be changed while an expiring token is refreshed fails the
+/// refresh, whether the service refreshed it or won't any more, and keeps the account as it was.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_store_locked_while_refreshing_keeps_the_account_as_it_was(tc: TestCase) {
+    let exchanges = tc.draw(gs::booleans());
+    let scripted = Scripted::new();
+    let m = trading_at(&scripted.url, exchanges);
+    m.sign_in(who(json!("a"), None), None, &[]).0.unwrap();
+    scripted.damages(&m);
+    let snapshot = Snapshot::of(m.f.store.root());
+    for refreshes in [true, false] {
+        let reply = match refreshes {
+            true => json_reply(200, json!({ "access_token": "at-10", "token_type": "bearer", "expires_in": 3600 })),
+            false => json_reply(400, json!({ "error": "invalid_grant" })),
+        };
+        scripted.then(Some(Damage::Lock), reply);
+        assert_eq!(m.token("a").unwrap_err().code(), "io", "refreshes {refreshes}");
+        snapshot.undo(Damage::Lock);
+        assert!(snapshot.unchanged(), "refreshes {refreshes}");
+    }
+    assert_eq!(m.listed().len(), 1);
+}
+
+/// How a server a plugin asks with an account's token damages the store as it answers, in
+/// [`prop_a_store_damaged_as_a_service_refuses_a_token_says_so`].
+#[derive(Debug, Clone, Copy)]
+enum Refusing {
+    /// [`Damage`]'s, answering the token refreshed that it's no good.
+    Damaged(Damage),
+    /// The account is forgotten, then the token refreshed is no good.
+    Forgotten,
+    /// Another host signs it in again, then the token refreshed is no good.
+    Replaced,
+    /// `accounts.json` isn't JSON, then the token lacks a scope.
+    Scoped,
+    /// `accounts.json` isn't JSON, then the token is refused, to be refreshed.
+    Unrefreshable,
+    /// Nothing's damaged, and the token refreshed is no good.
+    SignedOut,
+}
+
+/// For a plugin's request with an account's token, a server refusing it (once, then the token
+/// refreshed with `error="invalid_token"`, or saying it lacks a scope) as the store is damaged
+/// fails as the service's failure where refreshing it, signing it out or forgetting what it was
+/// granted can't be done; and the refusal is passed on, signing the account out, unless it's no
+/// longer kept or another host signed it in again since.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_store_damaged_as_a_service_refuses_a_token_says_so(tc: TestCase) {
+    let query = tc.draw(gs::sampled_from(vec!["", "token = { query = \"access_token\" }"]));
+    let damaged = Damage::ALL.into_iter().filter(|d| *d != Damage::Lock).map(Refusing::Damaged);
+    let others =
+        [Refusing::Forgotten, Refusing::Replaced, Refusing::Scoped, Refusing::Unrefreshable, Refusing::SignedOut];
+    for refusing in damaged.chain(others) {
+        let there = Scripted::new();
+        let m = reaching(query, &[&there.url]);
+        m.sign_in(who(json!("a"), None), None, &[]).0.unwrap();
+        there.damages(&m);
+        let challenge = |said: &str| vec![("WWW-Authenticate", format!("Bearer realm=\"mock\", {said}"))];
+        let invalid = Reply { status: 401, headers: challenge(r#"error="invalid_token""#), body: Vec::new() };
+        // The store's `file`, changed as `change` says.
+        let edit = |file: &'static str, change: Box<dyn FnOnce(&mut Value) + Send>| -> Box<dyn FnOnce(&Path) + Send> {
+            Box::new(move |root: &Path| edit_json(&root.join(file), change))
+        };
+        let first = Reply { status: 401, headers: Vec::new(), body: Vec::new() };
+        let turns: Vec<Turn> = match refusing {
+            Refusing::Damaged(damage) => {
+                vec![(None, first), (Some(Box::new(move |root: &Path| damage.to(root))), invalid)]
+            }
+            Refusing::Forgotten => {
+                vec![
+                    (None, first),
+                    (Some(edit("accounts.json", Box::new(|kept| kept["accounts"] = json!([])))), invalid),
+                ]
+            }
+            Refusing::Replaced => {
+                let other = json!({ "access_token": "at-99" }).to_string();
+                let replace = Box::new(move |kept: &mut Value| kept[format!("account:{WITH}:a")] = json!(other));
+                vec![(None, first), (Some(edit("secrets/accounts.json", replace)), invalid)]
+            }
+            Refusing::Scoped => {
+                let scoped =
+                    Reply { status: 403, headers: challenge(r#"error="insufficient_scope""#), body: Vec::new() };
+                vec![(Some(Box::new(|root: &Path| Damage::Book.to(root))), scoped)]
+            }
+            Refusing::Unrefreshable => vec![(Some(Box::new(|root: &Path| Damage::Book.to(root))), first)],
+            Refusing::SignedOut => vec![(None, first), (None, invalid)],
+        };
+        there.turns.lock().unwrap().extend(turns);
+        let answer = match query {
+            "" => m
+                .f
+                .fetch(json!({ "url": format!("{}/x", there.url), "headers": { "Authorization": "{account:mock}" } })),
+            _ => m.f.fetch(json!({ "url": format!("{}/x?access_token={{account:mock}}", there.url) })),
+        };
+        let said = format!("{refusing:?}: {answer}");
+        match refusing {
+            Refusing::Damaged(_) | Refusing::Scoped | Refusing::Unrefreshable => {
+                assert_eq!(answer["error"]["data"]["kind"], "external", "{said}")
+            }
+            Refusing::Forgotten | Refusing::Replaced | Refusing::SignedOut => {
+                assert_eq!(answer["result"]["status"], 401, "{said}")
+            }
+        }
+        if let Refusing::SignedOut = refusing {
+            assert!(m.listed().is_empty(), "{said}: still signed in");
+        }
+        if let Refusing::Replaced = refusing {
+            assert_eq!(m.token("a").unwrap(), "at-99", "{said}: signed out");
+        }
+        assert!(!m.leaked(&[answer["error"].clone()]), "a token is out: {said}");
+    }
 }

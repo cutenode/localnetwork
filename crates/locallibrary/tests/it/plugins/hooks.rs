@@ -432,3 +432,225 @@ fn an_export_kept_doesnt_keep_its_plugin_as_it_stops() {
     assert_eq!(e.code(), "stale_plan", "{e}");
     assert!(!out.exists());
 }
+
+/// What a plugin's operation is planned with, or answers, as
+/// [`prop_an_operation_that_cant_be_planned_fails_saying_why`] draws it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Planning {
+    /// An operation the plugin doesn't have.
+    Unknown,
+    /// Params its schema refuses.
+    Unfit,
+    /// No drive to plan on.
+    NoDrive,
+    /// A drive not known here.
+    Elsewhere,
+    /// A question, from a plugin without the `choose` feature.
+    AsksUnable,
+    /// A question about a param it was given.
+    AsksAgain,
+    /// A question, for a caller that can't ask.
+    Asks,
+    /// A file it read named by a relative path.
+    RelativeInput,
+    /// A My Tag edit, without `tags:plan`.
+    TagUngranted,
+    /// An analysis edit, without `analysis:plan`.
+    AnalysisUngranted,
+    /// Cover art in a file that isn't in its scratch folder.
+    NoImage,
+    /// A waveform in a file that isn't in its scratch folder.
+    NoWaveform,
+    /// On a drive whose journal of edits can't be read.
+    Journal,
+    /// Cover art given otherwise than as a file.
+    ImageGiven,
+    /// A waveform given otherwise than as a file.
+    WaveGiven,
+    /// Cover art, as a file in its scratch folder.
+    Image,
+    /// Planned from files it read, absolute and there.
+    Inputs,
+    /// A waveform, as a file in its scratch folder.
+    Wave,
+    /// A removal from the library, without `library:delete`.
+    Removal,
+    /// A file it read that isn't one (a folder).
+    InputNotAFile,
+}
+
+/// For any way a plugin's operation can't be planned (one it doesn't have, params it doesn't take,
+/// no drive, a question it can't ask or asks again, a file it read that isn't named by an absolute
+/// path, an edit its capabilities don't grant or whose file isn't in its scratch folder, and a
+/// drive no edit is planned on), it fails, saying why; asked of a caller that can't answer, its
+/// question is refused, naming its params. Its parts of a view, sent as any request's may be,
+/// change nothing.
+#[hegel::test(test_cases = 1)]
+fn prop_an_operation_that_cant_be_planned_fails_saying_why(tc: hegel::TestCase) {
+    for planning in [
+        Planning::Unknown,
+        Planning::Unfit,
+        Planning::NoDrive,
+        Planning::Elsewhere,
+        Planning::AsksUnable,
+        Planning::AsksAgain,
+        Planning::Asks,
+        Planning::RelativeInput,
+        Planning::TagUngranted,
+        Planning::AnalysisUngranted,
+        Planning::NoImage,
+        Planning::NoWaveform,
+        Planning::Journal,
+        Planning::ImageGiven,
+        Planning::WaveGiven,
+        Planning::Image,
+        Planning::Inputs,
+        Planning::Wave,
+        Planning::Removal,
+        Planning::InputNotAFile,
+    ] {
+        prop_an_operation_that_cant_be_planned_fails_saying_why_case(&tc, planning);
+    }
+}
+
+/// [`prop_an_operation_that_cant_be_planned_fails_saying_why`] for one `planning`.
+#[hegel::test_helper]
+fn prop_an_operation_that_cant_be_planned_fails_saying_why_case(tc: &hegel::TestCase, planning: Planning) {
+    use hegel::generators as gs;
+    use locallibrary::plugin::OpPlanned;
+    let manifest = match planning {
+        Planning::NoImage
+        | Planning::NoWaveform
+        | Planning::ImageGiven
+        | Planning::WaveGiven
+        | Planning::Image
+        | Planning::Wave => granting(&["artwork:plan", "analysis:plan"]),
+        Planning::AsksAgain | Planning::Asks | Planning::AsksUnable => ECHO.replace(", required = [\"name\"] }", " }"),
+        _ => ECHO.to_string(),
+    };
+    let mut args = vec!["--partials"];
+    if planning == Planning::AsksUnable {
+        args.extend(["--without", "choose"]);
+    }
+    let f = Fixture::new(|dir| vec![spec(dir, &manifest, &args)], Options::default());
+    let file = common::library(&f.drive).tracks[0].file_path.clone();
+    let ask = json!({ "title": "Which one?", "param": "name", "items": [{ "label": "A", "value": "A" }] });
+    let name: String = tc.draw(gs::from_regex("[A-Za-z]{1,8}").fullmatch(true));
+    let edit = |edit: Value| json!({ "name": name, "edits": [edit] });
+    let (mut operation, mut context) = ("playlist", f.context());
+    let params = match planning {
+        Planning::Unknown => {
+            operation = "nope";
+            Value::Null
+        }
+        Planning::Unfit => json!({}),
+        Planning::NoDrive => {
+            context = Context::default();
+            json!({ "name": name })
+        }
+        Planning::Elsewhere => {
+            context = Context { drive: Some("ELSEWHERE".into()), ..Context::default() };
+            json!({ "name": name })
+        }
+        Planning::AsksUnable | Planning::Asks => json!({ "ask": ask }),
+        Planning::AsksAgain => json!({ "ask": ask, "ask_again": true, "name": "given" }),
+        Planning::RelativeInput => json!({ "name": name, "edits": [], "inputs": ["read.txt"] }),
+        Planning::TagUngranted => edit(json!({ "op": "my_tag", "action": "delete", "tag": "Genre/House" })),
+        Planning::AnalysisUngranted => edit(json!({ "op": "set_analysis", "track": file, "beats": [] })),
+        Planning::NoImage => {
+            edit(json!({ "op": "set_artwork", "tracks": { "ids": [1] }, "image": { "blob": "none.jpg" } }))
+        }
+        Planning::NoWaveform => {
+            edit(json!({ "op": "set_analysis", "track": file, "waveform": { "blob": "none.bands" } }))
+        }
+        Planning::Journal => {
+            super::analysis::Unplannable::Journal.make(&f);
+            json!({ "name": name })
+        }
+        Planning::ImageGiven => {
+            edit(json!({ "op": "set_artwork", "tracks": { "ids": [1] }, "image": { "base64": "AAAA" } }))
+        }
+        Planning::WaveGiven => edit(json!({ "op": "set_analysis", "track": file, "waveform": { "base64": "AQID" } })),
+        Planning::Image => {
+            let id = common::library(&f.drive).tracks[0].id;
+            let art = json!({ "op": "set_artwork", "tracks": { "ids": [id] }, "image": { "blob": "c.jpg" } });
+            json!({ "name": name, "edits": [art], "blobs": { "c.jpg": jpeg(64) } })
+        }
+        // Below, once the file it reads is there.
+        Planning::Inputs | Planning::Wave => Value::Null,
+        Planning::InputNotAFile => json!({ "name": name, "edits": [], "inputs": [f._dir.path()] }),
+        Planning::Removal => {
+            let made = json!({ "name": "Doomed" });
+            let planned = f.plugins.plan_op("echo", "playlist", made, f.context(), Some(&f.store), &Ctx::silent());
+            planned.unwrap().plan().unwrap().apply(None, &Ctx::silent()).unwrap();
+            edit(json!({ "op": "delete_playlist", "playlist": "Doomed" }))
+        }
+    };
+    let read = f._dir.path().join("read.txt");
+    std::fs::write(&read, &name).unwrap();
+    let params = match planning {
+        Planning::Inputs => json!({ "name": name, "edits": [], "inputs": [read] }),
+        Planning::Wave => {
+            let wave = json!({ "op": "set_analysis", "track": file, "waveform": { "blob": "w.bands" } });
+            json!({ "name": name, "edits": [wave], "blobs": { "w.bands": [1, 2, 3] } })
+        }
+        _ => params,
+    };
+    if planning == Planning::Inputs {
+        let planned = f.plugins.plan_op("echo", operation, params, context, Some(&f.store), &Ctx::silent());
+        let OpPlanned::Plan(planned) = planned.unwrap() else { panic!("a plan") };
+        std::fs::write(&read, "changed since").unwrap();
+        return assert_eq!(planned.apply(None, &Ctx::silent()).unwrap_err().code(), "stale_plan");
+    }
+    if planning == Planning::Wave {
+        // Read from its file, then refused: rekordbox's colour overview can't be worked out from it.
+        let e = f.plugins.plan_op("echo", operation, params, context, Some(&f.store), &Ctx::silent()).unwrap_err();
+        return assert!(e.to_string().contains("(PWV4)"), "{e}");
+    }
+    if planning == Planning::Image {
+        let planned = f.plugins.plan_op("echo", operation, params, context, Some(&f.store), &Ctx::silent());
+        let OpPlanned::Plan(planned) = planned.unwrap() else { panic!("a plan") };
+        assert!(matches!(&planned.plan.recorded[..], [locallibrary::edit::Edit::SetArtwork { .. }]));
+        return;
+    }
+    let planned = f.plugins.plan_op("echo", operation, params, context, Some(&f.store), &Ctx::silent());
+    let e = match planning {
+        Planning::Asks => {
+            let asked = planned.unwrap();
+            assert!(matches!(asked, OpPlanned::Choose { .. }));
+            asked.plan().unwrap_err()
+        }
+        _ => planned.and_then(OpPlanned::plan).unwrap_err(),
+    };
+    let fails = "the Echo plugin failed:";
+    let said = e.to_string();
+    let expected = match planning {
+        Planning::Unknown => return assert_eq!(e.code(), "not_found", "{e}"),
+        Planning::Unfit => return assert_eq!(e.code(), "invalid", "{e}"),
+        Planning::Journal => return assert_eq!(e.code(), "parse", "{e}"),
+        Planning::Elsewhere => return assert_eq!(e.code(), "not_found", "{e}"),
+        Planning::NoDrive => "playlist edits a drive: say which".to_string(),
+        Planning::AsksUnable => format!("{fails} it asks a question without the choose feature"),
+        Planning::AsksAgain => format!("{fails} it asks again for name, which it was given"),
+        Planning::Asks => "Which one?: it asks which first, as `name` in its params".into(),
+        Planning::RelativeInput => format!("{fails} it read read.txt, which isn't an absolute path"),
+        Planning::TagUngranted => format!("{fails} its edit 0 needs the tags:plan capability, which it doesn't have"),
+        Planning::AnalysisUngranted => {
+            format!("{fails} its edit 0 needs the analysis:plan capability, which it doesn't have")
+        }
+        Planning::NoImage => format!("{fails} its edit 0: its file \"none.jpg\" isn't there"),
+        Planning::NoWaveform => format!("{fails} its edit 0: its file \"none.bands\" isn't there"),
+        Planning::ImageGiven => {
+            format!("{fails} its edit 0 gives an image otherwise than as a file in its scratch folder")
+        }
+        Planning::WaveGiven => {
+            format!("{fails} its edit 0 gives a waveform otherwise than as a file in its scratch folder")
+        }
+        Planning::Removal => {
+            format!("{fails} playlist removes from the library, which needs the library:delete capability")
+        }
+        Planning::InputNotAFile => format!("{fails} it read {}, which isn't a file", f._dir.path().display()),
+        Planning::Image | Planning::Inputs | Planning::Wave => unreachable!("answered above"),
+    };
+    assert!(said.starts_with(&expected), "{planning:?}: {said}");
+}

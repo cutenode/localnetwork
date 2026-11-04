@@ -291,3 +291,70 @@ fn a_write_puts_every_file_in_place_or_none(tc: TestCase) {
         (written, foreseen) => panic!("wrote {written:?}, not {foreseen:?}"),
     }
 }
+
+/// Whatever the file's bytes, one that can't be put in place (a folder where it goes, or on Unix
+/// a folder that can't be written to) fails as `io`, naming the folder and not the temp file it
+/// tried, and leaves what was there; audio a tag can't go into fails as `tags`, naming the
+/// drive's file; and a copy cancelled once it has begun puts nothing in place.
+#[hegel::test(test_cases = 5)]
+fn prop_a_file_that_cant_be_put_in_place_names_where(tc: TestCase) {
+    // With no frame sync or chunk id in it, which lofty would read as audio.
+    let bytes = tc.draw(gs::vecs(gs::integers::<u8>().max_value(0x40)).min_size(1).max_size(16));
+    for locked in [false, true].into_iter().filter(|l| cfg!(unix) || !l) {
+        put_in_place(&bytes, locked);
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let from = dir.path().join("noise.mp3");
+    std::fs::write(&from, &bytes).unwrap();
+    let tagged = Content::TaggedCopy { from: from.clone(), markers: Some(vec![0]) };
+    let export = Export { files: vec![file(&dir.path().join("out/noise.mp3"), 5, tagged)], ..Default::default() };
+    let e = write(&export, dir.path(), &Ctx::silent()).unwrap_err();
+    assert_eq!(e.kind(), Some("tags"));
+    assert!(e.message.contains(&from.display().to_string()), "{e:?}");
+    assert_eq!(std::fs::read_dir(dir.path().join("out")).unwrap().count(), 0);
+
+    // Cancelled once its copy has begun, nothing is put in place.
+    let token = CancelToken::new();
+    let once_copying = |e: &Event| {
+        if let Event::Bytes { .. } = e {
+            token.cancel();
+        }
+    };
+    let ctx = Ctx::new(&once_copying, token.clone());
+    let copy = Content::TaggedCopy { from, markers: None };
+    let export = Export { files: vec![file(&dir.path().join("out/copy.mp3"), 5, copy)], ..Default::default() };
+    assert_eq!(write(&export, dir.path(), &ctx).unwrap_err().kind(), Some("cancelled"));
+    assert_eq!(std::fs::read_dir(dir.path().join("out")).unwrap().count(), 0);
+}
+
+/// [`prop_a_file_that_cant_be_put_in_place_names_where`] for `bytes`, in a `locked` folder or one
+/// in the way.
+fn put_in_place(bytes: &[u8], locked: bool) {
+    let bytes = bytes.to_vec();
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("folder");
+    std::fs::create_dir_all(folder.join("inside")).unwrap();
+    let path = match locked {
+        true => folder.join("m.db"),
+        false => folder.clone(),
+    };
+    // Unlocks the folder again however the test ends, so the temp dir can be removed.
+    #[cfg(unix)]
+    struct Unlock(PathBuf);
+    #[cfg(unix)]
+    impl Drop for Unlock {
+        fn drop(&mut self) {
+            let _ = std::fs::set_permissions(&self.0, std::os::unix::fs::PermissionsExt::from_mode(0o755));
+        }
+    }
+    #[cfg(unix)]
+    let _unlock = locked.then(|| {
+        std::fs::set_permissions(&folder, std::os::unix::fs::PermissionsExt::from_mode(0o555)).unwrap();
+        Unlock(folder.clone())
+    });
+    let export = Export { files: vec![file(&path, bytes.len() as u64, Content::Bytes(bytes))], ..Default::default() };
+    let e = write(&export, dir.path(), &Ctx::silent()).unwrap_err();
+    assert_eq!(e.kind(), Some("io"));
+    assert!(e.message.starts_with(&folder.display().to_string()) && !e.message.contains(" at path "), "{e:?}");
+    assert!(folder.join("inside").is_dir() && !folder.join("m.db").exists());
+}

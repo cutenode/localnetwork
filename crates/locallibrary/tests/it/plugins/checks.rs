@@ -440,3 +440,249 @@ fn a_plan_is_blocked_exactly_when_a_blocking_guard_finds_something(tc: TestCase)
     let applied = planned.apply(None, &Ctx::silent());
     assert_eq!(applied.is_ok(), blocks.is_none(), "{applied:?}");
 }
+
+/// What a check answers, or what becomes of it, as [`prop_a_check_is_what_it_found_or_a_warning`]
+/// draws it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Answers {
+    /// Findings past what's kept, the rest left out.
+    Many,
+    /// A finding saying more than a line, in a playlist.
+    Long,
+    /// A finding naming a file that isn't on the drive.
+    Outside,
+    /// It fails.
+    Fails,
+    /// It waits past its time, until it's stopped.
+    Waits,
+    /// It's cancelled before it starts.
+    Cancelled,
+    /// It's cancelled while it waits.
+    CancelledWaiting,
+    /// The drive it's run on is gone by then.
+    Gone,
+    /// A finding that says nothing.
+    Empty,
+    /// A finding fixed by what isn't its operation.
+    OtherFix,
+}
+
+/// For anything a check answers, what's found on the drive is what it found, bounded (past what
+/// a check may find the rest left out, a message past a line cut short), or one warning saying
+/// why it found nothing (it named a file that isn't on the drive, failed, took too long or its
+/// drive was gone); cancelled, before or while it runs, running them is. Its parts of a view,
+/// sent as any request's may be, change nothing.
+#[hegel::test(test_cases = 1)]
+fn prop_a_check_is_what_it_found_or_a_warning(tc: TestCase) {
+    for answers in [
+        Answers::Many,
+        Answers::Long,
+        Answers::Outside,
+        Answers::Fails,
+        Answers::Waits,
+        Answers::Cancelled,
+        Answers::CancelledWaiting,
+        Answers::Gone,
+        Answers::Empty,
+        Answers::OtherFix,
+    ] {
+        prop_a_check_is_what_it_found_or_a_warning_case(&tc, answers);
+    }
+}
+
+/// [`prop_a_check_is_what_it_found_or_a_warning`] for one `answers`.
+#[hegel::test_helper]
+fn prop_a_check_is_what_it_found_or_a_warning_case(tc: &TestCase, answers: Answers) {
+    let options = Options { grace: Duration::from_millis(300), ..Options::default() };
+    let f = Fixture::new(|dir| vec![spec(dir, &checking("echo"), &["--partials"])], options);
+    let timeout = if answers == Answers::Waits { 0.2 } else { 60.0 };
+    set_check_timeout(&f.store, Some(timeout)).unwrap();
+    let answer = match answers {
+        Answers::Many => {
+            let n = tc.draw(gs::integers::<usize>().min_value(1001).max_value(1003));
+            json!({ "findings": (0..n).map(|i| json!({ "level": "info", "message": i.to_string() })).collect::<Vec<_>>() })
+        }
+        Answers::Long => {
+            json!({ "findings": [{ "level": "info", "message": "a".repeat(501), "playlist": "Sets/Friday" }] })
+        }
+        Answers::Outside => json!({ "findings": [{ "level": "info", "message": "m", "paths": ["../out"] }] }),
+        Answers::Fails => json!({ "fail": "io" }),
+        Answers::Waits | Answers::CancelledWaiting => json!({ "wait": true }),
+        Answers::Cancelled | Answers::Gone => json!({ "findings": [] }),
+        Answers::Empty => json!({ "findings": [{ "level": "info", "message": " " }] }),
+        Answers::OtherFix => {
+            json!({ "findings": [{ "level": "info", "message": "m", "fix": { "operation": "nope" } }] })
+        }
+    };
+    f.find("echo", answer);
+    let device = f.device();
+    let cancel = CancelToken::new();
+    match answers {
+        Answers::Cancelled => cancel.cancel(),
+        Answers::CancelledWaiting => {
+            let later = cancel.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(200));
+                later.cancel();
+            });
+        }
+        Answers::Gone => std::fs::rename(&f.drive, f.drive.with_file_name("Elsewhere")).unwrap(),
+        _ => {}
+    }
+    let ran = f.plugins.run_checks(&device, Some(&f.store), &Ctx::new(&NoProgress, cancel));
+    if matches!(answers, Answers::Cancelled | Answers::CancelledWaiting) {
+        assert!(matches!(ran, Err(Error::Cancelled)), "{ran:?}");
+        return;
+    }
+    let items = ran.unwrap();
+    let mine: Vec<(Level, String, Option<String>)> = items
+        .iter()
+        .filter(|i| i.check == "echo.found")
+        .map(|i| (i.level, i.message.clone(), i.playlist.clone()))
+        .collect();
+    let fails = "the Echo plugin failed:";
+    let warned = |why: &str| (Level::Warning, why.to_string(), None);
+    match answers {
+        Answers::Many => {
+            assert_eq!(mine.len(), 1001);
+            assert_eq!(mine[1000], (Level::Info, "more than 1000 found, the rest left out".into(), None));
+        }
+        Answers::Long => {
+            assert_eq!(mine, [(Level::Info, format!("{}...", "a".repeat(500)), Some("Sets/Friday".into()))]);
+        }
+        Answers::Outside => {
+            let why = format!("{fails} its finding 0 names \"../out\", which isn't a file on the drive");
+            assert_eq!(mine, [warned(&why)]);
+        }
+        Answers::Fails => assert_eq!(mine, [warned(&format!("{fails} it failed"))]),
+        Answers::Waits => assert_eq!(mine, [warned("took longer than 0.2s, so it was stopped")]),
+        Answers::Empty => assert_eq!(mine, [warned(&format!("{fails} its finding 0 says nothing"))]),
+        Answers::OtherFix => {
+            let why = format!("{fails} its finding 0 is fixed by \"nope\", which isn't its operation");
+            assert_eq!(mine, [warned(&why)]);
+        }
+        _ => {
+            let (level, said) = (mine[0].0, &mine[0].1);
+            assert_eq!((mine.len(), level), (1, Level::Warning));
+            assert!(said.starts_with("not found: no mounted drive matches "), "{said}");
+        }
+    }
+}
+
+/// For any change to a check's settings where the store can't keep them (on Unix), or to how long
+/// checks have, it fails and they stay as they were; a check the plugin doesn't have has none, and
+/// one that isn't a guard can't keep a plan from being applied.
+#[hegel::test(test_cases = 10)]
+fn prop_check_settings_that_cant_be_kept_stay_as_they_were(tc: TestCase) {
+    let f = Fixture::checks(&["echo"]);
+    let unknown = tc.draw(gs::sampled_from(vec![("echo", "nope"), ("nope", "found")]));
+    assert_eq!(f.plugins.check_settings(unknown.0, unknown.1, None).unwrap_err().code(), "not_found");
+    let e = f.plugins.check_change("echo", "found", CheckChange { blocking: Some(true), ..CheckChange::default() });
+    assert_eq!(e.unwrap_err().code(), "invalid");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let settings = |check: &str| f.plugins.check_settings("echo", check, Some(&f.store));
+        let on = tc.draw(gs::booleans());
+        let reset = CheckChange { reset: true, ..CheckChange::default() };
+        assert_eq!(
+            f.plugins.set_check(&f.store, "echo", "guard", reset).unwrap(),
+            CheckSettings { on: true, blocking: false }
+        );
+        f.plugins.set_check(&f.store, "echo", "guard", CheckChange { on: Some(on), ..CheckChange::default() }).unwrap();
+        set_check_timeout(&f.store, Some(30.0)).unwrap();
+        let before = (settings("guard").unwrap(), check_timeout(Some(&f.store)));
+        let plugins = f.store.root().join("plugins");
+        for change in [
+            CheckChange { reset: true, ..CheckChange::default() },
+            CheckChange { on: Some(!on), ..CheckChange::default() },
+            CheckChange { blocking: Some(true), ..CheckChange::default() },
+        ] {
+            std::fs::set_permissions(&plugins, std::fs::Permissions::from_mode(0o500)).unwrap();
+            let set = f.plugins.set_check(&f.store, "echo", "guard", change);
+            let timed = set_check_timeout(&f.store, Some(10.0));
+            std::fs::set_permissions(&plugins, std::fs::Permissions::from_mode(0o700)).unwrap();
+            assert_eq!((set.unwrap_err().code(), timed.unwrap_err().code()), ("io", "io"));
+            assert_eq!((settings("guard").unwrap(), check_timeout(Some(&f.store))), before);
+        }
+    }
+}
+
+/// How a plan comes to the guards.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Guarding {
+    /// Two plugins' guards say the same.
+    Same,
+    /// It makes no edit the guards are given.
+    NoEdits,
+    /// Cancelled first.
+    Cancelled,
+    /// The drive it writes is gone by then.
+    Gone,
+    /// Planned as the app plans it, with the plugins hosted, cancelled while a guard waits.
+    HostedCancelled,
+}
+
+/// For any plan the guards see, what two of them say alike is one warning; a plan with no edits
+/// for them isn't guarded; a guard whose drive is gone is a warning; and cancelled, guarding a plan
+/// is (as planning one with the plugins hosted). Their parts of a view, sent as any request's may
+/// be, change nothing.
+#[hegel::test(test_cases = 1)]
+fn prop_a_plan_is_guarded_once_for_what_guards_say_alike(tc: TestCase) {
+    for guarding in [Guarding::Same, Guarding::NoEdits, Guarding::Cancelled, Guarding::Gone, Guarding::HostedCancelled]
+    {
+        prop_a_plan_is_guarded_once_for_what_guards_say_alike_case(&tc, guarding);
+    }
+}
+
+/// [`prop_a_plan_is_guarded_once_for_what_guards_say_alike`] for one `guarding`.
+#[hegel::test_helper]
+fn prop_a_plan_is_guarded_once_for_what_guards_say_alike_case(tc: &TestCase, guarding: Guarding) {
+    let options = Options { grace: Duration::from_millis(300), ..Options::default() };
+    let f = Fixture::new(
+        |dir| ["echo", "second"].iter().map(|id| spec(dir, &checking(id), &["--partials"])).collect(),
+        options,
+    );
+    set_check_timeout(&f.store, Some(60.0)).unwrap();
+    let level = tc.draw(gs::sampled_from(vec!["info", "warning"]));
+    for plugin in ["echo", "second"] {
+        f.find(plugin, json!({ "findings": [{ "level": level, "message": "the same" }] }));
+    }
+    let edits = vec![Edit::CreatePlaylist { path: "Warmup".into(), folder: false }];
+    let req = EditRequest { drive: "USB".into(), edits, options: EditOptions::default() };
+    let cancel = CancelToken::new();
+    if guarding == Guarding::HostedCancelled {
+        f.find("echo", json!({ "wait": true }));
+        let f = Hosted::new(f);
+        f.plugins
+            .set_check(&f.store, "echo", "guard", CheckChange { on: Some(true), ..CheckChange::default() })
+            .unwrap();
+        let later = cancel.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            later.cancel();
+        });
+        let planned = api::edit_plan(&req, &Ctx::new(&NoProgress, cancel));
+        assert!(matches!(planned, Err(Error::Cancelled)), "{:?}", planned.map(|p| p.warnings));
+        return;
+    }
+    let mut planned = api::edit_plan(&req, &Ctx::silent()).unwrap();
+    match guarding {
+        Guarding::Cancelled => cancel.cancel(),
+        Guarding::Gone => std::fs::rename(&f.drive, f.drive.with_file_name("Elsewhere")).unwrap(),
+        _ => {}
+    }
+    let edits = |p: &EditPlan| if guarding == Guarding::NoEdits { Vec::new() } else { p.recorded.clone() };
+    let guarded = f.plugins.guard(&mut planned, edits, Some(&f.store), &Ctx::new(&NoProgress, cancel));
+    if guarding == Guarding::Cancelled {
+        assert!(matches!(guarded, Err(Error::Cancelled)), "{guarded:?}");
+        return;
+    }
+    guarded.unwrap();
+    let said: Vec<&String> = planned.warnings.iter().filter(|w| w.starts_with("Guard: ")).collect();
+    match guarding {
+        Guarding::Same => assert_eq!(said, ["Guard: the same"]),
+        Guarding::NoEdits => assert_eq!(said, Vec::<&String>::new()),
+        _ => assert!(said.len() == 1 && said[0].starts_with("Guard: not found: no mounted drive matches "), "{said:?}"),
+    }
+}

@@ -151,6 +151,18 @@ fn the_description_is_chapters_youtube_takes(tc: TestCase) {
     assert_eq!(cut, more.is_some());
 }
 
+/// A set without a title is named after where it was played (its venue, else its city, else "DJ
+/// set") and when, each as YouTube takes it.
+#[hegel::test(test_cases = 100)]
+fn prop_an_untitled_set_is_named_after_where_and_when(tc: TestCase) {
+    let place = || gs::optional(gs::sampled_from(vec!["Warehouse".to_string(), " ".into(), "<Club>".into()]));
+    let (venue, city) = (tc.draw(place()), tc.draw(place()));
+    let set = PublishedSet { title: None, venue: venue.clone(), city: city.clone(), ..set() };
+    let given = |s: Option<String>| s.map(|s| s.replace(['<', '>'], "")).filter(|s| !s.trim().is_empty());
+    let place = given(venue).or_else(|| given(city)).unwrap_or_else(|| "DJ set".into());
+    assert_eq!(video::of(&set, &[], 60).title, format!("{place}, 2026-10-03"));
+}
+
 /// A chapter's time, as `05:30` or past an hour `1:02:03`, reads back as the second it's for.
 #[hegel::test(test_cases = 100)]
 fn a_chapters_time_reads_back(tc: TestCase) {

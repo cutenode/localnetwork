@@ -826,3 +826,124 @@ fn only_absolute_folders_off_the_drive_are_granted(tc: TestCase) {
     let summary = format!("read the files Audio files finds in {}", folders.join(", "));
     assert!(planned.summary.contains(&summary), "{:?}", planned.summary);
 }
+
+/// For any library source asked for that the plugin doesn't have, or with an option it doesn't
+/// take, nothing is planned; a page in a blob that isn't there, or isn't a page, fails it, saying
+/// why; what a page warns of is among the plan's warnings, named after the source; a silent
+/// track is one of no bitrate; two playlists in one folder are in the one folder; cancelled,
+/// nothing is read, as when cancelled while its files are checked; a folder on the drive written to
+/// isn't one to grant, and one granted twice is read once; and a file that isn't audio or is
+/// empty, a track's that another has too, or a hot cue in another's slot, or a waveform that
+/// would run over a day, is left out, saying why. Its parts of a view, sent as any request's may
+/// be, change nothing.
+#[hegel::test(test_cases = 1)]
+fn prop_a_source_is_read_as_it_answers_or_fails_saying_why(tc: TestCase) {
+    for case in (0..=15).collect::<Vec<u8>>() {
+        prop_a_source_is_read_as_it_answers_or_fails_saying_why_case(&tc, case);
+    }
+}
+
+/// [`prop_a_source_is_read_as_it_answers_or_fails_saying_why`] for one `case`.
+#[hegel::test_helper]
+fn prop_a_source_is_read_as_it_answers_or_fails_saying_why_case(tc: &TestCase, case: u8) {
+    let manifest = sourcing().replace(
+        "also = {",
+        "warnings = { type = \"array\", items = { type = \"string\" } }, page_blob = { type = \"string\" }, also = {",
+    );
+    let f = Fixture::new(|dir| vec![spec(dir, &manifest, &["--partials"])], Options::default());
+    let music = f.folder("music");
+    let secs = if case == 5 { 0.0 } else { 1.0 };
+    if case == 11 {
+        put(&music.join("b.wav"), b"RIFF not audio", None);
+    }
+    if case == 13 {
+        put(&music.join("c.wav"), b"", None);
+    }
+    let title: String = tc.draw(gs::from_regex("[a-z]{1,6}").fullmatch(true));
+    let mut told = json!({ "title": title, "blobs": { "bad.json": [1, 2] } });
+    if case == 14 {
+        told["cues"] = json!([{ "hot_cue": 0, "start_ms": 100 }, { "hot_cue": 0, "start_ms": 200 }]);
+    }
+    if case == 15 {
+        told["waveform"] = json!({ "blob": "wave.bands", "columns_per_sec": 1e-300 });
+        told["blobs"]["wave.bands"] = json!([1, 2, 3]);
+    }
+    let told = Some(told);
+    put(&music.join("a.wav"), &wav(secs), told);
+    if case == 6 {
+        std::fs::write(music.join("playlists.json"), json!({ "Sets/A": ["a.wav"], "Sets/B": ["a.wav"] }).to_string())
+            .unwrap();
+    }
+    let mut req = f.request(&[&music], Value::Null);
+    match case {
+        0 => req.source = "nope".into(),
+        1 => req.options = json!({ "other": 1 }),
+        2 => req.options = json!({ "warnings": ["one is odd"] }),
+        3 => req.options = json!({ "page_blob": "none.json" }),
+        8 => {
+            std::fs::create_dir_all(f.stick()).unwrap();
+            req.grants = vec![f.stick()];
+        }
+        9 => req.grants = vec![music.clone(), music.clone()],
+        12 => req.options = json!({ "also": [music.join("a.wav")] }),
+        4 => req.options = json!({ "page_blob": "bad.json" }),
+        _ => {}
+    }
+    let cancel = locallibrary::CancelToken::new();
+    if case == 7 {
+        cancel.cancel();
+    }
+    // Case 10: cancelled once its files are being checked, the pages read.
+    let checking = cancel.clone();
+    let cancels = move |_: &locallibrary::Event| {
+        if case == 10 {
+            checking.cancel();
+        }
+    };
+    let ctx = Ctx::new(&cancels, cancel);
+    let planned = f.plugins.plan_source_export(&req, Some(&f.store), &ctx);
+    match case {
+        0 => assert_eq!(planned.unwrap_err().code(), "not_found"),
+        7 | 10 => assert!(matches!(planned, Err(Error::Cancelled)), "{:?}", planned.err()),
+        11..=15 => {
+            let planned = planned.unwrap();
+            let why = match case {
+                11 => "can't be read as audio",
+                12 => "is another track's audio file too",
+                14 => "another hot cue has its slot",
+                15 => "a second run over a day",
+                _ => "is empty",
+            };
+            assert!(planned.warnings.iter().any(|w| w.contains(why)), "{:?}", planned.warnings);
+        }
+        8 => assert!(planned.unwrap_err().to_string().ends_with("the drive written to: grant a folder elsewhere")),
+        9 => assert_eq!(planned.unwrap().plan.tracks, 1, "once"),
+        1 => assert_eq!(planned.unwrap_err().code(), "invalid"),
+        2 => assert!(planned.unwrap().warnings.contains(&"Audio files: one is odd".to_string())),
+        3 => {
+            let e = failure(planned.unwrap_err());
+            assert!(
+                e.starts_with("the Echo plugin failed: its page's blob: its file \"none.json\" isn't there"),
+                "{e}"
+            );
+        }
+        4 => {
+            let e = failure(planned.unwrap_err());
+            assert!(e.starts_with("the Echo plugin failed: its page's blob isn't a page: "), "{e}");
+        }
+        5 => {
+            let planned = planned.unwrap();
+            planned.apply(None, &Ctx::silent()).unwrap();
+            assert_eq!(built(&f.stick()).iter().map(|(t, _)| t.bitrate).collect::<Vec<_>>(), [0]);
+        }
+        6 => {
+            planned.unwrap().apply(None, &Ctx::silent()).unwrap();
+            let library = locallibrary::Device::open(f.stick()).unwrap().library().unwrap();
+            let folders = library.playlists.iter().filter(|p| p.is_folder && p.name == "Sets").count();
+            assert_eq!(folders, 1, "{:?}", library.playlists);
+        }
+        _ => {
+            planned.unwrap();
+        }
+    }
+}

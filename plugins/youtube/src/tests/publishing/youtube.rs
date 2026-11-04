@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use loclib_plugin::test_util::Canceller;
 use loclib_plugin::{
     Fetch, Fetched, HelloReply, Incoming, PROTOCOL_VERSION, Peer, Pending, ProgressReport, Progressed, Published,
     PublishedSet, RpcError, TracklistEntry, method,
@@ -27,12 +28,16 @@ pub(super) const VIDEO: &str = "dQw4w9WgXcQ";
 pub(super) const SIGNED_OUT: &str = "the google account dj@example.com is signed out: sign in again";
 
 /// How YouTube answers a request through the host, in place of what it would: a status and body,
-/// the host failing to reach it, or a chunk arriving of which YouTube keeps only so many bytes.
+/// the host failing to reach it (or failing it as another kind), a chunk arriving of which YouTube
+/// keeps only so many bytes, or any of those (or YouTube's own answer) and then the host
+/// cancelling the publish.
 #[derive(Clone, Debug)]
 pub(super) enum Reply {
     Status(u16, String),
     Unreachable,
+    Fails(&'static str),
     Keeps(u64),
+    Cancels(Option<Box<Reply>>),
 }
 
 /// Google's error, as YouTube answers one.
@@ -73,6 +78,8 @@ pub(super) struct YouTube {
     received: Received,
     /// The size the session was started with.
     size: u64,
+    /// Cancels the publish once the call in hand is answered, when [`Reply::Cancels`] says to.
+    cancel: Arc<Canceller>,
 }
 
 impl YouTube {
@@ -86,7 +93,8 @@ impl YouTube {
     }
 
     pub(super) fn scripted(script: impl Fn(&str, usize) -> Option<Reply> + Send + 'static) -> YouTube {
-        YouTube { signed_in: true, script: Box::new(script), received: Received::default(), size: 0 }
+        let received = Received::default();
+        YouTube { signed_in: true, script: Box::new(script), received, size: 0, cancel: Arc::default() }
     }
 
     /// The host's answer to `fetch`.
@@ -104,9 +112,17 @@ impl YouTube {
         let r = &mut self.received;
         let before = r.count(kind);
         r.requests.push((kind.into(), fetch.method.clone(), fetch.url.clone()));
-        let reply = (self.script)(kind, before);
+        let reply = match (self.script)(kind, before) {
+            Some(Reply::Cancels(then)) => {
+                self.cancel.arm();
+                then.map(|r| *r)
+            }
+            reply => reply,
+        };
         let (status, headers, body) = match reply {
             Some(Reply::Unreachable) => return Err(RpcError::failed("external", "connection reset")),
+            Some(Reply::Fails(kind)) => return Err(RpcError::failed(kind, "the host failed it")),
+            Some(Reply::Cancels(_)) => panic!("a cancel cancels once"),
             Some(Reply::Status(status, body)) => (status, Vec::new(), body),
             Some(Reply::Keeps(n)) => {
                 self.chunk(fetch, Some(n));
@@ -202,8 +218,11 @@ pub(super) fn start(youtube: YouTube) -> Session {
             let Incoming::Request(req) = msg else { continue };
             assert_eq!(req.method, method::NET_FETCH, "the plugin reads nothing else");
             let fetch: Fetch = serde_json::from_value(req.params).unwrap();
-            let answer = answers.lock().unwrap().answer(&fetch).map(|f| serde_json::to_value(f).unwrap());
-            to.respond(&req.id, answer);
+            let mut youtube = answers.lock().unwrap();
+            let answer = youtube.answer(&fetch).map(|f| serde_json::to_value(f).unwrap());
+            let cancel = youtube.cancel.clone();
+            drop(youtube);
+            cancel.respond(&to, &req.id, answer);
         }
     });
     let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
@@ -253,12 +272,14 @@ impl Session {
     ) -> Pending {
         let context = json!({ "scratch": self.scratch.path(), "settings": settings });
         let req = json!({ "destination": "video", "set": set, "recording": recording, "tracklist": tracklist, "dry_run": dry_run, "context": context });
-        self.host.send_request_reporting(method::SET_PUBLISH, &req).unwrap()
+        let cancel = self.youtube.lock().unwrap().cancel.clone();
+        cancel.send(|| self.host.send_request_reporting(method::SET_PUBLISH, &req).unwrap())
     }
 
     /// Its fetches answered by `youtube` from now on.
     pub(super) fn script(&self, youtube: YouTube) {
-        *self.youtube.lock().unwrap() = youtube;
+        let mut answering = self.youtube.lock().unwrap();
+        *answering = YouTube { cancel: answering.cancel.clone(), ..youtube };
     }
 
     /// What YouTube has been sent.

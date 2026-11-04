@@ -64,12 +64,36 @@ pub(super) fn mock_with(
     echo: &str,
     options: Options,
 ) -> Mock {
+    mock_among(expires_in, |server| vec![account_plugin(server)], echo, options)
+}
+
+/// [`mock_with`], with the manifests of the account plugin and any others besides it what
+/// `manifests` makes of the service's address.
+pub(super) fn mock_among(
+    expires_in: u64,
+    manifests: impl FnOnce(&str) -> Vec<String>,
+    echo: &str,
+    options: Options,
+) -> Mock {
     let state = Arc::new(Mutex::new(Service { expires_in: Some(expires_in), ..Service::default() }));
     let server = service(state.clone());
-    let manifest = account_plugin(&server.url);
-    let echo = echo.to_string();
-    let f = Fixture::new(move |dir| vec![spec(dir, &echo, &[]), spec(dir, &manifest, &[])], options);
+    let manifests = [vec![echo.to_string()], manifests(&server.url)].concat();
+    let f = Fixture::new(move |dir| manifests.iter().map(|m| spec(dir, m, &[])).collect(), options);
     Mock { state, server, f }
+}
+
+/// An account plugin `id` at `server` providing the account type `kind`, signed in to with keys
+/// (see `keys_account_plugin`), saying nowhere who they're for.
+pub(super) fn keys_plugin(server: &str, id: &str, kind: &str) -> String {
+    let manifest = crate::mock_oauth::keys_account_plugin(server, None);
+    manifest.replace(&format!("id = \"{WITH}\""), &format!("id = \"{id}\"")).replace("\"mock\"", &format!("{kind:?}"))
+}
+
+/// Changes the JSON in `file` as `change` does.
+pub(super) fn edit_json(file: &Path, change: impl FnOnce(&mut Value)) {
+    let mut kept: Value = serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+    change(&mut kept);
+    std::fs::write(file, kept.to_string()).unwrap();
 }
 
 /// [`mock_at`], asking `/userinfo` with `Bearer`.
@@ -120,6 +144,11 @@ impl Mock {
         let done = self.f.plugins.finish_account_sign_in(&start.id, Duration::from_secs(10), &Ctx::silent());
         browser.join().unwrap();
         (done, query)
+    }
+
+    /// Changes the store's `file` (`accounts.json`, or `secrets/accounts.json`) as `change` does.
+    pub(super) fn edit(&self, file: &str, change: impl FnOnce(&mut Value)) {
+        edit_json(&self.f.store.root().join(file), change);
     }
 
     pub(super) fn listed(&self) -> Vec<Account> {
@@ -501,4 +530,466 @@ fn whoever_whoami_says_signed_in_is_kept_or_nobody_is(tc: TestCase) {
     };
     assert_eq!(done.unwrap_err().to_string(), format!("asking Mock who signed in: {why}"));
     assert!(m.listed().is_empty());
+}
+
+/// Where [`prop_a_whoami_out_of_reach_or_sending_nowhere_signs_nobody_in`] asks who signed in.
+#[derive(Debug, Clone, Copy)]
+enum Unasked {
+    /// A port nothing listens on.
+    Closed,
+    /// A server elsewhere, in a test kept offline.
+    Offline,
+    /// A server sending to an address that can't be read.
+    Nowhere,
+    /// A server sending back to itself.
+    Around,
+}
+
+/// For any whoever the service says signed in, and a whoami endpoint that can't be reached (a
+/// port nothing listens on, a server elsewhere in a test kept offline) or sends to an address
+/// that can't be read, or back to itself: the sign-in fails saying why, and nothing is kept.
+#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_whoami_out_of_reach_or_sending_nowhere_signs_nobody_in(tc: TestCase) {
+    let subject = tc.draw(gs::sampled_from(vec![json!("a"), json!(42)]));
+    for at in [Unasked::Closed, Unasked::Offline, Unasked::Nowhere, Unasked::Around] {
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+        let moved = |to: String| Reply { status: 302, headers: vec![("Location", to)], body: Vec::new() };
+        let nowhere = Server::new(move |base, _| match at {
+            Unasked::Around => moved(format!("{base}/who")),
+            _ => moved("http://[oops".into()),
+        });
+        let whoami = match at {
+            Unasked::Closed => format!("http://{closed}/who"),
+            Unasked::Offline => "https://example.com/who".into(),
+            Unasked::Nowhere | Unasked::Around => format!("{}/who", nowhere.url),
+        };
+        let offline = Options { test_offline: true, ..options() };
+        let m = mock_with(3600, |server| account_plugin(server, &whoami, ""), &asking(&["read"], &[]), offline);
+        let e = m.sign_in(who(subject.clone(), None), None, &[]).0.unwrap_err().to_string();
+        let why = match at {
+            Unasked::Closed => "error sending request",
+            Unasked::Offline => "example.com isn't on this computer, and tests stay offline",
+            Unasked::Nowhere => "invalid IPv6 address",
+            Unasked::Around => "too many redirects (it follows 5)",
+        };
+        assert!(e.starts_with(&format!("asking Mock who signed in: {why}")), "{at:?}: {e}");
+        assert!(m.listed().is_empty(), "{at:?}");
+    }
+}
+
+/// For a token in the header or the query, a whoami answer that isn't JSON, or has a subject that
+/// is neither a string nor an integer, or none, signs nobody in, saying so.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_whoami_answer_without_a_subject_signs_nobody_in(tc: TestCase) {
+    let token = tc.draw(gs::sampled_from(vec!["", "token = { query = \"access_token\" }"]));
+    for (whoami, said, why) in [
+        ("/nobody", json!({ "sub": "a" }), "its answer isn't JSON"),
+        ("/userinfo", json!({ "sub": 1.5 }), "its answer has no subject at /sub"),
+        ("/userinfo", json!({ "sub": "" }), "its answer has no subject at /sub"),
+        ("/userinfo", json!({ "email": "a@mock.example" }), "its answer has no subject at /sub"),
+    ] {
+        let m = mock_at(3600, whoami, token);
+        let e = m.sign_in(said.clone(), None, &[]).0.unwrap_err();
+        assert_eq!(e.to_string(), format!("asking Mock who signed in: {why}"), "{said}");
+        assert!(m.listed().is_empty(), "{said}");
+    }
+}
+
+/// For an account the service gave no refresh token, its token in the header or the query: once
+/// its token is about to expire it says to sign in again, and a request its token is refused for
+/// is answered as the service answered, sent once, the account kept.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_an_account_without_a_refresh_token_isnt_refreshed(tc: TestCase) {
+    let token = tc.draw(gs::sampled_from(vec!["", "token = { query = \"access_token\" }"]));
+    let m = mock_at(3600, "/userinfo", token);
+    m.state.lock().unwrap().refreshless = true;
+    m.sign_in(who(json!("a"), None), None, &["read"]).0.unwrap();
+    m.state.lock().unwrap().script.push_back(Reply { status: 401, headers: Vec::new(), body: Vec::new() });
+    let query = (!token.is_empty()).then_some("access_token");
+    let sent = m.server.got().len();
+    let answer = m.fetch_as("GET", "/r/x", "{account:mock}", query);
+    assert_eq!(answer["result"]["status"], 401, "{answer}");
+    assert_eq!(m.server.got().len(), sent + 1, "sent again");
+    m.edit("accounts.json", |book| book["accounts"][0]["expires_at"] = json!(chrono::Utc::now()));
+    assert_eq!(m.token("a").unwrap_err().to_string(), "the Mock account a is signed out: sign in again");
+    assert_eq!(m.listed().len(), 1, "forgotten");
+}
+
+/// For a whoami endpoint asked with the token in its query, whatever else its query has: what it
+/// has is kept, but a parameter of the token's name, which the token takes the place of.
+#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_whoami_keeps_its_query_but_where_the_token_goes(tc: TestCase) {
+    let kept = tc.draw(gs::sampled_from(vec!["", "via=test&", "via=test&n=2&"]));
+    let replaced = tc.draw(gs::booleans());
+    let query = format!("{kept}{}", if replaced { "access_token=old" } else { "" });
+    let m = mock_at(3600, &format!("/userinfo?{query}"), "token = { query = \"access_token\" }");
+    m.sign_in(who(json!("a"), None), None, &[]).0.unwrap();
+    let asked = m.server.got().into_iter().find(|g| g.target.starts_with("/userinfo")).unwrap();
+    assert_eq!(asked.target, format!("/userinfo?{kept}access_token=at-1"), "{query}");
+}
+
+/// A way the files a store keeps its accounts in can be damaged.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum Damage {
+    /// `accounts.json` isn't JSON.
+    Book,
+    /// `accounts.lock`, held while `accounts.json` changes, is a folder.
+    Lock,
+    /// `accounts/`, where each account's tokens are held, is a file.
+    Holds,
+    /// The folder of the secrets file is a file.
+    Locker,
+    /// The secrets file isn't JSON.
+    Secrets,
+}
+
+impl Damage {
+    pub(super) const ALL: [Damage; 5] = [Damage::Book, Damage::Lock, Damage::Holds, Damage::Locker, Damage::Secrets];
+
+    /// Damages the store at `root` so.
+    pub(super) fn to(self, root: &Path) {
+        let [book, lock, holds, secrets] = files(root);
+        match self {
+            Damage::Book => std::fs::write(book, "not json").unwrap(),
+            Damage::Lock => {
+                let _ = std::fs::remove_file(&lock);
+                std::fs::create_dir(lock).unwrap();
+            }
+            Damage::Holds => {
+                let _ = std::fs::remove_dir_all(&holds);
+                std::fs::write(holds, "").unwrap();
+            }
+            Damage::Locker => {
+                let folder = secrets.parent().unwrap();
+                let _ = std::fs::remove_dir_all(folder);
+                std::fs::write(folder, "").unwrap();
+            }
+            Damage::Secrets => {
+                std::fs::create_dir_all(secrets.parent().unwrap()).unwrap();
+                std::fs::write(secrets, "not json").unwrap();
+            }
+        }
+    }
+
+    /// What an error it causes is: what isn't JSON can't be parsed, and a folder or a file in
+    /// another's place can't be opened.
+    pub(super) fn code(self) -> &'static str {
+        match self {
+            Damage::Book | Damage::Secrets => "parse",
+            Damage::Lock | Damage::Holds | Damage::Locker => "io",
+        }
+    }
+}
+
+/// `accounts.json`, `accounts.lock`, `accounts/` and the secrets file of the store at `root`.
+fn files(root: &Path) -> [PathBuf; 4] {
+    let secrets = root.join("secrets").join("accounts.json");
+    [root.join("accounts.json"), root.join("accounts.lock"), root.join("accounts"), secrets]
+}
+
+/// `accounts.json` and the secrets file of a store as they were, to put back.
+pub(super) struct Snapshot {
+    root: PathBuf,
+    book: Option<Vec<u8>>,
+    secrets: Option<Vec<u8>>,
+}
+
+impl Snapshot {
+    pub(super) fn of(root: &Path) -> Snapshot {
+        let [book, _, _, secrets] = files(root);
+        Snapshot { root: root.into(), book: std::fs::read(book).ok(), secrets: std::fs::read(secrets).ok() }
+    }
+
+    /// Puts back what `damage` damaged, as it was.
+    pub(super) fn undo(&self, damage: Damage) {
+        let [book, lock, holds, secrets] = files(&self.root);
+        let put = |file: PathBuf, was: &Option<Vec<u8>>| match was {
+            Some(bytes) => {
+                std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+                std::fs::write(file, bytes).unwrap();
+            }
+            None => drop(std::fs::remove_file(file)),
+        };
+        match damage {
+            Damage::Book => put(book, &self.book),
+            Damage::Secrets => put(secrets, &self.secrets),
+            Damage::Locker => {
+                if secrets.parent().unwrap().is_file() {
+                    std::fs::remove_file(secrets.parent().unwrap()).unwrap();
+                }
+                put(secrets, &self.secrets);
+            }
+            Damage::Lock if lock.is_dir() => std::fs::remove_dir(lock).unwrap(),
+            Damage::Holds if holds.is_file() => std::fs::remove_file(holds).unwrap(),
+            Damage::Lock | Damage::Holds => {}
+        }
+    }
+
+    /// Whether `accounts.json` and the secrets file are as they were.
+    pub(super) fn unchanged(&self) -> bool {
+        let now = Snapshot::of(&self.root);
+        (&self.book, &self.secrets) == (&now.book, &now.secrets)
+    }
+
+    /// Puts everything back as it was.
+    pub(super) fn restore(&self) {
+        Damage::ALL.into_iter().for_each(|d| self.undo(d));
+    }
+}
+
+/// What [`prop_a_damaged_store_fails_what_reads_it_and_changes_nothing`] does with the accounts.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Use {
+    /// Lists the accounts, asking where their tokens are kept.
+    List,
+    /// Lists them without asking.
+    Kept,
+    /// Lists them and the accesses.
+    Listing,
+    Accesses,
+    Give,
+    SetDefault,
+    TakeAway,
+    Token,
+    SignOut,
+    /// Begins a sign-in to another account.
+    Begin,
+    /// Begins a sign-in again as the account.
+    Again,
+    /// Finishes a sign-in again as the account, begun before the damage.
+    SignIn,
+    Unready,
+    /// Starts the echo plugin's store destination, checking its accounts first.
+    Destination,
+    /// The echo plugin's request with the account's token.
+    Fetch,
+}
+
+impl Use {
+    const ALL: [Use; 15] = [
+        Use::List,
+        Use::Kept,
+        Use::Listing,
+        Use::Accesses,
+        Use::Give,
+        Use::SetDefault,
+        Use::TakeAway,
+        Use::Token,
+        Use::SignOut,
+        Use::Begin,
+        Use::Again,
+        Use::SignIn,
+        Use::Unready,
+        Use::Destination,
+        Use::Fetch,
+    ];
+
+    /// Whether it fails with `damage` done: it reads or changes what's damaged.
+    fn fails(self, damage: Damage) -> bool {
+        use Damage::*;
+        match self {
+            Use::Kept | Use::Accesses | Use::Begin => damage == Book,
+            Use::List | Use::Listing | Use::Again | Use::Unready | Use::Destination => {
+                matches!(damage, Book | Locker | Secrets)
+            }
+            Use::Give | Use::SetDefault | Use::TakeAway => matches!(damage, Book | Lock),
+            Use::Token | Use::Fetch => matches!(damage, Book | Holds | Locker | Secrets),
+            // A secrets file that can't be read is written anew.
+            Use::SignIn => damage != Secrets,
+            Use::SignOut => true,
+        }
+    }
+}
+
+impl Mock {
+    /// Does `u` with the echo plugin's access to the account `a`, the store damaged as `damage`
+    /// says once anything begun beforehand is: the error's code (a request's, its kind) and
+    /// message when it fails.
+    fn use_damaged(&self, u: Use, damage: Damage, query: Option<&str>) -> Result<(), (String, String)> {
+        let (plugins, store) = (&self.f.plugins, &self.f.store);
+        let a = super::accesses::account("a");
+        let begun = (u == Use::SignIn).then(|| {
+            let start = plugins.begin_account_sign_in("mock", WITH, Some("echo"), Some("a"), &[], store).unwrap();
+            let query = opened_at(&start.url);
+            let mut s = self.state.lock().unwrap();
+            (s.challenge, s.signing_in_as) = (query["code_challenge"].clone(), who(json!("a"), None));
+            (start, query)
+        });
+        damage.to(store.root());
+        let begin = |again: Option<&str>| {
+            let start = plugins.begin_account_sign_in("mock", WITH, None, again, &[], store);
+            start.map(|s| assert!(plugins.cancel_sign_in(&s.id), "not waiting"))
+        };
+        let done = match u {
+            Use::List => plugins.store_accounts(store).map(drop),
+            Use::Kept => plugins.kept_accounts(store).map(drop),
+            Use::Listing => plugins.accounts_and_accesses(store).map(drop),
+            Use::Accesses => plugins.accesses(store, Some("echo"), None).map(drop),
+            Use::Give => plugins.give_access("echo", &a, &[], store).map(drop),
+            Use::SetDefault => plugins.set_default_access("echo", &a, store).map(drop),
+            Use::TakeAway => plugins.take_away_access("echo", &a, store).map(drop),
+            Use::Token => self.token("a").map(drop),
+            Use::SignOut => plugins.sign_out_account(WITH, "a", store).map(drop),
+            Use::Begin => begin(None),
+            Use::Again => begin(Some("a")),
+            Use::SignIn => {
+                let (start, query) = begun.unwrap();
+                let browser = come_back_to(back(&start), format!("code=c0de&state={}", query["state"]));
+                let done = plugins.finish_account_sign_in(&start.id, Duration::from_secs(10), &Ctx::silent());
+                browser.join().unwrap();
+                done.map(drop)
+            }
+            Use::Unready => plugins.unready("echo", store).map(drop),
+            Use::Destination => plugins.store_destination("echo:folder", Some(store)).map(drop),
+            Use::Fetch => {
+                let answer = self.fetch_as("GET", "/r/x", "{account:mock}", query);
+                let e = &answer["error"];
+                return match e.is_null() {
+                    true => Ok(()),
+                    false => Err((e["data"]["kind"].as_str().unwrap_or_default().into(), e["message"].to_string())),
+                };
+            }
+        };
+        done.map_err(|e| (e.code().to_string(), e.to_string()))
+    }
+}
+
+/// For an account the echo plugin has access to, its token in the header or the query, and each
+/// way the files the store keeps its accounts in can be damaged (`accounts.json` or the secrets
+/// file not JSON, the lock of `accounts.json`, of each account's tokens or the secrets' folder
+/// taken by a file or a folder): everything that reads or changes what's damaged fails saying it
+/// can't be read or opened (a request, as the service's failure) and changes nothing else, but a
+/// sign-in, which writes a secrets file it can't read anew; and everything else does as it
+/// would. No token gets out.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_damaged_store_fails_what_reads_it_and_changes_nothing(tc: TestCase) {
+    let query = tc.draw(gs::sampled_from(vec![None, Some("access_token")]));
+    let place = query.map_or(String::new(), |name| format!("token = {{ query = \"{name}\" }}"));
+    let m = mock_for(3600, "/userinfo", &place, &asking(&["read"], &["write"]));
+    m.sign_in(who(json!("a"), None), None, &["read"]).0.unwrap();
+    let snapshot = Snapshot::of(m.f.store.root());
+    let mut answers = Vec::new();
+    for damage in Damage::ALL {
+        for u in Use::ALL {
+            let done = m.use_damaged(u, damage, query);
+            let said = format!("{u:?} with {damage:?}: {done:?}");
+            assert_eq!(done.is_err(), u.fails(damage), "{said}");
+            snapshot.undo(damage);
+            if let Err((code, message)) = done {
+                let expected = if u == Use::Fetch { "external" } else { damage.code() };
+                assert_eq!(code, expected, "{said}");
+                assert!(snapshot.unchanged(), "{said}: changed what wasn't damaged");
+                answers.push(json!(message));
+            }
+            snapshot.restore();
+        }
+    }
+    assert!(!m.leaked(&answers), "a token is out where it may not be");
+}
+
+/// For an access given more of an account, taken away or made the default, in a store whose
+/// folder can't be written to: `accounts.json` can't be changed, the change fails saying so, and
+/// the accesses are as they were.
+#[cfg(unix)]
+#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_store_it_cant_write_to_keeps_its_accesses_as_they_were(tc: TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let m = mock(3600);
+    m.sign_in(who(json!("a"), None), None, &["read"]).0.unwrap();
+    m.sign_in_for(None, who(json!("b"), None), None, &[]).0.unwrap();
+    let (plugins, store, root) = (&m.f.plugins, &m.f.store, m.f.store.root());
+    let before = plugins.accesses(store, None, None).unwrap();
+    let change = tc.draw(gs::integers::<usize>().max_value(2));
+    let mode = |m: u32| std::fs::set_permissions(root, std::fs::Permissions::from_mode(m)).unwrap();
+    let account = super::accesses::account;
+    mode(0o555);
+    let done = match change {
+        0 => plugins.give_access("echo", &account("a"), &["write".into()], store).map(drop),
+        1 => plugins.take_away_access("echo", &account("a"), store).map(drop),
+        _ => plugins.set_default_access("echo", &account("b"), store).map(drop),
+    };
+    mode(0o755);
+    assert_eq!(done.unwrap_err().code(), "io", "change {change}");
+    assert_eq!(plugins.accesses(store, None, None).unwrap(), before, "change {change}");
+}
+
+/// Whether an account type can be told to forget a token decides whether signing out tells it:
+/// the account is forgotten here either way.
+#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_signing_out_tells_the_service_only_when_its_type_can_be_told(tc: TestCase) {
+    let email = tc.draw(gs::sampled_from(vec![None, Some("a@mock.example")]));
+    for revokes in [false, true] {
+        let manifest = |server: &str| {
+            let manifest = account_plugin(server, &format!("{server}/userinfo"), "");
+            match revokes {
+                true => manifest,
+                false => manifest.replace(&format!("revoke_url = \"{server}/revoke\"\n"), ""),
+            }
+        };
+        let m = mock_with(3600, manifest, &asking(&["read"], &[]), options());
+        m.sign_in(who(json!("a"), email), None, &[]).0.unwrap();
+        let out = m.f.plugins.sign_out_account(WITH, "a", &m.f.store).unwrap();
+        assert_eq!((out.revoked, out.account.signed_in), (revokes, true), "revokes {revokes}");
+        assert_eq!(m.server.got().iter().any(|g| g.target == "/revoke"), revokes, "revokes {revokes}");
+        assert!(m.listed().is_empty(), "revokes {revokes}");
+    }
+}
+
+/// For an account signed in, whoever it is: an account plugin, plugin, account type or scope that
+/// isn't there is said not to be, as is a scope a plugin doesn't ask for; an account whose
+/// tokens the keychain lost is signed out; and one of a type its account plugin no longer
+/// provides can't be signed out of or used, and stays.
+#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_what_isnt_there_is_said_not_to_be(tc: TestCase) {
+    let subject = tc.draw(gs::sampled_from(vec!["a", "42"]));
+    let m = mock(3600);
+    m.sign_in(who(json!(subject), None), None, &["read"]).0.unwrap();
+    let (plugins, store) = (&m.f.plugins, &m.f.store);
+    let begin = |kind: &str, with: &str, plugin: Option<&str>, scopes: &[&str]| {
+        let scopes: Vec<String> = scopes.iter().map(|s| s.to_string()).collect();
+        plugins.begin_account_sign_in(kind, with, plugin, None, &scopes, store).unwrap_err()
+    };
+    let said = [
+        (begin("mock", "nope", None, &[]), "not_found"),
+        (begin("mock", WITH, Some("nope"), &[]), "not_found"),
+        (begin("nope", WITH, None, &[]), "not_found"),
+        (begin("mock", WITH, None, &["nope"]), "not_found"),
+        (begin("mock", WITH, Some("echo"), &["peek"]), "invalid"),
+        (locallibrary::testing::account_token(plugins, store, "nope", subject).unwrap_err(), "not_found"),
+        (plugins.sign_out_account("nope", subject, store).unwrap_err(), "not_found"),
+        (plugins.unready("nope", store).unwrap_err(), "not_found"),
+    ];
+    for (i, (e, code)) in said.iter().enumerate() {
+        assert_eq!(e.code(), *code, "{i}: {e}");
+    }
+    let secrets = store.root().join("secrets/accounts.json");
+    let kept = std::fs::read(&secrets).unwrap();
+    std::fs::write(&secrets, "{}").unwrap();
+    let e = m.token(subject).unwrap_err();
+    assert_eq!(e.to_string(), format!("the Mock account {subject} is signed out: sign in again"));
+    std::fs::write(&secrets, kept).unwrap();
+
+    m.edit("accounts.json", |book| book["accounts"][0]["type"] = json!("gone"));
+    let gone = "not found: the mock-accounts plugin's account type \"gone\"";
+    assert_eq!(plugins.sign_out_account(WITH, subject, store).unwrap_err().to_string(), gone);
+    assert_eq!(m.fetch_as("GET", "/r/x", "{account:mock}", None)["error"]["message"], gone);
+    assert_eq!(m.token(subject).unwrap_err().to_string(), gone);
+    assert_eq!(m.listed().len(), 1, "signed out");
+}
+
+/// An account type is signed in to through the account plugin named, else the only one providing
+/// it; with several, the user is asked to name one of them, and with none, there's none.
+#[hegel::test(test_cases = 4)]
+fn prop_an_account_type_is_signed_in_to_through_the_plugin_named_or_the_only_one(tc: TestCase) {
+    let named = tc.draw(gs::sampled_from(vec!["mock-accounts", "more-accounts", "anyone"]));
+    let keyed = |id: &str, kind: &str| keys_plugin("http://127.0.0.1:9", id, kind);
+    let manifests = [keyed(WITH, "mock"), keyed("more-accounts", "mock"), keyed("other-accounts", "other")];
+    let f = Fixture::new(|dir| manifests.iter().map(|m| spec(dir, m, &[])).collect(), options());
+    assert_eq!(f.plugins.providing("mock"), [WITH, "more-accounts"]);
+    assert_eq!(f.plugins.provider("mock", Some(named)).unwrap(), named);
+    assert_eq!(f.plugins.provider("other", None).unwrap(), "other-accounts");
+    let e = f.plugins.provider("mock", None).unwrap_err();
+    assert_eq!((e.code(), e.reason()), ("invalid", Some(locallibrary::error::Reason::MissingParam)), "{e}");
+    assert_eq!(e.detail().fields["account_plugins"], json!([WITH, "more-accounts"]));
+    assert_eq!(f.plugins.provider("nope", None).unwrap_err().code(), "not_found");
 }
