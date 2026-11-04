@@ -818,10 +818,8 @@ fn normalised_text_skips_normalising(tc: hegel::TestCase) {
     assert_eq!(normalize(&s), unicode.split_whitespace().collect::<Vec<_>>().join(" "), "{s:?}");
 }
 
-/// Exporting some playlists keeps them, everything in a chosen folder, the folders above them and
-/// their tracks; a playlist that isn't there is named.
-#[test]
-fn a_subset_keeps_its_folders_and_tracks() {
+/// Sets, holding Shows (holding Friday) and Saturday, and All at the top.
+fn folders_of_lists() -> Library {
     let node = |id, parent_id, name: &str, track_ids: Vec<u32>| Playlist {
         id,
         parent_id,
@@ -830,7 +828,7 @@ fn a_subset_keeps_its_folders_and_tracks() {
         sort_order: id,
         track_ids,
     };
-    let library = Library {
+    Library {
         tracks: (1..=4).map(|id| track(id, "A", "T", &format!("/Contents/{id}.mp3"))).collect(),
         playlists: vec![
             node(1, None, "Sets", vec![]),
@@ -840,7 +838,14 @@ fn a_subset_keeps_its_folders_and_tracks() {
             node(5, None, "All", vec![1, 2, 3, 4]),
         ],
         ..Default::default()
-    };
+    }
+}
+
+/// Exporting some playlists keeps them, everything in a chosen folder, the folders above them and
+/// their tracks; a playlist that isn't there is named.
+#[test]
+fn a_subset_keeps_its_folders_and_tracks() {
+    let library = folders_of_lists();
     let kept = |only: &[&str]| {
         let s = library.clone().subset(&only.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap();
         (s.playlists.iter().map(|p| p.id).collect::<Vec<_>>(), s.tracks.iter().map(|t| t.id).collect::<Vec<_>>())
@@ -850,6 +855,28 @@ fn a_subset_keeps_its_folders_and_tracks() {
     assert_eq!(kept(&[]), (vec![1, 2, 3, 4, 5], vec![1, 2, 3, 4]));
     let only = ["Friday".to_string(), "Sunday".to_string()];
     assert_eq!(library.subset(&only), Err("Sunday"));
+}
+
+/// Some playlists of a library, in any order and overlapping however they do (a folder and a
+/// playlist in it, one asked for twice), keep what each of them keeps on its own, together.
+#[hegel::test(test_cases = 200)]
+#[hegel::explicit_test_case(only = vec!["Sets/Shows", "Sets"])]
+fn a_subset_is_what_each_of_its_playlists_keeps(tc: TestCase) {
+    let library = folders_of_lists();
+    let kept = |only: &[&str]| {
+        let s = library.clone().subset(&only.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap();
+        let ids = |v: Vec<u32>| v.into_iter().collect::<FxHashSet<u32>>();
+        (ids(s.playlists.iter().map(|p| p.id).collect()), ids(s.tracks.iter().map(|t| t.id).collect()))
+    };
+    let names = vec!["Sets", "Sets/Shows", "Friday", "Saturday", "All"];
+    let only: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(names)).min_size(1).max_size(5));
+    let mut each = (FxHashSet::default(), FxHashSet::default());
+    for name in &only {
+        let (lists, tracks) = kept(&[name]);
+        each.0.extend(lists);
+        each.1.extend(tracks);
+    }
+    assert_eq!(kept(&only), each, "{only:?}");
 }
 
 /// Tracks only OneLibrary has are numbered on from the others for files, in library order, and

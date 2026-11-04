@@ -1,7 +1,7 @@
 import { once } from 'node:events';
 import { type AddressInfo, createServer, type Socket } from 'node:net';
-import { Secp256k1Keypair } from '@atproto/crypto';
-import { describe, expect, it, vi } from 'vitest';
+import { P256Keypair, Secp256k1Keypair } from '@atproto/crypto';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger';
 import { collectingGarbage } from '../testing/gc';
 import type { DidDocument } from '@atproto-labs/did-resolver';
@@ -58,6 +58,168 @@ describe('IdentityResolver.resolve', () => {
 	it('drops a handle the DID claims but does not control', async () => {
 		expect((await resolveClaiming('did:plc:alice')).handle).toBeNull();
 		expect((await resolveClaiming(null)).handle).toBeNull();
+	});
+});
+
+describe('IdentityResolver, given what a DID document and its handle say', () => {
+	const did = 'did:plc:ewvi7nxzyoun6zhxrhs64oiz';
+	const pds = 'https://pds.example.com';
+
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+
+		return () => {
+			vi.useRealTimers();
+			vi.unstubAllGlobals();
+		};
+	});
+
+	/**
+	 * A resolver whose PLC directory serves `doc` for `did`, whose handles resolve themselves to `handles` (a handle not
+	 * listed doesn't), and that falls back to a handle resolver service when given one. Counts each handle lookup.
+	 */
+	const resolver = ({
+		doc,
+		handles = {},
+		handleResolverUrl
+	}: { doc?: DidDoc; handles?: Record<string, string>; handleResolverUrl?: string } = {}) => {
+		const identity = new IdentityResolver({
+			plcUrl: 'https://plc.directory',
+			handleResolverUrl,
+			allowPrivateNetwork: true,
+			logger: silentLogger,
+			fetch: async (input) => {
+				const asked = decodeURIComponent(new URL(input instanceof Request ? input.url : input).pathname.slice(1));
+
+				return asked === did && doc ? Response.json(doc) : new Response(null, { status: 404 });
+			}
+		});
+
+		const lookups: string[] = [];
+		vi.spyOn(identity.resolver.handle, 'resolve').mockImplementation(async (handle) => {
+			lookups.push(handle);
+
+			if (handle === 'broken.example.com') throw new Error('DNS timed out');
+
+			// SAFETY: every DID these tests list is a did:plc.
+			return (handles[handle] ?? null) as ResolvedHandle;
+		});
+
+		return { identity, lookups };
+	};
+
+	/** A DID document for `did` with `methods` as its verification methods, claiming @alice.example.com. */
+	const document = (methods: { id: string; type: string; publicKeyMultibase: string }[], service = pds) => ({
+		id: did,
+		alsoKnownAs: ['at://alice.example.com'],
+		verificationMethod: methods.map((method) => ({ ...method, id: `${did}#${method.id}`, controller: did })),
+		service: service ? [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: service }] : []
+	});
+
+	type DidDoc = ReturnType<typeof document>;
+
+	const multikey = async (keypair: Promise<{ did(): string }>) => (await keypair).did().slice('did:key:'.length);
+
+	it('remembers what a handle resolved to for five minutes, however it was typed', async () => {
+		const { identity, lookups } = resolver({ handles: { 'alice.example.com': did } });
+
+		expect(await identity.resolveHandle(' @Alice.Example.com')).toBe(did);
+		expect(await identity.resolveHandle('alice.example.com')).toBe(did);
+		expect(lookups).toEqual(['alice.example.com']);
+
+		vi.setSystemTime(Date.now() + 5 * 60_000);
+		expect(await identity.resolveHandle('alice.example.com')).toBe(did);
+		expect(lookups).toHaveLength(2);
+	});
+
+	it('asks the handle resolver service about a handle that does not resolve itself, trusting only a DID from it', async () => {
+		vi.stubGlobal('fetch', async (url: URL) => {
+			switch (url.searchParams.get('handle')) {
+				case 'broken.example.com':
+					return Response.json({ did });
+				case 'odd.example.com':
+					return Response.json({ did: 'alice' });
+				default:
+					return new Response(null, { status: 400 });
+			}
+		});
+		const { identity } = resolver({ handleResolverUrl: 'https://resolver.test' });
+
+		expect(await identity.resolveHandle('broken.example.com')).toBe(did);
+		expect(await identity.resolveHandle('gone.example.com')).toBeNull();
+		expect(await identity.resolveHandle('odd.example.com')).toBeNull();
+		expect(await resolver().identity.resolveHandle('broken.example.com')).toBeNull();
+	});
+
+	it('turns a handle into its DID, and says which handle it could not resolve', async () => {
+		const { identity } = resolver({ handles: { 'alice.example.com': did } });
+
+		expect(await identity.resolveIdentifier('@alice.example.com')).toBe(did);
+		await expect(identity.resolveIdentifier('@bob.example.com')).rejects.toThrow(
+			new IdentityError('Could not resolve @bob.example.com')
+		);
+	});
+
+	it('reads the PDS, signing key, and KEM key a DID document publishes, and the handle that resolves back', async () => {
+		const signing = await multikey(Secp256k1Keypair.create());
+		const kem = await multikey(P256Keypair.create());
+
+		const { identity } = resolver({
+			doc: document(
+				[
+					{ id: 'atproto', type: 'Multikey', publicKeyMultibase: signing },
+					{ id: 'atproto_kem', type: 'Multikey', publicKeyMultibase: kem }
+				],
+				`${pds}/`
+			),
+			handles: { 'alice.example.com': did }
+		});
+
+		expect(await identity.resolve(did)).toEqual({
+			did,
+			handle: 'alice.example.com',
+			pds,
+			signingKey: `did:key:${signing}`,
+			kemKey: `did:key:${kem}`
+		});
+		expect(await identity.signingKey(did)).toBe(`did:key:${signing}`);
+	});
+
+	it('leaves out a handle it cannot check or none is claimed, and a KEM key of a kind it cannot read', async () => {
+		vi.stubGlobal('fetch', async () => {
+			throw new Error('resolver down');
+		});
+		const signing = await multikey(Secp256k1Keypair.create());
+
+		const { identity } = resolver({
+			doc: document([
+				{ id: 'atproto', type: 'Multikey', publicKeyMultibase: signing },
+				{ id: 'atproto_kem', type: 'UnknownKey2030', publicKeyMultibase: signing }
+			]),
+			handleResolverUrl: 'https://resolver.test'
+		});
+
+		expect(await identity.resolve(did)).toMatchObject({ handle: null, kemKey: null });
+
+		const unclaimed = {
+			...document([{ id: 'atproto', type: 'Multikey', publicKeyMultibase: signing }]),
+			alsoKnownAs: []
+		};
+
+		expect(await resolver({ doc: unclaimed }).identity.resolve(did)).toMatchObject({ handle: null, kemKey: null });
+	});
+
+	it('refuses a DID document without a PDS, or without a signing key it can read', async () => {
+		const signing = await multikey(Secp256k1Keypair.create());
+		const resolving = (doc: DidDoc) => resolver({ doc }).identity.resolve(did);
+
+		await expect(
+			resolving(document([{ id: 'atproto', type: 'Multikey', publicKeyMultibase: signing }], ''))
+		).rejects.toThrow(`${did} has no PDS endpoint`);
+		await expect(resolving(document([]))).rejects.toThrow(`${did} has no atproto signing key`);
+		await expect(
+			resolving(document([{ id: 'atproto', type: 'UnknownKey2030', publicKeyMultibase: signing }]))
+		).rejects.toThrow(`${did} has an unsupported #atproto key type (UnknownKey2030)`);
 	});
 });
 

@@ -119,6 +119,46 @@ describe('SpaceJoins', () => {
 				NotFoundError
 			);
 		});
+
+		it('offer only the capabilities asked for that the kind has', async () => {
+			const capabilities = ['events.manage', 'venue.block', 'guests.checkin'];
+			await t.spaceJoins.invite(await t.viewer(ADA), space, { did: BO, role: 'door', capabilities });
+
+			expect(await t.spaceJoins.invitesFor(BO)).toMatchObject([
+				{ role: 'door', capabilities: ['events.manage', 'guests.checkin'] }
+			]);
+		});
+	});
+
+	describe('pendingIn', () => {
+		it('lists the open invites oldest first with handles, and counts the links that still work', async () => {
+			const ada = await t.viewer(ADA);
+			await t.accounts.recordLogin({
+				did: CY,
+				handle: 'cy.test',
+				pdsUrl: null,
+				grantedScope: 'atproto',
+				spacesCapable: true,
+				publicWrites: false
+			});
+			vi.useFakeTimers({ toFake: ['Date'] });
+			await t.spaceJoins.invite(ada, space, { did: BO, role: 'door', expiresInDays: 1 });
+			vi.setSystemTime(Date.now() + 1000);
+			await t.spaceJoins.invite(ada, space, { did: CY, role: 'door' });
+			vi.setSystemTime(Date.now() + 1000);
+			await t.spaceJoins.invite(ada, space, { did: DI, role: 'cohost' });
+			await t.spaceJoins.createLink(ada, space, { role: 'door', expiresInDays: 1 });
+			await t.spaceJoins.createLink(ada, space, { role: 'door' });
+			expect((await t.spaceJoins.pendingIn(space)).links).toBe(2);
+			vi.setSystemTime(Date.now() + 2 * DAY_MS);
+
+			const pending = await t.spaceJoins.pendingIn(space);
+			expect(pending.invites.map(({ did, role, handle }) => ({ did, role, handle }))).toEqual([
+				{ did: CY, role: 'door', handle: 'cy.test' },
+				{ did: DI, role: 'cohost', handle: null }
+			]);
+			expect(pending.links).toBe(1);
+		});
 	});
 
 	describe('invite links', () => {
@@ -196,6 +236,14 @@ describe('SpaceJoins', () => {
 			expect(stored(COLLECTION.person, BO)?.value).toMatchObject({ role: 'door', hidden: true, via: 'request' });
 			expect(await t.spaceJoins.requestsFor(space)).toEqual([]);
 			await expect(t.spaceJoins.approve(await t.viewer(ADA), space, BO, 'door')).rejects.toBeInstanceOf(NotFoundError);
+		});
+
+		it("let someone in shown when their request doesn't say whether to hide them", async () => {
+			const record = { subject: BO, createdAt: new Date().toISOString() };
+			await t.net.client(ROOT).putSpaceRecord({ space, collection: COLLECTION.joinRequest, rkey: BO, record });
+
+			await t.spaceJoins.approve(await t.viewer(ADA), space, BO, 'door');
+			expect(stored(COLLECTION.person, BO)?.value).toMatchObject({ role: 'door', hidden: false, via: 'request' });
 		});
 
 		it('can be turned down, and are refused from someone in, invited or who already asked', async () => {

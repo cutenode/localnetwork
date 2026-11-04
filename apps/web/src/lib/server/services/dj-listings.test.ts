@@ -131,6 +131,31 @@ describe('asking staff to list a DJ in Find DJs', () => {
 		).rejects.toThrow('Set up your profile first');
 	});
 
+	it('lets only staff list a DJ directly, naming them by handle, and refuses to unlist someone not listed', async () => {
+		await t.accounts.recordLogin({
+			did: DJ,
+			handle: 'neon.test',
+			pdsUrl: null,
+			grantedScope: 'atproto',
+			spacesCapable: true,
+			publicWrites: false
+		});
+		const mod = await t.viewer(MOD);
+
+		await expect(t.djListings.list(await t.viewer(DJ), DJ)).rejects.toThrow(ForbiddenError);
+		await expect(t.djListings.unlist(mod, DJ)).rejects.toThrow("They aren't listed");
+
+		expect(await t.djListings.list(mod, DJ)).toMatchObject({ request: undefined });
+		expect(await t.djListings.get(DJ)).toMatchObject({ request: undefined });
+		await t.djListings.unlist(mod, DJ);
+
+		await t.audit.idle();
+		expect((await t.audit.list({ action: 'listing' })).map((entry) => entry.summary)).toEqual([
+			'Took @neon.test out of Find DJs',
+			'Listed @neon.test in Find DJs'
+		]);
+	});
+
 	it('has the directory read the profile again on listing, in case it missed it', async () => {
 		await saveProfile({});
 		const request = await ask();

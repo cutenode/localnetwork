@@ -1098,6 +1098,24 @@ fn track_edits_take_only_tempos_codes_dates_and_album_artists_there_are(tc: hege
     }
 }
 
+/// Playlists and folders chosen in any order, overlapping however they do, are what each of them
+/// chooses on its own: a folder named after a playlist in it still brings the rest.
+#[hegel::test(test_cases = 100)]
+#[hegel::explicit_test_case(specs = vec!["Sets/Fri", "Sets"])]
+fn what_is_chosen_is_what_each_spec_chooses(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut library = lib();
+    let sat =
+        Playlist { id: 4, parent_id: Some(1), name: "Sat".into(), is_folder: false, sort_order: 1, track_ids: vec![5] };
+    library.playlists.push(sat);
+    let chosen = |specs: &[&str]| chosen_nodes(&library, &specs.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    let names = vec!["Sets", "Sets/Fri", "Sets/Sat", "Loose"];
+    let specs: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(names)).min_size(1).max_size(4));
+    let each: FxHashSet<u32> = specs.iter().flat_map(|s| chosen(&[s]).unwrap()).collect();
+    assert_eq!(chosen(&specs).unwrap(), each, "{specs:?}");
+    assert!(chosen(&["Sets", "Nowhere"]).is_err());
+}
+
 /// An edit setting the fields of tracks named by id, as imports and analyses make one for each
 /// track, or by file, as a replay names them (spelt another way at times): at times one with no
 /// album to keep an album artist with, or an id or a file no track has.
