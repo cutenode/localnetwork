@@ -201,7 +201,10 @@ pub fn copy(store: &Store, dest: &Path, opts: &CopyOptions, ctx: &Ctx<'_>) -> Re
             )
             .with("path", &dest));
         }
-        Err(_) if dest.is_dir() && fs::read_dir(&dest).at(&dest)?.next().is_some() => {
+        // A copy cut off after its folders and before its `store.json` is carried on with.
+        Err(_)
+            if dest.is_dir() && fs::read_dir(&dest).at(&dest)?.any(|e| !e.is_ok_and(|e| Store::left_by_making(&e))) =>
+        {
             return Err(Error::invalid(format!("{} isn't empty and isn't a copy of this store", dest.display())));
         }
         Err(_) => None,

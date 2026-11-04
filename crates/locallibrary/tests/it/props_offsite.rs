@@ -206,6 +206,19 @@ fn a_copy_goes_only_where_it_can_and_puts_rot_right(tc: TestCase) {
     fs::write(notes.join("todo.txt"), b"x").unwrap();
     assert!(refused(&notes).contains("isn't empty and isn't a copy of this store"));
     assert!(refused(&dir.path().join("unmounted/share/copy")).contains("is its disk or share mounted?"));
+    // A copy cut off after its folders and before `store.json` is finished, unless something
+    // else got into them.
+    let cut_off = dir.path().join("cut-off");
+    for d in ["objects", "snapshots"] {
+        fs::create_dir_all(cut_off.join(d)).unwrap();
+    }
+    fs::write(cut_off.join(format!("{}store.json", locallibrary::paths::TEMP_PREFIX)), b"{\"form").unwrap();
+    let filled = dir.path().join("filled");
+    fs::create_dir_all(filled.join("objects")).unwrap();
+    fs::write(filled.join("objects/todo.txt"), b"x").unwrap();
+    assert!(refused(&filled).contains("isn't empty and isn't a copy of this store"));
+    offsite::copy(&store, &cut_off, &opts, &silent).unwrap();
+    assert_eq!(Store::open(&cut_off).unwrap().id().unwrap(), store.id().unwrap());
 
     let dest = dir.path().join("copy");
     offsite::copy(&store, &dest, &opts, &silent).unwrap();

@@ -327,9 +327,10 @@ impl Store {
 
     /// Open a store, creating it if the directory is empty or missing, or holds only what
     /// locallibrary itself keeps beside a store (an older version wrote some of it before the
-    /// store was made: fingerprints, mix reports, the profile document). Two making it at once
-    /// (the sidecar's workers, a CLI beside them) make one store: one makes it under its lock
-    /// while the others wait, then open it.
+    /// store was made: fingerprints, mix reports, the profile document), or what a make cut off
+    /// before `store.json` left (see [`Store::left_by_making`]), which it finishes. Two making it
+    /// at once (the sidecar's workers, a CLI beside them) make one store: one makes it under its
+    /// lock while the others wait, then open it.
     pub fn open_or_init(root: impl AsRef<Path>) -> Result<Store> {
         let root = root.as_ref().to_path_buf();
         let meta_path = root.join("store.json");
@@ -354,8 +355,10 @@ impl Store {
         Store::open(root)
     }
 
-    /// Refuses `root` unless it holds only what locallibrary keeps beside a store and the lock
-    /// for making one, and with `making`, what making the store writes before `store.json`.
+    /// Refuses `root` unless it holds only what locallibrary keeps beside a store, the lock for
+    /// making one, and what a make cut off before `store.json` left. With `making` (before the
+    /// lock, while another process may be making it), also whatever making the store writes, as
+    /// far as it got.
     fn holds_only_ours(root: &Path, making: bool) -> Result<()> {
         const OURS: [&str; 5] = [
             crate::audio_cache::CACHE_DIR,
@@ -369,8 +372,7 @@ impl Store {
             let ours = e.as_ref().is_ok_and(|e| {
                 let name = e.file_name();
                 let name = name.to_string_lossy();
-                OURS.contains(&&*name)
-                    || (making && (MAKING.contains(&&*name) || name.starts_with(crate::paths::TEMP_PREFIX)))
+                OURS.contains(&&*name) || Store::left_by_making(e) || (making && MAKING.contains(&&*name))
             });
             if !ours {
                 return Err(Error::invalid(format!(
@@ -380,6 +382,20 @@ impl Store {
             }
         }
         Ok(())
+    }
+
+    /// Whether `entry`, in a folder with no `store.json`, is what making a store there (or a copy,
+    /// see [`crate::offsite::copy`]) left when it was cut off: `objects/` or `snapshots/` still
+    /// empty, or a temp file (such as the one `store.json` was being written through). A store is
+    /// made under its lock, so to whoever holds it they're leftovers: nobody else is making it.
+    pub(crate) fn left_by_making(entry: &fs::DirEntry) -> bool {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let is_empty_dir = || {
+            entry.file_type().is_ok_and(|t| t.is_dir())
+                && fs::read_dir(entry.path()).is_ok_and(|mut d| d.next().is_none())
+        };
+        name.starts_with(crate::paths::TEMP_PREFIX) || (["objects", "snapshots"].contains(&&*name) && is_empty_dir())
     }
 
     /// The store at `root` if there is one (never made here); one that's there but can't be read
