@@ -1,11 +1,12 @@
+import { XRPCError } from '@atproto/api';
 import { TID } from '@atproto/common-web';
 import { sql } from 'kysely';
 import { bookingActions, type BookingRole } from '#lib/bookings.ts';
 import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
 import { BOOKING_STATUSES, isOneOf, labelFor } from '#lib/taxonomy/options.ts';
 import type { BookingEventView, BookingThreadView, ShowDetails, Viewer } from '#lib/types.ts';
-import { validateRecord } from '../atproto/lexicons';
-import { memberSpacePolicy } from '../atproto/repo-client';
+import { RecordValidationError, validateRecord } from '../atproto/lexicons';
+import { type JsonRecord, memberSpacePolicy, type RecordRef } from '../atproto/repo-client';
 import { bookingSpace, parseSpaceRecordUri, parseSpaceUri } from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
@@ -34,21 +35,36 @@ export type BookingRecord = {
 	text?: string;
 	status?: string;
 	note?: string;
+	promoter?: string;
 	onBehalfOf?: string;
 	createdAt: string;
 };
 
+/** What a status record read from a repo says opened its thread, or null when it doesn't fit its lexicon. */
+function readStatus(value: JsonRecord): Pick<BookingRecord, 'project' | 'promoter'> | null {
+	try {
+		// SAFETY: validateRecord checked `value` against the booking status lexicon, whose `project` is an at-uri string
+		// and `promoter` a DID string, both optional.
+		return validateRecord(COLLECTION.bookingStatus, value) as Pick<BookingRecord, 'project' | 'promoter'>;
+	} catch (error) {
+		if (error instanceof RecordValidationError) return null;
+		throw error;
+	}
+}
+
 const OPENED_PROJECT = sql<string>`json_extract(record, '$.project')`;
 
+const OPENED_BY = sql<string | null>`json_extract(record, '$.promoter')`;
+
 /**
- * The project each thread's opening record names, or only threads it names `project` for. The root writes that record
- * into its own repo in the space, so unlike the promoter's inquiry, nobody else can rewrite it. Threads opened before
- * it named the project have none.
+ * The project and promoter each thread's opening record names, or only threads it names `project` for. The root writes
+ * that record into its own repo in the space, so unlike the promoter's inquiry, nobody else can rewrite it. Threads
+ * opened before it named the project have none, and those opened before it named the promoter have no promoter.
  */
 export const openedProjects = (core: Pick<Core, 'db' | 'rootDid'>, project?: string) =>
 	core.db
 		.selectFrom('bookingEvent')
-		.select(['spaceUri', OPENED_PROJECT.as('project')])
+		.select(['spaceUri', OPENED_PROJECT.as('project'), OPENED_BY.as('promoter')])
 		.where('authorDid', '=', core.rootDid)
 		.where('kind', '=', 'status')
 		.where(OPENED_PROJECT, project ? '=' : 'is not', project ?? null);
@@ -96,63 +112,8 @@ export class BookingService {
 
 		if (!message) throw new UserError('Write a message');
 
-		const root = await this.core.root();
-		const skey = TID.nextStr();
-		const space = bookingSpace(this.core.rootDid, skey);
-		await root.createSpace({
-			spaceType: SPACE_TYPE.booking,
-			skey,
-			policy: memberSpacePolicy()
-		});
-
-		const participants: { did: string; role: 'promoter' | 'manager' }[] = [
-			{ did: actor.did, role: 'promoter' },
-			...project.managers.map((did) => ({ did, role: 'manager' as const }))
-		];
-
-		for (const participant of participants) {
-			await root.putMember({ space, did: participant.did, read: true, write: true });
-		}
-
+		// The inquiry is checked before anything is written, so one that doesn't fit its record opens no thread.
 		const now = nowIso();
-		await this.core.db.transaction().execute(async (trx) => {
-			await trx
-				.insertInto('bookingThread')
-				.values({
-					spaceUri: space,
-					skey,
-					projectUri: project.uri,
-					promoterDid: actor.did,
-					status: 'open',
-					title: input.show.title,
-					showDate: input.show.date ?? null,
-					createdAt: now,
-					updatedAt: now,
-					lastActivityAt: now
-				})
-				.execute();
-			await trx
-				.insertInto('bookingParticipant')
-				.values(participants.map((p) => ({ spaceUri: space, ...p })))
-				.execute();
-		});
-
-		const opened = validateRecord(COLLECTION.bookingStatus, {
-			status: 'open',
-			note: 'Thread opened',
-			project: project.uri,
-			createdAt: now
-		});
-
-		const openedRef = await root.createSpaceRecord({ space, collection: COLLECTION.bookingStatus, record: opened });
-		await this.indexEvent({
-			space,
-			uri: openedRef.uri,
-			repoDid: root.did,
-			collection: COLLECTION.bookingStatus,
-			value: opened
-		});
-
 		const { client, onBehalf } = await spaceWriter(this.core, actor);
 
 		const draft: BookingRecord = {
@@ -165,7 +126,85 @@ export class BookingService {
 		if (onBehalf) draft.onBehalfOf = actor.did;
 		const inquiry = validateRecord(COLLECTION.bookingInquiry, draft);
 
-		const ref = await client.createSpaceRecord({ space, collection: COLLECTION.bookingInquiry, record: inquiry });
+		const root = await this.core.root();
+		const skey = TID.nextStr();
+		const space = bookingSpace(this.core.rootDid, skey);
+
+		try {
+			await root.createSpace({
+				spaceType: SPACE_TYPE.booking,
+				skey,
+				policy: memberSpacePolicy()
+			});
+		} catch (error) {
+			if (error instanceof XRPCError) throw this.unsent(error);
+			throw error;
+		}
+
+		const participants: { did: string; role: 'promoter' | 'manager' }[] = [
+			{ did: actor.did, role: 'promoter' },
+			...project.managers.map((did) => ({ did, role: 'manager' as const }))
+		];
+
+		let ref: RecordRef;
+
+		try {
+			for (const participant of participants) {
+				await root.putMember({ space, did: participant.did, read: true, write: true });
+			}
+
+			await this.core.db.transaction().execute(async (trx) => {
+				await trx
+					.insertInto('bookingThread')
+					.values({
+						spaceUri: space,
+						skey,
+						projectUri: project.uri,
+						promoterDid: actor.did,
+						status: 'open',
+						title: input.show.title,
+						showDate: input.show.date ?? null,
+						createdAt: now,
+						updatedAt: now,
+						lastActivityAt: now
+					})
+					.execute();
+				await trx
+					.insertInto('bookingParticipant')
+					.values(participants.map((p) => ({ spaceUri: space, ...p })))
+					.execute();
+			});
+
+			const opened = validateRecord(COLLECTION.bookingStatus, {
+				status: 'open',
+				note: 'Thread opened',
+				project: project.uri,
+				promoter: actor.did,
+				createdAt: now
+			});
+
+			const openedRef = await root.createSpaceRecord({ space, collection: COLLECTION.bookingStatus, record: opened });
+			await this.indexEvent({
+				space,
+				uri: openedRef.uri,
+				repoDid: root.did,
+				collection: COLLECTION.bookingStatus,
+				value: opened
+			});
+
+			ref = await client.createSpaceRecord({ space, collection: COLLECTION.bookingInquiry, record: inquiry });
+		} catch (error) {
+			// The inquiry is what makes it a thread: without it, nobody should see one. Past it, a failure leaves a real
+			// thread, which a sync would index anyway.
+			await this.forget(space);
+			await root.deleteSpace(space).catch((cause: unknown) => {
+				this.core.logger.warn({ err: cause, space }, 'could not delete the space of a booking that failed to start');
+			});
+
+			if (error instanceof XRPCError) throw this.unsent(error);
+			throw error;
+		}
+
 		await this.indexEvent({
 			space,
 			uri: ref.uri,
@@ -189,6 +228,16 @@ export class BookingService {
 		);
 
 		return space;
+	}
+
+	/**
+	 * A PDS that refused or never answered a write while a booking started, as a message the inquiry form shows above
+	 * what the promoter wrote, so they can send it again. Any other error is a bug, so callers rethrow it as it is.
+	 */
+	private unsent(error: XRPCError): UserError {
+		this.core.logger.warn({ err: error }, 'could not start a booking thread');
+
+		return new UserError("Couldn't send your inquiry. Try again in a minute.", 503);
 	}
 
 	private async requireParticipant(actor: Viewer, space: string): Promise<BookingThreadRow & { role: BookingRole }> {
@@ -343,6 +392,39 @@ export class BookingService {
 		}
 	}
 
+	/**
+	 * What the root's record opening the thread in `space` names, from the index, or else from the root's own repo,
+	 * since a sync can read an inquiry before it. Undefined for a thread with no opening record, or none that can be
+	 * read right now.
+	 */
+	private async openingRecord(space: string): Promise<{ project: string; promoter: string | null } | undefined> {
+		const indexed = await openedProjects(this.core).where('spaceUri', '=', space).executeTakeFirst();
+
+		if (indexed) return indexed;
+		const root = await this.core.root();
+		let cursor: string | undefined;
+
+		try {
+			do {
+				const page = await root.listSpaceRecords({
+					space,
+					repo: root.did,
+					collection: COLLECTION.bookingStatus,
+					cursor
+				});
+
+				const opening = page.records.map((record) => readStatus(record.value)).find((status) => status?.project);
+
+				if (opening?.project) return { project: opening.project, promoter: opening.promoter ?? null };
+				cursor = page.cursor;
+			} while (cursor);
+		} catch (error) {
+			this.core.logger.warn({ err: error, space }, "could not read a booking thread's opening record");
+		}
+
+		return undefined;
+	}
+
 	/** Forgets a thread whose space is gone. Its participants go with it (ON DELETE CASCADE). */
 	async forget(space: string): Promise<void> {
 		await this.core.db.deleteFrom('bookingEvent').where('spaceUri', '=', space).execute();
@@ -386,40 +468,57 @@ export class BookingService {
 			.executeTakeFirst();
 
 		if (!thread && kind === 'inquiry' && value.project) {
-			// The promoter can rewrite their inquiry, so the root's opening record names the project when it's in.
-			const opened = await openedProjects(this.core).where('spaceUri', '=', input.space).executeTakeFirst();
+			// The promoter can rewrite their inquiry, so the root's opening record names the project, and who the promoter
+			// is, over whichever inquiry a sync reads first.
+			const opened = await this.openingRecord(input.space);
 			const projectUri = opened?.project ?? value.project;
-			await db
-				.insertInto('bookingThread')
-				.values({
-					spaceUri: input.space,
-					skey: ref.skey,
-					projectUri,
-					promoterDid: author,
-					status: 'open',
-					title: value.show?.title ?? null,
-					showDate: value.show?.date ?? null,
-					createdAt,
-					updatedAt: createdAt,
-					lastActivityAt: createdAt
-				})
-				.onConflict((oc) => oc.doNothing())
-				.execute();
 			const project = await this.projects.byUri(projectUri);
 
-			const members = [
-				{ did: author, role: 'promoter' as const },
-				...(project?.managers ?? [])
-					.filter((did) => participants.has(did))
-					.map((did) => ({ did, role: 'manager' as const }))
-			];
+			// Threads opened before the record named the promoter go by who sent it: nobody can send an inquiry to their
+			// own project (start), so one from the act's side never opens a thread.
+			const promoter = opened?.promoter ? opened.promoter === author : !project?.managers.includes(author);
 
-			await db
-				.insertInto('bookingParticipant')
-				.values(members.map((m) => ({ spaceUri: input.space, ...m })))
-				.onConflict((oc) => oc.doNothing())
-				.execute();
-			thread = await db.selectFrom('bookingThread').selectAll().where('spaceUri', '=', input.space).executeTakeFirst();
+			if (!promoter) {
+				this.core.logger.warn(
+					{ space: input.space, repo: input.repoDid },
+					"not opening a booking thread from an inquiry its promoter didn't send"
+				);
+			} else {
+				await db
+					.insertInto('bookingThread')
+					.values({
+						spaceUri: input.space,
+						skey: ref.skey,
+						projectUri,
+						promoterDid: author,
+						status: 'open',
+						title: value.show?.title ?? null,
+						showDate: value.show?.date ?? null,
+						createdAt,
+						updatedAt: createdAt,
+						lastActivityAt: createdAt
+					})
+					.onConflict((oc) => oc.doNothing())
+					.execute();
+
+				const members = [
+					{ did: author, role: 'promoter' as const },
+					...(project?.managers ?? [])
+						.filter((did) => participants.has(did))
+						.map((did) => ({ did, role: 'manager' as const }))
+				];
+
+				await db
+					.insertInto('bookingParticipant')
+					.values(members.map((m) => ({ spaceUri: input.space, ...m })))
+					.onConflict((oc) => oc.doNothing())
+					.execute();
+				thread = await db
+					.selectFrom('bookingThread')
+					.selectAll()
+					.where('spaceUri', '=', input.space)
+					.executeTakeFirst();
+			}
 		}
 
 		await db
