@@ -147,18 +147,27 @@ fn unreadable(e: serde_json::Error) -> Error {
 /// holds one account's secrets with its `did` among them.
 fn secrets_file(root: &Path) -> Result<Map<String, Value>> {
     let path = root.join(SECRETS_FILE);
-    let text = match std::fs::read_to_string(&path) {
-        Ok(s) => s,
+    let bytes = match crate::fsutil::read(&path) {
+        Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Map::new()),
         Err(e) => return Err(Error::Io { path, source: e }),
     };
-    let Value::Object(mut all) = serde_json::from_str(&text).map_err(unreadable)? else {
+    let Value::Object(mut all) = serde_json::from_slice(&bytes).map_err(unreadable)? else {
         return Err(not_an_object());
     };
     if let Some(Value::String(did)) = all.remove("did") {
         return Ok(Map::from_iter([(did, Value::Object(all))]));
     }
     Ok(all)
+}
+
+/// The session file's secrets for something that writes them back: none when it's damaged, as
+/// signing in replaces it, and an error when it can't be read right now.
+fn secrets_to_change(root: &Path) -> Result<Map<String, Value>> {
+    match secrets_file(root) {
+        Err(e @ Error::Io { .. }) => Err(e),
+        read => Ok(read.unwrap_or_default()),
+    }
 }
 
 /// Read the secrets for `did`, if there are any.
@@ -187,8 +196,7 @@ pub fn write_secrets(root: &Path, storage: Storage, did: &str, secrets: &Map<Str
             keychain_entry(root, did)?.set_password(&text).map_err(keychain_error)
         }
         Storage::File => {
-            // A file that can't be read has nothing usable in it: signing in replaces it.
-            let mut all = secrets_file(root).unwrap_or_default();
+            let mut all = secrets_to_change(root)?;
             all.insert(did.to_string(), Value::Object(secrets.clone()));
             write_secrets_file(root, &all)
         }
@@ -199,7 +207,7 @@ pub fn delete_secrets(root: &Path, storage: Storage, did: &str) -> Result<()> {
     match storage {
         Storage::Keychain => crate::keychain::delete(&keychain_entry(root, did)?).map_err(keychain_error),
         Storage::File => {
-            let mut all = secrets_file(root).unwrap_or_default();
+            let mut all = secrets_to_change(root)?;
             all.remove(did);
             write_secrets_file(root, &all)
         }

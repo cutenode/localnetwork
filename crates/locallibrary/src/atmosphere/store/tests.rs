@@ -42,10 +42,46 @@ fn each_accounts_secrets_have_their_own_place_in_the_file() {
     assert_eq!(read_secrets(root, Storage::File, "did:plc:b").unwrap(), None);
     delete_secrets(root, Storage::File, "did:plc:b").unwrap();
     assert_eq!(read_secrets(root, Storage::File, "did:plc:a").unwrap(), Some(secrets("ref-a")));
-    // A file that can't be read is replaced by the next sign-in.
+    // A damaged file is replaced by the next sign-in.
     std::fs::write(root.join(SECRETS_FILE), "{ not json").unwrap();
     write_secrets(root, Storage::File, "did:plc:b", &secrets("ref-b")).unwrap();
     assert_eq!(read_secrets(root, Storage::File, "did:plc:b").unwrap(), Some(secrets("ref-b")));
+}
+
+/// The session file holds every account's secrets. One that can't be read right now stays as it
+/// is: signing in or out says why it can't, where it used to replace the file or delete it. One
+/// that's damaged, even past being text, is still replaced.
+#[cfg(unix)]
+#[hegel::test(test_cases = 10)]
+fn a_session_file_that_cant_be_read_keeps_every_account(tc: hegel::TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let file = root.join(SECRETS_FILE);
+    let secrets = |refresh: &str| Map::from_iter([("refresh_token".to_string(), Value::from(refresh))]);
+    let token: String = tc.draw(hegel::generators::from_regex("[a-z]{1,6}").fullmatch(true));
+    write_secrets(root, Storage::File, "did:plc:a", &secrets(&token)).unwrap();
+    write_secrets(root, Storage::File, "did:plc:b", &secrets("ref-b")).unwrap();
+    let before = std::fs::read(&file).unwrap();
+    let mode = |bits: u32| std::fs::set_permissions(&file, std::fs::Permissions::from_mode(bits)).unwrap();
+    mode(0o000);
+    // Root reads anything.
+    if std::fs::read(&file).is_ok() {
+        return mode(0o600);
+    }
+    let signed_in = write_secrets(root, Storage::File, "did:plc:c", &secrets("ref-c"));
+    let signed_out = delete_secrets(root, Storage::File, "did:plc:a");
+    let kept = file.exists();
+    if kept {
+        mode(0o600);
+    }
+    assert!(kept, "signing out left the file");
+    assert!(matches!(signed_in, Err(Error::Io { .. })), "{signed_in:?}");
+    assert!(matches!(signed_out, Err(Error::Io { .. })), "{signed_out:?}");
+    assert_eq!(std::fs::read(&file).unwrap(), before);
+    std::fs::write(&file, [0xff, 0xfe]).unwrap();
+    write_secrets(root, Storage::File, "did:plc:c", &secrets("ref-c")).unwrap();
+    assert_eq!(read_secrets(root, Storage::File, "did:plc:c").unwrap(), Some(secrets("ref-c")));
 }
 
 #[test]

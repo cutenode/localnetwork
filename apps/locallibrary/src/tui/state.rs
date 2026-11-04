@@ -111,10 +111,15 @@ pub fn save(store_root: &Path, saved: &Saved) {
     if saved.root.as_deref().is_some_and(|r| resolved(&dir).starts_with(resolved(r))) {
         return;
     }
+    // One that can't be read right now keeps what it holds: `load` gave the defaults for it.
+    let file = dir.join(FILE);
+    if std::fs::File::open(&file).is_err_and(|e| e.kind() != std::io::ErrorKind::NotFound) {
+        return;
+    }
     if let Ok(json) = serde_json::to_vec_pretty(saved)
         && std::fs::create_dir_all(&dir).is_ok()
     {
-        let _ = locallibrary::fsutil::write_atomic(&dir.join(FILE), &json);
+        let _ = locallibrary::fsutil::write_atomic(&file, &json);
     }
 }
 

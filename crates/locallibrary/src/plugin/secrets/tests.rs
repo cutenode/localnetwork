@@ -121,6 +121,128 @@ fn a_secrets_file_in_the_plugins_folder_is_moved_out_of_it() {
     assert_eq!(plugins.slot("keeper").unwrap().secret(&store, "token").unwrap().as_deref(), Some("kept"));
 }
 
+/// Makes `file` unreadable or readable again. Whether it worked is for the caller to check: root
+/// reads anything.
+#[cfg(unix)]
+fn set_mode(file: &std::path::Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(file, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+/// A secrets file that can't be read, in a folder that can be written, keeps its keys: the change
+/// is refused with the read's error, where it used to replace the file with the one new key.
+#[cfg(unix)]
+#[test]
+fn a_secrets_file_that_cant_be_read_keeps_its_other_secrets() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path()).unwrap();
+    let file = store.root().join("secrets/plugins/keeper.json");
+    let place = |key: &str| Place {
+        store: &store,
+        service: "locallibrary-plugin-keeper".into(),
+        file: file.clone(),
+        key: key.into(),
+        moved_from: None,
+    };
+    set_secret(Storage::File, &place("a"), Some("1")).unwrap();
+    set_secret(Storage::File, &place("b"), Some("2")).unwrap();
+    let before = std::fs::read(&file).unwrap();
+    set_mode(&file, 0o000);
+    if std::fs::read(&file).is_ok() {
+        return;
+    }
+    let refused = |e: Error| matches!(e, Error::Io { path, .. } if path == file);
+    let (set, forgot) =
+        (set_secret(Storage::File, &place("c"), Some("3")), set_secret(Storage::File, &place("a"), None));
+    set_mode(&file, 0o600);
+    assert!(refused(set.unwrap_err()));
+    assert!(refused(forgot.unwrap_err()));
+    assert_eq!(std::fs::read(&file).unwrap(), before);
+}
+
+/// A secrets file left in the plugin's folder that can't be moved out of it is still its secrets:
+/// setting another one is refused, where it used to start a new file that hid the old one for good.
+#[cfg(unix)]
+#[test]
+fn a_secrets_file_that_cant_be_moved_stays_the_plugins_secrets() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path()).unwrap();
+    let old = store.root().join("plugins/keeper/secrets.json");
+    let file = store.root().join("secrets/plugins/keeper.json");
+    std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+    std::fs::write(&old, r#"{"a":"1"}"#).unwrap();
+    let place = Place {
+        store: &store,
+        service: "locallibrary-plugin-keeper".into(),
+        file: file.clone(),
+        key: "b".into(),
+        moved_from: Some(old.clone()),
+    };
+    set_mode(old.parent().unwrap(), 0o555);
+    let set = set_secret(Storage::File, &place, Some("2"));
+    set_mode(old.parent().unwrap(), 0o755);
+    // Root moves it anyway.
+    if !old.exists() {
+        return;
+    }
+    assert!(matches!(set.unwrap_err(), Error::Io { path, .. } if path == old));
+    assert!(!file.exists());
+}
+
+/// A change to any of a plugin's files that can't be read right now is refused with the read's
+/// error, and the file stays exactly as it was. Once it can be read, the change goes through and
+/// nothing else in the file is lost.
+#[cfg(unix)]
+#[hegel::test(test_cases = 40)]
+fn a_change_to_a_file_that_cant_be_read_loses_nothing(tc: TestCase) {
+    type Change<'a> = Box<dyn Fn() -> crate::Result<()> + 'a>;
+    let (plugins, _dir, store) = host(Storage::File);
+    let slot = plugins.slot("keeper").unwrap();
+    let text = || gs::from_regex("[a-z0-9]{1,6}").fullmatch(true);
+    let (first, other) = (tc.draw(text()), tc.draw(text()));
+    let value: Option<Value> = tc.draw(gs::optional(text())).map(Value::from);
+    let (file, change): (std::path::PathBuf, Change<'_>) = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => {
+            plugins.set_setting("keeper", &store, "token", Some(json!(first))).unwrap();
+            set_secret(Storage::File, &slot.place(&store, "other"), Some(&other)).unwrap();
+            let change = Box::new(|| plugins.set_setting("keeper", &store, "token", value.clone()).map(drop));
+            (slot.place(&store, "token").file, change)
+        }
+        1 => {
+            plugins.set_setting("keeper", &store, "name", Some(json!(first))).unwrap();
+            let file = store.root().join("plugins/keeper/settings.json");
+            let mut kept: IndexMap<String, Value> = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+            kept.insert("other".into(), json!(other));
+            std::fs::write(&file, serde_json::to_vec(&kept).unwrap()).unwrap();
+            (file, Box::new(|| plugins.set_setting("keeper", &store, "name", value.clone()).map(drop)))
+        }
+        _ => {
+            crate::plugin::set_host_setting(&store, "changed", Some(json!(first))).unwrap();
+            crate::plugin::set_host_setting(&store, "other", Some(json!(other))).unwrap();
+            let change = Box::new(|| crate::plugin::set_host_setting(&store, "changed", value.clone()));
+            (store.root().join("plugins/settings.json"), change)
+        }
+    };
+    let before = std::fs::read(&file).unwrap();
+    set_mode(&file, 0o000);
+    // Root reads anything.
+    if std::fs::read(&file).is_err() {
+        let refused = change();
+        set_mode(&file, 0o600);
+        let refused = refused.unwrap_err();
+        assert!(matches!(&refused, Error::Io { path, .. } if *path == file), "{refused}");
+        assert_eq!(std::fs::read(&file).unwrap(), before);
+    }
+    set_mode(&file, 0o600);
+    change().unwrap();
+    let kept: IndexMap<String, Value> = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(kept["other"], json!(other));
+    // Damaged, it has nothing usable in it, and the same change writes it anew.
+    std::fs::write(&file, "not json").unwrap();
+    change().unwrap();
+    assert_ne!(std::fs::read(&file).ok().as_deref(), Some(&b"not json"[..]));
+}
+
 /// For any secrets set, forgotten and set wrong, kept in either place, with the keychain failing
 /// now and then: the secret is said to be set exactly while the last change that went through set
 /// it, and is what that set; a wrong one or a failing keychain changes nothing, and the keychain
