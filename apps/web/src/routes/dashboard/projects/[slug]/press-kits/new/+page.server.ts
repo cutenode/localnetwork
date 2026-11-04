@@ -19,9 +19,8 @@ async function fromForm({ request, locals, url, params }: RequestEvent, publish:
 
 	const result = await act(
 		async () => {
-			const draft = await saveDraftForm(epks, viewer, project, form, []);
-
-			if (!draft) throw new Error('a new press kit always differs from nothing');
+			// parseEpkForm requires a title, so a new press kit always differs from nothing and save never returns null.
+			const draft = (await saveDraftForm(epks, viewer, project, form, []))!;
 
 			if (!publish) return { rkey: draft.rkey };
 			const published = await epks.drafts.publish(viewer, project, draft.rkey);

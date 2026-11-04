@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import HotCues, { lookOf } from '#lib/components/tools/HotCues.svelte';
 	import { PAGE_META } from '#lib/testing/page-meta.ts';
 	import { demoTrack, findTool, toolCards, tools } from '#lib/tools/index.ts';
 	import Layout from '../+layout.svelte';
@@ -26,8 +27,18 @@
 	const toolData = (id: string) => {
 		const { name, kind, tagline, summary, cues, install, status } = findTool(id) ?? tools[0];
 
-		return { ...layout, tool: { id, name, kind, tagline, summary, cues, install, status }, track: demoTrack, sections: [], guides: guides(id) };
+		const others = tools.filter((other) => other.id !== id).map((other) => ({ id: other.id, name: other.name, tagline: other.tagline }));
+
+		return { ...layout, tool: { id, name, kind, tagline, summary, cues, install, status }, track: demoTrack, look: lookOf(id), others, sections: [], guides: guides(id) };
 	};
+
+	// The second cue's capture never arrives: 192.0.2.1 is reserved for documentation, so nothing answers.
+	// The first stays up, dimmed, and the panel says it's busy.
+	const STALLED = 'http://192.0.2.1/capture.png';
+
+	const stalled = tools[0].cues.map((cue, i) =>
+		i === 1 ? { ...cue, capture: { alt: cue.capture.alt, picture: { sources: { webp: `${STALLED} 2560w` }, img: { ...cue.capture.picture.img, src: STALLED } } } } : cue
+	);
 
 	// A guide long enough to open on its sections, with a line under each.
 	const contents = [
@@ -60,6 +71,10 @@
 	<Layout data={layout} params={{}}><ToolPage data={toolData(id)} params={{ tool: id }} form={null} /></Layout>
 {/snippet}
 
+{#snippet loading()}
+	<Layout data={layout} params={{}}><div class="container-page py-10"><HotCues tool={tools[0].name} cues={stalled} track={demoTrack} selected={1} /></div></Layout>
+{/snippet}
+
 {#snippet guidePage()}
 	<Layout data={layout} params={{}}><GuidePage data={guide} params={{ tool: 'localtoolbox', page: 'downloads' }} form={null} /></Layout>
 {/snippet}
@@ -70,11 +85,15 @@
 
 <Story name="locallibrary" asChild>{@render tool('locallibrary')}</Story>
 
-<Story name="locallibrary on a phone" asChild globals={phone}>{@render tool('locallibrary')}</Story>
+<Story name="locallibrary on a phone, cues in a legend" asChild globals={phone}>{@render tool('locallibrary')}</Story>
 
 <Story name="localtoolbox" asChild>{@render tool('localtoolbox')}</Story>
 
 <Story name="localtoolbox on a phone" asChild globals={phone}>{@render tool('localtoolbox')}</Story>
+
+<Story name="A capture still loading" asChild>{@render loading()}</Story>
+
+<Story name="A capture still loading, on a phone" asChild globals={phone}>{@render loading()}</Story>
 
 <Story name="Guide" asChild>{@render guidePage()}</Story>
 

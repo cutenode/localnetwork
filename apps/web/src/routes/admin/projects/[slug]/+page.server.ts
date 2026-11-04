@@ -21,7 +21,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	return {
 		project,
 		values: profileToValues(project.profile, details),
-		managers: project.managers.map((did) => managers.get(did) ?? { did, handle: null }),
+		managers: project.managers.map((did) => managers.get(did)),
 		trail,
 		requests,
 		created: url.searchParams.has('created'),

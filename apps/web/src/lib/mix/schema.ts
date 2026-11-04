@@ -155,10 +155,11 @@ export function parseMixReport(value: JsonValue): ParseResult {
 	const result = mixReportSchema.safeParse(value);
 
 	if (result.success) return { ok: true, report: result.data };
+	// zod fails a parse only with at least one issue.
 	const issue = result.error.issues[0];
-	const where = issue?.path.length ? ` (at ${issue.path.join('.')})` : '';
+	const where = issue.path.length ? ` (at ${issue.path.join('.')})` : '';
 
-	return { ok: false, error: `This mix report is damaged or incomplete: ${issue?.message ?? 'invalid'}${where}.` };
+	return { ok: false, error: `This mix report is damaged or incomplete: ${issue.message}${where}.` };
 }
 
 /** Parses an export's raw text (or bytes), enforcing the size limit first. */
