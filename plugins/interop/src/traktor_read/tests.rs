@@ -730,3 +730,172 @@ fn a_page_ends_once_its_beats_and_cues_reach_100_000() {
     assert_eq!(last.warnings, ["1 beat grid(s) left out: the track's length isn't known, or is over a day"]);
     s.stop();
 }
+
+/// An import reads what the collection says (a track's length rounded, a key Traktor writes only
+/// as text, a loop of half a beat), its answer in a blob in the scratch folder when it's past what
+/// a message holds; a collection that isn't there, or isn't one, and a scratch folder that's gone,
+/// fail saying so.
+#[hegel::test(test_cases = 3)]
+fn prop_an_import_is_what_the_collection_says_or_why_it_cant_be(tc: TestCase) {
+    let bpm = tc.draw(gs::integers::<u16>().min_value(1).max_value(300));
+    for case in 0..=4 {
+        import_reads(case, bpm);
+    }
+}
+
+/// [`prop_an_import_is_what_the_collection_says_or_why_it_cant_be`]'s `case`, its big
+/// collection's track at `bpm`.
+fn import_reads(case: u8, bpm: u16) {
+    let s = start();
+    let big = || {
+        let title = "x".repeat(MESSAGE);
+        s.file(&format!(
+            r#"<NML><COLLECTION><ENTRY TITLE="{title}"><LOCATION DIR="/:" FILE="a.mp3" VOLUME="USB"/><TEMPO BPM="{bpm}"/></ENTRY></COLLECTION></NML>"#
+        ))
+    };
+    let scratch = s.dir.path().join("scratch");
+    match case {
+        0 => {
+            let read = s.imported(NML);
+            let [glue, b] = &read.tracks[..] else { panic!("{:?}", read.tracks) };
+            assert_eq!((glue.find.duration, b.key.as_deref()), (Some(269), Some("Fm")));
+            assert!(glue.cues.iter().any(|c| c.loop_beats == Some(0.5)), "{:?}", glue.cues);
+        }
+        1 => {
+            let missing = s.dir.path().join("gone.nml");
+            let e = s.import(&missing, json!({})).unwrap_err();
+            assert_eq!(e.kind(), Some("io"));
+            assert!(e.message.starts_with(&missing.display().to_string()), "{e:?}");
+        }
+        2 => {
+            let e = s.import(&s.file("<plist/>"), json!({})).unwrap_err();
+            let said = "not a Traktor collection: its root element is plist, not NML";
+            assert_eq!((e.kind(), e.message.as_str()), (Some("invalid"), said));
+        }
+        3 => {
+            std::fs::create_dir(&scratch).unwrap();
+            let blob = s.import(&big(), json!({ "scratch": scratch })).unwrap();
+            assert_eq!(blob, ImportAnswer::Blob(Blob { blob: "read.json".into() }));
+            let held: Imported = serde_json::from_slice(&std::fs::read(scratch.join("read.json")).unwrap()).unwrap();
+            assert_eq!(held.tracks[0].find.title.as_ref().map(String::len), Some(MESSAGE));
+        }
+        _ => {
+            let e = s.import(&big(), json!({ "scratch": scratch })).unwrap_err();
+            assert!(e.kind() == Some("io") && e.message.starts_with(&scratch.display().to_string()), "{e:?}");
+        }
+    }
+    s.stop();
+}
+
+/// A collection's library is read a page at a time, the file read once for them all while it
+/// stays as it was, its playlists and what was left out on the last page; a page past what a
+/// message holds goes in a blob. A cursor that isn't one of its pages, one from before the file
+/// was saved, a collection that isn't there or isn't one, options without one and a scratch
+/// folder that's gone fail saying so.
+#[hegel::test(test_cases = 1)]
+fn prop_a_library_is_read_in_pages_or_refused(tc: TestCase) {
+    for case in 0..=8 {
+        library_reads(&tc, case);
+    }
+}
+
+/// [`prop_a_library_is_read_in_pages_or_refused`]'s `case`.
+#[hegel::test_helper]
+fn library_reads(tc: &TestCase, case: u8) {
+    let s = start();
+    let entry = |i: usize| format!(r#"<ENTRY TITLE="{i}"><LOCATION DIR="/:" FILE="{i}.mp3" VOLUME="USB"/></ENTRY>"#);
+    let entries: String = (0..1001).map(entry).collect();
+    let file = s.file(&format!(
+        r#"<NML><COLLECTION>{entries}</COLLECTION><PLAYLISTS><NODE TYPE="SMARTLIST" NAME="Recent"/></PLAYLISTS></NML>"#
+    ));
+    let first = || s.read_library(&file, &[], None, json!({})).unwrap();
+    let refused = |cursor: &str| s.read_library(&file, &[], Some(cursor), json!({})).unwrap_err();
+    match case {
+        8 => {
+            // Pages that end once their beats come to the budget (about 60,000 beats a track at
+            // 655.35 BPM), a track in a folder not granted by its path alone, and a grid with no
+            // length to lay it down to, said on the last page.
+            let music = s.granted("music");
+            let long = |id| Track {
+                duration_secs: 5500,
+                bpm: 655.35,
+                ..track(id, "", &format!("T{id}"), &format!("/music/{id}.mp3"))
+            };
+            let elsewhere = track(5, "", "E", "/elsewhere/e.mp3");
+            let unlaid = Track { duration_secs: 0, ..long(4) };
+            let library = Library { tracks: vec![long(1), long(2), elsewhere, long(3), unlaid], ..Library::default() };
+            let file = s.built(&library, &|_| TrackAnalysis { beats: grid(655.35, 0, 1), ..TrackAnalysis::default() });
+            let (mut pages, mut cursor) = (Vec::new(), None);
+            loop {
+                let page = s.read_library(&file, std::slice::from_ref(&music), cursor.as_deref(), json!({})).unwrap();
+                cursor = page.next.clone();
+                pages.push(page);
+                if cursor.is_none() {
+                    break;
+                }
+            }
+            assert!(pages.len() > 1, "{} pages", pages.len());
+            let read: Vec<&SourceTrack> = pages.iter().flat_map(|p| &p.tracks).collect();
+            assert_eq!(read.len(), 5);
+            assert!(read.iter().any(|t| t.path.ends_with("elsewhere/e.mp3") && t.title.is_empty()));
+            let said = ["1 beat grid(s) left out: the track's length isn't known, or is over a day"];
+            assert_eq!(pages.last().unwrap().warnings, said);
+        }
+        0 => {
+            let page = first();
+            assert_eq!((page.tracks.len(), page.playlists.len(), page.warnings.len()), (1000, 0, 0));
+            let last = s.read_library(&file, &[], page.next.as_deref(), json!({})).unwrap();
+            assert_eq!((last.tracks.len(), last.next.as_deref()), (1, None));
+            assert_eq!(last.warnings, ["1 smart playlist(s), whose rules aren't read, left out"]);
+        }
+        1 => {
+            let next = first().next.unwrap();
+            let stamp = next.split_once(' ').unwrap().1;
+            let past = tc.draw(gs::integers::<u32>().min_value(1002));
+            for cursor in [format!("{past} {stamp}"), "x".into(), "y z".into()] {
+                let e = refused(&cursor);
+                let said = format!("{cursor:?} isn't a page of {}", file.display());
+                assert_eq!((e.kind(), e.message.as_str()), (Some("invalid"), said.as_str()));
+            }
+        }
+        2 => {
+            let next = first().next.unwrap();
+            let nml = std::fs::read(&file).unwrap();
+            std::fs::write(&file, [nml.as_slice(), b"\n"].concat()).unwrap();
+            let e = refused(&next);
+            let said = format!("{} changed since its first page was read: read it again", file.display());
+            assert_eq!((e.kind(), e.message.as_str()), (Some("conflict"), said.as_str()));
+        }
+        3 | 6 | 7 => {
+            let (e, kind) = match case {
+                3 => (s.read_library(&s.dir.path().join("gone.nml"), &[], None, json!({})), "io"),
+                6 => (s.read_library(&s.file("<plist/>"), &[], None, json!({})), "invalid"),
+                _ => {
+                    let read = json!({ "source": "traktor", "options": {}, "roots": [] });
+                    (s.host.request::<_, LibraryPage>(method::READ_LIBRARY, &read), "invalid_params")
+                }
+            };
+            assert_eq!(e.unwrap_err().kind(), Some(kind));
+        }
+        n => {
+            // A day-long track's grid at a fast tempo makes a page past what a message holds.
+            let music = s.granted("music");
+            let long = Track { duration_secs: 86_400, bpm: 600.0, ..track(1, "", "Long", "/music/long.mp3") };
+            let library = Library { tracks: vec![long], ..Library::default() };
+            let file = s.built(&library, &|_| TrackAnalysis { beats: grid(600.0, 0, 1), ..TrackAnalysis::default() });
+            let scratch = s.dir.path().join("scratch");
+            if n == 4 {
+                std::fs::create_dir(&scratch).unwrap();
+            }
+            let page = s.read_library(&file, std::slice::from_ref(&music), None, json!({ "scratch": scratch }));
+            // 5: the scratch folder isn't there.
+            match n {
+                4 => {
+                    assert_eq!(page.unwrap(), LibraryPage { blob: Some("page.json".into()), ..LibraryPage::default() })
+                }
+                _ => assert_eq!(page.unwrap_err().kind(), Some("io")),
+            }
+        }
+    }
+    s.stop();
+}

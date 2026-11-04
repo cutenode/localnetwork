@@ -435,6 +435,89 @@ fn what_cant_be_read_is_refused() {
     s.stop();
 }
 
+/// Whatever their albums and lengths, the tracks an entry could be are told apart by them in the
+/// question: its album, then its length as `m:ss`, either left out when it has none, and no
+/// detail when it has neither. Answered with a track the drive hasn't, the entry is missing.
+#[hegel::test(test_cases = 30)]
+fn prop_a_questions_candidates_are_told_apart_by_album_and_length(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let list = write(dir.path(), "list.txt", "In Charge\n");
+    let mut lib = club();
+    let mut details = Vec::new();
+    for t in &mut lib.tracks[1..] {
+        t.album = tc.draw(gs::sampled_from(vec![String::new(), "Sixteen Oceans".into()]));
+        t.duration_secs = tc.draw(gs::sampled_from(vec![0, 7, 245, 3600]));
+        let length = (t.duration_secs > 0).then(|| format!("{}:{:02}", t.duration_secs / 60, t.duration_secs % 60));
+        let said: Vec<String> =
+            [Some(t.album.clone()).filter(|a| !a.is_empty()), length].into_iter().flatten().collect();
+        details.push((!said.is_empty()).then(|| said.join(", ")));
+    }
+    let s = start(lib);
+    let asked = s.question(json!({ "file": list, "into": "Imported" }));
+    let told: Vec<Option<String>> = asked.items.iter().map(|i| i.detail.clone()).collect();
+    details.push(None);
+    assert_eq!(told, details, "the six tracks called In Charge, then leaving it out");
+    // Answered with a track the drive has since lost, it's missing, and warned of.
+    let plan = s.plan(json!({ "file": list, "into": "Imported", "1": 99 })).unwrap();
+    assert_eq!(plan.warnings, ["1. In Charge isn't on the drive", "none of the list's tracks are on the drive"]);
+    s.stop();
+}
+
+/// Whichever way an import can't go, it's refused saying why: no drive, a drive the host
+/// doesn't know, a list that isn't there or can't be read, a playlist of a file that isn't
+/// rekordbox XML or that the file hasn't, params without a file, and an answer for entry 0, for
+/// one past the list's end, or one that isn't a track's id.
+#[hegel::test(test_cases = 10)]
+fn prop_what_cant_be_read_or_answered_is_refused(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let list = write(dir.path(), "list.txt", "Bicep - Glue\n");
+    let table = write(dir.path(), "list.csv", "Artist,Album\nBicep,Glue\n");
+    let gone = dir.path().join("gone.txt").to_string_lossy().into_owned();
+    let import = |file: &str| json!({ "file": file, "into": "Imported" });
+    let with = |mut params: Value, key: &str, value: Value| {
+        params[key] = value;
+        params
+    };
+    let s = start(club());
+    for case in 0..=9 {
+        let (drive, params, kind_said, said) = match case {
+            0 => (None, import(&list), "invalid_params", "invalid params: say which drive".to_string()),
+            1 => (Some("Other"), import(&list), "not_found", "not found: drive \"Other\"".into()),
+            2 => (Some("USB"), import(&gone), "io", format!("{gone}: ")),
+            3 => {
+                let said = "no title or file column in the table's header (found: Artist, Album)";
+                (Some("USB"), import(&table), "invalid", said.into())
+            }
+            4 => {
+                let said = "not a rekordbox XML file (no DJ_PLAYLISTS element)";
+                (Some("USB"), with(import(&list), "playlist", json!("Set")), "invalid", said.into())
+            }
+            5 => (Some("USB"), json!({ "into": "Imported" }), "invalid_params", "invalid params: ".into()),
+            9 => (Some("USB"), with(import(&list), "5", json!(1)), "invalid", "no entry 5 in the list".into()),
+            8 => {
+                let xml = write(dir.path(), "rekordbox.xml", &crate::xml_import::tests::collection_with(&[], ""));
+                let said = format!("not found: playlist \"Set\" in {xml}");
+                (Some("USB"), with(import(&xml), "playlist", json!("Set")), "not_found", said)
+            }
+            6 => (
+                Some("USB"),
+                with(import(&list), "0", json!(1)),
+                "invalid_params",
+                "invalid params: entries count from 1".into(),
+            ),
+            _ => {
+                let answer = tc.draw(gs::sampled_from(vec![json!("1"), json!(-1), json!(1u64 << 32), json!(1.5)]));
+                let said = format!("invalid params: entry 1 is a track's id, not {answer}");
+                (Some("USB"), with(import(&list), "1", answer), "invalid_params", said)
+            }
+        };
+        let e = s.answer_on(drive, params).unwrap_err();
+        assert_eq!(e.kind(), Some(kind_said), "{e:?}");
+        assert!(e.message.starts_with(&said), "{e:?}, not {said:?}");
+    }
+    s.stop();
+}
+
 // Properties: drawn tracklists of each format against drawn libraries.
 
 /// The ways a drawn tracklist is written.

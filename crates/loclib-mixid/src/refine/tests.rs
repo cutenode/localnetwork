@@ -159,3 +159,27 @@ fn refining_needs_both_files(tc: TestCase) {
     ctx.cancel.cancel();
     assert!(matches!(refine(&there, &there, 0.0, &ctx), Err(Error::Cancelled(_))));
 }
+
+/// Only the first minute or so of each file is read: recordings running on past it line up
+/// exactly as their first 61 seconds do.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_only_the_first_minute_is_read(tc: TestCase) {
+    use crate::fingerprint::RATE as SYNTH;
+
+    let x = synth(64.0, tc.draw(gs::integers::<u32>().min_value(1)));
+    let delay = tc.draw(gs::integers::<usize>().min_value(1).max_value(300));
+    let delayed: Vec<f32> = std::iter::repeat_n(0.0, delay).chain(x.iter().copied()).collect();
+    let dir = tempfile::tempdir().unwrap();
+    let save = |name: &str, x: &[f32]| {
+        let path = dir.path().join(name);
+        std::fs::write(&path, wav_of(SYNTH, 16, x.iter().map(|s| (s * 12_000.0) as i32))).unwrap();
+        path
+    };
+    let minute = 61 * SYNTH as usize;
+    let (a, b) = (save("a.wav", &x), save("b.wav", &delayed));
+    let (a_cut, b_cut) = (save("a-cut.wav", &x[..minute]), save("b-cut.wav", &delayed[..minute]));
+    let truth = delay as f64 / f64::from(SYNTH);
+    let long = refine(&a, &b, truth, &Ctx::silent()).unwrap();
+    assert_eq!(long, refine(&a_cut, &b_cut, truth, &Ctx::silent()).unwrap());
+    assert!((long.offset - truth).abs() < 1e-6, "{truth}: {long:?}");
+}

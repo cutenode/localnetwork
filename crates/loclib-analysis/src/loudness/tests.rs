@@ -58,6 +58,24 @@ fn clipping_is_counted_run_by_run(tc: TestCase) {
     assert_eq!(l.sample_peak_dbfs(), 20.0 * f64::from(loudest).log10());
 }
 
+/// A first packet at a rate the meter can't measure at (under 16 Hz, or no channels) is refused,
+/// and leaves nothing measured; at any rate it can, it's measured (its peak is the samples').
+#[hegel::test(test_cases = 100)]
+fn prop_rates_the_meter_cant_measure_at_are_refused(tc: TestCase) {
+    let rate = tc.draw(hegel::one_of!(
+        gs::integers::<u32>().max_value(15),
+        gs::integers::<u32>().min_value(16).max_value(768_000)
+    ));
+    let channels = tc.draw(gs::integers::<usize>().max_value(2));
+    let mut meter = Meter::default();
+    let pushed = meter.push(&vec![0.5; channels * 4], rate, channels);
+    assert_eq!(pushed.is_ok(), rate >= 16 && channels > 0, "{rate} Hz, {channels} channel(s): {pushed:?}");
+    // Measured, its peak is the samples'; refused, nothing is measured.
+    let l = meter.finish().unwrap();
+    assert_eq!(l.sample_peak, if pushed.is_ok() { 0.5 } else { 0.0 });
+    assert_eq!(l.integrated_lufs, None, "four samples are too short to gate");
+}
+
 /// A packet that isn't whole frames is refused, and leaves what's measured as it was.
 #[hegel::test(test_cases = 100)]
 fn packets_of_part_frames_are_refused(tc: TestCase) {

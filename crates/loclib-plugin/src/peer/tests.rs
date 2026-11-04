@@ -1200,3 +1200,131 @@ fn what_the_other_end_tells_goes_through_the_intake(tc: TestCase) {
         }
     }
 }
+
+/// For any request, reporting or not: before its response it's waited for in vain, then the
+/// response comes once, and waiting again fails with `closed`; only one sent reporting has a
+/// reporter for this side's progress.
+#[hegel::test(test_cases = 40)]
+fn prop_a_response_comes_once(tc: TestCase) {
+    let (peer, _incoming, mut raw) = connect();
+    let reporting = tc.draw(gs::booleans());
+    let pending = match reporting {
+        true => peer.send_request_reporting("m", &json!({})),
+        false => peer.send_request("m", &json!({})),
+    }
+    .unwrap();
+    assert_eq!(pending.reporter().is_some(), reporting);
+    let req = raw.recv();
+    assert!(pending.wait_timeout::<Value>(Duration::ZERO).is_none());
+    let result = json_value(&tc, 2);
+    raw.send(&json!({ "jsonrpc": "2.0", "id": req["id"], "result": result }).to_string());
+    assert_eq!(pending.wait_timeout::<Value>(Duration::from_secs(10)), Some(Ok(result)));
+    assert_eq!(pending.wait::<Value>(), Err(RpcError::closed()));
+}
+
+/// Params that have no JSON (a map keyed by what isn't a string) fail a request as an internal
+/// error, and nothing is sent: not the request, nor a notification with them.
+#[hegel::test(test_cases = 40)]
+fn prop_params_without_json_arent_sent(tc: TestCase) {
+    let (peer, _incoming, mut raw) = connect();
+    let keys: Vec<(u8, u8)> = tc.draw(gs::vecs(gs::tuples!(gs::integers::<u8>(), gs::integers::<u8>())).min_size(1));
+    let params: indexmap::IndexMap<(u8, u8), bool> = keys.into_iter().map(|k| (k, true)).collect();
+    let e = peer.request::<_, Value>("m", &params).unwrap_err();
+    assert_eq!((e.code, e.message.as_str()), (code::INTERNAL, "key must be a string"));
+    assert_eq!(peer.send_request_reporting("m", &params).err(), Some(e));
+    peer.notify("progress", &params);
+    let sent = json!({ "n": tc.draw(gs::integers::<i64>()) });
+    peer.notify("progress", &sent);
+    assert_eq!(raw.recv()["params"], sent, "the first thing sent");
+}
+
+/// A message longer than the longest line, as long as the real one is, isn't sent, saying so in
+/// MiB.
+#[hegel::test(test_cases = 3)]
+fn prop_a_message_longer_than_a_line_isnt_sent(tc: TestCase) {
+    let (peer, _incoming, _raw) = connect();
+    let over = tc.draw(gs::integers::<usize>().max_value(8));
+    let e = peer.send_request("m", &"a".repeat(MAX_LINE + over)).err().unwrap();
+    assert_eq!((e.code, e.message.as_str()), (code::INTERNAL, "a message is longer than 16 MiB"));
+}
+
+/// The other end's request with an id one of its requests still running has is refused, saying
+/// so, whatever the id; once that request is answered, the id is free again.
+#[hegel::test(test_cases = 40)]
+fn prop_an_id_a_running_request_has_is_refused(tc: TestCase) {
+    let (peer, incoming, mut raw) = connect();
+    let id = request_id(&tc);
+    let asked = json!({ "jsonrpc": "2.0", "id": id, "method": "command/run" }).to_string();
+    raw.send(&asked);
+    let running = request(&incoming);
+    raw.send(&asked);
+    let e = raw.recv();
+    assert_eq!((&e["id"], &e["error"]["code"]), (&id, &json!(code::INVALID_REQUEST)));
+    assert_eq!(e["error"]["message"], format!("request id {id} is already in use by a running request"));
+    peer.respond(&running.id, Ok(Value::Null));
+    assert_eq!(raw.recv()["id"], id);
+    raw.send(&asked);
+    assert_eq!(request(&incoming).id, id);
+}
+
+/// An answer too long for a line goes out as an internal error about it instead, to the same
+/// request; one that fits goes out as it is.
+#[hegel::test(test_cases = 20)]
+fn prop_an_answer_too_long_goes_out_as_an_error(tc: TestCase) {
+    let max_line = tc.draw(gs::integers::<usize>().min_value(200).max_value(400));
+    let (peer, incoming, mut raw, _log) = connect_logged(|r| r, max_line);
+    let id = request_id(&tc);
+    raw.send(&json!({ "jsonrpc": "2.0", "id": id, "method": "command/run" }).to_string());
+    let req = request(&incoming);
+    let long = "a".repeat(tc.draw(gs::integers::<usize>().min_value(max_line).max_value(2 * max_line)));
+    peer.respond(&req.id, Ok(json!(long)));
+    let r = raw.recv();
+    assert_eq!((&r["id"], &r["error"]["code"]), (&id, &json!(code::INTERNAL)));
+    assert_eq!(r["error"]["message"], format!("a message is longer than {max_line} bytes"));
+    raw.send(&json!({ "jsonrpc": "2.0", "id": id, "method": "command/run" }).to_string());
+    let req = request(&incoming);
+    peer.respond(&req.id, Ok(json!("short")));
+    assert_eq!(raw.recv()["result"], "short");
+}
+
+/// Once the other end stops reading, every request sent fails with `closed`, and responding or
+/// notifying then returns without panicking.
+#[hegel::test(test_cases = 20)]
+fn prop_what_is_sent_once_the_other_end_stops_reading_is_closed(tc: TestCase) {
+    let (peer, _incoming, raw) = connect();
+    drop(raw.from_peer);
+    let (_, params) = sent_params(&tc);
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
+        assert_eq!(peer.request::<_, Value>("m", &params).unwrap_err(), RpcError::closed());
+    }
+    peer.respond(&request_id(&tc), Ok(params.clone()));
+    peer.notify("progress", &params);
+}
+
+/// Waits until `done` holds, failing the test if it hasn't in 10 seconds: a change in the order
+/// the peer takes its locks fails here rather than hanging.
+fn until(what: &str, done: impl Fn() -> bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !done() {
+        assert!(std::time::Instant::now() < deadline, "{what} never happened");
+        std::thread::yield_now();
+    }
+}
+
+/// A request sent within another just as the connection closes, before it's known whether the
+/// other was cancelled, fails with `cancelled` once it is, though nothing waits for it anymore.
+/// Only the peer's own locks can hold it at that point, so the test takes them.
+#[hegel::test(test_cases = 10)]
+fn prop_a_request_within_another_as_the_connection_closes_is_cancelled(tc: TestCase) {
+    let (peer, _incoming, mut raw) = connect();
+    let within = request_id(&tc);
+    // Held, the request waits to see whether `within` runs, and the reader to cancel what runs.
+    let running = lock(&peer.0.running);
+    let p = peer.clone();
+    let sending = std::thread::spawn(move || p.send_request_within(&within, "m", &json!({})).err());
+    until("the request waiting", || lock(&peer.0.waiting).as_ref().is_none_or(|w| !w.is_empty()));
+    raw.close();
+    until("the reader closing", || lock(&peer.0.waiting).is_none());
+    drop(running);
+    assert_eq!(sending.join().unwrap(), Some(RpcError::cancelled()));
+}

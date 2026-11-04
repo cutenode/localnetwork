@@ -155,3 +155,62 @@ fn views_read_back_and_say_what_they_need(tc: TestCase) {
     let images = json.to_string().matches("\"kind\":\"image\"").count();
     assert_eq!(v.clone().images_mut().len(), images);
 }
+
+/// A question, as a view: what it asks, of items labelled after their values.
+#[hegel::test_helper]
+fn question(tc: &TestCase) -> View {
+    let title = tc.draw(gs::text().max_size(6));
+    let values: Vec<i32> = tc.draw(gs::vecs(gs::integers::<i32>()).max_size(2));
+    let items = values.into_iter().map(|v| crate::ChoiceItem { label: v.to_string(), detail: None, value: v.into() });
+    View::Choose(Choice { title, param: "p".into(), multi: false, items: items.collect(), more: Vec::new() })
+}
+
+/// Whether the view `json` shows nothing, read from its JSON: no items, rows, pairs, points or
+/// text, nor a section that shows something; a picture or a question is never empty.
+fn shows_nothing(json: &Value) -> bool {
+    let none = |key: &str| json[key].as_array().is_none_or(Vec::is_empty);
+    match json["kind"].as_str().unwrap() {
+        "list" | "tree" => none("items"),
+        "table" => none("rows"),
+        "kv" => none("pairs"),
+        "text" => json["text"].as_str().unwrap().trim().is_empty(),
+        "chart" => json["series"].as_array().unwrap().iter().all(|s| s["points"].as_array().unwrap().is_empty()),
+        "sections" => json["items"].as_array().unwrap().iter().all(|s| shows_nothing(&s["view"])),
+        _ => false,
+    }
+}
+
+/// Any view (a question now and then, alone or in a section) says the title its JSON has, asks
+/// exactly when its JSON holds a question, and is empty exactly when its JSON shows nothing; a
+/// table's columns say their names, kinds and units as their JSON does (a name alone is text).
+#[hegel::test(test_cases = 200)]
+fn prop_a_view_says_its_title_what_it_asks_and_whether_it_shows_anything(tc: TestCase) {
+    let mut v = match tc.draw(gs::integers::<u8>().max_value(4)) {
+        0 => question(&tc),
+        _ => view(&tc, 2),
+    };
+    if let View::Sections { items, .. } = &mut v
+        && !items.is_empty()
+        && tc.draw(gs::booleans())
+    {
+        let i = tc.draw(gs::integers::<usize>().max_value(items.len() - 1));
+        items[i].view = question(&tc);
+    }
+    let json = serde_json::to_value(&v).unwrap();
+    assert_eq!(v.title(), json["title"].as_str());
+    assert_eq!(v.asks(), json.to_string().contains("\"kind\":\"choose\""), "{json}");
+    assert_eq!(v.is_empty(), shows_nothing(&json), "{json}");
+    if let View::Choose(_) = v {
+        assert!(!v.needs_views());
+    }
+    let View::Table { columns, .. } = &v else { return };
+    for (column, json) in columns.iter().zip(json["columns"].as_array().unwrap()) {
+        let typed = json.as_object();
+        let name = typed.map_or(json, |c| &c["name"]);
+        assert_eq!(column.name(), name.as_str().unwrap());
+        let kind = typed.map_or(json!("text"), |c| c["kind"].clone());
+        assert_eq!(serde_json::to_value(column.kind()).unwrap(), kind);
+        assert_eq!(column.unit(), typed.and_then(|c| c.get("unit")?.as_str()));
+        assert_eq!(Column::from(column.name()), Column::Name(column.name().into()));
+    }
+}
