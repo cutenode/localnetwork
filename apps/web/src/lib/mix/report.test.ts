@@ -227,11 +227,14 @@ describe('display helpers', () => {
 	});
 
 	it('never puts two plays that overlap by more than half a second in one lane', () => {
+		// Parsed once: parsing the whole report for every span is what makes a run slow.
+		const [base] = parsed().plays;
+
 		fc.assert(
 			fc.property(fc.array(fc.tuple(fc.nat({ max: 7200 }), fc.nat({ max: 600 }))), (spans) => {
 				const plays = spans
 					.toSorted(([a], [b]) => a - b)
-					.map(([start, length]) => ({ ...parsed().plays[0], start, end: start + length }));
+					.map(([start, length]) => ({ ...base, start, end: start + length }));
 
 				const laid = lanes(plays);
 
