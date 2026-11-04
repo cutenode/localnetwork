@@ -835,6 +835,34 @@ fn a_track_is_pointed_only_at_an_audio_file_of_its_own(tc: hegel::TestCase) {
     }
 }
 
+/// A file several tracks share moves for all of them: pointing it elsewhere points every row of
+/// it there, with the new file's details, and leaves the other rows as they were.
+#[hegel::test(test_cases = 50)]
+fn prop_every_row_of_a_file_is_pointed_with_it(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut start = lib();
+    for (i, spelling) in ["/Contents/1.mp3", "/contents/1.MP3"].into_iter().enumerate() {
+        if tc.draw(gs::booleans()) {
+            start.tracks.push(track(6 + i as u32, "A", "Again", spelling));
+        }
+    }
+    let file =
+        tc.draw(gs::booleans()).then_some(AudioFile { size: 9, sample_rate: 48_000, bit_depth: 24, bitrate: 2304 });
+    let op = Op::SetPath { track: "contents/1.mp3".into(), path: "/Contents/1.aiff".into(), file, shift_ms: 0 };
+    let mut db = ModelDb { lib: start.clone(), pdb: None };
+    apply_op(&mut db, &op, true, "test", &mut Vec::new()).unwrap();
+    for (before, after) in start.tracks.iter().zip(&db.lib.tracks) {
+        if paths::file_key(&before.file_path) != "contents/1.mp3" {
+            assert_eq!(after, before);
+            continue;
+        }
+        assert_eq!(after.file_path, "/Contents/1.aiff", "track {}", before.id);
+        if file.is_some() {
+            assert_eq!((after.file_size, after.sample_rate, after.sample_depth, after.bitrate), (9, 48_000, 24, 2304));
+        }
+    }
+}
+
 /// A track edit is refused exactly when it changes nothing, gives a rating past 5, or names a
 /// colour or key that isn't one; one that's taken gives every selected track what it sets.
 #[hegel::test(test_cases = 200)]
