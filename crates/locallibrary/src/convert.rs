@@ -302,9 +302,10 @@ fn dropped(target: &Library, source: &Library, file: &str) -> Option<String> {
         let path = lib.playlist_path(p.id);
         if p.is_folder { format!("{path}/") } else { path }
     };
-    let files = |lib: &Library, ids: &[u32]| -> FxHashSet<String> {
-        ids.iter().filter_map(|id| lib.track(*id)).map(|t| paths::file_key(&t.file_path)).collect()
-    };
+    fn files<'a>(track: impl Fn(u32) -> Option<&'a Track>, ids: &[u32]) -> FxHashSet<String> {
+        ids.iter().filter_map(|id| track(*id)).map(|t| paths::file_key(&t.file_path)).collect()
+    }
+    let (target_track, source_track) = (target.track_lookup(), source.track_lookup());
     let theirs: FxHashMap<String, &Playlist> =
         source.playlists.iter().map(|p| (paths::file_key(&label(source, p)), p)).collect();
     let (mut playlists, mut entries) = (Vec::new(), Vec::new());
@@ -312,7 +313,9 @@ fn dropped(target: &Library, source: &Library, file: &str) -> Option<String> {
         let name = label(target, p);
         match theirs.get(&paths::file_key(&name)) {
             None => playlists.push(name),
-            Some(s) if !files(target, &p.track_ids).is_subset(&files(source, &s.track_ids)) => entries.push(name),
+            Some(s) if !files(&target_track, &p.track_ids).is_subset(&files(&source_track, &s.track_ids)) => {
+                entries.push(name)
+            }
             Some(_) => {}
         }
     }
@@ -959,7 +962,7 @@ fn device_library_tags(
 ) -> Result<Option<Vec<u8>>> {
     let Ok(ext) = std::fs::read(device.path(paths::EXPORT_EXT_PDB)) else { return Ok(None) };
     let plus = device.library_plus().and_then(|one| DbTags::plus(&one, source)).ok();
-    let new = pdb::library_from_database(&pdb::parse_database(pdb_bytes.to_vec(), &device.path(paths::EXPORT_PDB))?);
+    let new = pdb::into_library(pdb::parse_database(pdb_bytes.to_vec(), &device.path(paths::EXPORT_PDB))?);
     let moved = match added {
         Some(_) => None,
         None => match tags::remap_ext(ext.clone(), old, &new) {

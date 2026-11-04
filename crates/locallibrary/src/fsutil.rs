@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{PoisonError, RwLock};
 
 use filetime::FileTime;
+use rayon::prelude::*;
 
 use crate::error::{Action, IoContext, Reason};
 use crate::hash::{self, Hash};
@@ -266,16 +267,50 @@ pub fn write_deferred(path: &Path, bytes: &[u8]) -> Result<()> {
     replace(tmp.into_temp_path(), path)
 }
 
-/// Make previously written files durable (the barrier before a commit point).
-pub fn flush(paths: &[std::path::PathBuf]) -> Result<()> {
-    for p in paths {
-        match open_to_flush(p) {
-            Ok(f) => f.sync_data().at(p)?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(Error::Io { path: p.clone(), source: e }),
-        }
+/// Make previously written files durable (the barrier before a commit point), side by side: a
+/// pull or a sync flushes tens of thousands. A file that won't open or flush stops it, the first
+/// in `paths` that didn't being the error; one that's gone is skipped.
+pub fn flush(paths: &[PathBuf]) -> Result<()> {
+    let flushed: Vec<Result<Option<(u64, &PathBuf)>>> = paths.par_iter().map(|p| flush_path(p, flush_file)).collect();
+    let flushed = flushed.into_iter().collect::<Result<Vec<_>>>()?;
+    // See `flush_file`: once on each volume, which takes everything before it with it.
+    #[cfg(target_os = "macos")]
+    for p in flushed.into_iter().flatten().collect::<rustc_hash::FxHashMap<_, _>>().into_values() {
+        flush_path(p, File::sync_data)?;
     }
+    #[cfg(not(target_os = "macos"))]
+    let _ = flushed;
     Ok(())
+}
+
+/// `flush` the file at `p`, giving what it gives and `p`; nothing if it's gone.
+fn flush_path<T>(p: &PathBuf, flush: impl Fn(&File) -> std::io::Result<T>) -> Result<Option<(T, &PathBuf)>> {
+    match open_to_flush(p) {
+        Ok(f) => flush(&f).at(p).map(|flushed| Some((flushed, p))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(Error::Io { path: p.clone(), source: e }),
+    }
+}
+
+/// Flush `file`, giving the volume it's on. On macOS `fsync` leaves it in the drive's cache and
+/// `F_FULLFSYNC` (Rust's `sync_data`) empties that cache, all of it, at about a third of a
+/// millisecond a time: done for each file, that was 70% of a pull of 10,000 tracks. So each gets
+/// `fsync`, and [`flush`] empties the cache once when they all have.
+#[cfg(target_os = "macos")]
+fn flush_file(file: &File) -> std::io::Result<u64> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::MetadataExt;
+    // SAFETY: the descriptor is `file`'s, open throughout the call.
+    if unsafe { libc::fsync(file.as_raw_fd()) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(file.metadata()?.dev())
+}
+
+/// Flush `file`, with nothing more to do once all are (see the macOS version).
+#[cfg(not(target_os = "macos"))]
+fn flush_file(file: &File) -> std::io::Result<u64> {
+    file.sync_data().map(|()| 0)
 }
 
 /// Open an existing file so that `sync_data` can flush it. On Windows that's `FlushFileBuffers`,
