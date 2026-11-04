@@ -228,6 +228,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^5.0.5
         version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
       lefthook:
         specifier: ^2.1.16
         version: 2.2.2

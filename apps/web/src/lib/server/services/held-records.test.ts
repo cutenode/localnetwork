@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { ProjectProfile } from '#lib/types.ts';
-import { epkRequestSpace, parseSpaceRecordUri, spaceOfRecord } from '../atproto/spaces';
+import { backstageSpace, bookingSpace, epkRequestSpace, parseSpaceRecordUri, spaceOfRecord } from '../atproto/spaces';
 import { NotFoundError } from '../core';
 import { RateLimiter } from '../rate-limit';
 import { ROOT } from '../testing/core';
@@ -262,6 +262,48 @@ describe('HeldRecords', () => {
 
 		expect(await held.deleteAll(viewer, 'request')).toBe(0);
 		await expect(held.delete(viewer, 'not a uri')).rejects.toMatchObject({ status: 429, message: /Too many/ });
+	});
+
+	it('titles a record without a project, show or text it can name, and shows no excerpt', async () => {
+		const viewer = await f.t.viewer(NO_SPACES);
+		const epk = await f.publish(DJ);
+		const createdAt = new Date().toISOString();
+		const uri = (space: string, collection: string) => `${space}/${ROOT}/${collection}/3held`;
+		const inquiry = bookingSpace(ROOT, '3untitled');
+		// A backstage for a project that isn't in the directory.
+		const backstage = backstageSpace(ROOT, '3gone');
+
+		// An inquiry that names no project opens no thread, so there's no title.
+		await f.t.bookings.indexEvent({
+			space: inquiry,
+			uri: uri(inquiry, COLLECTION.bookingInquiry),
+			repoDid: ROOT,
+			collection: COLLECTION.bookingInquiry,
+			value: { onBehalfOf: NO_SPACES, createdAt }
+		});
+		// A press kit's own space, where requests went before, isn't a project's.
+		await f.t.epks.indexRequest({
+			space: epk.space,
+			uri: uri(epk.space, COLLECTION.epkRequest),
+			repoDid: ROOT,
+			value: { epk: epk.uri, onBehalfOf: NO_SPACES, createdAt }
+		});
+		await f.t.epks.drafts.index({
+			space: backstage,
+			uri: uri(backstage, COLLECTION.epkDraft),
+			repoDid: ROOT,
+			rkey: '3held',
+			cid: 'bafyreiabc',
+			value: { changes: { title: 'Clubs' }, onBehalfOf: NO_SPACES, createdAt, updatedAt: createdAt }
+		});
+
+		const held = await f.t.heldRecords.list(viewer);
+
+		expect(held.map(({ kind, title, excerpt }) => ({ kind, title, excerpt }))).toEqual([
+			{ kind: 'booking', title: 'Inquiry', excerpt: null },
+			{ kind: 'epkRequest', title: 'Press kit request', excerpt: null },
+			{ kind: 'epkDraft', title: 'Press kit draft', excerpt: null }
+		]);
 	});
 
 	it('knows its kinds', () => {

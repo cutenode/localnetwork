@@ -149,7 +149,7 @@ fn the_opener_gets_exactly_what_was_asked(tc: hegel::TestCase) {
 
 /// With [`NO_OPEN`] set, or [`never_open`] called, nothing is started: an address or a file
 /// fails to open as if there were no opener, and the system's opener is never run.
-#[cfg(unix)]
+#[cfg(all(unix, debug_assertions))]
 #[test]
 fn a_test_opens_nothing() {
     let fake = fake_tools::FakeTools::new();

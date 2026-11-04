@@ -144,7 +144,12 @@ export default defineConfig({
 		],
 		coverage: {
 			provider: 'v8',
-			include: ['src/lib/**/*.{ts,svelte}'],
+			include: [
+				'src/lib/**/*.{ts,svelte}',
+				'src/routes/**/+*.server.ts',
+				'src/routes/**/+server.ts',
+				'src/hooks.server.ts'
+			],
 			// The tests, their harness (fakes and request builders that only tests import), stories and types.
 			exclude: [
 				'src/lib/server/testing/**',
@@ -156,7 +161,7 @@ export default defineConfig({
 			],
 			// CI's pull request comment reads the summary, and json for each changed file's uncovered lines.
 			reporter: ['text', 'html', 'lcov', 'json-summary', 'json'],
-			thresholds: { lines: 97.8, functions: 97.9, statements: 97.3, branches: 88.9 }
+			thresholds: { lines: 98.1, functions: 96.5, statements: 97.1, branches: 91.8 }
 		},
 		projects: [
 			{

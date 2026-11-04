@@ -140,12 +140,12 @@ impl Destination for StoreDestination {
         let take_in = |bytes: Vec<u8>| {
             let record = serde_json::from_slice(&bytes).ok().filter(|_| !name.starts_with("snapshots/"));
             match record.and_then(super::process::printed) {
-                Some(taken) => serde_json::to_vec_pretty(&taken).map_err(|e| Error::invalid(e.to_string())),
-                None => Ok(bytes),
+                Some(taken) => format!("{taken:#}").into_bytes(),
+                None => bytes,
             }
         };
         let read = |got: GotManifest, scratch: &super::blobs::Scratch, _: &_| {
-            got.blob.map(|blob| self.read(scratch, &blob).and_then(take_in)).transpose()
+            got.blob.map(|blob| self.read(scratch, &blob).map(take_in)).transpose()
         };
         self.slot.call_with(method::MANIFEST_GET, &req, self.store.as_ref(), ctx, &|_| {}, read)
     }

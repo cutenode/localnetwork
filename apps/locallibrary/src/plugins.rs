@@ -40,7 +40,7 @@ type Serve = fn(std::io::Stdin, std::io::Stdout);
 /// how it serves, which an account plugin doesn't: locallibrary signs in from its manifest and
 /// never starts it. build.rs writes it from the folders in `plugins/`, so adding one is its folder
 /// and a dependency on its crate, or an account plugin's folder in `plugins/accounts/`.
-const BUILT_IN: &[(&str, Option<Serve>)] = include!(concat!(env!("OUT_DIR"), "/built_in.rs"));
+const BUILT_IN: &[(&str, &str, Option<Serve>)] = include!(concat!(env!("OUT_DIR"), "/built_in.rs"));
 
 /// Plugins the CLI's and the sidecar's tests add: manifest files (a list, as `PATH` is), each
 /// served by the plugin host's test plugin. Only in builds with debug assertions (the tests'):
@@ -113,13 +113,16 @@ pub fn left_out() -> &'static [(Manifest, String)] {
 fn load() -> Result<Loaded> {
     // Only the test plugins are added to it, and a release has none.
     #[cfg_attr(not(debug_assertions), allow(unused_mut))]
-    let mut found: Vec<(String, Option<Serves>)> =
-        BUILT_IN.iter().map(|&(m, serve)| (m.into(), serve.map(Serves::Linked))).collect();
+    let mut found: Vec<(Manifest, Option<Serves>)> = BUILT_IN
+        .iter()
+        .map(|&(_, m, serve)| (Manifest::from_json(m).expect("build.rs wrote it"), serve.map(Serves::Linked)))
+        .collect();
     #[cfg(debug_assertions)]
     for file in std::env::var_os(TEST_PLUGINS).iter().flat_map(std::env::split_paths) {
         let manifest = std::fs::read_to_string(&file)
             .map_err(|e| Error::Invalid(format!("the test plugin {}: {e}", file.display())))?;
-        found.push((manifest.clone(), Some(Serves::Test(manifest))));
+        let parsed = Manifest::parse(&manifest).map_err(|e| Error::Invalid(format!("a plugin's manifest: {e}")))?;
+        found.push((parsed, Some(Serves::Test(manifest))));
     }
     let (mut specs, mut serves, mut left_out) = (Vec::new(), FxHashMap::default(), Vec::new());
     let program = exe().map_err(|e| Error::Invalid(format!("where locallibrary is: {e}")))?;
@@ -128,7 +131,7 @@ fn load() -> Result<Loaded> {
         // The shell's completion request would have it answer that instead of serving.
         let env_remove = vec![crate::completion::VAR.into()];
         let mut spec =
-            PluginSpec::built_in(&manifest, Launch { program: program.clone(), args: Vec::new(), env_remove })?;
+            PluginSpec::shipped(manifest, Launch { program: program.clone(), args: Vec::new(), env_remove })?;
         spec.launch.args = vec!["plugin".into(), "serve".into(), spec.manifest.id.clone().into()];
         all.push((spec, how));
     }
@@ -150,6 +153,7 @@ fn load() -> Result<Loaded> {
         None => stderr(id, line),
     });
     let ask: Arc<dyn AskAccess> = Arc::new(Asking);
+    #[cfg_attr(not(debug_assertions), allow(unused_mut))]
     let mut options = Options { notices: events::notices(log.clone()), log, ask: Some(ask), ..Options::default() };
     // The CLI's tests: no plugin they run goes online (to MusicBrainz, say).
     #[cfg(debug_assertions)]
@@ -243,6 +247,11 @@ type Claim = (String, String);
 /// left out already (clashing with locallibrary) clashes with none. Then a plugin asking for
 /// accounts is left out when an account plugin kept would be no use to it (see [`unmet`]).
 fn check(manifests: &[&Manifest]) -> Vec<Option<String>> {
+    // Only in builds with debug assertions: the plugins a release ships don't clash, which the
+    // tests check, and this builds the whole command line a second time on every start.
+    if !cfg!(debug_assertions) {
+        return vec![None; manifests.len()];
+    }
     let cli = crate::Cli::command();
     let names = |c: &clap::Command| -> Vec<String> {
         let subcommands = c.get_subcommands().flat_map(|c| std::iter::once(c.get_name()).chain(c.get_all_aliases()));
@@ -408,6 +417,8 @@ fn unmet(m: &Manifest, providers: &[&Manifest]) -> Option<String> {
 /// `plugin serve <id>`: serves the plugin over stdin and stdout until its input closes, writing
 /// nothing else to stdout. An account plugin has nothing to serve.
 pub fn serve(id: &str) -> Result<()> {
+    // Ctrl-C in the terminal reaches it too: it stops when its host says.
+    let _ = ctrlc::set_handler(|| {});
     let loaded = loaded()?;
     let Some(serves) = loaded.serves.get(id) else {
         return Err(match loaded.plugins.manifest(id).is_ok_and(Manifest::is_account_plugin) {
@@ -426,6 +437,15 @@ pub fn serve(id: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Serves the plugin `id`, if locallibrary ships one that serves, with nothing else set up: a
+/// `check` starts every plugin that checks, and each spent as long as a command starting.
+pub fn serve_shipped(id: &str) -> bool {
+    let Some(serve) = BUILT_IN.iter().find(|row| row.0 == id).and_then(|row| row.2) else { return false };
+    let _ = ctrlc::set_handler(|| {});
+    serve(std::io::stdin(), std::io::stdout());
+    true
 }
 
 /// What plugins read: the sidecar's read methods (`tracks.query`...), run on the thread the

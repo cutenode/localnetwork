@@ -823,6 +823,7 @@ impl Collection {
     pub fn diff_drive(&self, drive: &Library, drive_label: &str, playlist: Option<&str>) -> Result<DriveDiff> {
         diff::check_playlist(drive, &self.library, playlist)?;
         let matcher = Matcher::new(drive);
+        let drive_track = drive.track_lookup();
         let mut translated = self.library.clone();
         let (mut by_file, mut by_details, mut uncertain) = (0, 0, Vec::new());
         for t in &mut translated.tracks {
@@ -838,7 +839,7 @@ impl Collection {
             };
             match matcher.find(&entry) {
                 Status::Found { track_id, how } if how != MatchKind::Title && how != MatchKind::Fuzzy => {
-                    if let Some(d) = drive.track(track_id) {
+                    if let Some(d) = drive_track(track_id) {
                         t.file_path = d.file_path.clone();
                         if how == MatchKind::Path { by_file += 1 } else { by_details += 1 }
                     }

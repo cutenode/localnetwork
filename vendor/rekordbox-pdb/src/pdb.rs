@@ -358,7 +358,8 @@ impl Column {
     }
 }
 
-/// A parsed `export.pdb` file.
+/// A parsed `export.pdb` file. (locallibrary patch: `Clone`.)
+#[derive(Clone)]
 pub struct Database {
     pub page_size: u32,
     pub tables: Vec<Table>,

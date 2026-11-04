@@ -10,7 +10,8 @@ fn main() {
 }
 
 /// Writes `built_in.rs` to `OUT_DIR`, the table `plugins.rs` includes, in alphabetical order of id
-/// (the order `plugin list` shows them in): each plugin's manifest, and how it serves. Every folder
+/// (the order `plugin list` shows them in): each plugin's id, its manifest as JSON, and how it
+/// serves. Every folder
 /// in the repository's `plugins/` but `accounts/` is a plugin crate, `locallibrary-plugin-<id>`,
 /// exporting `MANIFEST` and `serve`. Cargo only links a crate this one depends on, so a folder
 /// without a dependency here, or a dependency without a folder, fails the build saying what to
@@ -49,15 +50,19 @@ fn built_in() {
         .into_iter()
         .map(|id| {
             let krate = format!("locallibrary_plugin_{}", id.replace('-', "_"));
-            let row = format!("    ({krate}::MANIFEST, Some({krate}::serve)),\n");
+            let manifest = as_json(&dir.join(&id).join("locallibrary-plugin.toml"));
+            let row = format!("    ({id:?}, {manifest:?}, Some({krate}::serve)),\n");
             (id, row)
         })
         .collect();
     for (id, path) in folders(&manifest_only) {
         let file = path.join("locallibrary-plugin.toml");
         match file.is_file() {
-            // Written as a string literal, which escapes Windows' backslashes.
-            true => table.push((id, format!("    (include_str!({file:?}), None),\n"))),
+            true => {
+                let manifest = as_json(&file);
+                let row = format!("    ({id:?}, {manifest:?}, None),\n");
+                table.push((id, row));
+            }
             false => wrong.push(format!(
                 "plugins/accounts/{id}/ has no locallibrary-plugin.toml: an account plugin is that manifest alone"
             )),
@@ -69,6 +74,14 @@ fn built_in() {
     let table: String = table.into_iter().map(|(_, row)| row).collect();
     let out = Path::new(&std::env::var_os("OUT_DIR").unwrap()).join("built_in.rs");
     std::fs::write(&out, format!("&[\n{table}]\n")).unwrap_or_else(|e| panic!("writing {}: {e}", out.display()));
+}
+
+/// The manifest at `path`, as JSON: read on every start, where TOML took ten times as long.
+fn as_json(path: &Path) -> String {
+    println!("cargo:rerun-if-changed={}", path.display());
+    let manifest = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+    let manifest: serde_json::Value = toml::from_str(&manifest).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    manifest.to_string()
 }
 
 /// The folders in `dir`, each with its name.

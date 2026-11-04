@@ -29,6 +29,31 @@ fn art_embedded_in_a_tracks_audio_goes_on_the_drive() {
     assert_eq!(image::load_from_memory(&shown).unwrap().width(), artwork::MEDIUM_SIZE);
 }
 
+/// Art found for a track whose image files went is written in place of them, and undoing that
+/// takes them away again: the track shows no art, as before.
+#[test]
+fn undoing_art_found_for_a_track_whose_images_went_removes_them_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = Device::open_export(common::demo_drive(dir.path(), "DNA")).unwrap();
+    set_artwork(&mut d, &[1], &png(300, 300, 7), &Ctx::silent()).unwrap();
+    let lib = d.library().unwrap();
+    let key = paths::key(lib.track(1).unwrap().artwork_path.as_ref().unwrap());
+    let images = [artwork::medium_variant(&key), key];
+    for k in &images {
+        std::fs::remove_file(d.path(k)).unwrap();
+    }
+    let audio = d.path(&paths::key(&lib.track(1).unwrap().file_path));
+    std::fs::write(&audio, mp3()).unwrap();
+    artwork::embed_in_file(&audio, &Artwork::from_bytes(&png(300, 300, 42)).unwrap()).unwrap();
+    let plan = artwork::plan_auto(&d, &lib);
+    let r = artwork::apply_auto(&mut d, &plan, &Ctx::silent()).unwrap();
+    assert_eq!((r.tracks_updated, r.artwork_rows_added), (1, 0), "replaced in place");
+    assert!(images.iter().all(|k| d.path(k).is_file()));
+    locallibrary::backup::restore(&mut d, r.backup.as_deref(), false).unwrap();
+    assert!(!images.iter().any(|k| d.path(k).exists()));
+    assert_eq!(artwork::read_from_drive(&d, &d.library().unwrap(), 1).unwrap(), None);
+}
+
 /// A cover image that doesn't decode is skipped with a warning, and nothing to apply changes
 /// nothing.
 #[test]

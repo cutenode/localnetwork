@@ -67,7 +67,7 @@ export class SupportService {
 
 		return {
 			...supports,
-			djs: Object.fromEntries(djs.map((dj) => [dj.did, { ...dj, handle: handles.get(dj.did)?.handle ?? null }]))
+			djs: Object.fromEntries(djs.map((dj) => [dj.did, { ...dj, handle: handles.get(dj.did).handle }]))
 		};
 	}
 

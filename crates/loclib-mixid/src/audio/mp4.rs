@@ -33,17 +33,24 @@ const PROBE_LIMIT: u64 = 1 << 20;
 /// file (a FIFO): what this read of it took would be gone when the decoder opened it again, and
 /// its atoms can't be walked without seeking.
 pub fn vet_container(path: &Path) -> Result<()> {
+    vet_file(&mut File::open(path).map_err(|source| Error::Io { path: path.to_path_buf(), source })?, path)
+}
+
+/// [`vet_container`] for the file `path` is open as, which is left at its start.
+pub(super) fn vet_file(file: &mut File, path: &Path) -> Result<()> {
     let io = |source| Error::Io { path: path.to_path_buf(), source };
-    let meta = std::fs::metadata(path).map_err(io)?;
+    let meta = file.metadata().map_err(io)?;
     if !meta.is_file() {
         return Ok(());
     }
-    let mut file = BufReader::new(File::open(path).map_err(io)?);
     let len = meta.len();
-    let Some(start) = find_ftyp(&mut file, path).map_err(io)? else {
-        return Ok(());
+    let mut reader = BufReader::new(&mut *file);
+    let vetted = match find_ftyp(&mut reader, path).map_err(io)? {
+        Some(start) => walk(&mut reader, start, len, len, Level::Top).or_else(eof_is_fine).map_err(io)?,
+        None => None,
     };
-    match walk(&mut file, start, len, len, Level::Top).or_else(eof_is_fine).map_err(io)? {
+    file.rewind().map_err(io)?;
+    match vetted {
         Some(why) => Err(Error::parse(path, why)),
         None => Ok(()),
     }
@@ -51,7 +58,7 @@ pub fn vet_container(path: &Path) -> Result<()> {
 
 /// Where the MP4 starts: symphonia reads one from the atom its `ftyp` marker is in, which every
 /// MP4 starts with. A file named as MP4 is searched as far as symphonia's probe looks.
-fn find_ftyp(file: &mut BufReader<File>, path: &Path) -> io::Result<Option<u64>> {
+fn find_ftyp(file: &mut BufReader<&mut File>, path: &Path) -> io::Result<Option<u64>> {
     let mut head = [0; 8];
     match file.read_exact(&mut head) {
         Ok(()) if &head[4..] == b"ftyp" => return Ok(Some(0)),

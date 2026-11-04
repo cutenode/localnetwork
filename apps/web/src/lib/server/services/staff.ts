@@ -44,7 +44,7 @@ export class StaffService {
 
 		const members: StaffMember[] = this.core.bootstrapAdmins.map((did) => ({
 			did,
-			handle: accounts.get(did)?.handle ?? null,
+			handle: accounts.get(did).handle,
 			role: 'admin',
 			grantedBy: null,
 			note: 'Configured in ADMIN_DIDS',
@@ -54,7 +54,7 @@ export class StaffService {
 
 		for (const row of rows) {
 			if (this.core.bootstrapAdmins.includes(row.did)) continue;
-			members.push({ ...row, handle: accounts.get(row.did)?.handle ?? null, bootstrap: false });
+			members.push({ ...row, handle: accounts.get(row.did).handle, bootstrap: false });
 		}
 
 		return members;

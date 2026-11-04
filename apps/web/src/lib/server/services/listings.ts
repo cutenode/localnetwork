@@ -4,7 +4,7 @@ import { isListedRole, SPACE_KINDS, type SpaceKind } from '#lib/capabilities.ts'
 import { COLLECTION } from '#lib/nsid.ts';
 import { validateRecord } from '../atproto/lexicons';
 import { type StoredRecord, xrpcErrorName } from '../atproto/repo-client';
-import { parseSpaceUri, sharedSpace } from '../atproto/spaces';
+import { parseSpaceUri, rkeyOf, sharedSpace } from '../atproto/spaces';
 import { canonicalJson } from '../audit/chain';
 import type { Core } from '../core';
 import { nowIso } from '../db';
@@ -22,8 +22,6 @@ const LISTING_KIND = { performer: 'act', party: 'party', venue: 'venue' } as con
 const MAX_PEOPLE = 50;
 
 const digestKey = (space: string) => `listing_digest:${space}`;
-
-const rkeyOf = (record: StoredRecord) => record.uri.split('/').at(-1) ?? '';
 
 const digestOf = (record: JsonObject) => createHash('sha256').update(canonicalJson(record)).digest('base64url');
 
@@ -89,11 +87,12 @@ export class ListingWriter {
 		// The root's own repo: each listing is checked against what the root wrote, which a directory that's behind can't say.
 		// ast-grep-ignore: no-direct-pds-read
 		const records = await root.listRecords(COLLECTION.listing);
-		const published = new Map(records.map((record) => [rkeyOf(record), record]));
+		const published = new Map(records.map((record) => [rkeyOf(record.uri), record]));
 		const spaces = await this.core.db.selectFrom('sharedSpace').select('spaceUri').execute();
 
 		for (const { spaceUri } of spaces) {
-			const skey = parseSpaceUri(spaceUri)?.skey ?? '';
+			// Every sharedSpace row's URI parses: saveStatus only runs for a space index() or live() parsed.
+			const skey = parseSpaceUri(spaceUri)!.skey;
 
 			try {
 				await this.update(spaceUri, published.get(skey) ?? null);

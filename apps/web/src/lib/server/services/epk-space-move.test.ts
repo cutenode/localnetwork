@@ -247,4 +247,20 @@ describe('moveKitSpaces', () => {
 		await move();
 		expect(requestsIn(epk.space)).toEqual([]);
 	});
+
+	it("leaves a legacy press kit's space, which the root writes in too, for its maker's visit", async () => {
+		const legacy = await f.legacy(DJ);
+
+		const record = validateRecord(COLLECTION.epkRequest, {
+			epk: legacy.uri,
+			onBehalfOf: STRANGER,
+			createdAt: new Date().toISOString()
+		});
+
+		await f.t.net.client(ROOT).createSpaceRecord({ space: legacy.space, collection: COLLECTION.epkRequest, record });
+
+		await move();
+		expect(requestsIn(legacy.space, ROOT)).toHaveLength(1);
+		expect(f.t.net.spaces.get(legacy.space)?.policy).toEqual(memberSpacePolicy({ publicWrite: true }));
+	});
 });

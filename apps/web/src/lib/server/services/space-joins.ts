@@ -350,7 +350,7 @@ export class SpaceJoins {
 		const accounts = await this.core.accounts.views(open.map((invite) => invite.did));
 
 		return {
-			invites: open.map((invite) => ({ ...invite, handle: accounts.get(invite.did)?.handle ?? null })),
+			invites: open.map((invite) => ({ ...invite, handle: accounts.get(invite.did).handle })),
 			links: links.filter((link) => !isExpired(link.expiresAt)).length
 		};
 	}
@@ -366,7 +366,7 @@ export class SpaceJoins {
 
 		const accounts = await this.core.accounts.views(rows.map((row) => row.did));
 
-		return rows.map((row) => ({ ...row, handle: accounts.get(row.did)?.handle ?? null }));
+		return rows.map((row) => ({ ...row, handle: accounts.get(row.did).handle }));
 	}
 
 	private limit(viewer: Viewer): void {

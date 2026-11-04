@@ -222,10 +222,14 @@ test.describe('public pages', () => {
 				.toBeGreaterThan(0);
 
 		await page.goto('/tools');
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		// The deck opens on its first cue, and a capture loads once its cue is picked.
 		await loaded(/^locallibrary playing a track/);
+		await page.getByRole('tab', { name: 'A Marks' }).click();
+		await expect(page.getByRole('tabpanel').getByRole('heading', { name: 'Marks' })).toBeVisible();
 		await loaded(/^A SoundCloud playlist with localtoolbox's marks/);
 		await expectAccessible(page);
-		await page.getByRole('link', { name: 'See what locallibrary does' }).click();
+		await page.getByRole('link', { name: 'locallibrary', exact: true }).click();
 		await expect(page).toHaveURL(/\/tools\/locallibrary$/);
 		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
 

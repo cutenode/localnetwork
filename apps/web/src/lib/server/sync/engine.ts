@@ -1,6 +1,6 @@
 import { ComAtprotoSpaceDefs } from '@atproto/api';
-import { type Cid, isLexMap, type LexMap, parseCid } from '@atproto/lex-data';
-import { type JsonObject, lexToJson } from '@atproto/lex-json';
+import { type Cid, isLexMap, isObject, type LexMap, parseCid } from '@atproto/lex-data';
+import { type JsonObject, type JsonValue, jsonToLex, lexToJson } from '@atproto/lex-json';
 import { isNsidString, isSpaceKeyString } from '@atproto/oauth-scopes';
 import {
 	COMMIT_MAC_TYPE,
@@ -20,6 +20,7 @@ import {
 	XrpcResponseError
 } from '../atproto/credentials';
 import type { IdentityResolver } from '../atproto/identity';
+import { isTooDeep, TOO_DEEP } from '../atproto/lexicons';
 import { parseSpaceUri, spaceRecordUri } from '../atproto/spaces';
 import { type Db, nowIso } from '../db';
 import type { Logger } from '../logger';
@@ -73,6 +74,23 @@ export type SyncStatus = {
 	registrationExpiresAt: string | null;
 	repos: { did: string; rev: string; lastSyncedAt: string; lastError: string | null }[];
 };
+
+/**
+ * A listRepoOps page decoded from its JSON, with the indexes of the ops whose values are nested deeper than
+ * validateRecord allows. jsonToLex recurses, so those values are taken out before it decodes the rest.
+ */
+function readOpsPage(json: JsonValue) {
+	const tooDeep = new Set<number>();
+	const ops = isObject(json) && !Array.isArray(json) && Array.isArray(json.ops) ? json.ops : [];
+
+	for (const [index, op] of ops.entries()) {
+		if (!isObject(op) || Array.isArray(op) || !isTooDeep(op.value)) continue;
+		tooDeep.add(index);
+		delete op.value;
+	}
+
+	return { page: listRepoOpsOutput.parse(jsonToLex(json)), tooDeep };
+}
 
 // SAFETY: lexToJson only rewrites the CIDs and bytes inside a map, so a LexMap always comes back as a JSON object.
 const toJson = (record: LexMap) => lexToJson(record) as JsonObject;
@@ -215,14 +233,16 @@ export class SpaceSyncer {
 					schema: listReposOutput
 				});
 
-				if (page.repos.length === 0) break;
+				const last = page.repos.at(-1);
+
+				if (!last) break;
 
 				const results = await Promise.all(
 					page.repos.map((repo) => this.repoQueue.add(() => this.syncRepoIfBehind(space, repo)))
 				);
 
 				changed += results.filter(Boolean).length;
-				cursor = page.cursor ?? page.repos.at(-1)?.spaceRev ?? cursor;
+				cursor = page.cursor ?? last.spaceRev;
 
 				if (!page.cursor) break;
 			}
@@ -353,21 +373,26 @@ export class SpaceSyncer {
 
 		do {
 			// The host wants a MAC request on every page, and only MACs the pages that carry a commit.
-			const { body: page, macParams } = await this.deps.credentials.macQuery({
+			const { response, macParams } = await this.deps.credentials.macRequest({
 				space,
 				service: pds,
 				audience: repoDid,
 				nsid: 'com.atproto.space.listRepoOps',
 				params: { space, repo: repoDid, since: cursor ? undefined : since, cursor, limit: 500 },
-				schema: listRepoOpsOutput,
 				mac: { type: COMMIT_MAC_TYPE, kemKey }
 			});
 
-			for (const op of page.ops) {
+			const json: JsonValue = JSON.parse(await response.text());
+			const { page, tooDeep } = readOpsPage(json);
+
+			for (const [index, op] of page.ops.entries()) {
 				state.applyOp({ collection: op.collection, rkey: op.rkey, cid: asCid(op.cid), prev: asCid(op.prev) });
 				const uri = spaceRecordUri(space, repoDid, op.collection, op.rkey);
 
-				if (op.cid === null) {
+				// A record too deep to read is dropped from the local copy, like one deleted.
+				if (tooDeep.has(index)) this.deps.logger.warn({ uri }, `dropping a synced record ${TOO_DEEP}`);
+
+				if (op.cid === null || tooDeep.has(index)) {
 					changes.push({ kind: 'delete', space, repoDid, collection: op.collection, rkey: op.rkey, uri });
 				} else if (op.value !== undefined) {
 					changes.push({

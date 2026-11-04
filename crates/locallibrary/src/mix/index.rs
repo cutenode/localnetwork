@@ -307,7 +307,7 @@ pub fn fingerprint_library(
         tracks: library.tracks.len(),
         indexed: run.done.len(),
         fingerprinted: run.computed,
-        missing: run.missing.iter().filter_map(|id| library.track(*id)).map(TrackRef::from).collect(),
+        missing: library.tracks_by_id(&run.missing).into_iter().map(TrackRef::from).collect(),
         failed: run.failed,
         long: long.into_iter().map(TrackRef::from).collect(),
         hashes: 0,

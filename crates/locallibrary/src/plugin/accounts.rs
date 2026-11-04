@@ -208,13 +208,10 @@ impl Plugin {
         let client = self.client().map_err(|e| Unanswered(e.message))?;
         let (parts, body) = request.into_parts();
         let asked = client.request(parts.method, url).headers(parts.headers).body(body).timeout(super::net::TIMEOUT);
-        let (answer, body) = runtime()
+        runtime()
             .block_on(async {
                 let mut response = asked.send().await?;
-                let mut answer = oauth2::http::Response::builder().status(response.status());
-                if let Some(headers) = answer.headers_mut() {
-                    headers.extend(response.headers().clone());
-                }
+                let (status, headers) = (response.status(), response.headers().clone());
                 let mut body = Vec::new();
                 while (body.len() as u64) < MAX_ANSWER
                     && let Some(chunk) = response.chunk().await?
@@ -222,10 +219,12 @@ impl Plugin {
                     body.extend_from_slice(&chunk);
                 }
                 body.truncate(MAX_ANSWER as usize);
-                Ok::<_, reqwest::Error>((answer, body))
+                let mut answer = HttpResponse::new(body);
+                *answer.status_mut() = status;
+                *answer.headers_mut() = headers;
+                Ok::<_, reqwest::Error>(answer)
             })
-            .map_err(|e| Unanswered(with_causes(&e)))?;
-        answer.body(body).map_err(|e| Unanswered(e.to_string()))
+            .map_err(|e| Unanswered(with_causes(&e)))
     }
 
     /// Sends a request for an account's tokens: to its service's token endpoint as it is, or to
