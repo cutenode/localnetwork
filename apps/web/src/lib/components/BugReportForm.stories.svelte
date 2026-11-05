@@ -15,11 +15,15 @@
 
 <Story name="Approve posting" args={{ step: { kind: 'consent' }, github, facts }} />
 
+<Story name="Could not approve" args={{ step: { kind: 'consent' }, github, facts, error: "Your account's server didn't answer. Try again." }} />
+
 <Story name="Form" args={{ step: { kind: 'form' }, github, facts }} />
 
 <Story name="Posting" args={{ step: { kind: 'form' }, github, facts, values, sending: true }} />
 
 <Story name="Could not post" args={{ step: { kind: 'form' }, github, facts, values, error: "We couldn't post your report." }} />
+
+<Story name="Posting again" args={{ step: { kind: 'form' }, github, facts, values, error: "We couldn't post your report.", sending: true }} />
 
 <Story name="Posted" args={{ step: { kind: 'sent', url: 'https://userinput.app/d/did:plc:abc/3mabc' }, github, facts }} />
 

@@ -423,6 +423,19 @@ test.describe('signed in', () => {
 		await page.getByRole('button', { name: 'Send for review' }).click();
 		await expect(page.getByText('Submitted. A moderator will review it soon')).toBeVisible();
 		await expectAccessible(page);
+
+		// A revision that went through isn't offered back as unsent changes. A request page with a draft opens its
+		// editor with the draft in it, a frame after hydrating.
+		const note = `Moved to Fridays (${testInfo.project.name})`;
+		await page.getByRole('button', { name: 'Edit request' }).click();
+		await page.getByLabel('Note to moderators').fill(note);
+		await page.getByRole('button', { name: 'Save and resubmit' }).click();
+		await expect(page.getByText(note, { exact: true })).toBeVisible();
+		await page.reload();
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		await page.evaluate(() => new Promise(requestAnimationFrame));
+		await expect(page.getByText(/Your unsent changes from/)).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'Edit request' })).toBeVisible();
 		await signOut(page);
 
 		await signIn(page, 'ada.test', 'ada-pass', '/admin/requests');
