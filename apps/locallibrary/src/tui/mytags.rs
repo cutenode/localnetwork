@@ -2,7 +2,7 @@
 //! or selected tracks a tag or taking one off, through the library's tags plan; and the store's
 //! rule-based playlists ("smart" playlists): listing the rules, filling them on the open drive,
 //! and making one from the search box's filter. The My Tags column and Browse › My Tags are drawn
-//! from the tags the library load reads (`app.rs`, `browse.rs`).
+//! from the tags the library load reads (`app/library.rs`, `browse.rs`).
 
 use rustc_hash::FxHashSet;
 use std::path::PathBuf;
