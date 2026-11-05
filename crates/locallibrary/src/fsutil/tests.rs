@@ -586,13 +586,15 @@ fn prop_paths_are_made_absolute_lexically(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let parts: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(vec!["a", "b", ".", ".."])).min_size(1).max_size(6));
     let rel: PathBuf = parts.iter().collect();
-    let mut want: Vec<std::ffi::OsString> =
-        std::env::current_dir().unwrap().components().map(|c| c.as_os_str().to_owned()).collect();
+    let cwd = std::env::current_dir().unwrap();
+    let mut want: Vec<std::ffi::OsString> = cwd.components().map(|c| c.as_os_str().to_owned()).collect();
+    // What `..` stops at: `/`, or on Windows the drive and its `\`.
+    let root = cwd.components().filter(|c| !matches!(c, std::path::Component::Normal(_))).count();
     for p in &parts {
         match *p {
             "." => {}
             ".." => {
-                if want.len() > 1 {
+                if want.len() > root {
                     want.pop();
                 }
             }
