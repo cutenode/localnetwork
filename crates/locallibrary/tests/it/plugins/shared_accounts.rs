@@ -15,7 +15,7 @@ use super::accounts::{Service, back, come_back_to, form, has, opened_at, service
 use super::net::{Got, Reply, Server};
 use super::*;
 pub(super) use crate::mock_oauth::WITH;
-use crate::mock_oauth::account_plugin;
+use crate::mock_oauth::{account_plugin, holds_token};
 
 /// The echo plugin, talking to this computer, asking for `mock` accounts: for the scopes
 /// `needs`, and `optional` besides when there are any.
@@ -168,9 +168,19 @@ impl Mock {
     /// Whether any token the service gave is out in the plugins' logs, the store but its secrets,
     /// or `answers`.
     pub(super) fn leaked(&self, answers: &[Value]) -> bool {
-        let issued = self.state.lock().unwrap().issued;
-        let seen = self.f.seen(&answers.iter().collect::<Vec<_>>());
-        (1..=issued).any(|n| seen.contains(&format!("at-{n}")) || seen.contains(&format!("rt-{n}")))
+        holds_token(&self.f.seen(&answers.iter().collect::<Vec<_>>()), self.state.lock().unwrap().issued)
+    }
+}
+
+/// A token is found on its own, however it's quoted or sent, and not in the random words of a
+/// sign-in link, whose base64url can spell one by chance.
+#[test]
+fn a_token_is_told_from_the_same_letters_in_a_random_word() {
+    for said in ["at-1", "Bearer at-1\n", "{\"token\":\"rt-2\"}", "?access_token=at-1&x=y", "at-2 at-1"] {
+        assert!(holds_token(said, 2), "{said}");
+    }
+    for said in ["state=Qat-1Zk", "code_challenge=xrt-2", "at-1b_c", "at-3", "at-", ""] {
+        assert!(!holds_token(said, 2), "{said}");
     }
 }
 
