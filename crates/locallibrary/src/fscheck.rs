@@ -17,7 +17,7 @@
 //! macOS clears FAT's clean-shutdown bit as soon as it mounts a volume writable, Windows and
 //! Linux set the boot sector's dirty bit while a volume is mounted, and macOS runs `fsck -y` on
 //! a dirty volume before mounting it anyway. So the flag is never read here; the check reports
-//! what is actually inconsistent.
+//! what is inconsistent.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};

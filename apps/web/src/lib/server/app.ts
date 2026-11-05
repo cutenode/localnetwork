@@ -321,8 +321,8 @@ export async function createApp(options: CreateAppOptions) {
 		const timer = setInterval(() => {
 			if (running) return;
 			running = true;
-			task()
-				.catch((error) => logger.warn({ err: error, task: name }, 'background task failed'))
+			void logger
+				.job(name, () => task().catch((error) => logger.warn('background task failed', { err: error, task: name })))
 				.finally(() => {
 					running = false;
 				});
@@ -422,13 +422,15 @@ export async function createApp(options: CreateAppOptions) {
 
 			try {
 				const uploaded = await syncHappyView(happyView, bundle(), rootDid);
-				logger.info(uploaded, 'synced the HappyView directory');
+				logger.info('synced the HappyView directory', uploaded);
 				directorySync = { at: nowIso(), error: null };
 				// In the background: the shows Jetstream missed don't hold the app up.
-				void shows.reindexManagers().catch((error) => logger.warn({ err: error }, 'could not re-read shows'));
+				void logger.job('reindex-shows', () =>
+					shows.reindexManagers().catch((error) => logger.warn('could not re-read shows', { err: error }))
+				);
 				await app.refreshRecords(uploaded.scripts);
 			} catch (error) {
-				logger.error({ err: error }, 'could not sync the HappyView directory');
+				logger.error('could not sync the HappyView directory', { err: error });
 				directorySync = { at: nowIso(), error: error instanceof Error ? error.message : String(error) };
 			}
 		},
@@ -464,7 +466,7 @@ export async function createApp(options: CreateAppOptions) {
 				try {
 					await refreshForScript(core, happyView, { ...refresh, script, uploaded: uploaded.includes(id) });
 				} catch (error) {
-					logger.warn({ err: error, collection: refresh.collection }, 'could not have HappyView re-read older records');
+					logger.warn('could not have HappyView re-read older records', { err: error, collection: refresh.collection });
 				}
 			}
 		},
@@ -517,14 +519,16 @@ export async function createApp(options: CreateAppOptions) {
 			every(60 * 60_000, () => epkViews.expire(), 'epk-view-expiry');
 			every(60 * 60_000, () => Promise.all([notifications.prune(), outbox.prune()]), 'inbox-retention');
 			every(15_000, () => outbox.processDue(), 'notification-delivery');
-			void outbox
-				.recover()
-				.then(() => outbox.processDue())
-				.catch((error) => logger.warn({ err: error }, 'could not resume notification delivery'));
+			void logger.job('notification-recovery', () =>
+				outbox
+					.recover()
+					.then(() => outbox.processDue())
+					.catch((error) => logger.warn('could not resume notification delivery', { err: error }))
+			);
 
 			// The database's daily backup: now, if today's is missing, then on the first round after midnight UTC.
 			if (backups) {
-				void backups.runIfDue();
+				void logger.job('db-backup', () => backups.runIfDue());
 				every(60 * 60_000, () => backups.runIfDue(), 'db-backup');
 			}
 		},
@@ -538,12 +542,14 @@ export async function createApp(options: CreateAppOptions) {
 		}
 	};
 
-	await app.syncDirectory();
+	await logger.job('directory-sync', () => app.syncDirectory());
 
 	if (options.background) {
-		app
-			.bootstrap()
-			.catch((error) => logger.error({ err: error }, 'bootstrap failed; will keep retrying in the background'));
+		void logger.job('bootstrap', () =>
+			app
+				.bootstrap()
+				.catch((error) => logger.error('bootstrap failed; will keep retrying in the background', { err: error }))
+		);
 		app.start();
 	}
 

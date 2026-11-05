@@ -73,7 +73,7 @@ export function createProjections(deps: {
 					)
 					.where(column, '=', change.uri)
 					.execute();
-				core.logger.warn({ uri: change.uri }, 'an audit copy was deleted');
+				core.logger.warn('an audit copy was deleted', { uri: change.uri });
 			} else if (type === SPACE_TYPE.booking) {
 				await core.db.deleteFrom('bookingEvent').where('uri', '=', change.uri).execute();
 			} else if (change.collection === COLLECTION.epkGrant) {
@@ -96,7 +96,7 @@ export function createProjections(deps: {
 			value = validateRecord(change.collection, change.value);
 		} catch (error) {
 			if (!(error instanceof RecordValidationError)) throw error;
-			core.logger.warn({ uri: change.uri, err: error }, 'ignoring invalid synced record');
+			core.logger.warn('ignoring invalid synced record', { uri: change.uri, err: error });
 
 			return;
 		}
@@ -118,7 +118,7 @@ export function createProjections(deps: {
 				if (change.space !== spaces.moderation) return;
 
 				if (!isRequestKind(value.kind)) {
-					core.logger.warn({ uri: change.uri, kind: value.kind }, 'ignoring synced request of an unknown kind');
+					core.logger.warn('ignoring synced request of an unknown kind', { uri: change.uri, kind: value.kind });
 
 					return;
 				}
@@ -148,7 +148,7 @@ export function createProjections(deps: {
 				}
 
 				// The record no longer holds a role this app knows, so it grants nothing, including what it held before.
-				core.logger.warn({ uri: change.uri, role: value.role }, 'ignoring synced staff role this app does not know');
+				core.logger.warn('ignoring synced staff role this app does not know', { uri: change.uri, role: value.role });
 				await staff.removeRoleByUri(change.uri);
 
 				return;

@@ -104,10 +104,12 @@ export async function takeBackup({ databasePath, store, keep, logger, now = new 
 	const expired = expiredBackups(await listBackups(store), keep);
 
 	for (const old of expired) await store.delete(old.key);
-	logger.info(
-		{ key, bytes, ms: Math.round(performance.now() - started), deleted: expired.map((old) => old.key) },
-		'backed up the database'
-	);
+	logger.info('backed up the database', {
+		key,
+		bytes,
+		ms: Math.round(performance.now() - started),
+		deleted: expired.map((old) => old.key)
+	});
 
 	return { key, bytes, deleted: expired.map((old) => old.key) };
 }
@@ -134,7 +136,7 @@ export async function restoreBackup({ key, targetPath, store, logger }: RestoreO
 		if (previous) await copyDatabase(targetPath, previous);
 		else mkdirSync(dirname(targetPath), { recursive: true });
 		await copyDatabase(snapshot, targetPath);
-		logger.info({ key, targetPath, previous }, 'restored the database');
+		logger.info('restored the database', { key, targetPath, previous });
 	});
 }
 
@@ -178,7 +180,7 @@ export function dailyBackups({ databasePath, settings, logger, startedAt = new D
 
 				return result;
 			} catch (error) {
-				logger.error({ err: error }, 'could not back up the database');
+				logger.error('could not back up the database', { err: error });
 				const message = error instanceof Error ? error.message : String(error);
 				lastAttempt = { at: now.toISOString(), error: message.slice(0, 200) };
 

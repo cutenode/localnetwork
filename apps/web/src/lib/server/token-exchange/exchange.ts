@@ -123,7 +123,7 @@ export async function exchangeToken(id: string, request: Request, options: Excha
 	const client = { client_id: env[service.clientIdEnv], client_secret: env[service.clientSecretEnv] };
 
 	if (!client.client_id || !client.client_secret) {
-		log.warn({ ...at, env: [service.clientIdEnv, service.clientSecretEnv] }, 'token exchange not configured');
+		log.warn('token exchange not configured', { ...at, env: [service.clientIdEnv, service.clientSecretEnv] });
 
 		return refuse(503, 'temporarily_unavailable', `Local Network isn't set up to sign in to ${service.title} yet`);
 	}
@@ -145,13 +145,13 @@ export async function exchangeToken(id: string, request: Request, options: Excha
 		// Only the messages: a request's address can hold the code and secret, which an error's other fields may carry.
 		const cause = error instanceof Error && error.cause instanceof Error ? `: ${error.cause.message}` : '';
 		const reason = error instanceof Error ? `${error.message}${cause}` : 'unknown';
-		log.warn({ ...at, reason }, 'token endpoint unreachable');
+		log.warn('token endpoint unreachable', { ...at, reason });
 
 		return refuse(502, 'temporarily_unavailable', `${service.title} isn't answering`);
 	}
 
 	const tokens = answerSchema.safeParse(parseJson<unknown>(await readCapped(answer), undefined));
-	log.info({ ...at, status: answer.status, ms: Math.round(performance.now() - started) }, 'token exchange');
+	log.info('token exchange', { ...at, status: answer.status, ms: Math.round(performance.now() - started) });
 
 	if (!tokens.success)
 		return refuse(502, 'temporarily_unavailable', `${service.title} answered something that isn't a token response`);

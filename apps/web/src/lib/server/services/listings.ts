@@ -65,7 +65,7 @@ export class ListingWriter {
 			try {
 				await this.update(space);
 			} catch (error) {
-				this.core.logger.warn({ err: error, space }, "could not update a space's listing");
+				this.core.logger.warn("could not update a space's listing", { err: error, space });
 			}
 		})();
 
@@ -97,7 +97,7 @@ export class ListingWriter {
 			try {
 				await this.update(spaceUri, published.get(skey) ?? null);
 			} catch (error) {
-				this.core.logger.warn({ err: error, space: spaceUri }, "could not check a space's listing");
+				this.core.logger.warn("could not check a space's listing", { err: error, space: spaceUri });
 			}
 
 			published.delete(skey);
@@ -109,7 +109,7 @@ export class ListingWriter {
 
 			if (exists.some(Boolean)) continue;
 			await root.deleteRecord({ collection: COLLECTION.listing, rkey });
-			this.core.logger.info({ rkey }, 'deleted the listing of a space that is gone');
+			this.core.logger.info('deleted the listing of a space that is gone', { rkey });
 		}
 	}
 
@@ -139,7 +139,7 @@ export class ListingWriter {
 
 			if (await current()) {
 				await root.deleteRecord({ collection: COLLECTION.listing, rkey });
-				this.core.logger.info({ space }, 'deleted a listing');
+				this.core.logger.info('deleted a listing', { space });
 			}
 
 			await db.deleteFrom('kv').where('key', '=', digestKey(space)).execute();
@@ -186,7 +186,7 @@ export class ListingWriter {
 		const leaked = rows.filter((row) => row.hidden === 1 && json.includes(row.did));
 
 		if (leaked.length > 0) {
-			this.core.logger.error({ space }, 'refusing to write a listing that names someone hidden');
+			this.core.logger.error('refusing to write a listing that names someone hidden', { space });
 
 			return null;
 		}
@@ -218,6 +218,6 @@ export class ListingWriter {
 			await put(await this.published(rkey));
 		}
 
-		this.core.logger.info({ space }, 'wrote a listing');
+		this.core.logger.info('wrote a listing', { space });
 	}
 }

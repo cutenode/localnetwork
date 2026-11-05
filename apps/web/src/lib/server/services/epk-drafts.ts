@@ -173,7 +173,7 @@ export class EpkDrafts {
 		};
 
 		await this.saveRow(row);
-		this.core.logger.info({ draft: ref.uri, fields: changed, onBehalf }, 'saved a press kit draft');
+		this.core.logger.info('saved a press kit draft', { draft: ref.uri, fields: changed, onBehalf });
 
 		return this.view(row, { did: actor.did, handle: actor.handle }, kit?.epk ?? null);
 	}
@@ -238,7 +238,7 @@ export class EpkDrafts {
 		});
 
 		if (conflicts.length > 0) {
-			this.core.logger.info({ draft: row.uri, fields: conflicts.map((c) => c.field) }, 'a press kit draft conflicts');
+			this.core.logger.info('a press kit draft conflicts', { draft: row.uri, fields: conflicts.map((c) => c.field) });
 
 			return { kind: 'conflict', conflicts };
 		}
@@ -303,13 +303,15 @@ export class EpkDrafts {
 			await this.deleteRow(actor, row);
 		} catch (error) {
 			// The press kit is out; a draft left behind holds nothing new, and saving it again drops it.
-			this.core.logger.warn({ err: error, draft: row.uri }, 'published a press kit draft but could not delete it');
+			this.core.logger.warn('published a press kit draft but could not delete it', { err: error, draft: row.uri });
 		}
 
-		this.core.logger.info(
-			{ epk: kitRkey, fields, overwritten: [...overwrite], kept: [...keep] },
-			'published a press kit draft'
-		);
+		this.core.logger.info('published a press kit draft', {
+			epk: kitRkey,
+			fields,
+			overwritten: [...overwrite],
+			kept: [...keep]
+		});
 		await this.core.audit.record({
 			actor: actor.did,
 			actorRole: actorRole(actor),
@@ -386,7 +388,7 @@ export class EpkDrafts {
 			(input.repoDid !== rootDid && epkRkey !== input.rkey);
 
 		if (unusable) {
-			this.core.logger.warn({ uri: input.uri }, 'ignoring a press kit draft that names no manager or press kit');
+			this.core.logger.warn('ignoring a press kit draft that names no manager or press kit', { uri: input.uri });
 
 			return;
 		}
@@ -493,7 +495,7 @@ export class EpkDrafts {
 	private parse(row: EpkDraftTable): DraftRecord | null {
 		const draft = epkDraftSchema.safeParse(parseJson<unknown>(row.record, {}));
 
-		if (!draft.success) this.core.logger.warn({ uri: row.uri }, 'an indexed press kit draft does not parse');
+		if (!draft.success) this.core.logger.warn('an indexed press kit draft does not parse', { uri: row.uri });
 
 		return draft.success ? draft.data : null;
 	}

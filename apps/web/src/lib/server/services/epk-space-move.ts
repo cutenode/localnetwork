@@ -31,10 +31,10 @@ export async function moveKitSpaces(core: Core, epks: EpkService): Promise<void>
 			if (!policy || !('publicWrite' in policy) || !policy.publicWrite) continue;
 			await moveRequests(core, epks, space);
 		} catch (error) {
-			core.logger.warn(
-				{ err: error, space },
-				"could not move a press kit's grants or requests; the next start tries again"
-			);
+			core.logger.warn("could not move a press kit's grants or requests; the next start tries again", {
+				err: error,
+				space
+			});
 		}
 	}
 }
@@ -44,7 +44,7 @@ async function kitOf(core: Core, epks: EpkService, space: string): Promise<Press
 	const kit = await epks.locate(core.rootDid, parseSpaceUri(space)!.skey);
 
 	if (kit?.epk.space === space) return kit;
-	core.logger.warn({ space }, 'leaving the grants and requests of a press kit space with no press kit');
+	core.logger.warn('leaving the grants and requests of a press kit space with no press kit', { space });
 
 	return null;
 }
@@ -64,7 +64,7 @@ async function moveGrants(core: Core, epks: EpkService, space: string): Promise<
 		const grant = epkGrantSchema.safeParse(record.value);
 
 		if (!grant.success) {
-			core.logger.warn({ space, rkey: record.rkey }, 'leaving a grant record that does not validate');
+			core.logger.warn('leaving a grant record that does not validate', { space, rkey: record.rkey });
 			continue;
 		}
 
@@ -75,7 +75,7 @@ async function moveGrants(core: Core, epks: EpkService, space: string): Promise<
 	}
 
 	if (moved === 0) return;
-	core.logger.info({ space, moved }, "moved a press kit's grants to its project's request space");
+	core.logger.info("moved a press kit's grants to its project's request space", { space, moved });
 	await core.audit.record({
 		actor: root.did,
 		actorRole: 'system',
@@ -102,7 +102,7 @@ async function moveRequests(core: Core, epks: EpkService, space: string): Promis
 		const writer = old.author === root.did ? root : await core.userClient(old.author);
 
 		if (!writer) {
-			core.logger.info({ uri: row.uri }, 'a request stays in its press kit space until its asker signs in again');
+			core.logger.info('a request stays in its press kit space until its asker signs in again', { uri: row.uri });
 			left++;
 			continue;
 		}
@@ -115,7 +115,7 @@ async function moveRequests(core: Core, epks: EpkService, space: string): Promis
 			// A request moves whole or not at all, so the managers never see it twice.
 			await deleteAt(root, copy);
 			await core.db.deleteFrom('epkRequest').where('uri', '=', copy).execute();
-			core.logger.warn({ err: error, uri: row.uri }, 'could not delete a request from its press kit space');
+			core.logger.warn('could not delete a request from its press kit space', { err: error, uri: row.uri });
 			left++;
 			continue;
 		}
@@ -137,7 +137,7 @@ async function moveRequests(core: Core, epks: EpkService, space: string): Promis
 
 	if (left > 0) return;
 	await root.updateSpace({ space, policy: memberSpacePolicy() });
-	core.logger.info({ space, moved: rows.length }, "moved a press kit's requests to its project's request space");
+	core.logger.info("moved a press kit's requests to its project's request space", { space, moved: rows.length });
 	await core.audit.record({
 		actor: root.did,
 		actorRole: 'system',

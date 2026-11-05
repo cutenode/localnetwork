@@ -30,7 +30,7 @@ export class TracklistService {
 		const result = parseMixReportText(bytes);
 
 		if (!result.ok) {
-			this.core.logger.warn({ cid, error: result.error }, 'stored tracklist does not validate');
+			this.core.logger.warn('stored tracklist does not validate', { cid, error: result.error });
 			throw new UserError('This tracklist could not be read.', 502);
 		}
 
@@ -52,7 +52,7 @@ export class TracklistService {
 		try {
 			({ bytes } = await this.core.fetchBlob(this.core.rootDid, cid, MIX_REPORT_MAX_BYTES));
 		} catch (error) {
-			this.core.logger.warn({ err: error, cid }, 'could not fetch tracklist');
+			this.core.logger.warn('could not fetch tracklist', { err: error, cid });
 			throw new UserError('This tracklist could not be fetched right now.', 502);
 		}
 
@@ -78,7 +78,7 @@ export class TracklistService {
 				if (bytes.length <= MIX_REPORT_MAX_BYTES) return this.parse(cid, bytes);
 			} catch (error) {
 				if (error instanceof UserError) throw error;
-				this.core.logger.info({ err: error, cid }, "tracklist isn't in the requester's repo; trying the published one");
+				this.core.logger.info("tracklist isn't in the requester's repo; trying the published one", { err: error, cid });
 			}
 		}
 

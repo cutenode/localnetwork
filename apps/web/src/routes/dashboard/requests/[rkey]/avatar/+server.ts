@@ -19,7 +19,7 @@ export const GET: RequestHandler = async ({ params, locals, url }) => {
 	try {
 		blob = await app.core.fetchSpaceBlob(app.spaces.moderation, request.repoDid, avatar.ref.$link);
 	} catch (cause) {
-		locals.log.warn({ err: cause }, 'could not fetch proposed avatar');
+		locals.log.warn('could not fetch proposed avatar', { err: cause });
 		error(502, "Could not fetch the image from the requester's PDS");
 	}
 

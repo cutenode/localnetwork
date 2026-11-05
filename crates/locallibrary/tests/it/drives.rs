@@ -519,7 +519,7 @@ fn a_player_name_the_database_cant_take_leaves_no_backup() {
 }
 
 /// A sync puts the target's player name back while it still holds the drive's lock, so nothing
-/// else can write in between (it used to take the lock again, and fail if another write had).
+/// else can write in between (taking the lock again would fail if another write had).
 #[test]
 fn the_player_name_goes_back_under_the_lock_the_sync_holds() {
     let dir = tempfile::tempdir().unwrap();

@@ -45,12 +45,12 @@ export class Backfills {
 			if (status === 'failed' || status === 'cancelled') throw new Error(`HappyView's re-read ${status}`);
 
 			if (status === 'completed') return true;
-			this.logger.info({ collection, did, status }, 'HappyView is still re-reading a repo');
+			this.logger.info('HappyView is still re-reading a repo', { collection, did, backfillStatus: status });
 
 			return false;
 		} catch (error) {
 			this.last.delete(key);
-			this.logger.warn({ err: error, collection, did }, 'could not have HappyView re-read a repo');
+			this.logger.warn('could not have HappyView re-read a repo', { err: error, collection, did });
 
 			return false;
 		}

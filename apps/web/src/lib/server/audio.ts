@@ -32,7 +32,7 @@ export function audioResponse(
 	const type = mimeType.toLowerCase();
 
 	if (!RECORDING_TYPES.matches({ mime: type })) {
-		log.warn({ mimeType, status: 404 }, 'refused to serve a recording of a type its lexicon does not accept');
+		log.warn('refused to serve a recording of a type its lexicon does not accept', { mimeType, status: 404 });
 		void body.cancel();
 
 		return refuse(404, 'Not found');
