@@ -10,6 +10,7 @@ mod audio;
 mod browse;
 mod crate_list;
 mod deck;
+mod docs;
 mod drives;
 mod edits;
 mod form;
