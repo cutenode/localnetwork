@@ -718,6 +718,92 @@ fn loclib_interops_errors_keep_their_kinds() {
     assert_eq!(cancelled, RpcError::cancelled());
 }
 
+/// An export that can't go as asked is refused, saying why, before anything is written: options
+/// that aren't the exporter's, history lists without include_history, a location root with
+/// Serato's tags, history lists for a set or a mix, a playlist the drive hasn't, audio linking
+/// out of the drive for Serato's copies, a file where the output folder would be; and one
+/// cancelled while the tracks' analysis is read answers `cancelled`.
+#[hegel::test(test_cases = 3)]
+fn prop_an_export_that_cant_go_as_asked_says_why(tc: TestCase) {
+    // Audio linking out of the drive, only on Unix.
+    for case in (0..=11).filter(|c| cfg!(unix) || *c != 7) {
+        export_cant_go(&tc, case);
+    }
+}
+
+/// [`prop_an_export_that_cant_go_as_asked_says_why`]'s `case` of what can't go.
+#[hegel::test_helper]
+fn export_cant_go(tc: &TestCase, case: u8) {
+    let drive = drive();
+    let mut output = drive.dir.path().join("out");
+    let mut dry_run = tc.draw(gs::booleans());
+    let usb = || json!({ "drive": "USB" });
+    let refused = |said: &str| (code::INVALID_PARAMS, Some("invalid"), said.to_string());
+    let (format, source, options, cancel_at, (code, kind, said)) = match case {
+        0 | 9 => {
+            let options = if case == 0 { json!({ "skip_analysis": "yes" }) } else { json!({ "colour": true }) };
+            ("traktor", usb(), options, None, (code::INVALID_PARAMS, Some("invalid_params"), "invalid params: ".into()))
+        }
+        1 => {
+            let source = json!({ "drive": "USB", "history": ["HISTORY 001"] });
+            ("rekordbox", source, json!({}), None, refused("rekordbox doesn't take history lists"))
+        }
+        11 => {
+            let source = json!({ "drive": "USB", "history": ["HISTORY 001"] });
+            let said = "Traktor doesn't take history lists: include_history exports them as playlists";
+            ("traktor", source, json!({}), None, refused(said))
+        }
+        2 => {
+            let root = drive.dir.path().join("Music Copy");
+            let options = json!({ "write_tags": true, "location_root": root });
+            let said = "a location root doesn't go with writing tags: the crates list the tagged copies";
+            ("serato", usb(), options, None, refused(said))
+        }
+        3 | 8 => {
+            let source = match case {
+                3 => json!({ "drive": "USB", "set": "1a2b" }),
+                _ => json!({ "drive": "USB", "mix": "live" }),
+            };
+            let said = "include_history is for a drive's lists, not a set or a mix";
+            ("traktor", source, json!({ "include_history": true }), None, refused(said))
+        }
+        4 | 5 => {
+            let cancelled = (code::FAILED, Some("cancelled"), "operation cancelled".to_string());
+            let format = tc.draw(gs::sampled_from(vec!["traktor", "rekordbox"]));
+            (format, usb(), json!({}), Some("tracks.analysis"), cancelled)
+        }
+        10 => {
+            let source = json!({ "drive": "USB", "playlists": ["Sunday"] });
+            ("engine", source, json!({}), None, refused("not found: playlist \"Sunday\""))
+        }
+        6 => {
+            // A file where the output's folder would be: worked out, but not written.
+            let blocker = drive.dir.path().join("blocker");
+            std::fs::write(&blocker, b"").unwrap();
+            (output, dry_run) = (blocker.join("out"), false);
+            ("traktor", usb(), json!({}), None, (code::FAILED, Some("io"), blocker.display().to_string()))
+        }
+        _ => {
+            #[cfg(unix)]
+            {
+                let audio = drive.root.join("Contents/Loopmasters/UnknownAlbum/Demo Track 2.mp3");
+                let outside = drive.dir.path().join("secret.mp3");
+                std::fs::rename(&audio, &outside).unwrap();
+                std::os::unix::fs::symlink(&outside, &audio).unwrap();
+            }
+            let file = "/Contents/Loopmasters/UnknownAlbum/Demo Track 2.mp3";
+            let said = format!("refusing {file:?}: it resolves outside the drive");
+            ("serato", usb(), json!({ "write_tags": true }), None, (code::FAILED, Some("invalid"), said))
+        }
+    };
+    let session = start_cancelling(&drive, cancel_at);
+    let e = session.export_of(format, source, &output, options, dry_run).unwrap_err();
+    session.stop();
+    assert_eq!((e.code, e.kind()), (code, kind), "{e:?}");
+    assert!(e.message.starts_with(&said), "{e:?}, not {said:?}");
+    assert!(!output.exists(), "nothing is written");
+}
+
 /// For any of the four formats, any choice of playlists, any options its schema takes, the audio
 /// of any tracks gone from the drive and (for Engine) an old library's WAL in the way: what
 /// can't be exported is refused, saying why, before anything is written; otherwise the dry run

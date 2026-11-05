@@ -181,6 +181,27 @@ describe('VerificationService', () => {
 		expect((await t.verifications.list()).map((item) => item.displayName)).toEqual(['Changed elsewhere']);
 	});
 
+	it('passes on a write the PDS fails for any reason but a stale version', async () => {
+		await identify('neon.example', 'Neon Tide');
+		t.net.failWrites(ROOT);
+
+		await expect(t.verifications.grant(await t.viewer(ADMIN), DJ)).rejects.toThrow('UpstreamFailure');
+		expect(rootRecords()).toEqual([]);
+	});
+
+	it("reads a handle that can't be resolved as none, and won't verify the account", async () => {
+		await identify('neon.example', 'Neon Tide');
+
+		const unresolvable = new VerificationService(t.core, t.indexedRepo, t.projects, {
+			resolve: async () => {
+				throw new Error('no DID document');
+			}
+		});
+
+		expect(await unresolvable.live(DJ)).toEqual({ handle: null, displayName: 'Neon Tide' });
+		await expect(unresolvable.grant(await t.viewer(ADMIN), DJ)).rejects.toThrow("handle doesn't point back to it");
+	});
+
 	it('reports no statuses and grants nothing while HappyView is down, rather than reading as unverified', async () => {
 		await identify('neon.example', 'Neon Tide');
 

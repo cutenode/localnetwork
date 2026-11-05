@@ -284,3 +284,36 @@ fn an_account_types_text_is_taken_in_printable() {
     assert_eq!(t.title, "Example");
     assert_eq!(t.scopes["upload"].title, "upload sets ");
 }
+
+/// For any account plugin, starting it is refused, saying nothing runs it, and it never runs; and
+/// a host not yet given its account plugins has none, providing no account type.
+#[hegel::test(test_cases = 20)]
+fn prop_an_account_plugin_is_never_started_and_a_bare_host_has_none(tc: TestCase) {
+    let name: String = tc.draw(gs::from_regex("[A-Z][a-z]{1,8}").fullmatch(true));
+    let manifest = Manifest::parse(&format!(
+        r#"
+        id = "example-account"
+        name = "{name}"
+        version = "0.1.0"
+        protocol = "^0.2"
+
+        [[contributes.account_types]]
+        type = "example"
+        title = "Example"
+        authorize_url = "https://auth.example/authorize"
+        token_url = "https://auth.example/token"
+        client_id = "demo"
+        "#
+    ))
+    .unwrap();
+    let host = Arc::new(Host::new(Arc::new(NoReads), Options::default()));
+    assert!(host.account_plugin("example-account").is_none());
+    assert!(host.providing("example").is_empty());
+    let launch = Launch { program: "no-such-program".into(), args: Vec::new(), env_remove: Vec::new() };
+    let slot = Arc::new(Slot::new(manifest, launch, host));
+    let Err(e) = slot.start(None) else { panic!("started") };
+    let said =
+        format!("the {name} plugin is an account plugin, which nothing runs: locallibrary signs in from its manifest");
+    assert_eq!(e.to_string(), said);
+    assert!(!slot.is_running());
+}

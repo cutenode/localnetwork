@@ -70,7 +70,7 @@ fn a_role_is_read_from_the_analyzer_chosen_else_the_first() {
     crate::testing::roles_on_this_thread(None);
 }
 
-/// Only an analyzer that has the role can be chosen for it, and settings that can't be read are
+/// Only an analyzer that has the role can be chosen for it, and damaged settings are
 /// the defaults, written anew by a choice.
 #[test]
 fn only_an_analyzer_with_the_role_is_chosen() {

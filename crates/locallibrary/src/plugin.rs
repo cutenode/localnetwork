@@ -99,7 +99,9 @@ pub use operations::OpPlanned;
 pub use providers::{
     AUTO_PICK, Found, Offer, Pick, PlanProvided, Provide, Provided, auto_pick, plan_provided, set_auto_pick,
 };
-pub(crate) use settings::{all_saved_settings, host_settings, save_host_settings, save_settings, set_host_setting};
+pub(crate) use settings::{
+    all_saved_settings, host_settings, host_settings_to_change, save_host_settings, save_settings, set_host_setting,
+};
 pub use sources::SourceExport;
 
 pub(crate) use process::THREAD_ELEVATED;
@@ -132,12 +134,17 @@ pub struct PluginSpec {
 }
 
 impl PluginSpec {
-    /// A plugin locallibrary ships, from its manifest (`locallibrary-plugin.toml`, compiled in),
-    /// which is checked only in builds with debug assertions (the tests'): it's the same on every
-    /// start, and checking it compiles its JSON Schemas against the 2020-12 meta-schema, which
-    /// added about a millisecond to every run of the CLI, `--version` included.
+    /// A plugin locallibrary ships, from its manifest (`locallibrary-plugin.toml`, compiled in).
     pub fn built_in(manifest: &str, launch: Launch) -> Result<PluginSpec> {
         let manifest = Manifest::parse(manifest).map_err(|e| Error::invalid(format!("a plugin's manifest: {e}")))?;
+        PluginSpec::shipped(manifest, launch)
+    }
+
+    /// A plugin locallibrary ships, from its parsed manifest, which is checked only in builds with
+    /// debug assertions (the tests'): it's the same on every start, and checking it compiles its
+    /// JSON Schemas against the 2020-12 meta-schema, which added about a millisecond to every run
+    /// of the CLI.
+    pub fn shipped(manifest: Manifest, launch: Launch) -> Result<PluginSpec> {
         check_built_in(&manifest)?;
         Ok(PluginSpec { manifest, launch, built_in: true })
     }
@@ -262,9 +269,14 @@ impl Plugins {
         let mut plugins = IndexMap::new();
         let mut cli: FxHashSet<String> = FxHashSet::default();
         for spec in specs {
-            let manifest = process::printable_manifest(spec.manifest)
-                .map_err(|e| Error::invalid(format!("a plugin's manifest: {e}")))?;
-            let spec = PluginSpec { manifest, ..spec };
+            // Only in builds with debug assertions: the plugins locallibrary ships print as they
+            // are, which its tests check, and this was a tenth of the time of every run of the CLI.
+            #[cfg(debug_assertions)]
+            let spec = PluginSpec {
+                manifest: process::printable_manifest(spec.manifest)
+                    .map_err(|e| Error::invalid(format!("a plugin's manifest: {e}")))?,
+                ..spec
+            };
             let m = &spec.manifest;
             if !spec.built_in {
                 return Err(Error::invalid(format!("{}: third-party plugins aren't supported yet", m.id)));

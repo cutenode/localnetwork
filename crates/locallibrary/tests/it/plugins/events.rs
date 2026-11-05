@@ -497,6 +497,92 @@ fn the_newest_suggestions_are_kept_until_forgotten(tc: hegel::TestCase) {
     assert_eq!(on_disk[..unread.len()], unread[..]);
 }
 
+/// For any drive pulled (into any library), it's `drive.pulled`, and `set.returned` too exactly
+/// when it was saved beside the library's newest snapshot (a drive back from a set): both about
+/// the drive, by id.
+#[hegel::test(test_cases = 1)]
+fn prop_a_drive_pulled_beside_the_newest_is_a_set_returned_too(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let library: String = tc.draw(gs::from_regex("[A-Za-z]{1,8}").fullmatch(true));
+    let f = Fixture::echo();
+    common::age(&f.drive);
+    let opts = locallibrary::sync::PullOptions { library: None, message: None, force: false };
+    let mut device = locallibrary::Device::open(&f.drive).unwrap();
+    let snapshot = locallibrary::sync::pull(&f.store, &mut device, &opts, &Ctx::silent()).unwrap().snapshot.unwrap();
+    for beside in [false, true] {
+        let pulled = WatchAction::Pulled {
+            drive: mounted(&f),
+            library: library.clone(),
+            snapshot: Box::new(snapshot.clone()),
+            history_lists: Vec::new(),
+            beside,
+        };
+        let events: Vec<(EventName, Option<String>)> =
+            Event::of(&Notice::Watched(pulled)).into_iter().map(|e| (e.name, e.drive)).collect();
+        let mut expected = vec![(EventName::DrivePulled, Some(drive_id(&f)))];
+        if beside {
+            expected.push((EventName::SetReturned, Some(drive_id(&f))));
+        }
+        assert_eq!(events, expected);
+    }
+}
+
+/// What a plugin suggests when what was suggested before can't be read
+/// (`plugins/suggested.json` damaged) is told as it is, saying so; an export of a set (on no
+/// drive) is told as it is; and an action on tracks of a drive whose library can't be read
+/// is left out, saying why, the line still told. A host with no front end says the same.
+#[hegel::test(test_cases = 1)]
+fn prop_a_suggestion_that_cant_be_checked_is_told_or_left_out_saying_why(tc: hegel::TestCase) {
+    for by_default in [true, false] {
+        prop_a_suggestion_that_cant_be_checked_is_told_or_left_out_saying_why_case(&tc, by_default);
+    }
+}
+
+/// [`prop_a_suggestion_that_cant_be_checked_is_told_or_left_out_saying_why`], `by_default` with no
+/// front end told.
+#[hegel::test_helper]
+fn prop_a_suggestion_that_cant_be_checked_is_told_or_left_out_saying_why_case(tc: &hegel::TestCase, by_default: bool) {
+    use hegel::generators as gs;
+    let message: String = tc.draw(gs::from_regex("[a-z]{1,8}").fullmatch(true));
+    let sheet =
+        "[[contributes.exporters]]\nformat = \"sheet\"\ntitle = \"Set sheet\"\nextension = \"txt\"\nsource = \"set\"\n";
+    let listening = listening(&["plan.applied"]).replacen("\"library:plan\"", "\"library:plan\", \"sets:read\"", 1);
+    let manifest = format!("{listening}\n{sheet}");
+    let specs = |dir: &Path| vec![spec(dir, &manifest, &[])];
+    let (f, notices) = match by_default {
+        true => (Fixture::new(specs, Options::default()), Arc::new(Mutex::new(Vec::new()))),
+        false => told(specs, Options::default()),
+    };
+    let tell = |action: HostAction| {
+        let tell = serde_json::to_value(HostNotify::action(message.clone(), &action)).unwrap();
+        let event = Event { name: EventName::PlanApplied, drive: None, payload: json!({ "tell": tell }) };
+        f.plugins.deliver(&event, Some(&f.store));
+    };
+    let logged = |line: &str| f.logs.lock().unwrap().iter().any(|(_, l)| l.starts_with(line));
+    let export = HostAction::Export(ExportAction {
+        format: "sheet".into(),
+        set: Some("Friday".into()),
+        ..ExportAction::default()
+    });
+    let suggested_file = f.store.root().join("plugins/suggested.json");
+    std::fs::create_dir_all(suggested_file.parent().unwrap()).unwrap();
+    std::fs::write(&suggested_file, "not json").unwrap();
+    tell(export.clone());
+    eventually("it's told, saying so", || logged("what was suggested before can't be read: "));
+    std::fs::remove_file(&suggested_file).unwrap();
+    tell(export.clone());
+    std::fs::write(f.drive.join(locallibrary::paths::EXPORT_PDB), "damaged").unwrap();
+    tell(HostAction::Analyze(AnalyzeAction { analyzer: "size".into(), drive: "USB".into(), tracks: vec![1] }));
+    eventually("an action on its tracks is left out", || logged("it suggests an action on USB: "));
+    if by_default {
+        return;
+    }
+    eventually("each is told", || notices.lock().unwrap().len() == 3);
+    let told: Vec<Option<Suggestion>> = notices.lock().unwrap().iter().map(|n| n.suggests.clone()).collect();
+    let export = Some(Suggestion::Action(export));
+    assert_eq!(told, [export.clone(), export, None]);
+}
+
 /// Where [`suggestions_kept_at_once_by_two_processes_are_all_kept`] runs as one of the two:
 /// the store, then what this one's suggestions start with.
 const KEEPER: &str = "LOCALLIBRARY_TEST_SUGGESTION_KEEPER";
@@ -548,4 +634,239 @@ fn suggestions_kept_at_once_by_two_processes_are_all_kept() {
         ["a", "b"].iter().flat_map(|t| (0..EACH).map(move |n| format!("{t} {n}"))).collect();
     expected.sort();
     assert_eq!(kept, expected, "none lost");
+}
+
+/// What a plugin tells the user, as [`prop_what_a_plugin_tells_is_told_or_left_out_saying_why`]
+/// draws it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Telling {
+    /// Nothing but spaces.
+    Nothing,
+    /// An action suggested before, and waiting.
+    Waiting,
+    /// An action on a drive not known here.
+    Elsewhere,
+    /// An action on tracks the drive doesn't have.
+    NoTracks,
+    /// An action on tracks the drive has.
+    Tracks,
+    /// An action on a drive known here by its name alone (it has no id).
+    Unadopted,
+    /// An action on tracks the drive has, and one it doesn't.
+    SomeTracks,
+}
+
+/// For anything a plugin tells the user: nothing is left out, saying so; an action suggested
+/// before and waiting, or on a drive not known here, or on tracks the drive doesn't have, is left
+/// out of what's told (the line told all the same, or not, when all of it was suggested
+/// before), saying why; an action on tracks the drive has is told on them, by the drive's id.
+#[hegel::test(test_cases = 1)]
+fn prop_what_a_plugin_tells_is_told_or_left_out_saying_why(tc: hegel::TestCase) {
+    for telling in [
+        Telling::Nothing,
+        Telling::Waiting,
+        Telling::Elsewhere,
+        Telling::NoTracks,
+        Telling::Tracks,
+        Telling::Unadopted,
+        Telling::SomeTracks,
+    ] {
+        prop_what_a_plugin_tells_is_told_or_left_out_saying_why_case(&tc, telling);
+    }
+}
+
+/// [`prop_what_a_plugin_tells_is_told_or_left_out_saying_why`] for one `telling`.
+#[hegel::test_helper]
+fn prop_what_a_plugin_tells_is_told_or_left_out_saying_why_case(tc: &hegel::TestCase, telling: Telling) {
+    use hegel::generators as gs;
+    let (f, notices) = told(|dir| vec![spec(dir, &listening(&["plan.applied"]), &[])], Options::default());
+    let message: String = tc.draw(gs::from_regex("[a-z]{1,8}").fullmatch(true));
+    let analyze = |drive: &str, tracks: Vec<u32>| {
+        HostAction::Analyze(AnalyzeAction { analyzer: "size".into(), drive: drive.into(), tracks })
+    };
+    let ids: Vec<u32> = common::library(&f.drive).tracks.iter().map(|t| t.id).collect();
+    let (tell, logged) = match telling {
+        Telling::Nothing => (json!({ "message": " " }), Some("it tells the user nothing")),
+        Telling::Waiting => {
+            let mut kept = analyze(&drive_id(&f), vec![ids[0]]);
+            let notice = PluginNotice {
+                plugin: "echo".into(),
+                message: "kept".into(),
+                suggests: Some(Suggestion::Action(kept.clone())),
+            };
+            keep_suggested(&f.store, &notice).unwrap();
+            *kept.scope_mut().0.unwrap() = "USB".into();
+            let tell = serde_json::to_value(HostNotify::action(message.clone(), &kept)).unwrap();
+            (tell, Some("it suggests only what was reviewed, dismissed or is waiting: left out"))
+        }
+        Telling::Elsewhere => {
+            let tell =
+                serde_json::to_value(HostNotify::action(message.clone(), &analyze("ELSEWHERE", vec![]))).unwrap();
+            (tell, Some("it suggests an action on \"ELSEWHERE\", which isn't a drive known here: "))
+        }
+        Telling::NoTracks => {
+            let tell =
+                serde_json::to_value(HostNotify::action(message.clone(), &analyze("USB", vec![999_999]))).unwrap();
+            (tell, Some("it suggests an action on tracks USB doesn't have"))
+        }
+        Telling::Tracks => {
+            (serde_json::to_value(HostNotify::action(message.clone(), &analyze("USB", ids.clone()))).unwrap(), None)
+        }
+        Telling::SomeTracks => {
+            let some = [ids.clone(), vec![999_999]].concat();
+            let tell = serde_json::to_value(HostNotify::action(message.clone(), &analyze("USB", some))).unwrap();
+            (tell, Some("1 of the tracks it suggests aren't on USB: left out"))
+        }
+        Telling::Unadopted => {
+            common::demo_drive(f.drive.parent().unwrap(), "Plain");
+            (serde_json::to_value(HostNotify::action(message.clone(), &analyze("Plain", Vec::new()))).unwrap(), None)
+        }
+    };
+    let event = Event { name: EventName::PlanApplied, drive: None, payload: json!({ "tell": tell }) };
+    f.plugins.deliver(&event, Some(&f.store));
+    let logs = || f.logs.lock().unwrap().clone();
+    match logged {
+        Some(why) => eventually("it says why", || logs().iter().any(|(_, l)| l.starts_with(why))),
+        None => eventually("it's told", || !notices.lock().unwrap().is_empty()),
+    }
+    f.plugins.shutdown();
+    let told: Vec<PluginNotice> = notices.lock().unwrap().clone();
+    match telling {
+        Telling::Nothing | Telling::Waiting => assert_eq!(told, []),
+        Telling::Elsewhere | Telling::NoTracks => {
+            assert_eq!(
+                told.iter().map(|n| (n.message.as_str(), n.suggests.is_none())).collect::<Vec<_>>(),
+                [(message.as_str(), true)]
+            )
+        }
+        Telling::Tracks | Telling::SomeTracks => {
+            assert_eq!(told[0].suggests, Some(Suggestion::Action(analyze(&drive_id(&f), ids))));
+        }
+        Telling::Unadopted => assert_eq!(told[0].suggests, Some(Suggestion::Action(analyze("Plain", Vec::new())))),
+    }
+}
+
+/// For any events past how many may wait for a plugin slow to start, the oldest are dropped,
+/// saying so, and the host letting go of the plugin then drops the rest; shutting down before
+/// they're sent drops them too, saying how many.
+#[hegel::test(test_cases = 1)]
+fn prop_events_past_the_queue_or_left_at_shutdown_are_dropped_saying_so(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let more = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+    let event = Event { name: EventName::PlanApplied, drive: None, payload: json!({}) };
+    let starting = |options: Options| {
+        let specs = |dir: &Path| {
+            let go = dir.join("go").display().to_string();
+            vec![spec(dir, &listening(&["plan.applied"]), &["--paused", &go])]
+        };
+        told(specs, options).0
+    };
+    let said = |f: &Fixture, what: &str| f.logs.lock().unwrap().iter().filter(|(_, l)| l.starts_with(what)).count();
+    let f = starting(Options { events: 2, ..Options::default() });
+    f.plugins.deliver(&event, Some(&f.store));
+    eventually("it's sending the first, to the plugin starting", || said(&f, "paused") == 1);
+    for _ in 0..2 + more {
+        f.plugins.deliver(&event, Some(&f.store));
+    }
+    assert_eq!(said(&f, "dropped a plan.applied event: 2 were waiting"), more);
+    // Let go of as it sends one: the rest go with it, and it isn't started again.
+    let logs = f.logs.clone();
+    drop(f.plugins);
+    std::fs::write(f._dir.path().join("go"), "").unwrap();
+    let lines = |start: &str| logs.lock().unwrap().iter().filter(|(_, l)| l.starts_with(start)).count();
+    eventually("it hears the one being sent", || lines("event ") == 1);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!((lines("event "), lines("paused")), (1, 1));
+
+    // More than start, one by one, before it has stopped: each takes a handshake that never ends.
+    let handshake = Duration::from_millis(300);
+    let f = starting(Options { handshake, grace: Duration::from_millis(100), ..Options::default() });
+    for _ in 0..40 {
+        f.plugins.deliver(&event, Some(&f.store));
+    }
+    f.plugins.shutdown();
+    assert_eq!(said(&f, "it's stopping: "), 1);
+}
+
+/// For any plan applied, its `plan.applied` event says what it did, about the first drive it
+/// wrote (by name), and each drive it wrote; a plan writing none is about no drive.
+#[hegel::test(test_cases = 10)]
+fn prop_a_plan_applied_is_about_the_drives_it_wrote(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use locallibrary::op::{Applied, Touched};
+    let f = Fixture::echo();
+    let device = locallibrary::Device::open(&f.drive).unwrap();
+    let operation: String = tc.draw(gs::from_regex("[a-z]{1,8}").fullmatch(true));
+    let writes: Vec<bool> = tc.draw(gs::vecs(gs::booleans()).max_size(3));
+    let drives: Vec<Touched> = writes.iter().map(|&w| Touched::library(&device, w)).collect();
+    let summary = vec![format!("{operation} once")];
+    let destructive = tc.draw(gs::booleans());
+    let event = Event::applied(&Applied { operation: &operation, summary: &summary, destructive, drives: &drives });
+    let written: Vec<&str> = writes.iter().filter(|w| **w).map(|_| "USB").collect();
+    assert_eq!((event.name, event.drive.as_deref()), (EventName::PlanApplied, written.first().copied()));
+    let payload = json!({ "operation": operation, "summary": summary, "destructive": destructive, "drives": written });
+    assert_eq!(event.payload, payload);
+}
+
+/// For any drive (with an id or not) and anything the sidecar says, a plugin is told of a drive
+/// mounted, unmounted or changed, or a job finished, the drive by its id, else its name; of
+/// anything else, nothing. Whether any plugin listens for each is as their manifests say.
+#[hegel::test(test_cases = 10)]
+fn prop_events_are_what_the_sidecar_says_about_drives_and_jobs(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let name: String = tc.draw(gs::from_regex("[A-Z]{1,6}").fullmatch(true));
+    let id = tc.draw(gs::booleans()).then(uuid::Uuid::new_v4);
+    let drive = MountedDrive { root: "/Volumes/X".into(), id, name: name.clone(), has_export: true };
+    let named = Some(id.map_or(name, |id| id.to_string()));
+    let changed = WatchEvent::Changed { drive: drive.clone(), changed: Vec::new() };
+    let finished = JobEvent::Finished { id: json!(1), method: "sync.apply".into(), ok: true, kind: None };
+    let started = JobEvent::Started { id: json!(1), method: "drives.list".into(), started: chrono::Utc::now() };
+    let said = [
+        (Notice::Watch(WatchEvent::Attached(drive.clone())), vec![(EventName::DriveMounted, named.clone())]),
+        (Notice::Watch(WatchEvent::Detached(drive.clone())), vec![(EventName::DriveUnmounted, named.clone())]),
+        (Notice::Watch(changed), vec![(EventName::DriveChanged, named.clone())]),
+        (Notice::Job(finished), vec![(EventName::JobFinished, None)]),
+        (Notice::Job(started), Vec::new()),
+    ];
+    for (notice, expected) in said {
+        let events: Vec<(EventName, Option<String>)> =
+            Event::of(&notice).into_iter().map(|e| (e.name, e.drive)).collect();
+        assert_eq!(events, expected);
+    }
+    let (f, _) = told(|dir| vec![spec(dir, &listening(&["job.finished"]), &[])], Options::default());
+    assert!(f.plugins.listens(EventName::JobFinished) && !f.plugins.listens(EventName::DriveMounted));
+}
+
+/// For any drive whose path isn't text, which JSON can't carry, a plugin is told of it all the
+/// same, by its name, with nothing more about it.
+#[cfg(unix)]
+#[hegel::test(test_cases = 1)]
+fn prop_a_drive_whose_path_isnt_text_is_told_without_a_payload(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use std::os::unix::ffi::OsStrExt;
+    let name: String = tc.draw(gs::from_regex("[A-Z]{1,6}").fullmatch(true));
+    let root = PathBuf::from(std::ffi::OsStr::from_bytes(b"/Volumes/\xff"));
+    let drive = MountedDrive { root, id: None, name: name.clone(), has_export: true };
+    let events = Event::of(&Notice::Watch(WatchEvent::Attached(drive)));
+    let told: Vec<_> = events.into_iter().map(|e| (e.name, e.drive, e.payload)).collect();
+    assert_eq!(told, [(EventName::DriveMounted, Some(name), Value::Null)]);
+}
+
+/// A plugin's thread sending its events ends once none has come for a while, and a later event
+/// starts it again: both are told, in order.
+#[hegel::test(test_cases = 1)]
+fn prop_events_after_a_quiet_while_are_told_all_the_same(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (f, _) = told(|dir| vec![spec(dir, &listening(&["plan.applied"]), &[])], Options::default());
+    let n: u32 = tc.draw(gs::integers());
+    for i in 0..2 {
+        let event = Event { name: EventName::PlanApplied, drive: None, payload: json!({ "n": n, "i": i }) };
+        f.plugins.deliver(&event, Some(&f.store));
+        eventually("it hears it", || heard(&f).len() == i + 1);
+        if i == 0 {
+            std::thread::sleep(Duration::from_millis(5500));
+        }
+    }
+    let heard: Vec<Value> = heard(&f).into_iter().map(|(_, _, payload)| payload).collect();
+    assert_eq!(heard, [json!({ "n": n, "i": 0 }), json!({ "n": n, "i": 1 })]);
 }

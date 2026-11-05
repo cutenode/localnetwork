@@ -1,3 +1,4 @@
+import { TID } from '@atproto/common-web';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type EpkAccess, type EpkView, MAX_EPKS_PER_PROJECT } from '#lib/epk.ts';
 import { followSchema } from '#lib/epk-schema.ts';
@@ -5,7 +6,7 @@ import { BSKY_FOLLOW, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.
 import { isValidDid, isValidRecordKey } from '@atproto/syntax';
 import { RecordValidationError, TOO_DEEP } from '../atproto/lexicons';
 import { memberSpacePolicy } from '../atproto/repo-client';
-import { epkRequestSpace } from '../atproto/spaces';
+import { epkRequestSpace, epkSpace } from '../atproto/spaces';
 import { ensureRootSpaces } from '../bootstrap';
 import { ForbiddenError, UserError } from '../core';
 import { HappyViewClient, HappyViewError } from '../happyview/client';
@@ -547,5 +548,107 @@ describe('EpkService', () => {
 		]);
 		expect(f.t.net.spaces.get(kit.epk.space)?.members.has(FRIEND)).toBe(false);
 		expect(await f.t.epks.accessState(kit, await f.t.viewer(FRIEND))).toEqual({ kind: 'closed' });
+	});
+});
+
+describe('EpkService reads', () => {
+	let f: Awaited<ReturnType<typeof pressKitServices>>;
+
+	beforeEach(async () => {
+		f = await pressKitServices();
+	});
+	afterEach(async () => {
+		await f.t.audit.idle();
+		await f.t.db.destroy();
+	});
+
+	/** The same services without a way to download blobs. */
+	const blind = () =>
+		new EpkService(
+			{ ...f.t.core, fetchBlob: undefined, fetchSpaceBlob: undefined },
+			f.t.projects,
+			f.t.indexedRepo,
+			async (id) => id
+		);
+
+	it('serves public photos to anyone and private ones only with the private part', async () => {
+		const wide = await f.photo(DJ, 'wide');
+		const secret = await f.photo(DJ, 'secret');
+		const epk = await f.publish(DJ, { photos: [wide], content: { ...values().content, photos: [secret] } });
+		const cid = (photo: typeof wide) => photo.image.ref.$link;
+		const text = (found: { bytes: Uint8Array } | null) => found && new TextDecoder().decode(found.bytes);
+
+		const shown = await f.t.epks.photo(epk, cid(wide), false);
+		expect([text(shown), shown?.isPublic]).toEqual(['wide', true]);
+		expect(await f.t.epks.photo(epk, cid(secret), false)).toBeNull();
+
+		const hidden = await f.t.epks.photo(epk, cid(secret), true);
+		expect([text(hidden), hidden?.isPublic]).toEqual(['secret', false]);
+		expect(await f.t.epks.photo(epk, 'bafkreinotthere', true)).toBeNull();
+
+		// Without a blob reader there's nothing to serve, and nothing to copy a photo with.
+		expect(await blind().photo(epk, cid(wide), false)).toBeNull();
+		expect(await blind().photo(epk, cid(secret), true)).toBeNull();
+		await expect(blind().copyPhoto(f.t.net.client(ROOT), wide, { did: DJ })).rejects.toThrow(/no way to download/);
+	});
+
+	it("reads no private part when its space holds none, or one that doesn't validate", async () => {
+		const epk = await f.publish(DJ);
+		const root = f.t.net.client(ROOT);
+		const at = { space: epk.space, collection: COLLECTION.epkContent, rkey: EPK_CONTENT_KEY };
+
+		await root.putSpaceRecord({ ...at, record: { bio: 'No updatedAt' } });
+		expect(await f.t.epks.content(epk)).toBeNull();
+
+		await root.deleteSpaceRecord(at);
+		expect(await f.t.epks.content(epk)).toBeNull();
+	});
+
+	it("skips a record in the root's repo that doesn't validate, and orders one never updated by when it was made", async () => {
+		const clubs = await f.publish(DJ);
+		const root = f.t.net.client(ROOT);
+		const { updatedAt: _updatedAt, ...record } = f.t.net.records.get(`${ROOT}|${COLLECTION.epk}|${clubs.rkey}`)!.value;
+
+		await root.putRecord({
+			collection: COLLECTION.epk,
+			rkey: TID.nextStr(),
+			record: { ...record, title: 'Oldest', createdAt: '2020-01-01T00:00:00.000Z' }
+		});
+		await root.putRecord({ collection: COLLECTION.epk, rkey: TID.nextStr(), record: { ...record, title: '' } });
+		await f.publish(CODJ, { title: 'Festivals' });
+		f.t.epks.forget();
+
+		expect((await f.t.epks.forProject(f.project)).map((epk) => epk.record.title)).toEqual([
+			'Festivals',
+			'Clubs',
+			'Oldest'
+		]);
+	});
+
+	it('deletes a press kit whose space is gone already, and revokes someone who had no grant', async () => {
+		const epk = await f.publish(DJ);
+		const kit = f.kit(epk);
+		await f.t.epks.invite(await f.t.viewer(DJ), kit, FRIEND);
+
+		await f.t.epks.revoke(await f.t.viewer(DJ), kit, STRANGER);
+		expect((await f.t.epks.grants(epk)).map((grant) => grant.subject.did)).toEqual([FRIEND]);
+
+		await f.t.net.client(ROOT).deleteSpace(epk.space);
+		await f.t.epks.remove(await f.t.viewer(CODJ), kit);
+		expect(f.t.net.records.has(`${ROOT}|${COLLECTION.epk}|${epk.rkey}`)).toBe(false);
+		expect(await f.t.epks.forProject(f.project)).toEqual([]);
+	});
+
+	it("doesn't index a request in a press kit space under another account than the press kit's", async () => {
+		const epk = await f.publish(DJ);
+		const elsewhere = epkSpace(STRANGER, epk.rkey);
+
+		await f.t.epks.indexRequest({
+			space: elsewhere,
+			uri: `${elsewhere}/${FRIEND}/${COLLECTION.epkRequest}/3req`,
+			repoDid: FRIEND,
+			value: { epk: epk.uri, createdAt: new Date().toISOString() }
+		});
+		expect(await f.t.epks.requests(epk)).toEqual([]);
 	});
 });

@@ -78,3 +78,34 @@ fn protocol_versions_are_compatible_by_semvers_caret() {
         assert_eq!(check_protocol(theirs).is_ok(), compatible, "{theirs}");
     }
 }
+
+/// A fetch of any URL is a plain `GET` of it, as one that names only its URL reads.
+#[hegel::test(test_cases = 50)]
+fn prop_a_fetch_naming_only_its_url_is_a_get(tc: hegel::TestCase) {
+    let url = tc.draw(hegel::generators::text().max_size(16));
+    let fetch = Fetch::get(url.clone());
+    assert_eq!(serde_json::to_value(&fetch).unwrap(), json!({ "url": url, "method": "GET" }));
+    assert_eq!(serde_json::from_value::<Fetch>(json!({ "url": url })).unwrap(), fetch);
+}
+
+/// Progress read from text is the event it says, with its scope and how many items it stands
+/// for; text that isn't JSON, whose scope isn't one (a target that isn't a string), or whose
+/// event isn't one, isn't read as a progress event.
+#[hegel::test(test_cases = 50)]
+fn prop_progress_that_isnt_json_or_has_no_scope_isnt_an_event(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let items = tc.draw(gs::integers::<u64>().min_value(2).max_value(9));
+    let item = json!({ "event": "item", "phase": "scan", "path": "a", "bytes": 0, "items": items }).to_string();
+    let read = serde_json::from_str::<ProgressEvent>(&item).unwrap();
+    assert!(matches!(read.event, Progressed::Event(Event::Item { .. })) && read.items == Some(items));
+    let start = json!({ "event": "phase_start", "phase": "copy", "items": items, "bytes": 0 }).to_string();
+    assert_eq!(serde_json::from_str::<ProgressEvent>(&start).unwrap().items, None);
+    assert!(serde_json::from_str::<ProgressEvent>(r#"{ "event": "rewind" }"#).is_err());
+    let cut = tc.draw(gs::integers::<usize>().min_value(1).max_value(20));
+    let cut = &item[..item.len() - cut];
+    assert!(serde_json::from_str::<ProgressEvent>(cut).is_err(), "{cut}");
+    let target = tc.draw(gs::integers::<i64>());
+    let e =
+        serde_json::from_str::<ProgressEvent>(&json!({ "event": "step", "target": target }).to_string()).unwrap_err();
+    assert!(e.to_string().starts_with("invalid type: integer"), "{e}");
+}

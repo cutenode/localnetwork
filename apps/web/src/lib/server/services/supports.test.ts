@@ -148,4 +148,49 @@ describe('SupportService', () => {
 		await supports.search('ferr');
 		expect(asked).toBe(4);
 	});
+
+	it('forgets the oldest answer once it holds 200', async () => {
+		let asked = 0;
+
+		const directory = new HappyViewClient({
+			url: 'http://happyview.test',
+			fetch: async () => {
+				asked += 1;
+
+				return Response.json({ artists: [] });
+			}
+		});
+
+		const supports = new SupportService(directory, t.accounts, silentLogger, () => 0);
+
+		for (let i = 0; i <= 200; i++) await supports.search(`artist ${i}`);
+		expect(asked).toBe(201);
+
+		await supports.search('artist 1');
+		expect(asked).toBe(201);
+		await supports.search('artist 0');
+		expect(asked).toBe(202);
+	});
+
+	it('keeps a newer answer when an older one to the same query fails after it', async () => {
+		let now = 0;
+		const answers: ((response: Response) => void)[] = [];
+
+		const directory = new HappyViewClient({
+			url: 'http://happyview.test',
+			fetch: () => new Promise((resolve) => answers.push(resolve))
+		});
+
+		const supports = new SupportService(directory, t.accounts, silentLogger, () => now);
+		const stale = supports.search('ferr');
+		now = 60_000;
+		const fresh = supports.search('ferr');
+		answers[1](Response.json({ artists: [] }));
+		expect(await fresh).toEqual([]);
+
+		answers[0](new Response('down', { status: 503 }));
+		await expect(stale).rejects.toThrow('HTTP 503');
+		expect(await supports.search('ferr')).toEqual([]);
+		expect(answers).toHaveLength(2);
+	});
 });

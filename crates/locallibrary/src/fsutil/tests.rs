@@ -399,6 +399,32 @@ fn flushing_skips_the_gone_and_stops_at_the_unreadable(tc: hegel::TestCase) {
     }
 }
 
+/// Ahead of a rewrite, a missing or damaged file reads as empty and what's kept reads as it is. A
+/// file that can't be read says so: its folder here, on every platform.
+#[hegel::test(test_cases = 20)]
+fn only_a_damaged_file_is_written_anew(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("kept.json");
+    let kept = tc.draw(gs::integers::<u32>().min_value(1));
+    let read = || unless_damaged(read_json_opt::<u32>(&path));
+    match tc.draw(gs::integers::<u8>().max_value(3)) {
+        0 => assert_eq!(read().unwrap(), None),
+        1 => {
+            fs::write(&path, kept.to_string()).unwrap();
+            assert_eq!(read().unwrap(), Some(kept));
+        }
+        2 => {
+            fs::write(&path, format!("[{kept}")).unwrap();
+            assert_eq!(read().unwrap(), None);
+        }
+        _ => {
+            fs::create_dir(&path).unwrap();
+            assert!(matches!(read(), Err(Error::Io { path: p, .. }) if p == path));
+        }
+    }
+}
+
 /// A drive's lock: one holder at a time (whether it waited for it or tried), a reader never makes
 /// the file, and a lock in a folder that isn't there can't be had.
 #[hegel::test(test_cases = 40)]

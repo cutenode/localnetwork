@@ -188,11 +188,7 @@ pub fn run(args: PluginArgs, store_path: &Option<PathBuf>, out: Output) -> Resul
         PluginCommand::Providers { auto_pick, reset } => {
             return listing::providers(plugins, auto_pick, reset, store_path, out);
         }
-        PluginCommand::Serve { plugin } => {
-            // Ctrl-C in the terminal reaches it too: it stops when its host says.
-            let _ = ctrlc::set_handler(|| {});
-            plugins::serve(&plugin)?;
-        }
+        PluginCommand::Serve { plugin } => plugins::serve(&plugin)?,
     }
     Ok(ExitCode::SUCCESS)
 }

@@ -1064,6 +1064,7 @@ fn too_deep(path: &[String], depth: usize) -> Result<()> {
 /// Apply one operation to a database and its model. With `strict`, anything the operation names
 /// that the database lacks is an error; otherwise (the drive's second database) it's skipped
 /// with a warning.
+#[cfg(test)]
 fn apply_op(db: &mut dyn EditDb, op: &Op, strict: bool, label: &str, warnings: &mut Vec<String>) -> Result<()> {
     apply_op_indexed(db, &mut None, op, strict, label, warnings)
 }
@@ -1299,10 +1300,11 @@ fn apply_op_indexed(
                 return Ok(());
             }
             db.delete_tracks(&ids)?;
+            let doomed: FxHashSet<u32> = ids.into_iter().collect();
             let lib = db.lib();
-            lib.tracks.retain(|t| !ids.contains(&t.id));
+            lib.tracks.retain(|t| !doomed.contains(&t.id));
             for p in lib.playlists.iter_mut().chain(lib.history.iter_mut()) {
-                p.track_ids.retain(|t| !ids.contains(t));
+                p.track_ids.retain(|t| !doomed.contains(t));
             }
         }
         Op::Repoint { from, to } => {
@@ -1650,15 +1652,14 @@ impl<'a> Resolver<'a> {
                         .filter(|t| used_elsewhere.contains(&t.id))
                         .map(|t| paths::file_key(&t.file_path))
                         .collect();
+                    let track = lib.track_lookup();
                     let mut only_here: Vec<u32> = lib
                         .playlists
                         .iter()
                         .filter(|q| inside.contains(&q.id))
                         .flat_map(|q| q.track_ids.iter().copied())
                         .filter(|t| !used_elsewhere.contains(t))
-                        .filter(|t| {
-                            lib.track(*t).is_none_or(|t| !files_elsewhere.contains(&paths::file_key(&t.file_path)))
-                        })
+                        .filter(|t| track(*t).is_none_or(|t| !files_elsewhere.contains(&paths::file_key(&t.file_path))))
                         .collect();
                     only_here.sort_unstable();
                     only_here.dedup();
@@ -1854,10 +1855,11 @@ impl<'a> Resolver<'a> {
             Edit::Dedupe { playlist: spec, recordings } => {
                 let p = list(spec)?;
                 let mut seen = FxHashSet::default();
+                let track = lib.track_lookup();
                 let new: Vec<u32> = entries(p)
                     .into_iter()
                     .filter(|id| {
-                        let k = match (recordings, lib.track(*id)) {
+                        let k = match (recordings, track(*id)) {
                             (true, Some(t)) => t.fingerprint_key(),
                             _ => id.to_string(),
                         };
@@ -2416,8 +2418,9 @@ fn plan_edit(
 ) -> Result<(Vec<Op>, String, Vec<Edit>)> {
     let (edit_ops, desc, canonical) = resolver.resolve(edit, &model.lib)?;
     let before = model.lib.clone();
+    let mut index = None;
     for op in &edit_ops {
-        if let Err(e) = apply_op(model, op, true, "plan", warnings) {
+        if let Err(e) = apply_op_indexed(model, &mut index, op, true, "plan", warnings) {
             model.lib = before;
             return Err(e);
         }
@@ -3157,7 +3160,7 @@ fn apply_locked(
                 Ok(db.editor.to_bytes())
             })?;
             let check = pdb::parse_database(bytes.clone(), &device.path(paths::EXPORT_PDB))?;
-            if let Err(e) = verify(&db.lib, &pdb::library_from_database(&check)) {
+            if let Err(e) = verify(&db.lib, &pdb::into_library(check)) {
                 return Err(Error::Pdb(format!("the edited database failed verification ({e}); drive left unchanged")));
             }
             ext_bytes = match ext_after(device, &db.deleted, &db.repointed) {
@@ -3235,29 +3238,16 @@ pub(crate) struct Subset {
     pub warnings: Vec<String>,
 }
 
-/// The source drive's databases holding only `playlists` (paths of playlists or folders; a
-/// folder brings everything in it), the folders above them and the tracks they use, plus the
-/// history lists when `history`. Nothing on the drive changes.
 /// The playlists and folders `specs` name in `lib`, with everything below them and the folders
 /// above them.
 pub(crate) fn chosen_nodes(lib: &Library, specs: &[String]) -> Result<FxHashSet<u32>> {
-    let mut keep: FxHashSet<u32> = FxHashSet::default();
-    for spec in specs {
-        let p = playlist(lib, spec)?;
-        let mut queue = vec![p.id];
-        while let Some(id) = queue.pop() {
-            if keep.insert(id) {
-                queue.extend(lib.children(Some(id)).iter().map(|c| c.id));
-            }
-        }
-        let mut up = p.parent_id;
-        while let Some(id) = up.filter(|id| keep.insert(*id)) {
-            up = lib.playlist(id).and_then(|q| q.parent_id);
-        }
-    }
-    Ok(keep)
+    let ids = specs.iter().map(|spec| playlist(lib, spec).map(|p| p.id));
+    Ok(lib.with_relatives(ids.collect::<Result<Vec<u32>>>()?))
 }
 
+/// The source drive's databases holding only `playlists` (paths of playlists or folders; a
+/// folder brings everything in it), the folders above them and the tracks they use, plus the
+/// history lists when `history`. Nothing on the drive changes.
 pub(crate) fn subset(device: &Device, playlists: &[String], history: bool, ctx: &Ctx<'_>) -> Result<Subset> {
     let mut warnings = Vec::new();
     let dbs = open_databases(device, &mut warnings)?;
@@ -3309,8 +3299,9 @@ pub(crate) fn subset(device: &Device, playlists: &[String], history: bool, ctx: 
     }
     ctx.check()?;
     let mut model = ModelDb { lib: primary, pdb: None };
+    let mut index = None;
     for op in &ops {
-        apply_op(&mut model, op, true, "plan", &mut warnings)?;
+        apply_op_indexed(&mut model, &mut index, op, true, "plan", &mut warnings)?;
     }
     let (pdb, ext, plus, second) = edit_in_memory(device, dbs, &ops, true, &mut warnings)?;
     Ok(Subset { pdb, ext, plus, library: model.lib, second, warnings: dedup(warnings) })
@@ -3396,7 +3387,7 @@ fn edit_in_memory(
                 Ok(db.editor.to_bytes())
             })?;
             let check = pdb::parse_database(bytes.clone(), &device.path(paths::EXPORT_PDB))?;
-            if let Err(e) = verify(&db.lib, &pdb::library_from_database(&check)) {
+            if let Err(e) = verify(&db.lib, &pdb::into_library(check)) {
                 return Err(Error::Pdb(format!("the packed database failed verification ({e})")));
             }
             ext = ext_after(device, &db.deleted, &db.repointed)?;

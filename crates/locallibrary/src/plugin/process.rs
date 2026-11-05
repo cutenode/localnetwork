@@ -383,6 +383,7 @@ pub(crate) fn printable_json<R: DeserializeOwned>(file: impl std::io::Read) -> s
 
 /// `manifest` with its text [`printable`], as what the plugin answers `describe` is: as it was
 /// when all of it is.
+#[cfg(any(test, debug_assertions))]
 pub(crate) fn printable_manifest(manifest: Manifest) -> serde_json::Result<Manifest> {
     match printed(serde_json::to_value(&manifest)?) {
         None => Ok(manifest),

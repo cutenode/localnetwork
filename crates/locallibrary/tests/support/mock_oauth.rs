@@ -70,8 +70,10 @@ impl Server {
                 let got = Got { method, target, headers, body: String::from_utf8_lossy(&body).into() };
                 log.lock().unwrap().push(got.clone());
                 let Reply { status, headers, body } = route(&base, &got);
-                let mut head =
-                    format!("HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n", body.len());
+                // A reply giving its own length keeps it: one longer than its body is cut short.
+                let sized = headers.iter().any(|(name, _)| name.eq_ignore_ascii_case("content-length"));
+                let length = if sized { String::new() } else { format!("Content-Length: {}\r\n", body.len()) };
+                let mut head = format!("HTTP/1.1 {status} X\r\n{length}Connection: close\r\n");
                 for (name, value) in headers {
                     head.push_str(&format!("{name}: {value}\r\n"));
                 }

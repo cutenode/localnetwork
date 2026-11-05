@@ -116,3 +116,50 @@ fn a_service_runs_exactly_when_its_turned_on(tc: hegel::TestCase) {
     f.plugins.stop_services();
     assert!(!f.plugins.service_running("echo", "beat"));
 }
+
+/// For any service that stops by itself or crashes its plugin, it's started again after a while,
+/// until it has failed too often in a row (then it's left off, the user told why) or it's
+/// stopped while it waits, which stops it at once; a service running is left running however
+/// often services are run, and a plugin that isn't there runs none.
+#[hegel::test(test_cases = 6)]
+fn prop_a_failing_service_is_started_again_until_left_off_or_stopped(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (name, why) =
+        tc.draw(gs::sampled_from(vec![("crash", "it stopped unexpectedly"), ("quits", "it stopped by itself")]));
+    // Running, then turned off: it's stopped.
+    let (beat, _) = service("beat", Options::default());
+    beat.plugins.set_setting("echo", &beat.store, "services.beat", Some(json!(true))).unwrap();
+    beat.plugins.run_services(Some(&beat.store));
+    eventually("it runs", || started(&beat, "beat") == 1);
+    beat.plugins.set_setting("echo", &beat.store, "services.beat", None).unwrap();
+    beat.plugins.run_services(Some(&beat.store));
+    assert!(!beat.plugins.service_running("echo", "beat"));
+    let left_off = tc.draw(gs::booleans());
+    let backoff = Duration::from_millis(if left_off { 10 } else { 60_000 });
+    let (f, notices) = service(name, Options { restarts: 1, backoff, ..Options::default() });
+    f.plugins.set_setting("echo", &f.store, &format!("services.{name}"), Some(json!(true))).unwrap();
+    f.plugins.run_services(Some(&f.store));
+    assert!(!f.plugins.service_running("nope", name));
+    match left_off {
+        true => {
+            eventually("it's left off", || !notices.lock().unwrap().is_empty());
+            let message = notices.lock().unwrap()[0].message.clone();
+            assert!(message.starts_with(&format!("its {name} service is off: it failed 2 times in a row (")));
+            assert!(message.contains(why), "{message}");
+            eventually("it's no longer running", || !f.plugins.service_running("echo", name));
+        }
+        false => {
+            let waiting = format!("its {name} service stopped (");
+            eventually("it waits to start again", || {
+                f.logs.lock().unwrap().iter().any(|(_, l)| l.starts_with(&waiting))
+            });
+            f.plugins.run_services(Some(&f.store));
+            assert!(f.plugins.service_running("echo", name), "waiting, it's left as it is");
+            let stopping = Instant::now();
+            f.plugins.stop_services();
+            assert!(stopping.elapsed() < Duration::from_secs(30), "it stops waiting");
+            assert!(!f.plugins.service_running("echo", name));
+            assert_eq!(started(&f, name), 1);
+        }
+    }
+}

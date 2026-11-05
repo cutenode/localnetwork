@@ -18,6 +18,9 @@ path = "src/main.rs"
 doc = false
 # Its unit tests are built as the `unit` test below.
 test = false
+# Nothing here is a benchmark. `cargo bench --benches`, as `cargo codspeed build` runs it, would
+# otherwise build its tests without debug assertions, which they need.
+bench = false
 
 # The binary's unit tests (src/main.rs and its modules, through src/unit.rs), built as an
 # integration test so cargo and nextest hand them the binary's path (`CARGO_BIN_EXE_locallibrary`)
@@ -149,5 +152,6 @@ form_urlencoded = "1.2.2"
 workspace = true
 
 [build-dependencies]
+serde_json.workspace = true
 # Reads this manifest's dependencies, to check there's one for every plugin (build.rs).
-toml = { version = "1.1.6", default-features = false, features = ["std", "serde", "parse"] }
+toml = { version = "1.1.6", default-features = false, features = ["std", "serde", "parse", "preserve_order"] }

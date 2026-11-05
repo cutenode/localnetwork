@@ -235,3 +235,78 @@ fn questions_that_check_are_answered_with_params_that_fit(tc: TestCase) {
     assert_eq!(params.as_object().map(Map::len), Some(n), "{params}");
     assert_eq!(check_params(Some(&schema), &params), Ok(()), "{params}");
 }
+
+/// Any questions asked together are the first, then the rest in turn as its `more`, each asking
+/// none of its own: at most as many as a round may ask, and none for no questions. More than
+/// that, made by hand, is refused.
+#[hegel::test(test_cases = 30)]
+fn prop_questions_together_are_the_first_then_the_rest_in_turn(tc: TestCase) {
+    let n = tc.draw(gs::integers::<usize>().max_value(Choice::MAX_QUESTIONS + 3));
+    let params: Vec<String> = (0..n).map(|i| i.to_string()).collect();
+    let questions: Vec<Choice> = params.iter().map(|p| asking(p, tc.draw(gs::booleans()), vec![json!(1)])).collect();
+    let mut too_many = asking("0", false, vec![json!(1)]);
+    too_many.more = (1..=Choice::MAX_QUESTIONS).map(|i| asking(&i.to_string(), false, vec![json!(1)])).collect();
+    let refused =
+        format!("it asks {} questions at once, more than {}", Choice::MAX_QUESTIONS + 1, Choice::MAX_QUESTIONS);
+    assert_eq!(too_many.check(None), Err(refused));
+    let Some(together) = Choice::together(questions.clone()) else { return assert_eq!(n, 0) };
+    let asked: Vec<&Choice> = together.questions().collect();
+    let first = Choice { more: Vec::new(), ..together.clone() };
+    assert_eq!(first, questions[0]);
+    assert_eq!(asked[1..], questions[1..n.min(Choice::MAX_QUESTIONS)].iter().collect::<Vec<_>>()[..]);
+}
+
+/// Any question without a title, with nothing to choose from, or with an item unlabelled is
+/// refused saying so, whether or not the hook's params are known; and one asked after the first
+/// that asks more of its own is refused by its place. Otherwise, with no schema, it's fine.
+#[hegel::test(test_cases = 50)]
+fn prop_a_question_without_a_title_items_or_labels_is_refused(tc: TestCase) {
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+    let question = asking("track", tc.draw(gs::booleans()), (1..=n as i64).map(Value::from).collect());
+    let schema = json!({ "type": "object" });
+    let schema = tc.draw(gs::booleans()).then_some(&schema);
+    assert_eq!(question.check(schema), Ok(()));
+    let blank = tc.draw(gs::text().alphabet(" \t\n").max_size(3));
+    let untitled = Choice { title: blank.clone(), ..question.clone() };
+    assert_eq!(untitled.check(schema).unwrap_err(), "its question has no title");
+    let empty = Choice { items: Vec::new(), ..question.clone() };
+    assert_eq!(empty.check(schema).unwrap_err(), "\"Which one?\" has nothing to choose from");
+    let mut unlabelled = question.clone();
+    let i = tc.draw(gs::integers::<usize>().max_value(n - 1));
+    unlabelled.items[i].label = blank;
+    assert_eq!(unlabelled.check(schema).unwrap_err(), format!("\"Which one?\"'s item {i} has no label"));
+    let mut nested = Choice::together([question.clone(), asking("other", false, vec![json!(1)])]).unwrap();
+    nested.more[0].more.push(asking("third", false, vec![json!(1)]));
+    let refused = "question 2 of 2: \"Which one?\" asks more questions of its own";
+    assert_eq!(nested.check(schema).unwrap_err(), refused);
+}
+
+/// A hook's schema that's true takes any item, one that's false none, and one that isn't a
+/// JSON Schema refuses the question with what's wrong with it, whatever it requires.
+#[hegel::test(test_cases = 50)]
+fn prop_a_schema_that_takes_anything_nothing_or_isnt_one_is_read_as_such(tc: TestCase) {
+    let values: Vec<i64> = tc.draw(gs::vecs(gs::integers::<i64>()).min_size(1).max_size(3));
+    let question = asking("track", tc.draw(gs::booleans()), values.into_iter().map(Value::from).collect());
+    assert_eq!(question.check(Some(&json!(true))), Ok(()));
+    let unfit = "\"Which one?\"'s item 0 isn't a value of a param \"track\" the hook takes";
+    assert_eq!(question.check(Some(&json!(false))).unwrap_err(), unfit);
+    let wrong = json!({ "type": tc.draw(gs::integers::<i64>()), "required": ["track"] });
+    let alone = json!({ "type": wrong["type"] });
+    let said = jsonschema::validator_for(&alone).unwrap_err().to_string();
+    assert_eq!(question.check(Some(&wrong)).unwrap_err(), said);
+}
+
+/// Answered over params that aren't an object (none, or a value of another kind), the params are
+/// the answers alone.
+#[hegel::test(test_cases = 50)]
+fn prop_answers_over_params_that_arent_an_object_are_alone(tc: TestCase) {
+    let question = asking("track", tc.draw(gs::booleans()), vec![json!(1), json!(2)]);
+    let params = match tc.draw(gs::integers::<u8>().max_value(3)) {
+        0 => Value::Null,
+        1 => json!(tc.draw(gs::integers::<i64>())),
+        2 => json!(tc.draw(gs::text().max_size(4))),
+        _ => json!([tc.draw(gs::booleans())]),
+    };
+    let chosen = vec![vec![json!(tc.draw(gs::integers::<u8>().min_value(1).max_value(2)))]];
+    assert_eq!(question.answered(params, chosen.clone()), question.answered(json!({}), chosen));
+}

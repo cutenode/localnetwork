@@ -148,6 +148,85 @@ describe('ListingWriter', () => {
 		expect(listing(unindexed)).toBeDefined();
 	});
 
+	it('puts back a deleted listing, and keeps checking the rest when one write fails', async () => {
+		await list();
+		const other = await t.sharedSpaces.create(await t.viewer(ADA), 'party');
+		await t.sharedSpaces.setListed(await t.viewer(ADMIN), other, true);
+
+		for (const listed of [space, other])
+			t.net.records.delete(`${ROOT}|${COLLECTION.listing}|${parseSpaceUri(listed)!.skey}`);
+
+		t.net.failWrites(ROOT, 1);
+		await t.listings.reconcile();
+		expect([listing(), listing(other)].filter(Boolean)).toHaveLength(1);
+
+		await t.listings.reconcile();
+		expect([listing(), listing(other)]).toEqual([
+			expect.objectContaining({ name: 'Night Shift' }),
+			expect.objectContaining({ name: 'Night Shift' })
+		]);
+	});
+
+	it('unlists a space whose listing is already gone, and writes it again once listed again', async () => {
+		const admin = await t.viewer(ADMIN);
+		await list();
+		t.net.records.delete(`${ROOT}|${COLLECTION.listing}|${parseSpaceUri(space)!.skey}`);
+
+		await t.sharedSpaces.setListed(admin, space, false);
+		expect(listing()).toBeUndefined();
+
+		await list();
+		expect(listing()).toMatchObject({ name: 'Night Shift' });
+	});
+
+	it('logs a refresh whose write fails, leaving the listing for the next one', async () => {
+		await list();
+		fields = { name: 'Renamed' };
+
+		t.net.failWrites(ROOT, 1);
+		await t.listings.refresh(space);
+		expect(listing()).toMatchObject({ name: 'Night Shift' });
+
+		await t.listings.refresh(space);
+		expect(listing()).toMatchObject({ name: 'Renamed' });
+	});
+
+	it('runs a burst of refreshes that come in while one runs as one more, with what the space has by then', async () => {
+		await list();
+		let entered!: () => void;
+		let release!: () => void;
+		const reached = new Promise<void>((resolve) => (entered = resolve));
+		const held = new Promise<void>((resolve) => (release = resolve));
+
+		// Holds the running refresh where it reads the published listing, then answers as the root's repo would.
+		vi.spyOn(FakeRootClient.prototype, 'getRecord').mockImplementationOnce(async ({ collection, rkey }) => {
+			entered();
+			await held;
+
+			return t.net.records.get(`${ROOT}|${collection}|${rkey}`) ?? null;
+		});
+		const put = vi.spyOn(FakeRootClient.prototype, 'putRecord');
+
+		fields = { name: 'Renamed' };
+		const running = t.listings.refresh(space);
+		await reached;
+		const next = t.listings.refresh(space);
+		expect(t.listings.refresh(space)).toBe(next);
+		expect(next).not.toBe(running);
+
+		fields = { name: 'Final' };
+		release();
+		await Promise.all([running, next]);
+		// The running one read its fields before the burst, so it writes those, then the burst writes once.
+		expect(listing()).toMatchObject({ name: 'Final' });
+		expect(put.mock.calls.map(([input]) => input.record.name)).toEqual(['Renamed', 'Final']);
+	});
+
+	it("does nothing for a space that isn't a space URI", async () => {
+		await expect(t.listings.refresh('not a space')).resolves.toBeUndefined();
+		expect([...t.net.records.keys()].filter((key) => key.includes(COLLECTION.listing))).toEqual([]);
+	});
+
 	it('takes the listing down with a space that is gone', async () => {
 		await list();
 

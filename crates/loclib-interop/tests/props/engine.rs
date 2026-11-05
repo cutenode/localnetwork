@@ -353,3 +353,24 @@ fn exports_that_cant_be_written_fail(tc: TestCase) {
         }
     }
 }
+
+/// With no temporary folder to build the database in (`TMPDIR` names one that isn't there), an
+/// export of any library is that folder's I/O error.
+#[cfg(unix)]
+#[hegel::test(test_cases = 10)]
+fn prop_an_export_with_nowhere_to_build_is_an_io_error(tc: TestCase) {
+    let lib = common::library(&tc, 2);
+    let src = Source { library: &lib, root: PathBuf::from("/Volumes/USB"), analysis: None };
+    let dir = tempfile::tempdir().unwrap();
+    let gone = dir.path().join("not here");
+    let was = std::env::var_os("TMPDIR");
+    // SAFETY: nextest runs each test in a process of its own, so nothing else reads the
+    // environment meanwhile.
+    unsafe { std::env::set_var("TMPDIR", &gone) };
+    let built = engine::build(&src, Path::new("/out"), PathStyle::Drive, &Ctx::silent());
+    match was {
+        Some(was) => unsafe { std::env::set_var("TMPDIR", was) },
+        None => unsafe { std::env::remove_var("TMPDIR") },
+    }
+    assert!(matches!(&built, Err(Error::Io { path, .. }) if *path == gone), "{built:?}");
+}

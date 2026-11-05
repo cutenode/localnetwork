@@ -4009,6 +4009,7 @@ dependencies = [
  "loclib-tracklist",
  "loclib-transcode",
  "lofty",
+ "memchr",
  "mio",
  "oauth2",
  "percent-encoding",

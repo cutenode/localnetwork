@@ -216,3 +216,210 @@ fn an_exports_sizes_that_overflow_are_refused(tc: hegel::TestCase) {
         }
     }
 }
+
+/// What an export meets, as [`prop_an_export_that_cant_be_planned_or_written_fails_saying_why`]
+/// draws it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Exporting {
+    /// An exporter the plugin doesn't have.
+    Unknown,
+    /// An option it doesn't take.
+    Option,
+    /// A set, without a store.
+    SetWithoutStore,
+    /// A set, where the store's sets can't be read.
+    SetsUnreadable,
+    /// A mix, without a store.
+    MixWithoutStore,
+    /// Applied in a store the output is in.
+    InTheStore,
+    /// Applied where its folder can't be made.
+    NoFolder,
+    /// The plugin fails as it writes.
+    WriteFails,
+    /// The plugin doesn't write a file it said it would.
+    Unwritten,
+    /// The plugin is gone by the time it's applied.
+    Gone,
+    /// A drive that isn't known here.
+    Elsewhere,
+    /// The plugin fails its dry run.
+    DryRunFails,
+    /// A set and a mix both.
+    Both,
+    /// A set the store doesn't have.
+    NoSet,
+    /// A mix the store doesn't have.
+    NoMix,
+    /// A drive's library, to an exporter of sets.
+    DriveToSheet,
+    /// A set and a mix, to an exporter of sets.
+    BothToSheet,
+    /// A set the store has.
+    SetFound,
+    /// Nothing, to an exporter of a drive's library, a set or a mix.
+    Nothing,
+    /// A file it writes there already.
+    Overwrites,
+    /// It writes a file it didn't say it would.
+    Unannounced,
+}
+
+/// For any export that can't be planned (an exporter or option the plugin doesn't have, a set or
+/// a mix without a store, or with sets that can't be read) or written as planned (into a store,
+/// where its folder can't be made, the plugin failing, gone or not writing what it said it
+/// would), it fails, saying why.
+#[hegel::test(test_cases = 1)]
+fn prop_an_export_that_cant_be_planned_or_written_fails_saying_why(tc: hegel::TestCase) {
+    for exporting in [
+        Exporting::Unknown,
+        Exporting::Option,
+        Exporting::SetWithoutStore,
+        Exporting::SetsUnreadable,
+        Exporting::MixWithoutStore,
+        Exporting::InTheStore,
+        Exporting::NoFolder,
+        Exporting::WriteFails,
+        Exporting::Unwritten,
+        Exporting::Gone,
+        Exporting::Elsewhere,
+        Exporting::DryRunFails,
+        Exporting::Both,
+        Exporting::NoSet,
+        Exporting::NoMix,
+        Exporting::DriveToSheet,
+        Exporting::BothToSheet,
+        Exporting::SetFound,
+        Exporting::Nothing,
+        Exporting::Overwrites,
+        Exporting::Unannounced,
+    ] {
+        prop_an_export_that_cant_be_planned_or_written_fails_saying_why_case(&tc, exporting);
+    }
+}
+
+/// [`prop_an_export_that_cant_be_planned_or_written_fails_saying_why`] for one `exporting`.
+#[hegel::test_helper]
+fn prop_an_export_that_cant_be_planned_or_written_fails_saying_why_case(tc: &hegel::TestCase, exporting: Exporting) {
+    use hegel::generators as gs;
+    let options = "options = { type = \"object\", properties = { extra = { type = \"string\" }, only_dry = { type = \"string\" } } }";
+    let manifest = tracklists().replace("extension = \"m3u\"\n", &format!("extension = \"m3u\"\n{options}\n"));
+    let f = Fixture::new(|dir| vec![spec(dir, &manifest, &[])], Options::default());
+    let dir = f._dir.path();
+    let name = format!("{}.m3u", tc.draw(gs::from_regex("[a-z]{1,6}").fullmatch(true)));
+    let (mut exporter, mut output, mut options) = ("m3u", dir.join("out").join(&name), Value::Null);
+    let (mut source, mut store) = (ExportSource { drive: "USB".into(), ..ExportSource::default() }, Some(&f.store));
+    let other = Store::open_or_init(dir.join("other")).unwrap();
+    match exporting {
+        Exporting::Unknown => exporter = "nope",
+        Exporting::Option => (exporter, options) = ("anysheet", json!({ "other": 1 })),
+        Exporting::SetWithoutStore => {
+            (exporter, store) = ("sheet", None);
+            source = ExportSource { set: Some("Friday".into()), ..ExportSource::default() };
+        }
+        Exporting::SetsUnreadable => {
+            exporter = "sheet";
+            source = ExportSource { set: Some("Friday".into()), ..ExportSource::default() };
+            std::fs::write(f.store.root().join(locallibrary::sets::SETS_FILE), "damaged").unwrap();
+        }
+        Exporting::MixWithoutStore => {
+            (exporter, store) = ("mixsheet", None);
+            source = ExportSource { mix: Some("m".into()), ..ExportSource::default() };
+        }
+        Exporting::InTheStore => output = other.root().join(&name),
+        Exporting::NoFolder => {
+            std::fs::write(dir.join("file"), "").unwrap();
+            output = dir.join("file").join("out").join(&name);
+        }
+        Exporting::WriteFails => options = json!({ "extra": dir.join("none").join("extra.txt") }),
+        Exporting::Unwritten => options = json!({ "only_dry": dir.join("out").join(&name).join("more.txt") }),
+        Exporting::Gone => {}
+        Exporting::Elsewhere => source.drive = "ELSEWHERE".into(),
+        Exporting::Both => {
+            exporter = "anysheet";
+            source = ExportSource { set: Some("Friday".into()), mix: Some("m".into()), ..ExportSource::default() };
+        }
+        Exporting::NoSet => {
+            exporter = "sheet";
+            source = ExportSource { set: Some("Friday".into()), ..ExportSource::default() };
+        }
+        Exporting::DriveToSheet => exporter = "sheet",
+        Exporting::Nothing => (exporter, source) = ("anysheet", ExportSource::default()),
+        Exporting::Unannounced => options = json!({ "extra": dir.join("extra.txt") }),
+        Exporting::Overwrites => {
+            std::fs::create_dir_all(output.parent().unwrap()).unwrap();
+            std::fs::write(&output, "there already").unwrap();
+        }
+        Exporting::BothToSheet => {
+            exporter = "sheet";
+            source = ExportSource { set: Some("Friday".into()), mix: Some("m".into()), ..ExportSource::default() };
+        }
+        Exporting::SetFound => {
+            exporter = "sheet";
+            let date = chrono::NaiveDate::from_ymd_opt(2026, 10, 3).unwrap();
+            let set = Set { id: "3m2friday2222".into(), title: Some("Friday".into()), date, ..Set::default() };
+            SetBook { sets: vec![set], ..SetBook::default() }.save(&f.store).unwrap();
+            source = ExportSource { set: Some("Friday".into()), ..ExportSource::default() };
+        }
+        Exporting::NoMix => {
+            exporter = "mixsheet";
+            source = ExportSource { mix: Some("m".into()), ..ExportSource::default() };
+        }
+        Exporting::DryRunFails => std::fs::write(f.drive.join(locallibrary::paths::EXPORT_PDB), "damaged").unwrap(),
+    }
+    let planned = f.plugins.export_plan("echo", exporter, source, &output, options, store, &Ctx::silent());
+    let code = match exporting {
+        Exporting::Unknown | Exporting::Elsewhere | Exporting::NoSet | Exporting::NoMix => Some("not_found"),
+        Exporting::Both | Exporting::DriveToSheet | Exporting::BothToSheet => Some("invalid"),
+        Exporting::Nothing => {
+            let e = planned.err().unwrap();
+            let said = "Any sheet writes out a drive's library, a set or a mix: say which";
+            return assert_eq!((e.code(), e.to_string()), ("invalid", said.to_string()));
+        }
+        Exporting::DryRunFails => Some("parse"),
+        Exporting::Option | Exporting::SetWithoutStore | Exporting::MixWithoutStore => Some("invalid"),
+        Exporting::SetsUnreadable => Some("parse"),
+        _ => None,
+    };
+    if let Some(code) = code {
+        return assert_eq!(planned.err().unwrap().code(), code, "{exporting:?}");
+    }
+    let planned = planned.unwrap();
+    if exporting == Exporting::Overwrites {
+        return assert!(planned.destructive && planned.summary.contains(&"overwrite 1 of them".to_string()));
+    }
+    if exporting == Exporting::SetFound {
+        return assert_eq!(planned.notes, ["drive: ", "set: 3m2friday2222"]);
+    }
+    if exporting == Exporting::Unannounced {
+        let e = failure(planned.apply(None, &Ctx::silent()).err().unwrap());
+        let extra = dir.join("extra.txt");
+        return assert_eq!(
+            e,
+            format!("the Echo plugin failed: it wrote what it didn't say it would: {}", extra.display())
+        );
+    }
+    let applied = match exporting {
+        Exporting::InTheStore => planned.apply(Some(&other), &Ctx::silent()),
+        Exporting::Gone => {
+            drop(f.plugins);
+            planned.apply(None, &Ctx::silent())
+        }
+        _ => planned.apply(None, &Ctx::silent()),
+    };
+    let e = applied.err().unwrap();
+    match exporting {
+        Exporting::InTheStore => {
+            assert!(e.to_string().starts_with("a plugin's export isn't written to the store at "), "{e}")
+        }
+        Exporting::Gone => assert_eq!(e.code(), "stale_plan", "{e}"),
+        Exporting::Unwritten => {
+            let said = format!(
+                "the Echo plugin failed: it didn't write what it said it would: {}",
+                output.join("more.txt").display()
+            );
+            assert_eq!(failure(e), said);
+        }
+        _ => assert!(matches!(e.code(), "io" | "external"), "{exporting:?}: {e}"),
+    }
+}

@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use hegel::TestCase;
 use hegel::generators as gs;
+use loclib_plugin::test_util::Canceller;
 use loclib_plugin::{
     ACCOUNT_PLACEHOLDER, AccountType, ByteRange, Capability, DestinationKind, Fetch, Fetched, HelloReply, Incoming,
     Manifest, PROTOCOL_VERSION, Peer, ProgressReport, Progressed, PublishedSet, SignIn, StrongRef, TracklistEntry,
@@ -38,11 +39,13 @@ const TOKEN: &str = "plyr-developer-token";
 const SIGNED_OUT: &str = "the plyr account dj.example is signed out: sign in again";
 
 /// How plyr.fm answers a request through the host, in place of what it would: a status and body,
-/// or the host failing to reach it.
+/// the host failing to reach it, or either of those (or plyr.fm's own answer) and then the host
+/// cancelling the publish.
 #[derive(Clone, Debug)]
 enum Reply {
     Status(u16, String),
     Unreachable,
+    Cancels(Option<Box<Reply>>),
 }
 
 fn status(code: u16, detail: &str) -> Reply {
@@ -93,11 +96,14 @@ struct Plyr {
     lent: Option<PathBuf>,
     script: Script,
     received: Received,
+    /// Cancels the publish once the call in hand is answered, when [`Reply::Cancels`] says to.
+    cancel: Arc<Canceller>,
 }
 
 impl Plyr {
     fn new(part_size: u64) -> Plyr {
-        Plyr { part_size, signed_in: true, lent: None, script: Box::new(|_, _| None), received: Received::default() }
+        let (script, received) = (Box::new(|_: &str, _| None), Received::default());
+        Plyr { part_size, signed_in: true, lent: None, script, received, cancel: Arc::default() }
     }
 
     fn scripted(part_size: u64, script: impl Fn(&str, usize) -> Option<Reply> + Send + 'static) -> Plyr {
@@ -136,8 +142,16 @@ impl Plyr {
             other => panic!("plyr.fm has no {other:?}"),
         };
         let asked = r.requests.iter().filter(|(m, u)| (m, u) == (&fetch.method, &fetch.url)).count() - 1;
-        let (status, body) = match (self.script)(&route, asked) {
+        let reply = match (self.script)(&route, asked) {
+            Some(Reply::Cancels(then)) => {
+                self.cancel.arm();
+                then.map(|r| *r)
+            }
+            reply => reply,
+        };
+        let (status, body) = match reply {
             Some(Reply::Unreachable) => return Err(RpcError::failed("external", "connection reset")),
+            Some(Reply::Cancels(_)) => panic!("a cancel cancels once"),
             Some(Reply::Status(status, body)) => (status, body),
             None => as_plyr(self.part_size, r, &route, fetch, sent),
         };
@@ -244,8 +258,11 @@ fn start(plyr: Plyr) -> Session {
             let Incoming::Request(req) = msg else { continue };
             assert_eq!(req.method, method::NET_FETCH, "the plugin reads nothing else");
             let fetch: Fetch = serde_json::from_value(req.params).unwrap();
-            let answer = answers.lock().unwrap().answer(&fetch).map(|f| serde_json::to_value(f).unwrap());
-            to.respond(&req.id, answer);
+            let mut plyr = answers.lock().unwrap();
+            let answer = plyr.answer(&fetch).map(|f| serde_json::to_value(f).unwrap());
+            let cancel = plyr.cancel.clone();
+            drop(plyr);
+            cancel.respond(&to, &req.id, answer);
         }
     });
     let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
@@ -262,7 +279,8 @@ impl Session {
     fn publish(&self, set: &PublishedSet, recording: &Path, tracklist: &[TracklistEntry], dry_run: bool) -> Outcome {
         self.plyr.lock().unwrap().lent = Some(recording.to_path_buf());
         let req = json!({ "destination": "track", "set": set, "recording": recording, "tracklist": tracklist, "dry_run": dry_run });
-        let pending = self.host.send_request_reporting(method::SET_PUBLISH, &req).unwrap();
+        let cancel = self.plyr.lock().unwrap().cancel.clone();
+        let pending = cancel.send(|| self.host.send_request_reporting(method::SET_PUBLISH, &req).unwrap());
         let answer = pending.wait_timeout(Duration::from_secs(60)).expect("an answer in a minute");
         let upload = pending
             .progress()
@@ -282,7 +300,8 @@ impl Session {
 
     /// Its fetches answered by `plyr` from now on.
     fn script(&self, plyr: Plyr) {
-        *self.plyr.lock().unwrap() = plyr;
+        let mut answering = self.plyr.lock().unwrap();
+        *answering = Plyr { cancel: answering.cancel.clone(), ..plyr };
     }
 
     /// What plyr.fm has been sent.
@@ -725,6 +744,27 @@ fn a_cut_tracklist_keeps_every_line_that_fits() {
     assert!(t.description.ends_with("\n+ 9 more"), "{:?}", &t.description[4900..]);
 }
 
+/// However long its lines, a tracklist longer than a description holds keeps the lines that fit,
+/// in order, then how many more there are, within plyr.fm's bytes, and says so.
+#[hegel::test(test_cases = 50)]
+fn prop_a_tracklist_too_long_keeps_the_lines_that_fit(tc: TestCase) {
+    let n = tc.draw(gs::integers::<usize>().min_value(20).max_value(60));
+    let artist = |tc: &TestCase| "\u{3a9}".repeat(tc.draw(gs::integers::<usize>().min_value(150).max_value(300)));
+    let tracklist: Vec<TracklistEntry> = (0..n).map(|_| entry(Some(&artist(&tc)), None, None)).collect();
+    let t = track::of(&set(), &tracklist);
+    let lines: Vec<String> = tracklist.iter().map(track::line).collect();
+    assert!(t.description.len() <= MAX_DESCRIPTION);
+    let (kept, more) = t.description.rsplit_once('\n').unwrap();
+    let kept: Vec<&str> = kept.lines().collect();
+    assert_eq!(kept, lines[..kept.len()]);
+    assert_eq!(more, format!("+ {} more", n - kept.len()));
+    let note = format!(
+        "the description lists {} of the {n} tracks, as many as plyr.fm's {MAX_DESCRIPTION} bytes hold",
+        kept.len()
+    );
+    assert_eq!(t.notes, [note]);
+}
+
 /// A line's time, as `05:30` or past an hour `1:02:03`, reads back as the entry's.
 #[hegel::test(test_cases = 100)]
 fn a_lines_time_reads_back(tc: TestCase) {
@@ -894,4 +934,133 @@ fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
             assert_eq!(r.field("description"), Some(description.as_str()).filter(|d| !d.is_empty()));
         }
     }
+}
+
+/// The publish stops as soon as plyr.fm answers what it can't go on from, saying why and
+/// sending nothing more: an answer that can't be read (to starting the upload, or to finishing
+/// it), the upload, the track or its progress refused (the token too), the upload failed,
+/// progress that keeps stopping before the track is published or says plyr.fm couldn't publish
+/// it, and the account signed out; and cancelled between parts, between asking how the upload is
+/// going, or while it waits to send a part again, it answers `cancelled`.
+#[hegel::test(test_cases = 1)]
+fn prop_a_publish_stops_as_soon_as_plyr_cant_go_on(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = recording(dir.path(), "set.flac", tc.draw(gs::integers::<u64>().min_value(2001).max_value(3000)));
+    let processing =
+        format!("data: {}\n\n", json!({ "upload_id": UPLOAD, "status": "processing", "phase": "pds_upload" }));
+    let stopped = format!("plyr.fm's progress kept stopping before upload {UPLOAD} was published");
+    let failed = r#"data: {"status": "failed", "error": "duplicate"}"#;
+    let unreadable = "plyr.fm's answer can't be read: ";
+    let cancelled = "operation cancelled";
+    // The stream long enough to read that the cancel arrives meanwhile.
+    let long = Reply::Status(200, format!("{}{processing}", ": still going\n".repeat(100_000)));
+    let stops = [
+        ("start", Reply::Status(200, "{}".into()), "external", unreadable),
+        ("start", status(404, "gone"), "invalid", "plyr.fm refused the upload (404: gone)"),
+        ("start", Reply::Status(502, "<html>".into()), "external", "plyr.fm failed the upload (502)"),
+        (
+            "start",
+            status(401, "session_expired"),
+            "permission",
+            "plyr.fm refused the account's token (401: session_expired): sign in again",
+        ),
+        ("finish", Reply::Status(200, "{}".into()), "external", unreadable),
+        ("finish", status(400, "bad"), "invalid", "plyr.fm refused the track (400: bad)"),
+        ("progress", Reply::Status(200, processing.clone()), "external", stopped.as_str()),
+        ("progress", Reply::Status(200, failed.into()), "external", "plyr.fm couldn't publish the track: duplicate"),
+        ("progress", status(400, "bad"), "invalid", "plyr.fm refused the upload's progress (400: bad)"),
+        // Signed out: the host refuses the first request.
+        ("", Reply::Unreachable, "access", SIGNED_OUT),
+        ("part 2", Reply::Cancels(None), "cancelled", cancelled),
+        ("part 2", Reply::Cancels(Some(Box::new(Reply::Unreachable))), "cancelled", cancelled),
+        ("progress", Reply::Cancels(Some(Box::new(long))), "cancelled", cancelled),
+    ];
+    for (at, reply, kind_said, said) in stops {
+        plyr_stops(&path, at, reply, kind_said, said);
+    }
+}
+
+/// However plyr.fm cuts the file into parts other than as the upload is, the publish is refused,
+/// saying so, before any part goes.
+#[hegel::test(test_cases = 10)]
+fn prop_parts_that_dont_make_the_file_are_refused(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = recording(dir.path(), "set.flac", 3000);
+    let size = tc.draw(gs::integers::<u64>().max_value(4000));
+    let count = tc.draw(gs::integers::<u64>().max_value(8));
+    tc.assume(size == 0 || count != 3000u64.div_ceil(size));
+    let session = json!({ "upload_id": UPLOAD, "part_size_bytes": size, "part_count": count, "received_parts": [] });
+    let said = format!("plyr.fm asked for {count} parts of {size} bytes");
+    plyr_stops(&path, "start", Reply::Status(200, session.to_string()), "external", &said);
+}
+
+/// The publish of `path` with plyr.fm's first answer to `at` (the progress: every one) `reply`
+/// (`at` empty: the account signed out) fails as `kind_said`, its message starting `said`, and
+/// nothing more is sent. On a session of its own, so a request sent before a cancel arrives goes
+/// to it, not to the next.
+fn plyr_stops(path: &Path, at: &'static str, reply: Reply, kind_said: &str, said: &str) {
+    let replying = reply.clone();
+    let replies = move |route: &str, asked| route == at && (asked == 0 || route == "progress");
+    let plyr = Plyr::scripted(1000, move |route, asked| replies(route, asked).then(|| replying.clone()));
+    let s = start(Plyr { signed_in: !at.is_empty(), ..plyr });
+    let (answer, _) = s.publish(&set(), path, &[], false);
+    let r = s.stop();
+    let e = answer.unwrap_err();
+    assert_eq!(e.kind(), Some(kind_said), "{e:?}");
+    assert!(e.message.starts_with(said), "{e:?}, not {said:?}");
+    let gets = r.requests.iter().filter(|(m, _)| m == "GET").count();
+    let cancelled = kind_said == "cancelled";
+    match at {
+        // One more part may have gone before the cancel reached the plugin, but nothing after:
+        // the part that failed isn't kept, and the upload isn't finished.
+        "part 2" if cancelled => {
+            let retried = matches!(reply, Reply::Cancels(Some(_)));
+            let parts = if retried { 1..=2 } else { 2..=3 };
+            assert!(parts.contains(&r.parts.len()) && r.finished.is_empty() && gets == 0, "{:?}", r.requests);
+        }
+        // The track was finished; its progress asked for once more at most.
+        "progress" if cancelled => assert!((1..=2).contains(&gets) && !r.finished.is_empty(), "{:?}", r.requests),
+        "" => assert_eq!((r.requests.len(), r.signed_out), (0, 1)),
+        "start" => assert_eq!(r.requests.len(), 1, "{:?}", r.requests),
+        "finish" => assert_eq!((gets, r.parts.len()), (0, 3), "{:?}", r.requests),
+        // Asked again only while the progress stops before saying how it went.
+        _ => {
+            let stopped = said.starts_with("plyr.fm's progress kept stopping");
+            assert_eq!(gets, if stopped { TRIES as usize } else { 1 }, "{:?}", r.requests);
+        }
+    }
+}
+
+/// Whatever the tracklist, a dry run says what would go: the recording, its size, the track's
+/// title and tags, and how many tracks are in its description, when there are any; one plyr.fm
+/// wouldn't take is refused first.
+#[hegel::test(test_cases = 10)]
+fn prop_a_dry_run_says_what_would_go(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = recording(dir.path(), "set.flac", 3000);
+    let tracklist = tracklist(&tc, 4);
+    let s = start(Plyr::new(1000));
+    let (answer, _) = s.publish(&set(), &path, &tracklist, true);
+    assert!(s.stop().requests.is_empty());
+    let track = track::of(&set(), &tracklist);
+    let listed = match tracklist.len() {
+        0 => String::new(),
+        n => format!(", its {n} tracks in the description"),
+    };
+    let line = format!("set.flac (0.0 MiB) would go to plyr.fm as \"{}\", tagged dj mix{listed}", track.title);
+    assert_eq!(answer.unwrap().warnings, [vec![line], track.notes].concat());
+
+    // A recording in a format plyr.fm doesn't take, too big for it (sparse: it takes no room), or
+    // not there, is refused first.
+    let s = start(Plyr::new(1000));
+    let e = s.publish(&set(), &recording(dir.path(), "set.aac", 10), &tracklist, true).0.unwrap_err();
+    let said = "plyr.fm takes mp3, wav, m4a, aiff, flac, webm and ogg recordings, which set.aac isn't";
+    assert_eq!((e.kind(), e.message.as_str()), (Some("invalid"), said));
+    std::fs::File::options().write(true).open(&path).unwrap().set_len(MAX_BYTES + 1).unwrap();
+    let e = s.publish(&set(), &path, &tracklist, true).0.unwrap_err();
+    assert!(e.kind() == Some("invalid") && e.message.starts_with("plyr.fm takes recordings of up to "), "{e:?}");
+    std::fs::remove_file(&path).unwrap();
+    let e = s.publish(&set(), &path, &tracklist, true).0.unwrap_err();
+    assert!(e.kind() == Some("io") && e.message.starts_with(&path.display().to_string()), "{e:?}");
+    assert!(s.stop().requests.is_empty());
 }
