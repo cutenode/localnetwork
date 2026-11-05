@@ -80,8 +80,9 @@ fn a_sine_measures_its_level_whatever_it_is(tc: TestCase) {
 /// meter refuses a rate, one under the 16 Hz it takes, as that file's analyzer error. A cancelled
 /// analysis is cancelled, and a file that isn't there is that file's error.
 #[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-// A last column of one sample.
+// A last column of one sample, and a last column filled exactly.
 #[hegel::explicit_test_case(rate = 44_100u32, frames = 1_025usize, level = 0.5f64)]
+#[hegel::explicit_test_case(rate = 44_100u32, frames = 2_048usize, level = 0.5f64)]
 fn files_are_analysed_for_what_is_asked(tc: TestCase) {
     let rate = tc.draw(gs::sampled_from(vec![8, 15, 16, 22_050, 44_100, 3_000_000]));
     // Up to a quarter of a second, and a few frames at least.

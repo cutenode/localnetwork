@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use hegel::TestCase;
 use hegel::generators as gs;
+use loclib_plugin::test_util::Canceller;
 use loclib_plugin::{
     ACCOUNT_PLACEHOLDER, AccountType, Capability, DestinationKind, Fetch, Fetched, HelloReply, Incoming, Manifest,
     PROTOCOL_VERSION, Peer, ProgressReport, Progressed, PublishedSet, SettingType, SignIn, TracklistEntry,
@@ -35,11 +36,14 @@ const KEYS: &str = "LOW s3-access-key:s3-secret-key";
 const SIGNED_OUT: &str = "the archive account dj is signed out: sign in again";
 
 /// How the Archive answers a request through the host, in place of what it would: a status and
-/// body, or the host failing to reach it.
+/// body, the host failing to reach it (or failing it as another kind), or either of those and
+/// then the host cancelling the publish.
 #[derive(Clone, Debug)]
 enum Reply {
     Status(u16, String),
     Unreachable,
+    Fails(&'static str),
+    Cancels(Box<Reply>),
 }
 
 /// The Archive's S3 refusing with `code`, as its `<Error>` says it.
@@ -100,11 +104,14 @@ struct Archive {
     signed_in: bool,
     script: Script,
     received: Received,
+    /// Cancels the publish once the call in hand is answered, when [`Reply::Cancels`] says to.
+    cancel: Arc<Canceller>,
 }
 
 impl Archive {
     fn new() -> Archive {
-        Archive { taken: Vec::new(), signed_in: true, script: Box::new(|_, _| None), received: Received::default() }
+        let script = Box::new(|_: &str, _| None);
+        Archive { taken: Vec::new(), signed_in: true, script, received: Received::default(), cancel: Arc::default() }
     }
 
     fn scripted(script: impl Fn(&str, usize) -> Option<Reply> + Send + 'static) -> Archive {
@@ -128,8 +135,17 @@ impl Archive {
             r.signed.push(route.clone());
         }
         let asked = r.requests.iter().filter(|(m, u)| (m, u) == (&fetch.method, &fetch.url)).count() - 1;
-        let (status, body) = match (self.script)(&route, asked) {
+        let reply = match (self.script)(&route, asked) {
+            Some(Reply::Cancels(then)) => {
+                self.cancel.arm();
+                Some(*then)
+            }
+            reply => reply,
+        };
+        let (status, body) = match reply {
             Some(Reply::Unreachable) => return Err(RpcError::failed("external", "connection reset")),
+            Some(Reply::Fails(kind)) => return Err(RpcError::failed(kind, "the host failed it")),
+            Some(Reply::Cancels(_)) => panic!("a cancel cancels once"),
             Some(Reply::Status(status, body)) => (status, body),
             None => as_archive(&self.taken, r, &route, fetch, headers),
         };
@@ -220,8 +236,11 @@ fn start(archive: Archive) -> Session {
             let Incoming::Request(req) = msg else { continue };
             assert_eq!(req.method, method::NET_FETCH, "the plugin reads nothing else");
             let fetch: Fetch = serde_json::from_value(req.params).unwrap();
-            let answer = answers.lock().unwrap().answer(&fetch).map(|f| serde_json::to_value(f).unwrap());
-            to.respond(&req.id, answer);
+            let mut archive = answers.lock().unwrap();
+            let answer = archive.answer(&fetch).map(|f| serde_json::to_value(f).unwrap());
+            let cancel = archive.cancel.clone();
+            drop(archive);
+            cancel.respond(&to, &req.id, answer);
         }
     });
     let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
@@ -249,7 +268,8 @@ impl Session {
     ) -> Outcome {
         let settings = creator.map(|c| json!({ "creator": c })).unwrap_or_else(|| json!({}));
         let req = json!({ "destination": "item", "set": set, "recording": recording, "tracklist": tracklist, "dry_run": dry_run, "context": { "settings": settings } });
-        let pending = self.host.send_request_reporting(method::SET_PUBLISH, &req).unwrap();
+        let cancel = self.archive.lock().unwrap().cancel.clone();
+        let pending = cancel.send(|| self.host.send_request_reporting(method::SET_PUBLISH, &req).unwrap());
         let answer = pending.wait_timeout(Duration::from_secs(60)).expect("an answer in a minute");
         let (mut started, mut ended) = (Vec::new(), 0);
         for p in pending.progress() {
@@ -269,7 +289,8 @@ impl Session {
 
     /// Its fetches answered by `archive` from now on.
     fn script(&self, archive: Archive) {
-        *self.archive.lock().unwrap() = archive;
+        let mut answering = self.archive.lock().unwrap();
+        *answering = Archive { cancel: answering.cancel.clone(), ..archive };
     }
 
     /// What the Archive has been sent.
@@ -948,6 +969,146 @@ fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
     assert_eq!(put.url, format!("{S3}/{id}/set.flac"));
     assert_eq!(put.bytes, std::fs::read(&path).unwrap());
     assert_eq!(put.header("x-archive-meta-creator"), creator.map(header_value).as_deref());
+}
+
+/// The publish stops as soon as it can't go on, sending nothing more: the host failing the
+/// identifier or limit check (before anything goes up), or the PUT, as something asking again
+/// won't change fails it as that; the Archive refusing the account's keys says to sign in again
+/// with new ones, and taking the recording for spam says so; and cancelled while it waits to
+/// send the recording again, it answers `cancelled`.
+#[hegel::test(test_cases = 1)]
+fn prop_a_publish_stops_as_soon_as_it_cant_go_on(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = recording(dir.path(), "set.flac", tc.draw(gs::integers::<u64>().min_value(1).max_value(4000)));
+    let check = format!("check {ID}");
+    let stops = [
+        (check.as_str(), Reply::Fails("denied")),
+        ("limit", Reply::Fails("denied")),
+        ("limit", Reply::Fails("too_big")),
+        ("put", Reply::Fails("access")),
+        ("put", s3_error(401, "InvalidAccessKeyId", "")),
+        ("put", s3_error(403, "InvalidAccessKeyId", "no such key")),
+        ("put", Reply::Status(503, "this appears to be spam".into())),
+        ("put", Reply::Cancels(Box::new(Reply::Unreachable))),
+        ("put", Reply::Cancels(Box::new(slow_down()))),
+    ];
+    for (at, reply) in stops {
+        publish_stops(&path, at, reply);
+    }
+}
+
+/// [`prop_a_publish_stops_as_soon_as_it_cant_go_on`] with the Archive's first answer to `at`
+/// `reply`, on a session of its own (a request sent before a cancel arrives goes to it, not to
+/// the next).
+fn publish_stops(path: &Path, at: &str, reply: Reply) {
+    let (put, at) = (at == "put", at.to_string());
+    let replying = reply.clone();
+    let s = start(Archive::scripted(move |route, asked| (route == at && asked == 0).then(|| replying.clone())));
+    let (answer, ..) = s.publish(&set(), path, &[], false);
+    let r = s.stop();
+    let e = answer.unwrap_err();
+    match reply {
+        Reply::Fails(kind) => {
+            let puts = usize::from(put);
+            assert_eq!((e.kind(), r.count("PUT")), (Some(kind), puts), "{e:?}");
+        }
+        Reply::Status(503, _) => {
+            let said = "the Archive took set.flac for spam (503)";
+            assert_eq!((e.kind(), e.message.as_str(), r.count("PUT")), (Some("invalid"), said, 1));
+        }
+        Reply::Status(status, _) => {
+            let said = format!("the Archive refused the account's keys ({status} InvalidAccessKeyId");
+            assert_eq!((e.kind(), r.count("PUT")), (Some("permission"), 1), "{e:?}");
+            assert!(e.message.starts_with(&said), "{e:?}");
+            assert!(e.message.ends_with("(locallibrary account archive sign-in)"), "{e:?}");
+        }
+        _ => {
+            assert_eq!(e, RpcError::cancelled());
+            // One more may have gone before the cancel reached the plugin, but nothing after.
+            assert!((1..=2).contains(&r.count("PUT")), "{:?}", r.requests);
+        }
+    }
+}
+
+/// The publish goes once what it can wait out has passed: a limit check that fails or can't be
+/// had says nothing of the limit, and a PUT timed out, rate limited or failed by the Archive is
+/// sent again. The answer is the item's page, saying it's taken only when the identifier was.
+#[hegel::test(test_cases = 1)]
+fn prop_a_publish_goes_once_what_it_can_wait_out_has_passed(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = recording(dir.path(), "set.flac", tc.draw(gs::integers::<u64>().min_value(1).max_value(4000)));
+    let s = start(Archive::new());
+    for limit in [None, Some(Reply::Status(500, String::new())), Some(Reply::Unreachable)] {
+        let puts =
+            [None, Some(Reply::Status(408, String::new())), Some(s3_error(429, "SlowDown", "")), Some(slow_down())];
+        for put in puts {
+            for taken in [false, true] {
+                goes_after(&s, &path, limit.clone(), put.clone(), taken);
+            }
+        }
+    }
+    s.stop();
+}
+
+/// [`prop_a_publish_goes_once_what_it_can_wait_out_has_passed`] with the Archive answering the
+/// limit check `limit`, the first PUT `put` (`None`: as it would), and the identifier `taken`.
+fn goes_after(s: &Session, path: &Path, limit: Option<Reply>, put: Option<Reply>, taken: bool) {
+    let (l, p) = (limit.clone(), put.clone());
+    let archive = Archive::scripted(move |route, asked| match route {
+        "limit" => l.clone(),
+        "put" if asked == 0 => p.clone(),
+        _ => None,
+    });
+    s.script(Archive { taken: if taken { vec![ID.into()] } else { Vec::new() }, ..archive });
+    let (answer, ..) = s.publish(&set(), path, &[], false);
+    let r = s.received();
+    let id = if taken { format!("{ID}-2") } else { ID.to_string() };
+    let published = answer.unwrap();
+    assert_eq!(published.url, Some(format!("https://archive.org/details/{id}")));
+    assert_eq!(
+        published.warnings.iter().any(|w| w.ends_with(" is taken, so it's dj-kit-2026-10-03-closing-set-2")),
+        taken
+    );
+    assert_eq!(r.count("PUT"), if put.is_some() { 2 } else { 1 });
+}
+
+/// Whatever the tracklist, and however long a title of printable ASCII is, a dry run says what
+/// would go: the item it would be, titled as it would be (cut to what a header holds, unencoded,
+/// and said so), its subjects each once (in any case), and how many tracks are in its
+/// description, when there are any.
+#[hegel::test(test_cases = 2)]
+fn prop_a_dry_run_says_what_would_go(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = recording(dir.path(), "set.flac", 10);
+    let long = tc.draw(gs::integers::<usize>().min_value(MAX_VALUE - 10).max_value(MAX_VALUE + 30));
+    let tracklist = tracklist(&tc, 3);
+    let s = start(Archive::new());
+    // Short, about as long as a header holds, and longer.
+    for title in ["Closing set".to_string(), "a-1".repeat(long / 3), "a-1".repeat(MAX_VALUE / 3 + 1)] {
+        // A subject said already, in any case, is said once.
+        for city in ["Leeds", "warehouse", "DJ Mix", " "] {
+            dry_run_says(&s, &path, &title, city, &tracklist);
+        }
+    }
+    assert!(s.stop().requests.is_empty());
+}
+
+/// [`prop_a_dry_run_says_what_would_go`] for the set titled `title`, played in `city`.
+fn dry_run_says(s: &Session, path: &Path, title: &str, city: &str, tracklist: &[TracklistEntry]) {
+    let set = PublishedSet { title: Some(title.into()), city: Some(city.into()), ..set() };
+    let (answer, ..) = s.publish(&set, path, tracklist, true);
+    let warnings = answer.unwrap().warnings;
+    let cut = title.len() > MAX_VALUE;
+    let shown = if cut { &title[..MAX_VALUE] } else { title };
+    let listed = match tracklist.len() {
+        0 => String::new(),
+        n => format!(", its {n} tracks in the description"),
+    };
+    assert!(warnings[1].starts_with(&format!("titled \"{shown}\", by DJ Kit,")), "{warnings:?}");
+    let subjects = if city == "Leeds" { "dj mix, club, Warehouse, Leeds" } else { "dj mix, club, Warehouse" };
+    assert!(warnings[1].ends_with(&format!("in Community Audio, tagged {subjects}{listed}")), "{warnings:?}");
+    let note = format!("the title is cut to the {MAX_VALUE} bytes a header holds");
+    assert_eq!(warnings.contains(&note), cut, "{warnings:?}");
 }
 
 /// A value's header is plain only when it's printable ASCII and doesn't look encoded.

@@ -10,7 +10,7 @@ use crate::{
     AccountNeed, AccountType, Analyzer, Check, Command, Destination, DestinationKind, EventName, ExportFrom,
     ExportSources, Exporter, FieldDisplay, FieldFormat, FieldType, FieldValue, ImportKind, Importer, Key,
     LibrarySource, Listener, Mode, Operation, OptionalScopes, Panel, Provider, ProviderKind, Role, SUBJECT_PLACEHOLDER,
-    Scope, ScopeRequest, Service, SignIn, Theme, TokenPlace, When, Whoami, account_placeholder, code,
+    Scope, ScopeRequest, Service, SignIn, Theme, TokenPlace, When, Whoami, account_placeholder, code, not_plain_https,
 };
 
 const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n";
@@ -2051,68 +2051,85 @@ fn index(tc: &TestCase, len: usize) -> usize {
 /// what's wrong with it: the first thing `validate` finds is that.
 #[hegel::test(test_cases = 150)]
 fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
+    refused_saying_where(&tc, tc.draw(gs::sampled_from(MISTAKES.to_vec())));
+}
+
+/// Each kind of mistake, made in a manifest that's otherwise right, is refused saying where it is
+/// and what's wrong with it: every one of them in every run.
+#[hegel::test(test_cases = 5)]
+fn prop_every_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
+    for mistake in MISTAKES {
+        refused_saying_where(&tc, mistake);
+    }
+}
+
+/// The kinds of mistake [`refused_saying_where`] makes.
+const MISTAKES: &[&str] = &[
+    "id",
+    "name",
+    "version",
+    "protocol",
+    "protocol range",
+    "capability twice",
+    "cli",
+    "cli place",
+    "cli twice",
+    "contribution name",
+    "contribution twice",
+    "title",
+    "not an object",
+    "bad schema",
+    "param name",
+    "x-cli",
+    "positional twice",
+    "x-path",
+    "no fields",
+    "field name",
+    "field twice",
+    "structured twice",
+    "role field",
+    "role type",
+    "file or folder",
+    "extension",
+    "choices",
+    "choice twice",
+    "default",
+    "net host",
+    "net twice",
+    "net rate",
+    "provider grant",
+    "check when",
+    "export grant",
+    "import extension",
+    "provides nothing",
+    "provides twice",
+    "panel place",
+    "no tokens",
+    "token name",
+    "token colour",
+    "token count",
+    "display field",
+    "display format",
+    "display precision",
+    "display width",
+    "display unit",
+    "no events",
+    "event twice",
+    "event grant",
+    "source grant",
+];
+
+/// A drawn manifest with `mistake` made in it is refused, as the first thing `validate` finds,
+/// saying where the mistake is and what's wrong with it.
+#[hegel::test_helper]
+fn refused_saying_where(tc: &TestCase, mistake: &str) {
     let mut built_in = tc.draw(gs::booleans());
-    let mut m = manifest(&tc, built_in);
-    let mistakes = vec![
-        "id",
-        "name",
-        "version",
-        "protocol",
-        "protocol range",
-        "capability twice",
-        "cli",
-        "cli place",
-        "cli twice",
-        "contribution name",
-        "contribution twice",
-        "title",
-        "not an object",
-        "bad schema",
-        "param name",
-        "x-cli",
-        "positional twice",
-        "x-path",
-        "no fields",
-        "field name",
-        "field twice",
-        "structured twice",
-        "role field",
-        "role type",
-        "file or folder",
-        "extension",
-        "choices",
-        "choice twice",
-        "default",
-        "net host",
-        "net twice",
-        "net rate",
-        "provider grant",
-        "check when",
-        "export grant",
-        "import extension",
-        "provides nothing",
-        "provides twice",
-        "panel place",
-        "no tokens",
-        "token name",
-        "token colour",
-        "token count",
-        "display field",
-        "display format",
-        "display precision",
-        "display width",
-        "display unit",
-        "no events",
-        "event twice",
-        "event grant",
-        "source grant",
-    ];
-    let mistake = tc.draw(gs::sampled_from(mistakes));
+    let mut m = manifest(tc, built_in);
     let c = &mut m.contributes;
     // What `validate` says, and only `prefix` of it, when the rest is another crate's words.
     let (said, prefix) = match mistake {
         "id" => {
-            m.id = bad_name(&tc);
+            m.id = bad_name(tc);
             (format!("id: {:?} isn't a name: {NAME_RULE}", m.id), false)
         }
         "name" => {
@@ -2137,7 +2154,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
             if m.capabilities.is_empty() {
                 m.capabilities.push(Capability::LibraryRead);
             }
-            let again = m.capabilities[index(&tc, m.capabilities.len())].clone();
+            let again = m.capabilities[index(tc, m.capabilities.len())].clone();
             m.capabilities.push(again.clone());
             (format!("capabilities[{}]: {again} is there twice", m.capabilities.len() - 1), false)
         }
@@ -2158,7 +2175,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     .enumerate()
                     .map(|(i, x)| (format!("contributes.operations[{i}].cli"), &mut x.cli)),
             );
-            let i = index(&tc, places.len());
+            let i = index(tc, places.len());
             // Only a built-in plugin's places are checked further.
             built_in = true;
             match mistake {
@@ -2187,7 +2204,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                 _ => {
                     // Twice: at `i` and at a later one.
                     let i = i.min(places.len() - 2);
-                    let j = i + 1 + index(&tc, places.len() - i - 1);
+                    let j = i + 1 + index(tc, places.len() - i - 1);
                     let place = places[i].1.get_or_insert_with(|| "added-place".into()).clone();
                     *places[j].1 = Some(place.clone());
                     (format!("{}: {place:?} is used twice", places[j].0), false)
@@ -2203,11 +2220,11 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
             if kind == "sources" && !m.capabilities.contains(&Capability::FsRead) {
                 m.capabilities.push(Capability::FsRead);
             }
-            let i = index(&tc, len(c, kind));
+            let i = index(tc, len(c, kind));
             let key = name_key(kind);
             match mistake {
                 "contribution name" => {
-                    let wrong = bad_name(&tc);
+                    let wrong = bad_name(tc);
                     *names_and_titles(c, kind)[i].0 = wrong.clone();
                     (format!("contributes.{kind}[{i}].{key}: {wrong:?} isn't a name: {NAME_RULE}"), false)
                 }
@@ -2228,9 +2245,9 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
             if kind == "sources" && !m.capabilities.contains(&Capability::FsRead) {
                 m.capabilities.push(Capability::FsRead);
             }
-            let i = index(&tc, len(c, kind));
+            let i = index(tc, len(c, kind));
             let (slot, at) = schema_of(c, kind, i);
-            let mut drawn = params(&tc);
+            let mut drawn = params(tc);
             let (property, said) = match mistake {
                 "not an object" => {
                     let wrong = vec![
@@ -2258,7 +2275,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                 }
                 "param name" => {
                     let name = match tc.draw(gs::booleans()) {
-                        true => bad_name(&tc),
+                        true => bad_name(tc),
                         false => tc.draw(gs::from_regex("[a-z][a-z0-9]{0,4}-[a-z0-9]{0,4}")),
                     };
                     let said = format!("{name:?} isn't a param's name: {PARAM_RULE}");
@@ -2267,7 +2284,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                 "x-cli" => {
                     let (property, said) = match tc.draw(gs::integers::<u8>().max_value(4)) {
                         0 => {
-                            let flag = bad_name(&tc);
+                            let flag = bad_name(tc);
                             (
                                 json!({ "type": "string", "x-cli": { "flag": flag } }),
                                 format!("its flag {flag:?} isn't a name: {NAME_RULE}"),
@@ -2342,19 +2359,19 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         }
         "no fields" | "field name" | "field twice" => {
             add(c, "analyzers", if mistake == "field twice" { 2 } else { 1 });
-            let i = index(&tc, c.analyzers.len());
+            let i = index(tc, c.analyzers.len());
             match mistake {
                 "no fields" => {
                     c.analyzers[i].fields.clear();
                     (format!("contributes.analyzers[{i}].fields: an analyzer needs a field"), false)
                 }
                 "field name" => {
-                    let name = bad_name(&tc);
+                    let name = bad_name(tc);
                     c.analyzers[i].fields.insert(name.clone(), FieldType::String);
                     (format!("contributes.analyzers[{i}].fields.{name}: isn't a name: {NAME_RULE}"), false)
                 }
                 _ => {
-                    let (i, j) = (i.max(1), index(&tc, i.max(1)));
+                    let (i, j) = (i.max(1), index(tc, i.max(1)));
                     let field = c.analyzers[j].fields.keys().next().unwrap().clone();
                     c.analyzers[i].fields.insert(field.clone(), FieldType::Boolean);
                     (format!("contributes.analyzers[{i}].fields.{field}: another analyzer has this field"), false)
@@ -2363,7 +2380,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         }
         "structured twice" => {
             add(c, "analyzers", 1);
-            let i = index(&tc, c.analyzers.len());
+            let i = index(tc, c.analyzers.len());
             let kind = tc.draw(gs::sampled_from(vec![FieldType::Beats, FieldType::Phrases, FieldType::Waveform]));
             let fields = &mut c.analyzers[i].fields;
             // Longer than any drawn name, so none of the analyzers' fields.
@@ -2376,7 +2393,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         }
         "role field" | "role type" => {
             add(c, "analyzers", 1);
-            let i = index(&tc, c.analyzers.len());
+            let i = index(tc, c.analyzers.len());
             let a = &mut c.analyzers[i];
             let role = tc.draw(gs::sampled_from(Role::ALL.to_vec()));
             let at = format!("contributes.analyzers[{i}].roles.{}", role.name());
@@ -2395,7 +2412,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         }
         "file or folder" | "extension" => {
             add(c, "exporters", 1);
-            let i = index(&tc, c.exporters.len());
+            let i = index(tc, c.exporters.len());
             let x = &mut c.exporters[i];
             if mistake == "file or folder" {
                 x.folder = tc.draw(gs::booleans());
@@ -2437,7 +2454,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         }
         "check when" => {
             add(c, "checks", 1);
-            let i = index(&tc, c.checks.len());
+            let i = index(tc, c.checks.len());
             let x = &mut c.checks[i];
             let at = format!("contributes.checks[{i}].when");
             match tc.draw(gs::booleans()) {
@@ -2446,7 +2463,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     (format!("{at}: names no time: check, apply or both"), false)
                 }
                 false => {
-                    let again = x.when[index(&tc, x.when.len())];
+                    let again = x.when[index(tc, x.when.len())];
                     x.when.push(again);
                     (format!("{at}: {} is there twice", again.name()), false)
                 }
@@ -2454,13 +2471,13 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         }
         "panel place" => {
             add(c, "panels", 1);
-            let i = index(&tc, c.panels.len());
+            let i = index(tc, c.panels.len());
             c.panels[i].offered = tc.draw(gs::sampled_from(vec![Where::Playlist, Where::Drive]));
             (format!("contributes.panels[{i}].where: a panel is shown with a track: where = \"track\""), false)
         }
         "no tokens" | "token name" | "token colour" | "token count" => {
             add(c, "themes", 1);
-            let i = index(&tc, c.themes.len());
+            let i = index(tc, c.themes.len());
             let tokens = &mut c.themes[i].tokens;
             let at = format!("contributes.themes[{i}].tokens");
             match mistake {
@@ -2501,11 +2518,11 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         }
         "display field" | "display format" | "display precision" | "display width" | "display unit" => {
             add(c, "analyzers", 1);
-            let i = index(&tc, c.analyzers.len());
+            let i = index(tc, c.analyzers.len());
             let a = &mut c.analyzers[i];
             let (field, kind) = a.fields.iter().next().map(|(f, k)| (f.clone(), *k)).unwrap();
             let at = format!("contributes.analyzers[{i}].display");
-            let mut d = display(&tc, kind);
+            let mut d = display(tc, kind);
             let said = match mistake {
                 "display field" => {
                     // Longer than any drawn name, so none of its fields.
@@ -2559,7 +2576,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         }
         "export grant" => {
             add(c, "exporters", 1);
-            let i = index(&tc, c.exporters.len());
+            let i = index(tc, c.exporters.len());
             let read = tc.draw(gs::sampled_from(vec![ExportFrom::Set, ExportFrom::Mix]));
             c.exporters[i].source = match tc.draw(gs::booleans()) {
                 true => ExportSources::One(read),
@@ -2572,7 +2589,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         }
         "import extension" => {
             add(c, "importers", 1);
-            let i = index(&tc, c.importers.len());
+            let i = index(tc, c.importers.len());
             let ext = match tc.draw(gs::integers::<u8>().max_value(2)) {
                 0 => String::new(),
                 1 => tc.draw(gs::from_regex("[a-z0-9]{0,3}[A-Z._/ -][a-z0-9]{0,3}")),
@@ -2584,14 +2601,14 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         }
         "provides nothing" | "provides twice" => {
             add(c, "importers", 1);
-            let i = index(&tc, c.importers.len());
+            let i = index(tc, c.importers.len());
             let x = &mut c.importers[i];
             let at = format!("contributes.importers[{i}].provides");
             if mistake == "provides nothing" {
                 x.provides.clear();
                 (format!("{at}: names nothing: fields, cues, tags or sessions"), false)
             } else {
-                let again = x.provides[index(&tc, x.provides.len())];
+                let again = x.provides[index(tc, x.provides.len())];
                 x.provides.push(again);
                 (format!("{at}: {} is there twice", again.name()), false)
             }
@@ -2630,7 +2647,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         }
         _ => {
             add(c, "settings", 1);
-            let i = index(&tc, c.settings.len());
+            let i = index(tc, c.settings.len());
             let x = &mut c.settings[i];
             let at = format!("contributes.settings[{i}]");
             match mistake {
@@ -2646,16 +2663,16 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                         (x.kind, x.default) = (SettingType::Enum, None);
                         x.choices.push(tc.draw(gs::text()));
                     }
-                    let again = x.choices[index(&tc, x.choices.len())].clone();
+                    let again = x.choices[index(tc, x.choices.len())].clone();
                     x.choices.push(again.clone());
                     (format!("{at}.choices: {again:?} is there twice"), false)
                 }
                 _ => {
                     let choices = x.choices.clone();
                     x.default = Some(match x.kind {
-                        SettingType::String | SettingType::File | SettingType::Directory => number(&tc),
+                        SettingType::String | SettingType::File | SettingType::Directory => number(tc),
                         SettingType::Number => tc.draw(gs::text()).into(),
-                        SettingType::Boolean => number(&tc),
+                        SettingType::Boolean => number(tc),
                         SettingType::Enum => tc.draw(gs::text().filter(move |s: &String| !choices.contains(s))).into(),
                         SettingType::Secret => tc.draw(gs::text()).into(),
                     });
@@ -3823,4 +3840,650 @@ fn an_account_placeholder_names_a_type_and_maybe_an_access(tc: TestCase) {
         format!("Bearer {{account:{named}}}"),
     ]));
     assert_eq!(account_placeholder(&wrong), None, "{wrong}");
+}
+
+/// Every kind of contribution, in a manifest that's otherwise right, is refused saying where when
+/// one of them is named what isn't a name, is named as another is, or has a blank title.
+#[hegel::test(test_cases = 10)]
+fn prop_every_kinds_names_and_titles_are_checked(tc: TestCase) {
+    let drawn = manifest(&tc, false);
+    for kind in CONTRIBUTIONS {
+        for mistake in ["name", "twice", "title"] {
+            let mut m = drawn.clone();
+            let granted = match kind {
+                "providers" => Some(Capability::LibraryRead),
+                "sources" => Some(Capability::FsRead),
+                _ => None,
+            };
+            if let Some(g) = granted.filter(|g| !m.capabilities.contains(g)) {
+                m.capabilities.push(g);
+            }
+            let c = &mut m.contributes;
+            add(c, kind, 1);
+            let i = index(&tc, len(c, kind));
+            let key = name_key(kind);
+            let said = match mistake {
+                "name" => {
+                    let wrong = bad_name(&tc);
+                    *names_and_titles(c, kind)[i].0 = wrong.clone();
+                    format!("contributes.{kind}[{i}].{key}: {wrong:?} isn't a name: {NAME_RULE}")
+                }
+                "twice" => {
+                    duplicate(c, kind, i);
+                    let name = names_and_titles(c, kind)[i].0.clone();
+                    format!("contributes.{kind}[{}].{key}: {name:?} is used twice", len(c, kind) - 1)
+                }
+                _ => {
+                    *names_and_titles(c, kind)[i].1 = tc.draw(gs::text().alphabet(" \t\r\n").max_size(3));
+                    format!("contributes.{kind}[{i}].title: is empty")
+                }
+            };
+            assert_eq!(problem_with(&m, false), said, "{kind} {mistake}");
+        }
+    }
+}
+
+/// A key this side doesn't know, of any value.
+#[hegel::test_helper]
+fn unknown_key(tc: &TestCase) -> (String, Value) {
+    let key = format!("zz-{}", tc.draw(gs::from_regex("[a-z]{1,6}").fullmatch(true)));
+    let value = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => json!(tc.draw(gs::integers::<i64>())),
+        1 => json!(tc.draw(gs::text().max_size(6))),
+        _ => json!({ "colour": tc.draw(gs::booleans()) }),
+    };
+    (key, value)
+}
+
+/// Any keys a manifest has that this side doesn't know, at the top, among its contributions, in a
+/// contribution or in one's optional table (an account type's whoami), are left out, each said
+/// where it was; another plugin's manifest is still valid, and one locallibrary ships is refused
+/// for the first of them.
+#[hegel::test(test_cases = 30)]
+fn prop_unknown_keys_are_left_out_saying_where_they_were(tc: TestCase) {
+    let mut drawn = manifest(&tc, false);
+    add(&mut drawn.contributes, "commands", 1);
+    for m in [account_plugin(&tc, false), drawn] {
+        let mut json = serde_json::to_value(&m).unwrap();
+        let mut said = Vec::new();
+        let places: [&[&str]; 4] = [
+            &[],
+            &["contributes"],
+            &["contributes", "commands", "0"],
+            &["contributes", "account_types", "0", "whoami"],
+        ];
+        for place in places {
+            let Some(table) = place.iter().try_fold(&mut json, |v, key| match key.parse::<usize>() {
+                Ok(i) => v.get_mut(i),
+                Err(_) => v.get_mut(*key),
+            }) else {
+                continue;
+            };
+            if !tc.draw(gs::booleans()) {
+                continue;
+            }
+            let (key, value) = unknown_key(&tc);
+            table[&key] = value;
+            let mut at = String::new();
+            for part in place.iter().chain([&key.as_str()]) {
+                match part.parse::<usize>() {
+                    Ok(i) => at.push_str(&format!("[{i}]")),
+                    Err(_) if at.is_empty() => at.push_str(part),
+                    Err(_) => at.push_str(&format!(".{part}")),
+                }
+            }
+            said.push(at);
+        }
+        let read = Manifest::parse(&toml_of(&json)).unwrap();
+        let mut unknown = read.unknown().to_vec();
+        unknown.sort();
+        said.sort();
+        assert_eq!(unknown, said);
+        assert_eq!(Manifest { unknown: Vec::new(), ..read.clone() }, m);
+        assert_eq!(problem_with(&read, false), "");
+        let refused = read.unknown().first().map(|key| format!("{key}: isn't a key locallibrary knows"));
+        assert_eq!(problem_with(&read, true), refused.unwrap_or_default());
+    }
+}
+
+/// What isn't TOML, or isn't a manifest's shape (an id that isn't a string, a capability that
+/// isn't one), isn't read as a manifest.
+#[hegel::test(test_cases = 30)]
+fn prop_what_isnt_a_manifest_isnt_read(tc: TestCase) {
+    let n = tc.draw(gs::integers::<i64>());
+    let cut = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
+    let unended = &HEAD[..HEAD.find("demo").unwrap() + cut];
+    for wrong in [unended.to_string(), format!("id = {n}\n{}", &HEAD[HEAD.find('\n').unwrap() + 1..])] {
+        assert!(Manifest::parse(&wrong).is_err(), "{wrong}");
+    }
+    assert!(Manifest::parse(&format!("{HEAD}capabilities = [{n}]\n")).is_err());
+    assert!(serde_json::from_value::<Capability>(json!(n)).is_err());
+}
+
+/// A place says its name as a manifest writes it; a param filled in from the selection is of a type
+/// that holds it, and is what the context has selected, if anything.
+#[hegel::test(test_cases = 100)]
+fn prop_a_selection_fits_its_param_and_is_what_the_context_has(tc: TestCase) {
+    for place in [Where::Track, Where::Playlist, Where::Drive] {
+        assert_eq!(json!(place.name()), serde_json::to_value(place).unwrap());
+    }
+    let properties = [
+        json!({ "type": "string" }),
+        json!({ "type": "integer" }),
+        json!({ "type": "array", "items": { "type": "integer" } }),
+        json!({ "type": "array", "items": { "type": "string" } }),
+    ];
+    let froms = [
+        json!("selection.tracks"),
+        json!("selection.playlist"),
+        json!("selection.drive"),
+        json!("selection.deck"),
+        json!(tc.draw(gs::integers::<i64>())),
+    ];
+    // Each property with each selection, and with none.
+    for (property, from) in
+        properties.iter().flat_map(|p| froms.iter().cloned().map(Some).chain([None]).map(move |f| (p, f)))
+    {
+        selected(property.clone(), from);
+    }
+    let context = Context {
+        drive: tc.draw(gs::optional(gs::text().max_size(4))),
+        playlist: tc.draw(gs::optional(gs::text().max_size(4))),
+        tracks: tc.draw(gs::vecs(gs::integers::<u32>()).max_size(3)),
+        ..Context::default()
+    };
+    let tracks = (!context.tracks.is_empty()).then(|| json!(context.tracks));
+    assert_eq!(Selection::Tracks.value(&context), tracks);
+    assert_eq!(Selection::Playlist.value(&context), context.playlist.clone().map(Value::from));
+    assert_eq!(Selection::Drive.value(&context), context.drive.clone().map(Value::from));
+}
+
+/// `property` filled in `from` a selection (or not) is read as one exactly when it's of a type that
+/// holds what it names.
+fn selected(mut property: Value, from: Option<Value>) {
+    let integers = property == json!({ "type": "array", "items": { "type": "integer" } });
+    let string = property == json!({ "type": "string" });
+    let expected = match from.as_ref().and_then(Value::as_str) {
+        _ if from.is_none() => Ok(None),
+        Some("selection.tracks") if integers => Ok(Some(Selection::Tracks)),
+        Some("selection.playlist") if string => Ok(Some(Selection::Playlist)),
+        Some("selection.drive") if string => Ok(Some(Selection::Drive)),
+        Some("selection.tracks") => Err(format!("{} is integers, which the param isn't", from.clone().unwrap())),
+        Some("selection.playlist" | "selection.drive") => {
+            Err(format!("{} is a string, which the param isn't", from.clone().unwrap()))
+        }
+        _ => Err("is selection.tracks, selection.playlist or selection.drive".to_string()),
+    };
+    if let Some(from) = from {
+        property["x-from"] = from;
+    }
+    assert_eq!(Selection::of(&property), expected, "{property}");
+}
+
+/// A `net:` grant reaches its own host, in any case, and `net:*.<domain>` any host below the
+/// domain (not the domain itself); no other capability reaches a host, nor names one.
+#[hegel::test(test_cases = 100)]
+fn prop_a_net_grant_reaches_its_host_or_those_below_its_domain(tc: TestCase) {
+    let labels: Vec<String> =
+        tc.draw(gs::vecs(gs::from_regex("[a-z0-9]{1,4}").fullmatch(true)).min_size(1).max_size(4));
+    let host = labels.join(".");
+    let from = tc.draw(gs::integers::<usize>().max_value(labels.len()));
+    let domain = labels[from..].join(".");
+    let below = !domain.is_empty() && from > 0;
+    let wildcard = Capability::Net(format!("*.{}", domain.to_uppercase()));
+    assert_eq!(wildcard.reaches(&host), below, "{wildcard} {host}");
+    assert!(Capability::Net(host.to_uppercase()).reaches(&host));
+    assert_eq!(Capability::Net(domain.clone()).reaches(&host), from == 0);
+    let named = tc.draw(gs::sampled_from(Capability::NAMED.to_vec()));
+    assert!(!named.reaches(&host));
+    assert_eq!((named.name().is_some(), wildcard.name()), (true, None));
+}
+
+/// A manifest has a feature's contributions exactly when the feature says it does: accounts it
+/// asks for, analyzers with a structured field, `net` limits, or a contribution of the feature's
+/// kind; never for the SDK's own features.
+#[hegel::test(test_cases = 50)]
+fn prop_a_feature_is_contributed_exactly_when_the_manifest_has_its_contributions(tc: TestCase) {
+    let m = manifest(&tc, tc.draw(gs::booleans()));
+    let c = &m.contributes;
+    let structured = c.analyzers.iter().any(|a| a.fields.values().any(|t| t.is_structured()));
+    for feature in crate::FEATURES {
+        let has = match feature.name {
+            "accounts" => !m.accounts.is_empty(),
+            "analysis" => structured,
+            "net" => !m.net.is_empty(),
+            "blobs" | "choose" | "views" => false,
+            "events" => !c.events.is_empty(),
+            kind => len(c, kind) > 0,
+        };
+        assert_eq!((feature.contributed)(&m), has, "{}", feature.name);
+    }
+}
+
+/// A request's host is its URL's, without the `*` a pattern ends in; what isn't a URL has none.
+#[hegel::test(test_cases = 50)]
+fn prop_a_requests_host_is_its_urls(tc: TestCase) {
+    let host = tc.draw(gs::from_regex("[a-z][a-z0-9]{0,6}(\\.[a-z]{2,4}){1,2}").fullmatch(true));
+    let star = if tc.draw(gs::booleans()) { "*" } else { "" };
+    let request = |url: String| ScopeRequest { method: "GET".into(), url };
+    assert_eq!(request(format!("https://{host}/api/{star}")).host(), Some(host.clone()));
+    assert_eq!(request(format!("{host}/api/{star}")).host(), None);
+}
+
+/// An account type's endpoint that names no host (`mailto:`, `data:`) isn't one; a keys account
+/// type's authorization with a brace that names no key (closed before any opens, left open,
+/// closed twice, or around what isn't a name) is refused.
+#[hegel::test(test_cases = 50)]
+fn prop_an_endpoint_without_a_host_and_a_stray_brace_are_refused(tc: TestCase) {
+    let mut m = account_plugin(&tc, false);
+    let who = tc.draw(gs::from_regex("[a-z]{1,6}").fullmatch(true));
+    let url = tc.draw(gs::sampled_from(vec![format!("mailto:{who}@a.org"), format!("data:,{who}")]));
+    m.contributes.account_types[0].authorize_url = Some(url.clone());
+    assert_eq!(
+        problem_with(&m, false),
+        format!("contributes.account_types[0].authorize_url: {}", not_plain_https(&url))
+    );
+    let x = keys_account_type(&tc);
+    let key = x.keys.keys().next().unwrap().clone();
+    let text = tc.draw(gs::from_regex("[a-z ]{0,4}").fullmatch(true));
+    for value in [
+        format!("{text}}}{{{key}}}"),
+        format!("{{{key}}}{text}{{{key}"),
+        format!("{{{key}}}}}{text}"),
+        format!("{{{key}}}{text}{{Not-a-name}}"),
+    ] {
+        let mut m = m.clone();
+        m.contributes.account_types[0] = AccountType { authorization: Some(value.clone()), ..x.clone() };
+        let said =
+            format!("contributes.account_types[0].authorization: {value:?} has a {{ or }} that doesn't name a key");
+        assert_eq!(problem_with(&m, false), said);
+    }
+}
+
+/// Every source, kind of import, kind of provider and time a check runs says its name as a
+/// manifest writes it, and a provider what it finds; every display format is named where it
+/// doesn't fit its field.
+#[hegel::test(test_cases = 20)]
+fn prop_every_name_is_as_a_manifest_writes_it(tc: TestCase) {
+    let named = |name: &str, value: Value| assert_eq!(json!(name), value);
+    for from in [ExportFrom::Drive, ExportFrom::Set, ExportFrom::Mix] {
+        named(from.name(), serde_json::to_value(from).unwrap());
+    }
+    for kind in [ImportKind::Fields, ImportKind::Cues, ImportKind::Tags, ImportKind::Sessions] {
+        named(kind.name(), serde_json::to_value(kind).unwrap());
+    }
+    for (kind, found) in [(ProviderKind::Artwork, "cover art"), (ProviderKind::Metadata, "track details")] {
+        named(kind.name(), serde_json::to_value(kind).unwrap());
+        assert_eq!(kind.found(), found);
+    }
+    for when in [When::Check, When::Apply] {
+        named(when.name(), serde_json::to_value(when).unwrap());
+    }
+    let formats = [FieldFormat::Key, FieldFormat::Duration, FieldFormat::Db, FieldFormat::Percent, FieldFormat::Meter];
+    let field = tc.draw(gs::from_regex(DRAWN_NAME));
+    for format in formats {
+        // A key is for a string, the rest for numbers.
+        let kind = if format == FieldFormat::Key { FieldType::Number } else { FieldType::String };
+        let display = FieldDisplay { format: Some(format), ..FieldDisplay::default() };
+        let analyzer = Analyzer {
+            name: "a".into(),
+            title: title(&tc),
+            version: "1".into(),
+            fields: IndexMap::from_iter([(field.clone(), kind)]),
+            roles: IndexMap::new(),
+            display: IndexMap::from_iter([(field.clone(), display)]),
+        };
+        let mut m = manifest(&tc, false);
+        m.contributes.analyzers = vec![analyzer];
+        let format_name = serde_json::to_value(format).unwrap();
+        let said = format!(
+            "contributes.analyzers[0].display.{field}.format: {field} is {}, which {} isn't for",
+            a_field_of(kind),
+            format_name.as_str().unwrap()
+        );
+        assert_eq!(problem_with(&m, false), said);
+    }
+    let shown = FieldDisplay::default();
+    let b = tc.draw(gs::booleans());
+    assert_eq!(shown.show(&FieldValue::Boolean(b)), if b { "yes" } else { "no" });
+}
+
+/// Any value is shown as its hints say: nothing as `-`, a boolean as yes or no, text and an
+/// integer without a format as they are, then the unit; a number to its places (two at most when
+/// it doesn't say), never as `-0`, a level in dB signed when it's more than nothing.
+#[hegel::test(test_cases = 200)]
+fn prop_values_are_shown_as_their_hints_say(tc: TestCase) {
+    let unit = tc.draw(gs::optional(gs::from_regex("[A-Za-z%]{1,4}").fullmatch(true)));
+    let precision = tc.draw(gs::optional(gs::integers::<u8>().max_value(FieldDisplay::MAX_PRECISION)));
+    let plain = FieldDisplay { unit: unit.clone(), precision, ..FieldDisplay::default() };
+    let with_unit = |s: String| unit.as_ref().map_or(s.clone(), |u| format!("{s} {u}"));
+    let text = tc.draw(gs::text().max_size(6));
+    let texts: Vec<String> = tc.draw(gs::vecs(gs::text().max_size(3)).max_size(3));
+    let i = tc.draw(gs::integers::<i64>());
+    let b = tc.draw(gs::booleans());
+    assert_eq!(plain.show(&FieldValue::Null), "-");
+    assert_eq!(plain.show(&FieldValue::Structured(json!([1]))), "-");
+    assert_eq!(plain.show(&FieldValue::Boolean(b)), if b { "yes" } else { "no" });
+    assert_eq!(plain.show(&FieldValue::String(text.clone())), with_unit(text));
+    assert_eq!(plain.show(&FieldValue::Strings(texts.clone())), with_unit(texts.join(", ")));
+    assert_eq!(plain.show(&FieldValue::Integer(i)), with_unit(i.to_string()));
+    // Near nothing as often as not, where `-0` would show.
+    let n = match tc.draw(gs::booleans()) {
+        true => tc.draw(gs::floats::<f64>().min_value(-0.004).max_value(0.004)),
+        false => tc.draw(gs::floats::<f64>().min_value(-1e6).max_value(1e6)),
+    };
+    let places = i32::from(precision.unwrap_or(2));
+    let close = |shown: &str| {
+        let back: f64 = shown.parse().unwrap();
+        assert!((back - n).abs() <= 0.5 * 10f64.powi(-places) + 1e-9, "{n} as {shown}");
+        assert!(!(shown.starts_with('-') && back == 0.0), "{n} as {shown}");
+        back
+    };
+    for format in [None, Some(FieldFormat::Key)] {
+        let shown = FieldDisplay { format, ..plain.clone() }.show(&FieldValue::Number(n));
+        let number = unit.as_ref().map_or(shown.as_str(), |u| shown.strip_suffix(&format!(" {u}")).unwrap());
+        close(number);
+        if precision.is_none() && number.contains('.') {
+            assert!(!number.ends_with('0'), "{n} as {number}");
+        }
+    }
+    let db = FieldDisplay { format: Some(FieldFormat::Db), ..plain.clone() };
+    let level = |value: &FieldValue| {
+        let shown = db.show(value);
+        let level = shown.strip_suffix(&format!(" {}", unit.as_deref().unwrap_or("dB"))).unwrap().to_string();
+        (level.starts_with('+'), level.trim_start_matches('+').to_string())
+    };
+    assert_eq!(level(&FieldValue::Integer(i)).0, i > 0, "{i}");
+    let (signed, shown) = level(&FieldValue::Number(n));
+    let back = close(&shown);
+    assert_eq!(signed, n > 0.0 && back != 0.0, "{n} as {shown}");
+}
+
+/// A track a provider looks up says how long it is only when it knows; an import's or an
+/// operation's answer that isn't JSON isn't read, and a file holding one reads back as that.
+#[hegel::test(test_cases = 50)]
+fn prop_answers_read_and_write_as_they_are(tc: TestCase) {
+    let duration = tc.draw(gs::integers::<u32>().max_value(3));
+    let track = crate::TrackTags { id: 1, duration, ..crate::TrackTags::default() };
+    let sent = serde_json::to_value(&track).unwrap();
+    assert_eq!(sent.get("duration"), (duration > 0).then(|| json!(duration)).as_ref());
+    let blob = tc.draw(gs::from_regex("[a-z0-9.]{0,6}").fullmatch(true));
+    let answer = crate::ImportAnswer::from(crate::Blob { blob: blob.clone() });
+    assert_eq!(serde_json::to_value(&answer).unwrap(), json!({ "blob": blob }));
+    let cut = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+    let text = json!({ "blob": blob }).to_string();
+    assert!(serde_json::from_str::<crate::ImportAnswer>(&text[..text.len() - cut]).is_err());
+    assert!(serde_json::from_str::<crate::OpAnswer>(&text[..text.len() - cut]).is_err());
+}
+
+/// A setting takes values of its type: text for a string, a file or a folder, a number, a
+/// boolean, one of an enum's choices, and text that isn't empty for a secret.
+#[hegel::test(test_cases = 100)]
+fn prop_a_setting_takes_values_of_its_type(tc: TestCase) {
+    let kind = tc.draw(gs::sampled_from(SETTING_TYPES.to_vec()));
+    let choices = vec!["a".to_string(), "b".into()];
+    let setting = Setting { key: "s".into(), title: "S".into(), kind, default: None, choices: choices.clone() };
+    let value = match tc.draw(gs::integers::<u8>().max_value(3)) {
+        0 => json!(tc.draw(gs::text().max_size(2))),
+        1 => number(&tc),
+        2 => json!(tc.draw(gs::booleans())),
+        _ => json!(tc.draw(gs::sampled_from(choices.clone()))),
+    };
+    let takes = match kind {
+        SettingType::String | SettingType::File | SettingType::Directory => value.is_string(),
+        SettingType::Number => value.is_number(),
+        SettingType::Boolean => value.is_boolean(),
+        SettingType::Enum => value.as_str().is_some_and(|v| choices.iter().any(|c| c == v)),
+        SettingType::Secret => value.as_str().is_some_and(|v| !v.is_empty()),
+    };
+    assert_eq!(setting.accepts(&value), takes, "{kind:?} {value}");
+}
+
+/// An account type signed in to in the browser puts its token where its `token` says, and is
+/// refused without where it signs in, its client or its whoami; only Local Network's own token
+/// exchange is one, for a built-in plugin.
+#[hegel::test(test_cases = 50)]
+fn prop_a_browser_account_type_says_where_its_token_goes_and_what_it_needs(tc: TestCase) {
+    let m = account_plugin(&tc, false);
+    let x = &m.contributes.account_types[0];
+    let place = x.place();
+    let expected = match &x.token {
+        TokenPlace::Scheme(scheme) => (Some("Authorization".to_string()), None, format!("{scheme} {{token}}")),
+        TokenPlace::Query(name) => (None, Some(name.clone()), "{token}".to_string()),
+    };
+    assert_eq!((place.header, place.query, place.value), expected);
+    let at = "contributes.account_types[0]";
+    for key in ["authorize_url", "client_id", "whoami"] {
+        let mut m = m.clone();
+        let x = &mut m.contributes.account_types[0];
+        match key {
+            "authorize_url" => x.authorize_url = None,
+            "client_id" => x.client_id = None,
+            _ => x.whoami = None,
+        }
+        assert_eq!(problem_with(&m, false), format!("{at}.{key}: is missing"));
+    }
+    let mut untitled = m.clone();
+    let blank = Scope { title: tc.draw(gs::text().alphabet(" \t\n").max_size(3)), ..scope(&tc) };
+    untitled.contributes.account_types[0].scopes.insert("added-scope".into(), blank);
+    assert_eq!(problem_with(&untitled, false), format!("{at}.scopes.added-scope.title: is empty"));
+    let service = tc.draw(gs::from_regex("[a-z0-9-]{1,12}").fullmatch(true));
+    let mut ours = m.clone();
+    let x = &mut ours.contributes.account_types[0];
+    let elsewhere = format!("https://{}/api/token-exchange/{service}", tc.draw(gs::from_regex("[a-z]{1,8}\\.example")));
+    (x.token_url, x.token_exchange) =
+        (None, Some(format!("https://localnetwork.computer/api/token-exchange/{service}")));
+    assert_eq!(problem_with(&ours, true), "");
+    let mut both = ours.clone();
+    both.contributes.account_types[0].token_url = Some(endpoint(&tc));
+    let beside = format!("{at}.token_exchange: goes in token_url's place, not beside it");
+    assert_eq!(problem_with(&both, true), beside);
+    both.contributes.account_types[0].token_url = None;
+    both.contributes.account_types[0].token_exchange = None;
+    assert_eq!(problem_with(&both, true), format!("{at}.token_url: is missing, and so is token_exchange"));
+    ours.contributes.account_types[0].token_exchange = Some(elsewhere.clone());
+    let said = format!(
+        "{at}.token_exchange: {elsewhere:?} isn't Local Network's token exchange \
+         (https://localnetwork.computer/api/token-exchange/<service>)"
+    );
+    assert_eq!(problem_with(&ours, true), said);
+    let unreachable =
+        format!("http://{}/api/token-exchange/{service}", tc.draw(gs::from_regex("[a-z]{1,8}\\.example")));
+    ours.contributes.account_types[0].token_exchange = Some(unreachable.clone());
+    assert_eq!(problem_with(&ours, true), said.replace(&format!("{elsewhere:?}"), &format!("{unreachable:?}")));
+    // A brace that isn't the subject's, in the params naming the account and in those that don't.
+    let key = tc.draw(gs::sampled_from(AUTHORIZE_PARAMS.to_vec()));
+    let stray = format!(
+        "{}{}",
+        tc.draw(gs::from_regex("[a-z]{0,3}").fullmatch(true)),
+        tc.draw(gs::sampled_from(vec!["{", "}"]))
+    );
+    for (subject, why) in [
+        (true, format!("{stray:?} has a {{ or }} besides {SUBJECT_PLACEHOLDER}")),
+        (false, format!("{stray:?} has a {{ or }}: only one_account names an account")),
+    ] {
+        let mut m = m.clone();
+        let x = &mut m.contributes.account_types[0];
+        (x.one_account, x.another_account, x.params) = (IndexMap::new(), IndexMap::new(), IndexMap::new());
+        let stray = IndexMap::from_iter([(key.to_string(), stray.clone())]);
+        let (params, named) = match subject {
+            true => (&mut x.one_account, "one_account"),
+            false => (&mut x.another_account, "another_account"),
+        };
+        *params = stray;
+        assert_eq!(problem_with(&m, false), format!("{at}.{named}.{key}: {why}"));
+    }
+}
+
+/// A theme's token that's neither a colour nor a list of them, however deep, is refused by its
+/// dotted name.
+#[hegel::test(test_cases = 50)]
+fn prop_a_token_thats_not_a_colour_is_refused_by_its_name(tc: TestCase) {
+    let names: Vec<String> = tc.draw(gs::vecs(gs::from_regex("[a-z]{1,6}").fullmatch(true)).min_size(1).max_size(3));
+    let wrong = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => json!(tc.draw(gs::integers::<i64>())),
+        1 => json!(tc.draw(gs::booleans())),
+        _ => Value::Null,
+    };
+    let tokens = names.iter().rev().fold(wrong, |below, name| json!({ name: below }));
+    let theme = Theme { name: "t".into(), title: "T".into(), tokens: tokens.as_object().unwrap().clone() };
+    let said = "isn't #rrggbb (lowercase), or a list of them".to_string();
+    assert_eq!(theme.theme().err(), Some((names.join("."), said)));
+}
+
+/// Params a list of paths is given in are taken when every one is absolute, and refused at the
+/// first that isn't.
+#[hegel::test(test_cases = 50)]
+fn prop_a_list_of_paths_is_taken_only_absolute(tc: TestCase) {
+    let schema = json!({
+        "type": "object",
+        "properties": { "files": { "type": "array", "items": { "type": "string" }, "x-path": true } }
+    });
+    let names: Vec<String> = tc.draw(gs::vecs(gs::from_regex("[a-z]{1,6}").fullmatch(true)).max_size(3));
+    let mut files: Vec<String> = names.iter().map(|n| absolute(n)).collect();
+    assert_eq!(check_params(Some(&schema), &json!({ "files": files })), Ok(()));
+    let relative = tc.draw(gs::from_regex("[a-z]{1,6}/[a-z]{1,6}").fullmatch(true));
+    files.insert(tc.draw(gs::integers::<usize>().max_value(files.len())), relative.clone());
+    let e = check_params(Some(&schema), &json!({ "files": files })).unwrap_err();
+    assert_eq!(e.message, format!("invalid params: /files: {relative:?} isn't an absolute path"));
+}
+
+/// Every role reads back from its name, and any other name is refused saying what the roles are;
+/// an analyzer's version that isn't one is refused.
+#[hegel::test(test_cases = 50)]
+fn prop_roles_read_from_their_names_and_versions_are_checked(tc: TestCase) {
+    for role in Role::ALL {
+        assert_eq!(role.name().parse::<Role>(), Ok(role));
+    }
+    let names: Vec<&str> = Role::ALL.iter().map(|r| r.name()).collect();
+    let wrong = tc.draw(gs::text().max_size(8).filter(move |s: &String| !names.contains(&s.as_str())));
+    let all: Vec<&str> = Role::ALL.iter().map(|r| r.name()).collect();
+    assert_eq!(wrong.parse::<Role>(), Err(format!("{wrong:?} isn't a role: one of {}", all.join(", "))));
+    let mut m = manifest(&tc, false);
+    add(&mut m.contributes, "analyzers", 1);
+    let i = index(&tc, m.contributes.analyzers.len());
+    let version =
+        tc.draw(gs::sampled_from(vec![String::new(), ".1".into(), "1 2".into(), "1/2".into(), "1".repeat(65)]));
+    m.contributes.analyzers[i].version = version.clone();
+    let said =
+        format!("contributes.analyzers[{i}].version: {version:?} isn't a version: letters, digits, ., _, + and -");
+    assert_eq!(problem_with(&m, false), said);
+}
+
+/// Every contribution with params or options is refused saying where when its schema isn't for
+/// an object, or fills a param in from what isn't a selection; a command or operation offered
+/// nowhere, or somewhere twice, is too; and an exporter that writes out nothing, or one source
+/// twice.
+#[hegel::test(test_cases = 10)]
+fn prop_every_schema_place_and_source_is_checked(tc: TestCase) {
+    let drawn = manifest(&tc, false);
+    for kind in ["commands", "operations", "exporters", "importers", "sources"] {
+        for mistake in ["not an object", "x-from", "flag", "positional", "hints"] {
+            let mut m = drawn.clone();
+            if kind == "sources" && !m.capabilities.contains(&Capability::FsRead) {
+                m.capabilities.push(Capability::FsRead);
+            }
+            add(&mut m.contributes, kind, 1);
+            let i = index(&tc, len(&m.contributes, kind));
+            let (slot, at) = schema_of(&mut m.contributes, kind, i);
+            let property = |p: Value| Some(json!({ "type": "object", "properties": { "p": p } }));
+            let said = match mistake {
+                "not an object" => {
+                    *slot = Some(json!({ "type": "string" }));
+                    format!("{at}: must be a JSON Schema for an object (type = \"object\")")
+                }
+                "x-from" => {
+                    *slot = property(json!({ "type": "string", "x-from": "selection.deck" }));
+                    format!("{at}.properties.p.x-from: is selection.tracks, selection.playlist or selection.drive")
+                }
+                "flag" => {
+                    let flag = bad_name(&tc);
+                    *slot = property(json!({ "type": "string", "x-cli": { "flag": flag } }));
+                    format!("{at}.properties.p.x-cli: its flag {flag:?} isn't a name: {NAME_RULE}")
+                }
+                "hints" => {
+                    // Hints that aren't hints: a key they don't have, or not a table.
+                    let hints = match tc.draw(gs::booleans()) {
+                        true => json!({ "colour": tc.draw(gs::integers::<i64>()) }),
+                        false => json!(tc.draw(gs::integers::<i64>())),
+                    };
+                    *slot = property(json!({ "type": "string", "x-cli": hints }));
+                    let read = CliHints::deserialize(&hints).unwrap_err();
+                    format!("{at}.properties.p.x-cli: {read}")
+                }
+                _ => {
+                    let kind = tc.draw(gs::sampled_from(vec!["integer", "boolean", "number"]));
+                    *slot = property(json!({ "type": kind, "x-cli": { "positional": true } }));
+                    format!("{at}.properties.p.x-cli: only a string is positional")
+                }
+            };
+            assert_eq!(problem_with(&m, false), said, "{kind} {mistake}");
+        }
+    }
+    for kind in ["commands", "operations"] {
+        for twice in [false, true] {
+            let mut m = drawn.clone();
+            add(&mut m.contributes, kind, 1);
+            let i = index(&tc, len(&m.contributes, kind));
+            let offered = match kind {
+                "commands" => &mut m.contributes.commands[i].offered,
+                _ => &mut m.contributes.operations[i].offered,
+            };
+            let said = match twice {
+                false => {
+                    offered.clear();
+                    "names no place: track, playlist or drive".to_string()
+                }
+                true => {
+                    let again = offered[index(&tc, offered.len())];
+                    offered.push(again);
+                    format!("{} is there twice", again.name())
+                }
+            };
+            assert_eq!(problem_with(&m, false), format!("contributes.{kind}[{i}].where: {said}"));
+        }
+    }
+    let mut m = drawn.clone();
+    add(&mut m.contributes, "exporters", 1);
+    let i = index(&tc, m.contributes.exporters.len());
+    let at = format!("contributes.exporters[{i}].source");
+    m.contributes.exporters[i].source = ExportSources::Several(Vec::new());
+    assert_eq!(problem_with(&m, false), format!("{at}: an exporter writes out a drive, a set or a mix"));
+    m.contributes.exporters[i].source = ExportSources::Several(vec![ExportFrom::Drive, ExportFrom::Drive]);
+    assert_eq!(problem_with(&m, false), format!("{at}: drive is listed twice"));
+}
+
+/// An operation's answer and an import's read back as they were sent, a question or a plan, a
+/// file or what was read; one that's a plan, or a read, gone wrong says what's wrong with that;
+/// a source's track leaves out a year and a rating it doesn't know.
+#[hegel::test(test_cases = 50)]
+fn prop_operation_and_import_answers_read_back_as_sent(tc: TestCase) {
+    let title = title(&tc);
+    let choice = crate::Choice {
+        title: title.clone(),
+        param: "p".into(),
+        multi: false,
+        items: vec![crate::ChoiceItem { label: title.clone(), detail: None, value: json!(1) }],
+        more: Vec::new(),
+    };
+    let plan = crate::OpPlan { summary: title.clone(), warnings: Vec::new(), edits: Vec::new(), inputs: Vec::new() };
+    for answer in [crate::OpAnswer::from(choice), crate::OpAnswer::from(plan)] {
+        let sent = serde_json::to_value(&answer).unwrap();
+        assert_eq!(serde_json::from_str::<crate::OpAnswer>(&sent.to_string()).unwrap(), answer);
+    }
+    let wrong = serde_json::from_str::<crate::OpAnswer>(r#"{ "summary": 5 }"#).unwrap_err();
+    assert!(wrong.to_string().starts_with("invalid type: integer `5`, expected a string"), "{wrong}");
+    let read = crate::Imported { tracks: Vec::new(), ..crate::Imported::default() };
+    for answer in [crate::ImportAnswer::from(read), crate::ImportAnswer::from(crate::Blob { blob: title })] {
+        let sent = serde_json::to_value(&answer).unwrap();
+        assert_eq!(serde_json::from_str::<crate::ImportAnswer>(&sent.to_string()).unwrap(), answer);
+    }
+    assert!(serde_json::from_str::<crate::ImportAnswer>(r#"{ "tracks": 5 }"#).is_err());
+    let (year, rating) = (tc.draw(gs::integers::<u16>().max_value(2)), tc.draw(gs::integers::<u8>().max_value(2)));
+    let track = crate::SourceTrack { path: "/a.mp3".into(), year, rating, ..crate::SourceTrack::default() };
+    let sent = serde_json::to_value(&track).unwrap();
+    assert_eq!(
+        (sent.get("year"), sent.get("rating")),
+        ((year > 0).then(|| json!(year)).as_ref(), (rating > 0).then(|| json!(rating)).as_ref())
+    );
 }

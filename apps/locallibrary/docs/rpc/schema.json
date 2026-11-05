@@ -15651,6 +15651,13 @@
             ]
           },
           "description": "What its change left in each file putting it back replaces or removes, by content (`null`:\nabsent). Missing when the change didn't finish, or an earlier version made the backup."
+        },
+        "added": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Files its change was to write in place that weren't there when it was taken (an image's\nmedium copy rekordbox didn't leave): putting it back removes them."
         }
       },
       "required": [
@@ -16093,6 +16100,13 @@
             ]
           },
           "description": "What its change left in each file putting it back replaces or removes, by content (`null`:\nabsent). Missing when the change didn't finish, or an earlier version made the backup."
+        },
+        "added": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Files its change was to write in place that weren't there when it was taken (an image's\nmedium copy rekordbox didn't leave): putting it back removes them."
         },
         "journal": {
           "type": "integer",

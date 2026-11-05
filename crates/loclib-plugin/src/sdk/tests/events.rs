@@ -5,8 +5,8 @@ use serde_json::Map;
 
 use super::*;
 use crate::{
-    AnalyzeAction, EventName, EventNotify, ExportAction, FetchAction, HostAction, HostNotify, MAX_SUGGESTED_PARAMS,
-    StartService, Suggested, Suggestion,
+    AnalyzeAction, DriveAction, EventName, EventNotify, ExportAction, FetchAction, HostAction, HostNotify,
+    MAX_SUGGESTED_PARAMS, ProviderKind, StartService, Suggested, Suggestion,
 };
 
 /// The echo plugin's manifest, with a service.
@@ -338,4 +338,249 @@ fn the_most_tracks_suggested_fit_the_params() {
     let analyze = HostAction::Analyze(AnalyzeAction { analyzer: "size".into(), drive: "USB".into(), tracks });
     let taken = HostNotify::action("m", &analyze).suggestion(&m);
     assert_eq!(taken, Ok(Some(Suggestion::Action(analyze))));
+}
+
+/// Any action names the drive it's on, as its params do, and the tracks it's for, when it has
+/// them, which a host may rename as it knows them; a fetch says its kind of provider.
+#[hegel::test(test_cases = 50)]
+fn prop_an_action_names_its_drive_and_tracks(tc: TestCase) {
+    let drive = tc.draw(gs::text().max_size(6));
+    let tracks: Vec<u32> = tc.draw(gs::vecs(gs::integers::<u32>()).max_size(3));
+    let fetch = FetchAction { drive: drive.clone(), tracks: tracks.clone(), provider: None };
+    let export_drive = tc.draw(gs::optional(gs::text().max_size(6)));
+    let actions = [
+        (HostAction::ArtFetch(fetch.clone()), Some(drive.clone()), Some(tracks.clone())),
+        (HostAction::TrackFetch(fetch), Some(drive.clone()), Some(tracks.clone())),
+        (
+            HostAction::Export(ExportAction {
+                format: "m3u".into(),
+                drive: export_drive.clone(),
+                ..Default::default()
+            }),
+            export_drive,
+            None,
+        ),
+        (
+            HostAction::Analyze(AnalyzeAction {
+                analyzer: "size".into(),
+                drive: drive.clone(),
+                tracks: tracks.clone(),
+            }),
+            Some(drive.clone()),
+            Some(tracks),
+        ),
+        (HostAction::Pull(DriveAction { drive: drive.clone() }), Some(drive.clone()), None),
+        (HostAction::Sync(DriveAction { drive: drive.clone() }), Some(drive), None),
+    ];
+    for (mut action, drive, tracks) in actions {
+        assert_eq!(action.drive(), drive.as_deref());
+        let kind = match &action {
+            HostAction::ArtFetch(f) => Some((ProviderKind::Artwork, f.clone())),
+            HostAction::TrackFetch(f) => Some((ProviderKind::Metadata, f.clone())),
+            _ => None,
+        };
+        assert_eq!(action.fetch().map(|(k, f)| (k, f.clone())), kind);
+        let (named, which) = action.scope_mut();
+        assert_eq!((named.cloned(), which.cloned()), (drive.clone(), tracks.clone()));
+        let (named, which) = action.scope_mut();
+        if let Some(named) = named {
+            named.push('!');
+        }
+        if let Some(which) = which {
+            which.push(7);
+        }
+        assert_eq!(action.drive().map(str::to_string), drive.map(|d| format!("{d}!")));
+        let renamed = match &action {
+            HostAction::ArtFetch(f) | HostAction::TrackFetch(f) => Some(f.tracks.clone()),
+            HostAction::Analyze(a) => Some(a.tracks.clone()),
+            _ => None,
+        };
+        assert_eq!(renamed, tracks.map(|t| [t, vec![7]].concat()));
+    }
+}
+
+/// An export suggested with any options is taken exactly when its exporter's options schema
+/// takes them, and refused, saying so, when it names no drive, set or mix at all.
+#[hegel::test(test_cases = 50)]
+fn prop_an_export_takes_options_its_exporter_takes_and_names_a_source(tc: TestCase) {
+    let loud = "\n[[contributes.exporters]]\nformat = \"loud\"\ntitle = \"Loud\"\nextension = \"txt\"\n\
+                options = { type = \"object\", properties = { loud = { type = \"boolean\" } } }\n";
+    let m = Manifest::parse(&format!("{}{loud}", echo::MANIFEST)).unwrap();
+    let suggest = |params: Value| {
+        let action = Some(Suggested { name: "export".into(), params });
+        HostNotify { message: "m".into(), operation: None, action }.suggestion(&m)
+    };
+    let given = match tc.draw(gs::booleans()) {
+        true => json!(tc.draw(gs::booleans())),
+        false => json!(tc.draw(gs::text().max_size(4))),
+    };
+    let taken = suggest(json!({ "format": "loud", "drive": "USB", "options": { "loud": given } }));
+    match given.is_boolean() {
+        true => assert!(matches!(taken, Ok(Some(Suggestion::Action(HostAction::Export(_))))), "{taken:?}"),
+        false => {
+            let refused = taken.unwrap_err();
+            assert!(refused.starts_with("it suggests the action \"export\", which it can't: options: "), "{refused}");
+        }
+    }
+    let format = tc.draw(gs::sampled_from(vec!["loud", "m3u"]));
+    let nowhere = suggest(json!({ "format": format })).unwrap_err();
+    assert_eq!(nowhere, "it suggests the action \"export\", which it can't: it names no drive, set or mix");
+    let mix = suggest(json!({ "format": format, "mix": tc.draw(gs::text().max_size(4)) })).unwrap_err();
+    assert_eq!(
+        mix,
+        format!("it suggests the action \"export\", which it can't: its exporter {format:?} doesn't write out a mix")
+    );
+}
+
+/// Any action the host knows, suggested in a line, reads back as it was sent when it's on echo's
+/// own contributions; one on an analyzer, a provider, or a set and a mix it hasn't, with params
+/// that aren't an object, is refused saying so; and echo's own operation is taken as it was sent.
+#[hegel::test(test_cases = 30)]
+fn prop_actions_and_operations_are_taken_only_on_the_plugins_own(tc: TestCase) {
+    let m = Manifest::parse(echo::MANIFEST).unwrap();
+    let drive = tc.draw(gs::from_regex("[A-Z][a-z]{0,5}").fullmatch(true));
+    let tracks: Vec<u32> = tc.draw(gs::vecs(gs::integers::<u32>()).max_size(3));
+    let message = tc.draw(gs::text().max_size(8));
+    let tags = Some("tags".to_string());
+    for action in [
+        HostAction::TrackFetch(FetchAction { drive: drive.clone(), tracks: tracks.clone(), provider: None }),
+        HostAction::TrackFetch(FetchAction { drive: drive.clone(), tracks: tracks.clone(), provider: tags }),
+        HostAction::Analyze(AnalyzeAction { analyzer: "size".into(), drive: drive.clone(), tracks }),
+    ] {
+        let notice = HostNotify::action(message.clone(), &action);
+        assert_eq!(notice.message, message);
+        assert_eq!(notice.suggestion(&m), Ok(Some(Suggestion::Action(action))));
+    }
+    let analyzer =
+        tc.draw(gs::from_regex("[a-z]{1,6}").fullmatch(true).filter(|a: &String| a != "size" && a != "tags"));
+    let (set, mix) = (tc.draw(gs::text().max_size(4)), tc.draw(gs::text().max_size(4)));
+    let refused = [
+        (
+            HostAction::ArtFetch(FetchAction { drive: drive.clone(), ..FetchAction::default() }),
+            "no artwork provider".to_string(),
+        ),
+        (
+            HostAction::TrackFetch(FetchAction {
+                drive: drive.clone(),
+                provider: Some(analyzer.clone()),
+                ..FetchAction::default()
+            }),
+            format!("no metadata provider {analyzer:?}"),
+        ),
+        (
+            HostAction::Export(ExportAction {
+                format: analyzer.clone(),
+                drive: Some(drive.clone()),
+                ..ExportAction::default()
+            }),
+            format!("no exporter {analyzer:?}"),
+        ),
+        (
+            HostAction::Analyze(AnalyzeAction { analyzer: analyzer.clone(), drive: drive.clone(), tracks: Vec::new() }),
+            format!("no analyzer {analyzer:?}"),
+        ),
+        (
+            HostAction::Export(ExportAction {
+                format: "m3u".into(),
+                set: Some(set.clone()),
+                mix: Some(mix),
+                ..ExportAction::default()
+            }),
+            "it names both a set and a mix".into(),
+        ),
+        (
+            HostAction::Export(ExportAction { format: "m3u".into(), set: Some(set), ..ExportAction::default() }),
+            "its exporter \"m3u\" doesn't write out a set".into(),
+        ),
+    ];
+    for (action, why) in refused {
+        let name = serde_json::to_value(&action).unwrap()["name"].clone();
+        let said = format!("it suggests the action {name}, which it can't: {why}");
+        assert_eq!(HostNotify::action(message.clone(), &action).suggestion(&m), Err(said));
+    }
+    let params = json!([tc.draw(gs::integers::<i64>())]);
+    let notice = HostNotify {
+        message: message.clone(),
+        operation: None,
+        action: Some(Suggested { name: "analyze".into(), params }),
+    };
+    let said = "it suggests the action \"analyze\" with params that aren't an object";
+    assert_eq!(notice.suggestion(&m), Err(said.into()));
+    let playlist = Suggested { name: "playlist".into(), params: json!({ "name": tc.draw(gs::text().max_size(6)) }) };
+    let notice = HostNotify { message, operation: Some(playlist.clone()), action: None };
+    assert_eq!(notice.suggestion(&m), Ok(Some(Suggestion::Operation(playlist))));
+}
+
+/// Every event says its name as a manifest writes it; a notice suggesting nothing suggests
+/// nothing, and one suggesting an operation the plugin hasn't is refused.
+#[hegel::test(test_cases = 20)]
+fn prop_events_say_their_names_and_notices_suggest_only_the_plugins_operations(tc: TestCase) {
+    for event in EventName::ALL {
+        assert_eq!(json!(event.name()), serde_json::to_value(event).unwrap());
+    }
+    let m = Manifest::parse(echo::MANIFEST).unwrap();
+    let message = tc.draw(gs::text().max_size(8));
+    assert_eq!(HostNotify { message: message.clone(), ..HostNotify::default() }.suggestion(&m), Ok(None));
+    let name = tc.draw(gs::from_regex("[a-z]{1,8}").fullmatch(true).filter(|n: &String| n != "playlist"));
+    let operation = Some(Suggested { name: name.clone(), params: json!({}) });
+    let refused = HostNotify { message, operation, action: None }.suggestion(&m);
+    assert_eq!(refused, Err(format!("it suggests {name:?}, which isn't one of its operations")));
+}
+
+/// Events, after `hello`, are each handled in the order they came, whatever the one before did:
+/// answered, failed, panicked, or never reached its handler, its params not an event's. A handler
+/// reads the manifest it's served with.
+#[hegel::test(test_cases = 20)]
+fn prop_events_are_handled_in_order_whatever_the_one_before_did(tc: TestCase) {
+    let hooks = Hooks::new().on_event(|e: EventNotify, host: &Host| {
+        let n = e.payload["n"].as_u64().unwrap_or_default();
+        match e.drive.as_deref() {
+            Some("fails") => Err(RpcError::failed("invalid", "no")),
+            Some("panics") => panic!("a handler that panics"),
+            _ => {
+                host.notify(&HostNotify { message: format!("{} {n}", host.manifest().id), ..HostNotify::default() });
+                Ok(())
+            }
+        }
+    });
+    let s = greeted(hooks);
+    let outcomes = tc.draw(gs::vecs(gs::sampled_from(vec!["fine", "fails", "panics", "unread"])).max_size(5));
+    let mut told = Vec::new();
+    for (n, outcome) in outcomes.iter().chain([&"fine"]).enumerate() {
+        let event = match *outcome {
+            "unread" => json!({ "event": "drive.exploded", "payload": { "n": n } }),
+            drive => json!({ "event": "drive.mounted", "drive": drive, "payload": { "n": n } }),
+        };
+        s.host.notify(method::EVENT_NOTIFY, &event);
+        if *outcome == "fine" {
+            told.push(format!("echo {n}"));
+        }
+    }
+    for message in told {
+        let (method, params) = notified(&s);
+        assert_eq!((method.as_str(), params["message"].as_str()), (method::HOST_NOTIFY, Some(message.as_str())));
+    }
+    s.stop();
+}
+
+/// An event's handler calling back once the host has closed the plugin's input fails with
+/// `closed`: the call it was waiting on, and any it makes after, which isn't sent.
+#[hegel::test(test_cases = 10)]
+fn prop_an_events_callbacks_fail_once_the_host_closes(tc: TestCase) {
+    let hooks = Hooks::new().on_event(|e: EventNotify, host: &Host| {
+        let query = json!({ "drive": e.drive });
+        let waited = host.call::<_, Value>("tracks.query", &query).unwrap_err();
+        let after = host.call::<_, Value>("tracks.query", &query).unwrap_err();
+        host.notify(&HostNotify { message: format!("{:?} {:?}", waited.kind(), after.kind()), ..Default::default() });
+        Ok(())
+    });
+    let s = greeted(hooks);
+    let drive = tc.draw(gs::from_regex("[A-Z]{1,6}").fullmatch(true));
+    s.host.notify(method::EVENT_NOTIFY, &json!({ "event": "drive.mounted", "drive": drive }));
+    let Incoming::Request(req) = s.next() else { panic!("not a callback") };
+    assert_eq!((req.method.as_str(), &req.params["drive"]), ("tracks.query", &json!(drive)));
+    s.host.close();
+    let (_, params) = notified(&s);
+    assert_eq!(params["message"], "Some(\"closed\") Some(\"closed\")");
+    s.served.join().unwrap();
 }

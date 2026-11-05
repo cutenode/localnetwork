@@ -105,3 +105,29 @@ fn durations() {
     assert_eq!(parse_duration("abc", false), None);
     assert_eq!(parse_duration("5:61", false), None);
 }
+
+/// A length with a colon in it is a clock (`m:ss`, `h:mm:ss`, maybe with a fraction of a
+/// second), or none at all (nor is one of no time): never read as a count of seconds or
+/// milliseconds. Without one it's such a count.
+#[hegel::test(test_cases = 200)]
+fn prop_lengths_with_a_colon_are_clocks_or_nothing(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+
+    let (m, s) = (tc.draw(gs::integers::<u32>().max_value(999)), tc.draw(gs::integers::<u32>().max_value(99)));
+    let before = tc.draw(gs::sampled_from(vec![String::new(), "x".into(), "-".into()]));
+    let ms = tc.draw(gs::booleans());
+    let fraction = tc.draw(gs::sampled_from(vec!["", ".5", ".25", ".x"]));
+    let text = format!("{before}{m}:{s:02}{fraction}");
+    let clock = before.is_empty() && s < 60 && m * 60 + s > 0 && fraction != ".x";
+    assert_eq!(parse_duration(&text, ms), clock.then_some(m * 60 + s), "{text:?}");
+
+    // Without one, a number of seconds, or of milliseconds when `ms` says so or it's over ten
+    // hours, rounded, and none when it rounds to nothing or isn't a number.
+    let n = tc.draw(gs::integers::<u32>().max_value(100_000));
+    let secs = if ms || n > 36_000 { f64::from(n) / 1000.0 } else { f64::from(n) };
+    let want = Some(secs.round() as u32).filter(|&v| v > 0);
+    assert_eq!(parse_duration(&n.to_string(), ms), want, "{n}");
+    let other = tc.draw(gs::sampled_from(vec!["nan", "inf", "-5", "x", "12,5"]));
+    let want = (other == "12,5").then_some(if ms { 0 } else { 13 }).filter(|&v| v > 0);
+    assert_eq!(parse_duration(other, ms), want, "{other}");
+}

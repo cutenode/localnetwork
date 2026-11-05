@@ -552,3 +552,243 @@ fn a_files_sessions_are_kept_as_its_logs_say(tc: hegel::TestCase) {
     assert_eq!(book.imported.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), names);
     assert_eq!(report.sessions, book.imported.iter().map(|s| s.id.clone()).collect::<Vec<_>>());
 }
+
+/// How an import can fail to be planned.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Unimportable {
+    /// An importer the plugin doesn't have.
+    Importer,
+    /// A file named by a relative path.
+    Relative,
+    /// An option the importer doesn't declare.
+    Option,
+    /// Its answer in a file outside its scratch folder.
+    Outside,
+    /// Its answer in a file that isn't one.
+    NotAnAnswer,
+    /// My Tags for a drive whose My Tags can't be read.
+    Tags,
+    /// A folder, not a file.
+    NotAFile,
+    /// Sessions, without a store.
+    SessionsWithoutStore,
+    /// A session starting at what isn't a time.
+    BadStart,
+    /// A drive of a library the store's libraries can't be read for, as clones are looked for.
+    Libraries,
+    /// A drive no edit is planned for.
+    Drive(super::analysis::Unplannable),
+}
+
+impl Unimportable {
+    /// Every way, each drive's too.
+    fn all() -> Vec<Unimportable> {
+        let mut all = vec![
+            Unimportable::Importer,
+            Unimportable::Relative,
+            Unimportable::Option,
+            Unimportable::Outside,
+            Unimportable::NotAnAnswer,
+            Unimportable::Tags,
+            Unimportable::NotAFile,
+            Unimportable::SessionsWithoutStore,
+            Unimportable::BadStart,
+            Unimportable::Libraries,
+        ];
+        all.extend(super::analysis::Unplannable::ALL.map(Unimportable::Drive));
+        all
+    }
+}
+
+/// For any way an import can't be planned (an importer the plugin doesn't have, a file that isn't
+/// named by an absolute path, an option it doesn't take, an answer in a file it can't have or
+/// that isn't one, My Tags for a drive whose My Tags can't be read, a session starting at what
+/// isn't a time, and a drive no edit is planned for), it fails, saying why. Its parts of a view,
+/// sent as any request's may be, change nothing.
+#[hegel::test(test_cases = 1)]
+fn prop_an_import_that_cant_be_planned_fails_saying_why(tc: hegel::TestCase) {
+    for how in Unimportable::all() {
+        prop_an_import_that_cant_be_planned_fails_saying_why_case(&tc, how);
+    }
+}
+
+/// [`prop_an_import_that_cant_be_planned_fails_saying_why`] for one `how`.
+#[hegel::test_helper]
+fn prop_an_import_that_cant_be_planned_fails_saying_why_case(tc: &hegel::TestCase, how: Unimportable) {
+    use hegel::generators as gs;
+    let f = Fixture::new(|dir| vec![spec(dir, &given(EVERYTHING), &["--partials"])], Options::default());
+    let t = common::library(&f.drive).tracks;
+    let name = format!("{}.json", tc.draw(gs::from_regex("[a-z]{1,6}").fullmatch(true)));
+    let file = f._dir.path().join(&name);
+    let tagged = json!({ "tracks": [{ "match": { "path": t[0].file_path }, "my_tags": ["Genre/Imported"] }] });
+    std::fs::write(&file, tagged.to_string()).unwrap();
+    let (mut importer, mut path, mut drive, mut options) = ("given", file.clone(), "USB", Value::Null);
+    let mut store = Some(&f.store);
+    let expected = match how {
+        Unimportable::Importer => {
+            importer = "nope";
+            "not_found"
+        }
+        Unimportable::Relative => {
+            path = PathBuf::from(&name);
+            "invalid"
+        }
+        Unimportable::Option => {
+            options = json!({ "other": 1 });
+            "invalid"
+        }
+        Unimportable::Outside => {
+            options = json!({ "blob": format!("../{name}") });
+            "external"
+        }
+        Unimportable::NotAnAnswer => {
+            std::fs::write(&file, "[1]").unwrap();
+            options = json!({ "blob": name });
+            "external"
+        }
+        Unimportable::Tags => {
+            std::fs::write(f.drive.join(locallibrary::paths::EXPORT_EXT_PDB), "damaged").unwrap();
+            let _ = std::fs::remove_file(f.drive.join(locallibrary::paths::LIBRARY_PLUS_DB));
+            "parse"
+        }
+        Unimportable::NotAFile => {
+            path = f._dir.path().to_path_buf();
+            "invalid"
+        }
+        Unimportable::BadStart => {
+            let play = json!({ "artist": "A", "title": "B" });
+            std::fs::write(&file, json!({ "sessions": [{ "started": "Friday", "plays": [play] }] }).to_string())
+                .unwrap();
+            "external"
+        }
+        Unimportable::Libraries => {
+            common::age(&f.drive);
+            let mut d = locallibrary::Device::open(&f.drive).unwrap();
+            let opts = locallibrary::sync::PullOptions { library: None, message: None, force: false };
+            locallibrary::sync::pull(&f.store, &mut d, &opts, &Ctx::silent()).unwrap();
+            std::fs::write(f.store.root().join("libraries.json"), "damaged").unwrap();
+            "parse"
+        }
+        Unimportable::SessionsWithoutStore => {
+            let play = json!({ "artist": "A", "title": "B", "started_at": "2026-10-03T22:00:00Z" });
+            std::fs::write(&file, json!({ "sessions": [{ "plays": [play] }] }).to_string()).unwrap();
+            store = None;
+            "invalid"
+        }
+        Unimportable::Drive(how) => {
+            let made = how.make(&f);
+            drive = made.0;
+            made.1
+        }
+    };
+    let planned = f.plugins.import_plan("echo", importer, &path, drive, options, store, &Ctx::silent());
+    let e = planned.err().unwrap();
+    assert_eq!(e.code(), expected, "{how:?}: {e}");
+}
+
+/// For any sessions a file has, one without plays is left out, saying so; the sessions planned
+/// are kept only in a store (applying without one fails, as it does where the store's sets can't
+/// be read or, on Unix, written), each once.
+#[hegel::test(test_cases = 1)]
+fn prop_sessions_are_kept_only_where_they_can_be(tc: hegel::TestCase) {
+    for where_ in (0..=3u8).filter(|w| cfg!(unix) || *w < 3).collect::<Vec<u8>>() {
+        prop_sessions_are_kept_only_where_they_can_be_case(&tc, where_);
+    }
+}
+
+/// [`prop_sessions_are_kept_only_where_they_can_be`] for one `where_`.
+#[hegel::test_helper]
+fn prop_sessions_are_kept_only_where_they_can_be_case(tc: &hegel::TestCase, where_: u8) {
+    use hegel::generators as gs;
+    let f = Fixture::new(|dir| vec![spec(dir, &given(EVERYTHING), &[])], Options::default());
+    let play = json!({ "artist": "A", "title": "B", "started_at": "2026-10-03T22:00:00Z" });
+    let name: String = tc.draw(gs::from_regex("[a-z]{1,8}").fullmatch(true));
+    let sessions = [
+        json!({ "name": name, "plays": [play] }),
+        json!({ "name": "Again", "plays": [play] }),
+        json!({ "name": "Nothing", "started": "2026-10-03T22:00:00Z", "plays": [] }),
+    ];
+    let planned = f.import(&json!({ "sessions": sessions }), Value::Null).unwrap();
+    let left_out = ["Again: left out, its plays are another session's", "Nothing: left out, it has no plays"];
+    assert_eq!(planned.warnings, left_out);
+    let sets = f.store.root().join(locallibrary::sets::SETS_FILE);
+    let applied = match where_ {
+        0 => planned.apply(None, &Ctx::silent()).map(drop),
+        1 => {
+            std::fs::write(&sets, "damaged").unwrap();
+            planned.apply(Some(&f.store), &Ctx::silent()).map(drop)
+        }
+        2 => planned.apply(Some(&f.store), &Ctx::silent()).map(drop),
+        _ => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let root = f.store.root();
+                std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o500)).unwrap();
+                let applied = planned.apply(Some(&f.store), &Ctx::silent()).map(drop);
+                std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700)).unwrap();
+                applied
+            }
+            #[cfg(not(unix))]
+            unreachable!()
+        }
+    };
+    match where_ {
+        2 => {
+            applied.unwrap();
+            let book = SetBook::load(&f.store).unwrap();
+            assert_eq!(book.imported.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), [name]);
+        }
+        _ => assert!(applied.is_err(), "{where_}"),
+    }
+}
+
+/// For any My Tag an import adds, with the plugins hosted as the app hosts them, its plan is
+/// guarded as any is: a guard counting a plan's edits says how many it makes. Applied once
+/// cancelled, nothing is; imported again, what the tracks have now is left out.
+#[hegel::test(test_cases = 1)]
+fn prop_an_import_is_guarded_as_any_plan(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use locallibrary::plugin::CheckChange;
+    let tag: String = tc.draw(gs::from_regex("[A-Z][a-z]{1,6}").fullmatch(true));
+    let unhosted = Fixture::new(|dir| vec![spec(dir, &given(EVERYTHING), &[])], Options::default());
+    let t = unhosted.bare();
+    let f = Hosted::new(unhosted);
+    f.plugins.set_check(&f.store, "echo", "edits", CheckChange { on: Some(true), ..CheckChange::default() }).unwrap();
+    let mut read = read(&t);
+    // Twice: it's added once.
+    read["tracks"][0]["my_tags"] = json!([format!("Genre/{tag}"), format!("Genre/{tag}")]);
+    let file = f._dir.path().join("read.json");
+    std::fs::write(&file, read.to_string()).unwrap();
+    let plan = || f.plugins.import_plan("echo", "given", &file, "USB", Value::Null, Some(&f.store), &Ctx::silent());
+    let planned = plan().unwrap();
+    assert!(!planned.noop);
+    let added: Vec<(&str, usize)> = planned
+        .plan
+        .edits
+        .recorded
+        .iter()
+        .filter_map(|e| match e {
+            Edit::MyTag(locallibrary::tags::TagChange::Add { tag, tracks }) => Some((tag.as_str(), tracks.len())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(added, [(format!("Genre/{tag}").as_str(), 1), ("Genre/Imported", 1)]);
+    let counted = planned.warnings.iter().filter(|w| w.starts_with("Count a plan's edits: echo.import.given makes "));
+    assert_eq!(counted.count(), 1, "{:?}", planned.warnings);
+    let cancel = locallibrary::CancelToken::new();
+    cancel.cancel();
+    let cancelled = planned.apply(Some(&f.store), &Ctx::new(&locallibrary::progress::NoProgress, cancel));
+    assert!(matches!(cancelled, Err(Error::Cancelled)), "{:?}", cancelled.err());
+    planned.apply(Some(&f.store), &Ctx::silent()).unwrap();
+    // Again: what the tracks have now is left out, the cues saying so.
+    let again = plan().unwrap();
+    assert!(
+        again
+            .warnings
+            .iter()
+            .any(|w| w.ends_with("cue(s) left out: their tracks have one there already, or end before")),
+        "{:?}",
+        again.warnings
+    );
+}

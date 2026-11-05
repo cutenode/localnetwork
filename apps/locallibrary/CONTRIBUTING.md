@@ -221,6 +221,9 @@ tracks in a mix), `loclib-model`, `loclib-tracklist` and `loclib-interop` (over
 `library` run builds its drives under `target/`, which takes about a minute. Compare on a quiet
 machine and rerun anything close: a few percent is noise.
 
+CI holds what can be counted exactly (binary size, allocations, instructions) to the budgets in
+[`benchmarks/`](../../benchmarks/README.md), which only move down without saying why.
+
 ## Property-based tests
 
 The `props_*` modules in every crate's tests, and many of the unit tests beside the code, use

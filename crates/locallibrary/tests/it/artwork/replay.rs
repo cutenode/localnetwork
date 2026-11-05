@@ -6,6 +6,8 @@ use crate::common::{self, media::png};
 use std::path::{Path, PathBuf};
 
 use base64::prelude::*;
+use hegel::generators as gs;
+use hegel::{HealthCheck, TestCase};
 use locallibrary::api;
 use locallibrary::artwork::{self, ImageSource};
 use locallibrary::device::Device;
@@ -200,4 +202,69 @@ fn a_replayed_artwork_edit_finds_its_tracks_as_it_is_made() {
     );
     assert!(report.warnings.contains(&gone), "{:?}", report.warnings);
     assert_eq!(shows(&root, &copy), art);
+}
+
+/// Art replaced in place on a track whose medium copy rekordbox didn't leave, then undone by its
+/// backup, shows the art from before: the backup can't hold the medium copy (there was none), so
+/// restoring it has to take away the one the edit added.
+#[test]
+fn undoing_art_replaced_in_place_removes_the_medium_copy_it_added() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "A");
+    let mut d = Device::open_export(&root).unwrap();
+    let file = d.library().unwrap().tracks[0].file_path.clone();
+    edit::apply(&set(&d, std::slice::from_ref(&file), 1), &mut d, &Ctx::silent()).unwrap();
+    let lib = d.library().unwrap();
+    let art = lib.tracks.iter().find(|t| t.file_path == file).unwrap().artwork_path.clone().unwrap();
+    std::fs::remove_file(paths::to_fs(&root, &artwork::medium_variant(&paths::key(&art)))).unwrap();
+    let before = shows(&root, &file);
+    let report = edit::apply(&set(&d, std::slice::from_ref(&file), 2), &mut d, &Ctx::silent()).unwrap();
+    assert_ne!(shows(&root, &file), before);
+    locallibrary::backup::restore(&mut d, report.backup.as_deref(), false).unwrap();
+    assert_eq!(shows(&root, &file), before);
+}
+
+/// Art replaced in place, then undone, leaves each database's image files as they were, whichever
+/// of the thumbnail and medium copy rekordbox didn't leave: what the edit wrote where there was
+/// none goes again, as the undo plan says.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_undoing_art_replaced_in_place_leaves_its_files_as_they_were(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "A");
+    let plus = tc.draw(gs::booleans());
+    if plus {
+        common::add_onelibrary(&root);
+    }
+    let mut d = Device::open_export(&root).unwrap();
+    let file = d.library().unwrap().tracks[0].file_path.clone();
+    edit::apply(&set(&d, std::slice::from_ref(&file), 1), &mut d, &Ctx::silent()).unwrap();
+    let mut libraries = vec![d.library().unwrap()];
+    libraries.extend(plus.then(|| common::plus_library(&root)));
+    let keys: Vec<String> = libraries
+        .iter()
+        .flat_map(|l| {
+            let t = l.tracks.iter().find(|t| t.file_path == file).unwrap();
+            let key = paths::key(t.artwork_path.as_ref().unwrap());
+            [artwork::medium_variant(&key), key]
+        })
+        .collect();
+    for k in &keys {
+        if tc.draw(gs::booleans()) {
+            std::fs::remove_file(paths::to_fs(&root, k)).unwrap();
+        }
+    }
+    let files = || keys.iter().map(|k| std::fs::read(paths::to_fs(&root, k)).ok()).collect::<Vec<_>>();
+    let before = files();
+    let report = edit::apply(&set(&d, std::slice::from_ref(&file), 2), &mut d, &Ctx::silent()).unwrap();
+    assert!(files().iter().all(Option::is_some), "replaced in place");
+    let req = api::UndoRequest { drive: Some(common::path(&root)), backup: report.backup, force: false };
+    let plan = api::undo_plan(&req).unwrap();
+    let mut removed: Vec<&str> =
+        plan.plan.files.iter().filter(|f| f.change == "removed").map(|f| f.path.as_str()).collect();
+    let mut gone: Vec<&str> = keys.iter().zip(&before).filter(|(_, b)| b.is_none()).map(|(k, _)| k.as_str()).collect();
+    removed.sort_unstable();
+    gone.sort_unstable();
+    assert_eq!(removed, gone);
+    plan.apply(None, &Ctx::silent()).unwrap();
+    assert_eq!(files(), before);
 }

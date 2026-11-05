@@ -3,12 +3,13 @@
 //! orphan removal, packs, and putting a backup back). They contain the database files plus every
 //! existing file the change overwrites or deletes (artwork images, analysis files, settings
 //! files, removed tracks' files), so restoring one undoes the change (`locallibrary undo`): files
-//! that were added stay on the drive but are no longer referenced. A backup also carries the
-//! drive's journal of edits (see [`crate::edit::journal`]) and the player name and colour it
-//! remembers (`Carried`), and restoring one puts those back as they were: `edits replay` then
-//! makes again exactly the edits the restored library had, also after an undo is redone. Restoring
-//! a backup an earlier version took, which carries neither, takes the edits it undoes off the
-//! journal instead.
+//! that were added stay on the drive but are no longer referenced, save those it wrote in place
+//! of files the drive didn't have (an image's medium copy), which go ([`BackupInfo::added`]). A
+//! backup also carries the drive's journal of edits (see [`crate::edit::journal`]) and the player
+//! name and colour it remembers (`Carried`), and restoring one puts those back as they were:
+//! `edits replay` then makes again exactly the edits the restored library had, also after an undo
+//! is redone. Restoring a backup an earlier version took, which carries neither, takes the edits
+//! it undoes off the journal instead.
 //!
 //! Once its change is made, a backup notes what the change left in each file putting it back
 //! would replace or remove ([`BackupInfo::after`]); a replay notes it after each of its steps.
@@ -72,6 +73,10 @@ pub struct BackupInfo {
     /// absent). Missing when the change didn't finish, or an earlier version made the backup.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after: Option<IndexMap<String, Option<Hash>>>,
+    /// Files its change was to write in place that weren't there when it was taken (an image's
+    /// medium copy rekordbox didn't leave): putting it back removes them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub added: Vec<String>,
 }
 
 fn backups_dir(device: &Device) -> PathBuf {
@@ -145,8 +150,8 @@ fn put_back_carried(device: &mut Device, info: &BackupInfo, shown: Option<DbIden
 
 /// Copy the database files and `extra` (keys of files the coming change overwrites or deletes)
 /// into `.locallibrary/backups/<id>/`, with their modification times: a track put back must
-/// not look changed to the next sync. `undoes`: the backup the change puts back, if it's an
-/// undo.
+/// not look changed to the next sync. Those of `extra` not there are noted as added (see
+/// [`BackupInfo::added`]). `undoes`: the backup the change puts back, if it's an undo.
 ///
 /// Every older backup is kept: a write that fails before it changes anything takes its backup
 /// away again and must leave the others as they were. [`seal`] it once the change is made, and
@@ -175,6 +180,9 @@ pub(crate) fn create(device: &Device, reason: &str, extra: &[String], undoes: Op
             files.push(key);
         }
     }
+    let mut added: Vec<String> = extra.iter().filter(|k| !hashes.contains_key(k.as_str())).cloned().collect();
+    added.sort();
+    added.dedup();
     carry(device, &dir)?;
     let info = BackupInfo {
         id,
@@ -186,6 +194,7 @@ pub(crate) fn create(device: &Device, reason: &str, extra: &[String], undoes: Op
         undoes: undoes.map(str::to_string),
         hashes,
         after: None,
+        added,
     };
     write_info(&dir, &info)?;
     Ok(info)
@@ -246,9 +255,17 @@ pub(crate) fn prune(device: &Device) -> Result<()> {
     Ok(())
 }
 
-/// The files putting `info` back replaces or removes: its own, and every database file.
+/// The files putting `info` back replaces or removes: its own, every database file, and those its
+/// change added.
 fn keys(info: &BackupInfo) -> BTreeSet<String> {
-    paths::DATABASE_FILES.iter().map(|k| k.to_string()).chain(info.files.iter().cloned()).collect()
+    let files = info.files.iter().chain(&info.added).cloned();
+    paths::DATABASE_FILES.iter().map(|k| k.to_string()).chain(files).collect()
+}
+
+/// The files on the drive putting `info` back removes: database files it didn't have, and those
+/// its change added.
+pub(crate) fn removed(device: &Device, info: &BackupInfo) -> Vec<String> {
+    keys(info).into_iter().filter(|k| !info.files.contains(k) && device.path(k).is_file()).collect()
 }
 
 /// Files on the drive by content, each hashed once (`None`: absent or unreadable).
@@ -429,8 +446,9 @@ pub fn restore_with(device: &mut Device, id: Option<&str>, force: bool, ctx: &Ct
     // The backup's files go back through the drive's write routine as they were backed up (their
     // content checked, their modification times kept): staged, then swapped in, with OneLibrary's
     // current WAL removed first (it must never sit next to the restored database; the backup's
-    // own WAL, if any, goes in after its database). Database files the backup didn't have didn't
-    // exist when it was taken, and go. What they replace is backed up first.
+    // own WAL, if any, goes in after its database). Database files the backup didn't have, and
+    // the files its change added, didn't exist when it was taken, and go. What they replace is
+    // backed up first.
     let mut files = Vec::new();
     for key in &info.files {
         let src = paths::to_fs(&dir, key);
@@ -443,11 +461,7 @@ pub fn restore_with(device: &mut Device, id: Option<&str>, force: bool, ctx: &Ct
             optional: false,
         });
     }
-    let deletes = paths::DATABASE_FILES
-        .iter()
-        .filter(|k| !info.files.iter().any(|f| f == *k) && device.path(k).is_file())
-        .map(|k| k.to_string())
-        .collect();
+    let deletes = removed(device, &info);
     let remove_first = vec![paths::LIBRARY_PLUS_WAL.to_string(), paths::LIBRARY_PLUS_SHM.to_string()];
     let changes = Changes { files, deletes, remove_first, ..Default::default() };
     let mut opts = Options::new(LineageOp::Restore, format!("restore backup {}", info.id))

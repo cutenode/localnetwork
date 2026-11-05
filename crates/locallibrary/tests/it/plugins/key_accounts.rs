@@ -12,7 +12,7 @@ use indexmap::IndexMap;
 use locallibrary::plugin::{AccountSignIn, AccountSignedIn};
 
 use super::net::{Reply, Server, ok};
-use super::shared_accounts::{Mock, WITH, asking, mock_for, options};
+use super::shared_accounts::{Damage, Mock, Snapshot, WITH, asking, edit_json, mock_for, mock_with, options};
 use super::*;
 use crate::mock_oauth::{json_reply, keys_account_plugin};
 
@@ -273,13 +273,16 @@ fn a_keys_account_is_kept_once_per_subject_with_the_keys_last_entered(tc: TestCa
     assert!(!k.leaked(&answers.iter().collect::<Vec<_>>(), &all), "a key is out where it may not be");
 }
 
-/// A service refusing keys, saying they're no good or lack a scope, has its answer passed on to
-/// the plugin as it is, sent once: the account stays signed in with the same keys, which have no
-/// token to refresh.
-#[test]
-fn a_service_refusing_keys_leaves_the_account_signed_in() {
+/// Pairs of keys a test signs in with.
+const PAIRS: [(&str, &str); 2] = [("ak-0123456789", "sk-9876543210"), ("ak-abcdefghij", "sk-jihgfedcba")];
+
+/// For either pair of keys, a service refusing them, saying they're no good or lack a scope, has
+/// its answer passed on to the plugin as it is, sent once: the account stays signed in with the
+/// same keys, which have no token to refresh.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_service_refusing_keys_leaves_the_account_signed_in(tc: TestCase) {
     let k = keyed(false);
-    let keys = ("ak-0123456789", "sk-9876543210");
+    let keys = tc.draw(gs::sampled_from(PAIRS.to_vec()));
     k.sign_in(&entered(keys.0, keys.1), Some("me")).unwrap();
     let challenge = |said: &str| vec![("WWW-Authenticate", format!("Bearer realm=\"mock\", {said}"))];
     let refusals = [
@@ -321,13 +324,14 @@ fn each_key_stays_out_of_the_plugins_log() {
     assert!(logged.contains(&"got <secret> and <secret>".to_string()), "{logged:?}");
 }
 
-/// A sign-in with keys says where the user gets them and which to enter, listening for no
-/// browser; keys missing, undeclared, short or with spaces, or an account named badly or not at
-/// all, keep nothing and end the sign-in, saying why but never a key; a sign-in in the browser
-/// isn't finished with keys, nor one with keys in the browser; and keys entered are trimmed, and
-/// kept at the shortest a key is.
-#[test]
-fn keys_missing_or_undeclared_or_short_keep_nothing() {
+/// For either pair of keys, a sign-in with keys says where the user gets them and which to enter,
+/// listening for no browser; keys missing, undeclared, short or with spaces, or an account named
+/// badly or not at all, keep nothing and end the sign-in, saying why but never a key; a sign-in
+/// in the browser isn't finished with keys, nor one with keys in the browser; and keys entered
+/// are trimmed, and kept at the shortest a key is.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_keys_missing_or_undeclared_or_short_keep_nothing(tc: TestCase) {
+    let (access, secret) = tc.draw(gs::sampled_from(PAIRS.to_vec()));
     let k = keyed(false);
     let start = k.begin();
     assert_eq!((start.url.clone(), start.redirect_uri.clone()), (format!("{}/keys", k.server.url), None));
@@ -335,7 +339,7 @@ fn keys_missing_or_undeclared_or_short_keep_nothing() {
         IndexMap::from_iter([("access".to_string(), "Access key".to_string()), ("secret".into(), "Secret key".into())]);
     assert_eq!(start.keys, titles);
     assert!(start.named, "Mock doesn't say who the keys are for");
-    let (access, secret) = ("ak-0123456789", "sk-9876543210");
+    let named = format!("me {access}");
     let mut undeclared = entered(access, secret);
     undeclared.insert("token".into(), "tk-0123456789".into());
     let mut missing = entered(access, secret);
@@ -358,7 +362,7 @@ fn keys_missing_or_undeclared_or_short_keep_nothing() {
         (entered(access, secret), None, "name the Mock account: Mock doesn't say who the keys are for"),
         (entered(access, secret), Some(" "), "name the Mock account: Mock doesn't say who the keys are for"),
         (entered(access, secret), Some("me\nyou"), "an account's name has no line break or key in it"),
-        (entered(access, secret), Some("me ak-0123456789"), "an account's name has no line break or key in it"),
+        (entered(access, secret), Some(named.as_str()), "an account's name has no line break or key in it"),
     ] {
         let start = k.begin();
         let e = k.f.plugins.finish_account_sign_in_with_keys(&start.id, &keys, name).unwrap_err();
@@ -388,13 +392,13 @@ fn keys_missing_or_undeclared_or_short_keep_nothing() {
     k.sign_in(&entered(access, "sk-12345"), Some("me")).unwrap();
 }
 
-/// Signing in with keys asks the type's whoami who they're for with the keys in the
-/// `Authorization` header, and nowhere else: the account kept is the one it says; keys it refuses
-/// (a 403, or a 401) keep nothing, saying to check them where the user got them, and naming the
-/// account with a whoami is refused.
-#[test]
-fn whoami_gets_the_keys_in_the_authorization_header() {
-    let (access, secret) = ("ak-0123456789", "sk-9876543210");
+/// For either pair of keys, signing in with them asks the type's whoami who they're for with the
+/// keys in the `Authorization` header, and nowhere else: the account kept is the one it says;
+/// keys it refuses (a 403, or a 401) keep nothing, saying to check them where the user got them,
+/// and naming the account with a whoami is refused.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_whoami_gets_the_keys_in_the_authorization_header(tc: TestCase) {
+    let (access, secret) = tc.draw(gs::sampled_from(PAIRS.to_vec()));
     let k = keyed(true);
     assert!(!k.begin().named, "the user names an account its whoami says");
     let refused = format!("Mock refused the keys: check them at {}/keys and sign in again", k.server.url);
@@ -417,4 +421,92 @@ fn whoami_gets_the_keys_in_the_authorization_header() {
     let said = [unknown, revoked, e].map(|e| json!(e.to_string()));
     let said: Vec<&Value> = said.iter().collect();
     assert!(!k.leaked(&said, &[access, secret]), "a key is out where it may not be");
+}
+
+/// What became of the keys kept for an account in
+/// [`prop_keys_lost_or_unreadable_say_so_and_the_account_stays`].
+#[derive(Debug, Clone, Copy)]
+enum Lost {
+    /// The keychain lost them.
+    Gone,
+    /// What's kept for them isn't keys.
+    Unreadable,
+    /// The secrets file isn't JSON.
+    Damaged,
+    /// The account's type is one its account plugin doesn't provide.
+    Retyped,
+}
+
+/// For either pair of keys an account was signed in to with, keys the keychain lost sign it out
+/// for a request through it, and keys that can't be read, a secrets file that isn't JSON or a
+/// type its account plugin doesn't provide fail the request saying so; nothing is sent, the
+/// account stays, and no key gets out. A store that can't hold its accounts' keys signs nobody in.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_keys_lost_or_unreadable_say_so_and_the_account_stays(tc: TestCase) {
+    let (access, secret) = tc.draw(gs::sampled_from(PAIRS.to_vec()));
+    let k = keyed(false);
+    k.sign_in(&entered(access, secret), Some("me")).unwrap();
+    let root = k.f.store.root();
+    let snapshot = Snapshot::of(root);
+    // The accounts kept, by subject, read before the damage is undone and without the secrets.
+    let kept = || k.f.plugins.kept_accounts(&k.f.store).unwrap().into_iter().map(|a| a.subject).collect::<Vec<_>>();
+    let mut answers = Vec::new();
+    for lost in [Lost::Gone, Lost::Unreadable, Lost::Damaged, Lost::Retyped] {
+        let (secrets, book) = (root.join("secrets/accounts.json"), root.join("accounts.json"));
+        match lost {
+            Lost::Gone => std::fs::write(secrets, "{}").unwrap(),
+            Lost::Unreadable => std::fs::write(secrets, format!("{{\"account:{WITH}:me\": \"not json\"}}")).unwrap(),
+            Lost::Damaged => Damage::Secrets.to(root),
+            Lost::Retyped => edit_json(&book, |kept| kept["accounts"][0]["type"] = json!("gone")),
+        }
+        let sent = k.server.got().len();
+        let answer = k.fetch("/r/x", "{account:mock}");
+        let e = &answer["error"];
+        let said = format!("{lost:?}: {answer}");
+        match lost {
+            Lost::Gone => assert_eq!(
+                (&e["data"]["kind"], &e["data"]["reason"]),
+                (&json!("access"), &json!("signed_out")),
+                "{said}"
+            ),
+            Lost::Unreadable => {
+                assert_eq!(e["message"], "the me account's sign-in can't be read: sign in again", "{said}")
+            }
+            Lost::Damaged => assert_eq!(e["data"]["kind"], "external", "{said}"),
+            Lost::Retyped => {
+                assert_eq!(e["message"], "not found: the mock-accounts plugin's account type \"gone\"", "{said}")
+            }
+        }
+        assert_eq!(k.server.got().len(), sent, "{said}: sent");
+        answers.push(answer);
+        assert_eq!(kept(), ["me"], "{said}");
+        snapshot.restore();
+    }
+    Damage::Holds.to(root);
+    let e = k.sign_in(&entered(access, secret), Some("you")).unwrap_err();
+    assert_eq!(e.code(), "io", "{e}");
+    assert_eq!(kept(), ["me"], "kept another");
+    snapshot.restore();
+    assert!(!k.leaked(&answers.iter().collect::<Vec<_>>(), &[access, secret]), "a key is out where it may not be");
+}
+
+/// For either pair of keys, a whoami endpoint sending them on to another origin signs nobody in,
+/// saying it sent the keys on, and the other origin isn't asked.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_whoami_sending_the_keys_elsewhere_signs_nobody_in(tc: TestCase) {
+    let (access, secret) = tc.draw(gs::sampled_from(PAIRS.to_vec()));
+    let elsewhere = Server::new(|_, _| ok("{\"id\": \"me\"}"));
+    let to = format!("{}/whoami", elsewhere.url);
+    let away =
+        Server::new(move |_, _| Reply { status: 302, headers: vec![("Location", to.clone())], body: Vec::new() });
+    let whoami = format!("{}/who", away.url);
+    let m: Mock =
+        mock_with(3600, |server| keys_account_plugin(server, Some(&whoami)), &asking(&["read"], &[]), options());
+    let start = m.f.plugins.begin_account_sign_in("mock", WITH, Some("echo"), None, &[], &m.f.store).unwrap();
+    let e = m.f.plugins.finish_account_sign_in_with_keys(&start.id, &entered(access, secret), None).unwrap_err();
+    assert_eq!(
+        e.to_string(),
+        "asking Mock who signed in: it sent the keys on to 127.0.0.1, which isn't where it was asked"
+    );
+    assert!(elsewhere.got().is_empty() && m.listed().is_empty());
 }

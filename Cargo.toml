@@ -160,13 +160,15 @@ opt-level = 3
 opt-level = 3
 
 [profile.release]
-# Thin, not fat: on 2026-11-02, fat LTO made the CLI 13% smaller (45.8 MB, from 53.0 MB) and its
-# clean build 68% longer, and no run time (the CLI's timings, the check and convert benches) beat
-# the spread between runs.
 lto = "thin"
 codegen-units = 1
 strip = true
 
-# What dist builds release archives with (dist-workspace.toml).
+# What dist builds release archives with (dist-workspace.toml). Fat rather than thin for size: on
+# 2026-11-04, on aarch64-apple-darwin, it made the binary 13% smaller and its .tar.xz 7%, for 87%
+# longer on a clean build and no change in instructions on any command. `opt-level = "s"` for the
+# whole workspace reached 35.2 MB and 10.9 MB, but search, sorting and diffs took a quarter longer
+# and analysis 60 to 90%; for the CLI crate alone it came out larger than this.
 [profile.dist]
 inherits = "release"
+lto = "fat"

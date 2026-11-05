@@ -321,6 +321,27 @@ impl Library {
             .collect()
     }
 
+    /// The playlists and folders `ids`, everything below them and the folders above them. The
+    /// folders above are kept apart from the walks down: one that's also among `ids`, after
+    /// something in it, is walked down from like any other.
+    pub fn with_relatives(&self, ids: impl IntoIterator<Item = u32>) -> FxHashSet<u32> {
+        let (mut below, mut above) = (FxHashSet::default(), FxHashSet::default());
+        for id in ids {
+            let mut queue = vec![id];
+            while let Some(id) = queue.pop() {
+                if below.insert(id) {
+                    queue.extend(self.children(Some(id)).iter().map(|c| c.id));
+                }
+            }
+            let mut parent = self.playlist(id).and_then(|p| p.parent_id);
+            while let Some(id) = parent.filter(|id| above.insert(*id)) {
+                parent = self.playlist(id).and_then(|f| f.parent_id);
+            }
+        }
+        below.extend(above);
+        below
+    }
+
     /// The playlists and folders in `only` (paths like `Folder/Name`, or unique names, as
     /// [`Library::find_playlist`] finds them), everything below them, the folders above them (so
     /// their paths stay the same) and the tracks they hold: what an export of some playlists
@@ -329,22 +350,8 @@ impl Library {
         if only.is_empty() {
             return Ok(self);
         }
-        let mut keep = FxHashSet::default();
-        for query in only {
-            let p = self.find_playlist(query).ok_or(query.as_str())?;
-            // The node and everything below it...
-            let mut queue = vec![p.id];
-            while let Some(id) = queue.pop() {
-                if keep.insert(id) {
-                    queue.extend(self.children(Some(id)).iter().map(|c| c.id));
-                }
-            }
-            // ...and the folders above it.
-            let mut parent = p.parent_id;
-            while let Some(id) = parent.filter(|id| keep.insert(*id)) {
-                parent = self.playlist(id).and_then(|f| f.parent_id);
-            }
-        }
+        let ids = only.iter().map(|query| self.find_playlist(query).map(|p| p.id).ok_or(query.as_str()));
+        let keep = self.with_relatives(ids.collect::<Result<Vec<u32>, _>>()?);
         self.playlists.retain(|p| keep.contains(&p.id));
         let used: FxHashSet<u32> = self.playlists.iter().flat_map(|p| p.track_ids.iter().copied()).collect();
         self.tracks.retain(|t| used.contains(&t.id));

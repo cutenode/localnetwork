@@ -65,3 +65,14 @@ fn file_paths_read_back_from_every_spelling(tc: TestCase) {
     let scheme = tc.draw(gs::sampled_from(vec!["https", "spotify", "x-apple.music", "smb+tls"]));
     assert_eq!(file_path(&format!("{scheme}:{}", url(&posix))), None);
 }
+
+/// A drive letter and colon start a path only with a separator after them: `C:\x` and `C:/x`
+/// are files, `C:x` (or "A: Title") isn't.
+#[hegel::test(test_cases = 100)]
+fn prop_a_drive_letter_needs_a_separator_after_it(tc: TestCase) {
+    let letter = tc.draw(gs::sampled_from(vec!['C', 'd', 'Z']));
+    let after = tc.draw(gs::sampled_from(vec!['\\', '/', 'x', ' ', '-', '9']));
+    let rest = tc.draw(gs::from_regex("[A-Za-z0-9 ]{1,8}").fullmatch(true));
+    let line = format!("{letter}:{after}{rest}");
+    assert_eq!(looks_like_path(&line), matches!(after, '\\' | '/'), "{line:?}");
+}

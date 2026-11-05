@@ -333,7 +333,8 @@ fn the_manifest_is_a_built_in_artwork_and_metadata_provider() {
 }
 
 /// The plugin served over pipes past `hello`, told `events` in order while the host answers each
-/// `drive.library` it asks with `tracks`: what it suggests, and how many times it read the library.
+/// `drive.library` it asks with `tracks` (failing it for the drive `GONE`, as for one unplugged):
+/// what it suggests, and how many times it read the library.
 fn told(events: &[EventNotify], tracks: &[loclib_model::Track]) -> (Vec<HostNotify>, usize) {
     let (plugin_in, to_plugin) = pipe().unwrap();
     let (from_plugin, plugin_out) = pipe().unwrap();
@@ -352,6 +353,10 @@ fn told(events: &[EventNotify], tracks: &[loclib_model::Track]) -> (Vec<HostNoti
             Incoming::Request(req) => {
                 assert_eq!(req.method, "drive.library");
                 reads += 1;
+                if req.params["drive"] == "GONE" {
+                    host.respond(&req.id, Err(RpcError::failed("not_found", "not found: drive GONE")));
+                    continue;
+                }
                 let mut tracks = tracks.to_vec();
                 if req.params["drive"] == "LAST" {
                     tracks = vec![loclib_model::Track { id: 1, ..Default::default() }];
@@ -417,6 +422,20 @@ fn a_drive_plugged_in_has_covers_suggested_for_its_bare_tracks() {
     let fetch = FetchAction { drive: "USB".into(), tracks: vec![4], provider: Some("covers".into()) };
     let expected = HostNotify::action("new tracks have no cover art", &HostAction::ArtFetch(fetch));
     assert_eq!((suggested, reads), (vec![expected], 1));
+}
+
+/// A drive whose library the host fails to read has nothing suggested, a change to a drive's
+/// state alone isn't read, and the drives told of after them are still read and suggested for,
+/// whatever their tracks.
+#[hegel::test(test_cases = 10)]
+fn prop_a_drive_that_cant_be_read_suggests_nothing(tc: TestCase) {
+    let n = tc.draw(gs::integers::<u32>().max_value(5));
+    let tracks: Vec<loclib_model::Track> = (1..=n).map(|id| loclib_model::Track { id, ..Default::default() }).collect();
+    let state = EventNotify { payload: json!({ "changed": ["state"] }), ..databases_changed("USB") };
+    let (suggested, reads) = told(&[databases_changed("GONE"), state, databases_changed("USB")], &tracks);
+    assert_eq!(reads, 2);
+    let drives: Vec<String> = suggested.iter().map(|s| s.action.clone().unwrap().params["drive"].to_string()).collect();
+    assert_eq!(drives, if n == 0 { vec![] } else { vec!["\"USB\"".to_string()] });
 }
 
 /// For any library, what it suggests is the tracks without artwork, in the library's order, the
@@ -667,7 +686,7 @@ fn cancelling_while_a_fetch_is_under_way_stops_it() {
         let pending = session.send(ProviderKind::Artwork, &[tags(1, "Bicep", "Bicep", "Glue")], json!({}));
         let asked = if held == SEARCH { 1 } else { 2 };
         for _ in 0..asked {
-            session.heard.recv().unwrap();
+            session.heard.recv_timeout(Duration::from_secs(10)).expect("a fetch");
         }
         pending.cancel();
         let answer = pending.wait_timeout(Duration::from_secs(10)).expect("it stops");
@@ -1646,6 +1665,92 @@ fn came_to(
     assert_eq!(session.stop(), Vec::new(), "it reads nothing");
 }
 
+/// Whatever the Cover Art Archive gives for the release groups an album is (none, one or several),
+/// each cover it can be is a JPEG in the scratch folder offered for every track of the album, and
+/// one it can't be is a warning saying why: not there, refused, not an image, too small, or not
+/// to be had; an album on no release group is a warning; a cover that can't be written fails the
+/// hook, and so do MusicBrainz out of reach and a cancel while a cover downloads.
+#[hegel::test(test_cases = 8)]
+fn prop_an_albums_covers_are_files_or_warnings_saying_why(tc: TestCase) {
+    // MusicBrainz out of reach, or the album on these release groups.
+    for groups in [None, Some(vec![]), Some(vec![0]), Some(vec![0, 1])] {
+        // Found by name, its ISRC on no release of its name, or with none.
+        for isrc in [false, true] {
+            albums_covers(&tc, groups.as_deref(), isrc);
+        }
+    }
+}
+
+/// [`prop_an_albums_covers_are_files_or_warnings_saying_why`] for an album of release `groups`
+/// (none: MusicBrainz can't be reached), its tracks with an `isrc` MusicBrainz has on no release
+/// of the album's name or none.
+#[hegel::test_helper]
+fn albums_covers(tc: &TestCase, groups: Option<&[usize]>, isrc: bool) {
+    let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(3));
+    let isrc = isrc.then(|| isrc_of(0));
+    let album = |id| Drawn {
+        tags: TrackTags { isrc: isrc.clone().unwrap_or_default(), ..tags(id, "Bicep", "Album 0", "Song") },
+        album: Some(0),
+        artist: 0,
+        isrc: isrc.clone(),
+        single: false,
+    };
+    let drawn: Vec<Drawn> = (1..=n).map(album).collect();
+    let mut answers = drawn_answers(tc);
+    let answer = match groups {
+        Some(groups) => Answer::Releases(groups.iter().map(|g| drawn_release(tc, *g)).collect()),
+        None => Answer::Fails(tc.draw(gs::sampled_from(FAILURES.to_vec()))),
+    };
+    answers.releases[0] = Search { busy: 0, answer };
+    answers.recordings[0] = Search { busy: 0, answer: Answer::Releases(Vec::new()) };
+    // Each way a cover can come out about as likely as the others.
+    let side = || gs::integers::<u32>().min_value(16).max_value(64);
+    for c in &mut answers.covers {
+        let image =
+            |unwritable| Cover::Image { width: tc.draw(side()), height: tc.draw(side()), png: false, unwritable };
+        *c = match tc.draw(gs::integers::<u8>().max_value(5)) {
+            0 => image(false),
+            1 => Cover::Image { width: 15, height: tc.draw(side()), png: true, unwritable: false },
+            2 => Cover::Status(tc.draw(gs::sampled_from(vec![404u16, 500]))),
+            3 => Cover::Garbage,
+            4 => Cover::Fails(tc.draw(gs::sampled_from(FAILURES.to_vec()))),
+            _ => image(true),
+        };
+    }
+    let scratch = TempDir::new().unwrap();
+    for (drawn, id) in answers.covers.iter().zip(GROUPS) {
+        if let Cover::Image { unwritable: true, .. } = drawn {
+            std::fs::create_dir(scratch.path().join(cover(id))).unwrap();
+        }
+    }
+    let foreseen = foresee(&answers, &drawn, ProviderKind::Artwork);
+    // Now and then the host cancels the hook while the first cover downloads: the fetch
+    // `cancelling_while_any_fetch_is_under_way_stops_it` holds only when it happens to draw it.
+    let first_cover = foreseen.fetches.iter().position(|(path, _)| path.starts_with(COVERS));
+    let held = first_cover.filter(|_| tc.draw(gs::weighted_booleans(0.2)));
+    let (route, fetched) = (answering(answers), AtomicUsize::new(0));
+    let session = start(move |req: &Req| match Some(fetched.fetch_add(1, Ordering::Relaxed)) == held {
+        true => Reply::Held,
+        false => route(req),
+    });
+    let tracks: Vec<TrackTags> = drawn.iter().map(|d| d.tags.clone()).collect();
+    let pending = session.send(ProviderKind::Artwork, &tracks, json!({ "scratch": scratch.path() }));
+    if let Some(held) = held {
+        for _ in 0..=held {
+            session.heard.recv_timeout(Duration::from_secs(10)).expect("the fetches up to the cover's");
+        }
+        pending.cancel();
+        let answer = pending.wait_timeout(Duration::from_secs(10)).expect("it stops");
+        assert_eq!(answer.map(|_: Candidates| ()).unwrap_err(), RpcError::cancelled());
+        let fetches: Vec<(String, String)> = session.got().into_iter().map(|g| (g.path, g.query)).collect();
+        assert_eq!(fetches, foreseen.fetches[..=held]);
+        session.stop();
+        return;
+    }
+    let provided = pending.wait_timeout(Duration::from_secs(60)).expect("an answer");
+    came_to(session, &provided, &foreseen, ProviderKind::Artwork, scratch.path());
+}
+
 /// However many albums are one release group (one name, by different artists), however
 /// MusicBrainz answers its lookup, it's looked up once (tried again while MusicBrainz is busy):
 /// each album gets its genre and first year, or a warning.
@@ -1699,7 +1804,7 @@ fn cancelling_while_any_fetch_is_under_way_stops_it(tc: TestCase) {
     let tracks: Vec<TrackTags> = drawn.into_iter().map(|d| d.tags).collect();
     let pending = session.send(kind, &tracks, json!({}));
     for _ in 0..=held {
-        session.heard.recv().unwrap();
+        session.heard.recv_timeout(Duration::from_secs(10)).expect("a fetch");
     }
     pending.cancel();
     let answer = pending.wait_timeout(Duration::from_secs(10)).expect("it stops");

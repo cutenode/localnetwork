@@ -2,7 +2,16 @@ import type { JsonValue } from '@atproto/lex-json';
 import { describe, expect, it } from 'vitest';
 import { sampleReport } from '#lib/mix/sample.ts';
 import type { BlobRefJson } from '#lib/types.ts';
-import { parseAvatar, parseDetails, parseProfile, profileToValues, sniffImage, withTracklists } from './project';
+import {
+	parseAvatar,
+	parseDetails,
+	parseProfile,
+	parsePromoter,
+	profileToValues,
+	promoterToValues,
+	sniffImage,
+	withTracklists
+} from './project';
 import { formValues } from '#lib/project-form.ts';
 
 function form(entries: [string, string | File][]): FormData {
@@ -245,6 +254,29 @@ describe('parseProfile', () => {
 		expect(parseProfile(form([...minimal, ...row('', '')])).fees).toBeUndefined();
 	});
 
+	it('keeps only the half of each range and the travel fields that were filled in', () => {
+		const parse = (...entries: [string, string][]) => parseProfile(form([...minimal, ...entries]));
+
+		expect(parse(['international', 'on'], ['setMin', '60'], ['capacityMin', '100'])).toMatchObject({
+			travel: { international: true },
+			setLength: { minMinutes: 60 },
+			capacity: { min: 100 }
+		});
+		expect(parse(['travelRadiusKm', '50'], ['setMax', '240'], ['capacityMax', '900'])).toMatchObject({
+			travel: { radiusKm: 50 },
+			setLength: { maxMinutes: 240 },
+			capacity: { max: 900 }
+		});
+		expect(parse(['travelNotes', 'Has a car']).travel).toEqual({ notes: 'Has a car' });
+	});
+
+	it('calls a project solo and a mix "Mix" when the form leaves them out', () => {
+		const profile = parseProfile(form([...minimal.filter(([key]) => key !== 'kind'), ['mixUrl', 'https://m.test/1']]));
+
+		expect(profile.kind).toBe('solo');
+		expect(profile.mixes).toEqual([{ title: 'Mix', url: 'https://m.test/1' }]);
+	});
+
 	it('refuses more than 12 highlights', () => {
 		const lines = Array.from({ length: 13 }, (_, index) => `Highlight ${index}`);
 		expect(() => parseProfile(form([...minimal, ['highlights', lines.join('\n')]]))).toThrow(/12 highlights/);
@@ -366,11 +398,59 @@ describe('withTracklists', () => {
 		const data = rows(['One', 'https://m.test/1', empty(), ''], ['One again', 'm.test/1', json(sampleReport), '']);
 		await expect(withTracklists(data, parseProfile(data))).rejects.toThrow(/“One again” is listed twice/);
 	});
+	it('names an untitled repeated mix "Mix" when refusing its tracklist', async () => {
+		const data = rows(['One', 'https://m.test/1', empty(), ''], ['', 'm.test/1', json(sampleReport), '']);
+		await expect(withTracklists(data, parseProfile(data))).rejects.toThrow(/“Mix” is listed twice/);
+	});
+	it('leaves alone mixes the form has no row for, and rows with no tracklist field', async () => {
+		const data = form([...minimal, ['mixTitle', 'One'], ['mixUrl', 'https://m.test/1']]);
+		const extra = { title: 'Elsewhere', url: 'https://m.test/elsewhere' };
+		const profile = { ...parseProfile(data), mixes: [...parseProfile(data).mixes!, extra] };
+
+		const result = await withTracklists(data, profile, [
+			null,
+			{ mixes: [{ title: 'Old', url: 'https://m.test/old' }] }
+		]);
+
+		expect(result.profile.mixes).toEqual([{ title: 'One', url: 'https://m.test/1' }, extra]);
+		expect(result.tracklists).toEqual([]);
+	});
 	it('rejects files that are not mix reports', async () => {
 		const data = rows(['One', 'https://m.test/1', json({ format: 'something-else' }), '']);
 		await expect(withTracklists(data, parseProfile(data))).rejects.toThrow(/tracklist for “One”/);
 		const big = rows(['One', 'https://m.test/1', new File([new Uint8Array(1_000_001)], 'mix.json'), '']);
 		await expect(withTracklists(big, parseProfile(big))).rejects.toThrow(/over 1 MB/);
+	});
+});
+
+describe('parsePromoter', () => {
+	const cities = (...rows: [string, string, string][]) =>
+		form(
+			rows.flatMap(([city, region, country]): [string, string][] => [
+				['bookCity', city],
+				['bookRegion', region],
+				['bookCountry', country]
+			])
+		);
+
+	it('keeps a region only when one is given, and nothing when every row is empty', () => {
+		expect(parsePromoter(cities(['Leipzig', 'Saxony', 'de'], ['Berlin', '', 'DE']))).toEqual({
+			cities: [
+				{ city: 'Leipzig', region: 'Saxony', country: 'DE' },
+				{ city: 'Berlin', country: 'DE' }
+			]
+		});
+		expect(parsePromoter(cities(['', '', '']))).toEqual({});
+		expect(promoterToValues({ cities: [{ city: 'Berlin', country: 'DE' }] }).cities).toEqual([
+			{ city: 'Berlin', region: '', country: 'DE' }
+		]);
+	});
+
+	it('refuses a city with no country, and more than 12 cities', () => {
+		expect(() => parsePromoter(form([['bookCity', 'Leipzig']]))).toThrow(/two-letter country code for Leipzig/);
+		const many = Array.from({ length: 13 }, (_, index): [string, string, string] => [`City ${index}`, '', 'DE']);
+		expect(() => parsePromoter(cities(...many))).toThrow(/12 cities/);
+		expect(parsePromoter(cities(...many.slice(1))).cities).toHaveLength(12);
 	});
 });
 

@@ -142,6 +142,7 @@ describe('loadConfig', () => {
 describe('serviceDidFor', () => {
 	it('maps loopback hosts to localhost and encodes ports', () => {
 		expect(serviceDidFor('http://127.0.0.1:5180')).toBe('did:web:localhost%3A5180');
+		expect(serviceDidFor('http://[::1]')).toBe('did:web:localhost');
 		expect(serviceDidFor('https://ln.example')).toBe('did:web:ln.example');
 		expect(serviceDidFor('https://ln.example:8443')).toBe('did:web:ln.example%3A8443');
 	});

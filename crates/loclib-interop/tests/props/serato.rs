@@ -845,6 +845,8 @@ fn markers_refuse_files_they_cant_tag(tc: TestCase) {
 // A size counting a stray byte, and one counting junk lofty stops reading at.
 #[hegel::explicit_test_case(wav = false, audio = vec![1u8; 2], size = 49u32, trailing = vec![0u8])]
 #[hegel::explicit_test_case(wav = false, audio = vec![1u8; 2], size = 56u32, trailing = vec![0u8; 8])]
+// A size past the file's end: cut off.
+#[hegel::explicit_test_case(wav = true, audio = vec![1u8; 64], size = 108u32, trailing = Vec::<u8>::new())]
 fn header_sizes_are_tagged_or_refused(tc: TestCase) {
     use lofty::config::ParseOptions;
     use lofty::file::AudioFile;
@@ -979,4 +981,138 @@ fn copies_are_planned_as_written(tc: TestCase) {
         ),
         None => assert_eq!(warned, None),
     }
+}
+
+/// An ID3v2.3 tag of one COMM frame in `language`, with no description.
+fn id3_with_comment(language: [u8; 3]) -> Vec<u8> {
+    let comm = [&[0][..], &language, &[0], b"hi"].concat();
+    let frame = [b"COMM".as_slice(), &(comm.len() as u32).to_be_bytes(), &[0, 0], &comm].concat();
+    [b"ID3\x03\0\0\0\0\0".as_slice(), &[frame.len() as u8], &frame].concat()
+}
+
+/// `file` (a WAV or AIFF from [`audio_file`]) with a chunk `id` of `data` (an even number of bytes)
+/// after its header, its header's size to match.
+fn with_chunk(kind: Kind, mut file: Vec<u8>, id: &[u8; 4], data: &[u8]) -> Vec<u8> {
+    let sized = |n: usize| if kind == Kind::Wav { (n as u32).to_le_bytes() } else { (n as u32).to_be_bytes() };
+    let chunk = [id.as_slice(), &sized(data.len()), data].concat();
+    file.splice(12..12, chunk);
+    let size = sized(file.len() - 8);
+    file[4..8].copy_from_slice(&size);
+    file
+}
+
+/// The ID3v2 chunk's id in a WAV or AIFF.
+fn id3_chunk(kind: Kind) -> &'static [u8; 4] {
+    if kind == Kind::Wav { b"id3 " } else { b"ID3 " }
+}
+
+/// A file whose content is the MP3, AIFF or WAV its name says but whose ID3v2 tag lofty can't
+/// read (a version that isn't one), or holds a frame lofty reads but won't write (a comment
+/// whose language isn't three letters), can't take Serato's tag: planning and writing it are
+/// typed errors naming the file, and the file is left as it was.
+#[hegel::test(test_cases = 60)]
+fn prop_tags_lofty_cant_read_or_write_again_are_refused(tc: TestCase) {
+    let kind = tc.draw(gs::sampled_from(vec![Kind::Mp3, Kind::Wav, Kind::Aiff]));
+    let tag = match tc.draw(gs::booleans()) {
+        true => b"ID3\x05\0\0\0\0\0\0".to_vec(),
+        false => id3_with_comment(tc.draw(gs::sampled_from(vec![*b"en1", *b"e n", *b"\0\0\0"]))),
+    };
+    let audio = tc.draw(gs::vecs(gs::integers::<u8>().min_value(1).max_value(0xfe)).min_size(2).max_size(600));
+    let file = audio_file(kind, &audio[..audio.len() / 2 * 2]);
+    let bytes = match kind {
+        Kind::Mp3 => [tag, file].concat(),
+        _ => {
+            let even = tag.len() % 2 == 0;
+            with_chunk(kind, file, id3_chunk(kind), &[tag, vec![0; usize::from(!even)]].concat())
+        }
+    };
+    let named = Path::new(match kind {
+        Kind::Mp3 => "x.mp3",
+        Kind::Wav => "x.wav",
+        Kind::Aiff => "x.aiff",
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("copy");
+    std::fs::write(&path, &bytes).unwrap();
+    let about = format!("{}: ", named.display());
+    let planned = serato::tag_growth(&path, named, b"markers");
+    assert!(matches!(&planned, Err(Error::Tags(e)) if e.starts_with(&about)), "planned: {planned:?}");
+    let written = serato::write_markers(&path, named, b"markers");
+    assert!(matches!(&written, Err(Error::Tags(e)) if e.starts_with(&about)), "written: {written:?}");
+    assert_eq!(std::fs::read(&path).unwrap(), bytes, "left as it was");
+}
+
+/// A chunk of odd length before the audio, with the pad byte after it or without (some encoders
+/// leave it out), is walked past as lofty walks it: the copy is tagged so that it reads back, its
+/// audio in one piece.
+#[hegel::test(test_cases = 40)]
+fn prop_odd_chunks_inside_are_walked_past(tc: TestCase) {
+    let kind = tc.draw(gs::sampled_from(vec![Kind::Wav, Kind::Aiff]));
+    let audio = tc.draw(gs::vecs(gs::integers::<u8>().min_value(1).max_value(0xfe)).min_size(2).max_size(600));
+    let audio = &audio[..audio.len() / 2 * 2];
+    let odd = 2 * tc.draw(gs::integers::<usize>().max_value(20)) + 1;
+    let data = tc.draw(gs::vecs(gs::integers::<u8>()).min_size(odd).max_size(odd));
+    let padded = tc.draw(gs::booleans());
+    // The chunk's size says `odd`, and its pad byte follows or doesn't.
+    let held = [data.clone(), if padded { vec![0] } else { vec![] }].concat();
+    let mut bytes = with_chunk(kind, audio_file(kind, audio), b"XTRA", &held);
+    bytes[16..20].copy_from_slice(&if kind == Kind::Wav {
+        (odd as u32).to_le_bytes()
+    } else {
+        (odd as u32).to_be_bytes()
+    });
+    let named = Path::new(if kind == Kind::Wav { "x.wav" } else { "x.aiff" });
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("copy");
+    std::fs::write(&path, &bytes).unwrap();
+    let growth = serato::tag_growth(&path, named, b"markers").unwrap();
+    serato::write_markers(&path, named, b"markers").unwrap();
+    assert!(std::fs::metadata(&path).unwrap().len() <= bytes.len() as u64 + growth);
+    let tag = id3v2(&path, kind).expect("an ID3v2 tag");
+    assert_eq!(geobs(&tag), [("Serato Markers2".into(), Some("application/octet-stream".into()), b"markers".to_vec())]);
+    let out = std::fs::read(&path).unwrap();
+    assert!(out.windows(audio.len()).any(|w| w == audio), "the audio split");
+}
+
+/// A copy that can't be written (read-only) is planned as any other, and writing the tag into it
+/// is that file's I/O error, leaving it as it was.
+#[hegel::test(test_cases = 20)]
+fn prop_a_read_only_copy_is_its_io_error(tc: TestCase) {
+    let kind = tc.draw(gs::sampled_from(vec![Kind::Mp3, Kind::Wav, Kind::Aiff]));
+    let audio = tc.draw(gs::vecs(gs::integers::<u8>().min_value(1).max_value(0xfe)).min_size(2).max_size(600));
+    let bytes = audio_file(kind, &audio[..audio.len() / 2 * 2]);
+    let named = Path::new(match kind {
+        Kind::Mp3 => "x.mp3",
+        Kind::Wav => "x.wav",
+        Kind::Aiff => "x.aiff",
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("copy");
+    std::fs::write(&path, &bytes).unwrap();
+    let mut read_only = std::fs::metadata(&path).unwrap().permissions();
+    read_only.set_readonly(true);
+    std::fs::set_permissions(&path, read_only).unwrap();
+    serato::tag_growth(&path, named, b"markers").unwrap();
+    let written = serato::write_markers(&path, named, b"markers");
+    assert!(matches!(&written, Err(Error::Io { path: at, .. }) if *at == path), "{written:?}");
+    assert_eq!(std::fs::read(&path).unwrap(), bytes, "left as it was");
+}
+
+/// A folder where a track's audio should be, named as an MP3, AIFF or WAV, stops an export with
+/// copies and cues as that folder's I/O error: it's there, but nothing can be read from it.
+#[hegel::test(test_cases = 20)]
+fn prop_a_folder_in_place_of_audio_is_its_io_error(tc: TestCase) {
+    let ext = tc.draw(gs::sampled_from(vec!["mp3", "wav", "aiff"]));
+    let track = Track { id: 1, file_path: format!("/Music/1.{ext}"), ..Default::default() };
+    let lib = Library { tracks: vec![track], ..Default::default() };
+    let music = tempfile::tempdir().unwrap();
+    let folder = paths::to_fs(music.path(), &paths::key(&lib.tracks[0].file_path));
+    std::fs::create_dir_all(&folder).unwrap();
+    let analysis = common::analysis(&tc, &lib);
+    let load = common::loader(&analysis);
+    let src = Source { library: &lib, root: PathBuf::from("/Volumes/USB"), analysis: Some(&load) };
+    let audio = |t: &Track| Ok::<_, Error>(paths::to_fs(music.path(), &paths::key(&t.file_path)));
+    let copies = Copies { root: PathBuf::from("/Volumes/USB/out"), audio: &audio };
+    let built = serato::build(&src, Path::new("out"), Some(&copies), &Ctx::silent());
+    assert!(matches!(&built, Err(Error::Io { path, .. }) if *path == folder), "{built:?}");
 }

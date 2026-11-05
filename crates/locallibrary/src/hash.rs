@@ -93,11 +93,20 @@ impl schemars::JsonSchema for Hash {
     }
 }
 
+/// A buffer to read `file` through: a drive holds tens of thousands of files of a few kilobytes,
+/// and a buffer of [`BUF_SIZE`] for each came to gigabytes of allocations in a `check` of a few
+/// hundred tracks. A buffer's worth of [`BufReader`](std::io::BufReader) at least, for a file that
+/// says it holds nothing and doesn't.
+fn buffer_for(file: &File) -> Vec<u8> {
+    let size = file.metadata().map_or(BUF_SIZE as u64, |m| m.len());
+    vec![0u8; size.clamp(8 << 10, BUF_SIZE as u64) as usize]
+}
+
 /// Hash a file, reporting bytes to `ctx` under `phase` and honouring cancellation.
 pub fn hash_file(path: &Path, ctx: &Ctx<'_>, phase: Phase) -> Result<Hash> {
     let mut file = File::open(path).at(path)?;
     let mut hasher = blake3::Hasher::new();
-    let mut buf = vec![0u8; BUF_SIZE];
+    let mut buf = buffer_for(&file);
     loop {
         ctx.check()?;
         let n = file.read(&mut buf).at(path)?;
@@ -120,7 +129,7 @@ pub fn copy_hashing(
 ) -> Result<(Hash, u64)> {
     let mut file = File::open(src).at(src)?;
     let mut hasher = blake3::Hasher::new();
-    let mut buf = vec![0u8; BUF_SIZE];
+    let mut buf = buffer_for(&file);
     let mut total = 0u64;
     loop {
         ctx.check()?;

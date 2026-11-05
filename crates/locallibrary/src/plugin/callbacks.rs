@@ -13,6 +13,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Weak};
 
 use loclib_plugin::{Capability, ErrorData, Incoming, MAX_IDS, MAX_IMAGES, Manifest, Peer, RpcError, code, method};
+use memchr::memmem::Finder;
 use serde_json::Value;
 
 use super::process::{Live, Plugin, Slot};
@@ -345,13 +346,19 @@ pub(crate) fn for_plugin(e: RpcFailure, roots: &[(String, String)]) -> RpcError 
     RpcError { code: e.code, message: scrub(&e.message, roots), data: Some(Box::new(data)) }
 }
 
+/// [`scrub`] for every string in `v`. A read's answer holds thousands, nearly all without a root,
+/// so each root's searcher is made once, and only a string with a root in it is rewritten.
 fn scrub_value(v: &mut Value, roots: &[(String, String)]) {
-    match v {
-        Value::String(s) => *s = scrub(s, roots),
-        Value::Array(list) => list.iter_mut().for_each(|v| scrub_value(v, roots)),
-        Value::Object(map) => map.values_mut().for_each(|v| scrub_value(v, roots)),
-        _ => {}
+    fn walk(v: &mut Value, finders: &[Finder<'_>], roots: &[(String, String)]) {
+        match v {
+            Value::String(s) if finders.iter().any(|f| f.find(s.as_bytes()).is_some()) => *s = scrub(s, roots),
+            Value::Array(list) => list.iter_mut().for_each(|v| walk(v, finders, roots)),
+            Value::Object(map) => map.values_mut().for_each(|v| walk(v, finders, roots)),
+            _ => {}
+        }
     }
+    let finders: Vec<Finder<'_>> = roots.iter().map(|(root, _)| Finder::new(root)).collect();
+    walk(v, &finders, roots);
 }
 
 /// `text` with each of `roots` said as it's to be where a path goes on past it or ends there

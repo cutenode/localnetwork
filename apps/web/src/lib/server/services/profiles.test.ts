@@ -1,11 +1,13 @@
 import type { JsonObject } from '@atproto/lex-json';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { XRPCError } from '@atproto/api';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BSKY_PROFILE, COLLECTION } from '#lib/nsid.ts';
-import { ReauthError } from '../core';
+import { ReauthError, UserError } from '../core';
 import { HappyViewClient, HappyViewError } from '../happyview/client';
 import { IndexedRepo } from '../happyview/indexed';
 import { silentLogger } from '../logger';
 import { createTestServices } from '../testing/core';
+import { FakeRootClient } from '../testing/fakes';
 import { ProfileService } from './profiles';
 
 const DJ = 'did:plc:dj';
@@ -80,6 +82,7 @@ describe('ProfileService.save and blueskyPrefill', () => {
 		t = await createTestServices({ capable: [DJ] });
 	});
 	afterEach(async () => {
+		vi.restoreAllMocks();
 		await t.audit.idle();
 		await t.db.destroy();
 	});
@@ -138,6 +141,45 @@ describe('ProfileService.save and blueskyPrefill', () => {
 		);
 	});
 
+	it('uploads tracklists for the mixes that come with one, and points the picture at a blob already uploaded', async () => {
+		const avatar = await t.net.client(DJ).uploadBlob(png.bytes, png.mimeType);
+		const report = { bytes: new TextEncoder().encode('{"tracks":[]}'), mimeType: 'application/json' };
+
+		await t.profiles.save(await t.viewer(DJ), {
+			basics: { name: 'Neon' },
+			performer: {
+				mixes: [
+					{ title: 'Late Room', url: 'https://mixes.test/late-room' },
+					{ title: 'Plain', url: 'https://mixes.test/plain' }
+				]
+			},
+			tracklists: [report, undefined],
+			avatar: { blob: avatar },
+			swap: null
+		});
+
+		const { record } = (await t.profiles.get(DJ))!;
+		expect(record.basics.avatar).toEqual(avatar);
+		expect(record.performer?.mixes?.[0].tracklist).toMatchObject({
+			mimeType: 'application/json',
+			size: report.bytes.length
+		});
+		expect(record.performer?.mixes?.[1]).toEqual({ title: 'Plain', url: 'https://mixes.test/plain' });
+	});
+
+	it('asks for a reload when the PDS refuses a save over a newer version, and passes other failures on', async () => {
+		const viewer = await t.viewer(DJ);
+		const save = () => t.profiles.save(viewer, { basics: { name: 'Neon' }, avatar: 'keep', swap: null });
+
+		t.net.failWrites(DJ, 1, new XRPCError(400, 'InvalidSwap'));
+		await expect(save()).rejects.toThrow(
+			new UserError('Your profile changed since you opened it. Reload to see the latest, then save again.')
+		);
+		t.net.failWrites(DJ);
+		await expect(save()).rejects.toThrow('UpstreamFailure');
+		expect(await t.profiles.get(DJ)).toBeNull();
+	});
+
 	it("fills a first profile in from the account's own Bluesky profile, picture included", async () => {
 		const client = t.net.client(DJ);
 		const avatar = await client.uploadBlob(png.bytes, png.mimeType);
@@ -151,5 +193,21 @@ describe('ProfileService.save and blueskyPrefill', () => {
 		expect(await t.profiles.blueskyPrefill(DJ)).toEqual({ name: 'Neon', bio: 'Hypnotic techno', avatar });
 		// Without a session there's nothing to read it with.
 		expect(await t.profiles.blueskyPrefill('did:plc:lapsed')).toBeNull();
+	});
+
+	it("offers nothing without a Bluesky profile or when it can't be read, and no picture of a type profiles don't take", async () => {
+		const client = t.net.client(DJ);
+		expect(await t.profiles.blueskyPrefill(DJ)).toBeNull();
+
+		const gif = await client.uploadBlob(new TextEncoder().encode('GIF89a'), 'image/gif');
+		await client.putRecord({
+			collection: BSKY_PROFILE,
+			rkey: 'self',
+			record: { $type: BSKY_PROFILE, displayName: 'N'.repeat(70), avatar: gif }
+		});
+		expect(await t.profiles.blueskyPrefill(DJ)).toEqual({ name: 'N'.repeat(64), bio: undefined, avatar: undefined });
+
+		vi.spyOn(FakeRootClient.prototype, 'getRecord').mockRejectedValueOnce(new XRPCError(502, 'UpstreamFailure'));
+		expect(await t.profiles.blueskyPrefill(DJ)).toBeNull();
 	});
 });

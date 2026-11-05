@@ -41,6 +41,9 @@ enum Reply {
     Fails(RpcError),
     /// No answer yet: the fetch is under way until the plugin's hook is cancelled.
     Held,
+    /// Busy (`503`), asking to wait this `Retry-After`, and then the host cancelling the session's
+    /// first analysis (its second request, after `hello`), while the hook waits.
+    BusyThenCancelled(&'static str),
 }
 
 fn ok(xml: impl Into<String>) -> Reply {
@@ -101,6 +104,11 @@ fn start(tracks: Vec<Track>, route: impl Fn(&str, usize) -> Reply + Send + 'stat
             let Incoming::Request(req) = msg else { continue };
             if req.method != method::NET_FETCH {
                 read.lock().unwrap().push((req.method.clone(), req.params.clone()));
+                if req.params["drive"] != "USB" {
+                    let gone = RpcError::failed("not_found", format!("not found: drive {}", req.params["drive"]));
+                    to.respond(&req.id, Err(gone));
+                    continue;
+                }
                 let ids: Vec<u32> = serde_json::from_value(req.params["ids"].clone()).unwrap_or_default();
                 let held = |id: &u32| library.iter().find(|t| t.id == *id);
                 let (found, missing): (Vec<u32>, Vec<u32>) = ids.into_iter().partition(|id| held(id).is_some());
@@ -116,16 +124,21 @@ fn start(tracks: Vec<Track>, route: impl Fn(&str, usize) -> Reply + Send + 'stat
             };
             let _ = tell.send(());
             let isrc = fetch.url.strip_prefix(LOOKUP).and_then(|rest| rest.split_once('?')).map_or("", |(i, _)| i);
-            let answer = match route(isrc, asked) {
-                Reply::Answer(status, wait, body) => {
-                    let headers: IndexMap<String, String> =
-                        wait.map(|w| ("retry-after".to_string(), w.to_string())).into_iter().collect();
-                    Ok(serde_json::to_value(Fetched { status, headers, body: Some(body), blob: None }).unwrap())
-                }
-                Reply::Fails(e) => Err(e),
+            let answered = |status, wait: Option<&str>, body| {
+                let headers: IndexMap<String, String> =
+                    wait.map(|w| ("retry-after".to_string(), w.to_string())).into_iter().collect();
+                Ok(serde_json::to_value(Fetched { status, headers, body: Some(body), blob: None }).unwrap())
+            };
+            let (answer, cancelling) = match route(isrc, asked) {
+                Reply::Answer(status, wait, body) => (answered(status, wait, body), false),
+                Reply::BusyThenCancelled(wait) => (answered(503, Some(wait), String::new()), true),
+                Reply::Fails(e) => (Err(e), false),
                 Reply::Held => continue,
             };
             to.respond(&req.id, answer);
+            if cancelling {
+                to.notify(method::CANCEL, &json!({ "id": 2 }));
+            }
         }
     });
     let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
@@ -723,6 +736,26 @@ fn artist_ids_line_up_with_names(tc: TestCase) {
     assert_eq!(got, foreseen.unwrap_or_default(), "{names:?} {credited:?}");
 }
 
+/// A name credited twice to one artist is that artist; but a name that's two artists, or two
+/// names of one artist (its own and the one it's credited under), give no artist IDs at all.
+#[hegel::test(test_cases = 30)]
+fn prop_a_name_that_isnt_one_artist_gives_no_ids(tc: TestCase) {
+    let name = tc.draw(gs::sampled_from(ARTISTS.to_vec()));
+    let (credits, artist, ids) = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => (vec![(1, None, name.to_string()), (1, None, respelled(&tc, name))], name.to_string(), vec![uuid(1)]),
+        1 => (vec![(1, None, name.to_string()), (2, None, respelled(&tc, name))], name.to_string(), vec![]),
+        _ => (vec![(1, Some("DJ Alias".into()), name.to_string())], format!("{name}, DJ Alias"), vec![]),
+    };
+    let body = xml(&[Rec { id: 1, title: "Title".into(), credits, ..Rec::default() }]);
+    let (answers, _) = analyze_all(vec![track(1, &format!("{artist} - Title"), "", 0, IN_MY_VIEW)], answering(body));
+    let got = match &answers[0].as_ref().unwrap().fields["artists"] {
+        FieldValue::Strings(ids) => ids.clone(),
+        FieldValue::Null => Vec::new(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(got, ids, "{artist}");
+}
+
 /// What a lookup's last answer is, after however many `503`s.
 #[derive(Debug, Clone, Copy)]
 enum Last {
@@ -791,6 +824,87 @@ fn each_track_takes_one_lookup_and_its_retries(tc: TestCase) {
         (Last::Unknown(_), Ok(a)) => assert_eq!(a, nothing()),
         (Last::Refused(_) | Last::Garbage | Last::Unreached, Err(e)) => assert_eq!(e.kind(), Some("external"), "{e}"),
         (last, got) => panic!("{last:?}: {got:?}"),
+    }
+}
+
+/// The lookup stops as soon as it can't go on, looking nothing up again: a track without a drive
+/// is refused, and one on a drive the host can't read fails as its read did; cancelled while
+/// MusicBrainz's answer is under way, or while it waits out a `Retry-After`, the hook answers
+/// `cancelled`; MusicBrainz out of reach, or answering what isn't its answer, fails saying so;
+/// and an ISRC MusicBrainz doesn't know gives no IDs.
+#[hegel::test(test_cases = 5)]
+fn prop_the_lookup_stops_as_soon_as_it_cant_go_on(tc: TestCase) {
+    let gone = tc.draw(gs::sampled_from(vec!["SD", "usb", ""]));
+    for stop in
+        [Stop::Gone, Stop::Answering, Stop::Waiting, Stop::Unreached, Stop::Garbled, Stop::NoDrive, Stop::Unknown]
+    {
+        lookup_stops(stop, gone);
+    }
+}
+
+/// Where [`prop_the_lookup_stops_as_soon_as_it_cant_go_on`] stops.
+#[derive(Clone, Copy, Debug)]
+enum Stop {
+    Gone,
+    Answering,
+    Waiting,
+    Unreached,
+    Garbled,
+    NoDrive,
+    Unknown,
+}
+
+/// [`prop_the_lookup_stops_as_soon_as_it_cant_go_on`] stopping at `stop`, the drive `gone` one
+/// the host can't read.
+fn lookup_stops(stop: Stop, gone: &str) {
+    let route = move |isrc: &str, asked: usize| match stop {
+        Stop::Gone => as_it_is(isrc, asked),
+        Stop::Answering => Reply::Held,
+        // Three tenths of a second, in this crate's tests, the cancel arriving right after; were
+        // it to come later than that, the lookup asked again is held until it does.
+        Stop::Waiting if asked == 0 => Reply::BusyThenCancelled("30"),
+        Stop::Waiting => Reply::Held,
+        Stop::Unreached => Reply::Fails(RpcError::failed("external", "no answer")),
+        Stop::Garbled | Stop::NoDrive => ok("<html>maintenance</html>"),
+        Stop::Unknown => status(404),
+    };
+    let session = start(vec![track(1, "A - B", "", 0, IN_MY_VIEW)], route);
+    let drive = if let Stop::Gone = stop { gone } else { "USB" };
+    let context = if let Stop::NoDrive = stop { json!({}) } else { json!({ "drive": drive }) };
+    let pending = session.send(1, context);
+    if let Stop::Answering = stop {
+        session.heard.recv_timeout(Duration::from_secs(10)).expect("a lookup");
+        pending.cancel();
+    }
+    let answer = pending.wait_timeout(Duration::from_secs(10)).expect("it stops");
+    let fetched = session.fetched().len();
+    session.stop();
+    if let Stop::Unknown = stop {
+        // The IDs, but for the ISRC and credits they're for.
+        let mut ids: Analysis = answer.unwrap();
+        ids.fields.retain(|name, _| !["isrc", "credits"].contains(&name.as_str()));
+        return assert_eq!((ids, fetched), (nothing(), 1));
+    }
+    let e = answer.map(|_: Analysis| ()).unwrap_err();
+    match stop {
+        Stop::Gone => {
+            let said = format!("not found: drive \"{gone}\"");
+            assert_eq!((kind(&e), fetched), (("not_found", said.as_str()), 0));
+        }
+        Stop::Unreached => {
+            assert_eq!((kind(&e), fetched), (("external", "couldn't reach MusicBrainz: no answer"), 1));
+        }
+        Stop::NoDrive => {
+            let said = "invalid params: no drive for the track";
+            assert_eq!((kind(&e), fetched), (("invalid_params", said), 0));
+        }
+        Stop::Garbled => {
+            assert_eq!((e.kind(), fetched), (Some("external"), 1));
+            assert!(e.message.starts_with("MusicBrainz's answer about GBCFB1700586 isn't readable: "), "{e}");
+        }
+        // Asked again, held, at most, were the wait to end before the cancel arrives.
+        Stop::Waiting => assert!(e == RpcError::cancelled() && (1..=2).contains(&fetched), "{e:?} {fetched}"),
+        _ => assert_eq!((e, fetched), (RpcError::cancelled(), 1)),
     }
 }
 

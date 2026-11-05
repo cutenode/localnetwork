@@ -505,8 +505,9 @@ pub fn list_in(device: &Device, library: &Library, track_ids: &[u32]) -> Result<
     let plus = crate::onelibrary::open_plus(device, device.has_device_library(), &mut warnings)?;
     let by_path = plus.as_ref().map(|(lib, _)| plus_ids(lib));
     let mut out = Vec::new();
+    let track = library.track_lookup();
     for id in track_ids {
-        let t = library.track(*id).ok_or_else(|| Error::no_track(*id))?;
+        let t = track(*id).ok_or_else(|| Error::no_track(*id))?;
         let mut track_warnings = warnings.clone();
         let (cues, beats) = match load(device, t) {
             Ok(l) => (l.cues, l.beats),

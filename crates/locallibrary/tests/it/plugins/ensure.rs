@@ -3,6 +3,7 @@
 //! front end can ask them, signing in again when the service hasn't granted it; with nobody to
 //! ask, an error saying how to give it. Never a token.
 
+use std::net::TcpListener;
 use std::sync::OnceLock;
 use std::thread::JoinHandle;
 
@@ -15,7 +16,7 @@ use locallibrary::plugin::{AccessQuestion, AccountSignIn, AskAccess, EnteredKeys
 use super::accesses::{SCOPES, account, asks, some};
 use super::accounts::{come_back_to, opened_at};
 use super::key_accounts::entered;
-use super::shared_accounts::{Mock, WITH, asking, mock_with, options, who};
+use super::shared_accounts::{Mock, WITH, asking, edit_json, mock_with, options, who};
 use super::*;
 use crate::mock_oauth::{Service, account_plugin, keys_account_plugin};
 
@@ -223,18 +224,19 @@ fn ensure_answers_granted_or_declined_never_a_token(tc: TestCase) {
     }
 }
 
-/// A plugin wanting more of an account signed in to with keys, signed out since, signs in again
-/// with the keys the front end enters once the user allows it, the sign-in saying which keys and
-/// where to get them: the access is given the scope, and a request through it gets the keys. With
-/// no keys from the front end, the plugin fails as it does when nobody can be asked, and that
-/// sign-in is over.
-#[test]
-fn ensure_signs_in_again_with_the_keys_entered() {
+/// For an account signed in to with either of two pairs of keys, a plugin wanting more of it,
+/// signed out since, signs in again with the keys the front end enters once the user allows it,
+/// the sign-in saying which keys and where to get them: the access is given the scope, and a
+/// request through it gets the keys. With no keys from the front end, the plugin fails as it does
+/// when nobody can be asked, and that sign-in is over.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_ensure_signs_in_again_with_the_keys_entered(tc: TestCase) {
     let script = Arc::new(Script { answer: Mutex::new(Some(true)), ..Script::default() });
     let ask = Some(script.clone() as Arc<dyn AskAccess>);
     let manifest = |server: &str| keys_account_plugin(server, None);
     let m: Mock = mock_with(3600, manifest, &asking(&["read"], &["write"]), Options { ask, ..options() });
-    let (old, new) = (entered("ak-0123456789", "sk-9876543210"), entered("ak-1111111111", "sk-2222222222"));
+    let first = tc.draw(gs::sampled_from(vec![("ak-0123456789", "sk-9876543210"), ("ak-3333333333", "sk-4444444444")]));
+    let (old, new) = (entered(first.0, first.1), entered("ak-1111111111", "sk-2222222222"));
     let start = m.f.plugins.begin_account_sign_in("mock", WITH, Some("echo"), None, &[], &m.f.store).unwrap();
     m.f.plugins.finish_account_sign_in_with_keys(&start.id, &old, Some("me")).unwrap();
     m.f.plugins.sign_out_account(WITH, "me", &m.f.store).unwrap();
@@ -259,6 +261,134 @@ fn ensure_signs_in_again_with_the_keys_entered() {
     assert!(signed_in(), "not signed in again");
     let sent = m.fetch_as("POST", "/w/x", "{account:mock}", None);
     assert_eq!(sent["result"]["body"], "/w/x LOW ak-1111111111:sk-2222222222", "{sent}");
+}
+
+/// A front end that allows whatever it's asked, after forgetting every access the store at
+/// `forgets` keeps when it's given, and takes no keys. It never signs in in the browser.
+#[derive(Default)]
+struct Allowing {
+    forgets: OnceLock<PathBuf>,
+}
+
+impl AskAccess for Allowing {
+    fn allow(&self, _: &AccessQuestion) -> Option<bool> {
+        if let Some(root) = self.forgets.get() {
+            edit_json(&root.join("accounts.json"), |kept| kept["accesses"] = json!([]));
+        }
+        Some(true)
+    }
+
+    fn sign_in(&self, url: &str) {
+        panic!("asked to sign in at {url}");
+    }
+}
+
+/// How `accounts/ensure` goes in [`prop_ensure_answers_what_it_can_and_says_why_not`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Ensuring {
+    /// Asked what isn't an `accounts/ensure`.
+    Unreadable,
+    /// The plugin has no access to an account of the type.
+    NoAccess,
+    /// It runs without a store.
+    NoStore,
+    /// Its access is taken away while the user is asked.
+    TakenAway,
+    /// The account was granted what the scope asks: allowed, the access is given it.
+    Granted,
+    /// The user declines: the access remembers it.
+    Declined,
+    /// The account is signed out: allowed, it's signed in again in the browser.
+    Browser,
+    /// The account is signed out, and its type's port is held.
+    PortHeld,
+    /// The account, signed in to with keys, is signed out, and the front end takes no keys.
+    NoKeys,
+}
+
+/// For an echo plugin needing `read` of an account (signed in to as anyone) and asking for
+/// `write` besides, a front end allowing whatever it's asked: an `accounts/ensure` that can't be
+/// read is refused; without an access, or without a store, it fails as a request would; an access
+/// taken away while the user is asked fails it too; a scope the account was granted is given as
+/// the user allows, and remembered as declined as they decline; an account signed out is signed in
+/// again in the browser for it, given nothing when the browser signs in as another; and where signing in again can't begin, or no keys can be
+/// entered, it says why.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_ensure_answers_what_it_can_and_says_why_not(tc: TestCase) {
+    use Ensuring::*;
+    let subject = tc.draw(gs::sampled_from(vec!["a", "42"]));
+    for ensuring in [Unreadable, NoAccess, NoStore, TakenAway, Granted, Declined, Browser, PortHeld, NoKeys] {
+        let allowing = Arc::new(Allowing::default());
+        let script = Arc::new(Script { answer: Mutex::new(Some(ensuring == Browser)), ..Script::default() });
+        *script.grants.lock().unwrap() = vec!["read".into(), "write".into()];
+        let ask = match ensuring {
+            Declined | Browser => Some(script.clone() as Arc<dyn AskAccess>),
+            _ => Some(allowing.clone() as Arc<dyn AskAccess>),
+        };
+        let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let manifest = |server: &str| match ensuring {
+            NoKeys => keys_account_plugin(server, None),
+            PortHeld => account_plugin(server, &format!("{server}/userinfo"), &format!("redirect_port = {port}")),
+            _ => account_plugin(server, &format!("{server}/userinfo"), ""),
+        };
+        let m: Mock = mock_with(3600, manifest, &asking(&["read"], &["write"]), Options { ask, ..options() });
+        assert!(script.service.set(m.state.clone()).is_ok());
+        let plugin = (!matches!(ensuring, NoAccess)).then_some("echo");
+        match ensuring {
+            NoKeys => {
+                let start = m.f.plugins.begin_account_sign_in("mock", WITH, plugin, None, &[], &m.f.store).unwrap();
+                m.f.plugins
+                    .finish_account_sign_in_with_keys(
+                        &start.id,
+                        &entered("ak-0123456789", "sk-9876543210"),
+                        Some(subject),
+                    )
+                    .unwrap();
+            }
+            _ => drop(m.sign_in_for(plugin, who(json!(subject), None), None, &[]).0.unwrap()),
+        }
+        if matches!(ensuring, Browser | PortHeld | NoKeys) {
+            m.f.plugins.sign_out_account(WITH, subject, &m.f.store).unwrap();
+        }
+        if let TakenAway = ensuring {
+            allowing.forgets.set(m.f.store.root().into()).unwrap();
+        }
+        let _held = matches!(ensuring, PortHeld).then(|| TcpListener::bind(("127.0.0.1", port)).unwrap());
+        let asked = json!({ "type": "mock", "scopes": ["write"] });
+        let done = match ensuring {
+            Unreadable => {
+                let answer = m.f.echo_params(json!({ "call": "accounts/ensure", "params": { "type": 1 } })).unwrap();
+                assert!(answer["result"].is_null() && answer["error"]["message"].is_string(), "{answer}");
+                continue;
+            }
+            NoStore => m.f.plugins.run_command("echo", "ensure", asked, m.f.context(), None, &Ctx::silent(), &|_| {}),
+            _ => m.f.command("ensure", asked, &Ctx::silent()),
+        };
+        script.browser.lock().unwrap().drain(..).for_each(|b| drop(b.join().unwrap()));
+        let said = format!("{ensuring:?} as {subject}");
+        if matches!(ensuring, Granted | Declined | Browser) {
+            let CommandOutput::Headless(answered) = done.unwrap() else { panic!("{said}: not an answer") };
+            // The browser signs in as `a`: as another account, the access is given nothing.
+            let expected = match ensuring {
+                Declined => (json!([]), json!(["write"])),
+                Browser if subject != "a" => (json!([]), json!(["write"])),
+                _ => (json!(["write"]), json!([])),
+            };
+            assert_eq!((answered["granted"].clone(), answered["declined"].clone()), expected, "{said}");
+            continue;
+        }
+        let e = done.unwrap_err();
+        let expected = match ensuring {
+            NoAccess | NoStore | TakenAway => ("account", Some(Reason::NoAccess)),
+            NoKeys => ("account", Some(Reason::MissingScope)),
+            // The browser can't come back: the plugin is told why, as any other failure.
+            _ => ("external", None),
+        };
+        assert_eq!((e.code(), e.reason()), expected, "{said}: {e}");
+        if let PortHeld = ensuring {
+            assert!(e.to_string().contains("can't listen for the browser"), "{said}: {e}");
+        }
+    }
 }
 
 /// The scopes an action's `params` name.

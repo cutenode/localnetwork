@@ -222,6 +222,28 @@ describe('RecordingService.set and forMix', () => {
 		expect(await recordings.set(DJ, '3set/../x')).toBeNull();
 	});
 
+	it("reads a set HappyView keeps as written but the site can't parse as none", async () => {
+		// The set script keeps tracks as written, and a track's key isn't a Camelot key.
+		const { recordings } = await service([set({ tracks: [{ title: 'Night Bus', key: 'not a key' }] }, '3odd')]);
+
+		expect(await recordings.set(DJ, '3odd')).toBeNull();
+	});
+
+	it("plays a mix's own link when the directory answers with something that isn't JSON", async () => {
+		const garbled = new HappyViewClient({ url: 'http://happyview.test', fetch: async () => new Response('<html>') });
+
+		const recordings = new RecordingService(
+			new IndexedRepo(garbled, silentLogger),
+			new PlyrClient(silentLogger, async () => new Response('{}', { status: 404 })),
+			async () => true,
+			silentLogger
+		);
+
+		expect(
+			await recordings.forMix({ url: SOUNDCLOUD, set: { uri: `at://${DJ}/${COLLECTION.djSet}/3set`, cid: 'bafyx' } })
+		).toMatchObject({ platform: 'SoundCloud' });
+	});
+
 	it("plays a mix's linked set, taking audio from either the set or the mix's own link", async () => {
 		const { recordings } = await service(
 			[set({ recording: ref(PLYR_URI) }), set({ links: [{ uri: SOUNDCLOUD }] }, '3embed')],
@@ -303,6 +325,19 @@ describe('RecordingService.audio', () => {
 		expect(await recordings.audio(DJ, AUDIO_CID)).toEqual({ mimeType: 'audio/mpeg', size: 1234 });
 		expect(asked.happyView).toBeGreaterThan(lookups);
 		expect(asked.managers).toBe(2);
+	});
+
+	it('forgets the oldest lookups once it holds 500', async () => {
+		const { recordings, asked } = await service([], { manages: () => false });
+		const accounts = Array.from({ length: 501 }, (_, index) => `did:plc:dj${index}`);
+
+		for (const did of accounts) await recordings.audio(did, AUDIO_CID);
+		expect(asked.managers).toBe(501);
+
+		await recordings.audio(accounts[1], AUDIO_CID);
+		expect(asked.managers).toBe(501);
+		await recordings.audio(accounts[0], AUDIO_CID);
+		expect(asked.managers).toBe(502);
 	});
 
 	it("reads a manager check that fails as no, and doesn't remember it", async () => {

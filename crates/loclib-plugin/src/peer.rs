@@ -500,7 +500,7 @@ fn response_id(line: &[u8]) -> Option<u64> {
                     b"id" if depth == 1 => {
                         let value = value.trim_ascii_start();
                         let digits = value.iter().take_while(|b| b.is_ascii_digit()).count();
-                        id = std::str::from_utf8(&value[..digits]).ok()?.parse().ok();
+                        id = String::from_utf8_lossy(&value[..digits]).parse().ok();
                     }
                     _ => {}
                 }

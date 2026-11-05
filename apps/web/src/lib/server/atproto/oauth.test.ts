@@ -1,3 +1,4 @@
+import { generateKeyPairSync, type JsonWebKey } from 'node:crypto';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { type AddressInfo, createServer as createNetServer, type Socket } from 'node:net';
@@ -5,7 +6,7 @@ import { IncludeScope, ScopePermissions, ScopePermissionsTransition, SpacePermis
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CALENDAR_EVENT, CALENDAR_RSVP, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
 import { loadConfig } from '../config';
-import { openDatabase } from '../db';
+import { nowIso, openDatabase } from '../db';
 import { silentLogger } from '../logger';
 import { collectingGarbage } from '../testing/gc';
 import { type Loopback, rebindToLoopback } from '../testing/rebind';
@@ -289,6 +290,9 @@ describe('OAuth scopes', () => {
 	it('compares grants the way the PDS writes them, and spots any scope missing', () => {
 		expect(grantsAll(granted.join(' '), full, user, root)).toBe(true);
 		expect(grantsAll(granted.join(' '), full, 'did:plc:someoneelse', root)).toBe(false);
+		// A scope it can't parse only matches itself, as written.
+		expect(grantsAll('atproto x:unknown', 'x:unknown', user, root)).toBe(true);
+		expect(grantsAll('atproto', 'x:unknown', user, root)).toBe(false);
 
 		for (const dropped of granted)
 			expect(grantsAll(granted.filter((scope) => scope !== dropped).join(' '), full, user, root)).toBe(false);
@@ -403,7 +407,7 @@ describe('OAuthService.authorize', () => {
 	 */
 	const service = async (
 		refused: (scope: string) => boolean,
-		error = new Error('invalid_scope: unsupported scope')
+		error: Error | string = new Error('invalid_scope: unsupported scope')
 	) => {
 		const oauth = new OAuthService({
 			config: config('http://127.0.0.1:5173'),
@@ -435,6 +439,13 @@ describe('OAuthService.authorize', () => {
 		const down = await service(() => true, new Error('fetch failed'));
 		await expect(down.oauth.authorize('alice.test', '{}')).rejects.toThrow('fetch failed');
 		expect(down.asked).toHaveLength(1);
+	});
+
+	it('throws the last scope error once even plain atproto is refused, whatever the PDS threw', async () => {
+		const { oauth, asked } = await service(() => true, 'invalid_scope');
+
+		await expect(oauth.authorize('alice.test', '{}')).rejects.toBe('invalid_scope');
+		expect(asked).toEqual([SCOPES.full, SCOPES.base, SCOPES.minimal]);
 	});
 
 	it('asks again for the optional scopes an account holds, so signing in keeps them', async () => {
@@ -634,5 +645,126 @@ describe('OAuthService sign-in, given servers a DID document names', () => {
 		} finally {
 			await new Promise((resolve) => server.close(resolve));
 		}
+	});
+});
+
+describe('OAuthService sessions', () => {
+	// A full-length did:plc, the only form the OAuth client takes as a token's subject.
+	const did = 'did:plc:ewvi7nxzyoun6zhxrhs64oiz';
+	const pds = 'https://pds.test';
+	const issuer = 'https://auth.test';
+	const appState = JSON.stringify({ next: '/settings' });
+	const newDpopJwk = () => generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ format: 'jwk' });
+
+	/**
+	 * The service over a PDS and its authorization server, both answering in memory, with an authorization for `did`
+	 * started under the state `started` and the DPoP key `dpopJwk`, as authorize leaves it in the store. Collects the
+	 * tokens it revokes.
+	 */
+	const service = async (dpopJwk: JsonWebKey = newDpopJwk()) => {
+		const db = await openDatabase(':memory:');
+		const revoked: string[] = [];
+
+		const oauth = new OAuthService({
+			config: config('http://127.0.0.1:5173'),
+			db,
+			logger: silentLogger,
+			fetch: async (input, init) => {
+				const request = new Request(input, init);
+				const { origin, pathname } = new URL(request.url);
+
+				switch (`${origin}${decodeURIComponent(pathname)}`) {
+					case `https://plc.directory/${did}`:
+						return Response.json({
+							id: did,
+							alsoKnownAs: [],
+							service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: pds }]
+						});
+					case `${pds}/.well-known/oauth-protected-resource`:
+						return Response.json({ resource: pds, authorization_servers: [issuer] });
+					case `${issuer}/.well-known/oauth-authorization-server`:
+						return Response.json({
+							issuer,
+							authorization_endpoint: `${issuer}/authorize`,
+							token_endpoint: `${issuer}/token`,
+							revocation_endpoint: `${issuer}/revoke`,
+							pushed_authorization_request_endpoint: `${issuer}/par`,
+							require_pushed_authorization_requests: true,
+							response_types_supported: ['code'],
+							code_challenge_methods_supported: ['S256'],
+							token_endpoint_auth_methods_supported: ['none'],
+							dpop_signing_alg_values_supported: ['ES256'],
+							client_id_metadata_document_supported: true
+						});
+					case `${issuer}/token`:
+						return Response.json({
+							access_token: 'access',
+							refresh_token: 'refresh',
+							token_type: 'DPoP',
+							scope: SCOPES.full,
+							sub: did,
+							expires_in: 3600
+						});
+					case `${issuer}/revoke`:
+						revoked.push(new URLSearchParams(await request.text()).get('token') ?? '');
+
+						return Response.json({});
+					default:
+						return new Response(null, { status: 404 });
+				}
+			}
+		});
+
+		const started = { iss: issuer, dpopJwk, verifier: 'v'.repeat(43), appState, authMethod: { method: 'none' } };
+		await db
+			.insertInto('oauthState')
+			.values({ key: 'started', value: JSON.stringify(started), updatedAt: nowIso() })
+			.execute();
+
+		return { oauth, revoked };
+	};
+
+	const declined = new URLSearchParams({ state: 'started', iss: issuer, error: 'access_denied' });
+
+	it('finishes a sign-in into a session it restores, writes with, and revokes', async () => {
+		const { oauth, revoked } = await service();
+
+		expect(await oauth.callback(new URLSearchParams({ state: 'started', iss: issuer, code: 'code' }))).toMatchObject({
+			session: { did },
+			state: appState,
+			scope: SCOPES.full
+		});
+		expect(await oauth.restore(did)).toMatchObject({ did });
+		expect((await oauth.repoClient(did))?.did).toBe(did);
+
+		await oauth.revoke(did);
+		expect(revoked).toEqual(['access']);
+		expect(await oauth.restore(did)).toBeNull();
+		expect(await oauth.repoClient(did)).toBeNull();
+	});
+
+	it('signs out without throwing when revoking fails, as it does for a DID the client refuses', async () => {
+		const { oauth } = await service();
+
+		await expect(oauth.revoke('did:plc:short')).resolves.toBeUndefined();
+	});
+
+	it('sends a declined sign-in back where it started, once, and knows nothing of a state it never stored', async () => {
+		const { oauth } = await service();
+
+		expect(await oauth.failedState(declined)).toBe(appState);
+		expect(await oauth.failedState(declined)).toBeUndefined();
+	});
+
+	it('knows no state for an authorization whose stored key is unreadable', async () => {
+		const { oauth } = await service({ kty: 'EC' });
+
+		expect(await oauth.failedState(declined)).toBeUndefined();
+	});
+
+	it('publishes the client metadata it was built with', async () => {
+		const { oauth } = await service();
+
+		expect(oauth.metadata).toMatchObject({ redirect_uris: ['http://127.0.0.1:5173/oauth/callback'] });
 	});
 });

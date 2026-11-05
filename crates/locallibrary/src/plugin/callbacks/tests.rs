@@ -680,3 +680,29 @@ fn a_plugin_has_at_most_its_quota_of_calls_under_way(tc: TestCase) {
     plugin.close();
     answering.join().unwrap();
 }
+
+/// For any read's answer naming places on this computer (a store's copies, the store, a set's
+/// recording, a mix's, rekordbox's collection), what a plugin gets has none of them, and the
+/// rest as it was.
+#[hegel::test(test_cases = 50)]
+fn prop_a_reads_answer_names_no_place_here(tc: TestCase) {
+    let method =
+        tc.draw(gs::sampled_from(vec!["store.copies", "store.info", "collection.info", "sets.get", "mix.reports.get"]));
+    let n: String = tc.draw(gs::from_regex("[a-z]{1,6}").fullmatch(true));
+    let (answer, expected) = match method {
+        "store.copies" => (json!([{ "path": "/nas/copy", "from": "/store", "name": n }]), json!([{ "name": n }])),
+        "store.info" => (
+            json!({ "copy_of": { "path": "/a", "from": "/b", "name": n }, "x": { "path": "kept" } }),
+            json!({ "copy_of": { "name": n }, "x": { "path": "kept" } }),
+        ),
+        "collection.info" => (json!({ "path": "/Pioneer/master.db", "name": n }), json!({ "name": n })),
+        "sets.get" => {
+            (json!({ "recording": { "path": "/rec.wav", "report": n } }), json!({ "recording": { "report": n } }))
+        }
+        _ => (
+            json!({ "mix": { "path": "/rec.wav", "title": n }, "audio": "/rec.wav" }),
+            json!({ "mix": { "title": n } }),
+        ),
+    };
+    assert_eq!(answer_for_plugin(method, answer, &[]), expected);
+}

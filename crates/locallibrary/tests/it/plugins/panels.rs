@@ -214,3 +214,47 @@ fn a_panels_answer_is_its_view_or_why_it_isnt(tc: TestCase) {
         }
     }
 }
+
+/// For any panel asked of a plugin that doesn't have it, or of a drive that isn't known here, no
+/// view is rendered, saying why; one it has is its view, whatever parts of a view it sends first
+/// (as any request's may be): a section asking a question is refused, and an image is read.
+#[hegel::test(test_cases = 1)]
+fn prop_a_panel_is_rendered_only_of_what_there_is(tc: TestCase) {
+    for case in 0..=4 {
+        prop_a_panel_is_rendered_only_of_what_there_is_case(&tc, case);
+    }
+}
+
+/// [`prop_a_panel_is_rendered_only_of_what_there_is`] for one `case`.
+#[hegel::test_helper]
+fn prop_a_panel_is_rendered_only_of_what_there_is_case(tc: &TestCase, case: u8) {
+    let f = Fixture::panelled(&["--partials"]);
+    let text: String = tc.draw(gs::from_regex("[a-z]{1,8}").fullmatch(true));
+    let answer = json!({ "view": { "kind": "text", "text": text } });
+    f.plugins.set_setting("echo", &f.store, "panel", Some(answer.to_string().into())).unwrap();
+    let track = f.first_track();
+    let names: Vec<(&str, &str)> = f.plugins.panels().into_iter().map(|(p, panel)| (p, panel.name.as_str())).collect();
+    assert_eq!(names, [("echo", "about"), ("echo", "said")]);
+    let render =
+        |panel: &str, drive: &str| f.plugins.render_panel("echo", panel, drive, track, Some(&f.store), &Ctx::silent());
+    match case {
+        0 => assert_eq!(render("nope", "USB").unwrap_err().code(), "not_found"),
+        1 => assert_eq!(render("said", "ELSEWHERE").unwrap_err().code(), "not_found"),
+        3 => {
+            let question = json!({ "kind": "choose", "title": "Which?", "param": text, "items": [] });
+            let asks = json!({ "kind": "sections", "items": [{ "title": "Asks", "view": question }] });
+            let e = failure(f.said(json!({ "view": asks })).unwrap_err());
+            assert_eq!(e, "the Echo plugin failed: a section of its view asks a question");
+        }
+        4 => {
+            let image = json!({ "kind": "image", "blob": "cover.jpg", "alt": text });
+            let View::Image { data: Some(url), .. } =
+                f.said(json!({ "blobs": { "cover.jpg": jpeg(16) }, "view": image })).unwrap()
+            else {
+                panic!("an image")
+            };
+            assert!(url.starts_with("data:image/png;base64,"));
+        }
+        _ => assert_eq!(render("said", "USB").unwrap(), View::Text { title: None, text }),
+    }
+}

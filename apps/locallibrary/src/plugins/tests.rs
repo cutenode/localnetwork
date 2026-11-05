@@ -33,32 +33,55 @@ fn refused(manifests: &[Manifest]) -> String {
     why[0].clone().unwrap()
 }
 
+/// The manifests locallibrary links in, as build.rs wrote them.
+fn shipped() -> impl Iterator<Item = Manifest> {
+    BUILT_IN.iter().map(|(_, json, _)| Manifest::from_json(json).unwrap())
+}
+
 /// The plugins locallibrary links in are never left out (a clash is a build's mistake, caught
 /// here before it ships).
 #[test]
 fn the_plugins_locallibrary_ships_are_accepted() {
-    let launch = Launch { program: "locallibrary".into(), args: Vec::new(), env_remove: Vec::new() };
-    let specs: Vec<PluginSpec> =
-        BUILT_IN.iter().map(|(m, _)| PluginSpec::built_in(m, launch.clone()).unwrap()).collect();
-    assert_eq!(check(&specs.iter().map(|s| &s.manifest).collect::<Vec<_>>()), vec![None; BUILT_IN.len()]);
+    let manifests: Vec<Manifest> = shipped().collect();
+    assert_eq!(left_out(&manifests), vec![None; BUILT_IN.len()]);
 }
 
-/// The manifests locallibrary links in are valid, their JSON Schemas included: a release build
-/// doesn't check them as it starts (see `PluginSpec::built_in`), so this does, whatever the
-/// build.
+/// The manifests locallibrary links in are valid, their JSON Schemas included, and what build.rs
+/// wrote says what the TOML does: a release build doesn't check them as it starts (see
+/// `PluginSpec::shipped`), so this does, whatever the build.
 #[test]
 fn the_manifests_locallibrary_ships_are_valid() {
-    for (manifest, _) in BUILT_IN {
-        let m = Manifest::parse(manifest).unwrap();
-        m.validate(true).unwrap_or_else(|e| panic!("the {} plugin's manifest: {e}", m.id));
+    let plugins = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
+    for ((id, json, _), m) in BUILT_IN.iter().zip(shipped()) {
+        let at = |dir: std::path::PathBuf| dir.join("locallibrary-plugin.toml");
+        let file = [at(plugins.join(id)), at(plugins.join("accounts").join(id))].into_iter().find(|f| f.is_file());
+        let toml = Manifest::parse(&std::fs::read_to_string(file.unwrap()).unwrap()).unwrap();
+        toml.validate(true).unwrap_or_else(|e| panic!("the {} plugin's manifest: {e}", toml.id));
+        // As text: the order of a form's fields is what it shows them in.
+        assert_eq!(serde_json::to_string(&m).unwrap(), serde_json::to_string(&toml).unwrap(), "{json}");
     }
+}
+
+/// What the host says of the plugins locallibrary ships is their manifests as they are, so a
+/// release needn't make them printable as it starts (see `Plugins::new`).
+#[test]
+fn the_manifests_locallibrary_ships_print_as_they_are() {
+    let printed: Vec<Manifest> = host().unwrap().manifests().cloned().collect();
+    assert_eq!(printed, shipped().collect::<Vec<_>>());
+}
+
+/// A plugin that's served is found by its id, and one with nothing to serve it isn't.
+#[test]
+fn only_plugins_with_a_crate_are_served_directly() {
+    assert!(!serve_shipped("no-such-plugin"));
+    let account = BUILT_IN.iter().find(|row| row.2.is_none()).unwrap();
+    assert!(!serve_shipped(account.0));
 }
 
 /// Only account plugins ship without a crate to serve them, and every one does.
 #[test]
 fn only_account_plugins_ship_without_a_crate() {
-    for (manifest, serve) in BUILT_IN {
-        let m = Manifest::parse(manifest).unwrap();
+    for ((_, _, serve), m) in BUILT_IN.iter().zip(shipped()) {
         assert_eq!(serve.is_none(), m.is_account_plugin(), "the {} plugin", m.id);
     }
 }
@@ -70,9 +93,8 @@ fn the_account_plugins_locallibrary_ships_use_services_the_token_exchange_has() 
     let file =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/src/lib/server/token-exchange/services.json");
     let services: Value = serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
-    let manifests = BUILT_IN.iter().map(|(m, _)| Manifest::parse(m).unwrap());
     let exchanges: Vec<String> =
-        manifests.flat_map(|m| m.contributes.account_types).filter_map(|t| t.token_exchange).collect();
+        shipped().flat_map(|m| m.contributes.account_types).filter_map(|t| t.token_exchange).collect();
     assert!(!exchanges.is_empty());
     for exchange in exchanges {
         let service = exchange.strip_prefix("https://localnetwork.computer/api/token-exchange/").unwrap_or(&exchange);

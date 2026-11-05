@@ -300,3 +300,151 @@ fn an_analyzers_values_are_planned_onto_the_tracks_as_the_rules_say(tc: hegel::T
     }
     assert_eq!(planned.warnings, warnings);
 }
+
+/// For any request to write what isn't a track's key or BPM, or what the analyzer works out no
+/// value for, or for a track the drive doesn't have, or from an analyzer the plugin doesn't
+/// have, nothing is planned, saying why.
+#[hegel::test(test_cases = 1)]
+fn prop_writing_what_an_analyzer_doesnt_have_is_refused(tc: hegel::TestCase) {
+    for case in 0..=4 {
+        prop_writing_what_an_analyzer_doesnt_have_is_refused_case(&tc, case);
+    }
+}
+
+/// [`prop_writing_what_an_analyzer_doesnt_have_is_refused`] for one `case`.
+#[hegel::test_helper]
+fn prop_writing_what_an_analyzer_doesnt_have_is_refused_case(tc: &hegel::TestCase, case: u8) {
+    use hegel::generators as gs;
+    let f = Fixture::new(|dir| vec![spec(dir, &heard("echo"), &[])], Options::default());
+    let req = ApplyFields {
+        plugin: "echo".into(),
+        analyzer: "heard".into(),
+        drive: "USB".into(),
+        fields: vec![Role::Key],
+        tracks: None,
+        overwrite: tc.draw(gs::booleans()),
+        min_confidence: None,
+    };
+    let (req, expected) = match case {
+        0 => (ApplyFields { fields: Vec::new(), ..req }, "say what to write: key, bpm".to_string()),
+        1 => {
+            let role = tc.draw(gs::sampled_from(vec![Role::Loudness, Role::KeyConfidence, Role::BpmConfidence]));
+            let said = format!("a track has no {} to write: key or bpm", role.name());
+            (ApplyFields { fields: vec![Role::Bpm, role], ..req }, said)
+        }
+        2 => (ApplyFields { analyzer: "size".into(), ..req }, "File size works out no key".into()),
+        3 => (ApplyFields { tracks: Some(vec![9999]), ..req }, "not_found".into()),
+        _ => (ApplyFields { analyzer: "nope".into(), ..req }, "not_found".into()),
+    };
+    let e = f.plugins.plan_apply_fields(&req, &f.store, &Ctx::silent()).unwrap_err();
+    assert_eq!(f.plugins.roles()[&Role::Key][0].name(), "echo.heard");
+    assert_eq!(f.plugins.setting_list("echo").unwrap()[0].key, "greeting");
+    // Nor does it say how to show what it doesn't have.
+    assert!(f.plugins.display("echo", "tone").is_none() && f.plugins.display("nope", "tone").is_none());
+    match expected.as_str() {
+        "not_found" => assert_eq!(e.code(), "not_found", "{e}"),
+        expected => assert_eq!(e.to_string(), expected),
+    }
+}
+
+/// For any confidence asked for, a key or BPM the analyzer is less sure of is left out, saying
+/// how many, and one it's as sure of or more is written.
+#[hegel::test(test_cases = 1)]
+fn prop_values_an_analyzer_is_unsure_of_are_left_out(tc: hegel::TestCase) {
+    for (sure, steady) in [(0.2, 0.2), (0.2, 0.8), (0.8, 0.2), (0.8, 0.8)] {
+        prop_values_an_analyzer_is_unsure_of_are_left_out_case(&tc, sure, steady);
+    }
+}
+
+/// [`prop_values_an_analyzer_is_unsure_of_are_left_out`] for one key and BPM's confidence.
+#[hegel::test_helper]
+fn prop_values_an_analyzer_is_unsure_of_are_left_out_case(tc: &hegel::TestCase, sure: f64, steady: f64) {
+    use hegel::generators as gs;
+    let f = Fixture::new(|dir| vec![spec(dir, &heard("echo"), &[])], Options::default());
+    let t = common::library(&f.drive).tracks[0].clone();
+    let faster = tc.draw(gs::integers::<u8>().min_value(1).max_value(9));
+    let other = Camelot::parse(&t.key).unwrap().parallel().code();
+    f.hear(&[json!({ "tone": other, "tempo": t.bpm + f64::from(faster), "sure": sure, "steady": steady })]);
+    f.plugins.analyze("echo", "heard", "USB", Some(&[t.id]), &f.store, &Ctx::silent()).unwrap();
+    let req = ApplyFields {
+        plugin: "echo".into(),
+        analyzer: "heard".into(),
+        drive: "USB".into(),
+        fields: vec![Role::Key, Role::Bpm],
+        tracks: Some(vec![t.id]),
+        overwrite: true,
+        min_confidence: Some(0.5),
+    };
+    let planned = f.plugins.plan_apply_fields(&req, &f.store, &Ctx::silent()).unwrap();
+    let unsure = [sure, steady].iter().filter(|c| **c < 0.5).count();
+    let warnings: Vec<String> = (unsure > 0)
+        .then(|| format!("{unsure} value(s) left out: Heard is less sure of them than 0.5"))
+        .into_iter()
+        .collect();
+    assert_eq!(planned.warnings, warnings);
+    let written = match &planned.recorded[..] {
+        [] => (None, None),
+        [Edit::EditTracks { fields, .. }] => (Some(fields.key.is_some()), Some(fields.bpm.is_some())),
+        other => panic!("{other:?}"),
+    };
+    let expected = if unsure == 2 { (None, None) } else { (Some(sure >= 0.5), Some(steady >= 0.5)) };
+    assert_eq!(written, expected);
+}
+
+/// For any drive no edit is planned for, writing an analyzer's key and BPM to it fails saying
+/// why, whatever is asked for.
+#[hegel::test(test_cases = 1)]
+fn prop_writing_an_analyzers_fields_to_a_drive_nothing_is_planned_for_fails(tc: hegel::TestCase) {
+    for how in super::analysis::Unplannable::ALL {
+        prop_writing_an_analyzers_fields_to_a_drive_nothing_is_planned_for_fails_case(&tc, how);
+    }
+}
+
+/// [`prop_writing_an_analyzers_fields_to_a_drive_nothing_is_planned_for_fails`] for one `how`.
+#[hegel::test_helper]
+fn prop_writing_an_analyzers_fields_to_a_drive_nothing_is_planned_for_fails_case(
+    tc: &hegel::TestCase,
+    how: super::analysis::Unplannable,
+) {
+    use hegel::generators as gs;
+    let fields: Vec<Role> = tc.draw(gs::subsequences(vec![Role::Key, Role::Bpm]).min_size(1));
+    let f = Fixture::new(|dir| vec![spec(dir, &heard("echo"), &[])], Options::default());
+    let (drive, code) = how.make(&f);
+    let req = ApplyFields {
+        plugin: "echo".into(),
+        analyzer: "heard".into(),
+        drive: drive.into(),
+        fields,
+        tracks: None,
+        overwrite: tc.draw(gs::booleans()),
+        min_confidence: None,
+    };
+    let e = f.plugins.plan_apply_fields(&req, &f.store, &Ctx::silent()).unwrap_err();
+    assert_eq!(e.code(), code, "{how:?}: {e}");
+}
+
+/// For any confidence asked for, an analyzer that says none for a key or a BPM (its roles have no
+/// confidence) is sure of neither: each is left out, saying so.
+#[hegel::test(test_cases = 1)]
+fn prop_values_an_analyzer_says_no_confidence_for_are_left_out(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let unsure = heard("echo").replace(", key_confidence = \"sure\", bpm_confidence = \"steady\"", "");
+    let f = Fixture::new(|dir| vec![spec(dir, &unsure, &[])], Options::default());
+    let t = common::library(&f.drive).tracks[0].clone();
+    let other = Camelot::parse(&t.key).unwrap().parallel().code();
+    f.hear(&[json!({ "tone": other, "tempo": t.bpm + 1.0 })]);
+    f.plugins.analyze("echo", "heard", "USB", Some(&[t.id]), &f.store, &Ctx::silent()).unwrap();
+    let min = tc.draw(gs::sampled_from(vec![0.1, 0.5, 0.9]));
+    let req = ApplyFields {
+        plugin: "echo".into(),
+        analyzer: "heard".into(),
+        drive: "USB".into(),
+        fields: vec![Role::Key, Role::Bpm],
+        tracks: Some(vec![t.id]),
+        overwrite: true,
+        min_confidence: Some(min),
+    };
+    let planned = f.plugins.plan_apply_fields(&req, &f.store, &Ctx::silent()).unwrap();
+    assert!(planned.recorded.is_empty());
+    assert_eq!(planned.warnings, [format!("2 value(s) left out: Heard is less sure of them than {min}")]);
+}

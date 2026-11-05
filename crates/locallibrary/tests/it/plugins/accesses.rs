@@ -11,7 +11,7 @@ use locallibrary::plugin::AccountId;
 
 use super::accounts::{form, has};
 use super::net::Got;
-use super::shared_accounts::{Mock, WITH, asking, mock_for, who};
+use super::shared_accounts::{Mock, WITH, asking, keys_plugin, mock_among, mock_for, options, who};
 use super::*;
 use crate::mock_oauth::sent_at;
 
@@ -120,10 +120,8 @@ fn a_token_goes_only_where_an_access_scope_covers(tc: TestCase) {
     // Given before the plugin needed one of the scopes it needs now.
     let dropped = given && tc.draw(gs::booleans());
     if dropped {
-        let file = m.f.store.root().join("accounts.json");
-        let mut kept: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
-        kept["accesses"][0]["scopes"] = json!(scopes.iter().filter(|s| *s != needs[0]).collect::<Vec<_>>());
-        std::fs::write(&file, kept.to_string()).unwrap();
+        let kept = json!(scopes.iter().filter(|s| *s != needs[0]).collect::<Vec<_>>());
+        m.edit("accounts.json", |book| book["accesses"][0]["scopes"] = kept);
     }
     let signed_out = tc.draw(gs::booleans());
     if signed_out {
@@ -396,12 +394,9 @@ fn signing_in_again_asks_for_what_every_access_needs(tc: TestCase) {
     }
     let other = tc.draw(gs::booleans()).then(|| some(&tc));
     if let Some(scopes) = &other {
-        let file = m.f.store.root().join("accounts.json");
-        let mut kept: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
         let access = json!({ "id": "0a1b2c3d", "plugin": "other", "type": "mock", "account": account("a"),
                              "name": "a", "scopes": scopes, "default": true });
-        kept["accesses"].as_array_mut().unwrap().push(access);
-        std::fs::write(&file, kept.to_string()).unwrap();
+        m.edit("accounts.json", |book| book["accesses"].as_array_mut().unwrap().push(access));
         named.extend(scopes.iter().map(|s| s.to_string()));
     }
     let signed_out = tc.draw(gs::booleans());
@@ -518,12 +513,7 @@ fn a_request_an_access_cant_serve_fails_as_the_host_passes_it_on(tc: TestCase) {
         m.state.lock().unwrap().unscoped = true;
         let for_echo = (!matches!(failing, NoAccess)).then_some("echo");
         m.sign_in_for(for_echo, who(json!("a"), None), None, &["read"]).0.unwrap();
-        let file = m.f.store.root().join("accounts.json");
-        let edit = |change: &dyn Fn(&mut Value)| {
-            let mut kept: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
-            change(&mut kept);
-            std::fs::write(&file, kept.to_string()).unwrap();
-        };
+        let edit = |change: &dyn Fn(&mut Value)| m.edit("accounts.json", change);
         match failing {
             SignedOut => drop(m.f.plugins.sign_out_account(WITH, "a", &m.f.store).unwrap()),
             Refused => m.state.lock().unwrap().refuses = Some(("invalid_grant".into(), "spent".into())),
@@ -747,4 +737,215 @@ fn a_refused_token_is_refreshed_once_then_given_up(tc: TestCase) {
     }
     // What the service answered is the service's: it echoes the token it got.
     assert!(!m.leaked(&answers), "a token is out: {said}");
+}
+
+/// For a token placed either way, an access naming a scope its account type no longer has still
+/// serves the requests its other scopes cover; and a plugin run without a store has no access to
+/// any account.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_scope_the_type_no_longer_has_is_passed_over(tc: TestCase) {
+    let query = tc.draw(gs::sampled_from(vec![None, Some("access_token")]));
+    let place = query.map_or(String::new(), |name| format!("token = {{ query = \"{name}\" }}"));
+    let m = mock_for(3600, "/userinfo", &place, &asking(&["read"], &[]));
+    m.sign_in(who(json!("a"), None), None, &["read"]).0.unwrap();
+    // Run without a store first: a plugin keeps the store it was started with.
+    let url = format!("{}/r/x", m.server.url);
+    let fetch = match query {
+        Some(name) => json!({ "url": format!("{url}?{name}={{account:mock}}") }),
+        None => json!({ "url": url, "headers": { "Authorization": "{account:mock}" } }),
+    };
+    let unstored = m.f.plugins.run_command(
+        "echo",
+        "echo",
+        json!({ "fetch": fetch }),
+        m.f.context(),
+        None,
+        &Ctx::silent(),
+        &|_| {},
+    );
+    let CommandOutput::Headless(answer) = unstored.unwrap() else { panic!("not an answer") };
+    assert_eq!(answer["error"]["message"], "it has no access to a mock account without a store", "{answer}");
+    m.f.plugins.shutdown();
+
+    m.edit("accounts.json", |kept| kept["accesses"][0]["scopes"] = json!(["gone", "read"]));
+    let answer = m.fetch_as("GET", "/r/x", "{account:mock}", query);
+    assert_eq!(answer["result"]["status"], 200, "{answer}");
+    assert!(m.last_had("at-1", query), "not sent the token");
+}
+
+/// For an account signed in as anyone: a plugin that doesn't ask for its type isn't given access
+/// to it, nor made to use it by default; no plugin is given access to an account the store doesn't
+/// keep; and a plugin that isn't there is said not to be.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_access_is_given_only_to_what_a_plugin_asks_for(tc: TestCase) {
+    let subject = tc.draw(gs::sampled_from(vec!["a", "42"]));
+    let m = mock_for(3600, "/userinfo", "", &granting(&["net:127.0.0.1"]));
+    m.sign_in_for(None, who(json!(subject), None), None, &[]).0.unwrap();
+    let (plugins, store) = (&m.f.plugins, &m.f.store);
+    let unasked = "the echo plugin doesn't ask for mock accounts";
+    assert_eq!(plugins.give_access("echo", &account(subject), &[], store).unwrap_err().to_string(), unasked);
+    assert_eq!(plugins.set_default_access("echo", &account(subject), store).unwrap_err().to_string(), unasked);
+    for e in [
+        plugins.give_access("echo", &account("nobody"), &[], store).unwrap_err(),
+        plugins.set_default_access("echo", &account("nobody"), store).unwrap_err(),
+    ] {
+        assert_eq!(e.to_string(), format!("not found: the account \"nobody\" signed in through the {WITH} plugin"));
+    }
+    for e in [
+        plugins.give_access("nope", &account(subject), &[], store).unwrap_err(),
+        plugins.set_default_access("nope", &account(subject), store).unwrap_err(),
+    ] {
+        assert_eq!(e.code(), "not_found", "{e}");
+    }
+    assert!(plugins.accesses(store, None, None).unwrap().is_empty());
+}
+
+/// For any order of the accounts it's given, the echo plugin made to use one by default is given
+/// access to it first when it has none; and once its default is taken away, the one access left
+/// is its default.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_the_one_access_left_is_the_default(tc: TestCase) {
+    let first = tc.draw(gs::integers::<usize>().max_value(1));
+    let (one, other) = (SUBJECTS[first], SUBJECTS[1 - first]);
+    let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
+    for subject in [one, other] {
+        m.sign_in_for(None, who(json!(subject), None), None, &[]).0.unwrap();
+    }
+    let (plugins, store) = (&m.f.plugins, &m.f.store);
+    assert!(plugins.give_access("echo", &account(one), &[], store).unwrap().default);
+    let made = plugins.set_default_access("echo", &account(other), store).unwrap();
+    assert_eq!((made.default, made.scopes.as_slice()), (true, ["read".to_string()].as_slice()));
+    plugins.take_away_access("echo", &account(other), store).unwrap();
+    let left = plugins.accesses(store, Some("echo"), None).unwrap();
+    assert_eq!(left.iter().map(|a| (a.account.subject.as_str(), a.default)).collect::<Vec<_>>(), [(one, true)]);
+}
+
+/// The other account plugin of [`prop_actions_pass_over_what_isnt_the_types`], providing the
+/// type `other`.
+const OTHER: &str = "other-accounts";
+
+/// For an `access` error a plugin passes on that needs a scope it asks for and one the type
+/// doesn't have, through an access with `read` or without: only `read` is offered (given to the
+/// access, or signed in again for when it has it), besides signing in for the plugin and using
+/// each account of the type; and an access whose account was signed in through an account plugin
+/// that doesn't provide the type is offered only those two.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_actions_pass_over_what_isnt_the_types(tc: TestCase) {
+    let manifests = |server: &str| {
+        let manifest = crate::mock_oauth::account_plugin(server, &format!("{server}/userinfo"), "");
+        vec![manifest, keys_plugin(server, OTHER, "other")]
+    };
+    let m = mock_among(3600, manifests, &asking(&["read"], &["nope"]), options());
+    m.sign_in(who(json!("a"), None), None, &[]).0.unwrap();
+    let scopes = tc.draw(gs::sampled_from(vec![json!([]), json!(["read"])]));
+    m.edit("accounts.json", |kept| kept["accesses"][0]["scopes"] = scopes.clone());
+    let fields = json!({ "type": "mock", "needs": ["read", "nope"] });
+    let use_a = resolving(&["a"]);
+    // Giving the access `read`, which the account was granted, else signing in again for it.
+    let more = match scopes.as_array().unwrap().is_empty() {
+        true => giving("a", "a", &["read"]),
+        false => signing_in_again("a", "a", &["read"]),
+    };
+    assert_eq!(m.passed_on("access", None, &fields).detail().actions, [vec![more], use_a.clone()].concat());
+    m.edit("accounts.json", |kept| kept["accesses"][0]["account"]["plugin"] = json!(OTHER));
+    assert_eq!(m.passed_on("access", None, &fields).detail().actions, use_a);
+}
+
+/// How echo's account stands in [`prop_unready_says_what_keeps_each_type_from_use`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Standing {
+    Ready,
+    /// It has no access.
+    NoAccess,
+    SignedOut,
+    /// Its account plugin isn't installed.
+    Gone,
+    /// Its access lacks the scope it needs.
+    Ungiven,
+    /// The account wasn't granted what that scope asks.
+    Ungranted,
+    /// The account isn't refreshed, and signs itself out within the hour.
+    Expiring,
+}
+
+/// For an account signed in as anyone, each way it can stand for the echo plugin needing `read`
+/// of it: what keeps echo from using it is said first of [`Unready`]'s, for the type, and starting
+/// its store destination fails as an `account` error saying why (not signed in, no access or a
+/// missing scope), or starts when nothing keeps it; an account signing itself out within the hour
+/// is due a warning, and one signed out that echo has access to still lists, signed out.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_unready_says_what_keeps_each_type_from_use(tc: TestCase) {
+    use Standing::*;
+    use locallibrary::plugin::Unready;
+    let subject = tc.draw(gs::sampled_from(vec!["a", "42"]));
+    for standing in [Ready, NoAccess, SignedOut, Gone, Ungiven, Ungranted, Expiring] {
+        let m = mock_for(if standing == Expiring { 1800 } else { 3600 }, "/userinfo", "", &asking(&["read"], &[]));
+        {
+            let mut s = m.state.lock().unwrap();
+            s.refreshless = standing == Expiring;
+            s.grants = (standing == Ungranted).then(|| vec!["write".into()]);
+        }
+        let plugin = (standing != NoAccess).then_some("echo");
+        m.sign_in_for(plugin, who(json!(subject), None), None, &[]).0.unwrap();
+        match standing {
+            SignedOut => drop(m.f.plugins.sign_out_account(WITH, subject, &m.f.store).unwrap()),
+            Gone => {
+                m.edit("accounts.json", |kept| {
+                    kept["accounts"][0]["plugin"] = json!(GONE);
+                    kept["accesses"][0]["account"]["plugin"] = json!(GONE);
+                });
+                // Its tokens kept as its account plugin's.
+                m.edit("secrets/accounts.json", |kept| {
+                    let key = format!("account:{WITH}:{subject}");
+                    let tokens = kept.as_object_mut().unwrap().remove(&key).unwrap();
+                    kept[key.replace(WITH, GONE)] = tokens;
+                });
+            }
+            Ungiven => m.edit("accounts.json", |kept| kept["accesses"][0]["scopes"] = json!([])),
+            _ => {}
+        }
+        let said = format!("{standing:?} as {subject}");
+        let unready = m.f.plugins.unready("echo", &m.f.store).unwrap();
+        let access = m.f.plugins.accesses(&m.f.store, Some("echo"), None).unwrap().first().cloned();
+        let expected = access.clone().map(|a| match standing {
+            SignedOut => Unready::SignedOut(a),
+            Ungiven => Unready::Ungiven(a, vec!["read".into()]),
+            Ungranted => Unready::Ungranted(a, vec!["read".into()]),
+            Expiring => Unready::Expiring(a),
+            _ => Unready::NoAccess("mock".into()),
+        });
+        let expected: Vec<Unready> = expected.into_iter().filter(|_| standing != Ready).collect();
+        let expected = if standing == NoAccess { vec![Unready::NoAccess("mock".into())] } else { expected };
+        assert_eq!(unready, expected, "{said}");
+        assert!(unready.iter().all(|u| u.kind() == "mock"), "{said}");
+        let started = m.f.plugins.store_destination("echo:folder", Some(&m.f.store));
+        let reason = match standing {
+            Ready => None,
+            NoAccess | Gone => Some(Reason::NoAccess),
+            SignedOut | Expiring => Some(Reason::NotSignedIn),
+            Ungiven | Ungranted => Some(Reason::MissingScope),
+        };
+        match reason {
+            None => drop(started.unwrap()),
+            Some(reason) => {
+                let e = started.err().unwrap();
+                assert_eq!((e.code(), e.reason()), ("account", Some(reason)), "{said}: {e}");
+            }
+        }
+        if standing == Expiring {
+            let e = m.f.plugins.store_destination("echo:folder", Some(&m.f.store)).err().unwrap();
+            assert_eq!(
+                e.to_string(),
+                format!("the mock account {subject} won't stay signed in long enough: sign in again")
+            );
+        }
+        let listed = m.f.plugins.accounts_and_accesses(&m.f.store).unwrap().accounts;
+        let due: Vec<(bool, bool)> = listed.iter().map(|a| (a.signed_in, a.due_soon())).collect();
+        let expected = match standing {
+            SignedOut => vec![(false, false)],
+            Expiring => vec![(true, true)],
+            _ => vec![(true, false)],
+        };
+        assert_eq!(due, expected, "{said}");
+    }
 }

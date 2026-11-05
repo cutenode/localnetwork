@@ -1,0 +1,12 @@
+{
+	"$schema": "../budget.schema.json",
+	"job": "pull-request",
+	"tolerance_percent": 0,
+	"metrics": {
+		"locallibrary-cli": {
+			"limit": 555,
+			"unit": "packages",
+			"measures": "Packages linked into the CLI with default features on Linux, by cargo tree: proc macros and what only they use are left out, as the host decides those."
+		}
+	}
+}

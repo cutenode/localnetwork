@@ -155,3 +155,121 @@ fn store_gc_removes_only_the_scratch_folders_a_stopped_host_left() {
     drop(scratch);
     assert!(!live.exists() && !live.with_extension("lock").exists(), "removed, its lock too");
 }
+
+/// For any bytes a call's `net/fetch` sends of the files it was lent, they're its progress once
+/// that's been sent (see [`Scratch::report_to`]), and nothing before. A file lent that isn't there
+/// can't be opened, and says which.
+#[hegel::test(test_cases = 50)]
+fn prop_bytes_sent_of_a_lent_file_are_progress_once_reported(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let (lent, gone) = (dir.path().join("set.wav"), dir.path().join("gone.wav"));
+    std::fs::write(&lent, "rec").unwrap();
+    let scratches = Arc::new(Scratches::default());
+    let scratch = scratches.none(&[&lent, &gone]);
+    let (_, under) = scratches.open(&lent).unwrap();
+    let (before, after): (Vec<u64>, Vec<u64>) =
+        tc.draw(gs::tuples!(gs::vecs(gs::integers::<u64>()).max_size(3), gs::vecs(gs::integers::<u64>()).max_size(3)));
+    before.iter().for_each(|&b| under.sent(b));
+    let (tx, rx) = std::sync::mpsc::channel();
+    scratch.report_to(tx);
+    after.iter().for_each(|&b| under.sent(b));
+    let reported: Vec<u64> = rx
+        .try_iter()
+        .map(|r| match r {
+            ProgressReport::Known(ProgressEvent {
+                event: Progressed::Event(Event::Bytes { phase, bytes }), ..
+            }) => {
+                assert_eq!(phase, Phase::Upload);
+                bytes
+            }
+            other => panic!("only bytes: {other:?}"),
+        })
+        .collect();
+    assert_eq!(reported, after);
+    let e = scratches.open(&gone).err().unwrap();
+    assert!(e.starts_with(&format!("{}: ", gone.display())), "{e}");
+    assert_eq!(scratch.blob("a.jpg").unwrap_err(), "it has no scratch folder for files (the blobs feature)");
+}
+
+/// For any scratch folders a stopped host left in a store (their locks held by nobody), `store gc`
+/// finds exactly those: never one in use, nor a folder without a lock, nor a file.
+#[hegel::test(test_cases = 20)]
+fn prop_only_the_scratch_folders_a_stopped_host_left_are_abandoned(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("s")).unwrap();
+    let root = store.root().join("plugins/echo/scratch");
+    let scratch = Arc::new(Scratches::default()).make(&root, &[]).unwrap();
+    let names: Vec<String> = tc.draw(gs::vecs(gs::from_regex("[a-z]{1,6}").fullmatch(true)).max_size(4));
+    let mut left: Vec<PathBuf> = Vec::new();
+    for (i, name) in names.iter().enumerate() {
+        let folder = root.join(format!("{name}{i}"));
+        match i % 3 {
+            0 => {
+                std::fs::create_dir(&folder).unwrap();
+                std::fs::write(folder.with_extension("lock"), "").unwrap();
+                left.push(folder);
+            }
+            1 => std::fs::create_dir(&folder).unwrap(),
+            _ => std::fs::write(&folder, "").unwrap(),
+        }
+    }
+    let mut found = abandoned(&store);
+    found.sort();
+    left.sort();
+    assert_eq!(found, left);
+    assert!(!found.iter().any(|f| Some(f.as_path()) == scratch.dir()));
+}
+
+/// A scratch folder can't be made where a file is, nor (on Unix) in a folder the host can't
+/// write: the call fails, naming where.
+#[cfg(unix)]
+#[hegel::test(test_cases = 5)]
+fn prop_a_scratch_folder_that_cant_be_made_fails_the_call(tc: TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let scratches = Arc::new(Scratches::default());
+    let file = dir.path().join("file");
+    std::fs::write(&file, "").unwrap();
+    let under_file = file.join(tc.draw(gs::from_regex("[a-z]{1,4}").fullmatch(true)));
+    let e = scratches.make(&under_file, &[]).err().unwrap();
+    assert!(e.to_string().contains(&under_file.display().to_string()), "{e}");
+    let locked = dir.path().join("locked");
+    std::fs::create_dir(&locked).unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let e = scratches.make(&locked, &[]).err().unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(e.to_string().contains(&locked.display().to_string()), "{e}");
+    assert_eq!(std::fs::read_dir(&locked).unwrap().count(), 0);
+}
+
+/// A file a fetch names is found in the one call under way whose folder holds it, past calls
+/// without a folder; a name that isn't text (on Unix) is refused, and so is a file there the
+/// host can't read.
+#[cfg(unix)]
+#[hegel::test(test_cases = 10)]
+fn prop_a_file_named_is_found_in_its_calls_folder_and_read_only_as_text(tc: TestCase) {
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let scratches = Arc::new(Scratches::default());
+    // A call without a folder is under way first.
+    let _without = scratches.none(&[]);
+    let scratch = scratches.make(dir.path(), &[]).unwrap();
+    let _another = made();
+    let folder = scratch.dir().unwrap().to_path_buf();
+    let name: String = tc.draw(gs::from_regex("[a-z]{1,6}").fullmatch(true));
+    assert_eq!(scratches.holding(&folder.join(&name)).unwrap(), (folder.clone(), PathBuf::from(&name)));
+    let mut bytes = name.clone().into_bytes();
+    bytes.push(0xff);
+    let odd = folder.join(std::ffi::OsStr::from_bytes(&bytes));
+    let e = scratches.holding(&odd).unwrap_err();
+    assert_eq!(e, format!("{} isn't a name a file can have here", odd.display()));
+    std::fs::write(folder.join(&name), "x").unwrap();
+    std::fs::set_permissions(folder.join(&name), std::fs::Permissions::from_mode(0o000)).unwrap();
+    let e = scratch.blob(&name).unwrap_err();
+    assert!(e.starts_with(&format!("its file {name:?} can't be read: ")), "{e}");
+    let e = scratches.open(&folder.join(&name)).err().unwrap();
+    assert!(e.starts_with(&format!("its file {name:?} can't be read: ")), "{e}");
+}
