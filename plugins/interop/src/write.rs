@@ -7,6 +7,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::path::Path;
 
 use loclib_interop::{Content, Export, serato};
+use loclib_model::reflink::reflink_into;
 use loclib_plugin::RpcError;
 use loclib_progress::{Ctx, Event, Phase};
 
@@ -42,7 +43,17 @@ pub(crate) fn write(export: &Export, output: &Path, ctx: &Ctx<'_>) -> Result<(),
         match &f.content {
             Content::Bytes(bytes) => tmp.write_all(bytes).map_err(|e| io(tmp.path(), e))?,
             Content::TaggedCopy { from, markers } => {
-                copy(from, tmp.as_file_mut(), &f.path, ctx)?;
+                tmp = match reflink_into(from, tmp) {
+                    Ok(cloned) => {
+                        ctx.emit(Event::Bytes { phase: Phase::Copy, bytes: f.bytes });
+                        ctx.check()?;
+                        cloned
+                    }
+                    Err(mut tmp) => {
+                        copy(from, tmp.as_file_mut(), &f.path, ctx)?;
+                        tmp
+                    }
+                };
                 if let Some(m) = markers {
                     // An error names the drive's file: the copy's is temporary, and removed.
                     serato::write_markers(tmp.path(), from, m).map_err(|e| crate::failure(e, ctx))?;

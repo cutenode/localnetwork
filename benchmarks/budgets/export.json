@@ -1,0 +1,15 @@
+{
+	"$schema": "../budget.schema.json",
+	"job": "pull-request",
+	"tolerance_percent": 0.5,
+	"metrics": {
+		"files_made": { "limit": 20, "unit": "files", "measures": "Files made while packing a 12-track library onto a blank drive. A temp file for each would double this." },
+		"folders_made": { "limit": 9, "unit": "files", "measures": "Folders made by that write." },
+		"renames": { "limit": 7, "unit": "calls", "measures": "Renames in that write. Each costs FAT and exFAT as much as making a file, so only what must replace a file in one step gets one." },
+		"flushes": { "limit": 20, "unit": "calls", "measures": "fsync and fdatasync calls in that write." },
+		"times_set": { "limit": 12, "unit": "calls", "measures": "Modification times set in that write." },
+		"writes": { "limit": 19, "unit": "calls", "measures": "write calls in that write." },
+		"bytes_written": { "limit": 1287884, "unit": "bytes", "measures": "Bytes written to the drive by that write." },
+		"largest_write": { "limit": 1261568, "unit": "bytes", "measures": "The largest single write in it: smaller means more calls for each file." }
+	}
+}

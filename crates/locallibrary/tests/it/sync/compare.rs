@@ -239,6 +239,13 @@ fn a_sync_cut_off_before_its_flush_is_finished_by_the_next_run() {
             && path.starts_with("Contents/")
             && copied.fetch_add(1, Ordering::SeqCst) == 2
         {
+            // Small files go side by side: the two before this one may still be landing.
+            let landed =
+                || common::library_files(&root.join("B")).iter().filter(|(k, _)| k.contains("New Artist")).count();
+            let give_up = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            while landed() < 2 && std::time::Instant::now() < give_up {
+                std::thread::yield_now();
+            }
             image(&root.join("B"), &root.join("image"));
         }
     };
@@ -249,7 +256,7 @@ fn a_sync_cut_off_before_its_flush_is_finished_by_the_next_run() {
         .filter(|(k, _)| k.contains("New Artist"))
         .map(|(k, _)| k)
         .collect();
-    assert_eq!(torn.len(), 2, "two new tracks were copied when the plug was pulled");
+    assert!(torn.len() >= 2, "two new tracks were copied when the plug was pulled: {torn:?}");
     for key in &torn {
         let p = root.join("image").join(key);
         let meta = std::fs::metadata(&p).unwrap();

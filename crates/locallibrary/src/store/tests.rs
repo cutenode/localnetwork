@@ -1,6 +1,23 @@
 use super::*;
 use crate::paths::FileClass;
 
+/// An object imported from a file on the store's own volume (a clone, where the volume has them)
+/// stays as it was when that file is edited in place, as a tag editor does.
+#[test]
+fn an_object_keeps_its_bytes_when_the_file_it_came_from_is_edited() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let src = dir.path().join("a.mp3");
+    fs::write(&src, b"the audio").unwrap();
+    let (hash, new) = store.import_file(&src, None, &Ctx::silent()).unwrap();
+    assert!(new);
+    assert_eq!(hash, Hash::of(b"the audio"));
+    let mut opened = fs::File::options().write(true).open(&src).unwrap();
+    std::io::Write::write_all(&mut opened, b"TAG").unwrap();
+    drop(opened);
+    assert_eq!(fs::read(store.object_path(&hash)).unwrap(), b"the audio");
+}
+
 #[test]
 fn init_import_snapshot_history_gc() {
     let dir = tempfile::tempdir().unwrap();

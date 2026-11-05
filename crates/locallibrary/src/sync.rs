@@ -6,8 +6,10 @@
 //!
 //! Carrying it out orders writes so a drive is never left unusable:
 //!
-//! 1. new/changed audio, analysis and artwork files are copied (temp file + rename each), then
-//!    flushed to the device together, and only then given their source's modification time;
+//! 1. new/changed audio, analysis and artwork files are copied (a file the drive has already
+//!    through a temp file and a rename; a new one, which no database names yet, under its own
+//!    name), then flushed to the device together, and only then given their source's modification
+//!    time;
 //! 2. the database files (`export.pdb`, `exportExt.pdb`, `exportLibrary.db` and its WAL) are
 //!    staged, then swapped in back to back;
 //! 3. only then are files the new database no longer references deleted: database files the
@@ -37,6 +39,7 @@
 use indexmap::IndexMap;
 use std::collections::BTreeSet;
 
+use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::{Path, PathBuf};
 
@@ -648,21 +651,14 @@ fn apply(
     //    not pass for a finished one (see `cut_off_since`). A run stopped part way (Ctrl-C, an
     //    error) still flushes and stamps what it copied, so the next one doesn't copy it again.
     ctx.phase_start(Phase::Copy, plan.copies.len() as u64, plan.copy_bytes);
-    let mut written = Vec::new();
-    let mut stopped = None;
-    for c in &file_copies {
-        match copy_one(c, &by_key, source, target, ctx) {
-            Ok(copied) => {
-                written.push(copied);
-                report.copied += 1;
-                report.copied_bytes += c.size;
-            }
-            Err(e) => {
-                stopped = Some(e);
-                break;
-            }
-        }
-    }
+    let (written, stopped) = crate::library_write::copy_each(
+        &file_copies,
+        |c| c.size,
+        |c| Ok((copy_one(c, &by_key, source, target, ctx)?, c.size)),
+    );
+    report.copied += written.len();
+    report.copied_bytes += written.iter().map(|(_, size)| size).sum::<u64>();
+    let written: Vec<Copied> = written.into_iter().map(|(copied, _)| copied).collect();
     // Barrier: everything the new database references is on disk before it's replaced.
     settle(&written, &mut index)?;
     if let Some(e) = stopped {
@@ -738,12 +734,12 @@ fn take_off_databases(
 }
 
 /// A file copied onto the target, its data not yet flushed nor its modification time set.
-struct Copied {
-    path: PathBuf,
-    key: String,
-    class: FileClass,
-    hash: Hash,
-    mtime: i64,
+pub(crate) struct Copied {
+    pub(crate) path: PathBuf,
+    pub(crate) key: String,
+    pub(crate) class: FileClass,
+    pub(crate) hash: Hash,
+    pub(crate) mtime: i64,
 }
 
 fn copy_one(
@@ -771,17 +767,23 @@ fn copy_one(
         .with("paths", [key]));
     }
     ctx.emit(Event::Item { phase: Phase::Copy, path: c.path.clone(), bytes: c.size });
-    let hash = fsutil::copy_file(&source.fs_path(src_entry)?, &path, None, c.hash, false, ctx)?;
+    let hash = fsutil::copy_for_drive(&source.fs_path(src_entry)?, &path, c.hash, ctx)?;
     Ok(Copied { path, key: key.to_string(), class: c.class, hash, mtime: c.mtime })
 }
 
 /// Flush copied files to the device, then give each its source's modification time and record
 /// its hash.
-fn settle(copied: &[Copied], index: &mut crate::tree::HashIndex) -> Result<()> {
+pub(crate) fn settle(copied: &[Copied], index: &mut crate::tree::HashIndex) -> Result<()> {
     fsutil::flush(&copied.iter().map(|c| c.path.clone()).collect::<Vec<_>>())?;
-    for c in copied {
-        fsutil::set_mtime(&c.path, c.mtime)?;
-        record(index, &c.path, &c.key, c.class, c.hash)?;
+    let stamped: Vec<std::fs::Metadata> = copied
+        .par_iter()
+        .map(|c| {
+            fsutil::set_mtime(&c.path, c.mtime)?;
+            std::fs::metadata(&c.path).at(&c.path)
+        })
+        .collect::<Result<_>>()?;
+    for (c, meta) in copied.iter().zip(&stamped) {
+        record_as(index, &c.key, c.class, c.hash, meta);
     }
     Ok(())
 }
@@ -795,14 +797,19 @@ pub(crate) fn record(
     hash: Hash,
 ) -> Result<()> {
     let meta = std::fs::metadata(path).at(path)?;
+    record_as(index, key, class, hash, &meta);
+    Ok(())
+}
+
+/// Note in `index` that the file `key`, now as `meta` says, holds `hash`.
+fn record_as(index: &mut crate::tree::HashIndex, key: &str, class: FileClass, hash: Hash, meta: &std::fs::Metadata) {
     index.record(&FileEntry {
         path: key.to_string(),
         size: meta.len(),
-        mtime: fsutil::mtime_secs(&meta),
+        mtime: fsutil::mtime_secs(meta),
         class,
         hash: Some(hash),
     });
-    Ok(())
 }
 
 fn delete_files(

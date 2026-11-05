@@ -151,8 +151,7 @@ pub fn embed_in_file(path: &Path, art: &Artwork) -> Result<()> {
     // crash or a full disk then would leave it cut short.
     let dir = path.parent().ok_or_else(|| Error::invalid(format!("{} has no parent", path.display())))?;
     let ext = path.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
-    let tmp = fsutil::temp_for(dir, path, &ext)?;
-    std::fs::copy(path, tmp.path()).at(path)?;
+    let tmp = fsutil::reflink_or_copy(path, fsutil::temp_for(dir, path, &ext)?)?;
     tag.save_to_path(tmp.path(), WriteOptions::default()).map_err(|e| tag_err(&e))?;
     tmp.as_file().sync_all().at(tmp.path())?;
     fsutil::replace(tmp.into_temp_path(), path)

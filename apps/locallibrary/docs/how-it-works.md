@@ -230,10 +230,11 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   `TRASHBOX` and the track filter `PIONEER/rekordbox/RBFLTR.DAT`) and rekordbox's records of the
   playlists it syncs to the drive (`playlists3*.sync`) are never copied to another drive or into
   the store, never deleted, and don't count as a change to the library.
-- **Crash-safe ordering.** Every file is written to a temp file and renamed into place. Audio,
-  analysis and artwork are copied first and flushed to the device, and only then given their
-  source's modification time, so a copy whose data never reached the drive can't pass for a finished
-  one. The database files are then staged and swapped in back to back, and stale files are deleted
+- **Crash-safe ordering.** A file the drive already has is written to a temp file and renamed into
+  place; a new one, which no database names yet, is written under its own name, since a rename
+  costs FAT and exFAT as much as making the file. Audio, analysis and artwork are copied first and
+  flushed to the device, and only then given their source's modification time, so a copy whose data
+  never reached the drive can't pass for a finished one. The database files are then staged and swapped in back to back, and stale files are deleted
   only after that. If a sync is interrupted (unplugged drive, Ctrl-C), the database on the drive
   still finds every file it references; a file the sync changed may already hold its new contents. A
   marker is left that `locallibrary drive info` reports, and re-running finishes the job: `diff
