@@ -34,7 +34,7 @@ export const actions: Actions = {
 		try {
 			to = await locals.app.oauth.authorize(viewer.did, JSON.stringify({ next }), { account, optional: 'bugReport' });
 		} catch (error) {
-			locals.log.info({ err: error }, 'could not ask to post bug reports');
+			locals.log.info('could not ask to post bug reports', { err: error });
 
 			if (error instanceof OptionalScopeUnsupported) {
 				return fail(400, { error: "Your account's server doesn't let apps post bug reports for you." });
@@ -62,7 +62,7 @@ export const actions: Actions = {
 
 			return { posted };
 		} catch (cause) {
-			locals.log.warn({ err: cause }, 'could not post a bug report');
+			locals.log.warn('could not post a bug report', { err: cause });
 
 			return fail(502, { error: "We couldn't post your report.", values, github: githubIssueUrl(facts, values) });
 		}

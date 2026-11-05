@@ -310,7 +310,7 @@ export class ShowService {
 		// The new event is built over the version HappyView has, so that has to be the one the form showed: a change
 		// HappyView picked up while the form was open is refused here, before anything is written.
 		if (edit && (show?.cid !== edit.showCid || (event?.cid ?? null) !== edit.eventCid)) {
-			this.core.logger.info({ uri }, 'a show or its event changed since its form was opened');
+			this.core.logger.info('a show or its event changed since its form was opened', { uri });
 			throw new UserError(CHANGED, 409);
 		}
 
@@ -340,7 +340,7 @@ export class ShowService {
 				await client.putRecord({ collection: COLLECTION.show, rkey: key, record, swapRecord: edit.showCid });
 			} catch (error) {
 				if (xrpcErrorName(error) !== 'InvalidSwap') throw error;
-				this.core.logger.info({ uri }, 'a show or its event changed on the PDS since HappyView served it');
+				this.core.logger.info('a show or its event changed on the PDS since HappyView served it', { uri });
 				// Changed somewhere HappyView hasn't caught up with yet, so a reload would show the same old version.
 				await Promise.all([
 					this.indexed.reindex(actor.did, CALENDAR_EVENT),
@@ -428,7 +428,7 @@ export class ShowService {
 	/** Waits for the directory to serve a show write by `did`; when it doesn't in time, HappyView re-reads their shows. */
 	private async awaitServed(did: string, served: () => Promise<boolean>): Promise<void> {
 		if (await awaitIndexed(served, this.indexWaitMs)) return;
-		this.core.logger.warn({ did }, 'the directory has not caught up with a show write yet');
+		this.core.logger.warn('the directory has not caught up with a show write yet', { did });
 		await reindex(this.directory, this.core.logger, COLLECTION.show, did);
 	}
 
@@ -439,7 +439,7 @@ export class ShowService {
 		const record = readShow(show.record);
 
 		if (parts?.collection !== COLLECTION.show || !project || !record) {
-			this.core.logger.warn({ uri: show.uri }, 'skipping an invalid show from the directory');
+			this.core.logger.warn('skipping an invalid show from the directory', { uri: show.uri });
 
 			return null;
 		}

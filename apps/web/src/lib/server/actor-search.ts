@@ -55,7 +55,7 @@ export class ActorSearch {
 		try {
 			actors = await this.bluesky(term);
 		} catch (error) {
-			this.deps.logger.warn({ err: error, term }, 'actor typeahead failed');
+			this.deps.logger.warn('actor typeahead failed', { err: error, term });
 
 			return [];
 		}

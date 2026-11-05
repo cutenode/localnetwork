@@ -39,7 +39,7 @@ export class SetService {
 			return (await this.directory.query('listSets', { actors: accounts, limit: PICKER_LIMIT })).sets;
 		} catch (error) {
 			if (!(error instanceof HappyViewError)) throw error;
-			this.core.logger.warn({ err: error }, 'could not list sets for the picker');
+			this.core.logger.warn('could not list sets for the picker', { err: error });
 
 			return null;
 		}
@@ -54,7 +54,7 @@ export class SetService {
 			return await this.byUri(refs);
 		} catch (error) {
 			if (!(error instanceof HappyViewError)) throw error;
-			this.core.logger.warn({ err: error }, 'could not look up linked sets');
+			this.core.logger.warn('could not look up linked sets', { err: error });
 
 			return null;
 		}
@@ -102,7 +102,7 @@ export class SetService {
 			found = await this.byUri(linked.map((mix) => mix.set));
 		} catch (error) {
 			if (!(error instanceof HappyViewError)) throw error;
-			this.core.logger.warn({ err: error }, 'could not check linked sets');
+			this.core.logger.warn('could not check linked sets', { err: error });
 			throw new UserError("Couldn't check the linked sets. Try again in a minute.", 503);
 		}
 

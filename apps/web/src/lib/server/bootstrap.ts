@@ -61,7 +61,7 @@ export async function ensureRootSpaces(core: Core): Promise<string[]> {
 		if (!existing) {
 			// A bootstrap still running at startup can overlap the retry timer or an admin's resync; one of them creates it.
 			if (await createSpaceIfMissing(root, { spaceType: ref.type, skey: ROOT_SPACE_KEY, policy })) {
-				core.logger.info({ space }, 'created root space');
+				core.logger.info('created root space', { space });
 				await core.audit.record({
 					actor: core.rootDid,
 					actorRole: 'system',
@@ -76,7 +76,7 @@ export async function ensureRootSpaces(core: Core): Promise<string[]> {
 		} else if (changes.length > 0) {
 			// This replaces the whole policy. A space that was already a memberspace keeps its member list.
 			await root.updateSpace({ space, policy });
-			core.logger.warn({ space, changes }, 'corrected root space policies');
+			core.logger.warn('corrected root space policies', { space, changes });
 			await core.audit.record({
 				actor: core.rootDid,
 				actorRole: 'system',
@@ -104,7 +104,7 @@ export async function ensureRootSpaces(core: Core): Promise<string[]> {
 		try {
 			watched.push(...(await root.listSpaces(type)));
 		} catch (error) {
-			core.logger.debug({ err: error, type }, "could not list the root's spaces");
+			core.logger.debug("could not list the root's spaces", { err: error, type });
 		}
 	}
 

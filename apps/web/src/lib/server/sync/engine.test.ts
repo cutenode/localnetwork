@@ -1,5 +1,4 @@
 import { RepoCommit, WANT_MAC_HEADER } from '@atproto/space';
-import pino from 'pino';
 import { SPACE_TYPE } from '#lib/nsid.ts';
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { SpaceCredentialManager, XrpcResponseError } from '../atproto/credentials';
@@ -8,6 +7,7 @@ import { bookingSpace } from '../atproto/spaces';
 import { type Db, nowIso, openDatabase } from '../db';
 import { type Logger, silentLogger } from '../logger';
 import { FakeSpaceHost } from '../testing/space-host';
+import { writtenLog } from '../testing/written-log';
 import { type ChangeHandler, type SyncedChange, SpaceSyncer } from './engine';
 
 const SPACE = bookingSpace('did:plc:root', 'gig');
@@ -156,15 +156,17 @@ describe('SpaceSyncer', () => {
 	});
 
 	it('runs the queued pass after a failing one, and warns about a failure only until it repeats', async () => {
-		const logs: { msg: string }[] = [];
-		const logger = pino({ level: 'debug' }, { write: (line: string) => void logs.push(JSON.parse(line)) });
+		const { logger, lines } = writtenLog();
 		const s = syncer(new Error('host unreachable'), { logger });
 		await s.watch(SPACE);
 
 		const results = await Promise.allSettled([s.sync(SPACE), s.sync(SPACE)]);
 		expect(results.map((result) => result.status)).toEqual(['rejected', 'rejected']);
 		expect(passes).toBe(2);
-		expect(logs.map((entry) => entry.msg)).toEqual(['space sync failed', 'space sync still failing']);
+		expect(lines.map(({ level, message, space }) => [level, message, space])).toEqual([
+			['warn', 'space sync failed', SPACE],
+			['debug', 'space sync still failing', SPACE]
+		]);
 	});
 
 	it('registers for write notifications, renewing only a registration close to running out', async () => {

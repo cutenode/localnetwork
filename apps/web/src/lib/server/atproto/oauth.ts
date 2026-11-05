@@ -351,7 +351,7 @@ export class OAuthService {
 				if (!/scope/i.test(message)) throw error;
 
 				if (!next) throw optional ? new OptionalScopeUnsupported(optional) : error;
-				this.deps.logger.info({ identifier, err: error, scope: next }, 'PDS rejected scopes; asking for fewer');
+				this.deps.logger.info('PDS rejected scopes; asking for fewer', { identifier, err: error, scope: next });
 				scope = next;
 			}
 		}
@@ -382,7 +382,7 @@ export class OAuthService {
 		try {
 			return await this.client.restore(did);
 		} catch (error) {
-			this.deps.logger.debug({ did, err: error }, 'no usable OAuth session');
+			this.deps.logger.debug('no usable OAuth session', { did, err: error });
 
 			return null;
 		}
@@ -398,7 +398,7 @@ export class OAuthService {
 		try {
 			await this.client.revoke(did);
 		} catch (error) {
-			this.deps.logger.warn({ did, err: error }, 'could not revoke OAuth session');
+			this.deps.logger.warn('could not revoke OAuth session', { did, err: error });
 		}
 	}
 }

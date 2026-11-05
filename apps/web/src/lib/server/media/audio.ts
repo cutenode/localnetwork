@@ -96,11 +96,12 @@ export type AudioRequest = {
  */
 export async function recordingAudio(request: AudioRequest): Promise<Response> {
 	const { did, cid } = request;
-	const log = request.log.child({ did, cid, range: request.range });
+	const { log } = request;
+	log.set({ recording: { did, cid, range: request.range } });
 	const audio = await request.audio(did, cid);
 
 	if (!audio) {
-		log.info({ status: 404 }, 'no recording references this audio');
+		log.info('no recording references this audio');
 
 		return refuse(404, 'Not found');
 	}
@@ -108,7 +109,7 @@ export async function recordingAudio(request: AudioRequest): Promise<Response> {
 	const range = parseRange(request.range, audio.size);
 
 	if (range === 'unsatisfiable') {
-		log.info({ status: 416 }, 'recording range past the end');
+		log.info('recording range past the end');
 
 		return refuse(416, 'Range not satisfiable', { 'content-range': `bytes */${audio.size}` });
 	}
@@ -123,7 +124,7 @@ export async function recordingAudio(request: AudioRequest): Promise<Response> {
 		url.searchParams.set('cid', cid);
 		upstream = await request.identity.serviceFetch(url, { redirect: 'error', signal: AbortSignal.timeout(15_000) });
 	} catch (error) {
-		log.warn({ err: error, status: 502 }, 'could not reach the PDS for a recording');
+		log.warn('could not reach the PDS for a recording', { err: error });
 
 		return refuse(502, 'Recording unavailable');
 	}
@@ -131,7 +132,7 @@ export async function recordingAudio(request: AudioRequest): Promise<Response> {
 	if (!upstream.ok || !upstream.body) {
 		const status = upstream.status === 404 ? 404 : 502;
 		await upstream.body?.cancel();
-		log.warn({ upstream: upstream.status, status }, 'the PDS did not serve a recording');
+		log.warn('the PDS did not serve a recording', { upstream: upstream.status });
 
 		return refuse(status, 'Recording unavailable');
 	}
@@ -139,7 +140,7 @@ export async function recordingAudio(request: AudioRequest): Promise<Response> {
 	const { start, end } = range ?? { start: 0, end: audio.size - 1 };
 	const length = end - start + 1;
 	const status = range ? 206 : 200;
-	log.info({ status, bytes: length }, 'serving a recording');
+	log.set({ recording: { bytes: length } });
 
 	return audioResponse(slice(upstream.body, start, length), audio.mimeType, {
 		status,
