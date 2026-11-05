@@ -18,6 +18,16 @@
 			"unit": "instructions",
 			"measures": "Instructions `tracks --filter` runs on the 3,886-track fixture, under cachegrind."
 		},
+		"tracks_search": {
+			"limit": null,
+			"unit": "instructions",
+			"measures": "Instructions `tracks --search` runs on the 3,886-track fixture, under cachegrind."
+		},
+		"tracks_sort": {
+			"limit": null,
+			"unit": "instructions",
+			"measures": "Instructions `tracks --sort` runs on the 3,886-track fixture, under cachegrind."
+		},
 		"diff": {
 			"limit": 186088278,
 			"unit": "instructions",
