@@ -296,8 +296,8 @@ fn the_newest_drive_plugged_in_updates_the_rest_of_its_set() {
     assert_eq!(kinds(&did), ["watch.pulled", "watch.synced"], "Backup is newest: {did:?}");
 }
 
-/// Regression: `watch --once` waited silently for as long as another operation (the TUI, the
-/// RPC sidecar) held the store. It says so once, then gives up.
+/// `watch --once` doesn't wait silently for as long as another operation (the TUI, the RPC
+/// sidecar) holds the store: it says so once, then gives up.
 #[test]
 fn watch_once_gives_up_on_a_store_another_operation_holds() {
     let desk = Desk::new();

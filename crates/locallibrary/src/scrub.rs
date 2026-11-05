@@ -15,7 +15,7 @@
 //!    clearly after the file's modification time (so it isn't a rewrite since).
 //!
 //! Players and rekordbox rewrite database and analysis files legitimately, but they also change
-//! the modification time, so such files simply have no reference and count as unverified.
+//! the modification time, so such files have no reference and count as unverified.
 //! Files that can't be read at all are reported too, and missing ones: those the exact snapshot
 //! lists, or without one (a file gone changes the state), those of a consulted snapshot whose
 //! databases the drive still holds. [`repair`] rewrites damaged and missing

@@ -194,8 +194,8 @@ fn a_convert_that_fails_leaves_the_drive_unchanged() {
     assert!(err.contains(&format!("the track {title} can't be stored in export.pdb")), "{err}");
 }
 
-/// OneLibrary takes a name of any length; export.pdb doesn't. The plan used to accept one, and
-/// applying it failed without saying which playlist.
+/// OneLibrary takes a name of any length; export.pdb doesn't. A plan that took one would fail
+/// when applied, without saying which playlist.
 #[test]
 fn a_name_too_long_for_export_pdb_is_refused_when_planning() {
     let dir = tempfile::tempdir().unwrap();
