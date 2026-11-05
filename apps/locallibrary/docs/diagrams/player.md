@@ -36,7 +36,7 @@ flowchart TD
     crate -->|"packed onto a drive"| drives
 ```
 
-Source: [`src/tui/app.rs`](../../src/tui/app.rs), [`src/tui/keymap.rs`](../../src/tui/keymap.rs), [`src/tui/ui.rs`](../../src/tui/ui.rs), [`src/tui/drives.rs`](../../src/tui/drives.rs), [`src/tui/profile.rs`](../../src/tui/profile.rs), [`src/tui/mix.rs`](../../src/tui/mix.rs), [`src/tui/crate_list.rs`](../../src/tui/crate_list.rs)
+Source: [`src/tui/app/`](../../src/tui/app), [`src/tui/keymap.rs`](../../src/tui/keymap.rs), [`src/tui/ui/`](../../src/tui/ui), [`src/tui/drives.rs`](../../src/tui/drives.rs), [`src/tui/profile.rs`](../../src/tui/profile.rs), [`src/tui/mix.rs`](../../src/tui/mix.rs), [`src/tui/crate_list.rs`](../../src/tui/crate_list.rs)
 
 ## Panes and dialogs
 
@@ -80,7 +80,7 @@ flowchart TD
     loop -->|"seek, loop, pause, through the playhead"| audio
 ```
 
-Source: [`src/tui/mod.rs`](../../src/tui/mod.rs), [`src/tui/app.rs`](../../src/tui/app.rs), [`src/tui/audio.rs`](../../src/tui/audio.rs), [`src/tui/stderr.rs`](../../src/tui/stderr.rs), [`src/tui/plugins/events.rs`](../../src/tui/plugins/events.rs)
+Source: [`src/tui/mod.rs`](../../src/tui/mod.rs), [`src/tui/app/`](../../src/tui/app), [`src/tui/audio.rs`](../../src/tui/audio.rs), [`src/tui/stderr.rs`](../../src/tui/stderr.rs), [`src/tui/plugins/events.rs`](../../src/tui/plugins/events.rs)
 
 ## Opening a drive in the player
 
@@ -102,7 +102,7 @@ sequenceDiagram
     B-->>U: MyTags, Fields
 ```
 
-Source: [`src/tui/app.rs`](../../src/tui/app.rs), [`src/tui/browse.rs`](../../src/tui/browse.rs)
+Source: [`src/tui/app/`](../../src/tui/app), [`src/tui/browse.rs`](../../src/tui/browse.rs)
 
 ## Changing a drive from the player
 
@@ -129,7 +129,7 @@ stateDiagram-v2
     Reading --> Planning: a crate saved, now packed
 ```
 
-Source: [`src/tui/edits.rs`](../../src/tui/edits.rs), [`src/tui/app.rs`](../../src/tui/app.rs)
+Source: [`src/tui/edits.rs`](../../src/tui/edits.rs), [`src/tui/app/`](../../src/tui/app)
 
 ## An unplugged drive in the player
 
@@ -147,7 +147,7 @@ stateDiagram-v2
     Reading --> Open: read
 ```
 
-Source: [`src/tui/app.rs`](../../src/tui/app.rs), [`src/tui/ui.rs`](../../src/tui/ui.rs), [`src/tui/drives.rs`](../../src/tui/drives.rs), [`src/tui/mix.rs`](../../src/tui/mix.rs)
+Source: [`src/tui/app/`](../../src/tui/app), [`src/tui/ui/`](../../src/tui/ui), [`src/tui/drives.rs`](../../src/tui/drives.rs), [`src/tui/mix.rs`](../../src/tui/mix.rs)
 
 ## Drives view rows
 
@@ -166,7 +166,7 @@ flowchart TD
     none -->|e| select["Says to select one of the drives"]
 ```
 
-Source: [`src/tui/drives.rs`](../../src/tui/drives.rs), [`src/tui/ui.rs`](../../src/tui/ui.rs)
+Source: [`src/tui/drives.rs`](../../src/tui/drives.rs), [`src/tui/ui/`](../../src/tui/ui)
 
 ## Search and filter
 
@@ -185,7 +185,7 @@ flowchart TD
     read --> list
 ```
 
-Source: [`src/tui/app.rs`](../../src/tui/app.rs), [`src/tui/browse.rs`](../../src/tui/browse.rs), [`crates/locallibrary/src/query.rs`](../../../../crates/locallibrary/src/query.rs)
+Source: [`src/tui/app/`](../../src/tui/app), [`src/tui/browse.rs`](../../src/tui/browse.rs), [`crates/locallibrary/src/query.rs`](../../../../crates/locallibrary/src/query.rs)
 
 ## Playback
 
@@ -204,7 +204,7 @@ flowchart TD
     tap --> vis["Visualisers"]
 ```
 
-Source: [`src/tui/audio.rs`](../../src/tui/audio.rs), [`src/tui/deck.rs`](../../src/tui/deck.rs), [`src/tui/analyzer.rs`](../../src/tui/analyzer.rs), [`src/tui/app.rs`](../../src/tui/app.rs)
+Source: [`src/tui/audio.rs`](../../src/tui/audio.rs), [`src/tui/deck.rs`](../../src/tui/deck.rs), [`src/tui/analyzer.rs`](../../src/tui/analyzer.rs), [`src/tui/app/`](../../src/tui/app)
 
 ## Output devices
 
@@ -224,7 +224,7 @@ stateDiagram-v2
     Open --> None: it went away, the track waits where it was
 ```
 
-Source: [`src/tui/app.rs`](../../src/tui/app.rs), [`src/tui/deck.rs`](../../src/tui/deck.rs), [`src/tui/audio.rs`](../../src/tui/audio.rs)
+Source: [`src/tui/app/`](../../src/tui/app), [`src/tui/deck.rs`](../../src/tui/deck.rs), [`src/tui/audio.rs`](../../src/tui/audio.rs)
 
 ## Signing in from the player
 
@@ -275,7 +275,7 @@ stateDiagram-v2
     Report --> List: esc
 ```
 
-Source: [`src/tui/mix.rs`](../../src/tui/mix.rs), [`src/tui/app.rs`](../../src/tui/app.rs)
+Source: [`src/tui/mix.rs`](../../src/tui/mix.rs), [`src/tui/app/`](../../src/tui/app)
 
 ## What the player remembers
 
@@ -293,4 +293,4 @@ flowchart TD
     keeps -->|"preferences only"| export["settings export"]
 ```
 
-Source: [`src/tui/state.rs`](../../src/tui/state.rs), [`src/tui/app.rs`](../../src/tui/app.rs), [`crates/locallibrary/src/store.rs`](../../../../crates/locallibrary/src/store.rs), [`crates/locallibrary/src/settings/transfer.rs`](../../../../crates/locallibrary/src/settings/transfer.rs)
+Source: [`src/tui/state.rs`](../../src/tui/state.rs), [`src/tui/app/`](../../src/tui/app), [`crates/locallibrary/src/store.rs`](../../../../crates/locallibrary/src/store.rs), [`crates/locallibrary/src/settings/transfer.rs`](../../../../crates/locallibrary/src/settings/transfer.rs)

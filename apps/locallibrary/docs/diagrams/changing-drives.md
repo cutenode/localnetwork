@@ -299,7 +299,7 @@ flowchart TD
     plan --> write["One backup, then each step made.<br/>Not recorded again"]
 ```
 
-Source: [`crates/locallibrary/src/edit.rs`](../../../../crates/locallibrary/src/edit.rs), [`crates/locallibrary/src/api/editing.rs`](../../../../crates/locallibrary/src/api/editing.rs), [`crates/locallibrary/src/api/jobs.rs`](../../../../crates/locallibrary/src/api/jobs.rs), [`src/tui/app.rs`](../../src/tui/app.rs)
+Source: [`crates/locallibrary/src/edit.rs`](../../../../crates/locallibrary/src/edit.rs), [`crates/locallibrary/src/api/editing.rs`](../../../../crates/locallibrary/src/api/editing.rs), [`crates/locallibrary/src/api/jobs.rs`](../../../../crates/locallibrary/src/api/jobs.rs), [`src/tui/app/`](../../src/tui/app)
 
 ## The refresh job
 
