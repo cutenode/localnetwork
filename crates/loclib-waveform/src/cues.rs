@@ -4,7 +4,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::widgets::Widget;
 
-use crate::color::{mix, scale};
+use crate::color::mix;
 use crate::{Palette, Rgb};
 
 /// `A`-`H` (and on) for hot cues.
@@ -35,9 +35,9 @@ pub fn cue_label(c: &Cue, bpm: f64) -> String {
 /// Marker for a cue in a single cell: the hot cue's letter on its colour, or a triangle.
 pub(crate) fn put_cue(p: &Palette<'_>, buf: &mut Buffer, x: u16, y: u16, c: &Cue, dim: bool) {
     let (color, paint) = (p.cue_color(c), p.paint);
-    let color = if dim { scale(color, 0.55) } else { color };
+    let color = if dim { p.fade(color, 0.55) } else { color };
     match cue_letter(c) {
-        Some(letter) => p.put(buf, x, y, &letter.to_string(), paint([12, 12, 16]), Some(paint(color))),
+        Some(letter) => p.put(buf, x, y, &letter.to_string(), paint(p.ink_on(color)), Some(paint(color))),
         None => p.put(buf, x, y, "▼", paint(color), None),
     }
 }
@@ -88,7 +88,7 @@ impl Widget for CueLane<'_> {
         let x_of = |ms: u32| ((ms as f64 / 1000.0 - start) / secs_per_col).floor();
         let y = area.y;
         let past = |x: u16| x < centre;
-        let shade = |c: Rgb, x: u16| if past(x) { scale(c, 0.5) } else { c };
+        let shade = |c: Rgb, x: u16| if past(x) { p.fade(c, 0.5) } else { c };
 
         for x in 0..area.width {
             let c = if past(x) { p.faint } else { mix(p.faint, p.dim, 0.5) };
@@ -116,7 +116,7 @@ impl Widget for CueLane<'_> {
             let x = x as u16;
             let color = shade(p.cue_color(c), x);
             match cue_letter(c) {
-                Some(l) => p.put(buf, area.x + x, y, &l.to_string(), paint([12, 12, 16]), Some(paint(color))),
+                Some(l) => p.put(buf, area.x + x, y, &l.to_string(), paint(p.ink_on(color)), Some(paint(color))),
                 None => p.put(buf, area.x + x, y, "◆", paint(color), None),
             }
             labels.push((x, cue_label(c, self.bpm), color));

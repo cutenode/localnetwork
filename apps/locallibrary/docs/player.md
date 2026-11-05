@@ -209,18 +209,43 @@ listening to your library the way the players see it:
 Each view drawn in a terminal of two sizes: Library ([80x24](player/library-80x24.svg), [160x45](player/library-160x45.svg)), Drives ([80x24](player/drives-80x24.svg), [160x45](player/drives-160x45.svg)), Snapshots ([80x24](player/snapshots-80x24.svg), [160x45](player/snapshots-160x45.svg)), Profile ([80x24](player/profile-80x24.svg), [160x45](player/profile-160x45.svg)), Mixes ([80x24](player/mixes-80x24.svg), [160x45](player/mixes-160x45.svg)).
 
 Colours are the theme's: the default, or a plugin's chosen in the palette ("Night theme",
-"default theme"), kept for the next run in `tui.json`. They're made for a dark terminal. For a
-light one, set `LOCALLIBRARY_THEME=light`; terminals
-that set `COLORFGBG` (rxvt, Konsole and others) are recognised without it, and
-`LOCALLIBRARY_THEME=dark` overrides them. With [`NO_COLOR`](https://no-color.org) set, the player
-draws no colours: the selection is in reverse video, the focused pane has a heavy border, keys
-that mix are marked `⇄` and underlined, track colours show as their numbers (1 pink to 8 purple)
-and cover art is left out. `LOCALLIBRARY_REDUCED_MOTION=1` redraws only a few times a second and
-stops the spinning record, the pulsing logo and the cue flashes.
+"default theme"), kept for the next run in `tui.json`.
 
-Cover art is drawn in half blocks (24-bit colour where the terminal supports it, the nearest of
-256 colours otherwise). The player remembers the drive, list, view, sort, volume, visualiser,
-panels and columns, shuffle, repeat, quantize, single play and auto cue, the output, the crate,
+As it starts, the player asks the terminal what it can draw and what its colours are, and is done
+as soon as the terminal has answered, or after 100 ms at most (on a slow SSH connection, say). It
+goes by the terminal's real background: a light one gets the light palette, and anything that
+wouldn't read on the background, at 4.5:1 for text and 3:1 for waveforms and markers, is blended
+towards the foreground until it does. Without an answer, `COLORFGBG` (set by rxvt, Konsole and
+others) says which it is, and otherwise it's dark. `LOCALLIBRARY_THEME=light` or `dark` overrides
+all of that.
+
+| Colours | Who gets them |
+| --- | --- |
+| 24-bit | A terminal that says so, `COLORTERM=truecolor`, Terminal.app from macOS 26 on and others known to draw it |
+| 256 | `TERM` with `256color` in it |
+| 16 | Any other `TERM`: `xterm`, `linux`, `vt100` |
+
+If the terminal says the wrong thing of itself, pick "24-bit colour", "256 colours" or "16 colours"
+in the palette ("colours as the terminal says" goes back), or set `LOCALLIBRARY_COLOR=truecolor`,
+`256` or `16`, which wins over the palette. 256 colours stay within the cube and greys (16-255), so
+a terminal's scheme can't change them. 16 colours are the scheme's own: text is the terminal's
+foreground, quieter text is dim, the selection and chips are in reverse video, the focused pane has
+a heavy border, and track colours show as their numbers.
+
+Icons come in three sets. "Nerd Font icons", "Unicode icons" and "ASCII icons" in the palette
+choose one, kept in `tui.json`, and `LOCALLIBRARY_ICONS=nerd`, `unicode` or `ascii` wins over that.
+Without a choice it's Unicode; ASCII on the Linux console, `TERM=vt*` and a locale that isn't
+UTF-8, where everything else on screen becomes ASCII too, line drawing and waveforms included; and
+Nerd Font icons in the terminals that bring the font along (Ghostty, kitty, WezTerm).
+
+With [`NO_COLOR`](https://no-color.org) set, the player draws no colours and asks the terminal
+nothing: the selection is in reverse video, the focused pane has a heavy border, keys that mix are
+marked `⇄` and underlined, track colours show as their numbers (1 pink to 8 purple) and cover art
+is left out. `LOCALLIBRARY_REDUCED_MOTION=1` redraws only a few times a second and stops the
+spinning record, the pulsing logo and the cue flashes.
+
+Cover art is drawn in half blocks, in as many colours as the terminal has. The player remembers the drive, list, view, sort, volume, visualiser,
+panels and columns, colours and icons, shuffle, repeat, quantize, single play and auto cue, the output, the crate,
 and the queue with how far into its track it got, to the last 15 seconds (`space` carries on
 from there). It saves them as they change, in the
 store once there is one and in a `locallibrary-player` folder beside it until then. Messages show

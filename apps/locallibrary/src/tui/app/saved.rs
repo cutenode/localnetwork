@@ -7,12 +7,15 @@ use locallibrary::Track;
 use locallibrary::query::FieldName;
 
 use crate::tui::crate_list::CrateTrack;
+use crate::tui::icons::IconSet;
 use crate::tui::state::{self, Saved, SavedCrateTrack, SavedQueue};
+use crate::tui::terminal::Answers;
+use crate::tui::theme::Tier;
 
 use super::*;
 
 impl App {
-    pub(super) fn apply_saved(&mut self, s: &Saved, open_last_drive: bool) {
+    pub(in crate::tui) fn apply_saved(&mut self, s: &Saved, open_last_drive: bool) {
         self.sort = s.sort;
         self.search_all = s.search_all;
         self.show_details = s.details;
@@ -22,6 +25,8 @@ impl App {
         self.field_columns = s.field_columns.iter().map(|f| FieldName::new(f)).collect();
         // Before the first frame: drawn in it from the start.
         crate::tui::theme::select(s.theme.as_deref());
+        crate::tui::theme::choose_tier(s.color.as_deref().and_then(Tier::parse));
+        crate::tui::icons::choose(s.icons.as_deref().and_then(IconSet::parse));
         self.shuffle = s.shuffle;
         self.repeat = match s.repeat.as_deref() {
             Some("all") => Repeat::All,
@@ -71,6 +76,8 @@ impl App {
             tags_column: self.show_tags_column,
             field_columns: self.field_columns.iter().map(|f| f.as_str().to_string()).collect(),
             theme: crate::tui::theme::chosen().map(String::from),
+            color: crate::tui::theme::chosen_tier().map(|t| t.name().to_string()),
+            icons: crate::tui::icons::chosen().map(|s| s.name().to_string()),
             shuffle: self.shuffle,
             repeat: Some(format!("{:?}", self.repeat).to_lowercase()),
             quantize: Some(self.deck.quantize),
@@ -130,6 +137,11 @@ impl App {
             state::save(&self.store_root, &saved);
             self.saved = Some(saved);
         }
+    }
+
+    /// The terminal's answers can still come after the player stopped waiting for them.
+    pub(in crate::tui) fn expect_late(&mut self, answers: &Answers) {
+        self.late_answers = LateAnswers::after(answers, Instant::now());
     }
 
     /// The queue the last run had, on the drive just read: ready to carry on with space.

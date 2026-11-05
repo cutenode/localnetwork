@@ -10,6 +10,7 @@ use ratatui::widgets::{Block, Clear, Paragraph};
 use crate::output::plural;
 use crate::tui::app::{App, Level, View, typed_tail};
 use crate::tui::edits::Modal;
+use crate::tui::icons;
 use crate::tui::theme::{self, bold, dim, faint, fg};
 
 use super::*;
@@ -74,7 +75,7 @@ pub(super) fn compact(n: usize) -> String {
 }
 
 pub(super) fn spinner(app: &App) -> &'static str {
-    let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    let frames = icons::spinner();
     frames[(app.started.elapsed().as_secs_f32() * 12.0) as usize % frames.len()]
 }
 
@@ -83,7 +84,7 @@ pub(super) fn draw_header(f: &mut Frame, app: &mut App, area: Rect) {
     let pulse = theme::mix(theme::current().accent, theme::current().warning, app.analyzer.level);
     let pulsing = app.is_playing() && !theme::reduced_motion();
     let mut spans = vec![
-        Span::styled(" ◉ ", bold(if pulsing { pulse } else { theme::current().accent })),
+        Span::styled(icons::LOGO.padded(), bold(if pulsing { pulse } else { theme::current().accent })),
         Span::styled("locallibrary", bold(theme::current().text)),
         Span::raw("   "),
     ];
@@ -92,7 +93,7 @@ pub(super) fn draw_header(f: &mut Frame, app: &mut App, area: Rect) {
     for (i, v) in View::ALL.into_iter().enumerate() {
         let label = format!(" {} {} ", i + 1, v.title());
         let w = label.chars().count() as u16;
-        let style = if app.view == v { theme::on(theme::current().info, [16, 16, 22]) } else { dim() };
+        let style = if app.view == v { theme::chip(theme::current().info) } else { dim() };
         app.areas.tabs.push((v, Rect::new(x, area.y, w, 1)));
         spans.push(Span::styled(label, style));
         spans.push(Span::raw(" "));
@@ -151,7 +152,7 @@ pub(super) fn input_line(
     let mut spans = fit(label, width as usize * 2 / 3);
     let room = (width as usize).saturating_sub(spans.iter().map(Span::width).sum::<usize>() + 1);
     spans.push(Span::styled(typed_tail(text_, room).to_string(), bold(theme::current().text)));
-    spans.push(Span::styled("▏", fg(theme::current().accent)));
+    spans.push(Span::styled(icons::CURSOR.get(), fg(theme::current().accent)));
     let used: usize = spans.iter().map(Span::width).sum();
     spans.extend(fit(after, (width as usize).saturating_sub(used)));
     Line::from(spans)
@@ -184,7 +185,7 @@ pub(super) fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     }
     if let Some(p) = &app.picking {
         let spans = vec![
-            Span::styled(" ◆ ", bold(theme::current().warning)),
+            Span::styled(icons::DIAMOND.padded(), bold(theme::current().warning)),
             Span::styled(format!("Add {} to which playlist? ", p.target.what), bold(theme::current().text)),
             Span::styled("  enter choose · esc cancel", faint()),
         ];
@@ -229,8 +230,8 @@ pub(super) fn wrap_text(s: &str, width: usize) -> Vec<String> {
 
 fn level_style(level: Level) -> (&'static str, [u8; 3]) {
     match level {
-        Level::Info => ("●", theme::current().info),
-        Level::Error => ("✖", theme::current().critical),
+        Level::Info => (icons::DOT.get(), theme::current().info),
+        Level::Error => (icons::CROSS.get(), theme::current().critical),
     }
 }
 
@@ -261,7 +262,7 @@ pub(super) fn draw_toasts(f: &mut Frame, app: &App, area: Rect, footer: Rect) {
     if let Some(o) = app.replay_offer.as_ref().filter(|_| !dialog) {
         let edits = if o.edits == 1 { "1 edit".to_string() } else { format!("{} edits", o.edits) };
         let spans = vec![
-            Span::styled(" ◆ ", bold(theme::current().warning)),
+            Span::styled(icons::DIAMOND.padded(), bold(theme::current().warning)),
             Span::styled(
                 format!("rekordbox exported over {edits} on {}. Replay? ", o.drive),
                 fg(theme::current().warning),

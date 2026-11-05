@@ -4,6 +4,8 @@ use loclib_model::theme::{self, Theme};
 use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier};
 
+use crate::color::{better_ink, fade};
+
 /// An 8-bit sRGB colour, as rekordbox stores them.
 pub use loclib_model::tokens::Rgb;
 
@@ -17,6 +19,10 @@ pub struct Palette<'a> {
     pub dim: Rgb,
     /// Rails, and the scope's centre line.
     pub faint: Rgb,
+    /// What shows through a colour faded out: the terminal's background.
+    pub background: Rgb,
+    /// A letter on a colour: a hot cue's, a phrase's.
+    pub ink: Rgb,
     /// The played part of the progress rail, and bar starts among the beat ticks.
     pub accent: Rgb,
     /// The spectrum's bars by height, bottom to top: two stops or more.
@@ -34,9 +40,11 @@ pub struct Palette<'a> {
     pub track_colors: [Rgb; 8],
     /// The playhead's line.
     pub playhead: Rgb,
-    /// How a colour is drawn: where a light terminal's version of it, or the nearest of 256
-    /// colours, comes in.
+    /// How a colour is drawn: where the nearest of 256 or 16 colours comes in.
     pub paint: fn(Rgb) -> Color,
+    /// A cue's or a waveform's own colour as it can be read on the background: where a light
+    /// terminal takes a yellow down.
+    pub marker: fn(Rgb) -> Rgb,
     /// How a picture's colour is drawn (cover art, the record): as it is, whatever the background.
     pub image: fn(Rgb) -> Color,
     /// No colours (NO_COLOR): coloured cells (a cue's letter, a loop) show in reverse video, and
@@ -57,7 +65,9 @@ impl Palette<'static> {
         Palette {
             fg: t.text,
             dim: t.dim,
-            faint: t.faint,
+            faint: t.rule,
+            background: [0, 0, 0],
+            ink: t.ink,
             accent: t.accent,
             spectrum: theme::SPECTRUM,
             scope: theme::SCOPE,
@@ -67,6 +77,7 @@ impl Palette<'static> {
             track_colors: t.track_colors,
             playhead: t.playhead,
             paint: |[r, g, b]| Color::Rgb(r, g, b),
+            marker: |c| c,
             image: |[r, g, b]| Color::Rgb(r, g, b),
             plain: false,
         }
@@ -79,7 +90,8 @@ impl<'a> Palette<'a> {
         Palette {
             fg: theme.text,
             dim: theme.dim,
-            faint: theme.faint,
+            faint: theme.rule,
+            ink: theme.ink,
             accent: theme.accent,
             spectrum: &theme.spectrum,
             scope: &theme.scope,
@@ -101,11 +113,21 @@ impl<'a> Palette<'a> {
     /// colour table), else the palette's for its kind.
     pub fn cue_color(&self, c: &Cue) -> Rgb {
         match (c.color.or_else(|| TrackColor::from_id(c.color_id).map(|t| self.track_color(t))), c.hot_cue, c.end_ms) {
-            (Some(rgb), _, _) => rgb,
+            (Some(rgb), _, _) => (self.marker)(rgb),
             (None, _, Some(_)) => self.loop_cue,
             (None, Some(_), None) => self.hot_cue,
             (None, None, None) => self.memory_cue,
         }
+    }
+
+    /// `c` faded towards the background: `f` = 1 gives `c`, 0 the background.
+    pub fn fade(&self, c: Rgb, f: f32) -> Rgb {
+        fade(self.background, c, f)
+    }
+
+    /// What reads best on `paper`: the ink, or the text colour.
+    pub fn ink_on(&self, paper: Rgb) -> Rgb {
+        better_ink(self.ink, self.fg, paper)
     }
 
     pub(crate) fn put(&self, buf: &mut Buffer, x: u16, y: u16, symbol: &str, fg: Color, bg: Option<Color>) {
