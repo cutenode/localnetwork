@@ -1,4 +1,4 @@
-// src/tools/third-party-downloads/sites/index.ts — the registry, and matching
+// src/tools/third-party-downloads/sites/index.ts: the registry, and matching
 // a link to the site that claims it.
 import { describe, it, expect } from 'vitest';
 import {

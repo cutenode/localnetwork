@@ -9,18 +9,18 @@
 //               to one of its `hosts` first (a site that has moved domain).
 //               Optional, and deliberately outside `host_permissions`.
 //   subfolder   where its files land under the browser's download directory
-//   yields      'file'  — a gate that unlocks always ends in a file
-//               'mixed' — it might, or it might be a page to open instead
+//   yields      'file'   a gate that unlocks always ends in a file
+//               'mixed'  it might, or it might be a page to open instead
 //   wantsEmail  whether the address in settings is ever used
 //   unlock(url, {email, name, connect}) → Promise<Unlocked>
 //
 // `connect(url, {landing})` is the one thing an adapter cannot do with fetch:
 // it sends a tab out through a sign-in and answers whether it came back to
 // `landing`. An OAuth step is a chain of redirects through somebody else's
-// login, so only a tab can walk it — and only the gate's own server learns
-// anything from it, which is the point. It answers false rather than throwing
-// when the trip needs a person (a login, a consent screen), leaving the
-// adapter to say so in its own words. It is absent outside the panel.
+// login, so only a tab can walk it, and that way only the gate's own server
+// learns anything from it. It answers false rather than throwing when the trip
+// needs a person (a login, a consent screen), leaving the adapter to say so in
+// its own words. It is absent outside the panel.
 //
 // `unlock` either throws an Error whose message is what the row should say, or
 // answers with one of:
@@ -34,7 +34,7 @@
 // row offers. A gate that failed for want of something the panel can ask for
 // instead says so by throwing a `Wanting` from ../next-step.ts.
 //
-// Adding a site is a module here and a line in SITES — plus its hosts in
+// Adding a site is a module here and a line in SITES, plus its hosts in
 // `host_permissions` in src/manifest.json, without which every fetch it makes
 // is blocked.
 
@@ -73,7 +73,7 @@ export type Unlocked =
 
 export const SITES: Site[] = [hypeddit, toneden, droploud, pumpyoursound, laylo, featurefm, fanlink];
 
-/** Every hostname a site actually fetches — what `host_permissions` covers. */
+/** Every hostname a site fetches: what `host_permissions` covers. */
 export const HOSTS = SITES.flatMap((site) => site.hosts);
 
 /** Every hostname a link can arrive on, fetched or rewritten. */

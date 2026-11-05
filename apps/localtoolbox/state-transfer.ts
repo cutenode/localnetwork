@@ -7,8 +7,8 @@
 // extension's own storage, which goes away with the extension. Reinstalling it
 // (or moving to another browser profile) otherwise means losing a list built
 // over months, every mark on it, and paying for every API lookup again. The
-// queue goes sooner than any of them — it is a working list, and closing the
-// browser is enough to end it — so a file is also the only way a batch picked
+// queue goes sooner than any of them (it is a working list, and closing the
+// browser is enough to end it), so a file is also the only way a batch picked
 // out but not yet worked through outlives the day it was picked. Exporting
 // writes a file; importing merges it back.
 //
@@ -24,7 +24,7 @@
 // (src/lib/components/StateTransfer.svelte), not in any one tool. What this
 // file owns is the format; the stores own the storage. The marks go through
 // TbxDownloaded, and the session queue and the Manager's list through the
-// popup's own stores — the sheet hands both in on the way out and hands the
+// popup's own stores. The sheet hands both in on the way out and hands the
 // file's back to those stores on the way in, so what is exported is what the
 // popup is showing and what is imported goes through the thing that already
 // knows not to hold a track twice.
@@ -77,36 +77,36 @@ const TbxState = (() => {
 	const FORMAT = 'toolbox.manager.state' as const;
 
 	// What the tool was called before, and so what every file exported before
-	// the rename says it is. The format never changed — only its name did — so
-	// such a file is read exactly as a current one is, and rewritten under the
-	// current name the next time one is exported. Refusing it would lose the
-	// marks, the cached lookups and the half-worked batch it was written to
-	// keep, which is the whole point of the file.
+	// the rename says it is. Only the format's name changed, so such a file is
+	// read exactly as a current one is, and rewritten under the current name
+	// the next time one is exported. Refusing it would lose the marks, the
+	// cached lookups and the half-worked batch it was written to keep.
 	const READS: StateFile['format'][] = [FORMAT, 'toolbox.soundcloud-downloads.state'];
 
 	const VERSION = 1 as const;
 
-	// The details cache belongs to the content script (content.js, DETAILS_KEY);
+	// The details cache belongs to the content script (content.ts, DETAILS_KEY);
 	// this is the same key, read and written here so a restored file brings the
 	// lookups back. test/consistency.test.ts checks the two agree.
 	const DETAILS_KEY = 'details' as const;
 
 	// The Manager's own list of tracks, which belongs to the popup's listed
-	// store (src/tools/manager/listed.svelte.js, LISTED_KEY). Named here only so
+	// store (src/tools/manager/listed.svelte.ts, LISTED_KEY). Named here only so
 	// the file's member and the storage key are known to be the same word;
 	// nothing in this file reads or writes it, for the reason the queue is not
-	// read or written here either — the store that owns a thing does that.
+	// read or written here either: the store that owns a thing does that.
 	const LISTED_KEY = 'listed' as const;
 
 	// The artists tool's own list, which belongs to its store
-	// (src/tools/artists/artists.svelte.js, ARTISTS_KEY). Named here for the
+	// (src/tools/artists/artists.svelte.ts, ARTISTS_KEY). Named here for the
 	// reason the Manager's list is, and read and written here as little.
 	const ARTISTS_KEY = 'artists' as const;
 
 	// The panel options, which live in the extension pages' own localStorage:
 	// the name in the file, the localStorage key, and what a valid value is.
-	// `background` and `sort` are the Manager panel's (panel.js); the
-	// "Hide downloaded" toggle is the shared filter bar's (list-filter.js).
+	// `background` and `sort` are the Manager panel's (manager/Panel.svelte; the
+	// artists panel shares `background`); the "Hide downloaded" toggle belongs to
+	// the filter bar (list-filter.svelte.ts) and is shared with the Downloader.
 	const PREFS: Pref[] = [
 		{ name: 'background', key: 'pref:background', type: 'boolean' },
 		{ name: 'sort', key: 'pref:sort', type: 'enum', values: ['site', 'page'] },
@@ -134,15 +134,15 @@ const TbxState = (() => {
 	// a number is that number.)
 	const isTimestamp = (value: Json) => Number.isInteger(value) && Number(value) >= 0;
 
-	// The schema's date-time format: RFC 3339, which is what
-	// Date.prototype.toISOString writes — a date, a time to the second, and a
-	// zone, "Z" or an offset — with the letters in either case and a space
+	// The schema's date-time format is RFC 3339, which is what
+	// Date.prototype.toISOString writes: a date, a time to the second, and a
+	// zone ("Z" or an offset), with the letters in either case and a space
 	// allowed for the "T", as the schema's validator reads it. Date.parse alone
 	// takes far more than that (a bare date, a lone number, "Sep 8 2026"), and a
 	// mark timed like that is one the schema refuses and TbxDownloaded.merge
-	// cannot put in order. Two things the validator takes that this does not —
-	// a leap second, and an offset written without its colon — are nothing
-	// this tool ever writes.
+	// cannot put in order. The validator takes two things this does not (a leap
+	// second, and an offset written without its colon), and this tool never
+	// writes either.
 	const DATE_TIME = new RegExp(
 		'^(\\d{4})-(\\d{2})-(\\d{2})[Tt ]' +
 			'(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?' +
@@ -172,13 +172,12 @@ const TbxState = (() => {
 	// A value out of the file, put into a refusal's message.
 	//
 	// Interpolating one straight into a template calls its own `toString`, and
-	// a file is free to carry `{"toString": null}` — an object JSON.parse is
+	// a file is free to carry `{"toString": null}`, an object JSON.parse is
 	// happy with and string coercion is not. That throws a TypeError out of the
 	// very sentence meant to explain the refusal, so the panel shows "Cannot
 	// convert object to primitive value" instead of what is wrong with the
-	// file. Strings go through as they are, so every message a real file
-	// produces reads exactly as it did; everything else is shown as the JSON it
-	// came in as.
+	// file. Strings go through as they are, so a real file's messages read
+	// normally; everything else is shown as the JSON it came in as.
 	const shown = (value: Json) => (isString(value) ? value : JSON.stringify(value));
 
 	// Checks one object against a list of allowed properties: `required` must
@@ -214,19 +213,20 @@ const TbxState = (() => {
 			// backup taken then still has to read back. '' means the uploader set
 			// no genre; absent means nobody has looked since it started being kept.
 			genre: { check: isString, expected: 'a string' },
-			// The cover SoundCloud named — a track's own artwork, else its
-			// uploader's avatar. '' means it has neither. Optional for the same
-			// reason as the genre: details cached before the cover was kept have no
-			// such key, and a backup taken then still has to read back.
+			// The cover SoundCloud named: a track's own artwork, else its uploader's
+			// avatar. '' means it has neither. Optional for the same reason as the
+			// genre: details cached before the cover was kept have no such key, and
+			// a backup taken then still has to read back.
 			artworkUrl: { check: isString, expected: 'a string' },
 			at: { required: true, check: isTimestamp, expected: 'a time in milliseconds' }
 		});
 
 	// The schema's `partialDetails`: what a Likes row shows by itself. The page
 	// renders the purchase link there, so that much is known without asking
-	// SoundCloud, and the nulls say that nothing else is. Only a queued track
-	// carries one — the details cache holds answers, and this is not one, so it
-	// is never filed there and never has a time to expire from.
+	// SoundCloud, and the nulls say that nothing else is. Only a track in the
+	// queue or on the list carries one: the details cache holds answers, and
+	// this is not one, so it is never filed there and never has a time to
+	// expire from.
 	const checkPartialDetails = (entry: JsonObject, where: string) =>
 		checkMembers(entry, where, {
 			partial: { required: true, check: (v) => v === true, expected: 'true' },
@@ -281,13 +281,12 @@ const TbxState = (() => {
 
 	// The schema's `trackDetails`: what a track carries its own copy of, whether
 	// it is sitting in the queue or on the list. Either what SoundCloud said or
-	// a Likes row's partial answer — never a remembered failure, which is not an
+	// a Likes row's partial answer, never a remembered failure, which is not an
 	// answer about the track at all.
 	/** @param permalink the track's own. */
 	const checkTrackDetails = (details: JsonObject, where: string, permalink: Json, held: 'queued' | 'listed') => {
-		// Saying that is worth a line of its own: checked as known details, such
-		// an entry is reported as missing every field it has, which names none of
-		// what is actually wrong.
+		// A refusal of its own: checked as known details, such an entry is reported
+		// as missing every field it has, which names none of what is wrong.
 		if ('unavailable' in details) {
 			fail(`${where}: a remembered lookup failure is not what a track is ${held} with`);
 		}
@@ -306,8 +305,8 @@ const TbxState = (() => {
 	// What the page a track came off said about it, which nothing else can:
 	// the genre it rendered beside the row, and whether the row's own like and
 	// repost buttons were on. A queued track carries them as well as a listed
-	// one — the queue is a source the list adds from, and the page is gone by
-	// then — so they belong to the shape both share. All three are optional:
+	// one, because the queue is a source the list adds from and the page is gone
+	// by then, so they belong to the shape both share. All three are optional:
 	// null is "the page never said", and so is a file written before they were
 	// kept, which still has to read back.
 	const PAGE_FACTS = {
@@ -317,15 +316,15 @@ const TbxState = (() => {
 	} satisfies Record<string, Rule>;
 
 	// The properties a listed track has over a queued one: the uploader's
-	// wording for a purchase link, and the two things the list itself knows —
-	// where the track came in from, and when.
+	// wording for a purchase link, plus where the track came in from and when,
+	// which only the list knows.
 	const LISTED_EXTRAS = {
 		domPurchaseTitle: { check: isString, expected: 'a string' },
 		from: { check: isString, expected: 'a string' },
 		at: { check: isTimestamp, expected: 'a time in milliseconds' }
 	} satisfies Record<string, Rule>;
 
-	// One array of track entries — the queue, or the Manager's list — against
+	// One array of track entries (the queue, or the Manager's list) against
 	// the shape they share. The one thing an entry cannot go without is the
 	// permalink: it is the identity for a track everywhere in this extension,
 	// what gets marked when its turn comes, and what tells two entries apart.
@@ -366,7 +365,7 @@ const TbxState = (() => {
 	const checkQueue = (queue: Json) => checkTracks(queue, 'queue', 'queued');
 
 	// The schema's `listed`: the Manager's own list, in the order tracks were
-	// put on it. A queue entry plus what only the list knows — see LISTED_EXTRAS.
+	// put on it. A queue entry plus what only the list knows (see LISTED_EXTRAS).
 	const checkListed = (list: Json) => checkTracks(list, 'listed', 'listed', LISTED_EXTRAS);
 
 	// The schema's `profileLink`: one link an account lists on its profile.
@@ -404,7 +403,7 @@ const TbxState = (() => {
 	};
 
 	// The schema's `profileEntry`: a profile, or a remembered failure to find
-	// one. Only ever given an object — the entry's own shape check refuses
+	// one. Only ever given an object: the entry's own shape check refuses
 	// anything else before this is reached.
 	const checkProfile = (profile: JsonObject, where: string) => {
 		if ('unavailable' in profile) checkUnavailableDetails(profile, where);
@@ -568,7 +567,7 @@ const TbxState = (() => {
 				else if (pref.values.includes(stored)) prefs[pref.name] = stored;
 			}
 		} catch (_e) {
-			// Storage unavailable — the file simply carries no options.
+			// Storage unavailable: the file carries no options.
 		}
 
 		return prefs;
@@ -579,10 +578,10 @@ const TbxState = (() => {
 	// The queue and the two lists are handed in rather than read out of
 	// storage, because the stores that own them do not always get to write them
 	// there: when storage cannot be reached each is held in memory and shown on
-	// screen all the same (queue.svelte.js, listed.svelte.js,
-	// artists.svelte.js), and a file written from storage would then carry
+	// screen all the same (queue.svelte.ts, listed.svelte.ts,
+	// artists.svelte.ts), and a file written from storage would then carry
 	// nothing while the panel showed a full list. All three have to be plain
-	// data — the stores' `entries`, not the panel's `$state` — since they go
+	// data (the stores' `entries`, not the panel's `$state`), since they go
 	// straight into the file. A caller with none to give still gets a valid
 	// document, which is the same bargain the options make.
 	const snapshot = async (
@@ -627,18 +626,18 @@ const TbxState = (() => {
 
 	// Writes a parsed document into storage, in one of two ways.
 	//
-	// Adding — which is what happens unless somebody asks for the other — never
+	// Adding, which is what happens unless somebody asks for the other, never
 	// removes anything: marks are added (the store keeps the earlier time for
 	// one already there), details are taken only where they are newer than what
 	// is known (the same rule the content script applies to another tab's
 	// lookups), and an option the file carries is set only where nothing is set
-	// already. That last one is the point of the rule rather than an exception
-	// to it: an option somebody has chosen here is a thing they have, and an
-	// import that is adding to what they have does not overwrite it.
+	// already. That last one follows the same rule: an option somebody has
+	// chosen here is a thing they have, and an import that is adding to what
+	// they have does not overwrite it.
 	//
 	// Replacing is the opt-in, and it is the exact opposite in every part: the
 	// marks become the file's marks, the details cache becomes the file's cache,
-	// and every option goes to what the file says — or, where the file says
+	// and every option goes to what the file says or, where the file says
 	// nothing, back to its default. What was here and is not in the file is
 	// gone. Nobody gets there without turning a switch on first.
 	//
@@ -700,7 +699,7 @@ const TbxState = (() => {
 				prefs++;
 			}
 		} catch (_e) {
-			// Storage unavailable — the options stay as they are.
+			// Storage unavailable: the options stay as they are.
 		}
 
 		return { marks, details, prefs };

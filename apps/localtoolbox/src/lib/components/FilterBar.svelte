@@ -1,6 +1,6 @@
 <!--
   The search box and the "Hide downloaded" toggle, with a line underneath that
-  only appears when something is being hidden — and says so in words when
+  only appears when something is being hidden, and says so in words when
   nothing is left.
 -->
 <script lang="ts">
@@ -11,7 +11,7 @@
   import type { createFilter } from '$lib/list-filter.svelte.ts';
 
   interface Props {
-    /** From createFilter() in $lib/list-filter.svelte.js. */
+    /** From createFilter() in $lib/list-filter.svelte.ts. */
     filter: ReturnType<typeof createFilter>;
     shown?: number;
     total?: number;

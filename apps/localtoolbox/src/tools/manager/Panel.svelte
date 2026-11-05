@@ -1,46 +1,45 @@
 <!--
   Manager: a list of tracks, and where each of them can be downloaded from.
 
-  The list is the tool's own and is kept for good (./listed.svelte.ts).
-  Nothing goes onto it by itself: the bar at the top says what the tab in
-  front is offering and what the session queue holds, and **add** is what
-  brings either in. That is the difference from what this panel used to be —
-  it *was* whichever page was in front, read and looked up in full the moment
-  it was opened, thrown away the moment the popup closed, and blank on any tab
-  that was not a SoundCloud playlist. Which is to say: it had nothing to show
-  on the Hypeddit tab a row had just sent you to, and opening it was a few
-  hundred requests to SoundCloud about tracks nobody had asked about.
+  The list is the tool's own and is kept for good (./listed.svelte.ts). Nothing
+  goes onto it by itself: the bar at the top says what the tab in front is
+  offering and what the session queue holds, and "add" is what brings either in.
+  If the panel were whichever page was in front, it would be read and looked up
+  in full the moment it opened, thrown away the moment the popup closed, and
+  blank on any tab that was not a SoundCloud playlist. It would have nothing to
+  show on the Hypeddit tab a row had just sent you to, and opening it would be a
+  few hundred requests to SoundCloud about tracks nobody had asked about.
 
-  Now it opens on any page, with whatever is on the list, and asking SoundCloud
+  It opens on any page, with whatever is on the list, and asking SoundCloud
   anything is something somebody pressed a button for. Adding a page puts its
   tracks on the list straight away, from what the page itself renders, and then
-  asks SoundCloud where each one can be had — the rows are up before the first
+  asks SoundCloud where each one can be had. The rows are up before the first
   answer, and settle where they already are as the answers land.
 
   The list is then grouped by the site its links point at, or shown in the
   order it was built. Opening a link puts the track in the session queue: at
-  that moment nothing has been downloaded yet — the gate behind the link has
-  not even been walked — so the queue is where it waits until a whole batch of
+  that moment nothing has been downloaded yet (the gate behind the link has
+  not even been walked), so the queue is where it waits until a whole batch of
   them is marked. The list button queues a track without opening anything; the
   check mark marks one by hand. Each works on the one row it is on.
 
-  A batch is a separate gesture: **Select** in the header puts a tick box on
-  every row, and the bar above the list then puts a marker on everything ticked
-  — into the queue or out of it, marked as downloaded or unmarked — or takes
-  the lot off the list. So what is about to be marked can be looked at first,
-  and one selection can take two markers.
+  A batch is a separate gesture: "Select" in the header puts a tick box on every
+  row, and the bar above the list then puts a marker on everything ticked (into
+  the queue or out of it, marked as downloaded or unmarked) or takes the lot off
+  the list. So what is about to be marked can be looked at first, and one
+  selection can take two markers.
 
   SoundCloud's own downloads have no URL of their own ("Download file" is an
   item in the track's More menu), so those entries open the track page, where
-  the content script sees that button being used and marks the track itself.
-  A track offering both kinds of link leads with one of them and shows the
-  other as a small icon beside it, so a row is a title and one thing to click
-  rather than two buttons and no room; links.ts decides which leads. Both are
-  the same download icon on every row rather than the uploader's own wording
-  for their link ("Free Download", "Buy", "🎧 Stream / Download"): that is a
-  label on somebody else's page, it is a different length on every row, and
-  the room it took is the room the title wanted. It is still said — in the
-  button's tooltip, and in the row's detail line, which names the site.
+  the content script sees that button being used and marks the track itself. A
+  track offering both kinds of link leads with one of them and shows the other
+  as a small icon beside it, so a row is a title and one thing to click rather
+  than two buttons and no room; links.ts decides which leads. Both are icons,
+  the same on every row, rather than the uploader's own wording for their link
+  ("Free Download", "Buy", "🎧 Stream / Download"): that is a label on somebody
+  else's page, it is a different length on every row, and the room it would take
+  is the room the title wants. The wording is still in the button's tooltip, and
+  the row's detail line names the site.
 
   The chevron opens a row downwards into the rest of what is known about the
   track: its title, artist and genre, its address and the page it came in
@@ -48,16 +47,16 @@
   words somebody is about to type into a spreadsheet, a message or a search
   box. Fields nobody has an answer for say so and cannot be copied. Whether it
   has been liked or reposted is down there too, as two small icons rather than
-  two lines of text — it is a yes or a no, and nobody pastes it anywhere. The
+  two lines of text: it is a yes or a no, and nobody pastes it anywhere. The
   row's way off the list is on that same last line, since the four buttons on
   the row itself are as many as 400px will take.
 
   The footer points at settings, where all of that goes out to a JSON file and
-  reads back in ($lib/components/StateTransfer.svelte) — so a reinstalled
-  extension is one import away from where it left off, half-worked-through
-  batch included. It used to be here, which put a backup of the marks, the
-  looked-up details, the session queue and three panels' options behind one
-  tool's footer; the file's shape is specified in
+  reads back in ($lib/components/StateTransfer.svelte), so a reinstalled
+  extension is one import away from where it left off, half-worked-through batch
+  included. It lives there because the file holds the marks, the looked-up
+  details, the session queue and three panels' options, which do not belong
+  behind one tool's footer. The file's shape is specified in
   docs/manager-state.schema.json, and state-transfer.ts reads and writes it.
 -->
 <script lang="ts">
@@ -182,10 +181,10 @@
   let { tool, onback }: PanelProps = $props();
 
   // The stored value stays 'page' though the words changed: it is part of the
-  // exported state file's format (state-transfer.js, and the schema in docs/),
+  // exported state file's format (state-transfer.ts, and the schema in docs/),
   // and renaming it would make every file already written say nothing about
   // the sort order. What it named was the page's order and is now the list's,
-  // which is the same idea — the order things came in — over a thing that
+  // which is the same idea (the order things came in) over a thing that
   // outlives one page.
   const SORTS = [
     { value: 'site', label: 'by site' },
@@ -213,7 +212,7 @@
   const FACT_HINT = 'click to copy';
 
   // The pair of marks an opened row draws instead of spelling out, and the
-  // three ways one is drawn — a filled chip for yes, the outline alone for no,
+  // three ways one is drawn: a filled chip for yes, the outline alone for no,
   // and a dashed box around a faint one for a row that never drew the button,
   // which is what "nobody said" looks like.
   const MARK_ICONS = { liked: Heart, reposted: Repeat2 };
@@ -230,8 +229,8 @@
   const UNMARK_HINT = 'takes the downloaded mark off every track. the list stays.';
 
   // What a page that cannot be added says instead of a count. The shared
-  // sentence tells you to click the extension again, which was true when the
-  // panel was the page; this one stays open and waits.
+  // sentence only says to open a page; this one says the tab is not one, and
+  // what opening one would do.
   const NO_PAGE = 'not a SoundCloud playlist, likes or track page. open one to add it.';
 
   // What to call a page that never rendered a title, by the kind of page it
@@ -257,8 +256,8 @@
   // --- the search badges -----------------------------------------------------
   //
   // Which sites a link-less row offers is a setting rather than a fact about
-  // the list ($lib/search-sites.svelte.js), so it can change while this panel
-  // is on screen — the sheet is thrown over it and the rows behind redraw. The
+  // the list ($lib/search-sites.svelte.ts), so it can change while this panel
+  // is on screen: the sheet is thrown over it and the rows behind redraw. The
   // two sentences that name the sites have to answer for all of them being
   // switched off, which is a row with nothing on it but its toggles: better
   // said than left looking like a row the tool forgot to finish.
@@ -280,7 +279,7 @@
 
   // --- the list --------------------------------------------------------------
   //
-  // What is drawn is what the list holds, plus — while an add is running — the
+  // What is drawn is what the list holds, plus, while an add is running, the
   // answers that have arrived for it but not yet been written back. Those
   // arrive a few at a time and are folded in here rather than written one
   // batch at a time, so a hundred-track page costs the list one write at the
@@ -311,7 +310,7 @@
   // --- what there is to add --------------------------------------------------
   //
   // One read of the active tab, started before this panel existed (see `warm`
-  // in $lib/tools.js) and used only to describe the button: the page's own
+  // in $lib/tools.ts) and used only to describe the button: the page's own
   // rows, which is a few milliseconds of reading its DOM and asks SoundCloud
   // nothing. Pressing the button is what asks.
 
@@ -357,15 +356,15 @@
     page = {
       reading: false,
       name: title || 'this tab',
-      // What the tracks are filed under. A page with no title of its own —
-      // a public likes page with no heading, a track page whose hero has not
-      // drawn its title — renders none at all, and "unknown" on every row of
+      // What the tracks are filed under. A page with no title of its own
+      // (a public likes page with no heading, a track page whose hero has not
+      // drawn its title) renders none at all, and "unknown" on every row of
       // it would be a worse answer than the kind of page it was.
       from: title || PAGE_KINDS[pageType] || 'a playlist',
       curator,
       // Likes pages can mix liked tracks with liked playlists, and the content
       // script skips the playlists. Said here rather than in the list's own
-      // summary, because it is a fact about the page being offered — the list
+      // summary, because it is a fact about the page being offered: the list
       // spans pages and has no business repeating one of them.
       skipped: skippedPlaylists,
       tracks: found,
@@ -417,7 +416,7 @@
   // What an add came to, when that is something to leave on screen rather than
   // to slide past: a page that could not be read, tracks SoundCloud would not
   // describe, tracks that did not fit. An add with nothing to add to that gets
-  // a toast instead — the list itself is the report.
+  // a toast instead: the list itself is the report.
   let note: { tone: 'info' | 'bad'; text: string } | null = $state(null);
 
   // Answers arriving from the lookup, a few at a time, so a long page fills in
@@ -463,9 +462,9 @@
         'take some off and add again.'
       : '';
 
-  // How an add reports itself. Anything that has to be read — a page that
+  // How an add reports itself. Anything that has to be read (a page that
   // could not be reached, tracks SoundCloud would not describe, tracks that
-  // did not fit — is a note and stays; a clean add is a toast, because the
+  // did not fit) is a note and stays; a clean add is a toast, because the
   // rows that just appeared are the report.
   /** @param extra '' for a clean add. */
   function reported(text: string, extra: string, tone: 'info' | 'bad' = 'info') {
@@ -479,8 +478,8 @@
     progress = null;
     const from = page.from;
     const found = page.tracks;
-    // The rows go up now, from what the page itself rendered — on a Likes page
-    // that already carries the purchase links — and are marked as being looked
+    // The rows go up now, from what the page itself rendered (on a Likes page
+    // that already carries the purchase links) and are marked as being looked
     // up, so the list is on screen before SoundCloud has been asked a thing.
     checkingIds = new Set(found.map((track) => track.permalink));
     const first = await listed.add(found, { from });
@@ -488,8 +487,8 @@
     const result = await readPage('GET_DOWNLOAD_DETAILS');
 
     if (result.status || LOOKUP_ERRORS[result.data!.error]) {
-      // The rows are on the list either way — they came off the page, not out
-      // of the lookup — so this says what is missing from them rather than
+      // The rows are on the list either way (they came off the page, not out
+      // of the lookup), so this says what is missing from them rather than
       // that nothing happened.
       const why = result.status || LOOKUP_ERRORS[result.data!.error];
       note = { tone: 'bad', text: `${said(first, from)}, but their links weren’t checked. ${why}` };
@@ -521,9 +520,9 @@
     adding = true;
     note = null;
     // Queued tracks carry whatever was known when they were queued, which is
-    // often a full answer and sometimes none at all. Nothing is looked up
-    // here: the lookup runs on the page a track is on, and the whole point of
-    // this source is that that page need not be open.
+    // often a full answer and sometimes none at all. Nothing is looked up here:
+    // the lookup runs on the page a track is on, and this source works without
+    // that page being open.
     const tally = await listed.add(queue.items, { from: 'the session queue' });
     adding = false;
     reported(said(tally, 'the session queue'), refusal(tally));
@@ -534,8 +533,8 @@
   // --- the sections ----------------------------------------------------------
 
   // A row's identity for `{#each}`. The list holds a track once, but the
-  // by-site layout can draw one twice — a SoundCloud download and a purchase
-  // link are two rows — and Svelte insists a key be unique.
+  // by-site layout can draw one twice (a SoundCloud download and a purchase
+  // link are two rows) and Svelte insists a key be unique.
   const rowKey = (index: number, ...parts: string[]) => [index, ...parts].join(':');
 
   // One flat list of rows, whichever way it is sorted, so the filter and the
@@ -623,7 +622,7 @@
     }
 
     // Sorted by site, a track cannot be filed until its site is known, so the
-    // ones nobody has an answer about wait here — last, since they are the
+    // ones nobody has an answer about wait here, last, since they are the
     // part of the list that is going somewhere else. During an add they leave
     // a few at a time as the answers come in; the rest sit until the page they
     // are on is added.
@@ -698,9 +697,8 @@
 
   const sourceCount = $derived(listed.sources.length);
 
-  // The line under the title: what the list is, and what is in it. Unlike the
-  // page summary it replaced, this says nothing about a tab — the list outlives
-  // every one of them.
+  // The line under the title: what the list is, and what is in it. It says
+  // nothing about a tab, since the list outlives every one of them.
   const meta = $derived(
     tracks.length === 0
       ? ''
@@ -715,13 +713,13 @@
 
   // --- the two row toggles ---------------------------------------------------
   //
-  // A row carries two of them — the list button that queues a track, the check
-  // button that marks it as downloaded — and they behave alike, because there
+  // A row carries two of them (the list button that queues a track, the check
+  // button that marks it as downloaded), and they behave alike, because there
   // is one click here and two sets for it to work on. A set says how to read it
   // and how to write it; everything else, the button included, is shared.
   //
   // Each works on the one row it is on. A batch goes through the selection
-  // below instead, which is also what the sets' `add` and `remove` are for.
+  // below instead.
 
   const permalinksOf = (list: ListedEntry[]) => list.map((track) => track.permalink);
 
@@ -752,13 +750,13 @@
   // --- selecting a batch -----------------------------------------------------
   //
   // Select turns the list into something to pick out of: every row grows a tick
-  // box, and the bar above the list puts a marker on everything ticked — one
+  // box, and the bar above the list puts a marker on everything ticked, one
   // write per marker, however many tracks. Ticking is nothing but ticking, so
   // the batch can be looked at before anything is done to it, and the same
   // batch can be queued *and* marked.
   //
-  // Which tracks: the ones ticked, in list order — the order they were added
-  // in, not the order they were ticked in. A track the by-site layout draws
+  // Which tracks: the ones ticked, in list order (the order they were added
+  // in, not the order they were ticked in). A track the by-site layout draws
   // twice is one tick and one track.
 
   const picks = createSelection(here);
@@ -770,16 +768,16 @@
     ...new Set(visible.flatMap((section) => section.rows.map((row) => row.track.permalink))),
   ]);
 
-  // The rows the tab in front is showing, in list order: what **this page**
-  // ticks. The list spans every page it was built from, and the one somebody
-  // is looking at is rarely all of it — so "everything on this page" is a
-  // gesture of its own, above the box that takes in the lot. It is the same
-  // read of the tab the add bar is describing (`page`), so it costs nothing:
-  // no request goes out for it and none is needed.
+  // The rows the tab in front is showing, in list order: what "tick this page"
+  // ticks. The list spans every page it was built from, and the one somebody is
+  // looking at is rarely all of it, so "everything on this page" is a gesture
+  // of its own, below the box that takes in the lot. It is the same read of the
+  // tab the add bar is describing (`page`), so it costs nothing: no request
+  // goes out for it and none is needed.
   //
   // Which rows: the page's tracks that are on the list *and* on screen, in the
   // order the list is showing them. A row the filter hides is not one of them,
-  // for the reason the box at the left of the bar leaves it out too — a tick
+  // for the reason the box at the left of the bar leaves it out too: a tick
   // on a row nobody can see is a track in the batch nobody can see in it.
   const offered = $derived(new Set(page.tracks.map((one) => one.permalink).filter(Boolean)));
 
@@ -789,7 +787,7 @@
     pageOrder.length > 0 && pageOrder.every((permalink) => picks.has(permalink))
   );
 
-  // Why the button is off, where it is — and what it would take, where it is
+  // Why the button is off, where it is, and what it would take, where it is
   // not. A page whose rows are all hidden says so rather than "nothing here is
   // on the list": the filter is a thing somebody can undo, and being told the
   // page was never added when it was would send them to add it again.
@@ -883,8 +881,8 @@
   //
   // The thumbnail each row already shows is also the handle on the full-size
   // artwork: a click copies that image, a ⌘-click opens it in a tab. The URL
-  // is derived from the thumbnail's own address (see lib/artwork.js), so
-  // nothing is fetched to find it — and nothing is fetched at all until a
+  // is derived from the thumbnail's own address (see lib/artwork.ts), so
+  // nothing is fetched to find it, and nothing is fetched at all until a
   // plain click asks for the image itself, exactly one per click.
 
   /** For the thumbnail last clicked. */
@@ -917,21 +915,21 @@
   // --- opening a row ---------------------------------------------------------
   //
   // A row is a thumbnail, a title and four buttons wide, and a popup is 400px
-  // wide, so everything else the extension knows about a track had nowhere to
-  // be said. The chevron opens the row downwards into it — the track as
+  // wide, so everything else the extension knows about a track has nowhere to
+  // be said. The chevron opens the row downwards into it: the track as
   // SoundCloud describes it, one field a line, each of them a button that puts
-  // that field on the clipboard. Which is the point: these are the words
-  // somebody is about to type into a spreadsheet, a message or a search box,
-  // and they are already on screen.
+  // that field on the clipboard. These are the words somebody is about to type
+  // into a spreadsheet, a message or a search box, and they are already on
+  // screen.
   //
-  // Which rows are open is a place rather than a setting — kept for the
+  // Which rows are open is a place rather than a setting: kept for the
   // browsing session, like the search above the list and a half-made selection
-  // (see $lib/view.svelte.js). Opening a download link closes the popup, and a
+  // (see $lib/view.svelte.ts). Opening a download link closes the popup, and a
   // row opened to read an address off is exactly the row somebody comes back
   // to.
   //
   // Open by permalink, not by row: a track the by-site layout lists twice is
-  // one track, and it opens in both places at once — the same rule the tick
+  // one track, and it opens in both places at once, the same rule the tick
   // boxes follow.
   const opened: Remembered<string[]> = remembered(here, 'opened', []);
 
@@ -962,19 +960,18 @@
         `“${entry.label}” — opens ${entry.host}, and marks this downloaded`;
 
   async function open(entry: LinkEntry) {
-    // Opening the link is where the work starts, not where it ends: the track
-    // goes into the session queue, and is marked as downloaded from there once
-    // the file has really been saved. (A SoundCloud download is marked without
-    // any of this when its "Download file" button is used — the content script
-    // sees that click.)
+    // Opening the link only starts the work: the track goes into the session
+    // queue, and is marked as downloaded from there once the file has really
+    // been saved. (A SoundCloud download is marked without any of this when its
+    // "Download file" button is used: the content script sees that click.)
     await queue.add([entry.track]);
     await openTab(entry.url, { background: background.value });
   }
 
   // "Unmark all" asks once more: the first click arms the button for a few
-  // seconds, the second click takes every mark off every page. It says
-  // "unmark" rather than "clear" because there is now a list it could be read
-  // as clearing, and it has never touched that.
+  // seconds, the second click takes every mark off every page. It says "unmark"
+  // rather than "clear" because it could be read as clearing the list, which it
+  // never touches.
   let armed = $state(false);
 
   let armedTimer: ReturnType<typeof setTimeout> | 0 = 0;
@@ -1022,7 +1019,7 @@
 
 <!-- What a row opens into: every field of the track, each one a button that
      copies it. A field nothing is known about ("unknown", "none") is drawn the
-     same but dead — there is nothing to put on a clipboard, and copying the
+     same but dead: there is nothing to put on a clipboard, and copying the
      word "unknown" into a spreadsheet would put a claim there that nobody
      made about the track. The address gets an arrow of its own, since a link
      whose only gesture is "copy" is a link that does not open; and the way off
@@ -1076,7 +1073,7 @@
         {@const Icon = MARK_ICONS[mark.id]}
         <!-- Three states, drawn as three different things rather than two
              shades of one: yes is filled in, no is the outline on its own, and
-             "nobody said" is the dashed box — an empty frame, which is what
+             "nobody said" is the dashed box, an empty frame, which is what
              happened. -->
         <span
           role="img"
@@ -1131,8 +1128,8 @@
   </Tooltip.Root>
 {/snippet}
 
-<!-- The link a row does not lead with: the same button, quieter and without
-     its label, since the row's detail line already says where it goes. -->
+<!-- The link a row does not lead with: a quieter icon button, since the row's
+     detail line already says where it goes. -->
 {#snippet otherLink(entry: LinkEntry)}
   <Button
     size="icon-sm"
@@ -1148,7 +1145,7 @@
 
 <!-- The badges a row with no link carries: the sites switched on in settings,
      in the order the file lists them. What each searches for is its own
-     template's doing — the artist, on every site this ships with — so the
+     template's doing (the artist, on every site this ships with), so the
      button quotes the words rather than naming the field. -->
 {#snippet searchBadges(track: ListedEntry)}
   {#each badgeSites as site (site.id)}
@@ -1167,11 +1164,11 @@
 <PanelShell {tool} {onback} {meta}>
   {#snippet actions()}
     <!-- No words on it: the header is 400px wide and the tool's own name wants
-         them. What it does is in the tooltip, and turning it on says the rest —
-         a tick box on every row, and the bar that goes with them. A tick box
-         is also what it is drawn as: the queue button two along carries the
-         list-with-ticks icon, and two of those in one header were two buttons
-         nobody could tell apart. -->
+         them. What it does is in the tooltip, and turning it on says the rest:
+         a tick box on every row, and the bar that goes with them. A tick box is
+         also what it is drawn as: the queue button two along carries the
+         list-with-ticks icon, and two of those in one header would be two
+         buttons nobody could tell apart. -->
     <Tooltip.Root>
       <Tooltip.Trigger>
         {#snippet child({ props })}
@@ -1201,7 +1198,7 @@
       onclick={onUnmarkAll}
     >
       <Eraser />
-      <!-- "unmark" rather than "clear": there is a list on screen now, and a
+      <!-- "unmark" rather than "clear": there is a list on screen, and a
            button called clear beside it would read as the thing that empties
            it. The count is the marks it takes off. -->
       {#if armed}
@@ -1487,10 +1484,10 @@
     </div>
   {/if}
 
-  <!-- The one line left of what was a whole footer: the list is the biggest
-       thing in the backup, so this is where somebody looks for it, but the
-       file carries four other tools' state and the sheet is where it is taken
-       now. A button rather than a sentence, because it is one press away. -->
+  <!-- One line of footer. The list is the biggest thing in the backup, so this
+       is where somebody looks for it, but the file carries other tools' state
+       too, and the sheet is where it is taken. A button rather than a
+       sentence, because it is one press away. -->
   {#snippet footer()}
     <div class="flex items-center gap-2">
       <span class="section-title mr-auto">saved state</span>

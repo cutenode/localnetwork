@@ -2,7 +2,7 @@
 //
 // The same bargain the queue sheet strikes (queue-sheet.ts): it is not a tool,
 // it comes up over whichever one is open, and it brings the component library
-// with it — which the tool menu the popup boots into is deliberately free of.
+// with it, which the tool menu the popup boots into is deliberately free of.
 // It is also the one place the state file is read or written, so the script
 // that does that (state-transfer.js) comes with it rather than with the page.
 //

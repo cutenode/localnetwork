@@ -1,4 +1,4 @@
-// src/lib/tools.ts — the registry the menu and the shell read.
+// src/lib/tools.ts: the registry the menu and the shell read.
 import { describe, it, expect, vi } from 'vitest';
 import { TOOLS, toolById, loadPanel } from '../../src/lib/tools.ts';
 import { createChrome, type ChromeMock } from '../helpers/chrome.ts';

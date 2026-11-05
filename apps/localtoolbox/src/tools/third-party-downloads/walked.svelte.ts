@@ -1,25 +1,26 @@
 // The Downloader's list, kept for as long as the browsing session lasts.
 //
-// Why it exists: this panel's whole job is handing work back to a person. Most
-// of these gates fail for something a fetch can never give them — a connected
-// account, a CAPTCHA, a step the page does to itself — and the way a row hands
-// that over is a tab. Opening a tab closes the popup.
+// Why it exists: this panel hands work back to a person. Most of these gates
+// fail for something a fetch can never give them (a connected account, a
+// CAPTCHA, a step the page does to itself), and the way a row hands that over
+// is a tab. Opening a tab closes the popup.
 //
-// Everything the walk had learned used to go with it. Which links had been
-// saved, which had resolved to a page to open rather than a file, which had
-// failed and why, and the links pasted into the drawer, which no source would
-// ever offer again. Worse, the list was built afresh from whatever tab was in
-// front — and the tab in front was usually the gate that had just been opened,
-// which is a link this tool claims: twenty rows came back as one.
+// Without this, everything the walk has learned would go with it: which links
+// have been saved, which have resolved to a page to open rather than a file,
+// which have failed and why, and the links pasted into the drawer, which no
+// source would ever offer again. The list would also be built afresh from
+// whatever tab is in front, and the tab in front is usually the gate that has
+// just been opened, which is a link this tool claims: twenty rows would come
+// back as one.
 //
 // So the list itself is kept, beside the session queue and the popup's place
 // (see $lib/queue.svelte.ts and $lib/view.svelte.ts), in
 // chrome.storage.session. A working list, not a library: it goes when the
 // browser does, and the marks it makes are what lasts.
 //
-// Two things are held, not one. `listed` is the list on screen, in its order.
-// `known` is every row this session has built, by URL, outcomes and all — a
-// link deliberately switched away from (the page for the queue, say) is not on
+// Two things are held. `listed` is the list on screen, in its order. `known` is
+// every row this session has built, by URL, outcomes and all: a link
+// deliberately switched away from (the page for the queue, say) is not on
 // screen any more, but walking it again from the other source would be walking
 // it twice, so what became of it is remembered whether it is listed or not.
 //
@@ -41,8 +42,8 @@ import { siteFor, type Site } from './sites/index.ts';
 import { EMAIL, NAME, type NextStep } from './next-step.ts';
 
 /**
- * Where a row's walk has got to: not run, under way (`working`, then `saving` once the file
- * is known), or come to something — saved (`done`), signed up for (`sent`), a page to open
+ * Where a row's walk has got to. Not run, under way (`working`, then `saving` once the file is
+ * known), or come to something: saved (`done`), signed up for (`sent`), a page to open
  * (`link`), or `failed`.
  */
 const RowState = z.enum(['queued', 'working', 'saving', 'done', 'sent', 'link', 'failed']);
@@ -100,10 +101,10 @@ export type Kept = z.infer<typeof Kept>;
 
 const KEY = 'downloader';
 
-// A walk that is still going when the popup closes will not finish: nothing
-// was saved and nothing failed, so the row that is kept is the one it was
-// before Get was pressed, and it is kept that way rather than put back that
-// way — no reader of the stored list has to know what a running row means.
+// A walk that is still going when the popup closes will not finish: nothing was
+// saved and nothing failed, so the row that is kept is the one it was before
+// Get was pressed. It is kept that way rather than put back that way, so no
+// reader of the stored list has to know what a running row means.
 const RESTING: Partial<Record<RowState, RowState>> = { working: 'queued', saving: 'queued' };
 
 /** The fields of a row that outlive the popup. */
@@ -180,7 +181,7 @@ class Walked {
 	}
 
 	/**
-	 * Puts a link at the end of the list — as the row it already was, if this
+	 * Puts a link at the end of the list, as the row it already was, if this
 	 * session has built one for it. Answers with the row as the list holds it,
 	 * which is what a walk then writes its state to.
 	 */
@@ -211,7 +212,7 @@ class Walked {
 
 	/**
 	 * Empties the list, for a source deliberately switched: what is listed is
-	 * what the chosen source holds. What became of each row is not forgotten —
+	 * what the chosen source holds. What became of each row is not forgotten:
 	 * a link the other source offers too is still the row it was.
 	 */
 	clear() {
@@ -237,7 +238,7 @@ class Walked {
 	// One write per turn, however many rows moved in it: a run settles a row and
 	// renames it in the same breath, and that is one list, not two.
 	//
-	// `$state.snapshot` is not a nicety: what `$state` holds are proxies, and
+	// `$state.snapshot` is required: what `$state` holds are proxies, and
 	// the structured clone every storage write goes through refuses one.
 	#write() {
 		if (this.#writing) return;

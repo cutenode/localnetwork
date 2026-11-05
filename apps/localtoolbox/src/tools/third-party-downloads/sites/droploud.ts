@@ -1,4 +1,4 @@
-// Droploud — droploud.com
+// Droploud (droploud.com)
 //
 // (The one people write down as "DropCloud". The site spells it Droploud, and
 // so does the SoundCloud link it arrives on.)
@@ -8,8 +8,8 @@
 // which follows, likes, reposts and saves it asks for. Working it is three
 // kinds of request against api.droploud.com:
 //
-//   POST /gate/<id>/step      {session_id, step}   — one step done
-//   POST /gate/<id>/download  {session_id}         — {download_url, type}
+//   POST /gate/<id>/step      {session_id, step}   → one step done
+//   POST /gate/<id>/download  {session_id}         → {download_url, type}
 //   POST /soundcloud/verify-repost {track_id, session_id, give_up}
 //
 // The session id is not a credential. The page invents a UUID on first paint,
@@ -21,7 +21,7 @@
 // -----------------------------
 // The download post is refused ("Gate not completed", HTTP 403) until the steps
 // have been posted, but the steps themselves are self-reported: the page marks
-// one done the moment its button is clicked — the click opens the artist's
+// one done the moment its button is clicked. The click opens the artist's
 // SoundCloud or Spotify page in a popup, and nothing checks what happens there.
 // Posting the step is worth exactly what clicking the button is worth, which is
 // why this tool does it and says so plainly rather than pretending otherwise.
@@ -29,7 +29,7 @@
 // One step is different. A `soundcloud_repost` step is verified for real: it
 // wants a SoundCloud account connected by OAuth and then reads that account's
 // reposts back. There is nothing to self-report, and nothing here signs in as
-// anybody — so the tool takes Droploud's own way out, the "give up" the page
+// anybody, so the tool takes Droploud's own way out, the "give up" the page
 // offers after a couple of failed checks, which drops the step rather than
 // claiming it. A gate that will not open without it says so on its row.
 
@@ -126,7 +126,7 @@ async function unlock(pageUrl: string, _details: UnlockDetails): Promise<Unlocke
 			continue;
 		}
 
-		// A failed step is not fatal on its own — the download call below is what
+		// A failed step is not fatal on its own: the download call below is what
 		// says whether the gate is satisfied, and it gives the better message.
 		await post(`/gate/${gate.id}/step`, { session_id: session, step: step.id });
 	}
@@ -151,7 +151,7 @@ async function unlock(pageUrl: string, _details: UnlockDetails): Promise<Unlocke
 	const title = [gate.artist, gate.title].filter(Boolean).join(' — ');
 
 	// `type: "external"` is Droploud saying the artist pointed the gate somewhere
-	// else — usually a Dropbox or Drive link, which is a file often enough to be
+	// else, usually a Dropbox or Drive link, which is a file often enough to be
 	// worth looking at rather than assuming either way.
 	return looksLikeFile(answer.download_url)
 		? { kind: 'file', url: answer.download_url, title }

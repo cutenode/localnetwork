@@ -1,4 +1,4 @@
-// src/lib/frame-height.svelte.ts — how tall a panel's frame may be.
+// src/lib/frame-height.svelte.ts: how tall a panel's frame may be.
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 
 /** The observer the module starts, handed back so a test can say the content changed. */

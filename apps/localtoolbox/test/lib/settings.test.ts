@@ -1,5 +1,5 @@
-// src/lib/settings.svelte.ts — the extension's own settings, and the one
-// thing that makes them different from a panel's options: they live in
+// src/lib/settings.svelte.ts: the extension's own settings. What makes
+// them different from a panel's options is where they live:
 // chrome.storage.local, because the content script has to be able to read
 // them and cannot see the popup page's localStorage.
 //

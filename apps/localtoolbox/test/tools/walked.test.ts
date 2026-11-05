@@ -1,4 +1,4 @@
-// src/tools/third-party-downloads/walked.svelte.ts — the Downloader's list,
+// src/tools/third-party-downloads/walked.svelte.ts: the Downloader's list,
 // kept for the browsing session.
 //
 // The panel around it is tested in test/panels/third-party-downloads.test.ts

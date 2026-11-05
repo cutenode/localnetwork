@@ -1,11 +1,11 @@
 // A small accessibility audit, run over whatever a panel has drawn.
 //
-// Not a substitute for a real one — no browser here computes a layout, and a
-// contrast ratio cannot be measured in jsdom. What it does check is the part
-// that breaks silently and is invisible to every other test in this suite: an
-// icon-only button with no name, a label pointing at an id that is not there,
-// a toggle whose state is only a colour, an id used twice because two rows
-// rendered the same component.
+// This does not replace a real one: no browser here computes a layout, and a
+// contrast ratio cannot be measured in jsdom. It checks the part that breaks
+// silently and is invisible to every other test in this suite: an icon-only
+// button with no name, a label pointing at an id that is not there, a toggle
+// whose state is only a colour, an id used twice because two rows rendered the
+// same component.
 //
 // `audit(root)` returns a list of problems, each naming the element and what
 // is wrong with it. An empty list is the assertion.
@@ -141,8 +141,8 @@ export function accessibleName(el: Element) {
 const hiddenFromAssistiveTech = (el: Element) =>
 	!!el.closest('[aria-hidden="true"], [hidden], [inert]') ||
 	// bits-ui keeps a closed popover in the DOM, marked shut. It marks the
-	// *trigger* of a closed tooltip or select the same way — and those are the
-	// icon-only buttons this audit is most for — so a trigger is never taken
+	// *trigger* of a closed tooltip or select the same way, and those are the
+	// icon-only buttons this audit is most for, so a trigger is never taken
 	// for the content it opens.
 	!!el.closest('[data-state="closed"]:not([data-tooltip-trigger]):not([aria-haspopup]):not([aria-expanded])');
 

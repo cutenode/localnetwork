@@ -1,4 +1,4 @@
-// content.ts — download details (the GET_DOWNLOAD_DETAILS message): the
+// content.ts, download details (the GET_DOWNLOAD_DETAILS message): the
 // hydration data, the details cache, the bulk API paths for playlists and
 // Likes pages, the per-track fallback, and the one-lookup-at-a-time queue.
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
@@ -30,9 +30,9 @@ const NOW = new Date('2026-09-08T12:00:00Z').getTime();
 
 const DAY = 24 * 60 * 60 * 1000;
 
-const API_CONCURRENCY = 4; // content.js: requests of one kind in the air at once
+const API_CONCURRENCY = 4; // content.ts: requests of one kind in the air at once
 
-const CACHE_MAX = 20000; // content.js: tracks the stored cache keeps
+const CACHE_MAX = 20000; // content.ts: tracks the stored cache keeps
 
 beforeEach(() => {
 	vi.useFakeTimers();
@@ -178,7 +178,7 @@ describe('the cache', () => {
 	// names one detailsOf does not write, then every entry the extension writes
 	// fails its own check, nothing is ever read back out of the cache, and every
 	// page asks SoundCloud about every track for ever. Nothing else here would
-	// notice — the panel would look exactly right.
+	// notice: the panel would look exactly right.
 	//
 	// So this is the round trip, through the real code both ways: learn a track,
 	// let the cache be written, load the extension again on the same storage and
@@ -405,7 +405,7 @@ describe('the cache', () => {
 
 	// The cap is what keeps the cache writable. An area Chrome will not take is
 	// an area that is empty next visit, and an empty cache asks SoundCloud about
-	// every track on every page again — so forgetting the oldest entries is the
+	// every track on every page again, so forgetting the oldest entries is the
 	// cheap outcome and refusing to forget is the expensive one.
 	it('caps the stored cache, keeping the entries learned most recently', async () => {
 		const old = Object.fromEntries(
@@ -574,8 +574,8 @@ describe('playlist pages', () => {
 	it('asks API_CONCURRENCY batches at once when the whole playlist is rendered', async () => {
 		// Two hundred rendered rows reach four batches down the playlist, so the
 		// lookup says so up front and goes as wide as it is allowed. Discovering
-		// that a doubling at a time, as it used to, cost a scrolled page a whole
-		// extra round trip — half a second to two seconds of the wait.
+		// that a doubling at a time would cost a scrolled page a whole extra
+		// round trip: half a second to two seconds of the wait.
 		render(playlistPage({ rows: Array.from({ length: 200 }, (_, i) => row(i + 1)) }), SET);
 		hydrationScript([apiClientEntry(), playlistEntry(Array.from({ length: 500 }, (_, i) => ({ id: i + 1 })))]);
 		const inFlight: (() => void)[] = [];
@@ -604,8 +604,8 @@ describe('playlist pages', () => {
 	});
 
 	it('asks one batch at a time when only the top of a long playlist is rendered', async () => {
-		// Three rows reach one batch down, so one request goes out — a page nobody
-		// has scrolled costs SoundCloud exactly what it did before the concurrency.
+		// Three rows reach one batch down, so one request goes out: a page nobody
+		// has scrolled costs SoundCloud nothing extra for the concurrency.
 		render(playlistPage({ rows: [row(1), row(2), row(3)] }), SET);
 		hydrationScript([apiClientEntry(), playlistEntry(Array.from({ length: 500 }, (_, i) => ({ id: i + 1 })))]);
 		const inFlight: (() => void)[] = [];
@@ -660,11 +660,11 @@ describe('playlist pages', () => {
 	});
 
 	// The playlist's ids do not change while the page is open, so a second panel
-	// opened on it — the usual thing after scrolling — should spend its requests
+	// opened on it (the usual thing after scrolling) should spend its requests
 	// on the rows it came for and none on asking what playlist this is again.
 	it('resolves the playlist once however many lookups the page sees', async () => {
-		// Sixty tracks, so the stubs need two batches and the first lookup — whose
-		// one rendered row is in the first batch — stops before the second.
+		// Sixty tracks, so the stubs need two batches and the first lookup (whose
+		// one rendered row is in the first batch) stops before the second.
 		const stubs = Array.from({ length: 60 }, (_, i) => ({ id: i + 1 }));
 		render(playlistPage({ rows: [row(1)] }), SET);
 		hydrationScript([apiClientEntry(), playlistEntry([{ id: 1 }], '/someone/sets/previous-page')]);
@@ -688,7 +688,7 @@ describe('playlist pages', () => {
 		]);
 
 		// The user scrolls; a row from the second batch renders and the panel is
-		// opened again. That lookup needs the playlist's ids too — and gets them
+		// opened again. That lookup needs the playlist's ids too, and gets them
 		// without asking SoundCloud what playlist this is a second time.
 		document.querySelector('.trackList__list')!.insertAdjacentHTML('beforeend', row(55));
 		await getDetails();
@@ -899,9 +899,9 @@ describe('likes pages', () => {
 	});
 
 	// Scrolling a Likes page and opening the panel again is the ordinary way to
-	// use it, and every opening used to walk the listing from the top: ten
-	// scrolls of a two-thousand-like page cost fifty-five requests for ten pages
-	// of data. Carrying the cursor makes the second walk ask only for what the
+	// use it. Walking the listing from the top on every opening, ten scrolls of
+	// a two-thousand-like page would cost fifty-five requests for ten pages of
+	// data. Carrying the cursor makes the second walk ask only for what the
 	// first one had not reached.
 	it('carries on the listing from where the last walk stopped', async () => {
 		const rows = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => likedRow(from + i));
@@ -969,7 +969,7 @@ describe('likes pages', () => {
 		const rows = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => likedRow(from + i));
 		render(publicLikesPage({ user: 'dj', items: rows(0, 3) }), '/dj/likes');
 		hydrationScript([apiClientEntry(), { hydratable: 'user', data: { id: 7, permalink: 'dj' } }]);
-		// The cursor goes stale once — the walk that follows must not keep using it.
+		// The cursor goes stale once; the walk that follows must not keep using it.
 		let expired = false;
 
 		const { calls } = mockFetch((url) => {
@@ -1196,11 +1196,11 @@ describe('resolving tracks one at a time', () => {
 describe('a page the anonymous API cannot see', () => {
 	// The requests are made the way a signed-out visitor would make them, so a
 	// private playlist is one SoundCloud will not describe however it is asked.
-	// What used to happen then was the worst of both: the bulk request came back
-	// empty and every row was asked for in turn, one round trip each, all of
-	// them failing. Ninety tracks was a minute of "still checking" and an answer
+	// Without the probe, that is the worst of both: the bulk request comes back
+	// empty and every row is asked for in turn, one round trip each, all of them
+	// failing. Ninety tracks would be a minute of "still checking" and an answer
 	// of no.
-	const PROBE = 5; // content.js: rows resolved before giving the rest up
+	const PROBE = 5; // content.ts: rows resolved before giving the rest up
 
 	const blind = (rows: number[]) => {
 		render(playlistPage({ rows: rows.map(row) }), SET);
@@ -1219,8 +1219,8 @@ describe('a page the anonymous API cannot see', () => {
 		const batches = paths().filter((p) => p.startsWith('/tracks?'));
 		const resolves = paths().filter((p) => p.startsWith('/resolve'));
 		expect(batches).toHaveLength(1);
-		// Five asked for, not forty: the other thirty-five round trips are the
-		// whole point of this.
+		// Five asked for, not forty: the other thirty-five round trips are
+		// what this saves.
 		expect(resolves).toHaveLength(PROBE);
 		expect(response.unseen).toBe(true);
 		expect(response.tracks.every((t) => t.details === null)).toBe(true);
@@ -1230,8 +1230,8 @@ describe('a page the anonymous API cannot see', () => {
 		const rows = Array.from({ length: 40 }, (_, i) => i + 1);
 		blind(rows);
 
-		// The bulk request covers nothing, but the rows themselves resolve — a
-		// visible page whose bulk source simply did not reach them.
+		// The bulk request covers nothing, but the rows themselves resolve: a
+		// visible page whose bulk source did not reach them.
 		const { paths } = mockFetch((url) =>
 			url.pathname === '/tracks' ? jsonResponse([]) : jsonResponse(track(trackNumber(url)))
 		);

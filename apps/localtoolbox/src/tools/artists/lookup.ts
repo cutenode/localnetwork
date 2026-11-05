@@ -4,9 +4,9 @@
 // The requests are the content script's to make (content.ts,
 // GET_ARTIST_PROFILES), for the reason every SoundCloud request is: the API
 // takes them from the page's origin, with the page's own client id, and from
-// nowhere else. So a lookup needs a SoundCloud tab in front — any page of it,
-// not a playlist — and this is what asks it, and what explains instead when
-// it cannot.
+// nowhere else. So a lookup needs a SoundCloud tab in front (any page of it,
+// not just a playlist), and this is what asks it, and what explains instead
+// when it cannot.
 
 import { activeTab, askPage, isSoundCloudUrl } from '$lib/chrome.ts';
 import { RELOAD_THE_TAB } from '$lib/soundcloud.ts';
@@ -30,7 +30,7 @@ export async function onSoundCloud() {
  * chrome.runtime.onMessage, while this waits for the whole answer.
  *
  * @param permalinks artists' paths
- * @returns the page's answer — `profiles`, `failed`, `error` — or why there is none.
+ * @returns the page's answer (`profiles`, `failed`, `error`), or why there is none.
  */
 export async function lookupProfiles(permalinks: string[]): Promise<PageRead<ProfilesAnswer>> {
 	const tab = await activeTab();

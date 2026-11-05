@@ -1,25 +1,22 @@
 <!--
   Your data: everything the extension has saved, out to a JSON file and back.
 
-  It was in the footer of the Manager panel, because the list was the biggest
-  part of what the file carries. But what it carries is not one tool's — the
-  marks are painted on the SoundCloud page, the looked-up details are the
-  content script's cache, the session queue is behind the count in every
-  header, and the options belong to three panels. A backup of all that is
-  about the extension, which is what this sheet is for; and taking it here
-  means it can be taken from any view rather than only from the one tool whose
-  footer happened to hold it.
+  What the file carries is not one tool's: the marks are painted on the
+  SoundCloud page, the looked-up details are the content script's cache, the
+  session queue is behind the count in every header, and the options belong to
+  three panels. A backup of all that is about the extension, which is what
+  this sheet is for, and here it can be taken from any view rather than only
+  from one tool.
 
-  The counts at the top are the point of putting it in front of somebody. An
-  "export" button on its own says nothing about what would come out of it; a
-  row of numbers says how much there is to lose, which is the whole argument
-  for pressing it.
+  The counts at the top are there because an "export" button on its own says
+  nothing about what would come out of it. A row of numbers says how much
+  there is to lose.
 
-  Importing **adds** by default, and every part of it does: marks merge, the
+  Importing adds by default, and every part of it does: marks merge, the
   newer lookups win, listed and queued tracks go on the end without landing
   twice, and an option you have already chosen is left alone. Replacing is a
   switch you have to find and turn on, and then it is the exact opposite in
-  every one of those parts — see `apply` in state-transfer.ts, which does the
+  every one of those parts. See `apply` in state-transfer.ts, which does the
   writing for the two that have no store of their own.
 
   The file's shape is specified in docs/manager-state.schema.json.
@@ -45,14 +42,14 @@
   // The two things here that belong to a tool rather than to the extension.
   // Both lists are in the file, so each has to be read for an export and
   // written for an import, and the store that owns it is the only thing
-  // allowed to do either — the same rule the queue and the marks follow.
+  // allowed to do either, the same rule the queue and the marks follow.
   import { listed } from '../../tools/manager/listed.svelte.ts';
   import { artists } from '../../tools/artists/artists.svelte.ts';
 
-  // Both are read once here and followed after, so the numbers below are live:
-  // a lookup made in a SoundCloud tab, or an import run in another window,
-  // moves them without this sheet being reopened. Neither is awaited — the
-  // strip shows zeroes for the turn it takes them to land.
+  // All three are read once here and followed after, so the numbers below are
+  // live: a lookup made in a SoundCloud tab, or an import run in another
+  // window, moves them without this sheet being reopened. None is awaited:
+  // the strip shows zeroes for the turn it takes them to land.
   details.start();
 
   listed.start();
@@ -60,13 +57,13 @@
   artists.start();
 
   // The drawer is a place, kept for the rest of the browsing session as the
-  // sheet's own openness is — and more than any other, because choosing a file
-  // is itself a way of closing the popup: on some platforms the file dialog
-  // takes the focus and the popup goes with it, and coming back to a shut
-  // drawer means starting the import over.
+  // sheet's own openness is. It matters more here than anywhere, because
+  // choosing a file is itself a way of closing the popup: on some platforms
+  // the file dialog takes the focus and the popup goes with it, and coming
+  // back to a shut drawer means starting the import over.
   //
-  // Under the sheet's own name rather than a tool's: this is not in a panel
-  // any more, and there is one of it however many tools there are.
+  // Under the sheet's own name rather than a tool's: this is not in a panel,
+  // and there is one of it however many tools there are.
   const importing = remembered('settings', 'import', false);
 
   // What has been pasted in is *not* kept, unlike every other text box in the
@@ -112,14 +109,14 @@
 
   // The pasted text, read as a state file, on every change to it.
   //
-  // Nothing is written by this — `parse` only refuses — so it costs a refusal
-  // to be wrong, and what it buys is that a file is judged when it lands
-  // rather than when Import is pressed. A file chosen by mistake says so
-  // straight away, and the button that would write it is off until the text
-  // in the box is a file this can read.
+  // Nothing is written by this (`parse` only refuses), so being wrong costs a
+  // refusal, and a file is judged when it lands rather than when Import is
+  // pressed. A file chosen by mistake says so straight away, and the button
+  // that would write it is off until the text in the box is a file this can
+  // read.
   //
   // Derived rather than debounced on purpose. What arrives here arrives whole
-  // — a chosen file, or a paste — so this runs once per file rather than once
+  // (a chosen file, or a paste), so this runs once per file rather than once
   // per keystroke, and nobody types a backup out by hand.
   const reading = $derived.by(() => {
     if (pasted.trim() === '') return null;
@@ -135,7 +132,7 @@
 
   const ready = $derived(!!reading?.doc);
 
-  /** What a file holds, as a sentence — or that it holds nothing at all. */
+  /** What a file holds, as a sentence, or that it holds nothing at all. */
   function holdings(holds: ReturnType<typeof TbxState.summary>) {
     const parts = [];
 
@@ -158,10 +155,10 @@
 
   async function onExport() {
     try {
-      // The queue and the list come from their stores rather than from
-      // storage, so that a queue the store could only keep in memory — the
-      // header is counting it either way — is in the file too. Plain entries:
-      // what goes into the file cannot be a `$state` proxy.
+      // The queue and the lists come from their stores rather than from
+      // storage, so a queue the store could only keep in memory (the header is
+      // counting it either way) is in the file too. Plain entries: what goes
+      // into the file cannot be a `$state` proxy.
       const snapshot = await transfer().snapshot(queue.entries, listed.entries, artists.entries);
 
       const name = downloadText(
@@ -179,7 +176,7 @@
   // --- importing -------------------------------------------------------------
 
   // A chosen file fills the box, so what is about to be imported is always the
-  // text on screen — and is read by the same eye before it is written.
+  // text on screen, read the same way as a paste before it is written.
   async function onFile(event: Event & { currentTarget: HTMLInputElement }) {
     // Null only on an input that is not a file picker.
     const [file] = event.currentTarget.files!;
@@ -219,7 +216,7 @@
       return;
     }
 
-    // The queue and the list go through the stores that own them, as the marks
+    // The queue and the lists go through the stores that own them, as the marks
     // go through theirs: `add` appends the file's tracks behind whatever is
     // here and refuses one already held, `replace` makes each of them exactly
     // what the file says.
@@ -271,7 +268,7 @@
   </div>
 
   <!-- What there is to lose, which is the argument for taking a backup. A
-       definition list rather than four spans: each number is the answer to the
+       definition list rather than five spans: each number is the answer to the
        word under it, and that is what a screen reader should hear. -->
   <dl class="grid grid-cols-5 gap-1.5">
     {#each HELD as held (held.label)}
@@ -355,8 +352,8 @@
         </StatusNote>
       {/if}
 
-      <!-- The opt-in. Off is the whole of the promise this makes, so it draws
-           as an ordinary row until it is on, and then as the thing it is. -->
+      <!-- The opt-in. Off, nothing here can lose anything, so it draws as an
+           ordinary row; on, it draws as the thing it is. -->
       <div
         class="flex items-start gap-2.5 rounded-lg border px-2 py-1.5 transition-colors
                {replacing ? 'border-critical/40 bg-critical/5' : 'border-transparent'}"
