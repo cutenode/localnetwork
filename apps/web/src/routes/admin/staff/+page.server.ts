@@ -5,7 +5,7 @@ import type { Actions, PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ locals, url }) => {
 	requireAdmin(locals, url);
 
-	return { staff: await locals.app.staff.list() };
+	return { staff: await locals.app.staff.list(), strays: locals.app.staff.strayMembers() };
 };
 
 export const actions: Actions = {

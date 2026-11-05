@@ -12,6 +12,10 @@ _Avoid_: profile view, read-only page
 The signed-in area where every change to what public pages show happens. There's one per account, and its sections follow what that account takes part in, whether as a DJ, a member or manager of an act, a promoter, or several of these.
 _Avoid_: app, account area, my page, DJ dashboard, promoter dashboard
 
+**Private spaces**:
+The four spaces staff can read from any client: audit, moderation, staff and industry. Losing a staff role means leaving all of them, and anyone left in one is a stray member until they're out.
+_Avoid_: staff spaces, root spaces (those include public ones)
+
 **Staff console**:
 The separate area where staff moderate and run the site. Only staff can see it. Staff can add or remove people from any act or party, and every action they take there is logged.
 _Avoid_: admin dashboard, admin panel
