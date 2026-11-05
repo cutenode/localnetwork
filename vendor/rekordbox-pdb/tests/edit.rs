@@ -194,7 +194,7 @@ fn playlists() {
 #[test]
 fn create_playlist_and_folder() {
     let mut ed = PdbEditor::from_file(BIGGER).unwrap();
-    let pid = ed.create_playlist("claude mix", 0, false).unwrap();
+    let pid = ed.create_playlist("test mix", 0, false).unwrap();
     for tid in [1, 5, 9] {
         ed.add_to_playlist(pid, tid, None).unwrap();
     }
@@ -203,7 +203,7 @@ fn create_playlist_and_folder() {
 
     let db = Database::from_bytes(ed.to_bytes()).unwrap();
     let node = db.playlist_tree.iter().find(|n| n.id == pid).unwrap();
-    assert_eq!(node.name, "claude mix");
+    assert_eq!(node.name, "test mix");
     assert!(!node.is_folder);
     let mut entries: Vec<_> = db
         .playlist_entries

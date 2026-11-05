@@ -1165,9 +1165,7 @@ fn apply_op_indexed(
                 .with("name", name));
             }
             db.rename(id, name)?;
-            if let Some(p) = db.lib().playlists.iter_mut().find(|p| p.id == id) {
-                p.name = name.clone();
-            }
+            db.lib().playlists.iter_mut().find(|p| p.id == id).expect("find_node found it").name = name.clone();
         }
         Op::Place { node, folder, parent, position } => {
             let Some(id) = find_node(db.lib(), node, Some(*folder)) else {
@@ -1272,9 +1270,7 @@ fn apply_op_indexed(
                 return Ok(());
             }
             db.set_entries(id, &ids)?;
-            if let Some(p) = db.lib().playlists.iter_mut().find(|p| p.id == id) {
-                p.track_ids = ids;
-            }
+            db.lib().playlists.iter_mut().find(|p| p.id == id).expect("find_node found it").track_ids = ids;
         }
         Op::SetFields { tracks, fields } => {
             let (ids, at, missing) = index.get_or_insert_with(|| TrackIndex::of(db.lib())).targets(db.lib(), tracks);
@@ -1831,7 +1827,7 @@ impl<'a> Resolver<'a> {
                         let (ops, _, canonical) = fill_new(spec, &ids)?;
                         return Ok((ops, desc(&split_path(spec)?.join("/")), canonical));
                     }
-                    None => return Err(list(spec).err().unwrap_or_else(|| Error::NotFound(spec.clone()))),
+                    None => return Err(list(spec).expect_err("`found` is this same lookup, and found nothing")),
                 }
             }
             Edit::SetEntries { playlist: spec, paths: files_given, create } => {
@@ -3101,9 +3097,6 @@ fn replay_set_path(device: &mut Device, step: &Edit, ctx: &Ctx<'_>) -> Result<Re
             return Ok(Replayed { warnings: vec![format!("a track's new file: {e}; skipped")], ..Default::default() });
         }
     };
-    if plan.is_noop() {
-        return Ok(Replayed::default());
-    }
     let r = apply_locked(&plan, device, false, Vec::new(), ctx)?;
     Ok(Replayed { databases: r.databases, fingerprint: r.fingerprint, warnings: r.warnings })
 }
