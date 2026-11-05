@@ -85,3 +85,13 @@ fn lists_and_collects_recordings() {
     assert!(r.collected[0].copied_to.exists());
     assert!(!root.join("ALPHATHETA REC/REC001.WAV").exists());
 }
+
+/// Data before any format chunk can't be timed: no header.
+#[test]
+fn data_before_its_format_is_no_header() {
+    let mut early = b"RIFF\0\0\0\0WAVE".to_vec();
+    early.extend(b"data");
+    early.extend(8u32.to_le_bytes());
+    early.extend([0u8; 8]);
+    assert!(read_wav_header(Cursor::new(&early), early.len() as u64).is_none());
+}

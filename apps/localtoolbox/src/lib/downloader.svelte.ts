@@ -1,14 +1,14 @@
 // What the Third-Party Downloader hands to a gate that asks, and what it does
 // once a file has landed.
 //
-// These are options in the sense prefs.svelte.ts means it — kept for good, in
-// the popup page's own localStorage, under the keys they have always had. What
-// changed is where they are *set*: the settings sheet rather than the panel's
-// own drawer. A panel's options say how the list in front of you behaves and
-// are read a foot from where they are set; an address and a name are neither —
-// they are typed once, on the day one gate asks for them, and never thought
-// about again. The mark is of the same kind: it says what saving a file should
-// do, not what the list should show.
+// These are options in the sense prefs.svelte.ts means it: kept for good, in
+// the popup page's own localStorage, under the keys they have always had. They
+// are *set* in the settings sheet rather than in a drawer on the panel. A
+// panel's options say how the list in front of you behaves and are read a foot
+// from where they are set; an address and a name are neither. They are typed
+// once, on the day one gate asks for them, and never thought about again. The
+// mark is of the same kind: it says what saving a file should do, not what the
+// list should show.
 //
 // So they are made here, once, rather than by each component that shows them.
 // The sheet is where the address is typed and the panel is where it is used, a
@@ -21,9 +21,10 @@
 // because the content script has to read them, and nothing outside the
 // extension's own pages has any use for these. The one other page that reads
 // them is the offscreen page that walks a gate for the page's Download button
-// (src/offscreen.ts), which shares the popup's origin and so its localStorage. Nor are they in the exported state file — the keys it
-// carries are listed in state-transfer.ts, and an address is not something to
-// ship to another install with somebody's marks.
+// (src/offscreen.ts), which shares the popup's origin and so its localStorage.
+// Nor are they in the exported state file: the keys it carries are listed in
+// state-transfer.ts, and an address is not something to ship to another
+// install with somebody's marks.
 
 import { flagPref, textPref } from './prefs.svelte.ts';
 

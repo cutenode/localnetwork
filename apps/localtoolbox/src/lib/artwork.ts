@@ -35,11 +35,11 @@ export const fullSizeArtwork = (url: string) => artworkUrlAtSize(url, FULL_SIZE)
  * SoundCloud named when it was asked about the track.
  *
  * A page lazy-loads its thumbnails as they scroll into view, so a list read
- * without scrolling all the way through hands over rows with no artwork URL —
- * and those rows drew a placeholder for tracks whose artwork plainly exists.
- * The details every such track is looked up for carry the address of it, at no
- * extra request, so that stands in. The row's own URL wins where there is one:
- * it is the rendition the browser already has.
+ * without scrolling all the way through hands over rows with no artwork URL,
+ * and those rows would draw a placeholder for tracks whose artwork plainly
+ * exists. The details every such track is looked up for carry the address of
+ * it, at no extra request, so that stands in. The row's own URL wins where
+ * there is one: it is the rendition the browser already has.
  *
  * Entries put on the list before the details carried a cover have none stored
  * on them; this is also what fills those in, as soon as anything asks about

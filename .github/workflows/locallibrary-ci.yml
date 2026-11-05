@@ -37,6 +37,10 @@ on:
         description: Whether a pull request changed the loclib-* crates' code (ci.yml's locallibrary_semver paths).
         type: boolean
         required: true
+      commands:
+        description: Whether a pull request changed what decides which commands each build has (ci.yml's locallibrary_commands paths).
+        type: boolean
+        required: true
 
 permissions:
   contents: read
@@ -75,10 +79,22 @@ jobs:
       - if: inputs.linux || inputs.cache
         run: cargo fmt --all --check
       # The headless sidecar (no default features: no `account`, `tui` or `playback`) builds and
-      # passes clippy without ALSA's headers, so this runs before they're installed.
+      # passes clippy without ALSA's headers, so this runs before they're installed. Its tests and
+      # benches too: what only the default features use is dead code here.
       # locallibrary-scheduled.yml runs its tests and every other combination.
       - if: inputs.linux || inputs.cache
-        run: cargo clippy -p locallibrary-cli --no-default-features --locked -- -D warnings
+        run: cargo clippy -p locallibrary -p locallibrary-cli --no-default-features --all-targets --locked -- -D warnings
+      # On its own: built with the crates above, it gets the features they ask for.
+      - if: inputs.linux || inputs.cache
+        run: cargo clippy -p loclib-interop --no-default-features --all-targets --locked -- -D warnings
+      # Which commands the headless sidecar has, only when what decides that changed: it's a build
+      # of its own.
+      - if: inputs.commands
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-nextest
+      - if: inputs.commands
+        run: cargo nextest run -p locallibrary-cli --no-default-features --locked -E 'test(commands_come_with_the_features_built_in)'
       # The TUI's audio output goes through ALSA on Linux.
       - if: inputs.linux || inputs.docs || inputs.cache
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
@@ -185,9 +201,10 @@ jobs:
           retention-days: 14
 
   # The exact counts a pull request can't change without saying so, against benchmarks/budgets/ (see
-  # benchmarks/README.md): what everyday operations allocate and how many packages the CLI builds,
-  # from the shards' archive and `cargo tree`, so no build of its own. And that no budget was
-  # loosened without a `budget-raise:` line in the pull request's body.
+  # benchmarks/README.md): what everyday operations and a frame of the player allocate, the
+  # instructions of a frame, and how many packages the CLI builds, from the shards' archive and
+  # `cargo tree`, so no build of its own. And that no budget was loosened without a `budget-raise:`
+  # line in the pull request's body.
   budgets:
     needs: build
     if: inputs.linux
@@ -202,8 +219,9 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      # nextest lists what's in every binary of the archive, and the CLI's links ALSA.
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      # nextest lists what's in every binary of the archive, and the CLI's links ALSA. Valgrind is
+      # for a frame's instructions.
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev valgrind
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -214,7 +232,14 @@ jobs:
         with:
           name: tests
       - run: echo "LOCALLIBRARY_BUDGETS_OUT=$PWD/target/budgets" >> "$GITHUB_ENV"
-      - run: cargo nextest run --archive-file tests.tar.zst -E 'binary(counters)'
+      - run: |
+          mkdir "$RUNNER_TEMP/tests"
+          cargo nextest run --archive-file tests.tar.zst --extract-to "$RUNNER_TEMP/tests" -E 'binary(counters) | test(/tui::frames::tests::/)'
+      # A frame's instructions from the archive's debug test binary, so a pure CPU slowdown shows on
+      # the pull request and doesn't wait for the weekly release-profile run. Unoptimised and built
+      # for coverage, these only compare one build's frame with another's.
+      - run: |
+          .github/actions/release-budgets/frame-instructions.sh "$RUNNER_TEMP"/tests/target/debug/deps/unit-* 200 tui-debug-instructions "$LOCALLIBRARY_BUDGETS_OUT"
       # Without colour: CARGO_TERM_COLOR colours each repeat's `(*)`, which sed then doesn't take off.
       - run: |
           cargo tree --color never --locked --target x86_64-unknown-linux-gnu -e normal,no-proc-macro -p locallibrary-cli --prefix none |
@@ -245,7 +270,8 @@ jobs:
   release-budgets:
     if: inputs.deny
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Two release builds: dist's for the CLI and the release profile's for the frame test.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -460,7 +486,8 @@ jobs:
           tool: cargo-nextest
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --doc --workspace --locked
-      - run: cargo nextest run --workspace --locked
+      # Every failure, where the first would hide the rest of a run this long.
+      - run: cargo nextest run --workspace --locked --no-fail-fast
       # As the test job's.
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

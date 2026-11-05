@@ -80,6 +80,9 @@ pub(super) struct YouTube {
     size: u64,
     /// Cancels the publish once the call in hand is answered, when [`Reply::Cancels`] says to.
     cancel: Arc<Canceller>,
+    /// Whether it has: a call on its way by then is answered `cancelled`, as a host answers it,
+    /// and goes no further, since the plugin may already have let go of the video it names.
+    cancelled: bool,
 }
 
 impl YouTube {
@@ -94,7 +97,14 @@ impl YouTube {
 
     pub(super) fn scripted(script: impl Fn(&str, usize) -> Option<Reply> + Send + 'static) -> YouTube {
         let received = Received::default();
-        YouTube { signed_in: true, script: Box::new(script), received, size: 0, cancel: Arc::default() }
+        YouTube {
+            signed_in: true,
+            script: Box::new(script),
+            received,
+            size: 0,
+            cancel: Arc::default(),
+            cancelled: false,
+        }
     }
 
     /// The host's answer to `fetch`.
@@ -112,8 +122,12 @@ impl YouTube {
         let r = &mut self.received;
         let before = r.count(kind);
         r.requests.push((kind.into(), fetch.method.clone(), fetch.url.clone()));
+        if self.cancelled {
+            return Err(RpcError::cancelled());
+        }
         let reply = match (self.script)(kind, before) {
             Some(Reply::Cancels(then)) => {
+                self.cancelled = true;
                 self.cancel.arm();
                 then.map(|r| *r)
             }
@@ -287,12 +301,12 @@ impl Session {
         std::mem::take(&mut self.youtube.lock().unwrap().received)
     }
 
-    /// Closes the plugin's input: it stops. What YouTube was sent.
+    /// Closes the plugin's input: it stops. What YouTube was sent, read once all of it is
+    /// answered: what the plugin sent before a cancel reached it may still be on its way.
     pub(super) fn stop(self) -> Received {
-        let received = self.received();
         self.host.close();
         self.served.join().unwrap();
         self.answering.join().unwrap();
-        received
+        std::mem::take(&mut self.youtube.lock().unwrap().received)
     }
 }

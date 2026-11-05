@@ -8,11 +8,11 @@
 @import '../../../packages/tokens/theme.css';
 
 /* shadcn-svelte's components are written against `data-checked` and
-   `data-open` attributes, which the released bits-ui does not set — it says
+   `data-open` attributes, which the released bits-ui does not set: it says
    `data-state="checked"` and `data-state="open"`. These variants accept
    either spelling, so a component copied from the registry styles its states
-   correctly on the bits-ui this project actually installs, and keeps working
-   if a later one starts setting the attributes the registry expects. */
+   correctly on the bits-ui this project installs, and keeps working if a
+   later one starts setting the attributes the registry expects. */
 @custom-variant data-checked (&:is([data-checked], [data-state="checked"]));
 @custom-variant data-unchecked (&:is([data-unchecked], [data-state="unchecked"]));
 @custom-variant data-open (&:is([data-open], [data-state="open"]));
@@ -20,8 +20,8 @@
 
 /* Outside the layers on purpose: Chrome gives every extension page a sheet of
    its own, `body { font-family: system-ui; font-size: 75% }`, and an
-   unlayered rule beats anything in a layer, so a body rule in `base` lost to
-   it and the popup drew in the system font at 12px.
+   unlayered rule beats anything in a layer, so a body rule in `base` would
+   lose to it and the popup would draw in the system font at 12px.
 
    A browser-action popup sizes itself to its content, up to 800 by 600; past
    the height Chrome scrolls the whole popup, so the lists inside keep their

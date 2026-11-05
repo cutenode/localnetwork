@@ -2,15 +2,15 @@
 //
 // Every other test asks whether the output is right in some respect: that the
 // rows are in order, that a comma is quoted, that the name has no slash in it.
-// These ask whether it is the same — the whole string, character for
-// character, for one fixture chosen to be as awkward as a real playlist gets:
-// a comma, a quotation mark, a newline, an accent, a dash inside a title, a
-// duplicate, a name full of characters Windows will not have.
+// These ask whether the whole string is the same, character for character, for
+// one fixture chosen to be as awkward as a real playlist gets: a comma, a
+// quotation mark, a newline, an accent, a dash inside a title, a duplicate, a
+// name full of characters Windows will not have.
 //
-// A snapshot is not an argument for the output being correct; the tests beside
-// it are. What it is, is a change nobody can make by accident: paste a file
-// somebody exported last year into the panel and it still reads, because this
-// says the format did not move.
+// A snapshot is no argument for the output being correct; the tests beside it
+// are. What it gives is a format nobody can change by accident: paste a file
+// somebody exported last year into the settings sheet and it still reads,
+// because this says the format did not move.
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { ArtistEntry, ListedEntry, QueueEntry } from '$lib/types';
 import { loadState, type StateTransfer } from './helpers/load.ts';
@@ -92,8 +92,8 @@ describe('the exported state file', () => {
 	// Not a snapshot: nearly all of the file is what it was handed, which a
 	// snapshot of it would only say back. What is asserted is that it carries
 	// all of that untouched, in the members' own order, with the few things it
-	// works out for itself — what it is, when it was written, and the panels'
-	// options read out of localStorage's strings — stated rather than recorded.
+	// works out for itself (what it is, when it was written, and the panels'
+	// options read out of localStorage's strings) stated rather than recorded.
 	it('carries what it was given, works out the rest, and reads back the same', async () => {
 		const storage = {
 			downloaded: {
@@ -123,8 +123,8 @@ describe('the exported state file', () => {
 		// A queue with one of each kind of entry: a track with the details
 		// SoundCloud gave and everything its page said about it, and one with
 		// only what a Likes row rendered, queued from a layout that said none of
-		// the three. The panel hands this in from the store that owns it, which
-		// is why nothing here is in session storage.
+		// the three. The settings sheet hands this in from the store that owns
+		// it, which is why nothing here is in session storage.
 		const queue: QueueEntry[] = [
 			{
 				permalink: '/bicep/glue',
@@ -272,7 +272,7 @@ describe('the exported state file', () => {
 		expect(doc).toEqual({
 			format: 'toolbox.manager.state',
 			version: 1,
-			// The clock test/setup.js freezes every test at.
+			// The clock test/setup.ts freezes every test at.
 			exportedAt: '2026-09-08T12:00:00.000Z',
 			downloaded: storage.downloaded,
 			details: storage.details,

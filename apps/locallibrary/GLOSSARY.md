@@ -36,6 +36,14 @@ _Avoid_: auth plugin, authenticator, sign-in provider
 The person or organization behind a plugin, named whenever locallibrary asks you to trust it.
 _Avoid_: author, developer, vendor, maintainer
 
+**Panel**:
+A section a plugin adds to a track's details.
+_Avoid_: tab, widget, card
+
+**Suggestion**:
+An action a plugin proposes, offered and never applied by itself.
+_Avoid_: recommendation, auto-fix, hint
+
 ## Accounts
 
 **Account**:
@@ -76,5 +84,42 @@ _Avoid_: credentials, API key, password, secret setting
 
 **Sign in**:
 To add an account, in the browser or by entering its keys, or to give one more scopes. Signing
-out removes the account.
+out removes the account. The player and the docs say sign in and sign out; `login` and `logout`
+stay only as the DJ account's CLI subcommand names.
 _Avoid_: log in, log out, authenticate, connect, set keys, add credentials
+
+## Drives
+
+**Drive**:
+A rekordbox USB or SD drive that locallibrary reads and writes.
+_Avoid_: stick, device, volume, USB
+
+**Snapshot**:
+A saved copy of a drive's library in the store.
+_Avoid_: backup, version, commit
+
+**History**:
+A play history list a player recorded.
+_Avoid_: session, play log
+
+**Prepare**:
+Getting drives ready before a gig.
+_Avoid_: set prep, gig prep, pre-flight
+
+## The player
+
+**Crate**:
+A working list of tracks: the CDJ's tag list, not My Tags.
+_Avoid_: tag list, cart, queue
+
+**Deck**:
+The player that plays one loaded track.
+_Avoid_: channel, turntable
+
+**Pads**:
+The deck's hot cue pads.
+_Avoid_: hot cue buttons, performance pads
+
+**Recording**:
+The audio of a played set.
+_Avoid_: mix, session, take

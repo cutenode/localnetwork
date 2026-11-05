@@ -102,7 +102,7 @@ export class RootAccount {
 					resumed = true;
 				}
 			} catch (error) {
-				logger.warn({ err: error }, 'could not resume root session; signing in again');
+				logger.warn('could not resume root session; signing in again', { err: error });
 			}
 		}
 
@@ -117,7 +117,7 @@ export class RootAccount {
 		this.handle = agent.session?.handle;
 		this.service = service;
 		this.client = new AgentRootClient(did, agent);
-		logger.info({ did, handle: this.handle, service, resumed }, 'root account connected');
+		logger.info('root account connected', { did, handle: this.handle, service, resumed });
 
 		return this.client;
 	}

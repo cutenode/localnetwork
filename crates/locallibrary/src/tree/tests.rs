@@ -270,3 +270,54 @@ fn deep_folders_scan_in_a_small_stack() {
     let key = format!("Contents/{}x.mp3", "d/".repeat(300));
     assert_eq!(tree.entries.keys().collect::<Vec<_>>(), [&key]);
 }
+
+/// A scan finds the regular files below `PIONEER/` and `Contents/` and leaves out links, to
+/// files or folders, inside the drive or out of it, also when one is asked for as an extra key.
+/// Entries not hashed yet record nothing in the hash cache, which isn't written.
+#[cfg(unix)]
+#[hegel::test(test_cases = 30)]
+fn prop_links_are_left_out_of_a_scan(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("drive");
+    let outside = dir.path().join("outside.mp3");
+    fs::write(&outside, b"outside").unwrap();
+    let files = ["Contents/A/x.mp3", "Contents/B/y.flac", "PIONEER/USBANLZ/P001/00000001/ANLZ0000.DAT"];
+    let mut want: Vec<&str> = files.into_iter().filter(|_| tc.draw(gs::booleans())).collect();
+    for k in &want {
+        let p = paths::to_fs(&root, k);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(&p, k).unwrap();
+    }
+    fs::create_dir_all(root.join("Contents")).unwrap();
+    let links = ["Contents/link.mp3", "Contents/folder", "PIONEER/link.DAT", "Music/link.mp3"];
+    let mut extra = Vec::new();
+    for (i, link) in links.iter().enumerate() {
+        if !tc.draw(gs::booleans()) {
+            continue;
+        }
+        let target = match tc.draw(gs::integers::<u8>().max_value(2)) {
+            0 => outside.clone(),
+            1 => root.join("Contents"),
+            _ => want.first().map_or(outside.clone(), |k| paths::to_fs(&root, k)),
+        };
+        let p = paths::to_fs(&root, link);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        symlink(target, &p).unwrap();
+        if i == links.len() - 1 || tc.draw(gs::booleans()) {
+            extra.push(format!("/{link}"));
+        }
+    }
+    let tree = scan(&root, &ScanOptions { extra_keys: extra }, &Ctx::silent()).unwrap();
+    let keys: Vec<&str> = tree.entries.keys().map(String::as_str).collect();
+    want.sort_unstable();
+    assert_eq!(keys, want);
+    let mut index = HashIndex::default();
+    for e in tree.entries.values() {
+        index.record(e);
+    }
+    let file = dir.path().join("index.json");
+    index.save(&file).unwrap();
+    assert!(!file.exists());
+}

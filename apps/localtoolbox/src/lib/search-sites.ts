@@ -3,8 +3,8 @@
 // A track that offers neither a SoundCloud download nor a purchase link is a
 // dead end as far as this extension is concerned, and the one useful thing
 // left to say about it is "try somewhere else". So its row carries a lettered
-// badge per site — a monogram in the site's colour rather than its logo, so
-// the panel ships no third-party artwork and fetches nothing — and each badge
+// badge per site (a monogram in the site's colour rather than its logo, so
+// the panel ships no third-party artwork and fetches nothing), and each badge
 // opens a search there.
 //
 // Which sites those are is data, not code: ./search-sites.json is a list of
@@ -14,7 +14,7 @@
 //
 // An entry:
 //
-//   id          what the toggle for it is remembered under. Stable — renaming
+//   id          what the toggle for it is remembered under. Stable: renaming
 //               it forgets whether somebody had turned that badge off.
 //   name        the site's own name, as the settings sheet and the panel's
 //               hints say it ("Bandcamp").
@@ -29,12 +29,12 @@
 //
 // The variables a `url` may carry are VARIABLES below: {artist}, {title} and
 // {query}, each URL-encoded where it lands. An entry naming one that does not
-// exist is dropped rather than searching for the word "artis" — see `siteOf`
-// for everything else a dropped entry can be. A dropped entry is silent: this
+// exist is dropped rather than searching for the word "artis" (see `siteOf`
+// for everything else a dropped entry can be). A dropped entry is silent: this
 // list is read to draw a panel, and a broken line in it must not be the reason
 // the panel does not draw.
 //
-// Which badges a row actually carries is the other half, and it is a setting:
+// Which badges a row carries is the other half, and it is a setting:
 // ./search-sites.svelte.ts holds the switch per site, and the settings sheet
 // is where they are thrown.
 
@@ -61,7 +61,7 @@ export interface SearchSite {
  * The variables a URL template may carry, and what each is filled with.
  *
  * A track is a title and an artist and that is all this extension knows about
- * it, so the three of these are the artist, the title, and both — which is
+ * it, so the three of these are the artist, the title, and both, which is
  * what a shop's own search box is usually given.
  *
  * Keyed by name; `siteOf` keeps only a site whose every field is one of them.

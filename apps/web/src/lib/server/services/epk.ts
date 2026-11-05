@@ -224,7 +224,7 @@ export class EpkService {
 		} catch (error) {
 			// The reader refuses a record nested too deep to check its MAC.
 			if (!(error instanceof RecordValidationError)) throw error;
-			this.core.logger.warn({ space: epk.space, err: error }, 'press kit content does not validate');
+			this.core.logger.warn('press kit content does not validate', { space: epk.space, err: error });
 
 			return null;
 		}
@@ -233,7 +233,7 @@ export class EpkService {
 
 		const content = this.parse(COLLECTION.epkContent, epkContentSchema, stored.value);
 
-		if (!content) this.core.logger.warn({ space: epk.space }, 'press kit content does not validate');
+		if (!content) this.core.logger.warn('press kit content does not validate', { space: epk.space });
 
 		return content;
 	}
@@ -330,7 +330,7 @@ export class EpkService {
 		await this.indexed.awaitWrite(root.did, COLLECTION.epk, epk.rkey, null);
 		await this.forgetIndex(epk.space);
 		this.forget();
-		this.core.logger.info({ epk: epk.uri, actor: actor.did }, 'deleted a press kit');
+		this.core.logger.info('deleted a press kit', { epk: epk.uri, actor: actor.did });
 		await this.core.audit.record({
 			actor: actor.did,
 			actorRole: actorRole(actor),
@@ -399,10 +399,9 @@ export class EpkService {
 		);
 
 		if (state.rule === 'auto' && epk.legacy)
-			this.core.logger.info(
-				{ epk: epk.uri },
-				'auto-approved a legacy press kit request; the grant waits for it to move'
-			);
+			this.core.logger.info('auto-approved a legacy press kit request; the grant waits for it to move', {
+				epk: epk.uri
+			});
 		else if (state.rule === 'auto') await this.grant(kit, { subject: actor.did, via: 'auto', request: ref.uri }, null);
 
 		return this.accessState(kit, actor);
@@ -941,7 +940,7 @@ export class EpkService {
 		const record = this.parse(COLLECTION.epk, epkRecordSchema, value);
 
 		if (!record) {
-			this.core.logger.debug({ did, rkey }, 'press kit record does not validate');
+			this.core.logger.debug('press kit record does not validate', { did, rkey });
 
 			return null;
 		}

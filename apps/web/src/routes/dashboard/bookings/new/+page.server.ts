@@ -15,7 +15,7 @@ async function plannerShow(locals: App.Locals, viewer: Viewer, rkey: string) {
 		return await locals.app.planner.show(viewer, rkey);
 	} catch (cause) {
 		// The form still opens, just without the show's details.
-		locals.log.warn({ err: cause, rkey }, 'planner show unavailable for inquiry');
+		locals.log.warn('planner show unavailable for inquiry', { err: cause, rkey });
 
 		return null;
 	}

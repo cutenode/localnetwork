@@ -61,7 +61,9 @@ jobs:
       - run: pnpm lint
       - run: pnpm check
       - run: pnpm knip
-      - run: pnpm exec playwright install --with-deps chromium
+      # No --with-deps, here or below: the runner has the libraries Chromium needs, and the fonts it
+      # would add come from Ubuntu's mirror, which has taken long enough to cancel the job.
+      - run: pnpm exec playwright install chromium
       - run: pnpm test
       - run: pnpm test:storybook
       - run: pnpm test:build
@@ -95,7 +97,7 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright install chromium
       - name: Pull the HappyView image (scripts/lib/happyview.ts)
         run: docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0
       - run: pnpm test:coverage
@@ -121,7 +123,7 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright install chromium
       - name: Pull the HappyView image (scripts/lib/happyview.ts)
         run: docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0
       - run: pnpm test:e2e --project chromium
@@ -150,7 +152,7 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright install chromium
       # Lighthouse starts Playwright's Chromium itself, with its sandbox. Ubuntu's AppArmor policy
       # keeps programs without a profile of their own from creating the user namespaces the sandbox
       # runs in. Lifted here rather than running Chromium without its sandbox.

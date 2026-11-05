@@ -55,7 +55,7 @@ async function walk(url: string): Promise<WalkGateAnswer> {
 
 /**
  * Walks one gate and saves its file, or opens the gate (or the file, when it was the transfer
- * that failed) beside the tab that asked, which is what the button did before it could walk.
+ * that failed) beside the tab that asked.
  */
 async function saveGate(url: string, from: chrome.tabs.Tab | undefined): Promise<SaveGateAnswer> {
 	const answer = await walk(url);

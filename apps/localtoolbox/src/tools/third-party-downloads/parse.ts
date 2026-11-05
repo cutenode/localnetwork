@@ -2,11 +2,11 @@
 // a browser.
 //
 // Most of the sites here are single-page apps that ship their state in the
-// HTML: as a JSON object assigned to a global, or — for the Next.js ones — as
-// a React server-component payload pushed one string at a time. None of it is
-// an API, so every helper here gives up quietly (null, or an empty result)
-// rather than throwing. A site that changes shape should turn into one row
-// saying it could not be read, not a panel that stops working.
+// HTML: as a JSON object assigned to a global, or, for the Next.js ones, as a
+// React server-component payload pushed one string at a time. None of it is an
+// API, so every helper here gives up with null or an empty result rather than
+// throwing. A site that changes shape should turn into one row saying it could
+// not be read, not a panel that stops working.
 
 import { fallback, z } from '$lib/zod';
 
@@ -91,7 +91,7 @@ export function documentOf(html: string) {
 
 /**
  * A form's fields as the browser would submit them: every named control, with
- * the value it carries in the page. Buttons are left out — the caller adds the
+ * the value it carries in the page. Buttons are left out: the caller adds the
  * one it means to "press".
  */
 export function formFields(form: HTMLFormElement) {
@@ -118,7 +118,7 @@ export function formFields(form: HTMLFormElement) {
 }
 
 /**
- * The JSON hidden in a base64url payload — how feature.fm carries a link's real
+ * The JSON hidden in a base64url payload: how feature.fm carries a link's real
  * destination inside its click-tracking URL.
  *
  * @returns what it decodes to, or null. Any shape at all: it is the page's.

@@ -300,3 +300,40 @@ fn a_new_version_reads_nothing_an_old_one_kept(tc: TestCase) {
     assert_eq!(new.older().len(), decoded + distinct.len(), "what the old version kept, and nothing new");
     assert_eq!(old.older().len(), 0);
 }
+
+/// Values of a kind that doesn't stamp them with the version that wrote them are never taken for
+/// an older version's, whatever they hold.
+#[hegel::test(test_cases = 40)]
+fn prop_unstamped_values_are_never_older(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = Cache::<Lengths>::new(dir.path());
+    for (i, bytes) in tc.draw(gs::vecs(gs::binary().max_size(12)).max_size(5)).into_iter().enumerate() {
+        let key = Cache::<Lengths>::key_of(&i.to_string());
+        let file = cache.file(&key, Lengths::EXT);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, bytes).unwrap();
+    }
+    assert!(cache.older().is_empty());
+}
+
+/// A failure is remembered only as this version wrote it, and a path that names no file has no
+/// key.
+#[hegel::test(test_cases = 40)]
+fn prop_a_failure_reads_back_only_as_this_version_wrote_it(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = Cache::<Lengths>::new(dir.path());
+    let error = tc.draw(gs::text().max_size(20));
+    cache.put_failure("abcdef", &error).unwrap();
+    assert_eq!(cache.failure("abcdef"), Some(error.clone()));
+    let file = cache.file("abcdef", "err");
+    let other = tc.draw(gs::sampled_from(vec![
+        error.replace('\n', " "),
+        format!("0.0.1\n{error}"),
+        format!("{}{error}", env!("CARGO_PKG_VERSION")),
+    ]));
+    fs::write(&file, &other).unwrap();
+    let expected = other.split_once('\n').filter(|(v, _)| *v == env!("CARGO_PKG_VERSION")).map(|(_, e)| e.to_string());
+    assert_eq!(cache.failure("abcdef"), expected);
+    assert_eq!(cache.failure("abcdeg"), None);
+    assert_eq!(Cache::<Lengths>::key(&dir.path().join("..")), None);
+}

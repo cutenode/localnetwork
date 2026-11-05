@@ -219,7 +219,11 @@ export class SpaceSyncer {
 		return task;
 	}
 
-	private async syncSpace(space: string): Promise<void> {
+	private syncSpace(space: string): Promise<void> {
+		return this.deps.logger.job('space-sync', () => this.pass(space), { space });
+	}
+
+	private async pass(space: string): Promise<void> {
 		const { db, logger } = this.deps;
 		const watch = await db.selectFrom('spaceWatch').selectAll().where('spaceUri', '=', space).executeTakeFirst();
 
@@ -293,7 +297,7 @@ export class SpaceSyncer {
 				.where('spaceUri', '=', space)
 				.execute();
 
-			if (changed > 0) logger.debug({ space, changed }, 'space synced');
+			if (changed > 0) logger.debug('space synced', { changed });
 
 			if (failures.length > 0) throw failures[0];
 		} catch (error) {
@@ -305,15 +309,14 @@ export class SpaceSyncer {
 				.execute();
 
 			if (error instanceof XrpcResponseError && authoritySaysGone(error)) {
-				logger.warn({ space }, 'space is gone; dropping local copy');
+				logger.warn('space is gone; dropping local copy');
 				await this.dropSpace(space);
 
 				return;
 			}
 
-			if (watch.lastError === message.slice(0, 500))
-				logger.debug({ space, error: message }, 'space sync still failing');
-			else logger.warn({ err: error, space }, 'space sync failed');
+			if (watch.lastError === message.slice(0, 500)) logger.debug('space sync still failing', { error: message });
+			else logger.warn('space sync failed', { err: error });
 			throw error;
 		}
 	}
@@ -339,7 +342,7 @@ export class SpaceSyncer {
 				.where('spaceUri', '=', space)
 				.execute();
 		} catch (error) {
-			this.deps.logger.debug({ err: error, space }, 'could not register for write notifications; polling instead');
+			this.deps.logger.debug('could not register for write notifications; polling instead', { err: error, space });
 		}
 	}
 
@@ -387,7 +390,7 @@ export class SpaceSyncer {
 					} catch (error) {
 						// A full download would fail the same way: readVerified retries a MAC failure with a fresh KEM key.
 						if (isCredentialRejected(error) || isMacFailure(error)) throw error;
-						logger.info({ err: error, space, repoDid }, 'incremental sync failed; recovering full repo');
+						logger.info('incremental sync failed; recovering full repo', { err: error, space, repoDid });
 					}
 				}
 
@@ -470,7 +473,7 @@ export class SpaceSyncer {
 				const uri = spaceRecordUri(space, repoDid, op.collection, op.rkey);
 
 				// A record too deep to read is dropped from the local copy, like one deleted.
-				if (tooDeep.has(index)) this.deps.logger.warn({ uri }, `dropping a synced record ${TOO_DEEP}`);
+				if (tooDeep.has(index)) this.deps.logger.warn(`dropping a synced record ${TOO_DEEP}`, { uri });
 
 				if (op.cid === null || tooDeep.has(index)) {
 					changes.push({ kind: 'delete', space, repoDid, collection: op.collection, rkey: op.rkey, uri });
@@ -659,7 +662,7 @@ export class SpaceSyncer {
 			try {
 				await this.deps.onChange(change);
 			} catch (error) {
-				logger.warn({ err: error, uri: change.uri }, 'could not project synced record');
+				logger.warn('could not project synced record', { err: error, uri: change.uri });
 			}
 		}
 	}
@@ -705,7 +708,7 @@ export class SpaceSyncer {
 		}
 
 		await this.dropSpace(space);
-		this.deps.logger.info({ space }, 'space deleted; dropped local copy');
+		this.deps.logger.info('space deleted; dropped local copy', { space });
 	}
 
 	async status(): Promise<SyncStatus[]> {

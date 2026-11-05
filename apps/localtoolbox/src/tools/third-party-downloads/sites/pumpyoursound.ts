@@ -1,24 +1,24 @@
-// Pump Your Sound — pumpyoursound.com
+// Pump Your Sound (pumpyoursound.com)
 //
 // The oldest-fashioned gate of the set, and the simplest for it. A fangate page
 // (/f/<channel>/<slug>/<id>) is server-rendered PHP with an ordinary form in
-// it — `frm-freeDownloadForm`, a Nette form, posting back to the page it is on
+// it: `frm-freeDownloadForm`, a Nette form, posting back to the page it is on
 // with `_do=freeDownloadForm-submit`. Pressing Download submits that form; the
 // server answers with the file, or with a redirect to it.
 //
 // What the gate actually checks
 // -----------------------------
-// The steps beside the button — follow on SoundCloud, follow on Instagram,
-// leave a comment — are separate OAuth flows of their own (/auth/soundcloud-
+// The steps beside the button (follow on SoundCloud, follow on Instagram,
+// leave a comment) are separate OAuth flows of their own (/auth/soundcloud-
 // events/, /auth/instagram-follow/). They are not part of the form, they set
 // no field in it, and the Download button is not disabled while they are
 // undone. Submitting the form is exactly what pressing Download does, which is
 // all this does.
 //
 // The comment box is the one field with something in it: the page pre-fills a
-// suggested comment. Nothing is posted to SoundCloud by submitting the form —
-// the comment only reaches SoundCloud through the OAuth step, which is not
-// walked here — so the field goes back as the page had it.
+// suggested comment. Nothing is posted to SoundCloud by submitting the form
+// (the comment only reaches SoundCloud through the OAuth step, which is not
+// walked here), so the field goes back as the page had it.
 
 import { documentOf, formFields } from '../parse.ts';
 import { looksLikeFile } from '../save.ts';
@@ -38,7 +38,7 @@ export function parseGate(html: string, pageUrl: string) {
 	if (!(form instanceof HTMLFormElement)) return null;
 
 	// The button is not one of the form's values until it is the one pressed, so
-	// it goes in by hand — as the page names it, which is how the server tells a
+	// it goes in by hand, as the page names it, which is how the server tells a
 	// download from any other submit.
 	const submit = [...form.elements].find(
 		(element): element is HTMLInputElement | HTMLButtonElement =>
@@ -80,8 +80,8 @@ async function unlock(pageUrl: string, _details: UnlockDetails): Promise<Unlocke
 
 	if (!answer.ok) throw new Error(`Pump Your Sound answered ${answer.status} to the download.`);
 
-	// The form either redirects at the file — in which case `answer.url` is the
-	// file and the body is the file, which there is no reason to read — or comes
+	// The form either redirects at the file (in which case `answer.url` is the
+	// file and the body is the file, which there is no reason to read) or comes
 	// back as the page again, with the link in it or with a complaint.
 	if (answer.url !== gate.action && looksLikeFile(answer.url)) {
 		// Not waited on, and a refusal is let go: a body that has already failed

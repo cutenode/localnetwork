@@ -16,5 +16,3 @@ Thumbs.db
 .env
 .env.*
 !.env.example
-# Claude Code
-.claude/

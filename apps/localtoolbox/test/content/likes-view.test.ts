@@ -1,4 +1,4 @@
-// content.ts — the one thing this extension asks a SoundCloud page to change
+// content.ts, the one thing this extension asks a SoundCloud page to change
 // about itself: /you/likes in its List view rather than its Badges grid.
 //
 // It is done by pressing SoundCloud's own "View" toggle, so what the page
@@ -157,7 +157,7 @@ describe('pressing it once', () => {
 	});
 
 	// A toggle that answers nothing is the shape a renamed or reworked control
-	// would have. One press is still all it gets — a page cannot be clicked at
+	// would have. One press is still all it gets: a page cannot be clicked at
 	// every repaint because SoundCloud stopped listening.
 	it('does not press again when the press changes nothing', async () => {
 		globalThis.chrome = createChrome({ storage: on.storage });

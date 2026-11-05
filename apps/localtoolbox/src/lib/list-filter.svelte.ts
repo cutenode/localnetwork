@@ -1,11 +1,11 @@
-// The state behind the filter bar the Cover Art and Manager panels share:
-// a search over whatever text a row calls its own, and a "Hide downloaded"
-// toggle that drops the tracks already marked, leaving the ones still to get.
+// The state behind the Manager panel's filter bar: a search over whatever text
+// a row calls its own, and a "Hide downloaded" toggle that drops the tracks
+// already marked, leaving the ones still to get.
 //
 // The toggle is an option, remembered for good under the key the exported
 // state file carries. The search is a place rather than a setting: it is kept
 // for the rest of the browsing session, per tool, so closing the popup to open
-// a link and coming back does not clear it — and a new session starts with the
+// a link and coming back does not clear it, and a new session starts with the
 // whole list again (see view.svelte.ts).
 
 import { matches, HIDE_DOWNLOADED_PREF } from './filter.ts';

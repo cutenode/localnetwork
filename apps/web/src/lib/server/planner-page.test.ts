@@ -1,7 +1,8 @@
-import pino from 'pino';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { silentLogger } from './logger';
 import { loadPlanner } from './planner-page';
 import { createTestServices } from './testing/core';
+import { writtenLog } from './testing/written-log';
 
 const ADMIN = 'did:plc:admin';
 
@@ -9,21 +10,16 @@ const PROMOTER = 'did:plc:promoter';
 
 describe('loadPlanner', () => {
 	let t: Awaited<ReturnType<typeof createTestServices>>;
-	let lines: string[];
 
 	beforeEach(async () => {
 		t = await createTestServices({ admins: [ADMIN], capable: [PROMOTER] });
-		lines = [];
 	});
 	afterEach(async () => {
 		await t.audit.idle();
 		await t.db.destroy();
 	});
 
-	const locals = () => ({
-		app: { planner: t.planner, projects: t.projects },
-		log: pino({}, { write: (line: string) => void lines.push(line) })
-	});
+	const locals = (log = silentLogger) => ({ app: { planner: t.planner, projects: t.projects }, log });
 
 	it('loads saved projects and planned shows with the projects they name', async () => {
 		const project = await t.projectAdmin.create({
@@ -51,11 +47,12 @@ describe('loadPlanner', () => {
 
 	it("says so, and logs it, when the account's server doesn't answer", async () => {
 		t.net.failWrites(PROMOTER);
+		const { logger, lines } = writtenLog();
 
-		expect(await loadPlanner(locals(), await t.viewer(PROMOTER))).toMatchObject({
+		expect(await loadPlanner(locals(logger), await t.viewer(PROMOTER))).toMatchObject({
 			available: false,
 			problem: 'Your PDS did not respond'
 		});
-		expect(lines.join('')).toContain('"msg":"planner unavailable"');
+		expect(lines.map((line) => line.message)).toEqual(['planner unavailable']);
 	});
 });

@@ -266,3 +266,24 @@ fn a_report_is_posted_to_the_space_or_says_why_not(tc: TestCase) {
         Err(err) => assert!(refused, "{err}"),
     }
 }
+
+/// A report whose space can't be looked up (Local Network's directory isn't answering) isn't
+/// posted: it says the directory couldn't be reached, before the account's server is asked.
+#[hegel::test(test_cases = 5)]
+fn prop_a_report_whose_space_cant_be_looked_up_isnt_posted(tc: TestCase) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let pds = format!("http://{}", listener.local_addr().unwrap());
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    crate::testing::directory_on_this_thread(Some(format!("http://127.0.0.1:{port}")));
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    crate::store::Store::open_or_init(root).unwrap();
+    save_session(root, "did:plc:abc", &pds, &format!("atproto {REPORT_SCOPE}"));
+    let account = status(root).unwrap().unwrap();
+    let space = Space::parse("at://did:plc:owner/app.userinput.space/3lspace").unwrap();
+    let title: String = tc.draw(gs::from_regex("[A-Za-z]{1,10}( [a-z]{1,8}){0,2}").fullmatch(true));
+    let err = post(root, &account, &space, &title, "").unwrap_err();
+    assert!(err.to_string().starts_with("couldn't reach Local Network's directory ("), "{err}");
+    assert!(listener.accept().is_err(), "the account's server wasn't asked");
+}

@@ -340,9 +340,9 @@ fn a_onelibrary_that_cant_be_read_is_saved_before_packing_over_it() {
     assert!(matches!(err.inner(), Error::Conflict(_)), "{err}");
 }
 
-/// A source whose OneLibrary database can't be read used to pack with export.pdb alone, taking
-/// the target's exportLibrary.db away with only a warning, so players that read only OneLibrary
-/// couldn't browse the packed drive. It's refused, naming them, and the target is left as it was.
+/// A source whose OneLibrary database can't be read is refused, naming the players that read only
+/// OneLibrary, and the target is left as it was. Packing with export.pdb alone would take the
+/// target's exportLibrary.db away, and those players couldn't browse the packed drive.
 #[test]
 fn a_source_whose_onelibrary_cant_be_read_is_refused() {
     let dir = tempfile::tempdir().unwrap();

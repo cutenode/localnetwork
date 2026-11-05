@@ -38,7 +38,20 @@
 
 <Story name="People and who's waiting on a phone" args={{ people, pending, roles }} globals={{ viewport: { value: 'mobile2', isRotated: false } }} />
 
-<Story name="Loading" args={{ people: new Promise<SpacePerson[]>(() => {}), pending: new Promise<typeof nothing>(() => {}), roles }} />
+<Story
+	name="Someone who can't do anything yet, and plain invites"
+	args={{
+		people: [person('did:plc:door', 'door.test', 'door', [])],
+		pending: {
+			invites: [{ ...pending.invites[0], expiresAt: null }],
+			requests: [{ ...pending.requests[0], message: null }],
+			links: 2
+		},
+		roles
+	}}
+/>
+
+<Story name="Loading"args={{ people: new Promise<SpacePerson[]>(() => {}), pending: new Promise<typeof nothing>(() => {}), roles }} />
 
 <Story name="Nobody in it" args={{ people: [], pending: nothing, roles }} />
 

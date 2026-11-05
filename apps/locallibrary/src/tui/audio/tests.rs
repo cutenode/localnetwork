@@ -787,3 +787,9 @@ fn a_file_without_audio_fails_to_open_saying_so(tc: hegel::TestCase) {
     let err = open_file(&path).err().unwrap_or_else(|| panic!("{ext} of {} bytes opened", text.len()));
     assert!(format!("{err:#}").starts_with(&format!("can't decode {}", path.display())), "{err:#}");
 }
+
+/// Leave the playing track as a seek it couldn't make does (see
+/// [`a_seek_the_track_cant_make_plays_on`]), for what the UI makes of that.
+pub fn seek_fails(audio: &Audio) {
+    audio.heads.front().expect("a track playing").seek_failed.store(true, Ordering::Relaxed);
+}

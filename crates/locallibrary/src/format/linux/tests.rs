@@ -633,3 +633,42 @@ fn formatting_runs_the_planned_steps_in_order(tc: TestCase) {
         }
     }
 }
+
+/// Planning or formatting a disk lsblk can't describe fails in lsblk's words, with nothing else
+/// run. Otherwise mkfs waits for the kernel to make the new partition's device, however late it
+/// comes after udev settles, and then runs.
+#[cfg(unix)]
+#[hegel::test(test_cases = 6)]
+fn prop_formatting_waits_for_the_partition_lsblk_permitting(tc: TestCase) {
+    let mut fake = FakeTools::new();
+    let mut disk = crate::format::tests::sample_disk();
+    disk.device = fake.dir().join("sdb").display().to_string();
+    disk.volumes.clear();
+    std::fs::write(&disk.device, "").unwrap();
+    let part = first_partition(&disk.device);
+    let t = Target { filesystem: Filesystem::Fat32, label: "LT".into(), cluster_size: 32768, default_cluster: true };
+    let (new, old) = (lsblk_args(Some(&disk.device), true), lsblk_args(Some(&disk.device), false));
+    if tc.draw(gs::booleans()) {
+        for args in [&new, &old] {
+            fake.refuse("lsblk", &strs(args), "lsblk: failed to access sysfs directory");
+        }
+        for e in [steps(&disk, &t).map(drop), format(&disk, &t, &Ctx::silent()).map(drop)] {
+            assert!(matches!(&e, Err(Error::External { message, .. }) if message.contains("sysfs")), "{e:?}");
+        }
+        assert!(fake.calls().iter().all(|c| c.program == "lsblk"), "{:?}", fake.calls());
+        return;
+    }
+    fake.answer("lsblk", &strs(&new), &json!({ "blockdevices": [] }).to_string());
+    let planned = commands(&disk, &t, &[]);
+    for c in &planned {
+        fake.answer(&c.program, &strs(&c.args), "");
+    }
+    fake.answer("sync", &[], "");
+    // udev settles before the partition's device is there; it comes a little later.
+    let part_q = format!("'{}'", part.replace('\'', r"'\''"));
+    fake.script("udevadm", &format!("( /bin/sleep 0.2; : >{part_q} ) </dev/null >/dev/null 2>&1 &\nexit 0\n"));
+    assert_eq!(format(&disk, &t, &Ctx::silent()).unwrap(), None);
+    assert!(Path::new(&part).exists());
+    let ran: Vec<Cmd> = fake.calls().into_iter().filter(|c| c.program != "lsblk" && c.program != "sync").collect();
+    assert_eq!(ran, planned);
+}

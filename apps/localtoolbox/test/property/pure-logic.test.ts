@@ -1,17 +1,17 @@
 // Property-based tests for the pure logic.
 //
 // The example tests beside these say what each function does for the inputs
-// the extension actually meets. These say what must hold for *every* input,
+// the extension meets. These say what must hold for *every* input,
 // which is a different question and catches a different kind of mistake: a
 // title with a comma in it, a permalink with a lone surrogate, a gate URL
 // wrapped in one more layer of punctuation than anyone thought to write down.
 //
 // Two kinds of property appear here:
 //
-//   robustness — fed arbitrary bytes, the function answers rather than throws.
+//   robustness: fed arbitrary bytes, the function answers rather than throws.
 //     These use `unit: 'binary'`, which includes lone surrogates and control
 //     characters, because that is what a page can really contain.
-//   round-trip — a value put through the encoder and back comes out equal.
+//   round-trip: a value put through the encoder and back comes out equal.
 //     These are the strongest statements in the suite: they pin the whole
 //     shape of the output, not the parts a test author thought to assert.
 //
@@ -73,8 +73,8 @@ const PUNCTUATION = [...Array.from(' \t\n\r /\\.,"\'<>-?#%aZé'), '  ', '..', '
 
 // Anything a page can hold: control characters, lone surrogates, the lot.
 // `unit: 'binary'` alone is every code point, and spread over all of them it
-// almost never lands on the few above — in 300 runs it wrote no space, slash,
-// dot, comma, quote or " - " at all — so a property fed nothing else never
+// almost never lands on the few above (in 300 runs it wrote no space, slash,
+// dot, comma, quote or " - " at all), so a property fed nothing else never
 // meets the input it is about. Hence the other two.
 const bytes = (options = {}) =>
 	fc.oneof(
@@ -238,7 +238,7 @@ describe('counting and summarising (soundcloud.js)', () => {
 
 // RFC 4180 enough for what csvField() writes: quoted fields, doubled quotes.
 // Outside quotes a line ends at \n, \r\n or a bare \r, as a spreadsheet reads
-// it — so a line break csvField failed to quote shows up as an extra row.
+// it, so a line break csvField failed to quote shows up as an extra row.
 function parseCsv(text: string) {
 	const rows = [];
 	let row = [];
@@ -295,8 +295,8 @@ describe('the text formats (formats.js)', () => {
 		});
 	});
 
-	// Text with what CSV has to quote in it — commas, quotes and line breaks of
-	// both kinds — as well as fc.string()'s printable ASCII, which never has a
+	// Text with what CSV has to quote in it (commas, quotes and line breaks of
+	// both kinds) as well as fc.string()'s printable ASCII, which never has a
 	// line break.
 	const csvText = () => fc.oneof(fc.string(), fc.string({ unit: fc.constantFrom(...Array.from('a é,";\n\r')) }));
 
@@ -418,7 +418,7 @@ describe('the text formats (formats.js)', () => {
 				expect(once).toEqual(tracks.filter((t) => once.includes(t)));
 				expect(dedupeTracks(once)).toEqual(once);
 				// The first of each track and no other, a track being its artist and
-				// its title, case aside — held apart as a pair, so that no delimiter
+				// its title, case aside, held apart as a pair, so that no delimiter
 				// can blur where the one ends and the other begins.
 				const pair = (t: Line) => JSON.stringify([t.artist.toLowerCase(), t.title.toLowerCase()]);
 				expect(once.map(pair)).toEqual([...new Set(tracks.map(pair))]);
@@ -694,7 +694,7 @@ describe('download links (links.js)', () => {
 
 				// The three kinds of row are exhaustive over anything the list can
 				// hold: entries, known to have none, or not finished being asked
-				// about. (A track with no permalink is none of them — and never on
+				// about. (A track with no permalink is none of them, and never on
 				// the list, which refuses one.)
 				const linkless = rows.filter((row) => row.entries.length === 0 && row.track.permalink);
 

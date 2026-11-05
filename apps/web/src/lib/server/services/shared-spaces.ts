@@ -169,7 +169,7 @@ export class SharedSpaces {
 		await this.savePerson(space, kind, person);
 		await this.syncPeople({ space, kind, root, people: new Map([[actor.did, person]]) });
 		await this.core.watchSpace?.(space);
-		this.core.logger.info({ space, kind }, 'created a shared space');
+		this.core.logger.info('created a shared space', { space, kind });
 		await this.record(actor, 'member', 'space.create', space, `Started a ${kind}`, { person: actor.did, role });
 
 		return space;
@@ -441,7 +441,7 @@ export class SharedSpaces {
 			try {
 				spaces = await root.listSpaces(type);
 			} catch (error) {
-				this.core.logger.warn({ err: error, type }, "could not list the root's shared spaces");
+				this.core.logger.warn("could not list the root's shared spaces", { err: error, type });
 				continue;
 			}
 
@@ -449,7 +449,7 @@ export class SharedSpaces {
 				try {
 					await this.syncMembers(space);
 				} catch (error) {
-					this.core.logger.warn({ err: error, space }, "could not sync a shared space's members");
+					this.core.logger.warn("could not sync a shared space's members", { err: error, space });
 				}
 			}
 		}
@@ -466,10 +466,11 @@ export class SharedSpaces {
 		const indexed = await this.save(kind, change);
 
 		if (!indexed)
-			this.core.logger.warn(
-				{ space: change.space, collection: change.collection, rkey: change.rkey },
-				'ignoring a shared space record this app cannot read'
-			);
+			this.core.logger.warn('ignoring a shared space record this app cannot read', {
+				space: change.space,
+				collection: change.collection,
+				rkey: change.rkey
+			});
 	}
 
 	/** Saves a shared space's record to the index, or returns false when it isn't one this app reads. */
@@ -676,7 +677,7 @@ export class SharedSpaces {
 		if (manages(after) || !manages(live.people)) return false;
 
 		if (!actor.isStaff) throw new UserError('Someone else has to be able to manage its people first');
-		this.core.logger.warn({ space: live.space, actor: actor.did }, 'staff left a shared space nobody can manage');
+		this.core.logger.warn('staff left a shared space nobody can manage', { space: live.space, actor: actor.did });
 
 		return true;
 	}

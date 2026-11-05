@@ -1,4 +1,4 @@
-// src/lib/details.svelte.ts — how many tracks have been looked up.
+// src/lib/details.svelte.ts: how many tracks have been looked up.
 //
 // The cache itself belongs to the content script; this is the one number the
 // popup has any use for, and the settings sheet shows it beside the marks and

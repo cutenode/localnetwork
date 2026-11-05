@@ -1,4 +1,4 @@
-// src/lib/view.svelte.ts — the place the popup was left in, kept for the
+// src/lib/view.svelte.ts: the place the popup was left in, kept for the
 // browsing session.
 //
 // The store is a module singleton, so each test imports its own copy against
@@ -38,7 +38,7 @@ describe('view', () => {
 		expect(view.get('manager', 'query', '')).toBe('bicep');
 		// A key the tool has never set, and a tool that has never kept anything.
 		expect(view.get('manager', 'scroll', 0)).toBe(0);
-		// A scope nothing has ever kept anything under — the queue was a tool
+		// A scope nothing has ever kept anything under. The queue was a tool
 		// with a route of its own until it moved into the header.
 		expect(view.get('session-queue', 'query', '')).toBe('');
 	});
@@ -74,7 +74,7 @@ describe('view', () => {
 		expect(reopened.view.queueOpen).toBe(true);
 	});
 
-	// The settings sheet is the other one, kept the same way — and the two are
+	// The settings sheet is the other one, kept the same way, and the two are
 	// exclusive: both come up over the whole popup from the same row of
 	// buttons, so one opening puts the other away.
 	it('keeps whether the settings sheet was up, and never both at once', async () => {

@@ -276,3 +276,203 @@ fn the_databases_swapped_in_are_the_ones_given(tc: hegel::TestCase) {
     assert_eq!(written.contains(&fold(paths::EXPORT_EXT_PDB)), databases.ext.is_some());
     assert_eq!(written.contains(&fold(paths::LIBRARY_PLUS_WAL)), databases.plus.is_some());
 }
+
+/// Of the library files a write doesn't want, only those it writes itself go: audio, analysis,
+/// artwork and the databases it doesn't make. Any other file under `PIONEER/`, the drive's
+/// settings and what OneLibrary keeps beside its database stay, and the delete leaves them.
+#[hegel::test(test_cases = 30)]
+fn prop_only_the_files_a_library_write_makes_are_removed(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let ext = tc.draw(gs::booleans());
+    // Each file, and whether a write that wants none of them removes it.
+    let files = [
+        ("Contents/a.mp3", true),
+        ("PIONEER/USBANLZ/P001/0000/ANLZ0000.DAT", true),
+        ("PIONEER/Artwork/00001/a1.jpg", true),
+        (paths::EXPORT_EXT_PDB, !ext),
+        ("PIONEER/Other/notes.bin", false),
+        ("PIONEER/DEVSETTING.DAT", false),
+        (paths::LIBRARY_PLUS_SHM, false),
+    ];
+    let on_drive: Vec<(&str, bool)> = files.into_iter().filter(|_| tc.draw(gs::booleans())).collect();
+    for (k, _) in &on_drive {
+        put(dir.path(), k, k.as_bytes(), 1_700_000_000);
+    }
+    let target = Device::open(dir.path()).unwrap();
+    let ctx = Ctx::silent();
+    let tree = crate::tree::scan(target.root(), &crate::tree::ScanOptions::default(), &ctx).unwrap();
+    let databases = Databases { ext: ext.then(|| b"ext".to_vec()), ..Default::default() };
+    let planned = plan(&target, &tree, &IndexMap::new(), &[], databases.written(), false);
+    let mut doomed: Vec<&str> = on_drive.iter().filter(|(_, gone)| *gone).map(|(k, _)| *k).collect();
+    let mut planned_keys: Vec<&str> = planned.deletes.iter().map(|d| d.path.as_str()).collect();
+    doomed.sort_unstable();
+    planned_keys.sort_unstable();
+    assert_eq!(planned_keys, doomed);
+    assert_eq!(delete(&target, &planned, &ctx).unwrap().0, doomed.len());
+    for (k, gone) in on_drive {
+        assert_eq!(target.path(k).exists(), !gone, "{k}");
+    }
+}
+
+/// A file copied moments after its source was written is checked by content the next time it's
+/// planned: a source rewritten since at the same size and time is copied again (unless the write
+/// was told what the source holds), and an unchanged one isn't.
+#[hegel::test(test_cases = 20)]
+fn prop_a_copy_made_moments_after_its_source_is_checked_by_content(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let (root, src) = (dir.path().join("drive"), dir.path().join("src"));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&src).unwrap();
+    let now = chrono::Utc::now().timestamp();
+    let path = src.join("source");
+    let analysis = tc.draw(gs::booleans());
+    let told = !analysis && tc.draw(gs::booleans());
+    let (key, mut source) = match analysis {
+        true => {
+            std::fs::copy(demo_dat(), &path).unwrap();
+            fsutil::set_mtime(&path, now).unwrap();
+            (
+                "PIONEER/USBANLZ/P001/0000/ANLZ0000.DAT",
+                Source::analysis(path.clone(), now, "/Contents/a.mp3", 0).unwrap(),
+            )
+        }
+        false => {
+            std::fs::write(&path, b"audio one").unwrap();
+            fsutil::set_mtime(&path, now).unwrap();
+            ("Contents/a.mp3", Source::file(path.clone(), 9, now))
+        }
+    };
+    if told {
+        source.hash = Some(Hash::of(b"audio one"));
+    }
+    let wanted = IndexMap::from([(key.to_string(), source)]);
+    // Only a drive with an identity keeps a hash cache.
+    let mut target = Device::open(&root).unwrap();
+    target.adopt(Some("USB")).unwrap();
+    let ctx = Ctx::silent();
+    let scan = || crate::tree::scan(target.root(), &crate::tree::ScanOptions::default(), &ctx).unwrap();
+    let first = plan(&target, &scan(), &wanted, &[], Written::default(), true);
+    assert_eq!(first.copies.len(), 1);
+    copy(&target, &first, &ctx).unwrap();
+    let rewritten = tc.draw(gs::booleans());
+    if rewritten {
+        let mut bytes = std::fs::read(&path).unwrap();
+        let at = tc.draw(gs::integers::<usize>().max_value(bytes.len() - 1));
+        bytes[at] ^= 0xff;
+        std::fs::write(&path, &bytes).unwrap();
+        fsutil::set_mtime(&path, now).unwrap();
+    }
+    // What the drive would get now, against what it has: an analysis file's own path is written
+    // over, so a change there changes nothing.
+    let on_drive = std::fs::read(target.path(key)).unwrap();
+    let differs = match analysis {
+        true => analysis_bytes(&path, "/Contents/a.mp3", 0).ok() != Some(on_drive),
+        false => rewritten && !told,
+    };
+    let again = plan(&target, &scan(), &wanted, &[], Written::default(), true);
+    assert_eq!(again.copies.len(), usize::from(differs), "{:?}", again.copies);
+    assert_eq!(again.unchanged, usize::from(!differs));
+}
+
+/// A database the swap would write or remove that resolves outside the drive (a link out of
+/// it), or that can't be staged (its folder is a file), stops the swap before anything changes;
+/// an `exportExt.pdb` that isn't written isn't looked at.
+#[cfg(unix)]
+#[hegel::test(test_cases = 20)]
+fn prop_a_database_swap_that_cant_be_staged_changes_nothing(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let keys = [
+        paths::EXPORT_PDB,
+        paths::EXPORT_EXT_PDB,
+        paths::LIBRARY_PLUS_DB,
+        paths::LIBRARY_PLUS_WAL,
+        paths::LIBRARY_PLUS_SHM,
+    ];
+    let db = || tc.draw(gs::optional(gs::binary().max_size(8)));
+    let databases = Databases { pdb: db(), ext: db(), plus: db() };
+    // Each database linked out of the drive in turn, then the folder they go in a file.
+    for linked in keys.map(Some).into_iter().chain([None]) {
+        let dir = tempfile::tempdir().unwrap();
+        let (root, outside) = (dir.path().join("drive"), dir.path().join("outside"));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(&outside, b"not the drive's").unwrap();
+        match linked {
+            Some(k) => {
+                let p = paths::to_fs(&root, k);
+                std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+                std::os::unix::fs::symlink(&outside, &p).unwrap();
+            }
+            None => put(&root, "PIONEER/rekordbox", b"a file", 0),
+        }
+        let before = files_on(&root);
+        let target = Device::open(&root).unwrap();
+        let swapped = swap_databases(&target, &databases);
+        let writes = databases.pdb.is_some() || databases.ext.is_some() || databases.plus.is_some();
+        match linked {
+            Some(k) if k == paths::EXPORT_EXT_PDB && databases.ext.is_none() => {
+                swapped.unwrap();
+                assert!(std::fs::symlink_metadata(target.path(k)).unwrap().is_symlink());
+                continue;
+            }
+            Some(_) => assert!(matches!(swapped, Err(Error::Invalid(_))), "{linked:?}: {swapped:?}"),
+            None if writes => assert!(swapped.is_err()),
+            None => continue,
+        }
+        assert_eq!(files_on(&root), before, "{linked:?}");
+        assert_eq!(std::fs::read(&outside).unwrap(), b"not the drive's");
+    }
+}
+
+/// A delete stops at a path that would leave the drive, having removed what came before it and
+/// nothing after.
+#[hegel::test(test_cases = 20)]
+fn prop_a_delete_stops_at_a_path_off_the_drive(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let keys = ["Contents/a.mp3", "Contents/b.mp3", "Contents/c.mp3"];
+    for k in keys {
+        put(dir.path(), k, b"x", 0);
+    }
+    let at = tc.draw(gs::integers::<usize>().max_value(keys.len()));
+    let unsafe_key = tc.draw(gs::sampled_from(vec!["../outside.mp3", "Contents/../../outside.mp3", ".locallibrary/x"]));
+    let mut planned = Planned {
+        deletes: keys.iter().map(|k| FileCopy { path: k.to_string(), size: 1 }).collect(),
+        ..Default::default()
+    };
+    planned.deletes.insert(at, FileCopy { path: unsafe_key.into(), size: 1 });
+    let target = Device::open(dir.path()).unwrap();
+    assert!(matches!(delete(&target, &planned, &Ctx::silent()), Err(Error::Invalid(_))));
+    for (i, k) in keys.iter().enumerate() {
+        assert_eq!(target.path(k).exists(), i >= at, "{k}");
+    }
+}
+
+/// An analysis file copied into a folder that can't be written fails, and leaves nothing there.
+#[cfg(unix)]
+#[hegel::test(test_cases = 5)]
+fn prop_an_analysis_file_copied_into_a_read_only_folder_fails(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let (root, src) = (dir.path().join("drive"), dir.path().join("src"));
+    std::fs::create_dir_all(&src).unwrap();
+    let key = "PIONEER/USBANLZ/P001/0000/ANLZ0000.DAT";
+    let folder = paths::to_fs(&root, key).parent().unwrap().to_path_buf();
+    std::fs::create_dir_all(&folder).unwrap();
+    let path = src.join("ANLZ0000.DAT");
+    std::fs::copy(demo_dat(), &path).unwrap();
+    let source =
+        Source::analysis(path, 0, "/Contents/a.mp3", tc.draw(gs::integers::<i32>().min_value(0).max_value(50)))
+            .unwrap();
+    let mut planned = Planned::default();
+    planned.copies.push(FileCopy { path: key.into(), size: source.size });
+    planned.sources.insert(key.into(), source);
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let copied = copy(&Device::open(&root).unwrap(), &planned, &Ctx::silent());
+    let left = std::fs::read_dir(&folder).unwrap().count();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(matches!(copied, Err(Error::Io { .. })), "{copied:?}");
+    assert_eq!(left, 0);
+}

@@ -615,7 +615,7 @@ fn my_tags_needing_a_page_out_of_place_fail_to_save(tc: TestCase) {
             .unwrap();
     }
     let path = std::env::temp_dir().join(format!(
-        "rekordbox-pdb-ext-{}-{}.pdb",
+        "rekordbox-pdb-ext-out-of-place-{}-{}.pdb",
         std::process::id(),
         tc.draw(gs::integers::<u64>())
     ));

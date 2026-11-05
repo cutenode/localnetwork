@@ -142,12 +142,15 @@ fn commands_come_with_the_features_built_in() {
     let (_, top) = help(&["help"]);
     let (_, settings) = help(&["settings", "--help"]);
     let (_, profile) = help(&["profile", "--help"]);
+    let (_, accounts) = help(&["account", "--help"]);
     let account = cfg!(feature = "account");
-    assert_eq!(top.contains("\n  account "), account, "{top}");
+    // Every build has `account`, for the accounts plugins use. The feature adds the DJ account's.
+    assert!(top.contains("\n  account "), "{top}");
+    assert_eq!(accounts.contains("\n  login "), account, "{accounts}");
     assert_eq!(settings.contains("\n  publish "), account, "{settings}");
     assert_eq!(profile.contains("\n  publish "), account, "{profile}");
     assert_eq!(top.contains("\n  tui "), cfg!(feature = "tui"), "{top}");
-    // Without the account the command isn't there at all: a usage error.
+    // Without the DJ account, `status` is read as an account to show, and it names none: a usage error.
     let (code, _) = help(&["account", "status"]);
     assert_eq!(code == Some(2), !account);
 }

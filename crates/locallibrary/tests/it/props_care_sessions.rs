@@ -61,3 +61,39 @@ fn every_history_list_is_one_session_naming_its_drives(tc: TestCase) {
     assert_eq!(warned, broken, "{:?}", gathered.warnings);
     assert!(gathered.warnings.iter().all(|w| w.ends_with("only export.pdb's history was read")));
 }
+
+/// A list recorded since two drives were pulled, and on both (one of them given twice), is one
+/// session naming each drive once, recorded after the earlier of the two pulls; it's found by its
+/// list's name in any case.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_list_on_drives_pulled_apart_was_recorded_after_the_earlier_pull(tc: TestCase) {
+    use locallibrary::progress::Ctx;
+    use locallibrary::store::Store;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let mut drives = Vec::new();
+    for name in ["A", "B"] {
+        let root = common::demo_drive(dir.path(), name);
+        let mut d = Device::open_export(&root).unwrap();
+        d.adopt(Some(name)).unwrap();
+        locallibrary::sync::pull(&store, &mut d, &Default::default(), &Ctx::silent()).unwrap();
+        common::add_history(&root, "HISTORY 009", &[1]);
+        drives.push(Device::open_export(&root).unwrap());
+    }
+    let archive = plays::archive(&store, None, &Ctx::silent()).unwrap();
+    let pulls: Vec<_> = drives.iter().map(|d| archive.last_pulled(d).unwrap()).collect();
+    let order = tc.draw(gs::sampled_from(vec![[0, 1, 0], [1, 0, 1], [0, 0, 1]]));
+    let histories: Vec<plays::DriveHistory> = order.iter().map(|&i| plays::DriveHistory::read(&drives[i])).collect();
+    let gathered = session::gather_from(Some(&archive), &histories, &SetBook::default());
+    let [s] = gathered.sessions.as_slice() else { panic!("{:?}", gathered.sessions) };
+    let mut named: Vec<usize> = Vec::new();
+    for i in order {
+        if !named.contains(&i) {
+            named.push(i);
+        }
+    }
+    assert_eq!(s.drives, named.iter().map(|&i| drives[i].name()).collect::<Vec<_>>());
+    assert_eq!(s.window.after, pulls.iter().min().copied());
+    let query = tc.draw(gs::sampled_from(vec!["history 009", "History 009"]));
+    assert_eq!(session::find(&gathered.sessions, query).unwrap().id, s.id);
+}

@@ -1,13 +1,13 @@
 // Who is behind a track, and where else to find them: the pure logic under the
 // artists panel.
 //
-// An artist here is the uploader of a track — the account the track's
+// An artist here is the uploader of a track: the account the track's
 // permalink names, which on a playlist page is also the name the row shows.
 // That path is the artist's identity throughout this tool: what SoundCloud
 // resolves to a profile, what the list holds an artist once under, and what
 // takes one off again. A profile is what SoundCloud said about the account
 // (content.ts, GET_ARTIST_PROFILES), and its socials are the links the
-// uploader put on it — plus whatever addresses they wrote into the bio, which
+// uploader put on it, plus whatever addresses they wrote into the bio, which
 // is where a good many of them put the links that matter.
 
 import { storedList } from '$lib/stored';
@@ -85,7 +85,7 @@ const words = (value?: string) => (value ?? '').trim();
  * A track with no permalink names nobody and is skipped; two tracks by one
  * uploader are one artist with two tracks. The name is whatever the row
  * called the artist, and '' when no row named one (nameOf falls back to the
- * path's own segment) — a badge tile with no artist on it still has an uploader.
+ * path's own segment): a badge tile with no artist on it still has an uploader.
  *
  * @param tracks a page's, the Manager's list's or the queue's
  */
@@ -122,7 +122,7 @@ export const nameOf = (entry: ArtistEntry) => entry.name || entry.profile?.usern
 // its logo, so the panel ships no third-party artwork (the search badges do
 // the same). Which network a link is on is read off its address rather than
 // trusted from SoundCloud's own `network` field, so a link written into a
-// bio is filed exactly as one put on the profile would be — and the field is
+// bio is filed exactly as one put on the profile would be, and the field is
 // the fallback for an address on a host this list does not know.
 
 /** By the id a link is filed under. */
@@ -231,7 +231,7 @@ export function networkOf(url: string, filed = ''): NetworkId {
 const styleOf = (network: Network) => `background:${network.background};color:${network.color || '#ffffff'}`;
 
 // An address as one link is told from another: scheme and www dropped, the
-// case folded, a trailing slash gone — so the profile's Instagram and the bio's
+// case folded, a trailing slash gone, so the profile's Instagram and the bio's
 // are one link rather than two badges opening the same page.
 const keyOf = (url: string) =>
 	url
@@ -265,7 +265,7 @@ const linkOf = (url: string, filed: string | undefined, title: string | undefine
 
 // What an address in running text looks like: something with a scheme, or a
 // www, or a host this tool knows followed by a path. A bare "bicep.com" with
-// none of those is left alone — "e.g." and "vs." are not links, and a word
+// none of those is left alone: "e.g." and "vs." are not links, and a word
 // that merely contains a dot is far likelier than a domain typed without
 // its scheme.
 const KNOWN_HOSTS = Object.values(NETWORKS)
@@ -354,7 +354,7 @@ export const isUnchecked = (entry: ArtistEntry) => !entry.profile;
 export const hasProfile = (entry: ArtistEntry): entry is ProfiledEntry => !!entry.profile && !entry.profile.unavailable;
 
 /**
- * "1.2K", "34M" — a follower count at the width a row has for it.
+ * "1.2K", "34M": a follower count at the width a row has for it.
  * @param n anything but a whole number is ''
  */
 export function shortCount(n?: number | null) {
@@ -372,8 +372,8 @@ export function shortCount(n?: number | null) {
 export const placeOf = (profile?: ProfileEntry | null) => [profile?.city, profile?.country].filter(Boolean).join(', ');
 
 /**
- * The line under an artist's name. What is known — their place, their
- * followers, how many links — or, when nothing is, why: nobody has asked, or
+ * The line under an artist's name. What is known (their place, their
+ * followers, how many links), or, when nothing is, why: nobody has asked, or
  * SoundCloud had no profile for the path.
  *
  * @param options `checking` while a lookup is asking about it
@@ -413,11 +413,11 @@ export function searchText(entry: ArtistEntry) {
 }
 
 /**
- * What a row opens into: every field of the artist, one a line — the profile
- * page and every link first, each with an arrow to open it, then what
- * SoundCloud said and what the list knows. `copy` is what a click puts on
- * the clipboard, and `''` for a field nothing is known about: copying the
- * word "unknown" into a spreadsheet would put a claim there nobody made.
+ * What a row opens into: every field of the artist, one a line. The profile
+ * page and every link come first, each with an arrow to open it, then what
+ * SoundCloud said and what the list knows. `copy` is what a click puts on the
+ * clipboard, and `''` for a field nothing is known about: copying the word
+ * "unknown" into a spreadsheet would put a claim there nobody made.
  */
 export function rowFacts(entry: ArtistEntry) {
 	const facts: Fact[] = [];
@@ -489,8 +489,8 @@ export function sorted(entries: ArtistEntry[], order: string) {
 }
 
 /**
- * The list as text to paste: one block per artist — the name, the profile,
- * then every link on its own line — with a blank line between them.
+ * The list as text to paste: one block per artist (the name, the profile,
+ * then every link on its own line), with a blank line between them.
  */
 export function asText(entries: ArtistEntry[]) {
 	return entries
@@ -506,7 +506,7 @@ export function asText(entries: ArtistEntry[]) {
 
 /**
  * How many badges a row shows before it says "+n" for the rest. Three: a row
- * is 400px wide, and the name has to survive beside them — the rest are a
+ * is 400px wide, and the name has to survive beside them; the rest are a
  * chevron away, in the opened row.
  */
 export const ROW_BADGES = 3;

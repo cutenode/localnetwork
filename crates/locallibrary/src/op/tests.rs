@@ -435,3 +435,58 @@ fn a_plan_reading_files_by_content_sees_exactly_their_changes(tc: hegel::TestCas
     };
     assert_eq!(t.changed(), stale);
 }
+
+/// Bytes by their bytes: JSON's object keys are strings, so a map like this can't be written as
+/// JSON once it holds anything.
+type ByBytes = indexmap::IndexMap<Vec<u8>, u8>;
+
+impl Operation for ByBytes {
+    type Request = ();
+    type Report = ByBytes;
+
+    fn apply(planned: &Planned<Self>, _: Option<&Store>, _: &Ctx<'_>) -> Result<ByBytes> {
+        Ok(planned.plan.clone())
+    }
+}
+
+/// A plan or report that can't be written as JSON: the plan reads as the error saying why, and
+/// applying it is refused with that error, where one that can reads as itself.
+#[hegel::test(test_cases = 30)]
+fn prop_plans_that_cant_be_json_say_why(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let keys: Vec<Vec<u8>> = tc.draw(gs::vecs(gs::vecs(gs::integers::<u8>()).max_size(3)).max_size(3));
+    let plan: ByBytes = keys.iter().cloned().map(|k| (k, 1)).collect();
+    let any: Box<dyn AnyPlanned> = Box::new(Planned::new("test", plan.clone(), ()));
+    let json = any.to_json();
+    let applied = any.apply_json(None, &Ctx::silent());
+    match plan.is_empty() {
+        true => {
+            assert_eq!(json["operation"], "test", "{json}");
+            assert_eq!(applied.unwrap(), serde_json::json!({}));
+        }
+        false => {
+            let why = json["error"].as_str().unwrap_or_else(|| panic!("{json}"));
+            assert!(why.contains("key must be a string"), "{why}");
+            let e = applied.unwrap_err();
+            assert_eq!((e.code(), e.to_string().contains("key must be a string")), ("invalid", true), "{e}");
+        }
+    }
+}
+
+/// Names read as a list: none as nothing, one as itself, more with commas and an `and` before
+/// the last. A plan that touches no drives names none to open again.
+#[hegel::test(test_cases = 50)]
+fn prop_names_read_as_a_list(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let names: Vec<String> = tc.draw(gs::vecs(gs::text().min_size(1).max_size(4)).max_size(4));
+    let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    let expected = match refs.as_slice() {
+        [] => String::new(),
+        [a] => a.to_string(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    };
+    assert_eq!(and_list(&refs), expected);
+    let index = tc.draw(gs::integers::<usize>().max_value(3));
+    let e = Planned::new("test", Plan { tracks: 1, warnings: vec![] }, ()).drive(index).unwrap_err();
+    assert_eq!((e.code(), e.to_string()), ("invalid", "the plan names no such drive".to_string()));
+}

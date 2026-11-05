@@ -1,7 +1,7 @@
 // Which of the search badges are switched on.
 //
 // The sites themselves are data (./search-sites.json, read by
-// ./search-sites.ts); this is the other half — one switch per site, thrown in
+// ./search-sites.ts); this is the other half: one switch per site, thrown in
 // the settings sheet and read by the Manager panel a moment later, in another
 // component entirely.
 //
@@ -12,7 +12,7 @@
 //
 // In the popup's own localStorage, not in chrome.storage: nothing outside the
 // popup draws these badges, so nothing outside it has any use for the answer.
-// Nor are they in the exported state file — the keys it carries are listed in
+// Nor are they in the exported state file: the keys it carries are listed in
 // state-transfer.ts, and which four shops somebody searches is not worth a
 // line in a format every install has to keep reading.
 //
@@ -35,7 +35,7 @@ export const searchSites = {
 		return SEARCH_SITES.map((site) => ({ ...site, on: switches.get(site.id)!.value }));
 	},
 
-	/** Only the ones switched on, in the file's order — what a row draws. */
+	/** Only the ones switched on, in the file's order: what a row draws. */
 	get enabled() {
 		return SEARCH_SITES.filter((site) => switches.get(site.id)!.value);
 	},

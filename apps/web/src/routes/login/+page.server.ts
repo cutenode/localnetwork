@@ -38,7 +38,7 @@ export const actions: Actions = {
 		try {
 			url = await locals.app.oauth.authorize(handle, JSON.stringify({ next }), { account });
 		} catch (error) {
-			locals.log.info({ err: error, handle }, 'authorize failed');
+			locals.log.info('authorize failed', { err: error, handle });
 
 			return fail(400, {
 				error: `We couldn't find @${handle} or reach its host. Check the handle, or make an account.`,

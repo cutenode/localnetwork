@@ -36,7 +36,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		if (payload.iss !== ref.authority) throw new ServiceAuthError('Issuer is not the space authority');
 	} catch (error) {
-		log.warn({ err: error, space }, 'rejected notifyWrite');
+		log.warn('rejected notifyWrite', { err: error, space });
 
 		return json({ error: 'AuthenticationRequired', message: 'Invalid service auth' }, { status: 401 });
 	}
@@ -48,7 +48,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		.executeTakeFirst();
 
 	if (!watched) return json({ error: 'SpaceNotFound' }, { status: 404 });
-	void app.syncer.sync(space).catch((error) => log.warn({ err: error, space }, 'notified sync failed'));
+	void app.syncer.sync(space).catch((error) => log.warn('notified sync failed', { err: error, space }));
 
 	return json({});
 };

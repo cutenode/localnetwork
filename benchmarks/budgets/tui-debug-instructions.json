@@ -1,0 +1,22 @@
+{
+	"$schema": "../budget.schema.json",
+	"job": "pull-request",
+	"tolerance_percent": 1,
+	"metrics": {
+		"library": {
+			"limit": null,
+			"unit": "instructions",
+			"measures": "Instructions of one frame of the Library view at 160x45 in the debug profile, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
+		},
+		"deck": {
+			"limit": null,
+			"unit": "instructions",
+			"measures": "Instructions of one frame of the full-screen deck at 160x45 in the debug profile, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
+		},
+		"drives": {
+			"limit": null,
+			"unit": "instructions",
+			"measures": "Instructions of one frame of the Drives view at 160x45 in the debug profile, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
+		}
+	}
+}

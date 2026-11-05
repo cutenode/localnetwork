@@ -198,7 +198,7 @@ fn parse_entries(
     let mut pos = list.start + list.header_len;
     let end = list.start + list.total_len;
     while pos + 12 <= end {
-        let Some(t) = be_u32(bytes, pos + 8).map(|t| t as usize) else { break };
+        let t = be_u32(bytes, pos + 8).expect("in the section, which sections checked") as usize;
         if t < 12 || pos + t > end {
             break;
         }

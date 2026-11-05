@@ -1,4 +1,4 @@
-// src/tools/artists/lookup.ts — asking a SoundCloud tab about artists.
+// src/tools/artists/lookup.ts: asking a SoundCloud tab about artists.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createChrome, type ChromeMock } from '../helpers/chrome.ts';
 

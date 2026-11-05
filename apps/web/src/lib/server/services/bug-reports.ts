@@ -75,7 +75,7 @@ export class BugReportService {
 		});
 
 		const { uri } = await client.createRecord({ collection: USERINPUT.discussion, record });
-		logger.info({ did, uri }, 'posted a bug report to userinput.app');
+		logger.info('posted a bug report to userinput.app', { did, uri });
 
 		return discussionUrl(uri);
 	}

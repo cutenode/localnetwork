@@ -1096,3 +1096,124 @@ fn a_plan_formats_only_the_disk_it_was_made_for(tc: TestCase) {
     let kept = Device::open(&new).unwrap();
     assert_eq!((kept.state().unwrap().id, kept.name()), (identity, name.to_string()));
 }
+
+/// A lookup or a format diskutil can't see through fails, saying what went wrong: a volume whose
+/// disk diskutil doesn't name isn't found, a disk it then can't describe or list fails in its
+/// words, as does a listing it refuses or a disk it can't describe after erasing it, and output
+/// plutil can't turn into JSON is a parse error. A format with a chosen cluster size on a disk
+/// whose raw device isn't there is an I/O error before any tool runs.
+#[cfg(unix)]
+#[hegel::test(test_cases = 40)]
+fn prop_lookups_diskutil_cant_answer_fail_saying_why(tc: TestCase) {
+    let n = tc.draw(gs::integers::<u32>().min_value(900).max_value(999));
+    let (id, mount) = (format!("disk{n}"), format!("/Volumes/LT{n}"));
+    let mut fake = FakeTools::new();
+    let how = tc.draw(gs::sampled_from(vec![
+        "no parent",
+        "whole gone",
+        "garbled",
+        "unlisted",
+        "no listing",
+        "gone after",
+        "no raw",
+    ]));
+    if how == "garbled" {
+        fake.answer("plutil", &PLUTIL, "<plist>not json");
+    } else {
+        fake.echo("plutil", &PLUTIL);
+    }
+    let gone = format!("Could not find disk: {id}");
+    let info = json!({ "DeviceIdentifier": id, "ParentWholeDisk": id, "Size": 1u64 << 32 }).to_string();
+    let disk =
+        parse_disk(&json!({ "DeviceIdentifier": id, "Size": 1u64 << 32 }), &Value::Null, &FxHashMap::default(), &[]);
+    let t = |default_cluster| Target {
+        filesystem: Filesystem::Fat32,
+        label: "LT".into(),
+        cluster_size: 4096,
+        default_cluster,
+    };
+    let got = match how {
+        "no parent" => {
+            fake.answer("diskutil", &["info", "-plist", &mount], &json!({ "MountPoint": mount }).to_string());
+            by_mount(Path::new(&mount)).map(drop)
+        }
+        "whole gone" => {
+            let part = json!({ "MountPoint": mount, "ParentWholeDisk": id });
+            fake.answer("diskutil", &["info", "-plist", &mount], &part.to_string());
+            fake.refuse("diskutil", &["info", "-plist", &id], &gone);
+            by_mount(Path::new(&mount)).map(drop)
+        }
+        "garbled" => {
+            fake.answer("diskutil", &["info", "-plist", &id], &info);
+            by_id(&id).map(drop)
+        }
+        "unlisted" => {
+            fake.answer("diskutil", &["info", "-plist", &id], &info);
+            fake.refuse("diskutil", &["list", "-plist", &id], &gone);
+            by_id(&id).map(drop)
+        }
+        "no listing" => {
+            fake.refuse("diskutil", &["list", "-plist", "external", "physical"], "Unable to list disks");
+            list().map(drop)
+        }
+        "gone after" => {
+            let erase = commands(&disk, &t(true)).remove(0);
+            fake.then_after("diskutil", &erase.args.iter().map(String::as_str).collect::<Vec<_>>());
+            fake.refuse("diskutil", &["info", "-plist", &id], &gone);
+            format(&disk, &t(true), &Ctx::silent()).map(drop)
+        }
+        _ => {
+            tc.assume(!Path::new(&format!("/dev/r{id}")).exists());
+            let formatted = format(&disk, &t(false), &Ctx::silent()).map(drop);
+            assert!(fake.calls().is_empty(), "{:?}", fake.calls());
+            formatted
+        }
+    };
+    match (how, got) {
+        ("no parent", Err(Error::NotFound(m))) => assert_eq!(m, format!("disk of {mount}")),
+        ("whole gone" | "unlisted" | "gone after", Err(Error::External { message, .. })) => assert_eq!(message, gone),
+        ("no listing", Err(Error::External { message, .. })) => assert_eq!(message, "Unable to list disks"),
+        ("garbled", Err(Error::Parse { path, .. })) => assert_eq!(path, Path::new("diskutil output")),
+        ("no raw", Err(Error::Io { path, .. })) => assert_eq!(path, PathBuf::from(format!("/dev/r{id}"))),
+        (how, other) => panic!("{how}: {other:?}"),
+    }
+}
+
+/// A disk diskutil gives no `Size` for is as big as its `TotalSize`.
+#[test]
+fn a_disk_without_a_size_takes_its_total_size() {
+    let info = json!({ "DeviceIdentifier": "disk7", "TotalSize": 4_000_000_000u64 });
+    assert_eq!(parse_disk(&info, &Value::Null, &FxHashMap::default(), &[]).size, 4_000_000_000);
+}
+
+/// A volume on a synthesized APFS disk is found on the physical disk holding its container
+/// (diskutil's `APFSPhysicalStores`), and a folder inside it is refused as not a volume's root.
+#[cfg(unix)]
+#[hegel::test(test_cases = 20)]
+fn prop_an_apfs_volume_is_on_its_containers_physical_disk(tc: TestCase) {
+    let (synth, physical) = (
+        tc.draw(gs::integers::<u32>().min_value(100).max_value(199)),
+        tc.draw(gs::integers::<u32>().min_value(2).max_value(40)),
+    );
+    let (synth, physical, mount) =
+        (format!("disk{synth}"), format!("disk{physical}"), format!("/Volumes/{}", word(&tc)));
+    let mut fake = FakeTools::new();
+    fake.echo("plutil", &PLUTIL);
+    let volume = json!({ "MountPoint": mount, "ParentWholeDisk": synth }).to_string();
+    let store = format!("{physical}s{}", tc.draw(gs::integers::<u32>().min_value(1).max_value(4)));
+    let container = json!({ "DeviceIdentifier": synth, "APFSPhysicalStores": [{ "APFSPhysicalStore": store }] });
+    fake.answer("diskutil", &["info", "-plist", &mount], &volume);
+    fake.answer("diskutil", &["info", "-plist", &synth], &container.to_string());
+    fake.answer("diskutil", &["info", "-plist", &physical], &json!({ "DeviceIdentifier": physical }).to_string());
+    fake.answer("diskutil", &["list", "-plist", &physical], &json!({ "AllDisksAndPartitions": [] }).to_string());
+    let inner = tc.draw(gs::booleans());
+    let asked = if inner { format!("{mount}/Contents") } else { mount.clone() };
+    if inner {
+        fake.answer("diskutil", &["info", "-plist", &asked], &volume);
+    }
+    match by_mount(Path::new(&asked)) {
+        Ok(disk) => assert!(!inner && disk.id == physical, "{asked}: {}", disk.id),
+        Err(Error::Invalid(m)) => assert!(inner && m == format!("{asked} is not the root of a volume"), "{m}"),
+        Err(e) => panic!("{asked}: {e}"),
+    }
+}
