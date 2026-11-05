@@ -1076,3 +1076,11 @@ fn prop_credits_name_each_artist_once_in_order(tc: TestCase) {
     }
     assert_eq!(artist_credits(&credit), want, "{credit:?}");
 }
+
+/// However a tag gets there, it comes out in one form: ASCII and what isn't, spaced out or not.
+#[test]
+fn tags_normalise_to_one_form() {
+    assert_eq!(normalize("  Deep   HOUSE\t"), "deep house");
+    assert_eq!(normalize("\u{FB01}ve  Caf\u{E9}"), "five caf\u{E9}");
+    assert_eq!(normalize("   "), "");
+}

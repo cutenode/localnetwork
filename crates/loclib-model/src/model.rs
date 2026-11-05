@@ -68,7 +68,7 @@ pub struct Track {
 impl Track {
     /// "Artist - Title", for display.
     pub fn display_name(&self) -> String {
-        if self.artist.is_empty() { self.title.clone() } else { format!("{} - {}", self.artist, self.title) }
+        if self.artist.is_empty() { self.title.clone() } else { [&self.artist, " - ", &self.title].concat() }
     }
 
     /// Identity used to recognise the same recording across *different* libraries, where row
@@ -470,12 +470,20 @@ pub fn pick<S: AsRef<str>, T>(items: impl IntoIterator<Item = (S, T)>, query: &s
 
 /// Lower-case, NFKC, whitespace-collapsed form for fuzzy comparisons.
 pub fn normalize(s: &str) -> String {
-    // Most tags are NFKC already (ASCII always is), which a quick check tells without normalising.
-    let lower = match is_nfkc_quick(s.chars()) {
-        IsNormalized::Yes => s.to_lowercase(),
-        _ => s.nfkc().collect::<String>().to_lowercase(),
+    // Most tags are NFKC already, which being ASCII says at once and a quick check tells without
+    // normalising. A search does this for every field of every track.
+    let lower = match s.is_ascii() || matches!(is_nfkc_quick(s.chars()), IsNormalized::Yes) {
+        true => s.to_lowercase(),
+        false => s.nfkc().collect::<String>().to_lowercase(),
     };
-    lower.split_whitespace().collect::<Vec<_>>().join(" ")
+    let mut out = String::with_capacity(lower.len());
+    for word in lower.split_whitespace() {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(word);
+    }
+    out
 }
 
 /// `s` split wherever one of the (ASCII) separators appears, ignoring case.
