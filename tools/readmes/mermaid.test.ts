@@ -8,19 +8,27 @@ import mermaid from 'mermaid';
 import { describe, expect, it } from 'vitest';
 import { diagramFiles, mermaidBlocks } from './readmes.ts';
 
-const repo = resolve(import.meta.dirname, '../..');
+const apps = resolve(import.meta.dirname, '../../apps');
+
+const blocks = ['locallibrary', 'localtoolbox', 'web'].flatMap((app) =>
+	diagramFiles(resolve(apps, app)).flatMap((file) =>
+		mermaidBlocks(readFileSync(resolve(apps, app, file), 'utf8')).map((block, index) => ({
+			name: `apps/${app}/${file} block ${index + 1}`,
+			block
+		}))
+	)
+);
 
 describe('mermaid.parse', () => {
 	it('refuses a block that is broken', async () => {
 		await expect(mermaid.parse('flowchart TD\n  A[one --> B\n')).rejects.toThrow('Parse error');
 	});
 
-	it.each(['locallibrary', 'localtoolbox', 'web'])("reads every block in apps/%s's diagrams", async (app) => {
-		const folder = resolve(repo, 'apps', app);
-		const blocks = diagramFiles(folder).flatMap((file) => mermaidBlocks(readFileSync(resolve(folder, file), 'utf8')));
+	it('finds every chart', () => {
+		expect(blocks.length).toBeGreaterThan(200);
+	});
 
-		expect(blocks.length).toBeGreaterThan(0);
-
-		for (const block of blocks) await expect(mermaid.parse(block), block).resolves.toBeTruthy();
+	it.each(blocks)('reads $name', async ({ block }) => {
+		await expect(mermaid.parse(block)).resolves.toBeTruthy();
 	});
 });
