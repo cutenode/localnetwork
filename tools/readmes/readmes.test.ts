@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { diagramProblems } from './readmes.ts';
+import { diagramFiles, diagramProblems } from './readmes.ts';
 
 const repo = resolve(import.meta.dirname, '../..');
 
@@ -24,8 +24,20 @@ describe('diagramProblems', () => {
 		expect(diagramProblems(readme(links), (path) => path === 'a.ts')).toEqual([]);
 	});
 
-	it('fails a README with no section', () => {
-		expect(diagramProblems('# app\n', noFiles)).toEqual(['no ## Diagrams section']);
+	it('reads a page that is all diagrams, with no Diagrams section', () => {
+		const page = `# app: one area\n\n- [One](#one)\n\n## One\n\n${block()}`;
+
+		expect(diagramProblems(page, (path) => path === 'a.ts')).toEqual([]);
+		expect(diagramProblems(`# app: one area\n\n## One\n\n${block()}`, () => true)).toEqual(['one: not in the index']);
+	});
+
+	it('fails a page with more diagrams than GitHub finishes drawing', () => {
+		const within = `- [One](#one)\n\n## One\n\n${block().repeat(40)}`;
+
+		expect(diagramProblems(within, () => true)).toEqual([]);
+		expect(diagramProblems(`${within}${block()}`, () => true)).toEqual([
+			'41 diagrams on a page: GitHub draws about 40'
+		]);
 	});
 
 	it('fails a source that is not there', () => {
@@ -53,11 +65,18 @@ describe('diagramProblems', () => {
 		}
 	);
 
-	it.each(['locallibrary', 'localtoolbox', 'web'])("holds for apps/%s's README", (app) => {
+	it.each(['locallibrary', 'localtoolbox', 'web'])("holds for apps/%s's README and diagram pages", (app) => {
 		const folder = resolve(repo, 'apps', app);
 
-		expect(
-			diagramProblems(readFileSync(resolve(folder, 'README.md'), 'utf8'), (path) => existsSync(resolve(folder, path)))
-		).toEqual([]);
+		expect(readFileSync(resolve(folder, 'README.md'), 'utf8')).toContain('\n## Diagrams\n');
+
+		for (const file of diagramFiles(folder)) {
+			const here = dirname(resolve(folder, file));
+
+			expect(
+				diagramProblems(readFileSync(resolve(folder, file), 'utf8'), (path) => existsSync(resolve(here, path))),
+				file
+			).toEqual([]);
+		}
 	});
 });
