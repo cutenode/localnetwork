@@ -476,7 +476,8 @@ jobs:
           tool: cargo-nextest
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --doc --workspace --locked
-      - run: cargo nextest run --workspace --locked
+      # Every failure, where the first would hide the rest of a run this long.
+      - run: cargo nextest run --workspace --locked --no-fail-fast
       # As the test job's.
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
