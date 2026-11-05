@@ -45,3 +45,6 @@ export const sources = (src: string): Record<'pds' | 'plyr' | 'archive' | 'embed
 	archive: { kind: 'audio', src, from: 'archive.org', link: 'https://archive.org/details/tidal-hours' },
 	embed: { kind: 'embed', src: 'about:blank', platform: 'YouTube', link: 'https://www.youtube.com/watch?v=tidal' }
 });
+
+/** A recording that never loads (a MediaSource nothing is ever added to), as an object URL. Playing it waits until someone pauses. */
+export const stalled = (): string => URL.createObjectURL(new MediaSource());

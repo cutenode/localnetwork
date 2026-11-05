@@ -24,7 +24,15 @@
 
 <Story name="Host hasn't confirmed" args={{ available: true, channel: paused('email_unconfirmed'), topics }} />
 
+<!-- No address came back from the host yet, so the status names none. -->
+<Story name="Host hasn't confirmed, no address" args={{ available: true, channel: { ...paused('email_unconfirmed'), address: null }, topics }} />
+
 <Story name="Address refused" args={{ available: true, channel: paused('address_rejected'), topics }} />
+
+<!-- A pause stored without its reason reads as the host not having confirmed the address. -->
+<Story name="Paused, no reason" args={{ available: true, channel: paused(null), topics }} />
+
+<Story name="Paused for another reason" args={{ available: true, channel: paused('dm_not_allowed'), topics }} />
 
 <Story name="On" args={{ available: true, channel: on, topics }} />
 

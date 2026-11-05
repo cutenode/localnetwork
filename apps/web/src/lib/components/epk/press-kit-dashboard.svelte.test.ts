@@ -1,5 +1,5 @@
-import { page } from 'vitest/browser';
-import { describe, expect, it } from 'vitest';
+import { page, userEvent } from 'vitest/browser';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import {
 	ACCESS_PRESETS,
@@ -8,10 +8,13 @@ import {
 	type EpkDraftView,
 	epkFormDefaults
 } from '#lib/epk.ts';
+import { stubFormAction } from '#lib/testing/form-action.ts';
 import DraftStatus from './DraftStatus.svelte';
 import EpkConflicts from './EpkConflicts.svelte';
 import EpkEditor from './EpkEditor.svelte';
 import EpkKitList from './EpkKitList.svelte';
+
+afterEach(() => vi.unstubAllGlobals());
 
 const ROOT = 'did:plc:root';
 
@@ -97,6 +100,43 @@ describe('EpkKitList', () => {
 
 		await expect.element(page.getByText(/load the press kits/)).toHaveAttribute('role', 'alert');
 	});
+
+	it('shows a press kit with its own access rules and no drafts on its own', async () => {
+		const [{ epk }] = dashboard.kits;
+
+		const custom = {
+			...epk,
+			record: {
+				...epk.record,
+				headline: 'Late rooms only',
+				access: { bookedWith: 'auto', following: 'none', promoters: 'review', anyone: 'none' } as const,
+				updatedAt: '2026-10-20T12:00:00Z'
+			}
+		};
+
+		await render(EpkKitList, {
+			...list,
+			dashboard: Promise.resolve({ kits: [{ epk: custom, drafts: [] }], drafts: [] })
+		});
+
+		await expect.element(page.getByText('Late rooms only')).toBeVisible();
+		await expect.element(page.getByText(/Custom access · Updated Oct 20, 2026/)).toBeVisible();
+		await expect.element(page.getByRole('list', { name: 'Open drafts' })).not.toBeInTheDocument();
+		await expect.element(page.getByRole('heading', { name: 'Not published' })).not.toBeInTheDocument();
+	});
+
+	it('lists drafts on their own when nothing is published, naming an untitled one', async () => {
+		await render(EpkKitList, {
+			...list,
+			dashboard: Promise.resolve({ kits: [], drafts: [draft('3kblank', me, 'new')] })
+		});
+
+		await expect.element(page.getByRole('heading', { name: 'Not published' })).toBeVisible();
+		await expect
+			.element(page.getByRole('link', { name: 'Continue draft of Untitled press kit' }))
+			.toHaveAttribute('href', '/dashboard/projects/neon-tide/press-kits/3kblank');
+		await expect.element(page.getByRole('link', { name: 'New press kit' })).not.toBeInTheDocument();
+	});
 });
 
 const conflicts: EpkConflictView[] = [
@@ -116,6 +156,21 @@ describe('EpkConflicts', () => {
 		await expect.element(boxes.nth(1)).toHaveAttribute('value', 'content.techRider');
 		const listed = [...container.querySelectorAll<HTMLInputElement>('input[type="hidden"][name="conflict"]')];
 		expect(listed.map((input) => input.value)).toEqual(['headline', 'content.techRider']);
+	});
+
+	it('sends the picked fields, holding the button while it publishes', async () => {
+		const action = stubFormAction();
+		await render(EpkConflicts, { conflicts });
+
+		await userEvent.click(page.getByRole('checkbox', { name: 'Publish mine' }).nth(1));
+		await userEvent.click(page.getByRole('button', { name: 'Publish' }));
+
+		await expect.element(page.getByRole('button', { name: 'Publishing…' })).toBeDisabled();
+		await expect.poll(() => action.sent.length).toBe(1);
+		expect(action.sent[0].getAll('overwrite')).toEqual(['content.techRider']);
+		action.answer();
+		await expect.element(page.getByRole('button', { name: 'Publish' })).toBeEnabled();
+		await expect.element(page.getByRole('checkbox', { name: 'Publish mine' }).nth(1)).toBeChecked();
 	});
 });
 
@@ -157,5 +212,33 @@ describe('EpkEditor', () => {
 		await expect.element(page.getByRole('button', { name: 'Publish' })).toBeVisible();
 		await expect.element(page.getByRole('button', { name: 'Discard draft' })).not.toBeInTheDocument();
 		await expect.element(page.getByRole('button', { name: /Delete/ })).not.toBeInTheDocument();
+	});
+
+	it('asks before deleting a published press kit, and can keep it', async () => {
+		await render(EpkEditor, { ...editor, draft: null, others: [], published: true });
+
+		await userEvent.click(page.getByRole('button', { name: 'Delete…' }));
+		await expect.element(page.getByText("This deletes it and everyone's access.")).toBeVisible();
+		await expect
+			.element(page.getByRole('button', { name: 'Delete press kit' }))
+			.toHaveAttribute('formaction', '?/delete');
+
+		await userEvent.click(page.getByRole('button', { name: 'Keep it' }));
+		await expect.element(page.getByRole('button', { name: 'Delete press kit' })).not.toBeInTheDocument();
+		await expect.element(page.getByRole('button', { name: 'Delete…' })).toBeVisible();
+	});
+
+	it("shows a current draft and another manager's without a warning, and the fields to settle", async () => {
+		await render(EpkEditor, {
+			...editor,
+			draft: { status: 'current', updatedAt: '2026-10-22T18:30:00Z' },
+			others: [{ author: co, updatedAt: '2026-10-23T09:15:00Z' }],
+			published: true,
+			conflicts
+		});
+
+		await expect.element(page.getByText('Up to date')).toBeVisible();
+		await expect.element(page.getByText(/after you started/)).not.toBeInTheDocument();
+		await expect.element(page.getByRole('heading', { name: 'Someone published changes first' })).toBeVisible();
 	});
 });

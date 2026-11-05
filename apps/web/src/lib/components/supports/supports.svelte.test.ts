@@ -2,7 +2,7 @@ import { page, userEvent } from 'vitest/browser';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import type { DjSet } from '#lib/dj.ts';
-import type { Charts } from '#lib/types.ts';
+import type { ArtistSupports, Charts } from '#lib/types.ts';
 import DjSets from '../DjSets.svelte';
 import ArtistPage from './ArtistPage.svelte';
 import ArtistResults from './ArtistResults.svelte';
@@ -86,6 +86,39 @@ describe('ArtistSupport', () => {
 		await screen.rerender({ supports: null });
 		await expect.element(page.getByText('Artists offline')).toBeVisible();
 	});
+
+	it('falls back for a DJ, place and track the directory knows little about', async () => {
+		const track = { id: 'name:dusk', title: 'Dusk', artist: 'Ferrule', artists: [{ name: 'Ferrule' }], supports: 1 };
+
+		const supports: ArtistSupports = {
+			artist: { name: 'Ferrule', supports: 1, djCount: 1 },
+			tracks: [
+				{
+					track,
+					plays: [
+						{
+							did: 'did:plc:ghost',
+							set: {
+								uri: 'at://did:plc:ghost/computer.localnetwork.dj.set/3k',
+								cid: 'bafyset',
+								date: '2026-10-13',
+								trackCount: 12
+							}
+						}
+					]
+				}
+			],
+			djs: {}
+		};
+
+		await render(ArtistSupport, { supports, retryHref: '/artists/name/Ferrule' });
+
+		await expect.element(page.getByText('1 all-time support from 1 DJ', { exact: true })).toBeVisible();
+		await expect.element(page.getByRole('link', { name: /MusicBrainz/ })).not.toBeInTheDocument();
+		await expect
+			.element(page.getByRole('list', { name: 'Plays of Dusk' }).getByRole('listitem'))
+			.toHaveTextContent('Tue 13 Oct did:plc:ghost Somewhere');
+	});
 });
 
 describe('ArtistPage', () => {
@@ -95,6 +128,13 @@ describe('ArtistPage', () => {
 
 		await expect.element(page.getByRole('link', { name: 'Artists' })).toHaveAttribute('href', '/artists');
 		await expect.element(page.getByRole('heading', { level: 1, name: 'Ferrule' })).toBeVisible();
+	});
+
+	it('offers to try again when the directory is offline', async () => {
+		await render(ArtistPage, { supports: null });
+
+		await expect.element(page.getByText('Artists offline')).toBeVisible();
+		await expect.element(page.getByRole('link', { name: 'Try again' })).toBeVisible();
 	});
 });
 
