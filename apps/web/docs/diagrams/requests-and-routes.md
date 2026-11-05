@@ -33,10 +33,10 @@ flowchart TD
   Guard -- "/dashboard or /admin,<br/>signed out" --> Login["303 to /login?next="]
   Guard -- "/admin, not staff" --> Refused["403"]
   Guard --> Route["Load, action or endpoint,<br/>page CSP with a nonce"]
-  Route --> Out["gzip, security headers,<br/>noindex on unlisted areas, request log"]
+  Route --> Out["gzip, security headers,<br/>noindex on unlisted areas,<br/>the one log line for the request"]
 ```
 
-Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/compress.ts`](../../src/lib/server/compress.ts), [`vite.config.ts`](../../vite.config.ts)
+Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/compress.ts`](../../src/lib/server/compress.ts), [`src/lib/server/logger.ts`](../../src/lib/server/logger.ts), [`vite.config.ts`](../../vite.config.ts)
 
 ## Page loads and form actions
 
