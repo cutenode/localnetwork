@@ -507,3 +507,31 @@ fn formatting_partitions_once_and_finds_the_drive_letter(tc: TestCase) {
         (how, other) => panic!("{how}: {other:?}"),
     }
 }
+
+/// A FAT32 volume is laid out over the partition the script printed, or over the whole planned
+/// partition when it printed no size: one too small for FAT32 is refused as such before anything
+/// is written. (Outside Windows the writer then refuses for want of raw volume access.)
+#[cfg(unix)]
+#[hegel::test(test_cases = 20)]
+fn prop_fat32_is_laid_out_over_the_partition_printed(tc: TestCase) {
+    let mut fake = FakeTools::new();
+    let device = fake.dir().join("PhysicalDrive3");
+    std::fs::write(&device, "").unwrap();
+    let disk = Disk {
+        device: device.display().to_string(),
+        size: tc.draw(gs::integers::<u64>().min_value(1 << 30).max_value(1 << 39)),
+        ..parse_disk(&json!({ "Number": 3, "BusType": "USB" }))
+    };
+    let t = Target { filesystem: Filesystem::Fat32, label: "LT".into(), cluster_size: 4096, default_cluster: true };
+    let size = tc.draw(gs::sampled_from(vec![None, Some(1u64 << 20), Some(disk.partition_size())]));
+    let mut printed = json!({ "DriveLetter": "G" });
+    if let Some(s) = size {
+        printed["Size"] = json!(s);
+    }
+    ps_says(&mut fake, &partition_script(&disk, &t), Ok(&printed.to_string()));
+    match format(&disk, &t, &Ctx::silent()) {
+        Err(Error::Invalid(m)) if size == Some(1 << 20) => assert!(m.contains("too small for FAT32"), "{m}"),
+        Err(Error::Invalid(m)) => assert_eq!(m, "raw volume access is only implemented on Windows"),
+        other => panic!("{size:?}: {other:?}"),
+    }
+}

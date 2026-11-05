@@ -104,3 +104,47 @@ fn clearing_the_journal_before_a_time_takes_exactly_the_earlier_entries(tc: Test
         .collect();
     assert_eq!(left, kept);
 }
+
+/// Undoing with a backup that carries no journal (an earlier version took it) takes the edit it
+/// was made for and every one recorded since off the journal, keeping the ones before in order,
+/// and says beforehand which go and that none come back. Entries whose own backup is gone, or that
+/// name none, are told apart by when they were recorded.
+#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_undoing_with_a_backup_carrying_no_journal_takes_its_edit_and_later_ones_off(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
+    let names: Vec<String> = (0..n).map(|i| format!("P{i}")).collect();
+    for name in &names {
+        common::apply(&root, &[Edit::CreatePlaylist { path: name.clone(), folder: false }]);
+    }
+    let mut d = Device::open_export(&root).unwrap();
+    let file = d.state_dir().join("edits.json");
+    let mut journal: serde_json::Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+    let k = tc.draw(gs::integers::<usize>().max_value(n - 1));
+    let undone = journal["entries"][k]["backup"].as_str().unwrap().to_string();
+    for e in journal["entries"].as_array_mut().unwrap() {
+        match tc.draw(gs::integers::<u8>().max_value(2)) {
+            0 => {}
+            1 => e["backup"] = "pruned".into(),
+            _ => drop(e.as_object_mut().unwrap().remove("backup")),
+        }
+    }
+    fs::write(&file, serde_json::to_vec(&journal).unwrap()).unwrap();
+    for b in backup::list(&d).unwrap() {
+        fs::remove_file(backup::dir(&d, &b.id).join("carried.json")).unwrap();
+    }
+    let info = backup::list(&d).unwrap().into_iter().find(|b| b.id == undone).unwrap();
+    let made = |entries: Vec<edit::journal::JournalEntry>| -> Vec<String> {
+        (entries.into_iter().flat_map(|e| e.edits))
+            .map(|e| match e {
+                Edit::CreatePlaylist { path, .. } => path,
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    };
+    assert_eq!(made(edit::journal::taken_off(&d, &info).unwrap()), names[k..]);
+    assert!(edit::journal::put_back(&d, &info).unwrap().is_empty());
+    backup::restore(&mut d, Some(&undone), false).unwrap();
+    assert_eq!(made(edit::journal::list(&d).unwrap()), names[..k]);
+}

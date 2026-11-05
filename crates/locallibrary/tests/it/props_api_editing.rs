@@ -553,7 +553,7 @@ fn cue_edits_agree_with_cue_edit(tc: TestCase) {
 
 /// Replacing duplicates replaces each Sync Manager copy (`<name>-1.<ext>`, the same audio) with
 /// the other copy of its recording: one of each pair stays, playlist entries of the one that
-/// goes move to it, and its file goes.
+/// goes move to it, and its file goes. Two rows for one file, and nothing else alike, both stay.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 fn dedupe_keeps_one_of_each_copy(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -581,6 +581,19 @@ fn dedupe_keeps_one_of_each_copy(tc: TestCase) {
             .unwrap();
         pairs.push((*id, copy, orig.file_path.clone(), copy_path));
     }
+    // A second row for the file of a track with no copy: rows told apart by nothing but their tags,
+    // which rekordbox's next export fixes, so both stay.
+    let lone = ids(&lib).into_iter().find(|i| !originals.contains(i));
+    let twin = match lone {
+        Some(id) => {
+            let file = lib.track(id).unwrap().file_path.clone();
+            let mut ed = rekordbox_pdb::PdbEditor::from_file(&pdb_path).unwrap();
+            let twin = ed.add_track(&rekordbox_pdb::NewTrack::new("Twin", file)).unwrap();
+            ed.save(&pdb_path).unwrap();
+            Some((id, twin))
+        }
+        _ => None,
+    };
     let entries: Vec<u32> = pairs.iter().map(|p| p.1).collect();
     let set = Edit::SetTracks {
         playlist: "Set".into(),
@@ -605,6 +618,9 @@ fn dedupe_keeps_one_of_each_copy(tc: TestCase) {
         let (gone, kept_file) = if kept[0].id == *a { (b_path, a_path) } else { (a_path, b_path) };
         assert!(!paths::to_fs(&root, &paths::key(gone)).exists(), "{gone} left");
         assert!(paths::to_fs(&root, &paths::key(kept_file)).exists(), "{kept_file} deleted");
+    }
+    if let Some((id, twin)) = twin {
+        assert!(after.track(id).is_some() && after.track(twin).is_some(), "two rows for one file stay");
     }
 }
 
@@ -728,4 +744,44 @@ fn packing_puts_the_chosen_playlists_on_the_target(tc: TestCase) {
     assert!(writes.contains(&1), "the stick is registered with its write: {writes:?}");
     let again = api::PackRequest { options: Default::default(), ..req };
     assert!(api::pack_plan(&again, &Ctx::silent()).unwrap().plan.copies.is_empty(), "packed twice");
+}
+
+/// Rows with neither a title nor an artist (blank, or only spaces) are nobody's copies, though
+/// rekordbox's fingerprint has them alike; a row named as another, as long, is that one's copy.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_untitled_tracks_without_an_artist_are_nobodys_copies(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    common::isolate(dir.path(), None);
+    let root = fresh(dir.path(), "Main");
+    let named = library(&root).tracks[0].clone();
+    let pdb_path = root.join(paths::EXPORT_PDB);
+    let mut ed = rekordbox_pdb::PdbEditor::from_file(&pdb_path).unwrap();
+    let mut blank = Vec::new();
+    for i in 0..tc.draw(gs::integers::<usize>().min_value(2).max_value(3)) {
+        let (title, artist) =
+            tc.draw(gs::tuples!(gs::sampled_from(vec!["", " ", "  "]), gs::sampled_from(vec!["", " "])));
+        let row = rekordbox_pdb::NewTrack {
+            artist: Some(artist.into()),
+            ..rekordbox_pdb::NewTrack::new(title, format!("/Contents/untitled/{i}.mp3"))
+        };
+        blank.push(ed.add_track(&row).unwrap());
+    }
+    let copy = ed
+        .add_track(&rekordbox_pdb::NewTrack {
+            artist: Some(named.artist.clone()),
+            duration: named.duration_secs as u16,
+            ..rekordbox_pdb::NewTrack::new(named.title.clone(), "/Contents/untitled/copy.mp3")
+        })
+        .unwrap();
+    ed.save(&pdb_path).unwrap();
+
+    let tracks = TrackSelector { ids: blank.iter().copied().chain([copy]).collect(), ..Default::default() };
+    let got = api::track_details(&api::TrackDetailsRequest { library: path(&root).into(), tracks }).unwrap();
+    let (untitled, copied) = got.split_at(blank.len());
+    assert!(
+        untitled.iter().all(|d| d.copies.is_empty()),
+        "{:?}",
+        untitled.iter().map(|d| &d.copies).collect::<Vec<_>>()
+    );
+    assert!(copied[0].copies.iter().any(|c| c.id == named.id), "{:?}", copied[0].copies);
 }

@@ -134,3 +134,13 @@ fn events_serialize_flat() {
     );
     assert_eq!(serde_json::to_value(WatchEvent::Attached(d)).unwrap()["event"], "drive.attached");
 }
+
+/// A volume mounted at the root of the file system has no folder name: with no locallibrary name
+/// either, it's named by its path.
+#[cfg(unix)]
+#[test]
+fn a_drive_at_the_root_is_named_by_its_path() {
+    let root = PathBuf::from("/");
+    let d = describe(root.clone(), &LibraryStamp::of(&root));
+    assert_eq!((d.root, d.id, d.name.as_str()), (root, None, "/"));
+}

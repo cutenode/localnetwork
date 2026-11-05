@@ -270,3 +270,66 @@ fn packing_a_onelibrary_only_drive_takes_the_chosen_playlists_tracks(tc: TestCas
     used.dedup();
     assert_eq!(plan.tracks, used.len());
 }
+
+/// A drive whose database isn't one (empty, text, or a few drawn bytes) has no edit planned on it:
+/// export.pdb, or exportLibrary.db on a drive with no export.pdb, is refused naming the file. A
+/// OneLibrary database that isn't one beside a good export.pdb leaves the edit to export.pdb, said.
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_database_that_isnt_one_is_refused_or_left_out_of_an_edit(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    let which = tc.draw(gs::sampled_from(vec![paths::EXPORT_PDB, paths::LIBRARY_PLUS_DB]));
+    let alone = which == paths::LIBRARY_PLUS_DB && tc.draw(gs::booleans());
+    match (which == paths::LIBRARY_PLUS_DB, alone) {
+        (true, true) => common::onelibrary_only(&root),
+        (true, false) => common::add_onelibrary(&root),
+        _ => {}
+    }
+    let garbage = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => Vec::new(),
+        1 => b"not a database".to_vec(),
+        _ => tc.draw(gs::vecs(gs::integers::<u8>()).max_size(400)),
+    };
+    fs::write(root.join(which), &garbage).unwrap();
+    let made = Edit::CreatePlaylist { path: "Made".into(), folder: false };
+    let d = Device::open(&root).unwrap();
+    let planned = edit::plan(&d, &[made], &EditOptions::default(), &Ctx::silent());
+    match (which == paths::EXPORT_PDB || alone, planned) {
+        (true, Err(e)) => assert!(e.to_string().contains(which.rsplit('/').next().unwrap()), "{e}"),
+        (false, Ok(plan)) => {
+            assert!(plan.warnings.iter().any(|w| w.contains("Only export.pdb will be changed")), "{:?}", plan.warnings);
+        }
+        (refused, planned) => panic!("{which} of {garbage:?} (refused: {refused}): {planned:?}"),
+    }
+}
+
+/// An edit cancelled while it's planned or made stops with nothing changed on the drive and no
+/// backup left, whether it's made in one go or as steps under one backup.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_cancelled_edit_stops_with_the_drive_as_it_was(tc: TestCase) {
+    use locallibrary::progress::{CancelToken, NoProgress};
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    let t = common::library(&root).tracks[0].clone();
+    let mut edits = vec![Edit::CreatePlaylist { path: "Made".into(), folder: false }];
+    if tc.draw(gs::booleans()) {
+        edits.insert(0, Edit::MyTag(tags::TagChange::Add { tag: "Warm".into(), tracks: vec![t.file_path] }));
+    }
+    let while_planned = tc.draw(gs::booleans());
+    let before = common::library_files(&root);
+    let mut d = Device::open_export(&root).unwrap();
+    let backups = locallibrary::backup::list(&d).unwrap().len();
+    let cancel = CancelToken::new();
+    cancel.cancel();
+    let cancelled = Ctx::new(&NoProgress, cancel);
+    let err = match while_planned {
+        true => edit::plan(&d, &edits, &EditOptions::default(), &cancelled).unwrap_err(),
+        false => {
+            let plan = edit::plan(&d, &edits, &EditOptions::default(), &Ctx::silent()).unwrap();
+            edit::apply(&plan, &mut d, &cancelled).unwrap_err()
+        }
+    };
+    assert!(matches!(err, locallibrary::Error::Cancelled), "{err}");
+    assert_eq!(common::library_files(&root), before);
+    assert_eq!(locallibrary::backup::list(&d).unwrap().len(), backups);
+}

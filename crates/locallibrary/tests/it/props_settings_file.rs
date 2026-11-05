@@ -242,7 +242,8 @@ fn an_export_comes_back_from_an_empty_store(tc: TestCase) {
 }
 
 /// Importing adds the file's values without changing any set here; replacing makes each of the
-/// file's values the file's, and still keeps what the file doesn't have.
+/// file's values the file's, and still keeps what the file doesn't have. A plan applied without
+/// the store is refused, importing nothing.
 #[hegel::test(test_cases = 100)]
 fn importing_adds_and_replacing_overwrites(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -254,6 +255,9 @@ fn importing_adds_and_replacing_overwrites(tc: TestCase) {
         (json_of(&api::settings_export(&from).unwrap()), json_of(&api::settings_export(&into).unwrap()));
     let replace = tc.draw(gs::booleans());
     let plan = api::settings_import_file_plan(&into, &ImportSettingsFile { file: file.clone(), replace }).unwrap();
+    let err = plan.apply(None, &locallibrary::progress::Ctx::silent()).unwrap_err();
+    assert!(err.to_string().contains("importing settings needs the store"), "{err}");
+    assert_eq!(json_of(&api::settings_export(&into).unwrap()), ours, "nothing imported without the store");
     let after = json_of(&import(&into, &file, replace));
     let refused = if replace { Action::Keep } else { Action::Replace };
     assert!(plan.plan.changes.iter().all(|c| c.action != refused), "{:?}", plan.plan.changes);
@@ -449,4 +453,100 @@ fn importing_the_players_preferences_keeps_where_it_was() {
     );
     let after = import(&store, &file, true);
     assert_eq!(after.player["theme"], "themes.night");
+}
+
+/// A file whose version isn't this one's, or with a section that isn't what that section holds
+/// (a value of the wrong kind, a setting that doesn't exist, in the base or a drive's
+/// overrides, a plugin's entry that isn't one), is refused naming the version or the section,
+/// before anything is planned or written.
+#[hegel::test(test_cases = 10)]
+fn prop_a_file_with_a_section_it_cant_read_is_refused(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path(), "store");
+    let drive = Uuid::from_u128(1).to_string();
+    let drive = drive.as_str();
+    let replace = tc.draw(gs::booleans());
+    for case in 0..10u8 {
+        let (doc, says) = match case {
+            0 => (json!({ "version": 0 }), "not one locallibrary wrote".to_string()),
+            1 => {
+                let v = tc.draw(gs::integers::<u32>().min_value(2));
+                (json!({ "version": v }), format!("its version is {v}: a newer"))
+            }
+            2 => (json!({ "version": 1, "my_settings": { "base": 5 } }), "my_settings".into()),
+            3 => {
+                (json!({ "version": 1, "my_settings": { "base": { "no_such_setting": "on" } } }), "my_settings".into())
+            }
+            4 => (
+                json!({ "version": 1, "my_settings": { "drives": { drive: { "name": "SD", "values": { "quantize": "sideways" } } } } }),
+                "my_settings".into(),
+            ),
+            5 => (json!({ "version": 1, "players": { "default": 5 } }), "players".into()),
+            6 => (json!({ "version": 1, "profile": { "precision": [] } }), "profile".into()),
+            7 => (json!({ "version": 1, "player": { "theme": 5 } }), "player".into()),
+            8 => (json!({ "version": 1, "mix": { "index_limit_mib": "lots" } }), "mix".into()),
+            _ => {
+                let id = tc.draw(gs::sampled_from(vec!["../up", "a b", ""]));
+                (json!({ "version": 1, "plugins": { id: {} } }), "plugins".into())
+            }
+        };
+        let file = dir.path().join("settings.json");
+        fs::write(&file, doc.to_string()).unwrap();
+        let req = ImportSettingsFile { file: file.clone(), replace };
+        let err = api::settings_import_file_plan(&store, &req).unwrap_err().to_string();
+        assert!(err.contains(&says) && err.contains(&file.display().to_string()), "{doc}: {err}");
+        let err = locallibrary::settings::transfer::read(&file).unwrap_err();
+        assert_eq!(err.code(), "parse", "{err}");
+    }
+    assert_eq!(
+        fs::read_dir(store.root()).unwrap().count(),
+        fs::read_dir(store_in(dir.path(), "fresh").root()).unwrap().count()
+    );
+}
+
+/// A file the store keeps settings in that can't be read stops an export, and an import, which
+/// compares the file with what's set here: nothing's made of what was set.
+#[hegel::test(test_cases = 20)]
+fn prop_a_store_file_that_cant_be_read_stops_export_and_import(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path(), "store");
+    let damaged = tc.draw(gs::sampled_from(vec![
+        "settings.json",
+        "players.json",
+        locallibrary::profile::PREFS_FILE,
+        locallibrary::mix::prefs::PREFS_FILE,
+        "plugins/sound/settings.json",
+    ]));
+    let path = store.root().join(damaged);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, tc.draw(gs::sampled_from(vec![&b"not json"[..], b"{", b"[1, 2"]))).unwrap();
+    assert!(api::settings_export(&store).is_err());
+    let file = dir.path().join("import.json");
+    fs::write(&file, json!({ "version": 1, "mix": { "index_limit_mib": 64 } }).to_string()).unwrap();
+    let doc = locallibrary::settings::transfer::read(&file).unwrap();
+    assert!(locallibrary::settings::transfer::merge(&store, &doc, tc.draw(gs::booleans())).is_err());
+    assert!(api::settings_import_file_plan(&store, &ImportSettingsFile { file, replace: false }).is_err());
+}
+
+/// An import whose file can't be written where the store keeps it fails, saying so, and the
+/// other sections' files are as they were.
+#[hegel::test(test_cases = 10)]
+fn prop_an_import_that_cant_be_written_fails(tc: TestCase) {
+    use locallibrary::settings::transfer;
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path(), "store");
+    let (section, kept_in) = tc.draw(gs::sampled_from(vec![
+        (json!({ "my_settings": { "base": { "quantize": "off" } } }), "settings.json"),
+        (json!({ "players": { "default": ["CDJ-3000"] } }), "players.json"),
+        (json!({ "mix": { "index_limit_mib": 64 } }), locallibrary::mix::prefs::PREFS_FILE),
+    ]));
+    let mut doc = section;
+    doc["version"] = json!(1);
+    let file = dir.path().join("import.json");
+    fs::write(&file, doc.to_string()).unwrap();
+    let merged = transfer::merge(&store, &transfer::read(&file).unwrap(), tc.draw(gs::booleans())).unwrap();
+    assert!(!merged.changes.is_empty());
+    fs::create_dir_all(store.root().join(kept_in).join("in the way")).unwrap();
+    assert!(merged.write(&store).is_err());
+    assert!(store.root().join(kept_in).is_dir());
 }

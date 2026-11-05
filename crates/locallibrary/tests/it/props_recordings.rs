@@ -191,3 +191,112 @@ fn recordings_are_collected_byte_for_byte(tc: TestCase) {
         assert_eq!(again.failed.len(), r.collected.len());
     }
 }
+
+/// A tracklist numbers every track of the history list in order, naming each by the library or,
+/// for one the library doesn't have, by its id.
+#[hegel::test(test_cases = 50)]
+fn prop_a_tracklist_names_every_track_in_order(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "AZ");
+    let lib = common::library(&root);
+    let mut known: Vec<u32> = lib.tracks.iter().map(|t| t.id).collect();
+    known.extend([9_000, 9_001]);
+    let ids = tc.draw(gs::vecs(gs::sampled_from(known)).max_size(12));
+    let history = locallibrary::Playlist {
+        id: 1,
+        parent_id: None,
+        name: "HISTORY 001".into(),
+        is_folder: false,
+        sort_order: 0,
+        track_ids: ids.clone(),
+    };
+    let text = recordings::tracklist_text(&lib, &history);
+    let mut lines = text.lines();
+    assert_eq!((lines.next(), lines.next()), (Some("HISTORY 001"), Some("")));
+    let rest: Vec<&str> = lines.collect();
+    assert_eq!(rest.len(), ids.len());
+    for (n, (line, id)) in rest.iter().zip(&ids).enumerate() {
+        let name = lib.track(*id).map(|t| t.display_name()).unwrap_or_else(|| format!("(track {id})"));
+        assert_eq!(*line, format!("{:02}. {name}", n + 1));
+    }
+}
+
+/// A drive with no library gives no tracklist: a named history list isn't found, and the latest
+/// one is no list at all, so the recordings are copied without one.
+#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_drive_without_a_library_gives_no_tracklist(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::blank(dir.path(), "AZ");
+    fs::create_dir_all(root.join("PIONEER REC")).unwrap();
+    fs::write(root.join("PIONEER REC/REC000.WAV"), media::wav_of(44_100, 16, 2, 0.05)).unwrap();
+    let mut d = Device::open(&root).unwrap();
+    let out = dir.path().join("Sets");
+    let delete = tc.draw(gs::booleans());
+    let named =
+        CollectOptions { to: out.clone(), only: vec![], tracklist: Tracklist::Named("HISTORY 001".into()), delete };
+    let e = recordings::collect(&mut d, &named, &Ctx::silent()).unwrap_err();
+    assert_eq!(e.code(), "not_found", "{e}");
+    let latest = CollectOptions { tracklist: Tracklist::Latest, ..named };
+    let r = recordings::collect(&mut d, &latest, &Ctx::silent()).unwrap();
+    let [c] = r.collected.as_slice() else { panic!("{r:?}") };
+    assert_eq!((c.tracklist.as_ref(), c.deleted), (None, delete));
+    assert_eq!(root.join("PIONEER REC/REC000.WAV").exists(), !delete);
+    // Copied into a folder that can't be made (a file is in the way), nothing is collected.
+    let blocked = dir.path().join("blocked");
+    fs::write(&blocked, b"").unwrap();
+    let opts = CollectOptions { to: blocked, only: vec![], tracklist: Tracklist::None, delete: false };
+    assert_eq!(recordings::collect(&mut d, &opts, &Ctx::silent()).unwrap_err().code(), "io");
+    // A drive that's gone has no recordings.
+    fs::remove_dir_all(&root).unwrap();
+    assert!(recordings::list(&d).unwrap().is_empty());
+}
+
+/// A collect cancelled before or while it copies stops there: the recording it was copying isn't
+/// listed as failed, and nothing is deleted from the drive.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_cancelled_collect_deletes_nothing(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::blank(dir.path(), "AZ");
+    fs::create_dir_all(root.join("PIONEER REC")).unwrap();
+    let secs = tc.draw(gs::sampled_from(vec![0.05, 0.5]));
+    fs::write(root.join("PIONEER REC/REC000.WAV"), media::wav_of(44_100, 16, 2, secs)).unwrap();
+    let mut d = Device::open(&root).unwrap();
+    let opts = CollectOptions { to: dir.path().join("Sets"), only: vec![], tracklist: Tracklist::None, delete: true };
+    for before_copying in [true, false] {
+        let token = locallibrary::CancelToken::new();
+        if before_copying {
+            token.cancel();
+        }
+        // Otherwise Ctrl-C once it starts on the recording, before its bytes are copied.
+        let progress = |e: &locallibrary::Event| {
+            if matches!(e, locallibrary::Event::Item { .. }) {
+                token.cancel();
+            }
+        };
+        let e = recordings::collect(&mut d, &opts, &Ctx::new(&progress, token.clone())).unwrap_err();
+        assert_eq!(e.code(), "cancelled", "{e}");
+        assert!(root.join("PIONEER REC/REC000.WAV").exists());
+    }
+}
+
+/// Copies verified while another process writes the drive stay copied, but the recordings aren't
+/// deleted: the drive is locked.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_locked_drive_keeps_its_collected_recordings(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::blank(dir.path(), "AZ");
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+    fs::create_dir_all(root.join("PIONEER REC")).unwrap();
+    for i in 0..n {
+        fs::write(root.join(format!("PIONEER REC/REC{i:03}.WAV")), media::wav_of(44_100, 16, 2, 0.05)).unwrap();
+    }
+    let mut d = Device::open(&root).unwrap();
+    let held = d.lock().unwrap();
+    let out = dir.path().join("Sets");
+    let opts = CollectOptions { to: out.clone(), only: vec![], tracklist: Tracklist::None, delete: true };
+    let e = recordings::collect(&mut d, &opts, &Ctx::silent()).unwrap_err();
+    assert_eq!(e.code(), "locked", "{e}");
+    assert_eq!(fs::read_dir(out.join("AZ")).unwrap().count(), n);
+    assert_eq!(recordings::list(&d).unwrap().len(), n);
+    drop(held);
+}

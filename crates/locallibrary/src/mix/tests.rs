@@ -963,3 +963,116 @@ fn blends_are_called_as_the_website_calls_them() {
     let at = |overlap| Transition { from: 0, to: 1, at: 0.0, overlap, harmony: None, tempo_change: None };
     assert!(at(BLEND_SECS).is_blend() && !at(BLEND_SECS - 0.1).is_blend());
 }
+
+/// Only an image can be given as a recording's cover: one is kept by its absolute path (given
+/// relative to the current folder or not) and reads back as its bytes; anything else is refused
+/// as no cover, and a file that isn't there as the file it is.
+#[hegel::test(test_cases = 30)]
+fn prop_only_an_image_can_be_given_as_a_cover(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("cover.png");
+    // 0: an image, 1: text, 2: nothing there.
+    let kind = tc.draw(gs::integers::<u8>().max_value(2));
+    match kind {
+        0 => {
+            let side = tc.draw(gs::integers::<u32>().min_value(16).max_value(40));
+            image::RgbImage::from_fn(side, side, |x, y| image::Rgb([x as u8, y as u8, 9])).save(&file).unwrap();
+        }
+        1 => std::fs::write(&file, format!("not an image {}", tc.draw(gs::text().max_size(40)))).unwrap(),
+        _ => {}
+    }
+    // On Windows the temporary folder can be on another drive, which no relative path reaches.
+    let relative = cfg!(unix) && tc.draw(gs::booleans());
+    let given = if relative {
+        let up = std::env::current_dir().unwrap().components().count() - 1;
+        std::iter::repeat_n(Path::new(".."), up).collect::<PathBuf>().join(file.strip_prefix("/").unwrap())
+    } else {
+        file.clone()
+    };
+    match (CoverSource::given(&given), kind) {
+        (Ok(c @ CoverSource::Given(_)), 0) => {
+            let CoverSource::Given(kept) = &c else { unreachable!() };
+            assert!(kept.is_absolute() && kept.canonicalize().unwrap() == file.canonicalize().unwrap(), "{kept:?}");
+            assert_eq!(c.read().unwrap(), std::fs::read(&file).unwrap());
+        }
+        (Err(Error::Invalid(m)), 1) => {
+            assert!(m.starts_with(&format!("{} can't be a cover: ", given.display())), "{m}")
+        }
+        (Err(Error::Io { path, .. }), 2) => assert_eq!(path, given),
+        (other, _) => panic!("{kind}: {other:?}"),
+    }
+}
+
+/// A play's speed is its tempo as a percentage, or, when the pitch fader was ridden, the slowest
+/// and fastest it went between: each to a tenth of a percent, signed.
+#[hegel::test(test_cases = 200)]
+fn prop_a_plays_speed_reads_as_the_percentages_it_was_played_at(tc: TestCase) {
+    use loclib_model::test_util::track;
+    let speed = || gs::floats::<f64>().min_value(0.5).max_value(1.5);
+    let mut p = crate::mix::report::tests::play(track(1, "A", "B", "/C/d.mp3"));
+    p.tempo = tc.draw(speed());
+    p.speed_range = tc.draw(gs::optional(gs::tuples!(speed(), speed())));
+    let said = p.speed();
+    let read = |s: &str| -> f64 {
+        assert!(
+            s.starts_with(['+', '-']) && s.ends_with('%') && s.split('.').nth(1).is_some_and(|d| d.len() == 2),
+            "{s}"
+        );
+        s.trim_end_matches('%').parse().unwrap()
+    };
+    let near = |s: &str, speed: f64| assert!((read(s) - (speed - 1.0) * 100.0).abs() <= 0.05 + 1e-9, "{said}");
+    match p.speed_range {
+        Some((slowest, fastest)) => {
+            let (a, b) = said.split_once(" to ").unwrap();
+            near(a, slowest);
+            near(b, fastest);
+        }
+        None => near(&said, p.tempo),
+    }
+}
+
+/// Files beside a mix named like a cover but with no extension saying they're an image aren't
+/// its cover, and nothing is found beside a mix whose folder is gone.
+#[test]
+fn only_images_beside_a_mix_are_its_cover() {
+    let dir = tempfile::tempdir().unwrap();
+    let set = dir.path().join("set.wav");
+    for name in ["set", "cover", "folder.txt"] {
+        std::fs::write(dir.path().join(name), b"x").unwrap();
+    }
+    assert_eq!(cover_next_to(&set), None);
+    std::fs::write(dir.path().join("front.PNG"), b"x").unwrap();
+    assert_eq!(cover_next_to(&set), Some(dir.path().join("front.PNG")));
+    assert_eq!(cover_next_to(&dir.path().join("gone/set.wav")), None);
+}
+
+/// A play kept without its lines (a report made before they were) follows its tempo from where it
+/// starts in the track; it starts at the whole second it was first heard, never before 0. Two
+/// plays blend when they're heard together for [`BLEND_SECS`] or more.
+#[hegel::test(test_cases = 200)]
+fn prop_a_play_without_lines_follows_its_tempo(tc: TestCase) {
+    use loclib_model::test_util::track;
+    let secs = || gs::floats::<f64>().min_value(-5.0).max_value(600.0);
+    let mut p = crate::mix::report::tests::play(track(1, "A", "B", "/C/d.mp3"));
+    (p.start, p.track_start) = (tc.draw(secs()), tc.draw(secs()));
+    p.tempo = tc.draw(gs::floats::<f64>().min_value(0.84).max_value(1.16));
+    let at = tc.draw(secs());
+    assert_eq!(p.track_secs(at), p.track_start + (at - p.start) * p.tempo);
+    let second = p.start_second();
+    assert!(f64::from(second) <= p.start.max(0.0) && p.start.max(0.0) < f64::from(second) + 1.0, "{}", p.start);
+    let overlap = tc.draw(gs::floats::<f64>().min_value(-30.0).max_value(30.0));
+    let t = Transition { from: 0, to: 1, at, overlap, harmony: None, tempo_change: None };
+    assert_eq!(t.is_blend(), overlap >= BLEND_SECS);
+}
+
+/// A drive with no library has nothing to identify a mix against: it says it isn't an export.
+#[hegel::test(test_cases = 5)]
+fn prop_a_drive_without_a_library_identifies_nothing(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let name = tc.draw(gs::sampled_from(vec!["Main", "Spare"]));
+    std::fs::create_dir(dir.path().join(name)).unwrap();
+    let device = Device::open(dir.path().join(name)).unwrap();
+    let cache = Cache::new(dir.path().join("cache"));
+    let made = Identifier::new(&device, &cache, &MixPrefs::default(), &Ctx::silent());
+    assert!(matches!(made, Err(Error::NotAnExport(_))), "{:?}", made.err());
+}

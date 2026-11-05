@@ -54,3 +54,6 @@ impl Staged {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

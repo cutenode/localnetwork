@@ -92,7 +92,7 @@ fn minutes_read_as_a_clock(tc: TestCase) {
 }
 
 /// A drive's tracks are checked once per file: those cut short, or not audio, are found, the rest
-/// pass, and files that aren't there are left to the other checks.
+/// pass, and files that aren't there are left to the other checks. A cancelled check stops.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_drives_files_are_each_checked_once(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -139,4 +139,12 @@ fn a_drives_files_are_each_checked_once(tc: TestCase) {
     let mut found = found;
     found.sort();
     assert_eq!(found, expect);
+    // Cancelled, the check stops with nothing said about the files it had to check.
+    let cancel = locallibrary::progress::CancelToken::new();
+    cancel.cancel();
+    let cancelled = probe::check_tracks(&d, &lib, &tree, &Ctx::new(&locallibrary::progress::NoProgress, cancel));
+    match checked {
+        0 => assert!(cancelled.unwrap().1.is_empty()),
+        _ => assert!(matches!(cancelled, Err(locallibrary::Error::Cancelled)), "{cancelled:?}"),
+    }
 }

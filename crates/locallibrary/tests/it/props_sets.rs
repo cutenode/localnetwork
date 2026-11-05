@@ -1563,3 +1563,49 @@ fn sets_become_playlists_on_a_drive(tc: TestCase) {
         assert_eq!(tracks_of("Gigs/Friday"), Some(once));
     }
 }
+
+/// Logs added to a set that has a recording leave its tracklist, the recording's, as it is, and
+/// join its sessions: each track they logged (by name, once) is a note that the recording didn't
+/// hear it. A drive whose history can't be read while the sessions are gathered is warned of.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_logs_added_to_a_recorded_set_are_notes_not_tracks(tc: TestCase) {
+    let desk = Desk::new();
+    let mut logs: Vec<Log> = Vec::new();
+    for i in 0..tc.draw(gs::integers::<usize>().min_value(2).max_value(3)) {
+        import(&desk, &mut logs, &format!("log{i}"), None, &rows(&tc, 3));
+    }
+    tc.assume(logs.len() >= 2);
+    let broken = tc.draw(gs::booleans());
+    if broken {
+        let pdb = desk.volumes.join("Broken").join(paths::EXPORT_PDB);
+        std::fs::create_dir_all(pdb.parent().unwrap()).unwrap();
+        std::fs::write(&pdb, b"not a database").unwrap();
+    }
+    let new = NewSet { sessions: vec![logs[0].id.clone()], ..Default::default() };
+    let made = api::set_new(&desk.store, &new, &Ctx::silent()).unwrap();
+    let mut book = desk.book();
+    let set = book.sets.iter_mut().find(|s| s.id == made.set.id).unwrap();
+    set.recording = Some(Recording { path: desk.dir.path().join("set.wav"), report: None });
+    book.save(&desk.store).unwrap();
+
+    let added = &logs[1..];
+    let req = EditSet {
+        set: made.set.id.clone(),
+        add_sessions: added.iter().map(|l| l.id[..8].to_string()).collect(),
+        ..Default::default()
+    };
+    let warnings = common::Warnings::default();
+    let grown = api::set_edit(&desk.store, &req, &warnings.ctx()).unwrap();
+    assert_eq!(warnings.said().iter().any(|w| w.contains("Broken")), broken, "{:?}", warnings.said());
+    let names = |set: &Set| set.tracks.iter().map(SetEntry::name).collect::<Vec<_>>();
+    assert_eq!(names(&grown.set), names(&made.set), "the recording's tracklist stays");
+    assert_eq!(grown.set.sessions, logs.iter().map(|l| l.id.clone()).collect::<Vec<_>>());
+    let mut want: Vec<String> = Vec::new();
+    for (name, _) in added.iter().flat_map(Log::tracks) {
+        let note = format!("{name}: logged but not heard in the recording (previews?)");
+        if !want.contains(&note) {
+            want.push(note);
+        }
+    }
+    assert_eq!(grown.notes, want);
+}

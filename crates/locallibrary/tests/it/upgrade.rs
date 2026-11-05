@@ -394,3 +394,69 @@ fn shifted_real_analysis_reads_back() {
         assert_eq!(columns(&ext2), columns(&ext));
     }
 }
+
+/// A plan for players none of which is known, or for a drive whose library can't be read, is
+/// refused; cancelled at the end of any step before it matches prints, it stops. A file at the
+/// copy's name, of the copy's size, that can't be read leaves the track not upgraded, saying why,
+/// and the plan goes on.
+#[hegel::test(test_cases = 1, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_an_upgrade_plan_is_refused_stopped_or_says_why_not(_tc: hegel::TestCase) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use locallibrary::upgrade;
+    use locallibrary::{CancelToken, Event, Progress};
+
+    /// Cancels at the end of step number `.2`, counting them in `.1`.
+    struct CancelAtStep(CancelToken, AtomicUsize, usize);
+    impl Progress for CancelAtStep {
+        fn on_event(&self, e: &Event) {
+            if matches!(e, Event::PhaseEnd { .. }) && self.1.fetch_add(1, Ordering::SeqCst) == self.2 {
+                self.0.cancel();
+            }
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    #[cfg_attr(not(unix), allow(unused_variables))]
+    let (root, lossless, song) = setup(dir.path());
+    let _store = store(dir.path());
+    let d = Device::open_export(&root).unwrap();
+    let opts = UpgradeOptions { folders: vec![lossless.clone()], ..Default::default() };
+
+    let unknown = UpgradeOptions { players: vec!["Gramophone".into()], ..opts.clone() };
+    assert!(upgrade::plan(&d, &unknown, &Ctx::silent()).is_err(), "no such player");
+    // Each step until it matches prints stops it (the tracks' and the files' look in the cache,
+    // and their prints): the first cancel that doesn't comes after them.
+    let mut stopped = 0;
+    for at in 0.. {
+        let cancel = CancelAtStep(CancelToken::new(), AtomicUsize::new(0), at);
+        match upgrade::plan(&d, &opts, &Ctx::new(&cancel, cancel.0.clone())) {
+            Err(Error::Cancelled) => stopped += 1,
+            Ok(plan) if !plan.upgrades.is_empty() => break,
+            other => panic!("{at}: {other:?}"),
+        }
+    }
+    assert!(stopped >= 3, "{stopped}");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let size = fs::metadata(lossless.join("Album/Song.wav")).unwrap().len() as usize;
+        let there = root.join("Contents/Sound/Song.wav");
+        fs::write(&there, vec![0u8; size]).unwrap();
+        fs::set_permissions(&there, fs::Permissions::from_mode(0o000)).unwrap();
+        let plan = upgrade::plan(&d, &opts, &Ctx::silent());
+        fs::set_permissions(&there, fs::Permissions::from_mode(0o644)).unwrap();
+        fs::remove_file(&there).unwrap();
+        let plan = plan.unwrap();
+        assert!(plan.upgrades.is_empty(), "{:?}", plan.upgrades);
+        let [not] = plan.not_upgraded.as_slice() else { panic!("{:?}", plan.not_upgraded) };
+        assert_eq!(not.track.id, song);
+        assert!(not.why.contains("ermission denied"), "{}", not.why);
+    }
+
+    fs::write(root.join(paths::EXPORT_PDB), b"not a database").unwrap();
+    fs::remove_file(root.join(paths::LIBRARY_PLUS_DB)).unwrap();
+    let unreadable = upgrade::plan(&Device::open(&root).unwrap(), &opts, &Ctx::silent());
+    assert!(unreadable.is_err(), "{unreadable:?}");
+}
