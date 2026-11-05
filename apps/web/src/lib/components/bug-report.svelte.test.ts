@@ -1,11 +1,14 @@
 import { page } from 'vitest/browser';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import { stubFormAction } from '#lib/testing/form-action.ts';
 import BugReportForm from './BugReportForm.svelte';
 
 const github = 'https://github.com/cutenode/localnetwork/issues/new?template=web-bug.yml';
 
 const facts = { page: '/match', browser: 'Chrome 141, macOS' };
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe('BugReportForm', () => {
 	it('asks to approve posting before showing the form, with GitHub as the way out', async () => {
@@ -68,5 +71,38 @@ describe('BugReportForm', () => {
 			.toBeInTheDocument();
 		await expect.element(page.getByRole('link', { name: 'View your report' })).toHaveAttribute('href', url);
 		await expect.element(page.getByRole('link', { name: 'Back to the site' })).toHaveAttribute('href', '/match');
+	});
+
+	it('links back home when the report was about no page in particular', async () => {
+		await render(BugReportForm, { step: { kind: 'sent', url: 'https://userinput.app/d/did:plc:abc/3mabc' }, github });
+
+		await expect.element(page.getByRole('link', { name: 'Back to the site' })).toHaveAttribute('href', '/');
+	});
+
+	it('posts what they wrote, holding the button until the answer comes', async () => {
+		const server = stubFormAction();
+		await render(BugReportForm, { step: { kind: 'form' }, github, facts });
+
+		await page.getByRole('textbox', { name: 'Title' }).fill('Blank map');
+		await page.getByRole('textbox', { name: 'What happened?' }).fill('The map stays grey.');
+		await page.getByRole('button', { name: 'Post report' }).click();
+		await expect.element(page.getByRole('button', { name: 'Posting…' })).toBeDisabled();
+		expect([server.sent[0]?.get('title'), server.sent[0]?.get('body')]).toEqual(['Blank map', 'The map stays grey.']);
+		server.answer();
+
+		await expect.element(page.getByRole('button', { name: 'Post report' })).toBeEnabled();
+		await expect.element(page.getByRole('textbox', { name: 'What happened?' })).toHaveValue('The map stays grey.');
+	});
+
+	it('holds the button once they approve, while their account server opens', async () => {
+		// Approving is a full page POST, which would take the test page with it.
+		const stay = (event: Event) => event.preventDefault();
+		window.addEventListener('submit', stay, { capture: true });
+		await render(BugReportForm, { step: { kind: 'consent' }, github, facts });
+
+		await page.getByRole('button', { name: 'Approve' }).click();
+
+		await expect.element(page.getByRole('button', { name: 'Opening…' })).toBeDisabled();
+		window.removeEventListener('submit', stay, { capture: true });
 	});
 });

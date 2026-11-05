@@ -71,6 +71,10 @@
 	<ArtistResults artists={null} q="ferr" retryHref="/artists" />
 </Story>
 
+<Story name="Artist search, error" asChild>
+	<ArtistResults artists={failed<SupportedArtist[] | null>()} q="ferr" retryHref="/artists" />
+</Story>
+
 <Story name="Artist search on a phone" asChild globals={phone}>
 	<ArtistResults artists={supportedArtists} q="" retryHref="/artists" />
 </Story>
