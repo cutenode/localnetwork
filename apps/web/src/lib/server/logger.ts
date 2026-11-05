@@ -43,15 +43,22 @@ function prettyStream(): DestinationStream | undefined {
 	}
 }
 
-export function createLogger(options: { level: string; pretty: boolean; name?: string }): Logger {
+export function createLogger(options: {
+	level: string;
+	pretty: boolean;
+	name?: string;
+	stream?: DestinationStream;
+}): Logger {
 	const settings = {
 		name: options.name ?? 'localnetwork',
 		level: options.level,
+		// Railway reads level names; it shows pino's default numbers (40, 50) as info.
+		formatters: { level: (label: string) => ({ level: label }) },
 		redact: { paths: REDACT, censor: '[redacted]' },
 		serializers: { err: pino.stdSerializers.err, error: pino.stdSerializers.err }
 	};
 
-	const stream = options.pretty ? prettyStream() : undefined;
+	const stream = options.stream ?? (options.pretty ? prettyStream() : undefined);
 
 	return stream ? pino(settings, stream) : pino(settings);
 }
