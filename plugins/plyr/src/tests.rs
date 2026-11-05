@@ -309,14 +309,13 @@ impl Session {
         std::mem::take(&mut self.plyr.lock().unwrap().received)
     }
 
-    /// Closes the plugin's input: it stops. What plyr.fm was sent (all of it: the plugin sends
-    /// nothing once it has answered).
+    /// Closes the plugin's input: it stops. What plyr.fm was sent, read once all of it is
+    /// answered: what the plugin sent before a cancel reached it may still be on its way.
     fn stop(self) -> Received {
-        let received = self.received();
         self.host.close();
         self.served.join().unwrap();
         self.answering.join().unwrap();
-        received
+        std::mem::take(&mut self.plyr.lock().unwrap().received)
     }
 }
 
