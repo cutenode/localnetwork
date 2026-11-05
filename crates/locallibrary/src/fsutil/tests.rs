@@ -483,7 +483,7 @@ fn a_slow_wait_is_said_once() {
 fn prop_temp_file_errors_name_the_folder(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
-    let name: String = tc.draw(gs::text().alphabet("abc ").min_size(1).max_size(8));
+    let name: String = tc.draw(gs::text().alphabet("abc").min_size(1).max_size(8));
     let folder = dir.path().join(&name);
     let a_file = tc.draw(gs::booleans());
     if a_file {

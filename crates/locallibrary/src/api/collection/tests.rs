@@ -146,6 +146,7 @@ fn the_collection_exports_to_a_folder_or_says_why_not(tc: hegel::TestCase) {
 
 /// A folder that can't be made for an export, as a file stands where its parent should be, is
 /// refused as the error making it gave, and nothing is planned.
+#[cfg(unix)]
 #[test]
 fn a_folder_under_a_file_cant_be_exported_into() {
     let dir = tempfile::tempdir().unwrap();

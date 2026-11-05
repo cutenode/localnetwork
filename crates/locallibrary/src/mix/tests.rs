@@ -981,7 +981,8 @@ fn prop_only_an_image_can_be_given_as_a_cover(tc: TestCase) {
         1 => std::fs::write(&file, format!("not an image {}", tc.draw(gs::text().max_size(40)))).unwrap(),
         _ => {}
     }
-    let relative = tc.draw(gs::booleans());
+    // On Windows the temporary folder can be on another drive, which no relative path reaches.
+    let relative = cfg!(unix) && tc.draw(gs::booleans());
     let given = if relative {
         let up = std::env::current_dir().unwrap().components().count() - 1;
         std::iter::repeat_n(Path::new(".."), up).collect::<PathBuf>().join(file.strip_prefix("/").unwrap())

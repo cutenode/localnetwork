@@ -90,7 +90,7 @@ fn holds_the_store(store: &Store, dest: &Path, opts: CopyOptions) -> offsite::Co
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
 fn prop_a_copy_names_the_store_record_it_cant_read_and_goes_once_its_put_right(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
-    let base = dir.path().canonicalize().unwrap();
+    let base = locallibrary::device::dunce_canonicalize(dir.path());
     let store = pulled_twice(&base);
     let silent = Ctx::silent();
     // The store lists its copies once it has one.
@@ -135,7 +135,7 @@ fn prop_a_copy_names_the_store_record_it_cant_read_and_goes_once_its_put_right(t
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
 fn prop_a_copy_names_what_it_cant_read_or_remove_in_the_copy_and_goes_once_its_put_right(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
-    let base = dir.path().canonicalize().unwrap();
+    let base = locallibrary::device::dunce_canonicalize(dir.path());
     let store = pulled_twice(&base);
     let silent = Ctx::silent();
     let forced = CopyOptions { force: true, ..Default::default() };
@@ -264,7 +264,7 @@ fn prop_a_copy_names_what_it_cant_read_or_remove_in_the_copy_and_goes_once_its_p
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
 fn prop_a_copy_stopped_before_its_first_file_or_while_rereading_finishes_next_time(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
-    let base = dir.path().canonicalize().unwrap();
+    let base = locallibrary::device::dunce_canonicalize(dir.path());
     let store = pulled_twice(&base);
     let verify = CopyOptions { verify: true, ..Default::default() };
     let cancelled = CancelToken::new();
@@ -312,7 +312,7 @@ fn prop_a_copy_names_the_folder_it_cant_read_or_write_and_goes_once_its_put_righ
     use std::os::unix::fs::PermissionsExt;
     let mode = |p: &Path, m: u32| fs::set_permissions(p, fs::Permissions::from_mode(m)).unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let base = dir.path().canonicalize().unwrap();
+    let base = locallibrary::device::dunce_canonicalize(dir.path());
     let store = pulled_twice(&base);
     let silent = Ctx::silent();
     let forced = CopyOptions { force: true, ..Default::default() };

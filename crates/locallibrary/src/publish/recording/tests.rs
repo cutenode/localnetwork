@@ -194,7 +194,9 @@ fn prop_a_recording_is_read_as_what_it_holds(tc: TestCase) {
             let a = read.unwrap();
             assert_eq!((a.format.as_str(), a.playable), ("M4A (ALAC)", None));
         }
-        3 | 4 => assert_eq!(read.unwrap_err().code(), "io"),
+        3 => assert_eq!(read.unwrap_err().code(), "io"),
+        // A folder opens on Unix, and fails when it's read; on Windows it doesn't open.
+        4 => assert_eq!(read.unwrap_err().code(), if cfg!(unix) { "io" } else { "invalid" }),
         _ => {
             // Root can read it anyway.
             if let Err(e) = read {
