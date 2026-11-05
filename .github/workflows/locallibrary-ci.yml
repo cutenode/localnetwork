@@ -201,9 +201,10 @@ jobs:
           retention-days: 14
 
   # The exact counts a pull request can't change without saying so, against benchmarks/budgets/ (see
-  # benchmarks/README.md): what everyday operations and a frame of the player allocate and how many
-  # packages the CLI builds, from the shards' archive and `cargo tree`, so no build of its own. And
-  # that no budget was loosened without a `budget-raise:` line in the pull request's body.
+  # benchmarks/README.md): what everyday operations and a frame of the player allocate, the
+  # instructions of a frame, and how many packages the CLI builds, from the shards' archive and
+  # `cargo tree`, so no build of its own. And that no budget was loosened without a `budget-raise:`
+  # line in the pull request's body.
   budgets:
     needs: build
     if: inputs.linux
@@ -218,8 +219,9 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      # nextest lists what's in every binary of the archive, and the CLI's links ALSA.
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      # nextest lists what's in every binary of the archive, and the CLI's links ALSA. Valgrind is
+      # for a frame's instructions.
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev valgrind
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -230,7 +232,14 @@ jobs:
         with:
           name: tests
       - run: echo "LOCALLIBRARY_BUDGETS_OUT=$PWD/target/budgets" >> "$GITHUB_ENV"
-      - run: cargo nextest run --archive-file tests.tar.zst -E 'binary(counters) | test(/tui::frames::tests::/)'
+      - run: |
+          mkdir "$RUNNER_TEMP/tests"
+          cargo nextest run --archive-file tests.tar.zst --extract-to "$RUNNER_TEMP/tests" -E 'binary(counters) | test(/tui::frames::tests::/)'
+      # A frame's instructions from the archive's debug test binary, so a pure CPU slowdown shows on
+      # the pull request and doesn't wait for the weekly release-profile run. Unoptimised and built
+      # for coverage, these only compare one build's frame with another's.
+      - run: |
+          .github/actions/release-budgets/frame-instructions.sh "$RUNNER_TEMP"/tests/target/debug/deps/unit-* 200 tui-debug-instructions "$LOCALLIBRARY_BUDGETS_OUT"
       # Without colour: CARGO_TERM_COLOR colours each repeat's `(*)`, which sed then doesn't take off.
       - run: |
           cargo tree --color never --locked --target x86_64-unknown-linux-gnu -e normal,no-proc-macro -p locallibrary-cli --prefix none |

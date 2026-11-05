@@ -47,14 +47,6 @@ runs:
       run: |
         unit=$(cargo test --release -p locallibrary-cli --test unit --locked --no-run --message-format=json-render-diagnostics |
           jq -r 'select(.executable != null and .target.name == "unit") | .executable')
-        frames=600
-        instructions() {
-          LOCALLIBRARY_TUI_VIEW="$1" LOCALLIBRARY_TUI_FRAMES="$2" valgrind --tool=cachegrind --cache-sim=no \
-            --cachegrind-out-file=/dev/null "$unit" --exact tui::frames::tests::frames_allocate_what_their_budgets_say 2>&1 >/dev/null |
-            sed -n 's/.*I *refs: *//p' | tr -d ,
-        }
-        for view in library deck drives; do
-          echo "$view $(( ($(instructions "$view" "$frames") - $(instructions "$view" 0)) / frames ))"
-        done | jq -Rn '[inputs | split(" ") | {(.[0]): (.[1] | tonumber)}] | add' > target/budgets/tui-instructions.json
+        .github/actions/release-budgets/frame-instructions.sh "$unit" 600 tui-instructions target/budgets
     - shell: bash
       run: node tools/budgets/cli.ts check target/budgets release
