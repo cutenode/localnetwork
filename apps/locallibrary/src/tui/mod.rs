@@ -13,6 +13,7 @@ mod deck;
 mod drives;
 mod edits;
 mod form;
+mod frames;
 mod keymap;
 mod keys;
 mod mix;

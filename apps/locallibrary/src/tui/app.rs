@@ -453,12 +453,12 @@ pub struct Details {
 /// matches and playlists from the library.
 #[derive(Default)]
 pub struct TrackInfo {
-    analysis: TrackAnalysis,
+    pub(super) analysis: TrackAnalysis,
     /// What of the analysis is a plugin's, not the drive's: a line to show.
-    from_plugins: Option<String>,
-    art: Option<Art>,
-    matches: Option<Matches>,
-    playlists: Vec<String>,
+    pub(super) from_plugins: Option<String>,
+    pub(super) art: Option<Art>,
+    pub(super) matches: Option<Matches>,
+    pub(super) playlists: Vec<String>,
 }
 
 fn track_info(root: &Path, track: &Track, library: Option<Arc<Library>>, store_root: &Path) -> TrackInfo {
@@ -1175,7 +1175,7 @@ impl App {
     /// `Outputs`): what the tests use.
     pub(super) fn blank(store_root: PathBuf, audio: Option<Audio>) -> App {
         // A test's app never sends the browser of whoever runs it anywhere.
-        #[cfg(test)]
+        #[cfg(all(test, debug_assertions))]
         locallibrary::opener::never_open();
         let (tx, rx) = channel();
         let seed =

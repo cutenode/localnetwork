@@ -201,9 +201,9 @@ jobs:
           retention-days: 14
 
   # The exact counts a pull request can't change without saying so, against benchmarks/budgets/ (see
-  # benchmarks/README.md): what everyday operations allocate and how many packages the CLI builds,
-  # from the shards' archive and `cargo tree`, so no build of its own. And that no budget was
-  # loosened without a `budget-raise:` line in the pull request's body.
+  # benchmarks/README.md): what everyday operations and a frame of the player allocate and how many
+  # packages the CLI builds, from the shards' archive and `cargo tree`, so no build of its own. And
+  # that no budget was loosened without a `budget-raise:` line in the pull request's body.
   budgets:
     needs: build
     if: inputs.linux
@@ -230,7 +230,7 @@ jobs:
         with:
           name: tests
       - run: echo "LOCALLIBRARY_BUDGETS_OUT=$PWD/target/budgets" >> "$GITHUB_ENV"
-      - run: cargo nextest run --archive-file tests.tar.zst -E 'binary(counters)'
+      - run: cargo nextest run --archive-file tests.tar.zst -E 'binary(counters) | test(/tui::frames::tests::/)'
       # Without colour: CARGO_TERM_COLOR colours each repeat's `(*)`, which sed then doesn't take off.
       - run: |
           cargo tree --color never --locked --target x86_64-unknown-linux-gnu -e normal,no-proc-macro -p locallibrary-cli --prefix none |
@@ -261,7 +261,8 @@ jobs:
   release-budgets:
     if: inputs.deny
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Two release builds: dist's for the CLI and the release profile's for the frame test.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
