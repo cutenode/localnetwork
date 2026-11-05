@@ -27,9 +27,9 @@ which shops the Manager's search badges point at (see
 rows carry the same badges), and whether an opened row's words are
 put into Title Case (see [Title Case](#title-case)). Those are typed or ticked once and never
 thought about again, which is what makes them settings rather than one panel's
-options; a failed row that wants one opens this sheet. One section is not a setting at all: everything the
-extension has saved — the marks, the looked-up details, the Manager's list,
-the session queue and every panel option — goes out to one JSON file there and
+options; a failed row that wants one opens this sheet. One section is not a setting at all: most of what the
+extension has saved (the marks, the looked-up details, the Manager's list,
+the artists list, the session queue and three panel options) goes out to one JSON file there and
 reads back in, adding to what is here unless a switch is turned on to replace
 it (see [Saving and restoring it all](#saving-and-restoring-it-all)). The last,
 **about**, says which version this is (and the commit it was built from), and
@@ -284,15 +284,14 @@ different lengths of time.
 
 **Options** are settings, and are kept for good in the popup page's own
 `localStorage` (`$lib/prefs.svelte.ts`): the output format, the sort order,
-the two Hide toggles, the email and name some gates and drops ask for,
+the background-tabs switch, the two Hide toggles, the email and name some gates and drops ask for,
 which search badges are switched on, and whether an opened row's words are
 title-cased.
-No storage permission is asked for on the user's behalf to hold them, and the
-keys are the ones the exported state file carries, so they travel to another
-install with the marks (see "Saving and restoring it all") — bar the address,
-the name, the Downloader's mark, the search-badge switches and the title-case
-switch, which are deliberately not in the file. An
-import sets one only where nothing is set already, so a file carries an option
+No storage permission is asked for on the user's behalf to hold them. Three of
+them, the background-tabs switch, the sort order and **Hide downloaded**, are
+in the exported state file, so they travel to another install with the marks
+(see "Saving and restoring it all"); the rest stay on this install. An
+import sets one of the three only where nothing is set already, so a file carries an option
 to an install that has never been asked rather than overruling a choice made
 here; asking the import to replace is what overrules them, and then it puts
 the ones the file is silent about back to their defaults too.
@@ -349,7 +348,7 @@ to be rebuilt from whatever tab was in front — and the tab in front was
 usually the gate a row had just opened, which is a link this tool claims, so
 twenty rows came back as one. Now the list that was there is the list that
 comes back, and the source is read again only for what is new to it.
-Switching the source is still a choice, and a choice empties the list.
+Switching the source with the picker is still a choice, and a choice empties the list.
 
 What a page owns is read again, because by then it may be another page
 altogether: what the tab holds is read afresh every time, to say what there is
@@ -630,7 +629,7 @@ All post-processing happens inside the extension popup.
   (case-insensitive).
 
 **Copy** puts the current output on the clipboard; **Download** saves it as a
-file named after the playlist (or `Your likes` / `Likes by <user>` on Likes
+file named after the playlist (or `your likes` / `Likes by <user>` on Likes
 pages, or `session-queue` when the queue is the source) with the extension
 matching the format.
 
@@ -693,7 +692,7 @@ is on the page at a time, but both are scanned.
 | Title (B)             | `.playableTile__mainHeading` within the tile (direct text nodes only, to skip the nested icon span)                                                              |
 | Artwork thumbnail (B) | inline `background-image` of `.playableTile__image .image__full` within the tile                                                                                 |
 | Genre (B)             | none: a tile renders no tag, so the genre is unknown from the page there                                                                                         |
-| Page title            | `h1.userNetworkTop__title` ("Likes by <user>") on `/<user>/likes`; `/you/likes` shows no username, so the fixed title `Your likes` is used                       |
+| Page title            | `h1.userNetworkTop__title` ("Likes by <user>") on `/<user>/likes`; `/you/likes` shows no username, so the fixed title `your likes` is used                       |
 
 Likes pages have no `.fullHero`, so the curator is always empty there.
 
@@ -767,7 +766,7 @@ access, no remote code.
 - The **Filter** box on `/you/likes` narrows what SoundCloud renders, so
   only the filtered items are extracted while a filter is active.
 - `/you/likes` shows no username on the page, so its title (and the download
-  file name) is the fixed `Your likes`.
+  file name) is the fixed `your likes`.
 - SoundCloud class names are not a public API and may change; the selectors
   above are documented so they are easy to fix.
 - Page detection reads SoundCloud's layout. Should another Library page
@@ -1151,13 +1150,15 @@ is the same entry the panel would have made — so the Downloader can find its
 gate later without the page. A row showing no title or artist queues with
 those fields empty, exactly as extracting the page would give them.
 
-The session queue is the one thing the content script writes — this button
+The session queue is one of three things the content script writes, beside the
+marks and the details cache. This button
 fills it, and so does the download button below. It writes to the extension's
 own session storage, never to the page, and Chrome keeps that area shut to a
 content script until a trusted context opens it — so until the popup has been
 opened once in this browser session there is no button at all, and with it no
 sign on the page of what is in the queue. Open the toolbox once and it
-appears.
+appears on pages loaded after that; a tab already open gets it at the next
+change to the queue, or when it is reloaded.
 
 A track that has been looked up and offers no download link at all gets a
 dark **nodl** pill in the same corner (artwork left as is), so the ones not
@@ -1269,7 +1270,7 @@ The controls are not quite alike underneath:
 | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Purchase link (`a.soundActions__purchaseLink`, legacy `.sc-buylink`)                                                                                   | an `<a>` to the link's **real** destination — SoundCloud wraps outbound links in its `gate.sc` redirector, and this unwraps it exactly as the panel does | queues the track, and the browser follows the link (so ⌘-click still opens it behind the page). A link to Hypeddit, Droploud or Pump Your Sound is saved instead; see [Walking a gate from the page](#walking-a-gate-from-the-page) |
 | The cart, which is the same link in the signed-in track page's own frame (the one link leaving the site from its `section[aria-label="Track header"]`) | the same `<a>`                                                                                                                                           | the same                                                                                                                                                                                                                            |
-| **Download file** (`.sc-button-download`, inside the More menu)                                                                                        | a `<button>`                                                                                                                                             | queues the track, then presses SoundCloud's own button, hidden beneath it — which the click detection above sees, so the track is marked downloaded as it always was                                                                |
+| **Download file** (`.sc-button-download`, inside the More menu)                                                                                        | a `<button>`                                                                                                                                             | presses SoundCloud's own button, hidden beneath it, then queues the track; the click detection above sees the press, so the track is marked downloaded as it always was                                                             |
 
 The panel's button for a SoundCloud download opens the _track page_, because
 "Download file" has no URL of its own to open; on the track page itself that
@@ -1319,7 +1320,7 @@ beneath. Turn the setting off and it is shown again untouched, in every open
 tab at once — as it is, immediately, if a control turns out to name no track
 or to point nowhere, which is the one thing that must never leave an empty
 space where a download button was. The More menu renders only when it is
-opened, so for the tenth of a second the repaint is coalesced into, a
+opened, so for the 150 ms the repaint is coalesced into, a
 freshly-opened menu shows SoundCloud's own button; clicking it in that moment
 does what it always did.
 
@@ -1490,7 +1491,7 @@ worth a line in a format every install has to keep reading.
 Everything above lives in the extension's own storage, which goes away when
 the extension does. Reinstalling it, or moving to another browser profile,
 otherwise means losing every mark and paying for every lookup again. **your
-data**, a section of the Settings sheet, takes the lot out to a JSON
+data**, a section of the Settings sheet, takes most of it out to a JSON
 file and reads one back (`src/lib/components/StateTransfer.svelte`).
 
 It was the Manager panel's own footer, which was the wrong place for it twice
@@ -1566,15 +1567,17 @@ By default an import **never removes anything**:
 The switch in the import box turns every one of those the other way round, and
 it is off every time the popup opens: the marks become the file's marks, the
 details cache becomes the file's cache, the list, the artists and the queue
-become the file's, and every option goes to what the file says — or, where the file says
-nothing about one, back to its default. What was here and is not in the file
+become the file's, and the three options the file carries go to what the file says, or back to their defaults where the file says
+nothing about one. What was here and is not in the file
 is gone. The button changes with it, from **add to what's here** to **replace
 everything**.
 
 That is the way to restore an exact snapshot. Doing it by hand still works
 (**Unmark** for the marks, Select → the box at the left of the bar → **Remove**
 for the list) and reaches the same place. A SoundCloud tab that is already
-open keeps its old markers either way until it is reloaded.
+open repaints the marks as they land, and keeps the details it holds, taking
+only newer ones, until it is reloaded. Until then its next save can put back
+entries a replacing import removed.
 
 A file exported before the tool kept a list carries no `listed` member, and
 still reads: adding such a file restores the marks and the lookups as it
@@ -1789,7 +1792,7 @@ which `downloadable`, `has_downloads_left`, `purchase_url`, `purchase_title`,
 
 | Page                              | Request                   | When                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | --------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Playlist                          | `/tracks?ids=…`           | for the hydration's stubs, 50 per request, in playlist order, only as far as the rendered rows need — the first request on its own (it usually settles every rendered row, and the other nine of a 479-track playlist are never made), then four at a time                                                                                                                                                                                       |
+| Playlist                          | `/tracks?ids=…`           | for the hydration's stubs, 50 per request, in playlist order, only as far as the rendered rows need, as many at once as the rendered rows can reach, up to four: a page that has not been scrolled asks for one batch, and the other nine of a 479-track playlist are never made                                                                                                                                                                 |
 | Playlist, after in-app navigation | `/resolve?url=<playlist>` | once per page, for the track ids (74 KB for a 479-track playlist; re-fetching the page would be 149 KB of server-rendered HTML). The answer is kept for as long as the page is open, so a second panel spends its requests on rows rather than on asking what playlist this is again                                                                                                                                                             |
 | Likes                             | `/users/<id>/likes`       | the listing the page itself loads, in page order; the first request asks for exactly as many likes as the page shows (plus a little slack), later ones for 200, the API's maximum, until every rendered row is covered or 2,000 likes deep. One request instead of one per track. The user id is in the hydration; after in-app navigation to another user's likes, one `/resolve` of the profile URL, also kept for as long as the page is open |
 | Track page                        | nothing of its own        | the one track is in the page's own hydration, so a song page loaded fresh is answered without a request at all; after in-app navigation it falls to the row below, which is one request for one track                                                                                                                                                                                                                                            |
@@ -1945,10 +1948,13 @@ for a cover art click, described above.
   nothing that would let a request act as you.
 - `GET` only. Nothing is ever written to SoundCloud, and no data of yours
   (marks, cache, clicks) leaves the browser.
-- No code runs in the page's own JavaScript context, no network traffic of
-  the page is intercepted, and none of SoundCloud's controls are driven
-  automatically — the only change to the page is the inert marker overlay,
-  and the only thing watched is which of the page's own buttons you click.
+- No code runs in the page's own JavaScript context and no network traffic of
+  the page is intercepted. The changes to the page are the inert marker
+  overlay, the queue button and the replaced download buttons. The one
+  SoundCloud control pressed with no click from you is the Likes page's List
+  toggle, with **open your likes as a list** on. SoundCloud's hidden Download
+  file is pressed by a click on its replacement. The only clicks acted on are
+  those on the page's own More, download and purchase buttons.
 - Asks little and never twice: bulk endpoints sized to what is on screen,
   nothing prefetched beyond the rendered rows, no polling or background
   activity (requests happen only when the panel is opened), a month-long
@@ -2083,8 +2089,10 @@ other tools, so a channel upload searches for the channel.
 - The queue button needs the popup to have been opened at least once this
   browsing session: it is the popup that opens session storage to the content
   script, and until it has, the page can neither read the queue nor write to
-  it. So until then the page shows no button and no sign of what is in the
-  queue. Open the toolbox once and it appears on every SoundCloud tab.
+  it. So until then the page shows no queue button and no sign of what is in
+  the queue. Open the toolbox once and it appears on pages loaded after that;
+  a tab already open gets it at the next change to the queue, or when it is
+  reloaded.
 - The queue button follows the cover art, so it reaches only tracks whose art
   is on screen — there is no button in a search result's text row or the
   sidebar's related tracks.
@@ -2162,10 +2170,10 @@ and so does the link SoundCloud carries.)
    run says which of the two it is in, and a link with no SoundCloud track
    behind it (from a gate tab, or the paste box) is never dropped by either.
    When something is hidden, a line says how many of the links are showing.
-5. **Download all**, or **Get** on a single row. Rows run one at a time and
+5. **Get all**, or **Get** on a single row. Rows run one at a time and
    report as they go: _Unlocking…_, _Saving…_, _Saved_, _Signed up_ for a
    Laylo drop the address was left with, the page it turned out to point at,
-   or the reason it did not work. **Download all** runs what is
+   or the reason it did not work. **Get all** runs what is
    listed, so the toggles are also how a batch is chosen — and with **Hide
    downloaded** on, each row goes as soon as saving it marks its track.
 6. A row that failed says what to do about it, and offers to do it. Most of
@@ -2554,10 +2562,10 @@ takes one off again.
 3. A row is the artist's picture, name (with SoundCloud's verified mark where
    it has one) and a line about them — where they say they are, how many
    follow them, how many links they offer — and then the links as lettered
-   badges, up to five on the row and a **+n** for the rest. Each badge opens
+   badges, up to three on the row and a **+n** for the rest. Each badge opens
    that page, behind the popup or in front depending on the **background
    tabs** switch the Manager also has. An artist SoundCloud had no public
-   profile for says **no public profile**.
+   profile for, or whose request failed, says **no public profile**.
 4. The chevron opens the row into everything else, one field a line, each a
    button that copies it: the SoundCloud profile and every link as an address
    (with an arrow to open it), SoundCloud's own name for the account where the
@@ -2644,7 +2652,8 @@ Nothing is cached in the content script for this. The panel keeps what it is
 told on the entry it asked for, asks only about the artists it has no answer
 for, and a failure to find a profile is remembered on the entry too, so a
 deleted or private account is not asked about on every press — **look up
-again** on the row is what asks about one afresh. A lookup cut short by the
+again** on the row is what asks about one afresh. Any failed `/resolve` but a
+`401` is remembered the same way, over whatever the entry held. A lookup cut short by the
 popup closing keeps the answers that had arrived, bar the last second's: the
 list is written back once per burst of answers rather than once per answer,
 and the rest say **not looked up** until the button is pressed again.
@@ -2731,7 +2740,8 @@ as it was.
 5. **Send the queue somewhere** hands the batch to the Playlist to Text or
    third-party downloader tool. Each opens on the queue rather than on the
    active tab (the picker at the top of those two panels switches back); the
-   tab can be anything at all, or nothing. The sheet closes behind it: it was a
+   tab can be anything at all, or nothing. A tool already open under the sheet
+   keeps its source until it next opens. The sheet closes behind it: it was a
    way of getting there, not somewhere to come back to.
 6. Per row: the check button toggles that one mark, the **×** takes the track
    out of the queue (its mark, if any, stays). **Clear** in the sheet's header
@@ -2782,9 +2792,10 @@ button is there without hovering, reading _queued_ (see
 [queueing from the page](#queueing-from-the-page)). Session storage is closed
 to page contexts until a trusted one opens it, and the popup does that as the
 queue starts (`setAccessLevel`); the page reads the queue, and writes it only
-through that one button, which replaces the whole list the same way the store
-does. Until the popup has been opened once in a browsing session the page can
-do neither, and shows no button at all.
+through that button and the replaced download buttons, each of which replaces
+the whole list the same way the store does. Until the popup has been opened once in a browsing session the page can
+do neither, and shows no queue button. Replaced download buttons still work and
+queue nothing.
 
 ### Limitations
 
@@ -2803,3 +2814,1942 @@ do neither, and shows no button at all.
   deliberate: a mark made from here is often made before the file is safely
   saved, and a row that vanished as it was marked would take the way back with
   it.
+
+## Diagrams
+
+How the extension fits together.
+
+- [Parts and how they connect](#parts-and-how-they-connect)
+- [Messages between the parts](#messages-between-the-parts)
+- [What the manifest declares](#what-the-manifest-declares)
+- [Building into dist](#building-into-dist)
+- [The three build commands](#the-three-build-commands)
+- [What the popup loads and when](#what-the-popup-loads-and-when)
+- [Declaring a tool in the registry](#declaring-a-tool-in-the-registry)
+- [Opening the popup](#opening-the-popup)
+- [Views and sheets](#views-and-sheets)
+- [Reading the active tab](#reading-the-active-tab)
+- [Telling which page is showing](#telling-which-page-is-showing)
+- [Reading tracks by page kind](#reading-tracks-by-page-kind)
+- [Turning tracks into text](#turning-tracks-into-text)
+- [Adding to the Manager list](#adding-to-the-manager-list)
+- [Filing a Manager row](#filing-a-manager-row)
+- [What a Manager row can do](#what-a-manager-row-can-do)
+- [Filtering and painting the Manager list](#filtering-and-painting-the-manager-list)
+- [Search badges](#search-badges)
+- [Gathering gate links](#gathering-gate-links)
+- [Narrowing the Downloader list](#narrowing-the-downloader-list)
+- [Life of a Downloader row](#life-of-a-downloader-row)
+- [What a walk can answer](#what-a-walk-can-answer)
+- [Gate sites as data](#gate-sites-as-data)
+- [Gates that end in a file](#gates-that-end-in-a-file)
+- [Account gates and smart links](#account-gates-and-smart-links)
+- [Laylo drops](#laylo-drops)
+- [The Spotify step on a Hypeddit gate](#the-spotify-step-on-a-hypeddit-gate)
+- [Adding artists and asking about them](#adding-artists-and-asking-about-them)
+- [Life of an artist row](#life-of-an-artist-row)
+- [What an artist row draws](#what-an-artist-row-draws)
+- [Searching and sorting artists](#searching-and-sorting-artists)
+- [Filling and reading the session queue](#filling-and-reading-the-session-queue)
+- [What the queue sheet does](#what-the-queue-sheet-does)
+- [What the settings sheet changes](#what-the-settings-sheet-changes)
+- [Content script start](#content-script-start)
+- [The repaint pass](#the-repaint-pass)
+- [Pills and the queue button](#pills-and-the-queue-button)
+- [Opening session storage to the page](#opening-session-storage-to-the-page)
+- [Noticing clicks on SoundCloud's buttons](#noticing-clicks-on-soundclouds-buttons)
+- [Putting the replaced buttons in](#putting-the-replaced-buttons-in)
+- [Pressing a replaced button](#pressing-a-replaced-button)
+- [The walk behind a Download button](#the-walk-behind-a-download-button)
+- [The signed-in frame](#the-signed-in-frame)
+- [Pressing the List toggle](#pressing-the-list-toggle)
+- [Free answers first](#free-answers-first)
+- [One lookup step by step](#one-lookup-step-by-step)
+- [Picking up the likes listing](#picking-up-the-likes-listing)
+- [Joining a running lookup](#joining-a-running-lookup)
+- [Asking the API and failing](#asking-the-api-and-failing)
+- [Life of a details entry](#life-of-a-details-entry)
+- [Writing the details cache back](#writing-the-details-cache-back)
+- [State kept for good](#state-kept-for-good)
+- [State kept for the session](#state-kept-for-the-session)
+- [Options and mirrors in localStorage](#options-and-mirrors-in-localstorage)
+- [State held in memory](#state-held-in-memory)
+- [Everything hangs off a path](#everything-hangs-off-a-path)
+- [What makes a mark](#what-makes-a-mark)
+- [Exporting the state file](#exporting-the-state-file)
+- [Importing the state file](#importing-the-state-file)
+- [Checking a state file by hand](#checking-a-state-file-by-hand)
+- [What SoundCloud is asked](#what-soundcloud-is-asked)
+- [What the gate hosts are asked](#what-the-gate-hosts-are-asked)
+- [What else leaves the browser](#what-else-leaves-the-browser)
+
+### Parts and how they connect
+
+The four kinds of context the extension runs in, the three stores they share, and what each talks to.
+
+```mermaid
+flowchart TD
+  Popup["Popup<br/>menu, tool panels, sheets"]
+  Content["Content script<br/>every frame of soundcloud.com"]
+  Worker["Background worker"]
+  Offscreen["Offscreen page"]
+  Local[("chrome.storage.local")]
+  Session[("chrome.storage.session")]
+  Web[("localStorage<br/>extension origin")]
+  SoundCloud["SoundCloud public API"]
+  Gates["Gate sites"]
+  Downloads["chrome.downloads"]
+
+  Popup -->|"asks the active tab"| Content
+  Content -->|"Download button on a gate"| Worker
+  Worker -->|"opens, sends the walk"| Offscreen
+  Popup <--> Local
+  Popup <--> Session
+  Popup <--> Web
+  Content <--> Local
+  Content <--> Session
+  Offscreen -->|"reads email, name, mark"| Web
+  Content -->|"GET, anonymous"| SoundCloud
+  Popup -->|"walks gates"| Gates
+  Offscreen -->|"walks gates"| Gates
+  Popup -->|"saves files"| Downloads
+  Worker -->|"saves files"| Downloads
+```
+
+Source: [`src/manifest.json`](src/manifest.json), [`src/background.ts`](src/background.ts), [`src/offscreen.ts`](src/offscreen.ts), [`content.ts`](content.ts)
+
+### Messages between the parts
+
+Every message type the parts send each other. Only the top frame's content script answers the panels.
+
+```mermaid
+sequenceDiagram
+  participant P as Popup
+  participant C as Content script
+  participant W as Background worker
+  participant O as Offscreen page
+  P->>C: EXTRACT_TRACKS
+  C-->>P: the tracks the page renders
+  P->>C: GET_DOWNLOAD_DETAILS
+  C--)P: DOWNLOAD_DETAILS_PROGRESS, many
+  C-->>P: tracks with details
+  P->>C: GET_ARTIST_PROFILES
+  C--)P: ARTIST_PROFILES_PROGRESS, many
+  C-->>P: profiles, failed, error
+  C->>W: SAVE_GATE
+  W->>O: WALK_GATE
+  O->>W: ROUND_TRIP, a sign-in tab
+  W-->>O: whether the tab came back
+  O-->>W: file to save, or where to open
+  W-->>C: saved, mark
+```
+
+Source: [`src/lib/types.d.ts`](src/lib/types.d.ts), [`content.ts`](content.ts), [`src/background.ts`](src/background.ts), [`src/offscreen.ts`](src/offscreen.ts)
+
+### What the manifest declares
+
+Each permission and entry point in the manifest, and what it is there for.
+
+```mermaid
+flowchart LR
+  Manifest["src/manifest.json"]
+  Manifest --> Tab["activeTab<br/>the active tab's URL"]
+  Manifest --> Clip["clipboardWrite<br/>the Copy buttons"]
+  Manifest --> Store["storage<br/>chrome.storage areas"]
+  Manifest --> Dl["downloads<br/>saving what a walk unlocks"]
+  Manifest --> Off["offscreen<br/>the page a walk runs in"]
+  Manifest --> Hosts["host_permissions<br/>the gate sites' hosts only"]
+  Manifest --> Cs["content_scripts<br/>soundcloud.com, all frames,<br/>downloaded-store.js then content.js,<br/>content.css"]
+  Manifest --> Bg["background<br/>background.js, a module worker"]
+  Manifest --> Act["action<br/>popup.html"]
+```
+
+Source: [`src/manifest.json`](src/manifest.json)
+
+### Building into dist
+
+`pnpm build` makes three kinds of file, and `dist/` is the folder Chrome loads.
+
+```mermaid
+flowchart TD
+  Pages["src/popup.html, src/offscreen.html,<br/>src/background.ts"]
+  Classic["content.ts, downloaded-store.ts,<br/>state-transfer.ts"]
+  Static["src/manifest.json,<br/>content.css, icons"]
+  Vite["vite build<br/>Svelte, Tailwind"]
+  Blank["ts-blank-space<br/>types become spaces"]
+  Copy["copied as they are"]
+  Mjs["assets/: the page entries, core, ui, shared,<br/>panel-shell, a chunk per Panel and sheet,<br/>CSS and fonts"]
+  Html["popup.html with the store's script tag,<br/>offscreen.html, background.js"]
+  Js["content.js, downloaded-store.js,<br/>state-transfer.js<br/>same lines and columns as the source"]
+  Dist["dist/, loaded unpacked in Chrome"]
+
+  Pages --> Vite
+  Classic --> Blank
+  Static --> Copy
+  Vite --> Mjs
+  Vite --> Html
+  Blank --> Js
+  Mjs --> Dist
+  Html --> Dist
+  Js --> Dist
+  Copy --> Dist
+```
+
+Source: [`vite.config.ts`](vite.config.ts), [`package.json`](package.json), [`src/main.ts`](src/main.ts), [`src/app.css`](src/app.css)
+
+### The three build commands
+
+All three run `vite build`. Only `pnpm dev` keeps `dist/` between rebuilds, so the loaded extension keeps its files while it rebuilds.
+
+```mermaid
+flowchart TD
+  Dev["pnpm dev<br/>vite build --mode development --watch"]
+  Build["pnpm build<br/>vite build"]
+  Zip["pnpm zip<br/>vite build, then zip dist/"]
+  Watch["dist/ kept, sourcemaps on,<br/>rebuilt on every change"]
+  Release["dist/ emptied first,<br/>no sourcemaps"]
+  File["localtoolbox.zip"]
+
+  Dev --> Watch
+  Build --> Release
+  Zip --> Release
+  Zip --> File
+```
+
+Source: [`package.json`](package.json), [`vite.config.ts`](vite.config.ts)
+
+### What the popup loads and when
+
+The shell boots on its own. Everything heavy is a chunk fetched at most once per popup.
+
+```mermaid
+flowchart TD
+  Html["popup.html"]
+  Store["downloaded-store.js<br/>classic script, TbxDownloaded"]
+  Shell["The shell<br/>main.ts, App.svelte, the registry, the stores"]
+  Panel["The tool's Panel chunk"]
+  QueueSheet["QueueSheet chunk"]
+  SettingsSheet["SettingsSheet chunk"]
+  Transfer["state-transfer.js<br/>classic script, TbxState"]
+
+  Html --> Store
+  Html --> Shell
+  Shell -->|"a tool opens, or was left open"| Panel
+  Shell -->|"something is queued, the queue opens,<br/>or the sheet was left open"| QueueSheet
+  Shell -->|"settings opens,<br/>or was left open"| SettingsSheet
+  SettingsSheet -->|"loaded beside it"| Transfer
+```
+
+Source: [`src/App.svelte`](src/App.svelte), [`src/lib/tools.ts`](src/lib/tools.ts), [`src/lib/queue-sheet.ts`](src/lib/queue-sheet.ts), [`src/lib/settings-sheet.ts`](src/lib/settings-sheet.ts), [`src/lib/globals.ts`](src/lib/globals.ts)
+
+### Declaring a tool in the registry
+
+One `TOOLS` entry is all the shell needs to list a tool, open it and start its first read.
+
+```mermaid
+flowchart LR
+  Entry["A TOOLS entry<br/>src/lib/tools.ts"]
+  Words["name, description,<br/>icon, tone"]
+  Short["short"]
+  Load["load"]
+  Warm["warm"]
+  Menu["ToolMenu, PanelShell<br/>and PanelGhost draw it"]
+  Report["bug-report fills in<br/>the tool's name"]
+  Send["QueueSheet labels<br/>its send button"]
+  Chunk["loadPanel imports the chunk,<br/>once per id"]
+  Page["warmPage EXTRACT_TRACKS<br/>playlist to text, Manager, artists"]
+  ActiveTab["warmActiveTab<br/>third-party downloader"]
+
+  Entry --> Words
+  Entry --> Short
+  Entry --> Load
+  Entry --> Warm
+  Words --> Menu
+  Words --> Report
+  Short --> Send
+  Load --> Chunk
+  Warm --> Page
+  Warm --> ActiveTab
+```
+
+Source: [`src/lib/tools.ts`](src/lib/tools.ts), [`src/lib/components/ToolMenu.svelte`](src/lib/components/ToolMenu.svelte), [`src/lib/components/PanelGhost.svelte`](src/lib/components/PanelGhost.svelte), [`src/lib/components/QueueSheet.svelte`](src/lib/components/QueueSheet.svelte), [`src/lib/bug-report.ts`](src/lib/bug-report.ts)
+
+### Opening the popup
+
+Nothing waits for a round trip before drawing: the synchronous mirrors give the first frame, the menu or a tool's ghost, and the session corrects them. The Downloader warms the tab alone, and the menu warms nothing.
+
+```mermaid
+sequenceDiagram
+  participant A as App.svelte
+  participant L as localStorage
+  participant S as storage.session
+  participant B as storage.local
+  participant C as Content script
+  A->>L: view:open, queue:items
+  L-->>A: last seen
+  Note over A: first frame
+  par started together
+    A->>S: setAccessLevel
+  and
+    A->>S: read queue, view
+  and
+    A->>B: read marks, settings
+  and
+    A->>A: fetch Panel chunk
+  and
+    A->>C: warm the first read
+  end
+  S-->>A: what the session holds
+  A->>L: correct the mirrors
+  Note over A: panel replaces ghost
+```
+
+Source: [`src/App.svelte`](src/App.svelte), [`src/lib/view.svelte.ts`](src/lib/view.svelte.ts), [`src/lib/queue.svelte.ts`](src/lib/queue.svelte.ts), [`src/lib/settings.svelte.ts`](src/lib/settings.svelte.ts), [`downloaded-store.ts`](downloaded-store.ts)
+
+### Views and sheets
+
+The view underneath. A chunk that never lands leaves the ghost up, with a line saying so.
+
+```mermaid
+stateDiagram-v2
+  state "Tool menu" as Menu
+  state "Ghost of the panel" as Ghost
+  state "Tool panel" as Panel
+  [*] --> Menu: nothing left open
+  [*] --> Ghost: view:open names a tool
+  Ghost --> Menu: session says a new browsing session
+  Menu --> Ghost: pick a tool, or send from the queue sheet
+  Menu --> Panel: same tool again, chunk here
+  Panel --> Ghost: queue sheet sends to another tool
+  Ghost --> Panel: chunk here and session read
+  Ghost --> Menu: back arrow
+  Panel --> Menu: back arrow
+```
+
+Source: [`src/lib/view.svelte.ts`](src/lib/view.svelte.ts), [`src/App.svelte`](src/App.svelte), [`src/lib/components/QueueSheet.svelte`](src/lib/components/QueueSheet.svelte)
+
+The sheet over it. `view.svelte.ts` keeps it to one at a time, and a sheet left open comes back with the session.
+
+```mermaid
+stateDiagram-v2
+  state "No sheet" as None
+  state "Queue sheet" as Queue
+  state "Settings sheet" as Settings
+  [*] --> None
+  [*] --> Queue: left open this session
+  [*] --> Settings: left open this session
+  None --> Queue: queue button
+  None --> Settings: settings button, Manager footer
+  None --> Settings: add email or add name
+  Queue --> None: close, or send to a tool
+  Settings --> None: close
+```
+
+Source: [`src/lib/view.svelte.ts`](src/lib/view.svelte.ts), [`src/lib/components/Sheet.svelte`](src/lib/components/Sheet.svelte), [`src/lib/components/QueueSheet.svelte`](src/lib/components/QueueSheet.svelte)
+
+### Reading the active tab
+
+What `readPage` hands a panel: the page's answer, or the sentence that says why there is none. A warmed read is this same read, started before the panel exists.
+
+```mermaid
+flowchart TD
+  IsSc{"SoundCloud tab?"}
+  Open["status: open a page"]
+  Reached{"delivered?"}
+  Reload["status: reload the tab"]
+  Shape{"tracks list?"}
+  Failed["status: couldn't read the page"]
+  Empty{"any tracks?"}
+  Why["status by page type"]
+  Data["the page's answer"]
+
+  IsSc -->|no| Open
+  IsSc -->|yes| Reached
+  Reached -->|no| Reload
+  Reached -->|yes| Shape
+  Shape -->|no| Failed
+  Shape -->|yes| Empty
+  Empty -->|no| Why
+  Empty -->|yes| Data
+```
+
+Source: [`src/lib/soundcloud.ts`](src/lib/soundcloud.ts), [`src/lib/chrome.ts`](src/lib/chrome.ts)
+
+### Telling which page is showing
+
+`detectPage` asks the rendered page in this order: the playlist layout, the track page, an active likes tab, the Library's view toggle. The URL is the last resort. A signed-in track page is the `other` page in the top document, because only its iframe holds the track.
+
+```mermaid
+flowchart TD
+  Hero{"playlist?"}
+  Listen{"track page?"}
+  Tab{"likes tab?"}
+  Toggle{"view toggle?"}
+  Url["the URL: /sets/ is a playlist,<br/>/name/likes is likes, else other"]
+  Playlist["playlist<br/>key from the rows' links, else the URL"]
+  Track["track<br/>key is the URL, if the uploader agrees"]
+  Likes["likes<br/>key is the tab's link"]
+  You["likes<br/>key is /you/likes"]
+
+  Hero -->|yes| Playlist
+  Hero -->|no| Listen
+  Listen -->|yes| Track
+  Listen -->|no| Tab
+  Tab -->|yes| Likes
+  Tab -->|no| Toggle
+  Toggle -->|yes| You
+  Toggle -->|no| Url
+```
+
+Source: [`content.ts`](content.ts)
+
+### Reading tracks by page kind
+
+What `EXTRACT_TRACKS` reads from each kind of page. It asks SoundCloud nothing. A signed-in track page comes back with no track, since the top frame has no hero and the iframe does not answer.
+
+```mermaid
+flowchart TD
+  Extract["extract"]
+  Kind{"page kind"}
+  Sound["soundList rows<br/>purchase link and genre on the row"]
+  Tile["badge tiles<br/>no purchase link, no genre tag"]
+  Skip["liked playlists skipped and counted"]
+  Named["title from the page's heading,<br/>or your likes"]
+  Hero["the classic hero, one track<br/>purchase link from the engagement bar"]
+  Rows["trackItem rows<br/>any .trackItem as a fallback on a playlist"]
+  Meta["title and curator from the hero"]
+  Answer["url, pageType, pageKey, pageDetectedBy,<br/>title, curator, tracks, skippedPlaylists"]
+
+  Extract --> Kind
+  Kind -->|likes| Sound
+  Kind -->|likes| Tile
+  Sound --> Skip
+  Tile --> Skip
+  Skip --> Named
+  Kind -->|track| Hero
+  Kind -->|"playlist or other"| Rows
+  Hero --> Meta
+  Rows --> Meta
+  Named --> Answer
+  Meta --> Answer
+```
+
+Source: [`content.ts`](content.ts), [`src/lib/types.d.ts`](src/lib/types.d.ts)
+
+### Turning tracks into text
+
+The whole of the playlist to text tool. All of it runs in the popup, and the page is read on every opening, whichever source is chosen.
+
+```mermaid
+flowchart TD
+  Read["readPage EXTRACT_TRACKS"]
+  Queue["queue.items"]
+  Source{"pref:source picks one"}
+  Process["processTracks<br/>pref:split-title, pref:dedupe"]
+  Render["format's render<br/>pref:format: artist - title, title - artist,<br/>title only, numbered list, CSV, TSV, JSON"]
+  Copy["Copy<br/>clipboard"]
+  Save["Download<br/>file named after the page, or session-queue"]
+
+  Read --> Source
+  Queue --> Source
+  Source --> Process
+  Process --> Render
+  Render --> Copy
+  Render --> Save
+```
+
+Source: [`src/tools/soundcloud-playlist-to-text/Panel.svelte`](src/tools/soundcloud-playlist-to-text/Panel.svelte), [`src/tools/soundcloud-playlist-to-text/formats.ts`](src/tools/soundcloud-playlist-to-text/formats.ts), [`src/lib/clipboard.ts`](src/lib/clipboard.ts)
+
+### Adding to the Manager list
+
+Opening the panel only reads the page to label the button. Pressing **add** puts rows up first and asks SoundCloud second.
+
+```mermaid
+sequenceDiagram
+  participant P as Manager panel
+  participant L as listed store
+  participant C as Content script
+  participant A as SoundCloud API
+  P->>C: EXTRACT_TRACKS, warmed at boot
+  C-->>P: the page's tracks
+  alt add from the tab
+    P->>L: add the page's tracks
+    P->>C: GET_DOWNLOAD_DETAILS
+    loop until the rendered rows settle
+      C->>A: what the cache can't answer
+      C--)P: DOWNLOAD_DETAILS_PROGRESS
+    end
+    alt the lookup answered
+      C-->>P: tracks with details
+      P->>L: add again, better answer wins
+    else no tab, no client id, or a 401
+      Note over P: rows stay, a note says so
+    end
+  else add from the session queue
+    P->>L: add the queue's tracks, no lookup
+  end
+  Note over L: each add is one write
+```
+
+Source: [`src/tools/manager/Panel.svelte`](src/tools/manager/Panel.svelte), [`src/tools/manager/AddBar.svelte`](src/tools/manager/AddBar.svelte), [`src/tools/manager/listed.svelte.ts`](src/tools/manager/listed.svelte.ts), [`src/lib/tools.ts`](src/lib/tools.ts)
+
+### Filing a Manager row
+
+How a listed track turns into links, and which section it lands in.
+
+```mermaid
+flowchart TD
+  Track["A listed track"]
+  Dl{"details.downloadable<br/>is true?"}
+  Sc["SoundCloud entry<br/>opens the track page"]
+  Buy{"details.purchaseUrl?"}
+  Ext["external entry<br/>gate.sc unwrapped"]
+  Sort{"pref:sort"}
+  Site["by site<br/>grouped by domain,<br/>soundcloud.com first"]
+  None["no download links<br/>search badges"]
+  Unchecked["not checked<br/>search badges, a spinner<br/>while a lookup runs"]
+  Order["list order<br/>every track once, best link leads"]
+
+  Track --> Dl
+  Dl -->|yes| Sc
+  Track --> Buy
+  Buy -->|yes| Ext
+  Sc --> Sort
+  Ext --> Sort
+  Track -->|"no entries"| Sort
+  Sort -->|site| Site
+  Sort -->|"site, known to have none"| None
+  Sort -->|"site, not settled"| Unchecked
+  Sort -->|page| Order
+```
+
+Source: [`src/tools/manager/links.ts`](src/tools/manager/links.ts), [`src/tools/manager/Panel.svelte`](src/tools/manager/Panel.svelte)
+
+### What a Manager row can do
+
+Every action on a row and on a ticked batch, the header's **unmark**, and what each one writes.
+
+```mermaid
+flowchart LR
+  Link["download link"]
+  List["list button"]
+  Check["check button"]
+  Art["cover art"]
+  Chevron["chevron"]
+  Badge["search badge"]
+  Select["Select, then the bar"]
+  Header["unmark in the header,<br/>asks once more"]
+  Queue[("session queue")]
+  Marks[("marks")]
+  Listed[("the Manager's list")]
+  Tab["a new tab"]
+  Clip["clipboard"]
+
+  Link -->|"queues the track"| Queue
+  Link -->|"then opens"| Tab
+  List -->|toggle| Queue
+  Check -->|toggle| Marks
+  Art -->|"click, 1080 cover"| Clip
+  Art -->|"command or ctrl click"| Tab
+  Chevron -->|"facts, Title Case if on"| Clip
+  Chevron -->|"link arrow, queues nothing"| Tab
+  Chevron -->|"off the list"| Listed
+  Badge --> Tab
+  Select -->|"queue, unqueue"| Queue
+  Select -->|"mark, unmark"| Marks
+  Select -->|remove| Listed
+  Header -->|"every mark off"| Marks
+```
+
+Source: [`src/tools/manager/Panel.svelte`](src/tools/manager/Panel.svelte), [`src/lib/selection.svelte.ts`](src/lib/selection.svelte.ts), [`src/lib/artwork.ts`](src/lib/artwork.ts), [`src/lib/title-case.svelte.ts`](src/lib/title-case.svelte.ts)
+
+### Filtering and painting the Manager list
+
+Which rows reach the screen. The search is kept for the session and **hide downloaded** for good, under a key the Downloader shares.
+
+```mermaid
+flowchart TD
+  Sections["The rows of every section"]
+  Hide{"hide downloaded on,<br/>track marked?"}
+  Gone["row hidden"]
+  Search{"every typed word in title, artist,<br/>source or link hosts?"}
+  Visible["visible rows, a section left<br/>empty goes with them"]
+  Paint["createPainting<br/>60 rows first, then 40 a frame"]
+  Dom["rows in the DOM"]
+
+  Sections --> Hide
+  Hide -->|yes| Gone
+  Hide -->|no| Search
+  Search -->|no| Gone
+  Search -->|yes| Visible
+  Visible --> Paint
+  Paint --> Dom
+```
+
+Source: [`src/lib/list-filter.svelte.ts`](src/lib/list-filter.svelte.ts), [`src/lib/filter.ts`](src/lib/filter.ts), [`src/lib/painting.svelte.ts`](src/lib/painting.svelte.ts), [`src/tools/manager/links.ts`](src/tools/manager/links.ts), [`src/tools/manager/Panel.svelte`](src/tools/manager/Panel.svelte)
+
+### Search badges
+
+Sites are data, and adding one to the JSON file adds its badge and its switch.
+
+```mermaid
+flowchart TD
+  Json["src/lib/search-sites.json"]
+  Read["readSites<br/>drops entries it can't use, and repeats"]
+  Switch["one switch per site<br/>pref:search:id, set in settings"]
+  Manager["Manager row with no links,<br/>unless a lookup covers it"]
+  Artists["opened artist row"]
+  Url["searchUrl<br/>fills artist, title, query"]
+  Tab["opens a tab, never a fetch"]
+
+  Json --> Read
+  Read --> Switch
+  Switch --> Manager
+  Switch --> Artists
+  Manager --> Url
+  Artists --> Url
+  Url --> Tab
+```
+
+Source: [`src/lib/search-sites.json`](src/lib/search-sites.json), [`src/lib/search-sites.ts`](src/lib/search-sites.ts), [`src/lib/search-sites.svelte.ts`](src/lib/search-sites.svelte.ts), [`src/tools/manager/Panel.svelte`](src/tools/manager/Panel.svelte)
+
+### Gathering gate links
+
+Where the third-party downloader's rows come from. Reopening the popup keeps the list, and only the source picker empties it. A send from the queue sheet adds the queue's links to what is listed.
+
+```mermaid
+flowchart TD
+  Open["Panel mounts, on opening or a send<br/>from the queue sheet: the kept list stays"]
+  Switch["Source picker switched<br/>the list is emptied, outcomes kept"]
+  Collect["collect"]
+  Source{"source"}
+  Queued["queue.items<br/>each track's purchase link"]
+  Tab{"what the tab is"}
+  Gate["that one link"]
+  Sc["SoundCloud page<br/>EXTRACT_TRACKS for what it renders,<br/>GET_DOWNLOAD_DETAILS for the rest"]
+  Hand["links pasted earlier"]
+  Claim["addRows<br/>only links a site claims,<br/>a known link comes back as it was"]
+  Paste["Pasted text<br/>extractGateUrls"]
+
+  Open --> Collect
+  Switch --> Collect
+  Collect --> Source
+  Source -->|"session queue"| Queued
+  Source -->|"this page"| Tab
+  Tab -->|"a gate site"| Gate
+  Tab -->|soundcloud.com| Sc
+  Queued --> Claim
+  Gate --> Claim
+  Sc --> Claim
+  Collect -->|"after the source"| Hand
+  Hand --> Claim
+  Paste --> Claim
+```
+
+Source: [`src/tools/third-party-downloads/Panel.svelte`](src/tools/third-party-downloads/Panel.svelte), [`src/tools/third-party-downloads/walked.svelte.ts`](src/tools/third-party-downloads/walked.svelte.ts), [`src/tools/third-party-downloads/sites/index.ts`](src/tools/third-party-downloads/sites/index.ts), [`src/lib/components/QueueSheet.svelte`](src/lib/components/QueueSheet.svelte)
+
+### Narrowing the Downloader list
+
+The two toggles choose what **get all** runs, and the check button marks a row by hand. A row with no track behind it is never hidden.
+
+```mermaid
+flowchart TD
+  Rows["The rows gathered"]
+  Done{"hide downloaded on,<br/>track marked?"}
+  Queued{"hide queued on,<br/>track queued?"}
+  Hidden["row hidden"]
+  Visible["visible rows"]
+  GetAll["get all<br/>runs the visible rows not yet settled"]
+  Check["check button, on a row with a track"]
+  Marks[("marks")]
+
+  Rows --> Done
+  Done -->|yes| Hidden
+  Done -->|no| Queued
+  Queued -->|yes| Hidden
+  Queued -->|no| Visible
+  Visible --> GetAll
+  Visible --> Check
+  Check -->|toggle| Marks
+```
+
+Source: [`src/tools/third-party-downloads/Panel.svelte`](src/tools/third-party-downloads/Panel.svelte), [`src/lib/filter.ts`](src/lib/filter.ts), [`src/lib/downloaded.svelte.ts`](src/lib/downloaded.svelte.ts)
+
+### Life of a Downloader row
+
+The `RowState` values. Rows walk one at a time, and a run dies with the popup that started it.
+
+```mermaid
+stateDiagram-v2
+  [*] --> queued
+  queued --> working: get, or get all
+  failed --> working: get again
+  working --> saving: unlock gave a file
+  working --> link: unlock gave a page
+  working --> sent: Laylo took the address
+  working --> failed: unlock threw
+  saving --> done: handed to chrome.downloads
+  saving --> failed: save threw
+  done --> failed: transfer interrupted, panel open
+  working --> queued: popup closed mid-walk
+  saving --> queued: popup closed mid-walk
+  done --> [*]
+  link --> [*]
+  sent --> [*]
+```
+
+Source: [`src/tools/third-party-downloads/walked.svelte.ts`](src/tools/third-party-downloads/walked.svelte.ts), [`src/tools/third-party-downloads/Panel.svelte`](src/tools/third-party-downloads/Panel.svelte)
+
+### What a walk can answer
+
+Every site's `unlock` ends one of five ways. A page and a signup both offer **open**.
+
+```mermaid
+flowchart TD
+  Unlock["site.unlock<br/>url, email, name, connect"]
+  File["kind file"]
+  Link["kind link"]
+  Signup["kind signup"]
+  Thrown["throws Error"]
+  Wanting["throws Wanting"]
+  Saved["save, in the site's folder when the name is known,<br/>mark the track if it has one and pref:mark is on"]
+  Open["open, opens the page"]
+  OpenGate["open, queues the track and<br/>opens the gate or the file"]
+  Settings["add email or add name,<br/>opens the settings sheet"]
+
+  Unlock --> File
+  Unlock --> Link
+  Unlock --> Signup
+  Unlock --> Thrown
+  Unlock --> Wanting
+  File --> Saved
+  Link --> Open
+  Signup --> Open
+  Thrown --> OpenGate
+  Wanting --> Settings
+```
+
+Source: [`src/tools/third-party-downloads/sites/index.ts`](src/tools/third-party-downloads/sites/index.ts), [`src/tools/third-party-downloads/next-step.ts`](src/tools/third-party-downloads/next-step.ts), [`src/tools/third-party-downloads/save.ts`](src/tools/third-party-downloads/save.ts), [`src/tools/third-party-downloads/Panel.svelte`](src/tools/third-party-downloads/Panel.svelte)
+
+### Gate sites as data
+
+`SITES` is the whole table. `siteFor` matches a link's host, without `www.`, and the diagrams below take these groups in turn.
+
+```mermaid
+flowchart TD
+  Link["A link"]
+  SiteFor["siteFor<br/>hosts and aliases of SITES"]
+  Unclaimed["no site: not a row"]
+  File["yields file, walked from the page too<br/>Hypeddit, hypeddit.com, folder Hypeddit, wants email<br/>Droploud, droploud.com, folder Droploud<br/>Pump Your Sound, pumpyoursound.com, folder PumpYourSound"]
+  Account["yields mixed, ToneDen's backend<br/>ToneDen, toneden.io, folder ToneDen<br/>FanLink, fanlink.tv, alias fanlink.to, folder ToneDen"]
+  Signup["yields mixed, signup<br/>Laylo, laylo.com, folder Laylo, wants email"]
+  Smart["yields mixed, smart link<br/>Feature.fm, ffm.to, folder FeatureFM"]
+
+  Link --> SiteFor
+  SiteFor --> Unclaimed
+  SiteFor --> File
+  SiteFor --> Account
+  SiteFor --> Signup
+  SiteFor --> Smart
+```
+
+Source: [`src/tools/third-party-downloads/sites/index.ts`](src/tools/third-party-downloads/sites/index.ts), [`src/tools/third-party-downloads/sites/hypeddit.ts`](src/tools/third-party-downloads/sites/hypeddit.ts), [`src/tools/third-party-downloads/sites/droploud.ts`](src/tools/third-party-downloads/sites/droploud.ts), [`src/tools/third-party-downloads/sites/pumpyoursound.ts`](src/tools/third-party-downloads/sites/pumpyoursound.ts), [`src/tools/third-party-downloads/sites/toneden.ts`](src/tools/third-party-downloads/sites/toneden.ts), [`src/tools/third-party-downloads/sites/laylo.ts`](src/tools/third-party-downloads/sites/laylo.ts), [`src/tools/third-party-downloads/sites/featurefm.ts`](src/tools/third-party-downloads/sites/featurefm.ts)
+
+### Gates that end in a file
+
+The `yields: 'file'` family. Each fetches its gate page, reads what the page carries, and posts back what pressing Download would.
+
+```mermaid
+flowchart TD
+  Page["GET the gate page, with cookies"]
+  Kind{"site"}
+  HRead["Hypeddit<br/>hidden fields, CSRF token, step list"]
+  DRead["Droploud<br/>gateData in the Next.js payload"]
+  PRead["Pump Your Sound<br/>the free download form"]
+  HPost["POST the visit, then email and<br/>Spotify if asked, then /gate/download/ul"]
+  DPost["POST each step, give a repost step up,<br/>then /gate/id/download"]
+  PPost["POST the form"]
+  Look{"looks like a file?"}
+  File["kind file"]
+  Page2["kind link"]
+  Refused["throws, saying why"]
+
+  Page -->|"bad status, or no gate"| Refused
+  Page --> Kind
+  Kind --> HRead
+  Kind --> DRead
+  Kind --> PRead
+  HRead --> HPost
+  DRead --> DPost
+  PRead --> PPost
+  HPost -->|"signed URL"| File
+  HPost -->|refused| Refused
+  DPost -->|refused| Refused
+  DPost -->|"download_url"| Look
+  PPost -->|"file URL, or a file link in the page"| File
+  PPost -->|"nothing"| Refused
+  Look -->|yes| File
+  Look -->|no| Page2
+```
+
+Source: [`src/tools/third-party-downloads/sites/hypeddit.ts`](src/tools/third-party-downloads/sites/hypeddit.ts), [`src/tools/third-party-downloads/sites/droploud.ts`](src/tools/third-party-downloads/sites/droploud.ts), [`src/tools/third-party-downloads/sites/pumpyoursound.ts`](src/tools/third-party-downloads/sites/pumpyoursound.ts), [`src/tools/third-party-downloads/parse.ts`](src/tools/third-party-downloads/parse.ts), [`src/tools/third-party-downloads/save.ts`](src/tools/third-party-downloads/save.ts)
+
+### Account gates and smart links
+
+The `yields: 'mixed'` sites other than Laylo. First, how a smart link picks a destination.
+
+```mermaid
+flowchart TD
+  FanLink["FanLink page<br/>fanlink.to rewritten to fanlink.tv,<br/>reads window.preloadLink"]
+  Attached{"unlock attached?"}
+  Target{"target is a ToneDen post?"}
+  Feature["Feature.fm page<br/>destUrl decoded from each button,<br/>the tracker is never called"]
+  Best["best destination: a file, then the shops,<br/>then FanLink's target, else the page"]
+  Post["the post's unlock,<br/>next diagram"]
+  Throws["throws, saying why"]
+  Result["kind file, or kind link"]
+
+  FanLink -->|"bad status, or no link"| Throws
+  FanLink --> Attached
+  Attached -->|"yes, post in hand"| Post
+  Attached -->|no| Target
+  Target -->|"yes, after the lookup"| Post
+  Target -->|no| Best
+  Feature -->|"bad status, or no services"| Throws
+  Feature --> Best
+  Best --> Result
+```
+
+Source: [`src/tools/third-party-downloads/sites/toneden.ts`](src/tools/third-party-downloads/sites/toneden.ts), [`src/tools/third-party-downloads/sites/featurefm.ts`](src/tools/third-party-downloads/sites/featurefm.ts), [`src/tools/third-party-downloads/parse.ts`](src/tools/third-party-downloads/parse.ts)
+
+How a ToneDen post unlocks. A post attached to a FanLink starts at the redirect check.
+
+```mermaid
+flowchart TD
+  Link["ToneDen post link"]
+  Lookup["GET /api/v1/posts<br/>no account needed"]
+  Redirect{"redirect with a URL?"}
+  Kind{"a download with a file?"}
+  NoFile["throws: no file behind it"]
+  Dl["GET the attachment's download<br/>with the browser's session"]
+  Why["gateMetadata says which account<br/>it wants, then throws"]
+  Result["kind file, or kind link"]
+
+  Link --> Lookup
+  Lookup --> Redirect
+  Redirect -->|yes| Result
+  Redirect -->|no| Kind
+  Kind -->|no| NoFile
+  Kind -->|yes| Dl
+  Dl -->|refused| Why
+  Dl -->|"a URL"| Result
+```
+
+Source: [`src/tools/third-party-downloads/sites/toneden.ts`](src/tools/third-party-downloads/sites/toneden.ts)
+
+### Laylo drops
+
+A drop is a signup, so the walk is reading the drop and leaving the address when it can.
+
+```mermaid
+flowchart TD
+  Json["GET the drop page, then the drop's and<br/>the artist's JSON from the CDNs it names"]
+  HasLink{"drop has a link?"}
+  Goes["kind file, or kind link"]
+  Can{"takes email, at most a name?"}
+  OpenIt["kind link, the drop to open"]
+  Have{"settings has them?"}
+  Want["throws Wanting, email or name"]
+  Rsvp["POST rsvp to events.laylo.com"]
+  Sent["kind signup"]
+  Refused["throws: open the drop"]
+
+  Json --> HasLink
+  HasLink -->|yes| Goes
+  HasLink -->|no| Can
+  Can -->|no| OpenIt
+  Can -->|yes| Have
+  Have -->|no| Want
+  Have -->|yes| Rsvp
+  Rsvp -->|success| Sent
+  Rsvp -->|"no"| Refused
+```
+
+Source: [`src/tools/third-party-downloads/sites/laylo.ts`](src/tools/third-party-downloads/sites/laylo.ts), [`src/tools/third-party-downloads/next-step.ts`](src/tools/third-party-downloads/next-step.ts)
+
+### The Spotify step on a Hypeddit gate
+
+The one step that needs a tab. A no throws before the download post goes out, and in a panel run the first no stops the trip for the rest of that run.
+
+```mermaid
+sequenceDiagram
+  participant W as The walk
+  participant H as hypeddit.com
+  participant T as Background tab
+  participant S as accounts.spotify.com
+  W->>H: GET the gate page
+  H-->>W: hidden fields, CSRF token, steps
+  W->>H: POST /gate/ge, the visit
+  opt the gate has an email step
+    W->>H: POST /verifyEmailAddress
+  end
+  opt the gate has a Spotify step
+    W->>T: open the step's authorize URL
+    T->>S: OAuth, as a person would
+    S-->>T: back to hypeddit.com, if allowed before
+    T-->>W: arrived, or no after 12 s
+  end
+  W->>H: POST /gate/download/ul
+  H-->>W: download_status and a signed URL
+```
+
+Source: [`src/tools/third-party-downloads/sites/hypeddit.ts`](src/tools/third-party-downloads/sites/hypeddit.ts), [`src/lib/chrome.ts`](src/lib/chrome.ts), [`src/tools/third-party-downloads/Panel.svelte`](src/tools/third-party-downloads/Panel.svelte)
+
+### Adding artists and asking about them
+
+Three sources feed the artists list, and the SoundCloud tab in front, any page of it, can answer for them.
+
+```mermaid
+sequenceDiagram
+  participant P as artists panel
+  participant L as artists store
+  participant C as Content script
+  participant A as SoundCloud API
+  P->>L: add artistsOf the source's tracks
+  alt a SoundCloud tab is in front
+    P->>C: GET_ARTIST_PROFILES, paths with no answer
+    loop four artists at a time
+      C->>A: /resolve of the profile
+      C->>A: /users/id/web-profiles
+      C--)P: ARTIST_PROFILES_PROGRESS
+      P->>L: learn, written a second later
+    end
+    C-->>P: profiles, failed, error
+    P->>L: flush
+  else any other tab
+    Note over P: rows say not looked up, look up waits for a SoundCloud tab
+  end
+```
+
+Source: [`src/tools/artists/Panel.svelte`](src/tools/artists/Panel.svelte), [`src/tools/artists/AddBar.svelte`](src/tools/artists/AddBar.svelte), [`src/tools/artists/artists.svelte.ts`](src/tools/artists/artists.svelte.ts), [`src/tools/artists/lookup.ts`](src/tools/artists/lookup.ts), [`content.ts`](content.ts)
+
+### Life of an artist row
+
+What `profile` holds on an entry. A `401` leaves the row as it was, and any other failed `/resolve` counts as no profile, over whatever the row held.
+
+```mermaid
+stateDiagram-v2
+  state "Not looked up" as Unchecked
+  state "Has a profile" as Profile
+  state "No profile, remembered" as Unavailable
+  [*] --> Unchecked: added
+  Unchecked --> Profile: lookup found the user
+  Unchecked --> Unavailable: not a public profile, or the request failed
+  Unchecked --> Unchecked: 401, or the lookup stopped short
+  Profile --> Profile: look up again
+  Profile --> Unavailable: look up again, gone or failed
+  Unavailable --> Profile: look up again
+  Unchecked --> [*]: taken off
+  Profile --> [*]: taken off
+  Unavailable --> [*]: taken off
+```
+
+Source: [`src/tools/artists/artists.svelte.ts`](src/tools/artists/artists.svelte.ts), [`src/tools/artists/profiles.ts`](src/tools/artists/profiles.ts), [`src/tools/artists/Panel.svelte`](src/tools/artists/Panel.svelte), [`content.ts`](content.ts)
+
+### What an artist row draws
+
+How one profile becomes a row's badges and an opened row's fields.
+
+```mermaid
+flowchart TD
+  Profile["profile<br/>bio up to 1,000 characters, up to 20 links"]
+  Listed["links the profile lists"]
+  Bio["addresses and emails read out of the bio"]
+  Links["linksOf<br/>one per address, profile links first"]
+  Network["networkOf<br/>lettered badge for each"]
+  Row["the row: three badges, then +n"]
+  Opened["the opened row: every address to copy, bio,<br/>place, followers, tracks, search badges"]
+  Copy["copy the list as text"]
+
+  Profile --> Listed
+  Profile --> Bio
+  Listed --> Links
+  Bio --> Links
+  Links --> Network
+  Network --> Row
+  Links --> Opened
+  Profile --> Opened
+  Links --> Copy
+```
+
+Source: [`src/tools/artists/profiles.ts`](src/tools/artists/profiles.ts), [`src/tools/artists/Panel.svelte`](src/tools/artists/Panel.svelte), [`content.ts`](content.ts)
+
+### Searching and sorting artists
+
+The order comes first and the search second, and the copy button takes whatever is left.
+
+```mermaid
+flowchart TD
+  Items["artists.items"]
+  Sort{"pref:artists-sort"}
+  Name["by name"]
+  Order["list order"]
+  Most["most followed,<br/>no follower count last"]
+  Search["search box<br/>every word in the name, path, source,<br/>profile, bio, links or track titles"]
+  Paint["createPainting<br/>60 rows first, then 40 a frame"]
+  Copy["copy the list as text"]
+
+  Items --> Sort
+  Sort --> Name
+  Sort --> Order
+  Sort --> Most
+  Name --> Search
+  Order --> Search
+  Most --> Search
+  Search --> Paint
+  Search --> Copy
+```
+
+Source: [`src/tools/artists/Panel.svelte`](src/tools/artists/Panel.svelte), [`src/tools/artists/profiles.ts`](src/tools/artists/profiles.ts), [`src/lib/filter.ts`](src/lib/filter.ts), [`src/lib/painting.svelte.ts`](src/lib/painting.svelte.ts)
+
+### Filling and reading the session queue
+
+Everything that puts a track in the queue, and everything that reads it.
+
+```mermaid
+flowchart LR
+  Art["+ queue on cover art"]
+  Replaced["replaced Download button,<br/>unless it walks a gate"]
+  Walk["a page walk that saved nothing"]
+  Manager["Manager: open a link,<br/>list button, batch queue"]
+  Downloader["Downloader: open on a failed row"]
+  Import["importing a state file"]
+  Queue[("queue<br/>chrome.storage.session")]
+  Header["count in every header"]
+  Sheet["the queue sheet"]
+  Tools["playlist to text and<br/>Downloader, as a source"]
+  Add["Manager and artists add bars"]
+  Rows["Manager list button,<br/>Downloader's in the queue, hide queued"]
+  Page["queue button on the page"]
+  Export["the exported state file"]
+
+  Art --> Queue
+  Replaced --> Queue
+  Walk --> Queue
+  Manager --> Queue
+  Downloader --> Queue
+  Import --> Queue
+  Queue --> Header
+  Queue --> Sheet
+  Queue --> Tools
+  Queue --> Add
+  Queue --> Rows
+  Queue --> Page
+  Queue --> Export
+```
+
+Source: [`src/lib/queue.svelte.ts`](src/lib/queue.svelte.ts), [`content.ts`](content.ts), [`src/tools/manager/Panel.svelte`](src/tools/manager/Panel.svelte), [`src/tools/third-party-downloads/Panel.svelte`](src/tools/third-party-downloads/Panel.svelte), [`src/lib/components/StateTransfer.svelte`](src/lib/components/StateTransfer.svelte)
+
+### What the queue sheet does
+
+Each control on the sheet. Marks outlast the queue, and a queued track outlasts its mark. A tool already open under the sheet keeps its source until it next mounts.
+
+```mermaid
+flowchart TD
+  Sheet["Queue sheet"]
+  MarkAll["mark the batch"]
+  TakeOut["take the marked out"]
+  Send["send to playlist to text<br/>or the Downloader"]
+  RowCheck["a row's check button"]
+  RowX["a row's remove button"]
+  Clear["clear, asks once more"]
+  Marks[("marks")]
+  Queue[("queue")]
+  Tool["that tool, reading the queue<br/>when it next mounts"]
+
+  Sheet --> MarkAll
+  Sheet --> TakeOut
+  Sheet --> Send
+  Sheet --> RowCheck
+  Sheet --> RowX
+  Sheet --> Clear
+  MarkAll -->|"one write"| Marks
+  RowCheck -->|toggle| Marks
+  TakeOut -->|"one write"| Queue
+  RowX --> Queue
+  Clear -->|"empties it"| Queue
+  Send -->|"pref:source set to queue"| Tool
+```
+
+Source: [`src/lib/components/QueueSheet.svelte`](src/lib/components/QueueSheet.svelte), [`src/lib/queue.svelte.ts`](src/lib/queue.svelte.ts), [`src/lib/source.ts`](src/lib/source.ts), [`src/lib/prefs.svelte.ts`](src/lib/prefs.svelte.ts)
+
+### What the settings sheet changes
+
+Each section, where it keeps what it sets, and who obeys it. An import writes back to the marks, the details, both lists, the queue and three pref keys.
+
+```mermaid
+flowchart LR
+  Page["SoundCloud pages<br/>replace buttons, likes as a list"]
+  Down["downloads<br/>email, name, mark"]
+  Badges["search badges"]
+  Look["appearance<br/>theme, title case"]
+  Data["your data"]
+  About["about<br/>version, report a bug"]
+  Settings[("settings<br/>chrome.storage.local")]
+  Prefs[("pref keys<br/>localStorage")]
+  Content["Content script, in every tab"]
+  Pages["popup theme, Downloader,<br/>offscreen page, Manager<br/>and artists rows"]
+  File["state file"]
+  Bug["GitHub's bug form, filled in"]
+
+  Page --> Settings
+  Settings --> Content
+  Down --> Prefs
+  Badges --> Prefs
+  Look --> Prefs
+  Prefs --> Pages
+  Data <--> File
+  About --> Bug
+```
+
+Source: [`src/lib/components/SettingsSheet.svelte`](src/lib/components/SettingsSheet.svelte), [`src/lib/settings.svelte.ts`](src/lib/settings.svelte.ts), [`src/lib/downloader.svelte.ts`](src/lib/downloader.svelte.ts), [`src/lib/components/StateTransfer.svelte`](src/lib/components/StateTransfer.svelte), [`src/lib/bug-report.ts`](src/lib/bug-report.ts)
+
+### Content script start
+
+What runs when `content.js` loads in a frame. Marks and the cache are in before any lookup, so a panel opened right away asks for nothing known.
+
+```mermaid
+flowchart TD
+  Load["downloaded-store.js, then content.js<br/>at document_idle, in every frame"]
+  Read["read marks, queue, details cache<br/>and settings together"]
+  Harvest["harvest full tracks from<br/>the page's hydration"]
+  Paint["first repaint"]
+  Observe["MutationObserver on body"]
+  Storage["chrome.storage.onChanged"]
+  Hook["capture click listener,<br/>from the first moment"]
+  Top{"top frame?"}
+  Answer["answer the panels' messages"]
+  Quiet["frame work only"]
+
+  Load --> Read
+  Load --> Hook
+  Load --> Top
+  Read --> Harvest
+  Harvest --> Paint
+  Paint --> Observe
+  Paint --> Storage
+  Top -->|yes| Answer
+  Top -->|no| Quiet
+```
+
+Source: [`content.ts`](content.ts), [`src/manifest.json`](src/manifest.json)
+
+### The repaint pass
+
+`applyMarkers` is idempotent, so anything that might have changed the page just runs it again.
+
+```mermaid
+flowchart TD
+  Added["Element nodes added"]
+  Learned["Details learned"]
+  Timer["requestMarkers<br/>coalesced into 150 ms"]
+  Changed["Storage changed<br/>queue, marks, details, settings"]
+  Pass["applyMarkers"]
+  Likes["applyLikesView"]
+  Targets["each MARKER_TARGETS layout:<br/>playlist rows, likes rows, tiles,<br/>track hero, player bar"]
+  Mark["paintMark<br/>pill added, swapped or removed"]
+  Button["paintQueueButton"]
+  Host["tbx-mark-host on the artwork"]
+  Download["applyDownloadButtons"]
+
+  Added --> Timer
+  Learned --> Timer
+  Timer --> Pass
+  Changed --> Pass
+  Pass --> Likes
+  Likes --> Targets
+  Targets --> Mark
+  Targets --> Button
+  Mark --> Host
+  Button --> Host
+  Host --> Download
+```
+
+Source: [`content.ts`](content.ts), [`content.css`](content.css)
+
+### Pills and the queue button
+
+Each piece of artwork carries at most one pill, with `downloaded` winning.
+
+```mermaid
+stateDiagram-v2
+  state "No pill" as None
+  state "nodl pill" as Nodl
+  state "downloaded pill" as Downloaded
+  [*] --> None
+  None --> Nodl: known details offer no link
+  None --> Downloaded: marked
+  Nodl --> Downloaded: marked
+  Nodl --> None: details expire
+  Downloaded --> None: unmarked
+  Downloaded --> Nodl: unmarked, details offer no link
+```
+
+Source: [`content.ts`](content.ts), [`content.css`](content.css)
+
+And one queue button that says whether the track is queued. Small art has room for a plus sign alone.
+
+```mermaid
+stateDiagram-v2
+  state "No button" as Off
+  state "Offers + queue, on hover" as Offer
+  state "Stays up reading queued, or + on small art" as Queued
+  [*] --> Off
+  Off --> Offer: queue reachable, row names a track
+  Off --> Queued: same, track already queued
+  Offer --> Queued: queued, here or anywhere
+  Queued --> Offer: taken out, here or anywhere
+  Offer --> Off: row names no track
+  Queued --> Off: row names no track
+```
+
+Source: [`content.ts`](content.ts), [`content.css`](content.css)
+
+### Opening session storage to the page
+
+A content script can't touch `chrome.storage.session` until a trusted context opens it, so the page offers no queue button until the popup has run once in a browsing session. A tab already open gets its buttons at the next change to the queue, or a reload.
+
+```mermaid
+sequenceDiagram
+  participant C as Content script
+  participant S as chrome.storage.session
+  participant P as Popup
+  C->>S: read queue at start
+  S--xC: refused
+  Note over C: queueReachable is false, no buttons
+  P->>S: setAccessLevel for content scripts
+  opt something changes the queue
+    P->>S: write the queue
+    S--)C: onChanged for queue
+    Note over C: queueReachable is true, buttons appear
+  end
+  Note over C: a page loaded after this reads it at start
+  C->>S: read the queue on a click
+  S-->>C: every entry
+  C->>S: write the whole queue back
+```
+
+Source: [`src/lib/queue.svelte.ts`](src/lib/queue.svelte.ts), [`content.ts`](content.ts)
+
+### Noticing clicks on SoundCloud's buttons
+
+A capture listener sees each click before the page does and never stops it. This is how SoundCloud's own controls mark a track.
+
+```mermaid
+flowchart TD
+  Start["Click anywhere in the document"]
+  More{"inside .sc-button-more?"}
+  Remember["remember that row,<br/>the menu renders detached"]
+  Download{"inside .sc-button-download?"}
+  MarkDl["mark the row's track,<br/>or the remembered one"]
+  Buy{"a purchase link, or the<br/>Track header's outbound link?"}
+  MarkBuy["mark the row's track,<br/>or the page's own"]
+  Pass["nothing"]
+
+  Start --> More
+  More -->|yes| Remember
+  More -->|no| Download
+  Download -->|yes| MarkDl
+  Download -->|no| Buy
+  Buy -->|yes| MarkBuy
+  Buy -->|no| Pass
+```
+
+Source: [`content.ts`](content.ts), [`downloaded-store.ts`](downloaded-store.ts)
+
+### Putting the replaced buttons in
+
+One pass over SoundCloud's own controls. Nothing is removed, so turning the setting off shows the page as it was drawn.
+
+```mermaid
+flowchart TD
+  Native["Each SoundCloud control<br/>.sc-button-download, purchase link,<br/>Track header's outbound link"]
+  Plan{"setting on, names a track,<br/>a link goes somewhere?"}
+  Restore["remove ours,<br/>show SoundCloud's"]
+  Ours["ours after it, theirs hidden<br/>with tbx-dl-replaced"]
+  Fit["height of the controls beside it,<br/>tooltip says the domain"]
+
+  Native --> Plan
+  Plan -->|no| Restore
+  Plan -->|yes| Ours
+  Ours --> Fit
+```
+
+Source: [`content.ts`](content.ts), [`content.css`](content.css), [`src/lib/settings.svelte.ts`](src/lib/settings.svelte.ts)
+
+### Pressing a replaced button
+
+What a click on this extension's **Download** does, by the control it stands in for. Before the popup has run in a browsing session the buttons still draw, and queue nothing.
+
+```mermaid
+flowchart TD
+  Start["Click on Download"]
+  Kind{"stands in for"}
+  Press["press SoundCloud's hidden button,<br/>the listener marks the track"]
+  Queue["queue the track"]
+  Walked{"plain click on Hypeddit,<br/>Droploud or Pump Your Sound?"}
+  Follow["queue the track,<br/>the browser follows the link"]
+  Save["SAVE_GATE to the worker"]
+  Saved{"saved?"}
+  Mark["mark the track,<br/>if pref:mark is on"]
+  Gone["queue the track,<br/>a tab has opened"]
+
+  Start --> Kind
+  Kind -->|"Download file"| Press
+  Press --> Queue
+  Kind -->|"a purchase link"| Walked
+  Walked -->|no| Follow
+  Walked -->|yes| Save
+  Save --> Saved
+  Saved -->|yes| Mark
+  Saved -->|no| Gone
+```
+
+Source: [`content.ts`](content.ts), [`src/background.ts`](src/background.ts)
+
+### The walk behind a Download button
+
+The same site modules the Downloader panel uses. The offscreen page has `DOMParser` and host access, and the worker has tabs and downloads.
+
+```mermaid
+sequenceDiagram
+  participant C as Content script
+  participant W as Background worker
+  participant O as Offscreen page
+  participant G as Gate site
+  C->>W: SAVE_GATE, the link
+  Note over W: one walk at a time
+  W->>O: WALK_GATE
+  O->>G: unlock, with email and name
+  opt a Spotify step
+    O->>W: ROUND_TRIP
+    W-->>O: came back or not
+  end
+  alt a file, and it saves
+    O-->>W: URL, folder, filename, mark
+    W->>W: chrome.downloads
+    W-->>C: saved, mark
+  else a page, a throw, or a refused save
+    Note over W: tab opens beside the page
+    W-->>C: not saved
+  end
+  Note over W: offscreen page closes when idle
+```
+
+Source: [`src/background.ts`](src/background.ts), [`src/offscreen.ts`](src/offscreen.ts), [`src/tools/third-party-downloads/save.ts`](src/tools/third-party-downloads/save.ts), [`content.ts`](content.ts)
+
+### The signed-in frame
+
+Signed in, a track page puts the track in an iframe. The script runs in both documents and each does different work.
+
+```mermaid
+flowchart TD
+  Tab["soundcloud.com tab, signed in"]
+  Top["Top document<br/>header and player bar"]
+  Frame["iframe.webiIframe<br/>/n/user/track?v2_layout=true"]
+  Answers["answers the panels,<br/>with no track"]
+  Bar["marks the player bar"]
+  Header["section labelled Track header"]
+  Cart["purchase link replaced"]
+  Notice["clicks on it noticed"]
+  Silent["no marker target,<br/>no answers to panels"]
+
+  Tab --> Top
+  Tab --> Frame
+  Top --> Answers
+  Top --> Bar
+  Frame --> Header
+  Frame --> Silent
+  Header --> Cart
+  Header --> Notice
+```
+
+Source: [`content.ts`](content.ts), [`src/manifest.json`](src/manifest.json)
+
+### Pressing the List toggle
+
+Once per arrival at `/you/likes`, and only with the setting on. Pressing Badges afterwards is left alone.
+
+```mermaid
+stateDiagram-v2
+  state "Free to press" as Free
+  state "Pressed for this visit" as Asked
+  [*] --> Free
+  Free --> Asked: setting on, grid showing, presses List
+  Asked --> Free: toggle gone, the page was left
+  Asked --> Free: settings changed
+```
+
+Source: [`content.ts`](content.ts)
+
+### Free answers first
+
+What `GET_DOWNLOAD_DETAILS` does before it asks SoundCloud anything, and how each track's answer is filled in afterwards.
+
+```mermaid
+flowchart TD
+  Extract["extract, once start has run"]
+  Any{"any tracks?"}
+  Done["answer as it stands"]
+  Client{"client id on the page?"}
+  NoId["error: no-client-id"]
+  Harvest["harvest the hydration"]
+  Wanted{"cache lacks any?"}
+  Look["lookUp"]
+  Fill["fill in each track"]
+  Known["known details"]
+  Partial["partial, from the page's<br/>purchase link"]
+  Nothing["null"]
+
+  Extract --> Any
+  Any -->|no| Done
+  Any -->|yes| Client
+  Client -->|no| NoId
+  Client -->|yes| Harvest
+  Harvest --> Wanted
+  Wanted -->|yes| Look
+  Wanted -->|no| Fill
+  Look --> Fill
+  Fill --> Known
+  Fill --> Partial
+  Fill --> Nothing
+```
+
+Source: [`content.ts`](content.ts)
+
+### One lookup step by step
+
+`runJob`, starting with the bulk source for the page's kind.
+
+```mermaid
+flowchart TD
+  Kind{"page kind"}
+  Playlist["playlistDetails<br/>hydration or one /resolve,<br/>then /tracks?ids="]
+  Worth{"listing cheaper than<br/>a request per track?"}
+  Listing["likesDetails<br/>/users/id/likes"]
+  Next["what is left goes on below"]
+
+  Kind -->|playlist| Playlist
+  Kind -->|likes| Worth
+  Kind -->|"anything else"| Next
+  Worth -->|yes| Listing
+  Worth -->|no| Next
+  Playlist --> Next
+  Listing --> Next
+```
+
+Source: [`content.ts`](content.ts)
+
+Then what it left. A page the anonymous API can't see stops after five rows.
+
+```mermaid
+flowchart TD
+  Nothing{"bulk ran, settled none,<br/>more than 5 left?"}
+  Probe["resolve 5 of them"]
+  Seen{"what came back"}
+  Each["resolveDetails<br/>/resolve for the rest, 4 at a time"]
+  Unauth["stop: unauthorized"]
+  Unseen["stop: unseen"]
+
+  Nothing -->|no| Each
+  Nothing -->|yes| Probe
+  Probe --> Seen
+  Seen -->|"a 401"| Unauth
+  Seen -->|"no details at all"| Unseen
+  Seen -->|"at least one"| Each
+  Each -->|"a 401"| Unauth
+```
+
+Source: [`content.ts`](content.ts)
+
+### Picking up the likes listing
+
+`likesDetails` carries on from where the last walk of a user's likes stopped, as long as every row it wants lies past that point.
+
+```mermaid
+flowchart TD
+  Cursor{"cursor for this user, and<br/>every wanted row past it?"}
+  Resume["next_href from the cursor,<br/>200 items"]
+  Top["from the top, what the page<br/>shows plus 5, 200 at most"]
+  Get["GET the page of the listing"]
+  Failed["cursor dropped if the walk got anywhere,<br/>/resolve per track takes over"]
+  Learn["learn its tracks, keep any<br/>next_href and the count as the cursor"]
+  More{"next_href, rows unsettled,<br/>under 10 pages?"}
+  Done["stop"]
+
+  Cursor -->|yes| Resume
+  Cursor -->|no| Top
+  Resume --> Get
+  Top --> Get
+  Get -->|fails| Failed
+  Get --> Learn
+  Learn --> More
+  More -->|yes| Get
+  More -->|no| Done
+```
+
+Source: [`content.ts`](content.ts)
+
+### Joining a running lookup
+
+One lookup runs at a time per tab. A request whose tracks are already covered joins and is answered as soon as they settle.
+
+```mermaid
+flowchart TD
+  Ask["A request for its wanted tracks"]
+  Cover{"a job covers them all?"}
+  Join["wait on that job"]
+  New["new job behind the others"]
+  Waiter["a waiter holds the request"]
+  Change["cache changed"]
+  Done{"all its tracks settled?"}
+  Answer["answer it, the job goes on"]
+  Tell["newest waiter gets<br/>DOWNLOAD_DETAILS_PROGRESS"]
+  Over["job finished"]
+  Release["answer its waiters, flush the cache"]
+
+  Ask --> Cover
+  Cover -->|yes| Join
+  Cover -->|no| New
+  Join --> Waiter
+  New --> Waiter
+  Waiter --> Change
+  Change --> Done
+  Done -->|yes| Answer
+  Done -->|no| Tell
+  Tell --> Change
+  Waiter --> Over
+  Over --> Release
+```
+
+Source: [`content.ts`](content.ts)
+
+### Asking the API and failing
+
+`apiGet` is the one way to SoundCloud's API. What happens to a failure depends on who asked.
+
+```mermaid
+flowchart TD
+  Get["GET api-v2.soundcloud.com<br/>the page's client id, no cookies"]
+  Status{"answer"}
+  Json["JSON"]
+  Wait["wait 1.5 s, then 3 s"]
+  Error["ApiError with the status"]
+  Who{"who asked"}
+  Bulk["/tracks or the likes listing:<br/>/resolve per track takes over"]
+  Is401{"a 401?"}
+  Stop["stop the rest,<br/>error: unauthorized"]
+  TrackFail["a track: remembered as failed, a day"]
+  ArtistFail["an artist: in the failed list"]
+  Links["web-profiles: a profile with no links"]
+
+  Get --> Status
+  Status -->|ok| Json
+  Status -->|"429, two retries"| Wait
+  Wait --> Get
+  Status -->|"anything else"| Error
+  Error --> Who
+  Who -->|bulk| Bulk
+  Who -->|"one track or artist"| Is401
+  Is401 -->|yes| Stop
+  Is401 -->|no| TrackFail
+  Is401 -->|no| ArtistFail
+  Is401 -->|no| Links
+```
+
+Source: [`content.ts`](content.ts)
+
+### Life of a details entry
+
+One entry under `details` in `chrome.storage.local`. Age isn't the only way an entry goes off.
+
+```mermaid
+stateDiagram-v2
+  state "Not in the cache" as Unknown
+  state "Known, 30 days" as Known
+  state "Remembered failure, 1 day" as Failed
+  [*] --> Unknown
+  Unknown --> Known: hydration, API answer or an import
+  Unknown --> Failed: lookup failed, not a 401
+  Failed --> Known: hydration, API answer or an import
+  Failed --> Unknown: a day passed
+  Known --> Known: a bulk answer carries it, stamped again
+  Known --> Unknown: 30 days passed
+  Known --> Unknown: a field this version keeps is missing
+  Known --> Unknown: past the newest 20,000, or 10,000 if refused
+```
+
+Source: [`content.ts`](content.ts), [`state-transfer.ts`](state-transfer.ts)
+
+### Writing the details cache back
+
+Answers go into memory as they arrive and reach storage a moment later, merged with what other tabs have written.
+
+```mermaid
+flowchart TD
+  Learn["learn or learnFailure<br/>into the in-memory cache"]
+  Timer["scheduleSave<br/>a second after the first change"]
+  Finished["a lookup ends: flushSave"]
+  Read["read what storage holds,<br/>keep what is still fresh"]
+  Merge["this tab's entries over it"]
+  Write["write the newest 20,000"]
+  Half["storage refused:<br/>write the newest 10,000"]
+  Tabs["other tabs, onChanged:<br/>take only newer entries"]
+
+  Learn --> Timer
+  Timer --> Read
+  Finished --> Read
+  Read --> Merge
+  Merge --> Write
+  Write -->|refused| Half
+  Write --> Tabs
+  Half --> Tabs
+```
+
+Source: [`content.ts`](content.ts)
+
+### State kept for good
+
+The `chrome.storage.local` keys, what each holds, and its limit. All of it goes with the extension. Everything but `settings` can be exported first.
+
+```mermaid
+flowchart LR
+  Content["Content script"]
+  Popup["Popup"]
+  Downloaded["downloaded<br/>path to time marked"]
+  Details["details<br/>path to answer, 20,000 newest,<br/>10,000 if storage refuses that"]
+  Listed["listed<br/>5,000 tracks, then refuses"]
+  Artists["artists<br/>2,000 artists, then refuses"]
+  Settings["settings<br/>replaceDownloadButtons on,<br/>likesListView off"]
+
+  Content <--> Downloaded
+  Content <--> Details
+  Settings --> Content
+  Popup <--> Downloaded
+  Popup <--> Details
+  Popup <--> Listed
+  Popup <--> Artists
+  Popup <--> Settings
+```
+
+Source: [`downloaded-store.ts`](downloaded-store.ts), [`content.ts`](content.ts), [`src/tools/manager/listed.svelte.ts`](src/tools/manager/listed.svelte.ts), [`src/tools/artists/artists.svelte.ts`](src/tools/artists/artists.svelte.ts), [`src/lib/settings.svelte.ts`](src/lib/settings.svelte.ts), [`state-transfer.ts`](state-transfer.ts)
+
+### State kept for the session
+
+The `chrome.storage.session` keys. They end when the browser closes, and a run in progress is never resumed.
+
+```mermaid
+flowchart LR
+  Content["Content script,<br/>once the popup has opened the area"]
+  Popup["Popup"]
+  Queue["queue<br/>entries, in the order added"]
+  View["view<br/>open tool, which sheet is up, and per scope:<br/>scroll, query, selecting, picked, opened,<br/>drawer, paste, import"]
+  Downloader["downloader<br/>origin, listed URLs,<br/>known rows and their outcomes"]
+
+  Content <--> Queue
+  Popup <--> Queue
+  Popup <--> View
+  Popup <--> Downloader
+```
+
+Source: [`src/lib/queue.svelte.ts`](src/lib/queue.svelte.ts), [`src/lib/view.svelte.ts`](src/lib/view.svelte.ts), [`src/tools/third-party-downloads/walked.svelte.ts`](src/tools/third-party-downloads/walked.svelte.ts)
+
+### Options and mirrors in localStorage
+
+The extension origin's own `localStorage`. The popup and the offscreen page share it, and a content script can't see it.
+
+```mermaid
+flowchart LR
+  Popup["Popup"]
+  Offscreen["Offscreen page"]
+  File["In the state file<br/>pref:background, pref:sort, pref:hide-downloaded"]
+  Stay["On this install only<br/>pref:format, pref:source, pref:split-title, pref:dedupe,<br/>pref:artists-sort, pref:hide-queued, pref:theme,<br/>pref:title-case, pref:search:id"]
+  Gate["For gates, on this install only<br/>pref:email, pref:name, pref:mark"]
+  Mirror["Mirrors, corrected by the session<br/>view:open, queue:items"]
+
+  Popup <--> File
+  Popup <--> Stay
+  Popup <--> Gate
+  Popup <--> Mirror
+  Gate --> Offscreen
+```
+
+Source: [`src/lib/prefs.svelte.ts`](src/lib/prefs.svelte.ts), [`src/lib/downloader.svelte.ts`](src/lib/downloader.svelte.ts), [`src/lib/view.svelte.ts`](src/lib/view.svelte.ts), [`src/lib/queue.svelte.ts`](src/lib/queue.svelte.ts), [`state-transfer.ts`](state-transfer.ts)
+
+### State held in memory
+
+What dies with the document, the popup or the worker.
+
+```mermaid
+flowchart LR
+  Doc["Each SoundCloud document"]
+  Popup["Each opening of the popup"]
+  Worker["Background worker"]
+  Page["hydration, parsed once<br/>/resolve answers, by playlist or user<br/>likes cursor, per user<br/>measured button heights<br/>the last row whose More was pressed"]
+  Jobs["lookup jobs and waiters<br/>mirrors of marks, queue and details"]
+  Chunks["loaded Panel and sheet chunks<br/>warmed reads<br/>a Downloader run"]
+  Turn["the walk queue<br/>how many are waiting"]
+
+  Doc --> Page
+  Doc --> Jobs
+  Popup --> Chunks
+  Worker --> Turn
+```
+
+Source: [`content.ts`](content.ts), [`src/lib/tools.ts`](src/lib/tools.ts), [`src/lib/soundcloud.ts`](src/lib/soundcloud.ts), [`src/background.ts`](src/background.ts)
+
+### Everything hangs off a path
+
+A track's permalink path is its identity in every store, and an artist's is the first segment of it. A details entry is either an answer or a remembered failure, which holds `unavailable` and `at` alone.
+
+```mermaid
+erDiagram
+  TRACK_PATH ||--o| MARK : "downloaded"
+  TRACK_PATH ||--o| DETAILS : "details"
+  TRACK_PATH ||--o| LISTED_ENTRY : "listed"
+  TRACK_PATH ||--o| QUEUE_ENTRY : "queue"
+  ARTIST_ENTRY ||--o{ TRACK_PATH : "up to 50 kept"
+  LISTED_ENTRY ||--o| TRACK_DETAILS : "own copy"
+  QUEUE_ENTRY ||--o| TRACK_DETAILS : "own copy"
+  MARK {
+    str permalink PK
+    str time
+  }
+  DETAILS {
+    str permalink PK
+    num id
+    bool downloadable
+    bool hasDownloadsLeft
+    str purchaseUrl
+    str purchaseTitle
+    str genre
+    str artworkUrl
+    bool unavailable
+    num at
+  }
+  LISTED_ENTRY {
+    str permalink PK
+    str title
+    str artist
+    str artworkUrl
+    str genre
+    bool liked
+    bool reposted
+    str domPurchaseTitle
+    str from
+    num at
+  }
+  QUEUE_ENTRY {
+    str permalink PK
+    str title
+    str artist
+    str artworkUrl
+    str genre
+    bool liked
+    bool reposted
+  }
+  ARTIST_ENTRY {
+    str permalink PK
+    str name
+    obj profile
+    str from
+    num at
+  }
+  TRACK_DETAILS {
+    str permalink
+    bool partial
+  }
+```
+
+Source: [`src/lib/types.d.ts`](src/lib/types.d.ts), [`docs/manager-state.schema.json`](docs/manager-state.schema.json)
+
+### What makes a mark
+
+What puts a mark on a track. Clicking SoundCloud's own purchase link marks it on the spot, while opening a link from the Manager or through a replaced button queues it instead.
+
+```mermaid
+flowchart TD
+  Native["SoundCloud's Download file<br/>or purchase link clicked"]
+  Walked["Page walk saved a file"]
+  Saved["Downloader saved a file"]
+  Row["A row's check button"]
+  Batch["Manager batch, queue sheet"]
+  Import["Importing a state file"]
+  Setting{"pref:mark on?"}
+  Store["TbxDownloaded"]
+  Key[("downloaded<br/>chrome.storage.local")]
+  Pills["pills on every SoundCloud tab"]
+  Rows["panels, Hide downloaded"]
+
+  Walked --> Setting
+  Saved --> Setting
+  Setting -->|yes| Store
+  Native --> Store
+  Row --> Store
+  Batch --> Store
+  Import --> Store
+  Store --> Key
+  Key --> Pills
+  Key --> Rows
+```
+
+Source: [`downloaded-store.ts`](downloaded-store.ts), [`src/lib/downloaded.svelte.ts`](src/lib/downloaded.svelte.ts), [`content.ts`](content.ts), [`src/tools/third-party-downloads/Panel.svelte`](src/tools/third-party-downloads/Panel.svelte), [`src/offscreen.ts`](src/offscreen.ts)
+
+### Exporting the state file
+
+What the popup holds goes in the file, so a queue kept only in memory is exported too.
+
+```mermaid
+sequenceDiagram
+  participant T as StateTransfer
+  participant O as Popup stores
+  participant S as TbxState
+  participant B as storage.local
+  participant L as localStorage
+  T->>O: queue, listed, artists
+  O-->>T: plain lists
+  T->>S: snapshot
+  S->>B: marks, details
+  S->>L: three options
+  S-->>T: the document
+  Note over T: downloads manager-date.json
+```
+
+Source: [`src/lib/components/StateTransfer.svelte`](src/lib/components/StateTransfer.svelte), [`state-transfer.ts`](state-transfer.ts), [`src/lib/clipboard.ts`](src/lib/clipboard.ts)
+
+### Importing the state file
+
+Adding is the default. Replacing is a switch that comes back off every time the popup does.
+
+```mermaid
+flowchart TD
+  Parse["Chosen file or pasted text,<br/>through TbxState.parse as it lands"]
+  Refused["says what is wrong,<br/>writes nothing"]
+  Holds["says what the file holds,<br/>Import is pressed"]
+  Switch{"replace switch"}
+  Add["Adds<br/>marks: merged, the earlier time kept<br/>details: only newer ones<br/>listed, artists: appended, the better answer kept,<br/>past the cap refused and counted<br/>queue: appended, a held track left alone<br/>the three options: only where unset"]
+  Replace["Replaces<br/>marks and details: the file's<br/>listed, artists: the file's, past the cap<br/>refused and counted<br/>queue: the file's<br/>the three options: the file's, or back to default"]
+  Reload["panels re-read their options"]
+
+  Parse -->|refused| Refused
+  Parse -->|reads| Holds
+  Holds --> Switch
+  Switch -->|off| Add
+  Switch -->|on| Replace
+  Add --> Reload
+  Replace --> Reload
+```
+
+Source: [`state-transfer.ts`](state-transfer.ts), [`src/lib/components/StateTransfer.svelte`](src/lib/components/StateTransfer.svelte), [`downloaded-store.ts`](downloaded-store.ts), [`src/lib/queue.svelte.ts`](src/lib/queue.svelte.ts), [`src/tools/manager/listed.svelte.ts`](src/tools/manager/listed.svelte.ts), [`src/tools/artists/artists.svelte.ts`](src/tools/artists/artists.svelte.ts), [`docs/manager-state.schema.json`](docs/manager-state.schema.json)
+
+### Checking a state file by hand
+
+`pnpm validate:state` holds a file to the same schema outside the browser. The popup's parser enforces that schema by hand, since a classic script can't import a validator.
+
+```mermaid
+flowchart TD
+  Run["pnpm validate:state files"]
+  Any{"any files named?"}
+  Usage["usage line, exit 2"]
+  Parse{"JSON?"}
+  Ajv{"valid against<br/>docs/manager-state.schema.json?"}
+  Good["a tick for that file"]
+  Bad["a cross, and the read error<br/>or each Ajv error"]
+  Exit["exit 0 if all passed, else 1"]
+
+  Run --> Any
+  Any -->|no| Usage
+  Any -->|yes| Parse
+  Parse -->|no| Bad
+  Parse -->|yes| Ajv
+  Ajv -->|yes| Good
+  Ajv -->|no| Bad
+  Good --> Exit
+  Bad --> Exit
+```
+
+Source: [`scripts/validate-state.mts`](scripts/validate-state.mts), [`docs/manager-state.schema.json`](docs/manager-state.schema.json), [`state-transfer.ts`](state-transfer.ts)
+
+### What SoundCloud is asked
+
+Every API request goes out from the content script, anonymous and `GET` only, because the API takes calls from `soundcloud.com` alone.
+
+```mermaid
+flowchart LR
+  Content["Content script"]
+  Hydration["window.__sc_hydration<br/>client id and full tracks, no request"]
+  Tracks["/tracks?ids=<br/>50 ids a batch, at most 4 at once"]
+  Likes["/users/id/likes<br/>up to 200 a page, 10 pages a lookup"]
+  Resolve["/resolve?url=<br/>a playlist or user once a document,<br/>a track 4 at a time"]
+  Web["/users/id/web-profiles<br/>an artist's links, 4 artists at a time"]
+
+  Content --> Hydration
+  Content --> Tracks
+  Content --> Likes
+  Content --> Resolve
+  Content --> Web
+```
+
+Source: [`content.ts`](content.ts)
+
+### What the gate hosts are asked
+
+One link at a time, from a panel or the offscreen page. Each host below is in `host_permissions`.
+
+```mermaid
+flowchart LR
+  Walk["A walk"]
+  Hypeddit["hypeddit.com<br/>GET gate page, POST /gate/ge,<br/>/verifyEmailAddress, /gate/download/ul"]
+  Droploud["droploud.com, GET gate page<br/>api.droploud.com, POST /api/gate/id/step,<br/>/api/gate/id/download,<br/>/api/soundcloud/verify-repost"]
+  Pump["pumpyoursound.com<br/>GET fangate page, POST its form"]
+  Toneden["www.toneden.io<br/>GET posts, attachment download,<br/>gateMetadata"]
+  Fanlink["fanlink.tv, GET link page<br/>ffm.to, GET link page"]
+  Laylo["laylo.com, GET drop page<br/>two cloudfront.net CDNs, GET drop and artist JSON<br/>events.laylo.com, POST rsvp"]
+
+  Walk --> Hypeddit
+  Walk --> Droploud
+  Walk --> Pump
+  Walk --> Toneden
+  Walk --> Fanlink
+  Walk --> Laylo
+```
+
+Source: [`src/manifest.json`](src/manifest.json), [`src/tools/third-party-downloads/sites/hypeddit.ts`](src/tools/third-party-downloads/sites/hypeddit.ts), [`src/tools/third-party-downloads/sites/droploud.ts`](src/tools/third-party-downloads/sites/droploud.ts), [`src/tools/third-party-downloads/sites/pumpyoursound.ts`](src/tools/third-party-downloads/sites/pumpyoursound.ts), [`src/tools/third-party-downloads/sites/toneden.ts`](src/tools/third-party-downloads/sites/toneden.ts), [`src/tools/third-party-downloads/sites/laylo.ts`](src/tools/third-party-downloads/sites/laylo.ts), [`src/tools/third-party-downloads/sites/featurefm.ts`](src/tools/third-party-downloads/sites/featurefm.ts)
+
+### What else leaves the browser
+
+The other ways out, and two addresses that are read but never requested.
+
+```mermaid
+flowchart LR
+  Ext["The extension"]
+  File["the file a walk found, from wherever<br/>its link points, through chrome.downloads"]
+  Art["SoundCloud's artwork URL<br/>one fetch per cover click"]
+  Images["cover and avatar images<br/>drawn in the popup"]
+  Tabs["Tabs a person opens: links, track<br/>pages, search sites, artists' links"]
+  Bug["github.com issue form,<br/>opened as a link"]
+  Spotify["accounts.spotify.com,<br/>only through a tab"]
+  GateSc["gate.sc<br/>unwrapped, never requested"]
+  Tracker["api.ffm.to<br/>decoded, never requested"]
+
+  Ext --> File
+  Ext --> Art
+  Ext --> Images
+  Ext --> Tabs
+  Ext --> Bug
+  Ext --> Spotify
+  Ext -.-> GateSc
+  Ext -.-> Tracker
+```
+
+Source: [`src/tools/third-party-downloads/save.ts`](src/tools/third-party-downloads/save.ts), [`src/lib/clipboard.ts`](src/lib/clipboard.ts), [`src/lib/components/Artwork.svelte`](src/lib/components/Artwork.svelte), [`src/lib/chrome.ts`](src/lib/chrome.ts), [`src/lib/bug-report.ts`](src/lib/bug-report.ts), [`src/tools/third-party-downloads/sites/index.ts`](src/tools/third-party-downloads/sites/index.ts), [`src/tools/third-party-downloads/sites/featurefm.ts`](src/tools/third-party-downloads/sites/featurefm.ts)

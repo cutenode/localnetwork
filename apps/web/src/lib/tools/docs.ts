@@ -4,11 +4,13 @@ import type { ToolDoc } from './types.ts';
  * A tool's guides from its README and `docs/*.md`, given as an eager `?raw` `import.meta.glob`
  * of them and the tool's folder in the repo. The overview comes first, then the guides in the
  * order it first links them, then any it doesn't link, by title. The overview is the README, or
- * `docs/overview.md` for a tool whose glob leaves out a README written for developers.
+ * `docs/overview.md` for a tool whose glob leaves out a README written for developers. A README's
+ * `## Diagrams` section stays on GitHub: it's for developers, and only GitHub draws Mermaid.
  */
 export function loadDocs(repoDir: string, files: Record<string, string>): ToolDoc[] {
-	const docs = Object.entries(files).map(([file, source]): ToolDoc => {
+	const docs = Object.entries(files).map(([file, contents]): ToolDoc => {
 		const local = /(?:^|\/)(README\.md|docs\/[^/]+\.md)$/.exec(file)?.[1];
+		const source = contents.replace(/^## Diagrams\n[\s\S]*?(?=^## |(?![\s\S]))/m, '');
 
 		if (!local) throw new Error(`${file} isn't a README or a file in docs/`);
 		const isReadme = local === 'README.md';
