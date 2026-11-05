@@ -1,4 +1,4 @@
-// content.ts — page detection and track extraction (the EXTRACT_TRACKS
+// content.ts: page detection and track extraction (the EXTRACT_TRACKS
 // message), on every supported layout and on the pages it must ignore.
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import { loadContentScript, disposeContentScripts } from '../helpers/load.ts';
@@ -64,7 +64,7 @@ describe('playlist pages', () => {
 			skippedPlaylists: 0
 		});
 		// A playlist row renders no genre tag, so the genre is unknown from the
-		// page — the hydration and the lookup are where it comes from there.
+		// page; the hydration and the lookup are where it comes from there.
 		expect(response.tracks).toEqual([
 			{
 				artist: 'Bicep',
@@ -213,7 +213,7 @@ describe('likes pages', () => {
 						// track's genre and the reason a Likes page needs no lookup to
 						// have one.
 						genre: '  Drum  &  Bass ',
-						// Only the class says so — a redesign that drops aria-pressed.
+						// Only the class says so: a redesign that drops aria-pressed.
 						liked: 'class'
 					}),
 					likedSound({ playlist: true, title: 'A Playlist', href: '/x/sets/a-playlist' }),
@@ -294,7 +294,7 @@ describe('likes pages', () => {
 			skippedPlaylists: 2
 		});
 		// A tile renders no tag and neither row button, so the genre, the like
-		// and the repost are all null — "nobody knows", not "no".
+		// and the repost are all null: "nobody knows", not "no".
 		expect(response.tracks).toEqual([
 			{
 				artist: 'Uploader',
@@ -454,7 +454,7 @@ describe('track pages', () => {
 		});
 	});
 
-	// The legacy class on its own, and no aria-label — the link's own text is
+	// The legacy class on its own, and no aria-label: the link's own text is
 	// the label then, as it is the only wording the page carries.
 	it('reads a purchase link that carries only the legacy class and its text', async () => {
 		render(trackPage({ purchase: { url: 'https://buy.test', label: 'Buy' } }), '/uploader/single-track');
@@ -469,7 +469,7 @@ describe('track pages', () => {
 	});
 
 	// detectPage refuses a URL the hero disagrees with, and the track is still
-	// reported — exactly as a Likes row whose title is not a link is. It has no
+	// reported, exactly as a Likes row whose title is not a link is. It has no
 	// identity, so nothing that holds a list can hold it.
 	it('reports the track with no permalink when the URL and the hero disagree', async () => {
 		render(trackPage({ uploader: 'uploader' }), '/someone-else/single-track');
@@ -593,7 +593,7 @@ describe('the frames the script also runs in', () => {
 	// The manifest says `all_frames`, because the signed-in track page is an
 	// iframe of SoundCloud's own and its buttons have to be replaced there too.
 	// A panel asks its question with `chrome.tabs.sendMessage` and no frame id,
-	// which asks every frame in the tab and keeps whichever answers first — so
+	// which asks every frame in the tab and keeps whichever answers first, so
 	// only the tab's own document may answer, or the panel would sometimes read
 	// the page and sometimes read the frame.
 	afterEach(() => {
@@ -610,7 +610,7 @@ describe('the frames the script also runs in', () => {
 	});
 
 	// The frame is where the signed-in track page is, so the work on the page
-	// itself has to happen there — only the answering is the top's.
+	// itself has to happen there; only the answering is the top's.
 	it('still does the page’s own work from inside a frame', async () => {
 		Object.defineProperty(window, 'top', { value: {}, configurable: true });
 		render(

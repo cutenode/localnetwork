@@ -1,4 +1,4 @@
-// src/lib/chrome.ts — the browser APIs behind functions that never throw.
+// src/lib/chrome.ts: the browser APIs behind functions that never throw.
 //
 // What is here is the one part of it with state: a tab read started before
 // anybody asked for it. Everything else (asking the page, opening a tab, the
@@ -57,7 +57,7 @@ describe('the active tab, read before it is asked for', () => {
 
 // A sign-in no fetch can walk: a tab is sent out through it and watched until
 // it comes back. What the tab does in between is somebody else's site, and
-// invisible here — only the landing is ever read.
+// invisible here: only the landing is ever read.
 describe('a tab sent out through a sign-in', () => {
 	const TRIP = { landing: 'https://hypeddit.com/', timeout: 200, every: 1 };
 

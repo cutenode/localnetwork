@@ -1,4 +1,4 @@
-// src/tools/third-party-downloads/parse.ts — reading state out of pages that
+// src/tools/third-party-downloads/parse.ts: reading state out of pages that
 // were only ever meant to be rendered.
 import { describe, it, expect } from 'vitest';
 import {

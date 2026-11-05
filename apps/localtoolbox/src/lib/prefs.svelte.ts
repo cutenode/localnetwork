@@ -20,7 +20,7 @@ const read = (key: string) => {
 	try {
 		return localStorage.getItem(key);
 	} catch (_e) {
-		// Storage unavailable — the option falls back to its default.
+		// Storage unavailable: the option falls back to its default.
 		return null;
 	}
 };
@@ -36,13 +36,11 @@ const write = (key: string, value: string) => {
 // Every option made in this popup, so that one call can put them all back in
 // front of whoever is showing them.
 //
-// An import writes straight to localStorage (state-transfer.js), which no
-// `$state` follows — and the panel whose sort order or "hide downloaded" the
+// An import writes straight to localStorage (state-transfer.ts), which no
+// `$state` follows, and the panel whose sort order or "hide downloaded" the
 // file just set is *still on screen*, under the settings sheet the import was
-// run from. Before, the Manager panel reloaded its own two by hand, because
-// the import was in that panel's own footer and there was nothing else it
-// could have changed. Now it is in settings, over any tool, so there is
-// nowhere left that knows which options an import touched — and a list is.
+// run from. The sheet can be over any tool, so nothing there knows which
+// options an import touched. Reloading this whole list covers them all.
 //
 // It grows by one per option a panel makes, and never shrinks: reloading one
 // belonging to a panel that has since been closed re-reads a string and sets a
@@ -58,7 +56,7 @@ export function reloadPrefs() {
 /**
  * A `$state` value that writes itself to localStorage whenever it is set.
  *
- * `reload()` re-reads the stored value — `reloadPrefs()` above calls it on
+ * `reload()` re-reads the stored value. `reloadPrefs()` above calls it on
  * every option after an import, which may have replaced them underneath.
  *
  * @param key the localStorage key, which the state file names too

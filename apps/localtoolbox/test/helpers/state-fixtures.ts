@@ -1,11 +1,11 @@
 // The exported state file and the entries it carries, with defaults that
-// make a valid document — for the tests of state-transfer.ts, of the schema
+// make a valid document, for the tests of state-transfer.ts, of the schema
 // (docs/manager-state.schema.json), and of the settings sheet that imports and
 // exports one.
 //
 // A module of its own rather than exports from test/state-transfer.test.ts:
 // importing a test file registers every test in it again, in the importing
-// file, so the schema's tests used to run the parser's a second time.
+// file, so the schema's tests would run the parser's a second time.
 //
 // A builder's type is the shape it makes when left alone. What it is handed on top may be any
 // field with any value, since many of these documents are made for the schema to refuse.
@@ -67,7 +67,7 @@ export const partialDetails = (extra: Overrides = {}): PartialDetails => ({
 	...extra
 });
 
-// A queued track, as the queue keeps one — the three the page it came off is
+// A queued track, as the queue keeps one: the three the page it came off is
 // the only source of included, since the list adds from the queue and the
 // page is gone by then.
 export const queueEntry = (extra: Overrides = {}): Required<QueueEntry> => ({
@@ -82,8 +82,8 @@ export const queueEntry = (extra: Overrides = {}): Required<QueueEntry> => ({
 	...extra
 });
 
-// A track on the Manager's list: a queued track plus what only the list
-// knows — the uploader's own wording for a purchase link, and where and when
+// A track on the Manager's list is a queued track plus what only the list
+// knows: the uploader's own wording for a purchase link, and where and when
 // it came in.
 export const listedEntry = (extra: Overrides = {}): ListedEntry => ({
 	...queueEntry(),

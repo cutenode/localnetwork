@@ -1,6 +1,6 @@
 // Turning a page's tracks into text.
 //
-// All of it happens here in the extension's own popup — never in the page.
+// All of it happens here in the extension's own popup, never in the page.
 // The content script only reads raw strings out of the DOM; the splitting,
 // the deduping and every output format below work on what it read.
 
@@ -78,8 +78,8 @@ const csvField = (s: string) => (/[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}
 
 // The line formats promise a track per line, and TSV has no quoting at all: a
 // tab or a line break inside a field is read as the next field or the next
-// row. A page read never carries one — the content script collapses
-// whitespace — but a queue restored from a state file can, so they become a
+// row. A page read never carries one (the content script collapses
+// whitespace), but a queue restored from a state file can, so they become a
 // space here rather than a broken line.
 const oneLine = (s: string) => s.replace(/[\r\n]+/g, ' ');
 
@@ -135,7 +135,7 @@ export const FORMATS: Format[] = [
 		ext: 'json',
 		mime: 'application/json',
 		// Track objects from the content script carry extra fields (artworkUrl,
-		// used by the Cover Art tool); this tool's JSON output stays artist+title.
+		// used by the Manager tool); this tool's JSON output stays artist+title.
 		render: (ts) =>
 			JSON.stringify(
 				ts.map(({ artist, title }) => ({ artist, title })),

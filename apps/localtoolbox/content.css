@@ -1,12 +1,13 @@
 /* Injected on soundcloud.com by the Manager tool: the markers painted over
-   cover art — "Downloaded" for tracks the user has downloaded, "nodl" for
-   tracks that turned out to have no download link at all — and the queue
-   button, which comes up when the art is hovered and stays up by itself on a
-   track that is in the queue. They go on every picture of a track the page
-   has: list rows and tiles, a track page's hero, the player bar. The markers
-   are purely visual: the overlay ignores pointer events, so play buttons and
-   links beneath it keep working. All class names are prefixed to stay clear of
-   SoundCloud's own. */
+   cover art ("downloaded" for tracks the user has downloaded, "nodl" for
+   tracks that turned out to have no download link at all), the queue button,
+   which comes up when the art is hovered and stays up by itself on a track
+   that is in the queue, and the button that stands in for SoundCloud's own
+   download controls. The markers and the queue button go on every picture of
+   a track the page has: list rows and tiles, a track page's hero, the player
+   bar. The markers are purely visual: the overlay ignores pointer events, so
+   play buttons and links beneath it keep working. All class names are
+   prefixed to stay clear of SoundCloud's own. */
 
 .tbx-mark {
 	position: absolute;
@@ -17,23 +18,23 @@
 }
 
 /* An artwork element SoundCloud already positions in every layout the script
-   marks — but the overlay is only in the right box while that holds, and one
+   marks, but the overlay is only in the right box while that holds, and one
    of them (the player bar's) cannot be checked without a track playing. So
-   marked artwork — and artwork carrying the queue button — is made the
+   marked artwork, and artwork carrying the queue button, is made the
    containing block. On an element with no offsets of its own, `relative`
    moves nothing: it changes where our overlay lands, not where SoundCloud's
    own artwork sits.
 
    The class is put on by the script, which knows which artwork it just
-   marked. This rule used to be `.sc-artwork:has(> .tbx-mark)`, and that one
-   selector was the slowest thing in the extension: `:has()` makes every
-   `.sc-artwork` on the page a candidate to restyle whenever any `.tbx-mark`
-   is added or removed, so painting a marked-up playlist inserted five hundred
-   markers one at a time and invalidated the document on each. Measured on a
-   479-track playlist, a single repaint took 17 seconds — during which the
-   content script's main thread was blocked, and with it every answer coming
-   back from SoundCloud and every progress message going out to the panel. A
-   plain class touches the one element it is on. */
+   marked. A `.sc-artwork:has(> .tbx-mark)` rule here was the slowest thing in
+   the extension: `:has()` makes every `.sc-artwork` on the page a candidate
+   to restyle whenever any `.tbx-mark` is added or removed, so painting a
+   marked-up playlist inserted five hundred markers one at a time and
+   invalidated the document on each. Measured on a 479-track playlist, a
+   single repaint took 17 seconds, during which the content script's main
+   thread was blocked, and with it every answer coming back from SoundCloud
+   and every progress message going out to the panel. A plain class touches
+   the one element it is on. */
 .tbx-mark-host {
 	position: relative;
 }
@@ -72,7 +73,7 @@
 }
 
 /* Playlist rows show 32 px thumbnails and the player bar a 30 px one: the
-   pill shrinks, and "Downloaded" becomes a check mark (set from the script). */
+   pill shrinks, and "downloaded" becomes a check mark (set from the script). */
 .tbx-mark--small .tbx-mark__pill {
 	right: 1px;
 	bottom: 1px;
@@ -84,27 +85,27 @@
 /* ---- The queue button ------------------------------------------------------
 
    Hovering cover art brings up a button in its top-right corner that puts the
-   track in the session queue — and on a track already in it, the button is
-   there without hovering, reading "queued": this is where the page says a
-   track is in the queue. Hovering that one turns it into the "unqueue" it
-   would become, word and colour together. The corner opposite the pills; the
-   centre is left to SoundCloud's own play button.
+   track in the session queue. On a track already in it, the button is there
+   without hovering, reading "queued": this is where the page says a track is
+   in the queue. Hovering that one turns it into the "unqueue" it would
+   become, word and colour together. The corner opposite the pills; the centre
+   is left to SoundCloud's own play button.
 
    Hidden rather than absent, so it can be reached by keyboard: `opacity` and
    `pointer-events` take it out of the way without taking it out of the tab
    order, and focusing it brings it up exactly as hovering the art does.
 
    Doubled class selectors throughout, and the host named on the rules that
-   have to hold — the same reason `.tbx-dl` doubles its own further down. This
-   element is the extension's, but the page can still reach it as a plain
+   have to hold, for the same reason `.tbx-dl` doubles its own further down.
+   This element is the extension's, but the page can still reach it as a plain
    `button` inside SoundCloud's own artwork, and a rule of SoundCloud's that
    hides whatever it did not put there (`.sound__coverArt .sc-artwork > button`
-   is (0,2,1)) would otherwise beat a single class of ours (0,1,0) — and beat
-   `.tbx-queue[data-state$=":yes"]` (0,2,0) with it. That one matters most: it
-   is what holds a queued track's button up without a pointer on it, and it is
-   the only thing on the artwork that says the track is in the queue. The
-   symptom is exactly what it sounds like — the button turns up on hover (that
-   rule was already (0,3,0) and survived) and never otherwise. */
+   is (0,2,1)) would otherwise beat a single class of ours (0,1,0), and
+   `.tbx-queue[data-state$=":yes"]` (0,2,0) with it. That second rule holds a
+   queued track's button up without a pointer on it, and it is the only thing
+   on the artwork that says the track is in the queue. Losing it shows as a
+   button that turns up on hover (`.tbx-mark-host:hover > .tbx-queue` alone is
+   (0,3,0) and survives) and never otherwise. */
 
 .tbx-queue.tbx-queue {
 	position: absolute;
@@ -176,8 +177,8 @@
 }
 
 /* The same shrink the pills take on 32 px thumbnails and the player bar's
-   30 px one, where the word is a sign instead: "+" for a queued track, and
-   "−" under the pointer. */
+   30 px one, where the word is a sign instead: "+" at rest, and "−" under the
+   pointer on a queued track. */
 .tbx-queue.tbx-queue--small {
 	top: 1px;
 	right: 1px;
@@ -192,13 +193,14 @@
    hides SoundCloud's "Download file" item and its "Buy" / "Free Download"
    link and puts this beside each one. It is the Manager tool's own colour
    rather than SoundCloud's orange, on purpose: a button that does something
-   SoundCloud's did not — queueing the track — should not look like the one it
+   SoundCloud's did not (queueing the track) should not look like the one it
    replaced.
 
    It says one word, "Download", behind a download icon, and its height comes
-   from the script, which measures SoundCloud's own control before hiding it —
-   so ours is as tall as the rest of the row it joins. The padding below is
-   what stands in when there was nothing laid out to measure. */
+   from the script, which measures the controls beside it (or SoundCloud's own
+   control, before hiding it, where the row has no others), so ours is as tall
+   as the rest of the row it joins. The padding below is what stands in when
+   there was nothing laid out to measure. */
 
 /* `!important` for once, and only here. Which of two class rules of the same
    weight wins is which comes last, and where a content script's stylesheet
@@ -210,13 +212,13 @@
 	display: none !important;
 }
 
-/* Doubled class selectors, here and on the two variants below: this element
-   is the extension's, but the page's own rules can still reach it by tag —
+/* Doubled class selectors, here and on the three variants below: this element
+   is the extension's, but the page's own rules can still reach it by tag.
    SoundCloud's More menu styles `button`s inside it, and its rows style their
    `a`s, both of which are a class *and* a tag (0,1,1) and would win over a
    plain class (0,1,0). Repeating the class costs nothing and takes ours to
    (0,2,0), above anything that matches our element without naming a class of
-   ours — which nothing outside this file can. The states below already carry
+   ours, which nothing outside this file can. The states below already carry
    a pseudo-class and are there on their own. */
 .tbx-dl.tbx-dl {
 	display: inline-flex;
@@ -270,7 +272,7 @@
 	outline-offset: 2px;
 }
 
-/* While a gate is walked for it (content.js saveGate): the same button, a
+/* While a gate is walked for it (content.ts saveGate): the same button, a
    shade quieter, so it says it heard without anything in the row moving. */
 .tbx-dl[aria-busy='true'] {
 	cursor: progress;
@@ -298,19 +300,18 @@
 }
 
 /* In the signed-in track page's action row (the frame the content script
-   reaches through `all_frames`; content.js says why). That row is MUI's:
+   reaches through `all_frames`; content.ts says why). That row is MUI's:
    40 px round icon buttons with a gap of their own, and the script measures
    one of them for the height. The padding is wider than the small pill's
    because the button it stands among is that much bigger, and the radius
    follows MUI's rather than SoundCloud's 4 px so it does not read as a
    different toolkit's control sitting in their row.
 
-   Two rules ours has to win here, and neither is about colour. MUI gives
-   every `MuiStack-root` child `margin: 0` through a `> :not(style) ~ :not(style)`
-   selector (0,1,0 plus the gap it sets on the stack), which ours is — it is
-   inserted into that stack — so the gap is the stack's and there is nothing
-   to add. And the frame's reset styles `a` at (0,0,1). The doubled class is
-   already (0,2,0) and clears both. */
+   Ours has two rules to win here. MUI gives every `MuiStack-root` child
+   `margin: 0` through a `> :not(style) ~ :not(style)` selector (0,1,0 plus the
+   gap it sets on the stack). Ours is inserted into that stack, so the gap is
+   the stack's and there is nothing to add. And the frame's reset styles `a`
+   at (0,0,1). The doubled class is already (0,2,0) and clears both. */
 .tbx-dl--v2.tbx-dl--v2 {
 	padding: 0 12px;
 	border-radius: 8px;

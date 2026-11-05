@@ -1,4 +1,4 @@
-// src/tools/soundcloud-playlist-to-text/Panel.svelte — the text tool.
+// src/tools/soundcloud-playlist-to-text/Panel.svelte: the text tool.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
 	button,
@@ -227,7 +227,7 @@ describe('copying', () => {
 	});
 
 	// The button itself says "copied" for a moment, then goes back to offering
-	// the copy — so a second one is still one click away.
+	// the copy, so a second one is still one click away.
 	it('says “copied” on the button for a moment, then offers it again', async () => {
 		vi.useFakeTimers();
 		installClipboard();
@@ -340,8 +340,8 @@ describe('the session queue as the source', () => {
 		expect(link.download).toBe('session-queue.txt');
 	});
 
-	// A queued track may carry no title or artist — a state file can hold just
-	// the permalink — and reads as a row that named none: blank, not "undefined",
+	// A queued track may carry no title or artist (a state file can hold just
+	// the permalink) and reads as a row that named none: blank, not "undefined",
 	// and not a panel that falls over when the artist is pulled out of the title.
 	it('turns a queued track with no title or artist into a blank line', async () => {
 		await setOption('source', 'queue');

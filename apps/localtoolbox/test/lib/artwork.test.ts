@@ -1,4 +1,4 @@
-// src/lib/artwork.ts — full-size artwork URLs.
+// src/lib/artwork.ts: full-size artwork URLs.
 import { describe, it, expect } from 'vitest';
 import { FULL_SIZE, artworkOf, artworkUrlAtSize, fullSizeArtwork } from '../../src/lib/artwork.ts';
 import { knownDetails, queueEntry } from '../helpers/state-fixtures.ts';

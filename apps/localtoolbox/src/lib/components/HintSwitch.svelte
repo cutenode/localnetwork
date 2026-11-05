@@ -2,11 +2,10 @@
   A switch with its label beside it and a hint in a tooltip: "hide
   downloaded", "background tabs" and the like, over a list.
 
-  The tooltip's trigger is the switch itself. It used to be a wrapper around
-  the pair, which made the wrapper a tab stop of its own with no name, one
-  Tab before every switch, and left the switch without the hint. The hint is
-  also the switch's description, since the tooltip only exists while it is
-  open.
+  The tooltip's trigger is the switch itself. A wrapper around the pair would
+  be a tab stop of its own with no name, one Tab before every switch, and
+  would leave the switch without the hint. The hint is also the switch's
+  description, since the tooltip only exists while it is open.
 -->
 <script lang="ts">
   import { Label } from '$lib/components/ui/label/index.ts';

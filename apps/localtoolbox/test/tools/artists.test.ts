@@ -1,4 +1,4 @@
-// src/tools/artists/artists.svelte.ts — the artists tool's list, kept for good.
+// src/tools/artists/artists.svelte.ts: the artists tool's list, kept for good.
 //
 // The panel around it is tested in test/panels/artists.test.ts; what is here
 // is the store's own rules: what an entry keeps, what happens when the same
@@ -239,7 +239,7 @@ describe('what a lookup said', () => {
 		expect(artists.items[0].profile).toEqual({ ...profile({ permalink: '/a' }), at: NOW });
 		expect(artists.items[1].profile).toEqual({ unavailable: true, at: NOW });
 		expect(artists.items[2].profile).toBe(null);
-		// In memory at once; in storage after the delay — and once, however many
+		// In memory at once; in storage after the delay, and once, however many
 		// answers land in it.
 		expect(chrome.storage.local.set).not.toHaveBeenCalled();
 		expect(artists.learn([profile({ permalink: '/c' })])).toBe(1);

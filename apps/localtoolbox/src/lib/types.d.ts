@@ -6,10 +6,10 @@
 // Nothing imports this at runtime. src imports its types from `$lib/types`; the classic scripts at
 // the root, which cannot import, reach them as the global namespace `Tbx` (script-types.d.ts).
 //
-// Each shape is what the code writes, not what would be nice. Where the state file lets a field
-// be absent (docs/manager-state.schema.json is the spec) and a store keeps what the file gave it
-// as it is, the field is optional here too; where a store rebuilds what it is given (the lists'
-// `entryOf`), the stored shape is whole and the file's is a `Saved` one of its own.
+// Each shape is what the code writes. Where the state file lets a field be absent
+// (docs/manager-state.schema.json is the spec) and a store keeps what the file gave it as it is,
+// the field is optional here too; where a store rebuilds what it is given (the lists' `entryOf`),
+// the stored shape is whole and the file's is a `Saved` one of its own.
 //
 // A field one kind of a union never sets is declared `?: undefined`, so it can be asked of either
 // kind. Not `?: never`: without strictNullChecks that narrows the falsy branch to the other kind.
@@ -22,7 +22,7 @@ export type Loose<T, K extends keyof T> = Pick<T, K> & Partial<Omit<T, K>>;
 
 // ---- The page ---------------------------------------------------------------
 
-/** What kind of page the content script found rendered (content.js detectPage). */
+/** What kind of page the content script found rendered (content.ts detectPage). */
 export type PageType = 'playlist' | 'likes' | 'track' | 'other';
 
 /** What only the page a track came off can say. Null is "the page never said", not "no". */
@@ -43,7 +43,7 @@ export interface RowFields extends Partial<PageFacts> {
 	artworkUrl: string;
 }
 
-/** A track as the page renders it (content.js extract): what EXTRACT_TRACKS lists. */
+/** A track as the page renders it (content.ts extract): what EXTRACT_TRACKS lists. */
 export interface PageTrack extends PageFacts {
 	/** The track's path, '/<user>/<track>'; '' for a title that is no link, or an unnamed track. */
 	permalink: string;
@@ -67,7 +67,7 @@ export interface DetailedTrack extends PageTrack {
 
 // ---- Download details -------------------------------------------------------
 
-/** What SoundCloud said about a track, as the details cache files it (content.js detailsOf). */
+/** What SoundCloud said about a track, as the details cache files it (content.ts detailsOf). */
 export interface KnownDetails {
 	/** SoundCloud's numeric id. A lookup always names one; a restored file need not. */
 	id?: number | null;
@@ -114,7 +114,7 @@ export interface RememberedFailure {
 	unavailable: true;
 	/** When it failed, in milliseconds. */
 	at: number;
-	/** Never set; declared so `entry.id` can be asked of any cache entry (content.js). */
+	/** Never set; declared so `entry.id` can be asked of any cache entry (content.ts). */
 	id?: undefined;
 }
 
@@ -124,7 +124,7 @@ export type TrackDetails = KnownDetails | PartialDetails;
 /** One entry of the details cache: an answer, or a remembered failure. */
 export type DetailsCacheEntry = KnownDetails | RememberedFailure;
 
-/** The details cache, permalink -> entry. Owned by content.js; the state file carries it. */
+/** The details cache, permalink -> entry. Owned by content.ts; the state file carries it. */
 export type DetailsCache = Record<string, DetailsCacheEntry>;
 
 // ---- A track, hop by hop ----------------------------------------------------
@@ -156,14 +156,14 @@ export interface Track extends QueueEntry {
 	domPurchaseTitle?: string;
 }
 
-/** A track on the Manager's list, whole, as listed.svelte.js entryOf writes it. */
+/** A track on the Manager's list, whole, as listed.svelte.ts entryOf writes it. */
 export interface ListedEntry extends PageFacts {
 	permalink: string;
 	/** '' where the page named none. */
 	title: string;
 	/** '' where the page named none. */
 	artist: string;
-	/** '' where the page showed none; the details' cover stands in (artwork.js artworkOf). */
+	/** '' where the page showed none; the details' cover stands in (artwork.ts artworkOf). */
 	artworkUrl: string;
 	/** The better of every answer seen (betterDetails), or null when nobody has asked. */
 	details: TrackDetails | null;
@@ -177,7 +177,7 @@ export interface ListedEntry extends PageFacts {
 
 // ---- Artists ----------------------------------------------------------------
 
-/** One link an account lists on its profile (content.js profileLinksOf). */
+/** One link an account lists on its profile (content.ts profileLinksOf). */
 export interface ProfileLink {
 	/** What SoundCloud files it under ('instagram', 'personal', …), lower-cased, or ''. */
 	network: string;
@@ -186,7 +186,7 @@ export interface ProfileLink {
 	url: string;
 }
 
-/** An account as GET_ARTIST_PROFILES looks it up (content.js profileOf). */
+/** An account as GET_ARTIST_PROFILES looks it up (content.ts profileOf). */
 export interface ArtistProfile {
 	id: number | null;
 	/** The artist's path, '/<user>', as it was asked for. */
@@ -238,7 +238,7 @@ export interface ArtistTrack {
 	title: string;
 }
 
-/** The uploader behind some tracks, one per path (profiles.js artistsOf). */
+/** The uploader behind some tracks, one per path (profiles.ts artistsOf). */
 export interface Artist {
 	/** '/<user>', the first segment of every one of their tracks' permalinks. */
 	permalink: string;
@@ -248,7 +248,7 @@ export interface Artist {
 	tracks: ArtistTrack[];
 }
 
-/** An artist on the artists list, as artists.svelte.js entryOf writes it. */
+/** An artist on the artists list, as artists.svelte.ts entryOf writes it. */
 export interface ArtistEntry extends Artist {
 	/** Null until somebody asks. Kept as it came, so a restored one may carry less. */
 	profile: ProfileEntry | null;
@@ -260,7 +260,7 @@ export interface ArtistEntry extends Artist {
 
 // ---- What a panel asks the page ---------------------------------------------
 //
-// Asked with chrome.tabs.sendMessage (chrome.js askPage), and answered by the tab's top frame
+// Asked with chrome.tabs.sendMessage (chrome.ts askPage), and answered by the tab's top frame
 // only. A tab open across an update still runs the content script it loaded with, which can
 // answer in any shape at all: these are what this version says, and readers still check.
 
@@ -394,7 +394,7 @@ export type PageProgress = DetailsProgress | ProfilesProgress;
 
 // ---- The tools --------------------------------------------------------------
 
-/** A tool as the registry lists it ($lib/tools.js TOOLS). */
+/** A tool as the registry lists it ($lib/tools.ts TOOLS). */
 export interface Tool {
 	/** Its route, and the folder its panel lives in: src/tools/<id>/. */
 	id: string;
@@ -447,10 +447,10 @@ export interface SessionArea {
 
 // ---- The state file ---------------------------------------------------------
 
-/** A listed track as the file may hold one; listed.svelte.js entryOf fills in the rest. */
+/** A listed track as the file may hold one; listed.svelte.ts entryOf fills in the rest. */
 export type SavedListedEntry = Loose<ListedEntry, 'permalink'>;
 
-/** An artist as the file may hold one; artists.svelte.js entryOf fills in the rest. */
+/** An artist as the file may hold one; artists.svelte.ts entryOf fills in the rest. */
 export type SavedArtistEntry = Loose<Omit<ArtistEntry, 'tracks'>, 'permalink'> & {
 	tracks?: Loose<ArtistTrack, 'permalink'>[];
 };

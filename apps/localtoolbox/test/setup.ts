@@ -64,7 +64,7 @@ if (inBrowser) {
 // A promise nobody handled is the failure mode of everything here: a panel
 // whose load rejected draws nothing and says nothing, and a test asserting on
 // what it *did* draw passes. Node reports these on its own only when the
-// process is about to die, which in a test runner it never is — so every test
+// process is about to die, which in a test runner it never is, so every test
 // is watched for one, and gets it as its own failure.
 let unhandled: unknown[] = [];
 
@@ -108,7 +108,7 @@ afterEach(async () => {
 
 		sessionStorage.clear();
 		// jsdom has neither; a test that gives the page one (installClipboard in
-		// test/helpers/panel.js, a theme test's matchMedia) gives it to that test
+		// test/helpers/panel.ts, a theme test's matchMedia) gives it to that test
 		// alone, not to whichever runs next.
 		const lent: { clipboard?: Clipboard } = navigator;
 		const media: { matchMedia?: Window['matchMedia'] } = globalThis;

@@ -1,13 +1,13 @@
-// ToneDen — toneden.io, and its smart links at fanlink.tv
+// ToneDen (toneden.io, and its smart links at fanlink.tv)
 //
 // Two products on one backend, which is why they share a file.
 //
-// A **toneden.io/<artist>/post/<slug>** link is a download gate. Unlike
+// A toneden.io/<artist>/post/<slug> link is a download gate. Unlike
 // Hypeddit's, its steps are real: the button says "Follow on SoundCloud" (or
 // Spotify, or Twitch) and leads to /auth/<platform>, an OAuth round trip that
 // ends with ToneDen holding a token for that account. It then performs the
 // follow itself and opens the gate for the fan it just met.
-// GET /api/v1/attachments/<id>/download answers no to anyone else — so there
+// GET /api/v1/attachments/<id>/download answers no to anyone else, so there
 // is nothing to walk here, and this tool does not try. What it does instead:
 //
 //   - Reads the post through ToneDen's own public lookup, which needs no
@@ -19,19 +19,19 @@
 //     browser already has. If you have followed this artist through ToneDen
 //     once, in this browser, that is a real unlocked gate and the file comes
 //     back. If not, the row says which account the gate wants and that it has
-//     to be connected once — which is the artist's side of the bargain, and
+//     to be connected once, which is the artist's side of the bargain, and
 //     not something to fake.
 //
 // A refusal is not one shape. Nobody signed in at all gets 401 "Please login
 // to your account to continue."; a browser ToneDen *does* know, whose fan has
-// not been through this particular gate, gets something else — a 400, and its
+// not been through this particular gate, gets something else: a 400, and its
 // own sentence about it. So the answer is read rather than the status alone,
 // and a download that comes back no is followed by the gate's own metadata,
 // which is public: `is_gate_open` says whether this browser is through, and
 // `viewer_id` whether ToneDen knows it at all. That is the difference between
 // a row saying "answered 400" and a row saying which account to connect.
 //
-// A **fanlink.tv/<slug>** link is a smart link: a chooser pointing at Spotify,
+// A fanlink.tv/<slug> link is a smart link: a chooser pointing at Spotify,
 // SoundCloud, Beatport and so on, with no file of its own. The page ships the
 // whole thing as `window.preloadLink`, so the tool reads the destinations out
 // and offers the one worth opening. A fanlink with an unlock attached to it
@@ -137,10 +137,9 @@ const SIGN_IN =
 	'tab, connect the account once, then run the row again — the browser keeps the session, and ' +
 	'later gates by the same route go straight through.';
 
-// What a refusal should say. ToneDen answers errors as
-// {error, message, name}, and its own sentence beats a status code every time
-// — except for "not signed in", which it says in API English and which has an
-// answer of its own.
+// What a refusal should say. ToneDen answers errors as {error, message, name},
+// and its own sentence beats a status code every time, except for "not signed
+// in", which it says in API English and which has an answer of its own.
 /** @param body the answer's JSON, if it had any */
 function refused(status: number, body: z.JSONType | null, path: string) {
 	const { message, name } = Refusal.parse(body);
@@ -159,7 +158,7 @@ async function api(path: string) {
 	});
 
 	// Read the body either way: a refusal carries the reason, and the reason is
-	// the whole point of asking.
+	// what a row shows.
 	const body: z.JSONType | null = await response.json().catch(() => null);
 
 	if (!response.ok) throw refused(response.status, body, path);
@@ -234,8 +233,8 @@ function wanted(post: Post) {
 }
 
 // The sentence for a gate this browser is not through. `viewer` is ToneDen's
-// own answer to "do you know whoever is asking" — null for nobody at all,
-// which is a different fix from a fan who simply has not done this one.
+// own answer to "do you know whoever is asking": null for nobody at all, which
+// is a different fix from a fan who has not done this one.
 function closedGate(post: Post, viewer: number | string | null) {
 	const names = wanted(post);
 
@@ -288,7 +287,7 @@ async function whyRefused(post: Post, cause: unknown) {
 
 // Asks for the file with whatever session the browser has. ToneDen's answer
 // shape is not documented and has moved around, so take the URL from wherever
-// it turns up — including a plain redirect straight at the file.
+// it turns up, including a plain redirect straight at the file.
 async function fetchDownload(post: Post): Promise<string> {
 	let answer;
 
@@ -340,8 +339,8 @@ async function unlockPost(post: Post): Promise<Unlocked> {
 		throw new Error(`that’s a "${post.unlock_type}" gate, not a download — there’s no file behind it.`);
 	}
 
-	// The artist turned the file off and kept the gate: the follow is the whole
-	// point of the post, and there is nothing to save at the end of it.
+	// The artist turned the file off and kept the gate: the follow is all the
+	// post is for, and there is nothing to save at the end of it.
 	if (post.skip_download) {
 		throw new Error('this gate has no file behind it — the artist asks for the follow only.');
 	}
@@ -385,7 +384,7 @@ export const toneden: Site = {
  * fanlink.to was ToneDen's earlier domain for these links, and it is gone:
  * every path on it now answers "Brand not found". The paths came across
  * unchanged, though, so a dead .to link is a working .tv one with a different
- * suffix — which is what makes this a rewrite rather than a guess.
+ * suffix, and rewriting it is not a guess.
  *
  * Nothing ever fetches fanlink.to: the URL is rewritten before the request, so
  * the manifest names only fanlink.tv (see `aliases` below).
@@ -422,7 +421,7 @@ export function fanLinkTitle(link: FanLink) {
 	return overlaps ? title : `${author} — ${title}`;
 }
 
-/** Whether a URL is a ToneDen post link — a gate, in other words. */
+/** Whether a URL is a ToneDen post link: a gate, in other words. */
 const isPostLink = (url: string) => {
 	try {
 		return new URL(url).hostname.replace(/^www\./, '') === 'toneden.io' && postPathOf(url) !== null;
@@ -453,7 +452,7 @@ async function unlockFanLink(rawUrl: string): Promise<Unlocked> {
 
 	if (attachment && attachment.id) return { title, ...(await unlockPost(attachment)) };
 
-	// Some FanLinks — most of the ones that came over from fanlink.to — are a
+	// Some FanLinks (most of the ones that came over from fanlink.to) are a
 	// gate wearing a smart link's clothes: no services at all, and a destination
 	// that is a ToneDen post. Following that is the difference between offering a
 	// page to open and finishing the job.
@@ -467,7 +466,7 @@ async function unlockFanLink(rawUrl: string): Promise<Unlocked> {
 		services.find((service) => looksLikeFile(service.url!)) ??
 		services.find((service) => /bandcamp|beatport|itunes/i.test(service.service_name || ''));
 
-	// `target_url` is not always a web address — a "music" link can carry a
+	// `target_url` is not always a web address: a "music" link can carry a
 	// `spotify:album:…` URI, which is for the app and not for a tab.
 	const url = (best && best.url) || target || pageUrl;
 	const names = services.map((service) => service.service_name).filter(Boolean);
