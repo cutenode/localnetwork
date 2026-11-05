@@ -232,7 +232,8 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   the store, never deleted, and don't count as a change to the library.
 - **Crash-safe ordering.** A file the drive already has is written to a temp file and renamed into
   place; a new one, which no database names yet, is written under its own name, since a rename
-  costs FAT and exFAT as much as making the file. Audio, analysis and artwork are copied first and
+  costs FAT and exFAT as much as making the file. The write notes those on the drive first, so
+  the next write and `drive tidy` remove what it didn't finish. Audio, analysis and artwork are copied first and
   flushed to the device, and only then given their source's modification time, so a copy whose data
   never reached the drive can't pass for a finished one. The database files are then staged and swapped in back to back, and stale files are deleted
   only after that. If a sync is interrupted (unplugged drive, Ctrl-C), the database on the drive

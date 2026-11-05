@@ -26,7 +26,7 @@ use crate::paths::{self, FileClass, fold};
 use crate::progress::{Ctx, Event, Phase};
 use crate::sync::{Copied, settle};
 use crate::tree::FileTree;
-use crate::{Error, Result, backup, fsutil, workers};
+use crate::{Error, Result, backup, fsutil, workers, writing};
 
 /// A file a write copies or removes.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -326,6 +326,8 @@ const DOWNLOAD_NOTICE: std::time::Duration = std::time::Duration::from_secs(10);
 /// can make files of its own in it.
 pub(crate) fn copy(target: &Device, planned: &Planned, ctx: &Ctx<'_>) -> Result<(usize, u64)> {
     let copies: Vec<&FileCopy> = planned.copies.iter().collect();
+    let source = |c: &FileCopy| planned.sources.get(&c.path).map(|s| (c.path.clone(), s.size, s.mtime));
+    writing::note(target, copies.iter().filter_map(|c| source(c)))?;
     let is_online = |p: &&Path| std::fs::metadata(p).is_ok_and(|m| fsutil::is_online_only(&m));
     let online: Vec<&Path> = planned.sources.values().map(|s| s.path.as_path()).filter(is_online).collect();
     let finished = AtomicBool::new(false);
@@ -367,6 +369,7 @@ pub(crate) fn copy(target: &Device, planned: &Planned, ctx: &Ctx<'_>) -> Result<
     let written: Vec<Copied> = written.into_iter().map(|(copied, _)| copied).collect();
     let mut index = target.load_index();
     settle(&written, &mut index)?;
+    writing::forget(target)?;
     target.save_index(&index)?;
     if let Some(e) = stopped {
         return Err(e);

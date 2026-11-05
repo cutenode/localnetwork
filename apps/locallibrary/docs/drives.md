@@ -100,7 +100,7 @@ locallibrary drive recordings SD --copy-to ~/Music/Sets --tracklist latest [--de
   checks whether the library still fits on the other drives of its library.
 - `drive tidy` removes AppleDouble `._*` files (only real ones, by their magic number; other devices
   list them as broken tracks), `.DS_Store`, `Thumbs.db`, `.TemporaryItems`, `.Spotlight-V100`,
-  `.fseventsd`, and the `.locallibrary-tmp-*` files a cut-off write left (up to a whole track each).
+  `.fseventsd`, and the `.locallibrary-tmp-*` and part-written files a cut-off write left (up to a whole track each).
   `--empty-trash` also deletes what's in the Finder or Explorer trash, for good. `System Volume
   Information` and locallibrary's own folder are left alone.
 - `drive recordings` lists the WAV files MASTER REC writes on the XDJ-AZ (`ALPHATHETA REC`) and

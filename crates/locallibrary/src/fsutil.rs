@@ -3,6 +3,7 @@
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{PoisonError, RwLock};
 
 use filetime::FileTime;
@@ -253,13 +254,21 @@ pub(crate) fn copy_into(
     Ok((tmp, hash))
 }
 
+/// What `testing::no_reflinks` sets.
+pub(crate) static NO_REFLINKS: AtomicBool = AtomicBool::new(false);
+
+/// Whether a copy from `src` to `dst` might be a clone: they share a volume.
+fn may_reflink(src: &Path, dst: &Path) -> bool {
+    !NO_REFLINKS.load(Ordering::Relaxed) && same_volume(src, dst)
+}
+
 /// `tmp` as a clone of `src` when they share a volume, else `tmp` as it was. Volumes are compared
 /// first: on Linux a failed clone makes and removes a file, which adds up on a FAT drive.
 fn reflink_of(
     src: &Path,
     tmp: tempfile::NamedTempFile,
 ) -> std::result::Result<tempfile::NamedTempFile, tempfile::NamedTempFile> {
-    match tmp.path().parent().is_some_and(|dir| same_volume(src, dir)) {
+    match tmp.path().parent().is_some_and(|dir| may_reflink(src, dir)) {
         true => loclib_model::reflink::reflink_into(src, tmp),
         false => Err(tmp),
     }
@@ -285,7 +294,7 @@ pub(crate) fn reflink_or_copy(src: &Path, tmp: tempfile::NamedTempFile) -> Resul
 pub fn copy_for_drive(src: &Path, dst: &Path, expected: Option<Hash>, ctx: &Ctx<'_>) -> Result<Hash> {
     // A copy on `src`'s own volume may be cloned, and goes through a temp file: the clone is made
     // beside what it fills, under a name that has to be one scans pass over.
-    let (new, tmp) = match same_volume(src, dst) {
+    let (new, tmp) = match may_reflink(src, dst) {
         true => (false, temp_beside(dst)?),
         false => fresh_or_temp(dst)?,
     };

@@ -363,6 +363,8 @@ pub fn plan(source: &Source<'_>, target: &Device, target_tree: &FileTree, opts: 
     // The DJ's own files where the source keeps audio outside PIONEER/ and Contents/.
     let mut in_the_way = Vec::new();
     let cut_off = cut_off_since(target);
+    // What a cut-off write left goes when the next one starts, whatever it holds.
+    let unfinished: FxHashSet<String> = crate::writing::unfinished(target).iter().map(|k| fold(k)).collect();
     // Files copied onto the target moments after their source was written (see
     // `fsutil::settled`): their size and mtime don't say they're still the same, so they're
     // compared by content.
@@ -382,14 +384,16 @@ pub fn plan(source: &Source<'_>, target: &Device, target_tree: &FileTree, opts: 
         let (reason, replaced) = match target_by_fold.get(&f) {
             Some(t) => {
                 let suspect = cut_off.is_some_and(|since| t.mtime >= since);
-                let same = match !suspect && index.racy(t) {
-                    true => same_by_content(source, e, &target_tree.fs_path(&t.path), t.size)?,
-                    false => same_content(e, t, opts, suspect)?,
-                };
+                let same = !unfinished.contains(&f)
+                    && match !suspect && index.racy(t) {
+                        true => same_by_content(source, e, &target_tree.fs_path(&t.path), t.size)?,
+                        false => same_content(e, t, opts, suspect)?,
+                    };
                 ((!same).then_some(CopyReason::Changed), Some((t.path.clone(), t.size)))
             }
             None => match outside_file(source, target, &index, e, cut_off)? {
                 Outside::Free => (Some(CopyReason::New), None),
+                Outside::Same if unfinished.contains(&f) => (Some(CopyReason::Changed), Some((e.path.clone(), e.size))),
                 Outside::Same => (None, None),
                 Outside::Ours(size) => (Some(CopyReason::Changed), Some((e.path.clone(), size))),
                 Outside::Theirs => {
@@ -651,6 +655,8 @@ fn apply(
     //    not pass for a finished one (see `cut_off_since`). A run stopped part way (Ctrl-C, an
     //    error) still flushes and stamps what it copied, so the next one doesn't copy it again.
     ctx.phase_start(Phase::Copy, plan.copies.len() as u64, plan.copy_bytes);
+    let noted = |c: &&PlannedCopy| (c.target_key.clone().unwrap_or_else(|| c.path.clone()), c.size, c.mtime);
+    crate::writing::note(target, file_copies.iter().map(noted))?;
     let (written, stopped) = crate::library_write::copy_each(
         &file_copies,
         |c| c.size,
@@ -661,6 +667,7 @@ fn apply(
     let written: Vec<Copied> = written.into_iter().map(|(copied, _)| copied).collect();
     // Barrier: everything the new database references is on disk before it's replaced.
     settle(&written, &mut index)?;
+    crate::writing::forget(target)?;
     if let Some(e) = stopped {
         target.save_index(&index)?;
         return Err(e);

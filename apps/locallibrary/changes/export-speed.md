@@ -13,6 +13,8 @@
 - Copies on one APFS, Btrfs or XFS volume are copy-on-write, taking no space or writing until one
   side changes: exports to a folder, imports into the store, Serato's tagged copies and the copy
   embedding artwork works on. FAT and exFAT drives can't do this and still get bytes.
+- A write notes the new files it's making on the drive, so what a cut-off write left part written
+  goes with the next write or `drive tidy`.
 
 ### Fixed
 

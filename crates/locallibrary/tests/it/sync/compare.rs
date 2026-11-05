@@ -276,6 +276,40 @@ fn a_sync_cut_off_before_its_flush_is_finished_by_the_next_run() {
     assert_eq!(compare::compare_devices(&a, &b, &Ctx::silent()).unwrap().relation, Relation::Identical);
 }
 
+/// A file a cut-off write noted and never stamped goes when the next write starts, so a plan
+/// mustn't take it as it is because its content matches: that would leave the drive without it.
+#[test]
+fn a_whole_file_a_cut_off_write_left_is_copied_again_not_taken_as_it_is() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = locallibrary::device::dunce_canonicalize(dir.path());
+    let mut a = Device::open_export(common::bigger_drive(&root, "A")).unwrap();
+    std::fs::create_dir(root.join("B")).unwrap();
+    let mut b = Device::open(root.join("B")).unwrap();
+    sync::sync_drive_to_drive(&mut a, &mut b, &SyncOptions::default(), &Ctx::silent()).unwrap();
+    common::export_new_track(a.root(), "New Artist", "Track");
+    let mut a = Device::open_export(a.root()).unwrap();
+    sync::sync_drive_to_drive(&mut a, &mut b, &SyncOptions::default(), &Ctx::silent()).unwrap();
+
+    // The plug was pulled once every byte was down, before its time was set.
+    let (key, _) = common::library_files(&root.join("B")).into_iter().find(|(k, _)| k.contains("New Artist")).unwrap();
+    let file = root.join("B").join(&key);
+    // From before the run: only the note says it isn't finished.
+    let old = filetime::FileTime::from_unix_time(1_500_000_100, 0);
+    filetime::set_file_mtime(&file, old).unwrap();
+    filetime::set_file_mtime(root.join("A").join(&key), old).unwrap();
+    let meta = std::fs::metadata(&file).unwrap();
+    let noted = serde_json::json!([{ "key": key, "size": meta.len(), "mtime": 1_500_000_000 }]);
+    b.begin(locallibrary::device::LineageOp::Sync, "sync", None).unwrap();
+    std::fs::write(b.state_dir().join("writing.json"), noted.to_string()).unwrap();
+
+    // Something else to copy, or the next sync has nothing to start.
+    common::export_new_track(a.root(), "Other Artist", "Track");
+    let mut a = Device::open_export(a.root()).unwrap();
+    sync::sync_drive_to_drive(&mut a, &mut b, &SyncOptions::default(), &Ctx::silent()).unwrap();
+    assert!(file.is_file(), "{key} is gone");
+    assert_eq!(common::library_files(a.root()), common::library_files(b.root()));
+}
+
 /// Regression: a track whose audio rekordbox left outside `Contents/` was copied over whatever the
 /// target had at that path, though only the target's own library is scanned there: a file of the
 /// DJ's was lost. Now the sync refuses, unless it's the same file.
