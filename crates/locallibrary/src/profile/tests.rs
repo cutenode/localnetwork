@@ -12,6 +12,14 @@ fn genres_are_split_and_spelled_one_way() {
     assert_eq!(genres("MINIMAL", &mine), ["Minimal / Deep Tech"]);
 }
 
+/// `style` takes each of these for a setting, and a rename in the schema must fail here first.
+#[test]
+fn every_style_setting_is_a_setting() {
+    for key in STYLE_SETTINGS {
+        assert!(settings::find(key).is_some(), "{key}");
+    }
+}
+
 #[test]
 fn every_credited_artist_is_found() {
     assert_eq!(credited_artists("Bicep feat. Clara La San"), ["bicep", "clara la san"]);
