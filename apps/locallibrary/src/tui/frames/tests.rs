@@ -41,10 +41,11 @@ const SAMPLES_A_FRAME: usize = RATE as usize / 60;
 const START: Duration = Duration::from_secs(45);
 
 /// The views counted: each one's name in the budget, how it's shown, and text it has to show.
-const VIEWS: [(&str, View, bool, &str); 3] = [
-    ("library", View::Library, false, "Now playing"),
+const VIEWS: [(&str, View, bool, &str); 4] = [
+    ("library", View::Library, false, "All tracks"),
     ("deck", View::Library, true, "spectrum"),
     ("drives", View::Drives, false, "Demo"),
+    ("prepare", View::Prepare, false, "check the drive"),
 ];
 
 /// A minute of two tones, so the spectrum and the scope have something to show.

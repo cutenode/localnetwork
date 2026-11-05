@@ -110,6 +110,14 @@ impl App {
             self.request_quit();
             return;
         }
+        if self.chord.take().is_some() {
+            // Whatever follows `g` ends it: what it names, or nothing.
+            let goes = keymap::lookup(&[keymap::Scope::Goto], &key).filter(|_| !self.picking_view(&key));
+            if let Some(b) = goes {
+                self.perform(b.act, Some(key));
+            }
+            return;
+        }
         if self.help {
             match key.code {
                 KeyCode::Up | KeyCode::Char('k') => self.help_scroll = self.help_scroll.saturating_sub(1),
@@ -130,12 +138,13 @@ impl App {
             }
             return;
         }
-        if self.modal.is_some() {
-            self.on_modal_key(key);
-            return;
-        }
+        // The outputs are drawn over a dialog that came up behind them.
         if self.deck.outputs.is_some() {
             crate::tui::deck::on_outputs_key(self, key);
+            return;
+        }
+        if self.modal.is_some() {
+            self.on_modal_key(key);
             return;
         }
         if self.searching {
@@ -189,6 +198,11 @@ impl App {
         }
     }
 
+    /// Picking a playlist stays in the library: `g` then only reaches the first row.
+    fn picking_view(&self, key: &KeyEvent) -> bool {
+        self.picking.is_some() && key.code != KeyCode::Char('g')
+    }
+
     /// Do what a key (or the command palette) asks for. `key` is the key that was pressed, for
     /// the actions that take something from it (which digit, whether shift was held).
     pub(in crate::tui) fn perform(&mut self, act: Act, key: Option<KeyEvent>) {
@@ -211,11 +225,12 @@ impl App {
                 self.show_log = true;
                 self.log_scroll = 0;
             }
-            Act::ViewKey => {
-                if let Some(&v) = digit.and_then(|d| View::ALL.get(d as usize - 1)) {
-                    self.set_view(v);
+            Act::PaneKey => {
+                if let Some(d) = digit {
+                    self.jump_to_pane(d);
                 }
             }
+            Act::Goto => self.chord = Some(Instant::now()),
             Act::ShowView(v) => self.set_view(v),
             Act::Refresh => self.refresh(),
             Act::PlayPause => {
@@ -306,7 +321,8 @@ impl App {
                 View::Library => self.cycle_focus(back),
                 View::Profile => profile::switch_pane(self),
                 View::Mixes => mix::switch_pane(self),
-                View::Drives | View::Snapshots => {}
+                View::Drives => self.cycle_drive_pane(back),
+                View::Prepare => {}
             },
             Act::Search => {
                 self.searching = true;
@@ -357,12 +373,7 @@ impl App {
                 let target = (self.view == View::Library).then(|| self.target()).flatten();
                 self.fetch_form(kind, self.action_drive(), target.as_ref());
             }
-            Act::Details => {
-                self.show_details = !self.show_details;
-                if !self.show_details && self.focus == Focus::Details {
-                    self.focus = Focus::Tracks;
-                }
-            }
+            Act::Details => self.toggle_details(),
             Act::CratePanel => {
                 self.show_crate = !self.show_crate;
                 if !self.show_crate && self.focus == Focus::Crate {
@@ -414,11 +425,15 @@ impl App {
     pub(super) fn refresh(&mut self) {
         self.refresh_drives();
         match self.view {
-            View::Drives => self.refresh_status(),
-            View::Snapshots => self.refresh_history(),
+            View::Drives => {
+                self.refresh_status();
+                if self.drive_tab == DrivePane::Snapshots {
+                    self.refresh_history();
+                }
+            }
             View::Profile => crate::tui::profile::refresh(self),
             View::Mixes => crate::tui::mix::refresh(self),
-            View::Library => {
+            View::Library | View::Prepare => {
                 if let Some(l) = &self.loaded {
                     let root = l.root().to_path_buf();
                     self.load_library(root);
@@ -465,14 +480,31 @@ impl App {
         }
     }
 
-    /// Tab: drives, playlists, tracks, then the side panels that are open.
+    /// `i`: show or hide the details. Where the pane only shows with focus, it takes focus, and a
+    /// pane left open behind another is brought back rather than closed.
+    fn toggle_details(&mut self) {
+        let by_focus = !self.areas.density.shows_details();
+        if by_focus && self.show_details && self.focus != Focus::Details {
+            self.focus = Focus::Details;
+            return;
+        }
+        self.show_details = !self.show_details;
+        if by_focus && self.show_details {
+            self.focus = Focus::Details;
+        }
+        if !self.show_details && self.focus == Focus::Details {
+            self.focus = Focus::Tracks;
+        }
+    }
+
+    /// Tab: drives, playlists, tracks, then the side panels that are open, as they're numbered.
     fn cycle_focus(&mut self, back: bool) {
         let mut order = vec![Focus::Drives, Focus::Playlists, Focus::Tracks];
-        if self.show_details {
-            order.push(Focus::Details);
-        }
         if self.show_crate {
             order.push(Focus::Crate);
+        }
+        if self.show_details {
+            order.push(Focus::Details);
         }
         let n = order.len();
         let i = order.iter().position(|f| *f == self.focus).unwrap_or(2);
@@ -502,8 +534,12 @@ impl App {
         self.view = v;
         self.fullscreen = false;
         match v {
-            View::Drives if self.status.is_none() => self.refresh_status(),
-            View::Snapshots if self.history.is_none() => self.refresh_history(),
+            View::Drives => {
+                if self.status.is_none() {
+                    self.refresh_status();
+                }
+                self.show_drive_pane(self.drive_pane);
+            }
             View::Profile if self.profile.view.is_none() && !self.profile.loading => crate::tui::profile::refresh(self),
             _ => {}
         }
@@ -516,7 +552,9 @@ impl App {
             (View::Library, Focus::Playlists) => self.open_playlist(),
             (View::Library, Focus::Details) => self.play_match(),
             (View::Library, Focus::Crate) => self.play_crate(),
-            (View::Snapshots, _) => self.restore_from_selected_snapshot(),
+            (View::Prepare, _) => crate::tui::prepare::run(self),
+            (View::Drives, _) if self.drive_pane == DrivePane::Snapshots => self.restore_from_selected_snapshot(),
+            (View::Drives, _) if self.drive_pane == DrivePane::History => self.open_played(),
             (View::Drives, _) if self.drive_header.is_some() => self.activate_header(),
             (View::Library, Focus::Drives) | (View::Drives, _) => {
                 if let Some(d) = self.drive_state.selected().and_then(|i| self.drives.get(i)) {
@@ -547,6 +585,12 @@ impl App {
             }
             return;
         }
+        self.show_list(id);
+    }
+
+    /// Show the list `id` in the track list, from its top.
+    pub(super) fn show_list(&mut self, id: NodeId) {
+        let Some(l) = &mut self.loaded else { return };
         l.node = id;
         self.visible.clear();
         self.track_state.select(Some(0));
@@ -566,8 +610,10 @@ impl App {
                 self.details.as_ref().filter(|_| self.details_current()).map_or(0, |d| d.matches.items.len())
             }
             (View::Library, Focus::Crate) => self.crate_list.len(),
+            (View::Prepare, _) => crate::tui::prepare::len(),
+            (View::Drives, _) if self.drive_pane == DrivePane::Snapshots => self.history_rows(),
+            (View::Drives, _) if self.drive_pane == DrivePane::History => self.played_lists().len(),
             (View::Library, Focus::Drives) | (View::Drives, _) => self.drives.len(),
-            (View::Snapshots, _) => self.history_rows(),
             (View::Profile, _) => 0,
             (View::Mixes, _) => self.mix.sources.len(),
         }
@@ -580,7 +626,7 @@ impl App {
         }
     }
 
-    pub(super) fn list_selection(&mut self) -> (&mut Option<usize>, usize) {
+    pub(in crate::tui) fn list_selection(&mut self) -> (&mut Option<usize>, usize) {
         let len = self.list_len();
         let sel = match (self.view, self.focus) {
             (View::Library, _) if self.fullscreen => self.next_pick.selected_mut(),
@@ -588,8 +634,10 @@ impl App {
             (View::Library, Focus::Playlists) => self.playlist_state.selected_mut(),
             (View::Library, Focus::Details) => self.details_state.selected_mut(),
             (View::Library, Focus::Crate) => self.crate_state.selected_mut(),
+            (View::Prepare, _) => self.prepare.selected_mut(),
+            (View::Drives, _) if self.drive_pane == DrivePane::Snapshots => self.history_state.selected_mut(),
+            (View::Drives, _) if self.drive_pane == DrivePane::History => self.played.selected_mut(),
             (View::Library, Focus::Drives) | (View::Drives, _) => self.drive_state.selected_mut(),
-            (View::Snapshots, _) => self.history_state.selected_mut(),
             (View::Profile, _) => self.profile.sections.selected_mut(),
             (View::Mixes, _) => self.mix.list.selected_mut(),
         };
@@ -597,8 +645,14 @@ impl App {
     }
 
     pub(super) fn move_selection(&mut self, delta: isize) {
-        if self.view == View::Drives {
-            return self.move_drive_row(delta);
+        match (self.view, self.drive_pane) {
+            (View::Drives, DrivePane::List) => return self.move_drive_row(delta),
+            (View::Drives, DrivePane::Info) => {
+                let by = delta.clamp(i16::MIN as isize, i16::MAX as isize) as i16;
+                self.drive_scroll = self.drive_scroll.saturating_add_signed(by);
+                return;
+            }
+            _ => {}
         }
         let (sel, len) = self.list_selection();
         if len == 0 {

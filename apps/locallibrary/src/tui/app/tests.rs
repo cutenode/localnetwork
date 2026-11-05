@@ -199,7 +199,7 @@ fn browses_the_sets_in_the_store() {
     // A session remembered from before they were called that still opens.
     let saved: SavedNode = serde_json::from_str(r#"{"kind":"group","category":"history","key":"9"}"#).unwrap();
     let l = app.loaded.as_ref().unwrap();
-    assert_eq!(l.node_title(&l.find_node(&saved).unwrap()), "Sessions › HISTORY 001");
+    assert_eq!(l.node_title(&l.find_node(&saved).unwrap()), "History › HISTORY 001");
 }
 
 #[test]
@@ -583,7 +583,7 @@ fn u_undoes_the_last_change() {
     // In the Drives view, u is for the selected drive; nothing left to undo says so.
     app.drives = vec![Device::open(&root).unwrap().info()];
     app.drive_state.select(Some(0));
-    press(&mut app, "2u");
+    press(&mut app, "gdu");
     wait(&mut app, |a| a.job.is_none());
     match &app.modal {
         Some(Modal::Confirm(c)) => assert!(c.undo().is_some()),
@@ -602,7 +602,7 @@ fn the_drives_view_pulls_checks_and_ejects() {
     app.install(root.clone(), Loaded::prepare(device, lib));
     app.drives = vec![Device::open(&root).unwrap().info()];
     app.drive_state.select(Some(0));
-    press(&mut app, "2");
+    press(&mut app, "gd");
     assert_eq!(app.view, View::Drives);
 
     // e lists what can be done; pull is the first.
@@ -1004,14 +1004,14 @@ fn errors_stay_until_esc_and_every_message_is_kept() {
     assert!(s.contains("Messages") && s.contains("can't read it") && s.contains("worse"), "{s}");
     press(&mut app, "x");
     assert!(!app.show_log);
-    // A long message wraps, and shows above the search box while it's open.
+    // A long message wraps, and shows above the deck.
     let long = format!("{} end", "word ".repeat(30));
     app.toast(long, Level::Info);
     press(&mut app, "/");
     let s = super::super::ui::screen(&mut app, 60, 20);
     let rows: Vec<&str> = s.lines().collect();
     assert!(rows[19].starts_with(" / "), "{s}");
-    assert!(rows[18].contains("end") && rows[17].contains("word"), "{s}");
+    assert!(rows[14].contains("end") && rows[13].contains("word"), "{s}");
 }
 
 #[test]
@@ -1040,7 +1040,7 @@ fn remembers_the_crate_queue_view_and_modes() {
     app.save_state();
 
     let saved = state::load(&store);
-    assert_eq!(saved.view.as_deref(), Some("Mixes"));
+    assert_eq!(saved.view.as_deref(), Some("Recordings"));
     assert!(saved.shuffle && saved.repeat.as_deref() == Some("all"));
     assert_eq!(saved.crate_list.len(), 1);
     let q = saved.queue.as_ref().unwrap();
@@ -1813,7 +1813,7 @@ fn the_drive_menu_acts_on_its_own_drive() {
     let (a, b) = (Device::open(&root).unwrap().info(), Device::open(&other).unwrap().info());
     app.drives = vec![a, b.clone()];
     app.drive_state.select(Some(0));
-    press(&mut app, "2e");
+    press(&mut app, "gde");
     app.drive_state.select(Some(1));
     press(&mut app, "\n");
     let (op, _) = confirming(&mut app);
@@ -1846,7 +1846,7 @@ fn the_drive_menu_and_u_know_their_drive_by_identity() {
     let stranger = DeviceInfo { id: Some(uuid::Uuid::new_v4()), ..ours.clone() };
     app.drives = vec![ours.clone()];
     app.drive_state.select(Some(0));
-    press(&mut app, "2e");
+    press(&mut app, "gde");
     app.handle_msg(Msg::Drives(vec![stranger.clone()]));
     press(&mut app, "\n");
     assert!(app.job.is_none() && app.modal.is_none());
@@ -1880,7 +1880,7 @@ fn u_says_which_drive_it_undoes_on() {
     let mut app = App::blank(dir.path().join("store"), None);
     let named = |root: &Path, name: &str| DeviceInfo { name: Some(name.into()), ..Device::open(root).unwrap().info() };
     app.drives = vec![named(&root, "Main"), named(&other, "Set")];
-    press(&mut app, "2");
+    press(&mut app, "gd");
     app.drive_state.select(Some(0));
     let undo_key = |app: &mut App| {
         press(app, "e");
@@ -2040,9 +2040,9 @@ fn clicks_select_play_sort_and_switch_views() {
     point(&mut app, MouseEventKind::ScrollUp, "Tell You No Lie");
     assert_eq!((app.focus, selected_title(&app).as_deref()), (Focus::Tracks, Some("Around the World")));
 
-    point(&mut app, LEFT, "2 Drives");
+    point(&mut app, LEFT, "d Drives");
     assert_eq!(app.view, View::Drives);
-    point(&mut app, LEFT, "1 Library");
+    point(&mut app, LEFT, "l Library");
     assert_eq!(app.view, View::Library);
 }
 
@@ -2054,12 +2054,12 @@ fn a_second_click_is_on_the_same_row() {
     let info = Device::open(app.loaded.as_ref().unwrap().root()).unwrap().info();
     app.drives = (0..6).map(|i| DeviceInfo { name: Some(format!("D{i}")), ..info.clone() }).collect();
     let sets = spot(&mut app, "Sets");
-    press(&mut app, "2");
+    press(&mut app, "gd");
     super::super::ui::screen(&mut app, 120, 30);
     app.drive_state.select(None);
     mouse(&mut app, LEFT, sets);
     assert!(app.drive_row(&app.drive_rows()).is_some(), "a drive's row clicked");
-    press(&mut app, "1");
+    press(&mut app, "gl");
     super::super::ui::screen(&mut app, 120, 30);
     let tree = |app: &App| app.loaded.as_ref().unwrap().tree.len();
     let rows = tree(&app);
@@ -2156,9 +2156,9 @@ fn the_search_box_moves_keeps_and_clears() {
 
     // A click on another view's tab puts it away, as esc does: keys typed there are that view's.
     press(&mut app, "/around");
-    point(&mut app, LEFT, "2 Drives");
+    point(&mut app, LEFT, "d Drives");
     assert!(!app.searching && app.query.is_empty() && app.visible.len() == 4);
-    press(&mut app, "1");
+    press(&mut app, "gl");
     assert_eq!(app.view, View::Library);
 
     press(&mut app, "/playlist:nothing\n");
@@ -2183,7 +2183,7 @@ fn picking_a_playlist_with_the_mouse_stays_in_the_tree() {
     assert!(app.picking.is_some());
     point(&mut app, LEFT, "Never Grow Old");
     point(&mut app, MouseEventKind::ScrollDown, "Never Grow Old");
-    point(&mut app, LEFT, "2 Drives");
+    point(&mut app, LEFT, "d Drives");
     assert_eq!((app.focus, app.view), (Focus::Playlists, View::Library));
     assert_eq!(app.playlist_state.selected(), Some(2), "the wheel moved the tree");
 
@@ -2233,7 +2233,7 @@ fn drives_are_picked_with_the_mouse_and_opened() {
     let mut app = App::blank(root.join("store"), None);
     let named = |r: &Path, name: &str| DeviceInfo { name: Some(name.into()), ..Device::open(r).unwrap().info() };
     app.drives = vec![named(&root, "Main"), named(empty.path(), "Blank")];
-    press(&mut app, "2");
+    press(&mut app, "gd");
     // Each drive takes two lines: its name, and where it's mounted.
     let blank = spot(&mut app, "Blank");
     mouse(&mut app, LEFT, blank);
@@ -2393,7 +2393,7 @@ fn plays_the_crate_and_the_matches() {
     app.focus = Focus::Tracks;
     press(&mut app, "ki");
     wait(&mut app, |a| a.details_current());
-    press(&mut app, "\t");
+    press(&mut app, "5");
     assert_eq!(app.focus, Focus::Details);
     // The actions menu there is for the match selected.
     press(&mut app, "e");
@@ -2437,7 +2437,7 @@ fn the_snapshot_selected_is_one_there_is() {
     let record = LibraryRecord { id: uuid::Uuid::nil(), name: "Demo".into(), head: None, created: at, updated: at };
     let history = |n: usize| Msg::History(Ok(vec![(record.clone(), (0..n).map(snapshot).collect())]));
     let (mut app, _dir) = app_with(library());
-    press(&mut app, "3");
+    press(&mut app, "gd3");
     app.handle_msg(history(4));
     assert_eq!(app.history_state.selected(), Some(0));
     press(&mut app, "jj");
@@ -2542,7 +2542,7 @@ fn r_reads_the_view_again() {
     let (mut app, _dir) = app_with(library());
     press(&mut app, "R");
     assert!(app.loading.is_some());
-    press(&mut app, "3");
+    press(&mut app, "gd3");
     wait(&mut app, |a| a.history.is_some());
     let Some(Err(e)) = &app.history else { panic!("snapshots without a store") };
     assert!(e.starts_with("no store yet"), "{e}");
@@ -2551,11 +2551,11 @@ fn r_reads_the_view_again() {
     wait(&mut app, |a| a.history.is_some());
     assert_eq!(app.history_rows(), 0);
     // (The Drives view's status isn't read in tests: it would look at the machine's drives.)
-    press(&mut app, "2R");
+    press(&mut app, "gdR");
     assert!(app.status.is_none() && !app.status_loading);
 }
 
-/// The store's snapshots in the Snapshots view: moved through with the keys and the mouse.
+/// The store's snapshots in the Drives view: moved through with the keys and the mouse.
 #[test]
 fn the_snapshots_view_lists_the_store() {
     let (dir, root) = demo_drive();
@@ -2571,7 +2571,7 @@ fn the_snapshots_view_lists_the_store() {
     api::edit_apply(&req, &Ctx::silent()).unwrap();
     pull(&store);
     let mut app = App::blank(store_root, None);
-    press(&mut app, "3\n");
+    press(&mut app, "gd3\n");
     assert_eq!(last_message(&app), "open the drive to bring a playlist back to in the library first");
     let device = Device::open_export(&root).unwrap();
     let lib = device.library().unwrap();
@@ -2580,7 +2580,7 @@ fn the_snapshots_view_lists_the_store() {
     assert_eq!(app.history_rows(), 2);
     press(&mut app, "G");
     assert_eq!(app.history_state.selected(), Some(1));
-    press(&mut app, "g");
+    press(&mut app, "gg");
     assert_eq!(app.history_state.selected(), Some(0));
     let Some(Ok(libs)) = &app.history else { panic!("no snapshots") };
     let ids: Vec<String> = libs[0].1.iter().map(|s| s.short_id[..8].to_string()).collect();
@@ -2633,7 +2633,7 @@ fn paging_and_moving_between_panes() {
             app.focus
         })
         .collect();
-    assert_eq!(panes, [Focus::Playlists, Focus::Drives, Focus::Crate, Focus::Details, Focus::Tracks]);
+    assert_eq!(panes, [Focus::Playlists, Focus::Drives, Focus::Details, Focus::Crate, Focus::Tracks]);
     app.focus = Focus::Playlists;
     key(&mut app, KeyCode::PageDown);
     assert_eq!(app.playlist_state.selected(), Some(2), "ten down, as far as the tree goes");
@@ -2781,7 +2781,11 @@ fn remembers_the_players_settings_and_saves_them_as_they_change() {
     assert_eq!(shown(&next), (Vis::Scope, true, true, true, true, true, 0.35));
     let deck = |a: &App| (a.deck.quantize, a.deck.single, a.deck.auto_cue, a.deck.output.clone());
     assert_eq!(deck(&next), (false, true, true, Some("Phones".into())));
-    assert_eq!(View::from_title("History"), Some(View::Snapshots), "what the Snapshots view was called");
+    for (title, view) in
+        [("History", View::Drives), ("Snapshots", View::Drives), ("Mixes", View::Mixes), ("Profile", View::Profile)]
+    {
+        assert_eq!(View::from_title(title), Some(view), "what {title} is now");
+    }
 }
 
 /// The queue the last run had waits for its drive; it isn't put back over a track playing,
@@ -2898,10 +2902,10 @@ fn clicks_in_the_crate_on_borders_and_on_dialogs() {
 #[test]
 fn tabs_from_every_view_and_enter_on_the_drive_list() {
     let (mut app, _dir) = app_with(library());
-    press(&mut app, "5");
-    point(&mut app, LEFT, "4 Profile");
+    press(&mut app, "gr");
+    point(&mut app, LEFT, "u Publish");
     assert_eq!(app.view, View::Profile);
-    point(&mut app, LEFT, "1 Library");
+    point(&mut app, LEFT, "l Library");
     assert_eq!(app.view, View::Library);
     let empty = tempfile::tempdir().unwrap();
     app.drives = vec![Device::open(empty.path()).unwrap().info()];
@@ -2910,7 +2914,7 @@ fn tabs_from_every_view_and_enter_on_the_drive_list() {
     press(&mut app, "\n");
     assert_eq!(last_message(&app), "no rekordbox export on this drive");
     // Tab does nothing in the Drives view, nor del.
-    press(&mut app, "2\t\u{7f}");
+    press(&mut app, "gd\t\u{7f}");
     assert_eq!((app.view, app.focus), (View::Drives, Focus::Drives));
 }
 
@@ -3023,7 +3027,7 @@ fn a_replay_offer_goes_with_its_drive() {
 #[test]
 fn the_mixes_view_moves_through_its_recordings() {
     let (mut app, _dir) = app_with(library());
-    press(&mut app, "5");
+    press(&mut app, "gr");
     let recording = |i: usize| super::super::mix::Source {
         path: PathBuf::from(format!("/sets/{i}.wav")),
         name: format!("{i}.wav"),
@@ -3037,7 +3041,7 @@ fn the_mixes_view_moves_through_its_recordings() {
     let selected = |app: &App| app.mix.list.selected();
     press(&mut app, "G");
     assert_eq!(selected(&app), Some(14));
-    press(&mut app, "g");
+    press(&mut app, "gg");
     key(&mut app, KeyCode::PageDown);
     assert_eq!(selected(&app), Some(10));
     mouse(&mut app, MouseEventKind::ScrollDown, (0, 0));
@@ -3138,8 +3142,7 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(12)) {
         let key = tc.draw(gs::sampled_from(KEYS));
         app.pending_seek = None;
-        // Before the key: the digit that switches back to the library isn't a pad, though the
-        // pads are on once it has.
+        // Before the key: a digit pressed with the pads off isn't a pad.
         let slot = key.parse::<u8>().ok().filter(|_| app.pads_on()).map(|d| d - 1);
         press(&mut app, key);
         let hot = slot.and_then(|s| analysis.cues.iter().find(|c| c.hot_cue == Some(s)));
@@ -3209,6 +3212,7 @@ fn a_plugins_analysis_fills_in_what_the_drive_lacks() {
 
     let (mut app, _played) = playing(info.analysis);
     app.now.as_mut().unwrap().from_plugins = info.from_plugins;
+    app.fullscreen = true;
     let s = crate::tui::ui::screen(&mut app, 160, 45);
     assert!(s.contains(said), "{s}");
 }
@@ -3293,13 +3297,19 @@ fn a_tests_app_looks_on_no_drive_of_the_machine() {
 #[hegel::test(test_cases = 20)]
 fn prop_the_view_saved_comes_back(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let titles = View::ALL.map(View::title).into_iter().chain(["History", "Nowhere"]).collect::<Vec<_>>();
+    let titles = View::ALL
+        .map(View::title)
+        .into_iter()
+        .chain(["History", "Snapshots", "Mixes", "Profile", "Nowhere"])
+        .collect::<Vec<_>>();
     let saved = tc.draw(gs::sampled_from(titles));
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("store");
     state::save(&store, &Saved { view: Some(saved.to_string()), ..Default::default() });
     let want = match saved {
-        "History" => View::Snapshots,
+        "History" | "Snapshots" => View::Drives,
+        "Mixes" => View::Mixes,
+        "Profile" => View::Profile,
         "Nowhere" => View::Library,
         title => View::ALL.into_iter().find(|v| v.title() == title).unwrap(),
     };
@@ -3679,7 +3689,7 @@ fn prop_a_click_in_the_sidebar_selects_that_drive(tc: hegel::TestCase) {
     let info = Device::open(&root).unwrap().info();
     let other = DeviceInfo { root: root.join("OTHER"), name: Some("OTHER".into()), ..info.clone() };
     app.drives = vec![info, other];
-    super::super::ui::screen(&mut app, 120, 30);
+    super::super::ui::screen(&mut app, 120, 40);
     let r = app.areas.drives;
     let k = tc.draw(gs::integers::<u16>().max_value(1));
     mouse(&mut app, LEFT, (r.x + 2, r.y + 1 + k));

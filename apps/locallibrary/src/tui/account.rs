@@ -60,7 +60,12 @@ impl Account {
         (self.info, self.last_handle) = status.map(|s| (s.account, s.last_handle)).unwrap_or_default();
     }
 
-    /// Whether signing in or out is under way (the header spins).
+    /// Who's signed in, as their server reports them.
+    pub fn handle(&self) -> Option<&str> {
+        self.info.as_ref()?.handle.as_deref()
+    }
+
+    /// Whether signing in or out is under way (the status line spins).
     pub fn busy(&self) -> bool {
         matches!(self.sign_in, Some(SignIn::Starting(_) | SignIn::Waiting { .. } | SignIn::SigningOut))
     }

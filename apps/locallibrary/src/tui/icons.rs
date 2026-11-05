@@ -192,6 +192,8 @@ icons! {
     /// The selected row, and where typing goes.
     SELECTED: "▍" "▍" ">",
     CURSOR: "▏" "▏" "_",
+    /// The pane with focus, in its title.
+    FOCUS: "\u{f0da}" "▸" ">",
     /// A phrase in a strip of them.
     PHRASE: "▮" "▮" "#",
     /// Something taken out.

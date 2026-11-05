@@ -18,6 +18,10 @@ pub struct Account {}
 impl Account {
     pub fn load(&mut self, _store_root: &Path) {}
 
+    pub fn handle(&self) -> Option<&str> {
+        None
+    }
+
     pub fn busy(&self) -> bool {
         false
     }

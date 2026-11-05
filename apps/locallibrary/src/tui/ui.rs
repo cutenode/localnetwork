@@ -5,15 +5,20 @@ mod drives;
 mod library;
 mod overlays;
 mod player;
+mod shell;
+mod strip;
 
 pub(super) use chrome::*;
 use drives::*;
 pub(super) use library::*;
 pub(super) use overlays::*;
 pub(super) use player::*;
+pub(super) use shell::Density;
+use shell::{Shell, draw_too_small};
+pub(super) use strip::StripWave;
+use strip::draw_strip;
 
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout};
 
 use super::app::{App, View};
 use super::edits::Modal;
@@ -21,7 +26,7 @@ use super::icons;
 // What the test modules find through `use super::*`.
 #[cfg(test)]
 use {
-    super::app::{Focus, Level, Matches, Repeat, Vis},
+    super::app::{DrivePane, Focus, Level, Matches, Repeat, Vis},
     super::browse::sort_label,
     super::drives::DriveRow,
     super::keys::{Camelot, Relation as KeyRelation},
@@ -41,54 +46,59 @@ use {
 };
 
 pub fn draw(f: &mut Frame, app: &mut App) {
-    let [header, body, footer] =
-        Layout::vertical([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)]).areas(f.area());
-    draw_header(f, app, header);
+    let shell = Shell::of(f.area());
     // Panes register where they are as they're drawn; hidden ones mustn't catch clicks.
     let a = &mut app.areas;
+    a.density = shell.density;
+    a.tabs.clear();
+    a.drive_tabs.clear();
     a.spectra.clear();
     a.columns.clear();
     (a.drives, a.playlists, a.tracks, a.details, a.matches, a.crate_panel, a.crate_rows, a.menu, a.overview) =
         Default::default();
-    match app.view {
-        View::Library if app.fullscreen => draw_player(f, app, body, true),
-        View::Library => {
-            let player_h = if body.height >= 30 {
-                14
-            } else if body.height >= 22 {
-                12
-            } else {
-                9
-            };
-            let [main, player] = Layout::vertical([Constraint::Min(0), Constraint::Length(player_h)]).areas(body);
-            draw_library(f, app, main);
-            draw_player(f, app, player, false);
+    (a.drive_list, a.drive_side, a.history, a.played, a.prepare) = Default::default();
+    if shell.density == Density::DeckOnly {
+        draw_strip(f, app, shell.strip);
+        draw_too_small(f, shell.body);
+    } else {
+        draw_header(f, app, shell.header, shell.context.is_empty());
+        draw_context(f, app, shell.context);
+        match app.view {
+            // Full screen is the deck: the strip would only say it twice.
+            View::Library if app.fullscreen => draw_player(f, app, shell.body.union(shell.strip)),
+            View::Library => draw_library(f, app, shell.body),
+            View::Prepare => super::prepare::draw(f, app, shell.body),
+            View::Drives => draw_drives(f, app, shell.body),
+            View::Profile => super::profile::draw(f, app, shell.body),
+            View::Mixes => super::mix::draw(f, app, shell.body),
         }
-        View::Drives => draw_drives(f, app, body),
-        View::Snapshots => draw_history(f, app, body),
-        View::Profile => super::profile::draw(f, app, body),
-        View::Mixes => super::mix::draw(f, app, body),
+        if !(app.view == View::Library && app.fullscreen) {
+            draw_strip(f, app, shell.strip);
+        }
+        draw_footer(f, app, shell.footer);
     }
-    draw_footer(f, app, footer);
+    let over = shell.over();
+    let message = draw_status(f, app, shell.status);
     match &app.modal {
-        Some(Modal::Menu(_)) => draw_menu(f, app, f.area()),
-        Some(Modal::Confirm(_)) => draw_confirm(f, app, f.area()),
-        Some(Modal::Ask(q, _)) => draw_ask(f, q.clone(), f.area()),
-        Some(Modal::Pick(_)) => draw_picker(f, app, f.area()),
-        Some(Modal::Report(_)) => draw_report(f, app, f.area()),
-        Some(Modal::Form(_)) => draw_form(f, app, f.area()),
+        Some(Modal::Menu(_)) => draw_menu(f, app, over),
+        Some(Modal::Confirm(_)) => draw_confirm(f, app, over),
+        Some(Modal::Ask(q, _)) => draw_ask(f, q.clone(), over),
+        Some(Modal::Pick(_)) => draw_picker(f, app, over),
+        Some(Modal::Report(_)) => draw_report(f, app, over),
+        Some(Modal::Form(_)) => draw_form(f, app, over),
         Some(Modal::Prompt(_)) | None => {}
     }
     if app.deck.outputs.is_some() {
-        draw_outputs(f, app, f.area());
+        draw_outputs(f, app, over);
     }
     if app.help {
-        draw_help(f, app, f.area());
+        draw_help(f, app, over);
     } else if app.show_log {
-        draw_log(f, app, f.area());
-    } else {
-        draw_toasts(f, app, f.area(), footer);
+        draw_log(f, app, over);
+    } else if shell.density != Density::DeckOnly {
+        draw_toasts(f, app, over, message);
     }
+    draw_chord(f, app, over);
     if icons::ascii() {
         icons::fold(f.buffer_mut());
     }

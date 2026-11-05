@@ -23,6 +23,7 @@ mod mix;
 mod mytags;
 mod palette;
 mod plugins;
+mod prepare;
 mod profile;
 #[cfg(test)]
 mod props;

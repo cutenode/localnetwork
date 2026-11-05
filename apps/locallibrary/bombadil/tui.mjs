@@ -6,7 +6,7 @@
 // The machine's own drives are hidden (LOCALLIBRARY_VOLUMES), the store is an empty folder,
 // `open`/`xdg-open` are stubbed out and the TUI's home and working folder are in the run's own
 // folder, so random keys can't reach a real drive, a real store or a browser, and anything they
-// write (an export to `~/Music`, say) stays in that folder. A path typed in the Mixes view (with
+// write (an export to `~/Music`, say) stays in that folder. A path typed in the Recordings view (with
 // no recordings listed, enter asks for one) can still name a folder elsewhere to read recordings
 // from. Afterwards the drive copy has to still read: every edit the run made is checked.
 

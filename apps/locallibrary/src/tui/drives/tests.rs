@@ -1,6 +1,7 @@
 use locallibrary::check::{CheckItem, DrivePlayers, Finding, PlayersFrom, Unloadable};
 use locallibrary::model::TrackRef;
 
+use super::super::app::DrivePane;
 use super::super::app::testing::{app_on, app_with, blank, demo_drive, fleet, last_message, library, wait};
 use super::*;
 
@@ -720,7 +721,7 @@ fn packing_and_the_drives_commands_offer_what_there_is(tc: hegel::TestCase) {
         none.perform(act, None);
         assert_eq!(last_message(&none), says);
     }
-    none.view = View::Snapshots;
+    (none.view, none.drive_pane) = (View::Drives, DrivePane::Snapshots);
     none.history = Some(Ok(Vec::new()));
     press(&mut none, "\n");
     assert_eq!(last_message(&none), "open the drive to bring a playlist back to in the library first");

@@ -8,6 +8,7 @@ mod input;
 mod library;
 mod loaded;
 mod mouse;
+mod panes;
 mod player;
 mod playing;
 mod saved;
@@ -64,31 +65,47 @@ use {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
     Library,
+    Prepare,
     Drives,
-    Snapshots,
-    Profile,
     Mixes,
+    Profile,
 }
 
 impl View {
-    pub const ALL: [View; 5] = [View::Library, View::Drives, View::Snapshots, View::Profile, View::Mixes];
+    pub const ALL: [View; 5] = [View::Library, View::Prepare, View::Drives, View::Mixes, View::Profile];
 
     pub fn title(self) -> &'static str {
         match self {
             View::Library => "Library",
+            View::Prepare => "Prepare",
             View::Drives => "Drives",
-            View::Snapshots => "Snapshots",
-            View::Profile => "Profile",
-            View::Mixes => "Mixes",
+            View::Mixes => "Recordings",
+            View::Profile => "Publish",
         }
     }
 
-    /// The view a saved title names (`History` was the store's snapshots before they were called
-    /// that).
+    /// The view a saved title names, as it was called in the run that saved it: the store's
+    /// snapshots had a view of their own, first as `History`, and these two other names.
     fn from_title(s: &str) -> Option<View> {
-        let s = if s == "History" { "Snapshots" } else { s };
+        let s = match s {
+            "History" | "Snapshots" => "Drives",
+            "Mixes" => "Recordings",
+            "Profile" => "Publish",
+            s => s,
+        };
         View::ALL.into_iter().find(|v| v.title() == s)
     }
+}
+
+/// The Drives view's panes: its list, and what the pane beside it can show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DrivePane {
+    List,
+    /// The selected drive, or a library's clones.
+    Info,
+    Snapshots,
+    /// What players recorded on the drive open in the library.
+    History,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -227,6 +244,16 @@ pub struct App {
     pub drive_header: Option<DriveRow>,
     /// The Drives view's rows, scrolled.
     pub drive_rows: ListState,
+    /// The Drives view's pane with focus.
+    pub drive_pane: DrivePane,
+    /// What's beside the Drives view's list: never `DrivePane::List`.
+    pub drive_tab: DrivePane,
+    /// The Drives view's details, scrolled.
+    pub drive_scroll: u16,
+    /// The Drives view's list of what players recorded.
+    pub played: ListState,
+    /// The Prepare view's list.
+    pub prepare: ListState,
     pub history: Option<Result<History, String>>,
     pub history_state: TableState,
     pub profile: super::profile::ProfileTab,
@@ -255,6 +282,10 @@ pub struct App {
     pub deck_secs: f64,
     /// Colour of the cue the playhead last crossed, and when.
     flash: Option<([u8; 3], Instant)>,
+    /// `g` was pressed at this time and waits for what follows (see `keymap`).
+    pub chord: Option<Instant>,
+    /// The deck strip's waveform, kept between frames.
+    pub strip: super::ui::StripWave,
     /// Keeps the terminal's late answers out of the keys.
     late_answers: LateAnswers,
     last_pos_ms: f64,
@@ -340,6 +371,8 @@ impl App {
         app.offline = false;
         app.outputs = Outputs::from_env();
         app.apply_saved(&saved, drive.is_none());
+        // Who's signed in, for the status line: a small file.
+        app.profile.account.load(&app.store_root);
         // The output picked last time, else (unplugged, say) the default.
         app.open_output();
         if let Some(v) = saved.view.as_deref().and_then(View::from_title) {
@@ -424,6 +457,11 @@ impl App {
             library_names: FxHashMap::default(),
             drive_header: None,
             drive_rows: ListState::default(),
+            drive_pane: DrivePane::List,
+            drive_tab: DrivePane::Info,
+            drive_scroll: 0,
+            played: ListState::default().with_selected(Some(0)),
+            prepare: ListState::default().with_selected(Some(0)),
             history: None,
             history_state: TableState::default(),
             profile: super::profile::ProfileTab::new(tx.clone()),
@@ -444,6 +482,8 @@ impl App {
             vis: Vis::Bars,
             deck_secs: 8.0,
             flash: None,
+            chord: None,
+            strip: Default::default(),
             late_answers: LateAnswers::default(),
             last_pos_ms: 0.0,
             fullscreen: false,

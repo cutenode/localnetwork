@@ -85,7 +85,7 @@ A play history list a player recorded.
 _Avoid_: session, play log
 
 **Prepare**:
-Getting drives ready before a gig.
+Getting drives ready before a gig, and the player's view of those jobs.
 _Avoid_: set prep, gig prep, pre-flight
 
 ## The player

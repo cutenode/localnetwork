@@ -6,6 +6,9 @@ use std::time::{Duration, Instant};
 
 use super::*;
 
+/// How long `g` waits for what follows before showing what can.
+pub const CHORD_HINT: Duration = Duration::from_millis(400);
+
 /// How many messages the log (`!`) keeps.
 pub(super) const LOG: usize = 200;
 
@@ -15,7 +18,7 @@ pub fn reading_time(msg: &str) -> Duration {
 }
 
 impl App {
-    /// Say something in the footer (and the log).
+    /// Say something on the status line (and in the log).
     pub fn toast(&mut self, msg: impl Into<String>, level: Level) {
         let msg = msg.into();
         self.remember(msg.clone(), level);
@@ -86,5 +89,6 @@ impl App {
             || !self.analyzer.is_idle()
             || self.is_playing()
             || self.flash().is_some()
+            || self.chord.is_some_and(|at| at.elapsed() < CHORD_HINT)
     }
 }

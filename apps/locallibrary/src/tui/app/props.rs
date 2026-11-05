@@ -1643,12 +1643,13 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
     let kinds = turns(&tc, 14);
     for step in 0..tc.draw(gs::integers::<usize>().min_value(14).max_value(28)) {
         (app.view, app.modal, app.deck.outputs, app.picking) = (View::Library, None, None, None);
+        (app.drive_pane, app.drive_tab) = (DrivePane::List, DrivePane::Info);
         draw(&mut app);
         let a = &app.areas;
         let mid = |r: Rect| (r.x + r.width / 2, r.y + r.height / 2);
         match kinds[step % kinds.len()] {
             13 => {
-                // The Snapshots view's rows, under its header.
+                // The Drives view's snapshots, under their header.
                 let record = LibraryRecord {
                     id: Uuid::nil(),
                     name: "Demo".into(),
@@ -1657,7 +1658,8 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
                     updated: chrono::Utc::now(),
                 };
                 app.history = Some(Ok(vec![(record, (0..4).map(snapshot).collect())]));
-                app.view = View::Snapshots;
+                app.view = View::Drives;
+                app.show_drive_pane(DrivePane::Snapshots);
                 draw(&mut app);
                 let r = app.areas.history;
                 let k = tc.draw(gs::integers::<usize>().max_value(3));
@@ -1722,7 +1724,7 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
                 let (v, r) = tc.draw(gs::sampled_from(&tabs[..]));
                 mouse(&mut app, LEFT, mid(r));
                 assert_eq!(app.view, v, "the tab clicked");
-                // (The Drives and Snapshots views read what they show from the store, here none.)
+                // (The Drives view reads what it shows from the store, here none.)
                 wait(&mut app, |a| !a.status_loading && a.job.is_none());
             }
             1 => {
@@ -2041,7 +2043,7 @@ fn only_the_latest_start_is_opened(tc: TestCase) {
     assert!(rx.recv_timeout(Duration::from_millis(10)).is_err(), "nothing more");
 }
 
-/// What the store holds shows where it's asked for: R in the Snapshots view lists every library's
+/// What the store holds shows where it's asked for: R in the Drives view's snapshots lists every library's
 /// snapshots, and enter on one asks which playlist to bring back from it; the drive list arriving
 /// with no drive open opens the one open last time when it's there, else the library there is on
 /// it (by name), a library row no longer listed isn't selected any more, and a read of the list
@@ -2051,6 +2053,8 @@ fn the_store_shows_in_the_drives_and_snapshots_views(tc: TestCase) {
     use super::super::drives::DriveRow;
     use super::super::screens::Fixture;
     let Fixture { _dir, mut app, .. } = super::super::props::walk_fixture();
+    app.on_key(key_of(KeyCode::Char('g'), false));
+    app.on_key(key_of(KeyCode::Char('d'), false));
     app.on_key(key_of(KeyCode::Char('3'), false));
     app.history = None;
     app.on_key(KeyEvent::new(KeyCode::Char('R'), KeyModifiers::SHIFT));
@@ -2099,8 +2103,8 @@ fn the_store_shows_in_the_drives_and_snapshots_views(tc: TestCase) {
 }
 
 /// Tab goes round the Library's panes (the details and the crate among them while shown), each
-/// once before the first comes back, and shift-tab goes back the way it came; the Drives and
-/// Snapshots views have one pane, so tab leaves them as they are.
+/// once before the first comes back, and shift-tab goes back the way it came; the Prepare view
+/// has one pane, so tab leaves it as it is.
 #[hegel::test(test_cases = 40)]
 fn tab_goes_round_the_panes_there_are(tc: TestCase) {
     let (mut app, _dir) = app_with(library());
@@ -2124,12 +2128,11 @@ fn tab_goes_round_the_panes_there_are(tc: TestCase) {
         app.on_key(back);
     }
     assert_eq!(app.focus, start, "back the way it came");
-    for view in [View::Drives, View::Snapshots] {
-        app.view = view;
-        let was = (app.focus, app.drive_state.selected(), app.history_state.selected());
-        app.on_key(if tc.draw(gs::booleans()) { back } else { key_of(KeyCode::Tab, false) });
-        assert_eq!((app.view, (app.focus, app.drive_state.selected(), app.history_state.selected())), (view, was));
-    }
+    // The Prepare view is the one pane.
+    app.view = View::Prepare;
+    let was = (app.focus, app.prepare.selected());
+    app.on_key(if tc.draw(gs::booleans()) { back } else { key_of(KeyCode::Tab, false) });
+    assert_eq!((app.view, (app.focus, app.prepare.selected())), (View::Prepare, was));
 }
 
 /// What the echo plugin's analyzer works out of each track (`echo.bytes`, its file's size), as the

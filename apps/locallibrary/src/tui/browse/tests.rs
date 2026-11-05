@@ -93,7 +93,7 @@ fn sets_hold_their_tracks_on_the_drive_newest_first() {
             "--2026-10-03 Friday at the Warehouse 2",
             "--2026-10-03 1",
             "--2026-09-12 Corsica Studios 1",
-            "-Sessions 1"
+            "-History 1"
         ]
     );
     // No store, or no sets in it: nothing to show.
@@ -126,7 +126,7 @@ fn tree_shows_categories_under_browse_and_the_playlists() {
             "-Rating",
             "-Colour",
             "-Date added",
-            "-Sessions",
+            "-History",
             "Sets",
             "-Friday",
         ],
