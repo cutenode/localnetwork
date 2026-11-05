@@ -91,7 +91,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies, request }) => 
 			{ actorClient: spacesCapable ? new AgentRepoClient(did, new Agent(session)) : null }
 		);
 	} catch (error) {
-		log.warn({ err: error }, 'OAuth callback failed');
+		log.warn('OAuth callback failed', { err: error });
 		redirect(303, '/login?error=login');
 	}
 

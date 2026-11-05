@@ -315,6 +315,10 @@ See [`.env.example`](.env.example) for every option. The essentials:
 
 `/healthz` reports database, root-account, HappyView, and backup status (`backup` is `stale` with no backup in two days, `off` without a bucket). It answers 200 either way.
 
+### Logs
+
+The app logs through [evlog](https://www.evlog.dev), one line per request or background job ([ADR 0007](../../docs/adr/0007-one-log-line-per-request-or-job.md)). In production that's JSON on stdout, so `railway logs --service localnetwork --filter "@level:warn"` finds warnings and `--filter "space sync failed"` finds a message. What happened along the way is in the line's `notes`, and its first error in `error`. `LOG_LEVEL` sets the lowest level written.
+
 ### Backups
 
 With `BACKUP_S3_BUCKET` and the other `BACKUP_S3_*` variables set ([`.env.example`](.env.example)), the app backs the database up once a UTC day, on its hourly check after midnight. It copies the database with SQLite's online backup, which stays consistent while the app writes, checks the copy's integrity, and uploads it gzipped as `localnetwork-db/<time>.sqlite.gz`. Then it deletes the backups it no longer keeps: it keeps the newest of each of the last `BACKUP_KEEP_DAILY` days (7) and `BACKUP_KEEP_WEEKLY` weeks (8), and never touches other files in the bucket. It also checks when the app starts, so a deploy doesn't skip a day. A failed backup is logged and tried again an hour later, and the System page shows the last backup's time and the last failure's reason. In production the bucket is `localnetwork-backups`, which [`.railway/railway.ts`](../../.railway/railway.ts) defines and passes to the service.

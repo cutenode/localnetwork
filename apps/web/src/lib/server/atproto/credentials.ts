@@ -184,7 +184,7 @@ export class SpaceCredentialManager {
 			// The authority refused the token the root's PDS minted (its audience, subject, or lifetime). Unlike
 			// SpaceDeleted, which the syncer drops the space for, this says nothing about the space itself.
 			if (error.error === 'InvalidDelegationToken') {
-				this.deps.logger.warn({ err: error, space, host }, 'space authority rejected the delegation token');
+				this.deps.logger.warn('space authority rejected the delegation token', { err: error, space, host });
 			}
 
 			throw error;
@@ -193,7 +193,7 @@ export class SpaceCredentialManager {
 		const output = spaceCredentialOutput.safeParse(body);
 
 		if (!output.success) throw new XrpcResponseError(502, 'InvalidResponse', 'No credential returned');
-		this.deps.logger.debug({ space }, 'minted space credential');
+		this.deps.logger.debug('minted space credential', { space });
 
 		return new SpaceCredential(space, output.data.credential, key);
 	}
@@ -277,7 +277,7 @@ export class SpaceCredentialManager {
 			return await attempt(false);
 		} catch (error) {
 			if (!isMacFailure(error)) throw error;
-			this.deps.logger.info({ err: error, did }, 'MAC did not verify; retrying with a refreshed KEM key');
+			this.deps.logger.info('MAC did not verify; retrying with a refreshed KEM key', { err: error, did });
 
 			return attempt(true);
 		}

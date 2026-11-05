@@ -131,7 +131,7 @@ export class IdentityResolver {
 		try {
 			did = (await this.resolver.handle.resolve(normalized)) ?? null;
 		} catch (error) {
-			this.options.logger.debug({ err: error, handle: normalized }, 'handle resolution failed');
+			this.options.logger.debug('handle resolution failed', { err: error, handle: normalized });
 		}
 
 		if (!did && this.options.handleResolverUrl) {
@@ -173,7 +173,7 @@ export class IdentityResolver {
 		if (web !== null && !this.isPublicHost(web)) throw new IdentityError(`Refusing to resolve ${did}`);
 
 		const doc = await this.resolver.did.resolve(did, { noCache: forceRefresh }).catch((cause: unknown) => {
-			this.options.logger.debug({ err: cause, did }, 'DID resolution failed');
+			this.options.logger.debug('DID resolution failed', { err: cause, did });
 
 			return null;
 		});

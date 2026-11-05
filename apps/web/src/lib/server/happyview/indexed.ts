@@ -46,7 +46,7 @@ export async function reindex(directory: HappyViewClient, logger: Logger, collec
 
 		if (waitMs) await directory.awaitBackfill(job, waitMs);
 	} catch (error) {
-		logger.warn({ err: error, collection, did }, 'could not have HappyView re-read a repo');
+		logger.warn('could not have HappyView re-read a repo', { err: error, collection, did });
 	}
 }
 
@@ -150,7 +150,7 @@ export class IndexedRepo {
 			((await this.directory.query('getRecords', { uris: [uri] })).records[0]?.cid ?? null) === cid;
 
 		if (await awaitIndexed(served, this.indexWaitMs)) return;
-		this.logger.warn({ uri, cid }, 'the directory has not caught up with a write yet');
+		this.logger.warn('the directory has not caught up with a write yet', { uri, cid });
 		await this.reindex(did, collection);
 	}
 

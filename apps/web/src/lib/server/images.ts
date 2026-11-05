@@ -27,7 +27,7 @@ export function imageResponse(
 	const type = mimeType.toLowerCase();
 
 	if (!accept.has(type)) {
-		log.warn({ mimeType }, 'refused to serve a stored image of a type its lexicon does not accept');
+		log.warn('refused to serve a stored image of a type its lexicon does not accept', { mimeType });
 		error(404, 'Not found');
 	}
 

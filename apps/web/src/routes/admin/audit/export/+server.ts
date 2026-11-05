@@ -29,7 +29,7 @@ export const GET: RequestHandler = ({ locals, url }) => {
 		}
 	});
 
-	locals.log.info({ did: viewer.did }, 'audit log exported');
+	locals.log.info('audit log exported', { did: viewer.did });
 
 	return new Response(stream, {
 		headers: {

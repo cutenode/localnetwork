@@ -22,7 +22,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		try {
 			saved = (await app.planner.saves(viewer)).some((save) => save.project === project.uri);
 		} catch (cause) {
-			locals.log.debug({ err: cause }, 'could not load planner');
+			locals.log.debug('could not load planner', { err: cause });
 		}
 	}
 

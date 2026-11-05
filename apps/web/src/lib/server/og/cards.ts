@@ -28,7 +28,7 @@ export async function cardImage(
 		const { format } = await picture.metadata();
 
 		if (!accept.has(`image/${format}`)) {
-			log.warn({ format }, "a card's picture isn't a type its lexicon accepts");
+			log.warn("a card's picture isn't a type its lexicon accepts", { format });
 
 			return null;
 		}
@@ -42,7 +42,7 @@ export async function cardImage(
 
 		return `data:image/jpeg;base64,${jpeg.toString('base64')}`;
 	} catch (cause) {
-		log.warn({ err: cause }, "couldn't read a picture for a card");
+		log.warn("couldn't read a picture for a card", { err: cause });
 
 		return null;
 	}

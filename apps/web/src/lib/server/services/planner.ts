@@ -92,7 +92,7 @@ export class PlannerService {
 
 			for (const { rkey, value } of page.records) {
 				if (!isPlannerRecord(collection, value)) {
-					this.core.logger.warn({ space, collection, rkey }, 'skipping invalid planner record');
+					this.core.logger.warn('skipping invalid planner record', { space, collection, rkey });
 					continue;
 				}
 

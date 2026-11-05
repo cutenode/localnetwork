@@ -48,7 +48,7 @@ export async function refreshForScript(
 	if (done?.value === version) return;
 	const dids = await accounts();
 	const queue = new PQueue({ concurrency: CONCURRENCY });
-	core.logger.info({ collection, accounts: dids.length }, 'having HappyView re-read a collection for a new script');
+	core.logger.info('having HappyView re-read a collection for a new script', { collection, accounts: dids.length });
 
 	const started = await Promise.all(
 		dids.map((did) =>
@@ -58,7 +58,7 @@ export async function refreshForScript(
 
 					return true;
 				} catch (error) {
-					core.logger.warn({ err: error, collection, did }, 'could not have HappyView re-read a repo');
+					core.logger.warn('could not have HappyView re-read a repo', { err: error, collection, did });
 
 					return false;
 				}

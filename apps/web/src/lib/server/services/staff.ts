@@ -164,7 +164,7 @@ export class StaffService {
 				if (isStaff) await root.putMember({ space, did, read: access.read, write: access.write });
 				else await root.removeMember({ space, did });
 			} catch (error) {
-				this.core.logger.warn({ err: error, space, did }, 'could not update space membership');
+				this.core.logger.warn('could not update space membership', { err: error, space, did });
 			}
 		}
 	}
