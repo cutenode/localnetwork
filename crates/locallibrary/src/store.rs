@@ -4,13 +4,17 @@
 //! <store>/
 //!   store.json            format marker + store id
 //!   objects/ab/cdef...    file contents, addressed by BLAKE3 hash (deduplicated across
-//!                         snapshots, libraries and drives)
+//!                         snapshots, libraries and drives), read-only since a write through
+//!                         a link to one would leave it under the wrong name (see crate::view;
+//!                         older objects stay as they were until a view links them)
 //!   snapshots/<id>.json   one manifest per snapshot: every file's path/size/mtime/hash, the
 //!                         parent snapshot(s), library summary and drive lineage
 //!   libraries.json        named libraries and their head snapshot
 //!   labels.json           names given to snapshots (`pull --label`)
 //!   pruned.json           what's left of snapshots `store prune` removed (their parents), so
 //!                         history still walks through them
+//!   views.json            the folders of links `store browse` has open (see crate::view)
+//!   views.lock            held while views.json is read and written back
 //!   drives.json           drives seen so far (id -> name, last mount point, library)
 //!   drives.lock           held while drives.json is read and written back (see
 //!                         Store::update_drives)
@@ -472,15 +476,23 @@ impl Store {
             let mut tmp = fsutil::temp_in(tempfile::Builder::new().prefix("import-"), &tmp_dir)?;
             let tmp_path = tmp.path().to_path_buf();
             let (h, size) = hash::copy_hashing(src, tmp.as_file_mut(), &tmp_path, ctx, Phase::Copy)?;
-            let dst = self.object_path(&h);
             if self.holds(&h, size) {
                 return Ok((h, false));
             }
-            let parent = dst.parent().expect("object path has parent");
-            fs::create_dir_all(parent).at(parent)?;
-            fsutil::replace(tmp.into_temp_path(), &dst)?;
+            self.keep_object(tmp.into_temp_path(), &h)?;
             Ok((h, true))
         })
+    }
+
+    /// Keep the finished temp file `tmp` as the object `h`, read-only before it's there to be
+    /// linked to. Best effort: FAT keeps no permissions and Linux refuses to set them there, and
+    /// `store browse`, the one thing that relies on them, checks for itself.
+    pub(crate) fn keep_object(&self, tmp: tempfile::TempPath, h: &Hash) -> Result<()> {
+        let _ = fsutil::seal(&tmp);
+        let dst = self.object_path(h);
+        let parent = dst.parent().expect("object path has parent");
+        fs::create_dir_all(parent).at(parent)?;
+        fsutil::replace(tmp, &dst)
     }
 
     /// Make imported objects durable.
@@ -491,7 +503,7 @@ impl Store {
     pub fn import_bytes(&self, bytes: &[u8]) -> Result<Hash> {
         let h = Hash::of(bytes);
         if !self.holds(&h, bytes.len() as u64) {
-            self.writing(|| fsutil::write_atomic(&self.object_path(&h), bytes))?;
+            self.writing(|| self.keep_object(fsutil::stage_bytes(&self.object_path(&h), bytes)?.into_temp_path(), &h))?;
         }
         Ok(h)
     }

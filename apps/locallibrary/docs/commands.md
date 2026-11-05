@@ -132,6 +132,7 @@ its drives.
 | `locallibrary store index-limit [MIB\|default]` | The largest fingerprint index `mix` keeps for a drive (512 MiB unless set), see [Mixes](sets.md#mixes) |
 | `locallibrary store serve` / `store fetch <code>` | Copy snapshots between computers over the network: one serves its store, the other fetches what it lacks, see [From another computer](store.md#from-another-computer) |
 | `locallibrary store copy <dir>` / `store copies` | Copy the store somewhere else (a NAS, another disk, a cloud-synced folder), only what's new; where copies were made, see [Off-site copies](store.md#off-site-copies) |
+| `locallibrary store browse <snapshot> [--to DIR] [--keep]` / `store views` / `store unbrowse [DIR]` | Open a past version of a drive as a folder of read-only links into the store (macOS and Linux), see [Browsing a snapshot](store.md#browsing-a-snapshot) |
 | `locallibrary store copy --to PLUGIN:DESTINATION [--dry-run]` / `store restore --from PLUGIN:DESTINATION [--library L]... [--dry-run]` | Copy the store to a plugin's store destination, and bring back what a copy there has that this store lacks (nothing here is replaced), see [Plugins](plugins.md) |
 | `locallibrary diff <a> <b> [--playlist P]` | Playlist entries added, removed and moved between libraries (a library's newest drive plugged in, else its latest snapshot), drives or `snapshot:<id>`s |
 | `locallibrary diff <a> <b> --summary` | Which drive is newer, the evidence, and the differences (in both databases) |

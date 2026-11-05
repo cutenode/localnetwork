@@ -135,7 +135,10 @@ fn imports_replace_an_object_cut_short() {
     let src = dir.path().join("a.bin");
     fs::write(&src, b"the whole file").unwrap();
     let (h, _) = store.import_file(&src, None, &Ctx::silent()).unwrap();
-    let cut = |store: &Store| fs::write(store.object_path(&h), b"the wh").unwrap();
+    let cut = |store: &Store| {
+        fs::remove_file(store.object_path(&h)).unwrap();
+        fs::write(store.object_path(&h), b"the wh").unwrap();
+    };
     let whole = |store: &Store| fs::read(store.object_path(&h)).unwrap() == b"the whole file";
 
     cut(&store);

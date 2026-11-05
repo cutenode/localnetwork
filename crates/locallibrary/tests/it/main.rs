@@ -192,6 +192,8 @@ mod props_undo;
 mod props_untested;
 mod props_upgrade;
 mod props_upgrade_lead;
+#[cfg(unix)]
+mod props_view;
 mod props_watch;
 mod props_xml;
 mod publish;

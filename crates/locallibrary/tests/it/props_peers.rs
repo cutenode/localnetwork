@@ -260,6 +260,7 @@ fn what_isnt_right_is_refused_and_records_nothing(tc: TestCase) {
             let mut bytes = std::fs::read(&object).unwrap();
             let at = tc.draw(gs::integers::<usize>().max_value(bytes.len() - 1));
             bytes[at] ^= 0xff;
+            std::fs::remove_file(&object).unwrap();
             std::fs::write(&object, bytes).unwrap();
         }
     }

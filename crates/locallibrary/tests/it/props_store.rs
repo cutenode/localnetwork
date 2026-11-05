@@ -256,6 +256,7 @@ impl StoreMachine {
         let Some(h) = Self::pick(&tc, &self.on_disk()) else { return };
         let mut bytes = self.objects[&h].clone();
         bytes.push(b'!');
+        fs::remove_file(self.store.object_path(&h)).unwrap();
         fs::write(self.store.object_path(&h), bytes).unwrap();
         self.tampered.insert(h);
     }
@@ -601,6 +602,7 @@ fn verify_reports_exactly_the_damaged_objects(tc: TestCase) {
                     Some(b) => *b ^= 1 << tc.draw(gs::integers::<u8>().max_value(7)),
                     None => changed.push(0),
                 }
+                fs::remove_file(store.object_path(h)).unwrap();
                 fs::write(store.object_path(h), changed).unwrap();
                 corrupt.insert(*h);
             }
