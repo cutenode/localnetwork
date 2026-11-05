@@ -8,11 +8,14 @@ use std::path::Path;
 
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
+use locallibrary::analysis_edit::NewAnalysis;
+use locallibrary::anlz::Beat;
 use locallibrary::cue_edit::{self, CueChange, CueEdit, CueInfo, CuePosition, CueRef, HotCue, SetCue, UpdateCue};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, Edit, EditOptions, EditReport};
 use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
+use locallibrary::tags::TagChange;
 use locallibrary::{Library, paths, pdb};
 
 /// Give the drive at `root` a journal of `edits`, as if they had been made there.
@@ -273,4 +276,36 @@ fn a_replay_that_fails_stops_saying_how_far_it_got(tc: TestCase) {
     assert!(err.to_string().contains(&format!("the replay stopped after {done} of its edits")), "{err}");
     assert!(made.is_err());
     assert_eq!(common::library_files(&root), before);
+}
+
+/// A My Tag, cue or analysis edit naming a file the drive has no track for (one of its tracks, or
+/// the one a cue edit copies from) is refused when planned, naming it. Replaying, it's planned,
+/// and making it changes nothing on the drive and says which file is gone.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_step_naming_a_file_with_no_track_is_refused_and_replayed_without_it(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    let present = common::library(&root).tracks[0].file_path.clone();
+    let gone = format!("/Contents/Gone/{}.mp3", tc.draw(gs::from_regex("[a-z]{1,12}").fullmatch(true)));
+    let beats: Vec<Beat> =
+        (0..8u16).map(|i| Beat { beat_number: i % 4 + 1, bpm: 120.0, time_ms: 500 * u32::from(i) }).collect();
+    let steps = [
+        Edit::MyTag(TagChange::Add { tag: "Warm".into(), tracks: vec![gone.clone()] }),
+        Edit::MyTag(TagChange::Remove { tag: "Warm".into(), tracks: vec![present.clone(), gone.clone()] }),
+        Edit::Cues { tracks: vec![gone.clone()], change: CueChange::Delete(CueRef::All) },
+        Edit::Cues { tracks: vec![present.clone()], change: CueChange::Copy { from: gone.clone() } },
+        Edit::Cues { tracks: vec![present], change: CueChange::Carry { from: gone.clone(), shift_ms: 26 } },
+        Edit::SetAnalysis { track: gone.clone(), analysis: NewAnalysis { beats: Some(beats), ..Default::default() } },
+    ];
+    let before = common::library_files(&root);
+    let mut d = Device::open_export(&root).unwrap();
+    for step in steps {
+        let err = edit::plan(&d, std::slice::from_ref(&step), &EditOptions::default(), &Ctx::silent()).unwrap_err();
+        assert!(err.to_string().contains(&gone), "{step:?}: {err}");
+        let opts = EditOptions { lenient: true, no_journal: true };
+        let plan = edit::plan(&d, std::slice::from_ref(&step), &opts, &Ctx::silent()).unwrap();
+        let report = edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+        assert!(report.warnings.iter().any(|w| w.contains(&gone)), "{step:?}: {:?}", report.warnings);
+        assert_eq!(common::library_files(&root), before, "{step:?}");
+    }
 }

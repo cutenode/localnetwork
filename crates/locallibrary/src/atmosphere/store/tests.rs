@@ -424,3 +424,60 @@ fn the_store_agrees_with_a_model_of_one_account(tc: TestCase) {
         }
     }
 }
+
+/// The keychain keeps a store's secrets only for a folder that is a store (its item is named by
+/// the store's ID): reading, writing or removing them anywhere else says so. A keychain item
+/// that isn't JSON, or isn't an object, is said to be damaged without quoting it.
+#[hegel::test(test_cases = 20)]
+fn prop_keychain_secrets_need_a_store_and_an_object(tc: TestCase) {
+    crate::atmosphere::tests::mock_keychain();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let did = tc.draw(gs::sampled_from(DIDS.to_vec()));
+    let secrets = Map::from_iter([("refresh_token".to_string(), Value::from("super-secret"))]);
+    let not_a_store = |e: Error| assert_eq!(e.code(), "not_found", "{e}");
+    match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => not_a_store(read_secrets(root, Storage::Keychain, did).unwrap_err()),
+        1 => not_a_store(write_secrets(root, Storage::Keychain, did, &secrets).unwrap_err()),
+        _ => not_a_store(delete_secrets(root, Storage::Keychain, did).unwrap_err()),
+    }
+    crate::store::Store::open_or_init(root).unwrap();
+    let kept = tc.draw(gs::sampled_from(vec!["{\"refresh_token\": \"super-secret\",", "[\"super-secret\"]", "\"x\""]));
+    keychain_entry(root, did).unwrap().set_password(kept).unwrap();
+    let err = read_secrets(root, Storage::Keychain, did).unwrap_err().to_string();
+    assert!(!err.contains("super-secret") && err.ends_with("sign in again"), "{err}");
+    write_secrets(root, Storage::Keychain, did, &secrets).unwrap();
+    assert_eq!(read_secrets(root, Storage::Keychain, did).unwrap(), Some(secrets));
+    delete_secrets(root, Storage::Keychain, did).unwrap();
+    assert_eq!(read_secrets(root, Storage::Keychain, did).unwrap(), None);
+}
+
+/// Secrets left behind are remembered once each, however often they're left; and a saved account
+/// whose DID isn't one any more is no session jacquard is told of.
+#[hegel::test(test_cases = 20)]
+fn prop_what_is_left_behind_is_remembered_once(tc: TestCase) {
+    let places: Vec<(Storage, &str)> = tc.draw(gs::vecs(gs::tuples!(
+        gs::sampled_from(vec![Storage::File, Storage::Keychain]),
+        gs::sampled_from(DIDS.to_vec())
+    )));
+    let mut file = AccountFile::default();
+    for (storage, did) in &places {
+        file.leave_behind(*storage, did);
+    }
+    let mut want: Vec<(Storage, String)> = Vec::new();
+    for (storage, did) in places {
+        if !want.contains(&(storage, did.to_string())) {
+            want.push((storage, did.to_string()));
+        }
+    }
+    assert_eq!(file.left_behind, want);
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let store = LocalStore::new(root, Storage::File, Client::Loopback, "http://127.0.0.1:1/callback".into(), vec![]);
+    block_on(store.upsert_session(crate::atmosphere::tests::session(DIDS[0], "refresh-1"))).unwrap();
+    let mut saved = AccountFile::load(root).unwrap();
+    saved.account.as_mut().unwrap().info.did = tc.draw(gs::sampled_from(vec!["", "did:", "not a did"])).into();
+    saved.save(root).unwrap();
+    assert!(block_on(store.list_session_keys()).unwrap().is_empty());
+}

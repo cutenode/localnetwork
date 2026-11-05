@@ -282,3 +282,100 @@ fn image_keys_follow_rekordboxs_layout(tc: TestCase) {
     assert_eq!(free, format!("PIONEER/Artwork/{:05}/{prefix}{id}.{ext}", (id - 1) / 20 + 1 + taken));
     assert!(!paths::to_fs(dir.path(), &free).exists());
 }
+
+/// Give the tracks of `files` the picture of `shade` as an edit on `d`, and what it did.
+fn set_as_edit(d: &mut Device, files: &[String], shade: u8) -> locallibrary::edit::EditReport {
+    use base64::prelude::*;
+    use locallibrary::edit::{self, Edit, EditOptions};
+    let image = artwork::ImageSource::Base64(BASE64_STANDARD.encode(picture(shade)));
+    let set = Edit::SetArtwork { tracks: locallibrary::query::TrackSelector::paths(files.iter().cloned()), image };
+    let plan = edit::plan(d, &[set], &EditOptions::default(), &Ctx::silent()).unwrap();
+    edit::apply(&plan, d, &Ctx::silent()).unwrap()
+}
+
+/// What players show for the track of each of `files`, from export.pdb.
+fn shown_by_file(root: &std::path::Path, files: &[String]) -> Vec<Option<Vec<u8>>> {
+    let d = Device::open_export(root).unwrap();
+    let lib = d.library().unwrap();
+    files.iter().map(|f| shown(&d, &lib, lib.tracks.iter().find(|t| &t.file_path == f).unwrap().id)).collect()
+}
+
+/// Art set again on tracks that have some (as a new row, with its medium copy gone; or in
+/// place), is backed up first with the images it may replace: restoring that backup shows exactly
+/// the art from before.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_restoring_an_artwork_edit_shows_the_art_before_it(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "A");
+    let mut d = Device::open_export(&root).unwrap();
+    let all: Vec<String> = d.library().unwrap().tracks[..3].iter().map(|t| t.file_path.clone()).collect();
+    let files: Vec<String> = tc.draw(gs::subsequences(all.clone()).min_size(1));
+    let again: Vec<String> = tc.draw(gs::subsequences(files.clone()).min_size(1));
+    set_as_edit(&mut d, &files, 1);
+    // As rekordbox may leave it: the thumbnail without its medium copy. (Not when the art is
+    // replaced in place: see `artwork::replay::undoing_art_replaced_in_place_removes_the_medium_copy_it_added`.)
+    if again != files {
+        let lib = d.library().unwrap();
+        let art = lib.tracks.iter().find(|t| t.file_path == files[0]).unwrap().artwork_path.clone().unwrap();
+        std::fs::remove_file(paths::to_fs(&root, &artwork::medium_variant(&paths::key(&art)))).unwrap();
+    }
+    let before = shown_by_file(&root, &all);
+    let report = set_as_edit(&mut d, &again, 2);
+    let after = shown_by_file(&root, &all);
+    for (f, (b, a)) in all.iter().zip(before.iter().zip(&after)) {
+        assert_eq!(a != b, again.contains(f), "{f}");
+    }
+    locallibrary::backup::restore(&mut d, report.backup.as_deref(), false).unwrap();
+    assert_eq!(shown_by_file(&root, &all), before);
+}
+
+/// Replaying an artwork edit after rekordbox exports again without some of its tracks sets the
+/// rest, saying which went; without any of them, it's skipped, saying so, and sets nothing.
+#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_replayed_artwork_edit_skips_the_tracks_that_went(tc: TestCase) {
+    use locallibrary::edit::{self, EditOptions};
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "A");
+    let exported = common::library_files(&root);
+    let mut d = Device::open_export(&root).unwrap();
+    let lib = d.library().unwrap();
+    let all: Vec<String> = lib.tracks[..3].iter().map(|t| t.file_path.clone()).collect();
+    let files: Vec<String> = tc.draw(gs::subsequences(all.clone()).min_size(1));
+    let went: Vec<String> = tc.draw(gs::subsequences(files.clone()).min_size(1));
+    set_as_edit(&mut d, &files, 3);
+    let art = shown_by_file(&root, &files[..1]);
+
+    // rekordbox exports again, without the tracks of `went`.
+    for (key, bytes) in &exported {
+        std::fs::write(paths::to_fs(&root, key), bytes).unwrap();
+    }
+    let pdb = root.join(paths::EXPORT_PDB);
+    let mut ed = rekordbox_pdb::PdbEditor::from_file(&pdb).unwrap();
+    let ids: Vec<u32> = lib.tracks.iter().filter(|t| went.contains(&t.file_path)).map(|t| t.id).collect();
+    ed.remove_tracks(&ids).unwrap();
+    ed.save(&pdb).unwrap();
+    let mut d = Device::open_export(&root).unwrap();
+    let opts = EditOptions { lenient: true, no_journal: true };
+    let plan = edit::plan(&d, &edit::journal::edits(&d).unwrap(), &opts, &Ctx::silent()).unwrap();
+    let report = edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+    let described = format!("set the artwork of {} track(s)", files.len());
+    let kept: Vec<String> = files.iter().filter(|f| !went.contains(f)).cloned().collect();
+    if kept.is_empty() {
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|w| w.starts_with(&format!("skipped an edit that no longer applies ({described})"))),
+            "{:?}",
+            report.warnings
+        );
+    } else {
+        let gone = format!("{} track(s) aren't on the drive any more", went.len());
+        assert!(
+            report.warnings.iter().any(|w| w.starts_with(&gone) && w.contains(&described)),
+            "{:?}",
+            report.warnings
+        );
+        assert_eq!(shown_by_file(&root, &kept), vec![art[0].clone(); kept.len()]);
+    }
+}

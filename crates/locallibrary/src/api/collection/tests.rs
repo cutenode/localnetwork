@@ -143,3 +143,91 @@ fn the_collection_exports_to_a_folder_or_says_why_not(tc: hegel::TestCase) {
         assert!(id.is_none_or(|id| store.drives().unwrap().contains_key(&id)), "registered");
     }
 }
+
+/// A folder that can't be made for an export, as a file stands where its parent should be, is
+/// refused as the error making it gave, and nothing is planned.
+#[test]
+fn a_folder_under_a_file_cant_be_exported_into() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("file"), b"").unwrap();
+    let spec = dir.path().join("file/USB").display().to_string();
+    let err = export_planned("collection export", &spec, &CollectionExportOptions::default(), |_| {
+        unreachable!("nothing is planned without the folder")
+    })
+    .unwrap_err();
+    assert!(matches!(&err, Error::Io { path, .. } if path.ends_with("file/USB")), "{err}");
+}
+
+/// An intelligent playlist a filter can say is exported with a smart rule for the drive it went
+/// to: the plan says so, and applying it with a store keeps the rule there for that drive alone,
+/// unless the store has a rule for the same path already (one for another drive), which stays as
+/// it was and is warned of.
+#[hegel::test(test_cases = 2)]
+#[hegel::explicit_test_case(taken = false)]
+#[hegel::explicit_test_case(taken = true)]
+fn prop_an_exports_smart_rules_are_kept_unless_another_rule_has_the_path(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let taken = tc.draw(gs::booleans());
+    let dir = tempfile::tempdir().unwrap();
+    let music = dir.path().join("Music");
+    std::fs::create_dir_all(&music).unwrap();
+    let recent = r#"<NODE Id="1" LogicalOperator="1" AutomaticUpdate="1"><CONDITION PropertyName="genre" Operator="8" ValueUnit="" ValueLeft="house" ValueRight=""/></NODE>"#;
+    let f = crate::masterdb::tests::sample();
+    f.exec(&format!(
+        "UPDATE djmdContent SET FolderPath = '{m}/omt.mp3' WHERE ID = '84935471';
+         UPDATE djmdContent SET FolderPath = '{m}/ngo.mp3' WHERE ID = '205356547';
+         UPDATE djmdContent SET FolderPath = '{m}/gone/Only Here.mp3' WHERE ID = '4';
+         UPDATE djmdPlaylist SET SmartList = '{recent}' WHERE ID = '12';",
+        m = music.display()
+    ));
+    std::fs::write(music.join("omt.mp3"), b"one more time").unwrap();
+    std::fs::write(music.join("ngo.mp3"), b"never grow old").unwrap();
+    let db = dir.path().join("master.db");
+    std::fs::write(&db, f.encrypted(DEFAULT_KEY)).unwrap();
+    let root = dir.path().join("USB");
+    std::fs::create_dir(&root).unwrap();
+    let req = CollectionExportRequest {
+        collection: CollectionRef { db: Some(db), key: Some(DEFAULT_KEY.into()) },
+        drive: root.display().to_string(),
+        options: CollectionExportOptions::default(),
+    };
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let theirs = crate::smart::SmartPlaylist {
+        path: "Recent".into(),
+        filter: "bpm:120-130".into(),
+        sort: None,
+        limit: None,
+        drives: vec![uuid::Uuid::new_v4()],
+    };
+    if taken {
+        let mut all = store.smart_playlists().unwrap();
+        all.set(theirs.clone(), &Default::default()).unwrap();
+        store.save_smart_playlists(&all).unwrap();
+    }
+    let warnings = std::sync::Mutex::new(Vec::new());
+    let sink = |e: &crate::progress::Event| {
+        if let crate::progress::Event::Warning { message } = e {
+            warnings.lock().unwrap().push(message.clone());
+        }
+    };
+    let ctx = Ctx::new(&sink, crate::progress::CancelToken::new());
+    let plan = collection_export_plan(&req, &ctx).unwrap();
+    let line = "keep a smart rule for 1 intelligent playlist(s), so `smart apply` keeps them up to date";
+    assert!(plan.summary.iter().any(|l| l == line), "{:?}", plan.summary);
+    plan.apply(Some(&store), &ctx).unwrap();
+
+    let id = crate::device::Device::open(&root).unwrap().id().expect("the export gave the drive an id");
+    let kept = store.smart_playlists().unwrap();
+    let rule = kept.get("Recent").unwrap();
+    let said = warnings.lock().unwrap().clone();
+    let warned = said
+        .iter()
+        .any(|w| w.starts_with("1 intelligent playlist(s) got no smart rule") && w.ends_with("(e.g. Recent)"));
+    if taken {
+        assert_eq!(rule, &theirs, "the rule there stays");
+        assert!(warned, "{said:?}");
+    } else {
+        assert_eq!((rule.filter.as_str(), rule.drives.as_slice()), (r#"genre:"house""#, &[id][..]));
+        assert!(!warned, "{said:?}");
+    }
+}

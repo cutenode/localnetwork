@@ -139,6 +139,7 @@ fn temp_files(dir: &Path) -> Vec<String> {
 #[hegel::explicit_test_case(writer = 2u8, obstacle = 1u8, durable = false, mtime = None::<i64>)]
 #[hegel::explicit_test_case(writer = 5u8, obstacle = 1u8, durable = true, mtime = None::<i64>)]
 #[hegel::explicit_test_case(writer = 6u8, obstacle = 5u8, durable = false, mtime = None::<i64>)]
+#[hegel::explicit_test_case(writer = 6u8, obstacle = 0u8, durable = false, mtime = None::<i64>)]
 fn a_write_lands_whole_or_not_at_all(tc: hegel::TestCase) {
     use hegel::generators as gs;
     // write_atomic, write_private, write_deferred, write_output, stage_bytes, copy_file,
@@ -474,4 +475,131 @@ fn a_slow_wait_is_said_once() {
     let quick = warn_if_slow(&ctx, Duration::from_secs(3600), "waiting for b.mp3".into(), || 7);
     assert_eq!(quick, 7);
     assert!(heard.try_recv().is_err(), "nothing said for a quick one");
+}
+
+/// A temp file that can't be made in a folder (it isn't there, or it's a file) is an error about
+/// that folder, saying why, without the random name tempfile tried.
+#[hegel::test(test_cases = 20)]
+fn prop_temp_file_errors_name_the_folder(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let name: String = tc.draw(gs::text().alphabet("abc ").min_size(1).max_size(8));
+    let folder = dir.path().join(&name);
+    let a_file = tc.draw(gs::booleans());
+    if a_file {
+        fs::write(&folder, b"").unwrap();
+    }
+    match temp_for(&folder, &folder.join("out.json"), ".json") {
+        Err(Error::Io { path, source }) => {
+            assert_eq!(path, folder);
+            let message = source.to_string();
+            assert!(!message.contains(" at path ") && !message.contains(paths::TEMP_PREFIX), "{message}");
+            if !a_file {
+                assert_eq!(source.kind(), std::io::ErrorKind::NotFound);
+            }
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// Paths are on the same volume when the nearest folder of each that's there is: folders an
+/// export would make below one temp folder are, and none of them is on the volume of `/dev`.
+#[cfg(unix)]
+#[hegel::test(test_cases = 50)]
+fn prop_paths_are_on_a_volume_by_their_nearest_folder(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let below = |tc: &hegel::TestCase| {
+        let parts: Vec<String> = tc.draw(gs::vecs(gs::sampled_from(vec!["a".to_string(), "b".into()])).max_size(3));
+        let p = parts.iter().fold(dir.path().to_path_buf(), |p, c| p.join(c));
+        if tc.draw(gs::booleans()) {
+            fs::create_dir_all(&p).unwrap();
+        }
+        p
+    };
+    let (a, b) = (below(&tc), below(&tc));
+    assert!(same_volume(&a, &b), "{} {}", a.display(), b.display());
+    let dev = Path::new("/dev/locallibrary-not-there");
+    assert!(!same_volume(&a, dev) && !same_volume(dev, &b));
+}
+
+/// Work that takes longer than its time (an online-only file downloading) is said once, in the
+/// words given, and its result comes back either way; work done in time says nothing. Each side
+/// waits on the other's signal, not on a clock.
+#[hegel::test(test_cases = 20)]
+fn prop_slow_work_is_said_once(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let waiting: String = tc.draw(gs::text().min_size(1).max_size(20));
+    let value = tc.draw(gs::integers::<u32>());
+    let slow = tc.draw(gs::booleans());
+    let (said, heard) = mpsc::channel::<String>();
+    let said = std::sync::Mutex::new(said);
+    let tell = move |e: &crate::progress::Event| {
+        if let crate::progress::Event::Warning { message } = e {
+            let _ = said.lock().unwrap().send(message.clone());
+        }
+    };
+    let ctx = Ctx::new(&tell, crate::progress::CancelToken::new());
+    let after = Duration::from_millis(if slow { 1 } else { 3_600_000 });
+    let got = warn_if_slow(&ctx, after, waiting.clone(), || {
+        if slow {
+            assert_eq!(heard.recv_timeout(Duration::from_secs(60)).expect("said while it waits"), waiting);
+        }
+        value
+    });
+    assert_eq!(got, value);
+    assert!(heard.try_recv().is_err(), "said once at most");
+}
+
+/// Pruning from a folder removes it and each parent left empty, up to the first that isn't (or
+/// the stop, which stays); a folder outside the stop is left alone.
+#[hegel::test(test_cases = 50)]
+fn prop_empty_folders_are_pruned_up_to_the_stop(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let stop = dir.path().join("stop");
+    let depth = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
+    let chain: Vec<PathBuf> = (1..=depth).map(|n| (0..n).fold(stop.clone(), |p, i| p.join(format!("d{i}")))).collect();
+    fs::create_dir_all(&chain[depth - 1]).unwrap();
+    // A file in one of them (or none) keeps it and its parents.
+    let kept = tc.draw(gs::integers::<usize>().max_value(depth));
+    if kept < depth {
+        fs::write(chain[kept].join("keep"), b"").unwrap();
+    }
+    let outside = tc.draw(gs::booleans());
+    let from = if outside { dir.path().join("elsewhere") } else { chain[depth - 1].clone() };
+    fs::create_dir_all(&from).unwrap();
+    prune_empty_dirs(&from, &stop);
+    assert_eq!(from.exists(), outside || kept == depth - 1, "{kept} of {depth}");
+    for (i, d) in chain.iter().enumerate() {
+        assert_eq!(d.exists(), outside || i <= kept.min(depth - 1) && kept < depth, "{i}: {kept} of {depth}");
+    }
+    assert!(stop.exists());
+}
+
+/// A path made absolute against the current folder keeps the folder's own components, then
+/// those of the path with `.` dropped and `..` taking off the one before.
+#[hegel::test(test_cases = 200)]
+fn prop_paths_are_made_absolute_lexically(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let parts: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(vec!["a", "b", ".", ".."])).min_size(1).max_size(6));
+    let rel: PathBuf = parts.iter().collect();
+    let mut want: Vec<std::ffi::OsString> =
+        std::env::current_dir().unwrap().components().map(|c| c.as_os_str().to_owned()).collect();
+    for p in &parts {
+        match *p {
+            "." => {}
+            ".." => {
+                if want.len() > 1 {
+                    want.pop();
+                }
+            }
+            p => want.push(p.into()),
+        }
+    }
+    let got = absolute(&rel);
+    assert!(got.is_absolute(), "{}", got.display());
+    assert_eq!(got, want.iter().collect::<PathBuf>(), "{}", rel.display());
 }

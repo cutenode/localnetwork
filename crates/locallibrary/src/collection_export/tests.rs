@@ -705,3 +705,277 @@ fn downloads_onto_the_targets_disk_count_in_its_space() {
         assert_eq!(fits, 600 + want <= free, "{} with {free} free", from.display());
     }
 }
+
+/// What a drawn library source track brings: nothing, a hot cue and a beat grid, a waveform ten
+/// seconds longer than the track, or a cue whose name is too long to write.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Brings {
+    Nothing,
+    CueAndGrid,
+    LongWaveform,
+    UnwritableCue,
+}
+
+/// A plugin's library source exports its tracks as the host checked them: each audio file byte
+/// for byte, analysis files made for those that bring cues, a beat grid or a waveform, and the
+/// track left without them (with a warning) when its cues can't be written; the waveforms'
+/// warnings are said once, with how many more. A track that wasn't checked, or whose file changed
+/// size since (or that's gone), is refused. Exporting again copies nothing and backs up the
+/// databases it replaces; another source's export is only replaced when asked; a damaged record
+/// of the last export is refused, and a forgotten one is gone.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_library_source_exports_its_tracks_as_checked(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let music = dir.path().join("Music");
+    std::fs::create_dir_all(&music).unwrap();
+    let kinds: Vec<Brings> = tc.draw(
+        gs::vecs(gs::sampled_from(vec![
+            Brings::Nothing,
+            Brings::CueAndGrid,
+            Brings::LongWaveform,
+            Brings::UnwritableCue,
+        ]))
+        .min_size(1)
+        .max_size(4),
+    );
+    let mut library = Library::default();
+    for (i, _) in kinds.iter().enumerate() {
+        let file = music.join(format!("Track {i}.mp3"));
+        std::fs::write(&file, format!("audio of track {i}")).unwrap();
+        library.tracks.push(Track {
+            id: i as u32 + 1,
+            title: format!("Track {i}"),
+            artist: "Artist".into(),
+            duration_secs: 60,
+            file_path: file.to_string_lossy().into_owned(),
+            ..Default::default()
+        });
+    }
+    library.playlists.push(crate::model::Playlist {
+        id: 1,
+        parent_id: None,
+        name: "All".into(),
+        is_folder: false,
+        sort_order: 0,
+        track_ids: library.tracks.iter().map(|t| t.id).collect(),
+    });
+    // Each track checked as it is, but for `off`'s size, and `skip` not at all.
+    let checked = |skip: Option<u32>, off: Option<u32>| -> FxHashMap<u32, Checked> {
+        let cue = |comment: String| CuePoint { hot_cue: Some(0), start_ms: 1000, comment, ..Default::default() };
+        let beat = |beat_number, time_ms| Beat { beat_number, bpm: 120.0, time_ms };
+        library
+            .tracks
+            .iter()
+            .zip(&kinds)
+            .filter(|(t, _)| Some(t.id) != skip)
+            .map(|(t, kind)| {
+                let meta = std::fs::metadata(&t.file_path).unwrap();
+                let c = Checked {
+                    size: meta.len() + u64::from(Some(t.id) == off),
+                    mtime: mtime(&meta),
+                    cues: match kind {
+                        Brings::CueAndGrid => vec![cue("Drop".into())],
+                        Brings::UnwritableCue => vec![cue("x".repeat(0x10001))],
+                        _ => Vec::new(),
+                    },
+                    beats: (*kind == Brings::CueAndGrid).then(|| vec![beat(1, 500), beat(2, 1000)]),
+                    waveform: (*kind == Brings::LongWaveform).then(|| Bands(vec![[1, 2, 3]; 150 * 70])),
+                };
+                (t.id, c)
+            })
+            .collect()
+    };
+    let source =
+        |name: &str, skip, off| Collected::checked(name.into(), library.clone(), Vec::new(), checked(skip, off));
+    let root = dir.path().join("Export");
+    std::fs::create_dir_all(&root).unwrap();
+    let mut target = Device::open(&root).unwrap();
+    let opts = CollectionExportOptions::default();
+    let some = tc.draw(gs::integers::<u32>().min_value(1).max_value(kinds.len() as u32));
+
+    let unchecked = plan_from(&source("p:lib", Some(some), None), &target, &opts, &Ctx::silent()).unwrap_err();
+    assert!(unchecked.to_string().contains("wasn't checked"), "{unchecked}");
+    let changed = plan_from(&source("p:lib", None, Some(some)), &target, &opts, &Ctx::silent()).unwrap_err();
+    assert!(changed.to_string().contains("changed while the export was planned"), "{changed}");
+
+    let planned = plan_from(&source("p:lib", None, None), &target, &opts, &Ctx::silent()).unwrap();
+    assert_eq!(planned.what(), "the library source p:lib");
+    let shown = |k: Brings| -> Vec<String> {
+        library.tracks.iter().zip(&kinds).filter(|(_, b)| **b == k).map(|(t, _)| t.display_name()).collect()
+    };
+    let unwritable = shown(Brings::UnwritableCue);
+    assert_eq!(planned.unreadable.len(), unwritable.len(), "{:?}", planned.unreadable);
+    let says = |what: &str| planned.warnings.iter().any(|w| w.contains(what));
+    assert_eq!(says("have cues, beat grids or waveforms that can't be written"), !unwritable.is_empty());
+    let long = shown(Brings::LongWaveform).len();
+    assert_eq!(says("waveform is 70 s long, the track 60 s"), long > 0, "{:?}", planned.warnings);
+    assert_eq!(says(&format!("(and {} more like it)", long.saturating_sub(1))), long > 1, "{:?}", planned.warnings);
+
+    apply(&planned, &mut target, None, &Ctx::silent()).unwrap();
+    let exported = target.library().unwrap();
+    assert_eq!(exported.tracks.len(), kinds.len());
+    for t in &exported.tracks {
+        let i: usize = t.title.strip_prefix("Track ").unwrap().parse().unwrap();
+        let audio = std::fs::read(target.path(&paths::key(&t.file_path))).unwrap();
+        assert_eq!(audio, format!("audio of track {i}").into_bytes());
+        let analysed = matches!(kinds[i], Brings::CueAndGrid | Brings::LongWaveform);
+        assert_eq!(!t.analyze_path.is_empty(), analysed, "{kinds:?}: {t:?}");
+        if kinds[i] == Brings::CueAndGrid {
+            let dat = std::fs::read(target.path(&paths::key(&t.analyze_path))).unwrap();
+            let ext = std::fs::read(target.path(&paths::key(&t.analyze_path.replace(".DAT", ".EXT")))).unwrap();
+            let cues = anlz::read_cue_points(&dat, Some(&ext)).unwrap();
+            assert_eq!(cues.iter().map(|c| (c.hot_cue, c.start_ms)).collect::<Vec<_>>(), [(Some(0), 1000)]);
+        }
+    }
+
+    let again = plan_from(&source("p:lib", None, None), &target, &opts, &Ctx::silent()).unwrap();
+    assert!(again.copies.is_empty() && again.deletes.is_empty(), "{:?} {:?}", again.copies, again.deletes);
+    let report = apply(&again, &mut target, None, &Ctx::silent()).unwrap();
+    assert!(report.backup.is_some(), "the databases it replaces are backed up");
+    assert_eq!(target.library().unwrap().tracks.len(), kinds.len());
+    let other = plan_from(&source("p:other", None, None), &target, &opts, &Ctx::silent()).unwrap_err();
+    assert_eq!(other.reason(), Some(Reason::Exists), "{other}");
+    assert!(other.to_string().contains("a library that wasn't built from p:other"), "{other}");
+    let replace = CollectionExportOptions { replace: true, ..Default::default() };
+    assert!(plan_from(&source("p:other", None, None), &target, &replace, &Ctx::silent()).unwrap().replaces_library);
+
+    let token = crate::progress::CancelToken::new();
+    token.cancel();
+    let cancelled = Ctx::new(&crate::progress::NoProgress, token);
+    let e = plan_from(&source("p:lib", None, None), &target, &opts, &cancelled).unwrap_err();
+    assert!(matches!(e, Error::Cancelled), "{e}");
+    std::fs::write(target.state_dir().join(RECORD_FILE), b"not json").unwrap();
+    assert!(record(&target).is_err(), "a damaged record");
+    assert!(plan_from(&source("p:lib", None, None), &target, &opts, &Ctx::silent()).is_err(), "a damaged record");
+    forget(&target).unwrap();
+    assert!(record(&target).unwrap().is_none(), "forgotten");
+    forget(&target).unwrap();
+    let checked_before = source("p:lib", None, None);
+    std::fs::remove_file(&library.tracks[some as usize - 1].file_path).unwrap();
+    let gone = plan_from(&checked_before, &target, &opts, &Ctx::silent());
+    assert!(gone.is_err(), "a checked file that's gone");
+}
+
+/// An intelligent playlist (drawn rules, matching all or any) exports holding just the tracks
+/// here its rules match, and gets a smart rule exactly when a filter can say them; one whose
+/// rules can't be read or evaluated stays behind, and the plan says which. Chosen playlists
+/// leave out one that isn't among them, and exporting again keeps its smart rule. A track's
+/// image gets its key with the image's extension (`.jpg` when it has none), and its larger copy
+/// goes too only when there is one.
+#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_intelligent_playlists_export_what_their_rules_match(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let conditions: Vec<&str> = tc.draw(
+        gs::vecs(gs::sampled_from(vec![
+            r#"PropertyName="genre" Operator="8" ValueLeft="house""#,
+            r#"PropertyName="genre" Operator="8" ValueLeft="techno""#,
+            r#"PropertyName="myTag" Operator="8" ValueLeft="201""#,
+            r#"PropertyName="myTag" Operator="9" ValueLeft="101""#,
+            r#"PropertyName="artist" Operator="10" ValueLeft="floor""#,
+            r#"PropertyName="bpm" Operator="3" ValueLeft="12500""#,
+            r#"PropertyName="dateCreated" Operator="1" ValueLeft="2024-01-01""#,
+        ]))
+        .max_size(3),
+    );
+    let any = tc.draw(gs::booleans());
+    let xml = format!(
+        r#"<NODE Id="1" LogicalOperator="{}" AutomaticUpdate="1">{}</NODE>"#,
+        if any { 2 } else { 1 },
+        conditions.iter().map(|c| format!(r#"<CONDITION {c} ValueUnit="" ValueRight=""/>"#)).collect::<String>()
+    );
+    // One More Time's image, with its larger copy or not, named with an extension or not.
+    let image = tc.draw(gs::sampled_from(vec!["a1.jpg", "art"]));
+    let medium = tc.draw(gs::booleans());
+    let pc = Computer::with(&format!(
+        "UPDATE djmdPlaylist SET SmartList = '{xml}' WHERE ID = '12';
+         UPDATE djmdContent SET ImagePath = '/PIONEER/Artwork/00001/{image}' WHERE ID = '84935471';"
+    ));
+    let art = pc.dir.path().join("rekordbox/share/PIONEER/Artwork/00001");
+    std::fs::remove_file(art.join("a1_m.jpg")).unwrap();
+    std::fs::write(art.join(image), b"jpeg").unwrap();
+    if medium {
+        std::fs::write(art.join(medium_variant(image)), b"medium jpeg").unwrap();
+    }
+    let mut collection = pc.collection();
+    // Now and then its rules can't be read at all.
+    if tc.draw(gs::booleans()) {
+        collection.smart_lists.remove(&12);
+    }
+    let list = collection.smart_lists.get(&12).cloned();
+    let playlists = tc.draw(gs::sampled_from(vec![vec![], vec!["Recent".to_string()], vec!["Shows".to_string()]]));
+    let opts = CollectionExportOptions { playlists: playlists.clone(), ..Default::default() };
+    let mut target = pc.folder("Export");
+    let planned = plan(&collection, &pc.cloud(), &target, &opts, &Ctx::silent()).unwrap();
+    let says = |what: &str| planned.warnings.iter().any(|w| w.contains(what));
+    let kept = playlists.is_empty() || playlists == ["Recent"];
+    let evaluable = list.as_ref().is_some_and(|l| l.unevaluable().is_none());
+    let filter = list.as_ref().and_then(|l| l.filter().ok()).filter(|_| kept && evaluable);
+    assert_eq!(says("Recent: "), kept && filter.is_none(), "{xml}: {:?}", planned.warnings);
+    assert_eq!(says("aren't exported, as their rules can't be evaluated"), kept && !evaluable);
+    assert_eq!(says("Recent: its rules can't be read"), kept && list.is_none());
+    // Unless it's left out, with the playlists that hold it.
+    if let Some(one) = planned.library.tracks.iter().find(|t| t.title == "One More Time") {
+        assert_eq!(one.artwork_path.as_deref(), Some("/PIONEER/Artwork/00001/a1.jpg"), "{image}");
+        let medium_copied = planned.copies.iter().any(|c| c.path == "PIONEER/Artwork/00001/a1_m.jpg");
+        assert_eq!(medium_copied, medium, "{image}: {:?}", planned.copies);
+    }
+    let recent = planned.library.find_playlist("Recent");
+    assert_eq!(recent.is_some(), kept && evaluable, "{xml}");
+    let tags = collection.tags_by_file();
+    let today = chrono::Local::now().date_naive();
+    if let (Some(recent), Some(list)) = (recent, &list) {
+        let held: Vec<&str> =
+            recent.track_ids.iter().map(|id| planned.library.track(*id).unwrap().title.as_str()).collect();
+        let want: Vec<&str> = collection
+            .library
+            .tracks
+            .iter()
+            .filter(|t| t.title != "Only Here")
+            .filter(|t| list.matches(t, tags.get(&paths::file_key(&t.file_path)).map_or(&[][..], Vec::as_slice), today))
+            .map(|t| t.title.as_str())
+            .collect();
+        let mut held_sorted = held.clone();
+        let mut want_sorted = want.clone();
+        held_sorted.sort();
+        want_sorted.sort();
+        assert_eq!(held_sorted, want_sorted, "{xml}");
+    }
+    let rules: Vec<(&str, &str)> = planned.smart.iter().map(|s| (s.path.as_str(), s.filter.as_str())).collect();
+    assert_eq!(rules, filter.as_deref().map(|f| ("Recent", f)).into_iter().collect::<Vec<_>>(), "{xml}");
+    assert_eq!(says("exported as the tracks they hold now"), kept && evaluable && filter.is_none());
+
+    apply(&planned, &mut target, None, &Ctx::silent()).unwrap();
+    let again = plan(&collection, &pc.cloud(), &target, &opts, &Ctx::silent()).unwrap();
+    assert!(again.smart_gone.is_empty(), "{:?}", again.smart_gone);
+    assert_eq!(again.smart.len(), planned.smart.len());
+}
+
+/// The space an export needs is its copies' and, for online-only files whose cloud folder shares
+/// the target's disk, theirs too; it fits when that's no more than what's free, or when nothing
+/// says what's free.
+#[cfg(unix)]
+#[hegel::test(test_cases = 50)]
+fn prop_downloads_count_in_the_space_only_on_the_targets_disk(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("rekordbox-export");
+    let needed = tc.draw(gs::integers::<u64>().max_value(1 << 40));
+    let free = tc.draw(gs::optional(gs::integers::<u64>().max_value(1 << 41)));
+    let mut written = Planned { needed_bytes: needed, free_space: free, ..Default::default() };
+    let mut copies = Vec::new();
+    let mut here = 0;
+    for i in 0..tc.draw(gs::integers::<usize>().max_value(3)) {
+        let size = tc.draw(gs::integers::<u64>().max_value(1 << 39));
+        let same_disk = tc.draw(gs::booleans());
+        let from = if same_disk { dir.path().join(format!("Dropbox/{i}.mp3")) } else { PathBuf::from("/dev/null") };
+        here += if same_disk { size } else { 0 };
+        let copy = FileCopy { path: format!("Contents/{i}.mp3"), size };
+        written.sources.insert(copy.path.clone(), library_write::Source::file(from, size, 0));
+        copies.push(copy);
+    }
+    let downloads: Vec<&FileCopy> = copies.iter().collect();
+    let (downloaded, total, fits) = space(&written, &downloads, &target);
+    assert_eq!((downloaded, total), (here, needed + here));
+    assert_eq!(fits, free.is_none_or(|f| needed + here <= f));
+}

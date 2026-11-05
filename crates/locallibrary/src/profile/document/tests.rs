@@ -159,3 +159,87 @@ fn setting_keys_read_in_camel_case(tc: TestCase) {
     assert_eq!(read.to_lowercase(), key.replace('_', "").to_lowercase(), "{key:?} read as {read:?}");
     assert_eq!(camel(&read), read, "{key:?}");
 }
+
+/// A section parses from its name or any of its other names, whatever their case, with `-` for
+/// `_` and space around them; nothing else names one.
+#[hegel::test(test_cases = 200)]
+fn prop_a_section_parses_from_any_of_its_names(tc: TestCase) {
+    let mut names: Vec<(String, Section)> = Section::ALL.iter().map(|s| (s.name().to_string(), *s)).collect();
+    for (alias, s) in [
+        ("shape", Section::Arc),
+        ("set_shape", Section::Arc),
+        ("signature_tracks", Section::Signature),
+        ("tracks", Section::Signature),
+        ("player", Section::Style),
+        ("player_style", Section::Style),
+        ("settings", Section::Style),
+        ("headline", Section::Summary),
+        ("tags", Section::Summary),
+        ("harmony", Section::Mixing),
+        ("bpm", Section::Tempo),
+        ("mood", Section::Energy),
+    ] {
+        names.push((alias.to_string(), s));
+    }
+    let (name, want) = tc.draw(gs::sampled_from(names));
+    let spelled: String = name
+        .chars()
+        .map(|c| match c {
+            '_' if tc.draw(gs::booleans()) => '-',
+            c if tc.draw(gs::booleans()) => c.to_ascii_uppercase(),
+            c => c,
+        })
+        .collect();
+    let padded = format!(
+        "{}{spelled}{}",
+        " ".repeat(tc.draw(gs::integers::<usize>().max_value(2))),
+        "\t".repeat(tc.draw(gs::integers::<usize>().max_value(1)))
+    );
+    assert_eq!(Section::parse(&padded), Some(want), "{padded:?}");
+    assert_eq!(Section::parse(&format!("{spelled}x")), None);
+}
+
+/// A genre alias needs the tagged text and the genre; one that has both replaces the alias of
+/// that text however it's spelled and keeps the others, and removing an alias there isn't is
+/// refused.
+#[hegel::test(test_cases = 100)]
+fn prop_genre_aliases_need_both_sides(tc: TestCase) {
+    let text = || tc.draw(gs::sampled_from(vec!["", " ", "Deep House", "deep house ", "Techno"]));
+    let mut p = ProfilePrefs::default();
+    let earlier = tc.draw(gs::booleans());
+    if earlier {
+        p.genre_aliases.insert("Deep House".into(), "House".into());
+    }
+    let (from, to) = (text(), text());
+    let added = p.apply(&PrefsUpdate { alias: [(from.to_string(), to.to_string())].into(), ..Default::default() });
+    let blank = from.trim().is_empty() || to.trim().is_empty();
+    assert_eq!(added.is_err(), blank, "{from:?} -> {to:?}: {added:?}");
+    let replaced = !blank && normalize(from) == normalize("Deep House");
+    if !blank {
+        assert_eq!(p.genre_aliases.get(from.trim()).map(String::as_str), Some(to.trim()));
+    }
+    assert_eq!(p.genre_aliases.len(), usize::from(!blank) + usize::from(earlier && !replaced), "{:?}", p.genre_aliases);
+    let gone = text();
+    let had = p.genre_aliases.keys().any(|k| normalize(k) == normalize(gone));
+    let removed = p.apply(&PrefsUpdate { unalias: vec![gone.to_string()], ..Default::default() });
+    assert_eq!(removed.is_ok(), had, "{gone:?} from {:?}: {removed:?}", p.genre_aliases);
+    assert!(!p.genre_aliases.keys().any(|k| normalize(k) == normalize(gone)));
+    if !had {
+        assert!(matches!(removed, Err(Error::NotFound(_))), "{removed:?}");
+    }
+}
+
+/// Every trait the summary can show is backed by a section, and nothing else is.
+#[hegel::test(test_cases = 100)]
+fn prop_only_the_summarys_traits_have_a_section(tc: TestCase) {
+    let src = include_str!("../mod.rs");
+    let mut ids: Vec<String> = src
+        .match_indices("tag(")
+        .filter_map(|(i, _)| src[i + 4..].trim_start().strip_prefix('"')?.split('"').next())
+        .map(str::to_string)
+        .collect();
+    let known = ids.len();
+    ids.extend(["", "harmonic_", "Focused", "nope"].map(String::from));
+    let i = tc.draw(gs::integers::<usize>().max_value(ids.len() - 1));
+    assert_eq!(tag_section(&ids[i]).is_some(), i < known, "{:?}", ids[i]);
+}

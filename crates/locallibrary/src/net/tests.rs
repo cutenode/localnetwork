@@ -218,3 +218,56 @@ fn a_request_cancelled_lets_go_of_its_body_at_once() {
     assert!(sent.join().unwrap(), "cancelled");
     drop(held);
 }
+
+/// A body whose reader fails partway fails the request, after what it read was sent.
+struct Failing {
+    left: usize,
+}
+
+impl Read for Failing {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.left == 0 {
+            return Err(std::io::Error::other("the disk went away"));
+        }
+        let n = self.left.min(buf.len());
+        buf[..n].fill(7);
+        self.left -= n;
+        Ok(n)
+    }
+}
+
+/// A request whose body can't be read to the end fails, whatever was read of it first; so does
+/// one whose body was cancelled before it was sent.
+#[hegel::test(test_cases = 10)]
+fn prop_a_body_that_cant_be_read_fails_its_request(tc: TestCase) {
+    use std::io::Write;
+    let left = tc.draw(gs::integers::<usize>().max_value(3 * CHUNK));
+    let cancelled: bool = tc.draw(gs::booleans());
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        if let Ok((mut conn, _)) = listener.accept() {
+            let _ = std::io::copy(&mut conn.try_clone().unwrap(), &mut std::io::sink());
+            let _ = conn.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n");
+        }
+    });
+    let cancel = CancelToken::new();
+    let request = reqwest::Client::new().put(url).body(streamed(Failing { left }, cancel.clone()));
+    if cancelled {
+        cancel.cancel();
+    }
+    let err = runtime().block_on(request.send()).unwrap_err();
+    let why = if cancelled { "cancelled" } else { "the disk went away" };
+    assert!(with_causes(&err).contains(why), "{}", with_causes(&err));
+}
+
+/// An address without a host (`data:`, `mailto:`) doesn't name this computer.
+#[hegel::test(test_cases = 50)]
+fn prop_an_address_without_a_host_isnt_this_computer(tc: TestCase) {
+    let scheme = tc.draw(gs::sampled_from(vec!["data", "mailto", "urn", "about"]));
+    let rest: String = tc.draw(gs::from_regex("[a-z0-9,:@.]{1,12}").fullmatch(true));
+    let url = reqwest::Url::parse(&format!("{scheme}:{rest}")).unwrap();
+    assert_eq!(url.host_str(), None);
+    assert!(!this_computer(&url));
+    assert!(public(url.as_str()).is_err());
+}

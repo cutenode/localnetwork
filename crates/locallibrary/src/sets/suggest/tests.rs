@@ -200,3 +200,28 @@ fn suggestions_group_what_goes_together_and_score_the_evidence(tc: TestCase) {
         assert_eq!(c.window, window);
     }
 }
+
+/// Sessions without times of their own are dated by the time all their windows share; when they
+/// share none (a chain of windows, each overlapping the next), by what they span, unknown at an
+/// end where any of them is.
+#[hegel::test(test_cases = 300)]
+fn prop_windows_combine_to_what_they_share_or_span(tc: TestCase) {
+    let sessions: Vec<Session> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)))
+        .map(|i| {
+            let after = tc.draw(gs::optional(gs::integers::<i64>().min_value(0).max_value(30)));
+            let before = after.map_or(30, |a| a) + tc.draw(gs::integers::<i64>().min_value(1).max_value(12));
+            let before = tc.draw(gs::weighted_booleans(0.9)).then_some(before);
+            session(&format!("s{i}"), &[1], Window { after: after.map(hour), before: before.map(hour), exact: false })
+        })
+        .collect();
+    let group: Vec<&Session> = sessions.iter().collect();
+    let after = group.iter().filter_map(|s| s.window.after).max();
+    let before = group.iter().filter_map(|s| s.window.before).min();
+    let shared = after.zip(before).is_none_or(|(a, b)| a < b);
+    let (span_after, span_before) = spanned(&group);
+    let want = match shared {
+        true => Window { after, before, exact: false },
+        false => Window { after: span_after, before: span_before, exact: false },
+    };
+    assert_eq!(combined(&group), want, "{:?}", group.iter().map(|s| &s.window).collect::<Vec<_>>());
+}

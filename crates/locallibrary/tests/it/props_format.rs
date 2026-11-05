@@ -366,3 +366,17 @@ fn applying_refuses_before_the_disk_is_asked_anything(tc: TestCase) {
     }
     before.untouched(main.root()).unwrap();
 }
+
+/// A disk image or virtual disk is never formatted, whatever else it is: it is refused for being
+/// one, or for something worse (the running system on it, an internal disk).
+#[hegel::test(test_cases = 100)]
+#[cfg(any(target_os = "macos", windows))]
+fn prop_disk_images_are_never_formatted(tc: TestCase) {
+    let mut disk = stick(std::path::Path::new("/locallibrary-nowhere"));
+    disk.virtual_disk = true;
+    (disk.removable, disk.internal, disk.system, disk.read_only) =
+        (tc.draw(gs::booleans()), tc.draw(gs::booleans()), tc.draw(gs::booleans()), tc.draw(gs::booleans()));
+    let problem = disk.problem(&[]).expect("refused");
+    let image = !disk.system && disk.removable && !disk.internal;
+    assert_eq!(problem == "it's a disk image or virtual disk", image, "{problem}");
+}

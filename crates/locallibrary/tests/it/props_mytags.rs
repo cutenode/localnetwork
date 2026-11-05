@@ -450,3 +450,51 @@ fn replaying_tag_edits_after_a_new_export_redoes_them(tc: TestCase) {
     assert!(report.warnings.iter().all(|w| !w.starts_with("skipped")), "{:?}", report.warnings);
     assert_eq!(tag_state(&root), edited, "My Tags after the replay");
 }
+
+/// A planned `tags` edit is refused, leaving every database as it was, while another operation
+/// holds the drive or when its journal is one a newer build wrote (the edit couldn't be recorded).
+#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_tag_edit_on_a_drive_it_cant_record_changes_nothing(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = tagged_drive(dir.path());
+    let mut d = Device::open_export(&root).unwrap();
+    let ids: Vec<u32> = d.library().unwrap().tracks.iter().map(|t| t.id).collect();
+    let edit = tags::Edit::Add { tag: "Genre/Deep".into(), tracks: tc.draw(gs::subsequences(&ids).min_size(1)) };
+    let plan = tags::plan(&d, &edit).unwrap();
+    let before = exported(&root);
+    let locked = tc.draw(gs::booleans());
+    let _held = if locked {
+        Some(d.lock().unwrap())
+    } else {
+        fs::create_dir_all(d.state_dir()).unwrap();
+        fs::write(d.state_dir().join("edits.json"), r#"{"version": 99, "entries": []}"#).unwrap();
+        None
+    };
+    let e = tags::apply(&plan, &mut d, &Ctx::silent()).unwrap_err();
+    assert_eq!(e.code(), if locked { "locked" } else { "invalid" }, "{e}");
+    assert_eq!(exported(&root), before);
+}
+
+/// A damaged database is read around where the drive has another to read: a damaged
+/// exportExt.pdb leaves OneLibrary's My Tags, with a warning saying so; a damaged export.pdb (which
+/// exportExt.pdb's tracks are), or a damaged OneLibrary with nothing else, is refused.
+#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_damaged_database_is_read_around_or_refused(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = tagged_drive(dir.path());
+    let damaged = tc.draw(gs::sampled_from(vec![paths::EXPORT_PDB, paths::EXPORT_EXT_PDB, paths::LIBRARY_PLUS_DB]));
+    fs::write(root.join(damaged), b"not a database").unwrap();
+    if damaged == paths::LIBRARY_PLUS_DB {
+        fs::remove_file(root.join(paths::EXPORT_PDB)).unwrap();
+        fs::remove_file(root.join(paths::EXPORT_EXT_PDB)).unwrap();
+    }
+    let d = Device::open_export(&root).unwrap();
+    match tags::read(&d) {
+        Ok(read) => {
+            assert_eq!(damaged, paths::EXPORT_EXT_PDB);
+            assert_eq!(read.sources, [tags::Source::OneLibrary]);
+            assert!(read.warnings.iter().any(|w| w.contains("Only exportLibrary.db's My Tags")), "{:?}", read.warnings);
+        }
+        Err(e) => assert_ne!(damaged, paths::EXPORT_EXT_PDB, "{e}"),
+    }
+}

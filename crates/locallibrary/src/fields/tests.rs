@@ -284,3 +284,55 @@ fn kept_fields_read_back_until_their_file_changes(tc: TestCase) {
     }
     assert_eq!(values.tracks, want);
 }
+
+/// `store gc`'s unread folders are exactly the second-level folders whose name starts with a
+/// digit (a plugin's version, as values were once kept by): never an analyzer's folder, a file,
+/// or anything deeper; with no values kept there are none.
+#[hegel::test(test_cases = 30)]
+fn prop_only_folders_named_by_a_plugins_version_are_unread(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store(dir.path());
+    assert!(store.unread().is_empty());
+    let mut want = Vec::new();
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(6)) {
+        let plugin = tc.draw(gs::sampled_from(vec!["sound", "echo"]));
+        let name = tc.draw(gs::sampled_from(vec!["0.1.0", "2", "tempo", "key", "x9"]));
+        let path = store.root.join(plugin).join(name);
+        if path.is_file() {
+            continue;
+        }
+        if tc.draw(gs::booleans()) {
+            fs::create_dir_all(path.join("1.0")).unwrap();
+            if name.starts_with(|c: char| c.is_ascii_digit()) && !want.contains(&path) {
+                want.push(path);
+            }
+        } else if !path.exists() {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, b"a file").unwrap();
+        }
+    }
+    want.sort();
+    assert_eq!(store.unread(), want);
+}
+
+/// A track whose path leads off the drive has no values, whatever is kept for the file it
+/// would name.
+#[hegel::test(test_cases = 10)]
+fn prop_a_track_off_the_drive_has_no_values(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let st = Store::open_or_init(dir.path().join("store")).unwrap();
+    let drive = dir.path().join("USB");
+    let inside = audio(&drive.join("Contents"), "a.mp3", b"inside");
+    let outside = audio(dir.path(), "b.mp3", b"outside");
+    let tempo = analyzer("sound", "1", "tempo");
+    for file in [&inside, &outside] {
+        FieldStore::in_store(&st).put(file, &tempo, &fields(&[("bpm", FieldValue::Number(120.0))])).unwrap();
+    }
+    let off = tc.draw(gs::sampled_from(vec!["/../b.mp3", "/Contents/../../b.mp3"]));
+    let track = |id, file: &str| loclib_model::test_util::track(id, "A", "T", file);
+    let library = Library { tracks: vec![track(1, "/Contents/a.mp3"), track(2, off)], ..Default::default() };
+    let analyzers = [tempo];
+    let source = Source { store: Some(&st), analyzers: &analyzers, declared: &Declared::default() };
+    let values = TrackValues::read(source, &Device::open(&drive).unwrap(), &library);
+    assert_eq!(values.tracks.keys().copied().collect::<Vec<_>>(), [1]);
+}

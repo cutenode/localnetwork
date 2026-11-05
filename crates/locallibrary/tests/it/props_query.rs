@@ -936,3 +936,31 @@ fn sorting_by_a_plugins_field_puts_tracks_without_one_last(tc: TestCase) {
     let e = query::parse_sort(&spec).unwrap_err();
     assert_eq!(e.to_string(), format!("can't sort by \"{name}\" here: a plugin's field sorts track listings only"));
 }
+
+/// A selector on a drive reads from it only what it needs: one needing neither My Tags, a
+/// history list nor a plugin's field selects from the library given as it does without the
+/// drive, even when the drive's export.pdb has since been damaged; one needing any of them,
+/// from such a drive, is refused.
+#[hegel::test(test_cases = 20)]
+fn prop_a_selector_reads_only_what_it_needs_from_the_drive(tc: TestCase) {
+    use crate::common;
+    use locallibrary::device::Device;
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "USB");
+    let lib = Device::open(&root).unwrap().library().unwrap();
+    let id = tc.draw(gs::sampled_from(lib.tracks.iter().map(|t| t.id).collect::<Vec<_>>()));
+    let plain = TrackSelector { ids: vec![id], ..Default::default() };
+    let want = plain.select(&lib).unwrap();
+    assert_eq!(plain.select_on(&Device::open(&root).unwrap(), &lib).unwrap(), want);
+    std::fs::write(root.join(paths::EXPORT_PDB), b"not a database").unwrap();
+    let device = Device::open(&root).unwrap();
+    assert_eq!(plain.select_on(&device, &lib).unwrap(), want, "the drive's damage isn't read");
+    let needs = [
+        TrackSelector { filter: Some("tag:deep".into()), ..Default::default() },
+        TrackSelector { history: Some("HISTORY 001".into()), ..Default::default() },
+        TrackSelector { filter: Some("sound.bpm:>1".into()), ..Default::default() },
+    ];
+    for s in needs {
+        assert!(s.select_on(&device, &lib).is_err(), "{s:?}");
+    }
+}

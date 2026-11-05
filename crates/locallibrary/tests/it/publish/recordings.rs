@@ -235,7 +235,10 @@ fn an_upload_that_cant_go_says_why() {
 /// the recording and it fits. A session that may not upload sends nothing; an encoding over the
 /// limit isn't sent and a file over the server's is refused, each saying its size, with no record
 /// and the set as it was. Otherwise the server has the file exactly as it went up, as its type,
-/// its record is under the set's key, and the set points at it instead of what it had.
+/// its record is under the set's key, and the set points at it instead of what it had; planned
+/// again over another published since, it replaces that (refused as stale once yet another is
+/// published there), and with the file gone there's nothing to plan. Signed out, a plan
+/// can only be looked at.
 #[cfg(unix)]
 #[hegel::test(test_cases = 25)]
 fn an_upload_goes_as_planned_or_stops_saying_why(tc: hegel::TestCase) {
@@ -257,6 +260,10 @@ fn an_upload_goes_as_planned_or_stops_saying_why(tc: hegel::TestCase) {
         crate::common::media::wav_of(8000, 16, 1, f64::from(secs))
     };
     save_set(&root, if is_mp3 { "friday.mp3" } else { "friday.wav" }, Some(&audio));
+    // Signed out, the plan can only be looked at.
+    let looked = api::set_upload_plan(&root, &upload_request()).unwrap();
+    assert!(looked.account.is_none() && looked.uri.is_none() && looked.missing_scope.is_none());
+    assert!(looked.warnings.iter().any(|w| w.starts_with("not signed in")), "{:?}", looked.warnings);
     let may_upload = tc.draw(gs::weighted_booleans(0.8));
     let scopes = if may_upload { PUBLISHING.to_string() } else { PUBLISHING.replace(" blob:audio/*", "") };
     sign_in(&root, &pds.url, &scopes, LATER, Some("refresh-1"));
@@ -330,7 +337,25 @@ fn an_upload_goes_as_planned_or_stops_saying_why(tc: hegel::TestCase) {
         let mime = if as_is { "audio/mpeg" } else { "audio/mp4" };
         let link = record["audio"]["ref"]["$link"].as_str().unwrap();
         assert_eq!(pds.blob(link), Some((mime.to_string(), sent.clone())));
-        assert_eq!(pointed_at(), Some(StrongRef { uri: published.uri, cid }));
+        assert_eq!(pointed_at(), Some(StrongRef { uri: published.uri, cid: cid.clone() }));
+        // Another recording published there since, planned again it replaces that; with yet another
+        // published there before it's applied, it's refused as stale, the set pointing where it did.
+        let (mut theirs, _) = pds.record(DID, RECORDING, ID).unwrap();
+        theirs["durationSeconds"] = json!(9001);
+        pds.put(DID, RECORDING, ID, theirs.clone());
+        let again = api::set_upload_plan(&root, &SetUploadRequest { max_bytes, ..upload_request() }).unwrap();
+        assert!(
+            again.destructive && again.summary[0].ends_with("replacing the recording there"),
+            "{:?}",
+            again.summary
+        );
+        theirs["durationSeconds"] = json!(9002);
+        pds.put(DID, RECORDING, ID, theirs);
+        assert_eq!(again.apply(None, &Ctx::silent()).unwrap_err().code(), "stale_plan");
+        assert_eq!(pointed_at().map(|r| r.cid), Some(cid.clone()));
+        std::fs::remove_file(root.with_extension("recordings").join(if is_mp3 { "friday.mp3" } else { "friday.wav" }))
+            .unwrap();
+        assert_eq!(api::set_upload_plan(&root, &upload_request()).unwrap_err().code(), "not_found");
         return;
     }
     assert!(pds.record(DID, RECORDING, ID).is_none(), "no record without the file");

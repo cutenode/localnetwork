@@ -386,3 +386,56 @@ fn prop_a_cut_off_make_is_finished_unless_something_else_is_there(tc: hegel::Tes
         }
     }
 }
+
+/// A library from another store keeps its id and head, unless this store has a library of that
+/// id or of that name (in any case), or can't read its own: then it's refused, and the libraries
+/// stay as they were.
+#[hegel::test(test_cases = 30)]
+fn prop_a_library_from_another_store_keeps_its_id_unless_taken(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("s")).unwrap();
+    let ours = store.create_library("Main").unwrap();
+    let id_taken = tc.draw(gs::booleans());
+    let name = tc.draw(gs::sampled_from(vec!["Main", "MAIN", "Club"]));
+    let id = if id_taken { ours.id } else { Uuid::new_v4() };
+    let head = tc.draw(gs::booleans()).then(|| Hash::of(b"head"));
+    if tc.draw(gs::booleans()) {
+        // Libraries this store can't read: none is added.
+        fs::write(store.root().join("libraries.json"), b"{").unwrap();
+        assert!(matches!(store.add_library(id, name, head), Err(Error::Parse { .. })));
+        return;
+    }
+    let json = |store: &Store| serde_json::to_value(store.libraries().unwrap()).unwrap();
+    let before = json(&store);
+    let added = store.add_library(id, name, head);
+    let taken = id_taken || name.eq_ignore_ascii_case("Main");
+    match added {
+        Ok(()) => {
+            assert!(!taken, "{name} {id_taken}");
+            let lib = store.library_by_id(id).unwrap().unwrap();
+            assert_eq!((lib.name.as_str(), lib.head), (name, head));
+            assert_eq!(store.libraries().unwrap().len(), 2);
+        }
+        Err(e) => {
+            assert!(taken, "{e}");
+            assert_eq!(e.code(), "conflict", "{e}");
+            assert_eq!(json(&store), before);
+        }
+    }
+}
+
+/// `$LOCALLIBRARY_STORE` names the store's folder when it's set.
+#[hegel::test(test_cases = 10)]
+fn prop_the_default_store_is_where_the_environment_says(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join(tc.draw(gs::sampled_from(vec!["store", "Ünï", "a b"])));
+    // SAFETY: nextest gives each test a process of its own, and no other thread of it reads the
+    // environment while the test runs.
+    unsafe { std::env::set_var("LOCALLIBRARY_STORE", &root) };
+    let set = Store::default_root();
+    unsafe { std::env::remove_var("LOCALLIBRARY_STORE") };
+    assert_eq!(set, root);
+    assert_ne!(Store::default_root(), root);
+}
