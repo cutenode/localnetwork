@@ -86,6 +86,10 @@ _Avoid_: gig, party (the party is the series)
 One performer's appearance on an event's lineup. What they played there, once published, is a set.
 _Avoid_: gig, booking (a booking is the conversation that leads to one), set (the set is what was played)
 
+**Booking**:
+The conversation between a promoter and an act about a show, in a thread only they can read. A booking starts open, can go through negotiating, and can be confirmed. Once declined or cancelled it's settled, and nothing reopens it.
+_Avoid_: gig, inquiry (the inquiry is what opens one)
+
 **Request**:
 Asking staff to list a DJ, act or party in the directory, or to confirm someone owns a venue. Profiles go live as soon as they're saved, but the directory only shows what staff have approved.
 _Avoid_: proposal, submission, ticket
