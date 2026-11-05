@@ -86,7 +86,7 @@ export function createCardServer({
 							const started = performance.now();
 							const rendered = await draw();
 							const ms = Math.round(performance.now() - started);
-							log.info({ card: path, ms, bytes: rendered.byteLength }, 'rendered a card');
+							log.set({ card: { path, ms, bytes: rendered.byteLength } });
 
 							return rendered;
 						});
@@ -96,7 +96,7 @@ export function createCardServer({
 				return png(drawn, cacheControl);
 			} catch (cause) {
 				if (!(cause instanceof Busy)) throw cause;
-				log.warn({ card: path, waiting: queue.size }, 'turned away a card: too many waiting to be drawn');
+				log.warn('turned away a card: too many waiting to be drawn', { card: path, waiting: queue.size });
 
 				return new Response('Too many previews being drawn. Try again in a few seconds.', {
 					status: 503,

@@ -1,11 +1,11 @@
 <!--
   The way into the session queue, in the header of every view.
 
-  The queue used to be the fourth tool in the menu, which put the one thing
-  that is *about* the other tools on the same footing as them: a batch picked
-  out in Manager could only be looked at by leaving Manager. It is a
-  header control now — the count is in front of you wherever you are, and the
-  sheet it opens goes over whatever you were doing rather than replacing it.
+  The queue is a header control rather than a fourth tool in the menu because
+  it is *about* the other tools: looking at a batch picked out in Manager
+  should not mean leaving Manager. The count is in front of you wherever you
+  are, and the sheet it opens goes over whatever you were doing rather than
+  replacing it.
 
   Written out in plain HTML rather than with the shell's Button and Tooltip,
   for the reason ThemeToggle beside it is: this sits in the tool menu too, and
@@ -20,7 +20,7 @@
   import { count } from '$lib/soundcloud.ts';
 
   // `aria-expanded` says whether the sheet is up, so the label does not have
-  // to flip between "open" and "close" — what it names is the queue, and how
+  // to flip between "open" and "close": what it names is the queue, and how
   // full it is.
   const label = $derived(
     queue.count === 0 ? 'session queue: empty' : `session queue: ${count(queue.count, 'track')}`

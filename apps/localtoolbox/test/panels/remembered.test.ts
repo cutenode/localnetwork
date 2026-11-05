@@ -2,8 +2,8 @@
 //
 // The popup is destroyed on every click that opens a tab, which working
 // through a page is mostly made of. What survives that is the place someone
-// was in — the search they typed, the drawer they opened, how far down the
-// list they had got — kept per tool for the browsing session
+// was in (the search they typed, the drawer they opened, how far down the
+// list they had got), kept per tool for the browsing session
 // (src/lib/view.svelte.ts). What does not survive it is anything the page or a
 // run owns; those are read again.
 import { describe, it, expect, vi } from 'vitest';
@@ -37,8 +37,8 @@ const body = () => document.querySelector<HTMLElement>('.scroll-slim')!;
 
 /**
  * jsdom takes any `scrollTop` it is given; a real browser clamps it to the
- * content there is, which is the whole reason the restore keeps trying as a
- * list loads. This puts the clamp back, with a height the test can grow.
+ * content there is, which is why the restore keeps trying as a list loads.
+ * This puts the clamp back, with a height the test can grow.
  */
 function clampScroll(max = 0) {
 	const real = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
@@ -98,7 +98,7 @@ describe('the search over a list', () => {
 		await type(search(), 'bicep');
 
 		// A new session: the browser was closed, so its session storage went too.
-		// The list is not session storage — it is kept for good, and is still
+		// The list is not session storage: it is kept for good, and is still
 		// there, which is what the whole list coming back means here.
 		const list = chrome.testStore('local').listed;
 		panelChrome({ response: extraction({ tracks: TRACKS }), storage: { listed: list } });
@@ -160,7 +160,7 @@ describe('the Downloader’s drawer', () => {
 	});
 
 	// It opens itself when there is nothing else to show, since it is the only
-	// other place a link comes from — but not over and over.
+	// other place a link comes from, but not over and over.
 	it('stays shut once it has been shut, however empty the panel is', async () => {
 		panelChrome({ tab: { id: 1, url: 'https://example.com/' } });
 		await mountPanel('third-party-downloads');
@@ -174,7 +174,7 @@ describe('the Downloader’s drawer', () => {
 	});
 });
 
-// The import box is the settings sheet's now, and what it remembers between
+// The import box is the settings sheet's, and what it remembers between
 // openings of the popup is tested where it lives (test/saved-state.test.ts):
 // the drawer comes back open, the replace switch comes back off, and what was
 // pasted in is the one text box in the extension that is not kept.
@@ -309,8 +309,8 @@ describe('how far down the list someone had got', () => {
 
 	// A shorter page than the one it was left on: the list never grows enough to
 	// reach the place, and nothing more arrives. The restore gives up after a
-	// couple of seconds rather than dragging every later change — a row
-	// finishing, a section opening — back down to the bottom.
+	// couple of seconds rather than dragging every later change (a row
+	// finishing, a section opening) back down to the bottom.
 	it('gives up on a list that never gets that long', async () => {
 		vi.useFakeTimers();
 		await open();

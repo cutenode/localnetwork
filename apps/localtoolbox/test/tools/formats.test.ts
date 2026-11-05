@@ -1,4 +1,4 @@
-// src/tools/soundcloud-playlist-to-text/formats.ts — turning tracks into text.
+// src/tools/soundcloud-playlist-to-text/formats.ts: turning tracks into text.
 import { describe, it, expect } from 'vitest';
 import {
 	FORMATS,
@@ -62,7 +62,7 @@ describe('processTracks', () => {
 	// A queue entry need not name either: a state file may hold just the
 	// permalink, and a page's button off a row nobody recognised queues one
 	// with neither. Absent reads as '' does, which is what a row that named
-	// none gives — in every format, and under both options.
+	// none gives, in every format and under both options.
 	it('reads a missing artist or title as empty', () => {
 		const queued = [
 			{ permalink: '/a/one' },

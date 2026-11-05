@@ -80,7 +80,7 @@ export class RootDmSender implements DmSender {
 
 			return data.canChat ? 'ok' : 'not_allowed';
 		} catch (error) {
-			this.deps.logger.warn({ err: error, did }, 'could not check whether the root can DM someone');
+			this.deps.logger.warn('could not check whether the root can DM someone', { err: error, did });
 
 			return 'unavailable';
 		}
@@ -115,7 +115,7 @@ export class LogDmSender implements DmSender {
 	}
 
 	async send(did: string, { text }: DmMessage): Promise<SendOutcome> {
-		this.logger.info({ did, text }, 'DM not sent (DM_PROVIDER=log)');
+		this.logger.info('DM not sent (DM_PROVIDER=log)', { did, text });
 
 		return { kind: 'sent', providerId: null };
 	}

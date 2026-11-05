@@ -198,7 +198,7 @@ export class BookingService {
 			// thread, which a sync would index anyway.
 			await this.forget(space);
 			await root.deleteSpace(space).catch((cause: unknown) => {
-				this.core.logger.warn({ err: cause, space }, 'could not delete the space of a booking that failed to start');
+				this.core.logger.warn('could not delete the space of a booking that failed to start', { err: cause, space });
 			});
 
 			if (error instanceof XRPCError) throw this.unsent(error);
@@ -235,7 +235,7 @@ export class BookingService {
 	 * what the promoter wrote, so they can send it again. Any other error is a bug, so callers rethrow it as it is.
 	 */
 	private unsent(error: XRPCError): UserError {
-		this.core.logger.warn({ err: error }, 'could not start a booking thread');
+		this.core.logger.warn('could not start a booking thread', { err: error });
 
 		return new UserError("Couldn't send your inquiry. Try again in a minute.", 503);
 	}
@@ -419,7 +419,7 @@ export class BookingService {
 				cursor = page.cursor;
 			} while (cursor);
 		} catch (error) {
-			this.core.logger.warn({ err: error, space }, "could not read a booking thread's opening record");
+			this.core.logger.warn("could not read a booking thread's opening record", { err: error, space });
 		}
 
 		return undefined;
@@ -450,10 +450,10 @@ export class BookingService {
 		const participants = await this.ensureParticipants(input.space);
 
 		if (!fromRoot && !participants.has(input.repoDid)) {
-			this.core.logger.warn(
-				{ space: input.space, repo: input.repoDid },
-				'ignoring booking record from non-participant'
-			);
+			this.core.logger.warn('ignoring booking record from non-participant', {
+				space: input.space,
+				repo: input.repoDid
+			});
 
 			return;
 		}
@@ -479,10 +479,10 @@ export class BookingService {
 			const promoter = opened?.promoter ? opened.promoter === author : !project?.managers.includes(author);
 
 			if (!promoter) {
-				this.core.logger.warn(
-					{ space: input.space, repo: input.repoDid },
-					"not opening a booking thread from an inquiry its promoter didn't send"
-				);
+				this.core.logger.warn("not opening a booking thread from an inquiry its promoter didn't send", {
+					space: input.space,
+					repo: input.repoDid
+				});
 			} else {
 				await db
 					.insertInto('bookingThread')
@@ -599,10 +599,11 @@ export class BookingService {
 				await this.core.notify({ ...notice, kind: kind === 'inquiry' ? 'booking.inquiry' : 'booking.message', data });
 			}
 		} catch (error) {
-			this.core.logger.warn(
-				{ err: error, space: thread.spaceUri, uri: input.uri },
-				'could not notify a booking thread'
-			);
+			this.core.logger.warn('could not notify a booking thread', {
+				err: error,
+				space: thread.spaceUri,
+				uri: input.uri
+			});
 		}
 	}
 

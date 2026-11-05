@@ -12,6 +12,7 @@ use locallibrary::device::Device;
 use locallibrary::onelibrary::OneLibrary;
 use locallibrary::paths;
 use locallibrary::plays;
+use locallibrary::progress::Ctx;
 
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
 fn history_lists_in_folders_are_found_by_path_name_or_session(tc: TestCase) {
@@ -56,4 +57,70 @@ fn history_lists_in_folders_are_found_by_path_name_or_session(tc: TestCase) {
     let len = tc.draw(gs::integers::<usize>().min_value(4).max_value(session.len()));
     assert_eq!(path_of(&session[..len].to_uppercase()).as_deref(), Some("HISTORY 003"));
     assert_eq!(path_of(&session[..3]), None, "too short to be a session");
+}
+
+/// A history list read back names the database it came from; any other database name is no list.
+#[hegel::test(test_cases = 50)]
+fn prop_a_history_list_reads_back_its_database(tc: TestCase) {
+    let database = tc.draw(gs::sampled_from(vec!["device_library", "onelibrary"]));
+    let list = plays::HistoryList {
+        name: tc.draw(gs::text().max_size(12)),
+        path: tc.draw(gs::text().max_size(12)),
+        database,
+        tracks: Vec::new(),
+        missing: tc.draw(gs::integers::<usize>().max_value(5)),
+        missing_at: Vec::new(),
+    };
+    let mut json = serde_json::to_value(&list).unwrap();
+    assert_eq!(serde_json::from_value::<plays::HistoryList>(json.clone()).unwrap(), list);
+    let other = tc.draw(gs::sampled_from(vec![
+        serde_json::json!("export_pdb"),
+        serde_json::json!(""),
+        serde_json::json!(1),
+        serde_json::Value::Null,
+    ]));
+    json["database"] = other;
+    assert!(serde_json::from_value::<plays::HistoryList>(json).is_err());
+}
+
+/// A list first seen in a snapshot with no drive, a drive known only by name, or of a library the
+/// store no longer names is credited to just that: no drive, the name, or the library's id.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_list_is_credited_to_what_its_first_snapshot_knows(tc: TestCase) {
+    use locallibrary::store::{SnapshotSource, Store};
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let root = common::bigger_drive(dir.path(), "A");
+    common::add_history(&root, "HISTORY 001", &[1, 2]);
+    let mut d = Device::open_export(&root).unwrap();
+    d.adopt(Some("Main")).unwrap();
+    locallibrary::sync::pull(&store, &mut d, &Default::default(), &Ctx::silent()).unwrap();
+    let record = store.libraries().unwrap().remove(0);
+    let original = store.load_snapshot(&record.head.unwrap()).unwrap();
+    let mut earlier = original.clone();
+    earlier.created = original.created - chrono::Duration::days(1);
+    let kind = tc.draw(gs::integers::<u8>().max_value(2));
+    match kind {
+        0 => earlier.source = None,
+        1 => earlier.source = Some(SnapshotSource { drive_id: None, drive_name: "Booth".into() }),
+        _ => earlier.library_id = uuid::Uuid::new_v4(),
+    }
+    let earlier = store.save_snapshot(earlier).unwrap();
+    let archive = plays::archive(&store, None, &Ctx::silent()).unwrap();
+    assert_eq!(archive.snapshots, 2);
+    let a = archive.lists.iter().find(|a| a.list.name == "HISTORY 001").unwrap();
+    assert_eq!((a.first_seen.snapshot, a.snapshots, a.recorded_after), (earlier.id, 2, None));
+    let drive = match kind {
+        0 => None,
+        1 => Some("Booth".to_string()),
+        _ => original.source.as_ref().map(|s| s.drive_name.clone()),
+    };
+    assert_eq!(a.first_seen.drive, drive);
+    let library = if kind == 2 { earlier.library_id.to_string() } else { record.name.clone() };
+    assert_eq!(a.first_seen.library, library);
+    // Cancelled, nothing is read.
+    let token = locallibrary::CancelToken::new();
+    token.cancel();
+    let e = plays::archive(&store, None, &Ctx::new(&locallibrary::progress::NoProgress, token)).unwrap_err();
+    assert_eq!(e.code(), "cancelled");
 }

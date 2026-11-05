@@ -1,4 +1,4 @@
-// src/lib/queue-sheet.ts — fetching the queue sheet's chunk.
+// src/lib/queue-sheet.ts: fetching the queue sheet's chunk.
 //
 // The sheet is not in the tool registry (it is not a tool and has no route),
 // so it has its own loader rather than `loadPanel`. What it owes the shell is
@@ -25,7 +25,7 @@ describe('loadQueueSheet', () => {
 	});
 
 	// The file is inside the extension, so this is a half-written update on
-	// disk rather than a network failure — and the queue is the session's work,
+	// disk rather than a network failure, and the queue is the session's work,
 	// which is too much to lose to one bad fetch.
 	it('does not remember a chunk that failed to arrive', async () => {
 		const { loadQueueSheet, sheetChunk } = await load();

@@ -1,11 +1,10 @@
 // Getting a SoundCloud page's tracks, and saying why there are none.
 //
-// All three tools open the same way: find the active tab, check it is
-// a SoundCloud page, ask the content script for what is on it, and — far more
-// often than one would like — explain instead why that could not be done. The
-// wording of those explanations used to be copied into each panel; it lives
-// here now, so a page that stops loading its likes says the same thing
-// whichever tool noticed.
+// All four tools open the same way: find the active tab, check it is
+// a SoundCloud page, ask the content script for what is on it, and, far more
+// often than one would like, explain instead why that could not be done. The
+// wording of those explanations lives here, so a page that stops loading its
+// likes says the same thing whichever tool noticed.
 
 import type { DetailsAnswer, PageRead, TracksAnswer } from '$lib/types';
 import { activeTab, askPage, isSoundCloudUrl } from './chrome.ts';
@@ -53,25 +52,23 @@ export function emptyStatus(response: TracksAnswer) {
 }
 
 // Reads started before the panel that wants them exists. Reading a page is
-// two round trips — the browser process for the tab, then the content script,
-// which for download details is a good many requests to SoundCloud — and none
+// two round trips (the browser process for the tab, then the content script,
+// which for download details is a good many requests to SoundCloud), and none
 // of them need wait for a chunk to compile or a component to mount. The shell
-// starts them at boot for the tool it is about to open (see $lib/tools.js), so
+// starts them at boot for the tool it is about to open (see $lib/tools.ts), so
 // by the time the panel asks, the answer is on its way or already here.
 //
-// One per type, because the Manager tool asks for two: the tracks, which
-// come back in a few milliseconds and are what the list is drawn from, and
-// their download details, which take as long as SoundCloud takes. Both are
-// started at boot and neither waits for the other.
+// One per type: the tracks come back in a few milliseconds and are what a
+// list is drawn from, while their download details take as long as SoundCloud
+// takes. The registry only warms the tracks at present.
 const warmed = new Map<keyof PageReads, Promise<PageRead<TracksAnswer | DetailsAnswer>>>();
 
 /**
  * Starts `readPage(type)` now, for the panel that will ask for it next.
  *
  * One read per type, handed to the first matching `readPage`; a second ask
- * for the same type goes to the page as it always did. Warming a type twice
- * — the shell settling on the tool it was already opening — starts nothing
- * new.
+ * for the same type goes to the page. Warming a type twice (the shell settling
+ * on the tool it was already opening) starts nothing new.
  */
 export function warmPage(type: keyof PageReads, options?: ReadOptions) {
 	if (warmed.has(type)) return;
@@ -110,7 +107,7 @@ export async function readPage(
 
 	// `ok` alone is not enough. A tab open across an extension update still runs
 	// the content script it was loaded with, and that one answers in the shape
-	// *it* knows — which a later version cannot assume carries any tracks at
+	// *it* knows, which a later version cannot assume carries any tracks at
 	// all. Anything that is not this version's answer is a page to reload.
 	if (!response.ok || !Array.isArray(response.tracks)) return { status: EXTRACTION_FAILED };
 
@@ -137,7 +134,7 @@ export function pageSummary({ title, curator, tracks, skippedPlaylists }: Tracks
 	return parts.join(' · ');
 }
 
-/** "1 track", "3 tracks" — the plural is the singular plus an s unless given. */
+/** "1 track", "3 tracks". The plural is the singular plus an s unless given. */
 export const count = (n: number, singular: string, plural = `${singular}s`) => `${n} ${n === 1 ? singular : plural}`;
 
 export { OPEN_A_PAGE, RELOAD_THE_TAB, EXTRACTION_FAILED };

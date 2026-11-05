@@ -1,4 +1,4 @@
-// src/tools/manager/Panel.svelte — the Manager panel, against
+// src/tools/manager/Panel.svelte: the Manager panel, against
 // the real downloaded-store.ts and state-transfer.ts.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
@@ -29,14 +29,14 @@ declare const chrome: ChromeMock;
 
 // The tool keeps a list of its own and nothing goes onto it by itself, so
 // opening the panel and putting the tab's tracks on the list are two steps.
-// `open` is the first alone — what somebody sees on any tab — and `load` is
+// `open` is the first alone (what somebody sees on any tab), and `load` is
 // both, which is where most of what there is to test starts.
 const open = () => mountPanel('manager');
 
 const load = async () => {
 	const mounted = await open();
 	// Only when the tab has something to offer: plenty below opens the panel
-	// over a tab with no playlist on it, which is a thing the tool now does.
+	// over a tab with no playlist on it, which the tool can do.
 	const add = addButton();
 
 	if (add && !add.disabled) await addPage();
@@ -76,7 +76,7 @@ const clean = (node: Target) => node!.textContent.replace(/\s+/g, ' ').trim();
 
 // What a row carries besides the buttons every row has anyway: the cover art
 // it copies, the two toggles (queue and mark), and the chevron that opens it
-// (named after the track, so it is matched by its shape rather than listed —
+// (named after the track, so it is matched by its shape rather than listed;
 // see "opening a row" for what it opens into).
 const EVERY_ROW = new Set(['copy the cover art', 'add to the session queue', 'mark downloaded']);
 
@@ -86,8 +86,8 @@ const isEveryRow = (b: Element) => {
 	return EVERY_ROW.has(label) || label.startsWith('about ');
 };
 
-// Every button on a row is now an icon, so what stands for one here is its
-// accessible name — the words on it where it has any (the search badges).
+// Every button on a row is an icon, so what stands for one here is its
+// accessible name: the words on it where it has any (the search badges).
 const rowButtons = (li: Element) =>
 	[...li.querySelectorAll('button')].flatMap((b) => (isEveryRow(b) ? [] : [clean(b) || b.getAttribute('aria-label')]));
 
@@ -159,8 +159,8 @@ const tick = async (...permalinks: string[]) => {
 };
 
 describe('opening the panel', () => {
-	// The whole point of the change: the tool is a list of its own, so it opens
-	// on any tab at all — including the gate tab a row has just sent you to.
+	// The tool is a list of its own, so it opens on any tab at all, including
+	// the gate tab a row has just sent you to.
 	it('opens on any page, with the list and no page read at all', async () => {
 		for (const tab of [null, { id: 1, url: 'https://example.com/' }, { id: 2 }]) {
 			panelChrome({ tab });
@@ -179,7 +179,7 @@ describe('opening the panel', () => {
 	});
 
 	// Nothing is asked of SoundCloud until somebody presses add. Reading the
-	// page's own rows is free — it is a DOM read in the tab — and is what the
+	// page's own rows is free (it is a DOM read in the tab) and is what the
 	// button counts; the lookup is the part that costs.
 	it('reads the tab to describe the button, and looks nothing up', async () => {
 		panelChrome({ response: answer([track('A', 'One'), track('B', 'Two')]) });
@@ -211,8 +211,8 @@ describe('opening the panel', () => {
 	});
 
 	// Nothing is asked of SoundCloud for the queue: the lookup runs on the page a
-	// track is on, and the point of this source is that that page need not be
-	// open. On a SoundCloud tab, where a lookup *could* run, it still does not.
+	// track is on, and with this source that page need not be open. On a
+	// SoundCloud tab, where a lookup *could* run, it still does not.
 	it('adds the queue without looking anything up, even on a SoundCloud tab', async () => {
 		panelChrome({
 			response: answer([track('B', 'Two')]),
@@ -300,8 +300,8 @@ describe('adding a page', () => {
 		await settle();
 		expect(text()).not.toMatch(/checking download details/);
 
-		// A report arriving after the add is over — another popup's lookup, still
-		// running — is not this add's: it neither brings the bar back nor paints
+		// A report arriving after the add is over (another popup's lookup, still
+		// running) is not this add's: it neither brings the bar back nor paints
 		// its answers over the ones the list now holds.
 		await chrome.testSendMessage({
 			type: 'DOWNLOAD_DETAILS_PROGRESS',
@@ -341,7 +341,7 @@ describe('adding a page', () => {
 	});
 
 	// The rows came off the page, not out of the lookup, so a lookup that could
-	// not run leaves them on the list and says what is missing from them —
+	// not run leaves them on the list and says what is missing from them
 	// rather than throwing away what was already read.
 	it.each([
 		['no-client-id', /couldn’t find SoundCloud’s API key in the page/],
@@ -463,7 +463,7 @@ describe('adding a page', () => {
 	});
 });
 
-// A song page offers one track — the one it is about — and it goes onto the
+// A song page offers one track, the one it is about, and it goes onto the
 // list the way a page of fifty does. The bar counts it, the button offers it,
 // and what a row came in from is the page's own name.
 describe('adding a song page', () => {
@@ -525,10 +525,10 @@ describe('adding a song page', () => {
 
 describe('while the lookup is still running', () => {
 	// The page's tracks come back in a few milliseconds; their download details
-	// take as long as SoundCloud takes, which on a scrolled page is seconds. The
-	// panel used to await the second and show a spinner in place of the list
-	// until it landed. These are about the list going up on the first answer and
-	// filling in on the second, which is the whole of why the popup feels fast.
+	// take as long as SoundCloud takes, which on a scrolled page is seconds.
+	// These are about the list going up on the first answer, with no spinner
+	// waiting on the second, and filling in as the second lands. That is why the
+	// popup feels fast.
 	//
 	// `arrive` settles the details read; `report` pushes a progress message the
 	// way the content script does as each answer comes in.
@@ -584,7 +584,7 @@ describe('while the lookup is still running', () => {
 	});
 
 	// In list order there is no "not checked" section to wait in, so each row
-	// says it for itself — and carries no search badges until SoundCloud answers.
+	// says it for itself, and carries no search badges until SoundCloud answers.
 	it('says each row is being checked in list order too', async () => {
 		localStorage.setItem('pref:sort', 'page');
 		slowLookup(PENDING);
@@ -782,7 +782,7 @@ describe('grouping links by site', () => {
 			['gate.sc', '(1)'],
 			['no download links', '(2)'],
 			// Two nobody has an answer about: one whose details never arrived, and
-			// one whose purchase link is not a URL — so its SoundCloud download is
+			// one whose purchase link is not a URL, so its SoundCloud download is
 			// the only half of the question that was ever answered.
 			['not checked', '(2)']
 		]);
@@ -817,7 +817,7 @@ describe('grouping links by site', () => {
 		]);
 		// Both say the same thing, though the page called the second one
 		// "Stream / Download": the button names what it does, not what the
-		// uploader wrote on theirs (that is in the tooltip — see below).
+		// uploader wrote on theirs (that is in the tooltip; see below).
 		expect(hypeddit.rows.map((r) => [r.permalink, r.buttons])).toEqual([
 			['/hypeartist/one', ['download from hypeddit.com']],
 			['/pageartist/nine', ['download from hypeddit.com']]
@@ -925,7 +925,7 @@ describe('grouping links by site', () => {
 		expect(rowFor('/a/b').querySelector('[title="no cover art"]')).toBe(null);
 	});
 
-	// Adding a page again is how a list is brought up to date — and a second
+	// Adding a page again is how a list is brought up to date, and a second
 	// reading of it, from the top, renders far fewer thumbnails than the first
 	// scrolled-through one did. "The row showed none" must not take the cover
 	// off a track that has one.
@@ -946,7 +946,7 @@ describe('grouping links by site', () => {
 });
 
 // A playlist can contain the same track twice, and the permalink is the
-// list's identity for a track — so adding such a page puts it on the list
+// list's identity for a track, so adding such a page puts it on the list
 // once, however many times the page showed it.
 describe('a track the page lists twice', () => {
 	const TWICE = [
@@ -981,7 +981,7 @@ describe('a track the page lists twice', () => {
 
 	// A track *can* still be drawn twice: the by-site layout files a SoundCloud
 	// download and a purchase link in two sections. One tick, one mark, both
-	// rows — the same rule as ever, now that the duplicate is not what causes it.
+	// rows: the same rule as ever, now that the duplicate is not what causes it.
 	it('marks every row of a track at once when its links put it in two sections', async () => {
 		panelChrome({
 			response: answer([
@@ -1055,7 +1055,7 @@ describe('opening links', () => {
 
 // Which shops a link-less row offers is a setting rather than a fact about the
 // list (src/lib/search-sites.json holds the sites, the settings sheet holds
-// the switches), so the badges a row carries are whatever is switched on —
+// the switches), so the badges a row carries are whatever is switched on,
 // down to none of them, which is a row that says so rather than one that looks
 // unfinished.
 describe('the search badges a row carries', () => {
@@ -1248,7 +1248,7 @@ describe('the session queue', () => {
 		await load();
 		await click(queueButton('/a/one'));
 		// Enough for the tools that read the queue to list the track, show its
-		// artwork and find its gate, without the page it came from — plus the
+		// artwork and find its gate, without the page it came from, plus the
 		// three things only that page could have said, which come through as
 		// "nobody knows" for a row that said none of them.
 		expect(chrome.testStore('session').queue).toEqual([
@@ -1285,8 +1285,8 @@ describe('the session queue', () => {
 });
 
 // Selecting is its own step: tick the tracks, then put a marker on the lot.
-// The row buttons no longer know anything about batches — see
-// src/lib/selection.svelte.js for why that changed.
+// The row buttons know nothing about batches; src/lib/selection.svelte.ts says
+// why.
 describe('selecting a batch', () => {
 	// Every one of them looked up, and `start` sorts the list in list order, so
 	// each track is one row and one tick box.
@@ -1450,7 +1450,7 @@ describe('selecting a batch', () => {
 		expect(text()).toMatch(/5 tracks ticked/);
 
 		// Every row of the page is ticked now, so the button turns into the one
-		// that takes them back off — leaving what was ticked elsewhere.
+		// that takes them back off, leaving what was ticked elsewhere.
 		expect(clean(pageTickButton())).toBe('untick this page (4)');
 		await click(pageTickButton());
 		expect(text()).toMatch(/1 track ticked/);
@@ -1739,7 +1739,7 @@ describe('list order', () => {
 				['download from bandcamp.com', 'also — open the track page to download (no downloads left)']
 			],
 			['/nolinkartist/ten', 'no download links', ['BP', 'bc', 'Z', 'M']],
-			// On the list and never checked — which the row says rather than
+			// On the list and never checked, which the row says rather than
 			// leaving it to look like a track known to have nothing.
 			['/unknownartist/twelve', 'not checked', ['BP', 'bc', 'Z', 'M']]
 		]);
@@ -1945,8 +1945,8 @@ describe('filtering', () => {
 });
 
 describe('the cover art on a row', () => {
-	// jsdom has none of what the copy runs on — no `createImageBitmap`, no
-	// `OffscreenCanvas`, no `ClipboardItem` — so the decode-and-re-encode
+	// jsdom has none of what the copy runs on (no `createImageBitmap`, no
+	// `OffscreenCanvas`, no `ClipboardItem`), so the decode-and-re-encode
 	// pipeline is stood up here. `vi.stubGlobal` puts each back afterwards.
 	function installImagePipeline() {
 		const png = new Blob(['png bytes'], { type: 'image/png' });
@@ -2058,7 +2058,7 @@ describe('opening a row', () => {
 
 	const isOpen = (permalink: string, nth = 0) => chevron(permalink, nth)!.getAttribute('aria-expanded') === 'true';
 
-	// What the opened row says, as [label, value] — and whether each value can
+	// What the opened row says, as [label, value], and whether each value can
 	// be copied, which is what `dead` lists.
 	const facts = (permalink: string, nth = 0) =>
 		[...rowFor(permalink, nth).querySelectorAll('dl > div')].map((line) => [
@@ -2067,7 +2067,7 @@ describe('opening a row', () => {
 		]);
 
 	// The two marks the opened row draws instead of spelling out, as the names
-	// a screen reader reads — which is also the only place the state is said in
+	// a screen reader reads, which is also the only place the state is said in
 	// words, the rest of it being the way the icon is drawn.
 	const marks = (permalink: string, nth = 0) =>
 		[...rowFor(permalink, nth).querySelectorAll('[role="img"]')].map((el) => el.getAttribute('aria-label'));
@@ -2120,7 +2120,7 @@ describe('opening a row', () => {
 	});
 
 	// The genre the page itself rendered beside the row (Likes pages do), which
-	// is the whole answer for a track nobody has looked up — and the one a
+	// is the whole answer for a track nobody has looked up, and the one a
 	// track that came in through the session queue has, since a queued track
 	// carries what its page said and no lookup ever runs for it.
 	it('shows the genre the page rendered, without waiting for a lookup', async () => {
@@ -2215,7 +2215,7 @@ describe('opening a row', () => {
 		expect(facts('/old/cache')[2]).toEqual(['genre', 'unknown']);
 		expect(marks('/old/cache')).toEqual(['not liked', 'reposted']);
 		expect(markHints('/old/cache')).toEqual(['you haven’t liked this.', 'you’ve reposted this on SoundCloud.']);
-		// "" is an answer — the uploader set no genre — and reads as one.
+		// "" is an answer (the uploader set no genre) and reads as one.
 		expect(facts('/none/set')[2]).toEqual(['genre', 'none']);
 	});
 
@@ -2269,7 +2269,7 @@ describe('opening a row', () => {
 		expect(factButton('/bicep/glue', 'from')!.disabled).toBe(true);
 	});
 
-	// The settings switch ($lib/title-case.svelte.js). The transform is tested
+	// The settings switch ($lib/title-case.svelte.ts). The transform is tested
 	// on its own in test/lib/title-case.test.ts; what is here is which fields it
 	// reaches, and that a click copies what the row is showing.
 	describe('with title case switched on', () => {
@@ -2442,7 +2442,7 @@ describe('opening a row', () => {
 // The backup itself is the settings sheet's (test/saved-state.test.ts): the
 // file carries the marks a SoundCloud page paints, the content script's cache
 // of lookups, the session queue and three panels' options, none of which is
-// this tool's. What stays here is the way to it — the list is the biggest
+// this tool's. What stays here is the way to it: the list is the biggest
 // thing in the file, so the footer is where somebody looks.
 describe('the footer', () => {
 	it('points at settings rather than holding the backup itself', async () => {
@@ -2451,7 +2451,7 @@ describe('the footer', () => {
 		const go = button('back up or restore…');
 		expect(go).toBeTruthy();
 		expect(go!.getAttribute('title')).toMatch(/^in settings:/);
-		// No panel draws a sheet — the shell does, over whichever tool is open —
+		// No panel draws a sheet (the shell does, over whichever tool is open),
 		// so what this press can be seen to do here is set the place.
 		await click(go);
 		await settle();

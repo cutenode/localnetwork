@@ -1,10 +1,10 @@
 <!--
   Light, dark, or whatever the browser is set to.
 
-  The one control on the tool menu, and the reason it is written out in plain
-  HTML rather than with the shell's Button and Tooltip: the menu is what the
-  popup boots into, and pulling the component library into that chunk for one
-  icon button cost more than the button is worth. `title` is the browser's own
+  It sits on the tool menu, which is why it is written out in plain HTML
+  rather than with the shell's Button and Tooltip: the menu is what the popup
+  boots into, and pulling the component library into that chunk for one icon
+  button costs more than the button is worth. `title` is the browser's own
   tooltip, which is the right one for a control the panels' tooltips never
   have to line up with.
 -->

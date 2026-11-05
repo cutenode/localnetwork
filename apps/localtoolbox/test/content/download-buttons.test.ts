@@ -1,12 +1,12 @@
-// content.ts — our download button in the place of SoundCloud's own.
+// content.ts: our download button in the place of SoundCloud's own.
 //
 // Two controls are replaced: "Download file" in a track's More menu, and the
 // purchase link ("Buy", "Free Download", …) on Likes rows and track pages.
 // What goes in their place is the button the Manager panel puts on the same
-// track, doing what that one does — the track into the session queue, then
+// track, doing what that one does: the track into the session queue, then
 // the link opened or the file downloaded. It says the same word wherever it
-// stands, behind a download icon, and leaves the one thing that differs — the
-// domain the file would come from — to its tooltip.
+// stands, behind a download icon, and leaves the one thing that differs (the
+// domain the file would come from) to its tooltip.
 //
 // The setting behind it is chrome.storage.local's `settings.replaceDownloadButtons`,
 // which the popup's settings sheet writes (src/lib/settings.svelte.ts) and
@@ -64,9 +64,8 @@ const details = (permalink: string, extra: Partial<KnownDetails> = {}) => ({
 	...extra
 });
 
-// Anchors would make jsdom try to navigate; our button never cancels its own
-// click — the browser following the link is the whole point — so the test
-// cancels it, after it has been seen.
+// Anchors would make jsdom try to navigate. Our button leaves an ordinary
+// link's click to the browser, so the test cancels it, after it has been seen.
 const stopNavigation = () =>
 	document.addEventListener('click', (event) => event.preventDefault(), {
 		signal: listening.signal
@@ -152,7 +151,7 @@ describe('where our button goes', () => {
 			text: 'Download',
 			// The gate.sc wrapper is unwrapped, exactly as the panel unwraps it.
 			href: 'https://hypeddit.com/x',
-			// Where from, which is what the word no longer says.
+			// Where from, which the word does not say.
 			title: 'hypeddit.com',
 			label: 'download from hypeddit.com',
 			permalink: '/l/one',
@@ -284,7 +283,7 @@ describe('what our button says', () => {
 	});
 
 	// The tooltip is drawn before SoundCloud has been asked anything, and
-	// brought up to date when the answer lands — from this tab or from another.
+	// brought up to date when the answer lands, from this tab or from another.
 	it('takes up a spent download limit that is learned after the page was painted', async () => {
 		globalThis.chrome = createChrome();
 		render(playlistPage({ rows: [playlistRow({ href: '/a/one?in=c/sets/p' })] }), '/c/sets/p');
@@ -303,7 +302,7 @@ describe('what our button says', () => {
 
 // SoundCloud sizes its own buttons, and differently from one layout to the
 // next, so ours takes its height from the page rather than from a number
-// written down here — and from the buttons standing *beside* it, which is what
+// written down here, and from the buttons standing *beside* it, which is what
 // it has to line up with. jsdom lays nothing out (every offsetHeight is 0), so
 // the heights are staged on the elements themselves.
 describe('how tall our button is', () => {
@@ -324,8 +323,8 @@ describe('how tall our button is', () => {
 		expect(ours().style.height).toBe('28px');
 	});
 
-	// The point of measuring the neighbours rather than the control being
-	// replaced: SoundCloud does not always size a purchase link like the buttons
+	// The neighbours are measured, rather than the control being replaced,
+	// because SoundCloud does not always size a purchase link like the buttons
 	// it sits among, and it is the buttons ours has to line up with.
 	it('matches the neighbours, not the control it stands in for', async () => {
 		globalThis.chrome = createChrome();
@@ -403,7 +402,7 @@ describe('how tall our button is', () => {
 		expect(ours().style.height).toBe('26px');
 	});
 
-	// Nothing laid out is no answer — a menu still opening, a row not yet
+	// Nothing laid out is no answer: a menu still opening, a row not yet
 	// measured. The stylesheet's own padding stands, and the next pass asks
 	// again rather than holding the button to a zero for good.
 	it('leaves the height to the stylesheet until there is something to measure', async () => {
@@ -427,7 +426,7 @@ describe('what a click on it does', () => {
 		await loadContentScript();
 		stopNavigation();
 		// Whether the click is still the browser's to follow once ours has had
-		// it — asked on the way up, before stopNavigation takes it at the top.
+		// it, asked on the way up, before stopNavigation takes it at the top.
 		const followed: boolean[] = [];
 		ours().parentElement!.addEventListener('click', (event) => followed.push(!event.defaultPrevented));
 
@@ -445,8 +444,8 @@ describe('what a click on it does', () => {
 				reposted: false
 			}
 		]);
-		// Opening a gate says nothing about having the file yet, so — exactly as
-		// in the panel — nothing is marked.
+		// Opening a gate says nothing about having the file yet, so nothing is
+		// marked, exactly as in the panel.
 		expect(downloadedStore()).toBeUndefined();
 	});
 
@@ -460,8 +459,8 @@ describe('what a click on it does', () => {
 		await openMore(document.querySelector('.trackItem .sc-button-more'));
 
 		await click(ours());
-		// Marked by the click detection that has always watched that button —
-		// its own section above — which is why nothing here writes a mark.
+		// Marked by the click detection that has always watched that button
+		// (its own section above), which is why nothing here writes a mark.
 		expect(Object.keys(downloadedStore())).toEqual(['/a/one']);
 		expect(queueIn()).toEqual([
 			{
@@ -545,7 +544,7 @@ describe('what a click on it does', () => {
 		]);
 	});
 
-	// Rows that no layout selector claims — a profile page's, say — still name
+	// Rows that no layout selector claims (a profile page's, say) still name
 	// their track, and that is enough to queue one; the rest of the fields are
 	// what the layout would have given and there is no layout to ask.
 	it('queues the bare permalink from a row no layout claims', async () => {
@@ -642,7 +641,7 @@ describe('the setting behind it', () => {
 // Which is a page inside a page: SoundCloud draws it in an iframe of its own
 // at /n/<user>/<track>, as a React app with none of the classes the rest of
 // this file matches on. The manifest's `all_frames` is what puts the content
-// script in that frame; here it is simply the document under test, because
+// script in that frame; here it is the document under test, because
 // jsdom has one document and the frame's is the only one that matters.
 
 const V2_PURCHASE = { url: 'https://hypeddit.com/x', label: 'DOWNLOAD' };
@@ -781,7 +780,7 @@ describe('the signed-in layout’s cart', () => {
 		expect(queueIn()[0]).toMatchObject({ permalink: '/y3llo/taw-gawli', artist: '' });
 	});
 
-	// It is the tags index, and a genre under it, that is not an uploader — not
+	// It is the tags index, and a genre under it, that is not an uploader, not
 	// every account whose name happens to start with the same four letters.
 	it('reads an uploader whose name starts with "tags" as the uploader', async () => {
 		globalThis.chrome = createChrome();
@@ -795,7 +794,7 @@ describe('the signed-in layout’s cart', () => {
 
 	// Not every link in the header that stays on this site is a profile: one
 	// that goes deeper than a single segment is a track, a set, a page of a
-	// profile — and it is not the uploader for coming before the one that is.
+	// profile. It is not the uploader for coming before the one that is.
 	it('does not take a link deeper than a profile for the uploader', async () => {
 		globalThis.chrome = createChrome();
 		stopNavigation();
@@ -827,7 +826,7 @@ describe('the signed-in layout’s cart', () => {
 		globalThis.chrome = createChrome();
 		stopNavigation();
 		// No `title` on the heading (so the text it shows is the whole of it), no
-		// cover art, and no genre tag — which is "the page never said", not "no
+		// cover art, and no genre tag, which is "the page never said", not "no
 		// genre", exactly as a playlist row with no tag reports it.
 		render(v2Page({ titleAttr: false, artwork: null, genre: null }), '/n/y3llo/taw-gawli');
 		await loadContentScript();

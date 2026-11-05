@@ -1,6 +1,6 @@
 <!--
   SoundCloud Playlist to Text: the tracks as a block of text, in whichever
-  shape the next thing wants them — a list to paste, a CSV, JSON.
+  shape the next thing wants them: a list to paste, a CSV, JSON.
 
   The tracks are the page's, or the session queue's: a batch picked out in the
   Manager tool becomes a set list, a message to a friend or a row of rows in

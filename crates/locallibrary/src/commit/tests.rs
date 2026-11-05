@@ -331,3 +331,214 @@ fn a_commit_deleting_a_folder_fails_with_its_files_in_place(tc: hegel::TestCase)
     assert_eq!(std::fs::read(device.path("Contents/new.mp3")).unwrap(), bytes);
     assert!(device.path("Contents/adir/inside").is_dir());
 }
+
+/// What stops a drawn commit before its swap.
+#[derive(Debug, Clone, Copy)]
+enum Obstacle {
+    /// Cancelled before it starts.
+    Cancelled,
+    /// Cancelled as its last file is staged, before the databases.
+    CancelledAfterFiles,
+    /// `.locallibrary/backups` is a file, so no backup can be made.
+    BackupsIsAFile,
+    /// The databases' folder is a file, so the new database can't be staged.
+    DatabaseFolderIsAFile,
+    /// A needed file goes below a file, so its folder can't be made.
+    BelowAFile,
+    /// A needed file's content can't be made.
+    CantMake,
+    /// The folder a needed file goes in can't be written to.
+    #[cfg(unix)]
+    ReadOnlyFolder,
+    /// The databases' folder is a link out of the drive.
+    #[cfg(unix)]
+    DatabaseFolderOutside,
+}
+
+/// A commit stopped before its swap (cancelled, or a backup, file or database it can't stage)
+/// fails and leaves the drive exactly as it was, with no pending marker: whatever it would have
+/// written, whether it was backing up, and whether the drive was written before.
+#[hegel::test(test_cases = 30)]
+fn prop_a_commit_stopped_before_its_swap_leaves_the_drive_as_it_was(tc: hegel::TestCase) {
+    let obstacles = [
+        Obstacle::Cancelled,
+        Obstacle::CancelledAfterFiles,
+        Obstacle::BackupsIsAFile,
+        Obstacle::DatabaseFolderIsAFile,
+        Obstacle::BelowAFile,
+        Obstacle::CantMake,
+        #[cfg(unix)]
+        Obstacle::ReadOnlyFolder,
+        #[cfg(unix)]
+        Obstacle::DatabaseFolderOutside,
+    ];
+    let obstacle = tc.draw(gs::sampled_from(&obstacles));
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("drive");
+    std::fs::create_dir_all(root.join("Contents")).unwrap();
+    std::fs::write(root.join("Contents/blocker"), b"x").unwrap();
+    // At times the drive was written before, backed up or not: its backups are kept on a rollback.
+    if let Some(backed_up) = tc.draw(gs::optional(gs::booleans())) {
+        let mut device = Device::open(&root).unwrap();
+        let mut opts = Options::new(LineageOp::Edit, "an earlier commit");
+        opts.lineage = false;
+        if backed_up && !matches!(obstacle, Obstacle::BackupsIsAFile) {
+            opts = opts.backup("before an earlier commit");
+        }
+        let changes =
+            Changes { files: vec![NewFile::bytes("Contents/prior.mp3", b"p".to_vec())], ..Default::default() };
+        commit(&mut device, changes, opts, &Ctx::silent()).unwrap();
+    }
+    let bytes = tc.draw(gs::binary().max_size(16));
+    let mut files = vec![NewFile::bytes("Contents/new/a.mp3", bytes.clone())];
+    let mut databases = NewDatabases::default();
+    let backup = match obstacle {
+        Obstacle::BackupsIsAFile => {
+            std::fs::create_dir_all(root.join(paths::STATE_DIR)).unwrap();
+            std::fs::write(root.join(paths::STATE_DIR).join("backups"), b"not a folder").unwrap();
+            true
+        }
+        // Rolling back takes away a backups folder the commit made.
+        Obstacle::BelowAFile => true,
+        // A backup would refuse the databases first.
+        #[cfg(unix)]
+        Obstacle::DatabaseFolderOutside => false,
+        _ => tc.draw(gs::booleans()),
+    };
+    match obstacle {
+        Obstacle::DatabaseFolderIsAFile => {
+            let pdb = root.join(paths::EXPORT_PDB);
+            std::fs::create_dir_all(pdb.parent().unwrap().parent().unwrap()).unwrap();
+            std::fs::write(pdb.parent().unwrap(), b"not a folder").unwrap();
+            databases.pdb = Some(bytes.clone());
+        }
+        Obstacle::BelowAFile => files.push(NewFile::bytes("Contents/blocker/b.mp3", bytes.clone())),
+        Obstacle::CantMake => files.push(NewFile::make("Contents/c.mp3", 1, || Err(Error::invalid("can't make it")))),
+        #[cfg(unix)]
+        Obstacle::ReadOnlyFolder => {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::create_dir_all(root.join("Contents/locked")).unwrap();
+            std::fs::set_permissions(root.join("Contents/locked"), std::fs::Permissions::from_mode(0o555)).unwrap();
+            files.push(NewFile::bytes("Contents/locked/d.mp3", bytes.clone()));
+        }
+        #[cfg(unix)]
+        Obstacle::DatabaseFolderOutside => {
+            std::fs::create_dir_all(dir.path().join("elsewhere/rekordbox")).unwrap();
+            std::os::unix::fs::symlink(dir.path().join("elsewhere"), root.join("PIONEER")).unwrap();
+            databases.pdb = Some(bytes.clone());
+        }
+        _ => {}
+    }
+    let mut device = Device::open(&root).unwrap();
+    let before = snapshot(device.root());
+    let mut opts = Options::new(LineageOp::Edit, "a stopped commit");
+    opts.lineage = false;
+    if backup {
+        opts = opts.backup("before a stopped commit");
+    }
+    let cancel = CancelToken::new();
+    if matches!(obstacle, Obstacle::Cancelled) {
+        cancel.cancel();
+    }
+    let progress = {
+        let (cancel, stop_after_files) = (cancel.clone(), matches!(obstacle, Obstacle::CancelledAfterFiles));
+        move |e: &Event| {
+            if stop_after_files && matches!(e, Event::PhaseEnd { phase: Phase::Copy }) {
+                cancel.cancel();
+            }
+        }
+    };
+    let ctx = Ctx::new(&progress, cancel);
+    let result = commit(&mut device, Changes { databases, files, ..Default::default() }, opts, &ctx);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let locked = root.join("Contents/locked");
+        if locked.is_dir() {
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+    tc.note(&format!("{obstacle:?} backup {backup}: {result:?}"));
+    let err = result.unwrap_err();
+    if matches!(obstacle, Obstacle::Cancelled | Obstacle::CancelledAfterFiles) {
+        assert!(matches!(err.inner(), Error::Cancelled), "{err}");
+    }
+    assert_eq!(snapshot(device.root()), before, "a stopped commit changed the drive");
+    assert!(Device::open(&root).unwrap().state().and_then(|s| s.pending.as_ref()).is_none());
+}
+
+/// What fails a drawn commit once its files are staged.
+#[derive(Debug, Clone, Copy)]
+enum Late {
+    /// A file to remove first has an unsafe path: nothing is swapped in.
+    UnsafeRemoveFirst,
+    /// Its file goes where a folder with something in it is: the swap stops there.
+    OverAFolder,
+    /// The backup it seals, made by its caller, isn't there.
+    MissingCallerBackup,
+    /// It records its lineage, and the drive has no library to record.
+    NoLibrary,
+    /// It records its lineage, and the drive's hash index can't be saved.
+    IndexUnsaved,
+}
+
+/// A commit whose remove-first path is unsafe fails without swapping anything in. Once it has
+/// swapped (a library to record that isn't there, a hash index it can't save, a caller's backup
+/// that's gone), it fails with its file in place; a swap that can't place its file fails with the folder there left alone.
+#[hegel::test(test_cases = 20)]
+fn prop_a_commit_failing_at_or_after_its_swap_reports_it(tc: hegel::TestCase) {
+    let late = tc.draw(gs::sampled_from(&[
+        Late::UnsafeRemoveFirst,
+        Late::OverAFolder,
+        Late::MissingCallerBackup,
+        Late::NoLibrary,
+        Late::IndexUnsaved,
+    ]));
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("Contents/adir/inside")).unwrap();
+    if matches!(late, Late::IndexUnsaved) {
+        let pdb = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/rekordbox-pdb/tests/data/bigger-export.pdb");
+        let at = dir.path().join(paths::EXPORT_PDB);
+        std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+        std::fs::copy(pdb, at).unwrap();
+        Device::open(dir.path()).unwrap().adopt(None).unwrap();
+        let index = dir.path().join(paths::STATE_DIR).join("index.json");
+        std::fs::remove_file(&index).ok();
+        std::fs::create_dir_all(index.join("in the way")).unwrap();
+    }
+    let bytes = tc.draw(gs::binary().max_size(16));
+    let key = match late {
+        Late::OverAFolder => "Contents/adir",
+        _ => "Contents/new.mp3",
+    };
+    let mut device = Device::open(dir.path()).unwrap();
+    let mut opts = Options::new(LineageOp::Edit, "a commit failing late");
+    opts.lineage = matches!(late, Late::NoLibrary | Late::IndexUnsaved);
+    let changes = Changes {
+        files: vec![NewFile::bytes(key, bytes.clone())],
+        remove_first: match late {
+            Late::UnsafeRemoveFirst => vec!["../outside.mp3".into()],
+            _ => Vec::new(),
+        },
+        ..Default::default()
+    };
+    let result = match late {
+        Late::MissingCallerBackup => {
+            under_backup("19700101T000000.000Z", || commit(&mut device, changes, opts, &Ctx::silent()))
+        }
+        _ => commit(&mut device, changes, opts, &Ctx::silent()),
+    };
+    tc.note(&format!("{late:?}: {result:?}"));
+    let err = result.unwrap_err();
+    match late {
+        Late::UnsafeRemoveFirst => assert!(!device.path(key).exists()),
+        Late::OverAFolder => assert!(device.path("Contents/adir/inside").is_dir()),
+        Late::NoLibrary => {
+            assert!(matches!(err.inner(), Error::NotAnExport(_)), "{err}");
+            assert_eq!(std::fs::read(device.path(key)).unwrap(), bytes);
+        }
+        Late::MissingCallerBackup | Late::IndexUnsaved => {
+            assert_eq!(std::fs::read(device.path(key)).unwrap(), bytes)
+        }
+    }
+}

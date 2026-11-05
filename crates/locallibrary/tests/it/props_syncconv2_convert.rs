@@ -10,6 +10,7 @@ use indexmap::IndexMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
@@ -18,8 +19,8 @@ use locallibrary::convert::{self, ConvertOptions, ConvertPlan, ConvertReport, Ta
 use locallibrary::device::Device;
 use locallibrary::edit::Edit;
 use locallibrary::onelibrary::OneLibrary;
-use locallibrary::progress::Ctx;
-use locallibrary::{Library, paths, pdb, tags};
+use locallibrary::progress::{CancelToken, Ctx, Event, Phase, Progress};
+use locallibrary::{Error, Library, paths, pdb, tags};
 
 /// The twelve-track drive (or rekordbox's two-track demo export) `name` in `dir`, made once and
 /// written out for each case, which is quicker than making it.
@@ -430,4 +431,137 @@ fn what_a_conversion_cant_do_is_said(tc: TestCase) {
         "{:?}",
         plan.warnings
     );
+}
+
+/// Cancels its run once it has seen `at` tracks written into the new database.
+struct CancelAt {
+    seen: AtomicUsize,
+    at: usize,
+    cancel: CancelToken,
+}
+
+impl Progress for CancelAt {
+    fn on_event(&self, e: &Event) {
+        if matches!(e, Event::Item { phase: Phase::Write, .. })
+            && self.seen.fetch_add(1, Ordering::SeqCst) + 1 == self.at
+        {
+            self.cancel.cancel();
+        }
+    }
+}
+
+/// A conversion cancelled before or while it builds the new database stops there with the drive
+/// as it was, whichever way it goes, and whether it makes the database, adds to the one the drive
+/// has or rebuilds it.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_cancelled_conversion_leaves_the_drive_as_it_was(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = drive(dir.path(), "A", false);
+    let to = tc.draw(gs::sampled_from(vec![Target::OneLibrary, Target::DeviceLibrary]));
+    let existing = tc.draw(gs::booleans());
+    match (to, existing) {
+        (_, true) => common::add_onelibrary(&root),
+        (Target::DeviceLibrary, false) => common::onelibrary_only(&root),
+        (Target::OneLibrary, false) => {}
+    }
+    let opts = ConvertOptions { to, replace: existing && tc.draw(gs::booleans()) };
+    let mut d = Device::open_export(&root).unwrap();
+    let plan = convert::plan(&d, &opts, &Ctx::silent()).unwrap();
+    // Cancelled once `at` of the twelve tracks were written (0: before it starts), with at least
+    // one more to go.
+    let at = tc.draw(gs::integers::<usize>().max_value(10));
+    let cancel = CancelToken::new();
+    if at == 0 {
+        cancel.cancel();
+    }
+    let watch = CancelAt { seen: AtomicUsize::new(0), at, cancel: cancel.clone() };
+    let before = common::Before::take(&root);
+    let err = convert::apply(&plan, &mut d, &opts, &Ctx::new(&watch, cancel)).unwrap_err();
+    assert!(matches!(err, Error::Cancelled), "{opts:?} at {at}: {err}");
+    before.untouched(&root).unwrap();
+}
+
+/// A playlist that a damaged or crafted OneLibrary puts inside another playlist, where no walk
+/// down the folders reaches it, comes across into a new export.pdb at the top level with its
+/// entries, beside the playlist that held it.
+#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_playlist_inside_a_playlist_comes_across_at_the_top(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = drive(dir.path(), "A", false);
+    common::onelibrary_only(&root);
+    let mut one = OneLibrary::open_root(&root).unwrap();
+    let plus = one.library().unwrap();
+    let ids: Vec<u32> = plus.tracks.iter().map(|t| t.id).collect();
+    let had = plus.playlists.iter().filter(|p| !p.is_folder).count();
+    let outer = one.create_playlist("Outer", 0, false).unwrap();
+    let mut inner = Vec::new();
+    for n in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
+        let name = format!("Inner {n}");
+        let id = one.create_playlist(&name, outer, false).unwrap();
+        let entries: Vec<u32> = tc.draw(gs::vecs(gs::sampled_from(ids.clone())).max_size(3).unique(true));
+        for e in &entries {
+            one.add_to_playlist(id, *e).unwrap();
+        }
+        inner.push((name, entries));
+    }
+    fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+
+    let (plan, report, _) = convert(&root, &ConvertOptions { to: Target::DeviceLibrary, replace: false });
+    let all = had + inner.len() + 1;
+    assert_eq!((plan.playlists, report.playlists), (all, all));
+    let lib = made(&root, Target::DeviceLibrary);
+    let title = |l: &Library, id: &u32| l.track(*id).unwrap().title.clone();
+    for (name, entries) in &inner {
+        let p = lib.find_playlist(name).unwrap_or_else(|| panic!("{name} at the top in {:?}", lib.playlists));
+        assert_eq!(p.parent_id, None, "{name}");
+        let got: Vec<String> = p.track_ids.iter().map(|id| title(&lib, id)).collect();
+        let want: Vec<String> = entries.iter().map(|id| title(&plus, id)).collect();
+        assert_eq!(got, want, "{name}");
+    }
+    assert!(lib.find_playlist("Outer").is_some_and(|p| p.parent_id.is_none() && p.track_ids.is_empty()));
+}
+
+/// An image a OneLibrary track points at outside the drive is never read: the plan counts it
+/// missing, and the new export.pdb's tracks get no artwork.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_an_image_outside_the_drive_is_left_out(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = drive(dir.path(), "A", false);
+    common::onelibrary_only(&root);
+    // A real image just outside the drive, so only where it is keeps it out.
+    fs::write(dir.path().join("outside.jpg"), common::media::png(8, 8, 1)).unwrap();
+    let mut one = OneLibrary::open_root(&root).unwrap();
+    let ids: Vec<u32> = one.library().unwrap().tracks.iter().map(|t| t.id).collect();
+    let tracks = tc.draw(gs::vecs(gs::sampled_from(ids)).min_size(1).max_size(3).unique(true));
+    let path = tc.draw(gs::sampled_from(vec!["/../outside.jpg", "/PIONEER/../../outside.jpg"]));
+    let image = one.add_image(path).unwrap();
+    one.set_track_image(&tracks, image).unwrap();
+    fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+
+    let (plan, report, _) = convert(&root, &ConvertOptions { to: Target::DeviceLibrary, replace: false });
+    let missing = "1 artwork image(s) the tracks point at are missing on the drive; those tracks get no artwork";
+    assert!(plan.warnings.iter().any(|w| w == missing), "{:?}", plan.warnings);
+    assert_eq!((plan.artwork, report.artwork), (0, 0));
+    assert!(made(&root, Target::DeviceLibrary).tracks.iter().all(|t| t.artwork_path.is_none()));
+}
+
+/// A OneLibrary track that grows too long for export.pdb after the plan (a comment longer than a
+/// row holds) makes applying the conversion fail with the drive as it was.
+#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_track_grown_too_long_after_the_plan_leaves_the_drive_as_it_was(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = drive(dir.path(), "A", false);
+    common::onelibrary_only(&root);
+    let opts = ConvertOptions { to: Target::DeviceLibrary, replace: false };
+    let mut d = Device::open_export(&root).unwrap();
+    let plan = convert::plan(&d, &opts, &Ctx::silent()).unwrap();
+    let one = OneLibrary::open_root(&root).unwrap();
+    let id = tc.draw(gs::sampled_from(one.library().unwrap().tracks.iter().map(|t| t.id).collect::<Vec<_>>()));
+    let long = "x".repeat(tc.draw(gs::integers::<usize>().min_value(5_000).max_value(9_000)));
+    one.connection().execute("UPDATE content SET djComment = ?1 WHERE content_id = ?2", (&long, id)).unwrap();
+    fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+    let before = common::Before::take(&root);
+    convert::apply(&plan, &mut d, &opts, &Ctx::silent()).unwrap_err();
+    before.untouched(&root).unwrap();
+    assert!(!d.has_device_library());
 }

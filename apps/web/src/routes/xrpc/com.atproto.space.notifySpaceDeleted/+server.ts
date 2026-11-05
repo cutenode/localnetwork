@@ -23,7 +23,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		if (payload.iss !== ref.authority) throw new ServiceAuthError('Issuer is not the space authority');
 	} catch (error) {
-		log.warn({ err: error, space }, 'rejected notifySpaceDeleted');
+		log.warn('rejected notifySpaceDeleted', { err: error, space });
 
 		return json({ error: 'AuthenticationRequired' }, { status: 401 });
 	}

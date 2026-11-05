@@ -33,6 +33,8 @@ static REDUCED_MOTION: AtomicBool = AtomicBool::new(false);
 thread_local! {
     /// A test's own mode, so tests drawing in different modes can run side by side.
     static TEST_MODE: std::cell::Cell<Option<Mode>> = const { std::cell::Cell::new(None) };
+    /// A test's frames in 24-bit colour, whatever terminal runs it.
+    static TEST_TRUECOLOR: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Read how to draw from the environment, as the player starts (tests draw dark unless they
@@ -85,6 +87,12 @@ pub fn set_test_mode(mode: Option<Mode>) {
     TEST_MODE.with(|m| m.set(mode));
 }
 
+/// Draw this thread's frames in 24-bit colour.
+#[cfg(all(test, feature = "account"))]
+pub fn set_test_truecolor() {
+    TEST_TRUECOLOR.with(|t| t.set(true));
+}
+
 /// No colours: say it with bold, reverse video and symbols instead.
 pub fn plain() -> bool {
     mode() == Mode::Plain
@@ -97,6 +105,10 @@ pub fn reduced_motion() -> bool {
 }
 
 fn truecolor() -> bool {
+    #[cfg(test)]
+    if TEST_TRUECOLOR.with(std::cell::Cell::get) {
+        return true;
+    }
     static TRUECOLOR: OnceLock<bool> = OnceLock::new();
     *TRUECOLOR.get_or_init(|| {
         let colorterm = std::env::var("COLORTERM").unwrap_or_default().to_lowercase();

@@ -154,6 +154,18 @@ pub fn sent_at(got: &Got) -> Option<usize> {
     token?.strip_prefix("at-")?.parse().ok()
 }
 
+/// Whether `text` holds a token `at-<n>` or `rt-<n>`, one of the first `issued` the service handed
+/// out. Whole tokens only: `at-1` also turns up inside the random state and PKCE challenge of a
+/// sign-in link, which are base64url.
+pub fn holds_token(text: &str, issued: usize) -> bool {
+    let in_a_word = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_');
+    let whole = |token: String| {
+        text.match_indices(&token)
+            .any(|(at, _)| !text[..at].ends_with(in_a_word) && !text[at + token.len()..].starts_with(in_a_word))
+    };
+    (1..=issued).any(|n| whole(format!("at-{n}")) || whole(format!("rt-{n}")))
+}
+
 /// A mock OAuth service: `/token` trades a code (checked against the PKCE challenge) or a refresh
 /// token for tokens, and so does Local Network's token exchange for it, taking the same as JSON;
 /// `/revoke` takes one back; `/userinfo` says who an access token is for, and

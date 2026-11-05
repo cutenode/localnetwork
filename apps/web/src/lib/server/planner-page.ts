@@ -25,7 +25,7 @@ export async function loadPlanner(locals: Locals, viewer: Viewer) {
 
 		return { available: true as const, saves, shows, projects: Object.fromEntries(projects) };
 	} catch (error) {
-		locals.log.warn({ err: error }, 'planner unavailable');
+		locals.log.warn('planner unavailable', { err: error });
 
 		return {
 			available: false as const,

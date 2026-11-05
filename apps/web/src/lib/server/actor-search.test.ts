@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ActorSearch } from './actor-search';
 import { silentLogger } from './logger';
+import { writtenLog } from './testing/written-log';
 
 const neon = {
 	did: 'did:plc:neon',
@@ -66,14 +67,13 @@ describe('ActorSearch', () => {
 
 	it('finds nothing for a letter, with the search off, or when Bluesky fails', async () => {
 		const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response('down', { status: 502 }));
-		const warn = vi.spyOn(silentLogger, 'warn');
+		const { logger, notes } = writtenLog('warn');
 
 		expect(await new ActorSearch({ logger: silentLogger, provider: 'bluesky', fetch }).search('n')).toEqual([]);
 		expect(await new ActorSearch({ logger: silentLogger, provider: 'none', fetch }).search('neon')).toEqual([]);
 		expect(fetch).not.toHaveBeenCalled();
 
-		expect(await new ActorSearch({ logger: silentLogger, provider: 'bluesky', fetch }).search('neon')).toEqual([]);
-		expect(warn).toHaveBeenCalledWith(expect.objectContaining({ term: 'neon' }), 'actor typeahead failed');
-		warn.mockRestore();
+		expect(await new ActorSearch({ logger, provider: 'bluesky', fetch }).search('neon')).toEqual([]);
+		expect(notes()).toEqual([expect.objectContaining({ message: 'actor typeahead failed', term: 'neon' })]);
 	});
 });

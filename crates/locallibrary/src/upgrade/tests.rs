@@ -196,3 +196,68 @@ fn an_upgrade_or_the_first_reason_it_isnt_one(tc: hegel::TestCase) {
         assert!(why.starts_with(starts), "{reason}: {why}");
     }
 }
+
+/// The lossless files in a folder are its WAVs and the `.m4a`s whose header says Apple Lossless,
+/// not AAC ones or MP3s. A lossless file whose length can't be told gives no bitrate; AAC its
+/// average.
+#[hegel::test(test_cases = 10)]
+fn prop_an_m4a_is_lossless_by_its_header(tc: hegel::TestCase) {
+    use loclib_mixid::test_util::{m4a, mp4_empty_tables, wav};
+    let aac = fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio/silence.m4a")).unwrap();
+    let files: [(&str, Vec<u8>, bool); 4] = [
+        ("Song.wav", wav(44_100, 16, 0.5), true),
+        ("Apple.m4a", m4a(44_100, &mp4_empty_tables(), &[]), true),
+        ("Silence.m4a", aac.clone(), false),
+        ("Lossy.mp3", b"an mp3".to_vec(), false),
+    ];
+    let given: Vec<usize> = tc.draw(gs::subsequences((0..files.len()).collect::<Vec<_>>()));
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("USB")).unwrap();
+    let device = Device::open(dir.path().join("USB")).unwrap();
+    let folder = dir.path().join("Lossless");
+    fs::create_dir_all(&folder).unwrap();
+    for &i in &given {
+        fs::write(folder.join(files[i].0), &files[i].1).unwrap();
+    }
+    let mut found: Vec<String> = lossless_files(std::slice::from_ref(&folder), &device, &Ctx::silent())
+        .unwrap()
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    found.sort();
+    let mut want: Vec<String> = given.iter().filter(|&&i| files[i].2).map(|&i| files[i].0.to_string()).collect();
+    want.sort();
+    assert_eq!(found, want);
+
+    let alac = folder.join("Apple.m4a");
+    fs::write(&alac, &files[1].1).unwrap();
+    let (facts, codec) = audio_file(&alac, files[1].1.len() as u64).unwrap();
+    assert_eq!((codec, facts.bitrate), (Some(Codec::Alac), 0), "no audio, so no length to average over");
+    let silence = folder.join("Silence.m4a");
+    fs::write(&silence, &aac).unwrap();
+    let (facts, codec) = audio_file(&silence, aac.len() as u64).unwrap();
+    // 1402 bytes over 20 seconds: 0.56 kbit/s.
+    assert_eq!((codec, facts.bitrate), (Some(Codec::Aac), 1));
+}
+
+/// A file at the copy's name, of the copy's size, that can't be read stops the naming: whether
+/// it's the same audio can't be told.
+#[cfg(unix)]
+#[hegel::test(test_cases = 3)]
+fn prop_an_unreadable_file_at_the_copys_name_is_an_error(tc: hegel::TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("USB");
+    fs::create_dir_all(root.join("Contents/Sound")).unwrap();
+    let device = Device::open(&root).unwrap();
+    let audio = tc.draw(gs::vecs(gs::integers::<u8>()).min_size(1).max_size(64));
+    let lossless = dir.path().join("Song.wav");
+    fs::write(&lossless, &audio).unwrap();
+    let there = device.path("Contents/Sound/Song.wav");
+    fs::write(&there, vec![0u8; audio.len()]).unwrap();
+    fs::set_permissions(&there, fs::Permissions::from_mode(0o000)).unwrap();
+    let size = audio.len() as u64;
+    let got = free_key(&device, "Contents/Sound", "Song.wav", &lossless, size, &FxHashSet::default(), &Ctx::silent());
+    fs::set_permissions(&there, fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(matches!(got, Err(Error::Io { .. })), "{got:?}");
+}

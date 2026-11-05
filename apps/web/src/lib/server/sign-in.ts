@@ -43,7 +43,7 @@ export async function signInPurpose(
 	try {
 		project = await deps.bySlug(slug);
 	} catch (error) {
-		deps.log.debug({ err: error, slug }, 'could not name the project behind a sign-in');
+		deps.log.debug('could not name the project behind a sign-in', { err: error, slug });
 
 		return null;
 	}

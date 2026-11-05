@@ -23,9 +23,9 @@ let loading: Promise<void> | null = null;
 /**
  * Puts state-transfer.js on the page, the first time something asks.
  *
- * Only the settings sheet uses it, and it is 30 kB that popup.html used to
- * read before drawing anything, on every open. A script that failed to load
- * is not remembered as a failure, so the next opening of the sheet tries again.
+ * Only the settings sheet uses it, and at 30 kB it is not worth reading before
+ * drawing anything on every open. A script that failed to load is not
+ * remembered as a failure, so the next opening of the sheet tries again.
  */
 export function loadTransfer() {
 	// Already on the page: the tests load it themselves.

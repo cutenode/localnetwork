@@ -30,7 +30,7 @@ export const actions: Actions = {
 		try {
 			url = await locals.app.oauth.authorize(host.service, JSON.stringify({ next }), { prompt: 'create' });
 		} catch (error) {
-			locals.log.info({ err: error, service: host.service }, 'sign-up authorize failed');
+			locals.log.info('sign-up authorize failed', { err: error, service: host.service });
 
 			return fail(502, { error: `We couldn't reach ${host.name}. Try again, or pick another host.` });
 		}

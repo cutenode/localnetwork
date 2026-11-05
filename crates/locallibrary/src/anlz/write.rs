@@ -161,7 +161,7 @@ fn list_entries<'a>(bytes: &'a [u8], s: &SectionRef) -> Vec<&'a [u8]> {
     let mut pos = s.start + s.header_len;
     let end = s.start + s.total_len;
     while pos + 12 <= end {
-        let Some(t) = be_u32(bytes, pos + 8).map(|t| t as usize) else { break };
+        let t = be_u32(bytes, pos + 8).expect("in the section, which sections checked") as usize;
         if t < 12 || pos + t > end {
             break;
         }

@@ -151,3 +151,23 @@ fn the_policy_keeps_exactly_what_it_names(tc: hegel::TestCase) {
         assert_eq!(!c.drives.is_empty(), on_drives.contains(&i));
     }
 }
+
+/// Applying a policy again to snapshots it marked keeps each for the same reasons, each listed
+/// once.
+#[hegel::test(test_cases = 100)]
+fn prop_a_policy_applied_again_keeps_for_the_same_reasons(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut snaps = three_weeks();
+    let head = tc.draw(gs::optional(gs::integers::<usize>().max_value(snaps.len() - 1))).map(|i| snaps[i].info.id);
+    let size = || gs::optional(gs::integers::<usize>().max_value(6));
+    let opts = PruneOptions {
+        keep_last: tc.draw(size()),
+        keep_daily: tc.draw(size()),
+        keep_weekly: tc.draw(size()),
+        ..Default::default()
+    };
+    by_policy(&mut snaps, head, &FxHashMap::default(), &opts);
+    let once: Vec<Vec<KeepReason>> = snaps.iter().map(|c| c.reasons.clone()).collect();
+    by_policy(&mut snaps, head, &FxHashMap::default(), &opts);
+    assert_eq!(snaps.iter().map(|c| c.reasons.clone()).collect::<Vec<_>>(), once);
+}

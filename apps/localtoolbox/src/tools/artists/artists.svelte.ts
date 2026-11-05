@@ -5,14 +5,14 @@
 // and for the same reasons: nothing goes onto it by itself, what is on it
 // stays across openings of the popup, tabs and browser restarts until it is
 // taken off, and it lives in chrome.storage.local beside the marks and the
-// details cache — what the tool knows, as against where somebody is in a
+// details cache: what the tool knows, as against where somebody is in a
 // piece of work, which is the session's. The exported state file carries it;
 // state-transfer.ts reads this key directly, and test/consistency.test.ts
 // checks the two agree on it.
 //
-// What an entry is: an artist as the panel lists one — the uploader's path,
+// What an entry is: an artist as the panel lists one (the uploader's path,
 // which is its identity; the name a page gave; the tracks that brought it in,
-// so the row can say why it is here — plus what SoundCloud said about the
+// so the row can say why it is here), plus what SoundCloud said about the
 // account when it was asked (`profile`, see content.ts GET_ARTIST_PROFILES),
 // and the two things the list itself knows: where the artist came in from,
 // and when.
@@ -22,11 +22,11 @@ import { storedList } from '$lib/stored';
 import type { ArtistEntry, ProfileAnswer, ProfileEntry, SavedArtistEntry } from '$lib/types';
 import { fallback, z } from '$lib/zod';
 
-/** The storage key. state-transfer.js writes the same one; keep them in step. */
+/** The storage key. state-transfer.ts writes the same one; keep them in step. */
 export const ARTISTS_KEY = 'artists';
 
 // How many artists the list holds. An entry with a profile is a kilobyte or
-// so — the bio is the bulk of it, and content.js caps that — so two thousand
+// so (the bio is the bulk of it, and content.ts caps that), so two thousand
 // of them is a couple of megabytes of the 10 MB area, beside the Manager's
 // list and the details cache. Past it the list refuses rather than dropping
 // the oldest, for the reason the Manager's does: these were put here on
@@ -220,7 +220,7 @@ class Artists {
 
 	/**
 	 * Makes the list exactly these artists, for an import asked to replace
-	 * what is here (state-transfer.js). The file's order is the list's; an
+	 * what is here (state-transfer.ts). The file's order is the list's; an
 	 * artist the file names twice lands once; one past MAX is refused.
 	 *
 	 * @returns `added` is how many the list holds now
@@ -256,7 +256,7 @@ class Artists {
 	/**
 	 * Takes in what a lookup said: a profile per artist, or that there is
 	 * none (`{ permalink, unavailable: true }`). Answers for artists not on
-	 * the list are dropped — they may have been taken off while the lookup
+	 * the list are dropped: they may have been taken off while the lookup
 	 * ran. Each is stamped with the time it arrived.
 	 *
 	 * Written back a moment later rather than at once (see SAVE_DELAY_MS);

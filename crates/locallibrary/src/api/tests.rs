@@ -430,3 +430,243 @@ fn a_provision_plan_keeps_the_formats_warnings_in_the_formats_plan() {
     assert!(plan.plan.warnings.is_empty(), "its own: {:?}", plan.plan.warnings);
     assert!(once(&plan.warnings), "every warning, once: {:?}", plan.warnings);
 }
+
+/// Provisioning with a format plans the format's steps first, and applies only with the plan's
+/// `format.identity`: none, or another disk's, is refused before anything is erased. Confirmed,
+/// the disk is erased and the new volume gets the drive's name and a copy of the library; one the
+/// system didn't mount stops the provision at the format, and an eject the system refuses stops
+/// it at the eject, the steps before it done; one it takes is reported.
+#[cfg(target_os = "macos")]
+#[hegel::test(test_cases = 8)]
+#[hegel::explicit_test_case(mounted = true, eject = true, ejects = false, confirmed = "the plan's")]
+#[hegel::explicit_test_case(mounted = true, eject = true, ejects = true, confirmed = "the plan's")]
+#[hegel::explicit_test_case(mounted = false, eject = false, ejects = false, confirmed = "the plan's")]
+fn prop_a_provision_formats_only_the_confirmed_disk(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = fake_tools::FakeTools::new();
+    let (store, d) = drive_on_a_disk(&mut fake, false);
+    fake.volume_at(d.root(), "vfat", true);
+    let source = fake.demo_drive("Source");
+    let mounted = tc.draw(gs::weighted_booleans(0.8));
+    let eject = tc.draw(gs::booleans());
+    let ejects = tc.draw(gs::booleans());
+    let req = ProvisionRequest {
+        target: d.root().display().to_string(),
+        like: Some(source.display().to_string()),
+        library: None,
+        name: Some("Gig".into()),
+        format: true,
+        format_options: FormatOptions::default(),
+        role: Some("backup".into()),
+        player_name: None,
+        player_colour: None,
+        settings: false,
+        verify: false,
+        eject,
+    };
+    let planned = provision_plan(&store, &req, &Ctx::silent()).unwrap();
+    let format = planned.plan.format.clone().unwrap();
+    assert!(planned.destructive);
+    assert!(planned.plan.steps.iter().any(|s| s == "give it the name \"Gig\""), "{:?}", planned.plan.steps);
+    assert_eq!(
+        planned.plan.steps.last().map(String::as_str),
+        Some(if eject { "eject it" } else { "mark it as a backup drive" })
+    );
+    let erase = ["eraseDisk", "MS-DOS FAT32", format.label.as_str(), "MBR", "disk4"];
+    fake.then_after("diskutil", &erase);
+    let new = fake.dir().join("NEW");
+    std::fs::create_dir(&new).unwrap();
+    let new = device::dunce_canonicalize(&new);
+    // The system knows the new volume, and ejects it, or doesn't.
+    if ejects {
+        let volume = serde_json::json!({ "DeviceIdentifier": "disk4s1", "ParentWholeDisk": "disk4", "MountPoint": new,
+                "FilesystemType": "msdos", "FilesystemName": "MS-DOS FAT32" });
+        fake.answer("diskutil", &["info", "-plist", &new.to_string_lossy()], &volume.to_string());
+        for c in crate::eject::commands(&new).unwrap() {
+            fake.answer(&c.program, &c.args.iter().map(String::as_str).collect::<Vec<_>>(), "");
+        }
+    }
+    let mut part = serde_json::json!({ "DeviceIdentifier": "disk4s1", "Size": 63_000_000_000u64 });
+    if mounted {
+        part["MountPoint"] = serde_json::json!(new);
+    }
+    let listing =
+        serde_json::json!({ "AllDisksAndPartitions": [{ "DeviceIdentifier": "disk4", "Partitions": [part] }] });
+    let info = serde_json::json!({ "DeviceIdentifier": "disk4", "Size": 64_000_000_000u64, "MediaName": "Ultra Fit" });
+    fake.answer("diskutil", &["list", "-plist", "disk4"], &listing.to_string());
+    fake.answer("diskutil", &["info", "-plist", "disk4"], &info.to_string());
+    fake.answer("diskutil", &["info", "-plist", "disk4s1"], "{}");
+
+    let erased = || fake.calls().iter().any(|c| c.args.first().is_some_and(|a| a == "eraseDisk"));
+    let confirmed = tc.draw(gs::sampled_from(vec!["none", "another", "the plan's"]));
+    let identity = match confirmed {
+        "none" => None,
+        "another" => Some(format!("{}0", format.identity)),
+        _ => Some(format.identity.clone()),
+    };
+    let applied = provision_apply(&store, &req, identity.as_deref(), &Ctx::silent());
+    match confirmed {
+        "none" => assert!(matches!(&applied, Err(Error::Invalid(m)) if m.contains("format.identity")), "{applied:?}"),
+        "another" => assert!(matches!(&applied, Err(Error::StalePlan(_))), "{applied:?}"),
+        _ => {}
+    }
+    if identity.as_deref() != Some(format.identity.as_str()) {
+        assert!(!erased());
+        return;
+    }
+    let report = applied.unwrap();
+    assert!(erased());
+    let stopped = report.stopped.as_ref().map(|s| s.step.as_str());
+    if !mounted {
+        assert_eq!(stopped, Some("format"), "{:?}", report.stopped);
+        assert!(report.stopped.unwrap().message.contains("wasn't mounted"));
+        return;
+    }
+    let made = Device::open(&new).unwrap();
+    assert_eq!(made.name(), "Gig");
+    assert_eq!(made.library().unwrap(), Device::open(&source).unwrap().library().unwrap());
+    let role = store.drives().unwrap().shift_remove(&made.id().unwrap()).and_then(|r| r.role);
+    assert_eq!(role, Some(crate::fleet::Role::Backup));
+    assert_eq!(report.drive.and_then(|i| i.name).as_deref(), Some("Gig"));
+    assert_eq!(stopped, (eject && !ejects).then_some("eject it"), "{:?}", report.stopped);
+    assert_eq!(report.eject.map(|e| e.root), (eject && ejects).then_some(new));
+}
+
+/// Getting a saved drive on a disk ready for a set ejects it once the check passes: the plan
+/// names the drive (warning where ejecting hasn't been tested), and applied, the check finds the
+/// drive ready for the CDJ-3000, then the job runs the system's eject, says the drive can be
+/// pulled out, and counts the eject in its logbook.
+#[cfg(target_os = "macos")]
+#[hegel::test(test_cases = 4)]
+fn prop_a_set_job_ejects_the_drive_once_it_is_checked(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = fake_tools::FakeTools::new();
+    let root = device::dunce_canonicalize(&fake.demo_drive("DNA"));
+    for t in Device::open(&root).unwrap().library().unwrap().tracks {
+        let audio = crate::paths::to_fs(&root, &crate::paths::key(&t.file_path));
+        std::fs::create_dir_all(audio.parent().unwrap()).unwrap();
+        std::fs::write(audio, "audio").unwrap();
+    }
+    let drive = root.display().to_string();
+    let store = Store::open_or_init(fake.dir().join("store")).unwrap();
+    fake.volume_at(&root, "vfat", true);
+    adopt_drive(Some(&store), &AdoptDrive { drive: drive.clone(), name: Some("DNA".into()) }).unwrap();
+    pull(&store, &PullRequest { drive: drive.clone(), ..Default::default() }, &Ctx::silent()).unwrap();
+    for c in crate::eject::commands(&root).unwrap() {
+        fake.answer(&c.program, &c.args.iter().map(String::as_str).collect::<Vec<_>>(), "");
+    }
+
+    let os = tc.draw(gs::sampled_from(vec![None, Some("linux"), Some("windows")]));
+    crate::testing::os_on_this_thread(os);
+    let req = SetJobRequest { drives: vec![drive], players: vec!["cdj-3000".into()], ..Default::default() };
+    let plan = set_job_plan(&store, &req, &Ctx::silent());
+    crate::testing::os_on_this_thread(None);
+    let plan = plan.unwrap();
+    let eject = plan.plan.steps.iter().find(|s| s.step == StepKind::Eject).unwrap();
+    assert_eq!(eject.summary, ["eject DNA once the check passes"]);
+    assert_eq!(eject.warnings.len(), usize::from(os.is_some()), "{:?}", eject.warnings);
+
+    let report = plan.apply(Some(&store), &Ctx::silent()).unwrap();
+    assert!(!report.problems && report.stopped.is_none(), "{:?}", report.stopped);
+    let check = report.steps.iter().find(|s| s.step == StepKind::Check).unwrap();
+    assert_eq!(check.done, ["ready"], "{:?}", report.check);
+    let last = report.steps.last().unwrap();
+    assert_eq!((last.step, &last.done[..]), (StepKind::Eject, &["DNA ejected; it can be pulled out".to_string()][..]));
+    let id = Device::open(&root).unwrap().id().unwrap();
+    assert_eq!(store.drives().unwrap()[&id].log.clean_ejects, 1);
+}
+
+/// A disk to format is named by the system's identifier for it as well as by the drive mounted
+/// on it: both plans erase the same disk the same way, keeping the drive's name, under the label
+/// asked for (else the drive's name).
+#[cfg(target_os = "macos")]
+#[hegel::test(test_cases = 4)]
+fn prop_a_disk_to_format_is_found_by_its_identifier_too(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = fake_tools::FakeTools::new();
+    let (store, d) = drive_on_a_disk(&mut fake, false);
+    fake.volume_at(d.root(), "vfat", true);
+    let label = tc.draw(gs::optional(gs::sampled_from(vec!["GIG", "DNA 2"])));
+    let options = FormatOptions { label: label.map(String::from), ..FormatOptions::default() };
+    let plan = |drive: String| {
+        let req = FormatRequest { drive, options: options.clone() };
+        format_plan(store.root(), &req, &Ctx::silent()).unwrap().plan
+    };
+    let (by_id, by_path) = (plan("disk4".into()), plan(d.root().display().to_string()));
+    for p in [&by_id, &by_path] {
+        assert_eq!((p.disk.id.as_str(), p.keeps_name.as_deref()), ("disk4", Some("DNA")));
+    }
+    assert_eq!((&by_id.identity, &by_id.label), (&by_path.identity, &by_path.label));
+    assert_eq!(by_id.label, label.unwrap_or("DNA"));
+}
+
+/// The store drive lookups consult by default is kept safe like the store a plan is given: a
+/// drive whose disk holds it isn't ejected, though the plan was given another store.
+#[cfg(unix)]
+#[hegel::test(test_cases = 6)]
+fn prop_the_default_store_s_disk_is_kept_too(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = fake_tools::FakeTools::new();
+    let (store, d) = drive_on_a_disk(&mut fake, true);
+    fake.volume_at(d.root(), "vfat", true);
+    let given = fake.dir().join("elsewhere");
+    let default = tc.draw(gs::sampled_from(vec!["none", "the given one", "the drive's"]));
+    let root = match default {
+        "none" => None,
+        "the given one" => Some(given.clone()),
+        _ => Some(store.root().to_path_buf()),
+    };
+    crate::testing::store_root_on_this_thread(root);
+    let planned =
+        drive_eject_plan(Some(given.as_path()), &EjectDrives { drives: vec![d.root().display().to_string()] });
+    crate::testing::store_root_on_this_thread(None);
+    match default {
+        "the drive's" => {
+            assert!(matches!(&planned, Err(Error::Invalid(m)) if m.contains("which holds")), "{planned:?}")
+        }
+        _ => assert_eq!(planned.unwrap().plan.drives.len(), 1),
+    }
+}
+
+/// Settings imported with no drive come from rekordbox's own folder on this computer: its My
+/// Settings files become the profile's base, and importing them again changes nothing. A computer
+/// without that folder has none to give.
+#[cfg(unix)]
+#[hegel::test(test_cases = 4)]
+#[hegel::explicit_test_case(installed = true)]
+fn prop_settings_are_imported_from_rekordbox_on_this_computer(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let home = tempfile::tempdir().unwrap();
+    // SAFETY: nextest gives each test a process of its own, and no other thread of it reads the
+    // environment while the test runs.
+    unsafe {
+        std::env::set_var("HOME", home.path());
+        std::env::remove_var("XDG_CONFIG_HOME");
+    }
+    let dir = match cfg!(target_os = "macos") {
+        true => home.path().join("Library/Application Support/Pioneer/rekordbox6"),
+        false => home.path().join(".config/Pioneer/rekordbox6"),
+    };
+    let installed = tc.draw(gs::booleans());
+    if installed {
+        std::fs::create_dir_all(&dir).unwrap();
+        let demo = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rekordcrate/demo_tracks/PIONEER");
+        for f in settings::SettingsFile::ALL {
+            std::fs::copy(demo.join(f.file_name()), dir.join(f.file_name())).unwrap();
+        }
+    }
+    let store = Store::open_or_init(home.path().join("store")).unwrap();
+    let planned = settings_import_plan(&store, &ImportSettings { drive: None });
+    if !installed {
+        let e = planned.map(|p| p.noop).unwrap_err();
+        assert!(matches!(&e, Error::NotFound(m) if m.contains("rekordbox's settings folder")), "{e}");
+        return;
+    }
+    let planned = planned.unwrap();
+    let read = settings::read_all(&FlatSettings(&dir));
+    assert_eq!((planned.plan.from.as_str(), planned.plan.values), ("rekordbox on this computer", read.values.len()));
+    assert!(!planned.noop);
+    let profile = settings_import(&store, &ImportSettings::default()).unwrap();
+    assert_eq!(profile.base.len(), planned.plan.changes.len());
+    assert!(settings_import_plan(&store, &ImportSettings::default()).unwrap().noop, "imported already");
+}

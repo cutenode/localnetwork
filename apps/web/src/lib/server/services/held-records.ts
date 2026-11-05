@@ -174,14 +174,14 @@ export class HeldRecords {
 		});
 
 		if (stored && stored.value.onBehalfOf !== viewer.did) {
-			this.core.logger.warn({ uri, did: viewer.did }, 'the index and the repo disagree on whose record this is');
+			this.core.logger.warn('the index and the repo disagree on whose record this is', { uri, did: viewer.did });
 			throw new NotFoundError("That isn't one of yours");
 		}
 
 		// One that's gone already only has its index row left.
 		if (stored) await root.deleteSpaceRecord({ space, collection: parts.collection, rkey: parts.rkey });
 		await this.forget(collection.kind, uri);
-		this.core.logger.info({ uri, did: viewer.did }, 'deleted a record held on their behalf');
+		this.core.logger.info('deleted a record held on their behalf', { uri, did: viewer.did });
 
 		if (!stored) return;
 		await this.core.audit.record({

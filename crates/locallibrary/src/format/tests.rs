@@ -910,3 +910,35 @@ fn the_test_switch_runs_no_disk_tool_for_a_drive_folder() {
     assert!(matches!(&hidden, Err(Error::Invalid(m)) if m.starts_with("LOCALLIBRARY_VOLUMES is set")), "{hidden:?}");
     assert_eq!(fake.calls().len(), before, "no tool ran");
 }
+
+/// Applying a plan that checks the capacity first unmounts the whole disk with diskutil, in its
+/// own words when it can't, and then opens the disk's raw device: one that isn't there is an I/O
+/// error naming it. Nothing is erased either way. The disk's identifier names no device on this
+/// Mac, so nothing real is opened.
+#[cfg(target_os = "macos")]
+#[hegel::test(test_cases = 10)]
+fn prop_a_capacity_check_unmounts_the_disk_before_opening_it(tc: TestCase) {
+    let mut disk = sample_disk();
+    disk.id = format!("disk{}", tc.draw(gs::integers::<u32>().min_value(900).max_value(999)));
+    disk.volumes[0].mount = None;
+    let raw = format!("/dev/r{}", disk.id);
+    tc.assume(!Path::new(&raw).exists());
+    let mut fake = fake_tools::FakeTools::new();
+    let unmounts = tc.draw(gs::booleans());
+    let unmount = ["unmountDisk", disk.id.as_str()];
+    match unmounts {
+        true => fake.answer("diskutil", &unmount, ""),
+        false => {
+            fake.refuse("diskutil", &unmount, "Unmount of disk failed: at least one volume could not be unmounted")
+        }
+    }
+    let opts = FormatOptions { check_capacity: true, ..Default::default() };
+    let identity = disk.identity();
+    let applied = apply(disk.clone(), &identity, &opts, None, &[], &Ctx::silent());
+    assert_eq!(fake.calls(), [Cmd::new("diskutil", &unmount)], "nothing but the unmount ran");
+    match (unmounts, applied) {
+        (true, Err(Error::Io { path, .. })) => assert_eq!(path, Path::new(&raw)),
+        (false, Err(Error::External { message, .. })) => assert!(message.starts_with("Unmount of disk failed")),
+        (_, other) => panic!("{other:?}"),
+    }
+}

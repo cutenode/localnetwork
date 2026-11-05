@@ -48,3 +48,34 @@ fn space_is_measured_around_what_cant_be_read(tc: TestCase) {
     assert_eq!(r.categories.iter().map(|c| c.files).sum::<usize>(), files.len(), "the link isn't counted");
     assert_eq!(r.loose_audio.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["Music/loose.mp3"]);
 }
+
+/// A folder that can be listed but not looked into (readable, not searchable): each file in it
+/// counts as unreadable, among the files or in the trash (measured whole), and the rest is
+/// measured. A cancelled measure stops.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_files_that_cant_be_looked_at_are_unreadable(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::blank(dir.path(), "USB");
+    let at = tc.draw(gs::sampled_from(vec!["Junk/Listed", ".Trashes/Listed"]));
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
+    let listed = root.join(at);
+    fs::create_dir_all(&listed).unwrap();
+    for i in 0..n {
+        fs::write(listed.join(format!("{i}.mp3")), vec![0u8; 10]).unwrap();
+    }
+    fs::create_dir_all(root.join("Music")).unwrap();
+    fs::write(root.join("Music/loose.mp3"), vec![0u8; 40]).unwrap();
+    fs::set_permissions(&listed, fs::Permissions::from_mode(0o444)).unwrap();
+
+    let device = Device::open(&root).unwrap();
+    let r = space::breakdown(&device, &Ctx::silent());
+    let cancel = locallibrary::progress::CancelToken::new();
+    cancel.cancel();
+    let cancelled = space::breakdown(&device, &Ctx::new(&locallibrary::progress::NoProgress, cancel));
+    fs::set_permissions(&listed, fs::Permissions::from_mode(0o755)).unwrap();
+    let r = r.unwrap();
+    assert_eq!(r.unreadable, n, "{r:?}");
+    assert_eq!(r.bytes(SpaceKind::LooseAudio), 40);
+    assert_eq!(r.bytes(SpaceKind::Trash), 0, "nothing in the trash could be measured");
+    assert!(matches!(cancelled, Err(locallibrary::Error::Cancelled)), "{cancelled:?}");
+}

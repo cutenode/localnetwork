@@ -1,21 +1,17 @@
 // The tracks ticked in a list, and the mode that shows the tick boxes.
 //
-// Markers used to be put on a batch of tracks by a modifier-click on one of
-// the row buttons: the rows already in the set were read as a selection, and
-// the click moved its edge. That asked one button to mean two things, and the
-// selection it worked on was the marker itself — so there was no way to look at
-// what was about to be marked before marking it, and no way to put *two*
-// markers on one batch.
-//
-// Selecting is its own step now. Turning the mode on puts a tick box on every
-// row; ticking rows builds a selection that is nothing but a selection; and the
-// bar above the list is where a marker — queued, downloaded — is then put on
-// the lot, or taken off again. The row buttons are back to meaning one thing
-// each, on one track.
+// Selecting is its own step. Turning the mode on puts a tick box on every row;
+// ticking rows builds a selection that is nothing but a selection; and the bar
+// above the list is where a marker (queued, downloaded) is then put on the lot,
+// or taken off again. So you can look at what is about to be marked before
+// marking it, and put *two* markers on one batch. A modifier-click on a row
+// button could do neither: it would ask one button to mean two things, and the
+// selection it worked on would be the marker itself. The row buttons mean one
+// thing each, on one track.
 //
 // Where it lives: a selection is a *place*, not a setting, so it is kept for
 // the browsing session under the tool's own name (view.svelte.ts) rather than
-// for good. That matters here more than anywhere — this popup closes on every
+// for good. That matters here more than anywhere: this popup closes on every
 // click that opens a tab, and a half-made selection of twenty tracks is not
 // something to ask anyone for twice.
 
@@ -36,7 +32,7 @@ export function createSelection(scope: string) {
 	const ticked = new SvelteSet(stored.value);
 
 	// The row a Shift-click reaches from: the last one ticked by hand. Not kept
-	// for the session — it is half of a gesture, and the rows it would reach
+	// for the session: it is half of a gesture, and the rows it would reach
 	// between are whatever the list is showing now.
 	let anchor = $state<string | null>(null);
 
@@ -106,7 +102,7 @@ export function createSelection(scope: string) {
 		/**
 		 * A Shift-click: ticks every row between the one last ticked and this one,
 		 * in the order the list is showing them, and leaves the rest alone. With
-		 * nothing ticked yet — or an anchor the list no longer shows — there is
+		 * nothing ticked yet, or an anchor the list no longer shows, there is
 		 * nothing to reach from, so it ticks the one row.
 		 *
 		 * @param order the permalinks on screen, in the order shown.

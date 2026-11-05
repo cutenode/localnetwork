@@ -394,7 +394,10 @@ fn describe_says_what_each_method_takes_and_returns() {
 /// regenerate it: `cargo run -p locallibrary-cli -- rpc --emit-schema apps/locallibrary/docs/rpc`
 /// (or run this test with `LOCALLIBRARY_BLESS=1`).
 #[test]
-#[cfg_attr(not(feature = "account"), ignore = "docs/rpc describes the default build, which has the account methods")]
+#[cfg_attr(
+    not(all(feature = "account", feature = "peers")),
+    ignore = "docs/rpc describes the default build, which has the account and peers methods"
+)]
 fn the_contract_in_docs_is_current() {
     let dir = tempfile::tempdir().unwrap();
     let status = Command::cargo_bin("locallibrary")

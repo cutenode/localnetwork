@@ -1,45 +1,42 @@
 // The session queue: the tracks picked out while working through a page,
 // held together so a whole batch of them can be dealt with at once.
 //
-// Opening a download link used to mark its track as downloaded on the spot,
-// which said something that was not known yet — the file had not been saved,
-// and often the gate behind the link had not even been walked. A track goes
-// into this queue instead: the queue sheet marks the lot as downloaded in one
-// go, and two of the three tools can work from it rather than from the page
-// (its gates, its cover art, its titles).
+// Opening a download link does not mark its track as downloaded: the file has
+// not been saved yet, and often the gate behind the link has not even been
+// walked. The track goes into this queue instead. The queue sheet marks the
+// lot as downloaded in one go, and two of the four tools can work from it
+// rather than from the page (its gates, its titles).
 //
 // Where it is shown: the header of every view carries the count and opens the
-// sheet over whatever is there (QueueButton.svelte, QueueSheet.svelte). It
-// was a tool of its own until then, which meant the one thing that is *about*
-// the other tools could only be looked at by leaving them.
+// sheet over whatever is there (QueueButton.svelte, QueueSheet.svelte). As a
+// tool of its own it could only be looked at by leaving the tools it is about.
 //
 // Where it lives: chrome.storage.session, which is the extension's own storage
-// for the length of the browsing session — it survives the popup closing (it
+// for the length of the browsing session. It survives the popup closing (it
 // closes on every click that opens a tab) and going back and forth between
-// tools, and is gone when the browser is. That is the whole point of a
-// *session* queue: it is a working list, not a library. The marks it makes are
-// what lasts (downloaded-store.ts).
+// tools, and is gone when the browser is. A *session* queue is a working list,
+// not a library; the marks it makes are what lasts (downloaded-store.ts).
 //
 // Reading it is a round trip to the browser process, and everything the queue
 // is behind waits on that: the count in the header of every view, the sheet's
-// rows, and — because App.svelte fetches the sheet's chunk as soon as there is
-// something in the queue worth looking at — the fetch of the chunk itself. A
+// rows, and (because App.svelte fetches the sheet's chunk as soon as there is
+// something in the queue worth looking at) the fetch of the chunk itself. A
 // browser-action popup is destroyed on every click that takes the focus off
-// it, which in these tools is most clicks, so that was a round trip of empty
-// header on every single opening, for a queue that had not moved since the
+// it, which in these tools is most clicks, so that would be a round trip of
+// empty header on every opening, for a queue that had not moved since the
 // last one.
 //
 // So the queue is mirrored into the popup's own localStorage, which is
-// *synchronous* — the same thing view.svelte.ts does with the tool that was
+// *synchronous*, the same thing view.svelte.ts does with the tool that was
 // open, for the same reason. `items` answers with the mirror on the first line
 // the popup runs, and the session read corrects it a moment later. What the
 // mirror cannot know is when a browsing session ended, since localStorage
 // outlives one, or what was queued from a SoundCloud page while the popup was
 // shut; session storage settles both, and `start` is where it does. In the
-// window before it answers the mirror is a guess, which is worth saying
-// plainly: a track queued twice in that window is refused the second time as
-// one already held. It is a few milliseconds against a blank header on every
-// opening, and the trade is the one already made for the route.
+// window before it answers the mirror is a guess: a track queued twice in that
+// window is refused the second time as one already held. That is a few
+// milliseconds against a blank header on every opening, the same trade made
+// for the route.
 //
 // An entry is a track, with only the fields the tools that consume the queue
 // need: enough to list it, to fetch its artwork, to find its download gate and
@@ -51,14 +48,15 @@ import { storedList, storedTrack } from './stored.ts';
 const KEY = 'queue';
 
 // A content script is an untrusted context, and chrome.storage.session is shut
-// to those by default — so the queue would be invisible on the SoundCloud page
-// itself, where the "Queued" pills are painted (content.js). Opening the area
-// is a call only a trusted context may make, and this popup is the one that
-// has it: it is made once, when the queue starts, before anything is written.
+// to those by default, so the queue would be invisible on the SoundCloud page
+// itself, where the queue button says a track is queued (content.ts). Opening
+// the area is a call only a trusted context may make, and this popup is the
+// one that has it: it is made once, when the queue starts, before anything is
+// written.
 //
-// Nothing sensitive is on the other side of that door — the queue is a list of
-// permalinks the user picked out on the page it is shown on — and the page's
-// own scripts still cannot reach it: "untrusted" here means the extension's
+// Nothing sensitive is on the other side of that door: the queue is a list of
+// permalinks the user picked out on the page it is shown on. The page's own
+// scripts still cannot reach it: "untrusted" here means the extension's
 // content script, not SoundCloud's JavaScript.
 //
 // It is a round trip to the browser process, and the read of the queue is
@@ -80,13 +78,12 @@ async function openToContentScripts() {
  *
  * The last three are what only the page it was queued from could say: the
  * genre it rendered beside the row, and whether the row's own like and repost
- * buttons were on. Nothing in the queue itself shows them — a queued track is
- * a line with a cover and a title — but the queue is a source the Manager's
- * list adds from, and a track that reached the list this way used to arrive
- * knowing none of the three, for good: the page it came off is long gone by
- * then, and no lookup answers them. So they are carried through rather than
- * dropped here. `null` (or absent, in a queue written by an older version) is
- * "the page never said", which the panel shows as unknown.
+ * buttons were on. Nothing in the queue itself shows them (a queued track is
+ * a line with a cover and a title), but the queue is a source the Manager's
+ * list adds from. The page it came off is long gone by then and no lookup
+ * answers them, so dropping them here would lose them for good. `null` (or
+ * absent, in a queue written by an older version) is "the page never said",
+ * which the panel shows as unknown.
  */
 export const entryOf = ({
 	permalink,
@@ -109,25 +106,24 @@ export const entryOf = ({
 });
 
 /**
- * What is in storage, as a queue — dropping anything that is not an entry.
+ * What is in storage, as a queue, dropping anything that is not an entry.
  *
  * Session storage is not this version's to trust: a queue written by another
  * one, or restored from an imported state file, can hold shapes nothing here
- * expects, and an entry without a permalink is not an entry at all — there
- * would be nothing to tell it from another and nothing to mark when its turn
- * came (`add` refuses one for the same reason).
+ * expects. An entry without a permalink is not an entry at all: there would be
+ * nothing to tell it from another and nothing to mark when its turn came
+ * (`add` refuses one for the same reason).
  *
- * It matters more than it reads: the queue is behind the count in the header
- * of every view now, so one bad entry would not cost a tool, it would cost
- * the popup.
+ * The queue is behind the count in the header of every view, so one bad entry
+ * would cost the popup rather than a tool.
  *
  * @returns only the permalink is checked; the rest is taken as it was written
  */
 const queueOf = storedList(storedTrack<QueueEntry>());
 
 // Where the mirror lives: the popup's own localStorage, under a key of its
-// own. Not a `pref:` key — it is not a setting, and it is not in the exported
-// state file (state-transfer.js lists what is, and the queue goes into that
+// own. Not a `pref:` key: it is not a setting, and it is not in the exported
+// state file (state-transfer.ts lists what is, and the queue goes into that
 // through the store rather than through any key).
 const MIRROR = 'queue:items';
 
@@ -137,8 +133,7 @@ const mirrored = () => {
 		return queueOf(JSON.parse(localStorage.getItem(MIRROR) ?? 'null'));
 	} catch (_e) {
 		// No storage to read, or something that is not JSON in it: the popup
-		// waits for the session, which is where it waited before there was a
-		// mirror.
+		// waits for the session.
 		return [];
 	}
 };
@@ -155,8 +150,8 @@ const forget = () => {
 /**
  * Puts the queue in the mirror, for the next opening to draw from.
  *
- * `JSON.stringify` reads through a `$state` proxy quite happily — it is
- * `structuredClone`, which the storage write goes through, that refuses one —
+ * `JSON.stringify` reads through a `$state` proxy without trouble (it is
+ * `structuredClone`, which the storage write goes through, that refuses one),
  * so this takes the items as they are.
  */
 const remember = (items: QueueEntry[]) => {
@@ -205,13 +200,13 @@ class Queue {
 	/**
 	 * The queue as plain data, for anything outside the popup's own reactivity.
 	 * The exported state file is written from this rather than from session
-	 * storage (state-transfer.js), because a queue that could not be written
+	 * storage (state-transfer.ts), because a queue that could not be written
 	 * there is still a queue: it is held here and shown on screen, and a backup
-	 * that leaves out what is on screen is the one thing a backup must not do.
+	 * has to include what is on screen.
 	 *
-	 * `$state.snapshot` is what makes it plain, for the same reason `#write`
-	 * calls it: what `$state` holds are proxies, and neither `structuredClone`
-	 * nor a comparison against plain data will take one.
+	 * `$state.snapshot` makes it plain, for the same reason `#write` calls it:
+	 * what `$state` holds are proxies, and neither `structuredClone` nor a
+	 * comparison against plain data will take one.
 	 */
 	get entries() {
 		return $state.snapshot(this.#items);
@@ -226,8 +221,8 @@ class Queue {
 	 *
 	 * This is where the mirror stops being a guess. What comes back replaces it
 	 * whole rather than being merged into it: the session *is* the queue, and
-	 * the mirror is a copy of some earlier moment of one — a browsing session
-	 * that has since ended, or one this popup was shut through.
+	 * the mirror is a copy of some earlier moment of one (a browsing session
+	 * that has since ended, or one this popup was shut through).
 	 */
 	async start() {
 		if (this.#started) return;
@@ -239,8 +234,8 @@ class Queue {
 			session = queueOf((await chrome.storage.session.get(KEY))[KEY]);
 		} catch (_e) {
 			// No session storage to read: the queue is empty and is kept in memory
-			// for as long as this popup is open. The mirror goes with it — it is a
-			// guess about a session, and there is no session to guess at.
+			// for as long as this popup is open. The mirror goes with it, since it
+			// is a guess about a session and there is no session to guess at.
 			this.#settle(session);
 
 			return;
@@ -259,8 +254,7 @@ class Queue {
 	// be queued before it lands; a track picked out in that window is newer
 	// than the answer on its way back, and `#write` has already put the queue
 	// it belongs to in the session. Taking the older answer would undo it on
-	// screen while leaving it written, which is the one outcome worse than
-	// either.
+	// screen while leaving it written.
 	#settle(items: QueueEntry[]) {
 		if (!this.#written) this.#hold(items);
 	}
@@ -283,7 +277,7 @@ class Queue {
 
 	/**
 	 * Makes the queue exactly these tracks, for an import asked to replace what
-	 * is here rather than add to it (state-transfer.js). Whatever was queued is
+	 * is here rather than add to it (state-transfer.ts). Whatever was queued is
 	 * gone; a track the file names twice still lands once, since the permalink
 	 * is the identity either way.
 	 *
@@ -333,8 +327,8 @@ class Queue {
 		return this.#write([]);
 	}
 
-	// The queue in memory, and the mirror beside it — which is nothing but a
-	// copy of it, so every assignment to one is an assignment to the other.
+	// The queue in memory and the mirror beside it. The mirror is only a copy,
+	// so every assignment to one is an assignment to the other.
 	#hold(items: QueueEntry[]) {
 		this.#items = items;
 		remember(items);
@@ -344,7 +338,7 @@ class Queue {
 	// change, but a write that cannot happen (no session storage) only costs the
 	// queue its life beyond this popup.
 	//
-	// `$state.snapshot` is not a nicety here: what `$state` holds are proxies,
+	// `$state.snapshot` is required here: what `$state` holds are proxies,
 	// and the structured clone every storage write goes through refuses one.
 	async #write(items: QueueEntry[]) {
 		this.#hold(items);

@@ -91,8 +91,8 @@ it('ships no sourcemaps to the browser', () => {
 });
 
 // The budgets are on JavaScript uncompressed, a third of that over the wire, and count what a
-// visitor downloads. The build's total, which this used to cap, grew with every page added, though
-// a visitor only loads the pages they open. The room above each is for the app to grow; a library
+// visitor downloads. The build's total isn't capped: it grows with every page added, though a
+// visitor only loads the pages they open. The room above each is for the app to grow; a library
 // that needs more than that is worth deciding on, not finding here later.
 
 it('keeps what every page loads within its budget', () => {

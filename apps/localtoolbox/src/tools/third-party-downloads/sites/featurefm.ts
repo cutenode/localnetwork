@@ -1,4 +1,4 @@
-// Feature.fm — ffm.to
+// Feature.fm (ffm.to)
 //
 // Another smart link rather than a gate: an ffm.to page is a list of the places
 // a release can be played or bought, and the "download" on it is usually
@@ -7,7 +7,7 @@
 //
 // Reading them without going through feature.fm's counter
 // ------------------------------------------------------
-// Every button on the page points at api.ffm.to/sl/e/c/<slug>?cd=<payload> —
+// Every button on the page points at api.ffm.to/sl/e/c/<slug>?cd=<payload>,
 // a click tracker that counts the click and then redirects. The payload is
 // base64url JSON, and the real destination (`destUrl`) is inside it, along with
 // which service it is (`srvc`). So the page tells the tool where each button

@@ -98,8 +98,8 @@ jobs:
       - run: cargo deny --locked check advisories
 
   # The builds without the default features (`account`, `tui`, `playback`): a headless sidecar
-  # with and without the account. No ALSA headers until the last step, which shows the builds
-  # without `playback` don't need them; then clippy over every combination of features.
+  # with and without the account. No ALSA headers, which shows the builds without `playback` don't
+  # need them.
   features:
     needs: changes
     if: needs.changes.outputs.run == 'true'
@@ -117,11 +117,28 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-nextest,cargo-hack
+          tool: cargo-nextest
       - run: cargo nextest run -p locallibrary --no-default-features --locked --no-fail-fast
       - run: cargo nextest run -p locallibrary-cli --no-default-features --locked --no-fail-fast
       - run: cargo nextest run -p locallibrary-cli --no-default-features --features account --locked --no-fail-fast
       - run: cargo clippy -p locallibrary-cli --no-default-features --features tui,account --all-targets --locked -- -D warnings
+
+  # Clippy over every combination of features, in a job of its own: after the tests above it would
+  # share their 45 minutes, and any of them failing would keep it from running.
+  feature-powerset:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-hack
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - run: cargo hack clippy --workspace --feature-powerset --all-targets --locked -- -D warnings
 
@@ -521,7 +538,7 @@ jobs:
   # that passes closes it (scheduled-issue.yml). Skipped suites count as passed.
   report:
     needs:
-      [changes, advisories, features, bombadil, disk-images, mutants, fuzz, hegel, release-plan, release-build, release-global]
+      [changes, advisories, features, feature-powerset, bombadil, disk-images, mutants, fuzz, hegel, release-plan, release-build, release-global]
     if: ${{ !cancelled() && github.event_name == 'schedule' }}
     permissions:
       actions: read

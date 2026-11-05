@@ -206,3 +206,213 @@ fn in_the_last_counts_back_from_today() {
     assert!(last("2", "day", true).unevaluable().is_none());
     assert!(last("2", "fortnight", true).unevaluable().is_some());
 }
+
+/// `s` as an XML attribute value.
+fn attr(s: &str) -> String {
+    s.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;")
+}
+
+/// The XML rekordbox writes for a list matching `any` with `conditions`, each its property,
+/// operator, unit, left and right value as written, with stray elements around them.
+fn xml(any: &str, conditions: &[(&str, String, &str, &str, &str)]) -> String {
+    let rows: String = conditions
+        .iter()
+        .map(|(p, o, u, l, r)| {
+            format!(
+                r#"<CONDITION PropertyName="{}" Operator="{}" ValueUnit="{}" ValueLeft="{}" ValueRight="{}"/>"#,
+                attr(p),
+                attr(o),
+                attr(u),
+                attr(l),
+                attr(r)
+            )
+        })
+        .collect();
+    format!(
+        r#"<?xml version="1.0"?><NODE Id="-1" LogicalOperator="{any}"><OTHER/>{rows}<NODE LogicalOperator="2"/></NODE>"#
+    )
+}
+
+/// A list read from rekordbox's XML holds its conditions in order, each as [`Condition::new`]
+/// reads it (a My Tag's id, signed or not, as its path, or empty when there's none), and matches
+/// any one of them only when the first `NODE`'s `LogicalOperator` is 2.
+#[hegel::test(test_cases = 200)]
+fn prop_a_list_reads_its_conditions_from_its_xml(tc: TestCase) {
+    let n = tc.draw(gs::integers::<usize>().max_value(4));
+    let mut written = Vec::new();
+    let mut want = Vec::new();
+    for _ in 0..n {
+        let (properties, operators, values) = KINDS[tc.draw(gs::integers::<usize>().max_value(KINDS.len() - 1))];
+        let property = tc.draw(gs::sampled_from(properties.to_vec()));
+        let operator: u8 = tc.draw(gs::sampled_from(operators.to_vec()));
+        let unit = tc.draw(gs::sampled_from(vec!["day", "week", "month", "year", ""]));
+        let right = tc.draw(gs::sampled_from(values.to_vec()));
+        let (left, read) = if property == "myTag" {
+            let id = tc.draw(gs::sampled_from(vec!["4294967295", "-1", " -1 ", "7", "x", ""]));
+            let path =
+                if id.trim().parse::<i64>().is_ok_and(|i| i == -1 || i == 4294967295) { "Genre/Deep" } else { "" };
+            (id, path)
+        } else {
+            let left = tc.draw(gs::sampled_from(values.to_vec()));
+            (left, left)
+        };
+        let shown = if tc.draw(gs::booleans()) { format!(" {operator} ") } else { operator.to_string() };
+        written.push((property, shown, unit, left, right));
+        want.push(Condition::new(property, operator, unit, read, right));
+    }
+    let any = tc.draw(gs::sampled_from(vec!["1", "2", " 2 ", "0", ""]));
+    let list = SmartList::parse(&xml(any, &written), tag_path).unwrap();
+    assert_eq!(list, SmartList { any: any.trim() == "2", conditions: want });
+    let cut = tc.draw(gs::integers::<usize>().min_value(1).max_value(20));
+    let unclosed = format!(r#"<NODE LogicalOperator="{any}"><CONDITION PropertyName="{}"#, &"genre"[..cut.min(5)]);
+    assert!(SmartList::parse(&unclosed, tag_path).is_none(), "{unclosed}");
+}
+
+/// A list of one text field's "contains" (or "doesn't contain") is that field's filter term,
+/// quoted and negated as needed, for the fields a filter has on their own (album, genre, label,
+/// mix, remixer, title, comment); the others (artists, key, file name) can't be said.
+#[hegel::test(test_cases = 100)]
+fn prop_contains_rules_say_their_fields_filter_term(tc: TestCase) {
+    let property = tc.draw(gs::sampled_from(KINDS[0].0.to_vec()));
+    let contains = tc.draw(gs::booleans());
+    let value = tc.draw(gs::sampled_from(vec!["deep", "Deep House", "ü", "8A"]));
+    let list = SmartList {
+        any: tc.draw(gs::booleans()),
+        conditions: vec![Condition::new(property, if contains { 8 } else { 9 }, "", value, "")],
+    };
+    let field = match property {
+        "album" => Some("album"),
+        "genre" => Some("genre"),
+        "label" => Some("label"),
+        "mixName" => Some("mix"),
+        "remixedBy" => Some("remixer"),
+        "name" => Some("title"),
+        "comments" => Some("comment"),
+        _ => None,
+    };
+    let minus = if contains { "" } else { "-" };
+    assert_eq!(list.filter().ok(), field.map(|f| format!(r#"{minus}{f}:"{value}""#)), "{property}");
+    // Any of two values of it is one term with both, where it isn't negated.
+    let other = tc.draw(gs::sampled_from(vec!["techno", "dub"]));
+    let op = if contains { 8 } else { 9 };
+    let either = SmartList {
+        any: true,
+        conditions: vec![Condition::new(property, op, "", value, ""), Condition::new(property, op, "", other, "")],
+    };
+    let want = field.filter(|_| contains).map(|f| format!(r#"{f}:"{value}|{other}""#));
+    assert_eq!(either.filter().ok(), want, "{property}");
+}
+
+/// A number rule is the filter term for its field (`time` for the duration): `x..x` for is (or,
+/// negated, isn't), `>x`, `<x`, and a range low end first.
+#[hegel::test(test_cases = 100)]
+fn prop_number_rules_say_their_filter_term(tc: TestCase) {
+    let (property, name) = tc.draw(gs::sampled_from(vec![
+        ("bpm", "bpm"),
+        ("rating", "rating"),
+        ("counter", "plays"),
+        ("year", "year"),
+        ("duration", "time"),
+    ]));
+    let operator = tc.draw(gs::integers::<u8>().min_value(1).max_value(5));
+    let left = tc.draw(gs::integers::<u16>().max_value(999));
+    let right = tc.draw(gs::integers::<u16>().max_value(999));
+    let list = SmartList {
+        any: false,
+        conditions: vec![Condition::new(property, operator, "", &left.to_string(), &right.to_string())],
+    };
+    let want = match operator {
+        1 => format!("{name}:{left}..{left}"),
+        2 => format!("-{name}:{left}..{left}"),
+        3 => format!("{name}:>{left}"),
+        4 => format!("{name}:<{left}"),
+        _ => format!("{name}:{}..{}", left.min(right), left.max(right)),
+    };
+    assert_eq!(list.filter(), Ok(want));
+}
+
+/// The operators that say the opposite of each other (is and isn't, contains and doesn't,
+/// colour and My Tag ones too) split every track between them, as do a number's less than, is
+/// and greater than; starting or ending with a value means containing it; a range is both ends
+/// included in either order; and a list matching all (or any) of its conditions matches what
+/// each one does, one it can't evaluate matching nothing.
+#[hegel::test(test_cases = 300)]
+fn prop_opposite_rules_split_the_tracks(tc: TestCase) {
+    let t = draw_track(&tc, 1);
+    let tags: Vec<String> = tc
+        .draw(gs::subsequences(&["Genre/Deep", "Situation/Peak", "genre/DEEP"]))
+        .into_iter()
+        .map(String::from)
+        .collect();
+    let today = tc.draw(gs::sampled_from(vec![today(), NaiveDate::from_ymd_opt(2024, 3, 31).unwrap()]));
+    let one = |c: Condition| SmartList { any: false, conditions: vec![c] };
+    let holds = |property: &str, operator: u8, unit: &str, left: &str, right: &str| {
+        let list = one(Condition::new(property, operator, unit, left, right));
+        list.unevaluable().is_none().then(|| list.matches(&t, &tags, today))
+    };
+    // A count back further than any date: nothing is within it, and every track is before it.
+    for unit in ["day", "year"] {
+        assert_eq!(holds("stockDate", 6, unit, "4294967295", ""), Some(false));
+        assert_eq!(holds("stockDate", 7, unit, "4294967295", ""), Some(true));
+    }
+    let kind = tc.draw(gs::integers::<usize>().max_value(4));
+    let (properties, _, values) = KINDS[kind];
+    let property = tc.draw(gs::sampled_from(properties.to_vec()));
+    let left = tc.draw(gs::sampled_from(values.to_vec()));
+    let right = tc.draw(gs::sampled_from(values.to_vec()));
+    let pairs: &[(u8, u8)] = match kind {
+        0 => &[(1, 2), (8, 9)],
+        3 => &[(1, 2)],
+        4 => &[(8, 9)],
+        _ => &[(1, 2)],
+    };
+    for (yes, no) in pairs {
+        if let (Some(a), Some(b)) = (holds(property, *yes, "", left, right), holds(property, *no, "", left, right)) {
+            assert_ne!(a, b, "{property} {yes}/{no} {left:?} on {t:?}");
+        }
+    }
+    if kind == 0 {
+        let contains = holds(property, 8, "", left, "");
+        for op in [10, 11] {
+            if holds(property, op, "", left, "") == Some(true) {
+                assert_eq!(contains, Some(true), "{property} {op} {left:?} on {t:?}");
+            }
+        }
+    }
+    let dated = kind == 2
+        && date_value(
+            DateField::of(if property == "stockDate" { DateField::Added } else { DateField::Released }, &t),
+            false,
+        )
+        .is_some();
+    if kind == 1 || dated {
+        let [less, is, greater] = [4, 1, 3].map(|op| holds(property, op, "", left, ""));
+        if let (Some(l), Some(i), Some(g)) = (less, is, greater) {
+            assert_eq!(u8::from(l) + u8::from(i) + u8::from(g), 1, "{property} {left:?} on {t:?}");
+        }
+        let range = holds(property, 5, "", left, right);
+        if let (Some(r), Some(back)) = (range, holds(property, 5, "", right, left)) {
+            assert_eq!(r, back, "a range either way round");
+            if left == right {
+                assert_eq!(Some(r), holds(property, 1, "", left, ""), "a range of one value is that value");
+            }
+        }
+    }
+    if kind == 2 {
+        let unit = tc.draw(gs::sampled_from(vec!["day", "week", "month", "year"]));
+        let n = tc.draw(gs::sampled_from(vec!["0", "1", "3", "30", "4294967295"]));
+        if let (Some(within), Some(before)) = (holds(property, 6, unit, n, ""), holds(property, 7, unit, n, "")) {
+            assert!(!(within && before), "{property} in the last {n} {unit}s on {t:?}");
+        }
+    }
+
+    let conditions: Vec<Condition> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)))
+        .map(|_| draw_condition(&tc, tc.draw(gs::integers::<usize>().max_value(KINDS.len() - 1)), None))
+        .collect();
+    let each: Vec<bool> =
+        conditions.iter().map(|c| c.rule.is_some() && one(c.clone()).matches(&t, &tags, today)).collect();
+    let all = SmartList { any: false, conditions: conditions.clone() };
+    let any = SmartList { any: true, conditions };
+    assert_eq!(all.matches(&t, &tags, today), each.iter().all(|m| *m));
+    assert_eq!(any.matches(&t, &tags, today), each.iter().any(|m| *m));
+}

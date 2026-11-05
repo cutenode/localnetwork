@@ -633,3 +633,82 @@ fn any_analysis_edit_warns_of_what_it_leaves_and_replays_as_made(tc: TestCase) {
         }
     }
 }
+
+/// A waveform an analysis edit can't take is refused when planned and the drive is left as it
+/// was: text that isn't base64, bytes that aren't whole 3-band columns, a plugin's blob, a staged
+/// waveform the drive doesn't have or holds damaged; and so is a grid running past the track.
+#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_waveforms_and_grids_an_edit_cant_take_are_refused(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let (root, t) = without_colour_overview(dir.path());
+    let waved = |w: WaveSource| NewAnalysis { waveform: Some(w), ..Default::default() };
+    let (analysis, why) = match tc.draw(gs::integers::<u8>().max_value(5)) {
+        0 => (waved(WaveSource::Base64("not base64!".into())), "the waveform isn't base64".to_string()),
+        1 => {
+            let n = tc.draw(gs::integers::<usize>().max_value(20));
+            let bytes =
+                vec![7; 3 * n + tc.draw(gs::integers::<usize>().min_value(1).max_value(2)) * usize::from(n > 0)];
+            let why = "a waveform is three bytes a column (lows, mids, highs), at least one column";
+            (waved(WaveSource::Base64(BASE64_STANDARD.encode(bytes))), why.into())
+        }
+        2 => (waved(WaveSource::Blob("w.bands".into())), "only a plugin's plan gives a waveform as a blob".into()),
+        3 => (waved(WaveSource::Staged(Hash::of(b"never staged"))), "the staged waveform".into()),
+        4 => {
+            // Staged by an edit made before, then damaged on the drive.
+            let b = bands(150);
+            let p = plan(&root, &[set(&t, NewAnalysis { waveform: Some(wave(&b)), ..Default::default() })]).unwrap();
+            edit::apply(&p, &mut Device::open_export(&root).unwrap(), &Ctx::silent()).unwrap();
+            let hash = Hash::of(&b.pack());
+            let staged = root.join(paths::STATE_DIR).join("waveforms").join(format!("{hash}.bands"));
+            let len = tc.draw(gs::sampled_from(vec![0usize, 1, 2, 4]));
+            std::fs::write(&staged, vec![9; len]).unwrap();
+            (waved(WaveSource::Staged(hash)), format!("the staged waveform {}", hash.short()))
+        }
+        _ => {
+            let past = (t.duration_secs + 1) * 1000 + tc.draw(gs::integers::<u32>().max_value(100_000));
+            let beats = Some([steady(4, 120.0, 0), steady(1, 120.0, past)].concat());
+            (NewAnalysis { beats, ..Default::default() }, format!("beat 5 at {}", locallibrary::cue_edit::clock(past)))
+        }
+    };
+    let before = common::drive_files(&root);
+    let err = plan(&root, &[set(&t, analysis)]).unwrap_err().to_string();
+    assert!(err.contains(&why), "{err} (wanted {why})");
+    assert!(common::changed_files(&before, &common::drive_files(&root)).is_empty());
+}
+
+/// A waveform as long as its track (within 2 s either way) is written without a word about its
+/// length; any longer or shorter, the plan says how long each is.
+#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_waveform_warns_of_its_length_only_when_it_isnt_the_tracks(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let (root, t) = without_colour_overview(dir.path());
+    let track_columns = i64::from(t.duration_secs) * 150;
+    let off = tc.draw(gs::integers::<i64>().min_value(-600).max_value(600));
+    let b = bands((track_columns + off).try_into().unwrap());
+    let p = plan(&root, &[set(&t, NewAnalysis { waveform: Some(wave(&b)), ..Default::default() })]).unwrap();
+    let says =
+        p.warnings.iter().any(|w| w.contains("waveform is") && w.contains(&format!("the track {} s", t.duration_secs)));
+    assert_eq!(says, off.abs() > 300, "{off} columns off: {:?}", p.warnings);
+}
+
+/// Replaying the journal, an analysis edit of a track the drive no longer has is skipped with a
+/// warning naming it, and no track's analysis files change.
+#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_replayed_analysis_edit_of_a_track_gone_is_skipped(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "USB");
+    let name = tc.draw(gs::from_regex("[a-z]{1,12}").fullmatch(true));
+    let gone = Edit::SetAnalysis {
+        track: format!("/Contents/Gone/{name}.mp3"),
+        analysis: NewAnalysis { beats: Some(steady(4, 120.0, 0)), ..Default::default() },
+    };
+    let mut d = Device::open_export(&root).unwrap();
+    let tracks = d.library().unwrap().tracks;
+    let before: Vec<_> = tracks.iter().map(|t| files(&root, t)).collect();
+    let opts = EditOptions { lenient: true, no_journal: true };
+    let plan = edit::plan(&d, &[gone], &opts, &Ctx::silent()).unwrap();
+    let report = edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+    let skipped = format!("skipped an edit that no longer applies (set the beat grid of /Contents/Gone/{name}.mp3");
+    assert!(report.warnings.iter().any(|w| w.starts_with(&skipped)), "{:?}", report.warnings);
+    assert_eq!(tracks.iter().map(|t| files(&root, t)).collect::<Vec<_>>(), before);
+}

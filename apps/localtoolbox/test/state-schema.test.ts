@@ -1,4 +1,4 @@
-// docs/manager-state.schema.json — the specification of the
+// docs/manager-state.schema.json: the specification of the
 // exported state file, checked with a standard JSON Schema validator (Ajv,
 // draft 2020-12) rather than with the extension's own code.
 //
@@ -28,7 +28,7 @@ const validate = createValidator(schema);
 // Whether the schema accepts a document, with Ajv's reasons on failure.
 const accepts = (doc: FieldValue) => ({ ok: validate(doc), why: explain(validate.errors).join('\n') });
 
-// Whether state-transfer.js accepts it.
+// Whether state-transfer.ts accepts it.
 const parses = (state: StateTransfer, doc: FieldValue) => {
 	try {
 		state.parse(JSON.stringify(doc));
@@ -80,7 +80,7 @@ describe('the schema and the extension agree on the format', () => {
 	});
 
 	it('on what a permalink path looks like', () => {
-		// The same expression the parser uses (state-transfer.js isPermalink).
+		// The same expression the parser uses (state-transfer.ts isPermalink).
 		expect(schema.$defs.permalink.pattern).toBe('^/[^/?#\\s]+/[^/?#\\s]+$');
 	});
 });
@@ -424,11 +424,11 @@ describe('what the schema refuses, the importer refuses', () => {
 
 // JSON Schema cannot say "this property must equal that one", so every place
 // where a permalink has to agree with another is the importer's alone: the
-// schema accepts these documents and state-transfer.js refuses them. The
+// schema accepts these documents and state-transfer.ts refuses them. The
 // asymmetries are deliberate; this is where the schema's half is pinned down,
-// so none of them is mistaken for drift. The importer's half — the refusal,
-// and the words it is made in — is test/state-transfer.test.ts's, but for the
-// list's, which is here.
+// so none of them is mistaken for drift. The importer's half (the refusal,
+// and the words it is made in) is test/state-transfer.test.ts's, except for
+// the list's, which is here.
 describe('the checks the schema cannot make', () => {
 	// Details filed under one track while naming another. Restored, they would
 	// answer for the wrong track ever after.
@@ -473,8 +473,9 @@ describe('what the panel actually exports', () => {
 		localStorage.setItem('pref:sort', 'page');
 		localStorage.setItem('pref:hide-downloaded', '0');
 
-		// The queue is handed to `snapshot` by the panel, which takes it from the
-		// store that owns it (queue.entries) rather than from session storage.
+		// The queue is handed to `snapshot` by the settings sheet, which takes it
+		// from the store that owns it (queue.entries) rather than from session
+		// storage.
 		const snapshot = await state.snapshot([
 			queueEntry(),
 			queueEntry({

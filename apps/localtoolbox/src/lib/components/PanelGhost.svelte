@@ -2,7 +2,7 @@
   The frame of a panel that is on its way: the header it will have, and a
   shape where its body will be.
 
-  A tool's panel is its own chunk now ($lib/tools.ts), and the page it reads
+  A tool's panel is its own chunk ($lib/tools.ts), and the page it reads
   is a couple of round trips behind that, so there is a moment between picking
   a tool and seeing it. Everything the header shows is known without loading
   anything (the name, the icon and the tone are in the registry), so the

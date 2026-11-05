@@ -1351,8 +1351,9 @@ fn unnamed_note(positions: &[usize], why: &str) -> Option<String> {
 /// which and why; a track that isn't there can't be hidden. Signed in, it goes out under the
 /// set's id, or under the key `plays publish` gave its history list (which becomes its id);
 /// publishing it again unchanged writes nothing, and once it's edited
-/// replaces exactly what was read, keeping when it first went out. Signed out, it can only be
-/// looked at.
+/// replaces exactly what was read, keeping when it first went out; it's listed as published by
+/// its key, and deleting the set takes the record off the account. Signed out, it can only be
+/// looked at, and nothing is listed.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCase) {
     let pds = network();
@@ -1429,6 +1430,7 @@ fn a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCase) {
         assert!(plan.account.is_none() && plan.uri.is_none() && plan.current.is_none());
         assert_eq!(api::set_publish_apply(&root, &req).unwrap_err().code(), "account");
         assert!(pds.calls(PUT).is_empty());
+        assert!(api::set_published_uris(&root, &s.id).unwrap().is_empty(), "nothing's published signed out");
         return;
     }
 
@@ -1455,6 +1457,12 @@ fn a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCase) {
     let (second, _) = pds.record(DID, SET, &key).unwrap();
     assert_eq!((&second["title"], &second["createdAt"]), (&edited.record["title"], &first["createdAt"]));
     assert_eq!(pds.calls(PUT).last().unwrap().json()["swapRecord"], cid.as_str());
+
+    // Published, it's listed by its key; deleting the set takes its record off the account too.
+    assert_eq!(api::set_published_uris(&root, &key).unwrap(), [repo::at_uri(DID, SET, &key)]);
+    api::set_delete(&store, &api::SetRef { set: Some(key.clone()), venue: None }).unwrap();
+    assert!(pds.record(DID, SET, &key).is_none());
+    assert!(api::set_published_uris(&root, &key).unwrap().is_empty());
 }
 
 /// The profile published from the store's sets is the record of the profile document built from
@@ -1684,7 +1692,8 @@ enum Held {
 /// With a plugged-in drive whose library can't be read (a warning) before one whose library can,
 /// each track is analysed on the drive that lists it and read back from that drive, though the
 /// other holds a file at the same path (another one, as a copy changed since is); a file only the
-/// unreadable drive holds isn't missing, and only a file on neither drive is.
+/// unreadable drive holds isn't missing, and only a file on neither drive is. Cancelled while the
+/// analyzer runs, a lookup keeps nothing.
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_track_is_read_back_from_the_drive_it_was_analysed_on(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -1743,8 +1752,14 @@ fn a_track_is_read_back_from_the_drive_it_was_analysed_on(tc: TestCase) {
         }
         Ok(Analyzed { analyzed: ids.len(), ..Analyzed::default() })
     };
-    let warnings = common::Warnings::default();
     let req = SetPublishRequest { set: "last".into(), hide: Vec::new() };
+    // Cancelled while an analyzer runs, the lookup stops there, the set as it was.
+    let cancel = |_: &locallibrary::Device, _: &[u32], _: bool| Err(locallibrary::Error::Cancelled);
+    let cancelled = api::set_lookup(&root, &req, cancel, &Ctx::silent());
+    let any = held.iter().any(|h| matches!(h, Held::Both | Held::Readable));
+    assert_eq!(cancelled.is_err_and(|e| matches!(e, locallibrary::Error::Cancelled)), any);
+    assert_eq!(SetBook::load(&store).unwrap().sets[0].tracks, tracks);
+    let warnings = common::Warnings::default();
     let looked = api::set_lookup(&root, &req, analyze, &warnings.ctx()).unwrap();
 
     let on_readable: Vec<usize> = (0..n).filter(|&i| matches!(held[i], Held::Both | Held::Readable)).collect();
