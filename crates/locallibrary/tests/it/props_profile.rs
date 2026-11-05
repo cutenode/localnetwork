@@ -621,6 +621,10 @@ fn days_read_back_from_their_forms(tc: TestCase) {
         assert_eq!(ok(&format!("{year}-{month:02}-{day:02}"), end), date);
     }
     assert_eq!(ok(&format!("{year}-{}", month + 12), false), None);
+    assert_eq!(ok(&format!("{year}-{}", month + 12), true), None);
+    assert_eq!(ok(&format!("{year}-m{month}"), true), None);
+    assert_eq!(ok(&format!("{year}-m{month}"), false), None);
+    assert_eq!(ok(&format!("{year}-{month}-d{day}"), false), None);
     assert_eq!(ok(&format!("{year}-{month}-{day}-1"), false), None);
     let junk = tc.draw(gs::text().max_size(6));
     if let Some(d) = ok(&junk, false) {
@@ -909,4 +913,318 @@ fn cue_statistics_after_cue_edits(tc: &TestCase, last: u8) {
     let with_hot: Vec<usize> = counts.iter().map(|c| c.0).filter(|h| *h > 0).collect();
     let per = (!with_hot.is_empty()).then(|| with_hot.iter().sum::<usize>() as f64 / with_hot.len() as f64);
     assert_eq!(prep.hot_cues_per_track, per);
+}
+
+/// A report as JSON, but for when it was built.
+fn said(r: &ProfileReport) -> serde_json::Value {
+    let mut v = serde_json::to_value(r).unwrap();
+    v.as_object_mut().unwrap().remove("generated");
+    v
+}
+
+/// A context whose warnings land in `warnings`, and that cancels once `cancel_after` events
+/// have gone by.
+fn recording<'a>(
+    warnings: &'a std::sync::Mutex<Vec<String>>,
+    cancel_after: Option<usize>,
+) -> (impl Fn(&locallibrary::progress::Event) + Send + Sync + 'a, locallibrary::progress::CancelToken) {
+    let cancel = locallibrary::progress::CancelToken::new();
+    let token = cancel.clone();
+    let seen = std::sync::atomic::AtomicUsize::new(0);
+    let progress = move |e: &locallibrary::progress::Event| {
+        if let locallibrary::progress::Event::Warning { message } = e {
+            warnings.lock().unwrap().push(message.clone());
+        }
+        if cancel_after.is_some_and(|n| seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1 >= n) {
+            token.cancel();
+        }
+    };
+    (progress, cancel)
+}
+
+/// Pulls `drives` drives, each with its own random history lists of at least two tracks, into
+/// one store as libraries `Club 0`, `Club 1`...; returns the store and how many lists it holds.
+#[hegel::test_helper]
+fn pulled_store(tc: &TestCase, dir: &std::path::Path, drives: usize) -> (Store, usize) {
+    let store = Store::open_or_init(dir.join("store")).unwrap();
+    let mut lists = 0;
+    for k in 0..drives {
+        // The demo drive's tracks have analysis files.
+        let root = common::demo_drive(dir, &format!("Drive {k}"));
+        let ids: Vec<u32> =
+            pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap().tracks.iter().map(|t| t.id).collect();
+        let drawn: Vec<Vec<u32>> =
+            tc.draw(gs::vecs(gs::vecs(gs::sampled_from(ids)).min_size(2).max_size(5)).min_size(2).max_size(3));
+        for (j, l) in drawn.iter().enumerate() {
+            common::add_history(&root, &format!("HISTORY {k}{j:02}"), l);
+        }
+        lists += drawn.len();
+        let mut d = Device::open(&root).unwrap();
+        let opts = PullOptions { library: Some(format!("Club {k}")), force: true, ..Default::default() };
+        sync::pull(&store, &mut d, &opts, &Ctx::silent()).unwrap();
+    }
+    (store, lists)
+}
+
+/// A profile of the store alone reads its libraries' sessions and their tracks' analysis files
+/// from the snapshots, and keeps what it read: built again, it reads none of the files and says
+/// the same. When that can't be kept it warns (a few times, then sums up), and the next profile
+/// reads every file again.
+#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_stores_profile_reads_its_snapshots_analysis_once(tc: TestCase) {
+    // Both ways each time: whether the cache can be kept is no draw a few cases can miss.
+    for unkept in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let libraries = tc.draw(gs::integers::<usize>().min_value(1).max_value(2));
+        let (store, lists) = pulled_store(&tc, dir.path(), libraries);
+        // A library nothing was ever pulled into has nothing to read, but counts as one.
+        let empty = tc.draw(gs::booleans());
+        if empty {
+            store.create_library("Empty").unwrap();
+        }
+        if unkept {
+            // The analysis cache's folder is a file.
+            std::fs::create_dir_all(store.root().join("cache")).unwrap();
+            std::fs::write(store.root().join("cache/profile"), b"").unwrap();
+        }
+        let sources = profile::Sources { drives: Vec::new(), store: Some(&store), libraries: None };
+        let options = ProfileOptions { min_set_tracks: 2, ..ProfileOptions::default() };
+        let build = || {
+            let warnings = std::sync::Mutex::new(Vec::new());
+            let r = {
+                let (progress, cancel) = recording(&warnings, None);
+                profile::build(&sources, &options, &Ctx::new(&progress, cancel)).unwrap()
+            };
+            (r, warnings.into_inner().unwrap())
+        };
+        let (cold, warned) = build();
+        assert_eq!(cold.basis, Basis::Sessions);
+        assert_eq!(cold.sets.count, lists);
+        let names: Vec<(&str, &str, usize)> =
+            cold.sources.iter().map(|s| (s.kind, s.name.as_str(), s.history_lists)).collect();
+        let name = match libraries + usize::from(empty) {
+            1 => "store (1 library)",
+            2 => "store (2 libraries)",
+            _ => "store (3 libraries)",
+        };
+        assert_eq!(names, [("store", name, lists)]);
+        let (kept, read) = cold.cached.analysis;
+        assert!(kept == 0 && read > 0 && cold.prep.is_some(), "{:?}", cold.cached);
+        let uncached = warned.iter().filter(|w| w.starts_with("couldn't cache")).count();
+        assert_eq!(uncached, if unkept { read.min(3) } else { 0 }, "{warned:?}");
+        assert_eq!(warned.iter().any(|w| w.contains("more like that")), unkept && read > 3, "{warned:?}");
+
+        let (warm, _) = build();
+        assert_eq!(warm.cached.analysis, if unkept { (0, read) } else { (read, read) });
+        assert_eq!(said(&warm), said(&cold));
+    }
+}
+
+/// How a test leaves a track's analysis files on a drive.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Analysis {
+    Kept,
+    Gone,
+    /// A folder where each file was.
+    Unreadable,
+    /// A link to a file outside the drive.
+    Outside,
+}
+
+/// A drive's tracks' cue statistics count the tracks whose analysis files are on the drive and
+/// readable, and none whose files are gone, can't be read or lie outside the drive. A drive whose
+/// exportLibrary.db can't be read is described from export.pdb, saying so, and one whose
+/// export.pdb can't be read is left out, saying so.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_drives_analysis_is_read_only_where_it_can_be(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    let outside = dir.path().join("elsewhere.DAT");
+    std::fs::write(&outside, b"PMAI").unwrap();
+    let lib = Device::open_export(&root).unwrap().library().unwrap();
+    let mut ways = vec![Analysis::Kept, Analysis::Gone, Analysis::Unreadable];
+    if cfg!(unix) {
+        ways.push(Analysis::Outside);
+    }
+    let mut kept = 0;
+    for t in lib.tracks.iter().filter(|t| !t.analyze_path.is_empty()) {
+        let way = tc.draw(gs::sampled_from(ways.clone()));
+        kept += usize::from(way == Analysis::Kept);
+        let dat = paths::to_fs(&root, &paths::key(&t.analyze_path));
+        for f in [dat.clone(), dat.with_extension("EXT")] {
+            if way == Analysis::Kept || !f.exists() {
+                continue;
+            }
+            std::fs::remove_file(&f).unwrap();
+            match way {
+                Analysis::Unreadable => std::fs::create_dir(&f).unwrap(),
+                #[cfg(unix)]
+                Analysis::Outside => std::os::unix::fs::symlink(&outside, &f).unwrap(),
+                _ => {}
+            }
+        }
+    }
+    let broken_plus = tc.draw(gs::booleans());
+    if broken_plus {
+        std::fs::write(root.join(paths::LIBRARY_PLUS_DB), b"not a database").unwrap();
+    }
+    // A drive beside it whose database can't be read is left out, saying so.
+    let broken = tc.draw(gs::booleans()).then(|| {
+        let b = dir.path().join("Broken");
+        std::fs::create_dir_all(b.join("PIONEER/rekordbox")).unwrap();
+        std::fs::write(b.join(paths::EXPORT_PDB), b"not a database").unwrap();
+        common::path(&b)
+    });
+    let req = ProfileRequest {
+        drives: std::iter::once(common::path(&root)).chain(broken.clone()).collect(),
+        ..Default::default()
+    };
+    let r = api::profile(None, &req, &Ctx::silent()).unwrap().report;
+    assert_eq!(broken.is_some(), r.warnings.iter().any(|w| w.starts_with("Broken: ")), "{:?}", r.warnings);
+    assert_eq!(r.prep.map_or(0, |p| p.tracks), kept);
+    assert_eq!(r.collection.tracks, lib.tracks.len());
+    let plus_warning = r.warnings.iter().any(|w| w.starts_with("Main: ") && w.ends_with("only export.pdb was read"));
+    assert_eq!(plus_warning, broken_plus, "{:?}", r.warnings);
+}
+
+/// Declared sets count when they were played within the range asked for, newest first; with
+/// none in range, the collection is described.
+#[hegel::test(test_cases = 20)]
+fn prop_declared_sets_count_when_played_in_the_range(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "Main");
+    let lib: FxHashMap<u32, Track> =
+        pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap().tracks.into_iter().map(|t| (t.id, t)).collect();
+    let ids: Vec<u32> = (1..=12).collect();
+    let declared: Vec<Vec<u32>> =
+        tc.draw(gs::vecs(gs::vecs(gs::sampled_from(ids)).min_size(1).max_size(4)).min_size(1).max_size(5));
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    declare(&store, &lib, &declared);
+    // `declare` plays set k on day k of 2026.
+    let day = |k: i64| NaiveDate::from_ymd_opt(2026, 1, 1).unwrap() + chrono::Duration::days(k);
+    let edge = || gs::optional(gs::integers::<i64>().min_value(-1).max_value(5));
+    let (since, until) = (tc.draw(edge()).map(day), tc.draw(edge()).map(day));
+    let options = ProfileOptions { since, until, analysis: false, ..ProfileOptions::default() };
+    let sources = profile::Sources { drives: vec![Device::open(&root).unwrap()], store: Some(&store), libraries: None };
+    let r = profile::build(&sources, &options, &Ctx::silent()).unwrap();
+    let mut want: Vec<NaiveDate> = (0..declared.len() as i64)
+        .map(day)
+        .filter(|d| since.is_none_or(|s| *d >= s) && until.is_none_or(|u| *d <= u))
+        .collect();
+    want.reverse();
+    assert_eq!(
+        r.sets.list.iter().map(|s| s.date).collect::<Vec<_>>(),
+        want.iter().map(|d| Some(*d)).collect::<Vec<_>>()
+    );
+    assert_eq!(r.basis, if want.is_empty() { Basis::Collection } else { Basis::Plays });
+}
+
+/// A profile cancelled after any number of its progress events stops with
+/// [`locallibrary::Error::Cancelled`] (at once, when cancelled before it starts), or, cancelled
+/// once there's nothing left to check, says what an uncancelled one does.
+#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_cancelled_profile_stops_or_says_it_all(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, _) = pulled_store(&tc, dir.path(), 1);
+    let drive = common::bigger_drive(dir.path(), "Mounted");
+    let sources =
+        profile::Sources { drives: vec![Device::open(&drive).unwrap()], store: Some(&store), libraries: None };
+    let options = ProfileOptions { min_set_tracks: 2, ..ProfileOptions::default() };
+    let build = |cancel_after: Option<usize>| {
+        let warnings = std::sync::Mutex::new(Vec::new());
+        let (progress, cancel) = recording(&warnings, cancel_after);
+        if cancel_after == Some(0) {
+            cancel.cancel();
+        }
+        profile::build(&sources, &options, &Ctx::new(&progress, cancel))
+    };
+    let whole = build(None).unwrap();
+    let events = std::sync::atomic::AtomicUsize::new(0);
+    let counting = |_: &locallibrary::progress::Event| {
+        events.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    };
+    profile::build(&sources, &options, &Ctx::new(&counting, locallibrary::progress::CancelToken::new())).unwrap();
+    let n = events.into_inner();
+    for at in 0..=n {
+        match build(Some(at)) {
+            Ok(r) => assert!(at > 0 && said(&r) == said(&whole), "cancelled after {at} of {n} events"),
+            Err(e) => assert!(matches!(e, locallibrary::Error::Cancelled), "{e}"),
+        }
+    }
+}
+
+/// A library whose latest snapshot's export.pdb is gone from the store is left out of the
+/// profile, saying so, and the others are read as before.
+#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_library_whose_databases_are_gone_is_left_out_saying_so(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, _) = pulled_store(&tc, dir.path(), 2);
+    let libraries = store.libraries().unwrap();
+    let gone = &libraries[tc.draw(gs::integers::<usize>().max_value(libraries.len() - 1))];
+    let snap = store.load_snapshot(&gone.head.unwrap()).unwrap();
+    let pdb = snap.files.iter().find(|f| f.path == paths::EXPORT_PDB).and_then(|f| f.hash).unwrap();
+    std::fs::remove_file(store.object_path(&pdb)).unwrap();
+    let sources = profile::Sources { drives: Vec::new(), store: Some(&store), libraries: None };
+    let options = ProfileOptions { analysis: false, ..ProfileOptions::default() };
+    let r = profile::build(&sources, &options, &Ctx::silent()).unwrap();
+    let left_out = format!("library {}: ", gone.name);
+    assert!(r.warnings.iter().any(|w| w.starts_with(&left_out)), "{:?}", r.warnings);
+    // Both libraries hold the same recordings: the tracks read are one library's.
+    assert_eq!(r.sources[0].tracks, r.collection.tracks, "the other library's tracks alone");
+}
+
+/// Where in the store a profile reads from can't be read (its list of libraries, a library's
+/// latest snapshot, or the declared sets), the profile stops with that error rather than
+/// describe part of the DJ's playing.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_store_that_cant_be_read_stops_the_profile(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, _) = pulled_store(&tc, dir.path(), 1);
+    let head = store.libraries().unwrap()[0].head.unwrap().to_hex();
+    let broken = tc.draw(gs::sampled_from(vec!["libraries", "snapshot", "sets"]));
+    match broken {
+        "libraries" => std::fs::write(store.root().join("libraries.json"), b"{").unwrap(),
+        "snapshot" => std::fs::remove_file(store.root().join(format!("snapshots/{head}.json"))).unwrap(),
+        _ => std::fs::write(store.root().join(sets::SETS_FILE), b"[").unwrap(),
+    }
+    let sources = profile::Sources { drives: Vec::new(), store: Some(&store), libraries: None };
+    let options = ProfileOptions { analysis: false, ..ProfileOptions::default() };
+    let err = profile::build(&sources, &options, &Ctx::silent()).expect_err("no profile");
+    let missing = matches!(&err, locallibrary::Error::NotFound(m) if m.starts_with("snapshot "));
+    assert_eq!(missing, broken == "snapshot", "{broken}: {err}");
+}
+
+/// The style a store's settings profile gives names the player settings that describe how a DJ
+/// plays and are set to a value the player knows, in display order; with none, there's no style
+/// (a store whose only library nothing was pulled into still makes a profile).
+#[hegel::test(test_cases = 50)]
+fn prop_the_style_names_the_known_settings_the_store_sets(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    store.create_library("Empty").unwrap();
+    let keys: Vec<&str> = profile::STYLE_SETTINGS.iter().copied().chain(["waveform_color"]).collect();
+    let set = gs::tuples!(gs::sampled_from(keys), gs::sampled_from(vec!["on", "off", "16", "wide", "nope"]));
+    let mut base = IndexMap::new();
+    for (k, v) in tc.draw(gs::vecs(set).max_size(5)) {
+        base.insert(k.to_string(), v.to_string());
+    }
+    store
+        .save_settings_profile(&locallibrary::settings::SettingsProfile { base: base.clone(), ..Default::default() })
+        .unwrap();
+    let sources = profile::Sources { drives: Vec::new(), store: Some(&store), libraries: None };
+    let r = profile::build(&sources, &ProfileOptions::default(), &Ctx::silent()).unwrap();
+    assert_eq!(r.sources.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["store (1 library)"]);
+    let known: Vec<(&str, &str)> = profile::STYLE_SETTINGS
+        .iter()
+        .filter_map(|k| {
+            let v = base.get(*k)?;
+            locallibrary::settings::find(k)?.choice(v)?;
+            Some((*k, v.as_str()))
+        })
+        .collect();
+    let style = r.style.as_ref().map(|s| {
+        let values: Vec<(&str, &str)> = s.values.iter().map(|v| (v.key.as_str(), v.value.as_str())).collect();
+        (s.source.as_str(), values)
+    });
+    assert_eq!(style, (!known.is_empty()).then_some(("settings profile", known.clone())), "{base:?}");
 }

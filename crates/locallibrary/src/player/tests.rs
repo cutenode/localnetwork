@@ -52,3 +52,18 @@ fn reads_rekordbox_device_records() {
     assert_eq!(r.background_color_libplus, "3");
     assert!(rekordbox_device(&dir.path().join("nothing")).is_none());
 }
+
+/// A rebuilt database takes the old one's name and colour; an old one whose name isn't text has
+/// none to give, and the rebuilt one is left as it was.
+#[test]
+fn a_rebuilt_database_keeps_the_old_ones_name_and_colour() {
+    let old = OneLibrary::create().unwrap();
+    write_identity(&old, &DbIdentity { name: Some("BOOTH".into()), colour: Some(4) }).unwrap();
+    let new = OneLibrary::create().unwrap();
+    keep_identity(&old, &new).unwrap();
+    assert_eq!(db_identity_of(&new).unwrap(), DbIdentity { name: Some("BOOTH".into()), colour: Some(4) });
+    old.connection().execute("UPDATE property SET deviceName = X'00'", []).unwrap();
+    let fresh = OneLibrary::create().unwrap();
+    assert!(keep_identity(&old, &fresh).is_err());
+    assert_eq!(db_identity_of(&fresh).unwrap(), DbIdentity { name: None, colour: Some(0) });
+}

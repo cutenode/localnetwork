@@ -192,3 +192,102 @@ fn changes_to_a_drive_the_registry_lacks_change_nothing(tc: TestCase) {
     assert!(blank.id().is_none());
     assert_eq!(registry(), before);
 }
+
+/// What a fleet operation needs and can't read stops it: a damaged registry fails each one that
+/// reads or changes it, a damaged library list each one that names libraries, a drive locked by
+/// another process each change to the drive, a drive whose identity file is damaged each one
+/// that reads it again under the lock, and a folder on the drive that can't be read each one that
+/// scans it. Whatever was damaged stays as it was, and only noting a write to a drive with no
+/// identity needs nothing.
+#[cfg(unix)]
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_what_a_fleet_operation_cant_read_stops_it(tc: TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    for fault in 0..5u8 {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_or_init(dir.path().join("store")).unwrap();
+        let root = common::demo_drive(dir.path(), "A");
+        let mut d = Device::open_export(&root).unwrap();
+        d.adopt(Some("A")).unwrap();
+        register(&store, &d);
+        let (id, ctx) = (d.id().unwrap(), Ctx::silent());
+        let blank = Device::open(common::blank(dir.path(), "Blank")).unwrap();
+        let garbage = tc.draw(gs::sampled_from(vec![&b"not json"[..], b"{", b"[1, 2"]));
+        let damaged = match fault {
+            0 => store.root().join("drives.json"),
+            1 => store.root().join("libraries.json"),
+            4 => root.join("Contents/locked"),
+            _ => d.state_dir().join("state.json"),
+        };
+        let held = match fault {
+            2 => Some(Device::open(&root).unwrap().lock().unwrap()),
+            4 => {
+                fs::create_dir_all(&damaged).unwrap();
+                fs::set_permissions(&damaged, fs::Permissions::from_mode(0o000)).unwrap();
+                None
+            }
+            _ => {
+                fs::write(&damaged, garbage).unwrap();
+                None
+            }
+        };
+        let before = (fault != 4).then(|| fs::read(&damaged).unwrap());
+        let mounted = || vec![Device::open(&root).unwrap()];
+        match fault {
+            0 => {
+                assert!(fleet::record_write(&store, &d, 1).is_err());
+                assert!(fleet::record_eject(&store, id).is_err());
+                assert!(fleet::record_check(&store, id, Check::Scrub, true, "ok").is_err());
+                assert!(fleet::record_problem(&store, id, "damaged_files", "x").is_err());
+                assert!(fleet::find_record(&store, "A").is_err());
+                assert!(fleet::forget(&store, "A").is_err());
+                assert!(fleet::retire(&store, id, false).is_err());
+                assert!(fleet::check_target(Some(&store), &d, false).is_err());
+                assert!(fleet::primary_of(&store, None).is_err());
+                assert!(fleet::recognise_with(&store, &d, None, None).is_err());
+                assert!(fleet::adopt_as(&store, &mut Device::open(&root).unwrap(), "A", &[], &ctx).is_err());
+                // Nothing to note for a drive with no identity.
+                fleet::record_write(&store, &blank, 1).unwrap();
+            }
+            1 => {
+                let fp = locallibrary::hash::Hash::of(b"x");
+                assert!(fleet::recognise_with(&store, &d, Some(fp), None).is_err());
+            }
+            _ => {}
+        }
+        match fault {
+            0 | 1 => {
+                assert!(fleet::known(&store, &[], false).is_err());
+                assert!(fleet::sets(Some(&store), &mounted()).is_err());
+                assert!(fleet::recognise(&store, &d, &ctx).is_err());
+                // The drive is changed first; only telling the registry fails.
+                if fault == 0 {
+                    assert!(fleet::rename(Some(&store), &mut d, "B", false).is_err());
+                    assert!(fleet::reidentify(Some(&store), &mut d, None).is_err());
+                }
+            }
+            4 => {
+                let recognised = fleet::recognise(&store, &d, &ctx);
+                // Taking back its identity scans it too.
+                fs::remove_dir_all(d.state_dir()).unwrap();
+                let adopted = fleet::adopt_as(&store, &mut Device::open(&root).unwrap(), &id.to_string(), &[], &ctx);
+                fs::set_permissions(&damaged, fs::Permissions::from_mode(0o755)).unwrap();
+                assert!(matches!(recognised, Err(locallibrary::Error::Io { .. })), "{recognised:?}");
+                assert!(matches!(adopted, Err(locallibrary::Error::Io { .. })), "{adopted:?}");
+            }
+            _ => {
+                let refused = |r: locallibrary::Result<locallibrary::device::DeviceInfo>| match fault {
+                    2 => assert!(matches!(r, Err(locallibrary::Error::Locked(_))), "{r:?}"),
+                    _ => assert!(r.is_err(), "{r:?}"),
+                };
+                refused(fleet::rename(None, &mut d, "B", false).map(|_| blank.info()));
+                refused(fleet::adopt_as(&store, &mut d, "A", &[], &ctx));
+                refused(fleet::reidentify(None, &mut d, None));
+            }
+        }
+        drop(held);
+        if let Some(before) = before {
+            assert_eq!(fs::read(&damaged).unwrap(), before, "fault {fault}");
+        }
+    }
+}

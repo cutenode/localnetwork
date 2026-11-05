@@ -397,3 +397,239 @@ fn what_isnt_a_handle_or_did_isnt_looked_up(tc: hegel::TestCase) {
     assert!(text.contains(&one_line(&format!("the Atmosphere account {asked:?} ("))), "{text}");
     assert!(!text.chars().any(char::is_control), "{text:?}");
 }
+
+/// Signed in to `did:plc:abc` at `pds` in a store at `root`, granted what publishing asks for.
+fn publishing_at(root: &Path, pds: &str) {
+    crate::store::Store::open_or_init(root).unwrap();
+    let scopes = crate::atmosphere::tests::mock_pds::granted(&crate::atmosphere::publish_scopes()).join(" ");
+    crate::atmosphere::tests::save_session(root, "did:plc:abc", pds, &scopes);
+}
+
+/// A set as a record.
+fn set() -> Value {
+    json!({ "$type": lexicon::SET, "date": "2026-10-03", "tracks": [], "createdAt": "2026-10-04T09:30:00.000Z" })
+}
+
+/// However the account's server answers creating or deleting a record, the write ends one way:
+/// done (a created record's place and version as the server said, a deletion with nothing to
+/// say), or an error that says how to go on, as for replacing one: signing in again (allowing
+/// publishing when the server speaks of scopes or forbids without a word), what the server said
+/// or its status, or that the answer can't be read (none at all, or another method's error).
+#[hegel::test(test_cases = 60)]
+#[hegel::explicit_test_case(delete = false, status = 400u16, error = "InvalidSwap".to_string(), message = String::new(), challenge = 0usize, with_record = false)]
+#[hegel::explicit_test_case(delete = true, status = 400u16, error = "InvalidRequest".to_string(), message = "Could not find repo".to_string(), challenge = 0usize, with_record = false)]
+#[hegel::explicit_test_case(delete = true, status = 401u16, error = String::new(), message = String::new(), challenge = 0usize, with_record = false)]
+#[hegel::explicit_test_case(delete = false, status = 200u16, error = String::new(), message = String::new(), challenge = 0usize, with_record = true)]
+#[hegel::explicit_test_case(delete = true, status = 200u16, error = String::new(), message = String::new(), challenge = 0usize, with_record = false)]
+fn prop_creating_or_deleting_ends_as_the_server_answered(tc: hegel::TestCase) {
+    static SERVER: OnceLock<Shared> = OnceLock::new();
+    let (pds, next, got) = shared(&SERVER);
+    let delete: bool = tc.draw(gs::booleans());
+    let status = tc.draw(gs::sampled_from(vec![200u16, 400, 401, 403, 500, 502]));
+    let error =
+        tc.draw(word(vec!["", "InvalidSwap", "InvalidRequest", "InvalidToken", "ExpiredToken", "ScopeMissing"]));
+    let message = tc.draw(word(vec!["", "Missing required scope", "Could not find repo"]));
+    let challenge = tc.draw(gs::integers::<usize>().max_value(2));
+    let header = match (status, challenge) {
+        (401, 1) => "www-authenticate: DPoP error=\"insufficient_scope\"\r\n",
+        (401, 2) => "www-authenticate: DPoP error=\"invalid_token\"\r\n",
+        _ => "",
+    };
+    let written =
+        json!({ "uri": "at://did:plc:abc/computer.localnetwork.dj.set/3l4qxyzabc2a2", "cid": blob()["ref"]["$link"] });
+    let mut body = serde_json::Map::new();
+    for (k, v) in [("error", &error), ("message", &message)] {
+        if !v.is_empty() {
+            body.insert(k.into(), v.as_str().into());
+        }
+    }
+    // A created record's answer, now and then.
+    let with_record: bool = tc.draw(gs::booleans());
+    let answers_with_record = status == 200 && with_record;
+    let body = if answers_with_record { written.clone() } else { Value::Object(body) };
+    *next.lock().unwrap() = (status, header.to_string(), body);
+    let dir = tempfile::tempdir().unwrap();
+    publishing_at(dir.path(), pds);
+    let before = got.load(Ordering::SeqCst);
+    let result = match delete {
+        true => delete_record(dir.path(), "did:plc:abc", lexicon::SET, "3l4qxyzabc2a2").map(|()| None),
+        false => create_record(dir.path(), "did:plc:abc", lexicon::SET, &set()).map(Some),
+    };
+    assert!(got.load(Ordering::SeqCst) > before, "the server was asked");
+
+    let host = host(pds);
+    let unreadable = "answered in a way locallibrary can't read";
+    let refused = |e: &str| {
+        let why = if message.is_empty() { e.to_string() } else { format!("{e}: {message}") };
+        format!("{host} refused to publish sets ({})", one_line(&why))
+    };
+    let scope = [&error, &message].iter().any(|s| s.to_ascii_lowercase().contains("scope"));
+    let token = ["InvalidToken", "ExpiredToken"].contains(&error.as_str());
+    let err = match (status, result) {
+        (200, Ok(None)) => return assert!(delete),
+        (200, Ok(Some(w))) => {
+            assert!(!delete && answers_with_record);
+            return assert_eq!((json!(w.uri), json!(w.cid)), (written["uri"].clone(), written["cid"].clone()));
+        }
+        (_, Ok(w)) => panic!("{status} {error:?}: written {w:?}"),
+        (_, Err(e)) => e,
+    };
+    let text = err.to_string();
+    assert!(!text.chars().any(char::is_control), "{text:?}");
+    let shown = (text.as_str(), err.reason());
+    match status {
+        401 if challenge == 1 => assert_eq!(err.reason(), Some(Reason::MissingScope), "{text}"),
+        401 if challenge == 2 => assert_eq!(err.reason(), Some(Reason::SessionEnded), "{text}"),
+        200 => assert!(!delete && text.contains(unreadable), "{text}"),
+        400 | 401 if error.is_empty() => assert!(text.contains(unreadable), "{text}"),
+        400 | 401 if token => assert_eq!(err.reason(), Some(Reason::SessionEnded), "{text}"),
+        400 if error == "InvalidSwap" => assert!(text.contains(unreadable), "{text}"),
+        _ if scope => assert_eq!(err.reason(), Some(Reason::MissingScope), "{text}"),
+        401 => assert_eq!(err.reason(), Some(Reason::SessionEnded), "{text}"),
+        403 if error.is_empty() && message.is_empty() => assert_eq!(err.reason(), Some(Reason::MissingScope)),
+        _ if token => assert_eq!(err.reason(), Some(Reason::SessionEnded), "{text}"),
+        _ if error.is_empty() => assert_eq!(shown, (refused(&status.to_string()).as_str(), None)),
+        _ => assert_eq!(shown, (refused(&error).as_str(), None)),
+    }
+}
+
+/// What the account's server answers: `getSession`, then each upload, with how long it waits
+/// before an upload's answer.
+type Uploads = (Answer, Answer, u64);
+
+/// However the account's server answers an upload, it ends one way: the blob it made of the file;
+/// once more with a new DPoP nonce when the server asks for one, and only once; or an error that
+/// says how to go on: signing in again (allowing publishing, for a missing scope), a recording too
+/// big for the server, what it said or its status, or that its answer can't be read. A server that
+/// won't say who's signed in stops it before the upload, as do a file that isn't there and a
+/// cancelled upload.
+#[hegel::test(test_cases = 40)]
+#[hegel::explicit_test_case(upload = 2usize, session_ok = true, present = true, cancelled = false, slow = true, bytes = vec![1u8, 2, 3])]
+#[hegel::explicit_test_case(upload = 3usize, session_ok = true, present = true, cancelled = false, slow = false, bytes = vec![1u8])]
+fn prop_an_upload_ends_as_the_server_answered(tc: hegel::TestCase) {
+    static SERVER: OnceLock<(String, Arc<Mutex<Uploads>>, Arc<AtomicUsize>)> = OnceLock::new();
+    let (pds, next, uploads) = SERVER.get_or_init(|| {
+        let next: Arc<Mutex<Uploads>> = Arc::new(Mutex::new(Default::default()));
+        let uploads = Arc::new(AtomicUsize::new(0));
+        let (answers, counted) = (next.clone(), uploads.clone());
+        let url = crate::atmosphere::tests::serving(move |_, target| {
+            let (session, upload, wait) = answers.lock().unwrap().clone();
+            if target.contains("getSession") {
+                return session;
+            }
+            counted.fetch_add(1, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(wait));
+            upload
+        });
+        (url, next, uploads)
+    });
+    let nonce = "www-authenticate: DPoP error=\"use_dpop_nonce\"\r\ndpop-nonce: n2\r\n";
+    let answers: Vec<(u16, &str, Value)> = vec![
+        (200, "", json!({ "blob": blob() })),
+        (200, "", json!({ "nothing": "useful" })),
+        (401, "dpop-nonce: n2\r\n", json!({ "error": "use_dpop_nonce" })),
+        (401, nonce, json!({})),
+        (401, "www-authenticate: DPoP error=\"insufficient_scope\"\r\n", json!({})),
+        (413, "", json!({})),
+        (400, "", json!({ "error": "PayloadTooLarge" })),
+        (500, "", json!({ "error": "InternalServerError", "message": "boom" })),
+        (502, "", json!({})),
+    ];
+    let upload = tc.draw(gs::integers::<usize>().max_value(answers.len() - 1));
+    let session_ok = tc.draw(gs::weighted_booleans(0.9));
+    let present = tc.draw(gs::weighted_booleans(0.9));
+    let cancelled = tc.draw(gs::weighted_booleans(0.1));
+    // Now and then the answer takes a moment, so progress is told while it's waited for.
+    let slow = tc.draw(gs::weighted_booleans(0.1));
+    let (status, headers, body) = answers[upload].clone();
+    let session = match session_ok {
+        true => (200, String::new(), json!({ "did": "did:plc:abc", "handle": "dj.example.com" })),
+        false => (500, String::new(), json!({})),
+    };
+    *next.lock().unwrap() = (session, (status, headers.to_string(), body), if slow { 150 } else { 0 });
+
+    let dir = tempfile::tempdir().unwrap();
+    publishing_at(dir.path(), pds);
+    let file = dir.path().join("set.m4a");
+    let bytes = tc.draw(gs::binary().min_size(1).max_size(2048));
+    if present {
+        std::fs::write(&file, &bytes).unwrap();
+    }
+    let cancel = crate::progress::CancelToken::new();
+    if cancelled {
+        cancel.cancel();
+    }
+    let ctx = Ctx::new(&crate::progress::NoProgress, cancel);
+    let before = uploads.load(Ordering::SeqCst);
+    let result = upload_blob(dir.path(), "did:plc:abc", &file, "audio/mp4", &ctx);
+    let sent = uploads.load(Ordering::SeqCst) - before;
+    let host = host(pds);
+    if !present {
+        assert_eq!((result.unwrap_err().code(), sent), ("io", 0));
+        return;
+    }
+    if !session_ok {
+        let err = result.unwrap_err().to_string();
+        assert_eq!((err, sent), (format!("{host} refused to publish recordings (500)"), 0));
+        return;
+    }
+    if cancelled {
+        assert!(matches!(result, Err(Error::Cancelled)), "{result:?}");
+        return;
+    }
+    // Asked for a new nonce: sent once more, and only once.
+    assert_eq!(sent, if status == 401 && headers.contains("dpop-nonce") { 2 } else { 1 }, "{upload}");
+    let err = match result {
+        Ok(got) => return assert_eq!((upload, got), (0, blob())),
+        Err(e) => e,
+    };
+    let text = err.to_string();
+    match upload {
+        1 => assert!(text.contains("answered the upload in a way locallibrary can't read"), "{text}"),
+        2 | 3 => assert_eq!(err.reason(), Some(Reason::SessionEnded), "{text}"),
+        4 => assert_eq!(err.reason(), Some(Reason::MissingScope), "{text}"),
+        5 | 6 => {
+            let size = crate::op::bytes(bytes.len() as u64);
+            assert!(text.starts_with(&format!("{host} refused the recording: {size} is more than it takes")), "{text}")
+        }
+        7 => assert_eq!(text, format!("{host} refused to publish recordings (InternalServerError: boom)")),
+        _ => assert_eq!(text, format!("{host} refused to publish recordings (502)")),
+    }
+}
+
+/// A saved session that can't be restored (its redirect address was damaged) stops every write
+/// before anything is sent, saying why.
+#[hegel::test(test_cases = 8)]
+fn prop_a_session_that_cant_be_restored_writes_nothing(tc: hegel::TestCase) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    publishing_at(root, &format!("http://{}", listener.local_addr().unwrap()));
+    let mut file = crate::atmosphere::store::AccountFile::load(root).unwrap();
+    file.account.as_mut().unwrap().redirect_uri = "not a url".into();
+    file.save(root).unwrap();
+    let recording = root.join("set.m4a");
+    std::fs::write(&recording, b"audio").unwrap();
+    let record = crate::publish::settings_record(&[("sync".into(), "on".into())].into(), chrono::Utc::now());
+    let err = match tc.draw(gs::integers::<u8>().max_value(3)) {
+        0 => put_record(root, "did:plc:abc", lexicon::SETTINGS, "self", &record, None).unwrap_err(),
+        1 => create_record(root, "did:plc:abc", lexicon::SET, &set()).unwrap_err(),
+        2 => delete_record(root, "did:plc:abc", lexicon::SET, "self").unwrap_err(),
+        _ => upload_blob(root, "did:plc:abc", &recording, "audio/mp4", &Ctx::silent()).unwrap_err(),
+    };
+    assert_eq!(err.code(), "invalid", "{err}");
+    assert!(err.to_string().starts_with("\"not a url\" isn't a URL"), "{err}");
+    assert!(listener.accept().is_err(), "nothing was sent");
+}
+
+/// An account found by its DID alone is named by it; one with a handle, by `@` and the handle.
+#[hegel::test(test_cases = 50)]
+fn prop_an_account_found_is_named_by_its_handle_or_did(tc: hegel::TestCase) {
+    let did: String = tc.draw(gs::from_regex("did:plc:[a-z2-7]{24}").fullmatch(true));
+    let found = resolve(&format!(" @{did} ")).unwrap();
+    assert_eq!((found.name(), &found.handle), (did.clone(), &None));
+    let handle: String = tc.draw(gs::from_regex("[a-z]{2,8}\\.[a-z]{2,5}").fullmatch(true));
+    let named = Resolved { did, handle: Some(handle.clone()) };
+    assert_eq!(named.name(), format!("@{handle}"));
+}

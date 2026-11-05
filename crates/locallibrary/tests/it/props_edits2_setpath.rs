@@ -104,3 +104,61 @@ fn pointing_a_track_rewrites_the_analysis_files_that_name_its_old_file(tc: TestC
         }
     }
 }
+
+/// Pointing a track at another file is planned exactly when the track's export.pdb row holds the
+/// new path and file name beside its other details (a title as long as it holds, less `room`
+/// characters, takes most of it), and then made; refused, it names the path and the drive is as
+/// it was.
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(room = 0usize, folder = 120usize)]
+#[hegel::explicit_test_case(room = 300usize, folder = 1usize)]
+fn prop_a_track_is_pointed_only_at_a_path_its_export_pdb_row_holds(tc: TestCase) {
+    let room = tc.draw(gs::integers::<usize>().max_value(300));
+    let folder = tc.draw(gs::integers::<usize>().min_value(1).max_value(120));
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    let t = common::library(&root).tracks[0].clone();
+    let titled = |n: usize| Edit::EditTracks {
+        tracks: TrackSelector::paths([t.file_path.clone()]),
+        fields: edit::TrackFields { title: Some("x".repeat(n)), ..Default::default() },
+    };
+    let mut d = Device::open_export(&root).unwrap();
+    let planned = |n: usize| edit::plan(&d, &[titled(n)], &EditOptions::default(), &Ctx::silent());
+    // The longest title the row holds: one longer than a page is refused.
+    let (mut longest, mut over) = (1, 4096);
+    while over - longest > 1 {
+        let mid = (longest + over) / 2;
+        if planned(mid).is_ok() { longest = mid } else { over = mid }
+    }
+    let title = longest.saturating_sub(room).max(1);
+    let plan = planned(title).unwrap();
+    edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+    let name = t.file_path.rsplit('/').next().unwrap();
+    let new_path = format!("/Contents/{}/{name}", "f".repeat(folder));
+    let new_file = paths::to_fs(&root, &paths::key(&new_path));
+    fs::create_dir_all(new_file.parent().unwrap()).unwrap();
+    fs::copy(paths::to_fs(&root, &paths::key(&t.file_path)), &new_file).unwrap();
+    // What export.pdb's editor holds in the row.
+    let db = rekordbox_pdb::Database::from_bytes(fs::read(root.join(paths::EXPORT_PDB)).unwrap()).unwrap();
+    let row = db.tracks.iter().find(|r| r.id == t.id).unwrap();
+    let fits = db.check_track_strings(row, &[("file_path", &new_path), ("filename", name)]).is_ok();
+    let before = common::Before::take(&root);
+    let pointed = Edit::SetPath {
+        track: TrackSelector::paths([t.file_path.clone()]),
+        path: new_path.clone(),
+        file: None,
+        shift_ms: 0,
+    };
+    match edit::plan(&d, &[pointed], &EditOptions::default(), &Ctx::silent()) {
+        Ok(plan) => {
+            assert!(fits, "{title} and {} characters planned", new_path.len());
+            edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+            assert_eq!(common::library(&root).track(t.id).unwrap().file_path, new_path);
+        }
+        Err(e) => {
+            assert!(!fits, "{e}");
+            assert!(e.to_string().contains("the audio file's path is too long for export.pdb"), "{e}");
+            before.untouched(&root).unwrap();
+        }
+    }
+}

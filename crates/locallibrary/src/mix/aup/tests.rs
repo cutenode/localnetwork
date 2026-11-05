@@ -766,3 +766,116 @@ fn a_track_at_the_projects_rate_sounds_as_one_without_a_rate(tc: TestCase) {
     expected.extend_from_slice(&samples[trim..]);
     assert_eq!(rendered(&path, 4), expected, "{stated:?}");
 }
+
+/// A document of any tokens, in any character size, reads whole; cut short between two tokens it
+/// reads too (what's there is what was written), and cut inside one it says it was cut short at
+/// a byte of that token. Closing more elements than are open closes nothing.
+#[hegel::test(test_cases = 200)]
+fn prop_a_document_cut_inside_a_token_says_where(tc: TestCase) {
+    let mut x = Xml::new(tc.draw(gs::sampled_from(vec![1u8, 2, 4])));
+    let kinds: Vec<u8> = tc.draw(gs::vecs(gs::integers::<u8>().max_value(13)).max_size(30));
+    let mut ends = vec![0];
+    for (i, kind) in kinds.iter().enumerate() {
+        let name = ["project", "wavetrack", "rate", "tag"][i % 4];
+        match kind {
+            0 => drop(x.start(name)),
+            1 => drop(x.end(name)),
+            2 => drop(x.string(name, &tc.draw(gs::text().max_size(6)))),
+            3..=7 => drop(x.int([FT_INT, FT_LONG, FT_SIZE_T, FT_BOOL, FT_LONG_LONG][usize::from(kind - 3)], name, 7)),
+            8 => drop(x.float(name, 0.5)),
+            9 => drop(x.double(name, 0.25)),
+            10 | 11 => {
+                let data = tc.draw(gs::vecs(gs::integers::<u8>()).max_size(5));
+                x.doc.push(if *kind == 10 { FT_DATA } else { FT_RAW });
+                x.doc.extend((data.len() as i32).to_le_bytes());
+                x.doc.extend(data);
+            }
+            12 => x.doc.push(FT_PUSH),
+            _ => x.doc.push(FT_POP),
+        }
+        ends.push(x.doc.len());
+    }
+    let cut = tc.draw(gs::integers::<usize>().max_value(x.doc.len()));
+    let mut reader = Reader { names: FxHashMap::default(), char_size: 1 };
+    let mut stack = vec![Element::default()];
+    reader.read(&x.dict, &mut stack).unwrap();
+    let read = reader.read(&x.doc[..cut], &mut stack);
+    match ends.iter().position(|&e| e >= cut) {
+        Some(i) if ends[i] == cut => assert_eq!(read, Ok(()), "cut at {cut} of {ends:?}"),
+        Some(i) => {
+            let at: usize = read.unwrap_err().strip_prefix("truncated at byte ").unwrap().parse().unwrap();
+            assert!(ends[i - 1] < at && at <= cut, "cut at {cut}, said {at}, tokens end at {ends:?}");
+        }
+        None => unreachable!("the cut is within the document"),
+    }
+    assert!(!stack.is_empty(), "the root is never closed");
+}
+
+/// A row whose column isn't what Audacity writes there (no bytes where the document goes, text
+/// where the sample format goes, nothing for the samples) makes the project an error naming its
+/// file, opened or rendered, never a crash.
+#[hegel::test(test_cases = 40)]
+fn prop_a_column_of_the_wrong_type_is_the_files_error(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut x = Xml::new(1);
+    x.start("project").double("rate", 2.0).start("wavetrack").clip(0.0, 2, &[(0, 1)]);
+    x.end("waveclip").end("wavetrack").end("project");
+    let path = project(dir.path(), "project", Some(&x), &[(1, FLOAT, floats(&[0.5, 0.5]))]);
+    let (table, column) = tc.draw(gs::sampled_from(vec![
+        ("project", "dict"),
+        ("project", "doc"),
+        ("sampleblocks", "sampleformat"),
+        ("sampleblocks", "samples"),
+    ]));
+    let value = tc.draw(gs::sampled_from(vec!["NULL", "'text'", "2.5"]));
+    Connection::open(&path).unwrap().execute_batch(&format!("UPDATE {table} SET {column} = {value}")).unwrap();
+    let e = match Project::open(&path) {
+        Ok(p) => p.render(2, &Ctx::silent(), &mut |_| {}).unwrap_err(),
+        Err(e) => e,
+    };
+    assert!(matches!(&e, Error::Parse { path: at, .. } if *at == path), "{column} = {value}: {e}");
+}
+
+/// A clip without its sequence or the sequence's length isn't heard, nor is a block that
+/// doesn't say where it starts or which it is: the project renders as it would without them,
+/// silent until its first block. Rendering a project stops when cancelled.
+#[hegel::test(test_cases = 40)]
+fn prop_clips_and_blocks_missing_a_part_are_left_out(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let samples: Vec<f32> = tc.draw(gs::vecs(gs::sampled_from(vec![0.25f32, -0.5, 0.75])).min_size(1).max_size(6));
+    let first = tc.draw(gs::integers::<usize>().max_value(3));
+    let doc = |broken: Option<u8>| {
+        let mut x = Xml::new(tc.draw(gs::sampled_from(vec![1u8, 2, 4])));
+        x.start("project").double("rate", 4.0).start("wavetrack");
+        x.start("waveclip").start("sequence").int(FT_LONG_LONG, "numsamples", (first + samples.len()) as i64);
+        if broken == Some(2) {
+            x.start("waveblock").int(FT_LONG_LONG, "start", 0).end("waveblock");
+            x.start("waveblock").int(FT_LONG_LONG, "blockid", 1).end("waveblock");
+        }
+        x.start("waveblock").int(FT_LONG_LONG, "start", first as i64).int(FT_LONG_LONG, "blockid", 1);
+        x.end("waveblock").end("sequence").end("waveclip");
+        match broken {
+            Some(0) => {
+                x.start("waveclip").double("offset", 9.0).end("waveclip");
+            }
+            Some(1) => {
+                x.start("waveclip").double("offset", 9.0).start("sequence").end("sequence").end("waveclip");
+            }
+            _ => {}
+        }
+        x.end("wavetrack").end("project");
+        x
+    };
+    let blocks = [(1, FLOAT, floats(&samples))];
+    let broken = project(dir.path(), "project", Some(&doc(Some(tc.draw(gs::integers::<u8>().max_value(2))))), &blocks);
+    let whole = project(dir.path(), "project", Some(&doc(None)), &blocks);
+    let mut expected = vec![0.0; first];
+    expected.extend_from_slice(&samples);
+    assert_eq!(rendered(&whole, 4), expected);
+    assert_eq!(rendered(&broken, 4), expected);
+    let cancel = crate::progress::CancelToken::new();
+    cancel.cancel();
+    let ctx = Ctx::new(&crate::progress::NoProgress, cancel);
+    let stopped = Project::open(&broken).unwrap().render(4, &ctx, &mut |_| {});
+    assert!(matches!(stopped, Err(Error::Cancelled)), "{stopped:?}");
+}

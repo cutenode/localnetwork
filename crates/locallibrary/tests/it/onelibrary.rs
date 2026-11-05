@@ -590,3 +590,28 @@ fn remake_sqlcipher_fixtures() {
     let wal_sql = format!(".read {}", fixtures.join("wal.sql").display());
     run("wal.db", &["PRAGMA journal_mode = WAL;", &schema, &wal_sql, &copy_both]);
 }
+
+/// A OneLibrary database that can't be read is reported and left alone on a drive that has
+/// export.pdb too (its My Tags read from there), and is an error on a drive exported for
+/// OneLibrary players only.
+#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_an_unreadable_onelibrary_fails_only_a_drive_without_export_pdb(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "USB");
+    let with_pdb = tc.draw(gs::booleans());
+    match with_pdb {
+        true => common::add_onelibrary(&root),
+        false => common::onelibrary_only(&root),
+    }
+    common::rot(&root.join(paths::LIBRARY_PLUS_DB));
+    let d = Device::open_export(&root).unwrap();
+    let read = locallibrary::tags::read(&d);
+    match with_pdb {
+        true => {
+            let tags = read.unwrap();
+            assert!(tags.warnings.iter().any(|w| w.contains("Only export.pdb will be changed")), "{:?}", tags.warnings);
+        }
+        false => assert!(read.is_err()),
+    }
+}

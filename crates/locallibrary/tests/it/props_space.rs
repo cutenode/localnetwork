@@ -110,3 +110,28 @@ fn fitting_on_the_set_goes_by_each_drives_room(tc: TestCase) {
     assert_eq!(fits[0].fits, bytes + space::PLAYER_HEADROOM <= room);
     assert!(space::forecast(&store, &main, Some(1 << 40)).unwrap().is_none());
 }
+
+/// A drive this store has no library for gets no forecast and no drives to fit on: one with no
+/// identity, one with no library yet, or one whose library is another store's.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_drive_without_a_library_here_has_no_forecast_or_set(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let mut main = Device::open(common::demo_drive(dir.path(), "Main")).unwrap();
+    match tc.draw(gs::sampled_from(vec!["no identity", "no library", "another store's"])) {
+        "no identity" => {}
+        "no library" => {
+            main.adopt(Some("Main")).unwrap();
+        }
+        _ => {
+            main.adopt(Some("Main")).unwrap();
+            let other = Store::open_or_init(dir.path().join("other")).unwrap();
+            sync::pull(&other, &mut main, &PullOptions::default(), &Ctx::silent()).unwrap();
+        }
+    }
+    let free = tc.draw(gs::integers::<u64>());
+    assert!(space::forecast(&store, &main, Some(free)).unwrap().is_none());
+    let bytes = tc.draw(gs::integers::<u64>().max_value(1 << 40));
+    let fits = space::fits_on_set(&store, &main, bytes, &[]).unwrap();
+    assert!(fits.is_empty(), "{fits:?}");
+}
