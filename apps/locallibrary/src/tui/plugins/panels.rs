@@ -24,6 +24,7 @@ use ratatui::widgets::{Axis, Chart, Dataset, GraphType, Paragraph};
 
 use super::super::app::{App, Level, Msg, View as Screen};
 use super::super::drives::Tone;
+use super::super::icons;
 use super::super::theme::{self, dim, faint, fg};
 use super::super::ui::{clip, section_with, tone_style};
 use super::{Names, view_lines};
@@ -354,10 +355,9 @@ fn draw_ready(f: &mut Frame, ready: &mut Ready, area: Rect) {
         // height, so it never fits a panel: two or more series are named in the last row instead.
         let named = plot.series.len() > 1 && area.height > 1;
         if named {
-            let key =
-                plot.series.iter().enumerate().flat_map(|(i, (name, _))| {
-                    [Span::styled("■ ", colour(i)), Span::styled(format!("{name}  "), dim())]
-                });
+            let key = plot.series.iter().enumerate().flat_map(|(i, (name, _))| {
+                [Span::styled(icons::SQUARE.spaced(), colour(i)), Span::styled(format!("{name}  "), dim())]
+            });
             let row = Rect { y: area.bottom() - 1, height: 1, ..area };
             f.render_widget(Paragraph::new(Line::from(key.collect::<Vec<_>>())), row);
         }

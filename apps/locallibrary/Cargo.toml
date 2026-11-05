@@ -46,7 +46,7 @@ account = ["locallibrary/account"]
 # `store serve` and `store fetch`: copying snapshots between computers over the network.
 peers = ["locallibrary/peers"]
 # The interactive player (`locallibrary tui`, and `locallibrary` on its own in a terminal).
-tui = ["dep:ratatui", "dep:rodio", "dep:rustfft", "dep:loclib-waveform", "dep:crossterm"]
+tui = ["dep:ratatui", "dep:rodio", "dep:rustfft", "dep:loclib-waveform", "dep:crossterm", "dep:terminal-colorsaurus", "dep:terminal-trx"]
 # The player's audio output: cpal, and ALSA on Linux. Without it the player browses, edits and
 # shows waveforms, but there's no output to play through.
 playback = ["tui", "rodio/playback"]
@@ -110,6 +110,8 @@ locallibrary-plugin-archive = { version = "0.1.0", path = "../../plugins/archive
 locallibrary-plugin-youtube = { version = "0.1.0", path = "../../plugins/youtube" }
 locallibrary-plugin-mixcloud = { version = "0.1.0", path = "../../plugins/mixcloud" }
 locallibrary-plugin-soundcloud = { version = "0.1.0", path = "../../plugins/soundcloud" }
+# The player asks the terminal for its real colours (OSC 10 and 11) as it starts.
+terminal-colorsaurus = { version = "1.0.3", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 # Only for `use-dev-tty`: the player's input read with poll(2) rather than mio (ratatui brings the
@@ -123,6 +125,8 @@ libc = "0.2"
 # SIGTERM for the RPC sidecar; the TUI also lets a drive write finish and saves its state when the
 # terminal closes (SIGHUP) or it's told to stop (SIGTERM). Already built for crossterm.
 signal-hook = "0.3"
+# The terminal the player asks about colour depth, as terminal-colorsaurus finds it (and brings it).
+terminal-trx = { version = "0.2.6", optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true

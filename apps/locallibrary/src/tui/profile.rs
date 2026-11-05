@@ -21,6 +21,7 @@ use ratatui::widgets::{Block, Cell, List, ListItem, ListState, Paragraph, Row, T
 
 use super::account::Account;
 use super::app::{App, Level, Msg};
+use super::icons;
 use super::keymap::Act;
 use super::theme::{self, bold, dim, faint, fg, rgb3, text};
 use super::ui::Scrolled;
@@ -575,7 +576,7 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
     let headline = v.prefs.headline.clone().unwrap_or_else(|| r.summary.headline.clone());
     let mut tags: Vec<Span<'static>> = Vec::new();
     for tag in &r.summary.tags {
-        tags.push(Span::styled("✓ ", bold(theme::current().good)));
+        tags.push(Span::styled(icons::CHECK.spaced(), bold(theme::current().good)));
         tags.push(Span::styled(format!("{}  ", tag.label), text()));
     }
     if tags.is_empty() {
@@ -603,7 +604,7 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
         dim(),
     )];
     if let Some(s) = status {
-        info.push(Span::styled(format!("  ⟳ {s}"), fg(theme::current().info)));
+        info.push(Span::styled(format!("  {} {s}", icons::BUSY.get()), fg(theme::current().info)));
     }
     let mut head = vec![Span::styled(headline, bold(theme::current().info))];
     if v.prefs.headline.is_some() {
@@ -624,7 +625,11 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
         .iter()
         .map(|&s| {
             let on = v.published.contains(&s) && r.basis.publishes(s);
-            let mark = if on { Span::styled("● ", fg(theme::current().good)) } else { Span::styled("○ ", faint()) };
+            let mark = if on {
+                Span::styled(icons::DOT.spaced(), fg(theme::current().good))
+            } else {
+                Span::styled(icons::RING.spaced(), faint())
+            };
             // The stat can be user text (the top genre or key): it gets half the column at most.
             let st = super::ui::clip(&stat(r, s), inner_w / 2);
             let name_w = inner_w.saturating_sub(unicode_width::UnicodeWidthStr::width(st.as_str()) + 3).max(4);
@@ -638,7 +643,7 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
     let list = List::new(items)
         .block(block(title("Sections", focused), focused))
         .highlight_style(if focused { theme::selected() } else { Style::new().add_modifier(Modifier::BOLD) })
-        .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
+        .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
     t.sections.fit(side.height.saturating_sub(2) as usize, Section::ALL.len());
     f.render_stateful_widget(list, side, &mut t.sections);
 
@@ -713,7 +718,7 @@ fn summary_lines(v: &ProfileView) -> Vec<Line<'static>> {
     }
     for t in &r.summary.tags {
         lines.push(Line::from(vec![
-            Span::styled("✓ ", bold(theme::current().good)),
+            Span::styled(icons::CHECK.spaced(), bold(theme::current().good)),
             Span::styled(t.label.clone(), bold(theme::current().text)),
         ]));
         lines.push(Line::styled(format!("  {}", t.why), dim()));
@@ -790,7 +795,10 @@ fn draw_sets(f: &mut Frame, r: &ProfileReport, rows: &mut TableState, focused: b
     .header(Row::new(header.into_iter().map(|h| Cell::from(Span::styled(h, bold(theme::current().dim))))))
     .column_spacing(2)
     .row_highlight_style(if focused { theme::selected() } else { Style::new() })
-    .highlight_symbol(Span::styled("▍", fg(if focused { theme::current().accent } else { theme::current().faint })));
+    .highlight_symbol(Span::styled(
+        icons::SELECTED.get(),
+        fg(if focused { theme::current().accent } else { theme::current().faint }),
+    ));
     // Under the header row.
     rows.fit(table.height.saturating_sub(1) as usize, s.list.len());
     f.render_stateful_widget(t, table, rows);
@@ -909,7 +917,9 @@ fn mixing_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
         lines.push(Line::from(stacked));
         let legend: Vec<Span<'static>> = parts
             .iter()
-            .flat_map(|(name, n, c)| [Span::styled("■ ", fg(*c)), Span::styled(format!("{name} {n}   "), dim())])
+            .flat_map(|(name, n, c)| {
+                [Span::styled(icons::SQUARE.spaced(), fg(*c)), Span::styled(format!("{name} {n}   "), dim())]
+            })
             .collect();
         lines.push(Line::from(legend));
         lines.push(Line::raw(""));
@@ -949,8 +959,8 @@ fn keys_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
         for n in 0..12 {
             let count = k.wheel[n * 2 + row].count;
             let t = count as f32 / max as f32;
-            let bg = theme::mix(theme::current().vinyl, theme::current().info, t.sqrt());
-            let fgc = if t > 0.45 { [16, 16, 22] } else { theme::current().text };
+            let bg = theme::mix(theme::current().idle, theme::current().info, t.sqrt());
+            let fgc = theme::ink_on(bg);
             let label = if count == 0 { "·".to_string() } else { count.to_string() };
             spans.push(Span::styled(format!("{label:^cell$}"), Style::new().bg(rgb3(bg)).fg(rgb3(fgc))));
         }
@@ -1045,7 +1055,10 @@ fn draw_ranked(f: &mut Frame, v: &ProfileView, s: Section, rows: &mut TableState
     ))
     .column_spacing(1)
     .row_highlight_style(if focused { theme::selected() } else { Style::new() })
-    .highlight_symbol(Span::styled("▍", fg(if focused { theme::current().accent } else { theme::current().faint })));
+    .highlight_symbol(Span::styled(
+        icons::SELECTED.get(),
+        fg(if focused { theme::current().accent } else { theme::current().faint }),
+    ));
     rows.fit(table.height.saturating_sub(1) as usize, ranked.top.len());
     f.render_stateful_widget(t, table, rows);
 }
@@ -1100,7 +1113,7 @@ fn draw_signature(f: &mut Frame, v: &ProfileView, rows: &mut TableState, focused
     f.render_widget(
         Paragraph::new(vec![
             Line::from(vec![
-                Span::styled("★ pinned ", fg(theme::current().warning)),
+                Span::styled(format!("{} pinned ", icons::STAR.get()), fg(theme::current().warning)),
                 Span::styled(format!("tracks lead the document's list, then those in the most {unit}s. "), dim()),
                 Span::styled("m", theme::key()),
                 Span::styled(" pin  ", dim()),
@@ -1123,11 +1136,11 @@ fn draw_signature(f: &mut Frame, v: &ProfileView, rows: &mut TableState, focused
         .iter()
         .map(|t| {
             let (mark, mark_style) = if !p.may_name(&t.name, &t.artist) {
-                ("⊘", fg(theme::current().critical))
+                (icons::BLOCKED.get(), fg(theme::current().critical))
             } else if p.is_pinned(&t.name) {
-                ("★", fg(theme::current().warning))
+                (icons::STAR.get(), fg(theme::current().warning))
             } else if t.sets >= 2 {
-                ("•", fg(theme::current().good))
+                (icons::BULLET.get(), fg(theme::current().good))
             } else {
                 (" ", faint())
             };
@@ -1164,7 +1177,10 @@ fn draw_signature(f: &mut Frame, v: &ProfileView, rows: &mut TableState, focused
     .header(Row::new(header.into_iter().map(|h| Cell::from(Span::styled(h, bold(theme::current().dim))))))
     .column_spacing(1)
     .row_highlight_style(if focused { theme::selected() } else { Style::new() })
-    .highlight_symbol(Span::styled("▍", fg(if focused { theme::current().accent } else { theme::current().faint })));
+    .highlight_symbol(Span::styled(
+        icons::SELECTED.get(),
+        fg(if focused { theme::current().accent } else { theme::current().faint }),
+    ));
     rows.fit(table.height.saturating_sub(1) as usize, s.played.len());
     f.render_stateful_widget(t, table, rows);
     if moves > 0 {

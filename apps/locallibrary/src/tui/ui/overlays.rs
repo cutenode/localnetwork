@@ -12,6 +12,7 @@ use crate::output::{bytes, plural};
 use crate::tui::app::{App, typed_tail};
 use crate::tui::browse::{COLOURS, colour_name, stars};
 use crate::tui::edits::{Menu, Modal, Sub};
+use crate::tui::icons;
 use crate::tui::theme::{self, bold, dim, faint, fg, text};
 
 use super::*;
@@ -64,8 +65,8 @@ pub(super) fn draw_menu(f: &mut Frame, app: &mut App, area: Rect) {
                         ListItem::new(Line::from(vec![
                             Span::styled(format!("{n:<5}"), theme::key()),
                             match c {
-                                Some(c) => Span::styled("● ", fg(theme::current().track_color(c))),
-                                None => Span::styled("○ ", faint()),
+                                Some(c) => Span::styled(icons::DOT.spaced(), fg(theme::current().track_color(c))),
+                                None => Span::styled(icons::RING.spaced(), faint()),
                             },
                             Span::styled(c.map_or("none", colour_name), text()),
                         ]))
@@ -85,7 +86,7 @@ pub(super) fn draw_menu(f: &mut Frame, app: &mut App, area: Rect) {
     let list = List::new(items)
         .block(b)
         .highlight_style(theme::selected())
-        .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
+        .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
     f.render_widget(Clear, r);
     f.render_stateful_widget(list, r, state);
     app.areas.menu = r;
@@ -124,7 +125,7 @@ pub(super) fn draw_picker(f: &mut Frame, app: &mut App, area: Rect) {
                 let rw: usize = right.iter().map(Span::width).sum();
                 // Marked as the tracks are, in a list any of which may be chosen.
                 let mark = match p.marks.as_ref().map(|m| m[i]) {
-                    Some(true) => Some(Span::styled("✓ ", bold(theme::current().accent))),
+                    Some(true) => Some(Span::styled(icons::CHECK.spaced(), bold(theme::current().accent))),
                     Some(false) => Some(Span::raw("  ")),
                     None => None,
                 };
@@ -135,7 +136,7 @@ pub(super) fn draw_picker(f: &mut Frame, app: &mut App, area: Rect) {
             .collect();
         let l = List::new(items)
             .highlight_style(theme::selected())
-            .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
+            .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
         p.state.fit(list.height as usize, n);
         f.render_stateful_widget(l, list, &mut p.state);
     }
@@ -147,9 +148,9 @@ pub(in crate::tui) fn tone_style(tone: crate::tui::drives::Tone) -> (&'static st
     use crate::tui::drives::Tone;
     match tone {
         Tone::Heading => ("", bold(theme::current().info)),
-        Tone::Ok => ("✓ ", fg(theme::current().good)),
-        Tone::Warning => ("⚠ ", fg(theme::current().warning)),
-        Tone::Problem => ("✖ ", fg(theme::current().critical)),
+        Tone::Ok => (icons::CHECK.spaced(), fg(theme::current().good)),
+        Tone::Warning => (icons::WARNING.spaced(), fg(theme::current().warning)),
+        Tone::Problem => (icons::CROSS.spaced(), fg(theme::current().critical)),
         Tone::Text | Tone::Row => ("", text()),
         Tone::Faint => ("", faint()),
         Tone::Columns => ("", dim()),
@@ -198,7 +199,7 @@ pub(super) fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
     for (i, field) in form.fields.iter().enumerate() {
         let on = i == form.selected;
         let mut spans = vec![
-            Span::styled(if on { "▍" } else { " " }, fg(theme::current().accent)),
+            Span::styled(if on { icons::SELECTED.get() } else { " " }, fg(theme::current().accent)),
             Span::styled(
                 format!("{:<label_w$}  ", clip(&field.label(), label_w)),
                 if on { bold(theme::current().text) } else { dim() },
@@ -207,12 +208,14 @@ pub(super) fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
         let room = inner_w.saturating_sub(label_w + 3);
         // A secret as dots, one for each character typed.
         let shown = |typed: &str| match field.is_secret() {
-            true => "•".repeat(typed.chars().count()),
+            true => icons::BULLET.get().repeat(typed.chars().count()),
             false => typed.to_string(),
         };
         match field.text.as_str() {
-            "true" if field.is_switch() => spans.push(Span::styled("● yes", fg(theme::current().accent))),
-            _ if field.is_switch() => spans.push(Span::styled("○ no", faint())),
+            "true" if field.is_switch() => {
+                spans.push(Span::styled(format!("{} yes", icons::DOT.get()), fg(theme::current().accent)))
+            }
+            _ if field.is_switch() => spans.push(Span::styled(format!("{} no", icons::RING.get()), faint())),
             picked if !field.choices().is_empty() => {
                 spans.push(Span::styled("‹ ", faint()));
                 spans.push(Span::styled(if picked.is_empty() { "none" } else { picked }.to_string(), text()));
@@ -223,7 +226,7 @@ pub(super) fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
                     typed_tail(&shown(typed), room.saturating_sub(1)).to_string(),
                     bold(theme::current().text),
                 ));
-                spans.push(Span::styled("▏", fg(theme::current().accent)));
+                spans.push(Span::styled(icons::CURSOR.get(), fg(theme::current().accent)));
             }
             typed => spans.push(Span::styled(clip(&shown(typed), room), text())),
         }
@@ -242,7 +245,9 @@ pub(super) fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
     if let Some(e) = &form.error {
         lines.push(Line::raw(""));
         lines.extend(
-            wrap_text(&format!("⚠ {e}"), inner_w).into_iter().map(|l| Line::styled(l, fg(theme::current().warning))),
+            wrap_text(&format!("{} {e}", icons::WARNING.get()), inner_w)
+                .into_iter()
+                .map(|l| Line::styled(l, fg(theme::current().warning))),
         );
     }
     let r = popup(area, w, lines.len() as u16 + 2, None);
@@ -274,7 +279,8 @@ pub(super) fn draw_outputs(f: &mut Frame, app: &mut App, area: Rect) {
     let playing = app.audio.as_ref().map(|a| a.device().map(str::to_string));
     let Some(o) = &mut app.deck.outputs else { return };
     let w = 56u16.min(area.width);
-    let mark = |on: bool| if on { Span::styled("● ", bold(theme::current().accent)) } else { Span::raw("  ") };
+    let mark =
+        |on: bool| if on { Span::styled(icons::DOT.spaced(), bold(theme::current().accent)) } else { Span::raw("  ") };
     let default = match &o.default {
         Some(d) => format!("the system's default ({d})"),
         None => "the system's default".into(),
@@ -304,7 +310,7 @@ pub(super) fn draw_outputs(f: &mut Frame, app: &mut App, area: Rect) {
     let list = List::new(items)
         .block(b)
         .highlight_style(theme::selected())
-        .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
+        .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
     f.render_widget(Clear, r);
     f.render_stateful_widget(list, r, &mut o.state);
 }
@@ -313,7 +319,7 @@ pub(super) fn draw_outputs(f: &mut Frame, app: &mut App, area: Rect) {
 fn edit_lines(p: &locallibrary::edit::EditPlan, lines: &mut Vec<Line<'static>>) {
     for change in &p.changes {
         lines.push(Line::from(vec![
-            Span::styled("• ", fg(theme::current().info)),
+            Span::styled(icons::BULLET.spaced(), fg(theme::current().info)),
             Span::styled(change.clone(), bold(theme::current().text)),
         ]));
     }
@@ -325,7 +331,7 @@ fn edit_lines(p: &locallibrary::edit::EditPlan, lines: &mut Vec<Line<'static>>) 
     }
     for path in &p.playlists_deleted {
         lines.push(Line::from(vec![
-            Span::styled("  − ", bold(theme::current().critical)),
+            Span::styled(format!("  {} ", icons::MINUS.get()), bold(theme::current().critical)),
             Span::styled(path.clone(), text()),
         ]));
     }
@@ -338,7 +344,7 @@ fn edit_lines(p: &locallibrary::edit::EditPlan, lines: &mut Vec<Line<'static>>) 
                 parts.push(format!("+{}", ch.added));
             }
             if ch.removed > 0 {
-                parts.push(format!("−{}", ch.removed));
+                parts.push(format!("{}{}", icons::MINUS.get(), ch.removed));
             }
             if parts.is_empty() { "entries changed".into() } else { parts.join(" ") }
         };
@@ -358,7 +364,7 @@ fn edit_lines(p: &locallibrary::edit::EditPlan, lines: &mut Vec<Line<'static>>) 
         let files =
             if p.files.is_empty() { String::new() } else { format!(", {} files, {}", p.files.len(), bytes(p.bytes)) };
         lines.push(Line::from(vec![
-            Span::styled("  − ", bold(theme::current().critical)),
+            Span::styled(format!("  {} ", icons::MINUS.get()), bold(theme::current().critical)),
             Span::styled(format!("{} removed{files}", plural(p.tracks_removed.len(), "track")), text()),
         ]));
         for t in p.tracks_removed.iter().take(5) {
@@ -370,12 +376,12 @@ fn edit_lines(p: &locallibrary::edit::EditPlan, lines: &mut Vec<Line<'static>>) 
     }
     if p.history_removed > 0 {
         lines.push(Line::from(vec![
-            Span::styled("  − ", bold(theme::current().critical)),
+            Span::styled(format!("  {} ", icons::MINUS.get()), bold(theme::current().critical)),
             Span::styled(format!("{} removed", plural(p.history_removed, "history list")), text()),
         ]));
     }
     for w in &p.warnings {
-        lines.push(Line::styled(format!("⚠ {w}"), fg(theme::current().warning)));
+        lines.push(Line::styled(format!("{} {w}", icons::WARNING.get()), fg(theme::current().warning)));
     }
 }
 
@@ -397,7 +403,7 @@ fn undo_lines(c: &crate::tui::edits::Confirm, lines: &mut Vec<Line<'static>>) {
     }
     for p in &d.removed_playlists {
         lines.push(Line::from(vec![
-            Span::styled("  − ", bold(theme::current().critical)),
+            Span::styled(format!("  {} ", icons::MINUS.get()), bold(theme::current().critical)),
             Span::styled(p.clone(), text()),
         ]));
     }
@@ -407,7 +413,7 @@ fn undo_lines(c: &crate::tui::edits::Confirm, lines: &mut Vec<Line<'static>>) {
             parts.push(format!("+{}", p.added.len()));
         }
         if !p.removed.is_empty() {
-            parts.push(format!("−{}", p.removed.len()));
+            parts.push(format!("{}{}", icons::MINUS.get(), p.removed.len()));
         }
         if !p.moved.is_empty() {
             parts.push(format!("{} moved", p.moved.len()));
@@ -419,13 +425,13 @@ fn undo_lines(c: &crate::tui::edits::Confirm, lines: &mut Vec<Line<'static>>) {
         ]));
     }
     let tracks = [
-        (d.added_tracks.len(), "back", theme::current().good, "  + "),
-        (d.removed_tracks.len(), "gone", theme::current().critical, "  − "),
-        (d.changed_tracks.len(), "as they were", theme::current().warning, "  ~ "),
+        (d.added_tracks.len(), "back", theme::current().good, "+"),
+        (d.removed_tracks.len(), "gone", theme::current().critical, icons::MINUS.get()),
+        (d.changed_tracks.len(), "as they were", theme::current().warning, "~"),
     ];
     for (n, what, c, mark) in tracks.into_iter().filter(|t| t.0 > 0) {
         lines.push(Line::from(vec![
-            Span::styled(mark, bold(c)),
+            Span::styled(format!("  {mark} "), bold(c)),
             Span::styled(format!("{} {what}", plural(n, "track")), text()),
         ]));
     }
@@ -458,7 +464,7 @@ fn undo_lines(c: &crate::tui::edits::Confirm, lines: &mut Vec<Line<'static>>) {
         }
     }
     for w in c.plan.warnings() {
-        lines.push(Line::styled(format!("⚠ {w}"), fg(theme::current().warning)));
+        lines.push(Line::styled(format!("{} {w}", icons::WARNING.get()), fg(theme::current().warning)));
     }
 }
 
@@ -471,7 +477,7 @@ fn export_lines(c: &crate::tui::edits::Confirm, lines: &mut Vec<Line<'static>>) 
     // The summary says where (`write 2 file(s) to ...`).
     for s in &p.summary {
         lines.push(Line::from(vec![
-            Span::styled("• ", fg(theme::current().info)),
+            Span::styled(icons::BULLET.spaced(), fg(theme::current().info)),
             Span::styled(s.clone(), bold(theme::current().text)),
         ]));
     }
@@ -491,7 +497,7 @@ fn export_lines(c: &crate::tui::edits::Confirm, lines: &mut Vec<Line<'static>>) 
         lines.push(Line::styled(n.clone(), dim()));
     }
     for w in &p.warnings {
-        lines.push(Line::styled(format!("⚠ {w}"), fg(theme::current().warning)));
+        lines.push(Line::styled(format!("{} {w}", icons::WARNING.get()), fg(theme::current().warning)));
     }
     if p.destructive {
         lines.push(Line::raw(""));
@@ -504,10 +510,9 @@ pub(super) fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
     let wording = crate::tui::edits::wording(&*c.plan, &c.drive);
     let mut lines = Vec::new();
     // A guard made blocking found something: applying it is refused.
-    let blocked = c
-        .plan
-        .blocked()
-        .map(|check| Line::styled(format!("✗ {check} stops these changes"), fg(theme::current().critical)));
+    let blocked = c.plan.blocked().map(|check| {
+        Line::styled(format!("{} {check} stops these changes", icons::REFUSED.get()), fg(theme::current().critical))
+    });
     match c.edit() {
         Some(p) => {
             lines.push(Line::from(vec![
@@ -526,7 +531,7 @@ pub(super) fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
             edit_lines(p, &mut lines);
             // What's said about the plan as a whole (a plugin's warnings), besides its edits'.
             for w in c.plan.warnings().iter().filter(|w| !p.warnings.contains(w)) {
-                lines.push(Line::styled(format!("⚠ {w}"), fg(theme::current().warning)));
+                lines.push(Line::styled(format!("{} {w}", icons::WARNING.get()), fg(theme::current().warning)));
             }
             lines.extend(blocked);
             lines.push(Line::raw(""));
@@ -548,12 +553,12 @@ pub(super) fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
             lines.push(Line::raw(""));
             for s in plan.summary() {
                 lines.push(Line::from(vec![
-                    Span::styled("• ", fg(theme::current().info)),
+                    Span::styled(icons::BULLET.spaced(), fg(theme::current().info)),
                     Span::styled(s.clone(), bold(theme::current().text)),
                 ]));
             }
             for w in plan.warnings() {
-                lines.push(Line::styled(format!("⚠ {w}"), fg(theme::current().warning)));
+                lines.push(Line::styled(format!("{} {w}", icons::WARNING.get()), fg(theme::current().warning)));
             }
             lines.extend(blocked);
             if plan.destructive() {
@@ -627,11 +632,11 @@ pub(super) fn help_lines(sections: &[crate::tui::keymap::HelpSection], width: u1
 
 fn help_footer(width: u16) -> Vec<Line<'static>> {
     let mut lines = vec![Line::from(vec![
-        Span::styled("✓", bold(theme::current().accent)),
+        Span::styled(icons::CHECK.get(), bold(theme::current().accent)),
         Span::styled(" marked  ", dim()),
-        Span::styled("✖", bold(theme::current().critical)),
+        Span::styled(icons::CROSS.get(), bold(theme::current().critical)),
         Span::styled(" file missing  ", dim()),
-        Span::styled("≈", fg(theme::current().warning)),
+        Span::styled(icons::NEAR.get(), fg(theme::current().warning)),
         Span::styled(" another copy on the drive", dim()),
     ])];
     for text_ in [

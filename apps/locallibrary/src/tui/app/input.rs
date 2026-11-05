@@ -98,6 +98,9 @@ impl App {
     }
 
     pub fn on_key(&mut self, key: KeyEvent) {
+        if self.late_answers.swallows(&key, Instant::now()) {
+            return;
+        }
         let key = capital(key);
         // The player may have gone on to the next track since the last tick: keys act on the one
         // playing (a seek asked of the one that ended would be lost).
@@ -345,6 +348,8 @@ impl App {
             Act::CheckSettings => self.check_settings(),
             Act::Fix(i) => self.fix(i),
             Act::Theme(key) => self.use_theme(key),
+            Act::Colours(tier) => self.use_colours(tier),
+            Act::Icons(set) => self.use_icons(set),
             Act::Export(plugin, format, from) => self.plugin_export(plugin, format, from, self.action_drive()),
             Act::Import(plugin, format) => self.plugin_import(plugin, format, self.action_drive()),
             Act::Source(plugin, source) => self.plugin_source(plugin, source, self.action_drive()),
