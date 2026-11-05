@@ -135,8 +135,8 @@ such as `REKORDBOX`) or its mount path. `locallibrary --help` lists every comman
 | store | the folder on your computer where locallibrary keeps the history of your libraries (`~/Library/Application Support/locallibrary` on a Mac) |
 | snapshot | one saved state of a library in the store; `locallibrary pull` makes one |
 | primary, backup, set, archive | a drive's role: the one rekordbox exports to, copies of it, drives you take to sets, and drives never written to |
-| session | a history list a player recorded on the drive |
-| set | what you played on a night, which you declare from one or more sessions or a recording |
+| history | a play history list a player recorded on the drive; commands call it a session |
+| set | what you played on a night, which you declare from one or more histories or a recording |
 | My Settings | player and mixer settings (quantize, jog mode, fader curves...) players load from the drive |
 | My Tags | rekordbox's track tags, which players filter by |
 | `export.pdb`, OneLibrary | the two databases rekordbox 7 writes on a drive: most players read `export.pdb`; the CDJ-3000X, OPUS-QUAD, XDJ-AZ and a few others read only OneLibrary. locallibrary keeps both up to date |
@@ -151,7 +151,7 @@ such as `REKORDBOX`) or its mount path. `locallibrary --help` lists every comman
   Tags, cues, cover art
 - [My Settings](docs/settings.md): one settings profile for every drive, and taking everything you
   set to another computer
-- [Sets, history and mixes](docs/sets.md): checking drives before a set, sessions, sets, recorded
+- [Sets, history and mixes](docs/sets.md): checking drives before a set, histories, sets, recorded
   mixes, your DJ profile
 - [Drives](docs/drives.md): your library's drives, roles, health, space, formatting, the doctor's
   report

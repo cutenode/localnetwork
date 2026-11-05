@@ -7,7 +7,7 @@ Reading a library, My Settings, sets, mixes and the DJ profile. The rest are lis
 - [Importing published settings](#importing-published-settings)
 - [rekordbox's collection](#rekordboxs-collection)
 - [Exporting a collection](#exporting-a-collection)
-- [Sets from sessions and recordings](#sets-from-sessions-and-recordings)
+- [Sets from histories and recordings](#sets-from-histories-and-recordings)
 - [Play statistics](#play-statistics)
 - [Identifying a mix](#identifying-a-mix)
 - [The DJ profile](#the-dj-profile)
@@ -104,13 +104,13 @@ flowchart TD
 
 Source: [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`crates/locallibrary/src/plugin/sources.rs`](../../../../crates/locallibrary/src/plugin/sources.rs), [`crates/locallibrary/src/api/collection.rs`](../../../../crates/locallibrary/src/api/collection.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs)
 
-## Sets from sessions and recordings
+## Sets from histories and recordings
 
 How what players logged becomes a set the DJ declares, and where a set goes.
 
 ```mermaid
 flowchart TD
-    lists["History lists on drives"] --> sessions["Sessions"]
+    lists["History lists on drives"] --> sessions["Histories"]
     archive["History lists in snapshots"] --> sessions
     imported["Beat Link Trigger logs,<br/>plugins' importers"] --> sessions
     sessions -->|"--from. sets suggest groups one night's"| new["sets new"]
@@ -165,7 +165,7 @@ What the report is built from, and what's allowed out of it.
 ```mermaid
 flowchart TD
     sets["Declared sets"] --> report["Profile report: stays on this computer"]
-    sessions["Sessions, until sets are declared"] --> report
+    sessions["Histories, until sets are declared"] --> report
     collection["The collection, with neither"] --> report
     analysis["Analysis and tags, from mounted drives<br/>and the store's snapshots"] --> report
     settings["The drives' My Settings"] --> report

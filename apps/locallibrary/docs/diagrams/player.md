@@ -18,7 +18,7 @@ Views, panes, threads, playback and what it remembers. The rest are listed in th
 
 ## Player views
 
-The player's five views and what crosses from one to another. `1` to `5` switch views, unless the pads make the digits hot cues. `o` in any view goes to the playing track, in the library or, for a set, in Mixes.
+The player's five views and what crosses from one to another. `1` to `5` switch views, unless the pads make the digits hot cues. `o` goes to the playing track, in the library or, for a recording, in Mixes. In Mixes with a recording open, it goes to the selected track in the library.
 
 ```mermaid
 flowchart TD
@@ -31,12 +31,12 @@ flowchart TD
     mixes -->|"o goes to a track"| library
     snapshots -.->|"enter: a playlist back onto<br/>the open drive, staying here"| library
     library -->|"mark playlists to pack"| drives
-    library -->|"m marks, a adds, t shows it"| crate["Crate: TAG LIST"]
-    crate -->|"w saves it to its drive"| crate
+    library -->|"m marks, a adds, t shows it"| crate["Crate"]
+    crate -->|"w saves its tracks on the open drive as a playlist"| crate
     crate -->|"packed onto a drive"| drives
 ```
 
-Source: [`src/tui/app/`](../../src/tui/app), [`src/tui/keymap.rs`](../../src/tui/keymap.rs), [`src/tui/ui/`](../../src/tui/ui), [`src/tui/drives.rs`](../../src/tui/drives.rs), [`src/tui/profile.rs`](../../src/tui/profile.rs), [`src/tui/mix.rs`](../../src/tui/mix.rs), [`src/tui/crate_list.rs`](../../src/tui/crate_list.rs)
+Source: [`src/tui/app.rs`](../../src/tui/app.rs), [`src/tui/app/input.rs`](../../src/tui/app/input.rs), [`src/tui/app/library.rs`](../../src/tui/app/library.rs), [`src/tui/app/player.rs`](../../src/tui/app/player.rs), [`src/tui/keymap.rs`](../../src/tui/keymap.rs), [`src/tui/ui.rs`](../../src/tui/ui.rs), [`src/tui/drives.rs`](../../src/tui/drives.rs), [`src/tui/profile.rs`](../../src/tui/profile.rs), [`src/tui/mix.rs`](../../src/tui/mix.rs), [`src/tui/crate_list.rs`](../../src/tui/crate_list.rs)
 
 ## Panes and dialogs
 
@@ -54,11 +54,13 @@ flowchart TD
     pick --> report["Report: a check's or<br/>a command's results"]
     pick --> ask["Ask: a yes or no<br/>off the drive"]
     prompt --> plan["A plan, in the background"]
+    menu --> plan
+    pick --> plan
     form --> plan
     plan --> confirm["Confirm: y applies, esc stops"]
 ```
 
-Source: [`src/tui/edits.rs`](../../src/tui/edits.rs), [`src/tui/palette.rs`](../../src/tui/palette.rs), [`src/tui/form.rs`](../../src/tui/form.rs), [`src/tui/keymap.rs`](../../src/tui/keymap.rs)
+Source: [`src/tui/app/input.rs`](../../src/tui/app/input.rs), [`src/tui/app/mouse.rs`](../../src/tui/app/mouse.rs), [`src/tui/edits.rs`](../../src/tui/edits.rs), [`src/tui/palette.rs`](../../src/tui/palette.rs), [`src/tui/form.rs`](../../src/tui/form.rs), [`src/tui/keymap.rs`](../../src/tui/keymap.rs)
 
 ## Player threads
 
@@ -74,13 +76,13 @@ flowchart TD
     channel --> loop
     loop -->|"spawn"| workers
     loop -->|"open a track"| opener
-    loop -->|"each second"| poll["A worker polls the volumes"]
+    loop -->|"each second"| poll["A worker looks for drives<br/>coming and going"]
     poll --> channel
     audio["Audio thread"] -->|"playhead and tap, read without locks"| loop
     loop -->|"seek, loop, pause, through the playhead"| audio
 ```
 
-Source: [`src/tui/mod.rs`](../../src/tui/mod.rs), [`src/tui/app/`](../../src/tui/app), [`src/tui/audio.rs`](../../src/tui/audio.rs), [`src/tui/stderr.rs`](../../src/tui/stderr.rs), [`src/tui/plugins/events.rs`](../../src/tui/plugins/events.rs)
+Source: [`src/tui/mod.rs`](../../src/tui/mod.rs), [`src/tui/app/background.rs`](../../src/tui/app/background.rs), [`src/tui/app/playing.rs`](../../src/tui/app/playing.rs), [`src/tui/app/input.rs`](../../src/tui/app/input.rs), [`src/tui/audio.rs`](../../src/tui/audio.rs), [`src/tui/stderr.rs`](../../src/tui/stderr.rs), [`src/tui/plugins/events.rs`](../../src/tui/plugins/events.rs)
 
 ## Opening a drive in the player
 
@@ -102,7 +104,7 @@ sequenceDiagram
     B-->>U: MyTags, Fields
 ```
 
-Source: [`src/tui/app/`](../../src/tui/app), [`src/tui/browse.rs`](../../src/tui/browse.rs)
+Source: [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs), [`src/tui/app/library.rs`](../../src/tui/app/library.rs), [`src/tui/app/background.rs`](../../src/tui/app/background.rs), [`src/tui/browse.rs`](../../src/tui/browse.rs)
 
 ## Changing a drive from the player
 
@@ -123,13 +125,14 @@ stateDiagram-v2
     Confirm --> Writing: y
     Writing --> Committed: databases being written, or files deleted
     Writing --> Reading: done, failed, or esc before it commits
-    Writing --> Idle: the open drive wasn't written
+    Writing --> Idle: the change wasn't to the open drive
+    Committed --> Idle: the change wasn't to the open drive
     Committed --> Reading: done, or failed
     Reading --> Idle
-    Reading --> Planning: a crate saved, now packed
+    Committed --> Planning: a crate saved, now packed,<br/>the read not waited for
 ```
 
-Source: [`src/tui/edits.rs`](../../src/tui/edits.rs), [`src/tui/app/`](../../src/tui/app)
+Source: [`src/tui/edits.rs`](../../src/tui/edits.rs), [`src/tui/app/background.rs`](../../src/tui/app/background.rs), [`src/tui/app/input.rs`](../../src/tui/app/input.rs), [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs), [`src/tui/drives.rs`](../../src/tui/drives.rs)
 
 ## An unplugged drive in the player
 
@@ -147,7 +150,7 @@ stateDiagram-v2
     Reading --> Open: read
 ```
 
-Source: [`src/tui/app/`](../../src/tui/app), [`src/tui/ui/`](../../src/tui/ui), [`src/tui/drives.rs`](../../src/tui/drives.rs), [`src/tui/mix.rs`](../../src/tui/mix.rs)
+Source: [`src/tui/app/background.rs`](../../src/tui/app/background.rs), [`src/tui/app/drives.rs`](../../src/tui/app/drives.rs), [`src/tui/app/player.rs`](../../src/tui/app/player.rs), [`src/tui/edits.rs`](../../src/tui/edits.rs), [`src/tui/ui/library.rs`](../../src/tui/ui/library.rs), [`src/tui/drives.rs`](../../src/tui/drives.rs), [`src/tui/mix.rs`](../../src/tui/mix.rs)
 
 ## Drives view rows
 
@@ -159,14 +162,14 @@ flowchart TD
     rows --> library["A library"]
     rows --> drive["A drive"]
     rows --> none["The heading of drives of no library"]
-    library -->|enter| open["Opens its newest drive in the library"]
+    library -->|enter| open["Opens its lead clone in the Library view"]
     library -->|e| clones["Sync its clones, check them for a set, eject them"]
     drive -->|enter| browse["Browses the drive"]
-    drive -->|e| work["Pull, check, set prep, sync, pack, restore, replay,<br/>undo, eject, and plugins' operations for a drive"]
+    drive -->|e| work["Pull, check, check all the library's drives, sync, pack,<br/>restore, replay, undo, eject, and what plugins offer for a drive"]
     none -->|e| select["Says to select one of the drives"]
 ```
 
-Source: [`src/tui/drives.rs`](../../src/tui/drives.rs), [`src/tui/ui/`](../../src/tui/ui)
+Source: [`src/tui/drives.rs`](../../src/tui/drives.rs), [`src/tui/app/input.rs`](../../src/tui/app/input.rs), [`src/tui/ui/drives.rs`](../../src/tui/ui/drives.rs)
 
 ## Search and filter
 
@@ -185,7 +188,7 @@ flowchart TD
     read --> list
 ```
 
-Source: [`src/tui/app/`](../../src/tui/app), [`src/tui/browse.rs`](../../src/tui/browse.rs), [`crates/locallibrary/src/query.rs`](../../../../crates/locallibrary/src/query.rs)
+Source: [`src/tui/app/library.rs`](../../src/tui/app/library.rs), [`src/tui/app/input.rs`](../../src/tui/app/input.rs), [`src/tui/browse.rs`](../../src/tui/browse.rs), [`crates/locallibrary/src/query.rs`](../../../../crates/locallibrary/src/query.rs)
 
 ## Playback
 
@@ -204,7 +207,7 @@ flowchart TD
     tap --> vis["Visualisers"]
 ```
 
-Source: [`src/tui/audio.rs`](../../src/tui/audio.rs), [`src/tui/deck.rs`](../../src/tui/deck.rs), [`src/tui/analyzer.rs`](../../src/tui/analyzer.rs), [`src/tui/app/`](../../src/tui/app)
+Source: [`src/tui/audio.rs`](../../src/tui/audio.rs), [`src/tui/deck.rs`](../../src/tui/deck.rs), [`src/tui/analyzer.rs`](../../src/tui/analyzer.rs), [`src/tui/app/player.rs`](../../src/tui/app/player.rs), [`src/tui/app/playing.rs`](../../src/tui/app/playing.rs), [`src/tui/ui/player.rs`](../../src/tui/ui/player.rs)
 
 ## Output devices
 
@@ -224,7 +227,7 @@ stateDiagram-v2
     Open --> None: it went away, the track waits where it was
 ```
 
-Source: [`src/tui/app/`](../../src/tui/app), [`src/tui/deck.rs`](../../src/tui/deck.rs), [`src/tui/audio.rs`](../../src/tui/audio.rs)
+Source: [`src/tui/app/player.rs`](../../src/tui/app/player.rs), [`src/tui/deck.rs`](../../src/tui/deck.rs), [`src/tui/audio.rs`](../../src/tui/audio.rs)
 
 ## Signing in from the player
 
@@ -267,7 +270,7 @@ stateDiagram-v2
     [*] --> List
     List --> List: not a recording, or no drive open, refused
     List --> Busy: a recording picked, or O
-    Busy --> List: esc
+    Busy --> List: esc, or back to the report<br/>or error shown before
     Busy --> Report: its tracks found, remembered
     Busy --> Failed: an error
     Report --> Busy: another recording
@@ -275,7 +278,7 @@ stateDiagram-v2
     Report --> List: esc
 ```
 
-Source: [`src/tui/mix.rs`](../../src/tui/mix.rs), [`src/tui/app/`](../../src/tui/app)
+Source: [`src/tui/mix.rs`](../../src/tui/mix.rs), [`src/tui/app/background.rs`](../../src/tui/app/background.rs), [`src/tui/app/input.rs`](../../src/tui/app/input.rs)
 
 ## What the player remembers
 
@@ -288,9 +291,9 @@ flowchart TD
     has -->|"a store"| tui["tui.json in the store"]
     has -->|"no store yet"| beside["STORE-player/tui.json,<br/>in a folder beside it"]
     has -->|"inside the open drive,<br/>or its file can't be read"| none["Not saved"]
-    tui --> keeps["Drive, list, view, sort, volume, panels, columns,<br/>theme, visualiser, modes, output, crate,<br/>recordings opened, queue and place"]
+    tui --> keeps["Drive, list, view, sort, volume, open panes, columns,<br/>theme, visualiser, modes, output, crate,<br/>recordings opened, queue and place"]
     beside --> keeps
     keeps -->|"preferences only"| export["settings export"]
 ```
 
-Source: [`src/tui/state.rs`](../../src/tui/state.rs), [`src/tui/app/`](../../src/tui/app), [`crates/locallibrary/src/store.rs`](../../../../crates/locallibrary/src/store.rs), [`crates/locallibrary/src/settings/transfer.rs`](../../../../crates/locallibrary/src/settings/transfer.rs)
+Source: [`src/tui/state.rs`](../../src/tui/state.rs), [`src/tui/app/saved.rs`](../../src/tui/app/saved.rs), [`crates/locallibrary/src/store.rs`](../../../../crates/locallibrary/src/store.rs), [`crates/locallibrary/src/settings/transfer.rs`](../../../../crates/locallibrary/src/settings/transfer.rs)

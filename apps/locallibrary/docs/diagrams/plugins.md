@@ -227,7 +227,7 @@ flowchart TD
     fix["A check's fix:<br/>an operation"] --> plan
     provider["Provider: you pick,<br/>or a clear best is picked"] --> plan
     importer["Importer:<br/>what a file says"] --> plan
-    importer -->|"its plays"| sessions[("Sessions, in sets.json")]
+    importer -->|"its plays"| sessions[("Histories, in sets.json")]
     analyzer["Analyzer: fields<br/>kept in cache/"] -->|"analyze --apply"| plan
     plan --> guards["Plugins' guards"]
     guards --> confirm["Confirmed like any change"]
