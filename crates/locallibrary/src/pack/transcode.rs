@@ -276,7 +276,13 @@ pub(super) fn plan(
                 && tgt_tree.resolve(&w.to).is_some_and(|e| e.size == r.file.size)
         });
         let copy_path = paths::device_path(&w.to);
-        for analysis in crate::track_files::analysis_files(&t.analyze_path, src_tree) {
+        // Every row of the master plays the copy, each with its own analysis files (a track's
+        // rows in both databases name the same ones).
+        let rows = tracks.iter().filter(|r| paths::file_key(&r.file_path) == paths::file_key(&t.file_path));
+        for analysis in rows.flat_map(|r| crate::track_files::analysis_files(&r.analyze_path, src_tree)) {
+            if out.rewrites.contains_key(&analysis) {
+                continue;
+            }
             let e = src_tree.resolve(&analysis).expect("listed from the tree");
             let rewritten =
                 library_write::Source::analysis(src_tree.fs_path(&e.path), e.mtime, &copy_path, w.shift_ms)?;
