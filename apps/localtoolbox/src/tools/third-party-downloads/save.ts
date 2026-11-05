@@ -1,23 +1,23 @@
 // Handing a file to the browser, and working out what to call it.
 //
 // A transfer started here is the browser's from then on: it outlives the popup,
-// which is the point — a page of gates can be set going and the window closed.
+// so a page of gates can be set going and the window closed.
 
 // What Chrome will not take in a filename, and what a name has to survive to
 // be handed over as one.
 //
-// chrome.downloads.download() refuses the whole call — "Invalid filename" —
-// rather than cleaning a name up, and it holds every name to what Windows
-// would accept, whatever the machine actually is. So the characters below go
-// before the name is offered, or the file is lost over its title:
+// chrome.downloads.download() refuses the whole call ("Invalid filename")
+// rather than cleaning a name up, and it holds every name to what Windows would
+// accept, whatever the machine is. So the characters below go before the name
+// is offered, or the file is lost over its title:
 //
 //   the separators, and the shell metacharacters `"*:<>?|` that Windows
-//   reserves — the ones an artist's own filename arrives full of, because
+//   reserves, the ones an artist's own filename arrives full of, because
 //   "Track *FREE DL*" and "Remix?" are how these files get named;
 const ILLEGAL = /[/\\"*:<>?|]/g;
 
-//   the control characters, the invisible format characters — soft hyphens,
-//   zero-width spaces, bidi marks — that ride along unseen in a title pasted
+//   the control characters, the invisible format characters (soft hyphens,
+//   zero-width spaces, bidi marks) that ride along unseen in a title pasted
 //   out of a page, and any half of a character left over from a cut;
 const INVISIBLE = /[\p{Cc}\p{Cf}\p{Cs}]/gu;
 
@@ -40,7 +40,7 @@ export function safeName(name: string) {
 	return named.slice(0, 180).replace(ENDS.trailing, '');
 }
 
-// What the file is actually called, in the order the answer is most likely to
+// What the file is called, in the order the answer is most likely to
 // be right: the Content-Disposition a signed link carries (Hypeddit and
 // Droploud both sign one in), then the last path segment, if it has an
 // extension worth keeping.
@@ -75,8 +75,8 @@ export function filenameOf(fileUrl: string) {
 	}
 }
 
-// The extensions a free download comes as. Used both for naming a file and —
-// in looksLikeFile() below — for deciding whether a link is one at all.
+// The extensions a free download comes as. Used both for naming a file and,
+// in looksLikeFile() below, for deciding whether a link is one at all.
 const AUDIO = /\.(mp3|wav|aiff?|flac|m4a|ogg|opus|alac|wma|zip|rar|7z)$/i;
 
 /**
@@ -108,7 +108,7 @@ export function looksLikeFile(url: string) {
 }
 
 // Chrome's own words for a name it will not take. It is a constant in the
-// extensions API rather than anything translated, so matching it is safe —
+// extensions API rather than anything translated, so matching it is safe,
 // and it is matched rather than assumed, so a disk that is full, a blocked
 // URL or a cancelled download still fails as itself.
 const NAME_REFUSED = /invalid\s*file\s*name/i;
@@ -120,10 +120,10 @@ const NAME_REFUSED = /invalid\s*file\s*name/i;
  * directory; without one, Chrome takes the name from the response and its own
  * default folder, because a folder can only be given alongside a filename.
  *
- * If Chrome refuses the name anyway — safeName() covers what it documents, not
- * every rule it has — the file is asked for again without one. The bytes are
- * the point; the name is a courtesy, and it lands in the default folder under
- * whatever the response calls it rather than not landing at all.
+ * If Chrome refuses the name anyway (safeName() covers what it documents, not
+ * every rule it has), the file is asked for again without one. It lands in the
+ * default folder under whatever the response calls it rather than not landing
+ * at all: the bytes matter more than the name.
  *
  * @returns the download's id and the name it was given, '' where Chrome chose one; `renamed`
  *   when Chrome refused ours

@@ -11,7 +11,7 @@ use locallibrary::edit::{self, Edit, EditOptions};
 use locallibrary::pack::{self, Container, PackOptions, Transcode};
 use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
-use locallibrary::{Error, Library, paths, pdb, probe};
+use locallibrary::{Error, Library, Track, paths, pdb, probe};
 use rekordbox_pdb::NewTrack;
 use rekordcrate::pdb::{Header, PageType};
 
@@ -297,4 +297,37 @@ fn a_copy_too_long_for_aiff_is_refused_when_planned() {
     assert!(plan.transcodes.is_empty(), "{:?}", plan.transcodes);
     let [u] = plan.unplayable.as_slice() else { panic!("{:?}", plan.unplayable) };
     assert_eq!(u.why, "it's too long for AIFF, which holds 4 GiB at most");
+}
+
+/// Two tracks using one master both play its copy: each packed row points at a file the drive
+/// holds, and each one's analysis files record it.
+#[test]
+fn every_track_sharing_a_master_plays_its_copy() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = source(dir.path());
+    let track = NewTrack {
+        analyze_path: "/PIONEER/USBANLZ/P0AB/00000002/ANLZ0000.DAT".into(),
+        duration: 1,
+        sample_rate: 96_000,
+        sample_depth: 24,
+        ..NewTrack::new("Hi Res again", HI_RES)
+    };
+    let id = common::add_track(&root, track, &common::media::wav_of(96_000, 24, 2, 1.0));
+    common::add_onelibrary(&root);
+    let tracks = TrackSelector { ids: vec![id], ..Default::default() };
+    let add = Edit::AddTracks { playlist: "Set".into(), tracks, position: None, sort: None, allow_repeats: false };
+    common::apply(&root, &[add]);
+    let src = Device::open_export(&root).unwrap();
+    let mut club = club(dir.path());
+    let plan = pack::plan(&src, &club, &options(&["CDJ-2000NXS"]), &Ctx::silent()).unwrap();
+    pack::apply(&plan, &src, &mut club, None, &Ctx::silent()).unwrap();
+    for library in libraries(club.root()) {
+        let shared: Vec<&Track> = library.tracks.iter().filter(|t| t.title.starts_with("Hi Res")).collect();
+        let files: Vec<&str> = shared.iter().map(|t| t.file_path.as_str()).collect();
+        assert_eq!(files, ["/Contents/Artist/Album/Hi Res.aiff"; 2], "both rows play the copy");
+        for t in shared {
+            let bytes = fs::read(paths::to_fs(club.root(), &paths::key(&t.analyze_path))).unwrap();
+            assert_eq!(anlz::read_path(&bytes).unwrap().as_deref(), Some(t.file_path.as_str()), "{}", t.title);
+        }
+    }
 }

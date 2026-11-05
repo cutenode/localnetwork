@@ -3,11 +3,11 @@
 	import type { HTMLAnchorAttributes, HTMLButtonAttributes } from "svelte/elements";
 	import { cn } from "$lib/utils.ts";
 
-	// This was `tv()` from tailwind-variants, which for what it is asked to do
-	// here — one base, two flat variant groups, no slots, no compound rules —
-	// is 89 KB of bundle for a lookup and a join. `cn` still does the merging
-	// that matters (a caller's `size-7` beating the base's `size-8`), so the
-	// classes a button ends up with are the same ones.
+	// Hand-written rather than `tv()` from tailwind-variants, which for what it
+	// is asked to do here (one base, two flat variant groups, no slots, no
+	// compound rules) is 89 KB of bundle for a lookup and a join. `cn` still
+	// does the merging that matters (a caller's `size-7` beating the base's
+	// `size-8`), so the classes a button ends up with are the same ones.
 	const VARIANTS = {
 		// The website's buttons (btn-primary, btn-secondary, btn-ghost, btn-danger in
 		// packages/tokens/theme.css), a size down for a 400px panel. Focus draws the
@@ -45,7 +45,7 @@
 		};
 
 	/**
-	 * The classes for one variant and size, in the call shape `tv()` gave —
+	 * The classes for one variant and size, in the call shape `tv()` gave,
 	 * which is the shape shadcn-svelte re-exports this under, for anything
 	 * that wants a button's look without being one.
 	 */

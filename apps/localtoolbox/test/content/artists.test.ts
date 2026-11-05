@@ -1,4 +1,4 @@
-// content.ts — artist profiles (the GET_ARTIST_PROFILES message): who is
+// content.ts, artist profiles (the GET_ARTIST_PROFILES message): who is
 // behind a path, and the links on their profile, two requests per artist.
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { loadContentScript, disposeContentScripts } from '../helpers/load.ts';
@@ -26,7 +26,7 @@ const profilesFor = async (permalinks: string[]) => {
 	return answer;
 };
 
-// A page with the client id in it — any SoundCloud page will do.
+// A page with the client id in it; any SoundCloud page will do.
 const page = () => {
 	render('<p>the stream</p>', '/stream');
 	hydrationScript([apiClientEntry()]);

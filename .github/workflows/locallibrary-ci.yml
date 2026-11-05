@@ -37,6 +37,10 @@ on:
         description: Whether a pull request changed the loclib-* crates' code (ci.yml's locallibrary_semver paths).
         type: boolean
         required: true
+      commands:
+        description: Whether a pull request changed what decides which commands each build has (ci.yml's locallibrary_commands paths).
+        type: boolean
+        required: true
 
 permissions:
   contents: read
@@ -75,10 +79,22 @@ jobs:
       - if: inputs.linux || inputs.cache
         run: cargo fmt --all --check
       # The headless sidecar (no default features: no `account`, `tui` or `playback`) builds and
-      # passes clippy without ALSA's headers, so this runs before they're installed.
+      # passes clippy without ALSA's headers, so this runs before they're installed. Its tests and
+      # benches too: what only the default features use is dead code here.
       # locallibrary-scheduled.yml runs its tests and every other combination.
       - if: inputs.linux || inputs.cache
-        run: cargo clippy -p locallibrary-cli --no-default-features --locked -- -D warnings
+        run: cargo clippy -p locallibrary -p locallibrary-cli --no-default-features --all-targets --locked -- -D warnings
+      # On its own: built with the crates above, it gets the features they ask for.
+      - if: inputs.linux || inputs.cache
+        run: cargo clippy -p loclib-interop --no-default-features --all-targets --locked -- -D warnings
+      # Which commands the headless sidecar has, only when what decides that changed: it's a build
+      # of its own.
+      - if: inputs.commands
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-nextest
+      - if: inputs.commands
+        run: cargo nextest run -p locallibrary-cli --no-default-features --locked -E 'test(commands_come_with_the_features_built_in)'
       # The TUI's audio output goes through ALSA on Linux.
       - if: inputs.linux || inputs.docs || inputs.cache
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev

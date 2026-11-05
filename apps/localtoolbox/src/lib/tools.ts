@@ -1,10 +1,10 @@
 // The tools the popup offers, in the order the menu lists them.
 //
-// The session queue is not among them and never was a tool in spirit: it is
-// about the other tools rather than beside them, so it lives in the header of
-// every view instead (QueueButton.svelte, QueueSheet.svelte, queue-sheet.ts).
-// What it still reads from here is the registry — the two tools it can hand a
-// batch to name themselves.
+// The session queue is not among them: it is about the other tools rather than
+// beside them, so it lives in the header of every view instead
+// (QueueButton.svelte, QueueSheet.svelte, queue-sheet.ts). What it still reads
+// from here is the registry: the two tools it can hand a batch to name
+// themselves.
 //
 // To add a tool: write src/tools/<id>/Panel.svelte and register it here. The
 // entry is all the shell needs: the menu, the header, the colour of its icon
@@ -17,25 +17,25 @@
 // tool. It is written out as a whole class so Tailwind finds it.
 //
 // `load` rather than the panel itself: the panels and the component library
-// under them are the bulk of the bundle, and a popup that opens on the menu —
-// or on one tool — has no use for the others. Each is its own
-// chunk, fetched when its tool is opened (and speculatively, at boot, for the
-// tool the popup was left on: see loadPanel and $lib/view.svelte.ts).
+// under them are the bulk of the bundle, and a popup that opens on the menu
+// (or on one tool) has no use for the others. Each is its own chunk, fetched
+// when its tool is opened (and speculatively, at boot, for the tool the popup
+// was left on: see loadPanel and $lib/view.svelte.ts).
 // Everything the menu draws (the name, the icon, the tone) is here, so
 // nothing has to be loaded to draw it.
 //
 // `warm` is the slow thing the tool's panel will do first, started before the
-// panel exists. Reading a page is round trips — the browser process, then the
+// panel exists. Reading a page is round trips (the browser process, then the
 // content script, then in the Manager tool a good many requests to
-// SoundCloud — and a chunk compiling is not a reason for them to wait. The
+// SoundCloud), and a chunk compiling is not a reason for them to wait. The
 // shell calls it as soon as it knows which tool is opening; the panel then
-// asks for the page as it always did and is handed the read already running
-// (see $lib/soundcloud.ts). A tool with nothing slow to start has no `warm`.
+// asks for the page as usual and is handed the read already running (see
+// $lib/soundcloud.ts). A tool with nothing slow to start has no `warm`.
 //
 // The Manager tool warms the cheap read only. Its list is its own and nothing
 // goes onto it by itself, so what the tab holds is read to *describe* the add
-// button — a few milliseconds of reading the page's DOM, and no request to
-// SoundCloud — and asking SoundCloud where those tracks can be had waits for
+// button (a few milliseconds of reading the page's DOM, and no request to
+// SoundCloud), and asking SoundCloud where those tracks can be had waits for
 // somebody to press it.
 
 import type { Component } from 'svelte';
@@ -100,14 +100,14 @@ export const TOOLS: Tool[] = [
 export const toolById = (id: string): Tool | null => TOOLS.find((tool) => tool.id === id) ?? null;
 
 // One chunk per tool, fetched at most once however often its tool is opened
-// and closed: going back to the menu and into the same tool again is then as
-// instant as it was when every panel was in the one bundle.
+// and closed, so going back to the menu and into the same tool again is
+// instant.
 const chunks = new Map<string, Promise<PanelComponent>>();
 
 /**
  * The panel component for a tool, loading its chunk if this is the first ask.
  *
- * @returns null for an id this version has no tool for — a session left by a later one, say.
+ * @returns null for an id this version has no tool for (a session left by a later one, say).
  */
 export function loadPanel(id: string): Promise<PanelComponent> | null {
 	if (chunks.has(id)) return chunks.get(id)!;

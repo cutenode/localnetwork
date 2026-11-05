@@ -123,8 +123,6 @@
 		onclick: () => (selected = i),
 		...pointing(i)
 	});
-
-	const cue = $derived(cues[selected]);
 </script>
 
 <section aria-labelledby="{id}-title" class="@container flex flex-col gap-6 sm:gap-8">
@@ -183,10 +181,15 @@
 	</div>
 
 	<div role="tabpanel" id="{id}-panel" tabindex="0" aria-labelledby="{id}-tab-{selected}" aria-busy={busy} class="grid grid-cols-[minmax(0,1fr)] items-center gap-6 rounded-xl lg:grid-cols-[minmax(0,4fr)_minmax(0,8fr)] lg:gap-12">
-		<div class="flex flex-col gap-3">
-			<p class={['m-0 font-mono text-small', style.label]}>Hot cue {LETTERS[selected]}</p>
-			<h3 class="m-0 text-title font-semibold">{cue.name}</h3>
-			<p class="m-0 text-lede text-pretty text-fg-soft">{cue.line}.</p>
+		<!-- Every cue's words in one cell, as tall as the longest, so picking one doesn't move what's below. -->
+		<div class="grid">
+			{#each cues as item, i (item.name)}
+				<div class={['col-start-1 row-start-1 flex flex-col gap-3', selected !== i && 'invisible']}>
+					<p class={['m-0 font-mono text-small', style.label]}>Hot cue {LETTERS[i]}</p>
+					<h3 class="m-0 text-title font-semibold">{item.name}</h3>
+					<p class="m-0 text-lede text-pretty text-fg-soft">{item.line}.</p>
+				</div>
+			{/each}
 		</div>
 		<!-- One stage of a fixed shape for each width, so a capture of any shape fits without moving anything. -->
 		<div class="relative aspect-[39/70] overflow-hidden rounded-xl bg-well sm:aspect-[8/5]">

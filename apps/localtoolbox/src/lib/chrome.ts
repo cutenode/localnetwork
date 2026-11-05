@@ -26,14 +26,14 @@ const queryActiveTab = async () => {
 // A read started before anything asked for one. The popup spends its first
 // few milliseconds compiling a panel's chunk and reading the session, and the
 // tab lookup is a round trip to the browser process that can happen during
-// them rather than after (see warmActiveTab, and $lib/soundcloud.js).
+// them rather than after (see warmActiveTab, and $lib/soundcloud.ts).
 let warmed: Promise<chrome.tabs.Tab | null> | null = null;
 
 /**
  * Starts reading the active tab now, for whoever asks for it next.
  *
  * One read, handed to the first `activeTab()` that comes along; a second call
- * reads again. Nothing here has to be undone if the answer is never taken —
+ * reads again. Nothing here has to be undone if the answer is never taken:
  * the popup that started it is gone by then.
  */
 export function warmActiveTab() {
@@ -44,12 +44,10 @@ export function warmActiveTab() {
 export function activeTab() {
 	warmed ??= queryActiveTab();
 	const held = warmed;
-	// Callers in the same turn share one lookup: the Manager tool asks the
-	// page for two things at boot (its tracks, and their download details) and
-	// both want the same tab, so that is one round trip to the browser rather
-	// than two on the path being measured. It is let go of once it has
-	// answered, so a later read — the Downloader collecting again after a run —
-	// asks afresh rather than trusting a tab that may have changed since.
+	// Callers in the same turn share one lookup, so several reads at boot cost
+	// one round trip to the browser. It is let go of once it has answered, so a
+	// later read (the Downloader collecting again after a run) asks afresh rather
+	// than trusting a tab that may have changed since.
 	// queryActiveTab never rejects, so nothing is lost by not waiting here.
 	void held.finally(() => {
 		if (warmed === held) warmed = null;
@@ -61,8 +59,8 @@ export function activeTab() {
 /**
  * Asks the content script something.
  *
- * `reached` is false when the message could not be delivered at all — the
- * usual cause being a tab that was open before the extension was installed or
+ * `reached` is false when the message could not be delivered at all. The
+ * usual cause is a tab that was open before the extension was installed or
  * updated, which has no content script in it until it is reloaded.
  *
  * `extra` rides along with the type, for a question that names what it is
@@ -104,7 +102,7 @@ export function openTab(url: string, { background = false }: { background?: bool
  * It is quiet by design. A visitor who has already said yes to the app once is
  * sent straight back, which takes about a second and needs no clicking; one
  * who has not gets a login or a consent screen the background tab cannot ask
- * them to answer, and that is the `false` case — the caller's job is then to
+ * them to answer, and that is the `false` case. The caller's job is then to
  * say so, not to steal the window.
  *
  * A tab's URL is only legible to an extension that has permission for the
@@ -148,7 +146,7 @@ export async function roundTrip(
 		try {
 			now = await chrome.tabs.get(tab.id!);
 		} catch (_e) {
-			// Closed under us — by the person watching it, or by the browser.
+			// Closed under us, by the person watching it or by the browser.
 			return false;
 		}
 

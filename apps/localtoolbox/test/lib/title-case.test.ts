@@ -1,4 +1,4 @@
-// src/lib/title-case.ts — the transform behind the settings switch — and
+// src/lib/title-case.ts, the transform behind the settings switch, and
 // src/lib/title-case.svelte.ts, the switch itself.
 //
 // Two rules, written down where the file writes them down: a capital somebody
@@ -94,7 +94,7 @@ describe('a field shouted in capitals', () => {
 });
 
 // The switch is the popup's own, under the key the sheet and the Manager panel
-// both read it by — and off until it is asked for, since what the uploader
+// both read it by, and off until it is asked for, since what the uploader
 // typed is what the page shows.
 describe('the switch', () => {
 	beforeEach(() => {

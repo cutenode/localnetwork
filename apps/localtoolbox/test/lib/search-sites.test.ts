@@ -1,11 +1,11 @@
-// src/lib/search-sites.ts and src/lib/search-sites.svelte.ts — the sites a
+// src/lib/search-sites.ts and src/lib/search-sites.svelte.ts: the sites a
 // link-less track offers a search on, and which of them are switched on.
 //
 // The list is data (src/lib/search-sites.json) so that adding a site is one
 // object in a file and nothing else, which means these tests are mostly about
 // what happens when somebody writes that object wrong: a badge nobody can
 // read, an address with a typo in its variable, a line pasted twice. None of
-// those may take the panel down with them — a search badge is the smallest
+// those may take the panel down with them: a search badge is the smallest
 // thing on a row, and the row has a track on it either way.
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -47,8 +47,8 @@ describe('the file the sites come from', () => {
 	it('is the four shops the panel has always offered', () => {
 		expect(SEARCH_SITES.map((s) => s.name)).toEqual(['Beatport', 'Bandcamp', 'ZIPDJ', 'MyMP3Pool']);
 		expect(SEARCH_SITES.map((s) => s.badge)).toEqual(['BP', 'bc', 'Z', 'M']);
-		// Switched on to begin with, every one: this is what the badges did
-		// before there was anything to switch.
+		// Switched on to begin with, every one: an install with no switches
+		// set draws the badges it always did.
 		expect(SEARCH_SITES.every((s) => s.on)).toBe(true);
 	});
 

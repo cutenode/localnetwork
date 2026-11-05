@@ -485,7 +485,7 @@ enum Op {
         from: String,
         to: String,
     },
-    /// The track of audio file `track` (a key, lower-cased) points at `path` (a device path), a
+    /// The tracks of audio file `track` (a key, lower-cased) point at `path` (a device path), a
     /// file `file` describes when it's another encoding, whose times are `shift_ms` later.
     SetPath {
         track: String,
@@ -1106,6 +1106,10 @@ fn apply_op_indexed(
             .collect();
         (ids, missing)
     };
+    // Every row of the audio file `key`: two can share one.
+    let rows_of = |lib: &Library, key: &str| -> Vec<u32> {
+        lib.tracks.iter().filter(|t| paths::file_key(&t.file_path) == key).map(|t| t.id).collect()
+    };
     let folder_id = |lib: &Library, path: &[String]| -> std::result::Result<Option<u32>, String> {
         if path.is_empty() {
             return Ok(None);
@@ -1312,23 +1316,30 @@ fn apply_op_indexed(
             if !missing.is_empty() {
                 return skip(format!("track {} isn't in this database", missing[0]));
             }
-            let (from, to) = (ids[0], ids[1]);
-            db.repoint(from, to)?;
+            let to = ids[1];
+            // The entries of every row of `from`'s file move, not only those of one.
+            let froms = rows_of(db.lib(), from);
+            for &from in &froms {
+                db.repoint(from, to)?;
+            }
             let lib = db.lib();
             for p in lib.playlists.iter_mut().chain(lib.history.iter_mut()) {
-                for t in p.track_ids.iter_mut().filter(|t| **t == from) {
+                for t in p.track_ids.iter_mut().filter(|t| froms.contains(t)) {
                     *t = to;
                 }
             }
         }
         Op::SetPath { track, path, file, shift_ms } => {
-            let (ids, missing) = ids_of(db.lib(), std::slice::from_ref(track));
-            if !missing.is_empty() {
+            // The file moved for every row of it.
+            let ids = rows_of(db.lib(), track);
+            if ids.is_empty() {
                 return skip(format!("track {track} isn't in this database"));
             }
-            db.set_path(ids[0], path, file.as_ref(), *shift_ms)?;
+            for &id in &ids {
+                db.set_path(id, path, file.as_ref(), *shift_ms)?;
+            }
             let size = file.map(|f| db.stored_size(f.size));
-            if let Some(t) = db.lib().tracks.iter_mut().find(|t| t.id == ids[0]) {
+            for t in db.lib().tracks.iter_mut().filter(|t| ids.contains(&t.id)) {
                 t.file_path = path.clone();
                 if let (Some(f), Some(size)) = (file, size) {
                     (t.file_size, t.sample_rate, t.sample_depth, t.bitrate) =
@@ -3115,10 +3126,9 @@ fn apply_locked(
     // Analysis files record the audio file they belong to: a track pointed at another records it.
     let primary = dbs.pdb.as_ref().map(|(_, _, l)| l).or(dbs.plus.as_ref().map(|(l, _)| l));
     for op in &plan.ops {
-        // The row the databases' edit takes: the last of the file's (see `apply_op`).
+        // The file's one row: a track is pointed only when no other shares its file.
         if let Op::SetPath { track, path, shift_ms, .. } = op
-            && let Some(t) =
-                primary.and_then(|l| l.tracks.iter().rev().find(|t| paths::file_key(&t.file_path) == *track))
+            && let Some(t) = primary.and_then(|l| l.tracks.iter().find(|t| paths::file_key(&t.file_path) == *track))
         {
             let mut unreadable = Vec::new();
             files.extend(analysis_pointed_at(device, &t.analyze_path, path, *shift_ms, &mut unreadable)?);

@@ -2,7 +2,7 @@
   What the artists tool can add right now, and the buttons that do it.
 
   The list is the tool's own and nothing goes onto it by itself (see
-  ./artists.svelte.ts), so this is the one place artists come in — from three
+  ./artists.svelte.ts), so this is the one place artists come in, from three
   sources rather than the Manager's two. The tab in front is the first, as it
   is there; the Manager's list is the second and the reason this bar is worth
   having on a tab that is not SoundCloud at all, since everything ever added
@@ -11,10 +11,10 @@
 
   Each button counts what it would add and is off when that is nothing: a
   source wholly on the list is a button that would do nothing visible. The
-  tab's says **refresh** then instead, since it still brings the names and
+  tab's says "refresh" then instead, since it still brings the names and
   the tracks up to date.
 
-  It draws large when the list is empty — that opening is the whole panel —
+  It draws large when the list is empty (that opening is the whole panel)
   and as two lines above the list once there is a list to be above: the page
   and what it holds, then the buttons. Three buttons beside a page's name is
   one more than a 400px popup has room for.
@@ -50,7 +50,7 @@
     tool: Tool;
     /**
      * What the active tab is offering:
-     * `{ reading, name, meta, fresh, here, reason }` — see the panel, which
+     * `{ reading, name, meta, fresh, here, reason }`. See the panel, which
      * builds it from one read of the page.
      */
     offer: Offer;

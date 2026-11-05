@@ -1,7 +1,7 @@
 <!--
   What a panel says instead of a list: why the page could not be used, what an
   import did, which tracks could not be checked. These stay on screen until
-  something changes them — unlike a toast, which is for what just happened.
+  something changes them, unlike a toast, which is for what just happened.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';

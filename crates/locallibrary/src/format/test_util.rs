@@ -81,6 +81,7 @@ impl FakeTools {
 
     /// `program` runs `body` as a shell script, for a tool that does more than answer (writes the
     /// file it's told to, say). `$d` is the tools' folder.
+    #[cfg(feature = "account")]
     pub fn script(&self, program: &str, body: &str) {
         let d = quoted(&self.dir.path().to_string_lossy());
         let file = self.dir.path().join("bin").join(program);

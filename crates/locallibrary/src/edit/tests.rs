@@ -360,6 +360,42 @@ fn track_edits_on_the_model() {
     assert!(l.track(2).is_none());
 }
 
+/// Replacing a track whose file other rows share moves every entry of those rows to the track
+/// kept: none is lost with the rows deleted, or left on a row kept.
+#[hegel::test(test_cases = 100)]
+fn prop_a_replaced_files_entries_all_go_to_the_track_kept(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut start = lib();
+    start.tracks.push(track(6, "A", "Again", "/Contents/1.mp3"));
+    let drawn = || tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(6)).max_size(6));
+    for p in start.playlists.iter_mut().filter(|p| !p.is_folder) {
+        p.track_ids = drawn();
+    }
+    let history = Playlist {
+        id: 9,
+        parent_id: None,
+        name: "HISTORY 001".into(),
+        is_folder: false,
+        sort_order: 0,
+        track_ids: drawn(),
+    };
+    start.history = vec![history];
+    let duplicate = tc.draw(gs::sampled_from(vec![1u32, 6]));
+    let keep = tc.draw(gs::integers::<u32>().min_value(2).max_value(5));
+    let ids = |id| TrackSelector { ids: vec![id], ..Default::default() };
+    let keep_duplicate = tc.draw(gs::booleans());
+    let l = run_on(start.clone(), Edit::ReplaceTrack { duplicate: ids(duplicate), keep: ids(keep), keep_duplicate })
+        .unwrap();
+    let lists = |l: &Library| -> Vec<Vec<u32>> {
+        l.playlists.iter().chain(&l.history).filter(|p| !p.is_folder).map(|p| p.track_ids.clone()).collect()
+    };
+    let moved: Vec<Vec<u32>> = lists(&start)
+        .into_iter()
+        .map(|ids| ids.into_iter().map(|t| if t == 1 || t == 6 { keep } else { t }).collect())
+        .collect();
+    assert_eq!(lists(&l), moved);
+}
+
 /// How often each key is in `keys`.
 fn counts(keys: &[String]) -> FxHashMap<&str, usize> {
     let mut out = FxHashMap::default();
@@ -831,6 +867,34 @@ fn a_track_is_pointed_only_at_an_audio_file_of_its_own(tc: hegel::TestCase) {
                 _ if others => assert!(why.contains("is the audio file of"), "{why}"),
                 _ => assert!(shared && id == 1 && why.contains("several tracks"), "{why}"),
             }
+        }
+    }
+}
+
+/// A file several tracks share moves for all of them: pointing it elsewhere points every row of
+/// it there, with the new file's details, and leaves the other rows as they were.
+#[hegel::test(test_cases = 50)]
+fn prop_every_row_of_a_file_is_pointed_with_it(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut start = lib();
+    for (i, spelling) in ["/Contents/1.mp3", "/contents/1.MP3"].into_iter().enumerate() {
+        if tc.draw(gs::booleans()) {
+            start.tracks.push(track(6 + i as u32, "A", "Again", spelling));
+        }
+    }
+    let file =
+        tc.draw(gs::booleans()).then_some(AudioFile { size: 9, sample_rate: 48_000, bit_depth: 24, bitrate: 2304 });
+    let op = Op::SetPath { track: "contents/1.mp3".into(), path: "/Contents/1.aiff".into(), file, shift_ms: 0 };
+    let mut db = ModelDb { lib: start.clone(), pdb: None };
+    apply_op(&mut db, &op, true, "test", &mut Vec::new()).unwrap();
+    for (before, after) in start.tracks.iter().zip(&db.lib.tracks) {
+        if paths::file_key(&before.file_path) != "contents/1.mp3" {
+            assert_eq!(after, before);
+            continue;
+        }
+        assert_eq!(after.file_path, "/Contents/1.aiff", "track {}", before.id);
+        if file.is_some() {
+            assert_eq!((after.file_size, after.sample_rate, after.sample_depth, after.bitrate), (9, 48_000, 24, 2304));
         }
     }
 }

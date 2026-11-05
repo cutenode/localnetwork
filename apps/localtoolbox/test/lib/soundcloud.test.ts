@@ -1,9 +1,9 @@
-// src/lib/soundcloud.ts — reading the active tab's page, and starting that
+// src/lib/soundcloud.ts: reading the active tab's page, and starting that
 // read before the panel that wants it exists.
 //
 // The interpretation of an answer is covered where it shows: each panel's
 // tests say what the page's tracks, or the sentence explaining their absence,
-// look like on screen. What is here is the handoff — the shell starts a read
+// look like on screen. What is here is the handoff: the shell starts a read
 // (see `warm` in $lib/tools.ts), the panel asks for one, and between them
 // exactly one question reaches the page.
 import { describe, it, expect, vi } from 'vitest';

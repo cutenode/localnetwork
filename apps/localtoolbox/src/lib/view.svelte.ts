@@ -1,39 +1,37 @@
 // Where the popup was when it last closed: which tool was open, and the parts
-// of each panel that are the user's doing rather than the page's — a search
-// typed into a filter bar, a drawer pulled open, a long list scrolled down.
+// of each panel that are the user's doing rather than the page's (a search
+// typed into a filter bar, a drawer pulled open, a long list scrolled down).
 //
 // Why it exists: a browser-action popup is destroyed on every click that takes
-// the focus off it, which in these tools is most clicks — opening a download
-// link, going to a gate tab, saving a file. Re-opening it landed back on the
-// tool menu with every panel blank, so working through a page meant finding
-// the place in it again each time. The options were already remembered
-// (prefs.svelte.ts); this is the rest of what was on screen.
+// the focus off it, which in these tools is most clicks: opening a download
+// link, going to a gate tab, saving a file. Without this, re-opening it would
+// land back on the tool menu with every panel blank, so working through a page
+// would mean finding the place in it again each time. The options are
+// remembered in prefs.svelte.ts; this is the rest of what was on screen.
 //
 // Where it lives: chrome.storage.session, beside the session queue and for the
-// same reason — this is where someone is in a piece of work, not a setting. It
+// same reason. This is where someone is in a piece of work, not a setting. It
 // goes when the browser does, and a new session opens on the tool menu.
 //
 // What it deliberately does not keep: anything a page or a run owns. The
 // tracks read from a tab are read again (by then the tab may be another page
 // altogether), a half-finished run of the Downloader is not resumed, and a
-// confirm button that was armed comes back disarmed. Those are answers, not
-// places.
+// confirm button that was armed comes back disarmed.
 //
-// Reading it is asynchronous, and the popup used to draw nothing at all until
-// it came back — restoring after the first paint would have shown the tool
-// menu for a frame and then replaced it. Drawing nothing is the worse of the
-// two: the popup is blank for as long as the browser takes to answer, every
-// single time it is opened, to spare a flash that happens once.
+// Reading it is asynchronous. Waiting for it before drawing anything would
+// avoid showing the tool menu for a frame and then replacing it, but the popup
+// would be blank for as long as the browser takes to answer, every time it is
+// opened, to spare a flash that happens once.
 //
 // So which tool was open is mirrored into the popup's own localStorage, which
 // is *synchronous*: `open` answers with that mirror before the session has
-// been read, and the shell has a route on the first line it runs — a colour
+// been read, so the shell has a route on the first line it runs, with a colour
 // to paint, a header to draw, a chunk to fetch and a page read to start (see
 // $lib/tools.ts). What the mirror cannot know is when a browsing session
 // ended, since localStorage outlives one; session storage is still what
 // settles that, and `ready` still says when it has. Until then the shell
 // draws the panel's frame around a ghost of its body rather than the panel
-// itself — panels read their own remembered values synchronously as they
+// itself. Panels read their own remembered values synchronously as they
 // mount (`remembered()`), so they must not mount before those have arrived.
 
 import { fallback, z } from './zod.ts';
@@ -62,7 +60,7 @@ const StoredView = fallback(
 export type StoredView = NonNullable<z.output<typeof StoredView>>;
 
 // Where the mirror lives. Not a `pref:` key: it is not a setting, it is not
-// in the exported state file (state-transfer.js lists what is), and it is
+// in the exported state file (state-transfer.ts lists what is), and it is
 // rewritten on every navigation.
 const HINT = 'view:open';
 
@@ -80,8 +78,7 @@ const rememberHint = (id: string | null) => {
 		if (id) localStorage.setItem(HINT, id);
 		else localStorage.removeItem(HINT);
 	} catch (_e) {
-		// Ignore: the next opening starts from the session read instead, which is
-		// exactly where it started before there was a mirror.
+		// Ignore: the next opening starts from the session read instead.
 	}
 };
 
@@ -115,10 +112,9 @@ class View {
 	/**
 	 * The open tool's id, or null for the menu.
 	 *
-	 * Before the session has been read this is the localStorage mirror — a
-	 * good guess, and the only one available synchronously. After it, it is
-	 * what the session actually holds, which is what a new browsing session
-	 * corrects to the menu.
+	 * Before the session has been read this is the localStorage mirror, a good
+	 * guess and the only one available synchronously. After it, it is what the
+	 * session holds, which is what a new browsing session corrects to the menu.
 	 */
 	get open() {
 		return this.#ready ? this.#open : this.#hint;
@@ -136,7 +132,7 @@ class View {
 	 * A place like any other here: the sheet is reached from the header of
 	 * every view rather than by opening a tool, and the popup closing behind a
 	 * click is no reason to put it away. Shut until the session has been read,
-	 * for the same reason the panels wait — nothing should be drawn over a
+	 * for the same reason the panels wait: nothing should be drawn over a
 	 * view that is still a ghost.
 	 */
 	get queueOpen() {
@@ -221,7 +217,7 @@ class View {
 	// that cannot happen costs the place nothing until the popup closes, which
 	// is the only time it is ever read back.
 	//
-	// `$state.snapshot` is not a nicety: what `$state` holds are proxies, and
+	// `$state.snapshot` is required: what `$state` holds are proxies, and
 	// the structured clone every storage write goes through refuses one.
 	#write() {
 		if (this.#writing) return;
@@ -257,8 +253,8 @@ export interface Remembered<T> {
 /**
  * A value a panel keeps for the rest of the session, under one tool's name.
  *
- * The same shape as `persisted()` in prefs.svelte.js — `.value` reads and
- * writes, and `bind:` works on it — so a panel does not have to care which of
+ * The same shape as `persisted()` in prefs.svelte.ts (`.value` reads and
+ * writes, and `bind:` works on it), so a panel does not have to care which of
  * the two a given piece of state is. The difference is what they are for:
  * a pref is a setting, kept for good; this is a place, kept until the browser
  * closes.

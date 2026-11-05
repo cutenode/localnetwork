@@ -1,25 +1,25 @@
-// Content script for the SoundCloud tools ("Playlist to Text", "Cover Art",
-// "Manager").
+// Content script for the SoundCloud tools ("SoundCloud playlist to text",
+// "Manager", "third-party downloader", "artists").
 //
 // Runs in Chrome's isolated world: it can see the page's DOM but shares no
 // JavaScript state with the page and never executes code in the page's own
-// context. For the text and cover-art tools it is a passive observer — it
-// reads elements on demand (when the popup asks) and mutates nothing.
+// context. For the text tool it is a passive observer: it reads elements on
+// demand (when the popup asks) and mutates nothing.
 //
-// The Manager tool adds three things, each in its own section below:
+// The Manager tool adds four things, each in its own section below:
 //   - "Download details": on demand, finds out whether each listed track can
-//     be downloaded on SoundCloud and where its purchase link points — from
-//     data already in the page wherever possible, from SoundCloud's public
+//     be downloaded on SoundCloud and where its purchase link points, from
+//     data already in the page wherever possible and from SoundCloud's public
 //     API (anonymously, in bulk, cached for a month) only for the rest. One
 //     lookup runs at a time; a request that arrives while one is under way
 //     joins it instead of competing with it;
 //   - "Markers": paints an overlay on the cover art of tracks the user has
-//     downloaded, and a "nodl" pill on tracks known to have no download link
-//     — purely visual DOM additions;
+//     downloaded, and a "nodl" pill on tracks known to have no download link.
+//     These are purely visual DOM additions;
 //   - "The queue button": a button on cover art that puts that track in the
-//     session queue, or takes it back out — and, for a track already in the
-//     queue, stays up to say so. The one thing here that writes anything, and
-//     it writes to the extension's own session storage, never to the page;
+//     session queue, or takes it back out, and stays up to say so on a track
+//     already in the queue. It writes to the extension's own session storage,
+//     never to the page;
 //   - "Noticing SoundCloud's own download buttons": sees clicks on the page's
 //     "Download file" and purchase-link buttons so those downloads get marked
 //     too, without interfering with the click. Nothing is sent to SoundCloud.
@@ -31,11 +31,11 @@
 // view"). The second is the one thing this script asks a page to redraw, and
 // it asks by pressing SoundCloud's own toggle; it is off unless turned on.
 //
-// Supported pages: playlist pages (/<user>/sets/<name>, /discover/sets/...)
-// and Likes pages (/you/likes, /<user>/likes). Which kind of page is showing
-// is read from the rendered content, not from the URL: SoundCloud is a
-// single-page app whose address bar and content can disagree (see "Which page
-// is this?").
+// Supported pages: playlist pages (/<user>/sets/<name>, /discover/sets/...),
+// Likes pages (/you/likes, /<user>/likes) and track pages (/<user>/<track>).
+// Which kind of page is showing is read from the rendered content, not from
+// the URL: SoundCloud is a single-page app whose address bar and content can
+// disagree (see "Which page is this?").
 //
 // Assumption: the playlist or Likes page is already fully loaded. No scrolling
 // or lazy-load triggering is performed; whatever track rows exist in the DOM
@@ -123,8 +123,8 @@
 	type ApiUser = JsonObject;
 
 	/**
-	 * One entry of the page's `window.__sc_hydration`. `data` is whatever that hydratable is — a
-	 * track, a playlist, a user, the API client — and is read according to its name.
+	 * One entry of the page's `window.__sc_hydration`. `data` is whatever that hydratable is (a
+	 * track, a playlist, a user, the API client) and is read according to its name.
 	 */
 	type HydrationEntry = { hydratable: string; data?: Json };
 
@@ -191,11 +191,11 @@
 	// same .trackItem structure. Related-tracks sidebar entries use .soundBadge,
 	// not .trackItem, so they are never picked up.
 	//
-	// Note for Likes pages: a liked playlist embeds a preview of its tracks as
+	// On Likes pages, a liked playlist embeds a preview of its tracks as
 	// ul.trackList__item > li.compactTrackList__item > .trackItem. That wrapper
 	// is a UL, not an LI, so 'li.trackList__item .trackItem' cannot match those
-	// nested rows either — only the bare '.trackItem' fallback below would, and
-	// that fallback is gated to playlist pages.
+	// nested rows either. Only the bare '.trackItem' fallback below would, and
+	// that fallback runs on playlist pages only.
 	const TRACK_ROW_SELECTOR = 'li.trackList__item .trackItem, li.systemPlaylistTrackList__item .trackItem';
 
 	// Liked items on Likes pages, "sound list" layout (public /<user>/likes and
@@ -230,7 +230,7 @@
 	// sets an inline background-image on span.image__full once a thumbnail has
 	// lazy-loaded; rows/tiles never scrolled into view have no URL yet (the
 	// span's style is just "width: 100%; height: 100%; opacity: 0;") and report
-	// '' — this extension never triggers loading itself.
+	// ''. This extension never triggers loading itself.
 	const backgroundImageUrl = (el: HTMLElement | null) => {
 		const match = /url\(["']?(https?:[^"')]+)["']?\)/.exec(el?.style.backgroundImage || '');
 
@@ -247,15 +247,10 @@
 	// Whether a link's href points at a playlist (/user/sets/name).
 	const isPlaylistLink = (a: Element | null) => (a?.getAttribute('href') || '').includes('/sets/');
 
-	// Path of a URL (absolute, or relative to this origin) without a trailing
-	// slash, e.g. "/user/track"; '' if unparsable. A track's permalink path is
-	// its identity throughout this extension. SoundCloud appends
-	// "?in=<user>/sets/<playlist>" to title links on playlist pages; dropping
-	// the query makes the same track match on every page.
-	// A link's href as a URL, resolved against this page, or null where there is
-	// no reading it as one. Only one reader needs the whole URL — the signed-in
-	// layout's, which has to tell a link to this site from a link off it — but
-	// the parse lives here so there is one place that can fail.
+	// A link's href as a URL, resolved against this page, or null where there
+	// is no reading it as one. Only one reader needs the whole URL (the
+	// signed-in layout's, which has to tell a link to this site from a link off
+	// it), but the parse lives here so there is one place that can fail.
 	const urlOf = (url: string | null | undefined) => {
 		if (!url) return null;
 
@@ -266,11 +261,16 @@
 		}
 	};
 
+	// Path of a URL (absolute, or relative to this origin) without a trailing
+	// slash, e.g. "/user/track"; '' if unparsable. A track's permalink path is
+	// its identity throughout this extension. SoundCloud appends
+	// "?in=<user>/sets/<playlist>" to title links on playlist pages; dropping
+	// the query makes the same track match on every page.
 	const pathOf = (url: string | null | undefined) => urlOf(url)?.pathname.replace(/\/+$/, '') || '';
 
 	const permalinkPathOf = (a: Element | null | undefined) => pathOf(a?.getAttribute('href'));
 
-	// Whether one of SoundCloud's own toggle buttons in a row is on — its like
+	// Whether one of SoundCloud's own toggle buttons in a row is on: its like
 	// button, its repost button. Those say so twice, in the class list and in
 	// `aria-pressed`, and either is enough: a redesign that drops one of them
 	// still reads correctly through the other.
@@ -278,7 +278,7 @@
 	// `null`, not `false`, where the row renders no such button at all (the
 	// badge tiles render none, and a signed-out page renders them unpressed for
 	// nobody in particular). "Not liked" is a claim about the signed-in user,
-	// and a row with no button to read is not making it — so the panel can say
+	// and a row with no button to read is not making it, so the panel can say
 	// "unknown" rather than tell somebody their own like is not there.
 	const pressedState = (row: ParentNode, selector: string) => {
 		const button = row.querySelector(selector);
@@ -295,17 +295,17 @@
 	});
 
 	// The genre tag SoundCloud renders beside a row's title, and on a track
-	// page's hero: one `.sc-tag` holding the uploader's genre — "Dance & EDM",
-	// or whatever they typed ("bolha"). It is the track's `genre` field and not
+	// page's hero: one `.sc-tag` holding the uploader's genre, "Dance & EDM" or
+	// whatever they typed ("bolha"). It is the track's `genre` field and not
 	// one of its free tags, which SoundCloud renders nowhere in a list; both
 	// were read off soundcloud.com and checked against the same tracks' own
 	// page data in September 2026.
 	//
-	// Reading it here is what makes the genre a fact about the page rather than
-	// an answer to be fetched: a Likes page names the genre of every row it
-	// draws, and asking SoundCloud what it has already said is a request for
-	// nothing. Layouts that render no tag — playlist rows, the badge tiles —
-	// give `null`, which is "the page never said", not "no genre set" ('').
+	// Read here, the genre comes from the page and needs no request: a Likes
+	// page names the genre of every row it draws, and asking SoundCloud what it
+	// has already said is a request for nothing. Layouts that render no tag
+	// (playlist rows, the badge tiles) give `null`, which is "the page never
+	// said", not "no genre set" ('').
 	const GENRE_TAG = '.soundTitle__tagContainer .sc-tagContent';
 
 	const genreOf = (row: ParentNode, selector = GENRE_TAG) => {
@@ -336,7 +336,7 @@
 	// SoundCloud is a single-page app, and its URL and its content do not
 	// always agree: the address bar can show one page while another is still
 	// (or already) rendered, and some in-app links change the URL without ever
-	// rendering the page — /you/insights has been seen with the Likes page on
+	// rendering the page: /you/insights has been seen with the Likes page on
 	// screen. The tools work on what is rendered, so the page type is read from
 	// the DOM, where each kind of page has a layout of its own; the URL is only
 	// consulted when nothing recognisable is rendered (yet). Row selectors
@@ -344,7 +344,7 @@
 	// .trackItem previews as Likes and playlist pages.
 	//
 	//   playlist  a "listen" page whose hero carries the tracks summary
-	//             (.fullHero__tracksSummary — regular playlists and albums under
+	//             (.fullHero__tracksSummary: regular playlists and albums under
 	//             .l-listen-hero, system playlists as .systemPlaylistHero), or
 	//             whose track list is rendered (.listenDetails .trackList,
 	//             .systemPlaylistDetails). Which playlist: the
@@ -352,16 +352,16 @@
 	//             (system, i.e. /discover/sets/<id>) query SoundCloud puts on
 	//             every row's title link.
 	//   track     a "listen" page without those: the hero, and the engagement
-	//             bar (.listenEngagement) below it. Which track: the URL — the
-	//             hero names the uploader, never the track's own path — but
-	//             only when the URL looks like a track path under that uploader.
+	//             bar (.listenEngagement) below it. Which track: the URL (the
+	//             hero names the uploader, never the track's own path), but only
+	//             when the URL looks like a track path under that uploader.
 	//   likes     a tab bar whose active tab (a.g-tabs-link.active) links to
 	//             /<user>/likes or /you/likes. On public /<user>/likes that is
 	//             li.networkTabs__likes in ul.userNetworkTabs, next to
 	//             h1.userNetworkTop__title ("Likes by <User>"). Failing that,
-	//             the Library layout of the signed-in user's own likes —
-	//             .collectionSection with the Badges/List view toggle
-	//             (.listDisplayToggle) — counts as /you/likes. Whose likes:
+	//             the Library layout of the signed-in user's own likes
+	//             (.collectionSection with the Badges/List view toggle,
+	//             .listDisplayToggle) counts as /you/likes. Whose likes:
 	//             'you', or the profile permalink from the tab's href.
 	//   other     anything else (profile, stream, search, ...).
 
@@ -405,9 +405,9 @@
 	};
 
 	// The track a track page shows, as a path, or '' when unsure: the URL's
-	// path, accepted only when it has the shape of a track path (/<user>/<track>)
-	// whose user is the uploader the hero names — so a URL that disagrees with
-	// the content names no track rather than the wrong one.
+	// path, accepted only when it has the shape of a track path
+	// (/<user>/<track>) whose user is the uploader the hero names, so a URL
+	// that disagrees with the content names no track rather than the wrong one.
 	const trackPathOfPage = () => {
 		const path = pathOf(location.pathname);
 
@@ -423,31 +423,30 @@
 	//
 	// Signed in, SoundCloud no longer renders a track page the way the rest of
 	// this file reads one. The tab's own document keeps the header and the
-	// player bar, and the track itself — hero, actions, comments — arrives in
-	// an iframe of its own: `iframe.webiIframe` loading
+	// player bar. The track itself (hero, actions, comments) arrives in an
+	// iframe of its own: `iframe.webiIframe` loading
 	// `soundcloud.com/n/<user>/<track>?v2_layout=true`, a React app whose
 	// markup shares nothing with the classic page. There is no `.fullHero`, no
-	// `.listenEngagement`, no `.sc-button` — the buttons are MUI's, and the
+	// `.listenEngagement`, no `.sc-button`. The buttons are MUI's, and the
 	// class that would name one (`mui-163v5oj`) is a hash of the stylesheet
 	// that built it, so it is no more nameable than a minified variable.
 	//
-	// What that frame *does* carry is the accessibility tree, which is the part
-	// SoundCloud cannot rename without breaking a screen reader: a
-	// `section[aria-label="Track header"]` around the hero, an `<h1>` for the
-	// title, and one outbound link in that header — the purchase link, the
-	// uploader's "Buy"/"Download", drawn as a cart. That link is what this
-	// extension replaces everywhere else, and it is the one the setting is
-	// about, so it is replaced here too.
+	// That frame does carry the accessibility tree, which SoundCloud cannot
+	// rename without breaking a screen reader: a `section[aria-label="Track
+	// header"]` around the hero, an `<h1>` for the title, and one outbound link
+	// in that header, the purchase link (the uploader's "Buy"/"Download", drawn
+	// as a cart). This extension replaces that link everywhere else and the
+	// setting is about it, so it is replaced here too.
 	//
-	// The script reaches the frame at all because the manifest says
-	// `all_frames`. See the message listener at the end of this file for the
-	// one thing that stays in the tab's own document.
+	// The script reaches the frame because the manifest says `all_frames`. See
+	// the message listener at the end of this file for the one thing that stays
+	// in the tab's own document.
 
 	const V2_HEADER = 'section[aria-label="Track header"]';
 
-	// The frame's path is the page's with `/n` in front of it, which is the
-	// whole of the difference: `/n/<user>/<track>` is the track at
-	// `/<user>/<track>`, and that is the permalink everything downstream keeps.
+	// The frame's path is the page's with `/n` in front of it:
+	// `/n/<user>/<track>` is the track at `/<user>/<track>`, and that is the
+	// permalink everything downstream keeps.
 	const v2TrackPathOfPage = (header: ParentNode) => {
 		const path = pathOf(location.pathname).replace(/^\/n\//, '/');
 
@@ -461,16 +460,16 @@
 
 	// The uploader, among the handful of links the header holds: the one that
 	// goes to a profile on this site. The genre link goes to /tags/<genre>, and
-	// the purchase link goes somewhere else entirely — which is why the origin
+	// the purchase link goes somewhere else entirely, which is why the origin
 	// is checked and not only the path. `pathOf` resolves a link against this
 	// page, so an outbound `https://hypeddit.com/x` reads as `/x` and looks
-	// exactly like a profile; so does this extension's own button, which is put
+	// exactly like a profile. So does this extension's own button, which is put
 	// in that row and holds the same outbound link. Reading either as the
 	// uploader would put "Download" in the queue where the artist goes.
 	//
 	// A profile is one segment, which a genre's /tags/<genre> is not. The tags
-	// index itself is one segment too, so that one path is named — and only
-	// that one: an account whose name merely starts with "tags" is somebody's
+	// index itself is one segment too, so that one path is named, and only that
+	// one: an account whose name merely starts with "tags" is somebody's
 	// profile like any other.
 	const v2UploaderLink = (header: ParentNode) => {
 		for (const link of header.querySelectorAll('a[href]')) {
@@ -486,10 +485,10 @@
 	};
 
 	// The track the header describes, as the queue keeps it. The artwork is an
-	// <img> here rather than a background image, so it is read from `src`
-	// rather than through artworkUrlOf; the title is taken from the `title`
-	// attribute first, which holds the whole of a name the heading itself may
-	// have had to cut.
+	// <img> here, not a background image, so it is read from `src` and not
+	// through artworkUrlOf. The title is taken from the `title` attribute
+	// first, which holds the whole of a name the heading itself may have had to
+	// cut.
 	const v2FieldsOf = (header: ParentNode): RowFields => {
 		const heading = header.querySelector('h1');
 		const art = [...header.querySelectorAll('img[src]')].find((img) => img.getAttribute('src')!.includes('artworks-'));
@@ -501,18 +500,19 @@
 			artworkUrl: art?.getAttribute('src') || '',
 			genre: tag ? collapse(tag.textContent) : null,
 			// Whether this account has liked or reposted the track is drawn here as
-			// the word on the button ("Like" against "Unlike") and nowhere else —
-			// no pressed state, no class of its own. That is SoundCloud's English,
-			// not a fact about the track, so this layout says nothing rather than
-			// reading a label back: "nobody said", which is what a tile says too.
+			// the word on the button ("Like" against "Unlike") and nowhere else,
+			// with no pressed state and no class of its own. That is SoundCloud's
+			// English, not a fact about the track, so this layout says nothing
+			// rather than reading a label back: "nobody said", which is what a tile
+			// says too.
 			liked: null,
 			reposted: null
 		};
 	};
 
 	// { type: 'playlist' | 'likes' | 'track' | 'other', key, source }. `key` is
-	// the page's subject as a path — the playlist, the Likes page (/<user>/likes
-	// or /you/likes), the track ('' when unsure) — and '' for other pages;
+	// the page's subject as a path: the playlist, the Likes page (/<user>/likes
+	// or /you/likes) or the track ('' when unsure). Other pages get ''.
 	// `source` is 'dom', or 'url' when nothing recognisable was rendered and
 	// the URL had to do.
 	const detectPage = (): DetectedPage => {
@@ -552,9 +552,9 @@
 		return { type, key: type === 'other' ? '' : pathOf(location.pathname), source: 'url' };
 	};
 
-	// Whose likes a Likes page lists: 'you', or the profile permalink. (A
-	// Likes page's key is always "/<owner>/likes", so the fallback is only
-	// for safety — the coverage hint marks it as unreachable.)
+	// Whose likes a Likes page lists: 'you', or the profile permalink. (A Likes
+	// page's key is always "/<owner>/likes", so the fallback is only for
+	// safety, and the coverage hint marks it as unreachable.)
 	const likesOwner = (page: { key: string }) => /* v8 ignore next */ page.key.split('/')[1] || '';
 
 	// ---- Reading a row's fields ----------------------------------------------
@@ -562,8 +562,8 @@
 	// A track is described twice on every page: once when the popup asks for
 	// the whole list (the extractors below), and once when the "+ queue" button
 	// on its cover art is clicked and that one track has to be named. Both read
-	// the same elements, so they read them through the same few functions —
-	// otherwise a track queued from the page could carry a different title from
+	// the same elements, so they read them through the same few functions.
+	// Otherwise a track queued from the page could carry a different title from
 	// the same track queued from the panel.
 
 	// Playlist rows (.trackItem).
@@ -596,9 +596,10 @@
 	};
 
 	// A track page's hero, which is the only thing on such a page that names
-	// its track: there are no rows to read. Two things go through it — the
-	// marker on the hero artwork, and the replaced download buttons in the
-	// action bar below it, which sit outside every row selector there is.
+	// its track: there are no rows to read. Three things go through it: the
+	// panel's read of the page (extractHeroTrack), the marker on the hero
+	// artwork, and the replaced download buttons in the action bar below it,
+	// which sit outside every row selector there is.
 	const HERO_ROWS = '.l-listen-hero .fullHero';
 
 	// The hero's own genre tag sits in the title block rather than a row's tag
@@ -612,10 +613,10 @@
 
 	const heroFieldsOf = (hero: ParentNode) => ({
 		title: textOf(hero, SOUND_TITLE),
-		// The uploader link, read exactly as a playlist hero's curator is: direct
-		// text nodes only, because the link nests a "Verified" badge whose SVG
-		// <title> is text and would otherwise be part of the name — "kstko
-		// Verified", read off a live track page.
+		// The uploader link, read exactly as a playlist hero's curator is:
+		// direct text nodes only, because the link nests a "Verified" badge
+		// whose SVG <title> is text and would otherwise be part of the name:
+		// "kstko Verified", read off a live track page.
 		artist: directText(hero.querySelector('.soundTitle__username a')),
 		artworkUrl: artworkUrlOf(hero, '.listenArtworkWrapper__artwork .image__full'),
 		genre: genreOf(hero, HERO_TAG),
@@ -624,21 +625,21 @@
 
 	// ---- Track pages ---------------------------------------------------------
 
-	// The one track a track page is about, as a list of the one — so a page
-	// with a single song answers in the shape a page with fifty does and
-	// everything downstream (the count, the lookup, the Manager's list) works on
-	// it without knowing which kind of page it came off.
+	// The one track a track page is about, as a list of one, so a page with a
+	// single song answers in the shape a page with fifty does and everything
+	// downstream (the count, the lookup, the Manager's list) works on it
+	// without knowing which kind of page it came off.
 	//
 	// There are no rows here. The hero names the track and the engagement bar
-	// below it carries what a row's actions would — the like and repost
-	// buttons, and the purchase link the uploader set — so a track added from
-	// its own page carries what the same track added from a Likes row does.
+	// below it carries what a row's actions would (the like and repost buttons,
+	// and the purchase link the uploader set), so a track added from its own
+	// page carries what the same track added from a Likes row does.
 	//
 	// `page.key` is the permalink: the URL, checked against the hero (see
 	// detectPage). It is '' when the two disagree, and the track is still
-	// reported then — a Likes row whose title is not a link is reported the
-	// same way, and it is the list, not the reader, that decides a track with
-	// no identity cannot be held.
+	// reported then. A Likes row whose title is not a link is reported the same
+	// way, and it is the list, not the reader, that decides a track with no
+	// identity cannot be held.
 	const extractHeroTrack = (page: DetectedPage): PageTrack[] => {
 		const hero = document.querySelector(HERO_ROWS);
 
@@ -673,9 +674,9 @@
 
 		if (rows.length === 0 && isPlaylistPage) {
 			// Fallback in case SoundCloud renames the <li> wrapper classes but
-			// keeps the .trackItem structure. Gated to playlist pages: profile,
-			// stream and Likes pages embed playlist previews whose .trackItem rows
-			// are not the page's own tracks.
+			// keeps the .trackItem structure. Playlist pages only: profile, stream
+			// and Likes pages embed playlist previews whose .trackItem rows are not
+			// the page's own tracks.
 			rows = document.querySelectorAll('.trackItem');
 		}
 
@@ -708,7 +709,7 @@
 	// Regular playlists use .soundTitle__*; system playlists (/discover/sets/)
 	// use .fullHero__titleText*.
 	// No hero banner (e.g. the stream or a profile page) means no playlist
-	// metadata — leave the fields empty rather than scraping unrelated cards.
+	// metadata: leave the fields empty rather than scraping unrelated cards.
 	const playlistMetadata = () => {
 		const hero = document.querySelector('.fullHero');
 
@@ -731,14 +732,14 @@
 	// list-item class so neither can match the other's markup.
 	//
 	// Each track also records `itemIndex`, its position among all liked items
-	// (playlists included), which is the position in SoundCloud's likes
-	// listing too — the Manager tool uses it to ask for exactly as many
-	// likes as the page shows. Rows in layout A render the purchase link
-	// ("Buy" / "Free Download") as well; it is read into `domPurchaseUrl` /
-	// `domPurchaseTitle` so nothing needs to be asked for it. Every layout also
-	// reports `liked` / `reposted` from the row's own buttons — page state, not
-	// track metadata, so it is never cached with the details — and `genre`,
-	// which layout A's rows carry as a tag and layout B's tiles do not.
+	// (playlists included), which is the position in SoundCloud's likes listing
+	// too. The Manager tool uses it to ask for about as many likes as the page
+	// shows. Rows in layout A render the purchase link ("Buy" / "Free
+	// Download") as well; it is read into `domPurchaseUrl` / `domPurchaseTitle`
+	// so nothing needs to be asked for it. Every layout also reports `liked` /
+	// `reposted` from the row's own buttons (page state, not track metadata, so
+	// it is never cached with the details) and `genre`, which layout A's rows
+	// carry as a tag and layout B's tiles do not.
 	const extractLikedTracks = () => {
 		const tracks: PageTrack[] = [];
 		let skippedPlaylists = 0;
@@ -748,7 +749,7 @@
 			if (fields.artist || fields.title) tracks.push(fields);
 		};
 
-		// Layout A — "sound list" rows. A liked playlist carries the "playlist"
+		// Layout A: "sound list" rows. A liked playlist carries the "playlist"
 		// class; the title link's href (/user/sets/name) is checked as well in
 		// case that class marker goes away. Fields are read from the row's own
 		// .soundTitle block, which sits above the nested playlist preview.
@@ -779,9 +780,9 @@
 			});
 		}
 
-		// Layout B — badge grid tiles. Track and playlist tiles share exactly the
-		// same classes (audibleTile playableTile) — there is NO class marker — so
-		// the only tell is a /sets/ segment in the heading or artwork link href.
+		// Layout B: badge grid tiles. Track and playlist tiles share exactly the
+		// same classes (audibleTile playableTile) with no class marker, so the
+		// only tell is a /sets/ segment in the heading or artwork link href.
 		// Tiles render no purchase link.
 		for (const tile of document.querySelectorAll(LIKED_TILE_SELECTOR)) {
 			const index = itemIndex++;
@@ -849,10 +850,9 @@
 			result.tracks = tracks;
 			result.skippedPlaylists = skippedPlaylists;
 		} else {
-			// Playlist pages, track pages, plus other pages — all three read the
-			// same hero for their title and uploader. Other pages get the
-			// (non-fallback) row scan as well, so a changed layout still has a
-			// chance of working.
+			// Playlist, track and other pages all read the same hero for their
+			// title and uploader. Other pages get the (non-fallback) row scan as
+			// well, so a changed layout still has a chance of working.
 			const { title, curator } = playlistMetadata();
 			result.title = title;
 			result.curator = curator;
@@ -867,8 +867,8 @@
 	// Whether a track can be downloaded is not visible in playlist or Likes
 	// rows: SoundCloud's own "Download file" control sits in each row's More
 	// menu, which only renders when opened, and playlist rows show no purchase
-	// link at all. Everything the page already holds is used first; SoundCloud
-	// is asked only for what is left — in bulk, anonymously, read-only — and
+	// link at all. Everything the page already holds is used first. SoundCloud
+	// is asked only for what is left, in bulk, anonymously and read-only, and
 	// the answers are kept for a month so nothing is asked twice.
 	//
 	// Free sources (no request):
@@ -886,10 +886,10 @@
 	//      extractLikedTracks. That settles purchase links for those rows;
 	//      only "downloadable" is unknown.
 	//
-	// Requests — only when the panel asks, only for tracks the cache does not
-	// know, all to SoundCloud's public API (api-v2.soundcloud.com, the one the
-	// page calls), anonymous (that client id, no cookies, no auth header), GET
-	// only, public track metadata:
+	// Requests happen only when the panel asks and only for tracks the cache
+	// does not know. All go to SoundCloud's public API (api-v2.soundcloud.com,
+	// the one the page calls), anonymous (that client id, no cookies, no auth
+	// header), GET only, public track metadata:
 	//   - playlist pages: /tracks?ids= for the hydration's stubs, 50 per
 	//     request, in playlist order, only as far as the rendered rows need.
 	//     After in-app navigation, one /resolve of the playlist URL first, for
@@ -897,7 +897,7 @@
 	//     server-side render).
 	//   - Likes pages: the likes listing (/users/<id>/likes) the page itself
 	//     loads, in page order, sized to the rendered rows and at most 200 per
-	//     request — one request instead of one per track. The user id comes
+	//     request: one request instead of one per track. The user id comes
 	//     from the hydration (one /resolve of the profile URL after in-app
 	//     navigation).
 	//   - track pages: nothing of their own. The one track is in the page's
@@ -905,7 +905,7 @@
 	//     request at all; after in-app navigation it falls to the resolve
 	//     below, which is one request for one track.
 	//   - whatever those did not cover (private tracks, a filtered Likes list,
-	//     rows past the listing's reach): /resolve?url= per track, two at a
+	//     rows past the listing's reach): /resolve?url= per track, four at a
 	//     time. Failures are remembered for a day so they are not retried on
 	//     every panel open.
 	// The API accepts cross-origin calls from soundcloud.com only, which is why
@@ -913,7 +913,7 @@
 	// panel. 429 answers are backed off and retried a couple of times.
 	//
 	// Everything learned goes into the cache as it arrives, not when a lookup
-	// ends, and is written back shortly after — so a lookup cut short by a
+	// ends, and is written back shortly after, so a lookup cut short by a
 	// reload keeps what it had, markers appear as answers come in, and a later
 	// request benefits from an earlier one's progress. Lookups themselves run
 	// one at a time; see "one lookup at a time" below.
@@ -922,16 +922,16 @@
 	const API_BATCH = 50; // ids per /tracks request
 	// How many requests of one kind are in the air at once. Every request here
 	// costs a round trip to SoundCloud rather than any work worth speaking of,
-	// so what a lookup takes is how many of them it waits through end to end:
-	// one at a time, five hundred tracks is ten round trips of half a second to
-	// two seconds each — ten seconds of a progress bar for a list the panel
+	// so what a lookup takes is how many of them it waits through end to end.
+	// One at a time, five hundred tracks is ten round trips of half a second to
+	// two seconds each: ten seconds of a progress bar for a list the panel
 	// could otherwise have drawn in two. Four at a time was measured against
 	// the live API at a quarter to a fifth of the wall clock and not one `429`;
-	// six was no better, the server being the queue by then. This is the number
-	// the extension is polite at, not the number it is fastest at.
+	// six was no better, the server being the queue by then. Four also stays
+	// polite to the API.
 	const API_CONCURRENCY = 4;
-	// How many rows are resolved one at a time before the lookup decides the
-	// answer is always going to be no — see "nothing to be seen" in runJob.
+	// How many rows are resolved individually before the lookup decides the
+	// answer is always going to be no. See "nothing to be seen" in runJob.
 	const PROBE = 5;
 	const LIKES_PAGE = 200; // likes per listing request (the API's maximum)
 	const LIKES_MAX_PAGES = 10; // how deep the listing is followed (2,000 likes)
@@ -943,14 +943,13 @@
 
 	// How many tracks the cache keeps. Above this the oldest are dropped.
 	//
-	// This is not tidiness. chrome.storage.local is one 10 MB area and nothing
-	// waits on a write to it, so a cache that outgrew the quota would fail its
-	// write silently and go on failing — and a cache that cannot be written is
-	// a cache that is empty on the next visit, which sends every track on every
-	// page back to SoundCloud, forever. The failure mode of the cap is a handful
-	// of extra requests for pages not seen in weeks; the failure mode of having
-	// no cap is all of them. At roughly 290 bytes an entry this is about 6 MB,
-	// which leaves the marks (downloaded-store.js) room beside it.
+	// chrome.storage.local is one 10 MB area and nothing waits on a write to
+	// it, so a cache that outgrew the quota would fail its write silently and
+	// go on failing. A cache that cannot be written is empty on the next visit,
+	// which sends every track on every page back to SoundCloud, forever. The
+	// cap costs a handful of extra requests for pages not seen in weeks; having
+	// no cap costs all of them. At roughly 290 bytes an entry this is about 6
+	// MB, which leaves the marks (downloaded-store.ts) room beside it.
 	const CACHE_MAX = 20000;
 
 	const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -960,14 +959,15 @@
 	 * taking the next item as each worker frees up (rather than in fixed
 	 * rounds, so one slow answer does not hold the others).
 	 *
-	 * `keepGoing` is checked before each item is picked up — both callers have
-	 * one, so it is required rather than defaulted: a lookup stops as soon as
-	 * it has what the rendered rows asked for, and the requests already out are
-	 * simply the ones it had to make to find that out.
+	 * `keepGoing` is checked before each item is picked up. All three callers
+	 * have one, so it is required rather than defaulted: a playlist lookup stops
+	 * as soon as it has what the rendered rows asked for (the requests already
+	 * out are the ones it had to make to find that out), and the other two stop
+	 * on a 401.
 	 *
-	 * A task that throws rethrows here at once — the caller has somewhere else
-	 * to go (a playlist batch that failed is resolved track by track instead)
-	 * and waiting for the other requests would only delay it. Those keep their
+	 * A task that throws rethrows here at once. The caller has somewhere else to
+	 * go (a playlist batch that failed is resolved track by track instead) and
+	 * waiting for the other requests would only delay it. Those keep their
 	 * place: they take no new item, and whatever they still learn is kept. Each
 	 * worker catches for itself so that a straggler failing after the pool has
 	 * been left behind is never an unhandled rejection.
@@ -1013,8 +1013,9 @@
 	// ---- reading what SoundCloud sends
 	//
 	// The hydration and the API answer in JSON (chrome.storage keeps it too),
-	// and nothing past the readers below asks what kind of value something is: each takes whatever came and
-	// answers with what it reads, or a stand-in for nothing ('', {}, []).
+	// and nothing past the readers below asks what kind of value something is:
+	// each takes whatever came and answers with what it reads, or a stand-in
+	// for nothing ('', {}, []).
 
 	const isString = (value: Json | undefined): value is string => typeof value === 'string';
 	const stringOf = (value: Json | undefined) => (isString(value) ? value : '');
@@ -1112,7 +1113,7 @@
 	const pageClientId = () => stringOf(objectOf(hydratable(domHydration(), 'apiClient')).id);
 
 	// GET from the API: `url` is a path or a full URL (the listing's
-	// next_href). Anonymous — no cookies or auth header ride along.
+	// next_href). Anonymous: no cookies or auth header ride along.
 	/** @returns the answer's JSON, which is whatever SoundCloud sent. */
 	const apiGet = async (url: string, params: ApiQuery, clientId: string): Promise<Json> => {
 		const target = new URL(url, API_ORIGIN);
@@ -1141,12 +1142,12 @@
 
 	// Answers to /resolve, kept for the life of the document.
 	//
-	// Both callers ask only when the hydration cannot say — after in-app
-	// navigation, when the script in the DOM still describes the page before it —
-	// and both ask for something that does not change while the page is open: a
-	// playlist's track ids, a user's id. Without this each panel opened on such a
-	// page spends a request learning the same thing again, which is a request
-	// per opening for nothing.
+	// The details lookups ask only when the hydration cannot say (after in-app
+	// navigation, when the script in the DOM still describes the page before
+	// it), and the artists tool asks for each profile. All of them ask for
+	// something that does not change while the page is open: a playlist's track
+	// ids, a user. Without this each panel opened on such a page spends a
+	// request learning the same thing again.
 	//
 	// The promise is what is kept, so two lookups asking at once make one
 	// request. A failed one is dropped rather than remembered: the next lookup
@@ -1169,10 +1170,10 @@
 	};
 
 	// The cover an API track object names: its own artwork, else the uploader's
-	// avatar — which is exactly what SoundCloud's own rows show for a track that
-	// has no artwork of its own, so it is the same picture the page would have
+	// avatar, which is what SoundCloud's own rows show for a track that has no
+	// artwork of its own, so it is the same picture the page would have
 	// rendered. The API answers with the legacy `-large` size token (100 px),
-	// which lib/artwork.js rewrites like any other, so a click on it still gets
+	// which lib/artwork.ts rewrites like any other, so a click on it still gets
 	// 1080 × 1080.
 	const apiArtworkUrl = (track: ApiTrack) => track.artwork_url || track.avatar_url;
 
@@ -1188,23 +1189,23 @@
 		// What the uploader filed it under. '' is an answer ("no genre set"),
 		// which the panel shows as "none".
 		//
-		// Adding this field is what `hasEveryField` below is for: an entry cached
-		// before it existed has no `genre` key, and rather than being shown as an
-		// unknown genre for the month its own lifetime had left, it counts as
-		// stale and is asked about again — mostly for free, off the page's own
-		// hydration.
+		// `hasEveryField` below handles entries cached before this field
+		// existed: with no `genre` key, an entry counts as stale and is asked
+		// about again, mostly for free, off the page's own hydration, rather
+		// than showing an unknown genre for the month its own lifetime had
+		// left.
 		genre: collapse(track.genre),
 		// The cover, for the rows that never showed one.
 		//
 		// A page lazy-loads its thumbnails as they scroll into view, so a list
 		// read without scrolling through all of it hands over rows with no
-		// artwork URL at all — and those rows drew a placeholder in the panel for
-		// tracks whose artwork plainly exists. It was in the answer all along:
-		// every track object SoundCloud sends here — the page's own hydration,
-		// /tracks?ids=, the likes listing, /resolve — names its artwork, and this
-		// keeps it. No extra request is made for it, and the page's own URL still
-		// wins where there is one (see collectDownloadDetails): that rendition is
-		// already in the browser's cache.
+		// artwork URL at all, and those rows would draw a placeholder in the
+		// panel for tracks whose artwork exists. Every track object SoundCloud
+		// sends here (the page's own hydration, /tracks?ids=, the likes
+		// listing, /resolve) names its artwork, and this keeps it. No extra
+		// request is made for it, and the page's own URL still wins where there
+		// is one (see collectDownloadDetails): that rendition is already in the
+		// browser's cache.
 		artworkUrl: apiArtworkUrl(track)
 	});
 
@@ -1236,18 +1237,18 @@
 	// Whether an entry has every field this version writes.
 	//
 	// Age is not the only way a cache entry goes off. The details kept here
-	// have grown — the genre was added to them after the cache had been filling
-	// up for a month — and an entry from before that will never gain the field
+	// have grown (the genre was added to them after the cache had been filling
+	// up for a month), and an entry from before that will never gain the field
 	// by waiting: it is fresh, so nothing asks about the track again, so the
 	// panel says the genre is unknown about a track SoundCloud would have named
 	// the genre of in the same request it was going to make anyway. An entry
 	// that predates a field is therefore stale whatever its age.
 	//
-	// What it costs is one round of looking up, once, on each page whose tracks
-	// were cached by an older version — and most of that is free, because the
+	// This costs one round of looking up, once, on each page whose tracks were
+	// cached by an older version, and most of that is free, because the
 	// hydration harvest runs on every page load and refills from the page
-	// itself. What it buys is that adding a field to detailsOf is enough:
-	// nobody has to remember to invalidate anything.
+	// itself. In return, adding a field to detailsOf is enough: nobody has to
+	// remember to invalidate anything.
 	//
 	// Remembered failures are exempt: they are not details and have none of
 	// these fields, and their own day-long TTL is what expires them.
@@ -1261,8 +1262,8 @@
 	const isKnown = (details: DetailsCacheEntry | undefined): details is KnownDetails =>
 		isFresh(details) && !details.unavailable;
 
-	// Whether the cache has an answer for a permalink, details or a remembered
-	// failure — nothing more needs asking for it.
+	// Whether the cache has an answer for a permalink (details or a remembered
+	// failure), so nothing more needs asking for it.
 	const isSettled = (permalink: string) => isFresh(detailsCache.get(permalink));
 
 	const loadDetailsCache = async () => {
@@ -1274,7 +1275,7 @@
 		}
 	};
 
-	// `entries` as an object, at most `limit` of them — the ones learned most
+	// `entries` as an object, at most `limit` of them: the ones learned most
 	// recently, since those are the pages being browsed now and the ones a
 	// second visit is likeliest to want. (Every entry has been through isFresh,
 	// so `at` is a number.)
@@ -1300,7 +1301,7 @@
 			await chrome.storage.local.set({ [DETAILS_KEY]: newest(entries, CACHE_MAX) });
 		} catch (_e) {
 			// The area would not take it: the marks share it, and an entry can be
-			// bigger than the cap was drawn for. Half as much rather than nothing —
+			// bigger than the cap was drawn for. Half as much rather than nothing:
 			// a smaller cache still spares SoundCloud most of the asking, while a
 			// write that gave up would send every track back to it next visit.
 			await chrome.storage.local.set({
@@ -1358,7 +1359,7 @@
 	};
 
 	// Whether details describe a track with no download link at all.
-	// (`downloadable` is null when only the page's purchase link is known —
+	// (`downloadable` is null when only the page's purchase link is known, and
 	// that never counts as "none".)
 	const hasNoDownloadLink = (details: TrackDetails | null) =>
 		!!details && details.downloadable === false && !details.purchaseUrl;
@@ -1407,9 +1408,9 @@
 		};
 
 		// Whichever hydration entry is this playlist (regular ones hydrate as
-		// "playlist"; system playlists differ), else — stale hydration after
-		// in-app navigation — one /resolve of its URL for the track ids.
-		// (The hydration parsed by now — the client id came from it — so the
+		// "playlist"; system playlists differ), else (stale hydration after
+		// in-app navigation) one /resolve of its URL for the track ids. (The
+		// hydration is parsed by now, since the client id came from it, so the
 		// empty fallback is for safety; hence the coverage hint.)
 		let playlist: ApiPlaylist | undefined = /* v8 ignore next */ (domHydration() || [])
 			.map((entry) => apiPlaylistOf(entry.data))
@@ -1454,16 +1455,15 @@
 		// The rows are the playlist's first rows and the stubs are in playlist
 		// order, so `wanted` rows reach at most this far down the batches. A page
 		// that has not been scrolled wants thirty rows, which is one batch, and
-		// asks for exactly one — the other nine of a five-hundred-track playlist
-		// are never made. A page that has been scrolled to the end wants all ten
-		// and says so up front, rather than being made to discover it a doubling
-		// at a time: the widening this replaces cost a scrolled page a whole
-		// extra round trip, which is half a second to two seconds of the wait it
-		// was meant to shorten.
+		// asks for exactly one, so the other nine of a five-hundred-track
+		// playlist are never made. A page that has been scrolled to the end wants
+		// all ten and says so up front. Finding that out a doubling at a time
+		// would cost a scrolled page a whole extra round trip, which is half a
+		// second to two seconds.
 		//
 		// Only the width is decided here. The pool still walks every batch and
 		// still stops the moment the rendered rows are settled, so a page whose
-		// rows are not where this assumes loses nothing — it asks a little more
+		// rows are not where this assumes loses nothing: it asks a little more
 		// narrowly and the fallback resolves whatever is left.
 		const reach = Math.max(1, Math.ceil(wanted.length / API_BATCH));
 		await pool(batches, Math.min(reach, API_CONCURRENCY), fetchBatch, unsettled);
@@ -1471,8 +1471,8 @@
 
 	// ---- Likes pages
 
-	// Id of the user whose likes the page lists — `owner` is 'you' or the
-	// profile permalink: the signed-in user, else the profile in the hydration
+	// Id of the user whose likes the page lists (`owner` is 'you' or the
+	// profile permalink): the signed-in user, else the profile in the hydration
 	// when it is that one (in-app navigation can leave another profile there),
 	// else one /resolve.
 	const likesUserId = async (owner: string, clientId: string): Promise<number | null> => {
@@ -1500,16 +1500,16 @@
 	// it had reached and how many items into the listing that was.
 	//
 	// A Likes page is browsed by scrolling, and every scroll brings rows the
-	// panel has not been asked about before — so the same listing is walked
-	// again and again in one visit, each time from the top. Two thousand likes
-	// read in ten scrolls is ten walks of one, two, three... ten pages: fifty-five
-	// requests for the ten pages SoundCloud actually had to send. Carrying the
-	// cursor makes it ten.
+	// panel has not been asked about before, so without this the same listing
+	// is walked again and again in one visit, each time from the top. Two
+	// thousand likes read in ten scrolls is ten walks of one, two, three... ten
+	// pages: fifty-five requests for the ten pages SoundCloud had to send.
+	// Carrying the cursor makes it ten.
 	//
 	// Only sound when the rows now being asked about lie past what the earlier
 	// walk covered, which is the scrolling case and is checked by the caller
-	// (`from` below). Anything else — a filtered list, a like added at the top
-	// since — starts from the top as before.
+	// (`from` below). Anything else (a filtered list, a like added at the top
+	// since) starts from the top.
 	// user id -> { next, seen }
 	const likesCursor: Map<number, { next: string; seen: number }> = new Map();
 
@@ -1561,7 +1561,7 @@
 		}
 	};
 
-	// ---- one track at a time (the fallback)
+	// ---- one request per track (the fallback)
 
 	// Resolves each permalink, API_CONCURRENCY at a time, learning each answer
 	// (or failure) as it comes. Returns whether SoundCloud rejected the client
@@ -1582,8 +1582,8 @@
 						details = { ...detailsOf(track), permalink };
 					}
 				} catch (e) {
-					// 401 means the client id is no longer accepted — that says nothing
-					// about the track, so it is not remembered as a failure.
+					// 401 means the client id is no longer accepted. That says
+					// nothing about the track, so it is not remembered as a failure.
 					if (e instanceof ApiError && e.status === 401) unauthorized = true;
 					else learnFailure(permalink);
 
@@ -1591,9 +1591,9 @@
 				}
 
 				// Learned outside the try. Learning tells the panel, and telling the
-				// panel throws once the extension has been reloaded under the page —
-				// which is nothing wrong with the track, and must not be remembered
-				// over an answer that has just arrived as if it were.
+				// panel throws once the extension has been reloaded under the page.
+				// That is nothing wrong with the track, and must not be remembered as
+				// a failure over an answer that has just arrived.
 				if (details) learn([details]);
 				else learnFailure(permalink);
 			},
@@ -1609,12 +1609,12 @@
 	// back in-app, while a long lookup is still running; each reopen asks
 	// again. Rather than starting a second lookup that competes with the first
 	// for the same tracks, requests are queued: a request whose tracks are all
-	// covered by a lookup already queued or running simply waits for those
-	// tracks to be settled (it is answered as soon as they are, even while that
-	// lookup goes on with the rest); any other request gets a lookup of its
-	// own, run after the ones before it and asking only for what is still
-	// unknown by then. One lookup runs at a time per tab, so SoundCloud never
-	// sees two from it at once — a request for a different page waits its turn.
+	// covered by a lookup already queued or running waits for those tracks to
+	// be settled (it is answered as soon as they are, even while that lookup
+	// goes on with the rest); any other request gets a lookup of its own, run
+	// after the ones before it and asking only for what is still unknown by
+	// then. One lookup runs at a time per tab, so SoundCloud never sees two
+	// from it at once, and a request for a different page waits its turn.
 
 	const jobs: Job[] = []; // lookups queued and running, in order
 	const waiters: Waiter[] = []; // requests waiting for their tracks to be settled
@@ -1677,9 +1677,10 @@
 		if (latest) reportProgress(latest);
 	};
 
-	// One lookup: the bulk source for the page's kind first, then whatever is
-	// left one track at a time — for what is still unsettled when its turn
-	// comes (earlier lookups, or another tab, may have covered some meanwhile).
+	// One lookup: the bulk source for the page's kind first, then a request per
+	// track for whatever is left. Only what is still unsettled when its turn
+	// comes is asked for (earlier lookups, or another tab, may have covered
+	// some meanwhile).
 	const runJob = async (job: Job) => {
 		const unsettled = () => job.wanted.filter((p) => !isSettled(p));
 		let pending = unsettled();
@@ -1706,8 +1707,7 @@
 			const indexes = job.items.filter((item) => pendingSet.has(item.permalink)).map((item) => item.itemIndex || 0);
 			const depth = 1 + Math.max(0, ...indexes);
 			// The shallowest row still wanted, which says whether a walk of this
-			// listing that stopped earlier can simply be carried on (see
-			// likesCursor).
+			// listing that stopped earlier can be carried on (see likesCursor).
 			const from = Math.min(...indexes, depth);
 
 			if (pending.length > Math.ceil(depth / LIKES_PAGE)) {
@@ -1725,22 +1725,23 @@
 
 		// ---- nothing to be seen
 		//
-		// These requests are anonymous — the extension asks SoundCloud the way a
-		// signed-out visitor would, which is what keeps it from needing the user's
-		// account. A page whose tracks are not public is therefore one the API
-		// will not describe however it is asked, and the ordinary case of that is
-		// somebody looking at their own private playlist.
+		// These requests are anonymous: the extension asks SoundCloud the way a
+		// signed-out visitor would, so it does not need the user's account. A
+		// page whose tracks are not public is therefore one the API will not
+		// describe however it is asked, and the ordinary case of that is somebody
+		// looking at their own private playlist.
 		//
-		// The bulk source comes back empty for such a page, and resolving each row
-		// in turn then fails the same way one request at a time: ninety tracks is
+		// The bulk source comes back empty for such a page, and resolving each
+		// row then fails the same way, one request per track: ninety tracks is
 		// ninety round trips, a minute of "still checking", and an answer of no.
-		// Measured on a private 90-track playlist, that was the whole of the wait.
+		// Measured on a private 90-track playlist, that was the whole of the
+		// wait.
 		//
 		// So when the bulk source settled nothing at all, a few rows are resolved
-		// first. If even one comes back, the rest follow as they always did — the
-		// page is visible and the bulk source simply did not cover it (a filtered
-		// list, rows past a listing's reach). If none do, the rest are left
-		// alone: they are the same request, and it has been asked.
+		// first. If even one comes back, the rest follow: the page is visible and
+		// the bulk source did not cover it (a filtered list, rows past a
+		// listing's reach). If none do, the rest are left alone: they are the
+		// same request, and it has been asked.
 		if (pending.length && bulk && pending.length === before && pending.length > PROBE) {
 			const probe = pending.slice(0, PROBE);
 			job.unauthorized = await resolveDetails(probe, job.clientId);
@@ -1810,18 +1811,18 @@
 	// ---- putting it together
 
 	// Extraction plus a `details` field per track: cached/looked-up details,
-	// else — for Likes rows whose purchase link the page rendered — partial
-	// details with `downloadable: null`, else null. Also `lookupFailed` (how
-	// many tracks could not be looked up), `resumed` (whether a lookup already
-	// under way covered this request, so it waited for that one) and `error`
-	// ('' | 'no-client-id' | 'unauthorized').
+	// else partial details with `downloadable: null` for rows whose purchase
+	// link the page rendered (Likes rows, a track page's engagement bar), else
+	// null. Also `lookupFailed` (how many tracks could not be looked up),
+	// `resumed` (whether a lookup already under way covered this request, so it
+	// waited for that one) and `error` ('' | 'no-client-id' | 'unauthorized').
 	const collectDownloadDetails = async (): Promise<DetailsAnswer> => {
 		const result: DetailsAnswer = {
 			...extract(),
 			lookupFailed: 0,
 			resumed: false,
-			// Whether the lookup gave up because nothing it asked about came
-			// back — a page the anonymous API cannot see (see runJob).
+			// Whether the lookup gave up because nothing it asked about came back:
+			// a page the anonymous API cannot see (see runJob).
 			unseen: false,
 			error: ''
 		};
@@ -1881,16 +1882,15 @@
 					hasDownloadsLeft: null,
 					purchaseUrl: track.domPurchaseUrl,
 					purchaseTitle: track.domPurchaseTitle || '',
-					// These are the details, which is what SoundCloud was asked for,
-					// and it was not asked — so this says nothing about the genre, as
-					// the nulls above say nothing about the download. (`''` would be an
-					// answer: "the uploader set none".) What the row itself rendered is
-					// not lost by being absent here: it is on the track, in `genre`,
-					// which is where the page's own answers live and where the panel
-					// reads it from first.
+					// No answer from SoundCloud is in these details, so this says
+					// nothing about the genre, as the nulls above say nothing about the
+					// download. (`''` would be an answer: "the uploader set none".)
+					// What the row itself rendered is not lost by being absent here: it
+					// is on the track, in `genre`, which is where the page's own
+					// answers live and where the panel reads it from first.
 					genre: null,
-					// Read off the page, which is where the artwork was read from too —
-					// so there is nothing here the row does not already have.
+					// Read off the page, which is where the artwork was read from too:
+					// there is nothing here the row does not already have.
 					artworkUrl: '',
 					partial: true
 				};
@@ -1900,7 +1900,7 @@
 
 			// A row whose thumbnail never lazy-loaded has no cover to show, but the
 			// answer just given names one. The page's own URL wins where there is
-			// one — it is the rendition already in the browser's cache.
+			// one: it is the rendition already in the browser's cache.
 			if (!track.artworkUrl && track.details) {
 				track.artworkUrl = track.details.artworkUrl || '';
 			}
@@ -1912,12 +1912,12 @@
 	// ---- Markers ---------------------------------------------------------------
 	//
 	// Tracks the user has downloaded get a translucent overlay on their cover
-	// art with a "Downloaded" pill in its bottom-right corner; tracks whose
+	// art with a "downloaded" pill in its bottom-right corner; tracks whose
 	// details are known (looked up or harvested) and offer no download link at
 	// all get a dark "nodl" pill there (styles in content.css). One pill per
 	// track: downloaded wins, being the end of the story. Being in the session
-	// queue is not a pill at all — the queue button below says that itself, in
-	// the corner where a click can do something about it.
+	// queue gets no pill: the queue button below says that itself, in the
+	// corner where a click can do something about it.
 	//
 	// Wherever the track's cover art is: the rows and tiles of a list, a track
 	// page's own hero, and the player bar. The same two pills in all of them,
@@ -1925,13 +1925,12 @@
 	// track does not depend on which of its pictures is being looked at.
 	//
 	// Downloaded marks live in the extension's own storage (see
-	// downloaded-store.js) and the queue in its session storage (see
-	// src/lib/queue.svelte.js), both out of the page's reach; the overlay
-	// element is the only thing added to the page, and it is inert
-	// (pointer-events: none) — the queue button below it is the one addition
-	// that takes a click. A MutationObserver re-applies markers as SoundCloud
-	// renders rows lazily or navigates in-app, and lookups do so as answers
-	// arrive.
+	// downloaded-store.ts) and the queue in its session storage (see
+	// src/lib/queue.svelte.ts), both out of the page's reach. The overlay
+	// element is the only thing markers add to the page, and it is inert
+	// (pointer-events: none); the queue button below is what takes a click. A
+	// MutationObserver re-applies markers as SoundCloud renders rows lazily or
+	// navigates in-app, and lookups do so as answers arrive.
 
 	const MARK_CLASS = 'tbx-mark';
 
@@ -1947,16 +1946,15 @@
 	// position: relative in every one of them, so the overlay can be an
 	// absolutely positioned child (content.css says so itself for the marked
 	// one, rather than trusting SoundCloud to keep it that way). Cover art of
-	// 32 px or so is too small for "Downloaded", so those get the compact
+	// 32 px or so is too small for "downloaded", so those get the compact
 	// variant.
 	// `fields` reads the rest of the track out of the same element, for the
-	// queue button below — everything a queued entry keeps: the title, artist
-	// and artwork, and the three things only the page can say (the genre it
-	// renders beside the row, and whether the row's own like and repost buttons
-	// are on). Those three are read here rather than left to the panel because
-	// the page is the only place they exist: a track sitting in the queue has
-	// no row to go back and read, and one added to the Manager's list from the
-	// queue would otherwise arrive knowing none of them.
+	// queue button below. That is everything a queued entry keeps: the title,
+	// artist and artwork, plus the genre the page renders beside the row and
+	// whether the row's own like and repost buttons are on. Those last three
+	// are read here rather than left to the panel because a track sitting in
+	// the queue has no row to go back and read, and one added to the Manager's
+	// list from the queue would otherwise arrive knowing none of them.
 	// It is called on a click, not on a paint: a marked-up playlist repaints
 	// hundreds of rows at a time, and only one of them is ever queued.
 	const MARKER_TARGETS: MarkerTarget[] = [
@@ -2001,12 +1999,12 @@
 		},
 		{
 			// A track page's own hero artwork. Nothing in the hero names the track
-			// — its title is an h1, not a link — so the page itself does, through
-			// detectPage; that is also what keeps a playlist's hero clear, since
-			// the same .fullHero renders there and a playlist is not a track to
-			// mark. The hero nests a second .sc-artwork inside the first for the
-			// image itself; querySelector takes the outer one, which is the box
-			// the pill belongs in.
+			// (its title is an h1, not a link), so the page itself does, through
+			// detectPage. That also keeps a playlist's hero clear, since the same
+			// .fullHero renders there and a playlist is not a track to mark. The
+			// hero nests a second .sc-artwork inside the first for the image
+			// itself; querySelector takes the outer one, which is the box the pill
+			// belongs in.
 			rows: HERO_ROWS,
 			art: '.listenArtworkWrapper__artwork .sc-artwork',
 			key: () => {
@@ -2047,17 +2045,17 @@
 	let downloaded: DownloadedMarks = {}; // permalink path -> ISO time, mirrored from storage
 
 	// The session queue's permalinks, mirrored from chrome.storage.session. The
-	// key is the one src/lib/queue.svelte.js writes; a content script is an
+	// key is the one src/lib/queue.svelte.ts writes; a content script is an
 	// untrusted context, so it can only reach that area at all because the
-	// popup opens it up (queue.svelte.js again) — which is why the button below
+	// popup opens it up (queue.svelte.ts again), which is why the button below
 	// only appears once the queue has answered.
 	const QUEUE_KEY = 'queue';
 	let queued: Set<string> = new Set();
 
 	// Whether that door is open: set the first time the area answers a read, or
 	// sends a change (see the storage listener in startMarkers). Until then the
-	// page shows no queued pills and offers no queue button,
-	// because a click on one could not be written anywhere.
+	// page offers no queue button, because a click on one could not be written
+	// anywhere.
 	let queueReachable = false;
 
 	// Whether what the area holds under QUEUE_KEY is the queue. The popup's
@@ -2083,7 +2081,7 @@
 			return queuedFrom(items);
 		} catch (_e) {
 			// No session storage to read here (the popup has not opened it up, or
-			// this browser keeps it shut): no queued pills, everything else as it
+			// this browser keeps it shut): no queue buttons, everything else as it
 			// was.
 			return new Set();
 		}
@@ -2113,7 +2111,7 @@
 		pill.className = `${MARK_CLASS}__pill`;
 
 		if (kind === 'nodl') pill.textContent = 'nodl';
-		// A 32 px thumbnail has no room for the word: "Downloaded" becomes the
+		// A 32 px thumbnail has no room for the word: "downloaded" becomes the
 		// check it means.
 		else pill.textContent = variant === 'small' ? '✓' : 'downloaded';
 		overlay.append(pill);
@@ -2137,36 +2135,33 @@
 	// ---- The queue button ------------------------------------------------------
 	//
 	// Hovering a track's cover art brings up a button in its top corner that
-	// puts the track in the session queue, or takes it back out — the same
+	// puts the track in the session queue, or takes it back out: the same
 	// toggle the Manager panel puts on every row, on the page itself, so a
-	// batch can be picked out while listening rather than afterwards. It is the
-	// one thing the content script writes; everything else it does to the page
-	// is a picture of something the popup owns.
+	// batch can be picked out while listening rather than afterwards. Along
+	// with `enqueue` below, it is the only code here that writes the queue.
 	//
 	// It is also what says a track *is* in the queue: a queued track's button
 	// reads "queued" and stays up without being hovered, and turns into the
-	// "unqueue" it would become under the pointer. One control, carrying the
-	// state and the click that changes it — rather than a pill in one corner
+	// "unqueue" it would become under the pointer. One control carries the
+	// state and the click that changes it, rather than a pill in one corner
 	// saying what a track is and a button in the other disagreeing about which
 	// corner to read. Everything the page knows and cannot be clicked stays a
-	// pill (see "Markers"); the play button SoundCloud puts in the middle of the
-	// same artwork is left alone, corner to centre.
+	// pill (see "Markers"); the play button SoundCloud puts in the middle of
+	// the same artwork is left alone, corner to centre.
 	//
-	// Not rendered at all until the queue has answered a read — see
-	// `queueReachable`. A button that could not write anywhere would be worse
-	// than no button.
+	// Not rendered at all until the queue has answered (see `queueReachable`).
+	// A button that could not write anywhere would be worse than no button.
 
 	const QUEUE_BUTTON_CLASS = 'tbx-queue';
 
 	// What the button says, by variant and by whether the track is queued
 	// already: `text` at rest, `hover` in its place under the pointer. The swap
 	// is the stylesheet's (content.css), so it costs no listener here and no
-	// repaint — and the resting word stays the button's own text, which is what
+	// repaint, and the resting word stays the button's own text, which is what
 	// a reader of the DOM gets. 32 px thumbnails and the player bar's 30 px one
-	// have room for a sign and nothing else: there a queued track keeps the "+"
-	// its pill used to carry, and hovering turns it into the "−" that would take
-	// it out. "unqueue" is the word the panel's own batch action uses for the
-	// same thing.
+	// have room for a sign and nothing else: there a queued track keeps the
+	// "+", and hovering turns it into the "−" that would take it out. "unqueue"
+	// is the word the panel's own batch action uses for the same thing.
 	const QUEUE_BUTTON_STATES = {
 		'large:no': { text: '+ queue', hover: '', label: 'add to the session queue' },
 		'large:yes': { text: 'queued', hover: 'unqueue', label: 'take out of the session queue' },
@@ -2175,8 +2170,8 @@
 	};
 
 	// The details the queue should carry for a track: what has been looked up
-	// for it, where that is known — which is how the Downloader finds its gate
-	// later without a page to read — and nothing where it is not.
+	// for it, where that is known (which is how the Downloader finds its gate
+	// later without a page to read), and nothing where it is not.
 	const knownDetails = (permalink: string): KnownDetails | null => {
 		const details = detailsCache.get(permalink);
 
@@ -2193,10 +2188,10 @@
 
 		return {
 			permalink,
-			// The three the page is the only source of, as nulls first: a layout
-			// whose reader says nothing about them — the player bar names a track,
-			// not a row — leaves "nobody knows" rather than leaving the field out,
-			// which is the same shape the popup's own queue writes.
+			// The three a row can supply, as nulls first: a layout whose reader
+			// says nothing about them (the player bar names a track, not a row)
+			// leaves "nobody knows" rather than leaving the field out, which is the
+			// same shape the popup's own queue writes.
 			genre: null,
 			liked: null,
 			reposted: null,
@@ -2225,17 +2220,18 @@
 
 			await chrome.storage.session.set({ [QUEUE_KEY]: next });
 		} catch (_e) {
-			// The door shut under us — the extension was reloaded beneath the page,
+			// The door shut under us: the extension was reloaded beneath the page,
 			// or session storage went away. The page keeps showing what it last
 			// read; the popup still has the queue.
 		}
 	};
 
-	// Puts a track in the queue if it is not in it already — which is what
-	// `queue.add` does in the popup, and what a replaced download button needs:
-	// a click on one is "I am getting this", not a toggle. Its caller is the
-	// only one, and never has a track without a permalink: a control that names
-	// none is left as SoundCloud drew it and has no button of ours to click.
+	// Puts a track in the queue if it is not in it already, which is what
+	// `queue.add` does in the popup and what a replaced download button needs:
+	// a click on one is "I am getting this", not a toggle. Its callers all come
+	// from that button, which never has a track without a permalink: a control
+	// that names none is left as SoundCloud drew it and has no button of ours
+	// to click.
 	const enqueue = async (permalink: string, fields: Partial<RowFields>) => {
 		try {
 			const items = await loadQueueItems();
@@ -2256,14 +2252,14 @@
 		button.type = 'button';
 		button.className = `${QUEUE_BUTTON_CLASS} ${QUEUE_BUTTON_CLASS}--${target.variant}`;
 		// The resting word goes in an element of its own, because the hovered one
-		// is the stylesheet's `::after`: keeping them apart is what leaves the
-		// button's text the one word it is actually showing.
+		// is the stylesheet's `::after`: kept apart, the button's text is the one
+		// word it is showing.
 		const text = document.createElement('span');
 		text.className = `${QUEUE_BUTTON_CLASS}__text`;
 		button.append(text);
 		// The artwork is a play control, and in two of these layouts it sits
 		// inside a link to the track: queueing must set neither off. The capture
-		// listener further down is not among them — it watches SoundCloud's own
+		// listener further down is not among them: it watches SoundCloud's own
 		// download controls, which this is not.
 		button.addEventListener('click', (event) => {
 			event.preventDefault();
@@ -2337,7 +2333,7 @@
 		// SoundCloud's own download buttons ride along on the same pass: they
 		// come and go with the rows, and the More menu renders when it is opened.
 		// A menu therefore shows SoundCloud's own button for as long as this pass
-		// is coalesced for, which is a tenth of a second of a menu animating open.
+		// is coalesced for, which is 150 ms of a menu animating open.
 		applyDownloadButtons();
 	};
 
@@ -2373,13 +2369,12 @@
 			subtree: true
 		});
 		chrome.storage.onChanged.addListener((changes, area) => {
-			// The queue is in its own area, and is the whole of what that area has
-			// to say here.
+			// The queue is in its own area, and is all that area has to say here.
 			if (area === 'session') {
 				if (changes[QUEUE_KEY]) {
-					// Chrome tells a page about this area only once it may read it, so
-					// a change is the door opening — the popup, opened after this page
-					// loaded — even where the first read found it shut.
+					// Chrome tells a page about this area only once it may read it,
+					// so a change is the door opening (the popup, opened after this
+					// page loaded) even where the first read found it shut.
 					queueReachable = true;
 					const items = changes[QUEUE_KEY].newValue;
 					queued = queuedFrom(isQueue(items) ? items : []);
@@ -2397,8 +2392,8 @@
 			}
 
 			if (changes[DETAILS_KEY]) {
-				// Another tab looked tracks up: take what it learned — it may settle
-				// tracks a request here is waiting for.
+				// Another tab looked tracks up: take what it learned, which may
+				// settle tracks a request here is waiting for.
 				let learned = false;
 
 				for (const [permalink, details] of Object.entries(changes[DETAILS_KEY].newValue || {})) {
@@ -2465,7 +2460,7 @@
 	let lastMoreContext = '';
 
 	// And the More button itself, so the row it sits in can be read for the
-	// rest of the track — the title, artist and artwork a queued entry keeps
+	// rest of the track: the title, artist and artwork a queued entry keeps
 	// (see fieldsAround). The menu is detached from that row; this is the only
 	// thread back to it.
 	let lastMoreElement: Element | null = null;
@@ -2510,20 +2505,20 @@
 
 	// ---- The settings the page obeys -----------------------------------------
 	//
-	// Two of them so far, and both are about what this script does to a page
-	// somewhere the popup is not: whether SoundCloud's own download buttons are
-	// replaced (the section below), and whether the Likes page is put into its
-	// List view (the section after that). They are written by the popup's
-	// settings sheet into chrome.storage.local, under one key, as one object —
-	// see src/lib/settings.svelte.js for why they cannot live where a panel's
-	// own options do.
+	// Two of them so far, both about what this script does to a page somewhere
+	// the popup is not: whether SoundCloud's own download buttons are replaced
+	// (the section below), and whether the Likes page is put into its List view
+	// (the section after that). They are written by the popup's settings sheet
+	// into chrome.storage.local, under one key, as one object. See
+	// src/lib/settings.svelte.ts for why they cannot live where a panel's own
+	// options do.
 
 	const SETTINGS_KEY = 'settings';
 
-	// What each is before anyone has touched it, written down here as well as in
-	// src/lib/settings.svelte.js: a classic script in the page has no imports,
-	// so the two cannot share a line of it. test/consistency.test.ts holds them
-	// together.
+	// What each is before anyone has touched it, written down here as well as
+	// in src/lib/settings.svelte.ts: a classic script in the page has no
+	// imports, so the two cannot share a line of it. test/consistency.test.ts
+	// holds them together.
 	const SETTINGS_DEFAULTS: PageSettings = {
 		replaceDownloadButtons: true,
 		likesListView: false
@@ -2531,8 +2526,8 @@
 
 	let settings = { ...SETTINGS_DEFAULTS };
 
-	// Stored settings are not this version's to trust — an older install, a
-	// later one, or a hand-edited storage — so anything but a boolean, under
+	// Stored settings are not this version's to trust (an older install, a
+	// later one, or a hand-edited storage), so anything but a boolean, under
 	// any name, is the default.
 	const settingsOf = (stored: Json | undefined): PageSettings => {
 		const held = objectOf(stored);
@@ -2560,28 +2555,28 @@
 	//
 	// SoundCloud's own way to a file is two controls: "Download file", an item
 	// in each track's More menu, and the purchase link ("Buy", "Free Download",
-	// …) on Likes rows and track pages. Turned on (it is, by default — see
-	// src/lib/settings.svelte.js), this puts the Manager panel's own button
-	// in their place, doing what that button does for the same track: the track
+	// …) on Likes rows and track pages. Turned on (it is, by default; see
+	// src/lib/settings.svelte.ts), this puts the Manager panel's own button in
+	// their place, doing what that button does for the same track: the track
 	// goes into the session queue, and then the link opens or the file is
 	// downloaded.
 	//
-	// Why the queue: opening a download link says nothing that is known yet —
-	// the file has not been saved and the gate behind the link has not even
-	// been walked — so the panel queues the track and the queue sheet marks a
-	// whole batch of them as downloaded once the files really are. A click here
-	// means the same thing it means there, so it does the same thing.
+	// Why the queue: opening a download link proves nothing yet (the file has
+	// not been saved and the gate behind the link has not even been walked), so
+	// the panel queues the track and the queue sheet marks a whole batch of
+	// them as downloaded once the files really are. A click here means the same
+	// thing it means there, so it does the same thing.
 	//
-	// Ours says one word wherever it stands — "Download", with the icon that
-	// makes it a download at a glance — and leaves the rest to its tooltip: the
-	// domain the file would come from, which is the thing that differs between
-	// one of these buttons and the next and the thing worth knowing before
-	// clicking. It is drawn the height of the controls standing beside it, so it
-	// sits in the row it joins rather than on top of it.
+	// Ours says one word wherever it stands, "Download", with the icon that
+	// makes it a download at a glance, and leaves the rest to its tooltip: the
+	// domain the file would come from, which is what differs between one of
+	// these buttons and the next and is worth knowing before clicking. It is
+	// drawn the height of the controls standing beside it, so it sits in the
+	// row it joins rather than on top of it.
 	//
 	// The two are not quite the same underneath, and one of them cannot be:
 	//
-	//   - a purchase link is a link, so ours is one too — a real <a> to the
+	//   - a purchase link is a link, so ours is one too: a real <a> to the
 	//     link's real destination (SoundCloud wraps it in the gate.sc
 	//     redirector; the panel unwraps it, and so does this). The browser
 	//     opens it, which means a ⌘-click still puts it behind the page, and
@@ -2593,7 +2588,7 @@
 	//   - "Download file" has no URL at all: it is a button whose click
 	//     SoundCloud answers with the file. The panel's button for such a
 	//     track opens the *track page*, where that menu item is, and the click
-	//     detection above then marks it — which on the track page itself would
+	//     detection above then marks it. On the track page itself that would
 	//     be a button that reopens the page it is on and downloads nothing. So
 	//     ours presses SoundCloud's own button, hidden beneath it. The end
 	//     state is the one the panel arrives at (queued, then marked by the
@@ -2601,9 +2596,9 @@
 	//
 	// Nothing is removed from the page: SoundCloud's control is hidden with a
 	// class of ours and pressed, or shown again untouched the moment the
-	// setting goes off — or the moment a control turns out to name no track,
-	// which is the one thing that must never leave an empty space where a
-	// download button was.
+	// setting goes off, or the moment a control turns out to name no track.
+	// That last case must never leave an empty space where a download button
+	// was.
 
 	// SoundCloud's controls, by the kind of link the panel would make of them.
 	// The legacy `.sc-buylink` is matched as well, exactly as the click
@@ -2613,9 +2608,9 @@
 		external: '.soundActions__purchaseLink, .sc-buylink',
 		// The same purchase link in the signed-in layout (see V2_HEADER above),
 		// which names nothing: an <a> around an icon button, with no class worth
-		// the name on either. It is picked out by where it is and where it goes —
-		// the one link in the track header that leaves the site — because that is
-		// what stays true when the next build renames every class in the frame.
+		// the name on either. It is picked out by where it is and where it goes
+		// (the one link in the track header that leaves the site), because that
+		// stays true when the next build renames every class in the frame.
 		v2: `${V2_HEADER} a[target="_blank"]`
 	};
 
@@ -2623,15 +2618,14 @@
 	// Put on SoundCloud's control while ours stands in for it. See content.css.
 	const NATIVE_HIDDEN_CLASS = 'tbx-dl-replaced';
 
-	// The one word every one of these buttons says. What it does is the same
-	// everywhere it stands, so it reads the same everywhere it stands, and the
-	// one thing that differs — where the file comes from — is in the tooltip
-	// rather than in a label that used to be the gate's own wording.
+	// The one word every one of these buttons says. It does the same thing
+	// everywhere it stands, so it reads the same everywhere it stands. The one
+	// thing that differs, where the file comes from, is in the tooltip.
 	const OURS_TEXT = 'Download';
 
 	// Drawn rather than written, so a download is a download at a glance in a
-	// row of SoundCloud's own controls. Lucide's `download` — the set the
-	// popup's own buttons use — as paths, so nothing has to be loaded for it.
+	// row of SoundCloud's own controls. Lucide's `download` (the set the
+	// popup's own buttons use) as paths, so nothing has to be loaded for it.
 	const SVG_NS = 'http://www.w3.org/2000/svg';
 	const ICON_PATHS = ['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'M7 10l5 5 5-5', 'M12 15V3'];
 
@@ -2670,8 +2664,8 @@
 		}
 	};
 
-	// Every button SoundCloud draws carries some form of this class — sc-button,
-	// sc-button-small, sc-button-like, sc-button-more — so it is how the
+	// Every button SoundCloud draws carries some form of this class (sc-button,
+	// sc-button-small, sc-button-like, sc-button-more), so it is how the
 	// controls standing beside ours are found without naming each layout's own.
 	//
 	// In the signed-in frame there is no such class on anything: its row is MUI
@@ -2679,21 +2673,19 @@
 	// is MUI's own API rather than a build artefact, so it is nameable.
 	const NEIGHBOUR = '[class*="sc-button"], .MuiIconButton-root';
 
-	// How tall the row's own controls stand, as a CSS length: ours is drawn to
-	// match, which is the whole of what "the same height as the buttons next to
-	// it" means. Measured rather than written down, because the rows are
-	// SoundCloud's and it sizes their buttons itself — small in a Likes row's
-	// actions, taller in a track page's engagement bar, a full menu row inside
-	// More.
+	// How tall the row's own controls stand, in pixels, or 0 where none has a
+	// height yet: ours is drawn to match. Measured rather than written down,
+	// because the rows are SoundCloud's and it sizes their buttons itself:
+	// small in a Likes row's actions, taller in a track page's engagement bar,
+	// a full menu row inside More.
 	//
-	// The *neighbours* are measured, not the control being replaced. Two reasons,
-	// and the first is the ask: what ours has to line up with is the buttons
-	// beside it, and SoundCloud does not always size a purchase link like the
-	// ones it sits among. The second is that the control being replaced is
-	// hidden the moment ours goes in, so it has no height to give on any pass
-	// after the first — while its neighbours are still there to ask, which is
-	// what lets an answer be found later (a More menu is measured while it is
-	// still opening, and 0 is not an answer).
+	// The *neighbours* are measured, not the control being replaced, for two
+	// reasons. Ours has to line up with the buttons beside it, and SoundCloud
+	// does not always size a purchase link like the ones it sits among. And the
+	// control being replaced is hidden the moment ours goes in, so it has no
+	// height to give on any pass after the first, while its neighbours are
+	// still there to ask, so an answer can be found later (a More menu is
+	// measured while it is still opening, and 0 is not an answer).
 	//
 	// Siblings first, then the siblings of whatever wraps it: a menu puts each
 	// item in a list item of its own, so the buttons to match are a level
@@ -2716,10 +2708,10 @@
 
 	// Remembered per kind of control, because reading an element's height makes
 	// the browser lay the page out and a Likes page has hundreds of rows to put
-	// buttons in: the first of a kind measures, the rest are drawn to its answer
-	// without touching the page. A row standing on its own, with no other
-	// control in it, falls back to the one being replaced — which is only ever
-	// readable on the pass that hides it.
+	// buttons in: the first of a kind measures, the rest are drawn to its
+	// answer without touching the page. A row standing on its own, with no
+	// other control in it, falls back to the one being replaced, which is only
+	// ever readable on the pass that hides it.
 	/** Kind and class -> the height, as a CSS length. */
 	const rowHeights: Map<string, string> = new Map();
 
@@ -2748,7 +2740,7 @@
 	/** @returns `{}` where no layout's reader finds a track around it. */
 	const fieldsAround = (el: Element): Partial<RowFields> => {
 		// The More menu renders detached from its row, so the row whose More
-		// button was clicked last stands in for it — the same stand-in the
+		// button was clicked last stands in for it, the same stand-in the
 		// permalink takes above.
 		for (const from of [el, lastMoreElement]) {
 			if (!from) continue;
@@ -2761,9 +2753,9 @@
 		}
 
 		// Inside none of them: a track page's action bar sits below the hero
-		// rather than in it. The hero describes the page's own track — and only a
-		// track page has one, a playlist's hero being the very same element, so
-		// the page has to say which it is (as the hero's own marker does).
+		// rather than in it. The hero describes the page's own track, but a
+		// playlist's hero is the very same element, so the page has to say which
+		// it is (as the hero's own marker does).
 		if (detectPage().type !== 'track') return {};
 		const hero = document.querySelector(HERO_ROWS);
 
@@ -2776,14 +2768,14 @@
 	};
 
 	// Which track our button in one of SoundCloud's places is for and where its
-	// file would come from, or null where there is nothing to put there — no
-	// track to name it with, or a purchase link that points nowhere. Null leaves
+	// file would come from, or null where there is nothing to put there (no
+	// track to name it with, or a purchase link that points nowhere). Null leaves
 	// SoundCloud's own control exactly as it was. What the button *says* is not
 	// here: it is the same word every time.
 	/** @param kind a key of NATIVE. */
 	const replacementFor = (native: Element, kind: string) => {
 		// The More menu renders detached from its row, so the row whose More
-		// button was clicked last is what names its "Download file" — the same
+		// button was clicked last is what names its "Download file", the same
 		// attribution the click detection above makes.
 		const permalink = kind === 'soundcloud' ? trackOfElement(native) || lastMoreContext : trackOfElement(native);
 
@@ -2807,7 +2799,7 @@
 
 		// Both remaining kinds are a link to somewhere else: the classic
 		// purchase link and the signed-in layout's cart, which is the same link
-		// drawn as an icon. Where it really goes is the whole of what differs.
+		// drawn as an icon. Where it really goes is all that differs.
 		const href = unwrapGate(native.getAttribute('href'));
 
 		if (!href) return null;
@@ -2872,7 +2864,7 @@
 			// SoundCloud's own button first, so the file is asked for inside the
 			// click that asked for it: a browser hands a gesture on for a few
 			// seconds and there is nothing here worth spending them on. A link
-			// needs none of this — the browser is already following it.
+			// needs none of this.
 			if (kind === 'soundcloud') native.click();
 			// Read at click time, because a row can be recycled for another track
 			// between the paint that made this button and the click on it.
@@ -2899,8 +2891,8 @@
 
 	// One pass over SoundCloud's own controls: ours put in their place, kept in
 	// step with what has since been looked up, or taken away again. Idempotent,
-	// which matters because what the tooltip says — the domain, and whether
-	// SoundCloud's download limit is spent — is learned after the page is drawn.
+	// which matters because what the tooltip says (the domain, and whether
+	// SoundCloud's download limit is spent) is learned after the page is drawn.
 	const applyDownloadButtons = () => {
 		for (const [kind, selector] of Object.entries(NATIVE)) {
 			// Buttons and links, every one of them (see NATIVE).
@@ -2929,7 +2921,7 @@
 
 				if (plan.href) button.setAttribute('href', plan.href);
 				// Where from, rather than what: the word is the same on every one of
-				// these, so this is the part worth a tooltip — and the part a screen
+				// these, so this is the part worth a tooltip, and the part a screen
 				// reader would otherwise never reach.
 				button.title = plan.from;
 				button.setAttribute('aria-label', `download from ${plan.from}`);
@@ -2944,15 +2936,13 @@
 	// page draws. SoundCloud remembers which was last picked and opens the page
 	// in it, and the one it ships with is Badges.
 	//
-	// Which is unfortunate, because a tile says less than a row does — about
-	// half of what this extension can read off a Likes page is only in the
-	// rows. A tile renders no genre tag, so the genre of every liked track has
-	// to be looked up instead of read; no like or repost button, so the panel
-	// cannot say whether a track is liked from that page at all; and no
-	// purchase link, so there is nothing there to replace with a download
-	// button. The README has twice told people to switch that page to List for
-	// exactly those reasons. Turned on (it is not, by default), this does it
-	// for them.
+	// A tile says less than a row does: about half of what this extension can
+	// read off a Likes page is only in the rows. A tile renders no genre tag,
+	// so the genre of every liked track has to be looked up instead of read; no
+	// like or repost button, so the panel cannot say whether a track is liked
+	// from that page at all; and no purchase link, so there is nothing there to
+	// replace with a download button. Turned on (it is not, by default), this
+	// switches that page to List.
 	//
 	// It presses SoundCloud's own toggle rather than restyling anything: the
 	// grid is SoundCloud's to draw, and the page it draws afterwards is the one
@@ -2966,15 +2956,15 @@
 	// toggle is no longer rendered) and when the setting itself is changed.
 
 	// The toggle, and the half of it that asks for rows. Only the signed-in
-	// user's own Likes page renders either — a public /<user>/likes is a list
-	// already and has no toggle — so the selector is the whole of the gate on
-	// which page this runs on.
+	// user's own Likes page renders either (a public /<user>/likes is a list
+	// already and has no toggle), so the selector alone decides which page this
+	// runs on.
 	const VIEW_TOGGLE = '.collectionSection .listDisplayToggle';
 	const LIST_TOGGLE = '.listDisplayToggle__listToggle';
 
 	// What the Badges view draws. Read rather than the toggle's own pressed
-	// state, because this is the thing that actually has to change, and one
-	// liked item of it is enough to know the grid is up.
+	// state, because this is the thing that has to change, and one liked item
+	// of it is enough to know the grid is up.
 	const BADGE_GRID = '.collectionSection .badgeList';
 
 	let listViewAsked = false;
@@ -3007,7 +2997,7 @@
 	// Who is behind a track and where else to find them, for the artists tool:
 	// the uploader's public profile, and the links they put on it. Two requests
 	// per artist, to the same public API the details use and on the same terms
-	// — anonymous, GET, the page's own client id: /resolve of the profile URL
+	// (anonymous, GET, the page's own client id): /resolve of the profile URL
 	// for the user (id, name, avatar, place, follower count, bio), then
 	// /users/<id>/web-profiles for the links. Four at a time, as the details
 	// are; a 401 stops the lot, since it says nothing about any one artist.
@@ -3037,11 +3027,11 @@
 				url: stringOf(one.url).trim()
 			}));
 
-	// The subset of an API user object the panel keeps, filed under the path it
-	// was asked for.
 	// `collapse` takes a string or nothing; the API is free to send anything.
 	const wordsOf = (value: Json | undefined) => collapse(stringOf(value));
 
+	// The subset of an API user object the panel keeps, filed under the path it
+	// was asked for.
 	/** @param links what /users/<id>/web-profiles answered, or []. */
 	const profileOf = (permalink: string, user: ApiUser, links: Json): ArtistProfile => ({
 		id: integerOrNull(user.id),
@@ -3156,8 +3146,8 @@
 	const ready = startMarkers().catch(() => {});
 
 	// Only the tab's own document answers the panels. The manifest says
-	// `all_frames` so that the signed-in track page — which is an iframe (see
-	// V2_HEADER above) — gets its purchase link replaced and a click on
+	// `all_frames` so that the signed-in track page, which is an iframe (see
+	// V2_HEADER above), gets its purchase link replaced and a click on
 	// SoundCloud's own noticed. (Its artwork is not marked: no marker target
 	// reads that layout yet.) A frame that also answered would be a second
 	// reply to a question that takes one: `chrome.tabs.sendMessage` without a

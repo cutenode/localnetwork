@@ -3,7 +3,7 @@
 // content.ts reads a site it does not control, and SoundCloud ships a new
 // build most weeks. The example tests say what it reads out of the markup as
 // it is today; these say what must stay true when that markup is not as it is
-// today — renamed classes, half-rendered lists, a hero with no title, a
+// today: renamed classes, half-rendered lists, a hero with no title, a
 // hydration blob that is not JSON, markup truncated mid-tag by a bad response.
 //
 // The bar is deliberately low and absolute: *always answer*. A panel shows
@@ -49,7 +49,7 @@ const extract = () => chrome.testSendMessage({ type: 'EXTRACT_TRACKS' });
 
 // --- generators --------------------------------------------------------------
 
-// Every code point, and — since those almost never land on one — the
+// Every code point, and (since those almost never land on one) the
 // whitespace and punctuation a reader of titles and links has to handle.
 const text = () =>
 	fc.oneof(
@@ -163,7 +163,7 @@ function expectWellFormed(response: TracksAnswer, page: ParentNode) {
 		}
 
 		// A permalink is a path this extension can build a soundcloud.com URL
-		// from — never a full URL, never a query string, never a stray space.
+		// from: never a full URL, never a query string, never a stray space.
 		expect(track.permalink).toMatch(PERMALINK_OR_NONE);
 		// A cover is a web address, or '' for one that never loaded.
 		expect(track.artworkUrl).toMatch(/^(?:$|https?:\/\/)/);
@@ -343,7 +343,7 @@ describe('the page changing under it', () => {
 });
 
 describe('download details for any page', () => {
-	// A client id, so that the page's tracks really are asked about — and every
+	// A client id, so that the page's tracks really are asked about, and every
 	// answer to every question is a failure. The script reads the page's
 	// hydration once, as it starts, so it starts again over a page with one.
 	beforeEach(async () => {
