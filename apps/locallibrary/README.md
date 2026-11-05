@@ -110,7 +110,10 @@ such as `REKORDBOX`) or its mount path. `locallibrary --help` lists every comman
 ## Is it safe?
 
 - Every command that changes something shows its plan first and asks. If the drive changed in
-  between (rekordbox exported again, say), it writes nothing and asks you to plan again.
+  between (rekordbox exported again, say), it writes nothing and asks you to plan again. A dry run
+  writes nothing. Otherwise the one thing written before you say yes is a short test of a drive's
+  speed, in its `.locallibrary/`, which the plan mentions and which is removed after
+  ([Speed](docs/drives.md#speed)).
 - Edits, merges and other changes to a drive are backed up first, and `locallibrary undo` takes
   the last one back.
 - It only writes inside the drive's `PIONEER/` and `Contents/` folders (and its own

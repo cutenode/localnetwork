@@ -15,6 +15,108 @@ impl Operation for Plan {
     }
 }
 
+/// A plan's estimate is in what it says, and a write big enough corrects the rate behind it.
+#[test]
+fn an_estimate_is_said_and_a_big_write_learns_from_it() {
+    use crate::drive_speed::{self, DriveSpeed, MeasuredBy, Work};
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir(root.join(paths::STATE_DIR)).unwrap();
+    let d = Device::open(root).unwrap();
+    let speed = DriveSpeed {
+        bytes_per_sec: 1,
+        create_us: 0,
+        mkdir_us: 0,
+        holds_for: None,
+        measured_at: Utc::now(),
+        measured_by: MeasuredBy::Test,
+        link_bps: None,
+        logged_bytes: None,
+    };
+    let work = Work { bytes: 2 << 30, files: 1, folders: 0, ..Work::default() };
+    let estimate = drive_speed::WriteEstimate::new(work, Some(speed), None, None);
+    let said = estimate.lines();
+    let plan = Plan { tracks: 3, warnings: Vec::new() };
+    let planned =
+        Planned::new("test", plan, ()).estimated(Some(estimate)).touches(Touched::drive(&d, true, Vec::new()));
+    assert_eq!(planned.summary, said);
+    let json = serde_json::to_value(&planned).unwrap();
+    assert_eq!(json["estimate"]["work"]["bytes"], 2u64 << 30);
+
+    planned.apply(None, &Ctx::silent()).unwrap();
+    assert_eq!(drive_speed::stored(&d).unwrap().measured_by, MeasuredBy::Write);
+}
+
+#[test]
+fn a_plan_without_an_estimate_says_none() {
+    let plan = Plan { tracks: 3, warnings: Vec::new() };
+    let planned = Planned::new("test", plan, ()).estimated(None);
+    assert!(planned.summary.is_empty());
+    assert!(serde_json::to_value(&planned).unwrap().get("estimate").is_none());
+}
+
+/// A plan's drive keeps what a test left once the plan is applied, and only then.
+#[test]
+fn applying_keeps_what_a_test_left_and_dropping_doesnt() {
+    use crate::drive_speed::{self, DriveNow, Work};
+    let plan_on = |root: &Path| {
+        let d = Device::open(root).unwrap();
+        let now = DriveNow { at: Utc::now(), logged_bytes: None, capacity: None, link_bps: None };
+        let work = Work { bytes: 64 << 20, files: 300, folders: 3, ..Work::default() };
+        let estimate = drive_speed::estimate(&d, work, &now, true, &Ctx::silent()).unwrap();
+        let plan = Plan { tracks: 3, warnings: Vec::new() };
+        Planned::new("test", plan, ()).estimated(estimate).touches(Touched::drive(&d, true, Vec::new()))
+    };
+    let declined = tempfile::tempdir().unwrap();
+    drop(plan_on(declined.path()));
+    assert!(!declined.path().join(paths::STATE_DIR).exists());
+
+    let applied = tempfile::tempdir().unwrap();
+    let planned = plan_on(applied.path());
+    planned.apply(None, &Ctx::silent()).unwrap();
+    drop(planned);
+    assert!(applied.path().join(paths::STATE_DIR).join("speed.json").exists());
+}
+
+struct Measures;
+
+impl Operation for Measures {
+    type Request = ();
+    type Report = bool;
+
+    fn apply(_: &Planned<Self>, _: Option<&Store>, _: &Ctx<'_>) -> Result<bool> {
+        Ok(measuring_allowed())
+    }
+}
+
+impl Serialize for Measures {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        serializer.serialize_unit()
+    }
+}
+
+/// The plans a write makes along the way (its clones', a job's) aren't shown to anyone, so they
+/// don't time their drives, and the thread gets its leave back after.
+#[test]
+fn nothing_measures_while_a_plan_is_applied_or_inside_another() {
+    allow_measuring(true);
+    assert!(!Planned::new("test", Measures, ()).apply(None, &Ctx::silent()).unwrap());
+    assert!(measuring_allowed());
+    assert!(!without_measuring(measuring_allowed));
+    assert!(measuring_allowed());
+    allow_measuring(false);
+}
+
+/// Measuring is for this thread, and off unless a front end turns it on.
+#[test]
+fn measuring_is_off_until_a_front_end_allows_it() {
+    assert!(!measuring_allowed());
+    allow_measuring(true);
+    assert!(measuring_allowed());
+    assert!(!std::thread::spawn(measuring_allowed).join().unwrap());
+    allow_measuring(false);
+}
+
 fn write(root: &Path, key: &str, bytes: &[u8]) {
     let p = paths::to_fs(root, key);
     std::fs::create_dir_all(p.parent().unwrap()).unwrap();

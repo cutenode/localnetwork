@@ -3,6 +3,24 @@
 The command line tool, terminal player and sidecar that keep rekordbox USB drives in sync, backed
 up and edited, and the plugins that add to them.
 
+## Writes to drives
+
+**Plan**:
+What a command will change, worked out and shown before it changes anything, then applied exactly
+as shown. Making one writes nothing to a drive, with one exception: a plan of a big write may time
+a new drive, or one whose drive speed has gone stale, and says so.
+_Avoid_: dry run, which is stopping at the plan
+
+**Drive speed**:
+What a drive costs to write to, measured on it: its sustained rate, what a file costs to make and
+what a folder costs to make. Kept on the drive.
+_Avoid_: benchmark, port speed
+
+**Write estimate**:
+How long a write to a drive will take, worked out from its drive speed and what the write asks of
+the drive. A best case when the write runs past what the rate was seen to hold for.
+_Avoid_: ETA, which is the time left once a write is under way
+
 ## Plugins
 
 **Built-in plugin**:

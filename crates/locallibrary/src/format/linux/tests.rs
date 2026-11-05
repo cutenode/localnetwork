@@ -15,6 +15,36 @@ fn usb_drive(old_lsblk: bool) -> Value {
     })
 }
 
+/// A stick as sysfs has it: a block device's `device` link into its USB device's folder, whose
+/// `speed` file is in Mb/s, with `speed` for the root hub further up.
+#[cfg(unix)]
+fn sysfs(speed: Option<&str>) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let usb = dir.path().join("devices/pci0000:00/usb2/2-1");
+    let scsi = usb.join("2-1:1.0/host6/target6:0:0/6:0:0:0");
+    std::fs::create_dir_all(&scsi).unwrap();
+    std::fs::write(dir.path().join("devices/pci0000:00/usb2/speed"), "20000\n").unwrap();
+    if let Some(speed) = speed {
+        std::fs::write(usb.join("speed"), speed).unwrap();
+    }
+    std::fs::create_dir_all(dir.path().join("block/sdb")).unwrap();
+    std::os::unix::fs::symlink(&scsi, dir.path().join("block/sdb/device")).unwrap();
+    dir
+}
+
+#[cfg(unix)]
+#[test]
+fn a_usb_disks_link_speed_is_its_devices() {
+    let speed_of = |recorded| usb_link_speed(&sysfs(recorded).path().join("block"), "sdb");
+    assert_eq!(speed_of(Some("480\n")), Some(480_000_000));
+    assert_eq!(speed_of(Some("5000\n")), Some(5_000_000_000));
+    assert_eq!(speed_of(Some("10000\n")), Some(10_000_000_000));
+    // No speed of its own: the hub's is the nearest there is.
+    assert_eq!(speed_of(None), Some(20_000_000_000));
+    assert_eq!(speed_of(Some("unknown\n")), Some(20_000_000_000));
+    assert_eq!(usb_link_speed(&sysfs(None).path().join("block"), "sdc"), None);
+}
+
 #[test]
 fn parses_lsblk_old_and_new() {
     for old in [false, true] {

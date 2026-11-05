@@ -115,6 +115,61 @@ const IOREG: &str = r#"+-o USB3.0 Hub@01100000  <class IOUSBHostDevice, id 0x100
       }
 "#;
 
+/// `ioreg`'s link line for a USB 3 stick, recorded on a real one (`"UsbLinkSpeed" = 5000000000`,
+/// beside `"Device Speed" = 3` and `"bcdUSB" = 800`), behind a hub on another link, and a USB 2.0
+/// stick plugged in directly.
+const IOREG_LINKS: &str = r#"+-o USB3.0 Hub@01100000  <class IOUSBHostDevice, id 0x1000>
+  | {
+  |   "UsbLinkSpeed" = 10000000000
+  | }
+  |
+  +-o External@01110000  <class IOUSBHostDevice, id 0x1001>
+    | {
+    |   "UsbLinkSpeed" = 5000000000
+    | }
+    |
+    +-o External Media  <class IOMedia, id 0x1002>
+        {
+          "BSD Name" = "disk4"
+        }
++-o External@01110000  <class IOUSBHostDevice, id 0x1001>
+  | {
+  |   "UsbLinkSpeed" = 5000000000
+  | }
+  |
+  +-o External Media  <class IOMedia, id 0x1002>
+      {
+        "BSD Name" = "disk4"
+      }
++-o Old Stick@00200000  <class IOUSBHostDevice, id 0x2000>
+  | {
+  |   "UsbLinkSpeed" = 480000000
+  | }
+  |
+  +-o Old Stick Media  <class IOMedia, id 0x2001>
+      {
+        "BSD Name" = "disk5"
+      }
++-o No Link@00300000  <class IOUSBHostDevice, id 0x3000>
+  | {
+  |   "USB Serial Number" = "DJ0003"
+  | }
+  |
+  +-o No Link Media  <class IOMedia, id 0x3001>
+      {
+        "BSD Name" = "disk6"
+      }
+"#;
+
+#[test]
+fn a_disk_has_its_own_devices_link_speed() {
+    assert_eq!(usb_link_speed(IOREG_LINKS, "disk4"), Some(5_000_000_000));
+    assert_eq!(usb_link_speed(IOREG_LINKS, "disk5"), Some(480_000_000));
+    assert_eq!(usb_link_speed(IOREG_LINKS, "disk6"), None);
+    assert_eq!(usb_link_speed(IOREG_LINKS, "disk7"), None);
+    assert_eq!(usb_link_speed("", "disk4"), None);
+}
+
 /// Regression: no disk had a serial number on macOS, so two sticks of one model and size
 /// looked the same.
 #[test]

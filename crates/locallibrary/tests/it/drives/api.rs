@@ -7,9 +7,73 @@ use crate::common::{self, path, sync_pair};
 use locallibrary::api::{self, Direction};
 use locallibrary::compare::{Relation, Side};
 use locallibrary::device::{Device, dunce_canonicalize};
+use locallibrary::drive_speed;
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
 use locallibrary::{Error, fleet};
+
+/// A write big enough says how long it'll take. A plan times its drive only when a front end says
+/// it may, and timing it doesn't make the plan stale.
+#[test]
+fn a_big_write_says_how_long_and_measures_only_when_it_may() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let volumes = common::isolate(dir.path(), Some(store.root()));
+    let ctx = Ctx::silent();
+    let main = common::demo_drive(&volumes, "Main");
+    let club = common::demo_drive(&volumes, "Club");
+    common::adopt(Some(&store), &main, "Main");
+    common::adopt(Some(&store), &club, "Club");
+    common::export_new_track(&main, "Artist", "Fresh");
+    let library = Device::open(&main).unwrap().library().unwrap();
+    let audio = library.tracks.last().unwrap().file_path.trim_start_matches('/').to_string();
+    locallibrary::testing::sparse(&main.join(&audio), 70 << 20).unwrap();
+
+    let plan = || api::sync_plan(&sync_pair(&main, &club), &ctx).unwrap();
+    let dry = plan();
+    let unknown = dry.estimate.as_ref().unwrap();
+    assert_eq!(unknown.speed, None);
+    assert!(dry.summary.iter().any(|l| l.contains("hasn't been measured")), "{:?}", dry.summary);
+    assert!(drive_speed::stored(&Device::open(&club).unwrap()).is_none());
+
+    locallibrary::op::allow_measuring(true);
+    let measured = plan();
+    locallibrary::op::allow_measuring(false);
+    let estimate = measured.estimate.as_ref().unwrap();
+    assert!(estimate.speed.is_some());
+    assert!(estimate.seconds.is_some());
+    assert!(measured.summary.iter().any(|l| l.contains("drive writes ~")), "{:?}", measured.summary);
+    assert_eq!(drive_speed::stored(&Device::open(&club).unwrap()).as_ref(), estimate.speed.as_ref());
+    measured.apply(Some(&store), &ctx).unwrap();
+
+    assert!(measured.summary.iter().any(|l| l.contains("ran a short test")), "{:?}", measured.summary);
+
+    // Nothing left to write: nothing to say.
+    assert!(plan().estimate.is_none());
+}
+
+/// Syncing several drives makes a plan for each, inside the one that's shown: none times its drive.
+#[test]
+fn plans_inside_a_plan_measure_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let volumes = common::isolate(dir.path(), Some(store.root()));
+    let ctx = Ctx::silent();
+    let main = common::demo_drive(&volumes, "Main");
+    let club = common::demo_drive(&volumes, "Club");
+    common::adopt(Some(&store), &main, "Main");
+    common::adopt(Some(&store), &club, "Club");
+    common::export_new_track(&main, "Artist", "Fresh");
+    let library = Device::open(&main).unwrap().library().unwrap();
+    let audio = library.tracks.last().unwrap().file_path.trim_start_matches('/').to_string();
+    locallibrary::testing::sparse(&main.join(&audio), 70 << 20).unwrap();
+    locallibrary::op::allow_measuring(true);
+    let req = api::SyncManyRequest { drives: vec![path(&main), path(&club)], ..Default::default() };
+    let plan = api::sync_many_plan(&req, &ctx);
+    locallibrary::op::allow_measuring(false);
+    plan.unwrap();
+    assert!(drive_speed::stored(&Device::open(&club).unwrap()).is_none());
+}
 
 /// While the test switch names folders, a drive the store knows is found only inside them: never
 /// the machine's own, wherever the store last saw them. Inside, one mounted deeper than the
