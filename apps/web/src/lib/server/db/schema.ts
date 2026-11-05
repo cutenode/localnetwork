@@ -18,6 +18,8 @@ export interface Database {
 	projectDetails: ProjectDetailsTable;
 	request: RequestTable;
 	staffRole: StaffRoleTable;
+	featureFlag: FeatureFlagTable;
+	flagGroup: FlagGroupTable;
 	auditEntry: AuditEntryTable;
 	auditCopy: AuditCopyTable;
 	spaceWatch: SpaceWatchTable;
@@ -112,11 +114,38 @@ export interface RequestTable {
 export interface StaffRoleTable {
 	did: string;
 	role: 'admin' | 'moderator';
+	/** The grants a moderator holds, as a JSON array. */
+	grants: string | null;
 	grantedBy: string | null;
 	note: string | null;
 	uri: string | null;
 	cid: string | null;
 	createdAt: string;
+}
+
+export interface FeatureFlagTable {
+	key: string;
+	everyone: number;
+	percentage: number;
+	/** Record keys of its groups, as a JSON array. */
+	groupRkeys: string;
+	/** Its accounts, as a JSON array. */
+	dids: string;
+	uri: string;
+	updatedBy: string;
+	updatedAt: string;
+}
+
+export interface FlagGroupTable {
+	rkey: string;
+	name: string;
+	description: string | null;
+	/** Its accounts, as a JSON array. */
+	members: string;
+	uri: string;
+	createdAt: string;
+	updatedBy: string;
+	updatedAt: string;
 }
 
 export type CopyStatus = 'pending' | 'written' | 'verified' | 'failed' | 'self' | 'unsupported';

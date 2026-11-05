@@ -5,6 +5,11 @@ import { z } from 'zod';
 import { signIn } from '../sign-in.ts';
 import { expectAccessible } from './axe.ts';
 
+/** A page's data as SvelteKit sends it: each node flattened into an array, its values given as indexes into that. */
+const pageData = z.object({ nodes: z.array(z.object({ data: z.array(z.unknown()) })) });
+
+const flagsAt = z.object({ parityCanary: z.number() });
+
 /**
  * WebKit on Linux won't keep a `Secure` cookie from plain-HTTP localhost, where the other browsers
  * (and WebKit on macOS) will, and the local PDS's sign-in form reads its CSRF token from one. So in
@@ -509,6 +514,55 @@ test.describe('signed in', () => {
 		}
 
 		await signOut(page);
+	});
+
+	test('an admin turns a flag on for one account, and only that account gets it', async ({
+		browser,
+		baseURL,
+		request
+	}) => {
+		const session = async (handle: string, password: string, next: string) => {
+			const context = await browser.newContext({ baseURL });
+			const page = await context.newPage();
+			await signIn(page, handle, password, next);
+
+			return page;
+		};
+
+		// What the root layout hands a page, since this flag gates nothing to look at. SvelteKit flattens it: values are indexes.
+		const flagOn = async (get: typeof request.get) => {
+			const [{ data }] = pageData.parse(await (await get('/__data.json')).json()).nodes;
+			const flags = data.map((value) => flagsAt.safeParse(value)).find(({ success }) => success)?.data;
+
+			return data[flags?.parityCanary ?? -1];
+		};
+
+		const ada = await session('ada.test', 'ada-pass', '/admin/flags/parityCanary');
+		await expect(ada.getByRole('heading', { name: 'parityCanary' })).toBeVisible();
+		await expectAccessible(ada);
+		await ada.getByLabel('Accounts', { exact: true }).fill('milo.test');
+		await ada.getByRole('button', { name: 'Save' }).click();
+		await expect(ada.getByText('Flag saved')).toBeVisible();
+		await ada.goto('/admin/flags');
+		await expect(ada.getByRole('row', { name: /parityCanary/ }).getByText('1 account')).toBeVisible();
+		await expectAccessible(ada);
+		await ada.goto('/admin/flags/groups');
+		await expectAccessible(ada);
+
+		const milo = await session('milo.test', 'milo-pass', '/dashboard');
+		expect(await flagOn((url) => milo.request.get(url))).toBe(true);
+		expect(await flagOn((url) => ada.request.get(url))).toBe(false);
+		expect(await flagOn((url) => request.get(url))).toBe(false);
+
+		await ada.goto('/admin/flags/parityCanary');
+		// Before hydrating, Svelte can't tell a textarea someone emptied from one it hasn't filled yet, and fills it.
+		await expect(ada.locator('html')).toHaveAttribute('data-hydrated', '');
+		await ada.getByLabel('Accounts', { exact: true }).fill('');
+		await ada.getByRole('button', { name: 'Save' }).click();
+		await expect(ada.getByText('Flag saved')).toBeVisible();
+		expect(await flagOn((url) => milo.request.get(url))).toBe(false);
+		await ada.context().close();
+		await milo.context().close();
 	});
 
 	test("an admin verifies a project's manager on Bluesky, then removes it", async ({ page }) => {

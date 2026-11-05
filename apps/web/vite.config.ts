@@ -103,9 +103,9 @@ export default defineConfig({
 								{
 									name: (id, ctx) =>
 										ctx.getModuleInfo(id)?.importedIds.every((dep) => isSmall(dep, ctx)) ? 'shared' : null,
-									// Not the Tools pages' own components, or the booking rules the dashboard's booking pages
-									// share: only those pages load them, and every page loads this.
-									test: /[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|GuideList\.svelte)|bookings\.ts$)|@lucide/,
+									// Not the Tools pages' own components, the staff console's table, or the booking rules the
+									// dashboard's booking pages share: only those pages load them, and every page loads this.
+									test: /[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|GuideList\.svelte)|ui[\\/]ResponsiveTable\.svelte|bookings\.ts$)|@lucide/,
 									minShareCount: 2,
 									maxModuleSize: SHARED_MODULE_SIZE
 								}

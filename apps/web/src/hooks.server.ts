@@ -5,7 +5,7 @@ import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { SESSION_COOKIE } from '#lib/server/auth/session.ts';
 import { gzipped } from '#lib/server/compress.ts';
 import { CRAWLER_HEAD, withCrawlerHead } from '#lib/server/crawler-head.ts';
-import { guardArea, isUnlisted } from '#lib/server/http.ts';
+import { clientIp, guardArea, isUnlisted } from '#lib/server/http.ts';
 import { createLogger, type Logger } from '#lib/server/logger.ts';
 import { toolSite } from '#lib/server/tools/site.ts';
 
@@ -70,15 +70,7 @@ export function serverHooks({
 
 		const isXrpc = event.url.pathname.startsWith('/xrpc/');
 
-		const clientIp = (() => {
-			try {
-				return event.getClientAddress();
-			} catch {
-				return 'unknown';
-			}
-		})();
-
-		if (MUTATING.has(event.request.method) && !isXrpc && !app.limits.write.take(`ip:${clientIp}`)) {
+		if (MUTATING.has(event.request.method) && !isXrpc && !app.limits.write.take(`ip:${clientIp(event)}`)) {
 			return new Response('Too many requests. Slow down a little.', { status: 429, headers: { 'retry-after': '30' } });
 		}
 
@@ -97,6 +89,8 @@ export function serverHooks({
 				event.cookies.delete(SESSION_COOKIE, { path: '/' });
 			}
 		}
+
+		if (!isXrpc) event.locals.flags = await app.flags.evaluate(event.locals.viewer?.did ?? null);
 
 		guardArea(event.locals, event.url, event.route.id);
 

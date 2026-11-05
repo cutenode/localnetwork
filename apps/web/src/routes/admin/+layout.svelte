@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { Activity, BadgeCheck, ClipboardCheck, Disc3, LayoutDashboard, ScrollText, ShieldCheck, UsersRound } from '@lucide/svelte';
+	import { Activity, BadgeCheck, ClipboardCheck, Disc3, LayoutDashboard, ScrollText, ShieldCheck, Tags, ToggleRight, UsersRound } from '@lucide/svelte';
 	import SidebarLayout from '#lib/ui/SidebarLayout.svelte';
 	import type { LayoutProps } from './$types';
 
@@ -14,6 +14,8 @@
 				{ href: '/admin/projects', label: 'Projects', icon: Disc3 },
 				{ href: '/admin/spaces', label: 'Spaces', icon: UsersRound },
 				{ href: '/admin/audit', label: 'Audit log', icon: ScrollText },
+				...(data.grants?.includes('flags') ? [{ href: '/admin/flags', label: 'Flags', icon: ToggleRight, exact: true }] : []),
+				...(data.grants?.includes('flagGroups') ? [{ href: '/admin/flags/groups', label: 'Flag groups', icon: Tags }] : []),
 				...(data.viewer?.isAdmin
 					? [
 							{ href: '/admin/staff', label: 'Staff', icon: ShieldCheck },

@@ -56,6 +56,21 @@ it('sends someone signed out to sign in, and refuses a moderator', async () => {
 	});
 });
 
+it('sets what a moderator can manage', async () => {
+	const viewer = await t.viewer(ADMIN);
+	await t.staff.grant(viewer, MOD, 'moderator');
+
+	const result = await callRoute(actions.grants, {
+		app: app(),
+		viewer,
+		url: '/admin/staff',
+		form: { did: MOD, grants: ['flagGroups', 'made-up'] }
+	});
+
+	expect(result).toEqual({ success: 'Grants saved' });
+	expect(await t.staff.grants(MOD)).toEqual(['flagGroups']);
+});
+
 it('grants a role by handle, and removes it again', async () => {
 	const viewer = await t.viewer(ADMIN);
 

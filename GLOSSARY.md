@@ -16,6 +16,18 @@ _Avoid_: app, account area, my page, DJ dashboard, promoter dashboard
 The separate area where staff moderate and run the site. Only staff can see it. Staff can add or remove people from any act or party, and every action they take there is logged.
 _Avoid_: admin dashboard, admin panel
 
+**Flag**:
+A switch that turns a feature on for some people before everyone. Staff set who it's on for in the staff console. Flags are for rolling something out, not for keeping anyone out.
+_Avoid_: feature toggle, experiment, setting
+
+**Flag group**:
+A named list of accounts a flag can be turned on for. It has nothing to do with an act, and the people in it don't know they're in it.
+_Avoid_: segment, cohort, group (on its own)
+
+**Rollout**:
+The share of signed-in accounts a flag is on for. An account stays in as the share grows, and has the same chance of being in on every flag. Signed-out visitors are never counted.
+_Avoid_: percentage (in copy), canary, staged release
+
 ## People and acts
 
 **Profile**:

@@ -23,6 +23,18 @@ export const actions: Actions = {
 			return { success: 'Role granted' };
 		});
 	},
+	grants: async ({ locals, url, request }) => {
+		const viewer = requireAdmin(locals, url);
+		const form = await request.formData();
+
+		return act(async () => {
+			const picked = ['flags', 'flagGroups'] as const;
+			const grants = picked.filter((grant) => form.getAll('grants').includes(grant));
+			await locals.app.staff.setGrants(viewer, text(form, 'did', 300), grants);
+
+			return { success: 'Grants saved' };
+		});
+	},
 	revoke: async ({ locals, url, request }) => {
 		const viewer = requireAdmin(locals, url);
 		const form = await request.formData();

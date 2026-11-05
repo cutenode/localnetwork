@@ -11,6 +11,10 @@ export const COLLECTION = {
 	request: `${NS}.moderation.request`,
 	decision: `${NS}.moderation.decision`,
 	staffRole: `${NS}.staff.role`,
+	/** Who a feature flag is on for, in the staff space. */
+	staffFlag: `${NS}.staff.flag`,
+	/** A named group of accounts feature flags can target, in the staff space. */
+	staffGroup: `${NS}.staff.group`,
 	bookingInquiry: `${NS}.booking.inquiry`,
 	bookingMessage: `${NS}.booking.message`,
 	bookingStatus: `${NS}.booking.status`,
@@ -91,6 +95,9 @@ export const DIRECTORY = {
  * HappyView read a caller's locallibrary records again.
  */
 export const REQUEST_INDEX = `${NS}.directory.requestIndex` as const;
+
+/** The website's own method that tells a caller which feature flags are on for it. */
+export const GET_FLAGS = `${NS}.flags.getFlags` as const;
 
 export const SPACE_TYPE = {
 	audit: `${NS}.space.audit`,

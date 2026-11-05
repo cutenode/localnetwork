@@ -1,5 +1,5 @@
 # The build context is the repo root, but only the web app's image is built from it
-# (apps/web/Dockerfile). Send the workspace files and pnpm's patches, the lexicons, the shared
+# (apps/web/Dockerfile). Send the workspace files and pnpm's patches, the lexicons, the flags, the shared
 # tokens, apps/web, and every tool's README and docs (the website's tool pages bundle them),
 # minus what's local or generated.
 *
@@ -8,6 +8,7 @@
 !pnpm-workspace.yaml
 !patches
 !lexicons
+!flags
 !packages/tokens
 !apps/web
 !apps/*/README.md
