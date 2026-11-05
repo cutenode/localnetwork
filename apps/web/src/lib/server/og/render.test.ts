@@ -4,13 +4,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import ArtistCard from '#lib/og/cards/ArtistCard.svelte';
 import { fitPng, MAX_CARD_BYTES, renderCard } from './render';
 
-/** A 1200×630 PNG of random pixels, which no palette shrinks much: the worst a photo behind a card could be. */
-const noise = async () =>
+/** A PNG of random pixels, which no palette shrinks much: at a card's size, the worst a photo behind it could be. */
+const noise = async (width = 1200, height = 630) =>
 	new Uint8Array(
 		await sharp({
 			create: {
-				width: 1200,
-				height: 630,
+				width,
+				height,
 				channels: 3,
 				background: '#808080',
 				noise: { type: 'gaussian', mean: 128, sigma: 90 }
@@ -49,6 +49,6 @@ describe('drawing a card', () => {
 	});
 
 	it('fails rather than send a card no palette brings under the limit', async () => {
-		await expect(fitPng(await noise(), 10_000)).rejects.toThrow('over 10000 bytes');
+		await expect(fitPng(await noise(64, 34), 100)).rejects.toThrow('over 100 bytes');
 	});
 });
