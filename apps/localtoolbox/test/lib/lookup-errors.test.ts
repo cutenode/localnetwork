@@ -1,4 +1,4 @@
-// src/lib/lookup-errors.ts — what Manager and artists say when a lookup stops short.
+// src/lib/lookup-errors.ts: what Manager and artists say when a lookup stops short.
 import { describe, it, expect } from 'vitest';
 import { LOOKUP_ERRORS } from '../../src/lib/lookup-errors.ts';
 

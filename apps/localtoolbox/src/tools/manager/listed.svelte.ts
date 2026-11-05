@@ -1,29 +1,24 @@
 // The Manager's list: the tracks somebody has put on it, kept for good.
 //
-// The tool used to *be* the page in front of it. Opening it read the active
-// tab, asked SoundCloud about every track that tab rendered, and drew the
-// answer; closing the popup threw the lot away, and opening it over another
-// tab drew another page. Two things were wrong with that. Nothing could be
-// worked on unless its page was the one in front — so the panel had nothing
-// at all to say on a Hypeddit tab, which is exactly where one ends up while
-// working through a list — and opening the tool was itself a few hundred
-// requests to SoundCloud about tracks nobody had asked about, paid again on
-// every opening.
+// The list is its own thing, and the page is a source you add from. A tool that
+// was the page in front of it would lose everything when the popup closed, and
+// would have nothing at all to say on a Hypeddit tab, which is exactly where
+// one ends up while working through a list. Every opening would also be a few
+// hundred requests to SoundCloud about tracks nobody had asked about.
 //
-// So the list is its own thing now, and the page is a source you add from.
-// Nothing enters it until somebody presses **add**; what is on it stays on it
-// across openings of the popup, across tabs and across browser restarts, until
-// it is taken off.
+// Nothing enters the list until somebody presses "add"; what is on it stays on
+// it across openings of the popup, across tabs and across browser restarts,
+// until it is taken off.
 //
 // Where it lives: chrome.storage.local, under the key below, beside the marks
 // (downloaded-store.ts) and the details cache (content.ts) and for the same
-// reason — those are what the tool knows, as against where somebody is in a
+// reason: those are what the tool knows, as against where somebody is in a
 // piece of work, which is the session's (view.svelte.ts) and dies with the
 // browser. The exported state file carries all three; state-transfer.ts reads
 // this key directly, and test/consistency.test.ts checks the two agree on it.
 //
-// What an entry is: a track as the panel lists it — enough to draw the row, to
-// fetch the artwork, to find the download links and to open it out — plus the
+// What an entry is: a track as the panel lists it (enough to draw the row, to
+// fetch the artwork, to find the download links and to open it out), plus the
 // two things the list itself knows, which the page never said: where the track
 // came in from, and when.
 
@@ -33,14 +28,14 @@ import type { ListedEntry, SavedListedEntry, Track, TrackDetails } from '$lib/ty
 /** A track from any hop, or an entry out of a state file, which carries the list's own two. */
 type Listable = Track & Partial<Pick<ListedEntry, 'from' | 'at'>>;
 
-/** The storage key. state-transfer.js writes the same one; keep them in step. */
+/** The storage key. state-transfer.ts writes the same one; keep them in step. */
 export const LISTED_KEY = 'listed';
 
 // How many tracks the list holds. chrome.storage.local is 10 MB without the
 // unlimitedStorage permission, which this extension does not ask for; an entry
 // is a few hundred bytes, so five thousand of them is a small fraction of it
-// and leaves the details cache — which is far bigger, and shared with the
-// content script — the room it needs.
+// and leaves the details cache (which is far bigger, and shared with the
+// content script) the room it needs.
 //
 // Past it the list *refuses* rather than dropping the oldest, which is what a
 // cache would do. These are tracks somebody put here on purpose, and silently
@@ -52,8 +47,8 @@ export const MAX = 5000;
 /**
  * The fields of a track the list keeps.
  *
- * `from` and `at` are the list's own two — where a track came in from, and
- * when — and a page never carries either, so for a page they are the ones
+ * `from` and `at` are the list's own two (where a track came in from, and
+ * when), and a page never carries either, so for a page they are the ones
  * given here. A track that *does* carry them is one that was on a list
  * already: an entry out of an imported state file. Its own answers are the
  * true ones, and taking them rather than stamping "just now, from nowhere"
@@ -73,7 +68,7 @@ export const entryOf = (
 	// What the page said about the track and nothing else did: the genre it
 	// rendered beside the row, and whether the row's own like and repost
 	// buttons were on. `null` is "the page never said", which is not the same
-	// as "no genre" or "not liked" — see rowFacts.
+	// as "no genre" or "not liked" (see rowFacts).
 	genre: track.genre ?? null,
 	liked: track.liked ?? null,
 	reposted: track.reposted ?? null,
@@ -87,13 +82,13 @@ export const entryOf = (
 });
 
 /**
- * What is in storage, as a list — dropping anything that is not an entry.
+ * What is in storage, as a list, dropping anything that is not an entry.
  *
  * Storage is not this version's to trust: a list written by another one, or
  * restored from an imported state file, can hold shapes nothing here expects.
- * An entry without a permalink is not an entry at all — there would be nothing
+ * An entry without a permalink is not an entry at all: there would be nothing
  * to tell it from another, nothing to mark when its turn came and nothing to
- * remove it by — which is the same bar the session queue sets.
+ * remove it by. The session queue sets the same bar.
  *
  * @returns taken on trust past the permalink.
  */
@@ -103,8 +98,8 @@ export const listOf = storedList(storedTrack<ListedEntry>());
 // already has tracks on the list.
 //
 // Details come in three strengths. `null` is nobody has asked. A *partial* one
-// is what a Likes row renders by itself — the purchase link, and nulls where
-// SoundCloud's own download would be said — so it is an answer about one half
+// is what a Likes row renders by itself (the purchase link, and nulls where
+// SoundCloud's own download would be said), so it is an answer about one half
 // of the question. A full one has been asked of SoundCloud and answers both.
 // A stronger answer always wins; between two of the same strength the newer
 // does, which is what makes adding a page again a refresh rather than a no-op.
@@ -124,11 +119,11 @@ export function betterDetails(held: TrackDetails | null, fresh: TrackDetails | n
 // What an entry becomes when the same track is added again: the fresh row's
 // words, and its picture where it showed one (the page may have been renamed,
 // the artwork re-uploaded), the better of the two answers, and the *first*
-// time and source — when a track came onto the list is not something a second
+// time and source: when a track came onto the list is not something a second
 // sighting gets to rewrite.
 const refresh = (held: ListedEntry, fresh: ListedEntry): ListedEntry => ({
 	...fresh,
-	// `''` is "the row never showed one", not "there is none" — a page read
+	// `''` is "the row never showed one", not "there is none": a page read
 	// without scrolling through all of it renders no thumbnail for most of its
 	// rows, and adding it again must not take the cover off the tracks that
 	// have one. The same reading `genre`, `liked` and `reposted` get below: a
@@ -158,7 +153,7 @@ class Listed {
 	}
 
 	/**
-	 * The list as plain data, for anything outside the popup's own reactivity —
+	 * The list as plain data, for anything outside the popup's own reactivity:
 	 * the exported state file, and the structured clone every storage write goes
 	 * through, neither of which will take a `$state` proxy.
 	 */
@@ -223,8 +218,8 @@ class Listed {
 			if (!track || !track.permalink) continue;
 
 			// A page can list the same track twice (a playlist with a duplicate in
-			// it); the second sighting is the same track, so it refreshes the first
-			// rather than counting as anything.
+			// it); the second sighting is the same track, so it is skipped rather
+			// than counted.
 			if (seen.has(track.permalink)) continue;
 			seen.add(track.permalink);
 			const fresh = entryOf(track, { from, at });
@@ -252,7 +247,7 @@ class Listed {
 
 	/**
 	 * Makes the list exactly these tracks, for an import asked to replace what
-	 * is here rather than add to it (state-transfer.js). Whatever was listed is
+	 * is here rather than add to it (state-transfer.ts). Whatever was listed is
 	 * gone, and the file's own order is the list's order; a track the file names
 	 * twice still lands once, and a file longer than the list can hold is cut
 	 * off at MAX rather than allowed to overflow storage.
@@ -296,7 +291,7 @@ class Listed {
 
 	// The list on screen is the list in memory: it is written back on every
 	// change, and a write that cannot happen costs it only its life beyond this
-	// popup — which is still better than a panel that shows one thing and holds
+	// popup, which is still better than a panel that shows one thing and holds
 	// another.
 	async #write(items: ListedEntry[]) {
 		this.#items = items;

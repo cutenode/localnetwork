@@ -169,3 +169,26 @@ fn a_test_opens_nothing() {
     }
     assert!(fake.calls().is_empty(), "the opener was run: {:?}", fake.calls());
 }
+
+/// With no opener on the system, opening an address or a file fails naming the opener and why it
+/// couldn't be started.
+#[cfg(unix)]
+#[hegel::test(test_cases = 10)]
+fn prop_a_missing_opener_is_named(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let fake = fake_tools::FakeTools::new();
+    let program = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let name: String = tc.draw(gs::text().alphabet("abc").min_size(1).max_size(8));
+    let file = fake.dir().join(&name);
+    std::fs::write(&file, "").unwrap();
+    let opened = match tc.draw(gs::booleans()) {
+        true => open_url(&format!("https://bsky.app/{name}")),
+        false => open_file(&file),
+    };
+    // ENOENT, as the system says it.
+    let not_found = std::io::Error::from_raw_os_error(2).to_string();
+    match opened {
+        Err(Error::External { command, message }) => assert_eq!((command.as_str(), message), (program, not_found)),
+        other => panic!("{other:?}"),
+    }
+}

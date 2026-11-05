@@ -637,7 +637,7 @@ export class RequestService {
 
 			return { ...mix, tracklist: blob };
 		} catch (error) {
-			this.core.logger.warn({ err: error, repoDid }, 'could not copy a tracklist; publishing the mix without it');
+			this.core.logger.warn('could not copy a tracklist; publishing the mix without it', { err: error, repoDid });
 
 			return without;
 		}
@@ -683,7 +683,7 @@ export class RequestService {
 			return { ...profile, avatar: blob };
 		} catch (error) {
 			if (error instanceof UserError) throw error;
-			this.core.logger.warn({ err: error, repoDid }, 'could not copy avatar; publishing without it');
+			this.core.logger.warn('could not copy avatar; publishing without it', { err: error, repoDid });
 			const { avatar: _dropped, ...rest } = profile;
 
 			return rest;

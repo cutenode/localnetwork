@@ -1,7 +1,7 @@
 // The set of tracks marked as downloaded, as something a panel can render.
 //
 // The marks themselves live in chrome.storage.local and belong to
-// downloaded-store.ts — the classic script the content script loads too, so
+// downloaded-store.ts, the classic script the content script loads too, so
 // that a mark made in a panel is painted on the SoundCloud page and a mark
 // made on the page shows up here. This is only a reactive mirror of it: it
 // reads the map once, follows every storage change (including ones made in
@@ -63,7 +63,7 @@ class Downloaded {
 
 	/**
 	 * Flips one mark. Unlike the calls above it never rejects: every caller is
-	 * a button's onclick, which has nowhere to put a rejection — and a storage
+	 * a button's onclick, which has nowhere to put a rejection, and a storage
 	 * that refused the write has already left the row saying what it holds.
 	 * The calls that do report (`setMany` behind "mark the batch") are awaited
 	 * by whoever reports them, and still throw.

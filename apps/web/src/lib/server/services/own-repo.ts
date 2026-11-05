@@ -39,7 +39,7 @@ export async function writeOwn<T>(
 			error instanceof XRPCError && [401, 403].includes(Number(error.status)) && /scope/i.test(error.message);
 
 		if (!missingScope) throw error;
-		core.logger.info({ did, err: error }, 'a write needs a scope the session lacks');
+		core.logger.info('a write needs a scope the session lacks', { did, err: error });
 
 		// A sign-in since the app asked for these writes that still didn't get them means the PDS won't grant them, so
 		// signing in again would only come back here.

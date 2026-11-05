@@ -246,7 +246,7 @@ describe('taking the marked ones out', () => {
 		expect(chrome.testStore('session').queue).toEqual([]);
 		expect(Object.keys(chrome.testStore().downloaded)).toHaveLength(3);
 		expect(meta()).toBe('nothing in it yet');
-		// Emptied, not closed — as clearing it is.
+		// Emptied, not closed, as clearing it is.
 		expect(queueSheet()).not.toBe(null);
 	});
 

@@ -186,3 +186,68 @@ fn annotations_that_dont_read_are_refused_naming_the_file(tc: TestCase) {
     assert_eq!(e.code(), code, "{e}");
     assert!(e.to_string().contains(&bad.display().to_string()), "{e}");
 }
+
+/// Annotations, audio files and tracks with nothing before their first dot have no id, so they're
+/// passed over unread (annotations that wouldn't parse included), as is a track whose path leaves
+/// the drive: tracks without audio are unmatched, and nothing fails.
+#[hegel::test(test_cases = 8)]
+fn prop_what_has_no_id_or_leaves_the_drive_is_passed_over(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let (root, folder, keys_dir, tempos_dir) =
+        (dir.path().join("drive"), dir.path().join("audio"), dir.path().join("key"), dir.path().join("tempo"));
+    for d in [root.join("Contents"), folder.clone(), keys_dir.clone(), tempos_dir.clone()] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    std::fs::write(keys_dir.join("1.LOFI.key"), "C minor").unwrap();
+    std::fs::write(keys_dir.join("2.LOFI.key"), "A major").unwrap();
+    std::fs::write(keys_dir.join(".LOFI.key"), "xqz!").unwrap();
+    std::fs::write(tempos_dir.join(".LOFI.bpm"), "fast").unwrap();
+    let wav = loclib_mixid::test_util::wav(44_100, 16, 0.2);
+    std::fs::write(folder.join(".LOFI.wav"), &wav).unwrap();
+    std::fs::write(root.join("Contents/.LOFI.wav"), &wav).unwrap();
+    let in_folder = tc.draw(gs::booleans());
+    let with_tempos = tc.draw(gs::booleans());
+    let opts = BenchOptions {
+        keys: Some(keys_dir),
+        tempos: with_tempos.then_some(tempos_dir),
+        audio: in_folder.then_some(folder),
+    };
+    let library = Library {
+        tracks: vec![
+            track(1, "A", "1", "/Contents/1.LOFI.wav"),
+            track(2, "A", "2", "/../2.LOFI.wav"),
+            track(3, "A", "none", "/Contents/.LOFI.wav"),
+        ],
+        ..Default::default()
+    };
+    let device = Device::open(&root).unwrap();
+    let r = bench(&opts, Some((&device, &library)), &Ctx::silent()).unwrap();
+    assert_eq!(r.keys.get(REKORDBOX).map(|r| r.tracks), Some(2));
+    assert_eq!(r.keys.get(ESTIMATE).map_or(0, |r| r.tracks), 0);
+    assert!(r.tempos.is_empty());
+    assert_eq!((r.unmatched, r.failed.len()), (2, 0));
+}
+
+/// A benchmark cancelled before or while the audio is analysed stops with nothing scored.
+#[hegel::test(test_cases = 4)]
+fn prop_a_cancelled_benchmark_scores_nothing(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let (folder, keys_dir) = (dir.path().join("audio"), dir.path().join("key"));
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::create_dir_all(&keys_dir).unwrap();
+    std::fs::write(keys_dir.join("1.LOFI.key"), "C minor").unwrap();
+    std::fs::write(folder.join("1.LOFI.wav"), loclib_mixid::test_util::wav(44_100, 16, 0.2)).unwrap();
+    let opts = BenchOptions { keys: Some(keys_dir), tempos: None, audio: Some(folder) };
+    let token = crate::progress::CancelToken::new();
+    if tc.draw(gs::booleans()) {
+        token.cancel();
+    }
+    // Otherwise Ctrl-C as the analysis starts on the file.
+    let progress = |e: &crate::progress::Event| {
+        if matches!(e, crate::progress::Event::Item { .. }) {
+            token.cancel();
+        }
+    };
+    let e = bench(&opts, None, &Ctx::new(&progress, token.clone())).unwrap_err();
+    assert_eq!(e.code(), "cancelled", "{e}");
+}

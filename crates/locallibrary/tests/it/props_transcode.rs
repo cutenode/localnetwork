@@ -268,3 +268,118 @@ fn copies_are_made_of_exactly_what_the_players_cant_play(tc: TestCase) {
     let forgotten = plan(&src, &club, &options("Wavs", &chosen, container, false));
     assert!(forgotten.transcodes.iter().all(|t| !t.current), "a forgotten pack keeps no copies");
 }
+
+/// Masters whose audio can't all be told from the database: an M4A of no known codec whose file
+/// doesn't open, a 32-bit WAV of no known rate whose file doesn't open, an AAC no player plays at 8 kHz
+/// with no waveform, an MP3 at 22.05 kHz with none either, and a 24/96 WAV. Each `(path, rate,
+/// depth, bitrate, audio)`.
+const ODD: [(&str, u32, u16, u32, &str); 5] = [
+    ("/Contents/Odd/Unknown.m4a", 44_100, 16, 0, "junk"),
+    ("/Contents/Odd/Untold.wav", 0, 32, 0, "junk"),
+    ("/Contents/Odd/Low.aac", 8_000, 0, 64, "junk"),
+    ("/Contents/Odd/Slow.mp3", 22_050, 0, 128, "mp3"),
+    ("/Contents/Odd/Hi.wav", 96_000, 24, 0, "wav"),
+];
+
+/// A drive whose playlist "Odd" holds [`ODD`], made once and written out for each case.
+fn odd_source() -> &'static Template {
+    static SOURCE: OnceLock<Template> = OnceLock::new();
+    SOURCE.get_or_init(|| {
+        let dir = tempfile::tempdir().unwrap();
+        let root = common::bigger_drive(dir.path(), "Main");
+        let ids = ODD
+            .iter()
+            .map(|&(path, sample_rate, sample_depth, bitrate, audio)| {
+                let audio = match audio {
+                    "wav" => media::wav_of(96_000, 24, 2, 0.05),
+                    "mp3" => media::mp3(),
+                    _ => b"not audio".to_vec(),
+                };
+                let track = NewTrack {
+                    duration: 1,
+                    sample_rate,
+                    sample_depth,
+                    bitrate,
+                    ..NewTrack::new(path.rsplit('/').next().unwrap(), path)
+                };
+                common::add_track(&root, track, &audio)
+            })
+            .collect();
+        let set = Edit::SetTracks {
+            playlist: "Odd".into(),
+            tracks: TrackSelector { ids, ..Default::default() },
+            sort: None,
+            limit: None,
+            create: true,
+        };
+        let mut d = Device::open_export(&root).unwrap();
+        let plan = edit::plan(&d, &[set], &EditOptions::default(), &Ctx::silent()).unwrap();
+        edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+        d.adopt(None).unwrap();
+        Template::of(&root)
+    })
+}
+
+/// A master is copied only when what it holds can be told: an M4A that is neither AAC nor ALAC
+/// as far as anything says is left out, a WAV of unknown rate some player can't play is left as
+/// it is for that reason, and so is an AAC to decode with no waveform to say where rekordbox's
+/// timeline starts in it (without decoding, for being lossy). An MP3 without a waveform is taken
+/// to start at its first frame, so it's decoded when that's asked for. The WAV is copied when some
+/// player can't play it at 96 kHz. Each copy is recorded at the bit rate rekordbox gives it: its
+/// nominal rate for WAV and AIFF, its average for FLAC.
+#[hegel::test(test_cases = 6)]
+fn prop_masters_are_copied_only_when_their_audio_can_be_told(tc: TestCase) {
+    let names: Vec<&str> = MODELS.iter().map(|m| m.name).collect();
+    let chosen: Vec<String> =
+        tc.draw(gs::vecs(gs::sampled_from(names)).min_size(1).max_size(3)).into_iter().map(String::from).collect();
+    let players: Vec<&Model> =
+        equipment::canonical(&chosen).unwrap().iter().map(|n| equipment::find(n).unwrap()).collect();
+    let container = tc.draw(gs::sampled_from(Container::ALL.to_vec()));
+    let decode = tc.draw(gs::booleans());
+    let dir = tempfile::tempdir().unwrap();
+    let src = Device::open_export(odd_source().write(&dir.path().join("Main"))).unwrap();
+    fs::create_dir(dir.path().join("Club")).unwrap();
+    let mut club = Device::open(dir.path().join("Club")).unwrap();
+    let p = plan(&src, &club, &options("Odd", &chosen, container, decode));
+
+    let left = |path: &str| p.unplayable.iter().find(|u| u.track.file_path == path).map(|u| u.why.as_str());
+    let made = |path: &str| p.transcodes.iter().find(|t| format!("/{}", t.from) == path);
+    let needs = |codec: Codec, rate: u32, depth: u16| !not_playing(&players, codec, rate, depth).is_empty();
+    let [unknown, untold, low, slow, hi] = ODD.map(|o| o.0);
+    assert_eq!((left(unknown), made(unknown).is_some()), (None, false), "{:?}", p.unplayable);
+    let untold_why = needs(Codec::Wav, 0, 32).then_some("its sample rate isn't known");
+    assert_eq!((left(untold), made(untold).is_some()), (untold_why, false));
+    match (needs(Codec::Aac, 8_000, 16), decode, left(low)) {
+        (false, _, None) => {}
+        (true, true, Some(why)) => assert!(why.contains("can't be told without its waveform"), "{why}"),
+        (true, false, Some(why)) => {
+            assert!(not_playing(&players, Codec::Aac, 8_000, 16).iter().all(|m| why.contains(m.name)), "{why}")
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(made(low).is_none());
+    let decoded = needs(Codec::Mp3, 22_050, 16) && decode;
+    assert_eq!(made(slow).is_some(), decoded, "{:?} {:?}", p.transcodes, left(slow));
+    let copied = needs(Codec::Wav, 96_000, 24);
+    assert_eq!(made(hi).is_some(), copied, "{:?}", p.transcodes);
+    if !copied && !decoded {
+        return;
+    }
+
+    pack::apply(&p, &src, &mut club, None, &Ctx::silent()).unwrap();
+    let library = locallibrary::pdb::read_library(&club.root().join(locallibrary::paths::EXPORT_PDB)).unwrap();
+    for t in &p.transcodes {
+        let (codec, rate, depth) = recipe(&t.recipe);
+        let file = club.root().join(&t.to);
+        let size = fs::metadata(&file).unwrap().len();
+        let row = library.tracks.iter().find(|r| r.file_path == format!("/{}", t.to)).unwrap();
+        let expected = match codec {
+            Codec::Flac => {
+                let secs = locallibrary::probe::format(&file).unwrap().duration_secs.unwrap();
+                (size as f64 * 8.0 / secs / 1000.0).round() as u32
+            }
+            _ => rate * u32::from(depth) * 2 / 1000,
+        };
+        assert_eq!(row.bitrate, expected, "{t:?}");
+    }
+}

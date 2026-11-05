@@ -595,3 +595,41 @@ fn cids_and_blobs_are_checked() {
     b["ref"]["$link"] = "bafy-not-one".into();
     assert_eq!(check(SET, &schema, &b, "b").unwrap_err(), "b isn't a blob");
 }
+
+/// A recording's file is a blob the Lexicon takes only when it's one (its `$type`, a CID link, a
+/// media type and a size), of a type it accepts, and no bigger than it allows.
+#[hegel::test(test_cases = 100)]
+fn prop_a_recordings_file_is_a_blob_the_lexicon_takes(tc: hegel::TestCase) {
+    let cid = "bafkreibme22gw2h7y2h7tg2fhqotaqjucnbc24deqo72b6mkl2egezxhvy";
+    let mime = tc.draw(gs::sampled_from(vec!["audio/mp4", "audio/mpeg", "video/mp4", "image/png", "text/plain", ""]));
+    let size = tc.draw(gs::sampled_from(vec![
+        1u64,
+        1000,
+        crate::publish::recording::MAX_BYTES,
+        crate::publish::recording::MAX_BYTES + 1,
+    ]));
+    let mut blob = serde_json::json!({ "$type": "blob", "ref": { "$link": cid }, "mimeType": mime, "size": size });
+    let broken = tc.draw(gs::sampled_from(vec!["", "$type", "ref", "link"]));
+    match broken {
+        "$type" => blob["$type"] = "file".into(),
+        "ref" => blob["ref"] = serde_json::Value::Null,
+        "link" => blob["ref"]["$link"] = "not a cid".into(),
+        _ => {}
+    }
+    let record = crate::publish::recording::record(blob, 60, chrono::Utc::now());
+    let err = validate(RECORDING, &record).err().map(|e| e.to_string());
+    let want = if !broken.is_empty() || mime.is_empty() {
+        Some("isn't a blob")
+    } else if !(mime.starts_with("audio/") || mime.starts_with("video/")) {
+        Some("which the Lexicon doesn't take")
+    } else if size > crate::publish::recording::MAX_BYTES {
+        Some("more than the Lexicon takes")
+    } else {
+        None
+    };
+    match (want, &err) {
+        (None, None) => {}
+        (Some(w), Some(e)) => assert!(e.contains(w), "{w}: {e}"),
+        _ => panic!("{want:?} but {err:?}"),
+    }
+}

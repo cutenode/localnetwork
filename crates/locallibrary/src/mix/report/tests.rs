@@ -737,3 +737,34 @@ fn a_page_holds_the_speeds_a_ridden_fader_went_between() {
         plays.iter().map(|p| p["lines"].as_array().unwrap().iter().map(|l| l["start"].clone()).collect()).collect();
     assert_eq!(starts, [serde_json::json!([10.0, 100.0]), serde_json::json!([])]);
 }
+
+/// A kept report that doesn't read as one is an error naming its file when it's loaded, and is
+/// still listed, by what its id says (its title from the id's slug).
+#[hegel::test(test_cases = 30)]
+fn prop_a_kept_report_that_doesnt_read_is_an_error_but_still_listed(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let reports = reports_dir(dir.path());
+    std::fs::create_dir_all(&reports).unwrap();
+    let slug = tc.draw(gs::text().alphabet("abc-").min_size(1).max_size(10));
+    let id = format!("{slug}_0a1b2c3d");
+    let file = reports.join(format!("{id}.json"));
+    let junk = tc.draw(hegel::one_of!(
+        gs::text().max_size(20).map(|t| format!("{{{t}")),
+        gs::just(r#"{"mix": 3}"#.to_string()),
+        gs::just("null".to_string()),
+    ));
+    std::fs::write(&file, &junk).unwrap();
+    let e = load(dir.path(), &id).unwrap_err();
+    assert!(matches!(e.inner(), Error::Parse { path, .. } if *path == file), "{junk:?}: {e}");
+    let listed = list(dir.path()).unwrap();
+    let [kept] = listed.as_slice() else { panic!("{listed:?}") };
+    assert_eq!((kept.id.as_str(), kept.title.as_str()), (id.as_str(), slug.replace('-', " ").as_str()));
+    assert_eq!((kept.report.as_deref(), kept.tracks, kept.mix.as_deref()), (Some(file.as_path()), None, None));
+}
+
+/// A project in a folder that isn't there has no audio to play beside it.
+#[test]
+fn a_project_whose_folder_is_gone_has_no_audio() {
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(project_audio(&dir.path().join("gone/set.aup3")), None);
+}

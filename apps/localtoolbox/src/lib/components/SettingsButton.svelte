@@ -8,7 +8,7 @@
   of its own (App.svelte).
 
   In every header rather than in the menu alone, because what it holds is
-  about the SoundCloud page you are looking at while a tool is open — not
+  about the SoundCloud page you are looking at while a tool is open, not
   about the popup.
 -->
 <script lang="ts">

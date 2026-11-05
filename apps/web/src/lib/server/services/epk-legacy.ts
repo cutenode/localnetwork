@@ -59,10 +59,10 @@ export class LegacyEpks {
 		const owner = await this.core.userClient(viewer.did);
 
 		if (!owner) {
-			this.core.logger.info(
-				{ did: viewer.did, kits: kits.length },
-				'legacy press kits wait for their maker to sign in again'
-			);
+			this.core.logger.info('legacy press kits wait for their maker to sign in again', {
+				did: viewer.did,
+				kits: kits.length
+			});
 
 			return result;
 		}
@@ -71,10 +71,10 @@ export class LegacyEpks {
 			try {
 				if (await this.move(owner, viewer, epk)) result.migrated.push(epk.rkey);
 			} catch (error) {
-				this.core.logger.warn(
-					{ err: error, epk: epk.uri },
-					'could not move a legacy press kit; the next visit tries again'
-				);
+				this.core.logger.warn('could not move a legacy press kit; the next visit tries again', {
+					err: error,
+					epk: epk.uri
+				});
 				result.failed.push(epk.rkey);
 			}
 		}
@@ -93,10 +93,10 @@ export class LegacyEpks {
 		// The root's press kit under this key is this one moved only if it's of the same project. Anyone can pick a key in
 		// their own repo, so one of another project means a clash, and deleting the maker's copy would lose it.
 		if (held && held.record.project !== epk.record.project) {
-			this.core.logger.warn(
-				{ ...log, held: held.uri },
-				'leaving a legacy press kit whose key the root holds for another project'
-			);
+			this.core.logger.warn('leaving a legacy press kit whose key the root holds for another project', {
+				...log,
+				held: held.uri
+			});
 
 			return false;
 		}
@@ -105,7 +105,7 @@ export class LegacyEpks {
 			const project = await this.projects.current(epk.record.project);
 
 			if (!project?.managers.includes(viewer.did)) {
-				this.core.logger.info(log, "leaving a legacy press kit of a project its maker doesn't manage");
+				this.core.logger.info("leaving a legacy press kit of a project its maker doesn't manage", log);
 
 				return false;
 			}
@@ -116,7 +116,7 @@ export class LegacyEpks {
 			const lists = await Promise.all(others.map((did) => this.epks.publishedBy(did, true)));
 
 			if (lists.flat().some((other) => other.rkey === epk.rkey)) {
-				this.core.logger.warn(log, "leaving a legacy press kit another manager's press kit has the key of");
+				this.core.logger.warn("leaving a legacy press kit another manager's press kit has the key of", log);
 
 				return false;
 			}
@@ -128,7 +128,7 @@ export class LegacyEpks {
 
 			for (const photo of content?.photos ?? [])
 				await this.epks.copyPhoto(root, photo, { did: epk.did, space: epk.space });
-			this.core.logger.info(log, "copied a legacy press kit's photos to the root");
+			this.core.logger.info("copied a legacy press kit's photos to the root", log);
 
 			const space = await this.epks.ensureKitSpace(epk.rkey, project.managers);
 			const uri = `at://${root.did}/${COLLECTION.epk}/${epk.rkey}`;
@@ -145,10 +145,11 @@ export class LegacyEpks {
 			const moved = { uri, rkey: epk.rkey, space };
 			const requests = await this.carryRequests(epk, project, moved);
 			await this.carryGrants(owner, epk, project, moved, requests);
-			this.core.logger.info(
-				{ ...log, space, requests: requests.size },
-				"copied a legacy press kit's private part, requests and grants"
-			);
+			this.core.logger.info("copied a legacy press kit's private part, requests and grants", {
+				...log,
+				space,
+				requests: requests.size
+			});
 
 			const ref = await root.putRecord({
 				collection: COLLECTION.epk,
@@ -158,7 +159,7 @@ export class LegacyEpks {
 			});
 
 			await this.epks.indexed.awaitWrite(root.did, COLLECTION.epk, epk.rkey, ref.cid);
-			this.core.logger.info(log, 'moved a legacy press kit to the root');
+			this.core.logger.info('moved a legacy press kit to the root', log);
 			await this.core.audit.record({
 				actor: viewer.did,
 				actorRole: 'member',
@@ -175,7 +176,7 @@ export class LegacyEpks {
 		await owner.deleteRecord({ collection: COLLECTION.epk, rkey: epk.rkey });
 		await this.epks.indexed.awaitWrite(owner.did, COLLECTION.epk, epk.rkey, null);
 		await this.epks.forgetIndex(epk.space);
-		this.core.logger.info(log, "deleted a moved press kit's old record and space");
+		this.core.logger.info("deleted a moved press kit's old record and space", log);
 
 		return true;
 	}

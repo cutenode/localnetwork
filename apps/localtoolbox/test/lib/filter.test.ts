@@ -1,4 +1,4 @@
-// src/lib/filter.ts — matching typed words against a row's text.
+// src/lib/filter.ts: matching typed words against a row's text.
 import { describe, it, expect } from 'vitest';
 import { matches, normalize, HIDE_DOWNLOADED_PREF } from '../../src/lib/filter.ts';
 

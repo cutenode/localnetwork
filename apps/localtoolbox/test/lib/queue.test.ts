@@ -1,4 +1,4 @@
-// src/lib/queue.svelte.ts — the session queue.
+// src/lib/queue.svelte.ts: the session queue.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { flush } from '../helpers/flush.ts';
 import { createChrome, type ChromeMock, type Seed } from '../helpers/chrome.ts';
@@ -79,8 +79,8 @@ describe('the queue', () => {
 		]);
 	});
 
-	// A queue written before those three were kept — or by a page whose rows
-	// said nothing about them — reads back as "nobody knows" rather than as a
+	// A queue written before those three were kept, or by a page whose rows
+	// said nothing about them, reads back as "nobody knows" rather than as a
 	// claim about the track.
 	it('says nobody knows where a track carries none of the three', async () => {
 		const queue = await freshQueue();
@@ -88,15 +88,15 @@ describe('the queue', () => {
 		expect(stored()[0]).toMatchObject({ genre: null, liked: null, reposted: null });
 	});
 
-	// What the exported state file is written from (state-transfer.js): the
-	// panel hands these over rather than letting the file read session storage,
-	// so a queue held only in memory is exported like any other.
+	// What the exported state file is written from (state-transfer.ts): the
+	// settings sheet hands these over rather than letting the file read session
+	// storage, so a queue held only in memory is exported like any other.
 	it('hands over what it holds as plain data', async () => {
 		const queue = await freshQueue({ queue: [track('/a/one')] });
 		expect(queue.entries).toEqual([track('/a/one')]);
-		// Plain, unlike the `$state` proxy behind `items`, which is the whole
-		// point: a structured clone — every storage write, and the file the panel
-		// serializes — refuses a proxy.
+		// Plain, unlike the `$state` proxy behind `items`: a structured clone
+		// (every storage write, and the file the settings sheet serializes)
+		// refuses a proxy.
 		expect(() => structuredClone(queue.items)).toThrow(/could not be cloned/);
 		expect(structuredClone(queue.entries)).toEqual([track('/a/one')]);
 
@@ -108,7 +108,7 @@ describe('the queue', () => {
 		const queue = await freshQueue();
 		expect(await queue.add([track('/a/one'), track('/b/two')])).toBe(2);
 		// Already queued, a duplicate within the one call, and a track with no
-		// permalink — nothing to tell it apart by, and nothing to mark later.
+		// permalink (nothing to tell it apart by, and nothing to mark later).
 		expect(await queue.add([track('/a/one'), track('/c/three'), track('/c/three')])).toBe(1);
 		expect(await queue.add([track('/a/one')])).toBe(0);
 		expect(await queue.add([track('')])).toBe(0);
@@ -148,10 +148,10 @@ describe('the queue', () => {
 		expect(queue.count).toBe(0);
 	});
 
-	// The content script paints the "Queued" pills on the SoundCloud page, and a
+	// The content script puts the queue button on the SoundCloud page, and a
 	// content script cannot read the session area until a trusted context opens
 	// it. The popup is that context, and this is the only place the call is
-	// made — started before anything is read or written, so a page open behind
+	// made, started before anything is read or written, so a page open behind
 	// the popup sees the queue from the first entry.
 	it('opens the session area to the content script as the queue starts', async () => {
 		const queue = await freshQueue({ queue: [track('/a/one')] });
@@ -185,7 +185,7 @@ describe('the queue', () => {
 		void queue.add([track('/b/two')]).then(() => (written = true));
 		await flush();
 		expect(written).toBe(false);
-		// On screen all the same — the panel shows what the queue holds.
+		// On screen all the same: the panel shows what the queue holds.
 		expect(queue.permalinks).toEqual(['/a/one', '/b/two']);
 
 		openDoor();
@@ -207,7 +207,7 @@ describe('the queue', () => {
 	it('starts empty, and stops following, when the session cannot be read', async () => {
 		vi.resetModules();
 		// A mirror from an earlier popup, which the queue shows until the session
-		// answers — and which is only a guess about a session there is none of.
+		// answers, and which is only a guess about a session there is none of.
 		localStorage.setItem('queue:items', JSON.stringify([track('/a/one')]));
 		globalThis.chrome = createChrome();
 		chrome.storage.session.get.mockRejectedValue(new Error('Extension context invalidated'));
@@ -353,9 +353,9 @@ describe('the mirror of the queue', () => {
 		expect(queue.permalinks).toEqual(['/b/two']);
 	});
 
-	// A popup with no localStorage to reach — a `SecurityError` on every call,
+	// A popup with no localStorage to reach: a `SecurityError` on every call,
 	// which is what a browser with site data switched off answers with. The
-	// queue is exactly what it was before there was a mirror.
+	// queue works as if there were no mirror.
 	it('costs the queue nothing when there is no localStorage to keep it in', async () => {
 		const fails = () => {
 			throw new DOMException('The operation is insecure.', 'SecurityError');
@@ -405,14 +405,14 @@ describe('the mirror of the queue', () => {
 
 // An imported state file is restored through this store and nothing else: the
 // settings sheet (StateTransfer.svelte) hands `doc.queue` to `add`, or to
-// `replace` when the import is asked to replace, and state-transfer.js does
+// `replace` when the import is asked to replace, and state-transfer.ts does
 // not write the queue at all. So the guarantee that a re-import cannot double
-// the queue up is this store's, and these are the cases it has to hold in — a
+// the queue up is this store's, and these are the cases it has to hold in: a
 // track already queued, a file naming one twice, and the same file read again
 // tomorrow.
 describe('the queue an imported file is restored into', () => {
 	// An entry as a file carries one, which may well name a track that is
-	// queued already — the file was exported from a queue like this one.
+	// queued already: the file was exported from a queue like this one.
 	const fromFile = (permalink: string, title = 'from the file') => track(permalink, { title, details: null });
 
 	it('adds nothing for a track it already holds, and leaves that entry as it was', async () => {
@@ -427,9 +427,9 @@ describe('the queue an imported file is restored into', () => {
 		expect(chrome.storage.session.set).not.toHaveBeenCalled();
 	});
 
-	// The schema and the importer both accept a file listing a track twice —
-	// JSON Schema cannot say "unique by key", and the state-schema test pins
-	// that as valid — so this is where the second one is dropped.
+	// The schema and the importer both accept a file listing a track twice
+	// (JSON Schema cannot say "unique by key", and the state-schema test
+	// pins that as valid), so this is where the second one is dropped.
 	it('queues a track the file names twice only once', async () => {
 		const queue = await freshQueue();
 		expect(await queue.add([fromFile('/a/one', 'once'), fromFile('/a/one', 'again')])).toBe(1);
@@ -488,7 +488,7 @@ describe('the queue an imported file is restored into', () => {
 		await flush();
 		expect(stored()).toBeUndefined();
 
-		// Nothing was ever written, so nothing can be read back — and the queue
+		// Nothing was ever written, so nothing can be read back, and the queue
 		// deduplicates against what it is showing all the same.
 		expect(await queue.add([fromFile('/a/one'), fromFile('/b/two')])).toBe(1);
 		expect(queue.permalinks).toEqual(['/a/one', '/b/two']);

@@ -340,3 +340,23 @@ fn removing_tracks_leaves_the_database_deletes_track_by_track_did(tc: hegel::Tes
     slow.to_encrypted().unwrap();
     assert!(std::fs::read(&fast.path).unwrap() == std::fs::read(&slow.path).unwrap(), "the databases differ");
 }
+
+/// A value matches an integer exactly when SQLite's `=` says so: an integer always, a real of
+/// that very value (inside i64, however large), never NaN, an infinity or a fraction.
+#[hegel::test(test_cases = 300)]
+fn prop_values_match_integers_as_sqlite_compares_them(tc: hegel::TestCase) {
+    use hegel::Generator;
+    use hegel::generators as gs;
+    let conn = Connection::open_in_memory().unwrap();
+    let f = tc.draw(hegel::one_of!(
+        gs::floats::<f64>(),
+        gs::integers::<i64>().map(|i| i as f64),
+        gs::sampled_from(vec![i64::MIN as f64, i64::MAX as f64, -0.0, 0.5, 1e19, -1e19])
+    ));
+    let n = f as i64;
+    let equal: Option<bool> = conn.query_row("SELECT ?1 = ?2", params![f, n], |r| r.get(0)).unwrap();
+    assert_eq!(sql_int(ValueRef::Real(f)), (equal == Some(true)).then_some(n), "{f:e}");
+    let i = tc.draw(gs::integers::<i64>());
+    assert_eq!(sql_int(ValueRef::Integer(i)), Some(i));
+    assert_eq!(sql_int(ValueRef::Text(i.to_string().as_bytes())), None);
+}

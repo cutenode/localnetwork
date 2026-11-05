@@ -23,6 +23,28 @@ describe('niceTicks', () => {
 		expect(niceTicks(5e-324, 0.0010000000000000002, 1)).toEqual([0, 0.001]);
 	});
 
+	it('leaves out a round value past either end by more than a rounding error', () => {
+		// One end is a millionth from zero, which is nothing next to a step of 1000 and all of the value itself.
+		const [low, high] = [1.0000000000000002e-6, 1.0000000000000002e-6 + 1500.0000000000002];
+
+		expect(niceTicks(low, high, 3)).toEqual([1000]);
+		expect(niceTicks(-high, -low, 3)).toEqual([-1000]);
+	});
+
+	it('keeps zero out of a wide range that stops just short of it', () => {
+		fc.assert(
+			fc.property(
+				fc.double({ min: 1e-8, max: 1e-4, noNaN: true }),
+				fc.double({ min: 1e4, max: 1e6, noNaN: true }),
+				anyCount,
+				(gap, span, count) => {
+					expect(niceTicks(gap, gap + span, count).every((tick) => tick >= gap)).toBe(true);
+					expect(niceTicks(-gap - span, -gap, count).every((tick) => tick <= -gap)).toBe(true);
+				}
+			)
+		);
+	});
+
 	// Counts of 3 and up get at least one from the bound below.
 	it('always puts a tick in the range, even for a count of 1 or 2', () => {
 		fc.assert(

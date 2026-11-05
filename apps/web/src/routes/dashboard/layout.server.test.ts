@@ -1,4 +1,3 @@
-import pino from 'pino';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
 import { HappyViewClient } from '#lib/server/happyview/client.ts';
@@ -8,6 +7,7 @@ import { ProfileService } from '#lib/server/services/profiles.ts';
 import { ProjectService } from '#lib/server/services/projects.ts';
 import { ROOT } from '#lib/server/testing/core.ts';
 import { DJ, pressKitServices, PROMOTER } from '#lib/server/testing/press-kits.ts';
+import { writtenLog } from '#lib/server/testing/written-log.ts';
 import { callRoute, loadRoute } from '#lib/testing/route-event.ts';
 import { load } from './+layout.server.ts';
 import type { LayoutServerData } from './$types';
@@ -101,13 +101,7 @@ it("moves the account's legacy press kits to the root without holding the page u
 });
 
 it("still opens when legacy press kits can't be moved, and says why in the log", async () => {
-	/** Each line the route logged, as pino writes it. */
-	const logs: { level: string; msg: string; err?: { message: string } }[] = [];
-
-	const log = pino(
-		{ level: 'info', base: null, timestamp: false, formatters: { level: (level) => ({ level }) } },
-		{ write: (line: string) => void logs.push(JSON.parse(line)) }
-	);
+	const { logger: log, notes } = writtenLog('info');
 
 	const epks = { migrateLegacy: () => Promise.reject(new Error('PDS unreachable')) };
 
@@ -119,11 +113,11 @@ it("still opens when legacy press kits can't be moved, and says why in the log",
 	});
 
 	expect(data.unread).toBe(0);
-	expect(logs).toContainEqual(
+	expect(notes()).toContainEqual(
 		expect.objectContaining({
 			level: 'warn',
-			msg: 'could not move legacy press kits',
-			err: expect.objectContaining({ message: 'PDS unreachable' })
+			message: 'could not move legacy press kits',
+			err: 'PDS unreachable'
 		})
 	);
 });

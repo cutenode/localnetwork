@@ -231,8 +231,9 @@ export function niceTicks(low: number, high: number, count: number): number[] {
 
 	while (ladder(rung, 1) >= span) rung--;
 	const step = ladder(rung, 1);
-	// A BPM off a pitch multiply can land a rounding error short of a round value, which still gets its tick.
-	const slack = step * 1e-9;
+	// A BPM off a pitch multiply can land a rounding error short of a round value, which still gets its tick. That error
+	// scales with the values, so a wide step mustn't widen it: a billionth of 1000 would let 0 in for a low of 0.000001.
+	const slack = Math.min(step * 1e-9, 8 * Number.EPSILON * Math.max(Math.abs(low), Math.abs(high)));
 	const out: number[] = [];
 
 	// One step past each end, as low / step and high / step can round across a whole number.

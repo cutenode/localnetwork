@@ -4,10 +4,11 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { DEMO_DJ_PROFILE, DEMO_DJ_SETS } from '../../../scripts/seed-data.ts';
 import { djProfileSchema, djSetSchema } from '#lib/dj-schema.ts';
-import type { ProjectProfile } from '#lib/types.ts';
+import type { ProjectProfile, Viewer } from '#lib/types.ts';
 import BookingDetails from './BookingDetails.svelte';
 import DjSets from './DjSets.svelte';
 import DjStats from './DjStats.svelte';
+import ManageLink from './ManageLink.svelte';
 import PerformerFacts from './PerformerFacts.svelte';
 
 const profile: ProjectProfile = {
@@ -40,6 +41,57 @@ describe('DjStats', () => {
 		await expect.element(page.getByText('Keys played most')).toBeInTheDocument();
 		await expect.element(page.getByText('Set shape')).toBeInTheDocument();
 		await expect.element(page.getByText('Signature tracks')).toBeInTheDocument();
+	});
+
+	it('leaves out the parts of a section that are missing', async () => {
+		await render(DjStats, {
+			profile: djProfileSchema.parse({
+				generatedAt: '2026-10-01T00:00:00Z',
+				precision: 'exact',
+				headline: 'Dub techno, slow and deep',
+				sets: { since: 2019 },
+				era: { medianYear: 2018 },
+				keys: { top: [{ key: '8A' }] },
+				arc: {},
+				energy: { high: 20, mid: 50, low: 30 },
+				signature: [{ unidentified: true }, { artist: 'Ferrule' }]
+			})
+		});
+
+		await expect.element(page.getByText('Dub techno, slow and deep')).toBeInTheDocument();
+		await expect.element(page.getByText('–', { exact: true })).toBeInTheDocument();
+		await expect.element(page.getByText('since 2019')).toBeInTheDocument();
+		await expect.element(page.getByText('Half the plays came out by then', { exact: true })).toBeInTheDocument();
+		await expect.element(page.getByRole('region', { name: 'Keys' }).getByText('8A')).toBeInTheDocument();
+		await expect.element(page.getByText(/in minor keys/)).not.toBeInTheDocument();
+		await expect.element(page.getByText('How they mix')).not.toBeInTheDocument();
+		await expect.element(page.getByText('Mid 50%')).toBeInTheDocument();
+		await expect.element(page.getByText('Set shape')).not.toBeInTheDocument();
+		await expect.element(page.getByText('Unreleased')).toBeInTheDocument();
+		await expect.element(page.getByText('Untitled')).toBeInTheDocument();
+		await expect.element(page.getByText(/^From locallibrary, updated/)).toBeInTheDocument();
+	});
+
+	it('shows tags without a headline, and only the set shapes with a share', async () => {
+		await render(DjStats, {
+			profile: djProfileSchema.parse({
+				generatedAt: '2026-10-01T00:00:00Z',
+				tags: [{ name: 'Long blends' }],
+				mixing: { harmonic: 85 },
+				arc: { builds: 70 },
+				signature: [{ title: 'Night Bus' }]
+			})
+		});
+
+		await expect.element(page.getByText('Long blends')).toBeInTheDocument();
+		await expect.element(page.getByText('In key')).toBeInTheDocument();
+		await expect.element(page.getByText('Smooth tempo')).not.toBeInTheDocument();
+		await expect.element(page.getByText('Keys played most')).not.toBeInTheDocument();
+		await expect.element(page.getByRole('region', { name: 'Set shape' }).getByText('Build 70%')).toBeInTheDocument();
+		await expect.element(page.getByText(/Hold steady|Wind down/)).not.toBeInTheDocument();
+		await expect.element(page.getByText('Energy')).not.toBeInTheDocument();
+		await expect.element(page.getByText('BPM')).not.toBeInTheDocument();
+		await expect.element(page.getByRole('listitem').filter({ hasText: 'Night Bus' })).toHaveTextContent('Night Bus');
 	});
 });
 
@@ -112,6 +164,30 @@ describe('PerformerFacts', () => {
 		await expect.element(page.getByRole('definition')).toHaveTextContent('Emerging');
 	});
 
+	it('fills an open end of a range, and adds travel notes under travel', async () => {
+		await render(PerformerFacts, {
+			performer: {
+				formats: ['vinyl', 'cdj'],
+				setLength: { minMinutes: 120 },
+				capacity: { min: 200 },
+				travel: { radiusKm: 600, international: true, notes: 'Flights from BER' }
+			}
+		});
+
+		expect(
+			page
+				.getByRole('definition')
+				.elements()
+				.map((line) => line.textContent)
+		).toEqual([
+			'Vinyl, CDJs / USB',
+			'120–? minutes',
+			'200–any people',
+			'Up to 600 km, international',
+			'Flights from BER'
+		]);
+	});
+
 	it('leaves out the list when there is nothing to show', async () => {
 		await render(PerformerFacts, { performer: profile });
 
@@ -149,6 +225,19 @@ describe('BookingDetails', () => {
 		await expect.element(page.getByText('Phone')).not.toBeInTheDocument();
 	});
 
+	it('shows a phone number and hospitality on their own', async () => {
+		await render(BookingDetails, { ...props, details: { bookingPhone: '+49 30 1234567', hospitality: 'Vegan rider' } });
+
+		expect(
+			page
+				.getByRole('term')
+				.elements()
+				.map((term) => term.textContent)
+		).toEqual(['Phone', 'Hospitality']);
+		await expect.element(page.getByText('+49 30 1234567')).toBeInTheDocument();
+		await expect.element(page.getByText('Vegan rider')).toBeInTheDocument();
+	});
+
 	it('points to an inquiry when nothing is on file', async () => {
 		await render(BookingDetails, { ...props, details: { bookingEmail: '' } });
 
@@ -159,5 +248,22 @@ describe('BookingDetails', () => {
 		await render(BookingDetails, { ...props, claimed: false });
 
 		await expect.element(page.getByText('No private booking details yet.')).toBeInTheDocument();
+	});
+});
+
+describe('ManageLink', () => {
+	it('shows staff nothing on a page that is neither a project nor a profile', async () => {
+		const staff: Viewer = {
+			did: 'did:plc:ada',
+			handle: 'ada.test',
+			roles: ['admin'],
+			isAdmin: true,
+			isStaff: true,
+			spacesCapable: true
+		};
+
+		await render(ManageLink, { viewer: staff });
+
+		expect(page.getByRole('link').elements()).toHaveLength(0);
 	});
 });

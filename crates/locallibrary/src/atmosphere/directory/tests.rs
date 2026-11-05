@@ -122,6 +122,7 @@ fn a_refusal_to_read_says_its_error_or_status() {
 #[hegel::test(test_cases = 40)]
 #[hegel::explicit_test_case(status = 200u16, listed = true, uri = "at://did:plc:abc/computer.localnetwork.locallibrary.settings/self".to_string(), cid = Some("bafy".to_string()), value = json!({ "n": 1 }), error = None::<String>, message = None::<String>)]
 #[hegel::explicit_test_case(status = 200u16, listed = true, uri = "at://did:plc:abc/computer.localnetwork.locallibrary.settings/other".to_string(), cid = Some("bafy".to_string()), value = json!({ "n": 1 }), error = None::<String>, message = None::<String>)]
+#[hegel::explicit_test_case(status = 200u16, listed = true, uri = "at://did:plc:abc/computer.localnetwork.locallibrary.settings/self".to_string(), cid = None::<String>, value = json!({ "n": 1 }), error = None::<String>, message = None::<String>)]
 #[hegel::explicit_test_case(status = 500u16, listed = false, uri = "at://did:plc:abc/computer.localnetwork.locallibrary.settings/self".to_string(), cid = None::<String>, value = Value::Null, error = Some("InternalServerError".to_string()), message = Some("down".to_string()))]
 fn a_read_gives_what_the_directory_answered(tc: hegel::TestCase) {
     static SERVER: OnceLock<Shared> = OnceLock::new();
@@ -284,4 +285,53 @@ fn asking_the_directory_ends_as_the_servers_said(tc: hegel::TestCase) {
         }
         _ => panic!("{why:?} but {note:?}"),
     }
+}
+
+/// Asking the directory to read the account again, with a token the account's server gave, ends
+/// in a note for the plan when the website can't be asked: it isn't a web address with a host, it
+/// can't be reached, or its answer runs over what's read.
+#[hegel::test(test_cases = 6)]
+fn prop_a_website_that_cant_be_asked_leaves_a_note(tc: hegel::TestCase) {
+    static PDS: OnceLock<String> = OnceLock::new();
+    let pds =
+        PDS.get_or_init(|| crate::atmosphere::tests::serving(|_, _| (200, String::new(), json!({ "token": "a.b.c" }))));
+    let dir = tempfile::tempdir().unwrap();
+    crate::store::Store::open_or_init(dir.path()).unwrap();
+    let scopes = crate::atmosphere::tests::mock_pds::granted(&crate::atmosphere::publish_scopes()).join(" ");
+    crate::atmosphere::tests::save_session(dir.path(), "did:plc:abc", pds, &scopes);
+    let info = crate::atmosphere::status(dir.path()).unwrap().unwrap();
+    let (website, why) = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => ("mailto:dj@example.com".to_string(), "\"mailto:dj@example.com\" isn't a URL)".to_string()),
+        1 => {
+            let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+            (format!("http://127.0.0.1:{port}"), "error sending request".to_string())
+        }
+        _ => (server(vec![answer("200 OK", &vec![b' '; net::MAX_BODY + 1])]).0, "the answer is over 1 MB".to_string()),
+    };
+    at(&website);
+    let note = request_index(dir.path(), &info).unwrap().unwrap();
+    assert!(note.starts_with("Local Network's directory couldn't be asked to read this account's earlier records ("));
+    assert!(note.contains(&why), "{note}");
+    assert!(AccountFile::load(dir.path()).unwrap().indexed.is_empty());
+}
+
+/// A website goes by the did:web of its host, with its port when it isn't the scheme's own.
+#[hegel::test(test_cases = 100)]
+fn prop_a_website_goes_by_its_hosts_did_web(tc: hegel::TestCase) {
+    let host: String = tc.draw(gs::from_regex(r"[a-z]{1,8}(\.[a-z]{2,5}){1,2}").fullmatch(true));
+    let scheme = tc.draw(gs::sampled_from(vec!["https", "http"]));
+    let port: Option<u16> = tc.draw(gs::optional(gs::integers::<u16>().min_value(1)));
+    let url = match port {
+        Some(p) => format!("{scheme}://{host}:{p}/"),
+        None => format!("{scheme}://{host}"),
+    };
+    let default = match scheme {
+        "https" => 443,
+        _ => 80,
+    };
+    let want = match port.filter(|p| *p != default) {
+        Some(p) => format!("did:web:{host}%3A{p}"),
+        None => format!("did:web:{host}"),
+    };
+    assert_eq!(service_did(&url), Some(want));
 }

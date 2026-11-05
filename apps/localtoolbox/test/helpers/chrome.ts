@@ -3,7 +3,7 @@
 // chrome.runtime.onMessage / sendMessage / getManifest / getContexts, chrome.tabs,
 // chrome.downloads and chrome.offscreen. Values pass through
 // structuredClone on the way in and out, as they do in Chrome, and every `set`
-// notifies onChanged listeners in every context — the mechanism the content
+// notifies onChanged listeners in every context, which the content
 // script and the Manager panel rely on to see each other's marks.
 //
 // The two storage areas are separate stores, as they are in Chrome: `local`
@@ -12,8 +12,8 @@
 //
 // In a test the global `chrome` is always this mock (test/setup.ts installs a
 // fresh one before every test), but TypeScript knows it as the real API. A
-// file that drives it through the global says so once, under its imports —
-// `declare const chrome: ChromeMock;` — and one in hand (from `createChrome`
+// file that drives it through the global says so once, under its imports:
+// `declare const chrome: ChromeMock;`. One in hand (from `createChrome`
 // or `panelChrome`) is a ChromeMock already.
 import { vi, type Mock } from 'vitest';
 import manifest from '../../src/manifest.json';

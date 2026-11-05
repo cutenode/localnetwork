@@ -1,4 +1,4 @@
-// src/lib/clipboard.ts — copying out of the popup, and offering a file.
+// src/lib/clipboard.ts: copying out of the popup, and offering a file.
 import { describe, it, expect, vi } from 'vitest';
 import { copyText, copyImage, downloadText } from '../../src/lib/clipboard.ts';
 import { installClipboard, installDownload } from '../helpers/panel.ts';
@@ -35,8 +35,8 @@ describe('copyText', () => {
 	});
 });
 
-// jsdom has none of what the image route runs on — no `createImageBitmap`, no
-// `OffscreenCanvas`, no `ClipboardItem` — so the decode-and-re-encode pipeline
+// jsdom has none of what the image route runs on (no `createImageBitmap`, no
+// `OffscreenCanvas`, no `ClipboardItem`), so the decode-and-re-encode pipeline
 // is stood up here. Every piece goes in through `vi.stubGlobal`, which
 // `unstubGlobals` in vitest.config.ts takes away again after the test: the
 // suite is run shuffled, and a global left lying about is a later test passing
@@ -100,8 +100,9 @@ describe('copyImage', () => {
 		expect([art.canvas.width, art.canvas.height]).toEqual([1080, 1080]);
 		expect(art.drawn).toEqual([[art.bitmap, 0, 0]]);
 
-		// The point of the round trip: Chrome's async clipboard takes PNG only,
-		// so what is written is the re-encoded blob and never the fetched JPEG.
+		// The round trip is there because Chrome's async clipboard takes PNG
+		// only, so what is written is the re-encoded blob and never the fetched
+		// JPEG.
 		expect(art.canvas.convertToBlob).toHaveBeenCalledWith({ type: 'image/png' });
 		const [items] = art.clipboard.write.mock.calls[0];
 		expect(items).toHaveLength(1);
@@ -126,7 +127,7 @@ describe('copyImage', () => {
 
 	it('says so when the clipboard refuses the write', async () => {
 		// The same lost focus that `copyText` recovers from, which an image
-		// cannot: there is no selection route for a picture, so the row is simply
+		// cannot: there is no selection route for a picture, so the row is
 		// told it failed.
 		const art = installImagePipeline();
 		art.clipboard.write.mockRejectedValue(new Error('Document is not focused'));

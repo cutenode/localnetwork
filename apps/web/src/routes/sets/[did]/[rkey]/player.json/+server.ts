@@ -8,10 +8,10 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 
 	if (!set) error(404, 'No set here');
 	const source = await app.recordings.source(set);
-	log.debug(
-		{ set: set.uri, source: source && (source.kind === 'audio' ? source.from : source.platform) },
-		'set player source'
-	);
+	log.debug('set player source', {
+		set: set.uri,
+		source: source && (source.kind === 'audio' ? source.from : source.platform)
+	});
 
 	return json({ source }, { headers: { 'cache-control': 'public, max-age=60' } });
 };

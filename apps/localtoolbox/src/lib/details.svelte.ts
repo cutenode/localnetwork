@@ -1,11 +1,11 @@
 // How many tracks the extension has looked up, as something a panel can show.
 //
-// The lookups themselves — what SoundCloud said about a track, and the
-// failures worth not asking about again — are the content script's
-// (content.ts, DETAILS_KEY). This reads nothing but their number, which is the
-// one thing the popup has any use for: the export section says what is about
-// to go into the file, and a count is what makes "export" mean something
-// before it has been pressed.
+// The lookups themselves (what SoundCloud said about a track, and the failures
+// worth not asking about again) are the content script's (content.ts,
+// DETAILS_KEY). This reads nothing but their number, which is the one thing
+// the popup has any use for: the export section says what is about to go into
+// the file, and a count is what makes "export" mean something before it has
+// been pressed.
 //
 // The same shape as downloaded.svelte.ts, and for the same reason: one read,
 // then every storage change followed, so a lookup made in a SoundCloud tab or

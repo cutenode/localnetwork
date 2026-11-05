@@ -6,7 +6,7 @@
 // `response`, mount the panel, let its promises settle, and read the DOM.
 //
 // Every mount starts from a fresh module graph (`vi.resetModules`), because
-// the popup's stores — the marks, the remembered options — are module
+// the popup's stores (the marks, the remembered options) are module
 // singletons that would otherwise carry one test's state into the next. The
 // Svelte runtime is imported from that same fresh graph, so the component and
 // the `mount` that mounts it are always the same copy of Svelte.
@@ -24,7 +24,7 @@ export const SOUNDCLOUD_TAB = { id: 7, url: 'https://soundcloud.com/curator/sets
 
 // Installs a chrome mock whose active tab is `tab` and whose content script
 // answers `response` (an Error makes the message fail). `session` is what
-// chrome.storage.session holds — the session queue lives there.
+// chrome.storage.session holds: the session queue lives there.
 export function panelChrome({
 	tab = SOUNDCLOUD_TAB,
 	response,
@@ -48,10 +48,10 @@ let mounted: {
 } | null = null;
 
 // A popup that is opened again is a popup that was closed first. A test that
-// mounts a second one without saying so — `document.body.innerHTML = ''` and
-// another mount — used to leave the first alive: its effects still running and,
-// for anything using `<svelte:window>`, still listening. Every mount here now
-// takes the previous one down, so what is on screen is the only thing running.
+// mounts a second one without saying so (`document.body.innerHTML = ''` and
+// another mount) would leave the first alive: its effects still running and,
+// for anything using `<svelte:window>`, still listening. Every mount here takes
+// the previous one down, so what is on screen is the only thing running.
 const takeDownPrevious = () => unmountPanel();
 
 /**
@@ -77,16 +77,16 @@ export async function mountPanel(id: string) {
 	const { queue } = await import('../../src/lib/queue.svelte.ts');
 	const { view } = await import('../../src/lib/view.svelte.ts');
 	// Read once by the shell in the real popup (App.svelte), so a panel mounted
-	// on its own gets the same three stores ready — the last of them before the
+	// on its own gets the same three stores ready, the last of them before the
 	// panel is created, which is when it reads back where it was left.
 	await downloaded.start();
 	await queue.start();
 	await view.start();
 
 	const tool = toolById(id)!;
-	// The popup fetches a panel's chunk when its tool is opened (tools.js); a
+	// The popup fetches a panel's chunk when its tool is opened (tools.ts); a
 	// test mounting one on its own does the same, and awaits it here so the
-	// mount below is the synchronous thing it always was.
+	// mount below is synchronous.
 	const Panel = (await loadPanel(id))!;
 	const onback = vi.fn<() => void>();
 	const target = document.createElement('div');
@@ -110,7 +110,7 @@ export async function mountPanel(id: string) {
 /**
  * Closes the popup and opens it again on the same tool, which is what every
  * click that opens a tab does. The chrome mock is left as it is, so the
- * browsing session — the queue, and the place each panel was left in — is the
+ * browsing session (the queue, and the place each panel was left in) is the
  * same one.
  */
 export async function reopenPanel(id: string) {
@@ -121,16 +121,16 @@ export async function reopenPanel(id: string) {
 }
 
 /**
- * Mounts the whole popup — the tool menu, and whichever panel is opened from
- * it — the way main.js does.
+ * Mounts the whole popup (the tool menu, and whichever panel is opened from
+ * it) the way main.ts does.
  *
  * `chunks: false` leaves the tools' panels unloaded, which is how the popup
  * really starts: the shell draws a ghost of the panel while its chunk is on
  * its way. `chunks: 'broken'` makes every one of them fail to arrive, which
  * is what a half-written update on disk looks like. Every other test wants
  * the panel itself, and waiting seconds for Vite to transform one on demand
- * is not what those tests are about, so by default all of them — and the
- * queue sheet, which is a chunk of its own for the same reason — are loaded
+ * is not what those tests are about, so by default all of them (and the
+ * queue sheet, which is a chunk of its own for the same reason) are loaded
  * before the mount, and the ghost is never up for more than the turn it takes
  * the shell to notice.
  */
@@ -175,8 +175,8 @@ export async function settle() {
 /**
  * Settles until `done()` is true, rather than for a fixed number of turns.
  *
- * For anything a test has to wait on that leaves the worker — a tool panel's
- * chunk, which is a real dynamic `import()` — see `until` in ./flush.js for
+ * For anything a test has to wait on that leaves the worker (a tool panel's
+ * chunk, which is a real dynamic `import()`): see `until` in ./flush.ts for
  * why a fixed number is not enough. Renders between turns, so `done()` can
  * ask what is on screen.
  */
@@ -244,7 +244,7 @@ const pointer = (eventType: string, target: EventTarget) =>
  * Opens the select with this `aria-label` and returns its options.
  *
  * A select is opened by a press rather than a click, and its list is drawn
- * only while it is open — so a test that wants to read the choices, or pick
+ * only while it is open, so a test that wants to read the choices, or pick
  * one, has to open it first.
  */
 export async function openSelect(label: string) {
@@ -313,7 +313,7 @@ export async function openSettings() {
  * Presses the Manager's add button, which is how tracks get onto its list.
  *
  * The tool keeps a list of its own and nothing goes onto it by itself, so a
- * test that wants rows has to add a page first — exactly as somebody would.
+ * test that wants rows has to add a page first, exactly as somebody would.
  */
 export async function addPage() {
 	const add = buttons().find((b) => (b.getAttribute('aria-label') ?? '').endsWith('from this tab'));
@@ -323,7 +323,7 @@ export async function addPage() {
 }
 
 /**
- * The Manager's list as it is written to storage — what a test asserts the
+ * The Manager's list as it is written to storage: what a test asserts the
  * tool kept, and what one can be seeded with through `panelChrome({storage})`.
  */
 export const listedTracks = () => (chrome.testStore('local').listed ?? []).map((one) => one.permalink);

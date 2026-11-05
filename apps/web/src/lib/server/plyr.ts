@@ -58,7 +58,7 @@ export class PlyrClient {
 			value = await this.lookup(uri);
 		} catch (error) {
 			// Not cached, so the next play asks again.
-			this.logger.warn({ err: error, uri }, 'could not look up a plyr.fm track');
+			this.logger.warn('could not look up a plyr.fm track', { err: error, uri });
 
 			return null;
 		}
@@ -82,7 +82,7 @@ export class PlyrClient {
 
 			return uri && cid ? { uri, cid } : null;
 		} catch (error) {
-			this.logger.warn({ err: error, id }, "could not look up a plyr.fm track's record");
+			this.logger.warn("could not look up a plyr.fm track's record", { err: error, id });
 
 			return null;
 		}
@@ -106,7 +106,7 @@ export class PlyrClient {
 			return found && new URL(found.url).origin === AUDIO_ORIGIN ? found.url : undefined;
 		} catch (error) {
 			// The track still plays in plyr's own player.
-			this.logger.warn({ err: error, fileId }, 'could not find the audio of a plyr.fm track');
+			this.logger.warn('could not find the audio of a plyr.fm track', { err: error, fileId });
 
 			return undefined;
 		}

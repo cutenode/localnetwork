@@ -1,4 +1,4 @@
-// src/lib/theme.svelte.ts — light, dark, or whatever the browser says.
+// src/lib/theme.svelte.ts: light, dark, or whatever the browser says.
 import { describe, it, expect, vi } from 'vitest';
 
 // A fresh module graph, since the theme is a singleton the popup shares.

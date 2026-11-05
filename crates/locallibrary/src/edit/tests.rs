@@ -360,6 +360,42 @@ fn track_edits_on_the_model() {
     assert!(l.track(2).is_none());
 }
 
+/// Replacing a track whose file other rows share moves every entry of those rows to the track
+/// kept: none is lost with the rows deleted, or left on a row kept.
+#[hegel::test(test_cases = 100)]
+fn prop_a_replaced_files_entries_all_go_to_the_track_kept(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut start = lib();
+    start.tracks.push(track(6, "A", "Again", "/Contents/1.mp3"));
+    let drawn = || tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(6)).max_size(6));
+    for p in start.playlists.iter_mut().filter(|p| !p.is_folder) {
+        p.track_ids = drawn();
+    }
+    let history = Playlist {
+        id: 9,
+        parent_id: None,
+        name: "HISTORY 001".into(),
+        is_folder: false,
+        sort_order: 0,
+        track_ids: drawn(),
+    };
+    start.history = vec![history];
+    let duplicate = tc.draw(gs::sampled_from(vec![1u32, 6]));
+    let keep = tc.draw(gs::integers::<u32>().min_value(2).max_value(5));
+    let ids = |id| TrackSelector { ids: vec![id], ..Default::default() };
+    let keep_duplicate = tc.draw(gs::booleans());
+    let l = run_on(start.clone(), Edit::ReplaceTrack { duplicate: ids(duplicate), keep: ids(keep), keep_duplicate })
+        .unwrap();
+    let lists = |l: &Library| -> Vec<Vec<u32>> {
+        l.playlists.iter().chain(&l.history).filter(|p| !p.is_folder).map(|p| p.track_ids.clone()).collect()
+    };
+    let moved: Vec<Vec<u32>> = lists(&start)
+        .into_iter()
+        .map(|ids| ids.into_iter().map(|t| if t == 1 || t == 6 { keep } else { t }).collect())
+        .collect();
+    assert_eq!(lists(&l), moved);
+}
+
 /// How often each key is in `keys`.
 fn counts(keys: &[String]) -> FxHashMap<&str, usize> {
     let mut out = FxHashMap::default();
@@ -835,6 +871,34 @@ fn a_track_is_pointed_only_at_an_audio_file_of_its_own(tc: hegel::TestCase) {
     }
 }
 
+/// A file several tracks share moves for all of them: pointing it elsewhere points every row of
+/// it there, with the new file's details, and leaves the other rows as they were.
+#[hegel::test(test_cases = 50)]
+fn prop_every_row_of_a_file_is_pointed_with_it(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut start = lib();
+    for (i, spelling) in ["/Contents/1.mp3", "/contents/1.MP3"].into_iter().enumerate() {
+        if tc.draw(gs::booleans()) {
+            start.tracks.push(track(6 + i as u32, "A", "Again", spelling));
+        }
+    }
+    let file =
+        tc.draw(gs::booleans()).then_some(AudioFile { size: 9, sample_rate: 48_000, bit_depth: 24, bitrate: 2304 });
+    let op = Op::SetPath { track: "contents/1.mp3".into(), path: "/Contents/1.aiff".into(), file, shift_ms: 0 };
+    let mut db = ModelDb { lib: start.clone(), pdb: None };
+    apply_op(&mut db, &op, true, "test", &mut Vec::new()).unwrap();
+    for (before, after) in start.tracks.iter().zip(&db.lib.tracks) {
+        if paths::file_key(&before.file_path) != "contents/1.mp3" {
+            assert_eq!(after, before);
+            continue;
+        }
+        assert_eq!(after.file_path, "/Contents/1.aiff", "track {}", before.id);
+        if file.is_some() {
+            assert_eq!((after.file_size, after.sample_rate, after.sample_depth, after.bitrate), (9, 48_000, 24, 2304));
+        }
+    }
+}
+
 /// A track edit is refused exactly when it changes nothing, gives a rating past 5, or names a
 /// colour or key that isn't one; one that's taken gives every selected track what it sets.
 #[hegel::test(test_cases = 200)]
@@ -1204,4 +1268,196 @@ fn edits_to_fields_plan_alike_on_the_tracks_they_name(tc: hegel::TestCase) {
         assert_eq!(made_b, made_a, "{op:?}");
     }
     assert_eq!((b.lib, warn_b), (a.lib, warn_a));
+}
+
+/// Moving a folder into itself or anything below it, however deep and at any position, is
+/// refused, naming the folder.
+#[hegel::test(test_cases = 40)]
+fn prop_a_folder_never_moves_into_itself_or_what_it_holds(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let depth = tc.draw(gs::integers::<usize>().min_value(1).max_value(5));
+    let chain: Vec<String> = (0..depth).map(|i| format!("F{i}")).collect();
+    let (start, _) =
+        resolve_all(&lib(), &[Edit::CreatePlaylist { path: format!("Sets/{}", chain.join("/")), folder: true }], false)
+            .unwrap();
+    // The folder moved, and one at or below it to move it into.
+    let moved = tc.draw(gs::integers::<usize>().max_value(depth));
+    let into = tc.draw(gs::integers::<usize>().min_value(moved).max_value(depth));
+    let path = |n: usize| ["Sets".to_string()].into_iter().chain(chain[..n].iter().cloned()).collect::<Vec<_>>();
+    let edit = Edit::MovePlaylist {
+        playlist: format!("{}/", path(moved).join("/")),
+        into: Some(path(into).join("/")),
+        position: tc.draw(gs::optional(gs::integers::<usize>().min_value(1).max_value(3))),
+    };
+    let err = resolve_all(&start, &[edit], false).unwrap_err().to_string();
+    assert_eq!(err, format!("can't move {} into itself", shown(&path(moved))));
+}
+
+/// Making a step of a plan, a track gone from the drive or an edit that no longer applies fails
+/// it when made as given (`strict`); replaying, it's made without them and said so, naming the
+/// edit, how many tracks and one of them, or why it was skipped.
+#[hegel::test(test_cases = 50)]
+fn prop_a_step_made_strictly_fails_where_a_replay_warns(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let strict = tc.draw(gs::booleans());
+    let gone = tc.draw(gs::integers::<usize>().min_value(1).max_value(9));
+    let example = format!("/Contents/{}.mp3", tc.draw(gs::from_regex("[a-z]{1,8}").fullmatch(true)));
+    let described = tc.draw(gs::sampled_from(vec!["set hot cue A of 2 track(s)", "add My Tag Warm"]));
+    let mut out = Replayed::default();
+    match out.tracks_gone(strict, gone, &example, described) {
+        Err(e) => {
+            assert!(strict);
+            assert_eq!(e.to_string(), Error::NotFound(format!("no track at {example}")).to_string());
+            assert!(out.warnings.is_empty());
+        }
+        Ok(()) => {
+            assert!(!strict);
+            let [w] = &out.warnings[..] else { panic!("{:?}", out.warnings) };
+            assert!(w.starts_with(&format!("{gone} track(s) aren't")), "{w}");
+            assert!(w.contains(&example) && w.contains(described), "{w}");
+        }
+    }
+    let warned = out.warnings.len();
+    let why = Error::invalid("there's no hot cue A");
+    match out.skipped(strict, described, why) {
+        Err(e) => {
+            assert!(strict);
+            assert_eq!(e.to_string(), Error::invalid("there's no hot cue A").to_string());
+        }
+        Ok(out) => {
+            assert!(!strict);
+            assert_eq!(out.warnings.len(), warned + 1);
+            let w = out.warnings.last().unwrap();
+            assert!(w.contains(described) && w.contains("there's no hot cue A"), "{w}");
+        }
+    }
+}
+
+/// The playlist at exactly a path, among siblings and folders whose names differ in case or repeat:
+/// the first playlist of exactly that name when there is one; otherwise none when at most one
+/// path matches ignoring case (namesakes share a path), and a refusal naming them when several do.
+#[hegel::test(test_cases = 200)]
+fn prop_the_playlist_at_exactly_a_path_is_the_first_of_its_name(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let names = gs::sampled_from(vec!["Mix", "MIX", "mix"]);
+    let drawn: Vec<(&str, bool)> = tc.draw(gs::vecs(gs::tuples!(names, gs::booleans())).min_size(1).max_size(5));
+    let mut l = lib();
+    for (i, (name, folder)) in drawn.iter().enumerate() {
+        let id = 10 + u32::try_from(i).unwrap();
+        l.playlists.push(Playlist {
+            id,
+            parent_id: None,
+            name: (*name).into(),
+            is_folder: *folder,
+            sort_order: id,
+            track_ids: vec![],
+        });
+    }
+    let spec = tc.draw(gs::sampled_from(vec!["Mix", "MIX", "mix", "Other"]));
+    let lists: Vec<(usize, &str)> =
+        drawn.iter().enumerate().filter(|(_, (_, folder))| !folder).map(|(i, (n, _))| (i, *n)).collect();
+    let mut near: Vec<&str> = lists.iter().map(|(_, n)| *n).filter(|n| n.eq_ignore_ascii_case(spec)).collect();
+    near.sort_unstable();
+    near.dedup();
+    match (find_exact(&l, spec), lists.iter().find(|(_, n)| *n == spec)) {
+        (Ok(Some(p)), Some((i, _))) => assert_eq!(p.id, 10 + u32::try_from(*i).unwrap()),
+        (Ok(None), None) => assert!(near.len() < 2, "{spec} among {drawn:?}"),
+        (Err(e), None) => {
+            assert!(near.len() >= 2, "{e}");
+            for n in near {
+                assert!(e.to_string().contains(&format!("\"{n}\"")), "{e}");
+            }
+        }
+        (got, first) => panic!("{spec} among {drawn:?}: {got:?}, the first of its name {first:?}"),
+    }
+}
+
+/// Replaying, a fill or a delete leaves out what the drive no longer has: a fill names its
+/// playlist by the path it was recorded at, so one found only by name elsewhere isn't filled, and
+/// a delete takes the tracks still there, nothing when none is, saying how many are gone. Made as
+/// given, a delete naming a gone track is refused, and a fill finds the playlist by name.
+#[hegel::test(test_cases = 100)]
+fn prop_a_replayed_fill_or_delete_leaves_out_what_is_gone(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let lenient = tc.draw(gs::booleans());
+    let spec = tc.draw(gs::sampled_from(vec!["Fri", "Sets/Fri"]));
+    let fill = Edit::SetTracks {
+        playlist: spec.into(),
+        tracks: TrackSelector { ids: vec![5], ..Default::default() },
+        sort: None,
+        limit: None,
+        create: false,
+    };
+    match resolve_all(&lib(), &[fill], lenient) {
+        Ok((l, _)) => {
+            assert!(!lenient || spec == "Sets/Fri", "{spec} filled leniently");
+            assert_eq!(entries(&l, "Sets/Fri"), [5]);
+        }
+        Err(e) => {
+            assert!(lenient && spec == "Fri", "{e}");
+            assert_eq!(e.to_string(), Error::NotFound("playlist \"Fri\"".into()).to_string());
+        }
+    }
+
+    let present: Vec<u32> = tc.draw(gs::subsequences(&[1u32, 2, 3, 4, 5]));
+    let gone: Vec<String> =
+        tc.draw(gs::subsequences(&["/Contents/gone.mp3", "/Contents/9.mp3"])).into_iter().map(String::from).collect();
+    let files: Vec<String> = present.iter().map(|i| format!("/Contents/{i}.mp3")).chain(gone.clone()).collect();
+    if files.is_empty() {
+        return;
+    }
+    let (_dir, device) = empty_drive();
+    let extra = DriveContext::default();
+    let r = Resolver::new(&device, &extra, lenient, Ctx::silent());
+    let delete = Edit::DeleteTracks { tracks: TrackSelector::paths(files), keep_files: false };
+    match r.resolve(&delete, &lib()) {
+        Ok((ops, desc, _)) => {
+            assert!(lenient || gone.is_empty(), "{gone:?} deleted as given");
+            assert_eq!(desc, format!("delete {} track(s)", present.len()));
+            let mut model = ModelDb { lib: lib(), pdb: None };
+            for op in &ops {
+                apply_op(&mut model, op, true, "test", &mut Vec::new()).unwrap();
+            }
+            let left: Vec<u32> = model.lib.tracks.iter().map(|t| t.id).collect();
+            assert_eq!(left, (1..=5).filter(|i| !present.contains(i)).collect::<Vec<_>>());
+            let notes = r.notes.take();
+            match gone.first() {
+                Some(g) => {
+                    let [n] = &notes[..] else { panic!("{notes:?}") };
+                    assert!(n.starts_with(&format!("{} track(s)", gone.len())) && n.contains(g.as_str()), "{n}");
+                }
+                None => assert!(notes.is_empty(), "{notes:?}"),
+            }
+        }
+        Err(e) => assert!(!lenient && !gone.is_empty(), "{e}"),
+    }
+}
+
+/// A fill or a setting of entries that makes its playlist when it's missing makes it at any depth
+/// a drive reads, and refuses one deeper, as making the playlist alone does.
+#[hegel::test(test_cases = 40)]
+fn prop_an_edit_making_its_playlist_nests_it_no_deeper_than_a_drive_reads(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let depth = tc.draw(gs::integers::<usize>().min_value(1).max_value(MAX_DEPTH + 3));
+    let path = (0..depth).map(|i| format!("L{i}")).collect::<Vec<_>>().join("/");
+    let edit = match tc.draw(gs::booleans()) {
+        true => Edit::SetTracks {
+            playlist: path.clone(),
+            tracks: TrackSelector { ids: vec![2], ..Default::default() },
+            sort: None,
+            limit: None,
+            create: true,
+        },
+        false => Edit::SetEntries { playlist: path.clone(), paths: vec!["/Contents/2.mp3".into()], create: true },
+    };
+    match resolve_all(&lib(), &[edit], false) {
+        Ok((l, _)) => {
+            assert!(depth <= MAX_DEPTH, "a playlist {depth} levels deep");
+            assert_eq!(entries(&l, &path), [2]);
+        }
+        Err(e) => {
+            assert!(depth > MAX_DEPTH, "{e}");
+            assert!(e.to_string().contains("levels deep"), "{e}");
+        }
+    }
 }

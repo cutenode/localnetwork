@@ -385,3 +385,136 @@ fn gc_removes_what_older_versions_fingerprinted() {
     assert!(heard.get("bb01").is_some());
     assert!(library_index(&cache, "Main", Vec::new(), u64::MAX, &Ctx::silent()).1, "the current index stays");
 }
+
+/// The warnings `ctx` hears, as `(ctx, warnings)` for a test to run something with and then read.
+fn warnings_heard() -> (impl Fn(&crate::progress::Event) + Sync, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    let heard = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let into = heard.clone();
+    let sink = move |e: &crate::progress::Event| {
+        if let crate::progress::Event::Warning { message } = e {
+            into.lock().unwrap().push(message.clone());
+        }
+    };
+    (sink, heard)
+}
+
+/// `store gc` finds exactly the prints, recordings heard and indexes an older version wrote:
+/// not this version's or a newer one's, not a file too short to say which version wrote it, and
+/// not one some other program wrote.
+#[hegel::test(test_cases = 50)]
+fn prop_gc_finds_exactly_what_older_versions_wrote(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = Cache::new(dir.path().join("fingerprints"));
+    let heard = recordings(&cache);
+    let print = TrackPrint { duration_secs: 1.0, peaks: vec![Peak { t: 1, f: 2 }] };
+    let recorded = (SourceFormat::default(), Heard { peaks: Vec::new(), levels: Vec::new(), frames: 0 });
+    library_index(&cache, "Main", Vec::new(), u64::MAX, &Ctx::silent());
+    let index = std::fs::read(index_file(&cache, "Main")).unwrap();
+    std::fs::remove_file(index_file(&cache, "Main")).unwrap();
+    // (kind, how old): 0 this version's, 1 an older one's, 2 a newer one's, 3 cut short, 4 not ours.
+    let files: Vec<(u8, u8)> = tc
+        .draw(gs::vecs(gs::tuples!(gs::integers::<u8>().max_value(2), gs::integers::<u8>().max_value(4))).max_size(6));
+    let mut want = Vec::new();
+    for (i, &(kind, age)) in files.iter().enumerate() {
+        let key = format!("{:02x}{i:030}", tc.draw(gs::integers::<u8>()));
+        // Where the version is, how wide, which it is now, and how much says it.
+        let (path, mut bytes, at, version, head) = match kind {
+            0 => (cache.file(&key, Prints::EXT), print.encode(), 4, u32::from(VERSION), 6),
+            1 => (heard.file(&key, Recordings::EXT), Recordings::encode(&recorded), 4, Recordings::VERSION, 8),
+            _ => {
+                let at = tc.draw(gs::sampled_from(vec![36, 38]));
+                let v = if at == 36 { VERSION } else { INDEX_VERSION };
+                (cache.root().join(INDEX_DIR).join(format!("{i}.idx")), index.clone(), at, u32::from(v), 40)
+            }
+        };
+        let width = if kind == 1 { 4 } else { 2 };
+        let mut set = |v: u32| bytes[at..at + width].copy_from_slice(&v.to_le_bytes()[..width]);
+        match age {
+            1 => set(version - 1),
+            2 => set(version + 1),
+            3 => bytes.truncate(tc.draw(gs::integers::<usize>().max_value(head - 1))),
+            4 => bytes[if kind == 2 { 32 } else { 0 }] ^= 0x20,
+            _ => {}
+        }
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        if age == 1 {
+            want.push(path);
+        }
+    }
+    let mut found = older(&cache);
+    found.sort();
+    want.sort();
+    assert_eq!(found, want, "{files:?}");
+}
+
+/// A recording is heard once and then taken from the cache, until it or its write-ahead log
+/// changes; without a cache it's heard every time. A cache that can't be written to is said once
+/// per recording heard, and what was heard still comes back.
+#[hegel::test(test_cases = 50)]
+fn prop_a_recording_is_heard_again_only_once_it_or_its_log_changes(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let set = dir.path().join("set.aup3");
+    std::fs::write(&set, tc.draw(gs::vecs(gs::integers::<u8>()).min_size(1).max_size(64))).unwrap();
+    let wal = dir.path().join("set.aup3-wal");
+    let logged = tc.draw(gs::booleans());
+    if logged {
+        std::fs::write(&wal, b"log").unwrap();
+    }
+    // 0: no cache, 1: a cache, 2: a cache where a file is.
+    let cached = tc.draw(gs::integers::<u8>().max_value(2));
+    let root = dir.path().join("fingerprints");
+    if cached == 2 {
+        std::fs::write(&root, b"").unwrap();
+    }
+    let prints = Cache::new(&root);
+    let cache = (cached > 0).then(|| recordings(&prints));
+    let frames = tc.draw(gs::integers::<u32>());
+    let made = || (SourceFormat::default(), Heard { peaks: vec![Peak { t: 3, f: 4 }], levels: Vec::new(), frames });
+    let (sink, warned) = warnings_heard();
+    let ctx = Ctx::new(&sink, crate::progress::CancelToken::new());
+    let mut heard_count = 0;
+    let mut hear = || {
+        let (value, from_cache) = heard(cache.as_ref(), &set, || Ok(made()), &ctx).unwrap();
+        assert_eq!(Recordings::encode(&value), Recordings::encode(&made()));
+        heard_count += usize::from(!from_cache);
+    };
+    hear();
+    hear();
+    // The log grows (or appears): what Audacity hadn't written into the project yet changed.
+    std::fs::write(&wal, b"a longer log").unwrap();
+    hear();
+    let expected = match cached {
+        1 => 2,
+        _ => 3,
+    };
+    assert_eq!(heard_count, expected, "cache {cached}, log {logged}");
+    let warnings = warned.lock().unwrap().clone();
+    let said = warnings.iter().filter(|w| w.starts_with("couldn't cache a recording's fingerprint")).count();
+    assert_eq!(said, if cached == 2 { 3 } else { 0 }, "{warnings:?}");
+}
+
+/// Where a drive's index would be kept is a folder: the index is built all the same and isn't
+/// kept, and why is said (it couldn't be removed when over the limit, or written when within it).
+/// The folder stays.
+#[hegel::test(test_cases = 10)]
+fn prop_an_index_that_cant_be_kept_is_built_and_said_so(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = Cache::new(dir.path().join("fingerprints"));
+    let n = tc.draw(gs::integers::<u32>().max_value(5));
+    let print = TrackPrint { duration_secs: 30.0, peaks: (0..9).map(|t| Peak { t: t * 7, f: t as u8 }).collect() };
+    let prints = || (0..n).map(|id| Fingerprinted { id, key: format!("k{id}"), print: print.clone() }).collect();
+    std::fs::create_dir_all(index_file(&cache, "Main")).unwrap();
+    let limit = tc.draw(gs::sampled_from(vec![0, u64::MAX]));
+    let (sink, warned) = warnings_heard();
+    let ctx = Ctx::new(&sink, crate::progress::CancelToken::new());
+    let (index, kept) = library_index(&cache, "Main", prints(), limit, &ctx);
+    assert!(!kept);
+    let built: Vec<Fingerprinted> = prints();
+    assert_eq!(index.encode(), LibraryIndex::build(built.into_iter().map(|f| (f.id, f.print)).collect()).encode());
+    let why =
+        if limit == 0 { "couldn't remove the library's kept index" } else { "couldn't cache the library's index" };
+    let warnings = warned.lock().unwrap().clone();
+    assert!(matches!(warnings.as_slice(), [w] if w.starts_with(why)), "{warnings:?}");
+    assert!(index_file(&cache, "Main").is_dir());
+}

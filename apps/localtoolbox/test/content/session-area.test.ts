@@ -1,11 +1,11 @@
-// content.ts — the session area opening after the page has loaded.
+// content.ts: the session area opening after the page has loaded.
 //
 // Chrome shuts chrome.storage.session to content scripts until a trusted
 // context opens it, and the popup is what does that (src/lib/queue.svelte.ts).
 // After a browser restart that is the ordinary order of things: a SoundCloud
 // tab is already open, and has found the area shut, before the popup is first
 // opened. The page offers no queue button while it cannot write the queue, and
-// offers one as soon as the popup opens the door — without a reload.
+// offers one as soon as the popup opens the door, without a reload.
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { loadContentScript, disposeContentScripts } from '../helpers/load.ts';
 import { createChrome, type ChromeMock } from '../helpers/chrome.ts';

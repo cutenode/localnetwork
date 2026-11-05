@@ -1,4 +1,4 @@
-// src/lib/toast.svelte.ts — the messages that come up at the bottom of the
+// src/lib/toast.svelte.ts: the messages that come up at the bottom of the
 // popup and go away on their own. What they say is asserted where they are
 // said, in each panel's tests; what is here is that they go, and when.
 import { describe, it, expect, vi } from 'vitest';
