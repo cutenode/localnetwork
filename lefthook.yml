@@ -45,15 +45,9 @@ pre-push:
   jobs:
     # One after the other: `svelte-kit sync` and Vite's SvelteKit plugin both rewrite .svelte-kit/types, and svelte-check
     # reading a half-written copy reports that `./$types` is missing.
-    - name: web
+    - name: typecheck and unit tests web
       root: apps/web/
-      group:
-        piped: true
-        jobs:
-          - name: typecheck web
-            run: pnpm check
-          - name: unit tests web
-            run: pnpm test
+      run: pnpm check && pnpm test
     - name: typecheck localtoolbox
       root: apps/localtoolbox/
       run: pnpm check
