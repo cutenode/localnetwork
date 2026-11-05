@@ -1316,11 +1316,15 @@ fn apply_op_indexed(
             if !missing.is_empty() {
                 return skip(format!("track {} isn't in this database", missing[0]));
             }
-            let (from, to) = (ids[0], ids[1]);
-            db.repoint(from, to)?;
+            let to = ids[1];
+            // The entries of every row of `from`'s file move, not only those of one.
+            let froms = rows_of(db.lib(), from);
+            for &from in &froms {
+                db.repoint(from, to)?;
+            }
             let lib = db.lib();
             for p in lib.playlists.iter_mut().chain(lib.history.iter_mut()) {
-                for t in p.track_ids.iter_mut().filter(|t| **t == from) {
+                for t in p.track_ids.iter_mut().filter(|t| froms.contains(t)) {
                     *t = to;
                 }
             }
