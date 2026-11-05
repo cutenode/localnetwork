@@ -11,7 +11,7 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::artwork::{self, Artwork};
 use locallibrary::device::Device;
-use locallibrary::progress::Ctx;
+use locallibrary::progress::{CancelToken, Ctx, NoProgress};
 use locallibrary::store::Store;
 use locallibrary::{Error, paths};
 use lofty::config::WriteOptions;
@@ -133,4 +133,79 @@ fn art_for_tracks_onelibrary_lacks_is_said(tc: TestCase) {
     media::set_artwork(&mut d, &ids, &media::png(30, 30, 7), &warnings.ctx()).unwrap();
     assert!(warnings.said().iter().any(|w| w.contains("aren't in exportLibrary.db")), "{:?}", warnings.said());
     assert!(d.library().unwrap().track(late).unwrap().artwork_path.is_some());
+}
+
+/// What applying found art does to a plan that went stale.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Stale {
+    No,
+    /// It names a track the drive doesn't have: passed over.
+    UnknownTrack,
+    /// Its image is outside the drive, or gone: refused.
+    Escaped,
+    Deleted,
+    /// Cancelled before writing: refused.
+    Cancelled,
+}
+
+/// Only cover, folder, front, album or artwork images in a picture format are found beside the
+/// audio (and a track the drive lacks has none to read); applying the plan sets them on the tracks
+/// it names that the drive has, and a plan whose image left the drive or went, or one cancelled,
+/// fails with the drive as it was. Each way a plan goes stale is tried on a drive of its own.
+#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_automatic_art_applies_only_what_it_can_still_read(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let pictured = tc.draw(gs::booleans());
+    let name = tc.draw(gs::sampled_from(vec!["Cover.JPG", "folder.png", "front.jpeg"]));
+    let ways = match pictured {
+        true => vec![Stale::No, Stale::UnknownTrack, Stale::Escaped, Stale::Deleted, Stale::Cancelled],
+        false => vec![Stale::No],
+    };
+    for stale in ways {
+        let root = common::demo_drive(&dir.path().join(format!("{stale:?}")), "DNA");
+        let lib = common::library(&root);
+        let folder = paths::to_fs(&root, &paths::key(&lib.tracks[0].file_path)).parent().unwrap().to_path_buf();
+        fs::write(folder.join("cover.txt"), b"liner notes").unwrap();
+        let cover = folder.join(name);
+        if pictured {
+            fs::write(&cover, media::png(32, 32, 3)).unwrap();
+        }
+        let mut d = Device::open_export(&root).unwrap();
+        assert!(matches!(artwork::read_from_drive(&d, &lib, 9999), Err(Error::NotFound(_))));
+        let mut plan = artwork::plan_auto(&d, &lib);
+        assert_eq!(plan.found.is_empty(), !pictured, "{:?}", plan.found);
+        assert_eq!(plan.found.len() + plan.not_found.len(), lib.tracks.len());
+        let cancel = CancelToken::new();
+        match stale {
+            Stale::No => {}
+            Stale::UnknownTrack => {
+                let mut item = plan.found[0].clone();
+                item.track.id = 9999;
+                plan.found.push(item);
+            }
+            Stale::Escaped => {
+                fs::write(dir.path().join("Escaped/outside.png"), media::png(32, 32, 4)).unwrap();
+                plan.found[0].source = "../outside.png".into();
+            }
+            Stale::Deleted => fs::remove_file(&cover).unwrap(),
+            Stale::Cancelled => cancel.cancel(),
+        }
+        let set = plan.found.iter().filter(|i| i.track.id != 9999).count();
+        let before = common::Before::take(&root);
+        let r = artwork::apply_auto(&mut d, &plan, &Ctx::new(&NoProgress, cancel));
+        match stale {
+            Stale::No | Stale::UnknownTrack => {
+                let r = r.unwrap();
+                assert_eq!((r.tracks_updated, r.artwork_rows_added), (set, usize::from(set > 0)));
+                let after = d.library().unwrap();
+                for item in plan.found.iter().filter(|i| i.track.id != 9999) {
+                    assert!(after.track(item.track.id).unwrap().artwork_path.is_some(), "{item:?}");
+                }
+            }
+            _ => {
+                assert!(r.is_err(), "{stale:?}: {r:?}");
+                before.untouched(&root).unwrap();
+            }
+        }
+    }
 }

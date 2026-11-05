@@ -104,3 +104,62 @@ fn tidying_a_stale_plan_removes_only_what_is_still_clutter(tc: TestCase) {
     assert!(outside.exists());
     assert!(stays.iter().all(|p| p.exists()), "{stays:?}");
 }
+
+/// A folder tidying can't read is passed by, with the clutter in it; tidying cancelled, or while
+/// another write holds the drive, stops before anything goes; and clutter in a folder it can't
+/// change stays, said to have failed, while the rest goes.
+#[cfg(unix)]
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(clutter = "Thumbs.db", locked_name = "Locked", held = true)]
+#[hegel::explicit_test_case(clutter = "Thumbs.db", locked_name = "Locked", held = false)]
+fn prop_tidying_stops_when_cancelled_or_locked_and_passes_by_what_it_cant_read(tc: TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "A");
+    let clutter = tc.draw(gs::sampled_from(vec!["Contents/A/.DS_Store", "Contents/A/Thumbs.db", "Thumbs.db"]));
+    fs::create_dir_all(root.join(clutter).parent().unwrap()).unwrap();
+    fs::write(root.join(clutter), b"clutter").unwrap();
+    let shut = root.join("Contents/Shut");
+    fs::create_dir_all(&shut).unwrap();
+    fs::write(shut.join(".DS_Store"), b"stuck").unwrap();
+    let locked_name = tc.draw(gs::sampled_from(vec!["Locked", "Contents/Locked"]));
+    let locked = root.join(locked_name);
+    fs::create_dir_all(&locked).unwrap();
+    fs::write(locked.join(".DS_Store"), b"unseen").unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    let d = Device::open_export(&root).unwrap();
+    let cancelled = || {
+        let cancel = locallibrary::CancelToken::new();
+        cancel.cancel();
+        Ctx { cancel, ..Ctx::silent() }
+    };
+
+    let refused = tidy::plan(&d, &TidyOptions::default(), &cancelled());
+    assert!(matches!(refused, Err(locallibrary::Error::Cancelled)), "{refused:?}");
+    let plan = tidy::plan(&d, &TidyOptions::default(), &Ctx::silent()).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    let planned: BTreeSet<&str> = plan.items.iter().map(|i| i.path.as_str()).collect();
+    assert_eq!(planned, BTreeSet::from([clutter, "Contents/Shut/.DS_Store"]), "the unreadable folder's isn't seen");
+
+    let held = tc.draw(gs::booleans());
+    let r = match held {
+        true => {
+            let _lock = d.lock().unwrap();
+            tidy::apply(&plan, &d, &Ctx::silent())
+        }
+        false => tidy::apply(&plan, &d, &cancelled()),
+    };
+    match held {
+        true => assert!(matches!(r, Err(locallibrary::Error::Locked(_))), "{r:?}"),
+        false => assert!(matches!(r, Err(locallibrary::Error::Cancelled)), "{r:?}"),
+    }
+    assert!(root.join(clutter).is_file(), "nothing went");
+    fs::set_permissions(&shut, fs::Permissions::from_mode(0o555)).unwrap();
+    let r = tidy::apply(&plan, &d, &Ctx::silent()).unwrap();
+    fs::set_permissions(&shut, fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(r.removed, 1);
+    let failed: Vec<&str> = r.failed.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(failed, ["Contents/Shut/.DS_Store"]);
+    assert!(!root.join(clutter).exists() && shut.join(".DS_Store").exists());
+}

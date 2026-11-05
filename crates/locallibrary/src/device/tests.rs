@@ -517,3 +517,87 @@ fn a_drive_looked_at_while_its_written_takes_every_write() {
     assert!(failed.is_none(), "a write failed: {failed:?}");
     assert_eq!(std::fs::read(&pdb).unwrap(), b"200");
 }
+
+/// A sync file is read for its `<Sync>` tag alone: none, or one cut off before its `>`, is no
+/// sync; in one, automatic sync is on exactly when `AutomaticSync` is `"1"` (cut off before its
+/// closing quote, it says nothing), the collection is the `DBID` as an unsigned 32-bit number,
+/// and every `<NODE` after it is a playlist.
+#[hegel::test(test_cases = 300)]
+fn prop_sync_files_say_what_their_sync_tag_says(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dbid: Option<i64> = tc
+        .draw(gs::booleans())
+        .then(|| tc.draw(gs::integers::<i64>().min_value(i32::MIN.into()).max_value(u32::MAX.into())));
+    let automatic =
+        tc.draw(gs::sampled_from(vec!["", " AutomaticSync=\"1\"", " AutomaticSync=\"0\"", " AutomaticSync=\"1"]));
+    let (sync, closed) = (tc.draw(gs::weighted_booleans(0.9)), tc.draw(gs::weighted_booleans(0.9)));
+    let nodes = tc.draw(gs::integers::<usize>().max_value(5));
+    let mut xml = String::from("<?xml version=\"1.0\"?>");
+    if sync {
+        xml.push_str("<Sync ");
+        if let Some(id) = dbid {
+            xml.push_str(&format!(" DBID=\"{id}\""));
+        }
+        xml.push_str(automatic);
+        if closed {
+            xml.push_str("><Playlists>");
+            xml.push_str(&"<NODE Type=\"1\"/>".repeat(nodes));
+            xml.push_str("</Playlists></Sync>");
+        }
+    }
+    let parsed = RekordboxSync::parse("device_library", &xml);
+    if !(sync && closed) {
+        assert_eq!(parsed, None, "{xml}");
+        return;
+    }
+    let want = RekordboxSync {
+        library: "device_library",
+        automatic: automatic == " AutomaticSync=\"1\"",
+        collection: dbid.map(|v| v as u32),
+        playlists: nodes,
+    };
+    assert_eq!(parsed, Some(want), "{xml}");
+}
+
+/// A drive whose identity folder can't be written refuses to take or change an identity, to
+/// begin or finish a run and to be locked, with an I/O error, and keeps the identity it had. One
+/// whose identity file was garbled since it was opened refuses to begin a run, saying which file
+/// it can't read. A folder that isn't there isn't a drive with an export.
+#[cfg(unix)]
+#[hegel::test(test_cases = 20)]
+fn prop_a_drive_whose_identity_cant_be_kept_refuses_to_change(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    assert!(matches!(Device::open_export(dir.path().join("gone")), Err(Error::NotFound(_))));
+    let mut d = Device::open(dir.path()).unwrap();
+    let adopted = tc.draw(gs::booleans());
+    if adopted {
+        d.adopt(Some("DNA")).unwrap();
+    }
+    let state = d.state_dir().join("state.json");
+    if tc.draw(gs::booleans()) {
+        std::fs::create_dir_all(d.state_dir()).unwrap();
+        std::fs::write(&state, b"{ not json").unwrap();
+        let begun = d.begin(LineageOp::Sync, "sync", None);
+        assert!(matches!(&begun, Err(Error::Parse { path, .. }) if *path == state), "{begun:?}");
+        return;
+    }
+    std::fs::create_dir_all(d.state_dir()).unwrap();
+    std::fs::set_permissions(d.state_dir(), std::fs::Permissions::from_mode(0o555)).unwrap();
+    let writable = std::fs::write(d.state_dir().join("probe"), b"").is_ok();
+    let old = serde_json::to_value(d.state()).unwrap();
+    let attempts = [
+        d.finish(None),
+        d.begin(LineageOp::Sync, "sync", None),
+        d.adopt(Some("Other")).map(drop),
+        d.reset_identity(&DeviceState::new("Again")),
+        d.lock().map(drop),
+    ];
+    std::fs::set_permissions(d.state_dir(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    tc.assume(!writable);
+    for a in attempts {
+        assert!(matches!(a, Err(Error::Io { .. })), "{a:?}");
+    }
+    assert_eq!(serde_json::to_value(Device::open(dir.path()).unwrap().state()).unwrap(), old, "nothing recorded");
+}

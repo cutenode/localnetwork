@@ -250,3 +250,58 @@ fn packed_drives_and_newer_sides_with_fewer_tracks_are_not_copied_over(tc: hegel
         assert!(c.evidence.iter().any(|e| e.signal == "pack" && e.detail == "Copy was packed from Source"));
     }
 }
+
+/// Two libraries no lineage links that share under half the smaller one's tracks are unrelated:
+/// for certain when they share under a fifth, otherwise less so. The overlap is the share of
+/// the smaller library's tracks the other has too.
+#[hegel::test(test_cases = 200)]
+fn prop_libraries_sharing_little_are_unrelated_as_surely_as_they_share_little(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(10));
+    let m = tc.draw(gs::integers::<usize>().min_value(1).max_value(10));
+    let shared = tc.draw(gs::integers::<usize>().max_value(n.min(m)));
+    let left: Vec<String> = (0..n).map(|i| if i < shared { format!("s{i}") } else { format!("l{i}") }).collect();
+    let right: Vec<String> = (0..m).map(|i| if i < shared { format!("s{i}") } else { format!("r{i}") }).collect();
+    let a = side("A", 1, &[], lib(&left.iter().map(String::as_str).collect::<Vec<_>>(), ""));
+    let b = side("B", 2, &[], lib(&right.iter().map(String::as_str).collect::<Vec<_>>(), ""));
+    let c = compare(&a, &b);
+    let overlap = shared as f64 / n.min(m) as f64;
+    assert_eq!(c.overlap, overlap);
+    if overlap < 0.5 {
+        let sure = if overlap < 0.2 { Confidence::High } else { Confidence::Medium };
+        assert_eq!((c.relation, c.confidence, c.suggestion), (Relation::Unrelated, sure, Suggestion::Merge));
+        assert!(c.evidence.iter().any(|e| e.signal == "overlap"), "{:?}", c.evidence);
+    } else {
+        assert_ne!(c.relation, Relation::Unrelated, "{:?}", c.evidence);
+    }
+}
+
+/// A snapshot whose library database is listed without the hash of its content can't be
+/// compared from: it says which file has no hash, whichever database it is.
+#[hegel::test(test_cases = 10)]
+fn prop_a_snapshot_database_listed_without_a_hash_cant_be_compared_from(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let key = tc.draw(gs::sampled_from(vec![paths::EXPORT_PDB, paths::LIBRARY_PLUS_DB]));
+    let snapshot = Snapshot {
+        id: Hash::of(b"snapshot"),
+        library_id: Uuid::from_u128(1),
+        parents: Vec::new(),
+        created: Utc::now(),
+        message: None,
+        source: None,
+        fingerprint: Hash::of(b"state"),
+        summary: Default::default(),
+        lineage: Vec::new(),
+        files: vec![crate::tree::FileEntry {
+            path: key.into(),
+            size: tc.draw(gs::integers::<u64>().max_value(1 << 20)),
+            mtime: 0,
+            class: paths::FileClass::Database,
+            hash: None,
+        }],
+    };
+    let err = Side::from_snapshot(&store, &snapshot, "stored").unwrap_err();
+    assert_eq!(err.to_string(), Error::invalid(format!("{key} has no hash")).to_string());
+}

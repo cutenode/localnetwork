@@ -795,3 +795,290 @@ fn a_document_is_dated_to_the_millisecond(tc: TestCase) {
     let millis = at.timestamp_subsec_millis();
     assert_eq!(json["generatedAt"], format!("2025-10-09T08:53:20.{millis:03}Z"), "{at:?}");
 }
+
+/// Options read from JSON take their default for every field left out, and the value given for
+/// the rest.
+#[hegel::test(test_cases = 100)]
+fn prop_options_left_out_take_their_defaults(tc: TestCase) {
+    let day = || gs::optional(gs::integers::<u32>().min_value(1).max_value(28));
+    let date = |d: Option<u32>| d.and_then(|d| NaiveDate::from_ymd_opt(2026, 2, d));
+    let given = ProfileOptions {
+        since: date(tc.draw(day())),
+        until: date(tc.draw(day())),
+        min_set_tracks: tc.draw(gs::integers::<usize>().max_value(50)),
+        top: tc.draw(gs::integers::<usize>().max_value(50)),
+        analysis: tc.draw(gs::booleans()),
+        genre_aliases: match tc.draw(gs::booleans()) {
+            true => IndexMap::from([("dnb".to_string(), "DnB".to_string())]),
+            false => IndexMap::new(),
+        },
+    };
+    let fields = ["since", "until", "min_set_tracks", "top", "analysis", "genre_aliases"];
+    let left_out: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(fields.to_vec())).max_size(fields.len()));
+    let mut json = serde_json::to_value(&given).unwrap();
+    let defaults = serde_json::to_value(ProfileOptions::default()).unwrap();
+    let mut want = json.clone();
+    for f in &left_out {
+        json.as_object_mut().unwrap().remove(*f);
+        want[*f] = defaults[*f].clone();
+    }
+    let read: ProfileOptions = serde_json::from_value(json).unwrap();
+    assert_eq!(serde_json::to_value(&read).unwrap(), want, "left out {left_out:?}");
+}
+
+/// Each trait the summary claims is there exactly when its numbers clear the bar: enough
+/// transitions, plays, sets or tracks to go on, and a share (or year) past its threshold.
+#[hegel::test(test_cases = 300)]
+fn prop_each_trait_is_claimed_exactly_when_its_numbers_clear_the_bar(tc: TestCase) {
+    let o = ProfileOptions { analysis: false, ..ProfileOptions::default() };
+    let now = Utc::now();
+    let mut r = compute(&builder(&o), Basis::Plays, 0, now);
+    let count = || gs::integers::<usize>().max_value(40);
+    // The thresholds themselves come up as often as values between them.
+    let share = || {
+        hegel::one_of!(
+            gs::sampled_from(vec![0.0, 0.5, 0.6, 0.8, 0.85, 1.0]),
+            gs::floats::<f64>().min_value(0.0).max_value(1.0)
+        )
+    };
+    let m = &mut r.mixing;
+    (m.keyed, m.harmonic_share) = (tc.draw(count()), tc.draw(gs::optional(share())));
+    (m.timed, m.within_3pct) = (tc.draw(count()), tc.draw(gs::optional(share())));
+    (m.genred, m.genre_change_share) = (tc.draw(count()), tc.draw(gs::optional(share())));
+    r.genres.known = tc.draw(count());
+    r.genres.top = tc
+        .draw(gs::optional(share()))
+        .map(|share| Share { name: "Techno".into(), count: 1, share })
+        .into_iter()
+        .collect();
+    (r.arc.sets, r.arc.builds) = (tc.draw(gs::integers::<usize>().max_value(6)), tc.draw(share()));
+    let year = now.year();
+    r.era.tracks = tc.draw(count());
+    r.era.recent_share = tc.draw(gs::optional(share()));
+    r.era.median_year = tc.draw(gs::optional(gs::integers::<i32>().min_value(year - 20).max_value(year)));
+    r.sets.count = tc.draw(gs::integers::<usize>().max_value(10));
+    r.sets.plays = tc.draw(count());
+    r.sets.distinct_tracks = tc.draw(gs::integers::<usize>().max_value(r.sets.plays));
+    let signature = tc.draw(gs::optional(gs::integers::<usize>().max_value(r.sets.count)));
+    r.signature.tracks = signature
+        .map(|sets| PlayedTrack {
+            name: "Bicep - Glue".into(),
+            artist: "Bicep".into(),
+            title: "Glue".into(),
+            sets,
+            plays: sets,
+            opened: 0,
+            closed: 0,
+            unnamed: false,
+        })
+        .into_iter()
+        .collect();
+    r.prep = tc.draw(gs::optional(gs::tuples!(count(), share()))).map(|(tracks, hot_cue_share)| PrepSection {
+        tracks,
+        hot_cue_share,
+        ..PrepSection::default()
+    });
+
+    let tags: Vec<&str> = summarise(&r).tags.iter().map(|t| t.id).collect();
+    let (m, sets) = (&r.mixing, &r.sets);
+    let at_least = |x: Option<f64>, bar: f64| x.is_some_and(|x| x >= bar);
+    let want = [
+        ("harmonic", m.keyed >= 20 && at_least(m.harmonic_share, 0.6)),
+        ("smooth_tempo", m.timed >= 20 && at_least(m.within_3pct, 0.8)),
+        ("genre_hopping", m.genred >= 20 && at_least(m.genre_change_share, 0.5)),
+        ("focused", r.genres.known >= 20 && at_least(r.genres.top.first().map(|t| t.share), 0.6)),
+        ("builds", r.arc.sets >= 3 && r.arc.builds >= 0.5),
+        ("fresh", r.era.tracks >= 20 && at_least(r.era.recent_share, 0.5)),
+        ("digger", r.era.tracks >= 20 && r.era.median_year.is_some_and(|y| y <= year - 10)),
+        (
+            "rarely_repeats",
+            sets.count >= 5 && sets.plays > 0 && sets.distinct_tracks as f64 / sets.plays as f64 >= 0.85,
+        ),
+        ("signature", sets.count >= 4 && signature.is_some_and(|n| n as f64 / sets.count as f64 >= 0.5)),
+        ("prepared", r.prep.as_ref().is_some_and(|p| p.tracks >= 20 && p.hot_cue_share >= 0.8)),
+    ];
+    let claimed: Vec<&str> = want.iter().filter(|(_, earned)| *earned).map(|(id, _)| *id).collect();
+    assert_eq!(tags, claimed, "{:?} {:?} {:?} {:?} {:?}", r.mixing, r.genres, r.arc, r.era, r.prep);
+}
+
+const REC_FILES: [&str; 4] = ["", "/Contents/a.mp3", "/contents/A.mp3", "/Contents/b.mp3"];
+/// A track's year, the release date its tags give, and the year the profile should read.
+const RELEASES: [(u16, &str, Option<i32>); 7] = [
+    (0, "", None),
+    (2001, "", Some(2001)),
+    (2001, "1999-01-01", Some(2001)),
+    (0, "2003-04-05", Some(2003)),
+    (0, "20", None),
+    (0, "abcd-01", None),
+    (0, "1850-01-01", None),
+];
+
+/// Every track added is one recording per artist, title and length, or per file when it has
+/// neither artist nor title; its file finds it (a track without one isn't found by file). A
+/// recording keeps the first track's tags and release year, and its analysis is read from the
+/// first library that has an analysis file for it.
+#[hegel::test(test_cases = 300)]
+fn prop_recordings_are_told_apart_by_their_tags_or_else_their_file(tc: TestCase) {
+    let track = hegel::compose!(|tc| {
+        let (year, release_date, _) = tc.draw(gs::sampled_from(RELEASES.to_vec()));
+        let analyze = tc.draw(gs::sampled_from(vec!["", "/PIONEER/USBANLZ/P001/0001/ANLZ0000.DAT"]));
+        let t = Track {
+            artist: tc.draw(gs::sampled_from(vec!["", "Bicep"])).into(),
+            title: tc.draw(gs::sampled_from(vec!["", "Glue"])).into(),
+            duration_secs: tc.draw(gs::sampled_from(vec![200, 300])),
+            file_path: tc.draw(gs::sampled_from(REC_FILES.to_vec())).into(),
+            analyze_path: analyze.into(),
+            year,
+            release_date: release_date.into(),
+            ..Track::default()
+        };
+        (t, tc.draw(gs::integers::<usize>().max_value(2)))
+    });
+    let added: Vec<(Track, usize)> = tc.draw(gs::vecs(track).max_size(10));
+    let o = ProfileOptions::default();
+    let mut b = builder(&o);
+    let recs: Vec<usize> = added.iter().map(|(t, d)| b.rec(t, Some(Origin::Drive(*d)))).collect();
+
+    let key = |t: &Track| match t.artist.is_empty() && t.title.is_empty() {
+        true => format!("file {}", paths::file_key(&t.file_path)),
+        false => t.fingerprint_key(),
+    };
+    let keys: FxHashSet<String> = added.iter().map(|(t, _)| key(t)).collect();
+    assert_eq!(b.recs.len(), keys.len());
+    for (k, (t, _)) in added.iter().enumerate() {
+        let same: Vec<usize> = (0..added.len()).filter(|&j| key(&added[j].0) == key(t)).collect();
+        let first = &added[same[0]].0;
+        assert_eq!(recs[k], recs[same[0]], "{t:?}");
+        let r = &b.recs[recs[k]];
+        assert_eq!(
+            (&r.track.artist, &r.track.title, &r.track.file_path),
+            (&first.artist, &first.title, &first.file_path)
+        );
+        let want_year = RELEASES.iter().find(|(y, d, _)| *y == first.year && *d == first.release_date).unwrap().2;
+        assert_eq!(r.year, want_year, "{first:?}");
+        let analysed = same.iter().find(|&&j| !added[j].0.analyze_path.is_empty()).map(|&j| added[j].1);
+        let origin = r.origin.map(|o| match o {
+            Origin::Drive(d) => d,
+            Origin::Snapshot(_) => unreachable!("only drives were added"),
+        });
+        assert_eq!(origin, analysed, "{t:?}");
+        let by_file = (!t.file_path.is_empty()).then(|| paths::file_key(&t.file_path));
+        if let Some(f) = &by_file {
+            let first_with_file = added.iter().position(|(u, _)| paths::file_key(&u.file_path) == *f).unwrap();
+            assert_eq!(b.by_file[f], recs[first_with_file]);
+        }
+    }
+    let files: FxHashSet<String> =
+        added.iter().filter(|(t, _)| !t.file_path.is_empty()).map(|(t, _)| paths::file_key(&t.file_path)).collect();
+    assert_eq!(b.by_file.len(), files.len());
+}
+
+/// Without declared sets, a log imported from another tool stands in for a set on the day it
+/// was played, when that's in range and it has `min_set_tracks` or more tracks (those shorter
+/// are counted, those dismissed left out). Its entries are the library's tracks by file, else
+/// tracks made of what the entry kept, with no analysis to read.
+#[hegel::test(test_cases = 200)]
+fn prop_imported_logs_count_on_the_day_they_were_played(tc: TestCase) {
+    let now = Utc::now();
+    let today = now.with_timezone(&Local).date_naive();
+    let days = || gs::optional(gs::integers::<i64>().min_value(0).max_value(20));
+    let ago = |d: i64| today - chrono::Duration::days(d);
+    let o = ProfileOptions {
+        since: tc.draw(days()).map(ago),
+        until: tc.draw(days()).map(ago),
+        min_set_tracks: tc.draw(gs::integers::<usize>().min_value(1).max_value(4)),
+        analysis: false,
+        ..ProfileOptions::default()
+    };
+    let mut b = builder(&o);
+    let tracks: Vec<Track> = (0..4)
+        .map(|i| Track {
+            artist: "Bicep".into(),
+            title: format!("T{i}"),
+            duration_secs: 200,
+            file_path: format!("/Contents/T{i}.mp3"),
+            ..Track::default()
+        })
+        .collect();
+    b.add_collection(&Library { tracks: tracks.clone(), ..Library::default() }, Origin::Drive(0));
+    // 4: an entry whose track isn't in the library, and kept no file.
+    let entry = |i: usize| match tracks.get(i) {
+        Some(t) => SetEntry::from_track(t, EntryOrigin::Session, None),
+        None => SetEntry {
+            title: "Gone".into(),
+            file: None,
+            ..SetEntry::from_track(&tracks[0], EntryOrigin::Session, None)
+        },
+    };
+    let log = gs::tuples!(
+        gs::integers::<i64>().min_value(0).max_value(20),
+        gs::vecs(gs::integers::<usize>().max_value(4)).max_size(6),
+        gs::weighted_booleans(0.2)
+    );
+    let logs: Vec<(i64, Vec<usize>, bool)> = tc.draw(gs::vecs(log).max_size(5));
+    let sessions: Vec<Session> = logs
+        .iter()
+        .enumerate()
+        .map(|(k, (age, entries, dismissed))| {
+            let after = now - chrono::Duration::days(*age);
+            Session {
+                id: format!("log{k}"),
+                name: format!("Friday {k}"),
+                path: format!("Friday {k}"),
+                source: "beat_link_trigger".into(),
+                drives: Vec::new(),
+                first_seen_on: None,
+                window: crate::sets::Window {
+                    after: Some(after),
+                    before: Some(after + chrono::Duration::hours(2)),
+                    exact: true,
+                },
+                tracks: entries.iter().map(|&i| entry(i)).collect(),
+                missing: 0,
+                sets: Vec::new(),
+                dismissed: *dismissed,
+            }
+        })
+        .collect();
+    let short = b.sessions_as_sets(&sessions, &FxHashSet::default());
+
+    let kept: Vec<&(i64, Vec<usize>, bool)> = logs.iter().filter(|l| !l.2).collect();
+    assert_eq!(short, kept.iter().filter(|l| l.1.len() < o.min_set_tracks).count());
+    let want: Vec<(String, NaiveDate, &Vec<usize>)> = logs
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, entries, dismissed))| !dismissed && entries.len() >= o.min_set_tracks)
+        .map(|(k, (age, entries, _))| {
+            (format!("log{k}"), (now - chrono::Duration::days(*age)).with_timezone(&Local).date_naive(), entries)
+        })
+        .filter(|(_, d, _)| o.since.is_none_or(|x| *d >= x) && o.until.is_none_or(|x| *d <= x))
+        .collect();
+    assert_eq!(b.sets.len(), want.len());
+    for (set, (id, date, entries)) in b.sets.iter().zip(&want) {
+        assert_eq!((&set.id, set.date, set.place.as_str()), (id, Some(*date), "beat_link_trigger"));
+        assert!(set.missing_at.is_empty());
+        assert_eq!(set.tracks.len(), entries.len());
+        for (&r, &i) in set.tracks.iter().zip(entries.iter()) {
+            match i {
+                4 => assert!(b.recs[r].track.title == "Gone" && b.recs[r].origin.is_none() && !b.recs[r].in_collection),
+                _ => assert_eq!(r, b.by_key[&rec_key(&tracks[i])]),
+            }
+        }
+    }
+}
+
+/// A genre's name in title case reads the same but for case, with its spaces and hyphens where
+/// they were (an empty piece, as in `Tech-`, stays empty), and every piece starts with a capital.
+#[hegel::test(test_cases = 300)]
+fn prop_title_case_changes_only_the_case(tc: TestCase) {
+    let piece = gs::sampled_from(vec!["", "deep", "HOUSE", "uk", "UKG", "dnb2", "tEcH", "2step"]);
+    let parts: Vec<(&str, &str)> =
+        tc.draw(gs::vecs(gs::tuples!(piece, gs::sampled_from(vec![" ", "-"]))).min_size(1).max_size(5));
+    let raw: String = parts.iter().map(|(p, sep)| format!("{p}{sep}")).collect::<String>();
+    let raw = &raw[..raw.len() - 1];
+    let titled = title_case(raw);
+    assert!(titled.eq_ignore_ascii_case(raw), "{raw:?} -> {titled:?}");
+    for p in titled.split([' ', '-']) {
+        assert!(!p.starts_with(|c: char| c.is_ascii_lowercase()), "{raw:?} -> {titled:?}");
+    }
+}

@@ -236,3 +236,47 @@ fn a_browser_back_in_time_is_answered_after_the_deadline(tc: TestCase) {
         assert!(answer.starts_with("HTTP/1.1 400"), "{answer:?}");
     }
 }
+
+/// What a stranger sends that isn't a request at all.
+#[derive(Debug, Clone, Copy)]
+enum Garbage {
+    /// A request line that isn't UTF-8.
+    NotText,
+    /// A method and nothing else.
+    OneWord,
+    /// Nothing: connected, then hung up.
+    Nothing,
+}
+
+/// Connections that don't send a request (a line that isn't text, a method alone, nothing at all)
+/// are let go without an answer, and the wait goes on to the sign-in's own redirect.
+#[hegel::test(test_cases = 15)]
+fn prop_what_isnt_a_request_is_let_go(tc: TestCase) {
+    use std::net::Shutdown;
+    let strangers = tc.draw(
+        gs::vecs(gs::sampled_from(vec![Garbage::NotText, Garbage::OneWord, Garbage::Nothing])).min_size(1).max_size(3),
+    );
+    let (listener, _) = bind(0).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let knocked: Vec<TcpStream> = strangers
+        .iter()
+        .map(|g| {
+            let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+            match g {
+                Garbage::NotText => s.write_all(b"GET /callback?\xff\xfe HTTP/1.1\r\n\r\n").unwrap(),
+                Garbage::OneWord => s.write_all(b"GET\r\n\r\n").unwrap(),
+                Garbage::Nothing => {}
+            }
+            s.shutdown(Shutdown::Write).unwrap();
+            s
+        })
+        .collect();
+    let browser = send(port, "GET", &format!("{CALLBACK_PATH}?code=c&state=st4te"));
+    let request = wait(&listener, Duration::from_secs(10), &Ctx::silent(), |s| s == "st4te").unwrap();
+    assert_eq!(request.query.code.as_deref(), Some("c"));
+    request.respond(true, "ok");
+    assert!(answer_to(browser).starts_with("HTTP/1.1 200 OK"));
+    for (g, stream) in strangers.iter().zip(knocked) {
+        assert_eq!(answer_to(stream), "", "{g:?}");
+    }
+}

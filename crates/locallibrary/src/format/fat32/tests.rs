@@ -160,3 +160,74 @@ fn timestamps_keep_the_date_and_time(tc: TestCase) {
     let hms = (u32::from(time >> 11), u32::from(time >> 5 & 0x3F), u32::from(time & 0x1F) * 2);
     assert_eq!(hms, (t.hour(), t.minute(), t.second() / 2 * 2));
 }
+
+/// A device that counts its seeks, writes and flushes, keeps nothing, and fails the one numbered
+/// `fail_at`.
+struct Failing {
+    ops: usize,
+    fail_at: Option<usize>,
+}
+
+impl Failing {
+    fn op(&mut self) -> std::io::Result<()> {
+        self.ops += 1;
+        match self.fail_at == Some(self.ops - 1) {
+            true => Err(std::io::Error::other("the device went away")),
+            false => Ok(()),
+        }
+    }
+}
+
+impl Write for Failing {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.op().map(|()| buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.op()
+    }
+}
+
+impl Seek for Failing {
+    fn seek(&mut self, _: SeekFrom) -> std::io::Result<u64> {
+        self.op().map(|()| 0)
+    }
+}
+
+/// The clusters a layout holds fit after its FATs. A format stops at the first seek, write or
+/// flush the device fails, with an I/O error about the volume, and when cancelled while the
+/// FATs are written (between any two of their writes); cancelled after the last FAT write, it
+/// finishes.
+#[hegel::test(test_cases = 100)]
+fn prop_a_format_stops_at_a_device_error_or_a_cancel_in_the_fats(tc: TestCase) {
+    let clusters = tc.draw(gs::integers::<u64>().min_value(MIN_CLUSTERS).max_value(MIN_CLUSTERS * 6));
+    let size = clusters * 512 + (1 << 20);
+    let l = Layout::new(size, 512, 512, 0).unwrap();
+    assert!(l.data_start() * 512 + l.capacity() <= size, "what it holds fits after its FATs");
+    let mut clean = Failing { ops: 0, fail_at: None };
+    write(&mut clean, 0, &l, "USB", 1, &Ctx::silent()).unwrap();
+
+    let fail_at = tc.draw(gs::integers::<usize>().max_value(clean.ops - 1));
+    let mut dev = Failing { ops: 0, fail_at: Some(fail_at) };
+    let err = write(&mut dev, 0, &l, "USB", 1, &Ctx::silent()).unwrap_err();
+    assert!(matches!(&err, Error::Io { path, .. } if path.to_str() == Some("volume")), "{err}");
+    assert_eq!(dev.ops, fail_at + 1, "nothing after the failure");
+
+    // Writes before the second FAT's last chunk each have a check after them.
+    let chunks = (l.fat_sectors as usize * 512 - 512).div_ceil(CHUNK);
+    let checked = 1 + 2 * (1 + chunks);
+    let cancel_after = tc.draw(gs::integers::<usize>().min_value(1).max_value(checked + 4));
+    let cancel = crate::progress::CancelToken::new();
+    let writes = std::sync::atomic::AtomicUsize::new(0);
+    let stop = |e: &Event| {
+        if matches!(e, Event::Bytes { .. })
+            && writes.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1 == cancel_after
+        {
+            cancel.cancel();
+        }
+    };
+    let done = write(&mut Failing { ops: 0, fail_at: None }, 0, &l, "USB", 1, &Ctx::new(&stop, cancel.clone()));
+    match cancel_after < checked {
+        true => assert!(matches!(done, Err(Error::Cancelled)), "{done:?}"),
+        false => done.unwrap(),
+    }
+}

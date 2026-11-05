@@ -90,3 +90,42 @@ fn packs_that_cant_be_made_as_asked_are_refused_or_said(tc: TestCase) {
         assert_eq!(methods, [Some("convert.plan".to_string())]);
     }
 }
+
+/// What a pack would replace is said in full: how many history lists and the first three of
+/// them (with `...` past three), that the drive changed, and that its OneLibrary can't be read,
+/// each that holds, joined by "and"; nothing when nothing holds.
+#[hegel::test(test_cases = 200)]
+fn prop_what_a_pack_would_replace_is_said_in_full(tc: TestCase) {
+    let history_lists: Vec<String> = tc
+        .draw(gs::vecs(gs::integers::<u16>().max_value(999)).max_size(6))
+        .iter()
+        .map(|n| format!("HISTORY {n:03}"))
+        .collect();
+    let (changed, unreadable_onelibrary) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
+    let unsaved = pack::Unsaved { history_lists: history_lists.clone(), changed, unreadable_onelibrary };
+    let said = unsaved.describe();
+    let mut parts: Vec<&str> = said.split(" and ").collect();
+    if !history_lists.is_empty() {
+        let lists = parts.remove(0);
+        let (count, shown) = lists.split_once(" history list(s) (").unwrap();
+        assert_eq!(count, history_lists.len().to_string(), "{said}");
+        let shown = shown.strip_suffix(')').unwrap();
+        let (names, more) = shown.strip_suffix(", ...").map_or((shown, false), |s| (s, true));
+        assert_eq!(
+            names.split(", ").collect::<Vec<_>>(),
+            history_lists.iter().take(3).map(String::as_str).collect::<Vec<_>>()
+        );
+        assert_eq!(more, history_lists.len() > 3, "{said}");
+    }
+    let mut rest = Vec::new();
+    if changed {
+        rest.push("changes since locallibrary last wrote it");
+    }
+    if unreadable_onelibrary {
+        rest.push("an exportLibrary.db that can't be read (it may hold history lists)");
+    }
+    if parts == [""] {
+        parts.clear();
+    }
+    assert_eq!(parts, rest, "{said}");
+}

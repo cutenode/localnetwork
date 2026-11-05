@@ -163,3 +163,15 @@ fn logs_are_read_as_their_plays(tc: TestCase) {
     let other = text.replacen(" 23:", " 22:", 1);
     assert_ne!(read_log(&other, None).unwrap().0, id);
 }
+
+/// A zone of `GMT` or `UTC` followed by something that isn't an offset is no time at all.
+#[hegel::test(test_cases = 100)]
+fn prop_a_zone_offset_that_isnt_one_is_no_time(tc: TestCase) {
+    let prefix = tc.draw(gs::sampled_from(vec!["GMT", "UTC"]));
+    let suffix = tc.draw(gs::sampled_from(vec!["+", "-", "+25:00", "+ab:cd", "Z", "x"]));
+    assert_eq!(java_date(&format!("Sat Oct 03 23:14:05 {prefix}{suffix} 2026")), None, "{prefix}{suffix}");
+    let missing = tc.draw(gs::sampled_from(vec!["gone.txt", "logs/gone.csv"]));
+    let dir = tempfile::tempdir().unwrap();
+    let err = beat_link_trigger(&dir.path().join(missing), None, None).unwrap_err();
+    assert_eq!(err.code(), "io", "{err}");
+}
