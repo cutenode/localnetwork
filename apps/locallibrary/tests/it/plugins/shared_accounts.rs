@@ -10,7 +10,7 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use serde_json::{Value, json};
 
-use crate::mock_oauth::{Server, Service, WITH, account_plugin, keys_account_plugin, service};
+use crate::mock_oauth::{Server, Service, WITH, account_plugin, holds_token, keys_account_plugin, service};
 use crate::props_rpc::{at, contract, violation};
 use crate::support::{Env, Rpc, echo_plugin};
 
@@ -107,8 +107,7 @@ impl Mock {
 
     /// Whether any token the service gave is in `text`.
     pub(super) fn leaked(&self, text: &str) -> bool {
-        let issued = self.state.lock().unwrap().issued;
-        (1..=issued).any(|n| text.contains(&format!("at-{n}")) || text.contains(&format!("rt-{n}")))
+        holds_token(text, self.state.lock().unwrap().issued)
     }
 }
 

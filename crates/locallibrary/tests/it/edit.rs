@@ -229,6 +229,26 @@ fn replacing_a_duplicate_moves_its_entries_to_the_keeper() {
     }
 }
 
+/// A duplicate whose file another row shares takes that row's entries to the keeper too, in
+/// both databases: the row goes with the duplicate's file, and its entries don't go with it.
+#[test]
+fn replacing_a_duplicate_moves_the_entries_of_every_row_of_its_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "Main");
+    let lib = pdb_library(&root);
+    let (dup, keep) = (lib.tracks[1].clone(), lib.tracks[5].clone());
+    let twin = common::add_track(&root, rekordbox_pdb::NewTrack::new("Twin", dup.file_path.clone()), b"audio");
+    common::add_history(&root, "HISTORY 001", &[dup.id, twin]);
+    common::add_onelibrary(&root);
+    apply(&root, &[Edit::ReplaceTrack { duplicate: ids(&[dup.id]), keep: ids(&[keep.id]), keep_duplicate: false }]);
+    for lib in [pdb_library(&root), common::plus_library(&root)] {
+        let held: Vec<&str> =
+            lib.history[0].track_ids.iter().map(|id| lib.track(*id).unwrap().file_path.as_str()).collect();
+        assert_eq!(held, [keep.file_path.as_str(); 2]);
+        assert!(lib.tracks.iter().all(|t| t.file_path != dup.file_path));
+    }
+}
+
 #[test]
 fn history_lists_can_be_deleted() {
     let dir = tempfile::tempdir().unwrap();
