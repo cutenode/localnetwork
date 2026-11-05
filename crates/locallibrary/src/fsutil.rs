@@ -243,6 +243,26 @@ pub fn absolute(path: &Path) -> PathBuf {
 
 pub use loclib_model::paths::resolved;
 
+/// Take the write permission off `path` for everyone, and say whether it's read-only now: some
+/// disks accept this and keep nothing. Being renamed over or deleted still works, since that
+/// writes its folder. Not on Windows, where a read-only file can't be replaced or deleted.
+pub(crate) fn seal(path: &Path) -> std::io::Result<bool> {
+    #[cfg(unix)]
+    {
+        let mut permissions = fs::metadata(path)?.permissions();
+        if !permissions.readonly() {
+            permissions.set_readonly(true);
+            fs::set_permissions(path, permissions)?;
+        }
+        Ok(fs::metadata(path)?.permissions().readonly())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(false)
+    }
+}
+
 /// Delete a file if it exists. Returns whether it did.
 pub fn remove_if_exists(path: &Path) -> Result<bool> {
     match fs::remove_file(path) {

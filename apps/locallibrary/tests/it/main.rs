@@ -57,6 +57,8 @@ mod props_cli_sets;
 mod props_cli_smart;
 mod props_cli_terminal;
 mod props_cli_tracklist;
+#[cfg(unix)]
+mod props_cli_view;
 mod props_rpc;
 mod props_rpc_every;
 mod props_rpc_flows;

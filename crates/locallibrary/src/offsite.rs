@@ -753,8 +753,5 @@ pub(crate) fn fetch_object(store: &Store, dest: &dyn Destination, hash: &Hash, c
             message: format!("a stored file came back damaged ({})", hash.short()),
         });
     }
-    let dst = store.object_path(hash);
-    let parent = dst.parent().expect("object path has parent");
-    fs::create_dir_all(parent).at(parent)?;
-    fsutil::replace(tmp.into_temp_path(), &dst)
+    store.keep_object(tmp.into_temp_path(), hash)
 }

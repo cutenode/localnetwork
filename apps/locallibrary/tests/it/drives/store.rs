@@ -185,6 +185,7 @@ fn the_store_says_what_it_holds() {
         .flat_map(|d| std::fs::read_dir(d.unwrap().path()).unwrap())
         .map(|f| f.unwrap().path())
         .collect();
+    std::fs::remove_file(&objects[0]).unwrap();
     std::fs::write(&objects[0], "damaged").unwrap();
     std::fs::remove_file(&objects[1]).unwrap();
     let r = env.run(&["store", "verify"]);
@@ -248,4 +249,15 @@ fn a_store_that_wont_open_is_named() {
         let err = env.fails(1, args);
         assert!(err.contains(&named) && err.contains("newer than this version"), "{args:?}: {err}");
     }
+}
+
+/// Windows has no view to give: links there take administrator rights.
+#[cfg(windows)]
+#[test]
+fn windows_says_views_arent_available() {
+    let env = Env::new();
+    env.pulled("Main");
+    let id = env.ok(&["log", "Main"]).lines().last().unwrap().split_whitespace().next().unwrap().to_string();
+    let err = env.fails(1, &["store", "browse", &id]);
+    assert!(err.contains("isn't available on Windows"), "{err}");
 }

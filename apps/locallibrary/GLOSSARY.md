@@ -3,6 +3,13 @@
 The command line tool, terminal player and sidecar that keep rekordbox USB drives in sync, backed
 up and edited, and the plugins that add to them.
 
+## Store
+
+**View**:
+A temporary, read-only folder of links into the store, laid out as one snapshot's drive tree, with
+nothing copied.
+_Avoid_: mount, browse folder, checkout
+
 ## Plugins
 
 **Built-in plugin**:
