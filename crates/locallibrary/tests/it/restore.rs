@@ -233,8 +233,8 @@ fn undo_shows_the_files_and_the_journal_entries_it_takes_back() {
     assert_eq!(plan.journal.len(), 1);
     plan.apply(None, &Ctx::silent()).unwrap();
     assert!(edit::journal::list(&Device::open(&root).unwrap()).unwrap().is_empty());
-    // Undoing again steps back to the change before, and there's none (it used to put the same
-    // backup back again).
+    // Undoing again steps back to the change before, and there's none, so the same backup
+    // doesn't go back again.
     let again = api::undo_plan(&undo).unwrap_err();
     assert!(matches!(again, Error::NotFound(_)), "{again}");
 }
