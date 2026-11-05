@@ -117,7 +117,7 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright install chromium
       # As in web-ci.yml's Lighthouse job: lets Chromium's sandbox create its user namespaces.
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Pull the HappyView image (scripts/lib/happyview.ts)
