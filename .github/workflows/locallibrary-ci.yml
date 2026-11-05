@@ -203,7 +203,7 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install
       # nextest lists what's in every binary of the archive, and the CLI's links ALSA.
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev strace
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -214,7 +214,7 @@ jobs:
         with:
           name: tests
       - run: echo "LOCALLIBRARY_BUDGETS_OUT=$PWD/target/budgets" >> "$GITHUB_ENV"
-      - run: cargo nextest run --archive-file tests.tar.zst -E 'binary(counters)'
+      - run: cargo nextest run --archive-file tests.tar.zst -E 'binary(counters) | binary(export_counters)'
       # Without colour: CARGO_TERM_COLOR colours each repeat's `(*)`, which sed then doesn't take off.
       - run: |
           cargo tree --color never --locked --target x86_64-unknown-linux-gnu -e normal,no-proc-macro -p locallibrary-cli --prefix none |
