@@ -1923,3 +1923,187 @@ fn the_my_tags_column_lists_each_tracks_tags(tc: hegel::TestCase) {
         assert!(!row.contains("Genre/") && !row.contains("Vibe/"), "{row}");
     }
 }
+
+/// A drive back from a set says how many sessions it has that the store hasn't, when it has any.
+#[hegel::test(test_cases = 50)]
+fn prop_back_from_a_set_counts_the_new_sessions(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let n = tc.draw(gs::integers::<usize>().max_value(12));
+    let dir = tempfile::tempdir().unwrap();
+    let mut status = fleet(locallibrary::Device::open(dir.path()).unwrap().info(), Some("Demo")).status;
+    (status.relation, status.back_from_set) = (Some(locallibrary::compare::Relation::RightNewer), Some(n));
+    let said: String = drives::standing(&status, false).iter().map(|s| s.content.as_ref()).collect();
+    let want = match n {
+        0 => "back from a set".to_string(),
+        n => format!("back from a set: {}", plural(n, "new session")),
+    };
+    assert_eq!(said.trim_start_matches(['▲', ' ']), want);
+}
+
+/// How full a drive is shows only when its size is known and it has one.
+#[hegel::test(test_cases = 50)]
+fn prop_a_drives_space_shows_when_its_size_is_known(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (mut app, dir) = blank(View::Drives);
+    let root = dir.path().join("DNA");
+    std::fs::create_dir_all(&root).unwrap();
+    let mut info = locallibrary::Device::open(&root).unwrap().info();
+    info.free_space = tc.draw(gs::optional(gs::integers::<u64>().max_value(1_000_000)));
+    info.total_space = tc.draw(gs::optional(gs::sampled_from(vec![0u64, 2_000_000])));
+    let known = info.free_space.is_some() && info.total_space.is_some_and(|t| t > 0);
+    app.drives = vec![info];
+    app.drive_state.select(Some(0));
+    let s = screen(&mut app, 120, 40);
+    assert_eq!(s.contains(" free of "), known, "{s}");
+}
+
+/// A value with its analyzer's hints reads as they say, and is coloured for what it is: a meter
+/// in the accent, numbers on the right.
+#[hegel::test(test_cases = 100)]
+fn prop_a_hinted_value_is_drawn_as_what_it_is(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use loclib_plugin::{FieldDisplay, FieldFormat};
+    use ratatui::layout::Alignment;
+
+    let value = match tc.draw(gs::integers::<u8>().max_value(4)) {
+        0 => FieldValue::Integer(tc.draw(gs::integers::<i64>().min_value(-1_000).max_value(1_000))),
+        1 => FieldValue::Number(tc.draw(gs::integers::<i32>().min_value(-4_000).max_value(4_000)) as f64 / 4.0),
+        2 => FieldValue::Boolean(tc.draw(gs::booleans())),
+        3 => FieldValue::String(tc.draw(gs::text().alphabet("abc ").max_size(8))),
+        _ => FieldValue::Strings(vec!["deep".into(), "warm".into()]),
+    };
+    let formats = vec![
+        None,
+        Some(FieldFormat::Meter),
+        Some(FieldFormat::Key),
+        Some(FieldFormat::Duration),
+        Some(FieldFormat::Db),
+        Some(FieldFormat::Percent),
+    ];
+    let hint = FieldDisplay { format: tc.draw(gs::sampled_from(formats)), ..Default::default() };
+    let line = field_cell(&value, Some(&hint));
+    assert_eq!(line.to_string(), hint.show(&value));
+    let t = theme::current();
+    let (colour, right) = match (hint.format, &value) {
+        (Some(FieldFormat::Meter), _) => (t.accent, false),
+        (_, FieldValue::Number(_) | FieldValue::Integer(_)) => (t.warning, true),
+        (_, FieldValue::Boolean(_)) => (t.dim, false),
+        _ => (t.info, false),
+    };
+    assert_eq!(line.style.fg, Some(theme::rgb3(colour)));
+    assert_eq!(line.alignment == Some(Alignment::Right), right);
+}
+
+/// The details panel says the album, remix, mix and year a track has, in a line, and no such
+/// line for a track with none of them.
+#[hegel::test(test_cases = 50)]
+fn prop_the_details_panel_says_where_a_track_is_from(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut lib = library();
+    let t = &mut lib.tracks[0];
+    t.album = tc.draw(gs::sampled_from(vec!["", "Homework"])).to_string();
+    t.remixer = tc.draw(gs::sampled_from(vec!["", "Hell"])).to_string();
+    t.mix_name = tc.draw(gs::sampled_from(vec!["", "Club"])).to_string();
+    t.year = tc.draw(gs::sampled_from(vec![0, 1997]));
+    let year = (t.year > 0).then(|| t.year.to_string());
+    let about = [t.album.clone(), t.remixer.clone(), t.mix_name.clone()].into_iter().filter(|s| !s.is_empty());
+    let about = about.chain(year).collect::<Vec<_>>().join(" · ");
+    let (mut app, _dir) = app_with(lib);
+    app.show_details = true;
+    let s = screen(&mut app, 160, 40);
+    if about.is_empty() {
+        for word in ["Homework", "Hell", "Club", "1997"] {
+            assert!(!s.contains(word), "{word}\n{s}");
+        }
+    } else {
+        assert!(s.contains(&about), "{about}\n{s}");
+    }
+}
+
+/// With reduced motion, the track playing is marked in the list with a still arrow.
+#[test]
+fn reduced_motion_marks_the_track_playing_with_an_arrow() {
+    // SAFETY: as in `echo_plugin`.
+    unsafe { std::env::set_var("LOCALLIBRARY_REDUCED_MOTION", "1") };
+    theme::init();
+    let (_dir, mut app, _out) = playing_wavs(&[8000]);
+    opened(&mut app);
+    let s = screen(&mut app, 120, 30);
+    assert!(s.lines().any(|l| l.contains("▶") && l.contains("DJ") && l.contains("Track 1")), "{s}");
+}
+
+/// An undo that only puts files back says the playlists and tracks stay as they are.
+#[test]
+fn an_undo_that_changes_no_list_or_track_says_so() {
+    let (dir, root, _) = edited_drive();
+    let undo = locallibrary::api::UndoRequest { drive: Some(root.display().to_string()), ..Default::default() };
+    let mut planned = locallibrary::api::undo_plan(&undo).unwrap();
+    planned.plan.diff.changed_tracks.clear();
+    assert!(planned.plan.diff.is_empty());
+    let mut app = App::blank(dir.path().join("store"), None);
+    let s = confirmation_screen(&mut app, root, Box::new(planned));
+    assert!(s.contains("playlists and tracks stay as they are"), "{s}");
+}
+
+/// An export's confirmation lists its first files, counts the rest, and says what's wrong with
+/// the library.
+#[hegel::test(test_cases = 20)]
+fn prop_an_export_lists_its_first_files_and_its_warnings(tc: hegel::TestCase) {
+    use crate::export_cmd::FILES_SHOWN;
+    use hegel::generators as gs;
+    use locallibrary::plugin::ExportFile;
+    use loclib_plugin::{ExportSource, ExportedFile};
+
+    static DRIVE: std::sync::OnceLock<(tempfile::TempDir, std::path::PathBuf)> = std::sync::OnceLock::new();
+    let (dir, root) = DRIVE.get_or_init(|| {
+        let (dir, root) = demo_drive();
+        echo_plugin(dir.path());
+        mounted(dir.path());
+        (dir, root)
+    });
+    let source = ExportSource { drive: root.display().to_string(), ..ExportSource::default() };
+    let out = dir.path().join("list.m3u");
+    let plugins = crate::plugins::host().unwrap();
+    let ctx = locallibrary::Ctx::silent();
+    let mut planned =
+        plugins.export_plan("echo", "echo-m3u", source, &out, serde_json::Value::Null, None, &ctx).unwrap();
+    let n = tc.draw(gs::integers::<usize>().max_value(FILES_SHOWN + 8));
+    let file = |i| ExportedFile { path: dir.path().join(format!("list{i}.m3u")), what: "list".into(), bytes: 0 };
+    planned.plan.files = (0..n).map(|i| ExportFile { file: file(i), exists: false }).collect();
+    planned.warnings = (0..tc.draw(gs::integers::<usize>().max_value(2))).map(|i| format!("warning {i}")).collect();
+    let warnings = planned.warnings.clone();
+
+    let mut app = App::blank(dir.path().join("store"), None);
+    confirmation_screen(&mut app, root, Box::new(planned));
+    let s = screen(&mut app, 120, 60);
+    for i in 0..n {
+        assert_eq!(s.contains(&format!("list{i}.m3u ")), i < FILES_SHOWN, "file {i} of {n}\n{s}");
+    }
+    assert_eq!(s.contains("more"), n > FILES_SHOWN, "{s}");
+    if n > FILES_SHOWN {
+        assert!(s.contains(&format!("and {} more", n - FILES_SHOWN)), "{s}");
+    }
+    for w in warnings {
+        assert!(s.contains(&format!("⚠ {w}")), "{s}");
+    }
+}
+
+/// Sorted by plays, the track list shows each track's beside it.
+#[hegel::test(test_cases = 20)]
+fn prop_sorted_by_plays_each_track_shows_its_plays(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use locallibrary::query::{SortField, SortKey};
+    let mut lib = library();
+    for t in &mut lib.tracks {
+        t.play_count = tc.draw(gs::integers().min_value(1000).max_value(9999));
+    }
+    let tracks = lib.tracks.clone();
+    let (mut app, _dir) = app_with(lib);
+    app.sort = Some(SortKey { field: SortField::Plays, descending: tc.draw(gs::booleans()) });
+    app.refresh_visible();
+    let s = screen(&mut app, 120, 30);
+    for t in &tracks {
+        let plays = t.play_count.to_string();
+        assert!(s.lines().any(|l| l.contains(&t.title) && l.contains(&plays)), "{} {plays}\n{s}", t.title);
+    }
+}

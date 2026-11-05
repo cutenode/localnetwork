@@ -1,9 +1,9 @@
 name: Release budgets
 description: >-
   Builds the release CLI on Linux and holds it to benchmarks/budgets/ (see benchmarks/README.md):
-  the size of its binary and archive, and the instructions everyday commands run under cachegrind,
-  which counts them exactly, on the 3,886-track fixture. Leaves what it measured in target/budgets
-  for an upload.
+  the size of its binary and archive, and the instructions everyday commands and a frame of the
+  player run under cachegrind, which counts them exactly, on the 3,886-track fixture. Leaves what
+  it measured in target/budgets for an upload.
 
 runs:
   using: composite
@@ -40,5 +40,13 @@ runs:
           echo "check $(instructions check LARGE LARGE2)"
           echo "doctor $(instructions doctor LARGE)"
         } | jq -Rn '[inputs | split(" ") | {(.[0]): (.[1] | tonumber)}] | add' > target/budgets/cli.json
+    # A frame of the player: the frame test's instructions over many frames, less a run of none,
+    # which leaves out reading the fixture. It's the release profile, as dist's test binary would
+    # take a second fat LTO link.
+    - shell: bash
+      run: |
+        unit=$(cargo test --release -p locallibrary-cli --test unit --locked --no-run --message-format=json-render-diagnostics |
+          jq -r 'select(.executable != null and .target.name == "unit") | .executable')
+        .github/actions/release-budgets/frame-instructions.sh "$unit" 600 tui-instructions target/budgets
     - shell: bash
       run: node tools/budgets/cli.ts check target/budgets release

@@ -196,3 +196,60 @@ fn a_theme_is_drawn_in_every_mode() {
     set_test_theme(None);
     assert_eq!(key().fg, Some(exact(Theme::DEFAULT.accent)), "the default's again");
 }
+
+/// The mode the environment asks for as the player starts is the one drawn in.
+#[hegel::test(test_cases = 50)]
+fn prop_the_mode_the_environment_asks_for_is_drawn_in(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let var = |name: &str, value: &Option<&str>| match value {
+        // SAFETY: nextest runs each test in a process of its own, and nothing else in this one
+        // reads the environment now.
+        Some(v) => unsafe { std::env::set_var(name, v) },
+        // SAFETY: as above.
+        None => unsafe { std::env::remove_var(name) },
+    };
+    let no_color = tc.draw(gs::optional(gs::sampled_from(vec!["", "1"])));
+    let theme = tc.draw(gs::optional(gs::sampled_from(vec!["light", "dark", "auto"])));
+    let colorfgbg = tc.draw(gs::optional(gs::sampled_from(vec!["0;15", "15;0", "0;default;7"])));
+    var("NO_COLOR", &no_color);
+    var("LOCALLIBRARY_THEME", &theme);
+    var("COLORFGBG", &colorfgbg);
+    init();
+    let text = |v: Option<&str>| v.map(String::from);
+    assert_eq!(mode(), detect(text(no_color), text(theme), text(colorfgbg)));
+}
+
+/// Terminals that say they have 24-bit colour, or are known to, get it; others the nearest of the
+/// xterm 256. It's read once a process, so each terminal here is a process of its own.
+#[test]
+fn truecolor_is_what_the_terminal_has() {
+    const ALONE: &str = "LOCALLIBRARY_TEST_TRUECOLOR";
+    if let Some(want) = std::env::var_os(ALONE) {
+        assert_eq!(matches!(rgb(1, 2, 3), Color::Rgb(1, 2, 3)), want == "yes", "{:?}", rgb(1, 2, 3));
+        return;
+    }
+    let terminals = [
+        ("COLORTERM", "truecolor", "yes"),
+        ("COLORTERM", "24BIT", "yes"),
+        ("TERM_PROGRAM", "iTerm.app", "yes"),
+        ("TERM_PROGRAM", "ghostty", "yes"),
+        ("KITTY_WINDOW_ID", "1", "yes"),
+        ("WT_SESSION", "1", "yes"),
+        ("COLORTERM", "256color", "no"),
+        ("TERM_PROGRAM", "Apple_Terminal", "no"),
+    ];
+    for (var, value, want) in terminals {
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["tui::theme::tests::truecolor_is_what_the_terminal_has", "--exact", "--nocapture"])
+            .env_remove("COLORTERM")
+            .env_remove("TERM_PROGRAM")
+            .env_remove("KITTY_WINDOW_ID")
+            .env_remove("WT_SESSION")
+            .env(var, value)
+            .env(ALONE, want)
+            .output()
+            .unwrap();
+        let said = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success() && said.contains("1 passed"), "{var}={value}: {said}");
+    }
+}
