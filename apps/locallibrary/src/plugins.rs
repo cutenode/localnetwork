@@ -221,7 +221,7 @@ fn exe() -> std::io::Result<PathBuf> {
 /// cargo builds for the tests does. Its path is looked up when the test runs, not built in, so it
 /// holds when nextest runs the tests from an archive somewhere else.
 #[cfg(test)]
-fn exe() -> std::io::Result<PathBuf> {
+pub(crate) fn exe() -> std::io::Result<PathBuf> {
     std::env::var_os("CARGO_BIN_EXE_locallibrary").map(PathBuf::from).ok_or_else(|| {
         std::io::Error::other(
             "CARGO_BIN_EXE_locallibrary isn't set: run the tests with cargo 1.94 or later, or nextest",

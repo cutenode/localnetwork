@@ -392,7 +392,7 @@ fn prop_a_terminal_that_knows_nothing_costs_the_timeout_and_no_more(tc: TestCase
 
 /// The player, on a world of nothing in `dir`.
 fn player(dir: &std::path::Path) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_locallibrary"));
+    let mut command = Command::new(crate::plugins::exe().unwrap());
     command.arg("tui").current_dir(dir).env("HOME", dir);
     command.env("LOCALLIBRARY_STORE", dir.join("store")).env("LOCALLIBRARY_AUDIO", "silent");
     command.env("LOCALLIBRARY_VOLUMES", dir.join("none")).env("LOCALLIBRARY_NO_OPEN", "1");
