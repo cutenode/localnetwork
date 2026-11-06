@@ -90,12 +90,13 @@ pub fn without_verbatim_prefix(p: PathBuf) -> PathBuf {
 
 /// Normalise any path-ish string into a key.
 pub fn key(s: &str) -> String {
-    // Either slash leads only to become a `/` that's trimmed. Most paths are NFC already (ASCII
-    // always is), which a quick check tells without normalising.
+    // Either slash leads only to become a `/` that's trimmed. Most paths are NFC already, which
+    // being ASCII says at once and a quick check tells without normalising: `key` runs on every
+    // path of every track, and that check alone was a fifth of a `diff`.
     let s = s.trim_start_matches(['/', '\\']);
-    let nfc: Cow<str> = match is_nfc_quick(s.chars()) {
-        IsNormalized::Yes => s.into(),
-        _ => s.nfc().collect::<String>().into(),
+    let nfc: Cow<str> = match s.is_ascii() || matches!(is_nfc_quick(s.chars()), IsNormalized::Yes) {
+        true => s.into(),
+        false => s.nfc().collect::<String>().into(),
     };
     nfc.replace('\\', "/")
 }

@@ -11,6 +11,8 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Cell, ListItem, Paragraph, Row, Table, Wrap};
 use uuid::Uuid;
 
+use crate::tui::icons;
+
 use crate::output::{bytes, duration, plural};
 use crate::tui::app::App;
 use crate::tui::drives::DriveRow;
@@ -33,22 +35,31 @@ fn pane_field(k: &str, v: String) -> Line<'static> {
 pub(super) fn standing(s: &DriveStatus, hints: bool) -> Vec<Span<'static>> {
     let save = Some("e, then save a snapshot");
     let (icon, msg, hint, c) = match (s.relation, &s.error) {
-        (_, Some(e)) => ("✖", format!("error: {e}"), None, theme::current().critical),
-        (None, _) if s.library.is_none() => ("○", "not in the store".to_string(), save, theme::current().dim),
-        (None, _) => ("○", "library has no snapshots".to_string(), None, theme::current().dim),
-        (Some(Relation::Identical), _) => ("✓", "up to date".to_string(), None, theme::current().good),
+        (_, Some(e)) => (icons::CROSS.get(), format!("error: {e}"), None, theme::current().critical),
+        (None, _) if s.library.is_none() => {
+            (icons::RING.get(), "not in the store".to_string(), save, theme::current().dim)
+        }
+        (None, _) => (icons::RING.get(), "library has no snapshots".to_string(), None, theme::current().dim),
+        (Some(Relation::Identical), _) => (icons::CHECK.get(), "up to date".to_string(), None, theme::current().good),
         (Some(Relation::RightNewer), _) => match s.back_from_set {
-            Some(0) => ("▲", "back from a set".to_string(), save, theme::current().warning),
-            Some(n) => ("▲", format!("back from a set: {}", plural(n, "new session")), save, theme::current().warning),
-            None => ("▲", "has changes not in the store".to_string(), save, theme::current().warning),
+            Some(0) => (icons::AHEAD.get(), "back from a set".to_string(), save, theme::current().warning),
+            Some(n) => (
+                icons::AHEAD.get(),
+                format!("back from a set: {}", plural(n, "new session")),
+                save,
+                theme::current().warning,
+            ),
+            None => (icons::AHEAD.get(), "has changes not in the store".to_string(), save, theme::current().warning),
         },
         (Some(Relation::LeftNewer), _) => (
-            "▼",
+            icons::BEHIND.get(),
             "behind the store".to_string(),
             Some("e, then sync, or locallibrary library push"),
             theme::current().warning,
         ),
-        (Some(Relation::Diverged), _) => ("⑂", "diverged from the store".to_string(), None, theme::current().critical),
+        (Some(Relation::Diverged), _) => {
+            (icons::FORK.get(), "diverged from the store".to_string(), None, theme::current().critical)
+        }
         (Some(other), _) => ("?", format!("{other:?}").to_lowercase(), None, theme::current().dim),
     };
     let msg = match hint.filter(|_| hints) {
@@ -207,19 +218,25 @@ pub(super) fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
                 }
                 for (what, c) in [("verified", &log.last_scrub), ("fs check", &log.last_fs_check)] {
                     if let Some(c) = c {
-                        let mark = if c.ok { "✓" } else { "✖" };
+                        let mark = if c.ok { icons::CHECK.get() } else { icons::CROSS.get() };
                         lines.push(pane_field(what, format!("{mark} {}  {}", local_time(c.at, "%Y-%m-%d"), c.summary)));
                     }
                 }
                 if let Some(p) = log.problems.last() {
                     lines.push(Line::styled(
-                        format!("  ✖ {} {}: {}", local_time(p.at, "%Y-%m-%d"), p.kind.replace('_', " "), p.detail),
+                        format!(
+                            "  {} {} {}: {}",
+                            icons::CROSS.get(),
+                            local_time(p.at, "%Y-%m-%d"),
+                            p.kind.replace('_', " "),
+                            p.detail
+                        ),
                         fg(theme::current().critical),
                     ));
                 }
             }
             for w in warn {
-                lines.push(Line::styled(format!("  ⚠ {w}"), fg(theme::current().warning)));
+                lines.push(Line::styled(format!("  {} {w}", icons::WARNING.get()), fg(theme::current().warning)));
             }
             lines.push(Line::raw(""));
         }
@@ -244,7 +261,8 @@ pub(super) fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
     if let Some(p) = &d.pending {
         lines.push(Line::styled(
             format!(
-                "⚠ interrupted: {} ({}), re-run it to finish",
+                "{} interrupted: {} ({}), re-run it to finish",
+                icons::WARNING.get(),
                 p.description,
                 local_time(p.started, "%Y-%m-%d %H:%M")
             ),
@@ -386,7 +404,12 @@ fn draw_library_clones(f: &mut Frame, app: &App, id: Uuid, area: Rect) {
             None if app.status_loading => vec![Span::styled("checking…", dim())],
             None => Vec::new(),
         };
-        lines.push(clone(Span::styled("● ", fg(theme::current().good)), drive_name(d), fd.and_then(|f| f.role), state));
+        lines.push(clone(
+            Span::styled(icons::DOT.spaced(), fg(theme::current().good)),
+            drive_name(d),
+            fd.and_then(|f| f.role),
+            state,
+        ));
     }
     for k in away {
         let behind = match &k.standing {
@@ -396,7 +419,7 @@ fn draw_library_clones(f: &mut Frame, app: &App, id: Uuid, area: Rect) {
             Standing::Unknown => String::new(),
         };
         let state = vec![Span::styled(format!("not plugged in{behind}"), dim())];
-        lines.push(clone(Span::styled("○ ", faint()), k.name.clone(), k.role, state));
+        lines.push(clone(Span::styled(icons::RING.spaced(), faint()), k.name.clone(), k.role, state));
     }
     lines.push(Line::raw(""));
     lines.push(pane_heading("Store"));
@@ -453,7 +476,7 @@ pub(super) fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
                     bold(theme::current().accent),
                 )),
                 Cell::from(Span::styled(
-                    if head { "●" } else { "│" },
+                    if head { icons::DOT.get() } else { "│" },
                     fg(if head { theme::current().good } else { theme::current().faint }),
                 )),
                 Cell::from(Span::styled(s.short_id.clone(), fg(theme::current().warning))),
@@ -496,6 +519,6 @@ pub(super) fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
     .block(b)
     .column_spacing(2)
     .row_highlight_style(theme::selected())
-    .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
+    .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
     f.render_stateful_widget(table, area, &mut app.history_state);
 }

@@ -2032,6 +2032,47 @@ fn reduced_motion_marks_the_track_playing_with_an_arrow() {
     assert!(s.lines().any(|l| l.contains("▶") && l.contains("DJ") && l.contains("Track 1")), "{s}");
 }
 
+/// With reduced motion the mark on the track playing holds still: an arrow while it plays, and
+/// pause while it's paused.
+#[hegel::test(test_cases = 4)]
+fn prop_reduced_motion_holds_the_playing_mark_still(tc: hegel::TestCase) {
+    static REDUCED: std::sync::Once = std::sync::Once::new();
+    // SAFETY: as in `echo_plugin`.
+    REDUCED.call_once(|| unsafe { std::env::set_var("LOCALLIBRARY_REDUCED_MOTION", "1") });
+    theme::init();
+    let (_dir, mut app, _out) = playing_wavs(&[8000]);
+    opened(&mut app);
+    let paused = tc.draw(hegel::generators::booleans());
+    if paused {
+        press(&mut app, " ");
+    }
+    let mark = if paused { icons::PAUSE.get() } else { icons::PLAY.get() };
+    let s = screen(&mut app, 120, 30);
+    assert!(s.lines().any(|l| l.contains(mark) && l.contains("DJ") && l.contains("Track 1")), "{s}");
+}
+
+/// A plan a guard stopped says which guard on its confirmation; one nothing stopped says nothing
+/// of it.
+#[hegel::test(test_cases = 6)]
+fn prop_a_confirmation_says_which_guard_stopped_it(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (dir, root) = demo_drive();
+    let contact = locallibrary::api::SetContact {
+        drive: root.display().to_string(),
+        contact: "dj@example.com".into(),
+        playlist: tc.draw(gs::booleans()),
+    };
+    let mut plan = locallibrary::api::drive_contact_plan(&contact, &locallibrary::Ctx::silent()).unwrap();
+    let guard = tc.draw(gs::optional(gs::sampled_from(&["echo.friday", "echo.rain"][..])));
+    plan.blocked = guard.map(String::from);
+    let mut app = App::blank(dir.path().join("store"), None);
+    let s = confirmation_screen(&mut app, &root, Box::new(plan));
+    match guard {
+        Some(guard) => assert!(s.contains(&format!("{} {guard} stops these changes", icons::REFUSED.get())), "{s}"),
+        None => assert!(!s.contains("stops these changes"), "{s}"),
+    }
+}
+
 /// An undo that only puts files back says the playlists and tracks stay as they are.
 #[test]
 fn an_undo_that_changes_no_list_or_track_says_so() {

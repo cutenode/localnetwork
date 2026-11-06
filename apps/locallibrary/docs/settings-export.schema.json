@@ -97,6 +97,8 @@
 			"additionalProperties": false,
 			"properties": {
 				"theme": { "description": "A plugin's theme, `<plugin>.<name>`.", "type": "string" },
+				"color": { "description": "The colour tier.", "enum": ["truecolor", "256", "16"] },
+				"icons": { "description": "The icons.", "enum": ["nerd", "unicode", "ascii"] },
 				"sort": {
 					"type": "object",
 					"required": ["field"],

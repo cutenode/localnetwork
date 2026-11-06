@@ -11,6 +11,7 @@ use ratatui::widgets::ListState;
 
 use super::app::{App, Level, Msg, View};
 use super::audio::{Audio, Listed};
+use super::icons;
 use super::theme;
 
 /// Hot cues the digit row plays: 1-8 for A-H, as many as a CDJ has pads.
@@ -340,7 +341,10 @@ impl App {
         if let Some(l) = self.deck.looped.filter(|l| l.on)
             && !cues.iter().any(|c| c.start_ms == l.start as u32 && c.end_ms == Some(l.end as u32))
         {
-            let label = self.loop_playing().and_then(|(_, b)| b).map(|b| format!("loop ↻{}", beats_label(b)));
+            let label = self
+                .loop_playing()
+                .and_then(|(_, b)| b)
+                .map(|b| format!("loop {}{}", icons::REPEAT.get(), beats_label(b)));
             cues.push(Cue {
                 hot_cue: None,
                 start_ms: l.start as u32,
