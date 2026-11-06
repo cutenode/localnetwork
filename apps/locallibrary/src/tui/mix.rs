@@ -31,6 +31,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Cell, List, ListItem, ListState, Paragraph, Row, Table, TableState, Wrap};
 
 use super::app::{App, Level, Msg, edit_line, typed_tail};
+use super::icons;
 use super::keymap::Act;
 use super::keys::Camelot;
 use super::theme::{self, bold, dim, faint, fg, rgb3, text};
@@ -45,7 +46,6 @@ fn lane(i: usize) -> [u8; 3] {
     let t = theme::current();
     [t.accent, t.info, t.warning, t.secondary, t.good][i % 5]
 }
-const INK: [u8; 3] = [14, 14, 20];
 const LOWER: [&str; 9] = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
 
 /// A recording to choose from.
@@ -1020,7 +1020,10 @@ fn draw_list(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
         let shown = typed_tail(text_, (input.width as usize).saturating_sub(1));
         let lines = vec![
             Line::styled("Open a recording or folder:", bold(theme::current().warning)),
-            Line::from(vec![Span::styled(shown.to_string(), text()), Span::styled("▏", fg(theme::current().accent))]),
+            Line::from(vec![
+                Span::styled(shown.to_string(), text()),
+                Span::styled(icons::CURSOR.get(), fg(theme::current().accent)),
+            ]),
             Line::styled("enter open · esc cancel", faint()),
         ];
         f.render_widget(Paragraph::new(lines), input);
@@ -1053,9 +1056,9 @@ fn draw_list(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
         .iter()
         .map(|s| {
             let mark = if loading.as_ref() == Some(&s.path) {
-                Span::styled("⟳ ", fg(theme::current().info))
+                Span::styled(icons::BUSY.spaced(), fg(theme::current().info))
             } else if opened.as_ref() == Some(&s.path) {
-                Span::styled("● ", fg(theme::current().good))
+                Span::styled(icons::DOT.spaced(), fg(theme::current().good))
             } else {
                 Span::raw("  ")
             };
@@ -1075,7 +1078,7 @@ fn draw_list(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
         .collect();
     let list = List::new(items)
         .highlight_style(if focused { theme::selected() } else { Style::new().add_modifier(Modifier::BOLD) })
-        .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
+        .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
     // Two lines a recording.
     t.list.fit(inner.height as usize / 2, t.sources.len());
     f.render_stateful_widget(list, inner, &mut t.list);
@@ -1180,7 +1183,7 @@ fn draw_report(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
     }
     if let Some(pos) = cx.playhead {
         first.push(Span::styled(
-            format!("   ▶ {} / {}", clock(pos), clock(m.duration_secs)),
+            format!("   {} {} / {}", icons::PLAY.get(), clock(pos), clock(m.duration_secs)),
             fg(theme::current().accent),
         ));
         if let Some(i) = playing {
@@ -1202,7 +1205,7 @@ fn draw_report(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
     for (i, p) in r.plays.iter().enumerate() {
         if i > 0 {
             let arrow = match r.transitions.iter().find(|tr| tr.to == i).and_then(|tr| tr.harmony.as_deref()) {
-                Some("clash") => Span::styled(" ✕ ", bold(theme::current().critical)),
+                Some("clash") => Span::styled(icons::CLASH.padded(), bold(theme::current().critical)),
                 Some(_) => Span::styled(" → ", fg(theme::current().good)),
                 None => Span::styled(" → ", faint()),
             };
@@ -1285,7 +1288,7 @@ fn shade(c: [u8; 3], played: bool, head: bool) -> [u8; 3] {
     if head {
         theme::current().playhead
     } else if played {
-        theme::scale(c, 0.5)
+        theme::fade(c, 0.5)
     } else {
         c
     }
@@ -1404,21 +1407,21 @@ fn draw_lanes(
             let heard = p.presence.get(k).or(p.presence.last()).copied().unwrap_or(1.0).clamp(0.0, 1.0);
             let level = (0.3 + 0.7 * heard) * if chosen { 1.0 } else { 0.7 };
             let played = head.is_some_and(|h| t < h);
-            let c = theme::scale(base, if played { level * 0.6 } else { level });
-            put(buf, area.x + x, y, " ", INK, Some(c));
+            let c = theme::fade(base, if played { level * 0.6 } else { level });
+            put(buf, area.x + x, y, " ", theme::current().ink, Some(c));
         }
         let label = format!("{} {}", i + 1, p.track.title);
         let room = (b - a) as usize;
         if room >= 2 {
-            let style =
-                Style::new().fg(rgb3(INK)).add_modifier(if chosen { Modifier::BOLD } else { Modifier::empty() });
+            let weight = if chosen { Modifier::BOLD } else { Modifier::empty() };
+            let style = Style::new().fg(rgb3(theme::ink_on(base))).add_modifier(weight);
             buf.set_stringn(area.x + a, y, clip(&label, room), room, style);
         }
     }
     if let Some(x) = head_x(area, (from, to), head) {
         for y in [area.y, area.y + 1] {
             if let Some(cell) = buf.cell_mut((area.x + x, y)) {
-                cell.set_symbol("▏").set_fg(rgb3(theme::current().playhead));
+                cell.set_symbol(icons::CURSOR.get()).set_fg(rgb3(theme::current().playhead));
             }
         }
     }
@@ -1518,7 +1521,7 @@ fn draw_tracklist(
         .enumerate()
         .map(|(i, p)| {
             let number = if playing == Some(i) {
-                Span::styled("▶", fg(theme::current().accent))
+                Span::styled(icons::PLAY.get(), fg(theme::current().accent))
             } else {
                 Span::styled(format!("{}", i + 1), fg(lane(i)))
             };
@@ -1583,8 +1586,8 @@ fn draw_tracklist(
         .block(block(title("Tracklist", focused), focused))
         .row_highlight_style(if focused { theme::selected() } else { Style::new().add_modifier(Modifier::BOLD) })
         .highlight_symbol(Text::from(vec![
-            Line::styled("▍", fg(theme::current().accent)),
-            Line::styled("▍", fg(theme::current().accent)),
+            Line::styled(icons::SELECTED.get(), fg(theme::current().accent)),
+            Line::styled(icons::SELECTED.get(), fg(theme::current().accent)),
         ]));
     // Two lines a track, under the border and the header row.
     rows.fit(area.height.saturating_sub(3) as usize / 2, r.plays.len());
@@ -1650,22 +1653,23 @@ fn draw_detail(f: &mut Frame, r: &MixReport, analyses: &[TrackAnalysis], i: usiz
             for c in cues {
                 let x = x_of(c.start_ms as f64 / 1000.0);
                 let color = theme::palette().cue_color(c);
-                let color = if played(x) { color } else { theme::scale(color, 0.5) };
+                let color = if played(x) { color } else { theme::fade(color, 0.5) };
                 match cue_letter(c) {
-                    Some(l) => put(buf, marks.x + x, marks.y, &l.to_string(), INK, Some(color)),
-                    None => put(buf, marks.x + x, marks.y, "▼", color, None),
+                    Some(l) => put(buf, marks.x + x, marks.y, &l.to_string(), theme::ink_on(color), Some(color)),
+                    None => put(buf, marks.x + x, marks.y, icons::BEHIND.get(), color, None),
                 }
             }
             for (s, e, name, color) in phrase_spans(a, track_secs * 1000.0) {
                 let (xa, xb) = (x_of(s / 1000.0), x_of(e / 1000.0).max(x_of(s / 1000.0) + 1));
                 for x in xa..xb.min(phrases.width) {
-                    let c = if played(x) { color } else { theme::scale(color, 0.35) };
-                    let c = if x == xa { theme::scale(c, 0.7) } else { c };
-                    put(buf, phrases.x + x, phrases.y, " ", INK, Some(c));
+                    let c = if played(x) { color } else { theme::fade(color, 0.35) };
+                    let c = if x == xa { theme::fade(c, 0.7) } else { c };
+                    put(buf, phrases.x + x, phrases.y, " ", theme::current().ink, Some(c));
                 }
                 let room = xb.saturating_sub(xa + 1) as usize;
                 if room >= 2 {
-                    buf.set_stringn(phrases.x + xa + 1, phrases.y, &name, room, Style::new().fg(rgb3(INK)));
+                    let ink = Style::new().fg(rgb3(theme::ink_on(color)));
+                    buf.set_stringn(phrases.x + xa + 1, phrases.y, &name, room, ink);
                 }
             }
         }
@@ -1793,9 +1797,9 @@ fn draw_track_wave(
             if head == Some(x) {
                 theme::current().playhead
             } else if lit {
-                theme::scale(c, 1.2)
+                theme::marker(theme::scale(c, 1.2))
             } else {
-                theme::scale(c, 0.3)
+                theme::fade(theme::marker(c), 0.3)
             }
         };
         let bands = [(col.back.height * rows, tone(col.back.color)), (col.front.height * rows, tone(col.front.color))];

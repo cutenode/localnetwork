@@ -501,7 +501,7 @@ fn checks_agree_with_check(tc: TestCase) {
 /// A recording identified against a drive (whose placeholder audio plays none of it) is kept
 /// when asked, once per save, listed newest first, read back with its id, and written as a page
 /// whose size is the page's; as a data document it's written once unless replacing. Fetching a
-/// report that isn't kept is refused.
+/// report that isn't kept is refused. One that can't be kept is answered with a warning.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 fn mix_reports_are_kept_once_per_save(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -550,6 +550,18 @@ fn mix_reports_are_kept_once_per_save(tc: TestCase) {
     }
     assert!(api::mix_report_get(store.root(), &api::ReportRef { id: "nothing".into(), extras: false }).is_err());
     assert!(api::mix_drive(Some(&path(&main))).is_ok() && api::mix_drive(None).is_ok());
+
+    // With a file where the reports go, a report asked to be kept is answered all the same, saying
+    // it wasn't kept.
+    let reports = store.root().join("reports");
+    fs::remove_dir_all(&reports).unwrap();
+    fs::write(&reports, b"").unwrap();
+    let mix = dir.path().join("Set 0.wav");
+    let identify = api::IdentifyMix { mix, drive: Some(path(&main)), tempo_range: None, cover: None };
+    let warnings = common::Warnings::default();
+    let req = api::IdentifyMixRequest { identify, extras: false, save: true };
+    assert!(api::mix_identify_cached(&cache, &store, &req, &warnings.ctx()).unwrap().saved.is_none());
+    assert!(warnings.said().iter().any(|w| w.starts_with("the report wasn't kept: ")), "{:?}", warnings.said());
 }
 
 // ---------------------------------------------------------------------------------------------

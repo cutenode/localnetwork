@@ -11,6 +11,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
+use super::icons;
+
 /// The ways to browse a drive besides its playlists, as on a CDJ's top menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -362,7 +364,7 @@ pub fn set_label(s: &Set) -> String {
 }
 
 pub fn stars(r: u8) -> String {
-    (0..5).map(|i| if i < r { '★' } else { '·' }).collect()
+    (0..5).map(|i| if i < r { icons::STAR.get() } else { "·" }).collect()
 }
 
 /// The sidebar: All tracks, the Browse folder with its categories (and their values when

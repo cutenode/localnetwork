@@ -655,3 +655,129 @@ fn the_whole_library_is_both_databases_put_together(tc: TestCase) {
     };
     assert_eq!(w.playlists[path], b.playlists[path]);
 }
+
+/// Tracks only OneLibrary has get ids of their own in the whole library, with
+/// [`convert::ONELIBRARY_ONLY`] set, even when two of their OneLibrary ids differ only in that
+/// bit; export.pdb's keep theirs, and the library numbered for files carries no id with it set.
+#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_tracks_only_onelibrary_has_get_ids_of_their_own(tc: TestCase) {
+    use locallibrary::onelibrary::ContentRecord;
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "A");
+    common::add_onelibrary(&root);
+    let mut one = OneLibrary::open_root(&root).unwrap();
+    let plus = one.library().unwrap();
+    let defaults = one.content_defaults().unwrap();
+    fs::create_dir_all(root.join("Contents/Player")).unwrap();
+    let mut added = Vec::new();
+    for n in 0..tc.draw(gs::integers::<usize>().min_value(2).max_value(4)) {
+        let file = format!("/Contents/Player/Imported {n}.mp3");
+        fs::write(paths::to_fs(&root, &paths::key(&file)), common::placeholder_audio(&file)).unwrap();
+        let rec = ContentRecord::from_track(&plus.tracks[0], false, &defaults);
+        added.push(one.add_track(&rec, &file, "", None).unwrap());
+    }
+    // Some move to the id of another with the high bit set, as one counted past 2^31 would be.
+    let clash = added[0] | convert::ONELIBRARY_ONLY;
+    let moved = tc.draw(gs::sampled_from(added[1..].to_vec()));
+    one.connection().execute("UPDATE content SET content_id = ?1 WHERE content_id = ?2", (clash, moved)).unwrap();
+    fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+
+    let pdb = libraries(&root).0.unwrap();
+    let d = Device::open_export(&root).unwrap();
+    let whole = convert::combined_library(&d).unwrap();
+    let ids: BTreeSet<u32> = whole.tracks.iter().map(|t| t.id).collect();
+    assert_eq!(ids.len(), whole.tracks.len(), "each id once: {ids:?}");
+    assert_eq!(whole.tracks.len(), pdb.tracks.len() + added.len());
+    for t in &whole.tracks {
+        let theirs = pdb.tracks.iter().find(|p| paths::file_key(&p.file_path) == paths::file_key(&t.file_path));
+        match theirs {
+            Some(p) => assert_eq!(t.id, p.id, "{}", t.file_path),
+            None => assert!(convert::is_onelibrary_only(t.id), "{}: {}", t.file_path, t.id),
+        }
+    }
+    let numbered = convert::export_library(&d).unwrap();
+    assert!(numbered.tracks.iter().all(|t| !convert::is_onelibrary_only(t.id)), "{:?}", numbered.tracks);
+    assert_eq!(numbered.tracks.len(), whole.tracks.len());
+}
+
+/// Adding OneLibrary to the export.pdb a drive has keeps every My Tag its exportExt.pdb had,
+/// those of tracks OneLibrary no longer lists too.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_adding_to_export_pdb_keeps_the_my_tags_it_had(tc: TestCase) {
+    use locallibrary::tags::{self, Source};
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "A");
+    let mut d = Device::open_export(&root).unwrap();
+    let ids: Vec<u32> = d.library().unwrap().tracks.iter().map(|t| t.id).collect();
+    let tag = tc.draw(gs::vecs(gs::sampled_from(ids.clone())).min_size(1).max_size(2).unique(true));
+    let plan = tags::plan(&d, &tags::Edit::Add { tag: "Genre/Deep".into(), tracks: tag }).unwrap();
+    tags::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+    common::add_onelibrary(&root);
+    // OneLibrary loses a track export.pdb still lists.
+    let mut one = OneLibrary::open_root(&root).unwrap();
+    let plus: Vec<u32> = one.library().unwrap().tracks.iter().map(|t| t.id).collect();
+    one.remove_tracks(&[tc.draw(gs::sampled_from(plus))]).unwrap();
+    fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+    let before = tagged(&Device::open_export(&root).unwrap(), Source::ExportExt);
+
+    let opts = ConvertOptions { to: Target::DeviceLibrary, replace: false };
+    let mut d = Device::open_export(&root).unwrap();
+    let plan = convert::plan(&d, &opts, &Ctx::silent()).unwrap();
+    assert!(plan.adds);
+    convert::apply(&plan, &mut d, &opts, &Ctx::silent()).unwrap();
+    let after = tagged(&Device::open_export(&root).unwrap(), Source::ExportExt);
+    assert!(before.is_subset(&after), "{before:?} in {after:?}");
+}
+
+/// A database that can't be read is no source: converting from a OneLibrary that can't be read
+/// is refused (the whole library is then export.pdb's alone), and a drive whose export.pdb
+/// can't be read has no whole library to read.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_database_that_cant_be_read_is_no_source(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let garbage = tc.draw(gs::vecs(gs::integers::<u8>()).min_size(1).max_size(64));
+    let root = common::bigger_drive(dir.path(), "A");
+    common::add_onelibrary(&root);
+    fs::write(root.join(paths::LIBRARY_PLUS_DB), &garbage).unwrap();
+    let d = Device::open_export(&root).unwrap();
+    let opts = ConvertOptions { to: Target::DeviceLibrary, replace: tc.draw(gs::booleans()) };
+    convert::plan(&d, &opts, &Ctx::silent()).unwrap_err();
+    let pdb = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap();
+    assert_eq!(held(&convert::combined_library(&d).unwrap()).tracks, held(&pdb).tracks);
+
+    fs::write(root.join(paths::EXPORT_PDB), &garbage).unwrap();
+    let d = Device::open_export(&root).unwrap();
+    convert::combined_library(&d).unwrap_err();
+    convert::export_library(&d).unwrap_err();
+}
+
+/// A OneLibrary whose My Tags can't be read still converts into export.pdb, added to or
+/// rebuilt: the plan says its My Tags aren't converted, and exportExt.pdb keeps the ones it had.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_onelibrary_my_tags_that_cant_be_read_stay_behind(tc: TestCase) {
+    use locallibrary::tags::{self, Source};
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "A");
+    let mut d = Device::open_export(&root).unwrap();
+    let ids: Vec<u32> = d.library().unwrap().tracks.iter().map(|t| t.id).collect();
+    let tag = tc.draw(gs::vecs(gs::sampled_from(ids)).min_size(1).max_size(2).unique(true));
+    let plan = tags::plan(&d, &tags::Edit::Add { tag: "Genre/Deep".into(), tracks: tag }).unwrap();
+    tags::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+    let before = tagged(&d, Source::ExportExt);
+    common::add_onelibrary(&root);
+    let one = OneLibrary::open_root(&root).unwrap();
+    one.connection().execute_batch("DROP TABLE myTag_content; DROP TABLE myTag;").unwrap();
+    fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+
+    let opts = ConvertOptions { to: Target::DeviceLibrary, replace: tc.draw(gs::booleans()) };
+    let mut d = Device::open_export(&root).unwrap();
+    let plan = convert::plan(&d, &opts, &Ctx::silent()).unwrap();
+    assert!(plan.warnings.iter().any(|w| w.ends_with("; My Tags aren't converted")), "{:?}", plan.warnings);
+    assert_eq!(plan.tagged_tracks, 0);
+    let report = convert::apply(&plan, &mut d, &opts, &Ctx::silent()).unwrap();
+    // Read exportExt.pdb's on its own: OneLibrary's can't be read.
+    fs::remove_file(root.join(paths::LIBRARY_PLUS_DB)).unwrap();
+    let after = tagged(&Device::open_export(&root).unwrap(), Source::ExportExt);
+    assert_eq!(after, before, "{opts:?}");
+    assert_eq!(report.tagged_tracks, if opts.replace { before.len() } else { 0 }, "{opts:?}");
+}

@@ -103,3 +103,57 @@ fn a_new_drive_is_set_up_from_a_drive_or_the_one_library(tc: TestCase) {
     }
     assert!(Device::open(&target).unwrap().id().is_some(), "adopted first");
 }
+
+/// A new drive set up from the store: a role that isn't one, or a library the store lacks, is
+/// refused before anything is written. Otherwise the plan writes the library's newest snapshot
+/// (the only library's, or the one named in any case), then the My Settings profile when it holds
+/// any, the role, and a check and an eject when asked; applied, the drive holds the library with
+/// the settings and role, and an eject, which a folder can't take, stops it at the end.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(role = Some("backup"), library = Some("main"), profile = true, verify = true, eject = true)]
+fn prop_a_new_drive_gets_the_newest_snapshot_pushed(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, main) = crate::props_api_drives::saved_copy(dir.path());
+    let target = dunce_canonicalize(&common::blank(main.parent().unwrap(), "New"));
+    let role = tc.draw(gs::sampled_from(vec![None, Some("backup"), Some("headliner")]));
+    let library = tc.draw(gs::sampled_from(vec![None, Some("main"), Some("Radio")]));
+    let profile = tc.draw(gs::booleans());
+    let verify = tc.draw(gs::booleans());
+    let eject = tc.draw(gs::booleans());
+    if profile {
+        let values = indexmap::IndexMap::from([("quantize".to_string(), "off".to_string())]);
+        api::settings_set(&store, &api::SetSettings { values, drive: None }).unwrap();
+    }
+    let req = api::ProvisionRequest {
+        library: library.map(String::from),
+        role: role.map(String::from),
+        verify,
+        eject,
+        ..provision(&target)
+    };
+    let ctx = Ctx::silent();
+    let plan = api::provision_plan(&store, &req, &ctx);
+    if role == Some("headliner") {
+        assert!(matches!(plan, Err(Error::Invalid(_))), "not a role");
+        return;
+    }
+    if library == Some("Radio") {
+        assert!(matches!(&plan, Err(Error::NotFound(m)) if m.contains("\"Radio\"")), "{:?}", plan.map(|p| p.noop));
+        return;
+    }
+    let steps = plan.unwrap().plan.steps;
+    assert!(steps[1].starts_with("write \"Main\"'s latest snapshot ("), "{steps:?}");
+    let has = |s: &str| steps.iter().any(|x| x == s);
+    assert_eq!(has("write the My Settings profile"), profile, "{steps:?}");
+    assert_eq!(has("mark it as a backup drive"), role.is_some(), "{steps:?}");
+    assert_eq!((has("read every file back and check it"), has("eject it")), (verify, eject), "{steps:?}");
+
+    let report = api::provision_apply(&store, &req, None, &ctx).unwrap();
+    assert_eq!(report.settings.is_some(), profile);
+    assert_eq!(report.verify.as_ref().map(|v| v.is_clean()), verify.then_some(true));
+    assert_eq!(report.stopped.as_ref().map(|s| s.step.as_str()), eject.then_some("eject it"), "{:?}", report.stopped);
+    assert_eq!(common::library(&target).tracks, common::library(&main).tracks);
+    let id = Device::open(&target).unwrap().id().unwrap();
+    let recorded = store.drives().unwrap().shift_remove(&id).and_then(|r| r.role);
+    assert_eq!(recorded, role.map(|_| locallibrary::fleet::Role::Backup));
+}

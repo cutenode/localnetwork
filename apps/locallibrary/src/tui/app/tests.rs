@@ -3138,8 +3138,10 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(12)) {
         let key = tc.draw(gs::sampled_from(KEYS));
         app.pending_seek = None;
-        press(&mut app, key);
+        // Before the key: the digit that switches back to the library isn't a pad, though the
+        // pads are on once it has.
         let slot = key.parse::<u8>().ok().filter(|_| app.pads_on()).map(|d| d - 1);
+        press(&mut app, key);
         let hot = slot.and_then(|s| analysis.cues.iter().find(|c| c.hot_cue == Some(s)));
         if let (Some(c), true) = (hot, app.now.as_ref().is_some_and(|n| n.opening)) {
             assert_eq!(app.pending_seek, Some(Duration::from_millis(c.start_ms as u64).min(end)), "pad {key}");
@@ -3267,4 +3269,419 @@ fn the_mixes_into_panel_shows_each_matchs_own_key() {
         }
     }
     assert!(shown.len() > 12, "keys shown: {shown:?}");
+}
+
+/// The player as `tui::run` makes it, with nothing to hear and the drives in [`plugins_once`] the
+/// only ones mounted.
+fn started(store: PathBuf, drive: Option<String>) -> App {
+    plugins_once();
+    static SILENT: std::sync::Once = std::sync::Once::new();
+    // SAFETY: as in `echo_plugin`.
+    SILENT.call_once(|| unsafe { std::env::set_var("LOCALLIBRARY_AUDIO", "silent") });
+    App::new(store, drive)
+}
+
+/// Whatever is plugged into the machine running the tests, a test's app looks for no drive there.
+#[test]
+fn a_tests_app_looks_on_no_drive_of_the_machine() {
+    let (_app, _dir) = app_with(library());
+    assert_eq!(locallibrary::device::volume_folders(), Some(Vec::new()));
+}
+
+/// The view the last run showed comes back, by the name it had then too. What isn't a view
+/// leaves the Library.
+#[hegel::test(test_cases = 20)]
+fn prop_the_view_saved_comes_back(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let titles = View::ALL.map(View::title).into_iter().chain(["History", "Nowhere"]).collect::<Vec<_>>();
+    let saved = tc.draw(gs::sampled_from(titles));
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("store");
+    state::save(&store, &Saved { view: Some(saved.to_string()), ..Default::default() });
+    let want = match saved {
+        "History" => View::Snapshots,
+        "Nowhere" => View::Library,
+        title => View::ALL.into_iter().find(|v| v.title() == title).unwrap(),
+    };
+    assert_eq!(started(store, None).view, want);
+}
+
+/// A folder named on the command line opens as the player starts. It isn't a mounted volume, so
+/// the drive list keeps it, for as long as it's there to list.
+#[test]
+fn a_folder_given_opens_at_the_start_and_is_listed() {
+    let store = tempfile::tempdir().unwrap();
+    let (_dir, root) = demo_drive();
+    let mut app = started(store.path().join("store"), Some(root.display().to_string()));
+    wait(&mut app, |a| a.loaded.is_some());
+    let opened = app.loaded.as_ref().unwrap().root().to_path_buf();
+    assert_eq!(app.extra_roots, std::slice::from_ref(&opened));
+    wait(&mut app, |a| a.drives.iter().any(|d| d.root == opened));
+
+    app.extra_roots.push(opened.join("gone"));
+    app.refresh_drives();
+    wait(&mut app, |a| !a.drives_in_flight);
+    assert_eq!(app.drives.iter().map(|d| &d.root).collect::<Vec<_>>(), [&opened]);
+}
+
+/// A mounted drive named on the command line opens too, and needs no keeping: the drive list
+/// finds it anyway.
+#[test]
+fn a_mounted_drive_given_opens_at_the_start() {
+    let store = tempfile::tempdir().unwrap();
+    let drive = plugged();
+    let name = drive.0.file_name().unwrap().to_string_lossy().into_owned();
+    let mut app = started(store.path().join("store"), Some(name));
+    wait(&mut app, |a| a.loaded.is_some());
+    assert!(app.extra_roots.is_empty(), "{:?}", app.extra_roots);
+}
+
+/// A name no drive has is said as the player starts, and nothing starts being read.
+#[hegel::test(test_cases = 20)]
+fn prop_a_drive_no_one_has_is_said_at_the_start(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let name = tc.draw(gs::text().alphabet("qxzj").min_size(4).max_size(12));
+    let store = tempfile::tempdir().unwrap();
+    let app = started(store.path().join("store"), Some(name.clone()));
+    let (said, level, _) = app.toast.as_ref().expect("said");
+    assert!(said.contains(&name) && *level == Level::Error, "{said}");
+    assert!(app.loading.is_none() && app.extra_roots.is_empty());
+}
+
+/// The Drives view reads how the drives stand against the store: with no store yet, it says how
+/// to get one.
+#[test]
+fn the_drives_view_reads_the_status_of_whats_mounted() {
+    let drive = plugged();
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = App::blank(dir.path().join("store"), None);
+    app.offline = false;
+    app.set_view(View::Drives);
+    wait(&mut app, |a| a.status.is_some());
+    let said = app.status.as_ref().unwrap().as_ref().err();
+    assert_eq!(said.map(String::as_str), Some("no store yet: saving a snapshot of a drive (e) makes one"));
+
+    Store::open_or_init(&app.store_root).unwrap();
+    app.status = None;
+    app.set_view(View::Drives);
+    wait(&mut app, |a| a.status.is_some());
+    let mounted = app.status.as_ref().unwrap().as_ref().unwrap();
+    let name = drive.0.file_name().unwrap();
+    assert!(mounted.iter().any(|d| d.status.drive.root.ends_with(name)), "{name:?}");
+    assert!(!app.status_loading);
+}
+
+/// Edits recorded on a drive that has no export now can't have been exported over.
+#[test]
+fn edits_on_a_drive_with_no_export_are_not_offered_again() {
+    let (_dir, root) = demo_drive();
+    let device = Device::open_export(&root).unwrap();
+    let lib = device.library().unwrap();
+    let mut app = App::blank(root.join("store"), None);
+    app.install(root.clone(), Loaded::prepare(device, lib.clone()));
+    app.track_state.select(Some(1));
+    press(&mut app, "e4");
+    confirm(&mut app, |_| {});
+    std::fs::remove_file(root.join(paths::EXPORT_PDB)).unwrap();
+    app.install(root.clone(), Loaded::prepare(Device::open(&root).unwrap(), lib));
+    let g = app.loaded.as_ref().unwrap().generation;
+    wait(&mut app, |a| a.replay_checked == g);
+    assert!(app.replay_offer.is_none());
+}
+
+/// A drive plugged in while the player runs is listed and said, and the plugins that asked are
+/// told.
+#[test]
+fn a_drive_plugged_in_is_listed_and_told_to_plugins() {
+    let dir = tempfile::tempdir().unwrap();
+    echo_plugin(dir.path());
+    mounted(dir.path());
+    let file = dir.path().join("echo.toml");
+    let manifest = std::fs::read_to_string(&file).unwrap().replacen(
+        r#"capabilities = ["library:read", "library:plan""#,
+        r#"capabilities = ["library:read", "library:plan", "events:drives""#,
+        1,
+    );
+    std::fs::write(&file, manifest + "\n[[contributes.events]]\non = [\"drive.mounted\"]\n").unwrap();
+    let logs = Arc::new(Mutex::new(Vec::<String>::new()));
+    let logged = logs.clone();
+    crate::plugins::log_to(Some(Arc::new(move |_, line| logged.lock().unwrap().push(line.into()))));
+
+    let mut app = App::blank(dir.path().join("store"), None);
+    app.offline = false;
+    let watched = locallibrary::watch::VolumeWatcher::in_folders(vec![dir.path().to_path_buf()]);
+    app.watcher = Arc::new(Mutex::new(Some(watched)));
+    app.handle_msg(Msg::Drives(Vec::new()));
+    demo_drive_in(dir.path(), "LATE");
+    app.last_volume_poll = Instant::now() - Duration::from_secs(2);
+    wait(&mut app, |a| a.drives.iter().any(|d| d.root.ends_with("LATE")));
+    assert!(app.log.iter().any(|(said, ..)| said == "LATE plugged in"), "{:?}", app.log);
+
+    let heard = || logs.lock().unwrap().iter().any(|l| l.starts_with("event drive.mounted LATE "));
+    let until = Instant::now() + Duration::from_secs(30);
+    while !heard() && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    crate::plugins::log_to(None);
+    assert!(heard(), "the plugin heard it");
+}
+
+/// The matches of the track selected, as the background sends them.
+fn details_arrive(app: &mut App) {
+    let l = app.loaded.as_ref().unwrap();
+    let (generation, index) = (l.generation, app.selected_track().unwrap());
+    let matches = Matches::find(l.library.clone(), l.root().to_path_buf(), &l.library.tracks[index], 40);
+    app.details_asked = Some((generation, index));
+    app.handle_msg(Msg::Details(Box::new(Details { generation, index, matches, playlists: Vec::new() })));
+}
+
+/// The test library with the details panel open on a track with two matches, drawn.
+fn showing_matches() -> (App, tempfile::TempDir) {
+    let (mut app, dir) = app_with(library());
+    app.show_details = true;
+    app.track_state.select(Some(1));
+    details_arrive(&mut app);
+    super::super::ui::screen(&mut app, 120, 30);
+    (app, dir)
+}
+
+/// A track's matches read again leave the match picked where it was.
+#[test]
+fn details_read_again_keep_the_match_picked() {
+    let (mut app, _dir) = showing_matches();
+    assert_eq!(app.details_state.selected(), Some(0), "the best one, as they arrive");
+    app.details_state.select(Some(1));
+    details_arrive(&mut app);
+    assert_eq!(app.details_state.selected(), Some(1));
+}
+
+/// A click on a match picks it and moves the focus there, and a second click plays it.
+#[hegel::test(test_cases = 20)]
+fn prop_a_click_in_the_details_picks_that_match(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (mut app, _dir) = showing_matches();
+    let k = tc.draw(gs::integers::<u16>().max_value(1));
+    let r = app.areas.matches;
+    mouse(&mut app, LEFT, (r.x + 1, r.y + k));
+    assert_eq!((app.focus, app.details_state.selected()), (Focus::Details, Some(k as usize)));
+    assert!(app.now.is_none(), "a first click only picks");
+    quick_again(&mut app);
+    mouse(&mut app, LEFT, (r.x + 1, r.y + k));
+    let d = app.details.as_ref().unwrap();
+    let want = d.matches.track(&d.matches.items[k as usize]).title.clone();
+    assert_eq!(app.now.as_ref().map(|n| n.track.title.as_str()), Some(want.as_str()));
+}
+
+/// The panel still shows the matches of the track selected before: enter plays none of them.
+#[test]
+fn enter_on_another_tracks_matches_plays_nothing() {
+    let (mut app, _dir) = showing_matches();
+    app.track_state.select(Some(0));
+    app.focus = Focus::Details;
+    press(&mut app, "\n");
+    assert!(app.now.is_none());
+}
+
+/// Full screen, a click under the last match picks nothing and queues nothing.
+#[hegel::test(test_cases = 20)]
+fn prop_a_click_under_the_matches_picks_nothing(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (mut app, _dir) = playing(TrackAnalysis::default());
+    let (library, root) = (app.loaded.as_ref().unwrap().library.clone(), app.loaded.as_ref().unwrap().root().into());
+    let mix = Mix { index: 1, key: Camelot::parse("8A").unwrap(), relation: Relation::Same, tempo_gap: 0.0 };
+    app.now.as_mut().unwrap().matches = Some(Matches { library, root, items: vec![mix] });
+    app.reset_next_pick();
+    app.fullscreen = true;
+    super::super::ui::screen(&mut app, 160, 45);
+    let r = app.areas.matches;
+    assert!(r.height > 2, "{r:?}");
+    let under = tc.draw(gs::integers::<u16>().min_value(1).max_value(r.height - 1));
+    for _ in 0..2 {
+        quick_again(&mut app);
+        mouse(&mut app, LEFT, (r.x + 1, r.y + under));
+    }
+    assert_eq!(app.next_pick.selected(), Some(0));
+    assert!(app.toast.is_none(), "queued: {}", last_message(&app));
+}
+
+/// What analyzers worked out, from another read of the drive, is dropped, whatever it says.
+#[hegel::test(test_cases = 50)]
+fn prop_fields_from_another_read_are_dropped(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (mut app, _dir) = app_with(library());
+    let generation = app.loaded.as_ref().unwrap().generation;
+    let other = generation + tc.draw(gs::integers::<u64>().min_value(1).max_value(9));
+    let read = if tc.draw(gs::booleans()) { Ok(Box::default()) } else { Err("from another read".into()) };
+    app.handle_msg(Msg::Fields(other, read));
+    assert!(matches!(app.loaded.as_ref().unwrap().fields, Fields::Unread));
+}
+
+/// What analyzers worked out that can't be read: a filter on a field says so, and matches
+/// nothing.
+#[test]
+fn fields_that_cant_be_read_are_said_by_a_filter_on_one() {
+    let (mut app, _dir) = app_with(library());
+    let generation = app.loaded.as_ref().unwrap().generation;
+    app.handle_msg(Msg::Fields(generation, Err("no values here".into())));
+    press(&mut app, "/sound.bpm:>100");
+    assert_eq!(app.filter_note.as_deref(), Some("can't read what analyzers worked out: no values here"));
+    assert!(app.visible.is_empty());
+}
+
+/// Fetching from the palette asks about the track selected. Away from the Library, none is.
+#[test]
+fn fetching_asks_about_the_track_selected() {
+    let plugins = tempfile::tempdir().unwrap();
+    echo_plugin(plugins.path());
+    let (mut app, _dir) = app_with(library());
+    app.perform(Act::Fetch(loclib_plugin::ProviderKind::Artwork), None);
+    let Some(Modal::Form(f)) = &app.modal else { panic!("no form: {}", last_message(&app)) };
+    assert_eq!(f.title, "Fetch cover art");
+
+    app.modal = None;
+    app.set_view(View::Mixes);
+    app.perform(Act::Fetch(loclib_plugin::ProviderKind::Metadata), None);
+    assert!(app.modal.is_none());
+    assert_eq!(last_message(&app), "no track selected");
+}
+
+/// Showing a crate with tracks in it and none picked picks the first.
+#[test]
+fn showing_the_crate_picks_its_first_track() {
+    let (mut app, _dir) = app_with(library());
+    let l = app.loaded.as_ref().unwrap();
+    let (root, paths) = (l.root().to_path_buf(), [l.library.tracks[0].file_path.clone()]);
+    app.add_to_crate(&root, &paths);
+    app.crate_state.select(None);
+    press(&mut app, "t");
+    assert_eq!((app.show_crate, app.crate_state.selected()), (true, Some(0)));
+}
+
+/// A selection past the crate's end takes nothing out of it.
+#[hegel::test(test_cases = 50)]
+fn prop_a_selection_past_the_crates_end_removes_nothing(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (mut app, _dir) = app_with(library());
+    let l = app.loaded.as_ref().unwrap();
+    let (root, paths) = (l.root().to_path_buf(), [l.library.tracks[0].file_path.clone()]);
+    app.add_to_crate(&root, &paths);
+    let past = tc.draw(gs::integers::<usize>().min_value(1).max_value(9));
+    (app.show_crate, app.focus) = (true, Focus::Crate);
+    app.crate_state.select(Some(past));
+    app.perform(Act::Remove, None);
+    assert_eq!((app.crate_list.len(), app.crate_state.selected()), (1, Some(past)));
+}
+
+/// A list the library doesn't have (any more) shows no tracks.
+#[hegel::test(test_cases = 50)]
+fn prop_a_list_the_library_doesnt_have_shows_no_tracks(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (mut app, _dir) = app_with(library());
+    let l = app.loaded.as_mut().unwrap();
+    let id = tc.draw(gs::integers::<u32>().min_value(100));
+    l.node = NodeId::Playlist(id);
+    app.visible.clear();
+    app.refresh_visible();
+    assert!(app.visible.is_empty(), "{:?}", app.visible);
+}
+
+/// A selection past the end of the list plays nothing.
+#[hegel::test(test_cases = 50)]
+fn prop_a_selection_past_the_list_plays_nothing(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (mut app, _dir) = app_with(library());
+    let past = app.visible.len() + tc.draw(gs::integers::<usize>().max_value(9));
+    app.track_state.select(Some(past));
+    press(&mut app, "\n");
+    assert!(app.now.is_none() && app.queue.order.is_empty());
+}
+
+/// Queueing a match from a read of the drive newer than the queue's: the same track, by its id,
+/// wherever the queue's copy has it. One the queue's copy doesn't have stays out.
+#[hegel::test(test_cases = 20)]
+fn prop_a_match_from_a_newer_read_queues_the_same_track(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (_dir, mut app, _out) = playing_wavs(&[8000, 8000, 8000]);
+    let old = app.queue.library.clone();
+    let order = tc.draw(gs::permutations(vec![0usize, 1, 2]));
+    let mut tracks: Vec<Track> = order.into_iter().map(|i| old.tracks[i].clone()).collect();
+    tracks.push(track(99, "DJ", "Only in the newer read"));
+    let newer = Library { tracks, ..(*old).clone() };
+    let picked = tc.draw(gs::integers::<usize>().max_value(3));
+    let id = newer.tracks[picked].id;
+    let mix = Mix { index: picked, key: Camelot::parse("8A").unwrap(), relation: Relation::Same, tempo_gap: 0.0 };
+    let matches = Matches { library: Arc::new(newer), root: app.queue.root.clone(), items: vec![mix] };
+    let playing = app.now.as_ref().unwrap().id;
+    app.handle_msg(Msg::TrackInfo(playing, Box::new(TrackInfo { matches: Some(matches), ..Default::default() })));
+    app.fullscreen = true;
+    press(&mut app, "\n");
+    let queued: Vec<u32> = app.queue.order.iter().map(|&i| app.queue.track(i).id).collect();
+    if id == 99 {
+        assert_eq!(queued, [1, 2, 3]);
+    } else {
+        assert_eq!(queued[1], id, "{queued:?}");
+        assert_eq!(queued.len(), 4);
+    }
+}
+
+/// Opening the output panics (a driver that falls over): said, and waited for no longer.
+#[test]
+fn an_output_that_panics_opening_is_said() {
+    let (mut app, _dir) = app_with(library());
+    app.outputs = Outputs { open: |_| panic!("the driver fell over"), ..Outputs::NONE };
+    app.open_output();
+    assert!(app.deck.opening.is_some());
+    wait(&mut app, |a| a.deck.opening.is_none());
+    assert!(app.audio_error.as_ref().is_some_and(|e| e.contains("the driver fell over")), "{:?}", app.audio_error);
+}
+
+/// An output that doesn't open matters none when one is open already.
+#[test]
+fn an_output_failing_with_one_open_changes_nothing() {
+    let (mut app, _dir) = app_with(library());
+    let (audio, _out) = Audio::offline(8000);
+    app.audio = Some(audio);
+    app.deck.opening = Some(5);
+    app.handle_msg(Msg::Output(5, super::super::deck::OutputAsk::Play, Err("no device".into())));
+    assert!(app.audio.is_some());
+    assert_eq!(app.audio_error, None);
+}
+
+/// A seek the file can't make is said, and the track plays on.
+#[test]
+fn a_seek_the_file_cant_make_is_said() {
+    let (_dir, mut app, _out) = playing_wavs(&[8000]);
+    opened(&mut app);
+    super::super::audio::tests::seek_fails(app.audio.as_ref().unwrap());
+    app.tick();
+    assert_eq!(last_message(&app), "can't seek in this file");
+    assert!(app.is_playing());
+}
+
+/// Letting go of the drive playing, for an eject: what the background has said so far goes
+/// through first, so nothing it's opened stays open on the drive.
+#[test]
+fn letting_go_of_a_drive_stops_it_and_takes_in_what_the_background_said() {
+    let (mut app, _dir) = playing(TrackAnalysis::default());
+    let root = app.now.as_ref().unwrap().root.clone();
+    app.sender().send(Msg::Note("a track opened".into(), Level::Info)).unwrap();
+    app.let_go_of(&root);
+    assert!(app.now.is_none());
+    assert_eq!(last_message(&app), "a track opened");
+}
+
+/// A click on a drive in the sidebar selects it and moves the focus there.
+#[hegel::test(test_cases = 20)]
+fn prop_a_click_in_the_sidebar_selects_that_drive(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (mut app, _dir) = app_with(library());
+    let root = app.loaded.as_ref().unwrap().root().to_path_buf();
+    let info = Device::open(&root).unwrap().info();
+    let other = DeviceInfo { root: root.join("OTHER"), name: Some("OTHER".into()), ..info.clone() };
+    app.drives = vec![info, other];
+    super::super::ui::screen(&mut app, 120, 30);
+    let r = app.areas.drives;
+    let k = tc.draw(gs::integers::<u16>().max_value(1));
+    mouse(&mut app, LEFT, (r.x + 2, r.y + 1 + k));
+    assert_eq!((app.focus, app.drive_state.selected()), (Focus::Drives, Some(k as usize)));
 }

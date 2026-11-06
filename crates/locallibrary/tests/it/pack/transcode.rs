@@ -331,3 +331,25 @@ fn every_track_sharing_a_master_plays_its_copy() {
         }
     }
 }
+
+/// A FLAC copy is recorded at its average bit rate, as rekordbox gives FLAC: its size over its
+/// length, in both databases. A CDJ-1500X plays FLAC at 48 kHz at most.
+#[test]
+fn a_flac_copy_is_recorded_at_its_average_bit_rate() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = Device::open_export(source(dir.path())).unwrap();
+    let mut club = club(dir.path());
+    let mut opts = options(&["CDJ-1500X"]);
+    opts.transcode.as_mut().unwrap().container = Container::Flac;
+    let plan = pack::plan(&src, &club, &opts, &Ctx::silent()).unwrap();
+    let [t] = plan.transcodes.as_slice() else { panic!("{:?}", plan.transcodes) };
+    assert_eq!((t.to.as_str(), t.recipe.as_str()), ("Contents/Artist/Album/Hi Res.flac", "flac-48000-24-tpdf-v1"));
+    pack::apply(&plan, &src, &mut club, None, &Ctx::silent()).unwrap();
+    let file = club.root().join(&t.to);
+    let size = fs::metadata(&file).unwrap().len() as f64;
+    let secs = probe::format(&file).unwrap().duration_secs.unwrap();
+    for library in libraries(club.root()) {
+        let row = library.tracks.iter().find(|r| r.file_path == format!("/{}", t.to)).unwrap();
+        assert_eq!(row.bitrate, (size * 8.0 / secs / 1000.0).round() as u32);
+    }
+}

@@ -397,3 +397,57 @@ fn a_region_cut_short_by_the_real_size_is_no_alias(tc: TestCase) {
     assert_eq!(r.works_up_to, Some(whole * MIB));
     assert!(r.aliases.is_empty(), "{:?}", r.aliases);
 }
+
+/// A disk that holds nothing and fails the write or flush numbered `fail_at` (counting both).
+struct Failing {
+    ops: usize,
+    fail_at: Option<usize>,
+}
+
+impl Failing {
+    fn op(&mut self) -> io::Result<()> {
+        self.ops += 1;
+        match self.fail_at == Some(self.ops - 1) {
+            true => Err(io::Error::other("the disk went away")),
+            false => Ok(()),
+        }
+    }
+}
+
+impl RawDisk for Failing {
+    fn write_at(&mut self, _: u64, _: &[u8]) -> io::Result<()> {
+        self.op()
+    }
+    fn read_at(&mut self, _: u64, buf: &mut [u8]) -> io::Result<()> {
+        buf.fill(0);
+        Ok(())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.op()
+    }
+}
+
+/// A probe stops at the first write or flush the disk fails, with an I/O error about the disk
+/// and nothing written after it; cancelled once every pattern is written, it stops before
+/// reading any back.
+#[hegel::test(test_cases = 50)]
+fn prop_a_probe_stops_at_a_disk_error_or_a_cancel_before_reading(tc: TestCase) {
+    let size = tc.draw(gs::integers::<u64>().min_value(1).max_value(8)) * MIB;
+    let mut clean = Failing { ops: 0, fail_at: None };
+    assert!(probe(&mut clean, size, 512, &Ctx::silent()).unwrap().is_fake(), "it holds nothing");
+    let fail_at = tc.draw(gs::integers::<usize>().max_value(clean.ops - 1));
+    let mut disk = Failing { ops: 0, fail_at: Some(fail_at) };
+    let err = probe(&mut disk, size, 512, &Ctx::silent()).unwrap_err();
+    assert!(matches!(&err, Error::Io { path, .. } if path.to_str() == Some("disk")), "{err}");
+    assert_eq!(disk.ops, fail_at + 1, "nothing after the failure");
+
+    let cancel = crate::progress::CancelToken::new();
+    let reads = Mutex::new(0usize);
+    let stop = |e: &Event| match e {
+        Event::PhaseEnd { phase: Phase::Write } => cancel.cancel(),
+        Event::Bytes { phase: Phase::Verify, .. } => *reads.lock().unwrap() += 1,
+        _ => {}
+    };
+    let err = probe(&mut Failing { ops: 0, fail_at: None }, size, 512, &Ctx::new(&stop, cancel.clone())).unwrap_err();
+    assert_eq!((err.code(), *reads.lock().unwrap()), ("cancelled", 0));
+}

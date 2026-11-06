@@ -510,6 +510,9 @@ export async function createApp(options: CreateAppOptions) {
 			// Finishes manager syncs that failed or raced a new thread. Costs one listRecords of the root's projects and
 			// one listMembers per booking thread, all on the root's own PDS, and writes only where something drifted.
 			every(60 * 60_000, () => projects.reconcileManagerSpaces(), 'manager-spaces');
+			// Finishes failed removals from the staff spaces, sooner than the rest because of what those spaces hold. Costs one
+			// listSpaceRecords and four listMembers on the root's own PDS, and writes only where something drifted.
+			every(5 * 60_000, () => staff.reconcileMembership(), 'staff-spaces');
 			// Finishes member updates of performers', parties' and venues' spaces that failed part way: a listSpaces per
 			// kind, then one listRecords and one listMembers per space, all on the root's own PDS.
 			every(60 * 60_000, () => sharedSpaces.reconcile(), 'shared-spaces');

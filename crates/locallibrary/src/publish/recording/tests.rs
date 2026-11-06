@@ -135,6 +135,77 @@ fn document(nsid: &str) -> &'static Value {
     &lexicon::document(nsid).unwrap()["defs"]["main"]["record"]["properties"]
 }
 
+/// A recording record links its file, says when it was made, and how long it plays when that's
+/// a second or more; it fits its Lexicon whatever the length.
+#[hegel::test(test_cases = 100)]
+fn prop_a_recording_record_says_how_long_it_plays(tc: TestCase) {
+    let secs = tc.draw(gs::integers::<u64>().max_value(48 * 3600));
+    let cid = "bafkreibme22gw2h7y2h7tg2fhqotaqjucnbc24deqo72b6mkl2egezxhvy";
+    let blob = json!({ "$type": "blob", "ref": { "$link": cid }, "mimeType": "audio/mp4", "size": 1000 });
+    let now = Utc::now();
+    let r = record(blob.clone(), secs, now);
+    assert_eq!((&r["audio"], &r["createdAt"]), (&blob, &json!(crate::profile::timestamp(now))));
+    assert_eq!(r.get("durationSeconds").cloned(), (secs >= 1).then(|| json!(secs)));
+    lexicon::validate(lexicon::RECORDING, &r).unwrap();
+}
+
+/// `frames` ADTS frames of AAC (LC, 44.1 kHz, stereo), each 32 bytes with a silent payload.
+fn adts(frames: usize) -> Vec<u8> {
+    [&[0xff, 0xf1, 0x50, 0x80, 0x04, 0x1f, 0xfc][..], &[0; 25]].concat().repeat(frames)
+}
+
+/// What a recording is read as: AAC alone, or in an M4A file, goes up as it is when it's AAC
+/// (`audio/aac`, `audio/mp4`), and an M4A file of another codec says which and doesn't. A file that
+/// isn't there, or can't be opened or read, says so.
+#[hegel::test(test_cases = 20)]
+#[hegel::explicit_test_case(kind = 0u8, frames = 50usize)]
+#[hegel::explicit_test_case(kind = 1u8, frames = 50usize)]
+#[hegel::explicit_test_case(kind = 2u8, frames = 50usize)]
+fn prop_a_recording_is_read_as_what_it_holds(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let fixture = |name: &str| Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio").join(name);
+    let kind = tc.draw(gs::integers::<u8>().max_value(5));
+    let frames = tc.draw(gs::integers::<usize>().min_value(50).max_value(400));
+    let path =
+        dir.path().join(["set.aac", "set.m4a", "alac.m4a", "gone.wav", "folder.wav", "locked.mp3"][kind as usize]);
+    match kind {
+        0 => std::fs::write(&path, adts(frames)).unwrap(),
+        1 => std::fs::copy(fixture("silence.m4a"), &path).map(|_| ()).unwrap(),
+        2 => std::fs::copy(fixture("silence-alac.m4a"), &path).map(|_| ()).unwrap(),
+        3 => {}
+        4 => std::fs::create_dir(&path).unwrap(),
+        _ => {
+            std::fs::write(&path, mp3(40)).unwrap();
+            #[cfg(unix)]
+            std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o000)).unwrap();
+        }
+    }
+    let read = probe(&path);
+    match kind {
+        0 => {
+            let a = read.unwrap();
+            assert_eq!((a.format.as_str(), a.playable.as_deref()), ("AAC", Some("audio/aac")));
+        }
+        1 => {
+            let a = read.unwrap();
+            assert_eq!((a.format.as_str(), a.playable.as_deref()), ("M4A", Some("audio/mp4")));
+        }
+        2 => {
+            let a = read.unwrap();
+            assert_eq!((a.format.as_str(), a.playable), ("M4A (ALAC)", None));
+        }
+        3 => assert_eq!(read.unwrap_err().code(), "io"),
+        // A folder opens on Unix, and fails when it's read; on Windows it doesn't open.
+        4 => assert_eq!(read.unwrap_err().code(), if cfg!(unix) { "io" } else { "invalid" }),
+        _ => {
+            // Root can read it anyway.
+            if let Err(e) = read {
+                assert!(e.to_string().contains("isn't audio locallibrary can read"), "{e}");
+            }
+        }
+    }
+}
+
 /// Encoding, with a stand-in ffmpeg on `PATH` (a shell script, so not on Windows).
 #[cfg(unix)]
 mod with_ffmpeg {
@@ -315,5 +386,149 @@ mod with_ffmpeg {
         fake_ffmpeg(&fake, "far too much", 0, "");
         let err = prepare(&audio, how, 5, &[], &Ctx::silent()).err().unwrap();
         assert_eq!(err.to_string(), "ffmpeg's encoding of the recording came to 12 B, more than 5 B");
+    }
+
+    /// How a stand-in ffmpeg goes wrong.
+    #[derive(Debug, Clone, Copy)]
+    enum Fails {
+        /// It's there but can't be run.
+        NotRunnable,
+        /// It says its progress in bytes that aren't text, and writes something.
+        Garbled,
+        /// It removes the file it was told to write.
+        RemovesItsOutput,
+        /// The encoding is cancelled while it runs.
+        Cancelled,
+        /// There's no temporary folder for what it's told to write.
+        NoTemporaryFolder,
+        /// There's no ffmpeg at all.
+        Missing,
+        /// It fails, saying why.
+        Refuses,
+        /// It writes more than the data server takes.
+        TooBig,
+    }
+
+    /// An encoding that can't finish says why and leaves nothing to upload: no ffmpeg (saying to
+    /// install it), one that can't be run, one that fails (saying its last word), one whose output
+    /// is gone or more than the data server takes, or one cancelled; and with no temporary folder,
+    /// nothing is run. Progress that isn't text ends what's read of it, and the encoding goes on.
+    #[hegel::test(test_cases = 15)]
+    #[hegel::explicit_test_case(fails = Fails::TooBig, with_chapters = 0usize)]
+    #[hegel::explicit_test_case(fails = Fails::Refuses, with_chapters = 1usize)]
+    #[hegel::explicit_test_case(fails = Fails::Missing, with_chapters = 0usize)]
+    #[hegel::explicit_test_case(fails = Fails::Garbled, with_chapters = 1usize)]
+    fn prop_an_encoding_that_cant_finish_says_why(tc: TestCase) {
+        use std::os::unix::fs::PermissionsExt;
+        let fails = tc.draw(gs::sampled_from(vec![
+            Fails::NotRunnable,
+            Fails::Garbled,
+            Fails::RemovesItsOutput,
+            Fails::Cancelled,
+            Fails::NoTemporaryFolder,
+            Fails::Missing,
+            Fails::Refuses,
+            Fails::TooBig,
+        ]));
+        let fake = FakeTools::new();
+        let path = fake.dir().join("set.wav");
+        std::fs::write(&path, wav(1)).unwrap();
+        let audio = probe(&path).unwrap();
+        let ffmpeg = fake.dir().join("bin").join("ffmpeg");
+        match fails {
+            Fails::NotRunnable => {
+                std::fs::write(&ffmpeg, "#!/bin/sh\nexit 0\n").unwrap();
+                std::fs::set_permissions(&ffmpeg, std::fs::Permissions::from_mode(0o644)).unwrap();
+            }
+            Fails::Garbled => fake.script(
+                "ffmpeg",
+                "for last; do :; done\nprintf 'enc' >\"$last\"\nprintf 'total_size=1\\n\\377\\376\\ntotal_size=3\\n'\nexit 0\n",
+            ),
+            Fails::RemovesItsOutput => fake.script("ffmpeg", "for last; do :; done\n/bin/rm -f \"$last\"\nexit 0\n"),
+            Fails::Cancelled | Fails::NoTemporaryFolder | Fails::TooBig => fake_ffmpeg(&fake, "encoded", 0, ""),
+            Fails::Refuses => fake_ffmpeg(&fake, "", 1, "set.wav: Invalid data found when processing input"),
+            Fails::Missing => {}
+        }
+        let cancel = crate::progress::CancelToken::new();
+        if matches!(fails, Fails::Cancelled) {
+            cancel.cancel();
+        }
+        let recorded = Recorded::default();
+        let ctx = Ctx::new(&recorded, cancel);
+        let tmp = std::env::var_os("TMPDIR");
+        if matches!(fails, Fails::NoTemporaryFolder) {
+            // SAFETY: nextest gives each test a process of its own, and no other thread of it reads
+            // the environment while the test runs.
+            unsafe { std::env::set_var("TMPDIR", fake.dir().join("no such folder")) };
+        }
+        let how = Encoding::Aac { kbps: KBPS, bytes: 16_000 };
+        let chapters = [Chapter { start: 0, title: "Intro".into() }];
+        let limit = if matches!(fails, Fails::TooBig) { 5 } else { MAX_BYTES };
+        let with_chapters = tc.draw(gs::integers::<usize>().max_value(1));
+        let prepared = prepare(&audio, how, limit, &chapters[..with_chapters], &ctx);
+        match tmp {
+            Some(t) => unsafe { std::env::set_var("TMPDIR", t) },
+            None => unsafe { std::env::remove_var("TMPDIR") },
+        }
+        match fails {
+            Fails::Garbled => {
+                let upload = prepared.unwrap();
+                assert_eq!(std::fs::read_to_string(upload.path()).unwrap(), "enc");
+                let events = recorded.0.lock().unwrap();
+                let written: Vec<u64> = events
+                    .iter()
+                    .filter_map(|e| match e {
+                        Event::Bytes { phase: Phase::Write, bytes } => Some(*bytes),
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(written, [1], "nothing after what isn't text is read");
+            }
+            Fails::NotRunnable => {
+                let err = prepared.err().unwrap();
+                assert_eq!(err.code(), "external", "{err}");
+            }
+            Fails::RemovesItsOutput => assert_eq!(prepared.err().unwrap().code(), "io"),
+            Fails::Missing => {
+                let err = prepared.err().unwrap();
+                assert_eq!(err.code(), "not_found");
+                assert!(err.to_string().contains("ffmpeg, which encodes the recording (WAV)"), "{err}");
+            }
+            Fails::Refuses => {
+                let err = prepared.err().unwrap();
+                assert_eq!(err.code(), "external");
+                assert!(err.to_string().ends_with("Invalid data found when processing input"), "{err}");
+            }
+            Fails::TooBig => {
+                let err = prepared.err().unwrap().to_string();
+                assert_eq!(err, "ffmpeg's encoding of the recording came to 7 B, more than 5 B");
+            }
+            Fails::Cancelled => assert!(matches!(prepared, Err(Error::Cancelled))),
+            Fails::NoTemporaryFolder => {
+                let err = prepared.err().unwrap().to_string();
+                assert!(err.starts_with("a temporary file for the recording: "), "{err}");
+                assert!(!fake.dir().join("ffmpeg-args").exists(), "ffmpeg didn't run");
+            }
+        }
+    }
+
+    /// Chapters can't be added to a copy of what isn't an MP3 after all: it says so, and nothing
+    /// goes up.
+    #[hegel::test(test_cases = 10)]
+    fn prop_chapters_cant_go_into_what_isnt_an_mp3(tc: TestCase) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("set.mp3");
+        std::fs::write(&path, tc.draw(gs::sampled_from(vec!["not audio", "", "ID3"]))).unwrap();
+        let audio = Audio {
+            path: path.clone(),
+            format: "MP3".into(),
+            bytes: 10,
+            duration_secs: 60,
+            playable: Some("audio/mpeg".into()),
+        };
+        let chapters = [Chapter { start: 0, title: "Intro".into() }, Chapter { start: 30, title: "Peak".into() }];
+        let err = prepare(&audio, Encoding::AsIs, MAX_BYTES, &chapters, &Ctx::silent()).err().unwrap();
+        let text = err.to_string();
+        assert!(text.starts_with(&format!("adding chapters to a copy of {}: ", path.display())), "{text}");
     }
 }

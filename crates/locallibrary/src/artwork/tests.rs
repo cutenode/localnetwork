@@ -95,3 +95,33 @@ fn images_are_staged_by_the_hash_of_their_jpeg(tc: TestCase) {
     let base64 = BASE64_STANDARD.decode(&junk).is_ok();
     assert!(matches!(&e, Error::Image(m) if m.starts_with("the image isn't base64") != base64), "{junk:?}: {e}");
 }
+
+/// A preview keeps the image's shape, shrunk to fit [`PREVIEW_SIZE`] when it's bigger (never
+/// grown), and one wider than 8192 pixels is refused. An audio file that doesn't read, or an image
+/// that isn't there, gives no artwork, and an image given as a plugin's blob isn't staged outside
+/// a plugin's plan.
+#[hegel::test(test_cases = 20)]
+fn prop_previews_keep_their_shape_within_the_preview_size(tc: TestCase) {
+    let long = tc.draw(gs::integers::<u32>().min_value(16).max_value(1100));
+    let short = tc.draw(gs::integers::<u32>().min_value(16).max_value(40)).min(long);
+    let (w, h) = if tc.draw(gs::booleans()) { (long, short) } else { (short, long) };
+    let back = image::load_from_memory(&to_png(&png(w, h)).unwrap()).unwrap();
+    let side = long.min(PREVIEW_SIZE);
+    assert_eq!(back.width().max(back.height()), side, "{w}x{h}");
+    let scaled = f64::from(short) * f64::from(side) / f64::from(long);
+    assert!(
+        (f64::from(back.width().min(back.height())) - scaled).abs() <= 1.0,
+        "{w}x{h}: {:?}",
+        (back.width(), back.height())
+    );
+    assert!(matches!(to_png(&png(8193, 1)), Err(Error::Image(_))));
+
+    let dir = tempfile::tempdir().unwrap();
+    let not_audio = dir.path().join("song.mp3");
+    std::fs::write(&not_audio, png(w, h)).unwrap();
+    assert!(matches!(Artwork::from_path(&not_audio), Err(Error::Tags(_))));
+    assert!(matches!(Artwork::from_path(&dir.path().join("gone.png")), Err(Error::Io { .. })));
+    let device = Device::open(dir.path()).unwrap();
+    let name = tc.draw(gs::text().max_size(8));
+    assert!(matches!(stage(&device, &ImageSource::Blob(name)), Err(Error::Invalid(m)) if m.contains("blob")));
+}

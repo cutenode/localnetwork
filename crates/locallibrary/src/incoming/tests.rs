@@ -125,3 +125,34 @@ fn copies_fit_or_are_refused_before_anything_is_written(tc: hegel::TestCase) {
     }
     assert!(!device.path("Contents/New").exists());
 }
+
+/// A folder below that can't be read is passed over, and the audio around it offered; a
+/// cancelled look stops.
+#[cfg(unix)]
+#[hegel::test(test_cases = 8)]
+fn prop_a_folder_that_cant_be_read_is_passed_over(tc: hegel::TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let base = crate::device::dunce_canonicalize(dir.path());
+    let device = drive(&base);
+    let folder = base.join("Music");
+    let locked = folder.join(tc.draw(gs::sampled_from(vec!["Locked", "Album/Locked"])));
+    fs::create_dir_all(&locked).unwrap();
+    fs::write(locked.join("Hidden.mp3"), b"audio").unwrap();
+    let n = tc.draw(gs::integers::<usize>().max_value(3));
+    let mut want: Vec<PathBuf> = (0..n).map(|i| folder.join(format!("{i}.mp3"))).collect();
+    for p in &want {
+        fs::write(p, b"audio").unwrap();
+    }
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    let found = audio_files(&folder, &device, &Ctx::silent());
+    let cancel = crate::progress::CancelToken::new();
+    cancel.cancel();
+    let cancelled = audio_files(&folder, &device, &Ctx::new(&crate::progress::NoProgress, cancel));
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut found: Vec<PathBuf> = found.unwrap().into_iter().map(|f| f.path).collect();
+    found.sort();
+    want.sort();
+    assert_eq!(found, want);
+    assert!(matches!(cancelled, Err(Error::Cancelled)), "{:?}", cancelled.err());
+}
