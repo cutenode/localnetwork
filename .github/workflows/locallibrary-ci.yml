@@ -97,7 +97,9 @@ jobs:
         run: cargo nextest run -p locallibrary-cli --no-default-features --locked -E 'test(commands_come_with_the_features_built_in)'
       # The TUI's audio output goes through ALSA on Linux.
       - if: inputs.linux || inputs.docs || inputs.cache
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+        uses: ./.github/actions/apt-packages
+        with:
+          packages: libasound2-dev
       - if: inputs.linux || inputs.cache
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # nextest doesn't run doctests.
@@ -140,7 +142,9 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: libasound2-dev
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest,cargo-llvm-cov
@@ -175,7 +179,9 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev sqlcipher
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: libasound2-dev sqlcipher
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest,cargo-llvm-cov
@@ -221,7 +227,9 @@ jobs:
       - run: rustup toolchain install
       # nextest lists what's in every binary of the archive, and the CLI's links ALSA. Valgrind is
       # for a frame's instructions.
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev valgrind
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: libasound2-dev valgrind
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -312,7 +320,9 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install
       # As the shards have them, and rg, which the script picks the tests with.
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev sqlcipher ripgrep
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: libasound2-dev sqlcipher ripgrep
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest,cargo-llvm-cov
@@ -350,7 +360,9 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install
       # nextest lists the tests by running each binary, which links ALSA.
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: libasound2-dev
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest,cargo-llvm-cov
@@ -515,7 +527,9 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: libasound2-dev
       - run: cargo +1.91 check --workspace --locked
 
   # RustSec advisories, banned crates and where crates come from (see deny.toml), when what it reads

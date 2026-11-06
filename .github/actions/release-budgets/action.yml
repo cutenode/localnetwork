@@ -8,8 +8,9 @@ description: >-
 runs:
   using: composite
   steps:
-    - shell: bash
-      run: sudo apt-get update && sudo apt-get install -y libasound2-dev valgrind
+    - uses: ./.github/actions/apt-packages
+      with:
+        packages: libasound2-dev valgrind
     - shell: bash
       run: cargo build --profile dist -p locallibrary-cli --locked
     - shell: bash
