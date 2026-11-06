@@ -11,6 +11,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wra
 use crate::output::{bytes, clock, plural};
 use crate::tui::analyzer::Bands;
 use crate::tui::app::{App, Matches, Repeat, Vis};
+use crate::tui::icons;
 use crate::tui::keys::Relation as KeyRelation;
 use crate::tui::theme::{self, bold, dim, faint, fg, text};
 
@@ -21,7 +22,7 @@ pub(super) fn draw_player(f: &mut Frame, app: &mut App, area: Rect, big: bool) {
     let b = block(
         Line::from(vec![
             Span::raw(" "),
-            Span::styled(if playing { "▶" } else { "■" }, bold(theme::current().accent)),
+            Span::styled(if playing { icons::PLAY.get() } else { icons::SQUARE.get() }, bold(theme::current().accent)),
             Span::styled(" Now playing ", bold(theme::current().text)),
         ]),
         false,
@@ -180,7 +181,7 @@ fn draw_art(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn chip(s: String, c: [u8; 3]) -> Span<'static> {
-    Span::styled(format!(" {s} "), theme::on(c, [14, 14, 20]))
+    Span::styled(format!(" {s} "), theme::chip(c))
 }
 
 fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
@@ -232,9 +233,9 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
     if let Some((_, n, bar)) = beat {
         for k in 1..=4u16 {
             let (sym, c) = match (k == n, n == 1) {
-                (true, true) => ("■", theme::current().accent),
-                (true, false) => ("■", theme::current().info),
-                _ => ("□", theme::current().faint),
+                (true, true) => (icons::SQUARE.get(), theme::current().accent),
+                (true, false) => (icons::SQUARE.get(), theme::current().info),
+                _ => (icons::HOLLOW.get(), theme::current().faint),
             };
             chips.push(Span::styled(sym, bold(c)));
         }
@@ -315,12 +316,12 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
             spans.push(s);
         }
         if memory > 0 {
-            spans.push(Span::styled(format!(" ◆{memory}"), fg(theme::current().memory_cue)));
+            spans.push(Span::styled(format!(" {}{memory}", icons::DIAMOND.get()), fg(theme::current().memory_cue)));
         }
         let next =
             cues.iter().filter(|c| c.start_ms as f64 > pos_ms + 50.0).min_by_key(|c| (c.start_ms, c.hot_cue.is_none()));
         if let Some(c) = next {
-            let mark = cue_letter(c).map_or("◆".to_string(), |l| l.to_string());
+            let mark = cue_letter(c).map_or(icons::DIAMOND.get().to_string(), |l| l.to_string());
             spans.push(Span::styled("  next ", faint()));
             spans.push(Span::styled(mark, bold(theme::palette().cue_color(c))));
             spans.push(Span::styled(format!(" {}", clock((c.start_ms as f64 - pos_ms) / 1000.0)), dim()));
@@ -393,7 +394,7 @@ fn draw_details(f: &mut Frame, app: &mut App, area: Rect) {
     if !now.phrases.is_empty() {
         let mut spans = vec![Span::styled(format!("{} phrases ", now.phrases.len()), text())];
         for p in &now.phrases {
-            spans.push(Span::styled("▮", fg(theme::current().phrase(p.kind))));
+            spans.push(Span::styled(icons::PHRASE.get(), fg(theme::current().phrase(p.kind))));
         }
         about.push(Line::from(spans));
     }
@@ -445,7 +446,7 @@ pub(super) fn draw_matches(
     let boost = matches.is_some_and(|m| m.items.iter().any(|x| x.relation == KeyRelation::EnergyBoost));
     let relations = [KeyRelation::Same, KeyRelation::Adjacent, KeyRelation::Relative, KeyRelation::EnergyBoost];
     for r in relations.into_iter().take(if boost { 4 } else { 3 }) {
-        let mark = if theme::plain() { relation_mark(r) } else { "■" };
+        let mark = if theme::plain() { relation_mark(r) } else { icons::SQUARE.get() };
         title.push(Span::styled(mark, fg(key_relation_color(r))));
         title.push(Span::styled(format!(" {} ", r.describe()), faint()));
     }
@@ -485,7 +486,7 @@ pub(super) fn draw_matches(
             let list = List::new(items)
                 .highlight_style(if focused { theme::selected() } else { Style::new() })
                 .highlight_symbol(if focused {
-                    Span::styled("▍", fg(theme::current().accent))
+                    Span::styled(icons::SELECTED.get(), fg(theme::current().accent))
                 } else {
                     Span::raw("")
                 });
@@ -683,22 +684,25 @@ fn draw_progress(f: &mut Frame, app: &App, area: Rect) {
     let pos = app.position().as_secs_f64();
     let (dur, have) = app.now.as_ref().map_or((0.0, false), |n| (n.duration.as_secs_f64(), true));
     let glyph = if !have {
-        Span::styled("■ ", faint())
+        Span::styled(icons::SQUARE.spaced(), faint())
     } else if app.is_playing() {
-        Span::styled("▶ ", bold(theme::current().accent))
+        Span::styled(icons::PLAY.spaced(), bold(theme::current().accent))
     } else {
-        Span::styled("‖ ", bold(theme::current().warning))
+        Span::styled(icons::PAUSE.spaced(), bold(theme::current().warning))
     };
     let left =
         vec![glyph, Span::styled(clock(if have { pos } else { 0.0 }), bold(theme::current().text)), Span::raw(" ")];
     let vol = app.volume;
     let repeat = match app.repeat {
-        Repeat::Off => Span::styled("↻ off", faint()),
-        Repeat::All => Span::styled("↻ all", fg(theme::current().info)),
-        Repeat::One => Span::styled("↻ one", fg(theme::current().info)),
+        Repeat::Off => Span::styled(format!("{} off", icons::REPEAT.get()), faint()),
+        Repeat::All => Span::styled(format!("{} all", icons::REPEAT.get()), fg(theme::current().info)),
+        Repeat::One => Span::styled(format!("{} one", icons::REPEAT.get()), fg(theme::current().info)),
     };
-    let shuffle =
-        if app.shuffle { Span::styled("⇄ on", fg(theme::current().info)) } else { Span::styled("⇄ off", faint()) };
+    let shuffle = if app.shuffle {
+        Span::styled(format!("{} on", icons::MIX.get()), fg(theme::current().info))
+    } else {
+        Span::styled(format!("{} off", icons::MIX.get()), faint())
+    };
     let quantize = if app.deck.quantize {
         Span::styled("Q on", fg(theme::current().warning))
     } else {
@@ -730,7 +734,7 @@ fn draw_progress(f: &mut Frame, app: &App, area: Rect) {
     let mut spans = left;
     if bar_w > 2 {
         spans.push(Span::styled("━".repeat(filled.min(bar_w - 1)), fg(theme::current().accent)));
-        spans.push(Span::styled("●", bold(theme::current().text)));
+        spans.push(Span::styled(icons::DOT.get(), bold(theme::current().text)));
         spans.push(Span::styled("─".repeat(bar_w.saturating_sub(filled + 1)), faint()));
     }
     spans.extend(right);

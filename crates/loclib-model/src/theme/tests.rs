@@ -14,6 +14,36 @@ fn the_default_is_the_shared_colours() {
     assert_eq!(t.track_color(TrackColor::Aqua), TrackColor::Aqua.rgb());
 }
 
+/// A light background's roles are the tokens' light values, and the theme.css steps they name.
+#[test]
+fn the_light_palette_is_the_shared_light_tokens() {
+    let t = Theme::LIGHT;
+    assert_eq!(t.good, tokens::status::light::GOOD);
+    assert_eq!(t.phrase(PhraseKind::Chorus), tokens::phrases_light::CHORUS);
+    assert_eq!(t.hot_cue, tokens::cues_light::HOT);
+    assert_eq!((t.text, t.dim, t.faint), ([0x09, 0x09, 0x0b], [0x52, 0x52, 0x5b], [0x71, 0x71, 0x7a]));
+    assert_eq!(t.selection, [0xdb, 0xea, 0xfe], "the link wash");
+    assert_eq!(t.track_colors, Theme::DEFAULT.track_colors, "rekordbox's own");
+}
+
+/// Over a base, what a theme sets stays and what it left out is the base's; the default over a
+/// base is the base.
+#[hegel::test(test_cases = 100)]
+fn prop_a_theme_keeps_what_it_sets_over_a_base(tc: TestCase) {
+    assert_eq!(Theme::DEFAULT.over(&Theme::LIGHT), Theme::LIGHT);
+    let name = tc.draw(gs::sampled_from(TOKENS.to_vec()));
+    let colour = tc.draw(gs::arrays(gs::integers::<u8>()));
+    let mut t = Theme::DEFAULT;
+    let colours = if name.starts_with("waveform.") { vec![colour, [1, 2, 3]] } else { vec![colour] };
+    t.set(name, &colours).unwrap();
+    let over = t.over(&Theme::LIGHT);
+    for other in TOKENS {
+        let set_here = other == name && t.get(name) != Theme::DEFAULT.get(name);
+        let expected = if set_here { &t } else { &Theme::LIGHT };
+        assert_eq!(over.get(other), expected.get(other), "{other} with {name} set");
+    }
+}
+
 #[test]
 fn a_token_takes_its_number_of_colours() {
     let mut t = Theme::default();
