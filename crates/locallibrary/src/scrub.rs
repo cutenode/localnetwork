@@ -22,25 +22,32 @@
 //! files from store objects or another mounted drive, verifying every byte on the way, then
 //! reads them back. A copy of the store at a plugin's destination can supply them too
 //! ([`offer`]): they're fetched into the store first ([`fetch`]), each checked against its hash.
+//!
+//! `exportLibrary.db` and its WAL are the exception to comparing bytes: a reference holding the
+//! same library vouches for them whatever their bytes (see `same_onelibrary`).
 
 use std::collections::BTreeSet;
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::commit::{Changes, Content, NewFile, Options};
+use crate::compare::snapshot_object;
 use crate::device::{self, Device, LineageOp};
 use crate::fsutil;
 use crate::hash::{self, Hash};
 use crate::model::{Library, TrackRef};
 use crate::offsite::{self, Destination};
+use crate::onelibrary;
 use crate::paths::{self, FileClass};
+use crate::player;
 use crate::progress::{Ctx, Event, Phase};
 use crate::schema::{Failure, Skip};
 use crate::store::{Snapshot, Store};
+use crate::sync::is_library_plus;
 use crate::tree::{FileEntry, FileTree, HashIndex};
 use crate::{Error, Result};
 
@@ -160,24 +167,44 @@ struct References<'a> {
     history: Vec<&'a Snapshot>,
     /// Without an exact snapshot, the consulted one whose databases the drive still holds.
     listing: Option<&'a Snapshot>,
+    /// The kind of reference holding the library the drive's `exportLibrary.db` holds, when one
+    /// does (see [`same_onelibrary`]).
+    onelibrary: Option<ReferenceKind>,
     index: HashIndex,
 }
 
 impl<'a> References<'a> {
-    fn new(exact: Option<&'a Snapshot>, history: Vec<&'a Snapshot>, tree: &FileTree, index: HashIndex) -> Self {
+    fn new(
+        exact: Option<&'a Snapshot>,
+        history: Vec<&'a Snapshot>,
+        tree: &FileTree,
+        index: HashIndex,
+        same_library: impl Fn(&Snapshot) -> bool,
+    ) -> Self {
         let listing = match exact {
             Some(_) => None,
-            None => history.iter().copied().find(|s| same_databases(s, tree)),
+            None => history.iter().copied().find(|s| same_databases(s, tree, &same_library)),
+        };
+        let onelibrary = match (exact, listing) {
+            (Some(s), _) => same_library(s).then_some(ReferenceKind::Snapshot),
+            (None, s) => s.map(|_| ReferenceKind::History),
         };
         References {
             exact: exact.map(|s| s.files.iter().map(|f| (f.path.to_lowercase(), f)).collect()),
             history,
             listing,
+            onelibrary,
             index,
         }
     }
 
     fn expected(&self, e: &FileEntry) -> Option<Expected> {
+        if let Some(kind) = self.onelibrary
+            && is_library_plus(&e.path)
+            && let Some(hash) = e.hash
+        {
+            return Some(Expected { hash, size: e.size, mtime: e.mtime, kind });
+        }
         let key = e.path.to_lowercase();
         if let Some(f) = self.exact.as_ref().and_then(|exact| exact.get(&key))
             && let Some(hash) = f.hash
@@ -229,6 +256,7 @@ impl<'a> References<'a> {
         let mut out: Vec<_> = files
             .into_iter()
             .filter(|f| f.is_library() && tree.resolve(&f.path).is_none())
+            .filter(|f| self.onelibrary.is_none() || !is_library_plus(&f.path))
             .filter_map(|f| f.hash.map(|hash| (f, Expected { hash, size: f.size, mtime: f.mtime, kind })))
             .collect();
         out.sort_by(|a, b| a.0.path.cmp(&b.0.path));
@@ -238,11 +266,30 @@ impl<'a> References<'a> {
 
 /// Whether `tree` (hashed) holds `snapshot`'s databases as it saved them: then the drive holds the
 /// library that snapshot is of, and every file it lists belongs there. Anything else (a rekordbox
-/// export since, a player's history list) changed what belongs.
-fn same_databases(snapshot: &Snapshot, tree: &FileTree) -> bool {
+/// export since, a player's history list) changed what belongs. `same_library` says it of
+/// `exportLibrary.db` and its WAL, whose bytes don't have to match (see [`same_onelibrary`]).
+fn same_databases(snapshot: &Snapshot, tree: &FileTree, same_library: impl Fn(&Snapshot) -> bool) -> bool {
     let saved = |key: &str| snapshot.files.iter().find(|f| f.path.eq_ignore_ascii_case(key)).and_then(|f| f.hash);
     let now = |key: &str| tree.resolve(key).and_then(|e| e.hash);
-    paths::DATABASE_FILES.iter().any(|k| now(k).is_some()) && paths::DATABASE_FILES.iter().all(|k| saved(k) == now(k))
+    let same = |key: &&&str| saved(key) == now(key);
+    let (plus, others): (Vec<&&str>, Vec<&&str>) = paths::DATABASE_FILES.iter().partition(|k| is_library_plus(k));
+    paths::DATABASE_FILES.iter().any(|k| now(k).is_some())
+        && others.iter().all(same)
+        && (plus.iter().all(same) || same_library(snapshot))
+}
+
+/// Whether `snapshot`'s OneLibrary database holds the library the one below `root` does. Its
+/// bytes can't say: a drive's name and colour, a checkpoint and re-encryption all rewrite the
+/// files and leave the library as it was (see [`onelibrary::content_hash`]), so a reference
+/// compared by bytes calls an intact drive damaged. Every page must authenticate, so a damaged
+/// file has no such hash.
+fn same_onelibrary(store: &Store, snapshot: &Snapshot, root: &Path) -> bool {
+    let saved = || {
+        let object = |key| snapshot_object(store, snapshot, key).ok().flatten().map(|(_, bytes)| bytes);
+        onelibrary::content_hash(&object(paths::LIBRARY_PLUS_DB)?, object(paths::LIBRARY_PLUS_WAL).as_deref()).ok()
+    };
+    let now = onelibrary::read_files(root).and_then(|(db, wal)| onelibrary::content_hash(&db, wal.as_deref())).ok();
+    now.is_some_and(|now| saved() == Some(now))
 }
 
 /// Snapshots worth consulting for a drive: its library's head, and the snapshot its lineage
@@ -331,7 +378,10 @@ pub fn scrub(
     };
     let history = store.map(|s| history_snapshots(s, device)).unwrap_or_default();
     let mut index = device.load_index();
-    let refs = References::new(exact.as_ref(), history.iter().collect(), &tree, index.clone());
+    let same_library = |s: &Snapshot| {
+        fps.contains(&s.fingerprint) || store.is_some_and(|store| same_onelibrary(store, s, device.root()))
+    };
+    let refs = References::new(exact.as_ref(), history.iter().collect(), &tree, index.clone(), same_library);
 
     // 3. Compare.
     let sources = RepairSources::new(store, siblings, ctx)?;
@@ -548,6 +598,13 @@ pub fn repair(
         return Ok(report);
     }
 
+    // A snapshot of another state holds another drive's name and colour.
+    let identity = todo
+        .iter()
+        .any(|(p, ..)| is_library_plus(&p.path))
+        .then(|| player::db_identity(device.root()).or_else(|| device.state().and_then(|s| s.player.clone())))
+        .flatten();
+
     // Each copy is verified against the expected hash as it's staged; one that can't be made
     // is reported and the others go in. There's no backup: what's written back is a good copy of
     // the same state.
@@ -598,6 +655,7 @@ pub fn repair(
         }
     }
     device.save_index(&index)?;
+    player::preserve(device, identity.as_ref())?;
     Ok(report)
 }
 
