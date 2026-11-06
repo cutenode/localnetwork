@@ -40,6 +40,7 @@ use super::drives::{DriveKey, DriveRow};
 use super::edits::{Job, Modal, Pick};
 use super::keymap;
 use super::state::{self, Saved, SavedQueue};
+use super::terminal::LateAnswers;
 // What the test modules find through `use super::*`.
 #[cfg(test)]
 use {
@@ -254,6 +255,8 @@ pub struct App {
     pub deck_secs: f64,
     /// Colour of the cue the playhead last crossed, and when.
     flash: Option<([u8; 3], Instant)>,
+    /// Keeps the terminal's late answers out of the keys.
+    late_answers: LateAnswers,
     last_pos_ms: f64,
     pub fullscreen: bool,
     /// Full screen: the pick among the tracks that mix into the playing one, to play next.
@@ -363,9 +366,11 @@ impl App {
     /// An app with nothing open, no background work started and no output devices (see
     /// `Outputs`): what the tests use.
     pub(super) fn blank(store_root: PathBuf, audio: Option<Audio>) -> App {
-        // A test's app never sends the browser of whoever runs it anywhere.
+        // A test's app never sends the browser of whoever runs it anywhere, or reads their drives.
         #[cfg(all(test, debug_assertions))]
         locallibrary::opener::never_open();
+        #[cfg(test)]
+        testing::no_drives();
         let (tx, rx) = channel();
         let seed =
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64);
@@ -439,6 +444,7 @@ impl App {
             vis: Vis::Bars,
             deck_secs: 8.0,
             flash: None,
+            late_answers: LateAnswers::default(),
             last_pos_ms: 0.0,
             fullscreen: false,
             next_pick: ListState::default(),

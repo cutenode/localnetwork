@@ -211,6 +211,10 @@ pub enum Act {
     Fix(usize),
     /// Draw in a theme, by its key (`<plugin>.<name>`; empty for the default).
     Theme(&'static str),
+    /// Draw in a colour tier (`None`: the terminal's).
+    Colours(Option<super::theme::Tier>),
+    /// Draw in a set of icons (`None`: what suits the terminal).
+    Icons(Option<super::icons::IconSet>),
     /// Export the drive, or the set open, in a plugin's format (the plugin's id, the format, and
     /// which of the two).
     Export(&'static str, &'static str, loclib_plugin::ExportFrom),

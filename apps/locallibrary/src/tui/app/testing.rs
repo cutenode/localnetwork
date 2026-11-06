@@ -716,6 +716,16 @@ pub fn mounted(dir: &Path) {
     unsafe { std::env::set_var("LOCALLIBRARY_VOLUMES", dir) };
 }
 
+/// No drive counts as mounted unless a test says so ([`mounted`]): the Profile view reads every
+/// drive it finds, in the background, and a real one plugged into the machine takes seconds and
+/// goes on being read after the test case that asked.
+pub fn no_drives() {
+    if std::env::var_os("LOCALLIBRARY_VOLUMES").is_none() {
+        // SAFETY: as in `echo_plugin`: this is the process's first app, so none of its workers runs.
+        unsafe { std::env::set_var("LOCALLIBRARY_VOLUMES", "") };
+    }
+}
+
 /// The folder a property test's drives are mounted in, with the echo plugin's manifest beside
 /// them: set up as the first case starts, for every case after it (the host reads its plugins
 /// once a process, and the environment is best set before any thread runs).

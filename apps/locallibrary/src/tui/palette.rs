@@ -197,12 +197,13 @@ pub fn commands(view: View) -> Vec<(Act, Item)> {
 }
 
 impl App {
-    /// `:`: every action by name, then plugins' commands, operations and analyzers, in the
+    /// `:`: every action by name, the player's looks, then plugins' commands, operations and analyzers, in the
     /// library the columns of their fields, their settings, what they suggest, and the fixes the
     /// last check found.
     pub(super) fn open_palette(&mut self) {
         let acts = commands(self.view)
             .into_iter()
+            .chain(super::looks::items())
             .chain(self.plugin_items(self.action_drive().as_deref(), &super::plugins::EVERYWHERE));
         let fields = (self.view == View::Library).then(|| self.field_items()).into_iter().flatten();
         let fixes = super::plugins::checks::items(self);

@@ -121,6 +121,8 @@ fn contents(tc: &TestCase) -> Contents {
         let maybe = |tc: &TestCase| tc.draw(gs::optional(gs::booleans()));
         let prefs = PlayerPrefs {
             theme: tc.draw(gs::optional(gs::sampled_from(vec!["themes.night", "themes.day"]))).map(String::from),
+            color: tc.draw(gs::optional(gs::sampled_from(vec!["truecolor", "256", "16"]))).map(String::from),
+            icons: tc.draw(gs::optional(gs::sampled_from(vec!["nerd", "unicode", "ascii"]))).map(String::from),
             sort: tc
                 .draw(gs::optional(gs::sampled_from(vec![SortField::Bpm, SortField::Title])))
                 .map(|field| SortKey { field, descending: tc.draw(gs::booleans()) }),

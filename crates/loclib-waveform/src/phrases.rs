@@ -2,7 +2,6 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::Widget;
 
-use crate::color::scale;
 use crate::{Palette, Rgb};
 
 /// rekordbox's phrase analysis across the whole track, one row: each phrase a block of its
@@ -26,17 +25,17 @@ impl Widget for PhraseStrip<'_> {
         let x_of = |ms: f64| ((ms / self.duration_ms) * w).round().clamp(0.0, w) as u16;
         let head = ((self.progress.clamp(0.0, 1.0) as f64 * w) as u16).min(area.width - 1);
         let y = area.y;
-        let ink = paint([16, 16, 22]);
         for (start, end, name, color) in self.phrases {
             let (a, b) = (x_of(*start), x_of(*end).max(x_of(*start) + 1).min(area.width));
             for x in a..b {
-                let c = if x < head { scale(*color, 0.45) } else { *color };
-                // A darker first cell keeps neighbouring phrases of the same colour apart.
-                let c = if x == a { scale(c, 0.7) } else { c };
-                p.put(buf, area.x + x, y, " ", ink, Some(paint(c)));
+                let c = if x < head { p.fade(*color, 0.45) } else { *color };
+                // A fainter first cell keeps neighbouring phrases of the same colour apart.
+                let c = if x == a { p.fade(c, 0.7) } else { c };
+                p.put(buf, area.x + x, y, " ", paint(p.ink), Some(paint(c)));
             }
             let room = b.saturating_sub(a + 1) as usize;
             if room >= 2 {
+                let ink = paint(p.ink_on(*color));
                 for (i, ch) in name.chars().take(room).enumerate() {
                     if let Some(cell) = buf.cell_mut((area.x + a + 1 + i as u16, y)) {
                         cell.set_char(ch).set_fg(ink);

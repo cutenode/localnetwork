@@ -14,6 +14,34 @@ fn fuzzy_matching_prefers_word_starts_and_runs() {
     assert!(fuzzy("next track", "next track").is_some(), "spaces in the query are ignored");
 }
 
+/// In a list any of which may be chosen, space marks the row selected or takes its mark off, and
+/// each row shows whether it's marked.
+#[hegel::test(test_cases = 30)]
+fn prop_a_list_shows_the_marks_on_its_rows(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    const ROWS: usize = 5;
+    let (mut app, _dir) = app_with(library());
+    let items = (0..ROWS).map(|i| Item::new(format!("row {i}"), "")).collect();
+    let mut picker = Picker::new("Pick some", items, Then::Act(vec![Act::Quit; ROWS]));
+    picker.marks = Some(vec![false; ROWS]);
+    app.modal = Some(Modal::Pick(picker));
+    let mut marked = [false; ROWS];
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(12)) {
+        if tc.draw(gs::booleans()) {
+            key(&mut app, KeyCode::Down);
+            continue;
+        }
+        let Some(Modal::Pick(p)) = &app.modal else { panic!("the list closed") };
+        marked[p.selected().unwrap()] ^= true;
+        press(&mut app, " ");
+    }
+    let s = super::super::ui::screen(&mut app, 120, 30);
+    for (i, marked) in marked.iter().enumerate() {
+        let row = s.lines().find(|l| l.contains(&format!("row {i}"))).unwrap_or_else(|| panic!("no row {i}\n{s}"));
+        assert_eq!(row.contains(super::super::icons::CHECK.get()), *marked, "row {i}\n{s}");
+    }
+}
+
 #[test]
 fn the_palette_lists_the_views_commands_first_and_runs_one() {
     let cmds = commands(View::Profile);

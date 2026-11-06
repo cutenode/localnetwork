@@ -36,6 +36,8 @@ runs:
           echo "version $(instructions --version)"
           echo "drive_ls $(instructions drive ls)"
           echo "tracks_filter $(instructions tracks LARGE --filter 'bpm:120-130 -genre:techno')"
+          echo "tracks_search $(instructions tracks LARGE --search house)"
+          echo "tracks_sort $(instructions tracks LARGE --sort artist,title)"
           echo "diff $(instructions diff LARGE LARGE2)"
           echo "check $(instructions check LARGE LARGE2)"
           echo "doctor $(instructions doctor LARGE)"
