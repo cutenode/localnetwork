@@ -27,9 +27,9 @@ which shops the Manager's search badges point at (see
 rows carry the same badges), and whether an opened row's words are
 put into Title Case (see [Title Case](#title-case)). Those are typed or ticked once and never
 thought about again, which is what makes them settings rather than one panel's
-options; a failed row that wants one opens this sheet. One section is not a setting at all: everything the
-extension has saved — the marks, the looked-up details, the Manager's list,
-the session queue and every panel option — goes out to one JSON file there and
+options; a failed row that wants one opens this sheet. One section is not a setting at all: most of what the
+extension has saved (the marks, the looked-up details, the Manager's list,
+the artists list, the session queue and three panel options) goes out to one JSON file there and
 reads back in, adding to what is here unless a switch is turned on to replace
 it (see [Saving and restoring it all](#saving-and-restoring-it-all)). The last,
 **about**, says which version this is (and the commit it was built from), and
@@ -284,15 +284,14 @@ different lengths of time.
 
 **Options** are settings, and are kept for good in the popup page's own
 `localStorage` (`$lib/prefs.svelte.ts`): the output format, the sort order,
-the two Hide toggles, the email and name some gates and drops ask for,
+the background-tabs switch, the two Hide toggles, the email and name some gates and drops ask for,
 which search badges are switched on, and whether an opened row's words are
 title-cased.
-No storage permission is asked for on the user's behalf to hold them, and the
-keys are the ones the exported state file carries, so they travel to another
-install with the marks (see "Saving and restoring it all") — bar the address,
-the name, the Downloader's mark, the search-badge switches and the title-case
-switch, which are deliberately not in the file. An
-import sets one only where nothing is set already, so a file carries an option
+No storage permission is asked for on the user's behalf to hold them. Three of
+them, the background-tabs switch, the sort order and **Hide downloaded**, are
+in the exported state file, so they travel to another install with the marks
+(see "Saving and restoring it all"); the rest stay on this install. An
+import sets one of the three only where nothing is set already, so a file carries an option
 to an install that has never been asked rather than overruling a choice made
 here; asking the import to replace is what overrules them, and then it puts
 the ones the file is silent about back to their defaults too.
@@ -349,7 +348,7 @@ to be rebuilt from whatever tab was in front — and the tab in front was
 usually the gate a row had just opened, which is a link this tool claims, so
 twenty rows came back as one. Now the list that was there is the list that
 comes back, and the source is read again only for what is new to it.
-Switching the source is still a choice, and a choice empties the list.
+Switching the source with the picker is still a choice, and a choice empties the list.
 
 What a page owns is read again, because by then it may be another page
 altogether: what the tab holds is read afresh every time, to say what there is
@@ -630,7 +629,7 @@ All post-processing happens inside the extension popup.
   (case-insensitive).
 
 **Copy** puts the current output on the clipboard; **Download** saves it as a
-file named after the playlist (or `Your likes` / `Likes by <user>` on Likes
+file named after the playlist (or `your likes` / `Likes by <user>` on Likes
 pages, or `session-queue` when the queue is the source) with the extension
 matching the format.
 
@@ -693,7 +692,7 @@ is on the page at a time, but both are scanned.
 | Title (B)             | `.playableTile__mainHeading` within the tile (direct text nodes only, to skip the nested icon span)                                                              |
 | Artwork thumbnail (B) | inline `background-image` of `.playableTile__image .image__full` within the tile                                                                                 |
 | Genre (B)             | none: a tile renders no tag, so the genre is unknown from the page there                                                                                         |
-| Page title            | `h1.userNetworkTop__title` ("Likes by <user>") on `/<user>/likes`; `/you/likes` shows no username, so the fixed title `Your likes` is used                       |
+| Page title            | `h1.userNetworkTop__title` ("Likes by <user>") on `/<user>/likes`; `/you/likes` shows no username, so the fixed title `your likes` is used                       |
 
 Likes pages have no `.fullHero`, so the curator is always empty there.
 
@@ -767,7 +766,7 @@ access, no remote code.
 - The **Filter** box on `/you/likes` narrows what SoundCloud renders, so
   only the filtered items are extracted while a filter is active.
 - `/you/likes` shows no username on the page, so its title (and the download
-  file name) is the fixed `Your likes`.
+  file name) is the fixed `your likes`.
 - SoundCloud class names are not a public API and may change; the selectors
   above are documented so they are easy to fix.
 - Page detection reads SoundCloud's layout. Should another Library page
@@ -1151,13 +1150,15 @@ is the same entry the panel would have made — so the Downloader can find its
 gate later without the page. A row showing no title or artist queues with
 those fields empty, exactly as extracting the page would give them.
 
-The session queue is the one thing the content script writes — this button
+The session queue is one of three things the content script writes, beside the
+marks and the details cache. This button
 fills it, and so does the download button below. It writes to the extension's
 own session storage, never to the page, and Chrome keeps that area shut to a
 content script until a trusted context opens it — so until the popup has been
 opened once in this browser session there is no button at all, and with it no
 sign on the page of what is in the queue. Open the toolbox once and it
-appears.
+appears on pages loaded after that; a tab already open gets it at the next
+change to the queue, or when it is reloaded.
 
 A track that has been looked up and offers no download link at all gets a
 dark **nodl** pill in the same corner (artwork left as is), so the ones not
@@ -1269,7 +1270,7 @@ The controls are not quite alike underneath:
 | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Purchase link (`a.soundActions__purchaseLink`, legacy `.sc-buylink`)                                                                                   | an `<a>` to the link's **real** destination — SoundCloud wraps outbound links in its `gate.sc` redirector, and this unwraps it exactly as the panel does | queues the track, and the browser follows the link (so ⌘-click still opens it behind the page). A link to Hypeddit, Droploud or Pump Your Sound is saved instead; see [Walking a gate from the page](#walking-a-gate-from-the-page) |
 | The cart, which is the same link in the signed-in track page's own frame (the one link leaving the site from its `section[aria-label="Track header"]`) | the same `<a>`                                                                                                                                           | the same                                                                                                                                                                                                                            |
-| **Download file** (`.sc-button-download`, inside the More menu)                                                                                        | a `<button>`                                                                                                                                             | queues the track, then presses SoundCloud's own button, hidden beneath it — which the click detection above sees, so the track is marked downloaded as it always was                                                                |
+| **Download file** (`.sc-button-download`, inside the More menu)                                                                                        | a `<button>`                                                                                                                                             | presses SoundCloud's own button, hidden beneath it, then queues the track; the click detection above sees the press, so the track is marked downloaded as it always was                                                             |
 
 The panel's button for a SoundCloud download opens the _track page_, because
 "Download file" has no URL of its own to open; on the track page itself that
@@ -1319,7 +1320,7 @@ beneath. Turn the setting off and it is shown again untouched, in every open
 tab at once — as it is, immediately, if a control turns out to name no track
 or to point nowhere, which is the one thing that must never leave an empty
 space where a download button was. The More menu renders only when it is
-opened, so for the tenth of a second the repaint is coalesced into, a
+opened, so for the 150 ms the repaint is coalesced into, a
 freshly-opened menu shows SoundCloud's own button; clicking it in that moment
 does what it always did.
 
@@ -1490,7 +1491,7 @@ worth a line in a format every install has to keep reading.
 Everything above lives in the extension's own storage, which goes away when
 the extension does. Reinstalling it, or moving to another browser profile,
 otherwise means losing every mark and paying for every lookup again. **your
-data**, a section of the Settings sheet, takes the lot out to a JSON
+data**, a section of the Settings sheet, takes most of it out to a JSON
 file and reads one back (`src/lib/components/StateTransfer.svelte`).
 
 It was the Manager panel's own footer, which was the wrong place for it twice
@@ -1566,15 +1567,17 @@ By default an import **never removes anything**:
 The switch in the import box turns every one of those the other way round, and
 it is off every time the popup opens: the marks become the file's marks, the
 details cache becomes the file's cache, the list, the artists and the queue
-become the file's, and every option goes to what the file says — or, where the file says
-nothing about one, back to its default. What was here and is not in the file
+become the file's, and the three options the file carries go to what the file says, or back to their defaults where the file says
+nothing about one. What was here and is not in the file
 is gone. The button changes with it, from **add to what's here** to **replace
 everything**.
 
 That is the way to restore an exact snapshot. Doing it by hand still works
 (**Unmark** for the marks, Select → the box at the left of the bar → **Remove**
 for the list) and reaches the same place. A SoundCloud tab that is already
-open keeps its old markers either way until it is reloaded.
+open repaints the marks as they land, and keeps the details it holds, taking
+only newer ones, until it is reloaded. Until then its next save can put back
+entries a replacing import removed.
 
 A file exported before the tool kept a list carries no `listed` member, and
 still reads: adding such a file restores the marks and the lookups as it
@@ -1789,7 +1792,7 @@ which `downloadable`, `has_downloads_left`, `purchase_url`, `purchase_title`,
 
 | Page                              | Request                   | When                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | --------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Playlist                          | `/tracks?ids=…`           | for the hydration's stubs, 50 per request, in playlist order, only as far as the rendered rows need — the first request on its own (it usually settles every rendered row, and the other nine of a 479-track playlist are never made), then four at a time                                                                                                                                                                                       |
+| Playlist                          | `/tracks?ids=…`           | for the hydration's stubs, 50 per request, in playlist order, only as far as the rendered rows need, as many at once as the rendered rows can reach, up to four: a page that has not been scrolled asks for one batch, and the other nine of a 479-track playlist are never made                                                                                                                                                                 |
 | Playlist, after in-app navigation | `/resolve?url=<playlist>` | once per page, for the track ids (74 KB for a 479-track playlist; re-fetching the page would be 149 KB of server-rendered HTML). The answer is kept for as long as the page is open, so a second panel spends its requests on rows rather than on asking what playlist this is again                                                                                                                                                             |
 | Likes                             | `/users/<id>/likes`       | the listing the page itself loads, in page order; the first request asks for exactly as many likes as the page shows (plus a little slack), later ones for 200, the API's maximum, until every rendered row is covered or 2,000 likes deep. One request instead of one per track. The user id is in the hydration; after in-app navigation to another user's likes, one `/resolve` of the profile URL, also kept for as long as the page is open |
 | Track page                        | nothing of its own        | the one track is in the page's own hydration, so a song page loaded fresh is answered without a request at all; after in-app navigation it falls to the row below, which is one request for one track                                                                                                                                                                                                                                            |
@@ -1945,10 +1948,13 @@ for a cover art click, described above.
   nothing that would let a request act as you.
 - `GET` only. Nothing is ever written to SoundCloud, and no data of yours
   (marks, cache, clicks) leaves the browser.
-- No code runs in the page's own JavaScript context, no network traffic of
-  the page is intercepted, and none of SoundCloud's controls are driven
-  automatically — the only change to the page is the inert marker overlay,
-  and the only thing watched is which of the page's own buttons you click.
+- No code runs in the page's own JavaScript context and no network traffic of
+  the page is intercepted. The changes to the page are the inert marker
+  overlay, the queue button and the replaced download buttons. The one
+  SoundCloud control pressed with no click from you is the Likes page's List
+  toggle, with **open your likes as a list** on. SoundCloud's hidden Download
+  file is pressed by a click on its replacement. The only clicks acted on are
+  those on the page's own More, download and purchase buttons.
 - Asks little and never twice: bulk endpoints sized to what is on screen,
   nothing prefetched beyond the rendered rows, no polling or background
   activity (requests happen only when the panel is opened), a month-long
@@ -2083,8 +2089,10 @@ other tools, so a channel upload searches for the channel.
 - The queue button needs the popup to have been opened at least once this
   browsing session: it is the popup that opens session storage to the content
   script, and until it has, the page can neither read the queue nor write to
-  it. So until then the page shows no button and no sign of what is in the
-  queue. Open the toolbox once and it appears on every SoundCloud tab.
+  it. So until then the page shows no queue button and no sign of what is in
+  the queue. Open the toolbox once and it appears on pages loaded after that;
+  a tab already open gets it at the next change to the queue, or when it is
+  reloaded.
 - The queue button follows the cover art, so it reaches only tracks whose art
   is on screen — there is no button in a search result's text row or the
   sidebar's related tracks.
@@ -2162,10 +2170,10 @@ and so does the link SoundCloud carries.)
    run says which of the two it is in, and a link with no SoundCloud track
    behind it (from a gate tab, or the paste box) is never dropped by either.
    When something is hidden, a line says how many of the links are showing.
-5. **Download all**, or **Get** on a single row. Rows run one at a time and
+5. **Get all**, or **Get** on a single row. Rows run one at a time and
    report as they go: _Unlocking…_, _Saving…_, _Saved_, _Signed up_ for a
    Laylo drop the address was left with, the page it turned out to point at,
-   or the reason it did not work. **Download all** runs what is
+   or the reason it did not work. **Get all** runs what is
    listed, so the toggles are also how a batch is chosen — and with **Hide
    downloaded** on, each row goes as soon as saving it marks its track.
 6. A row that failed says what to do about it, and offers to do it. Most of
@@ -2554,10 +2562,10 @@ takes one off again.
 3. A row is the artist's picture, name (with SoundCloud's verified mark where
    it has one) and a line about them — where they say they are, how many
    follow them, how many links they offer — and then the links as lettered
-   badges, up to five on the row and a **+n** for the rest. Each badge opens
+   badges, up to three on the row and a **+n** for the rest. Each badge opens
    that page, behind the popup or in front depending on the **background
    tabs** switch the Manager also has. An artist SoundCloud had no public
-   profile for says **no public profile**.
+   profile for, or whose request failed, says **no public profile**.
 4. The chevron opens the row into everything else, one field a line, each a
    button that copies it: the SoundCloud profile and every link as an address
    (with an arrow to open it), SoundCloud's own name for the account where the
@@ -2644,7 +2652,8 @@ Nothing is cached in the content script for this. The panel keeps what it is
 told on the entry it asked for, asks only about the artists it has no answer
 for, and a failure to find a profile is remembered on the entry too, so a
 deleted or private account is not asked about on every press — **look up
-again** on the row is what asks about one afresh. A lookup cut short by the
+again** on the row is what asks about one afresh. Any failed `/resolve` but a
+`401` is remembered the same way, over whatever the entry held. A lookup cut short by the
 popup closing keeps the answers that had arrived, bar the last second's: the
 list is written back once per burst of answers rather than once per answer,
 and the rest say **not looked up** until the button is pressed again.
@@ -2731,7 +2740,8 @@ as it was.
 5. **Send the queue somewhere** hands the batch to the Playlist to Text or
    third-party downloader tool. Each opens on the queue rather than on the
    active tab (the picker at the top of those two panels switches back); the
-   tab can be anything at all, or nothing. The sheet closes behind it: it was a
+   tab can be anything at all, or nothing. A tool already open under the sheet
+   keeps its source until it next opens. The sheet closes behind it: it was a
    way of getting there, not somewhere to come back to.
 6. Per row: the check button toggles that one mark, the **×** takes the track
    out of the queue (its mark, if any, stays). **Clear** in the sheet's header
@@ -2782,9 +2792,10 @@ button is there without hovering, reading _queued_ (see
 [queueing from the page](#queueing-from-the-page)). Session storage is closed
 to page contexts until a trusted one opens it, and the popup does that as the
 queue starts (`setAccessLevel`); the page reads the queue, and writes it only
-through that one button, which replaces the whole list the same way the store
-does. Until the popup has been opened once in a browsing session the page can
-do neither, and shows no button at all.
+through that button and the replaced download buttons, each of which replaces
+the whole list the same way the store does. Until the popup has been opened once in a browsing session the page can
+do neither, and shows no queue button. Replaced download buttons still work and
+queue nothing.
 
 ### Limitations
 
@@ -2803,3 +2814,281 @@ do neither, and shows no button at all.
   deliberate: a mark made from here is often made before the file is safely
   saved, and a row that vanished as it was marked would take the way back with
   it.
+
+## Diagrams
+
+How the extension fits together.
+
+- Overview: [Parts and how they connect](#parts-and-how-they-connect), [Messages between the parts](#messages-between-the-parts), [What the manifest declares](#what-the-manifest-declares), [Building into dist](#building-into-dist), [The three build commands](#the-three-build-commands), [What the popup loads and when](#what-the-popup-loads-and-when), [Declaring a tool in the registry](#declaring-a-tool-in-the-registry), [Opening the popup](#opening-the-popup), [Views and sheets](#views-and-sheets)
+- [Reading pages](docs/diagrams/reading-pages.md): what the panels ask a tab, and playlist to text
+- [The Manager](docs/diagrams/manager.md): adding, filing and acting on rows, filters and search badges
+- [The downloader](docs/diagrams/downloader.md): gate links, row life, walks and gate sites
+- [Artists, the queue and settings](docs/diagrams/artists-and-queue.md): artist rows, the session queue and the settings sheet
+- [The content script](docs/diagrams/content-script.md): repaints, pills, replaced buttons, walks and the likes list
+- [Lookups](docs/diagrams/lookups.md): runJob, the likes listing, API failures and the details cache
+- [State](docs/diagrams/state.md): every store, marks, export and import
+- [Outside requests](docs/diagrams/outside-requests.md): what each host is asked and what else leaves the browser
+
+### Parts and how they connect
+
+The four kinds of context the extension runs in, the three stores they share, and what each talks to.
+
+```mermaid
+flowchart TD
+  Popup["Popup<br/>menu, tool panels, sheets"]
+  Content["Content script<br/>every frame of soundcloud.com"]
+  Worker["Background worker"]
+  Offscreen["Offscreen page"]
+  Local[("chrome.storage.local")]
+  Session[("chrome.storage.session")]
+  Web[("localStorage<br/>extension origin")]
+  SoundCloud["SoundCloud public API"]
+  Gates["Gate sites"]
+  Downloads["chrome.downloads"]
+
+  Popup -->|"asks the active tab"| Content
+  Content -->|"Download button on a gate"| Worker
+  Worker -->|"opens, sends the walk"| Offscreen
+  Popup <--> Local
+  Popup <--> Session
+  Popup <--> Web
+  Content <--> Local
+  Content <--> Session
+  Offscreen -->|"reads email, name, mark"| Web
+  Content -->|"GET, anonymous"| SoundCloud
+  Popup -->|"walks gates"| Gates
+  Offscreen -->|"walks gates"| Gates
+  Popup -->|"saves files"| Downloads
+  Worker -->|"saves files"| Downloads
+```
+
+Source: [`src/manifest.json`](src/manifest.json), [`src/background.ts`](src/background.ts), [`src/offscreen.ts`](src/offscreen.ts), [`content.ts`](content.ts)
+
+### Messages between the parts
+
+Every message type the parts send each other. Only the top frame's content script answers the panels.
+
+```mermaid
+sequenceDiagram
+  participant P as Popup
+  participant C as Content script
+  participant W as Background worker
+  participant O as Offscreen page
+  P->>C: EXTRACT_TRACKS
+  C-->>P: the tracks the page renders
+  P->>C: GET_DOWNLOAD_DETAILS
+  C--)P: DOWNLOAD_DETAILS_PROGRESS, many
+  C-->>P: tracks with details
+  P->>C: GET_ARTIST_PROFILES
+  C--)P: ARTIST_PROFILES_PROGRESS, many
+  C-->>P: profiles, failed, error
+  C->>W: SAVE_GATE
+  W->>O: WALK_GATE
+  O->>W: ROUND_TRIP, a sign-in tab
+  W-->>O: whether the tab came back
+  O-->>W: file to save, or where to open
+  W-->>C: saved, mark
+```
+
+Source: [`src/lib/types.d.ts`](src/lib/types.d.ts), [`content.ts`](content.ts), [`src/background.ts`](src/background.ts), [`src/offscreen.ts`](src/offscreen.ts)
+
+### What the manifest declares
+
+Each permission and entry point in the manifest, and what it is there for.
+
+```mermaid
+flowchart LR
+  Manifest["src/manifest.json"]
+  Manifest --> Tab["activeTab<br/>the active tab's URL"]
+  Manifest --> Clip["clipboardWrite<br/>the Copy buttons"]
+  Manifest --> Store["storage<br/>chrome.storage areas"]
+  Manifest --> Dl["downloads<br/>saving what a walk unlocks"]
+  Manifest --> Off["offscreen<br/>the page a walk runs in"]
+  Manifest --> Hosts["host_permissions<br/>the gate sites' hosts only"]
+  Manifest --> Cs["content_scripts<br/>soundcloud.com, all frames,<br/>downloaded-store.js then content.js,<br/>content.css"]
+  Manifest --> Bg["background<br/>background.js, a module worker"]
+  Manifest --> Act["action<br/>popup.html"]
+```
+
+Source: [`src/manifest.json`](src/manifest.json)
+
+### Building into dist
+
+`pnpm build` makes three kinds of file, and `dist/` is the folder Chrome loads.
+
+```mermaid
+flowchart TD
+  Pages["src/popup.html, src/offscreen.html,<br/>src/background.ts"]
+  Classic["content.ts, downloaded-store.ts,<br/>state-transfer.ts"]
+  Static["src/manifest.json,<br/>content.css, icons"]
+  Vite["vite build<br/>Svelte, Tailwind"]
+  Blank["ts-blank-space<br/>types become spaces"]
+  Copy["copied as they are"]
+  Mjs["assets/: the page entries, core, ui, shared,<br/>panel-shell, a chunk per Panel and sheet,<br/>CSS and fonts"]
+  Html["popup.html with the store's script tag,<br/>offscreen.html, background.js"]
+  Js["content.js, downloaded-store.js,<br/>state-transfer.js<br/>same lines and columns as the source"]
+  Dist["dist/, loaded unpacked in Chrome"]
+
+  Pages --> Vite
+  Classic --> Blank
+  Static --> Copy
+  Vite --> Mjs
+  Vite --> Html
+  Blank --> Js
+  Mjs --> Dist
+  Html --> Dist
+  Js --> Dist
+  Copy --> Dist
+```
+
+Source: [`vite.config.ts`](vite.config.ts), [`package.json`](package.json), [`src/main.ts`](src/main.ts), [`src/app.css`](src/app.css)
+
+### The three build commands
+
+All three run `vite build`. Only `pnpm dev` keeps `dist/` between rebuilds, so the loaded extension keeps its files while it rebuilds.
+
+```mermaid
+flowchart TD
+  Dev["pnpm dev<br/>vite build --mode development --watch"]
+  Build["pnpm build<br/>vite build"]
+  Zip["pnpm zip<br/>vite build, then zip dist/"]
+  Watch["dist/ kept, sourcemaps on,<br/>rebuilt on every change"]
+  Release["dist/ emptied first,<br/>no sourcemaps"]
+  File["localtoolbox.zip"]
+
+  Dev --> Watch
+  Build --> Release
+  Zip --> Release
+  Zip --> File
+```
+
+Source: [`package.json`](package.json), [`vite.config.ts`](vite.config.ts)
+
+### What the popup loads and when
+
+The shell boots on its own. Everything heavy is a chunk fetched at most once per popup.
+
+```mermaid
+flowchart TD
+  Html["popup.html"]
+  Store["downloaded-store.js<br/>classic script, TbxDownloaded"]
+  Shell["The shell<br/>main.ts, App.svelte, the registry, the stores"]
+  Panel["The tool's Panel chunk"]
+  QueueSheet["QueueSheet chunk"]
+  SettingsSheet["SettingsSheet chunk"]
+  Transfer["state-transfer.js<br/>classic script, TbxState"]
+
+  Html --> Store
+  Html --> Shell
+  Shell -->|"a tool opens, or was left open"| Panel
+  Shell -->|"something is queued, the queue opens,<br/>or the sheet was left open"| QueueSheet
+  Shell -->|"settings opens,<br/>or was left open"| SettingsSheet
+  SettingsSheet -->|"loaded beside it"| Transfer
+```
+
+Source: [`src/App.svelte`](src/App.svelte), [`src/lib/tools.ts`](src/lib/tools.ts), [`src/lib/queue-sheet.ts`](src/lib/queue-sheet.ts), [`src/lib/settings-sheet.ts`](src/lib/settings-sheet.ts), [`src/lib/globals.ts`](src/lib/globals.ts)
+
+### Declaring a tool in the registry
+
+One `TOOLS` entry is all the shell needs to list a tool, open it and start its first read.
+
+```mermaid
+flowchart LR
+  Entry["A TOOLS entry<br/>src/lib/tools.ts"]
+  Words["name, description,<br/>icon, tone"]
+  Short["short"]
+  Load["load"]
+  Warm["warm"]
+  Menu["ToolMenu, PanelShell<br/>and PanelGhost draw it"]
+  Report["bug-report fills in<br/>the tool's name"]
+  Send["QueueSheet labels<br/>its send button"]
+  Chunk["loadPanel imports the chunk,<br/>once per id"]
+  Page["warmPage EXTRACT_TRACKS<br/>playlist to text, Manager, artists"]
+  ActiveTab["warmActiveTab<br/>third-party downloader"]
+
+  Entry --> Words
+  Entry --> Short
+  Entry --> Load
+  Entry --> Warm
+  Words --> Menu
+  Words --> Report
+  Short --> Send
+  Load --> Chunk
+  Warm --> Page
+  Warm --> ActiveTab
+```
+
+Source: [`src/lib/tools.ts`](src/lib/tools.ts), [`src/lib/components/ToolMenu.svelte`](src/lib/components/ToolMenu.svelte), [`src/lib/components/PanelGhost.svelte`](src/lib/components/PanelGhost.svelte), [`src/lib/components/QueueSheet.svelte`](src/lib/components/QueueSheet.svelte), [`src/lib/bug-report.ts`](src/lib/bug-report.ts)
+
+### Opening the popup
+
+Nothing waits for a round trip before drawing: the synchronous mirrors give the first frame, the menu or a tool's ghost, and the session corrects them. The Downloader warms the tab alone, and the menu warms nothing.
+
+```mermaid
+sequenceDiagram
+  participant A as App.svelte
+  participant L as localStorage
+  participant S as storage.session
+  participant B as storage.local
+  participant C as Content script
+  A->>L: view:open, queue:items
+  L-->>A: last seen
+  Note over A: first frame
+  par started together
+    A->>S: setAccessLevel
+  and
+    A->>S: read queue, view
+  and
+    A->>B: read marks, settings
+  and
+    A->>A: fetch Panel chunk
+  and
+    A->>C: warm the first read
+  end
+  S-->>A: what the session holds
+  A->>L: correct the mirrors
+  Note over A: panel replaces ghost
+```
+
+Source: [`src/App.svelte`](src/App.svelte), [`src/lib/view.svelte.ts`](src/lib/view.svelte.ts), [`src/lib/queue.svelte.ts`](src/lib/queue.svelte.ts), [`src/lib/settings.svelte.ts`](src/lib/settings.svelte.ts), [`downloaded-store.ts`](downloaded-store.ts)
+
+### Views and sheets
+
+The view underneath. A chunk that never lands leaves the ghost up, with a line saying so.
+
+```mermaid
+stateDiagram-v2
+  state "Tool menu" as Menu
+  state "Ghost of the panel" as Ghost
+  state "Tool panel" as Panel
+  [*] --> Menu: nothing left open
+  [*] --> Ghost: view:open names a tool
+  Ghost --> Menu: session says a new browsing session
+  Menu --> Ghost: pick a tool, or send from the queue sheet
+  Menu --> Panel: same tool again, chunk here
+  Panel --> Ghost: queue sheet sends to another tool
+  Ghost --> Panel: chunk here and session read
+  Ghost --> Menu: back arrow
+  Panel --> Menu: back arrow
+```
+
+Source: [`src/lib/view.svelte.ts`](src/lib/view.svelte.ts), [`src/App.svelte`](src/App.svelte), [`src/lib/components/QueueSheet.svelte`](src/lib/components/QueueSheet.svelte)
+
+The sheet over it. `view.svelte.ts` keeps it to one at a time, and a sheet left open comes back with the session.
+
+```mermaid
+stateDiagram-v2
+  state "No sheet" as None
+  state "Queue sheet" as Queue
+  state "Settings sheet" as Settings
+  [*] --> None
+  [*] --> Queue: left open this session
+  [*] --> Settings: left open this session
+  None --> Queue: queue button
+  None --> Settings: settings button, Manager footer
+  None --> Settings: add email or add name
+  Queue --> None: close, or send to a tool
+  Settings --> None: close
+```
+
+Source: [`src/lib/view.svelte.ts`](src/lib/view.svelte.ts), [`src/lib/components/Sheet.svelte`](src/lib/components/Sheet.svelte), [`src/lib/components/QueueSheet.svelte`](src/lib/components/QueueSheet.svelte)

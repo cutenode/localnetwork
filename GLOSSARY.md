@@ -131,3 +131,21 @@ _Avoid_: mix (when meaning the audio), upload, file
 **Artist**:
 A producer credited in DJs' tracklists. Artists are not DJs or acts.
 _Avoid_: DJ, act
+
+## Behind the site
+
+**Root account**:
+The site's own account. It holds what several people share, and writes for people who can't write for themselves.
+_Avoid_: site account, service account, admin account
+
+**Space**:
+A private place for records, with a list of who can read it and who can write to it. Press kits' private parts, booking threads and backstage are all spaces.
+_Avoid_: group, room, channel
+
+**Directory**:
+The list of DJs, acts and parties people browse and search, which only shows what staff have approved.
+_Avoid_: index, catalogue
+
+**Staff**:
+The people who moderate and run the site. A moderator reviews requests, hides what shouldn't show and changes who's in a space. An admin can do all that, edit directly, and decide who's staff.
+_Avoid_: mod, team, superuser
