@@ -19,6 +19,12 @@ const nowPlaying = (title: string) =>
 
 const position = () => page.getByRole('slider', { name: 'Position' });
 
+/**
+ * The position bar just after a seek to 3:20. Once the page has had a click the recording plays on its own, so it can't
+ * be checked for 3:20 itself: a look that comes a second late finds it has moved on, and no later look can match.
+ */
+const justPast200 = expect.stringMatching(/^3:[2-5]\d of 5:00$/);
+
 /** The player starts on its own where the browser allows it (once the page has had a click), so this checks first. */
 async function start() {
 	const play = page.getByRole('button', { name: 'Play', exact: true });
@@ -71,7 +77,7 @@ describe('SetPlayer', () => {
 
 		await userEvent.fill(position(), '200');
 		await expect.element(nowPlaying('Unreleased')).toBeInTheDocument();
-		await expect.element(position()).toHaveAttribute('aria-valuetext', '3:20 of 5:00');
+		await expect.element(position()).toHaveAttribute('aria-valuetext', justPast200);
 
 		component.seek(260);
 		await expect.element(nowPlaying('Halogen')).toBeInTheDocument();
@@ -159,7 +165,7 @@ describe('SetPlayer', () => {
 		resolve(recording.pds);
 
 		await expect.element(nowPlaying('Unreleased')).toBeInTheDocument();
-		await expect.element(position()).toHaveAttribute('aria-valuetext', '3:20 of 5:00');
+		await expect.element(position()).toHaveAttribute('aria-valuetext', justPast200);
 	});
 
 	it('says when the server finds nothing to play, with nowhere else to listen', async () => {
