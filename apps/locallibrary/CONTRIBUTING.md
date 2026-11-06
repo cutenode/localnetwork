@@ -292,8 +292,8 @@ input of any crash.
 
 [Bombadil](https://github.com/antithesishq/bombadil) drives the TUI in a terminal and the mix
 report in headless Chrome with random keys, clicks and resizes, checking properties over time
-(`bombadil/tui.ts`, `bombadil/report.ts`): the header and footer are always drawn, digits switch
-views, help opens and closes, a typed line keeps its cursor in view, edits finish, the report's
+(`bombadil/tui.ts`, `bombadil/report.ts`): the header and footer are always drawn, the deck stays on
+screen, `g` and a letter switches views, help opens and closes, a typed line keeps its cursor in view, edits finish, the report's
 counts agree and its player stays consistent. macOS and Linux only, with Node 22:
 
 ```bash

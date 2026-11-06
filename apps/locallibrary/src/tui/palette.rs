@@ -181,16 +181,18 @@ fn key_name(k: &K) -> String {
 pub fn commands(view: View) -> Vec<(Act, Item)> {
     let own: &[Scope] = match view {
         View::Library => &[Scope::Tracks, Scope::Tree, Scope::Details, Scope::Library, Scope::Crate],
+        View::Prepare => &[Scope::Prepare],
         View::Drives => &[Scope::Drives],
-        View::Snapshots => &[Scope::Snapshots],
         View::Profile => &[Scope::Profile],
         View::Mixes => &[Scope::Mixes],
     };
-    let scopes = own.iter().chain(&[Scope::Global]);
+    let scopes = own.iter().chain(&[Scope::Global, Scope::Goto]);
     let named = scopes.flat_map(|scope| KEYMAP.iter().filter(move |b| b.scope == *scope && !b.name.is_empty()));
     named
         .map(|b| {
-            let detail = b.keys.first().map_or_else(|| b.shown.to_string(), key_name);
+            // What follows `g` needs the `g`.
+            let keys = b.keys.first().filter(|_| b.scope != Scope::Goto);
+            let detail = keys.map_or_else(|| b.shown.to_string(), key_name);
             (b.act, Item::new(b.name, detail))
         })
         .collect()

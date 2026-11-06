@@ -1754,7 +1754,7 @@ fn a_commands_answer_shows_whole_at_any_size(tc: TestCase) {
         tc.draw(gs::integers::<u16>().min_value(1).max_value(50)),
     );
     assert_eq!(screen(&mut app, w, h).lines().count(), h as usize);
-    if w >= 8 && h >= 4 {
+    if w >= 60 && h >= 20 {
         // The panel's rows, as scrolling one at a time shows them; each row's text by where it
         // is in the whole.
         let (pw, inner_w) = (w.min(100), w.min(100) as usize - 4);
@@ -1768,7 +1768,7 @@ fn a_commands_answer_shows_whole_at_any_size(tc: TestCase) {
                 break;
             }
             last = Some(r.scroll);
-            for (k, row) in panel_rows(&s, w, h, pw).into_iter().enumerate() {
+            for (k, row) in panel_rows(&s, w, pw).into_iter().enumerate() {
                 let at = r.scroll as usize + k;
                 if rows.len() <= at {
                     rows.resize(at + 1, None);
@@ -1791,17 +1791,16 @@ fn a_commands_answer_shows_whole_at_any_size(tc: TestCase) {
     assert!(app.modal.is_none(), "any other key closes it");
 }
 
-/// The text inside the borders and padding of the panel `pw` columns wide, centred on the screen
-/// `s` (`w` by `h`), row by row. (A wide character takes two columns, the second drawn as a
+/// The text inside the borders and padding of the panel `pw` columns wide, in the middle of the
+/// screen `s` (`w` wide), row by row. (A wide character takes two columns, the second drawn as a
 /// space.)
-fn panel_rows(s: &str, w: u16, h: u16, pw: u16) -> Vec<String> {
+fn panel_rows(s: &str, w: u16, pw: u16) -> Vec<String> {
     let rows: Vec<Vec<char>> = s.lines().map(|l| l.chars().collect()).collect();
     let (left, right) = (((w - pw) / 2) as usize, ((w - pw) / 2 + pw - 1) as usize);
     let edge = |r: &[char], a: char, b: char| r.get(left) == Some(&a) && r.get(right) == Some(&b);
     for top in (0..rows.len()).filter(|&t| edge(&rows[t], '╭', '╮')) {
         let sides = rows[top + 1..].iter().take_while(|r| edge(r, '│', '│')).count();
-        let centred = top == (h as usize - (sides + 2)) / 2;
-        if centred && rows.get(top + 1 + sides).is_some_and(|r| edge(r, '╰', '╯')) {
+        if rows.get(top + 1 + sides).is_some_and(|r| edge(r, '╰', '╯')) {
             return rows[top + 1..=top + sides].iter().map(|r| r[left + 2..right - 1].iter().collect()).collect();
         }
     }

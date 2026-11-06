@@ -14,8 +14,8 @@ use locallibrary::sets::{EntryOrigin, SetBook, SetEntry};
 use locallibrary::{Ctx, Device, Store};
 use ratatui::crossterm::event::KeyCode;
 
-use super::app::testing::{demo_drive, just_now, key, overlay, read_sets, set, wait};
-use super::app::{App, Focus, View};
+use super::app::testing::{demo_drive, just_now, key, overlay, press, read_sets, set, wait};
+use super::app::{App, DrivePane, Focus, View};
 use super::browse::{Category, NodeId};
 use super::edits::{Confirm, Modal, set_rating};
 use super::ui::screen;
@@ -99,7 +99,7 @@ fn check(app: &mut App, what: &str, needles: &[&str], wide: &[&str]) {
         let lines: Vec<&str> = s.lines().collect();
         assert_eq!(lines.len(), h as usize);
         if !overlay(app) {
-            assert!(lines[0].contains("◉ locallibrary") && lines[0].contains("5 Mixes"), "{what} {w}x{h}: header\n{s}");
+            assert!(lines[0].contains("◉") && lines[0].contains("u Publish"), "{what} {w}x{h}: header\n{s}");
             assert!(!lines[h as usize - 1].trim().is_empty(), "{what} {w}x{h}: footer\n{s}");
         }
         let missing: Vec<&&str> =
@@ -124,14 +124,14 @@ fn library() {
     check(
         &mut app,
         "the library",
-        &["Drives", "Playlists", "All tracks", "Title", "BPM", "Key", &first, "Now playing", "enter play"],
+        &["Drives", "Playlists", "All tracks", "Title", "BPM", "Key", &first, "Nothing playing", "enter play"],
         &["Album", "Pick a track and press enter."],
     );
     // With the details and the crate open, and focus in the tree.
     key(&mut app, KeyCode::Char('a'));
     key(&mut app, KeyCode::Char('i'));
     key(&mut app, KeyCode::Char('t'));
-    check(&mut app, "the library's side panels", &["Crate", "Track", "Loopmasters"], &["mixes into", "Playlists"]);
+    check(&mut app, "the library's side panels", &["Crate", "Track"], &["Loopmasters", "mixes into", "Playlists"]);
     app.focus = Focus::Playlists;
     app.toast = None;
     check(&mut app, "the playlist tree", &["Playlists", "▸ Browse", "enter open"], &[]);
@@ -168,7 +168,7 @@ fn sets() {
 #[test]
 fn drives() {
     let Fixture { _dir, mut app, .. } = fixture();
-    key(&mut app, KeyCode::Char('2'));
+    press(&mut app, "gd");
     assert_eq!(app.view, View::Drives);
     let name = app.drives[0].volume_name.clone();
     check(
@@ -211,14 +211,14 @@ fn drives() {
 #[test]
 fn snapshots() {
     let Fixture { _dir, mut app, .. } = fixture();
-    key(&mut app, KeyCode::Char('3'));
-    assert_eq!(app.view, View::Snapshots);
+    press(&mut app, "gd3");
+    assert_eq!((app.view, app.drive_pane), (View::Drives, DrivePane::Snapshots));
     let Some(Ok(history)) = &app.history else { panic!("no history") };
     let short = history[0].1[0].short_id.clone();
     check(
         &mut app,
         "the snapshots",
-        &["Snapshots", "Library", "Demo", &short[..8], "R refresh", "enter bring back a playlist"],
+        &["▸ 3 Snapshots", "Library", "Demo", &short[..8], "R refresh", "enter bring back a playlist"],
         &["after Friday's export"],
     );
     // Enter: a playlist from the selected snapshot, onto the drive open in the library.
@@ -229,7 +229,7 @@ fn snapshots() {
 #[test]
 fn profile() {
     let Fixture { _dir, mut app, .. } = fixture();
-    key(&mut app, KeyCode::Char('4'));
+    press(&mut app, "gu");
     assert_eq!(app.view, View::Profile);
     let first = locallibrary::profile::Section::ALL[0].title();
     check(&mut app, "the profile", &[first, "i in/out of document"], &[]);
@@ -238,7 +238,7 @@ fn profile() {
 #[test]
 fn mixes() {
     let Fixture { _dir, mut app, .. } = fixture();
-    key(&mut app, KeyCode::Char('5'));
+    press(&mut app, "gr");
     assert_eq!(app.view, View::Mixes);
     check(
         &mut app,
@@ -390,7 +390,7 @@ fn plugins() {
     key(&mut app, KeyCode::Esc);
 
     key(&mut app, KeyCode::Char('e'));
-    check(&mut app, "the actions menu with a plugin's operation", &["make a playlist…", "fetch cover art…"], &[]);
+    check(&mut app, "the actions menu with a plugin's operation", &[], &["make a playlist…", "fetch cover art…"]);
     let Some(Modal::Menu(m)) = &app.modal else { panic!("no menu") };
     let echo = m.items.iter().position(|i| i.label == "make a playlist…").unwrap();
     for _ in 0..echo {

@@ -28,14 +28,14 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, Mous
 use ratatui::layout::{Alignment, Constraint, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Cell, List, ListItem, ListState, Paragraph, Row, Table, TableState, Wrap};
+use ratatui::widgets::{Cell, List, ListItem, ListState, Paragraph, Row, Table, TableState, Wrap};
 
 use super::app::{App, Level, Msg, edit_line, typed_tail};
 use super::icons;
 use super::keymap::Act;
 use super::keys::Camelot;
 use super::theme::{self, bold, dim, faint, fg, rgb3, text};
-use super::ui::{Scrolled, clip};
+use super::ui::{Scrolled, block, clip, pane_title, title};
 use crate::output::clock;
 
 /// Recordings remembered between runs.
@@ -208,7 +208,7 @@ impl MixTab {
         self.loading.is_some()
     }
 
-    /// What the header shows while a set is being identified.
+    /// What the status line shows while a set is being identified.
     pub fn status(&self) -> Option<String> {
         let l = self.loading.as_ref()?;
         let p = l.progress.lock().ok()?;
@@ -774,6 +774,15 @@ pub fn switch_pane(app: &mut App) {
     }
 }
 
+/// A digit: the pane with that number, when there's something in it.
+pub fn jump_to_pane(app: &mut App, n: u32) {
+    match n {
+        1 => app.mix.pane = Pane::Mixes,
+        2 if app.mix.report().is_some_and(|r| !r.plays.is_empty()) => app.mix.pane = Pane::Tracks,
+        _ => {}
+    }
+}
+
 /// Enter: on a recording, find its tracks; on a track, play the set from there.
 pub fn enter(app: &mut App) {
     if app.mix.pane == Pane::Tracks {
@@ -928,15 +937,6 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
     draw_tab(f, &mut app.mix, area, &cx);
 }
 
-fn block(title: Line<'static>, focused: bool) -> Block<'static> {
-    Block::bordered().border_type(theme::border_type(focused)).border_style(theme::border(focused)).title(title)
-}
-
-fn title(s: &str, focused: bool) -> Line<'static> {
-    let style = if focused { bold(theme::current().info) } else { bold(theme::current().dim) };
-    Line::from(vec![Span::raw(" "), Span::styled(s.to_string(), style), Span::raw(" ")])
-}
-
 fn draw_tab(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
     // The selection follows the set as it plays into each track.
     if let (Some(pos), Some(r)) = (cx.playhead, t.report()) {
@@ -1011,7 +1011,7 @@ fn draw_tab(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
 
 fn draw_list(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
     let focused = t.pane == Pane::Mixes;
-    let b = block(title("Recordings", focused), focused)
+    let b = block(pane_title(1, "Recordings", focused), focused)
         .title_bottom(Line::from(vec![Span::styled(" O ", theme::key()), Span::styled("open… ", faint())]));
     let mut inner = b.inner(area);
     f.render_widget(b, area);
@@ -1077,7 +1077,7 @@ fn draw_list(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
         })
         .collect();
     let list = List::new(items)
-        .highlight_style(if focused { theme::selected() } else { Style::new().add_modifier(Modifier::BOLD) })
+        .highlight_style(if focused { theme::selected() } else { theme::unfocused() })
         .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
     // Two lines a recording.
     t.list.fit(inner.height as usize / 2, t.sources.len());
@@ -1583,8 +1583,8 @@ fn draw_tracklist(
     let head = Row::new(header.iter().take(cols).map(|h| Cell::from(Line::styled(*h, faint()))));
     let table = Table::new(body, widths)
         .header(head)
-        .block(block(title("Tracklist", focused), focused))
-        .row_highlight_style(if focused { theme::selected() } else { Style::new().add_modifier(Modifier::BOLD) })
+        .block(block(pane_title(2, "Tracklist", focused), focused))
+        .row_highlight_style(if focused { theme::selected() } else { theme::unfocused() })
         .highlight_symbol(Text::from(vec![
             Line::styled(icons::SELECTED.get(), fg(theme::current().accent)),
             Line::styled(icons::SELECTED.get(), fg(theme::current().accent)),

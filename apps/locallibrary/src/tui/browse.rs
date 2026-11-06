@@ -31,8 +31,7 @@ pub enum Category {
     MyTags,
     /// The sets kept in the store, with their tracks that are on the drive.
     Sets,
-    /// The lists players recorded, shown as sessions. Saved as `history`, the name they had
-    /// before, so a list remembered then still opens.
+    /// The lists players recorded. Saved as `history`.
     History,
     /// Tracks whose audio file is missing, and copies of the same recording.
     Problems,
@@ -66,7 +65,7 @@ impl Category {
             Category::Added => "Date added",
             Category::MyTags => "My Tags",
             Category::Sets => "Sets",
-            Category::History => "Sessions",
+            Category::History => "History",
             Category::Problems => "Problems",
         }
     }

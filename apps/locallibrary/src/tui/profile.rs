@@ -15,16 +15,16 @@ use locallibrary::progress::{CancelToken, Ctx, Event};
 use ratatui::Frame;
 use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Alignment, Constraint, Layout, Position, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Cell, List, ListItem, ListState, Paragraph, Row, Table, TableState, Wrap};
+use ratatui::widgets::{Cell, List, ListItem, ListState, Paragraph, Row, Table, TableState, Wrap};
 
 use super::account::Account;
 use super::app::{App, Level, Msg};
 use super::icons;
 use super::keymap::Act;
 use super::theme::{self, bold, dim, faint, fg, rgb3, text};
-use super::ui::Scrolled;
+use super::ui::{Scrolled, block, pane_title, title};
 use crate::output::{BLOCKS, bar, opt_pct, pct, plural};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -82,7 +82,7 @@ impl ProfileTab {
         }
     }
 
-    /// What the header shows while building.
+    /// What the status line shows while building.
     pub fn status(&self) -> Option<String> {
         if !self.loading {
             return None;
@@ -258,6 +258,17 @@ pub fn switch_pane(app: &mut App) {
         Pane::Sections if t.detail_len() > 0 => Pane::Detail,
         _ => Pane::Sections,
     };
+    t.clamp_rows();
+}
+
+/// A digit: the pane with that number, when there's something in it.
+pub fn jump_to_pane(app: &mut App, n: u32) {
+    let t = &mut app.profile;
+    match n {
+        1 if !t.document => t.pane = Pane::Sections,
+        2 if !t.document && t.detail_len() > 0 => t.pane = Pane::Detail,
+        _ => return,
+    }
     t.clamp_rows();
 }
 
@@ -437,15 +448,6 @@ pub fn on_mouse(app: &mut App, m: MouseEvent) -> bool {
 // ---------------------------------------------------------------------------------------------
 // Drawing
 // ---------------------------------------------------------------------------------------------
-
-fn block(title: Line<'static>, focused: bool) -> Block<'static> {
-    Block::bordered().border_type(theme::border_type(focused)).border_style(theme::border(focused)).title(title)
-}
-
-fn title(s: &str, focused: bool) -> Line<'static> {
-    let style = if focused { bold(theme::current().info) } else { bold(theme::current().dim) };
-    Line::from(vec![Span::raw(" "), Span::styled(s.to_string(), style), Span::raw(" ")])
-}
 
 /// `s` in exactly `width` columns: cut short with an ellipsis, or padded.
 fn fit(s: &str, width: usize) -> String {
@@ -641,8 +643,8 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
         })
         .collect();
     let list = List::new(items)
-        .block(block(title("Sections", focused), focused))
-        .highlight_style(if focused { theme::selected() } else { Style::new().add_modifier(Modifier::BOLD) })
+        .block(block(pane_title(1, "Sections", focused), focused))
+        .highlight_style(if focused { theme::selected() } else { theme::unfocused() })
         .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
     t.sections.fit(side.height.saturating_sub(2) as usize, Section::ALL.len());
     f.render_stateful_widget(list, side, &mut t.sections);
@@ -659,7 +661,7 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
         Span::styled(" only on this computer ", faint())
     };
     let detail_focused = t.pane == Pane::Detail;
-    let b = block(title(section.title_in(r.basis), detail_focused), detail_focused)
+    let b = block(pane_title(2, section.title_in(r.basis), detail_focused), detail_focused)
         .title(Line::from(state).right_aligned());
     let inner = b.inner(detail);
     f.render_widget(b, detail);
@@ -794,7 +796,7 @@ fn draw_sets(f: &mut Frame, r: &ProfileReport, rows: &mut TableState, focused: b
     )
     .header(Row::new(header.into_iter().map(|h| Cell::from(Span::styled(h, bold(theme::current().dim))))))
     .column_spacing(2)
-    .row_highlight_style(if focused { theme::selected() } else { Style::new() })
+    .row_highlight_style(if focused { theme::selected() } else { theme::unfocused() })
     .highlight_symbol(Span::styled(
         icons::SELECTED.get(),
         fg(if focused { theme::current().accent } else { theme::current().faint }),
@@ -1054,7 +1056,7 @@ fn draw_ranked(f: &mut Frame, v: &ProfileView, s: Section, rows: &mut TableState
         ["Name", "", "Share", ""].into_iter().map(|h| Cell::from(Span::styled(h, bold(theme::current().dim)))),
     ))
     .column_spacing(1)
-    .row_highlight_style(if focused { theme::selected() } else { Style::new() })
+    .row_highlight_style(if focused { theme::selected() } else { theme::unfocused() })
     .highlight_symbol(Span::styled(
         icons::SELECTED.get(),
         fg(if focused { theme::current().accent } else { theme::current().faint }),
@@ -1176,7 +1178,7 @@ fn draw_signature(f: &mut Frame, v: &ProfileView, rows: &mut TableState, focused
     )
     .header(Row::new(header.into_iter().map(|h| Cell::from(Span::styled(h, bold(theme::current().dim))))))
     .column_spacing(1)
-    .row_highlight_style(if focused { theme::selected() } else { Style::new() })
+    .row_highlight_style(if focused { theme::selected() } else { theme::unfocused() })
     .highlight_symbol(Span::styled(
         icons::SELECTED.get(),
         fg(if focused { theme::current().accent } else { theme::current().faint }),

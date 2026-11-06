@@ -9,10 +9,11 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, List, ListItem, ListState, Paragraph, Wrap};
 
 use crate::output::{bytes, plural};
-use crate::tui::app::{App, typed_tail};
+use crate::tui::app::{App, CHORD_HINT, typed_tail};
 use crate::tui::browse::{COLOURS, colour_name, stars};
 use crate::tui::edits::{Menu, Modal, Sub};
 use crate::tui::icons;
+use crate::tui::keymap::{KEYMAP, Scope};
 use crate::tui::theme::{self, bold, dim, faint, fg, text};
 
 use super::*;
@@ -25,6 +26,27 @@ pub(super) fn popup(area: Rect, w: u16, h: u16, at: Option<(u16, u16)>) -> Rect 
         None => (area.x + (area.width - w) / 2, area.y + (area.height - h) / 2),
     };
     Rect { x, y, width: w, height: h }
+}
+
+/// After `g` and a pause, what can follow, in the corner over the deck.
+pub(super) fn draw_chord(f: &mut Frame, app: &App, area: Rect) {
+    if app.chord.is_none_or(|at| at.elapsed() < CHORD_HINT) {
+        return;
+    }
+    let lines: Vec<Line> = (KEYMAP.iter().filter(|b| b.scope == Scope::Goto))
+        .map(|b| {
+            let about = if b.name.is_empty() { b.help } else { b.name.trim_start_matches("go to ") };
+            Line::from(vec![
+                Span::styled(format!(" {} ", b.shown), theme::key()),
+                Span::styled(format!("{about} "), dim()),
+            ])
+        })
+        .collect();
+    let w = lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 2;
+    let (w, h) = (w.min(area.width), (lines.len() as u16 + 2).min(area.height));
+    let r = Rect { x: area.right() - w, y: area.bottom() - h, width: w, height: h };
+    f.render_widget(Clear, r);
+    f.render_widget(Paragraph::new(lines).block(block(title("Go to", true), true)), r);
 }
 
 /// How many rows `lines` take wrapped to `width` (near enough: words may wrap a little earlier).

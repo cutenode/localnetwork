@@ -17,6 +17,11 @@
 			"limit": null,
 			"unit": "instructions",
 			"measures": "Instructions of one frame of the Drives view at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
+		},
+		"prepare": {
+			"limit": null,
+			"unit": "instructions",
+			"measures": "Instructions of one frame of the Prepare view at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		}
 	}
 }
