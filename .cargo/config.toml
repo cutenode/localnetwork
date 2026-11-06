@@ -10,7 +10,7 @@
 # flags (the root manifest is a virtual workspace, so it covers every member) because CI also runs
 # it against a nextest archive, which refuses them.
 [alias]
-coverage = "llvm-cov nextest --no-fail-fast --failure-mode all --fail-under-lines 95.2 --fail-under-functions 93.9 --fail-under-regions 93.3 --ignore-filename-regex (^|[/\\\\])((tests|testing|test_util|screens|props)\\.rs$|test-plugin[/\\\\])"
+coverage = "llvm-cov nextest --no-fail-fast --failure-mode all --fail-under-lines 96.8 --fail-under-functions 96.2 --fail-under-regions 95.3 --ignore-filename-regex (^|[/\\\\])((tests|testing|test_util|screens|props)\\.rs$|test-plugin[/\\\\])"
 # `cargo +nightly fuzz-<target>`: one fuzz target (fuzz/) until it finds a crash or you stop it,
 # with libFuzzer options after it (`cargo +nightly fuzz-anlz -max_total_time=300`), from the
 # repository root. libFuzzer keeps what reaches new code in the first folder, fuzz/corpus/<target>/
