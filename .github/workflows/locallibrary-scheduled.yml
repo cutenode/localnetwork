@@ -139,7 +139,9 @@ jobs:
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-hack
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: libasound2-dev
       - run: cargo hack clippy --workspace --feature-powerset --all-targets --locked -- -D warnings
 
   # Bombadil explores the TUI and the mix report (property-based UI testing; see
@@ -162,7 +164,9 @@ jobs:
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+        uses: ./.github/actions/apt-packages
+        with:
+          packages: libasound2-dev
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -201,7 +205,9 @@ jobs:
         with:
           tool: cargo-nextest
       - if: ${{ !cancelled() && needs.changes.outputs.format == 'true' && runner.os == 'Linux' }}
-        run: sudo apt-get update && sudo apt-get install -y dosfstools exfatprogs
+        uses: ./.github/actions/apt-packages
+        with:
+          packages: dosfstools exfatprogs
       - if: ${{ !cancelled() && needs.changes.outputs.format == 'true' }}
         run: cargo nextest run -p locallibrary --lib --locked --no-fail-fast -E 'test(/^format::disk_image::/)'
         env:
@@ -399,7 +405,9 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # As locallibrary-ci-os.yml's Linux shards have them, and rg, which tools/hegel-coverage.sh
       # picks the tests with.
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev sqlcipher ripgrep
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: libasound2-dev sqlcipher ripgrep
       - run: echo LOCALLIBRARY_REQUIRE_SQLCIPHER=1 >> "$GITHUB_ENV"
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
