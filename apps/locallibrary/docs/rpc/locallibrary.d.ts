@@ -5028,8 +5028,8 @@ export type SettingsExport = {
    */
   profile: { [key: string]: unknown };
   /**
-   * The player's preferences ([`PlayerPrefs`]): its theme, columns, sort, visualiser and
-   * playback modes.
+   * The player's preferences ([`PlayerPrefs`]): its theme, colours, icons, columns, sort,
+   * visualiser and playback modes.
    */
   player: { [key: string]: unknown };
   /** What's set for identifying mixes ([`MixPrefs`]): the largest fingerprint index kept. */

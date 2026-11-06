@@ -582,10 +582,11 @@ Data alone: no feature, no method, and the host never runs the plugin for one.
   names (`theme::TOKENS` in loclib-model): `cues.hot = "#28e214"`, `ui = { accent = "#ff8800" }`.
   They're packages/tokens/colors.schema.json's colours for a dark background (`bands`, `phrases`,
   `cues`, `trackColors`, `status.dark` and `playhead`), the player's roles (`ui.text`, `dim`,
-  `faint`, `accent`, `info`, `secondary`, `selection`, `vinyl`) and the waveform widgets'
-  gradients (`waveform.spectrum`, `waveform.scope`), each `#rrggbb` in lowercase, a gradient a list
-  of two or more. What a theme leaves out is the default's; a host turns them round for a light
-  background and leaves them out for NO_COLOR itself.
+  `faint`, `rule`, `accent`, `info`, `secondary`, `ink`, `selection`, `idle`, `marked`, `mixes`,
+  `vinyl`) and the waveform widgets' gradients (`waveform.spectrum`, `waveform.scope`), each
+  `#rrggbb` in lowercase, a gradient a list of two or more. What a theme leaves out is the
+  default's, or on a light background `Theme::LIGHT`'s; a host keeps what it draws readable on the
+  background it has and leaves colours out for NO_COLOR itself.
 
 ## Views
 

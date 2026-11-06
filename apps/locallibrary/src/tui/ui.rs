@@ -17,6 +17,7 @@ use ratatui::layout::{Constraint, Layout};
 
 use super::app::{App, View};
 use super::edits::Modal;
+use super::icons;
 // What the test modules find through `use super::*`.
 #[cfg(test)]
 use {
@@ -87,6 +88,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         draw_log(f, app, f.area());
     } else {
         draw_toasts(f, app, f.area(), footer);
+    }
+    if icons::ascii() {
+        icons::fold(f.buffer_mut());
     }
 }
 

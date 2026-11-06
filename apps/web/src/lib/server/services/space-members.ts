@@ -39,6 +39,8 @@ export type MemberSync = {
 		recorded(): Promise<string[]>;
 		record(members: string[]): Promise<void>;
 	};
+	/** Told each time someone is taken out, for a caller that has to say so. */
+	onLeft?: (did: string) => void;
 };
 
 const sameAccess = (a: MemberAccess, b: MemberAccess) => a.read === b.read && a.write === b.write;
@@ -93,6 +95,7 @@ export async function reconcileMembers(core: Core, space: MemberSync): Promise<v
 		try {
 			await root.removeMember({ space: space.uri, did });
 			left.push(did);
+			space.onLeft?.(did);
 		} catch (error) {
 			core.logger.warn('could not remove someone from a space', { err: error, space: space.uri, did });
 		}
