@@ -40,6 +40,17 @@ export type BookingRecord = {
 	createdAt: string;
 };
 
+/**
+ * A thread's last activity once a record dated `createdAt` joins it. Whoever writes a record picks its date, so a date
+ * that hasn't come yet counts as now, and can't keep a thread at the top of everyone's list.
+ */
+function activityAfter(lastActivityAt: string, createdAt: string): string {
+	const now = nowIso();
+	const at = createdAt < now ? createdAt : now;
+
+	return at > lastActivityAt ? at : lastActivityAt;
+}
+
 /** What a status record read from a repo says opened its thread, or null when it doesn't fit its lexicon. */
 function readStatus(value: JsonRecord): Pick<BookingRecord, 'project' | 'promoter'> | null {
 	try {
@@ -272,6 +283,7 @@ export class BookingService {
 			)
 			.select('bookingEvent.uri')
 			.where('bookingEvent.spaceUri', '=', space)
+			.where('bookingEvent.kind', '!=', 'unapplied')
 			.where('bookingParticipant.role', '=', 'manager')
 			.executeTakeFirst();
 
@@ -318,28 +330,7 @@ export class BookingService {
 		const allowed = bookingActions(thread.role, thread.status, await this.answered(input.space));
 
 		// Each side has its own moves (bookingActions); anything else, including the status it already has, is refused.
-		if (!allowed.some((action) => action.status === input.status)) {
-			const [from, to] = [thread.status, input.status].map((status) =>
-				labelFor(BOOKING_STATUSES, status).toLowerCase()
-			);
-
-			const message =
-				from === to ? `This booking is already ${to}` : `You can't mark this booking ${to} while it's ${from}`;
-
-			await this.core.audit.record({
-				actor: input.actor.did,
-				actorRole: actorRole(input.actor),
-				action: 'booking.status',
-				subject: input.space,
-				subjectKind: 'booking',
-				summary: `Denied: ${message}`,
-				outcome: 'denied',
-				reason: message,
-				details: { role: thread.role, from: thread.status, to: input.status }
-			});
-			throw new UserError(message, 409);
-		}
-
+		if (!allowed.some((action) => action.status === input.status)) throw await this.refusal(input, thread);
 		const { client, onBehalf } = await spaceWriter(this.core, input.actor);
 
 		const draft: BookingRecord = { status: input.status, createdAt: nowIso() };
@@ -358,6 +349,17 @@ export class BookingService {
 			collection: COLLECTION.bookingStatus,
 			value: record
 		});
+
+		// The other side can move the thread between the check above and this write, and then this one didn't count.
+		const indexed = await this.core.db
+			.selectFrom('bookingEvent')
+			.select('kind')
+			.where('uri', '=', ref.uri)
+			.executeTakeFirstOrThrow();
+
+		if (indexed.kind === 'unapplied')
+			throw await this.refusal(input, await this.requireParticipant(input.actor, input.space));
+
 		await this.core.audit.record(
 			{
 				actor: input.actor.did,
@@ -371,6 +373,31 @@ export class BookingService {
 			},
 			{ actorClient: onBehalf ? null : client }
 		);
+	}
+
+	/** Logs a status change `thread` doesn't allow, and returns the error that tells whoever tried. */
+	private async refusal(
+		input: { actor: Viewer; space: string; status: string },
+		thread: BookingThreadRow & { role: BookingRole }
+	): Promise<UserError> {
+		const [from, to] = [thread.status, input.status].map((status) => labelFor(BOOKING_STATUSES, status).toLowerCase());
+
+		const message =
+			from === to ? `This booking is already ${to}` : `You can't mark this booking ${to} while it's ${from}`;
+
+		await this.core.audit.record({
+			actor: input.actor.did,
+			actorRole: actorRole(input.actor),
+			action: 'booking.status',
+			subject: input.space,
+			subjectKind: 'booking',
+			summary: `Denied: ${message}`,
+			outcome: 'denied',
+			reason: message,
+			details: { role: thread.role, from: thread.status, to: input.status }
+		});
+
+		return new UserError(message, 409);
 	}
 
 	/** Restores the participant list from the space's member list (after a fresh sync). */
@@ -496,7 +523,7 @@ export class BookingService {
 						showDate: value.show?.date ?? null,
 						createdAt,
 						updatedAt: createdAt,
-						lastActivityAt: createdAt
+						lastActivityAt: activityAfter('', createdAt)
 					})
 					.onConflict((oc) => oc.doNothing())
 					.execute();
@@ -521,32 +548,136 @@ export class BookingService {
 			}
 		}
 
+		// A status from either side waits here until applyStatuses finds the thread's rules allow it. The root's own status
+		// records only open threads, and one that names no status moves nothing.
+		const isMove = kind === 'status' && !!value.status && author !== this.core.rootDid;
+
 		await db
 			.insertInto('bookingEvent')
 			.values({
 				uri: input.uri,
 				spaceUri: input.space,
 				authorDid: author,
-				kind,
+				kind: isMove ? 'unapplied' : kind,
 				record: JSON.stringify(input.value),
 				createdAt
 			})
-			.onConflict((oc) => oc.column('uri').doUpdateSet({ record: JSON.stringify(input.value) }))
+			// A status record stands as first read, so rewriting one later can't change what it did.
+			.onConflict((oc) =>
+				kind === 'status'
+					? oc.column('uri').doNothing()
+					: oc.column('uri').doUpdateSet({ record: JSON.stringify(input.value) })
+			)
 			.execute();
 
 		if (!thread) return;
-		const latest = createdAt > thread.lastActivityAt ? createdAt : thread.lastActivityAt;
-		const update: Partial<BookingThreadRow> = { lastActivityAt: latest, updatedAt: nowIso() };
 
-		if (kind === 'status' && value.status && createdAt >= thread.lastActivityAt) update.status = value.status;
-		// The root's own record opening the thread, which the inquiry right after it tells people about.
-		const opening = kind === 'status' && author === this.core.rootDid ? value.project : undefined;
+		if (!isMove) {
+			const update: Partial<BookingThreadRow> = {
+				lastActivityAt: activityAfter(thread.lastActivityAt, createdAt),
+				updatedAt: nowIso()
+			};
 
-		// Whatever project the inquiry named, the root's opening record decides it.
-		if (opening) update.projectUri = opening;
-		await db.updateTable('bookingThread').set(update).where('spaceUri', '=', input.space).execute();
+			// The root's own record opening the thread, which the inquiry right after it tells people about.
+			const opening = kind === 'status' && author === this.core.rootDid ? value.project : undefined;
 
-		if (!opening) await this.notifyParticipants({ kind, uri: input.uri, author, thread, value });
+			// Whatever project the inquiry named, the root's opening record decides it.
+			if (opening) update.projectUri = opening;
+			await db.updateTable('bookingThread').set(update).where('spaceUri', '=', input.space).execute();
+
+			if (!opening) await this.notifyParticipants({ kind, uri: input.uri, author, thread, value });
+		}
+
+		await this.applyStatuses(input.space);
+	}
+
+	/**
+	 * Moves a thread through the status records its rules allow, oldest first. Any record can unlock one that got here
+	 * before it: a sync reads repos in no particular order, so a confirmation can arrive ahead of the reply that allows it.
+	 * The rest wait, and a record that never fits changes nothing and tells nobody. Nothing here goes by a record's date
+	 * except which of two waiting records goes first, since its author picks that date (docs/adr/0008).
+	 */
+	private async applyStatuses(space: string): Promise<void> {
+		const { db } = this.core;
+
+		const waiting = await db
+			.selectFrom('bookingEvent')
+			.selectAll()
+			.where('spaceUri', '=', space)
+			.where('kind', '=', 'unapplied')
+			.orderBy('createdAt')
+			.orderBy('uri')
+			.execute();
+
+		if (waiting.length === 0) return;
+
+		const participants = await db
+			.selectFrom('bookingParticipant')
+			.select(['did', 'role'])
+			.where('spaceUri', '=', space)
+			.execute();
+
+		const roles = new Map(participants.map((participant) => [participant.did, participant.role]));
+		const answered = await this.answered(space);
+
+		const moves = waiting.map((event) => ({
+			...event,
+			value: parseJson<BookingRecord>(event.record, { createdAt: event.createdAt })
+		}));
+
+		const thread = await db
+			.selectFrom('bookingThread')
+			.selectAll()
+			.where('spaceUri', '=', space)
+			.executeTakeFirstOrThrow();
+
+		let { status: from, lastActivityAt } = thread;
+
+		// Statuses only ever move forward, and each record applies once, so this ends.
+		for (;;) {
+			const move = moves.find(({ authorDid, value }) => {
+				const role = roles.get(authorDid);
+
+				return role && bookingActions(role, from, answered).some((action) => action.status === value.status);
+			});
+
+			if (!move?.value.status) {
+				if (moves.length > 0)
+					this.core.logger.warn('booking status records the thread does not allow', { space, moves: moves.length });
+
+				return;
+			}
+
+			const { status } = move.value;
+			const activity = activityAfter(lastActivityAt, move.createdAt);
+
+			const applied = await db.transaction().execute(async (trx) => {
+				const { numUpdatedRows } = await trx
+					.updateTable('bookingThread')
+					.set({ status, lastActivityAt: activity, updatedAt: nowIso() })
+					.where('spaceUri', '=', space)
+					.where('status', '=', from)
+					.executeTakeFirstOrThrow();
+
+				if (numUpdatedRows === 0n) return false;
+				await trx.updateTable('bookingEvent').set({ kind: 'status' }).where('uri', '=', move.uri).execute();
+
+				return true;
+			});
+
+			// Another write moved the thread first, and it applies what's left.
+			if (!applied) return;
+			await this.notifyParticipants({
+				kind: 'status',
+				uri: move.uri,
+				author: move.authorDid,
+				thread,
+				value: move.value
+			});
+			from = status;
+			lastActivityAt = activity;
+			moves.splice(moves.indexOf(move), 1);
+		}
 	}
 
 	/**
@@ -627,6 +758,8 @@ export class BookingService {
 			.selectFrom('bookingEvent')
 			.selectAll()
 			.where('spaceUri', '=', space)
+			.where('kind', '!=', 'unapplied')
+			.$narrowType<{ kind: BookingEventView['kind'] }>()
 			.orderBy('createdAt')
 			.execute();
 
@@ -671,6 +804,7 @@ export class BookingService {
 			.select(['spaceUri', 'authorDid'])
 			.where('spaceUri', 'in', spaces)
 			.where('authorDid', '!=', this.core.rootDid)
+			.where('kind', '!=', 'unapplied')
 			.orderBy('createdAt', 'desc')
 			.execute();
 

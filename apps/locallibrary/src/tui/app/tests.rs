@@ -3138,8 +3138,10 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(12)) {
         let key = tc.draw(gs::sampled_from(KEYS));
         app.pending_seek = None;
-        press(&mut app, key);
+        // Before the key: the digit that switches back to the library isn't a pad, though the
+        // pads are on once it has.
         let slot = key.parse::<u8>().ok().filter(|_| app.pads_on()).map(|d| d - 1);
+        press(&mut app, key);
         let hot = slot.and_then(|s| analysis.cues.iter().find(|c| c.hot_cue == Some(s)));
         if let (Some(c), true) = (hot, app.now.as_ref().is_some_and(|n| n.opening)) {
             assert_eq!(app.pending_seek, Some(Duration::from_millis(c.start_ms as u64).min(end)), "pad {key}");
@@ -3277,6 +3279,13 @@ fn started(store: PathBuf, drive: Option<String>) -> App {
     // SAFETY: as in `echo_plugin`.
     SILENT.call_once(|| unsafe { std::env::set_var("LOCALLIBRARY_AUDIO", "silent") });
     App::new(store, drive)
+}
+
+/// Whatever is plugged into the machine running the tests, a test's app looks for no drive there.
+#[test]
+fn a_tests_app_looks_on_no_drive_of_the_machine() {
+    let (_app, _dir) = app_with(library());
+    assert_eq!(locallibrary::device::volume_folders(), Some(Vec::new()));
 }
 
 /// The view the last run showed comes back, by the name it had then too. What isn't a view

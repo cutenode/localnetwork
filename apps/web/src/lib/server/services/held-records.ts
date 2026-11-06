@@ -63,7 +63,7 @@ export class HeldRecords {
 				.select(['bookingEvent.uri', 'bookingEvent.kind', 'bookingEvent.record', 'bookingEvent.createdAt'])
 				.select('bookingThread.title')
 				.where('bookingEvent.authorDid', '=', viewer.did)
-				.where('bookingEvent.kind', '!=', 'status')
+				.where('bookingEvent.kind', 'in', ['inquiry', 'message'])
 				.orderBy('bookingEvent.createdAt', 'desc')
 				.execute(),
 			db

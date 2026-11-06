@@ -362,6 +362,9 @@ export type StaffMember = {
 	bootstrap: boolean;
 };
 
+/** An account still in private spaces with no staff role, because a removal hasn't gone through. */
+export type StrayMember = AccountView & { spaces: string[] };
+
 /** A Bluesky verification (`app.bsky.graph.verification`) the root account issued: who, under what handle and name. */
 export type IssuedVerification = {
 	uri: string;
