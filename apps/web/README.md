@@ -4,7 +4,7 @@ Promoters find local DJs who fit their shows. DJs (called _projects_: a solo DJ,
 
 All data lives on the AT Protocol. Public profiles are ordinary atproto records; everything else (requests, staff roles, the audit log, booking threads, personal planners) lives in [atproto spaces](https://atproto.com/blog/atproto-spaces-alpha), the protocol's permissioned-data extension, where each space's read policy decides who can read it. Published projects, the DJ stats, sets, press kits, shows and follows their managers and fans publish, and the few Bluesky and userinput.app records the site reads are indexed by [HappyView](https://happyview.dev), an AppView whose Lua scripts answer directory search and the show matcher and serve those records to the site. The app keeps its own SQLite index only for space data, and can rebuild it from the network. Every public record is read through HappyView, never straight from a PDS or Bluesky's AppView (see [Directory](#directory) for the few exceptions); writes go to the PDS.
 
-> Atproto spaces is an alpha (released 2026). This app is built against `@atproto/*@0.0.0-spaces-alpha-20261022141228` and the [0016 spaces proposal](https://github.com/bluesky-social/proposals/tree/main/0016-permissioned-data). Expect breaking changes upstream; all versions are pinned.
+> Atproto spaces is an alpha (released 2026). This app is built against `@atproto/*@0.0.0-spaces-alpha-20261029171913` and the [0016 spaces proposal](https://github.com/bluesky-social/proposals/tree/main/0016-permissioned-data). Expect breaking changes upstream; all versions are pinned.
 
 ## Features
 
@@ -54,7 +54,7 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 ### Fans
 
 - Follow a project from its page with any Atmosphere account. The follow is a `computer.localnetwork.follow` record in the follower's own repo; unfollowing deletes it. The page shows the follower count.
-- `/shows` lists upcoming shows by date near a city (picked with the same city search as the directory, and remembered in a cookie), or, under Following, the shows of the projects you follow, nearest first once you pick a city. A show drops off once it ends, or 12 hours after it starts when it has no end. There are no email or push notifications yet.
+- `/shows` lists upcoming shows by date near a city (picked with the same city search as the directory, and remembered in a cookie), or, under Following, the shows of the projects you follow, nearest first once you pick a city. A show drops off once it ends, or 12 hours after it starts when it has no end. There are no email or push notifications for shows yet.
 
 ### Artists and charts
 
@@ -126,28 +126,58 @@ Space policies (every space is a `com.atproto.memberspace.policy` with `publicRe
 | backstage (per project)   | member list (managers)            | member list (managers)                      |
 | performer, party, venue   | member list (its people)          | member list (people who write)              |
 
+### Where writes go
+
+The app writes with each person's OAuth session or the root's session, and locallibrary writes to the DJ's own repo.
+
 ```mermaid
 flowchart LR
-  subgraph User PDS
-    UR[user's space repos]
-    PL[(planner space)]
+  App["Local Network app"]
+  Tool["locallibrary"]
+  subgraph UserPds["User PDS"]
+    UR["User's space repos: requests,<br/>inquiries, messages, drafts,<br/>audit copies"]
+    PL[("Planner space")]
+    UP["Public repo: profile, shows,<br/>calendar events, follows,<br/>bug reports"]
+    DJ["Public repo: stats, sets,<br/>recordings, settings"]
   end
-  subgraph Root PDS
-    PUB[(public repo: projects)]
-    RS[root's space repos]
-    SH{{space host}}
+  subgraph RootPds["Root PDS"]
+    PUB[("Public repo: performers,<br/>press kits, listings,<br/>verifications")]
+    RS["Root's space repos"]
   end
-  App[Local Network app]
-  App -- OAuth: createRecord in spaces --> UR
-  App -- root session: putRecord / spaces --> PUB & RS
-  UR -- notifyWrite --> SH
-  SH -- notifyWrite --> App
-  App -- space credential: listRepos / listRepoOps / getRepo --> SH & UR
-  PUB -- relay + Jetstream --> HV[(HappyView)]
-  SETS[(DJs' repos: stats, sets, press kits, settings)] -- Jetstream, or a backfill of one repo --> HV
-  FANS[(managers' and fans' repos: shows, calendar events, follows)] -- Jetstream, or a backfill of one repo --> HV
-  App -- directory queries and record reads --> HV
+  App -- "OAuth: createRecord,<br/>putRecord in spaces" --> UR
+  App -- "OAuth: reads and writes" --> PL
+  App -- "OAuth: repo writes" --> UP
+  App -- "root session: putRecord" --> PUB
+  App -- "root session: spaces" --> RS
+  Tool -- "its own session" --> DJ
 ```
+
+Source: [`src/lib/server/services/own-repo.ts`](src/lib/server/services/own-repo.ts), [`src/lib/server/atproto/repo-client.ts`](src/lib/server/atproto/repo-client.ts), [`src/lib/server/services/planner.ts`](src/lib/server/services/planner.ts)
+
+### Where reads come from
+
+Most space records come back through the app's own sync, and public records through HappyView. The app reads a press kit's private part and planners straight from their space, and a few public reads go straight to a PDS (see [Directory](#directory)).
+
+```mermaid
+flowchart TD
+  App["Local Network app"]
+  SH{{"Space host:<br/>the authority's PDS"}}
+  UR["User's and root's<br/>space repos"]
+  PUB[("Root's<br/>public repo")]
+  SETS[("DJs' repos: stats, sets,<br/>recordings, settings,<br/>older press kits")]
+  FANS[("Managers' and fans' repos:<br/>profiles, shows, calendar<br/>events, follows")]
+  HV[("HappyView")]
+  UR -- "notifyWrite" --> SH
+  SH -- "notifyWrite" --> App
+  App -- "space credential:<br/>listRepos" --> SH
+  App -- "space credential: listRepoOps,<br/>getRepo, getRecord. OAuth: planners" --> UR
+  PUB -- "Jetstream,<br/>or a backfill" --> HV
+  SETS -- "Jetstream,<br/>or a backfill" --> HV
+  FANS -- "Jetstream,<br/>or a backfill" --> HV
+  App -- "directory queries<br/>and record reads" --> HV
+```
+
+Source: [`src/lib/server/sync/engine.ts`](src/lib/server/sync/engine.ts), [`src/lib/server/atproto/credentials.ts`](src/lib/server/atproto/credentials.ts), [`src/lib/server/happyview/client.ts`](src/lib/server/happyview/client.ts), [`src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts`](src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts)
 
 ### The audit log
 
@@ -407,3 +437,297 @@ tests/e2e/                      Playwright
 - Account deactivation/deletion events arrive on the firehose, which this app doesn't subscribe to yet.
 - The directory scripts query HappyView's SQLite directly, so the HappyView instance must use SQLite, not Postgres.
 - HappyView drops a Jetstream cursor older than 72 hours. The boot backfill recovers new and changed projects after a longer outage, but not deletions (nothing deletes projects today).
+
+## Diagrams
+
+These diagrams cover what the app does, as drawn from the code. Website code says `project` for what these call a performer.
+
+- Overview: [Where writes go](#where-writes-go), [Where reads come from](#where-reads-come-from), [Architecture](#architecture), [Deployment](#deployment), [External services](#external-services), [What the browser reaches](#what-the-browser-reaches), [Where state lives](#where-state-lives), [Local tables: bookings and press kits](#local-tables-bookings-and-press-kits), [Local tables: shared spaces](#local-tables-shared-spaces), [Local tables: audit and sync](#local-tables-audit-and-sync), [Local tables: inbox](#local-tables-inbox)
+- [Requests and routes](docs/diagrams/requests-and-routes.md): the request path, errors, rate limits, and every route family
+- [Sign-in and roles](docs/diagrams/accounts.md): OAuth, scopes, sessions, token exchange, roles and capabilities
+- [Spaces](docs/diagrams/spaces.md): credentials, sync, notifications, projections and member lists
+- [Jobs and the directory](docs/diagrams/jobs-and-directory.md): startup, scheduled jobs and HappyView
+- [Profiles, requests and bookings](docs/diagrams/profiles-and-bookings.md): listings, moderation, search, the planner and booking threads
+- [Press kits](docs/diagrams/press-kits.md): drafts, grants, views, moves and deletes
+- [Shows and the inbox](docs/diagrams/shows-and-inbox.md): shows, follows, inbox delivery and channels
+- [Mixes, sets and charts](docs/diagrams/mixes-and-sets.md): tracklists, sets, recordings, stats and artist pages
+- [Staff and upkeep](docs/diagrams/staff-and-upkeep.md): bug reports, the audit log, staff actions, listings and backups
+
+### Architecture
+
+The app, what it stores, and the services it depends on.
+
+```mermaid
+flowchart TD
+  Browser["Browser"]
+  Tool["locallibrary"]
+  App["Local Network app<br/>SvelteKit on Node"]
+  Db[("SQLite on /data")]
+  Bucket[("Backup bucket")]
+  HV["HappyView<br/>directory and record gates"]
+  Root["Root PDS<br/>public repo and space host"]
+  Pds["People's PDSes"]
+  Jet["Jetstream"]
+
+  Browser -- "pages, forms, /api" --> App
+  Tool -- "token exchange,<br/>requestIndex" --> App
+  Tool -- "reads its<br/>records back" --> HV
+  Tool -- "stats, sets,<br/>recordings" --> Pds
+  App -- "the index, sessions,<br/>audit, inboxes" --> Db
+  App -- "daily backup" --> Bucket
+  App -- "queries, scripts,<br/>re-reads" --> HV
+  App -- "root session" --> Root
+  App -- "OAuth sessions,<br/>space sync" --> Pds
+  Root -- "notifyWrite" --> App
+  Root --> Jet
+  Pds --> Jet
+  Jet --> HV
+```
+
+Source: [`src/lib/server/app.ts`](src/lib/server/app.ts), [`src/lib/server/happyview/client.ts`](src/lib/server/happyview/client.ts), [`src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts`](src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts)
+
+### Deployment
+
+How the website reaches production on Railway. HappyView and the root's PDS run outside this Railway project.
+
+```mermaid
+flowchart LR
+  Build["main, once checks pass:<br/>Railway builds apps/web/Dockerfile"] --> Service["Service localnetwork<br/>one replica"]
+  Config[".railway/railway.ts"] -- "railway config apply" --> Service
+  Site["localnetwork.computer"] --> Service
+  ToolHost["locallibrary.localnetwork<br/>.computer"] --> Service
+  Health["Health check"] -- "/healthz" --> Service
+  Service -- "/data" --> Volume[("Volume localnetwork-data<br/>with localnetwork.db")]
+  Service -- "BACKUP_S3_*" --> Bucket[("Bucket<br/>localnetwork-backups")]
+  Service -- "HAPPYVIEW_URL" --> HV["happyview.localnetwork<br/>.computer"]
+  Publish["pnpm lexicons:publish"] -- "lexicon records" --> RootRepo["Root's repo"]
+  Publish -- "_lexicon TXT records" --> Dns["Cloudflare DNS"]
+```
+
+Source: [`../../.railway/railway.ts`](../../.railway/railway.ts), [`Dockerfile`](Dockerfile), [`scripts/publish-lexicons.ts`](scripts/publish-lexicons.ts)
+
+### External services
+
+What the server calls, and why.
+
+```mermaid
+flowchart LR
+  App["Local Network app"]
+  App -- "DIDs and handles" --> Identity["PLC directory, did:web hosts,<br/>handle resolution"]
+  App -- "OAuth, writes, blobs, space sync" --> Pds["PDSes"]
+  App -- "directory" --> HV["HappyView"]
+  App -- "sign-in suggestions" --> Bsky["public.api.bsky.app"]
+  App -- "city search" --> Geo["Open-Meteo or Nominatim"]
+  App -- "track records" --> Plyr["api.plyr.fm"]
+  App -- "inbox email" --> Resend["Resend"]
+  App -- "inbox DMs from the root" --> Chat["Bluesky chat"]
+  App -- "token exchange" --> Tokens["Google, Mixcloud and SoundCloud<br/>token endpoints"]
+  App -- "backups" --> S3["S3 bucket"]
+```
+
+Source: [`src/lib/server/atproto/identity.ts`](src/lib/server/atproto/identity.ts), [`src/lib/server/actor-search.ts`](src/lib/server/actor-search.ts), [`src/lib/server/geocode.ts`](src/lib/server/geocode.ts), [`src/lib/server/plyr.ts`](src/lib/server/plyr.ts), [`src/lib/server/notifications/email.ts`](src/lib/server/notifications/email.ts), [`src/lib/server/notifications/dm.ts`](src/lib/server/notifications/dm.ts), [`src/lib/server/token-exchange/services.json`](src/lib/server/token-exchange/services.json), [`src/lib/server/backup/store.ts`](src/lib/server/backup/store.ts)
+
+### What the browser reaches
+
+Where a page's browser goes besides this site. The CSP lists the audio, script, frame and image hosts.
+
+```mermaid
+flowchart LR
+  Browser["Browser"]
+  Browser -- "pages, media, /api" --> App["Local Network app"]
+  Browser -- "set player audio" --> Audio["audio.plyr.fm,<br/>archive.org download hosts"]
+  Browser -- "widget scripts" --> Scripts["widget.mixcloud.com,<br/>w.soundcloud.com"]
+  Browser -- "embedded players" --> Frames["SoundCloud, Mixcloud, Bandcamp,<br/>YouTube, plyr.fm"]
+  Browser -- "avatars in sign-in suggestions" --> Cdn["cdn.bsky.app"]
+  Browser -- "form posts and redirects" --> Auth["The account's PDS,<br/>GitHub's bug form"]
+```
+
+Source: [`vite.config.ts`](vite.config.ts), [`src/lib/bug-report.ts`](src/lib/bug-report.ts)
+
+### Where state lives
+
+Every place the app keeps something, and what rebuilds it.
+
+```mermaid
+flowchart TD
+  subgraph Network["On the network"]
+    Repos["Public repos<br/>root's and people's"]
+    Spaces["Spaces<br/>each writer's repo in each space"]
+  end
+  subgraph Server["On the server"]
+    Index[("SQLite, rebuilt by sync:<br/>requests, threads, grants, people")]
+    Only[("SQLite, not rebuilt:<br/>sessions, inboxes, receipts")]
+    Outbox[("SQLite audit log:<br/>rebuilt from the root's copies")]
+    Memory["Memory:<br/>rate limits, credentials, caches"]
+  end
+  subgraph Elsewhere["Elsewhere"]
+    HV[("HappyView:<br/>public records its gates keep")]
+    Bucket[("Bucket: database backups")]
+  end
+  subgraph Client["In the browser"]
+    Cookies["Cookies: ln_session, ln_signed_out,<br/>the shows page's city"]
+    Local["localStorage: unsent form drafts,<br/>the hotkeys preference"]
+  end
+  Repos -- "Jetstream, re-reads" --> HV
+  Spaces -- "sync, apart from planners" --> Index
+  Spaces -- "sync" --> Outbox
+  Only -- "daily" --> Bucket
+  Index -- "daily" --> Bucket
+  Outbox -- "daily" --> Bucket
+```
+
+Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/server/sync/engine.ts`](src/lib/server/sync/engine.ts), [`src/lib/form-draft.svelte.ts`](src/lib/form-draft.svelte.ts), [`src/lib/server/shows-place.ts`](src/lib/server/shows-place.ts)
+
+### Local tables: bookings and press kits
+
+The tables that index booking threads, and press kit requests and grants. Only the link from participants to threads is a foreign key; the other lines are columns the rows share.
+
+```mermaid
+erDiagram
+  booking_thread ||--o{ booking_participant : "space_uri"
+  booking_thread ||--o{ booking_event : "space_uri"
+  epk_request ||--o| epk_grant : "request_uri"
+  booking_thread {
+    text space_uri PK
+    text project_uri
+    text promoter_did
+    text status
+  }
+  booking_participant {
+    text space_uri
+    text did
+    text role
+  }
+  booking_event {
+    text uri PK
+    text space_uri
+    text kind
+  }
+  epk_request {
+    text uri PK
+    text epk_uri
+    text requester_did
+    text status
+  }
+  epk_grant {
+    text space_uri
+    text subject_did
+    text request_uri
+  }
+```
+
+Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/server/db/migrations.ts`](src/lib/server/db/migrations.ts)
+
+### Local tables: shared spaces
+
+The tables that index performer, party and venue spaces. Each line is a column the rows share.
+
+```mermaid
+erDiagram
+  shared_space ||--o{ space_person : "space_uri"
+  shared_space ||--o{ space_invite : "space_uri"
+  shared_space ||--o{ space_invite_link : "space_uri"
+  shared_space ||--o{ space_join_request : "space_uri"
+  shared_space {
+    text space_uri PK
+    text kind
+    int listed
+  }
+  space_person {
+    text did
+    text role
+    text capabilities
+    int hidden
+  }
+  space_invite {
+    text did
+    text role
+  }
+  space_invite_link {
+    text rkey
+    text token_hash
+  }
+  space_join_request {
+    text did
+  }
+```
+
+Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/server/services/shared-spaces.ts`](src/lib/server/services/shared-spaces.ts)
+
+### Local tables: audit and sync
+
+The tables behind the audit log and the syncer. Each line is a column the rows share.
+
+```mermaid
+erDiagram
+  audit_entry ||--o{ audit_copy : "rkey is the entry id"
+  audit_entry ||--o| epk_view : "same id"
+  space_watch ||--o{ synced_repo : "space_uri"
+  space_watch ||--o{ sync_repo_retry : "space_uri"
+  space_watch ||--o{ space_record : "space_uri"
+  audit_entry {
+    text id PK
+    int seq
+    text hash
+    text root_status
+    text actor_status
+  }
+  audit_copy {
+    text uri PK
+    text repo_did
+    text rkey
+  }
+  epk_view {
+    text id PK
+    text viewer_did
+    text salt
+  }
+  space_watch {
+    text space_uri PK
+    text space_rev
+  }
+  synced_repo {
+    text repo_did
+    text rev
+  }
+  sync_repo_retry {
+    text repo_did
+    int attempts
+  }
+  space_record {
+    text repo_did
+    text collection
+    text rkey
+  }
+```
+
+Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/server/audit/log.ts`](src/lib/server/audit/log.ts), [`src/lib/server/sync/engine.ts`](src/lib/server/sync/engine.ts)
+
+### Local tables: inbox
+
+The tables behind the inbox. Deliveries have a foreign key to their item, and the channel is looked up by DID and channel.
+
+```mermaid
+erDiagram
+  notification ||--o{ notification_delivery : "notification_id"
+  notification_channel ||--o{ notification_delivery : "did and channel"
+  notification {
+    text id PK
+    text recipient_did
+    text dedupe_key
+    text read_at
+  }
+  notification_channel {
+    text did
+    text channel
+    text status
+  }
+  notification_delivery {
+    text id PK
+    text notification_id
+    text status
+    text batch_id
+  }
+```
+
+Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/server/notifications/outbox.ts`](src/lib/server/notifications/outbox.ts)

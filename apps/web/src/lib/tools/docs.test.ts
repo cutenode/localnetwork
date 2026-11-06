@@ -36,6 +36,18 @@ describe('loadDocs', () => {
 		expect(docs[0]).toMatchObject({ title: 'Overview', path: 'apps/localthing/docs/overview.md' });
 	});
 
+	it("leaves a README's Diagrams section out of the guide, wherever it falls", () => {
+		const diagrams = '## Diagrams\n\n```mermaid\nflowchart TD\n```\n\nSee [Zebra](docs/zebra.md).\n\n';
+
+		const guide = (readme: string) =>
+			loadDocs('apps/localthing', { '../../../../localthing/README.md': readme })[0].markdown;
+
+		expect(guide(`# localthing\n\n## Use\n\nU.\n\n${diagrams}## Credits\n\nC.\n`)).toBe(
+			'\n## Use\n\nU.\n\n## Credits\n\nC.\n'
+		);
+		expect(guide(`# localthing\n\n## Use\n\nU.\n\n${diagrams}`)).toBe('\n## Use\n\nU.\n\n');
+	});
+
 	it('refuses files that are neither', () => {
 		expect(() => loadDocs('apps/x', { '../x/src/notes.md': '' })).toThrow("isn't a README");
 	});
@@ -52,6 +64,8 @@ describe('the registry', () => {
 			path: 'apps/locallibrary/docs/install.md'
 		});
 		expect(locallibrary.docs.some((doc) => doc.path.includes('/rpc/'))).toBe(false);
+		expect(locallibrary.docs[0].markdown).not.toContain('```mermaid');
+		expect(locallibrary.docs[0].markdown).toContain('## Credits');
 		// localtoolbox's README is its developers' spec, so its guides are its docs alone.
 		expect(findTool('localtoolbox')?.docs.map((doc) => doc.slug)).toEqual([
 			'overview',
