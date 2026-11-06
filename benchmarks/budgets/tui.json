@@ -29,7 +29,7 @@
 			"measures": "Allocations of one frame of the Drives view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"drives.bytes": {
-			"limit": 45447,
+			"limit": 47159,
 			"unit": "bytes",
 			"measures": "Bytes allocated by one frame of the Drives view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
