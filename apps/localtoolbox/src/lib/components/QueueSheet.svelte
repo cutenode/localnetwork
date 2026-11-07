@@ -34,9 +34,8 @@
   import { artworkOf } from '$lib/artwork.ts';
   import { downloaded } from '$lib/downloaded.svelte.ts';
   import { queue } from '$lib/queue.svelte.ts';
-  import { choicePref } from '$lib/prefs.svelte.ts';
   import { count } from '$lib/soundcloud.ts';
-  import { QUEUE, PAGE, SOURCE_PREF, SOURCES } from '$lib/source.ts';
+  import { QUEUE, source } from '$lib/source.ts';
   import { toasts } from '$lib/toast.svelte.ts';
   import { TOOLS } from '$lib/tools.ts';
   import { remembered } from '$lib/view.svelte.ts';
@@ -52,10 +51,6 @@
     onclose,
     onopen,
   }: Props = $props();
-
-  // Set for the tool a batch is sent to, so it opens on the queue rather than
-  // on whatever page is in the active tab.
-  const source = choicePref(SOURCE_PREF, PAGE, SOURCES);
 
   // What the other tools do with a batch, in the order the menu lists them.
   // Nothing else here knows about them: the name, the icon and the tone of
@@ -114,6 +109,8 @@
     toasts.ok(`took ${count(permalinks.length, 'track')} out of the queue`);
   }
 
+  // The source is set for the tool a batch is sent to, so it reads the queue
+  // rather than whatever page is in the active tab.
   function open(id: string) {
     source.value = QUEUE;
     onclose();
