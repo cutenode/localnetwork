@@ -148,9 +148,9 @@ function base(s: Screen): boolean {
   return s.tabs === VIEWS.length && !overlay(s) && !typing(s) && !picking(s) && !chord(s);
 }
 
-/** Full screen, whose title says `f back`, in place of the deck strip. */
-function fullScreen(s: Screen): boolean {
-  return has(s, " Now playing ") && has(s, " f back ");
+/** The Deck layout, in place of the deck strip. */
+function deckLayout(s: Screen): boolean {
+  return s.status.includes(" DECK ");
 }
 
 /** A confirmation ("Write to DEMO?", "Eject DEMO?"), known by its keys at the bottom: only `y`
@@ -189,7 +189,7 @@ export const allViewsListed = always(() => {
  *  playing, or that nothing is. */
 export const deckStripShown = always(() => {
   const s = screen.current;
-  return s.rows < 3 || s.columns < 20 || fullScreen(s) || /Noth|▶|‖/.test(s.lines.join("\n"));
+  return s.rows < 3 || s.columns < 20 || deckLayout(s) || /Noth|▶|‖/.test(s.lines.join("\n"));
 });
 
 /** With only the deck, the screen names the size it needs, unless a dialog has what's under it. */
@@ -253,6 +253,17 @@ export const anyOtherKeyClosesHelp = always(() => {
   });
 });
 
+/** The Deck layout shows the tempo, framed or in large digits on their own, at every size that has it. */
+export const theDeckShowsItsTempo = always(
+  () => !deckLayout(screen.current) || has(screen.current, "BPM") || has(screen.current, "▀"),
+);
+
+/** On the deck, `b` opens Browse over it, as the status line says. */
+export const browseOpensOverTheDeck = always(() => {
+  if (!deckLayout(screen.current) || !base(screen.current)) return true;
+  return next(() => typed() !== "b" || !deckLayout(screen.current));
+});
+
 /** Esc in the search box closes it. */
 export const escapeLeavesSearch = always(() => {
   if (!screen.current.footer.startsWith(" / ")) return true;
@@ -270,11 +281,14 @@ export const escapeLeavesSearch = always(() => {
 // throwaway copy (which it won't eject: it's no volume). Text (`TEXT`) is typed only where a line
 // is being typed, so `q`, `L` and `:` there are just letters.
 const KEYS = CharSet.fromLiterals(
-  ..."1234567890?!/abcdefghijklmnoprstuvwxyzABCDEGHJKMNPQRSTX*#[]+=-_ ',.<>{}()".split(""),
+  ..."1234567890?!/abcdefghijklmnoprstuvwxyzABCDEGHJKMNPQRSTUX*#[]+=-_ ',.<>{}()".split(""),
 );
 
 /** `g` and each view's letter, typed at once. */
 const GOTO = CharSet.fromLiterals(...VIEWS.map(([, letter]) => `g${letter}`));
+
+/** Browse, the waveform's colours, the layouts, zooming and visualisers. */
+const DECK_KEYS = CharSet.fromLiterals(..."bwf[]v".split(""));
 
 const NAVIGATION = CharSet.union(
   CharSets.CONTROL_ARROWS,
@@ -319,6 +333,8 @@ export const keys = weighted([
   ],
   [50, actions(() => [{ TypeText: { CharSet: KEYS } }])],
   [10, actions(() => [{ TypeText: { CharSet: GOTO } }])],
+  // The deck's own keys, once it's showing.
+  [10, actions(() => [{ TypeText: { CharSet: deckLayout(screen.current) ? DECK_KEYS : KEYS } }])],
   [30, actions(() => [{ TypeText: { CharSet: NAVIGATION } }])],
   // Typing goes into the search box and name prompts more than anywhere else.
   [10, actions(() => [{ TypeText: { CharSet: typing(screen.current) ? TEXT : KEYS } }])],

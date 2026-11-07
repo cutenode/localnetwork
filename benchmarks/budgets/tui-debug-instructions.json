@@ -11,7 +11,7 @@
 		"deck": {
 			"limit": 44202256,
 			"unit": "instructions",
-			"measures": "Instructions of one frame of the full-screen deck at 160x45 in the debug profile, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
+			"measures": "Instructions of one frame of the Deck layout at 160x45 in the debug profile, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"drives": {
 			"limit": 30571773,

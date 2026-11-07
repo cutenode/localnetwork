@@ -72,6 +72,10 @@ pub enum Msg {
     EnterKeys(Box<locallibrary::plugin::AccountSignIn>, Sender<locallibrary::plugin::EnteredKeys>),
     /// The playing track's analysis, artwork and matches, for the play with this id.
     TrackInfo(u64, Box<TrackInfo>),
+    /// A cover made for the size it's shown at.
+    Cover(Box<crate::tui::art::Cover>),
+    /// A cover's two main colours, by the drive it's on and its artwork id.
+    Chip(PathBuf, u32, Option<[loclib_waveform::Rgb; 2]>),
     Details(Box<Details>),
     /// A plugin's panel answered, for the track (as `Panels` keeps it) and the panel at this
     /// place among its panels.
@@ -186,6 +190,9 @@ pub(in crate::tui) fn worker(
     });
 }
 
+/// How long a track plays before the library counts it as played.
+const HEARD: Duration = Duration::from_secs(30);
+
 impl App {
     /// Run `job` in the background (see [`worker`]); should it panic, the UI says so.
     pub(in crate::tui) fn spawn(&self, job: impl FnOnce() -> Msg + Send + 'static) {
@@ -249,6 +256,7 @@ impl App {
         self.follow_queue();
         self.want_details();
         self.want_panels();
+        self.want_chips();
 
         let dt = self.last_tick.elapsed().as_secs_f32().min(0.25);
         self.last_tick = Instant::now();
@@ -274,7 +282,23 @@ impl App {
             self.flash = Some((color, Instant::now()));
         }
         crate::tui::deck::reach_active_loop(self, prev, pos_ms);
+        self.hear(prev, pos_ms);
         self.last_pos_ms = pos_ms;
+    }
+
+    /// A track counts as played once it's been heard for a while, so looking through a crate
+    /// marks nothing. Seeks don't count, and it's time that counts, not how far in it got.
+    fn hear(&mut self, prev: f64, pos_ms: f64) {
+        let Some(now) = &self.now else { return };
+        if self.heard.0 != now.id {
+            self.heard = (now.id, Duration::ZERO);
+        }
+        if pos_ms > prev && pos_ms - prev < 500.0 {
+            self.heard.1 += Duration::from_secs_f64((pos_ms - prev) / 1000.0);
+        }
+        if self.heard.1 >= HEARD && !self.played_tracks.contains(&now.track.file_path) {
+            self.played_tracks.insert(now.track.file_path.clone());
+        }
     }
 
     pub(in crate::tui) fn handle_msg(&mut self, msg: Msg) {
@@ -440,6 +464,7 @@ impl App {
                     let info = *info;
                     now.phrases = phrase_spans(&info.analysis, now.duration);
                     now.analysis = info.analysis;
+                    now.waves = info.waves;
                     now.from_plugins = info.from_plugins;
                     now.art = info.art;
                     now.matches = info.matches;
@@ -450,6 +475,8 @@ impl App {
                     self.reset_next_pick();
                 }
             }
+            Msg::Cover(cover) => self.covers.cover = Some(*cover),
+            Msg::Chip(root, id, chip) => self.chip_read(&root, id, chip),
             Msg::Details(d) => {
                 if self.details_asked == Some((d.generation, d.index)) {
                     self.details_asked = None;

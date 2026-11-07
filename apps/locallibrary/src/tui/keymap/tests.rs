@@ -114,7 +114,7 @@ fn the_footer_drops_the_least_important_hints_to_fit() {
         assert!(h.iter().any(|(k, _)| k == "enter"), "the most important stays: {h:?}");
     }
     assert!(!hints(&app, 80).iter().any(|(k, _)| k == "q"), "quitting goes first");
-    app.fullscreen = true;
+    app.deck_layout = true;
     assert_eq!(hints(&app, 300)[0], ("1-8".to_string(), "hot cue"));
 }
 
@@ -139,7 +139,7 @@ fn hints_fit_the_footer_and_widen_with_it(tc: hegel::TestCase) {
     app.view = tc.draw(gs::sampled_from(&View::ALL[..]));
     app.focus =
         tc.draw(gs::sampled_from(&[Focus::Drives, Focus::Playlists, Focus::Tracks, Focus::Details, Focus::Crate][..]));
-    app.fullscreen = tc.draw(gs::booleans());
+    app.deck_layout = tc.draw(gs::booleans());
     app.deck.pads = tc.draw(gs::booleans());
     let width = tc.draw(gs::integers::<usize>().max_value(200));
     let wider = width + tc.draw(gs::integers::<usize>().max_value(100));

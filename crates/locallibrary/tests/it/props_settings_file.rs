@@ -138,6 +138,11 @@ fn contents(tc: &TestCase) -> Contents {
             quantize: maybe(tc),
             single: maybe(tc),
             auto_cue: maybe(tc),
+            notation: tc.draw(gs::optional(gs::sampled_from(vec!["camelot", "open-key"]))).map(String::from),
+            key_palette: tc.draw(gs::optional(gs::sampled_from(vec!["theme", "tritanopia"]))).map(String::from),
+            bands: tc.draw(gs::optional(gs::sampled_from(vec!["blue", "3band"]))).map(String::from),
+            end_warning: tc.draw(gs::optional(gs::sampled_from(vec![0, 30]))),
+            art: maybe(tc),
         };
         let Value::Object(mut player) = serde_json::to_value(prefs).unwrap() else { unreachable!() };
         for (key, value) in SESSION.iter() {

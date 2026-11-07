@@ -418,7 +418,7 @@ fn full_screen_shows_which_key_plays_which_pad() {
     let s = screen(&mut app, 120, 50);
     assert!(s.contains("1 A 4 D") && s.contains("' pads on"), "{s}");
     app.deck.pads = false;
-    app.fullscreen = true;
+    app.deck_layout = true;
     for mode in [None, Some(Mode::Plain)] {
         theme::set_test_mode(mode);
         let s = screen(&mut app, 160, 45);
@@ -617,7 +617,7 @@ fn quantize_on_any_grid_never_breaks_the_deck(tc: hegel::TestCase) {
             }
         }
         let (w, h) = tc.draw(gs::sampled_from(&[(80u16, 24u16), (160, 45), (30, 10)][..]));
-        app.fullscreen = tc.draw(gs::booleans());
+        app.deck_layout = tc.draw(gs::booleans());
         screen(&mut app, w, h);
         let broken = app.audio.as_ref().and_then(|a| a.broken());
         assert!(broken.is_none(), "{broken:?}");

@@ -293,7 +293,18 @@ impl App {
             Act::Loop => deck::toggle_loop(self),
             Act::LoopSize(double) => deck::resize_loop(self, if double { 2.0 } else { 0.5 }),
             Act::Visualiser => self.vis = self.vis.next(),
-            Act::FullScreen => self.fullscreen = !self.fullscreen,
+            Act::DeckLayout => {
+                self.deck_layout = !self.deck_layout;
+                self.browsing = false;
+            }
+            Act::Browse => self.browsing = true,
+            Act::NextBands => self.next_bands(),
+            Act::Bands(mode) => self.use_bands(mode),
+            Act::KeyNotation(n) => self.use_notation(n),
+            Act::KeyPalette(k) => self.use_key_palette(k),
+            Act::EndWarning(secs) => self.use_end_warning(secs),
+            Act::Art(on) => self.use_art(on),
+            Act::ResetPlayed => self.reset_played(),
             Act::Zoom(true) => self.deck_secs = (self.deck_secs / 1.5).max(1.5),
             Act::Zoom(false) => self.deck_secs = (self.deck_secs * 1.5).min(60.0),
             Act::Move(dir) if in_profile => profile::move_by(self, dir as isize),
@@ -303,7 +314,7 @@ impl App {
             Act::Page(dir) if in_mixes => mix::move_by(self, 10 * dir as isize),
             Act::Page(dir) => {
                 let page = match self.focus {
-                    Focus::Tracks if self.view == View::Library && !self.fullscreen => {
+                    Focus::Tracks if self.view == View::Library && !self.deck_showing() => {
                         self.areas.tracks.height.saturating_sub(3).max(1) as isize
                     }
                     _ => 10,
@@ -454,8 +465,9 @@ impl App {
         if self.quit_after_write {
             self.quit_after_write = false;
             self.toast("staying: not quitting after the write", Level::Info);
-        } else if self.fullscreen {
-            self.fullscreen = false;
+        } else if self.view == View::Library && self.deck_layout {
+            // Browse closes first; then back to the Library layout.
+            self.deck_layout = std::mem::take(&mut self.browsing);
         } else if self.job.is_some() {
             self.cancel_job();
         } else if self.dismiss_errors() {
@@ -532,7 +544,6 @@ impl App {
             self.profile.account.stop_typing();
         }
         self.view = v;
-        self.fullscreen = false;
         match v {
             View::Drives => {
                 if self.status.is_none() {
@@ -547,8 +558,12 @@ impl App {
 
     pub(super) fn activate(&mut self) {
         match (self.view, self.focus) {
-            (View::Library, _) if self.fullscreen => self.play_next(),
-            (View::Library, Focus::Tracks) => self.play_selected(),
+            (View::Library, _) if self.deck_showing() => self.play_next(),
+            (View::Library, Focus::Tracks) => {
+                self.play_selected();
+                // As a CDJ does: a track loaded, the deck's back.
+                self.browsing = false;
+            }
             (View::Library, Focus::Playlists) => self.open_playlist(),
             (View::Library, Focus::Details) => self.play_match(),
             (View::Library, Focus::Crate) => self.play_crate(),
@@ -601,7 +616,7 @@ impl App {
 
     pub(super) fn list_len(&self) -> usize {
         match (self.view, self.focus) {
-            (View::Library, _) if self.fullscreen => {
+            (View::Library, _) if self.deck_showing() => {
                 self.now.as_ref().and_then(|n| n.matches.as_ref()).map_or(0, |m| m.items.len())
             }
             (View::Library, Focus::Tracks) => self.visible.len(),
@@ -629,7 +644,7 @@ impl App {
     pub(in crate::tui) fn list_selection(&mut self) -> (&mut Option<usize>, usize) {
         let len = self.list_len();
         let sel = match (self.view, self.focus) {
-            (View::Library, _) if self.fullscreen => self.next_pick.selected_mut(),
+            (View::Library, _) if self.deck_showing() => self.next_pick.selected_mut(),
             (View::Library, Focus::Tracks) => self.track_state.selected_mut(),
             (View::Library, Focus::Playlists) => self.playlist_state.selected_mut(),
             (View::Library, Focus::Details) => self.details_state.selected_mut(),

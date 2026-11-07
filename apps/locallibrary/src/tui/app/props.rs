@@ -7,6 +7,8 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use locallibrary::query::QueryContext;
 
+use crate::output::plural;
+
 use super::testing::*;
 use super::*;
 
@@ -1066,7 +1068,7 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                     app.crate_list.add(Path::new("/Volumes/OTHER"), "OTHER", [track(7, "DJ", "Elsewhere")]);
                 }
                 let i = tc.draw(gs::integers::<usize>().max_value(paths.len() - 1));
-                (app.show_crate, app.focus, app.fullscreen) = (true, Focus::Crate, false);
+                (app.show_crate, app.focus, app.deck_layout) = (true, Focus::Crate, false);
                 (app.modal, app.picking, app.searching) = (None, None, false);
                 app.crate_state.select(Some(i));
                 let was = app.now.as_ref().map(|n| n.id);
@@ -1081,7 +1083,7 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
             9 => wait(&mut app, |a| a.now.as_ref().is_none_or(|n| !n.opening)),
             10 => {
                 // Full screen, the pick among the matches (clicked twice, or enter) plays next.
-                app.fullscreen = true;
+                app.deck_layout = true;
                 // A key or click first catches up with what played (`follow_queue`): a track that
                 // ended since goes on to the next, with matches of its own, so catch up before
                 // giving the playing one its matches.
@@ -1140,7 +1142,7 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 let key = tc.draw(gs::sampled_from(PLAY_KEYS));
                 let picked = app.next_pick.selected();
                 let matched = app.now.as_ref().and_then(|n| n.matches.as_ref()).map_or(0, |m| m.items.len());
-                let queued = app.fullscreen && app.playing_queue() && picked.is_some_and(|p| p < matched);
+                let queued = app.deck_layout && app.playing_queue() && picked.is_some_and(|p| p < matched);
                 let set = app.now.is_some() && !app.playing_queue();
                 if key == "<right>" {
                     app.on_key(key_of(KeyCode::Right, false));
@@ -1188,7 +1190,7 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Away {
     Waiting,
-    FullScreen,
+    DeckLayout,
     Job,
     Errors,
     Replay,
@@ -1212,7 +1214,7 @@ fn esc_puts_away_one_thing_at_a_time(tc: TestCase) {
         yes
     };
     let waiting = on(Away::Waiting);
-    app.fullscreen = on(Away::FullScreen);
+    app.deck_layout = on(Away::DeckLayout);
     if on(Away::Job) {
         app.job = Some(job(false, false));
     }
@@ -1246,7 +1248,7 @@ fn esc_puts_away_one_thing_at_a_time(tc: TestCase) {
         left.retain(|a| *a != Away::Job);
     }
     // Offered, y replays the edits (planned first) instead.
-    if app.replay_offer.is_some() && app.job.is_none() && !app.fullscreen && tc.draw(gs::booleans()) {
+    if app.replay_offer.is_some() && app.job.is_none() && !app.deck_layout && tc.draw(gs::booleans()) {
         press(&mut app, "y");
         assert!(app.replay_offer.is_none() && app.job.as_ref().is_some_and(|j| j.label == "Planning"));
         return;
@@ -1256,15 +1258,15 @@ fn esc_puts_away_one_thing_at_a_time(tc: TestCase) {
         match what {
             Away::Waiting => {
                 assert!(!app.quit_after_write && last_message(&app) == "staying: not quitting after the write");
-                if app.fullscreen {
+                if app.deck_layout {
                     press(&mut app, "\u{1b}");
-                    assert!(!app.fullscreen);
+                    assert!(!app.deck_layout);
                 }
                 press(&mut app, "\u{1b}");
                 assert_eq!(last_message(&app), "writing the drive: too late to stop", "the write goes on");
                 return;
             }
-            Away::FullScreen => assert!(!app.fullscreen),
+            Away::DeckLayout => assert!(!app.deck_layout),
             Away::Job => assert!(app.job.is_none() && last_message(&app) == "cancelled"),
             Away::Errors => assert!(app.held.is_none() && app.toast.as_ref().is_none_or(|t| t.1 == Level::Info)),
             Away::Replay => {
@@ -1535,7 +1537,7 @@ fn the_player_says_what_it_knows_of_the_track(tc: TestCase) {
     }
     let pos = tc.draw(gs::integers::<u64>().max_value(40_000));
     app.resume = Some(Duration::from_millis(pos));
-    app.fullscreen = true;
+    app.deck_layout = true;
     // In any of the visualisers, which v goes round.
     let vis = [Vis::Bars, Vis::Mirror, Vis::Scope, Vis::Deck];
     let turns = tc.draw(gs::integers::<usize>().max_value(5));
@@ -1559,19 +1561,21 @@ fn the_player_says_what_it_knows_of_the_track(tc: TestCase) {
     }
     if !a.beats.is_empty() {
         let tempo = if a.beats.iter().any(|b| b.bpm != 120.0) { "120.0–126.0 BPM" } else { "steady tempo" };
-        assert!(says(&format!("{} beats · {} bars · {tempo}", a.beats.len(), a.beats.len().div_ceil(4))), "{s}");
+        let (beats, bars) = (a.beats.len(), a.beats.len().div_ceil(4));
+        assert!(says(&format!("{} · {} · {tempo}", plural(beats, "beat"), plural(bars, "bar"))), "{s}");
     }
     if !a.cues.is_empty() {
         let hot = a.cues.iter().filter(|c| c.hot_cue.is_some()).count();
         let loops = a.cues.iter().filter(|c| c.end_ms.is_some()).count();
-        assert!(says(&format!("{hot} hot cues ({loops} loops) · {} memory", a.cues.len() - hot)), "{s}");
+        let memory = a.cues.len() - hot;
+        assert!(says(&format!("{} ({}) · {memory} memory", plural(hot, "hot cue"), plural(loops, "loop"))), "{s}");
     }
     if !now.phrases.is_empty() {
-        assert!(says(&format!("{} phrases", now.phrases.len())), "{s}");
+        assert!(says(&plural(now.phrases.len(), "phrase")), "{s}");
     }
     if let Some((i, _, _)) = now.phrase_at(pos as f64) {
         let next = match now.phrases.get(i + 1) {
-            Some(p) => format!("phrase next {} in", p.kind.name()),
+            Some(p) => format!("phrase  {} ", p.kind.name()),
             None => "phrase last".into(),
         };
         assert!(says(&next), "{next}\n{s}");
@@ -1613,7 +1617,7 @@ fn the_player_says_what_it_knows_of_the_track(tc: TestCase) {
     // Back in the library, the keys listed are matched against the playing track's (with no key
     // playing, against the selected track's, or none).
     let playing_key = app.now.as_ref().unwrap().key;
-    app.fullscreen = false;
+    app.deck_layout = false;
     let s = super::super::ui::screen(&mut app, 220, 40);
     let selected_key =
         app.selected_track().and_then(|i| Camelot::parse(&app.loaded.as_ref().unwrap().library.tracks[i].key));

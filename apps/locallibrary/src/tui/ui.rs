@@ -1,6 +1,7 @@
 //! Drawing.
 
 mod chrome;
+mod deck;
 mod drives;
 mod library;
 mod overlays;
@@ -9,20 +10,22 @@ mod shell;
 mod strip;
 
 pub(super) use chrome::*;
+use deck::{beat_spans, draw_deck, end_style};
 use drives::*;
 pub(super) use library::*;
 pub(super) use overlays::*;
 pub(super) use player::*;
 pub(super) use shell::Density;
 use shell::{Shell, draw_too_small};
-pub(super) use strip::StripWave;
-use strip::draw_strip;
+pub(super) use strip::DeckWaves;
+use strip::{draw_overview, draw_strip, keep_waves};
 
 use ratatui::Frame;
 
 use super::app::{App, View};
 use super::edits::Modal;
 use super::icons;
+use super::transitions::Shown;
 // What the test modules find through `use super::*`.
 #[cfg(test)]
 use {
@@ -64,15 +67,15 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         draw_header(f, app, shell.header, shell.context.is_empty());
         draw_context(f, app, shell.context);
         match app.view {
-            // Full screen is the deck: the strip would only say it twice.
-            View::Library if app.fullscreen => draw_player(f, app, shell.body.union(shell.strip)),
+            // The deck has the screen: the strip would only say it twice.
+            View::Library if app.deck_showing() => draw_deck(f, app, shell.body.union(shell.strip)),
             View::Library => draw_library(f, app, shell.body),
             View::Prepare => super::prepare::draw(f, app, shell.body),
             View::Drives => draw_drives(f, app, shell.body),
             View::Profile => super::profile::draw(f, app, shell.body),
             View::Mixes => super::mix::draw(f, app, shell.body),
         }
-        if !(app.view == View::Library && app.fullscreen) {
+        if !app.deck_showing() {
             draw_strip(f, app, shell.strip);
         }
         draw_footer(f, app, shell.footer);
@@ -99,8 +102,22 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         draw_toasts(f, app, over, message);
     }
     draw_chord(f, app, over);
+    app.transitions.follow(shown(app), shell.body.union(shell.strip));
+    app.transitions.draw(f.buffer_mut());
     if icons::ascii() {
         icons::fold(f.buffer_mut());
+    }
+}
+
+/// What a change of starts a fade.
+fn shown(app: &App) -> Shown {
+    let loaded = app.now.as_ref().filter(|n| !n.loading).map(|n| n.id);
+    Shown {
+        deck: app.deck_showing(),
+        details: app.show_details,
+        crate_panel: app.show_crate,
+        help: app.help,
+        track: loaded,
     }
 }
 

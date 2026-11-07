@@ -9,7 +9,7 @@ never gated on; `cargo bench` and CodSpeed still track time and instructions wee
 | area | what it holds | measured by | when |
 | --- | --- | --- | --- |
 | `alloc` | allocations and bytes of reading, filtering, comparing and planning | `crates/locallibrary/tests/counters.rs`, in the `budgets` job of `locallibrary-ci.yml` | every pull request that runs the Linux jobs |
-| `tui` | allocations and bytes of a frame of the player, for the Library view, the full-screen deck, the Drives view and the Prepare view | `apps/locallibrary/src/tui/frames/tests.rs`, in the same job | the same |
+| `tui` | allocations and bytes of a frame of the player, for the Library view, the Deck layout, the Drives view and the Prepare view | `apps/locallibrary/src/tui/frames/tests.rs`, in the same job | the same |
 | `deps` | packages linked into the default CLI on Linux | `cargo tree`, in the same job | the same |
 | `size-x86_64-unknown-linux-gnu` | release binary and archive | `.github/actions/release-budgets` | weekly, by hand, and pull requests that change a manifest or the lockfile |
 | `cli` | instructions of everyday commands on the 3,886-track fixture | the same | the same |

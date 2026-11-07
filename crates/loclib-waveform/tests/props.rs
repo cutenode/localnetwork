@@ -510,9 +510,9 @@ fn phrases_dim_once_played(tc: TestCase) {
     PhraseStrip { phrases: &phrases, duration_ms, progress, palette: p }.render(area, &mut buf);
     let head = ((progress as f64 * width as f64) as u16).min(width - 1);
     let x_of = |ms: f64| ((ms / duration_ms) * width as f64).round().clamp(0.0, width as f64) as u16;
-    assert_eq!(buf[(head, 0)].symbol(), "┃");
+    assert_eq!(buf[(head, 0)].bg, (p.paint)(p.playhead));
     // The last phrase drawn over a cell is the one it shows.
-    for x in 0..width {
+    for x in (0..width).filter(|x| *x != head) {
         let Some((start, _, _, color)) =
             phrases.iter().rev().find(|(s, e, _, _)| (x_of(*s)..x_of(*e).max(x_of(*s) + 1)).contains(&x))
         else {
@@ -522,6 +522,29 @@ fn phrases_dim_once_played(tc: TestCase) {
         let shown = if x == x_of(*start) { scale(played, 0.7) } else { played };
         assert_eq!(buf[(x, 0)].bg, (p.paint)(shown), "column {x}");
     }
+}
+
+/// A phrase shows its name whole, or a shorter form, or its colour alone: never a cut name, and
+/// never only part of one under the playhead.
+#[hegel::test(test_cases = 200)]
+fn prop_phrases_show_whole_names_or_none(tc: TestCase) {
+    let width = tc.draw(gs::integers::<u16>().min_value(8).max_value(120));
+    let area = Rect::new(0, 0, width, 1);
+    let duration_ms = 60_000.0;
+    let mut cuts = tc.draw(gs::vecs(gs::floats::<f64>().min_value(0.0).max_value(duration_ms)).max_size(12));
+    cuts.sort_by(f64::total_cmp);
+    let ends: Vec<f64> = std::iter::once(0.0).chain(cuts).chain([duration_ms]).collect();
+    let phrases: Vec<(f64, f64, String, Rgb)> = ends
+        .windows(2)
+        .enumerate()
+        .map(|(i, e)| (e[0], e[1], if i % 2 == 0 { "Verse 1" } else { "Chorus" }.to_string(), [90, 160, 80]))
+        .collect();
+    let progress = tc.draw(gs::floats::<f32>().min_value(0.0).max_value(1.0));
+    let mut buf = Buffer::empty(area);
+    PhraseStrip { phrases: &phrases, duration_ms, progress, palette: Palette::default() }.render(area, &mut buf);
+    let row: String = (0..width).map(|x| buf[(x, 0)].symbol()).collect();
+    let left = ["Verse 1", "Chorus", "Verse"].iter().fold(row.clone(), |r, name| r.replace(name, ""));
+    assert_eq!(left.trim(), "", "{row:?}");
 }
 
 /// Given more bands than fit, the spectrum draws the bars that do, from the left edge, and

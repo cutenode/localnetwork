@@ -154,7 +154,7 @@ fn layers(app: &App) -> Vec<&'static str> {
     add(app.searching, "the search box");
     add(app.picking.is_some(), "picking a playlist");
     add(app.mix.input.is_some(), "typing a path");
-    add(app.fullscreen, "full screen");
+    add(app.deck_layout, "full screen");
     let error = app.held.is_some() || app.toast.as_ref().is_some_and(|t| t.1 == Level::Error);
     add(error, "an error");
     add(app.replay_offer.is_some(), "the offer to replay");
@@ -173,7 +173,7 @@ fn prop_esc_closes_one_layer(tc: hegel::TestCase) {
         app.view = View::Mixes;
         press(&mut app, "O");
     } else if on() {
-        app.fullscreen = true;
+        app.deck_layout = true;
     }
     if on() {
         app.toast("it went wrong", Level::Error);
@@ -432,9 +432,9 @@ fn the_status_line_says_what_and_where() {
     app.picking = Some(crate::tui::edits::Pick { target: app.target().unwrap(), focus: Focus::Tracks });
     assert!(status(&mut app, 160).contains(" PICK "));
     app.picking = None;
-    app.fullscreen = true;
+    app.deck_layout = true;
     assert!(status(&mut app, 160).contains(" DECK "));
-    app.fullscreen = false;
+    app.deck_layout = false;
     app.deck.pads = true;
     assert!(status(&mut app, 160).contains(" PADS "));
     app.deck.pads = false;
