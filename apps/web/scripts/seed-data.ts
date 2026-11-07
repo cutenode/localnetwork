@@ -1,4 +1,7 @@
+import type { CLAIM_RELATIONSHIPS } from '../src/lib/taxonomy/options.ts';
 import type { ProfileRecord, ProjectProfile } from '../src/lib/types.ts';
+
+type ClaimRelationship = (typeof CLAIM_RELATIONSHIPS)[number]['value'];
 
 const at = (lat: number, lng: number) => ({ latE6: Math.round(lat * 1e6), lngE6: Math.round(lng * 1e6) });
 
@@ -345,14 +348,13 @@ export const DEMO_DJ_SETS = [
 ];
 
 /**
- * DJs besides neon.test, each managing one demo project (by its index in DEMO_PROJECTS) and with sets of their own,
- * so the charts rank tracks several DJs played.
+ * DJs besides neon.test, each the DJ behind one solo demo project (see DEMO_CLAIMS) and with sets of their own, so the
+ * charts rank tracks several DJs played.
  */
 export const DEMO_DJS = [
 	{
 		handle: 'harbour.test',
 		password: 'harbour-pass',
-		project: 8,
 		sets: [
 			{
 				title: 'Sunday session',
@@ -382,7 +384,6 @@ export const DEMO_DJS = [
 	{
 		handle: 'pirate.test',
 		password: 'pirate-pass',
-		project: 3,
 		sets: [
 			{
 				title: 'Rooftop',
@@ -405,7 +406,6 @@ export const DEMO_DJS = [
 	{
 		handle: 'glasshouse.test',
 		password: 'glasshouse-pass',
-		project: 10,
 		sets: [
 			{
 				title: 'Glasshouse at Pirate Signal',
@@ -426,6 +426,40 @@ export const DEMO_DJS = [
 		]
 	}
 ];
+
+/** People who manage demo projects and play no sets of their own, with the display name on their Bluesky profile. */
+export const DEMO_MANAGERS = [
+	{ handle: 'velvet.test', password: 'velvet-pass', displayName: 'Velvet Static' },
+	{ handle: 'footwork.test', password: 'footwork-pass', displayName: 'Footwork Fever' },
+	{ handle: 'halflight.test', password: 'halflight-pass', displayName: 'Halflight' },
+	{ handle: 'tunde.test', password: 'tunde-pass', displayName: 'Tunde' },
+	{ handle: 'ines.test', password: 'ines-pass', displayName: 'Ines' },
+	{ handle: 'rowan.test', password: 'rowan-pass', displayName: 'Rowan' },
+	{ handle: 'marisol.test', password: 'marisol-pass', displayName: 'Marisol' }
+];
+
+/**
+ * Approved claims on the demo projects (by index in DEMO_PROJECTS): who claimed each one and how they said they're
+ * connected. The seed makes every claimant a manager, and the first one the project's creator.
+ */
+export const DEMO_CLAIMS: { handle: string; project: number; relationship: ClaimRelationship }[] = [
+	{ handle: 'neon.test', project: 0, relationship: 'self' },
+	{ handle: 'neon.test', project: 1, relationship: 'member' },
+	{ handle: 'tunde.test', project: 2, relationship: 'member' },
+	{ handle: 'pirate.test', project: 3, relationship: 'self' },
+	{ handle: 'velvet.test', project: 4, relationship: 'self' },
+	{ handle: 'ines.test', project: 5, relationship: 'member' },
+	{ handle: 'footwork.test', project: 6, relationship: 'self' },
+	{ handle: 'rowan.test', project: 7, relationship: 'member' },
+	{ handle: 'harbour.test', project: 8, relationship: 'self' },
+	{ handle: 'marisol.test', project: 9, relationship: 'manager' },
+	{ handle: 'glasshouse.test', project: 10, relationship: 'self' },
+	{ handle: 'halflight.test', project: 11, relationship: 'self' }
+];
+
+/** The handles of a demo project's managers, in the order they claimed it. */
+export const managersOf = (project: number) =>
+	DEMO_CLAIMS.flatMap((claim) => (claim.project === project ? [claim.handle] : []));
 
 /**
  * Neon Tide's press kits: one for clubs that people ask to see, and one for festivals anyone signed

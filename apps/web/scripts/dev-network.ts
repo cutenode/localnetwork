@@ -18,21 +18,32 @@ import { mockNetworkUtilities, TestPds, TestPlc } from '@atproto/dev-env';
 import { USERINPUT } from '../src/lib/bug-report.ts';
 import { LEXICON_DOCS, publishLexicons, validateRecord } from '../src/lib/server/atproto/lexicons.ts';
 import { AgentRepoClient, memberSpacePolicy } from '../src/lib/server/atproto/repo-client.ts';
-import { BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '../src/lib/nsid.ts';
+import {
+	BSKY_PROFILE,
+	CALENDAR_EVENT,
+	COLLECTION,
+	EPK_CONTENT_KEY,
+	ROOT_SPACE_KEY,
+	SPACE_TYPE
+} from '../src/lib/nsid.ts';
+import { ROOT_SPACE_POLICIES } from '../src/lib/server/bootstrap.ts';
 import { sampleReport } from '../src/lib/mix/sample.ts';
 import { HappyViewClient } from '../src/lib/server/happyview/client.ts';
 import { slugify } from '../src/lib/server/services/projects.ts';
 import { eventRecord, showRecord } from '../src/lib/server/services/shows.ts';
 import { checkDocker, startHappyView } from './lib/happyview.ts';
 import {
+	DEMO_CLAIMS,
 	DEMO_DJ_PROFILE,
 	DEMO_PROFILE,
 	DEMO_DJ_SETS,
 	DEMO_DJS,
 	DEMO_EPKS,
 	DEMO_FOLLOWS,
+	DEMO_MANAGERS,
 	DEMO_PROJECTS,
-	DEMO_SHOWS
+	DEMO_SHOWS,
+	managersOf
 } from './seed-data.ts';
 
 const PLC_PORT = Number(process.env.DEV_PLC_PORT ?? 2582);
@@ -53,6 +64,13 @@ const APP_PORT = Number(process.env.PORT ?? 5173);
 
 const ROOT = { handle: 'localnetwork.test', email: 'root@localnetwork.test', password: 'root-pass' };
 
+/** The names of the demo projects someone claimed. */
+function managed(handle: string) {
+	return DEMO_CLAIMS.flatMap((claim) => (claim.handle === handle ? [DEMO_PROJECTS[claim.project].name] : [])).join(
+		' and '
+	);
+}
+
 const ACCOUNTS = [
 	{ handle: 'ada.test', password: 'ada-pass', displayName: 'Ada', note: 'admin (ADMIN_DIDS)' },
 	{
@@ -65,15 +83,16 @@ const ACCOUNTS = [
 		handle: 'neon.test',
 		password: 'neon-pass',
 		displayName: 'Neon',
-		note: 'DJ with a profile; manages two demo projects, has three sets and four shows, and made a press kit that moves to the root on their first visit'
+		note: 'DJ with a profile; manages Neon Tide and Saffron Social, has three sets and four shows, and made a press kit that moves to the root on their first visit'
 	},
 	{ handle: 'pat.test', password: 'pat-pass', displayName: 'Pat', note: "promoter; follows both of neon's projects" },
 	...DEMO_DJS.map((dj) => ({
 		handle: dj.handle,
 		password: dj.password,
-		displayName: DEMO_PROJECTS[dj.project].name,
-		note: `DJ; manages ${DEMO_PROJECTS[dj.project].name}, has ${dj.sets.length} sets`
-	}))
+		displayName: managed(dj.handle),
+		note: `DJ; manages ${managed(dj.handle)}, has ${dj.sets.length} sets`
+	})),
+	...DEMO_MANAGERS.map((manager) => ({ ...manager, note: `manages ${managed(manager.handle)}` }))
 ];
 
 const log = (message: string) => console.log(`\x1b[35m▸\x1b[0m ${message}`);
@@ -219,15 +238,14 @@ async function main() {
 		size: report.blob.size
 	};
 
+	const rootClient = new AgentRepoClient(root.did, rootAgent);
+	const neonClient = new AgentRepoClient(dids['neon.test'], neon);
 	const now = new Date().toISOString();
 	const projectUris: string[] = [];
 	const projectManagers: string[][] = [];
 
 	for (const [index, profile] of DEMO_PROJECTS.entries()) {
-		const managers = [
-			...(index < 2 ? [dids['neon.test']] : []),
-			...DEMO_DJS.filter((dj) => dj.project === index).map((dj) => dids[dj.handle])
-		];
+		const managers = managersOf(index).map((handle) => dids[handle]);
 
 		const mixes = index === 0 ? profile.mixes?.map((mix, i) => (i === 0 ? { ...mix, tracklist } : mix)) : profile.mixes;
 
@@ -237,7 +255,7 @@ async function main() {
 			managers,
 			status: 'active',
 			revision: 1,
-			createdBy: dids['ada.test'],
+			createdBy: managers[0],
 			createdAt: now,
 			updatedAt: now
 		});
@@ -255,11 +273,49 @@ async function main() {
 
 	log(`Seeded ${DEMO_PROJECTS.length} demo projects`);
 
+	// The claims that made each claimant a manager, filed by the root on their behalf and approved by ada.test. The app
+	// creates the moderation space on boot unless it's there, as here.
+	const moderation = await rootClient.createSpace({
+		spaceType: SPACE_TYPE.moderation,
+		skey: ROOT_SPACE_KEY,
+		policy: ROOT_SPACE_POLICIES.moderation
+	});
+
+	for (const { handle, project, relationship } of DEMO_CLAIMS) {
+		const request = await rootClient.createSpaceRecord({
+			space: moderation,
+			collection: COLLECTION.request,
+			record: validateRecord(COLLECTION.request, {
+				kind: 'claim',
+				project: projectUris[project],
+				baseRevision: 1,
+				claim: { relationship, evidence: `It's linked from ${DEMO_PROJECTS[project].name}'s SoundCloud bio.` },
+				onBehalfOf: dids[handle],
+				createdAt: now
+			})
+		});
+
+		await rootClient.createSpaceRecord({
+			space: moderation,
+			collection: COLLECTION.decision,
+			record: validateRecord(COLLECTION.decision, {
+				request: request.uri,
+				requestCid: request.cid,
+				requester: dids[handle],
+				outcome: 'approved',
+				decidedBy: dids['ada.test'],
+				project: projectUris[project],
+				projectRevision: 1,
+				createdAt: now
+			})
+		});
+	}
+
+	log(`Seeded ${DEMO_CLAIMS.length} approved claims`);
+
 	// Neon Tide's press kits, written as the site writes them: a space per press kit (under the root, whose members are
 	// the project's managers as readers and which only the root writes, or for the legacy one under neon.test with the
 	// root as a member, which took requests too), the private part in it, then the public record.
-	const rootClient = new AgentRepoClient(root.did, rootAgent);
-	const neonClient = new AgentRepoClient(dids['neon.test'], neon);
 
 	for (const epk of DEMO_EPKS) {
 		const rkey = TID.nextStr();
