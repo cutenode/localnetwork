@@ -277,7 +277,7 @@ export class OAuthService {
 			db: Db;
 			logger: Logger;
 			/**
-			 * A guarded fetch (IdentityResolver's `serviceFetch`). Signing in talks to servers a user's DID document
+			 * A guarded fetch (IdentityResolver's `serviceApiFetch`). Signing in talks to servers a user's DID document
 			 * names: their PDS, the authorization server its metadata names, and the PDS again for every session request.
 			 */
 			fetch: typeof globalThis.fetch;

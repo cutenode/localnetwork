@@ -107,6 +107,8 @@ export class FakeSpaceHost {
 	repoPageSize = 500;
 	/** MACs responses with a secret of its own instead of the one it shares with the syncer. */
 	forgeMacs = false;
+	/** Answers a method gets in place of the real one, by NSID, as a hostile host could send. */
+	readonly overrides = new Map<string, () => Response>();
 	readonly identity = new HostIdentity(this);
 	private readonly repos = new Map<string, HostedRepo>();
 
@@ -158,6 +160,9 @@ export class FakeSpaceHost {
 		const nsid = url.pathname.replace(/^\/xrpc\//, '');
 		const body: unknown = request.method === 'POST' ? await request.json() : undefined;
 		this.requests.push({ nsid, headers: request.headers, body });
+		const override = this.overrides.get(nsid);
+
+		if (override) return override();
 
 		if (nsid === 'com.atproto.space.getSpaceCredential') {
 			const asked = credentialRequest.safeParse(body);

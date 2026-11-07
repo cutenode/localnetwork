@@ -96,7 +96,7 @@ export async function createApp(options: CreateAppOptions) {
 
 	const accounts = new AccountService(db, logger.child({ component: 'accounts' }), identity);
 	const oauthLogger = logger.child({ component: 'oauth' });
-	const oauth = new OAuthService({ config, db, logger: oauthLogger, fetch: identity.serviceFetch });
+	const oauth = new OAuthService({ config, db, logger: oauthLogger, fetch: identity.serviceApiFetch });
 	const userClient = options.userClient ?? ((did: string) => oauth.repoClient(did));
 
 	const audit = new AuditLog({
@@ -204,7 +204,11 @@ export async function createApp(options: CreateAppOptions) {
 			const url = new URL('/xrpc/com.atproto.sync.getBlob', (await identity.resolve(did)).pds);
 			url.searchParams.set('did', did);
 			url.searchParams.set('cid', cid);
-			const response = await identity.serviceFetch(url, { redirect: 'error', signal: AbortSignal.timeout(15_000) });
+
+			const response = await identity.serviceApiFetch(url, {
+				redirect: 'error',
+				signal: AbortSignal.timeout(15_000)
+			});
 
 			if (!response.ok) throw new Error(`getBlob ${cid}: HTTP ${response.status}`);
 
