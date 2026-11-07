@@ -4,6 +4,7 @@ import { P256Keypair, Secp256k1Keypair } from '@atproto/crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger';
 import { collectingGarbage } from '../testing/gc';
+import { MEBIBYTE, streamed } from '../testing/streamed';
 import type { DidDocument } from '@atproto-labs/did-resolver';
 import type { AtprotoHandleResolverNode } from '@atproto-labs/handle-resolver-node';
 import { IdentityError, IdentityResolver } from './identity';
@@ -273,7 +274,7 @@ describe('IdentityResolver, given names someone else chose', () => {
 		expect(requests).toEqual(['https://dj.localnetwork.computer/.well-known/did.json']);
 	});
 
-	it.each(['fetch', 'serviceFetch'] as const)(
+	it.each(['fetch', 'serviceFetch', 'serviceApiFetch'] as const)(
 		"%s won't connect to a private or loopback address, speak plain HTTP, or follow a redirect",
 		async (name) => {
 			const strict = new IdentityResolver({
@@ -298,6 +299,47 @@ describe('IdentityResolver, given names someone else chose', () => {
 			expect(await refusal('https://dj.localnetwork.computer/')).toBe('Request redirect must be "error" or "manual"');
 		}
 	);
+
+	describe('serviceApiFetch', () => {
+		const answering = (response: Response) =>
+			new IdentityResolver({
+				plcUrl: 'https://plc.directory',
+				allowPrivateNetwork: true,
+				logger: silentLogger,
+				fetch: async () => response
+			});
+
+		const read = (identity: IdentityResolver) =>
+			identity.serviceApiFetch('https://pds.test/', { redirect: 'error' }).then((response) => response.arrayBuffer());
+
+		it('reads an answer of exactly the cap', async () => {
+			const { body } = streamed(32);
+
+			expect((await read(answering(new Response(body)))).byteLength).toBe(32 * MEBIBYTE);
+		});
+
+		it('stops reading a body past the cap, however long it would have run', async () => {
+			const answer = streamed(64);
+
+			await expect(read(answering(new Response(answer.body)))).rejects.toThrow('Response too large');
+			expect(answer.made()).toBeLessThan(40 * MEBIBYTE);
+		});
+
+		it('reads nothing of a body that declares itself past the cap', async () => {
+			const answer = streamed(64);
+			const declared = new Response(answer.body, { headers: { 'content-length': String(64 * MEBIBYTE) } });
+
+			await expect(read(answering(declared))).rejects.toThrow('Response too large');
+			expect(answer.made()).toBeLessThan(2 * MEBIBYTE);
+		});
+
+		it('leaves serviceFetch free to read further, for repo exports', async () => {
+			const identity = answering(new Response(streamed(33).body));
+			const response = await identity.serviceFetch('https://pds.test/', { redirect: 'error' });
+
+			expect((await response.arrayBuffer()).byteLength).toBe(33 * MEBIBYTE);
+		});
+	});
 
 	it("gives a service up at the caller's time limit when it never answers, while garbage is collected", async () => {
 		// Connections it takes, which it holds open without a word.
