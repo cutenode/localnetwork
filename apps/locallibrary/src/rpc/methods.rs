@@ -57,8 +57,17 @@ pub enum PlanStore {
 type SchemaFn = fn(&mut SchemaGenerator) -> Schema;
 type Run = Box<dyn Fn(&Call<'_>, Value) -> Result<Value, RpcError> + Send + Sync>;
 
+#[cfg(not(contract_from_docs))]
 fn schema<T: JsonSchema>(g: &mut SchemaGenerator) -> Schema {
     g.subschema_for::<T>()
+}
+
+/// A release build answers the contract kept in `docs/rpc/` (see [`super::contract`]), so it never
+/// asks for a schema, and its binary leaves out the code that makes them.
+#[cfg(contract_from_docs)]
+#[expect(clippy::extra_unused_type_parameters, reason = "it stands in for the schema of `T`")]
+fn schema<T: JsonSchema>(_: &mut SchemaGenerator) -> Schema {
+    unreachable!("a release build answers the contract kept in docs/rpc")
 }
 
 /// What a request runs with.
@@ -135,7 +144,9 @@ pub struct Method {
     /// them): refused unless each is an absolute path (the sidecar's working folder is whatever
     /// its parent's was).
     writes_to: Option<&'static str>,
+    #[cfg_attr(contract_from_docs, expect(dead_code, reason = "read only to build the contract"))]
     params: SchemaFn,
+    #[cfg_attr(contract_from_docs, expect(dead_code, reason = "read only to build the contract"))]
     result: SchemaFn,
     /// A plan's: what applying it returns.
     applies: Option<SchemaFn>,
@@ -226,6 +237,7 @@ impl Method {
 
     /// Its parameters' schema. Methods that write also take [`api::WriteOptions`]; an apply
     /// takes a plan's id instead of a request.
+    #[cfg(not(contract_from_docs))]
     pub fn params_schema(&self, g: &mut SchemaGenerator) -> Schema {
         let request = (self.params)(g);
         let request = match self.kind {
@@ -246,6 +258,7 @@ impl Method {
 
     /// Its result's schema. An apply returns what applying its plan returns, or (with a
     /// request) what its own code returns, when those differ.
+    #[cfg(not(contract_from_docs))]
     pub fn result_schema(&self, g: &mut SchemaGenerator, registry: &Registry) -> Schema {
         let own = (self.result)(g);
         if self.kind != Kind::Apply {

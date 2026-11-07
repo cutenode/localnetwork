@@ -1,18 +1,29 @@
 //! The sidecar's contract as data: every method with JSON Schemas for its parameters and result,
 //! the notifications it sends and its errors' `data`, from the [registry](super::methods). It's
 //! what `rpc.describe` answers and what `locallibrary rpc --emit-schema DIR` writes (with
-//! TypeScript types made from it, see [`super::typescript`]).
+//! TypeScript types made from it, see [`super::typescript`]). A release build of the default
+//! features answers the copy in `docs/rpc/` that `the_contract_in_docs_is_current` keeps current
+//! instead of building it, which leaves the schemas' code out of the binary.
 
 use std::path::Path;
 use std::sync::OnceLock;
 
+#[cfg(not(contract_from_docs))]
 use locallibrary::api;
+#[cfg(not(contract_from_docs))]
 use schemars::SchemaGenerator;
+#[cfg(not(contract_from_docs))]
 use schemars::generate::SchemaSettings;
-use serde_json::{Map, Value, json};
+use serde_json::Value;
+#[cfg(not(contract_from_docs))]
+use serde_json::{Map, json};
 
-use super::methods::{Method, Registry, registry};
-use super::{PROTOCOL, typescript};
+#[cfg(not(contract_from_docs))]
+use super::methods::{Method, Registry};
+use super::methods::registry;
+#[cfg(not(contract_from_docs))]
+use super::PROTOCOL;
+use super::typescript;
 
 /// What the files `--emit-schema` writes are called.
 pub const SCHEMA_FILE: &str = "schema.json";
@@ -21,13 +32,24 @@ pub const TYPES_FILE: &str = "locallibrary.d.ts";
 /// Where a schema shared by parameters and results, but read differently by each (a field with
 /// a default is optional in a request and always there in a result), is kept for results:
 /// `<Name>Output`.
+#[cfg(not(contract_from_docs))]
 const OUTPUT_SUFFIX: &str = "Output";
 
 /// The whole contract (without the sidecar's version, so it changes only when the contract
 /// does).
 pub fn contract() -> &'static Value {
     static CONTRACT: OnceLock<Value> = OnceLock::new();
-    CONTRACT.get_or_init(|| build(registry(), registry().methods().collect()))
+    CONTRACT.get_or_init(made)
+}
+
+#[cfg(not(contract_from_docs))]
+fn made() -> Value {
+    build(registry(), registry().methods().collect())
+}
+
+#[cfg(contract_from_docs)]
+fn made() -> Value {
+    serde_json::from_str(include_str!("../../docs/rpc/schema.json")).expect("docs/rpc/schema.json is JSON")
 }
 
 /// What `rpc.describe` answers: the contract with the version, or one method of it (with the
@@ -50,6 +72,7 @@ pub fn describe(method: Option<&str>) -> Option<Value> {
     Some(v)
 }
 
+#[cfg(not(contract_from_docs))]
 fn build(registry: &Registry, methods: Vec<&Method>) -> Value {
     // Parameters are read as requests (defaults make fields optional), results as they're
     // written (every field is there unless it's skipped).
@@ -103,6 +126,7 @@ fn build(registry: &Registry, methods: Vec<&Method>) -> Value {
 
 /// Puts both generators' definitions under `$defs`. One read differently as a parameter and as
 /// a result keeps its name for parameters, and results refer to `<Name>Output`.
+#[cfg(not(contract_from_docs))]
 fn merge_definitions(contract: &mut Value, params: &mut SchemaGenerator, results: &mut SchemaGenerator) {
     let mut defs = params.take_definitions(true);
     let mut out = results.take_definitions(true);
@@ -130,6 +154,7 @@ fn merge_definitions(contract: &mut Value, params: &mut SchemaGenerator, results
     contract["$defs"] = Value::Object(defs);
 }
 
+#[cfg(not(contract_from_docs))]
 fn rename_refs(v: &mut Value, renamed: &[String]) {
     match v {
         Value::Object(map) => {
