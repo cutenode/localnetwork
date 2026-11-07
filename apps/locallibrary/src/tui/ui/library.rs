@@ -6,7 +6,7 @@ use locallibrary::{DeviceInfo, Track};
 use loclib_plugin::{FieldDisplay, FieldFormat};
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Margin, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Cell, HighlightSpacing, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState,
@@ -14,21 +14,41 @@ use ratatui::widgets::{
 };
 
 use crate::output::{bytes, clock};
-use crate::tui::app::{App, Focus, View};
+use crate::tui::app::{App, Focus};
 use crate::tui::browse::{NodeId, sort_label, stars};
+use crate::tui::icons;
 use crate::tui::keys::Camelot;
 use crate::tui::theme::{self, bold, dim, faint, fg, text};
 
 use super::*;
 
+/// The rows of panes one above the other: `open` has the room, and the rest a title row each.
+pub(super) fn accordion<T: PartialEq>(panes: &[T], open: T) -> Vec<Constraint> {
+    panes.iter().map(|p| if *p == open { Constraint::Min(0) } else { Constraint::Length(1) }).collect()
+}
+
 /// The sidebar (drives and the tree), the track list, and the details and crate panels when
 /// they're open: beside the list on wide terminals, in place of the sidebar on narrow ones
-/// (the sidebar comes back while it has focus).
+/// (the sidebar comes back while it has focus). With less room see [`Density`]: panes stacked in
+/// a column collapse, and at the last only one pane has the room.
 pub(super) fn draw_library(f: &mut Frame, app: &mut App, area: Rect) {
-    let side_on = app.show_details || app.show_crate;
-    let in_sidebar = matches!(app.focus, Focus::Drives | Focus::Playlists) || app.picking.is_some();
+    let density = app.areas.density;
+    let details = app.show_details && (density.shows_details() || app.focus == Focus::Details);
+    let side_on = details || app.show_crate;
+    let open = if app.picking.is_some() { Focus::Playlists } else { app.focus };
+    if density == Density::Compact {
+        let mut panes = vec![Focus::Drives, Focus::Playlists, Focus::Tracks];
+        panes.extend(app.show_crate.then_some(Focus::Crate));
+        panes.extend(details.then_some(Focus::Details));
+        let open = if panes.contains(&open) { open } else { Focus::Tracks };
+        for (pane, r) in panes.iter().zip(Layout::vertical(accordion(&panes, open)).split(area).iter()) {
+            draw_pane(f, app, *pane, *r);
+        }
+        return;
+    }
+    let in_sidebar = matches!(open, Focus::Drives | Focus::Playlists);
     let sidebar_w = (area.width / 4).clamp(24, 38);
-    let (sidebar, tracks, side) = if side_on && area.width >= 120 {
+    let (sidebar, tracks, side) = if side_on && area.width >= 100 {
         let [a, b, c] = Layout::horizontal([
             Constraint::Length((area.width / 5).clamp(24, 34)),
             Constraint::Min(0),
@@ -45,34 +65,71 @@ pub(super) fn draw_library(f: &mut Frame, app: &mut App, area: Rect) {
         (Some(a), b, None)
     };
     if let Some(side) = sidebar {
-        let drives_h = (app.drives.len() as u16 + 2).clamp(3, (side.height / 3).max(3));
-        let [drives, playlists] = Layout::vertical([Constraint::Length(drives_h), Constraint::Min(0)]).areas(side);
-        app.areas.drives = drives;
-        app.areas.playlists = playlists;
-        draw_drive_list(f, app, drives, app.focus == Focus::Drives && app.view == View::Library);
-        draw_playlists(f, app, playlists);
+        let [drives, playlists] = if density == Density::Full {
+            let drives_h = (app.drives.len() as u16 + 2).clamp(3, (side.height / 3).max(3));
+            Layout::vertical([Constraint::Length(drives_h), Constraint::Min(0)]).areas(side)
+        } else {
+            let open = if in_sidebar { open } else { Focus::Playlists };
+            Layout::vertical(accordion(&[Focus::Drives, Focus::Playlists], open)).areas(side)
+        };
+        draw_pane(f, app, Focus::Drives, drives);
+        draw_pane(f, app, Focus::Playlists, playlists);
     }
-    app.areas.tracks = tracks;
-    draw_tracks(f, app, tracks);
+    draw_pane(f, app, Focus::Tracks, tracks);
     if let Some(side) = side {
-        match (app.show_details, app.show_crate) {
+        match (app.show_crate, details) {
             (true, true) => {
-                let [d, t] = Layout::vertical([Constraint::Percentage(60), Constraint::Percentage(40)]).areas(side);
-                draw_track_details(f, app, d);
-                draw_crate(f, app, t);
+                let [c, d] = if density == Density::Full {
+                    Layout::vertical([Constraint::Percentage(40), Constraint::Percentage(60)]).areas(side)
+                } else {
+                    let open = if open == Focus::Crate { open } else { Focus::Details };
+                    Layout::vertical(accordion(&[Focus::Crate, Focus::Details], open)).areas(side)
+                };
+                draw_pane(f, app, Focus::Crate, c);
+                draw_pane(f, app, Focus::Details, d);
             }
-            (true, false) => draw_track_details(f, app, side),
-            _ => draw_crate(f, app, side),
+            (true, false) => draw_pane(f, app, Focus::Crate, side),
+            _ => draw_pane(f, app, Focus::Details, side),
         }
     }
 }
 
-fn draw_drive_list(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
+/// A pane of the view, there for clicks.
+fn draw_pane(f: &mut Frame, app: &mut App, pane: Focus, area: Rect) {
+    match pane {
+        Focus::Drives => {
+            app.areas.drives = area;
+            draw_drive_list(f, app, area);
+        }
+        Focus::Playlists => {
+            app.areas.playlists = area;
+            draw_playlists(f, app, area);
+        }
+        Focus::Tracks => {
+            app.areas.tracks = area;
+            draw_tracks(f, app, area);
+        }
+        Focus::Details => {
+            app.areas.details = area;
+            draw_track_details(f, app, area);
+        }
+        Focus::Crate => {
+            app.areas.crate_panel = area;
+            draw_crate(f, app, area);
+        }
+    }
+}
+
+fn draw_drive_list(f: &mut Frame, app: &mut App, area: Rect) {
+    let focused = app.focus == Focus::Drives;
     let loaded_root = app.loaded.as_ref().map(|l| l.root().to_path_buf());
     let inner_w = area.width.saturating_sub(3);
     let items: Vec<ListItem> = (app.drives.iter())
         .map(|d| ListItem::new(drive_line(d, loaded_root.as_deref() == Some(d.root.as_path()), "", inner_w)))
         .collect();
+    if area.height <= 1 {
+        return title_row(f, pane_title(1, "Drives", focused), focused, area);
+    }
     let list = drive_list(items, focused);
     app.drive_state.fit(area.height.saturating_sub(2) as usize, app.drives.len());
     f.render_stateful_widget(list, area, &mut app.drive_state);
@@ -82,11 +139,11 @@ fn draw_drive_list(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
 /// track count, after `indent`.
 pub(super) fn drive_line(d: &DeviceInfo, open: bool, indent: &str, width: u16) -> Line<'static> {
     let dot = if !d.has_export {
-        Span::styled("○ ", faint())
+        Span::styled(icons::RING.spaced(), faint())
     } else if open {
-        Span::styled("● ", bold(theme::current().accent))
+        Span::styled(icons::DOT.spaced(), bold(theme::current().accent))
     } else {
-        Span::styled("● ", fg(theme::current().good))
+        Span::styled(icons::DOT.spaced(), fg(theme::current().good))
     };
     let name_style = if open { bold(theme::current().text) } else { text() };
     let left = vec![Span::raw(indent.to_string()), dot, Span::styled(drive_name(d), name_style)];
@@ -104,9 +161,9 @@ pub(super) fn drive_list(items: Vec<ListItem<'static>>, focused: bool) -> List<'
     } else {
         List::new(items)
     };
-    list.block(block(title("Drives", focused), focused))
-        .highlight_style(if focused { theme::selected() } else { Style::new() })
-        .highlight_symbol(Span::styled("▍", fg(theme::current().accent)))
+    list.block(block(pane_title(1, "Drives", focused), focused))
+        .highlight_style(if focused { theme::selected() } else { theme::unfocused() })
+        .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)))
 }
 
 /// Keep `sel` in a window of `page` rows starting at `offset`; returns the new offset.
@@ -152,13 +209,19 @@ fn draw_playlists(f: &mut Frame, app: &mut App, area: Rect) {
             Span::styled("Pick a playlist", bold(theme::current().warning)),
             Span::raw(" "),
         ]),
-        Some(l) if l.stale => Line::from(vec![
-            Span::raw(" "),
-            Span::styled("Playlists", bold(theme::current().dim)),
-            Span::styled(" unplugged ", bold(theme::current().critical)),
-        ]),
-        _ => title("Playlists", focused),
+        Some(l) if l.stale => {
+            let mut spans = pane_start(2, focused);
+            spans.extend([
+                Span::styled("Playlists", bold(theme::current().dim)),
+                Span::styled(" unplugged ", bold(theme::current().critical)),
+            ]);
+            Line::from(spans)
+        }
+        _ => pane_title(2, "Playlists", focused),
     };
+    if area.height <= 1 {
+        return title_row(f, heading, focused, area);
+    }
     let mut b = block(heading, focused || picking);
     if picking {
         b = b.border_style(fg(theme::current().warning));
@@ -179,15 +242,17 @@ fn draw_playlists(f: &mut Frame, app: &mut App, area: Rect) {
             let indent = "  ".repeat(n.depth);
             let virtual_folder = matches!(n.id, NodeId::Browse | NodeId::Category(_));
             let (icon, icon_style) = match (&n.id, n.folder, n.expanded) {
-                (NodeId::All, _, _) => ("♫ ", fg(theme::current().accent)),
-                (_, true, true) => {
-                    ("▾ ", fg(if virtual_folder { theme::current().secondary } else { theme::current().info }))
-                }
-                (_, true, false) => {
-                    ("▸ ", fg(if virtual_folder { theme::current().secondary } else { theme::current().info }))
-                }
+                (NodeId::All, _, _) => (icons::MUSIC.spaced(), fg(theme::current().accent)),
+                (_, true, true) => (
+                    icons::OPEN.spaced(),
+                    fg(if virtual_folder { theme::current().secondary } else { theme::current().info }),
+                ),
+                (_, true, false) => (
+                    icons::CLOSED.spaced(),
+                    fg(if virtual_folder { theme::current().secondary } else { theme::current().info }),
+                ),
                 (NodeId::Group(..), false, _) => ("· ", faint()),
-                _ => ("• ", faint()),
+                _ => (icons::BULLET.spaced(), faint()),
             };
             let current = !n.folder && n.id == l.node;
             let marked = match &n.id {
@@ -203,7 +268,8 @@ fn draw_playlists(f: &mut Frame, app: &mut App, area: Rect) {
             } else {
                 text()
             };
-            let (icon, icon_style) = if marked { ("✓ ", bold(theme::current().accent)) } else { (icon, icon_style) };
+            let (icon, icon_style) =
+                if marked { (icons::CHECK.spaced(), bold(theme::current().accent)) } else { (icon, icon_style) };
             let left =
                 vec![Span::raw(indent), Span::styled(icon, icon_style), Span::styled(n.name.clone(), name_style)];
             let right = vec![Span::styled(compact(n.count), faint())];
@@ -212,8 +278,8 @@ fn draw_playlists(f: &mut Frame, app: &mut App, area: Rect) {
         .collect();
     let list = List::new(items)
         .block(b)
-        .highlight_style(if focused { theme::selected() } else { Style::new() })
-        .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
+        .highlight_style(if focused { theme::selected() } else { theme::unfocused() })
+        .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
     let mut window = ListState::default().with_selected(sel.map(|s| s.saturating_sub(offset)));
     f.render_stateful_widget(list, area, &mut window);
 }
@@ -402,19 +468,22 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
         None => ("Tracks".to_string(), 0),
     };
     let left_out = app.loaded.as_ref().map_or(0, |l| l.left_out());
-    let mut left = vec![
-        Span::raw(" "),
+    let mut left = pane_start(3, focused);
+    left.extend([
         Span::styled(heading, if focused { bold(theme::current().info) } else { bold(theme::current().dim) }),
         Span::styled(format!(" {count} "), faint()),
-    ];
+    ]);
     if left_out > 0 {
         left.push(Span::styled(format!("· {left_out} not on this drive "), dim()));
     }
     if !app.marks.is_empty() {
-        left.push(Span::styled(format!("✓{} ", app.marks.len()), bold(theme::current().accent)));
+        left.push(Span::styled(format!("{}{} ", icons::CHECK.get(), app.marks.len()), bold(theme::current().accent)));
     }
     if app.loaded.as_ref().is_some_and(|l| l.stale) {
         left.push(Span::styled("unplugged ", bold(theme::current().critical)));
+    }
+    if area.height <= 1 {
+        return title_row(f, Line::from(left), focused, area);
     }
     let mut b = block(Line::from(left), focused);
     let mix = mix_from(app);
@@ -423,7 +492,7 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
     if let Some((k, _)) = &mix
         && !app.visible.is_empty()
     {
-        right.push(Span::styled(format!(" ⇄ {} ", k.code()), fg(theme::current().good)));
+        right.push(Span::styled(format!(" {} {} ", icons::MIX.get(), k.code()), fg(theme::current().good)));
     }
     if !app.query.is_empty() {
         right.push(Span::styled(" / ", theme::key()));
@@ -504,10 +573,10 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
     let offset = scroll_window(app.track_state.offset(), sel, page, len);
     *app.track_state.offset_mut() = offset;
     let window = &app.visible[offset..(offset + page).min(len)];
-    let mix_bg = theme::behind([30, 66, 42]);
-    // Without colours, keys that mix are marked and underlined instead of green.
-    let (mix_mark, mix_style) = if theme::plain() {
-        ("⇄", bold(theme::current().good).add_modifier(Modifier::UNDERLINED))
+    let mix_bg = theme::behind(theme::current().mixes);
+    // Where nothing can go behind them, keys that mix are marked and underlined.
+    let (mix_mark, mix_style) = if theme::flat() {
+        (icons::MIX.get(), bold(theme::current().good).add_modifier(Modifier::UNDERLINED))
     } else {
         (" ", bold(theme::current().good))
     };
@@ -520,21 +589,21 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
             let marked = app.marks.contains(&tr.file_path);
             let indicator = if is_playing {
                 let sym = match (paused, theme::reduced_motion()) {
-                    (true, _) => "‖",
-                    (false, true) => "▶",
+                    (true, _) => icons::PAUSE.get(),
+                    (false, true) => icons::PLAY.get(),
                     (false, false) => eq[(t * 8.0) as usize % eq.len()],
                 };
                 Span::styled(sym, bold(theme::current().accent))
             } else if marked {
-                Span::styled("✓", bold(theme::current().accent))
+                Span::styled(icons::CHECK.get(), bold(theme::current().accent))
             } else {
                 Span::raw(" ")
             };
             let color = tr.color.map_or(Span::raw(" "), theme::colour_dot);
             let problem = if l.problems.is_missing(i) {
-                Span::styled("✖", bold(theme::current().critical))
+                Span::styled(icons::CROSS.get(), bold(theme::current().critical))
             } else if l.problems.has_copies(i) {
-                Span::styled("≈", fg(theme::current().warning))
+                Span::styled(icons::NEAR.get(), fg(theme::current().warning))
             } else {
                 Span::raw(" ")
             };
@@ -575,7 +644,7 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
                 });
             }
             let row = Row::new(cells);
-            if marked { row.style(theme::behind([40, 26, 46])) } else { row }
+            if marked { row.style(theme::behind(theme::current().marked)) } else { row }
         })
         .collect();
 
@@ -584,8 +653,8 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
         .block(b)
         .column_spacing(1)
         .highlight_spacing(HighlightSpacing::Always)
-        .row_highlight_style(if focused { theme::selected() } else { theme::behind([32, 32, 46]) })
-        .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
+        .row_highlight_style(if focused { theme::selected() } else { theme::unfocused() })
+        .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
     let mut window_state = TableState::default().with_selected(sel.map(|s| s - offset));
     f.render_stateful_widget(table, area, &mut window_state);
 
@@ -621,8 +690,10 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
 /// from here).
 fn draw_track_details(f: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focus == Focus::Details;
-    app.areas.details = area;
-    let b = block(title("Track", focused), focused);
+    if area.height <= 1 {
+        return title_row(f, pane_title(5, "Track", focused), focused, area);
+    }
+    let b = block(pane_title(5, "Track", focused), focused);
     let inner = b.inner(area).inner(Margin { vertical: 0, horizontal: 1 });
     f.render_widget(b, area);
     let (Some(l), Some(i)) = (&app.loaded, app.selected_track()) else {
@@ -654,14 +725,19 @@ fn draw_track_details(f: &mut Frame, app: &mut App, area: Rect) {
     lines.push(Line::from(fit(chips, w)));
     // Problems early, so they show even in a short panel.
     if l.problems.is_missing(i) {
-        lines.push(Line::styled(clip("✖ the audio file isn't on the drive", w), bold(theme::current().critical)));
+        lines.push(Line::styled(
+            clip(&format!("{} the audio file isn't on the drive", icons::CROSS.get()), w),
+            bold(theme::current().critical),
+        ));
     }
     let others: Vec<usize> = l.problems.others(i).collect();
     if let Some(&o) = others.first() {
         let other = &l.library.tracks[o];
         let more = if others.len() > 1 { format!(" (+{} more)", others.len() - 1) } else { String::new() };
-        lines
-            .push(Line::styled(clip(&format!("≈ also at {}{more}", other.file_path), w), fg(theme::current().warning)));
+        lines.push(Line::styled(
+            clip(&format!("{} also at {}{more}", icons::NEAR.get(), other.file_path), w),
+            fg(theme::current().warning),
+        ));
     }
     let mut about: Vec<String> =
         [&t.album, &t.remixer, &t.mix_name].into_iter().filter(|s| !s.is_empty()).cloned().collect();
@@ -738,15 +814,17 @@ fn draw_track_details(f: &mut Frame, app: &mut App, area: Rect) {
 /// The crate panel.
 fn draw_crate(f: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focus == Focus::Crate;
-    app.areas.crate_panel = area;
     let list = &app.crate_list;
-    let mut heading = vec![
-        Span::raw(" "),
+    let mut heading = pane_start(4, focused);
+    heading.extend([
         Span::styled("Crate", if focused { bold(theme::current().info) } else { bold(theme::current().dim) }),
         Span::styled(format!(" {} ", list.len()), faint()),
-    ];
+    ]);
     if !list.is_empty() {
         heading.push(Span::styled(format!("{} ", clock(list.duration_secs() as f64)), faint()));
+    }
+    if area.height <= 1 {
+        return title_row(f, Line::from(heading), focused, area);
     }
     let b = block(Line::from(heading), focused);
     let inner = b.inner(area);
@@ -795,8 +873,8 @@ fn draw_crate(f: &mut Frame, app: &mut App, area: Rect) {
         .collect();
     let list = List::new(items)
         .block(b)
-        .highlight_style(if focused { theme::selected() } else { Style::new() })
-        .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
+        .highlight_style(if focused { theme::selected() } else { theme::unfocused() })
+        .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
     app.crate_state.fit(inner.height as usize, app.crate_list.len());
     f.render_stateful_widget(list, area, &mut app.crate_state);
 }

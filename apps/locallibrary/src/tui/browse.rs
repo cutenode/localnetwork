@@ -11,6 +11,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
+use super::icons;
+
 /// The ways to browse a drive besides its playlists, as on a CDJ's top menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -29,8 +31,7 @@ pub enum Category {
     MyTags,
     /// The sets kept in the store, with their tracks that are on the drive.
     Sets,
-    /// The lists players recorded, shown as sessions. Saved as `history`, the name they had
-    /// before, so a list remembered then still opens.
+    /// The lists players recorded. Saved as `history`.
     History,
     /// Tracks whose audio file is missing, and copies of the same recording.
     Problems,
@@ -64,7 +65,7 @@ impl Category {
             Category::Added => "Date added",
             Category::MyTags => "My Tags",
             Category::Sets => "Sets",
-            Category::History => "Sessions",
+            Category::History => "History",
             Category::Problems => "Problems",
         }
     }
@@ -362,7 +363,7 @@ pub fn set_label(s: &Set) -> String {
 }
 
 pub fn stars(r: u8) -> String {
-    (0..5).map(|i| if i < r { '★' } else { '·' }).collect()
+    (0..5).map(|i| if i < r { icons::STAR.get() } else { "·" }).collect()
 }
 
 /// The sidebar: All tracks, the Browse folder with its categories (and their values when

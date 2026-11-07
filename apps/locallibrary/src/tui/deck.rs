@@ -11,6 +11,7 @@ use ratatui::widgets::ListState;
 
 use super::app::{App, Level, Msg, View};
 use super::audio::{Audio, Listed};
+use super::icons;
 use super::theme;
 
 /// Hot cues the digit row plays: 1-8 for A-H, as many as a CDJ has pads.
@@ -49,7 +50,7 @@ impl Loop {
 /// How the deck is set.
 #[derive(Debug)]
 pub struct Deck {
-    /// The digit row plays hot cues instead of switching views (full screen always does).
+    /// The digit row plays hot cues instead of jumping to panes (full screen always does).
     pub pads: bool,
     /// Jumps keep to the beat grid (see [`Snap`]); on, as on a CDJ, until turned off.
     pub quantize: bool,
@@ -83,9 +84,9 @@ impl Default for Deck {
 }
 
 impl App {
-    /// Whether the digit row plays hot cues: in the library, full screen or with the pads on.
+    /// Whether the digit row plays hot cues: with the pads on, or in full screen.
     pub fn pads_on(&self) -> bool {
-        self.view == View::Library && (self.fullscreen || self.deck.pads)
+        self.deck.pads || (self.view == View::Library && self.fullscreen)
     }
 
     /// The playhead, in milliseconds.
@@ -103,10 +104,10 @@ impl App {
     }
 }
 
-/// `'`: the digit row plays hot cues in the library, or switches views again.
+/// `'`: the digit row plays hot cues, or jumps to panes again.
 pub fn toggle_pads(app: &mut App) {
     app.deck.pads = !app.deck.pads;
-    let msg = if app.deck.pads { "pads on: 1-8 play hot cues A-H" } else { "pads off: 1-5 switch views" };
+    let msg = if app.deck.pads { "pads on: 1-8 play hot cues A-H" } else { "pads off: digits jump to panes" };
     app.toast(msg, Level::Info);
 }
 
@@ -340,7 +341,10 @@ impl App {
         if let Some(l) = self.deck.looped.filter(|l| l.on)
             && !cues.iter().any(|c| c.start_ms == l.start as u32 && c.end_ms == Some(l.end as u32))
         {
-            let label = self.loop_playing().and_then(|(_, b)| b).map(|b| format!("loop ↻{}", beats_label(b)));
+            let label = self
+                .loop_playing()
+                .and_then(|(_, b)| b)
+                .map(|b| format!("loop {}{}", icons::REPEAT.get(), beats_label(b)));
             cues.push(Cue {
                 hot_cue: None,
                 start_ms: l.start as u32,

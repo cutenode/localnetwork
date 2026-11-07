@@ -129,6 +129,7 @@ jobs:
               - 'benchmarks/**'
               - '.github/workflows/locallibrary-ci.yml'
               - '.github/actions/pr-comment/**'
+              - '.github/actions/apt-packages/**'
               - '.github/actions/release-budgets/**'
               - '!**/*.md'
               - '!apps/locallibrary/bombadil/**'

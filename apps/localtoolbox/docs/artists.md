@@ -23,7 +23,7 @@ page and press **look up**.
 ## The list
 
 Each row has the artist's picture, name, where they are, how many follow them, and their links as
-lettered badges. A badge opens that page. An artist with no public profile says so.
+lettered badges. A badge opens that page. An artist with no public profile says so, and so does one whose lookup failed.
 
 The chevron opens a row into every link as an address, the bio, the place, the follower count and
 the tracks that brought the artist in. Click any of them to copy it. Below are the same search

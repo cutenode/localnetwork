@@ -30,7 +30,7 @@ export class DjService {
 	private readonly cache = new Map<string, { at: number; value: DjActivity }>();
 
 	constructor(
-		private readonly repos: IndexedRepo,
+		private readonly repos: Pick<IndexedRepo, 'getRecords' | 'listRecords'>,
 		private readonly logger: Logger,
 		private readonly now: () => number = Date.now
 	) {}

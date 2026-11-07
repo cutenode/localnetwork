@@ -6,7 +6,8 @@
 //! `benchmarks/README.md`).
 //!
 //! `LOCALLIBRARY_TUI_FRAMES` and `LOCALLIBRARY_TUI_VIEW` narrow a run: a run of no frames against
-//! one of many is how `.github/actions/release-budgets` gets a frame's instructions.
+//! one of many is how `.github/actions/release-budgets` gets a frame's instructions. It draws in
+//! `LOCALLIBRARY_COLOR`'s tier, or as the environment says without it.
 
 use std::path::Path;
 use std::sync::atomic::Ordering;
@@ -40,10 +41,11 @@ const SAMPLES_A_FRAME: usize = RATE as usize / 60;
 const START: Duration = Duration::from_secs(45);
 
 /// The views counted: each one's name in the budget, how it's shown, and text it has to show.
-const VIEWS: [(&str, View, bool, &str); 3] = [
-    ("library", View::Library, false, "Now playing"),
+const VIEWS: [(&str, View, bool, &str); 4] = [
+    ("library", View::Library, false, "All tracks"),
     ("deck", View::Library, true, "spectrum"),
     ("drives", View::Drives, false, "Demo"),
+    ("prepare", View::Prepare, false, "check the drive"),
 ];
 
 /// A minute of two tones, so the spectrum and the scope have something to show.
@@ -146,6 +148,7 @@ fn frames_allocate_what_their_budgets_say() {
     let frames = std::env::var("LOCALLIBRARY_TUI_FRAMES").map_or(FRAMES, |n| n.parse().unwrap());
     let view = std::env::var("LOCALLIBRARY_TUI_VIEW").ok();
     theme::set_test_mode(Some(theme::Mode::Dark));
+    theme::set_test_tier(std::env::var("LOCALLIBRARY_COLOR").ok().and_then(|t| theme::Tier::parse(&t)));
     let (mut app, mut out, _dir, _drives) = mid_set();
 
     let mut counts = IndexMap::new();

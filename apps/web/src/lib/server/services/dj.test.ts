@@ -96,7 +96,8 @@ describe('DjService', () => {
 	});
 
 	it('keeps only the 200 accounts read most recently in memory', async () => {
-		const { repo } = await happyView({});
+		// Nothing on file: through the stand-in HappyView, each account's read would run a Lua state of its own.
+		const repo = { getRecords: async () => new Map(), listRecords: async () => ({ records: [] }) };
 		const service = new DjService(repo, silentLogger);
 		const accounts = Array.from({ length: 201 }, (_, i) => ({ did: `did:plc:dj${i}`, handle: null }));
 

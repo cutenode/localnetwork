@@ -237,10 +237,10 @@ fn drawn(ats: &[std::time::Instant], draw: impl FnOnce() -> String) -> (String, 
     (s, ats.iter().zip(before).map(|(at, b)| b..=at.elapsed().as_secs()).collect())
 }
 
-/// Work under way shows in the header: a job with its time, what it's doing and how to
+/// Work under way shows in the status line: a job with its time, what it's doing and how to
 /// stop it, or what's being read.
 #[test]
-fn the_header_says_what_is_under_way() {
+fn the_status_line_says_what_is_under_way() {
     let (mut app, _dir) = blank(View::Library);
     let started = ago_by(5);
     app.job = Some(super::super::edits::Job {
@@ -249,13 +249,14 @@ fn the_header_says_what_is_under_way() {
         started,
         ..job(false, false)
     });
-    let head = |app: &mut App, w| screen(app, w, 12).lines().next().unwrap().to_string();
+    let head = |app: &mut App, w| screen(app, w, 30).lines().nth(28).unwrap().to_string();
     let (line, secs) = drawn(&[started], || head(&mut app, 160));
     let said = |s| format!("Checking DNA {s}s 3 of 40 tracks  esc cancel");
     assert!(secs[0].clone().any(|s| line.contains(&said(s))), "{line}");
-    // Narrow, the job's progress is cut short and the rest left out.
-    let line = head(&mut app, 100);
-    assert!(line.contains("Checking") && !line.contains("help"), "{line}");
+    // Narrow, the job's progress is cut short.
+    app.job.as_mut().unwrap().detail = "a long way through a great many tracks".into();
+    let line = head(&mut app, 60);
+    assert!(line.contains("Checking") && line.contains("…") && !line.contains("cancel"), "{line}");
     app.job.as_mut().unwrap().committed = true;
     assert!(!head(&mut app, 160).contains("esc cancel"), "too late to stop");
 
@@ -547,7 +548,7 @@ fn the_drives_view_lists_libraries_with_their_clones() {
         "not identical · unsaved",
         "2 of 3 clones plugged in",
         "● REKORDBOX  primary  ✓ up to date",
-        "● SD         set      ▲ back from a set: 2 new sessions",
+        "● SD         set      ▲ back from a set: 2 new history lists",
         "○ Spare      backup   not plugged in · 2 snapshots behind",
         &format!("latest      3f9a2c  {}", local_time(at_time, "%Y-%m-%d %H:%M")),
         "browse its newest clone in the library",
@@ -581,15 +582,16 @@ fn the_drives_view_lists_libraries_with_their_clones() {
     wait(&mut app, |a| a.loading.is_none());
 }
 
-/// The Snapshots view while the store is read, when it can't be, and when it has none.
+/// The Drives view's snapshots while the store is read, when it can't be, and when it has none.
 #[test]
-fn the_snapshots_view_says_when_there_are_none() {
-    let (mut app, _dir) = blank(View::Snapshots);
-    assert!(screen(&mut app, 100, 20).contains("loading…"));
+fn the_snapshots_say_when_there_are_none() {
+    let (mut app, _dir) = blank(View::Drives);
+    app.drive_tab = DrivePane::Snapshots;
+    assert!(screen(&mut app, 100, 30).contains("loading…"));
     app.history = Some(Err("no store here".into()));
-    assert!(screen(&mut app, 100, 20).contains("no store here"));
+    assert!(screen(&mut app, 100, 30).contains("no store here"));
     app.history = Some(Ok(Vec::new()));
-    assert!(screen(&mut app, 100, 20).contains("The store has no snapshots yet."));
+    assert!(screen(&mut app, 100, 30).contains("The store has no snapshots yet."));
 }
 
 /// The test library's first track playing half a minute in, opened (made by hand: tests
@@ -689,26 +691,23 @@ fn the_hot_cue_last_passed_is_underlined() {
     assert_eq!(underlined(70), (false, true));
 }
 
-/// The compact player draws whichever visualiser is picked, the deck from the track's
-/// detail waveform.
+/// A small full screen draws whichever visualiser is picked, the deck from the track's detail
+/// waveform.
 #[test]
-fn every_visualiser_draws_in_the_player() {
+fn every_visualiser_draws_in_a_small_full_screen() {
     let (mut app, _dir) = blank(View::Library);
-    app.vis = Vis::Deck;
-    assert!(screen(&mut app, 120, 30).contains("deck: play a track"));
-    app.audio_error = Some("no output device".into());
-    assert!(screen(&mut app, 120, 30).contains("No audio output: no output device"));
+    (app.vis, app.fullscreen) = (Vis::Deck, true);
+    assert!(screen(&mut app, 80, 20).contains("deck: play a track"));
 
     let (mut app, _dir) = playing_in_full();
-    (app.repeat, app.deck.auto_cue) = (Repeat::One, true);
+    (app.repeat, app.deck.auto_cue, app.fullscreen) = (Repeat::One, true, true);
     for vis in [Vis::Bars, Vis::Mirror, Vis::Scope, Vis::Deck] {
         app.vis = vis;
-        let s = screen(&mut app, 120, 30);
-        assert!(s.contains(&format!(" v {} ", vis.name())), "{s}");
+        let s = screen(&mut app, 80, 20);
         assert!(s.contains("↻ one") && s.contains("auto cue"), "{s}");
     }
     // The deck: the hot cue it passed, with the waveform round the playhead.
-    assert!(screen(&mut app, 120, 30).contains('█'));
+    assert!(screen(&mut app, 80, 20).contains('█'));
 }
 
 /// The track list's title says what's searched and how it's sorted, the columns follow, and
@@ -1080,7 +1079,8 @@ fn lists_come_back_up_once_they_fit(tc: hegel::TestCase) {
             };
             let record = LibraryRecord { id: Uuid::nil(), name: "Demo".into(), head: None, created: at, updated: at };
             app.history = Some(Ok(vec![(record, rows.iter().map(snapshot).collect())]));
-            app.view = View::Snapshots;
+            app.view = View::Drives;
+            (app.drive_pane, app.drive_tab) = (DrivePane::Snapshots, DrivePane::Snapshots);
             app.history_state.select(Some(sel));
             (rows, sel)
         }
@@ -1626,7 +1626,8 @@ fn the_drives_view_says_what_is_known(tc: hegel::TestCase) {
     use locallibrary::store::SnapshotInfo;
 
     let at = chrono::Utc.with_ymd_and_hms(2026, 10, 4, 21, 30, 0).unwrap();
-    let (mut app, dir) = blank(View::Snapshots);
+    let (mut app, dir) = blank(View::Drives);
+    app.drive_tab = DrivePane::Snapshots;
     let history = tc.draw(gs::integers::<u8>().max_value(2));
     app.history = match history {
         0 => None,
@@ -1637,7 +1638,7 @@ fn the_drives_view_says_what_is_known(tc: hegel::TestCase) {
     let s = screen(&mut app, 120, 30);
     assert!(s.contains(said), "{said}\n{s}");
 
-    app.view = View::Drives;
+    app.drive_tab = DrivePane::Info;
     let home = Uuid::from_u128(7);
     app.library_names = [(home, "Home".to_string())].into_iter().collect();
     let root = dir.path().join("DNA");
@@ -1725,7 +1726,7 @@ fn the_drives_view_says_what_is_known(tc: hegel::TestCase) {
                 (None, Some(Relation::Identical)) => "up to date".into(),
                 (None, Some(Relation::RightNewer)) => match back {
                     Some(0) => "back from a set".into(),
-                    Some(n) => format!("back from a set: {}", plural(n, "new session")),
+                    Some(n) => format!("back from a set: {}", plural(n, "new history list")),
                     None => "has changes not in the store".into(),
                 },
                 (None, Some(Relation::LeftNewer)) => "behind the store".into(),
@@ -1755,7 +1756,7 @@ fn the_drives_view_says_what_is_known(tc: hegel::TestCase) {
     let kept = (app.status.take(), app.status_loading);
     for (relation, back, says) in [
         (Relation::Identical, None, "✓ up to date"),
-        (Relation::RightNewer, Some(2), "▲ back from a set: 2 new sessions"),
+        (Relation::RightNewer, Some(2), "▲ back from a set: 2 new history lists"),
         (Relation::RightNewer, None, "▲ has changes not in the store"),
         (Relation::LeftNewer, None, "▼ behind the store"),
         (Relation::Diverged, None, "⑂ diverged from the store"),
@@ -1935,7 +1936,7 @@ fn prop_back_from_a_set_counts_the_new_sessions(tc: hegel::TestCase) {
     let said: String = drives::standing(&status, false).iter().map(|s| s.content.as_ref()).collect();
     let want = match n {
         0 => "back from a set".to_string(),
-        n => format!("back from a set: {}", plural(n, "new session")),
+        n => format!("back from a set: {}", plural(n, "new history list")),
     };
     assert_eq!(said.trim_start_matches(['▲', ' ']), want);
 }
@@ -2030,6 +2031,47 @@ fn reduced_motion_marks_the_track_playing_with_an_arrow() {
     opened(&mut app);
     let s = screen(&mut app, 120, 30);
     assert!(s.lines().any(|l| l.contains("▶") && l.contains("DJ") && l.contains("Track 1")), "{s}");
+}
+
+/// With reduced motion the mark on the track playing holds still: an arrow while it plays, and
+/// pause while it's paused.
+#[hegel::test(test_cases = 4)]
+fn prop_reduced_motion_holds_the_playing_mark_still(tc: hegel::TestCase) {
+    static REDUCED: std::sync::Once = std::sync::Once::new();
+    // SAFETY: as in `echo_plugin`.
+    REDUCED.call_once(|| unsafe { std::env::set_var("LOCALLIBRARY_REDUCED_MOTION", "1") });
+    theme::init();
+    let (_dir, mut app, _out) = playing_wavs(&[8000]);
+    opened(&mut app);
+    let paused = tc.draw(hegel::generators::booleans());
+    if paused {
+        press(&mut app, " ");
+    }
+    let mark = if paused { icons::PAUSE.get() } else { icons::PLAY.get() };
+    let s = screen(&mut app, 120, 30);
+    assert!(s.lines().any(|l| l.contains(mark) && l.contains("DJ") && l.contains("Track 1")), "{s}");
+}
+
+/// A plan a guard stopped says which guard on its confirmation; one nothing stopped says nothing
+/// of it.
+#[hegel::test(test_cases = 6)]
+fn prop_a_confirmation_says_which_guard_stopped_it(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (dir, root) = demo_drive();
+    let contact = locallibrary::api::SetContact {
+        drive: root.display().to_string(),
+        contact: "dj@example.com".into(),
+        playlist: tc.draw(gs::booleans()),
+    };
+    let mut plan = locallibrary::api::drive_contact_plan(&contact, &locallibrary::Ctx::silent()).unwrap();
+    let guard = tc.draw(gs::optional(gs::sampled_from(&["echo.friday", "echo.rain"][..])));
+    plan.blocked = guard.map(String::from);
+    let mut app = App::blank(dir.path().join("store"), None);
+    let s = confirmation_screen(&mut app, &root, Box::new(plan));
+    match guard {
+        Some(guard) => assert!(s.contains(&format!("{} {guard} stops these changes", icons::REFUSED.get())), "{s}"),
+        None => assert!(!s.contains("stops these changes"), "{s}"),
+    }
 }
 
 /// An undo that only puts files back says the playlists and tracks stay as they are.

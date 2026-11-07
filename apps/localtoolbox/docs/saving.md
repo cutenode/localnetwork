@@ -6,14 +6,14 @@ to a file.
 
 ## What's in the file
 
-One JSON file holds all of it:
+One JSON file holds most of it:
 
 - your downloaded marks,
 - what SoundCloud said about each track,
 - the Manager's list,
 - the artists list,
 - the session queue,
-- and the tools' options.
+- and three options: background tabs, the Manager's sort order and hide downloaded.
 
 **your data**, in Settings, shows how many marks, looked-up tracks, listed tracks, artists and
 queued tracks you have.
@@ -43,9 +43,9 @@ An import adds to what you have, and removes nothing:
 - an option is set only if you haven't set it here.
 
 To restore an exact copy instead, turn on **replace what's here instead of adding to it**. The
-button changes to **replace everything**: your marks, lists, queue and options become the file's,
-and anything not in the file is gone. SoundCloud tabs already open keep their old marks until you
-reload them.
+button changes to **replace everything**: your marks, lists, queue and those three options become
+the file's, and anything not in the file is gone. SoundCloud tabs already open show the new marks
+straight away, and keep the looked-up details they hold until you reload them.
 
 If any part of the file isn't valid, nothing is imported.
 
