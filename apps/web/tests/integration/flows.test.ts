@@ -1014,10 +1014,10 @@ describe('Local Network on a real atproto spaces network', () => {
 			}
 		};
 
-		const state = JSON.stringify({ next: '/dashboard/inbox/settings', intent: 'email' });
+		const state = JSON.stringify({ next: '/dashboard/account/notifications', intent: 'email' });
 		const declined = await net.declineOAuth('sol', { optional: 'email', state });
 		expect(declined.searchParams.get('error')).toBe('access_denied');
-		expect(await callback(declined)).toBe('/dashboard/inbox/settings?email=declined');
+		expect(await callback(declined)).toBe('/dashboard/account/notifications?email=declined');
 
 		expect(await callback(await net.declineOAuth('sol'))).toBe('/login?error=denied');
 	});

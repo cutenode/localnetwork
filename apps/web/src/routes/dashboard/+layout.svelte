@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { CalendarPlus, ClipboardList, Database, History, Inbox, House, NotebookPen, Plus, ShieldCheck } from '@lucide/svelte';
+	import { CalendarPlus, CircleUser, Inbox, House, NotebookPen, Plus, ShieldCheck } from '@lucide/svelte';
 	import { accountLabel } from '#lib/format.ts';
 	import { resolved } from '#lib/resolved.svelte.ts';
 	import SidebarLayout, { type SidebarItem } from '#lib/ui/SidebarLayout.svelte';
@@ -37,9 +37,7 @@
 	const groups = $derived([{ items: main }, { continues: true, items: isKnown ? planner : stillComing }, { label: 'Yours', items: isKnown ? yours : stillComing }]);
 
 	const footer = $derived([
-		{ href: '/dashboard/requests', label: 'Submissions', icon: ClipboardList },
-		{ href: '/dashboard/activity', label: 'Activity', icon: History },
-		{ href: '/dashboard/data', label: 'Your data', icon: Database },
+		{ href: '/dashboard/account', label: 'Account', icon: CircleUser },
 		...(data.viewer?.isStaff ? [{ href: '/admin', label: 'Staff console', icon: ShieldCheck, badge: data.pendingRequests }] : [])
 	]);
 </script>

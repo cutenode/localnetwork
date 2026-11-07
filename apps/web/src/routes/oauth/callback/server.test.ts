@@ -238,11 +238,11 @@ it("goes to the dashboard when the state isn't the app's own", async () => {
 });
 
 it('says when an address someone turned email on for waits on a confirmation the site could not send', async () => {
-	const state = JSON.stringify({ next: '/dashboard/inbox/settings', intent: 'email' });
+	const state = JSON.stringify({ next: '/dashboard/account/notifications', intent: 'email' });
 
 	await expect(
 		land(oauth.approve({ did: DJ, state, scope: `${SCOPES.full} ${SCOPES.email}` })).landed
-	).rejects.toMatchObject(redirectTo('/dashboard/inbox/settings?email=limited'));
+	).rejects.toMatchObject(redirectTo('/dashboard/account/notifications?email=limited'));
 	expect(await app().notificationChannels.get(DJ, 'email')).toMatchObject({
 		address: 'dj@example.com',
 		pausedReason: 'email_unverified'
@@ -250,19 +250,19 @@ it('says when an address someone turned email on for waits on a confirmation the
 });
 
 it('says when someone turning email on signed in without sharing their address', async () => {
-	const state = JSON.stringify({ next: '/dashboard/inbox/settings', intent: 'email' });
+	const state = JSON.stringify({ next: '/dashboard/account/notifications', intent: 'email' });
 
 	await expect(land(oauth.approve({ did: DJ, state, scope: SCOPES.full })).landed).rejects.toMatchObject(
-		redirectTo('/dashboard/inbox/settings?email=declined')
+		redirectTo('/dashboard/account/notifications?email=declined')
 	);
 });
 
 it('sends someone who turned down sharing their email back to the settings, still signed in', async () => {
 	const { landed, cookies } = land(
-		oauth.decline(JSON.stringify({ next: '/dashboard/inbox/settings', intent: 'email' }))
+		oauth.decline(JSON.stringify({ next: '/dashboard/account/notifications', intent: 'email' }))
 	);
 
-	await expect(landed).rejects.toMatchObject(redirectTo('/dashboard/inbox/settings?email=declined'));
+	await expect(landed).rejects.toMatchObject(redirectTo('/dashboard/account/notifications?email=declined'));
 	expect(cookies.get(SESSION_COOKIE)).toBeUndefined();
 });
 

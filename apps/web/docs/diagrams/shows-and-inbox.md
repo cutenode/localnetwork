@@ -131,4 +131,4 @@ stateDiagram-v2
   WaitingForLink --> Off: off or unsubscribed
 ```
 
-Source: [`src/lib/server/notifications/channels.ts`](../../src/lib/server/notifications/channels.ts), [`src/routes/dashboard/inbox/settings/+page.server.ts`](../../src/routes/dashboard/inbox/settings/+page.server.ts), [`src/routes/notifications/confirm/+page.server.ts`](../../src/routes/notifications/confirm/+page.server.ts), [`src/routes/notifications/unsubscribe/+page.server.ts`](../../src/routes/notifications/unsubscribe/+page.server.ts)
+Source: [`src/lib/server/notifications/channels.ts`](../../src/lib/server/notifications/channels.ts), [`src/routes/dashboard/account/notifications/+page.server.ts`](../../src/routes/dashboard/account/notifications/+page.server.ts), [`src/routes/notifications/confirm/+page.server.ts`](../../src/routes/notifications/confirm/+page.server.ts), [`src/routes/notifications/unsubscribe/+page.server.ts`](../../src/routes/notifications/unsubscribe/+page.server.ts)

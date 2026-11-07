@@ -183,7 +183,7 @@ flowchart LR
   Manage --> Kits["/press-kits, /press-kits/new,<br/>/press-kits/[rkey], .../access"]
 ```
 
-Source: [`src/routes/dashboard/+layout.server.ts`](../../src/routes/dashboard/+layout.server.ts), [`src/routes/dashboard/projects/[slug]/+layout.server.ts`](../../src/routes/dashboard/projects/[slug]/+layout.server.ts), [`src/routes/dashboard/requests/[rkey]/+page.server.ts`](../../src/routes/dashboard/requests/[rkey]/+page.server.ts), [`src/lib/server/planner-page.ts`](../../src/lib/server/planner-page.ts)
+Source: [`src/routes/dashboard/+layout.server.ts`](../../src/routes/dashboard/+layout.server.ts), [`src/routes/dashboard/projects/[slug]/+layout.server.ts`](../../src/routes/dashboard/projects/[slug]/+layout.server.ts), [`src/routes/dashboard/account/requests/[rkey]/+page.server.ts`](../../src/routes/dashboard/account/requests/[rkey]/+page.server.ts), [`src/lib/server/planner-page.ts`](../../src/lib/server/planner-page.ts)
 
 ## Staff console routes
 
@@ -235,7 +235,7 @@ What the small routes do, beside the flows above.
 ```mermaid
 flowchart LR
   Small["Small routes"]
-  Small -- "/dashboard/activity" --> A["The viewer's own audit<br/>entries, 50 a page"]
+  Small -- "/dashboard/account/activity" --> A["The viewer's own audit<br/>entries, 50 a page"]
   Small -- "/projects/[slug]/epk" --> B["308 to its press kits"]
   Small -- "/epk/[did]/[rkey] and its photos" --> C["Finds the press kit, 308 to<br/>its page, or 404"]
   Small -- "/sets/[did]/[rkey]/chapters.json" --> D["The set's tracklist as<br/>Podcasting 2.0 chapters"]
@@ -244,4 +244,4 @@ flowchart LR
   Small -- "/for-djs" --> G["Static page with its meta"]
 ```
 
-Source: [`src/routes/dashboard/activity/+page.server.ts`](../../src/routes/dashboard/activity/+page.server.ts), [`src/routes/projects/[slug]/epk/+server.ts`](../../src/routes/projects/[slug]/epk/+server.ts), [`src/lib/server/epk-page.ts`](../../src/lib/server/epk-page.ts), [`src/routes/sets/[did]/[rkey]/chapters.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/chapters.json/+server.ts), [`src/lib/server/actor-search.ts`](../../src/lib/server/actor-search.ts), [`src/routes/healthz/+server.ts`](../../src/routes/healthz/+server.ts), [`src/routes/for-djs/+page.server.ts`](../../src/routes/for-djs/+page.server.ts)
+Source: [`src/routes/dashboard/account/activity/+page.server.ts`](../../src/routes/dashboard/account/activity/+page.server.ts), [`src/routes/projects/[slug]/epk/+server.ts`](../../src/routes/projects/[slug]/epk/+server.ts), [`src/lib/server/epk-page.ts`](../../src/lib/server/epk-page.ts), [`src/routes/sets/[did]/[rkey]/chapters.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/chapters.json/+server.ts), [`src/lib/server/actor-search.ts`](../../src/lib/server/actor-search.ts), [`src/routes/healthz/+server.ts`](../../src/routes/healthz/+server.ts), [`src/routes/for-djs/+page.server.ts`](../../src/routes/for-djs/+page.server.ts)

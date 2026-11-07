@@ -280,6 +280,43 @@ it('logs failures by how bad they are, and leaves assets and health checks out',
 	]);
 });
 
+it.each([
+	['/dashboard/activity?before=4', '/dashboard/account/activity?before=4'],
+	['/dashboard/data', '/dashboard/account/data'],
+	['/dashboard/requests', '/dashboard/account/requests'],
+	['/dashboard/requests/3k?submitted=1', '/dashboard/account/requests/3k?submitted=1'],
+	['/dashboard/requests/3k/avatar?size=64', '/dashboard/account/requests/3k/avatar?size=64'],
+	['/dashboard/inbox/settings?email=declined', '/dashboard/account/notifications?email=declined']
+])('sends %s on to where it moved, whatever the method', async (from, to) => {
+	const { handle } = hooksWith(async () => {
+		throw new Error('a moved page needs nothing from the app');
+	});
+
+	for (const request of [{ url: from }, { url: from, form: {} }]) {
+		const { event } = routeEvent(request);
+
+		// SAFETY: as above.
+		await expect(handle({ event: event as never, resolve: async () => new Response() })).rejects.toMatchObject({
+			status: 308,
+			location: to
+		});
+	}
+});
+
+it.each(['/dashboard/inbox', '/dashboard/requests-archive', '/dashboard/account/data'])(
+	'leaves %s where it is',
+	async (url) => {
+		const s = await services();
+		const { handle } = hooksWith(async () => s.app);
+		const { event } = routeEvent({ url });
+
+		// SAFETY: as above.
+		const response = await handle({ event: event as never, resolve: async () => new Response('here') });
+
+		expect(await response.text()).toBe('here');
+	}
+);
+
 it('puts what services note during a request on its one line', async () => {
 	const s = await services();
 	const { handle } = hooksWith(async () => s.app);

@@ -72,7 +72,7 @@ export const actions: Actions = {
 			return { rkey: submitted.rkey };
 		});
 
-		if ('rkey' in result) redirect(303, `/dashboard/requests/${result.rkey}?submitted=1`);
+		if ('rkey' in result) redirect(303, `/dashboard/account/requests/${result.rkey}?submitted=1`);
 
 		return result;
 	},

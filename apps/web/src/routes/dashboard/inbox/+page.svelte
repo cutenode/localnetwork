@@ -28,12 +28,12 @@
 						<button type="submit" class="btn-secondary btn-sm">Mark all read</button>
 					</form>
 				{/if}
-				<Button variant="secondary" size="sm" href="/dashboard/inbox/settings">Settings</Button>
+				<Button variant="secondary" size="sm" href="/dashboard/account/notifications">Settings</Button>
 			</div>
 		{/snippet}
 	</SectionHeader>
 	{#each data.paused as reason (reason)}
-		<p class="notice m-0">{PAUSED[reason]} <a href="/dashboard/inbox/settings" class="font-medium underline">Settings</a></p>
+		<p class="notice m-0">{PAUSED[reason]} <a href="/dashboard/account/notifications" class="font-medium underline">Settings</a></p>
 	{/each}
 	<InboxList items={data.items} />
 	{#if data.older}
