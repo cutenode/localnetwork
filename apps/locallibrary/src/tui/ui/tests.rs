@@ -49,9 +49,7 @@ fn clip_counts_columns(tc: hegel::TestCase) {
 /// The help's descriptions wrap to their column however wide their characters.
 #[test]
 fn help_wraps_to_its_columns() {
-    let sections: Vec<super::super::keymap::HelpSection> =
-        vec![("Keys", vec![("x", "日本の 夜明け とともに 始まる 長い 長い セット です")])];
-    for line in help_lines(&sections, 40) {
+    for line in help_row_lines("x", "日本の 夜明け とともに 始まる 長い 長い セット です", 40) {
         assert!(line.width() <= 40, "{line:?} is {} columns wide", line.width());
     }
 }
@@ -149,9 +147,9 @@ fn plain_and_light_terminals() {
 fn help_fits_80_columns_and_scrolls() {
     let (mut app, _dir) = app_with(library());
     app.help = true;
-    app.help_scroll = 999;
+    app.help_row = 999;
     let s = screen(&mut app, 80, 24);
-    assert!(app.help_scroll > 0 && app.help_scroll < 999, "clamped to the end: {}", app.help_scroll);
+    assert!(app.help_row > 0 && app.help_row < 999, "clamped to the end: {}", app.help_row);
     assert!(s.contains("Every command is still available"), "{s}");
 }
 
@@ -2150,4 +2148,19 @@ fn prop_sorted_by_plays_each_track_shows_its_plays(tc: hegel::TestCase) {
         let plays = t.play_count.to_string();
         assert!(s.lines().any(|l| l.contains(&t.title) && l.contains(&plays)), "{} {plays}\n{s}", t.title);
     }
+}
+
+/// A change `u` takes back says so with the key drawn as a key, whatever comes after it.
+#[test]
+fn the_undo_in_a_message_is_drawn_as_a_key() {
+    let (mut app, _dir) = app_with(library());
+    app.toast("1 change written · u undo · a track was missing", Level::Info);
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 40)).unwrap();
+    terminal.draw(|f| draw(f, &mut app)).unwrap();
+    let buffer = terminal.backend().buffer();
+    let line = |y: u16| (0..120).map(|x| buffer[(x, y)].symbol()).collect::<Vec<_>>();
+    let y = (0..40).find(|y| line(*y).concat().contains("u undo")).unwrap();
+    let x = (1..120).find(|x| buffer[(*x, y)].symbol() == "u" && buffer[(*x - 1, y)].symbol() == " ").unwrap();
+    assert!(line(y).concat().contains("a track was missing"));
+    assert_eq!(buffer[(x, y)].fg, theme::key().fg.unwrap());
 }

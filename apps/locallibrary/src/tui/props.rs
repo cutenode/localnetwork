@@ -233,8 +233,10 @@ fn check(app: &mut App, (w, h): (u16, u16)) {
     let lines: Vec<&str> = s.lines().collect();
     assert_eq!(lines.len(), h as usize, "{w}x{h}");
     if !overlay(app) && w >= 60 && h >= 20 {
-        assert!(lines[0].contains("◉"), "no header at {w}x{h}:\n{s}");
-        assert!(!lines[h as usize - 1].trim().is_empty(), "no footer at {w}x{h}:\n{s}");
+        // The palette can change the icons, and turn the footer's hints off.
+        assert!(lines[0].contains(super::icons::LOGO.get()), "no header at {w}x{h}:\n{s}");
+        let hints = app.hints != super::choices::Hints::Off;
+        assert!(!hints || !lines[h as usize - 1].trim().is_empty(), "no footer at {w}x{h}:\n{s}");
     }
     // What clicks are matched against is where it was drawn, on the screen.
     let screen_rect = Rect::new(0, 0, w, h);
@@ -985,7 +987,8 @@ fn edits_write_what_they_say(tc: TestCase) {
     }
     "Friday".chars().for_each(|c| app.on_key(key_event(&c.to_string())));
     app.on_key(key_event("<enter>"));
-    yes(&mut app);
+    wait(&mut app, |a| a.job.is_none() && a.loading.is_none());
+    assert!(app.modal.is_none(), "`u` takes it back: nothing asks");
     app.on_key(key_event("M"));
     assert!(app.marks.is_empty());
     model.playlists.insert("Friday".into(), every);
@@ -1118,9 +1121,14 @@ fn edits_write_what_they_say(tc: TestCase) {
                 }
                 want = model.clone();
             }
-            _ => assert_eq!(asked, want != model, "{edit:?} asks only to change something: {}", {
+            (Edit::Undo, _) => assert_eq!(asked, want != model, "an undo asks only to change something: {}", {
                 super::app::testing::last_message(&app).to_string()
             }),
+            // `u` takes these back, so nothing asks.
+            _ => {
+                assert!(!asked, "{edit:?} asked");
+                wait(&mut app, |a| a.job.is_none() && a.loading.is_none());
+            }
         }
         if asked && app.modal.is_some() {
             check(&mut app, (120, 40));

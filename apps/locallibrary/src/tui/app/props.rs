@@ -235,6 +235,10 @@ fn the_help_and_the_log_scroll_and_close(tc: TestCase) {
         let k = order[step % order.len()] as usize;
         let moved = if k < keys.len() {
             let (code, by) = keys[k];
+            // In the help, letters are what's typed to narrow it.
+            if help && matches!(code, KeyCode::Char(_)) {
+                continue;
+            }
             app.on_key(key_of(code, false));
             by
         } else {
@@ -243,13 +247,13 @@ fn the_help_and_the_log_scroll_and_close(tc: TestCase) {
             by
         };
         scroll = moved.map(|by: i32| (help, (at as i32 + by).max(0) as u16));
-        let shown = if help { (app.help, app.help_scroll) } else { (app.show_log, app.log_scroll) };
+        let shown = if help { (app.help, app.help_row as u16) } else { (app.show_log, app.log_scroll) };
         assert_eq!(shown, (scroll.is_some(), scroll.map_or(shown.1, |s| s.1)), "help {help}");
         assert!(!(app.help && app.show_log));
         // Drawn, it scrolls no further than its last line; not past what it was.
         let (w, h) = (tc.draw(gs::integers::<u16>().min_value(20).max_value(160)), 24);
         assert_eq!(super::super::ui::screen(&mut app, w, h).lines().count(), h as usize);
-        let drawn = if help { app.help_scroll } else { app.log_scroll };
+        let drawn = if help { app.help_row as u16 } else { app.log_scroll };
         if let Some((help, at)) = scroll {
             assert!(drawn <= at, "drawn scrolled to {drawn}, past {at}");
             scroll = Some((help, drawn));

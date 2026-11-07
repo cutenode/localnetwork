@@ -369,6 +369,9 @@ impl App {
                         (None, None, None) => {}
                     }
                 }
+                if first {
+                    self.first_answer();
+                }
                 if std::mem::take(&mut self.drives_again) {
                     self.refresh_drives();
                 }
@@ -532,7 +535,10 @@ impl App {
                 // A poll that keeps failing is said once, not every second.
                 let again = work == Work::Volumes && std::mem::replace(&mut self.volumes_failing, true);
                 match work {
-                    Work::Drives => self.drives_in_flight = false,
+                    Work::Drives => {
+                        self.drives_in_flight = false;
+                        self.first_answer();
+                    }
                     Work::Volumes => self.volumes_in_flight = false,
                     Work::Details(generation, index) => {
                         self.details_asked.take_if(|k| *k == (generation, index));

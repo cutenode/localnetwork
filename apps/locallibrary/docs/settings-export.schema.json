@@ -127,7 +127,9 @@
 				},
 				"bands": { "description": "How waveforms are coloured. Without one, as the drive says.", "enum": ["blue", "rgb", "3band"] },
 				"end_warning": { "description": "Seconds before a track's end the deck warns of it; 0 for not at all.", "type": "integer", "minimum": 0 },
-				"art": { "description": "Cover art.", "type": "boolean" }
+				"art": { "description": "Cover art.", "type": "boolean" },
+				"hints": { "description": "How much the footer says.", "enum": ["full", "compact", "off"] },
+				"recent_commands": { "description": "The palette's commands run lately, newest first, by name.", "$ref": "#/$defs/names" }
 			}
 		},
 		"mix": {

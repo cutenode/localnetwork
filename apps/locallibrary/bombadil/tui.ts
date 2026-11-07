@@ -97,20 +97,25 @@ function chord(s: Screen): boolean {
   return s.status.includes(" GO TO ");
 }
 
-/** The key help (or the message log, which works the same way) is open. Known by its footer:
- *  the Profile view has a "Keys" pane and row. */
+/** The key help is open. Known by its footer: the Profile view has a "Keys" pane and row. */
 function helpOpen(s: Screen): boolean {
+  return has(s, "enter runs it · esc close");
+}
+
+/** The messages or a report is open: any key but the scrolling ones closes it. */
+function panelOpen(s: Screen): boolean {
   return has(s, "any other key closes");
 }
 
-/** A dialog drawn over the screen: help (or a report), the edit menu, a confirmation, a
- *  question, the outputs to play through, or a list to choose from (the command palette, a
- *  drive's actions, a snapshot, a tag). */
+/** A dialog drawn over the screen: help, the messages, a report, the actions menu, a
+ *  confirmation, a question, the outputs to play through, the job list, or a list to choose from
+ *  (the command palette, a drive's actions, a snapshot, a tag). */
 function overlay(s: Screen): boolean {
   return (
     helpOpen(s) ||
+    panelOpen(s) ||
     confirming(s) ||
-    s.lines.some((l) => /╭ (Edit · |Sure\? |Output )/.test(l)) ||
+    s.lines.some((l) => /╭ (Actions · |Sure\? |Output |Jobs )/.test(l)) ||
     s.lines.some((l) => l.includes("↑↓ choose · enter · esc close")) ||
     // Squeezed into a small terminal, a dialog may show only its border.
     s.header.trimStart().startsWith("╭")
@@ -119,7 +124,7 @@ function overlay(s: Screen): boolean {
 
 /** The footer is a prompt (a name for a playlist, folder, tag or rule, a path to write to). */
 function prompting(s: Screen): boolean {
-  return /^ (New playlist|New folder|Rename .* to|Save the crate|New My Tag|Bring back|Smart playlist at|Export to|rekordbox XML)[^:]*: /.test(
+  return /^ (New playlist|New folder|Rename .* to|Save the crate|New My Tag|Bring back|Smart playlist at|Export to|rekordbox XML|Folder holding an export)[^:]*: /.test(
     s.footer,
   );
 }
@@ -242,14 +247,25 @@ export const questionMarkOpensHelp = always(() => {
   return next(() => typed() !== "?" || helpOpen(screen.current));
 });
 
-/** With the help open, a key other than the scrolling ones closes it. */
-export const anyOtherKeyClosesHelp = always(() => {
+/** With the messages or a report open, a key other than the scrolling ones closes it. */
+export const anyOtherKeyClosesPanels = always(() => {
+  const s = screen.current;
+  if (!panelOpen(s)) return true;
+  return next(() => {
+    const t = typed();
+    if (t === null || t.length !== 1 || "jk ".includes(t) || t === "\x1b") return true;
+    return !panelOpen(screen.current);
+  });
+});
+
+/** With the help open, esc closes it, and typing leaves it open to narrow it. */
+export const escClosesHelp = always(() => {
   const s = screen.current;
   if (!helpOpen(s)) return true;
   return next(() => {
     const t = typed();
-    if (t === null || t.length !== 1 || "jk ".includes(t) || t === "\x1b") return true;
-    return !helpOpen(screen.current);
+    if (t === "\x1b") return !helpOpen(screen.current);
+    return t === null || t.length !== 1 || t === "?" || t === "\r" || helpOpen(screen.current);
   });
 });
 

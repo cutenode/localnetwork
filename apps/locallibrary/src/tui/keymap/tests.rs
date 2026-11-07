@@ -1,4 +1,5 @@
 use super::super::app::testing::{app_with, library};
+use super::super::ui::screen;
 use super::*;
 
 fn press(c: KeyCode) -> KeyEvent {
@@ -220,5 +221,282 @@ fn every_views_help_says_how_to_report_a_bug() {
         let (_, global) = help(view);
         let mut lines = global.iter().flat_map(|(_, lines)| lines);
         assert!(lines.any(|(_, help)| help.contains("locallibrary bug")), "{view:?}");
+    }
+}
+
+/// How a player gets to an action, beside any key it has.
+#[derive(Debug, PartialEq)]
+enum Reached {
+    /// By name in the palette, from its row of the table.
+    Named,
+    /// In the palette, from a list made as it opens (a choice, or what a plugin brings).
+    Listed,
+    /// Deliberately not in the palette, and why.
+    LeftOut(&'static str),
+}
+
+/// Where every action goes. No `_` arm: a new action doesn't compile until it's decided here.
+fn reached(act: Act) -> Reached {
+    use Reached::*;
+    match act {
+        Act::None => LeftOut("a row that only explains"),
+        Act::PaneKey | Act::HotCue => LeftOut("takes the digit pressed"),
+        Act::Goto => LeftOut("waits for the key after it"),
+        Act::Palette | Act::Actions | Act::PaneActions => LeftOut("opens a list from the view's own key"),
+        Act::Move(_) | Act::Page(_) | Act::End(_) | Act::Focus(_) | Act::Activate | Act::Escape => {
+            LeftOut("moving about means nothing from a list over the view")
+        }
+        Act::Remove | Act::DriveActions => LeftOut("acts on what the pane selected"),
+        Act::Browse | Act::NextBands => LeftOut("only the Deck layout's; the palette has the choices"),
+        Act::Bands(_)
+        | Act::KeyNotation(_)
+        | Act::KeyPalette(_)
+        | Act::EndWarning(_)
+        | Act::Art(_)
+        | Act::Theme(_)
+        | Act::Colours(_)
+        | Act::Icons(_)
+        | Act::Hints(_)
+        | Act::Plugin(..)
+        | Act::Analyze(..)
+        | Act::ApplyFields(..)
+        | Act::FieldColumn(_)
+        | Act::PluginSettings(_)
+        | Act::AccountSignIn(..)
+        | Act::AccountSignOut(_)
+        | Act::PluginAccess(_)
+        | Act::Review(_)
+        | Act::Dismiss(_)
+        | Act::ProviderSettings
+        | Act::CheckSettings
+        | Act::Fix(_)
+        | Act::Export(..)
+        | Act::Import(..)
+        | Act::Source(..)
+        | Act::Fetch(_) => Listed,
+        Act::Quit
+        | Act::Help
+        | Act::Messages
+        | Act::Jobs
+        | Act::ShowView(_)
+        | Act::Refresh
+        | Act::PlayPause
+        | Act::Seek(_)
+        | Act::Next
+        | Act::Prev
+        | Act::Stop
+        | Act::Cue(_)
+        | Act::Phrase(_)
+        | Act::Volume(_)
+        | Act::Shuffle
+        | Act::Repeat
+        | Act::GoTo
+        | Act::Pads
+        | Act::BeatJump(_)
+        | Act::Quantize
+        | Act::Single
+        | Act::AutoCue
+        | Act::Outputs
+        | Act::Loop
+        | Act::LoopSize(_)
+        | Act::Visualiser
+        | Act::DeckLayout
+        | Act::ResetPlayed
+        | Act::Zoom(_)
+        | Act::Search
+        | Act::Sort
+        | Act::SortReverse
+        | Act::Ratings
+        | Act::TagsColumn
+        | Act::Tag
+        | Act::Details
+        | Act::CratePanel
+        | Act::Mark
+        | Act::MarkAll
+        | Act::CrateAdd
+        | Act::CrateMove(_)
+        | Act::CrateSave
+        | Act::CrateClear
+        | Act::Undo
+        | Act::Pull
+        | Act::Check
+        | Act::SetPrep
+        | Act::SyncGroup
+        | Act::Pack
+        | Act::RestorePlaylist
+        | Act::Replay
+        | Act::Eject
+        | Act::SmartList
+        | Act::SmartApply
+        | Act::SmartNew
+        | Act::ExportList
+        | Act::OpenFolder
+        | Act::Snapshots
+        | Act::SignIn
+        | Act::ProfileInclude
+        | Act::ProfilePin
+        | Act::ProfileHide
+        | Act::ProfileHideArtist
+        | Act::ProfileDocument
+        | Act::ProfileWrite
+        | Act::ProfileScope
+        | Act::ProfileRounding
+        | Act::ProfileAccount
+        | Act::MixOpen
+        | Act::MixZoom
+        | Act::MixExport
+        | Act::MixReport => Named,
+    }
+}
+
+/// Every action has a palette name or is left out for a stated reason, and the table agrees.
+#[test]
+fn every_action_has_a_palette_name_or_is_deliberately_left_out() {
+    for b in KEYMAP.iter().filter(|b| b.act != Act::None) {
+        match reached(b.act) {
+            Reached::Named => assert!(!name(b.act).is_empty(), "{:?} has no name in the palette", b.act),
+            Reached::LeftOut(why) => {
+                let exceptions = [Act::Actions, Act::DriveActions];
+                assert!(b.name.is_empty() || exceptions.contains(&b.act), "{:?} is named, though {why}", b.act);
+            }
+            Reached::Listed => assert!(b.name.is_empty(), "{:?} comes from a list", b.act),
+        }
+    }
+}
+
+/// The twelve jobs that lived only in the palette have a home in Prepare or Drives, and the ones
+/// with a key there show it there.
+#[test]
+fn the_palette_only_jobs_have_homes() {
+    use super::super::prepare;
+    let jobs = [
+        Act::Pull,
+        Act::Check,
+        Act::SetPrep,
+        Act::SyncGroup,
+        Act::Pack,
+        Act::RestorePlaylist,
+        Act::Replay,
+        Act::SmartList,
+        Act::SmartApply,
+        Act::SmartNew,
+        Act::ExportList,
+        Act::Eject,
+    ];
+    for act in jobs {
+        assert!(prepare::holds(act), "{act:?}");
+    }
+    for (keyed, shown) in
+        [(Act::Check, "V"), (Act::Pull, "W"), (Act::SyncGroup, "Y"), (Act::Pack, "K"), (Act::Eject, "E")]
+    {
+        for scope in [Scope::Prepare, Scope::Drives] {
+            let b = KEYMAP.iter().find(|b| b.scope == scope && b.act == keyed).unwrap();
+            assert_eq!(b.shown, shown, "{keyed:?} in {scope:?}");
+            assert_eq!(
+                lookup(&[scope], &press(KeyCode::Char(shown.chars().next().unwrap()))).map(|b| b.act),
+                Some(keyed)
+            );
+        }
+    }
+}
+
+/// Compact holds the few that matter most and off holds none; full is as many as fit.
+#[test]
+fn the_hint_setting_decides_what_the_footer_holds() {
+    let (mut app, _dir) = app_with(library());
+    let full = hints(&app, 400).len();
+    assert!(full > COMPACT, "{full}");
+    app.hints = Hints::Compact;
+    let compact = hints(&app, 400);
+    assert_eq!(compact.len(), COMPACT);
+    assert!(compact.iter().any(|(k, _)| k == "enter"), "the most important stays: {compact:?}");
+    assert!(hints(&app, 20).len() < COMPACT, "and it still has to fit");
+    app.hints = Hints::Off;
+    assert!(hints(&app, 400).is_empty());
+}
+
+/// The help opens on the pane with focus, and typing narrows it, a row for the keys typed first.
+#[test]
+fn the_help_starts_at_the_pane_with_focus_and_narrows() {
+    let (mut app, _dir) = app_with(library());
+    let first = |app: &App, q: &str| help_rows(app, q).first().map(|r| r.binding.shown);
+    app.focus = Focus::Crate;
+    assert_eq!(help_rows(&app, "")[0].binding.scope, Scope::Crate);
+    app.focus = Focus::Tracks;
+    assert_eq!(help_rows(&app, "")[0].binding.scope, Scope::Library);
+    app.view = View::Drives;
+    app.drive_pane = DrivePane::History;
+    assert_eq!(help_rows(&app, "")[0].binding.scope, Scope::History);
+    app.view = View::Library;
+
+    let n = help_rows(&app, "").len();
+    let cue = help_rows(&app, "CUE");
+    assert!(!cue.is_empty() && cue.len() < n, "{}", cue.len());
+    assert!(cue.iter().all(|r| format!("{} {}", r.binding.help, r.binding.name).to_lowercase().contains("cue")));
+    assert_eq!(first(&app, "e"), Some("e"), "the keys typed come first");
+    assert_eq!(first(&app, "smart rule"), Some("smart"), "each word typed");
+    assert!(help_rows(&app, "zzzz").is_empty());
+}
+
+/// Enter can run a row that's an action; a row that needs its key, or a note, can't.
+#[test]
+fn only_what_stands_alone_runs_from_the_help() {
+    assert!(runs(Act::Pull) && runs(Act::Quit) && runs(Act::Jobs));
+    for act in [Act::None, Act::HotCue, Act::PaneKey, Act::Goto, Act::Move(1), Act::Activate] {
+        assert!(!runs(act), "{act:?}");
+    }
+}
+
+/// Typing into the help narrows it, one row selected; enter runs that row and closes the help. A row
+/// that needs its key leaves the help open.
+#[test]
+fn the_help_runs_the_row_selected() {
+    let (mut app, _dir) = app_with(library());
+    typing(&mut app, "?shuffle");
+    let s = screen(&mut app, 120, 40);
+    assert!(s.contains("› shuffle") && s.contains("shuffle / repeat") && !s.contains("BROWSING"), "{s}");
+    typing(&mut app, "\n");
+    assert!(!app.help && app.shuffle, "run");
+
+    typing(&mut app, "?hot cue a");
+    assert!(screen(&mut app, 120, 40).contains("hot cue A"));
+    typing(&mut app, "\n");
+    assert!(app.help, "a digit does that");
+
+    typing(&mut app, "\u{1b}?zzzz");
+    assert!(screen(&mut app, 80, 24).contains("no key has those words"));
+    typing(&mut app, "\n");
+    assert!(app.help);
+    app.on_key(press(KeyCode::Backspace));
+    assert_eq!(app.help_query, "zzz");
+}
+
+/// Opening it starts over: nothing typed last time stays.
+#[test]
+fn the_help_opens_clean() {
+    let (mut app, _dir) = app_with(library());
+    typing(&mut app, "?cue\u{1b}?");
+    assert!(app.help_query.is_empty());
+    assert_eq!(app.help_row, 0);
+}
+
+fn typing(app: &mut App, keys: &str) {
+    super::super::app::testing::press(app, keys);
+}
+
+/// However it's narrowed, the help keeps its rows in one place each and only holds what was typed.
+#[hegel::test]
+fn prop_narrowing_the_help_only_takes_rows_away(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (mut app, _dir) = app_with(library());
+    app.view = tc.draw(gs::sampled_from(View::ALL.to_vec()));
+    let typed = tc.draw(gs::sampled_from(vec!["", "e", "cue", "the drive", "PLAY", "zz", " ", "?"]));
+    let all = help_rows(&app, "");
+    let some = help_rows(&app, typed);
+    assert!(some.len() <= all.len());
+    for row in &some {
+        assert!(all.iter().any(|r| std::ptr::eq(r.binding, row.binding)));
+        let text = format!("{} {} {}", row.binding.shown, row.binding.help, row.binding.name).to_lowercase();
+        assert!(typed.split_whitespace().all(|w| text.contains(&w.to_lowercase())), "{text}");
     }
 }

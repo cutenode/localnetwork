@@ -1,5 +1,6 @@
 use std::sync::mpsc::channel;
 
+use locallibrary::Device;
 use locallibrary::progress::Phase;
 use ratatui::crossterm::event::KeyModifiers;
 
@@ -261,7 +262,9 @@ fn a_confirmation_scrolls_and_waits_for_other_work() {
     let (_dir, root) = demo_drive();
     let mut app = app_on(&root);
     press(&mut app, "e4");
-    assert_eq!(confirming(&mut app).0, "edit");
+    written(&mut app);
+    press(&mut app, "u");
+    assert_eq!(confirming(&mut app).0, "undo");
     settle(&mut app);
     press(&mut app, "jj");
     key(&mut app, KeyCode::PageDown);
@@ -273,7 +276,7 @@ fn a_confirmation_scrolls_and_waits_for_other_work() {
     press(&mut app, "y");
     assert_eq!(last_message(&app), "wait for planning to finish");
     app.job = None;
-    press(&mut app, "e4");
+    press(&mut app, "u");
     settle(&mut app);
     press(&mut app, "n");
     assert!(app.modal.is_none() && app.job.is_none());
@@ -531,7 +534,7 @@ fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
             report["backup"] = json!("3lzbackup");
         }
     };
-    let undo = if backup { " · u to undo" } else { "" };
+    let undo = if backup { " · u undo" } else { "" };
     let n = tc.draw(gs::integers::<u64>().max_value(3));
     let s = |n: u64| if n == 1 { "" } else { "s" };
     let (result, want, backed) = match kind {
@@ -1130,4 +1133,192 @@ fn the_menu_and_the_background_go_where_they_should(tc: hegel::TestCase) {
             }
         }
     }
+}
+
+/// What's on the drive after `keys`, with no dialog on the way: a change `u` takes back whole is
+/// made as soon as it's asked for.
+#[track_caller]
+fn made_at_once(app: &mut App, keys: &str) -> String {
+    press(app, keys);
+    wait(app, |a| a.job.as_ref().is_none_or(|j| j.writing));
+    assert!(!matches!(app.modal, Some(Modal::Confirm(_))), "it asked first");
+    written(app)
+}
+
+/// A rating is written at once, says `u undo`, and `u` puts the drive back.
+#[test]
+fn a_reversible_edit_toasts_and_u_takes_it_back() {
+    let (_dir, root) = demo_drive();
+    let mut app = app_on(&root);
+    app.track_state.select(Some(1));
+    let rating = |app: &App| app.selected_track().map(|i| app.loaded.as_ref().unwrap().library.tracks[i].rating);
+    let before = rating(&app);
+    let said = made_at_once(&mut app, "e4");
+    assert!(said.ends_with(" · u undo"), "{said}");
+    assert_eq!(rating(&app), Some(4));
+    let s = super::super::ui::screen(&mut app, 120, 40);
+    assert!(s.contains("u undo"), "{s}");
+
+    press(&mut app, "u");
+    assert_eq!(confirming(&mut app).0, "undo");
+    let said = say_yes(&mut app);
+    assert!(said.starts_with("undone on"), "{said}");
+    assert_eq!(rating(&app), before);
+}
+
+/// So is a new playlist, a rename and a delete: all of them come back with `u`.
+#[test]
+fn playlist_edits_are_made_at_once() {
+    let (_dir, root) = demo_drive();
+    let mut app = app_on(&root);
+    let lists = |app: &App| app.loaded.as_ref().unwrap().library.playlists.len();
+    let before = lists(&app);
+    app.plan_edits(root.clone(), create("Warmup", false, &[]));
+    assert!(written(&mut app).ends_with(" · u undo"));
+    assert_eq!(lists(&app), before + 1);
+    app.plan_edits(root.clone(), vec![delete("Warmup")]);
+    assert!(written(&mut app).ends_with(" · u undo"));
+    assert_eq!(lists(&app), before);
+    press(&mut app, "u");
+    say_yes(&mut app);
+    assert_eq!(lists(&app), before + 1, "the delete came back");
+}
+
+/// What undo can't take back whole keeps asking: a plan that deletes tracks or a plugin's, here.
+#[test]
+fn what_a_plan_loses_is_still_asked_about() {
+    let (_dir, root) = demo_drive();
+    let mut app = app_on(&root);
+    let track = app.loaded.as_ref().unwrap().library.tracks[0].file_path.clone();
+    let drive = root.display().to_string();
+    let tracks = TrackSelector::paths([track]);
+    let edits = vec![Edit::DeleteTracks { tracks, keep_files: false }];
+    app.plan(root.clone(), move |ctx| {
+        let req = EditRequest { drive, edits, options: EditOptions::default() };
+        Ok(Box::new(api::edit_plan(&req, ctx)?))
+    });
+    assert_eq!(confirming(&mut app).0, "edit");
+    let Some(Modal::Confirm(c)) = &app.modal else { panic!() };
+    assert!(!c.reversible());
+}
+
+/// A write that can't happen says so as an error, and leaves no message promising an undo.
+#[test]
+fn a_change_made_at_once_says_when_it_failed() {
+    let (_dir, root) = demo_drive();
+    let mut app = app_on(&root);
+    app.track_state.select(Some(1));
+    let lock = Device::open(&root).unwrap().lock().unwrap();
+    press(&mut app, "e4");
+    wait(&mut app, |a| a.job.is_none() && a.loading.is_none());
+    let (said, level, _) = app.toast.clone().unwrap();
+    assert!(said.contains("busy") && !said.contains("undo"), "{said}");
+    assert_eq!(level, Level::Error);
+    drop(lock);
+}
+
+/// A plan with a warning has something to read, so it asks whatever it is.
+#[test]
+fn a_plans_warning_keeps_the_dialog() {
+    let (_dir, root) = demo_drive();
+    let mut app = app_on(&root);
+    let drive = root.display().to_string();
+    app.plan(root.clone(), move |ctx| {
+        let req = EditRequest { drive, edits: create("Warmup", false, &[]), options: EditOptions::default() };
+        let mut plan = api::edit_plan(&req, ctx)?;
+        plan.warnings.push("this drive is nearly full".into());
+        Ok(Box::new(plan))
+    });
+    assert_eq!(confirming(&mut app).0, "edit");
+}
+
+/// Asked too late, a write finishes and says so.
+#[test]
+fn a_cancel_too_late_is_said_when_it_finishes() {
+    let (mut app, _dir) = app_with(library());
+    let root = app.loaded.as_ref().unwrap().root().to_path_buf();
+    let j = job(true, true);
+    j.cancel.cancel();
+    app.job = Some(j);
+    let report = serde_json::json!({ "changes": 1, "databases": ["export.pdb"] });
+    app.on_applied(99, root, Ok(Box::new(Applied { operation: "edit".into(), report })));
+    assert!(last_message(&app).starts_with("too late to stop: 1 change written"), "{}", last_message(&app));
+}
+
+/// Ejecting reports no phases, so nothing could stop it once it's begun: it's past that from the
+/// start.
+#[test]
+fn ejecting_cant_be_cancelled() {
+    let (_dir, root) = demo_drive();
+    let mut app = app_on(&root);
+    app.plan(root.clone(), move |_| Ok(Box::new(Plan { operation: "eject", ..Default::default() })));
+    settle(&mut app);
+    press(&mut app, "y");
+    assert!(app.job.as_ref().is_some_and(|j| j.committed));
+    press(&mut app, "\u{1b}");
+    assert_eq!(last_message(&app), "ejecting: too late to stop");
+    assert!(app.job.as_ref().is_some_and(|j| !j.cancel.is_cancelled()));
+}
+
+/// The menu puts what the selection is first, so enter on it as it opens does the likeliest thing.
+#[test]
+fn the_menu_opens_on_the_selection() {
+    let t = |selected| Target { root: "/Volumes/A".into(), tracks: paths(), selected, ..Default::default() };
+    assert_eq!(Menu::new(t(Selected::Tracks), None).items[0].action, Action::CrateAdd);
+    let list = Target { node: Some(("Sets/Friday".into(), false)), ..t(Selected::List) };
+    let m = Menu::new(list, None);
+    assert_eq!(m.items[0].action, Action::Rename);
+    assert_eq!(m.state.selected(), Some(0));
+    let crated = Target { crated: paths(), crate_total: 2, ..t(Selected::Crate) };
+    assert_eq!(Menu::new(crated, None).items[0].action, Action::SaveCrate);
+}
+
+/// Each thing that keeps the dialog, on a plan that otherwise skips it.
+#[test]
+fn only_what_undo_takes_back_whole_skips_the_dialog() {
+    let (_dir, root) = demo_drive();
+    let drive = root.display().to_string();
+    let plan = || {
+        let req =
+            EditRequest { drive: drive.clone(), edits: create("Warmup", false, &[]), options: EditOptions::default() };
+        api::edit_plan(&req, &Ctx::silent()).unwrap()
+    };
+    let asked = |plan: Planned<EditPlan>, after: Option<After>| {
+        let (root, drive) = (root.clone(), "DEMO".to_string());
+        !Confirm { root, drive, plan: Box::new(plan), scroll: 0, shown: Instant::now(), after }.reversible()
+    };
+    assert!(!asked(plan(), None), "a plain edit");
+    let mut blocked = plan();
+    blocked.blocked = Some("echo.guard".into());
+    assert!(asked(blocked, None), "a guard stops it");
+    let mut clones = plan();
+    let root_ = root.clone();
+    clones.clones.push(locallibrary::op::CloneTarget { name: "OTHER".into(), root: root_, left_alone: None });
+    assert!(asked(clones, None), "`u` wouldn't reach the clone");
+    let mut full = plan();
+    full.plan.fits = false;
+    assert!(asked(full, None), "the dialog says it doesn't fit");
+    let mut plugin = plan();
+    plugin.operation = "echo.playlist".into();
+    assert!(asked(plugin, None), "a plugin's plan");
+    let after = After::Pack { source: root.clone(), target: root.clone(), playlist: "Warmup".into() };
+    assert!(asked(plan(), Some(after)), "something follows it");
+}
+
+/// A plugin's news after a change leaves its `u undo` up, and goes in the messages.
+#[test]
+fn a_plugins_news_leaves_the_undo_up() {
+    let (mut app, _dir) = app_with(library());
+    app.toast("1 change written · u undo", Level::Info);
+    let notice = |message: &str| locallibrary::plugin::PluginNotice {
+        plugin: "echo".into(),
+        message: message.into(),
+        suggests: None,
+    };
+    app.told(notice("new tracks"));
+    assert_eq!(last_message(&app), "1 change written · u undo");
+    assert!(app.log.iter().any(|(m, ..)| m.ends_with("new tracks")));
+    app.toast = None;
+    app.told(notice("more tracks"));
+    assert!(last_message(&app).ends_with("more tracks"), "with nothing to keep up, it says so");
 }
