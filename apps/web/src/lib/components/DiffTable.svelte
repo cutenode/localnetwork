@@ -18,6 +18,9 @@
 		const resizes = new ResizeObserver(() => measure(box));
 		resizes.observe(box);
 
+		// The table too: it can widen inside a box that keeps its size, as when the web fonts arrive.
+		if (box.firstElementChild) resizes.observe(box.firstElementChild);
+
 		return () => resizes.disconnect();
 	};
 

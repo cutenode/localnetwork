@@ -16,6 +16,8 @@ describe('DiffTable', () => {
 		await expect.element(box).toHaveAttribute('tabindex', '0');
 		await expect.element(box).toHaveClass(/mask-r-from/);
 
+		// Scrolled once the fonts are in, so the end it scrolls to is where the table ends.
+		await document.fonts.ready;
 		box.element().scrollLeft = box.element().scrollWidth;
 
 		await expect.element(box).not.toHaveClass(/mask-r-from/);
