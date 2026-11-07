@@ -860,6 +860,10 @@ describe('a gate the extension walks', () => {
 
 	const asked = () => chrome.runtime.sendMessage.mock.calls.filter(([message]) => message.type === 'SAVE_GATE');
 
+	// What a screen reader is told about the walk: the page's status regions, by
+	// role, and what each says.
+	const said = () => [...document.querySelectorAll('[role="status"]')].map((region) => region.textContent);
+
 	/** The Likes row with the gate link, and a worker that answers when the test says. */
 	async function setUp() {
 		globalThis.chrome = createChrome();
@@ -883,10 +887,12 @@ describe('a gate the extension walks', () => {
 		expect(followed).toEqual([false]);
 		expect(asked()).toEqual([[{ type: 'SAVE_GATE', url: GATE }]]);
 		expect(ours().getAttribute('aria-busy')).toBe('true');
+		expect(said()).toEqual(['']);
 
 		answer({ saved: true, mark: true });
 		await flush();
 		expect(ours().hasAttribute('aria-busy')).toBe(false);
+		expect(said()).toEqual(['saved']);
 		expect(Object.keys(downloadedStore())).toEqual(['/l/one']);
 		// Saved is further than queued gets a track: nothing waits to be marked.
 		expect(queueIn() ?? []).toEqual([]);
@@ -910,6 +916,15 @@ describe('a gate the extension walks', () => {
 		await flush();
 		expect(queueIn()).toEqual([expect.objectContaining({ permalink: '/l/one' })]);
 		expect(downloadedStore()).toBeUndefined();
+		expect(said()).toEqual(['opened the gate']);
+
+		// The next walk says its own outcome in the same region, emptied first so
+		// the same words are news again.
+		await click(ours());
+		expect(said()).toEqual(['']);
+		answer({ saved: true, mark: false });
+		await flush();
+		expect(said()).toEqual(['saved']);
 	});
 
 	it('walks it once however often it is clicked while it walks', async () => {
@@ -952,5 +967,6 @@ describe('a gate the extension walks', () => {
 		expect(window.open).toHaveBeenCalledWith(GATE, '_blank', 'noopener');
 		expect(queueIn()).toEqual([expect.objectContaining({ permalink: '/l/one' })]);
 		expect(ours().hasAttribute('aria-busy')).toBe(false);
+		expect(said()).toEqual(['opened the gate']);
 	});
 });

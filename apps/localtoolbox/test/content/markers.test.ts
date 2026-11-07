@@ -8,6 +8,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { loadContentScript, disposeContentScripts } from '../helpers/load.ts';
 import { createChrome, type ChromeMock, type ChromeOptions } from '../helpers/chrome.ts';
 import { flush } from '../helpers/flush.ts';
+import { accessibleName } from '../helpers/a11y.ts';
 import {
 	render,
 	playlistPage,
@@ -67,7 +68,9 @@ const artOf = (permalink: string) =>
 	document
 		.querySelector(`a[href^="${permalink}"]`)!
 		.closest('.trackItem, .sound, .audibleTile')!
-		.querySelector('.sc-artwork')!;
+		// A tile's is the box around its artwork link (see content.ts), which
+		// comes before the artwork inside it.
+		.querySelector('.playableTile__artwork, .sc-artwork')!;
 
 const marksOf = (permalink: string) => markersIn(artOf(permalink));
 
@@ -94,6 +97,22 @@ describe('painting marks', () => {
 		expect(marksOf('/t/one')).toEqual([
 			{ kind: 'downloaded', pill: 'downloaded', className: 'tbx-mark tbx-mark--downloaded tbx-mark--large' }
 		]);
+	});
+
+	// The check mark is a sign standing in for the word, so a screen reader is
+	// given the word: read as text, it would announce "check mark".
+	it('names the compact check mark "downloaded" for a screen reader', async () => {
+		globalThis.chrome = createChrome({ storage: { downloaded: { '/a/one': ISO, '/l/one': ISO } } });
+		render(mixedPage(), '/c/sets/p');
+		await loadContentScript();
+
+		const check = artOf('/a/one').querySelector('.tbx-mark__pill')!;
+		expect(check.getAttribute('role')).toBe('img');
+		expect(accessibleName(check)).toBe('downloaded');
+		// The word itself needs nothing more.
+		const word = artOf('/l/one').querySelector('.tbx-mark__pill')!;
+		expect(word.hasAttribute('role')).toBe(false);
+		expect(accessibleName(word)).toBe('downloaded');
 	});
 
 	it('paints nodl on tracks known to have no download link, unless they are downloaded', async () => {
