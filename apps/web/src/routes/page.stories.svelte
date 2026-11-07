@@ -2,7 +2,7 @@
 	import { PAGE_META } from '#lib/testing/page-meta.ts';
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { toolCards } from '#lib/tools/index.ts';
-	import type { ProjectView, Viewer } from '#lib/types.ts';
+	import type { ProjectView, ShowView, SupportedTrack, Viewer } from '#lib/types.ts';
 	import { DEMO_PROJECTS } from '../../scripts/seed-data.ts';
 	import Layout from './+layout.svelte';
 	import Page from './+page.svelte';
@@ -46,7 +46,37 @@
 		(place) => `${place.city},${place.country}`
 	).map(({ key, count }) => ({ ...key, count }));
 
+	/** Three upcoming shows by the seed projects, a night apart. */
+	const shows: ShowView[] = recent.slice(0, 3).map((project, index) => ({
+		uri: `at://did:plc:neon/computer.localnetwork.show/${index + 1}`,
+		cid: `show${index + 1}`,
+		did: 'did:plc:neon',
+		rkey: String(index + 1),
+		project,
+		record: {
+			project: project.uri,
+			event: { uri: `at://did:plc:neon/community.lexicon.calendar.event/${index + 1}`, cid: `event${index + 1}` },
+			name: ['Tidal Hours', 'Rooftop Social', 'Basement Sessions'][index],
+			startsAt: `2026-11-${13 + index}T23:00:00+01:00`,
+			endsAt: `2026-11-${14 + index}T05:00:00+01:00`,
+			venue: ['Halle Nord', 'Klunkerkranich', 'Arches Yard'][index],
+			location: project.profile.location,
+			createdAt: '2026-11-01T00:00:00Z'
+		}
+	}));
+
+	/** The month's most played tracks, as the charts count them. */
+	const tracks: SupportedTrack[] = [
+		['Night Bus', 'Ferrule', 9],
+		['Halogen', 'Two Rooms', 7],
+		['Static Bloom', 'Kestrel Unit', 6],
+		['Signal Path', 'Mira Okonkwo', 4],
+		['A Very Long Track Title That Has To Truncate Somewhere', 'An Artist With A Long Name', 1]
+	].map(([title, artist, supports], index) => ({ id: String(index), title: String(title), artist: String(artist), artists: [], supports: Number(supports) }));
+
 	const directory = {
+		shows: Promise.resolve(shows),
+		tracks: Promise.resolve(tracks),
 		recent,
 		stats: { active: DEMO_PROJECTS.length, cities: cities.length, unclaimed: recent.filter((project) => !project.managers.length).length },
 		genres: tally(
@@ -58,16 +88,19 @@
 		cities: cities.slice(0, 8)
 	};
 
-	const empty = { recent: [], stats: { active: 0, cities: 0, unclaimed: 0 }, genres: [], cities: [] };
+	const empty = { shows: Promise.resolve([]), tracks: Promise.resolve([]), recent: [], stats: { active: 0, cities: 0, unclaimed: 0 }, genres: [], cities: [] };
 
-	const offline = { recent: [], stats: null, genres: [], cities: [] };
+	const offline = { shows: Promise.resolve(null), tracks: Promise.resolve(null), recent: [], stats: null, genres: [], cities: [] };
+
+	// Shows and charts that never arrive, for their placeholders.
+	const loading = { ...directory, shows: new Promise<null>(() => {}), tracks: new Promise<null>(() => {}) };
 
 	const member: Viewer = { did: 'did:plc:neon', handle: 'neon.test', roles: [], isAdmin: false, isStaff: false, spacesCapable: true };
 
 	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
-{#snippet home(viewer: Viewer | null, data: typeof directory | typeof empty | typeof offline)}
+{#snippet home(viewer: Viewer | null, data: typeof directory | typeof empty | typeof offline | typeof loading)}
 	{@const layout = { viewer, pendingRequests: 0, meta: PAGE_META }}
 	<Layout data={layout} params={{}}>
 		<Page data={{ ...layout, geocoder: false, tools: toolCards(), ...data }} params={{}} form={null} />
@@ -77,6 +110,8 @@
 <Story name="Full page" asChild>{@render home(null, directory)}</Story>
 
 <Story name="Full page on a phone" asChild globals={phone}>{@render home(null, directory)}</Story>
+
+<Story name="Shows and charts loading" asChild>{@render home(null, loading)}</Story>
 
 <Story name="Signed in" asChild>{@render home(member, directory)}</Story>
 
