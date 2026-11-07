@@ -146,13 +146,14 @@ describe('OAuth scopes', () => {
 		expect(permissions.allowsSpace({ ...legacy, action: 'create', collection: COLLECTION.epkRequest })).toBe(false);
 	});
 
-	it("lets users keep their profile, edit their sets, draft in a performer's space, and answer events", () => {
+	it("lets users keep their profile, edit their sets and draft in a performer's space", () => {
 		const permissions = new ScopePermissions(granted);
 		const performer = { type: SPACE_TYPE.performer, authority: root, skey: '3mperf' } as const;
 
 		for (const action of ['create', 'update', 'delete'] as const) {
 			expect(permissions.allowsRepo({ collection: COLLECTION.profile, action })).toBe(true);
-			expect(permissions.allowsRepo({ collection: CALENDAR_RSVP, action })).toBe(true);
+			// Nothing writes an RSVP yet, so sign-in doesn't ask to.
+			expect(permissions.allowsRepo({ collection: CALENDAR_RSVP, action })).toBe(false);
 			expect(permissions.allowsSpace({ ...performer, action, collection: COLLECTION.epkDraft })).toBe(true);
 			// Only staff list a DJ, from the root account.
 			expect(permissions.allowsRepo({ collection: COLLECTION.listingProfile, action })).toBe(false);
@@ -284,7 +285,7 @@ describe('OAuth scopes', () => {
 
 		for (const scope of Object.values(SCOPES).flatMap((scopes) => scopes.split(' '))) expect(declared).toContain(scope);
 		expect(new Set(declared).size).toBe(declared.length);
-		expect(new ScopePermissions(declared).allowsRepo({ collection: CALENDAR_RSVP, action: 'create' })).toBe(true);
+		expect(new ScopePermissions(declared).allowsRepo({ collection: CALENDAR_RSVP, action: 'create' })).toBe(false);
 	});
 
 	it('compares grants the way the PDS writes them, and spots any scope missing', () => {
