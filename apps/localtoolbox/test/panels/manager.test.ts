@@ -17,6 +17,7 @@ import {
 	reopenPanel,
 	rows,
 	settle,
+	stepFrames,
 	text,
 	track,
 	type,
@@ -651,7 +652,7 @@ describe('while the lookup is still running', () => {
 		expect(meta()).toBe('2 tracks · 1 download link · 1 without');
 	});
 
-	it('draws a screenful first and the rest of a long page after it', async () => {
+	it('draws a screenful first and the rest of a long page after it', async ({ signal }) => {
 		// Five hundred rows are the best part of a second of DOM work and the
 		// popup shows about eight at a time, so the first paint is a screenful and
 		// the rest arrive over the frames after it. A hundred and fifty rows show
@@ -667,14 +668,7 @@ describe('while the lookup is still running', () => {
 		// hidden and gets no frames. jsdom's frames come from a setInterval,
 		// which the fake timers hold like any other, so each 60ms step is the
 		// same three frames every run.
-		const grown = async () => {
-			for (let i = 0; i < 4; i++) {
-				await vi.advanceTimersByTimeAsync(60);
-				await settle();
-			}
-		};
-
-		await grown();
+		await stepFrames(4, signal);
 		expect(rows()).toHaveLength(150);
 		// Every row drawn once: no duplicates, and none left over from the
 		// screenful that went up first.
@@ -690,7 +684,7 @@ describe('while the lookup is still running', () => {
 		await type(search, '');
 		expect(rows()).toHaveLength(41);
 		expect(rows()).toContain(stayed);
-		await grown();
+		await stepFrames(4, signal);
 		expect(rows()).toContain(stayed);
 		expect(rows()).toHaveLength(150);
 		expect(new Set(rows().map((li) => li.textContent)).size).toBe(150);
@@ -698,7 +692,7 @@ describe('while the lookup is still running', () => {
 
 	// The screenful is counted across sections, so a long first site fills it
 	// and the sites under it wait for the next frames.
-	it('draws a long first site’s screenful before the sites under it', async () => {
+	it('draws a long first site’s screenful before the sites under it', async ({ signal }) => {
 		vi.useFakeTimers();
 
 		const many = Array.from({ length: 70 }, (_, i) =>
@@ -710,10 +704,7 @@ describe('while the lookup is still running', () => {
 		expect(rows()).toHaveLength(60);
 		expect(sections().map((section) => section.heading)).toEqual(['soundcloud.com']);
 
-		for (let i = 0; i < 3; i++) {
-			await vi.advanceTimersByTimeAsync(60);
-			await settle();
-		}
+		await stepFrames(3, signal);
 
 		expect(rows()).toHaveLength(71);
 		expect(sections().map((section) => section.heading)).toEqual(['soundcloud.com', 'no download links']);
