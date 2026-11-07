@@ -118,10 +118,11 @@ A weekly run with a failed job opens an issue (or comments on the open one) nami
 the next weekly run that passes closes it.
 
 `.github/workflows/locallibrary-bench.yml` runs the benchmarks (see Benchmarks) under
-[CodSpeed](https://codspeed.io) weekly and on demand, not on pull requests: started by hand on a
-branch (Actions, locallibrary benchmarks, Run workflow), it reports each benchmark's change
-against `main`'s last run. A weekly run skips them when nothing they build from changed, and a
-failed one opens an issue as the scheduled suites do.
+[CodSpeed](https://codspeed.io) on pushes to `main` and pull requests that change what they build
+from (the crates, plugins, vendored code, lexicons, manifests and toolchain), weekly, and on
+demand. A pull request, or a run started by hand on a branch (Actions, locallibrary benchmarks,
+Run workflow), reports each benchmark's change against `main`'s last run. A weekly run skips them
+when nothing they build from changed, and a failed one opens an issue as the scheduled suites do.
 
 Actions are pinned to commits, and Dependabot proposes updates to them and to `Cargo.lock` once a
 month.

@@ -1,5 +1,7 @@
 # Local Network
 
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/cutenode/localnetwork?utm_source=badge)
+
 Tools for DJs and the people who book them, built on the AT Protocol. Each tool stands on its own; they share an Atmosphere account, a lexicon tree (`computer.localnetwork.*`), and file formats.
 
 | Tool                              | What it is                                                                                                             | Built with                |

@@ -1,14 +1,43 @@
 name: locallibrary benchmarks
 
-# The criterion benchmarks in crates/*/benches/ under CodSpeed (https://codspeed.io), weekly and on
-# demand (Actions > locallibrary benchmarks > Run workflow, on any branch), not on every pull
-# request: a run builds every bench with all features and runs each under Valgrind. A run on main
-# records the baseline; one started on a branch reports each benchmark's change against it.
-# CodSpeed's simulation mode counts the instructions a benchmark runs instead of timing it, so
-# shared runners give stable numbers. The workspace's `criterion` dependency is CodSpeed's
-# compatibility layer (codspeed-criterion-compat), which is plain criterion under `cargo bench`. A
-# week that changed none of what the benchmarks build from skips them (see the changes job).
+# The criterion benchmarks in crates/*/benches/ under CodSpeed (https://codspeed.io), on pushes to
+# main and pull requests that change what they build from, weekly, and on demand (Actions >
+# locallibrary benchmarks > Run workflow, on any branch). A run on main records the baseline; a
+# pull request, or one started on a branch, reports each benchmark's change against it. CodSpeed's
+# simulation mode counts the instructions a benchmark runs instead of timing it, so shared runners
+# give stable numbers. The workspace's `criterion` dependency is CodSpeed's compatibility layer
+# (codspeed-criterion-compat), which is plain criterion under `cargo bench`. A week that changed
+# none of what the benchmarks build from skips them (see the changes job). The budgets job runs
+# weekly and by hand only.
 on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "plugins/**"
+      - "vendor/**"
+      - "packages/tokens/**"
+      - "lexicons/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - ".github/workflows/locallibrary-bench.yml"
+      - "!**/*.md"
+  pull_request:
+    # The same paths as push.
+    paths:
+      - "crates/**"
+      - "plugins/**"
+      - "vendor/**"
+      - "packages/tokens/**"
+      - "lexicons/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - ".github/workflows/locallibrary-bench.yml"
+      - "!**/*.md"
   schedule:
     - cron: "47 5 * * 1"
   workflow_dispatch:
@@ -18,7 +47,8 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Every push to main records a baseline, so only pull requests cancel their earlier runs.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -27,8 +57,8 @@ env:
 # Pinned the same way as locallibrary-ci.yml.
 jobs:
   # Whether anything the benchmarks build from changed since the last weekly or hand-started run on
-  # main that passed, as locallibrary-scheduled.yml's changes job works it out. Started by hand,
-  # they always run. The paths are ci.yml's locallibrary ones that a bench build reads.
+  # main that passed, as locallibrary-scheduled.yml's changes job works it out. Started by hand, or
+  # by a push or pull request (which the `paths` above already filter), they always run. The paths are ci.yml's locallibrary ones that a bench build reads.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -104,7 +134,7 @@ jobs:
           tool: cargo-codspeed@6.0.0
       # Every feature, so benchmarks that need one (`test-util`) build too.
       - run: cargo codspeed build --workspace --all-features --locked -m simulation
-      - uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062 # v5.6.0
+      - uses: CodSpeedHQ/action@af75f77f17a054769abefaa42fe8dc2975469b5f # v5.6.3
         with:
           mode: simulation
           run: cargo codspeed run -m simulation
@@ -114,7 +144,7 @@ jobs:
   # `tools/budgets/cli.ts ratchet`.
   budgets:
     needs: changes
-    if: needs.changes.outputs.run == 'true'
+    if: needs.changes.outputs.run == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     # Two release builds: dist's for the CLI and the release profile's for the frame test.
     timeout-minutes: 60

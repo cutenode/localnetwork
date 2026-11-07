@@ -3,8 +3,8 @@
 `budgets/` holds a limit for each number we hold locallibrary to, one file per area, so branches
 don't collide on a shared list. Every number is one a run gives exactly: bytes, allocations,
 instructions under cachegrind, package counts. Wall-clock time on a shared runner isn't, so it's
-never gated on; `cargo bench` and CodSpeed still track time and instructions weekly
-(`.github/workflows/locallibrary-bench.yml`).
+never gated on; `cargo bench` and CodSpeed still track time and instructions, CodSpeed on pull
+requests, pushes to main and weekly (`.github/workflows/locallibrary-bench.yml`).
 
 | area | what it holds | measured by | when |
 | --- | --- | --- | --- |
