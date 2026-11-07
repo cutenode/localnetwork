@@ -1,5 +1,6 @@
 <!--
-  Your data: everything the extension has saved, out to a JSON file and back.
+  Your data: the marks, the lists, the queue and three panel options, out to a
+  JSON file and back.
 
   What the file carries is not one tool's: the marks are painted on the
   SoundCloud page, the looked-up details are the content script's cache, the
@@ -249,8 +250,7 @@
     note = {
       tone: 'ok',
       text:
-        `${replace ? 'replaced everything with' : 'imported'} ${parts.join(', ')}.${tail} ` +
-        'reload the tab to see the markers.',
+        `${replace ? 'replaced everything with' : 'imported'} ${parts.join(', ')}.${tail}`,
     };
     closeDrawer();
     // Three panels' options may have moved under them; the one this sheet is
@@ -263,7 +263,7 @@
   <div>
     <h3 class="section-title m-0">your data</h3>
     <p class="m-0 mt-1 text-caption leading-relaxed text-fg-muted">
-      everything the extension has saved, out to one file and back.
+      your marks, lists, queue and a few options, out to one file and back.
     </p>
   </div>
 
