@@ -19,5 +19,5 @@
 		{/if}
 	</div>
 	<FormMessage {form} />
-	<ProjectForm values={form?.values ?? {}} showMessage geocoder={data.geocoder} draft={draftKey(data.viewer, 'project:new')} />
+	<ProjectForm values={form?.values ?? {}} sets={data.sets} showMessage geocoder={data.geocoder} draft={draftKey(data.viewer, 'project:new')} />
 </div>
