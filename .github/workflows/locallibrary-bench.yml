@@ -101,11 +101,26 @@ jobs:
               - '.github/workflows/locallibrary-bench.yml'
               - '!**/*.md'
 
+  # Split into shards that build and run in parallel, each uploading its own results, which
+  # CodSpeed merges into one report for the commit
+  # (https://codspeed.io/docs/features/sharded-benchmarks). All of them in one job took over an
+  # hour: `library` and `analyze` are the longest under Valgrind, so each gets a shard.
   codspeed:
     needs: changes
     if: needs.changes.outputs.run == 'true'
+    name: codspeed (${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: library
+            packages: -p locallibrary
+          - shard: analysis
+            packages: -p loclib-analysis
+          - shard: crates
+            packages: -p loclib-interop -p loclib-mixid -p loclib-model -p loclib-tracklist -p loclib-waveform
     # CodSpeed authenticates the upload with a GitHub OIDC token, which works for public and
     # private repositories alike. Without OIDC, drop `id-token` and pass
     # `token: ${{ secrets.CODSPEED_TOKEN }}` (from the repository's CodSpeed settings) to the
@@ -121,6 +136,7 @@ jobs:
       # Only main saves its cache (see locallibrary-ci.yml).
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          key: codspeed-${{ matrix.shard }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # The CLI's default `playback` feature builds ALSA's bindings, which need its headers.
       - uses: ./.github/actions/apt-packages
@@ -132,8 +148,12 @@ jobs:
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-codspeed@6.0.0
-      # Every feature, so benchmarks that need one (`test-util`) build too.
-      - run: cargo codspeed build --workspace --all-features --locked -m simulation
+      # Every feature of the shard's packages, so benchmarks that need one (`test-util`) build too.
+      - run: |
+          # shellcheck disable=SC2086 # One -p flag per package.
+          cargo codspeed build $PACKAGES --all-features --locked -m simulation
+        env:
+          PACKAGES: ${{ matrix.packages }}
       - uses: CodSpeedHQ/action@af75f77f17a054769abefaa42fe8dc2975469b5f # v5.6.3
         with:
           mode: simulation
