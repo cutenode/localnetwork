@@ -17702,12 +17702,20 @@
           "items": {
             "type": "string"
           }
+        },
+        "damaged_snapshots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Hash"
+          },
+          "description": "Snapshots whose manifest no longer hashes to its id."
         }
       },
       "required": [
         "checked",
         "corrupt",
-        "missing"
+        "missing",
+        "damaged_snapshots"
       ]
     },
     "PruneReport": {

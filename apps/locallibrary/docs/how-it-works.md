@@ -317,7 +317,7 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   read back exactly as planned. Database files are
   re-hashed on every scan; other files use a (size, mtime) hash cache that ignores entries
   recorded within FAT's 2-second timestamp window. `--verify` compares audio by content, and
-  `locallibrary store verify` re-hashes the store.
+  `locallibrary store verify` re-hashes the store, snapshots' manifests included.
 - Built for FAT32/exFAT/HFS+ drives: matching ignores letter case and Unicode normalisation,
   mtime comparisons allow FAT's 2-second granularity, and a cached hash index keeps rescans fast.
 

@@ -63,7 +63,8 @@ locallibrary drive format disk4 --check-capacity  # catch a fake-capacity stick 
   best reference there is: a stored snapshot of exactly this state, the drive's own hash records
   when the file's size and modification time haven't changed, or an older snapshot holding the same
   version of the file. A file a player or rekordbox rewrote has a new modification time and counts
-  as unverified, not damaged. `exportLibrary.db` and its WAL are compared by the library they hold,
+  as unverified, not damaged. So does a file only a scan (`check`, `status`) has read, since
+  nothing says it was right then; `drive verify` takes what it reads as the reference next time. `exportLibrary.db` and its WAL are compared by the library they hold,
   as its bytes change with the drive's name and colour, or when a player checkpoints it, and any
   damage stops it decrypting. Unreadable files are reported too, with the tracks and playlists
   affected. `--repair` checks each file again, copies a good copy with every byte verified (keeping
