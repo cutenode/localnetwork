@@ -245,3 +245,33 @@ it('keeps what was typed and says what to fix in a revised claim', async () => {
 		}
 	});
 });
+
+it('sends a listing request sent back for changes to staff again, with a note and no profile form', async () => {
+	await f.t.profiles.save(await f.t.viewer(DJ), {
+		basics: { name: 'Neon' },
+		performer: {},
+		avatar: 'keep',
+		swap: null
+	});
+	const profile = (await f.t.profiles.get(DJ))!;
+
+	const request = await f.t.requests.submit({
+		actor: await f.t.viewer(DJ),
+		kind: 'list',
+		listing: { subject: profile.uri, cid: profile.cid }
+	});
+
+	await f.t.requests.decide({
+		actor: await f.t.viewer(ADMIN),
+		uri: request.uri,
+		outcome: 'changesRequested',
+		reason: 'Add a photo'
+	});
+
+	await expect(send('revise', DJ, request.rkey, { message: 'Added one' })).rejects.toMatchObject({ status: 303 });
+
+	expect(await f.t.requests.byRkey(request.rkey)).toMatchObject({
+		status: 'pending',
+		record: { kind: 'list', message: 'Added one' }
+	});
+});
