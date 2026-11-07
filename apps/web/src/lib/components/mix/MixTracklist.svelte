@@ -19,7 +19,8 @@
 
 	$effect(() => {
 		if (selected === null) return;
-		document.getElementById(`mix-track-${selected}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+		const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+		document.getElementById(`mix-track-${selected}`)?.scrollIntoView({ block: 'nearest', behavior: still ? 'instant' : 'smooth' });
 	});
 </script>
 
