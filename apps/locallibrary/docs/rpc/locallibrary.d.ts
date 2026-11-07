@@ -4075,6 +4075,8 @@ export type VerifyReport = {
   checked: number;
   corrupt: string[];
   missing: string[];
+  /** Snapshots whose manifest no longer hashes to its id. */
+  damaged_snapshots: Hash[];
 };
 
 export type PruneReport = {
