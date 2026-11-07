@@ -893,6 +893,8 @@ test.describe('keeps what people entered', () => {
 		await hydrated(page);
 		await page.locator('ol > li').filter({ hasText: 'Neon Tide' }).getByLabel('Lineup').check();
 		await page.getByRole('button', { name: 'Save show to planner' }).click();
+		await expect(page.getByRole('heading', { name: 'Rooftop Rave' })).toBeVisible();
+		await expectAccessible(page);
 		await page.getByRole('link', { name: 'Inquire with Neon Tide' }).click();
 		await expect(page.locator('#title')).toHaveValue('Rooftop Rave');
 		await expect(page.locator('#date')).toHaveValue('2026-12-19');
