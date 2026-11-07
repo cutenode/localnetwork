@@ -5,9 +5,9 @@ import { act, optionalText, requireViewer } from '#lib/server/http.ts';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ locals, url }) => {
-	requireViewer(locals, url);
+	const viewer = requireViewer(locals, url);
 
-	return { geocoder: locals.app.geocoder.enabled };
+	return { geocoder: locals.app.geocoder.enabled, sets: locals.app.sets.published([viewer.did]) };
 };
 
 export const actions: Actions = {
