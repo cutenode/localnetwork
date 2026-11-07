@@ -17,6 +17,7 @@ import {
 	rows,
 	rowText,
 	settle,
+	stepFrames,
 	SOUNDCLOUD_TAB,
 	text,
 	track,
@@ -480,7 +481,7 @@ describe('the list', () => {
 		expect(search.value).toBe('');
 	});
 
-	it('draws a long list a screenful at a time, and what a search hid the same way', async () => {
+	it('draws a long list a screenful at a time, and what a search hid the same way', async ({ signal }) => {
 		vi.useFakeTimers();
 		chromeAnswering({ storage: { artists: Array.from({ length: 200 }, (_, n) => entry(`/a${n}`)) } });
 		await load();
@@ -488,14 +489,7 @@ describe('the list', () => {
 
 		// jsdom's frames come from a setInterval, which the fake timers hold, so
 		// each 60ms step is the same three frames every run.
-		const grown = async () => {
-			for (let i = 0; i < 6; i++) {
-				await vi.advanceTimersByTimeAsync(60);
-				await settle();
-			}
-		};
-
-		await grown();
+		await stepFrames(6, signal);
 		expect(rows()).toHaveLength(200);
 
 		const search = labelled('search the artists', HTMLInputElement);
@@ -507,7 +501,7 @@ describe('the list', () => {
 		await type(search, '');
 		expect(rows()).toHaveLength(41);
 		expect(rows()).toContain(stayed);
-		await grown();
+		await stepFrames(6, signal);
 		expect(rows()).toHaveLength(200);
 		expect(new Set(rows().map((li) => li.dataset.permalink)).size).toBe(200);
 	});
