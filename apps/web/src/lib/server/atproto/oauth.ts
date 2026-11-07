@@ -54,8 +54,8 @@ const PUBLIC_RECORDS = [
 ].join(' ');
 
 /**
- * Writes added to `full` after accounts had already signed in with it: editing the sets locallibrary published, press
- * kit drafts in a performer's space, and RSVPs. Like PUBLIC_RECORDS, a grant without them still counts as one with
+ * Scopes added to `full` after accounts had already signed in with it: `dj.set` records, the performer space, and
+ * RSVPs. The site doesn't write sets or RSVPs yet. Like PUBLIC_RECORDS, a grant without them still counts as one with
  * spaces; the first write that needs one asks for a fresh sign-in, and that grant holds them all. The permission set's
  * are read from it as `rootDid` publishes it, so they're the scopes the PDS expands it to.
  */
