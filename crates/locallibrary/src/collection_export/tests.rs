@@ -774,6 +774,92 @@ fn an_export_stopped_part_way_finishes_when_run_again() {
     }
 }
 
+/// A pull of a drive holding what the collection does stores no second copy: the audio's object is
+/// a clone of the collection's file, on a volume with clones, and the object keeps its bytes when
+/// that file is edited.
+#[test]
+fn a_pull_clones_the_collections_audio_into_the_store() {
+    let pc = Computer::new();
+    let mut target = pc.folder("Export");
+    pc.export(&mut target, &CollectionExportOptions::default());
+    // A real drive holds bytes of its own, where this folder would hold clones.
+    let on_drive = target.path("Contents/Daft Punk/Discovery/One More Time.mp3");
+    let (bytes, meta) = (std::fs::read(&on_drive).unwrap(), std::fs::metadata(&on_drive).unwrap());
+    std::fs::remove_file(&on_drive).unwrap();
+    std::fs::write(&on_drive, bytes).unwrap();
+    fsutil::set_mtime(&on_drive, fsutil::mtime_secs(&meta)).unwrap();
+    let store = Store::open_or_init(pc.dir.path().join("store")).unwrap();
+    // SAFETY: nextest runs each test in a process of its own.
+    unsafe { std::env::set_var(masterdb::PATH_ENV, pc.dir.path().join("rekordbox/master.db")) };
+    let pulled = crate::sync::pull(&store, &mut target, &PullOptions::default(), &Ctx::silent()).unwrap();
+    unsafe { std::env::remove_var(masterdb::PATH_ENV) };
+    assert!(pulled.imported_files > 0);
+
+    let hash = Hash::of(b"one more time");
+    assert_eq!(std::fs::read(store.object_path(&hash)).unwrap(), b"one more time");
+    let music = pc.dir.path().join("Music/One More Time.mp3");
+    #[cfg(target_os = "macos")]
+    assert_eq!(volume_blocks(&store.object_path(&hash)), volume_blocks(&music), "a copy, not a clone");
+    std::fs::write(&music, b"ONE MORE TIME").unwrap();
+    assert_eq!(std::fs::read(store.object_path(&hash)).unwrap(), b"one more time");
+}
+
+/// A test's pull never opens the collection of the computer it runs on. Here that collection, at
+/// rekordbox's own path below a made-up home, holds the drive's audio, so a pull that opened it
+/// would clone the object from it.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_pull_under_test_leaves_this_computers_collection_alone() {
+    let pc = Computer::new();
+    let mut target = pc.folder("Export");
+    pc.export(&mut target, &CollectionExportOptions::default());
+    let on_drive = target.path("Contents/Daft Punk/Discovery/One More Time.mp3");
+    let (bytes, meta) = (std::fs::read(&on_drive).unwrap(), std::fs::metadata(&on_drive).unwrap());
+    std::fs::remove_file(&on_drive).unwrap();
+    std::fs::write(&on_drive, bytes).unwrap();
+    fsutil::set_mtime(&on_drive, fsutil::mtime_secs(&meta)).unwrap();
+
+    let home = pc.dir.path().join("home");
+    let rekordbox = home.join("Library/Pioneer/rekordbox");
+    std::fs::create_dir_all(&rekordbox).unwrap();
+    std::fs::copy(pc.dir.path().join("rekordbox/master.db"), rekordbox.join("master.db")).unwrap();
+    // SAFETY: nextest runs each test in a process of its own.
+    unsafe {
+        std::env::remove_var(masterdb::PATH_ENV);
+        std::env::set_var("HOME", &home);
+    }
+    assert_eq!(
+        masterdb::default_path(),
+        Some(rekordbox.join("master.db")),
+        "rekordbox's own path, which a release build would open"
+    );
+
+    let store = Store::open_or_init(pc.dir.path().join("store")).unwrap();
+    crate::sync::pull(&store, &mut target, &PullOptions::default(), &Ctx::silent()).unwrap();
+    let object = store.object_path(&Hash::of(b"one more time"));
+    let music = pc.dir.path().join("Music/One More Time.mp3");
+    assert_ne!(volume_blocks(&object), volume_blocks(&music), "the pull opened this computer's collection");
+}
+
+/// Where the first byte of `path` is on its volume: a clone and its source share it.
+#[cfg(target_os = "macos")]
+fn volume_blocks(path: &Path) -> i64 {
+    use std::os::fd::AsRawFd;
+    #[repr(C, packed(4))]
+    struct Log2Phys {
+        flags: u32,
+        contigbytes: i64,
+        devoffset: i64,
+    }
+    const F_LOG2PHYS_EXT: i32 = 65;
+    let file = std::fs::File::open(path).unwrap();
+    file.sync_all().unwrap();
+    let mut l = Log2Phys { flags: 0, contigbytes: 1, devoffset: 0 };
+    // SAFETY: `l` outlives the call, which fills it in.
+    assert_eq!(unsafe { libc::fcntl(file.as_raw_fd(), F_LOG2PHYS_EXT, &raw mut l) }, 0);
+    l.devoffset
+}
+
 /// What a drawn library source track brings: nothing, a hot cue and a beat grid, a waveform ten
 /// seconds longer than the track, or a cue whose name is too long to write.
 #[derive(Debug, Clone, Copy, PartialEq)]
