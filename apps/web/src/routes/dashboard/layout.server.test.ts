@@ -3,10 +3,11 @@ import { COLLECTION } from '#lib/nsid.ts';
 import { HappyViewClient } from '#lib/server/happyview/client.ts';
 import { IndexedRepo } from '#lib/server/happyview/indexed.ts';
 import { silentLogger } from '#lib/server/logger.ts';
+import { BookingService } from '#lib/server/services/bookings.ts';
 import { ProfileService } from '#lib/server/services/profiles.ts';
 import { ProjectService } from '#lib/server/services/projects.ts';
 import { ROOT } from '#lib/server/testing/core.ts';
-import { DJ, pressKitServices, PROMOTER } from '#lib/server/testing/press-kits.ts';
+import { DJ, pressKitServices, PROMOTER, STRANGER } from '#lib/server/testing/press-kits.ts';
 import { writtenLog } from '#lib/server/testing/written-log.ts';
 import { callRoute, loadRoute } from '#lib/testing/route-event.ts';
 import { load } from './+layout.server.ts';
@@ -60,6 +61,18 @@ it("streams the projects the account manages and its profile's sections, with it
 	expect(data.unread).toBe(1);
 });
 
+it('counts what waits on the account, and streams who is waiting on a press kit', async () => {
+	await inquiry();
+	const epk = await f.publish(DJ);
+	await f.t.epks.request(await f.t.viewer(STRANGER), f.kit(epk), {});
+
+	const data = await opened(DJ);
+
+	expect(data.waiting).toBe(1);
+	expect((await data.needs).map((row) => row.title)).toEqual(['Reply to Warehouse Night']);
+	expect((await data.access).map((row) => row.action)).toEqual(['Review']);
+});
+
 it('shows every section for an account without a profile', async () => {
 	const data = await opened(PROMOTER);
 
@@ -73,6 +86,28 @@ it("marks what the inbox said about a booking thread read as it's opened, and no
 
 	expect((await opened(DJ, { skey: 'missing' })).unread).toBe(1);
 	expect((await opened(DJ, { skey })).unread).toBe(0);
+});
+
+it('counts what waits on the account while the directory is down', async () => {
+	await inquiry();
+
+	const down = new HappyViewClient({
+		url: 'http://happyview.test',
+		fetch: async () => new Response(null, { status: 503 })
+	});
+
+	const projects = new ProjectService(f.t.core, down);
+
+	const data = await opened(DJ, {
+		app: {
+			projects,
+			bookings: new BookingService(f.t.core, projects),
+			profiles: new ProfileService(f.t.core, new IndexedRepo(down, silentLogger, 0))
+		}
+	});
+
+	expect(data.waiting).toBe(1);
+	expect((await data.needs).map((row) => row.title)).toEqual(['Reply to Warehouse Night']);
 });
 
 it('opens with the projects and sections left out while the directory is down', async () => {

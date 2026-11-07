@@ -216,6 +216,17 @@ describe('BrowserFrame', () => {
 });
 
 describe('DateBlock', () => {
+	it('dashes a tentative date and drops its colour, and keeps a settled one solid', async () => {
+		const { rerender } = await render(DateBlock, { date: '2026-11-14', tentative: true });
+
+		const block = page.getByText('14').element().closest('time');
+		expect(block?.getAttribute('datetime')).toBe('2026-11-14');
+		expect(block?.className).toContain('border-dashed');
+
+		await rerender({ tentative: false });
+		expect(block?.className).not.toContain('border-dashed');
+	});
+
 	it('reads the record date as a calendar page', async () => {
 		const { container } = await render(DateBlock, { date: '2026-10-16', tone: 'aqua' });
 		const time = container.querySelector('time');

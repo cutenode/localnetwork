@@ -1,162 +1,246 @@
 import { page } from 'vitest/browser';
 import { expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
-import type { BookingThreadView, PlannerShowView, ProjectView, Viewer } from '#lib/types.ts';
+import type { NeedsRow, NightRow } from '#lib/home.ts';
+import type { ProjectView, Viewer } from '#lib/types.ts';
 import Page from './+page.svelte';
+import type { PageProps } from './$types';
 
-const viewer = (did: string, handle: string): Viewer => ({
-	did,
-	handle,
+const viewer = (spacesCapable = true): Viewer => ({
+	did: 'did:plc:neon',
+	handle: 'neon.test',
 	roles: [],
 	isAdmin: false,
 	isStaff: false,
-	spacesCapable: true
+	spacesCapable
 });
 
-const neon: ProjectView = {
-	uri: 'at://did:plc:root/computer.localnetwork.project/2',
-	rkey: '2',
-	cid: 'c',
-	slug: 'neon-tide',
-	profile: { name: 'Neon Tide', kind: 'solo', genres: ['techno'], location: { city: 'Berlin', country: 'DE' } },
-	managers: ['did:plc:neon'],
-	status: 'active',
-	revision: 1,
-	createdBy: 'did:plc:a',
-	createdAt: '2026-01-01T00:00:00Z',
-	updatedAt: '2026-01-01T00:00:00Z',
-	avatarUrl: null
-};
+const need = (title: string, action = 'Reply'): NeedsRow => ({
+	key: title,
+	scope: 'Neon Tide',
+	title,
+	detail: 'Sat 14 Nov · From @pat.test · 2 hours ago',
+	href: `/dashboard/bookings/${title}`,
+	action
+});
 
-const waiting: BookingThreadView = {
-	space: 'at://did:plc:root/computer.localnetwork.space.booking/3k',
-	skey: '3k',
-	status: 'negotiating',
-	title: 'Closing Night',
-	showDate: null,
-	project: { uri: neon.uri, slug: 'neon-tide', name: 'Neon Tide' },
-	promoter: { did: 'did:plc:pat', handle: 'pat.test' },
-	participants: [
-		{ did: 'did:plc:pat', handle: 'pat.test', role: 'promoter' },
-		{ did: 'did:plc:neon', handle: 'neon.test', role: 'manager' }
-	],
-	lastAuthor: 'did:plc:neon',
-	lastActivityAt: '2026-10-01T00:00:00Z',
-	createdAt: '2026-10-01T00:00:00Z'
-};
+const night = (title: string, overrides: Partial<NightRow> = {}): NightRow => ({
+	key: title,
+	date: '2026-11-14',
+	title,
+	detail: 'You play 23:00 as Neon Tide',
+	href: `/dashboard/shows/${title}`,
+	tentative: false,
+	...overrides
+});
 
-const show: PlannerShowView = {
-	rkey: 's1',
-	details: { title: 'Winter Social', venue: 'Kantine' },
-	lineup: [{ project: neon.uri }],
-	createdAt: '2026-10-01T00:00:00Z'
-};
+const nights = (rows: NightRow[], overrides = {}) =>
+	Promise.resolve({ nights: rows, more: 0, failed: false, ...overrides });
 
-const base = {
+// SAFETY: the page reads only an act's slug and name.
+const act = { slug: 'neon-tide', profile: { name: 'Saffron Social' } } as ProjectView;
+
+const base: PageProps['data'] = {
+	viewer: viewer(),
 	pendingRequests: 0,
 	unread: 0,
 	sections: Promise.resolve(null),
-	requests: [],
-	threads: [],
+	projects: Promise.resolve([act]),
 	waiting: 0,
-	firstRun: null
+	needs: [],
+	access: Promise.resolve([]),
+	firstRun: null,
+	summary: { others: null, hasBookings: true },
+	nights: nights([])
 };
 
-it("leads a promoter's overview with threads waiting on them and their planner, not projects", async () => {
-	await render(Page, {
-		params: {},
-		form: null,
-		data: {
-			...base,
-			viewer: viewer('did:plc:pat', 'pat.test'),
-			projects: Promise.resolve([]),
-			books: Promise.resolve(true),
-			threads: [waiting],
-			waiting: 1,
-			planner: Promise.resolve({
-				available: true as const,
-				saves: [{ rkey: 'a', project: neon.uri, createdAt: '' }],
-				shows: [show],
-				projects: { [neon.uri]: neon }
-			})
-		}
+const open = (data: Partial<PageProps['data']>) => render(Page, { params: {}, form: null, data: { ...base, ...data } });
+
+it('says how many things need the viewer and their next night, then lists both', async () => {
+	await open({
+		waiting: 2,
+		needs: [need('Reply to Rooftop Rave'), need('Reply to Closing Night')],
+		nights: nights([night('Friday Social', { when: 'Tomorrow' }), night('Late Room', { tentative: true })])
 	});
 
-	await expect.element(page.getByRole('heading', { name: '@pat.test' })).toBeInTheDocument();
-	await expect.element(page.getByText(/did:plc/)).not.toBeInTheDocument();
+	await expect.element(page.getByRole('heading', { level: 1 })).toHaveTextContent('2 things need you.');
+	await expect.element(page.getByText('Your next night is tomorrow: Friday Social.')).toBeInTheDocument();
+
+	const needs = page.getByRole('region', { name: 'Needs you' });
 	await expect
-		.element(page.getByRole('heading', { name: /Booking threads/ }))
-		.toHaveTextContent('Booking threads 1 waiting on you');
-	await expect.element(page.getByText('Needs your reply')).toBeInTheDocument();
+		.element(needs.getByRole('link', { name: 'Reply: Reply to Rooftop Rave' }))
+		.toHaveAttribute('href', '/dashboard/bookings/Reply to Rooftop Rave');
+	// Only the first row is the page's primary action.
+	expect(
+		needs
+			.getByRole('link')
+			.elements()
+			.map((link) => link.classList.contains('btn-primary'))
+	).toEqual([true, false]);
+
 	await expect
-		.element(page.getByRole('link', { name: 'Winter Social' }))
-		.toHaveAttribute('href', '/dashboard/planner/shows/s1');
+		.element(page.getByRole('region', { name: 'Next up' }).getByRole('link', { name: 'Friday Social' }))
+		.toHaveAttribute('href', '/dashboard/shows/Friday Social');
+	await expect.element(page.getByText('Tomorrow', { exact: true })).toBeInTheDocument();
+});
+
+it('names a night by its date when it is further off', async () => {
+	await open({ nights: nights([night('Late Room', { date: '2026-11-14' })]) });
+
+	await expect.element(page.getByText('Your next night is Sat 14 Nov: Late Room.')).toBeInTheDocument();
+});
+
+it('adds people waiting on a press kit to the count once they arrive', async () => {
+	await open({
+		waiting: 1,
+		needs: [need('Reply to Rooftop Rave')],
+		access: Promise.resolve([need('Let @lena.test see Clubs?', 'Review')])
+	});
+
+	await expect.element(page.getByRole('heading', { level: 1 })).toHaveTextContent('2 things need you.');
+	await expect.element(page.getByRole('link', { name: 'Review: Let @lena.test see Clubs?' })).toBeInTheDocument();
+});
+
+it('stops the list at five and says how many more', async () => {
+	await open({ waiting: 7, needs: ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((title) => need(title)) });
+
+	await expect.element(page.getByRole('heading', { level: 1 })).toHaveTextContent('7 things need you.');
+	expect(page.getByRole('region', { name: 'Needs you' }).getByRole('listitem').elements()).toHaveLength(5);
+	await expect.element(page.getByRole('link', { name: '2 more' })).toHaveAttribute('href', '/dashboard/bookings');
+});
+
+it('says when more nights follow', async () => {
+	await open({ nights: nights([night('Late Room')], { more: 2 }) });
+
+	await expect.element(page.getByText('And 2 more nights after that.')).toBeInTheDocument();
+});
+
+it('drops empty sections, leaving the status line and what others have', async () => {
+	await open({
+		summary: { others: '1 booking is waiting on a promoter. Nothing needed from you.', hasBookings: true }
+	});
+
+	await expect.element(page.getByRole('heading', { level: 1 })).toHaveTextContent('Nothing needs you.');
+	await expect.element(page.getByText('No nights coming up.')).toBeInTheDocument();
+	await expect.element(page.getByText('1 booking is waiting on a promoter.', { exact: false })).toBeInTheDocument();
+	await expect.element(page.getByRole('region', { name: 'Needs you' })).not.toBeInTheDocument();
+	await expect.element(page.getByRole('region', { name: 'Next up' })).not.toBeInTheDocument();
+	await expect.element(page.getByText('Nothing here yet')).not.toBeInTheDocument();
+});
+
+it('holds room for what needs the viewer while it streams, and shows it when it lands', async () => {
+	let land = (_rows: NeedsRow[]) => {};
+
+	const needs = new Promise<NeedsRow[]>((resolve) => (land = resolve));
+
+	await open({ waiting: 1, needs });
+
+	await expect.element(page.getByRole('heading', { level: 1 })).toHaveTextContent('1 thing needs you.');
+	const room = page.getByRole('status', { name: 'Loading what needs you' });
+	expect(room.getByRole('listitem').elements()).toHaveLength(1);
+
+	land([need('Reply to Rooftop Rave')]);
+
+	await expect.element(page.getByRole('link', { name: 'Reply: Reply to Rooftop Rave' })).toBeInTheDocument();
+	await expect.element(page.getByRole('status', { name: 'Loading what needs you' })).not.toBeInTheDocument();
+});
+
+it('asks a streamed first visit to set up once it knows, in place of the status', async () => {
+	await open({
+		firstRun: Promise.resolve({ name: 'Pat', hasAvatar: false }),
+		summary: Promise.resolve({ others: null, hasBookings: false })
+	});
+
+	await expect.element(page.getByRole('heading', { level: 1 })).toHaveTextContent('Set up your page');
+});
+
+it('holds room for nights still on their way, without holding up what needs the viewer', async () => {
+	await open({ waiting: 1, needs: [need('Reply to Rooftop Rave')], nights: new Promise(() => {}) });
+
+	await expect.element(page.getByRole('link', { name: 'Reply: Reply to Rooftop Rave' })).toBeInTheDocument();
+	await expect.element(page.getByRole('status', { name: 'Loading your nights' })).toBeInTheDocument();
+	expect(document.querySelector('[aria-busy="true"]')?.querySelectorAll('li')).toHaveLength(3);
+	await expect.element(page.getByText('Finding your next night')).toBeInTheDocument();
+});
+
+it('keeps the nights it has and offers another try when some are missing', async () => {
+	await open({ nights: nights([night('Rooftop Rave')], { failed: true }) });
+
+	await expect.element(page.getByRole('link', { name: 'Rooftop Rave' })).toBeInTheDocument();
+	await expect.element(page.getByText("Some of your nights didn't load.", { exact: false })).toBeInTheDocument();
+	await expect.element(page.getByRole('link', { name: 'Try again' })).toHaveAttribute('href', '/dashboard');
+});
+
+it('offers another try, not a broken page, when the nights fail outright', async () => {
+	await open({ nights: Promise.reject(new Error('down')) });
+
+	await expect.element(page.getByRole('link', { name: 'Try again' })).toBeInTheDocument();
+});
+
+it('leads a first visit with setting up, and says the card goes away', async () => {
+	await open({
+		firstRun: { name: 'Pat', hasAvatar: false },
+		summary: { others: null, hasBookings: false },
+		projects: Promise.resolve([])
+	});
+
+	await expect.element(page.getByRole('heading', { level: 1 })).toHaveTextContent('Set up your page');
+	await expect.element(page.getByText("This goes away when you're done.")).toBeInTheDocument();
+	await expect.element(page.getByRole('heading', { name: 'Start with your name' })).toBeInTheDocument();
+});
+
+it('puts what waits on a new account ahead of setting up', async () => {
+	await open({
+		waiting: 1,
+		firstRun: { name: 'Pat', hasAvatar: false },
+		needs: [need('Answer Neon Tide about Rooftop Rave')]
+	});
+
+	await expect.element(page.getByRole('heading', { level: 1 })).toHaveTextContent('1 thing needs you.');
+
+	const [first, second] = [
+		page.getByRole('region', { name: 'Needs you' }).element(),
+		page.getByRole('region', { name: 'Start with your name' }).element()
+	];
+
+	expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+it('suggests freshening up an act when all is quiet', async () => {
+	await open({
+		summary: { others: null, hasBookings: false },
+		projects: Promise.resolve([{ ...act, profile: { ...act.profile, name: 'Neon Tide' } }])
+	});
+
 	await expect
-		.element(page.getByRole('link', { name: 'Neon Tide', exact: true }))
-		.toHaveAttribute('href', '/projects/neon-tide');
-	await expect.element(page.getByRole('heading', { name: 'Projects you manage' })).not.toBeInTheDocument();
-	await expect.element(page.getByRole('heading', { name: 'Your submissions' })).not.toBeInTheDocument();
+		.element(page.getByRole('link', { name: 'Neon Tide' }))
+		.toHaveAttribute('href', '/dashboard/projects/neon-tide');
+});
+
+it('suggests freshening up an act when all is quiet', async () => {
+	const neon = { ...act, profile: { ...act.profile, name: 'Neon Tide' } };
+
+	await open({ summary: { others: null, hasBookings: false }, projects: Promise.resolve([neon]) });
+
+	await expect
+		.element(page.getByRole('link', { name: 'Neon Tide' }))
+		.toHaveAttribute('href', '/dashboard/projects/neon-tide');
+});
+
+it('gives someone with nothing yet a next step', async () => {
+	await open({ summary: { others: null, hasBookings: false }, projects: Promise.resolve([]) });
+
+	await expect.element(page.getByText('Nothing here yet')).toBeInTheDocument();
+	await expect.element(page.getByRole('link', { name: 'Find DJs' })).toHaveAttribute('href', '/projects');
 	await expect
 		.element(page.getByRole('link', { name: 'List a project' }))
 		.toHaveAttribute('href', '/dashboard/projects/new');
 });
 
-it("shows a promoter's empty planner with next steps", async () => {
-	await render(Page, {
-		params: {},
-		form: null,
-		data: {
-			...base,
-			viewer: viewer('did:plc:pat', 'pat.test'),
-			projects: Promise.resolve([]),
-			books: Promise.resolve(true),
-			planner: Promise.resolve({ available: true as const, saves: [], shows: [], projects: {} })
-		}
-	});
-
-	await expect.element(page.getByRole('link', { name: 'Find DJs' }).first()).toHaveAttribute('href', '/projects');
-	await expect
-		.element(page.getByRole('link', { name: 'Plan a show' }))
-		.toHaveAttribute('href', '/dashboard/planner/shows/new');
-});
-
-it("leads a DJ's overview with their projects, then their threads and submissions", async () => {
-	await render(Page, {
-		params: {},
-		form: null,
-		data: {
-			...base,
-			viewer: viewer('did:plc:neon', 'neon.test'),
-			projects: Promise.resolve([neon]),
-			books: Promise.resolve(false),
-			planner: Promise.resolve(null)
-		}
-	});
+it("says when the account's server can't keep private data", async () => {
+	await open({ viewer: viewer(false) });
 
 	await expect
-		.element(page.getByRole('link', { name: 'Manage Neon Tide' }))
-		.toHaveAttribute('href', '/dashboard/projects/neon-tide');
-	await expect.element(page.getByText(/When a promoter sends an inquiry/)).toBeInTheDocument();
-	await expect.element(page.getByText('No submissions yet')).toBeInTheDocument();
-	await expect.element(page.getByRole('heading', { name: 'Planned shows' })).not.toBeInTheDocument();
-});
-
-it('keeps a DJ profile without projects on the DJ overview, and offers a first profile to set up', async () => {
-	await render(Page, {
-		params: {},
-		form: null,
-		data: {
-			...base,
-			viewer: viewer('did:plc:neon', 'neon.test'),
-			projects: Promise.resolve([]),
-			books: Promise.resolve(false),
-			planner: Promise.resolve(null),
-			firstRun: { name: 'Neon', hasAvatar: false }
-		}
-	});
-
-	await expect.element(page.getByRole('heading', { name: 'Set up your profile' })).toBeInTheDocument();
-	await expect.element(page.getByText("You don't manage any projects yet")).toBeInTheDocument();
-	await expect.element(page.getByRole('link', { name: 'Find yours' })).toHaveAttribute('href', '/projects');
-	await expect.element(page.getByRole('heading', { name: 'Planned shows' })).not.toBeInTheDocument();
+		.element(page.getByRole('link', { name: 'see what it keeps' }))
+		.toHaveAttribute('href', '/dashboard/data');
 });
