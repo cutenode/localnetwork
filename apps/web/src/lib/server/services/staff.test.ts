@@ -76,6 +76,27 @@ describe('StaffService', () => {
 		expect(await t.staff.grants(MOD)).toEqual(['flagGroups']);
 	});
 
+	it("keeps a moderator's note, and who granted their role, when their grants change", async () => {
+		const admin = await t.viewer(ADMIN);
+		await t.staff.grant(admin, MOD, 'moderator', 'Weekends');
+		await t.staff.setGrants(admin, MOD, ['flags']);
+
+		expect((await t.staff.list()).find((member) => member.did === MOD)).toMatchObject({
+			note: 'Weekends',
+			grantedBy: ADMIN,
+			grants: ['flags']
+		});
+	});
+
+	it('names the admin setting grants on a role that says nobody granted it', async () => {
+		const admin = await t.viewer(ADMIN);
+		await t.staff.grant(admin, MOD, 'moderator');
+		await t.db.updateTable('staffRole').set({ grantedBy: null }).where('did', '=', MOD).execute();
+		await t.staff.setGrants(admin, MOD, ['flags']);
+
+		expect((await t.staff.list()).find((member) => member.did === MOD)?.grantedBy).toBe(ADMIN);
+	});
+
 	it('only lets admins set grants, and only on moderators', async () => {
 		const admin = await t.viewer(ADMIN);
 		await t.staff.grant(admin, MOD, 'moderator');

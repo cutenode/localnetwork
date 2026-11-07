@@ -1,10 +1,16 @@
 import { page } from 'vitest/browser';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import { stubFormAction } from '#lib/testing/form-action.ts';
 import type { FlagGroupView, FlagView, StaffMember } from '#lib/types.ts';
 import FlagGroupTable from './FlagGroupTable.svelte';
 import FlagTable from './FlagTable.svelte';
+import StaffGrants from './StaffGrants.svelte';
 import StaffTable from './StaffTable.svelte';
+
+afterEach(() => {
+	vi.unstubAllGlobals();
+});
 
 const flag = (gates: Partial<FlagView>): FlagView => ({
 	key: 'parityCanary',
@@ -80,6 +86,17 @@ describe('FlagGroupTable', () => {
 		await expect.element(page.getByText('parityCanary').first()).toBeInTheDocument();
 	});
 
+	it("counts a group's accounts", async () => {
+		const member = (did: string) => ({ did, handle: null });
+		const { rerender } = await render(FlagGroupTable, { groups: [group({ members: [member('did:plc:a')] })] });
+
+		await expect.element(page.getByText('1 account', { exact: false }).first()).toBeInTheDocument();
+
+		await rerender({ groups: [group({ members: [member('did:plc:a'), member('did:plc:b')] })] });
+
+		await expect.element(page.getByText('2 accounts', { exact: false }).first()).toBeInTheDocument();
+	});
+
 	it('says when a group is unused, and when there are no groups', async () => {
 		const { rerender } = await render(FlagGroupTable, { groups: [group({})] });
 
@@ -102,6 +119,19 @@ describe('StaffTable', () => {
 		createdAt: '2026-10-12T10:00:00Z',
 		bootstrap: false,
 		...fields
+	});
+
+	it('posts what was ticked, for that moderator', async () => {
+		const server = stubFormAction();
+		await render(StaffGrants, { member: member({ grants: ['flags'] }) });
+
+		await page.getByRole('checkbox', { name: 'Flag groups' }).click();
+		await page.getByRole('button', { name: 'Save' }).click();
+		await expect.poll(() => server.sent.length).toBe(1);
+
+		expect(server.sent[0].get('did')).toBe('did:plc:mod');
+		expect(server.sent[0].getAll('grants')).toEqual(['flags', 'flagGroups']);
+		server.answer();
 	});
 
 	it('ticks the grants a moderator holds', async () => {

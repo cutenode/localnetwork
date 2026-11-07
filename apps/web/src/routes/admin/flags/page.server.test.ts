@@ -120,6 +120,19 @@ it('says which account it could not find, and saves nothing', async () => {
 	expect((await t.flags.flag(FLAG))?.updatedAt).toBeNull();
 });
 
+it('reads an empty percentage as none', async () => {
+	const result = await callRoute(flagActions.save, {
+		app: app(),
+		viewer: await t.viewer(ADMIN),
+		url: `/admin/flags/${FLAG}`,
+		params: { key: FLAG },
+		form: { percentage: '', accounts: 'milo.test' }
+	});
+
+	expect(result).toEqual({ success: 'Flag saved' });
+	expect(await t.flags.flag(FLAG)).toMatchObject({ percentage: 0 });
+});
+
 it('refuses a percentage out of range', async () => {
 	const result = await callRoute(flagActions.save, {
 		app: app(),

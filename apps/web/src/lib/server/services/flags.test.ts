@@ -162,6 +162,24 @@ describe('FlagService', () => {
 		expect(await t.flags.group('nope')).toBeNull();
 	});
 
+	it('shows a group that has gone by its key, so a flag still naming it can be fixed', async () => {
+		const at = '2026-11-01T00:00:00.000Z';
+		const uri = spaceRecordUri(t.spaces.staff, t.core.rootDid, COLLECTION.staffFlag, FLAG);
+
+		await t.flags.indexFlag(uri, {
+			key: FLAG,
+			everyone: false,
+			percentage: 0,
+			groups: ['gone'],
+			dids: [],
+			updatedBy: ADMIN,
+			updatedAt: at
+		});
+
+		expect(await t.flags.flag(FLAG)).toMatchObject({ groups: [{ rkey: 'gone', name: 'gone' }] });
+		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: false });
+	});
+
 	it('lists groups by name', async () => {
 		const admin = await t.viewer(ADMIN);
 		await t.flags.createGroup(admin, { name: 'Zines', members: [] });

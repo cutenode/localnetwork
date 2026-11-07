@@ -44,7 +44,7 @@ export async function getFlags(authorization: string | null, options: GetFlagsOp
 	try {
 		({ iss: did } = await verifyServiceJwt(authorization, { audience, lxm: GET_FLAGS, getSigningKey }));
 	} catch (error) {
-		log.warn({ err: error }, 'rejected getFlags');
+		log.warn('rejected getFlags', { err: error });
 
 		return Response.json(
 			{ error: 'AuthenticationRequired', message: 'Invalid service auth' },

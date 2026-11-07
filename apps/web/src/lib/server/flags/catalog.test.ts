@@ -23,6 +23,15 @@ it('reads every flag in the catalog, in order', () => {
 	expect(FLAGS.map((flag) => flag.key)).toEqual(FLAGS.map((flag) => flag.key).toSorted((a, b) => a.localeCompare(b)));
 });
 
+it('puts flags in order, whatever order the files came in', () => {
+	const flags = parseCatalog([
+		['/flags/catalog/zines.json', { key: 'zines', description: 'Zines.' }],
+		['/flags/catalog/beta.json', { key: 'beta', description: 'Beta.' }]
+	]);
+
+	expect(flags.map((flag) => flag.key)).toEqual(['beta', 'zines']);
+});
+
 it('refuses a file not named for its key', () => {
 	const file = { key: 'newPlanner', description: 'The new planner.' };
 
