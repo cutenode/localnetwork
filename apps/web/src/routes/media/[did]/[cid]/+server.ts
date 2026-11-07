@@ -36,7 +36,7 @@ export const GET: RequestHandler = async ({ params, locals, fetch }) => {
 	const request = isRoot ? fetch(url, { signal }) : app.identity.fetch(url, { redirect: 'error', signal });
 
 	const upstream = await request.catch((cause: unknown) => {
-		locals.log.warn({ err: cause, did }, "couldn't fetch an avatar from an account's PDS");
+		locals.log.warn("couldn't fetch an avatar from an account's PDS", { err: cause, did });
 		error(404, 'Not found');
 	});
 

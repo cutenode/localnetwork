@@ -4,7 +4,7 @@
 
   The list is the tool's own and is kept for good (./artists.svelte.ts), the
   way the Manager's is: nothing goes onto it by itself, and the bar at the top
-  is the one place artists come in — from the tab in front, from the Manager's
+  is the one place artists come in: from the tab in front, from the Manager's
   list, or from the session queue. Adding puts the artists on the list at once,
   from what the source itself says (a name and the tracks), and then asks
   SoundCloud about each one it has no answer for: the public profile behind
@@ -12,10 +12,10 @@
   first answer and fill in as the answers land.
 
   A row is the artist's picture, name and a line about them, and then their
-  socials as lettered badges — one per link, each opening that page. The
+  socials as lettered badges, one per link, each opening that page. The
   chevron opens the row into everything else: every link as an address to
   copy, the bio, the place, the follower count, the tracks that brought the
-  artist here — and, from Settings, the search badges that look for the
+  artist here, and the search badges from Settings that look for the
   artist on the shops the Manager searches.
 
   The socials are asked for through a SoundCloud tab (./lookup.ts), any page
@@ -231,7 +231,7 @@
   let note = $state<{ tone: 'bad' | 'info'; text: string } | null>(null);
 
   // Answers arriving from the lookup, an artist at a time, taken straight
-  // into the list — the store coalesces the writes. A row stops saying it is
+  // into the list; the store coalesces the writes. A row stops saying it is
   // being looked up the moment its own answer lands, not when the whole
   // lookup ends.
   try {
@@ -326,7 +326,7 @@
     if (extra) note = { tone: 'info', text: `${said(tally, from)}. ${extra}` };
     else toasts.ok(said(tally, from));
 
-    // Then the socials, for whichever of them nobody has asked about — where
+    // Then the socials, for whichever of them nobody has asked about, where
     // there is a SoundCloud tab to ask. Without one the rows say so, and the
     // bar offers the lookup once there is.
     if (!onSc) return;
@@ -568,7 +568,7 @@
       {#if artists.count > 0}
         {#if unchecked.length > 0 || lookingUp}
           <!-- The artists nobody has asked SoundCloud about, and the button
-               that asks — or, on a tab that cannot ask, why it is off. -->
+               that asks, or why it is off on a tab that cannot ask. -->
           <div
             class="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-caption text-fg-soft"
             role="status"

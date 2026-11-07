@@ -40,6 +40,8 @@ pub const SQLITE_MAGIC: &[u8; 16] = b"SQLite format 3\0";
 /// that large it is a hole of zeros.
 pub const LOCK_PAGE: u32 = (0x4000_0000 / PAGE_SIZE) as u32 + 1;
 
+mod stored;
+
 type HmacSha512 = Hmac<Sha512>;
 type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
 type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
@@ -50,8 +52,8 @@ struct Keys {
     hmac: [u8; 32],
 }
 
-/// Key derivation costs a few hundred milliseconds and every file keeps its salt for life, so
-/// derived keys are remembered per passphrase and salt.
+/// Key derivation costs tens of milliseconds and every file keeps its salt for life, so derived
+/// keys are remembered per passphrase and salt, and a drive's between runs too ([`stored`]).
 fn derive(passphrase: &[u8], salt: &[u8; SALT_LEN]) -> Keys {
     type Cache = FxHashMap<(Vec<u8>, [u8; SALT_LEN]), Keys>;
     static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
@@ -60,6 +62,20 @@ fn derive(passphrase: &[u8], salt: &[u8; SALT_LEN]) -> Keys {
     if let Some(k) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&id) {
         return *k;
     }
+    let folder = (passphrase == PASSPHRASE.as_bytes()).then(stored::folder).flatten();
+    let kept = folder.as_deref().and_then(|f| stored::load(f, salt));
+    let keys = kept.unwrap_or_else(|| {
+        let keys = pbkdf2_keys(passphrase, salt);
+        if let Some(folder) = &folder {
+            stored::save(folder, salt, &keys);
+        }
+        keys
+    });
+    cache.lock().unwrap_or_else(|e| e.into_inner()).insert(id, keys);
+    keys
+}
+
+fn pbkdf2_keys(passphrase: &[u8], salt: &[u8; SALT_LEN]) -> Keys {
     // ring's PBKDF2 is assembly, as fast unoptimised as in a release build; the generic RustCrypto
     // one runs at debug speed in tests (its code is compiled into this crate), seconds a process.
     let pbkdf2 = |rounds: u32, salt: &[u8], secret: &[u8], out: &mut [u8; 32]| {
@@ -71,9 +87,7 @@ fn derive(passphrase: &[u8], salt: &[u8; SALT_LEN]) -> Keys {
     let hmac_salt: Vec<u8> = salt.iter().map(|b| b ^ HMAC_SALT_MASK).collect();
     let mut hmac = [0u8; 32];
     pbkdf2(HMAC_KDF_ROUNDS, &hmac_salt, &cipher, &mut hmac);
-    let keys = Keys { cipher, hmac };
-    cache.lock().unwrap_or_else(|e| e.into_inner()).insert(id, keys);
-    keys
+    Keys { cipher, hmac }
 }
 
 /// Encrypts and decrypts the pages of one database file.

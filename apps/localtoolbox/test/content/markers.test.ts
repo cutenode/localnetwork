@@ -1,9 +1,9 @@
-// content.ts — the markers painted on the page (Downloaded / nodl), how they
+// content.ts: the markers painted on the page (Downloaded / nodl), how they
 // follow storage and SoundCloud's lazy rendering, and the clicks on
 // SoundCloud's own download buttons that create marks.
 //
 // Being in the session queue is not one of them: the queue button says that
-// itself, in the opposite corner — see queue-button.test.ts.
+// itself, in the opposite corner (see queue-button.test.ts).
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { loadContentScript, disposeContentScripts } from '../helpers/load.ts';
 import { createChrome, type ChromeMock, type ChromeOptions } from '../helpers/chrome.ts';
@@ -125,9 +125,8 @@ describe('painting marks', () => {
 		for (const n of ['buy', 'dl', 'old', 'failed']) expect(marksOf(`/a/${n}`)).toEqual([]);
 	});
 
-	// The queue used to be a pill of its own here, in the corner opposite the
-	// button that fills it. It is the button that says so now, so a queued track
-	// that is nothing else carries no pill at all.
+	// The button that fills the queue also says a track is in it, so a queued
+	// track that is nothing else carries no pill at all.
 	it('paints no pill for a track that is merely in the session queue', async () => {
 		globalThis.chrome = createChrome({
 			session: { queue: [{ permalink: '/a/one' }, { permalink: '/l/one' }, { permalink: '/t/one' }] }
@@ -139,7 +138,7 @@ describe('painting marks', () => {
 			expect(marksOf(permalink), permalink).toEqual([]);
 		}
 
-		// The queue was read — the buttons say so — so no pill is the page
+		// The queue was read (the buttons say so), so no pill is the page
 		// choosing not to paint one, not the page not knowing.
 		const queueState = (permalink: string) =>
 			artOf(permalink).querySelector<HTMLElement>(':scope > .tbx-queue')!.dataset.state;
@@ -173,7 +172,7 @@ describe('painting marks', () => {
 	});
 
 	// The same .fullHero renders on a playlist page, where the artwork is the
-	// playlist's own. A playlist is not a track to mark — even when a track of
+	// playlist's own. A playlist is not a track to mark, even when a track of
 	// the same path has been downloaded. (The rows name the playlist, so its
 	// path is the one the page would give the hero if it gave it anything.)
 	it("leaves a playlist's hero artwork alone", async () => {
@@ -190,8 +189,8 @@ describe('painting marks', () => {
 	});
 
 	// The player bar says what is playing wherever the page has scrolled to. Its
-	// 30 px artwork takes the compact variant, and an ad — whose title is a bare
-	// <span> naming no track — takes nothing.
+	// 30 px artwork takes the compact variant, and an ad (whose title is a bare
+	// <span> naming no track) takes nothing.
 	it('paints the player bar, compact, and leaves an ad alone', async () => {
 		globalThis.chrome = createChrome({
 			storage: { downloaded: { '/a/one': ISO }, details: { '/a/two': details('/a/two') } }
@@ -225,7 +224,7 @@ describe('painting marks', () => {
 		await loadContentScript();
 		expect(marksOf('/a/one').map((m) => m.kind)).toEqual(['downloaded']);
 		// With no queue button on it, the mark is the only thing that makes the
-		// artwork the overlay's containing block — and it still has to be one.
+		// artwork the overlay's containing block, and it still has to be one.
 		expect(artOf('/a/one').classList.contains('tbx-mark-host')).toBe(true);
 	});
 
@@ -275,7 +274,7 @@ describe('painting marks', () => {
 		const list = document.querySelector('.trackList__list')!;
 
 		// The row on the page turns into a downloaded track without an element
-		// being added — an attribute change, which never asks for a pass — so any
+		// being added (an attribute change, which never asks for a pass), so any
 		// pass that runs from here on shows up as a mark on it.
 		document.querySelector('.trackItem__trackTitle')!.setAttribute('href', '/a/recycled?in=c/sets/p');
 

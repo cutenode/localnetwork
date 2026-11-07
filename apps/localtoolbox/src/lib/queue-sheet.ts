@@ -1,7 +1,7 @@
 // Fetching the queue sheet's chunk.
 //
-// The sheet is not a tool — it comes up over whichever one is open, from a
-// button in the header of every view — so it is not in the registry and has no
+// The sheet is not a tool (it comes up over whichever one is open, from a
+// button in the header of every view), so it is not in the registry and has no
 // route. What it shares with the panels is the reason for being its own
 // chunk: it brings the component library with it, and the tool menu the popup
 // boots into is deliberately free of that (see $lib/tools.ts, and the note in

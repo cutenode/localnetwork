@@ -1,4 +1,4 @@
-// src/tools/manager/listed.svelte.ts — the Manager's list, kept for good.
+// src/tools/manager/listed.svelte.ts: the Manager's list, kept for good.
 //
 // The panel around it is tested in test/panels/manager.test.ts; what is here
 // is the store's own rules: what an entry keeps, what happens when the same
@@ -106,7 +106,7 @@ describe('the list', () => {
 		expect(listed.sources).toEqual(['My Playlist']);
 	});
 
-	// A page can render a row with none of this — a tile with no artist, a
+	// A page can render a row with none of this: a tile with no artist, a
 	// track page that never said whether you liked it. Absent is not false.
 	it('fills in what a page left out, without claiming anything about it', async () => {
 		const { listed } = await freshListed();
@@ -162,8 +162,8 @@ describe('the list', () => {
 		expect(result).toEqual({ added: 1, refreshed: 1, refused: 0 });
 		expect(listed.items.map((one) => one.permalink)).toEqual(['/a/one', '/b/two', '/c/three']);
 
-		// The words and the picture are the fresh ones — a page may have been
-		// renamed since — but when it came on, and off what, are not rewritten.
+		// The words and the picture are the fresh ones (a page may have been
+		// renamed since), but when it came on, and off what, are not rewritten.
 		const [first] = listed.items;
 		expect(first.title).toBe('renamed');
 		expect(first.from).toBe('First');
@@ -235,7 +235,7 @@ describe('the list', () => {
 		expect(listed.items.map((one) => one.permalink)).toEqual(['/a/one']);
 	});
 
-	// The two the list itself knows — where a track came in from, and when.
+	// The two the list itself knows: where a track came in from, and when.
 	// A page carries neither, so they are stamped; an entry out of an exported
 	// file carries both, and a restore that overwrote them would lose exactly
 	// what the file was written to keep.
@@ -304,7 +304,7 @@ describe('which of two answers about a track it keeps', () => {
 		expect(listed.items[0].details).toEqual(details());
 
 		// What the page said about a like, or a genre, is kept when a later
-		// sighting is silent — the badge tiles render neither.
+		// sighting is silent: the badge tiles render neither.
 		await listed.add([track('/a/one', { liked: true, reposted: true, genre: 'Techno' })]);
 		await listed.add([track('/a/one', { liked: null, reposted: false, genre: null })]);
 		expect(listed.items[0]).toMatchObject({ liked: true, reposted: false, genre: 'Techno' });

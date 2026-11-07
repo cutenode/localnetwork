@@ -35,5 +35,5 @@ jobs:
       - run: pnpm check
       - run: pnpm knip
       # The render tests draw the icon and the hero in Chromium.
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright install chromium
       - run: pnpm test:coverage

@@ -169,8 +169,10 @@ export class Outbox {
 
 	/** Sends everything due. A call while a run is going joins it. */
 	processDue(): Promise<void> {
-		this.running ??= this.run()
-			.catch((error) => this.deps.logger.error({ err: error }, 'notification delivery crashed'))
+		this.running ??= this.deps.logger
+			.job('notification-delivery', () =>
+				this.run().catch((error) => this.deps.logger.error('notification delivery crashed', { err: error }))
+			)
 			.finally(() => {
 				this.running = undefined;
 			});
@@ -190,7 +192,7 @@ export class Outbox {
 		const outcome = await sender.send(recipient, [{ ...TEST_ITEM, occurredAt: nowIso() }], `test-${TID.nextStr()}`);
 
 		if (outcome.kind === 'rejected') await this.deps.channels.pause(did, channel, outcome.reason);
-		this.deps.logger.info({ did, channel, outcome: outcome.kind }, 'sent a test notification');
+		this.deps.logger.info('sent a test notification', { did, channel, outcome: outcome.kind });
 
 		return outcome;
 	}
@@ -218,7 +220,7 @@ export class Outbox {
 
 		const recovered = Number(result.numUpdatedRows);
 
-		if (recovered > 0) this.deps.logger.warn({ recovered }, 'retrying notifications cut off mid-send');
+		if (recovered > 0) this.deps.logger.warn('retrying notifications cut off mid-send', { recovered });
 
 		return recovered;
 	}
@@ -337,13 +339,13 @@ export class Outbox {
 					.where('did', '=', did)
 					.where('channel', '=', channel)
 					.execute();
-				logger.info(log, 'sent notifications');
+				logger.info('sent notifications', log);
 
 				return;
 			case 'retryable': {
 				if (attempts >= (this.deps.maxAttempts ?? 8)) {
 					await this.finish(sending, { status: 'failed', lastError: outcome.error });
-					logger.error({ ...log, error: outcome.error }, 'gave up sending notifications');
+					logger.error('gave up sending notifications', { ...log, error: outcome.error });
 
 					return;
 				}
@@ -351,7 +353,7 @@ export class Outbox {
 				const wait = Math.max(backoffMs(attempts), outcome.retryAfterMs ?? 0);
 				const nextAttemptAt = new Date(Date.now() + wait).toISOString();
 				await this.finish(sending, { status: 'pending', nextAttemptAt, lastError: outcome.error });
-				logger.warn({ ...log, error: outcome.error, wait }, 'could not send notifications; trying again');
+				logger.warn('could not send notifications; trying again', { ...log, error: outcome.error, wait });
 
 				return;
 			}
@@ -359,12 +361,12 @@ export class Outbox {
 			case 'rejected':
 				await this.finish(sending, { status: 'failed', lastError: outcome.error });
 				await this.deps.channels.pause(did, channel, outcome.reason);
-				logger.warn({ ...log, error: outcome.error }, 'the address refused notifications');
+				logger.warn('the address refused notifications', { ...log, error: outcome.error });
 
 				return;
 			case 'failed':
 				await this.finish(sending, { status: 'failed', lastError: outcome.error });
-				logger.error({ ...log, error: outcome.error }, 'could not send notifications');
+				logger.error('could not send notifications', { ...log, error: outcome.error });
 		}
 	}
 

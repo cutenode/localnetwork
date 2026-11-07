@@ -10,15 +10,20 @@ mod audio;
 mod browse;
 mod crate_list;
 mod deck;
+mod docs;
 mod drives;
 mod edits;
 mod form;
+mod frames;
+mod icons;
 mod keymap;
 mod keys;
+mod looks;
 mod mix;
 mod mytags;
 mod palette;
 mod plugins;
+mod prepare;
 mod profile;
 #[cfg(test)]
 mod props;
@@ -26,10 +31,11 @@ mod props;
 mod screens;
 mod state;
 mod stderr;
+mod terminal;
 mod theme;
 mod ui;
 
-use std::io::stdout;
+use std::io::{IsTerminal, Write, stdout};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
@@ -37,7 +43,9 @@ use std::time::Duration;
 use anyhow::Result;
 use ratatui::crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind};
 use ratatui::crossterm::execute;
-use ratatui::crossterm::terminal::{EnterAlternateScreen, enable_raw_mode};
+use ratatui::crossterm::terminal::{
+    BeginSynchronizedUpdate, EndSynchronizedUpdate, EnterAlternateScreen, enable_raw_mode,
+};
 
 use self::app::App;
 
@@ -45,7 +53,12 @@ use self::app::App;
 /// it was showing (see `state.rs`).
 pub fn run(store_root: PathBuf, drive: Option<String>) -> Result<()> {
     theme::init();
+    icons::init();
     on_panic();
+    // Beside the player's own start, which is as long as the terminal takes to answer anyway.
+    let on_terminal = std::io::stdin().is_terminal() && stdout().is_terminal() && !theme::plain();
+    let tier_forced = theme::tier_forced();
+    let asked = std::thread::spawn(move || terminal::probe(on_terminal, tier_forced));
     // Open the audio device before taking over the screen: some backends print while starting.
     let mut app = App::new(store_root, drive);
     // Plugins' logs would draw over the screen: they go to the messages (`!`) while it runs.
@@ -55,6 +68,9 @@ pub fn run(store_root: PathBuf, drive: Option<String>) -> Result<()> {
     app.start_plugins();
     app.bind_plugin_keys();
     app.warn_signing_out();
+    let answers = asked.join().unwrap_or_default();
+    theme::answered(&answers);
+    app.expect_late(&answers);
     // (Not `ratatui::init`, whose panic hook would put the screen back for a worker's panic.)
     enable_raw_mode()?;
     execute!(stdout(), EnterAlternateScreen)?;
@@ -122,11 +138,23 @@ fn on_signal(app: &mut App) {
     }
 }
 
+/// A frame the terminal shows all at once (those that don't know the sequence ignore it).
+fn draw_synchronized<B>(terminal: &mut ratatui::Terminal<B>, app: &mut App) -> Result<()>
+where
+    B: ratatui::backend::Backend + Write,
+    B::Error: Send + Sync + 'static,
+{
+    execute!(terminal.backend_mut(), BeginSynchronizedUpdate)?;
+    terminal.draw(|f| ui::draw(f, app))?;
+    execute!(terminal.backend_mut(), EndSynchronizedUpdate)?;
+    Ok(())
+}
+
 fn event_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
     while !app.quit {
         on_signal(app);
         app.tick();
-        terminal.draw(|f| ui::draw(f, app))?;
+        draw_synchronized(terminal, app)?;
         // ~60 fps while something moves (unless asked for less motion), otherwise just often
         // enough for clocks and hot-plugging.
         let fast = app.animating() && !theme::reduced_motion();

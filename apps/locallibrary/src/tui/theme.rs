@@ -1,8 +1,14 @@
-//! Colours. Truecolor where the terminal supports it, the nearest xterm-256 colour otherwise
-//! (macOS Terminal.app, older tmux setups). The palette is made for a dark terminal; on a light
-//! one each colour is drawn with its lightness turned round (see `for_light`). With NO_COLOR set
-//! there are no colours at all, and what colour says is also said with bold, reverse video and
-//! symbols.
+//! Colours. A theme's colours are fitted once to what the terminal is (see `fit`): its colour tier
+//! (`tier`), its mode and its real background, read at startup (`terminal`). After that a colour
+//! only has to be turned into what the terminal draws, which is arithmetic and never a search, so
+//! a frame costs the same whatever the tier. On a light terminal the palette is `Theme::LIGHT`, and
+//! with 16 colours the roles of `ansi`. With NO_COLOR set there are no colours at all, and what
+//! colour says is also said with bold, reverse video and symbols, as it is where 16 colours can't
+//! put one colour behind another.
+
+mod ansi;
+mod fit;
+mod tier;
 
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
@@ -10,17 +16,24 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use locallibrary::model::TrackColor;
 use locallibrary::theme::Theme;
 use loclib_waveform::Palette;
-pub use loclib_waveform::color::{gradient, mix, scale};
+use loclib_waveform::color::fade as faded;
+pub use loclib_waveform::color::{better_ink, contrast, gradient, luminance, mix, scale};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
 use ratatui::widgets::BorderType;
 
+use self::fit::{DARK_PAGE, Fit, LIGHT_PAGE, MARK, legible, resolve};
+pub use self::tier::Tier;
+use self::tier::{ansi16, from_env, xterm256};
+use super::icons;
+use super::terminal::{Answers, Colours};
+
 /// How the player draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    /// The palette as made, for a dark background.
+    /// The palette made for a dark background.
     Dark,
-    /// The palette turned round for a light background.
+    /// The palette made for a light background.
     Light,
     /// No colours (NO_COLOR).
     Plain,
@@ -28,21 +41,74 @@ pub enum Mode {
 
 static MODE: AtomicU8 = AtomicU8::new(0);
 static REDUCED_MOTION: AtomicBool = AtomicBool::new(false);
+/// `LOCALLIBRARY_COLOR`, and what's asked for in the settings, by `Tier as u8 + 1`.
+static FORCED_TIER: AtomicU8 = AtomicU8::new(0);
+static CHOSEN_TIER: AtomicU8 = AtomicU8::new(0);
+/// What the terminal or its environment says.
+static DETECTED_TIER: AtomicU8 = AtomicU8::new(0);
+/// The one of those that counts by `Tier as u8`, kept apart as every coloured cell reads it, and
+/// worked out when first asked for unless the player's start has (tests draw as the environment
+/// says).
+static TIER: AtomicU8 = AtomicU8::new(UNSETTLED);
+const UNSETTLED: u8 = u8::MAX;
+/// Whether LOCALLIBRARY_THEME named a mode, which the terminal's own background doesn't overrule.
+static MODE_NAMED: AtomicBool = AtomicBool::new(false);
+/// The terminal's real colours, once it has said.
+static SAID: OnceLock<Colours> = OnceLock::new();
 
 #[cfg(test)]
 thread_local! {
     /// A test's own mode, so tests drawing in different modes can run side by side.
     static TEST_MODE: std::cell::Cell<Option<Mode>> = const { std::cell::Cell::new(None) };
+    /// A test's own colour tier, whatever terminal runs it.
+    static TEST_TIER: std::cell::Cell<Option<Tier>> = const { std::cell::Cell::new(None) };
+    /// A test's terminal: the colours it says it has.
+    static TEST_SAID: std::cell::Cell<Option<Colours>> = const { std::cell::Cell::new(None) };
+    /// A test's own theme, so tests drawing in different themes can run side by side.
+    static TEST_THEME: std::cell::Cell<Option<&'static Theme>> = const { std::cell::Cell::new(None) };
+    /// What those come to, worked out as each is set.
+    static TEST_CURRENT: std::cell::Cell<Option<&'static Theme>> = const { std::cell::Cell::new(None) };
 }
 
 /// Read how to draw from the environment, as the player starts (tests draw dark unless they
-/// say otherwise).
+/// say otherwise). The terminal's own answers, when it gives any, come after ([`answered`]).
 pub fn init() {
     let var = |k: &str| std::env::var(k).ok();
     let mode = detect(var("NO_COLOR"), var("LOCALLIBRARY_THEME"), var("COLORFGBG"));
     MODE.store(mode as u8 + 1, Ordering::Relaxed);
+    MODE_NAMED.store(names_a_mode(var("LOCALLIBRARY_THEME").as_deref()), Ordering::Relaxed);
     let reduced = var("LOCALLIBRARY_REDUCED_MOTION").is_some_and(|v| !matches!(v.trim(), "" | "0" | "false" | "no"));
     REDUCED_MOTION.store(reduced, Ordering::Relaxed);
+    FORCED_TIER.store(tier_code(var("LOCALLIBRARY_COLOR").and_then(|t| Tier::parse(&t))), Ordering::Relaxed);
+    DETECTED_TIER.store(from_env(var) as u8 + 1, Ordering::Relaxed);
+    settle_tier();
+}
+
+/// What the terminal answered as the player started: its colour tier and real colours, which also
+/// settle the mode unless LOCALLIBRARY_THEME named one. Before the first frame.
+pub fn answered(a: &Answers) {
+    if a.truecolor {
+        DETECTED_TIER.store(Tier::Truecolor as u8 + 1, Ordering::Relaxed);
+        settle_tier();
+    }
+    let Some(said) = a.colours else { return };
+    let _ = SAID.set(said);
+    let mode = mode_from(mode(), MODE_NAMED.load(Ordering::Relaxed), said);
+    MODE.store(mode as u8 + 1, Ordering::Relaxed);
+}
+
+/// The mode with what the terminal says of itself: its background decides, unless a mode was named.
+/// (It says nothing with colours off: it isn't asked.)
+fn mode_from(mode: Mode, named: bool, said: Colours) -> Mode {
+    match named {
+        true => mode,
+        false if luminance(said.background) > luminance(said.foreground) => Mode::Light,
+        false => Mode::Dark,
+    }
+}
+
+fn names_a_mode(theme: Option<&str>) -> bool {
+    theme.is_some_and(|t| matches!(t.trim().to_ascii_lowercase().as_str(), "light" | "dark"))
 }
 
 /// The mode the environment asks for: no colours when NO_COLOR is set to anything (see
@@ -79,15 +145,116 @@ pub fn mode() -> Mode {
     }
 }
 
+fn tier_code(tier: Option<Tier>) -> u8 {
+    tier.map_or(0, |t| t as u8 + 1)
+}
+
+/// Works out the colour tier drawn in: `LOCALLIBRARY_COLOR`, else the settings', else what was
+/// detected.
+fn settle_tier() {
+    if DETECTED_TIER.load(Ordering::Relaxed) == 0 {
+        DETECTED_TIER.store(from_env(|k| std::env::var(k).ok()) as u8 + 1, Ordering::Relaxed);
+    }
+    let forced = FORCED_TIER.load(Ordering::Relaxed);
+    let chosen = CHOSEN_TIER.load(Ordering::Relaxed);
+    let code = if forced != 0 {
+        forced
+    } else if chosen != 0 {
+        chosen
+    } else {
+        DETECTED_TIER.load(Ordering::Relaxed)
+    };
+    TIER.store(code - 1, Ordering::Relaxed);
+}
+
+pub fn tier() -> Tier {
+    #[cfg(test)]
+    if let Some(t) = TEST_TIER.with(std::cell::Cell::get) {
+        return t;
+    }
+    if TIER.load(Ordering::Relaxed) == UNSETTLED {
+        settle_tier();
+    }
+    Tier::ALL[usize::from(TIER.load(Ordering::Relaxed))]
+}
+
+/// Whether LOCALLIBRARY_COLOR holds the player to a tier, so there's no need to ask the terminal.
+pub fn tier_forced() -> bool {
+    FORCED_TIER.load(Ordering::Relaxed) != 0
+}
+
+/// Draw in the colour tier the settings name, from the next frame (`None`: the one detected).
+pub fn choose_tier(tier: Option<Tier>) {
+    CHOSEN_TIER.store(tier_code(tier), Ordering::Relaxed);
+    settle_tier();
+}
+
+/// The tier the settings name.
+pub fn chosen_tier() -> Option<Tier> {
+    Tier::ALL.get(usize::from(CHOSEN_TIER.load(Ordering::Relaxed)).checked_sub(1)?).copied()
+}
+
+/// Work out again what this thread's tests draw in.
+#[cfg(test)]
+fn refit_test() {
+    use std::cell::Cell;
+    let set = TEST_MODE.with(Cell::get).is_some()
+        || TEST_TIER.with(Cell::get).is_some()
+        || TEST_SAID.with(Cell::get).is_some()
+        || TEST_THEME.with(Cell::get).is_some();
+    let drawn_in = set.then(|| {
+        // Not `themes()` for the default: that would read plugins before the test has set them up.
+        let chosen = CURRENT.load(Ordering::Relaxed);
+        let plugins = || if chosen == 0 { &Theme::DEFAULT } else { &themes()[chosen].theme };
+        let theme = TEST_THEME.with(Cell::get).unwrap_or_else(plugins);
+        &*Box::leak(Box::new(resolve(theme, &fit_now())))
+    });
+    TEST_CURRENT.with(|c| c.set(drawn_in));
+}
+
 /// Draw this thread's frames in `mode` (`None`: as the player would).
 #[cfg(test)]
 pub fn set_test_mode(mode: Option<Mode>) {
     TEST_MODE.with(|m| m.set(mode));
+    refit_test();
+}
+
+/// Draw this thread's frames in the colour tier `tier` (`None`: as the player would).
+#[cfg(test)]
+pub fn set_test_tier(tier: Option<Tier>) {
+    TEST_TIER.with(|t| t.set(tier));
+    refit_test();
+}
+
+/// Draw this thread's frames as on a terminal that says it has `said` (`None`: one that says
+/// nothing).
+#[cfg(test)]
+pub fn set_test_terminal(said: Option<Colours>) {
+    TEST_SAID.with(|s| s.set(said));
+    refit_test();
+}
+
+/// Draw this thread's frames in 24-bit colour.
+#[cfg(all(test, feature = "account"))]
+pub fn set_test_truecolor() {
+    set_test_tier(Some(Tier::Truecolor));
 }
 
 /// No colours: say it with bold, reverse video and symbols instead.
 pub fn plain() -> bool {
     mode() == Mode::Plain
+}
+
+/// Colours, but only the 16 the terminal's scheme defines.
+fn sixteen() -> bool {
+    tier() == Tier::Colors16 && !plain()
+}
+
+/// No colour behind anything: without colours, or with 16 whose every pairing can't be trusted to
+/// read. What's behind a row or a chip is said with reverse video and symbols, and quieter text
+/// with the dim attribute.
+pub fn flat() -> bool {
+    plain() || tier() == Tier::Colors16
 }
 
 /// LOCALLIBRARY_REDUCED_MOTION: redraw only as often as when nothing moves, and leave out
@@ -96,29 +263,37 @@ pub fn reduced_motion() -> bool {
     REDUCED_MOTION.load(Ordering::Relaxed)
 }
 
-fn truecolor() -> bool {
-    static TRUECOLOR: OnceLock<bool> = OnceLock::new();
-    *TRUECOLOR.get_or_init(|| {
-        let colorterm = std::env::var("COLORTERM").unwrap_or_default().to_lowercase();
-        if colorterm.contains("truecolor") || colorterm.contains("24bit") {
-            return true;
-        }
-        // Terminals known to support 24-bit colour even without COLORTERM.
-        let program = std::env::var("TERM_PROGRAM").unwrap_or_default();
-        matches!(program.as_str(), "iTerm.app" | "WezTerm" | "vscode" | "ghostty" | "Hyper" | "Tabby")
-            || std::env::var_os("KITTY_WINDOW_ID").is_some()
-            || std::env::var_os("WT_SESSION").is_some()
-    })
+/// What the terminal said of its colours, if it did.
+fn said() -> Option<Colours> {
+    #[cfg(test)]
+    if let Some(s) = TEST_SAID.with(std::cell::Cell::get) {
+        return Some(s);
+    }
+    SAID.get().copied()
 }
 
-/// A palette colour as the terminal should draw it: as made on a dark terminal, turned round on
-/// a light one, and nothing without colours.
+/// The terminal's background: what it said, else what's usual for the mode.
+pub fn page() -> [u8; 3] {
+    said().map_or(if mode() == Mode::Light { LIGHT_PAGE } else { DARK_PAGE }, |s| s.background)
+}
+
+/// What everything is fitted to now.
+fn fit_now() -> Fit {
+    Fit { mode: mode(), tier: tier(), page: page(), foreground: said().map(|s| s.foreground) }
+}
+
+/// A colour of the palette as the terminal should draw it, and nothing without colours.
 pub fn rgb(r: u8, g: u8, b: u8) -> Color {
-    match mode() {
-        Mode::Dark => exact([r, g, b]),
-        Mode::Light => exact(for_light([r, g, b])),
-        Mode::Plain => Color::Reset,
+    match (mode(), tier()) {
+        (Mode::Plain, _) => Color::Reset,
+        (mode, Tier::Colors16) => ansi::readable(ansi16([r, g, b]), mode),
+        (_, Tier::Colors256) => Color::Indexed(xterm256(r, g, b)),
+        (_, Tier::Truecolor) => Color::Rgb(r, g, b),
     }
+}
+
+pub fn rgb3(c: [u8; 3]) -> Color {
+    rgb(c[0], c[1], c[2])
 }
 
 /// A colour that is what it is whatever the terminal's background (cover art).
@@ -126,81 +301,33 @@ pub fn image(c: [u8; 3]) -> Color {
     exact(c)
 }
 
-fn exact([r, g, b]: [u8; 3]) -> Color {
-    if truecolor() { Color::Rgb(r, g, b) } else { Color::Indexed(xterm256(r, g, b)) }
-}
-
-/// A colour of the dark palette for a light background: its lightness turned round, so light
-/// text goes dark and dark backgrounds go light, with hue and saturation kept. Bright colours
-/// (which can be bright at middling lightness, like rekordbox's hot cue green) are taken down
-/// until they're as dark as they were bright, so they read on white and under light text.
-fn for_light(c: [u8; 3]) -> [u8; 3] {
-    let [r, g, b] = c.map(|v| v as f32 / 255.0);
-    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
-    let (d, l) = (max - min, (max + min) / 2.0);
-    let s = if d == 0.0 { 0.0 } else { (d / (1.0 - (2.0 * l - 1.0).abs())).min(1.0) };
-    // Hue in sixths of the wheel.
-    let h = if d == 0.0 {
-        0.0
-    } else if max == r {
-        ((g - b) / d).rem_euclid(6.0)
-    } else if max == g {
-        (b - r) / d + 2.0
-    } else {
-        (r - g) / d + 4.0
-    };
-    let most = (1.0 - luminance(c)).powi(3);
-    let mut l = (1.0 - l).powf(1.25);
-    loop {
-        let out = from_hsl(h, s, l);
-        if l <= 0.0 || luminance(out) <= most {
-            return out;
-        }
-        l -= 0.02;
+fn exact(c: [u8; 3]) -> Color {
+    match tier() {
+        Tier::Truecolor => Color::Rgb(c[0], c[1], c[2]),
+        Tier::Colors256 => Color::Indexed(xterm256(c[0], c[1], c[2])),
+        Tier::Colors16 => Color::Indexed(ansi16(c)),
     }
 }
 
-/// A colour from hue (in sixths of the wheel), saturation and lightness.
-fn from_hsl(h: f32, s: f32, l: f32) -> [u8; 3] {
-    let l = l.clamp(0.0, 1.0);
-    let chroma = (1.0 - (2.0 * l - 1.0).abs()) * s;
-    let x = chroma * (1.0 - (h.rem_euclid(2.0) - 1.0).abs());
-    let (r, g, b) = match h as u32 {
-        0 => (chroma, x, 0.0),
-        1 => (x, chroma, 0.0),
-        2 => (0.0, chroma, x),
-        3 => (0.0, x, chroma),
-        4 => (x, 0.0, chroma),
-        _ => (chroma, 0.0, x),
-    };
-    let m = l - chroma / 2.0;
-    [r, g, b].map(|v| ((v + m) * 255.0).round().clamp(0.0, 255.0) as u8)
+/// `c` faded towards the terminal's background: `f` = 1 gives `c`, 0 the background.
+pub fn fade(c: [u8; 3], f: f32) -> [u8; 3] {
+    faded(page(), c, f)
 }
 
-/// How bright a colour looks (sRGB relative luminance, 0 to 1).
-fn luminance(c: [u8; 3]) -> f32 {
-    let [r, g, b] = c.map(|v| {
-        let v = v as f32 / 255.0;
-        if v <= 0.040_45 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
-    });
-    0.2126 * r + 0.7152 * g + 0.0722 * b
+/// Colours from a drive (a cue's own, a waveform's) are made for an almost black background, which
+/// reads them all as they are, and with 16 colours how they read is the scheme's.
+fn markers_read_as_they_are() -> bool {
+    flat() || page().iter().all(|v| *v < 64)
 }
 
-pub fn rgb3(c: [u8; 3]) -> Color {
-    rgb(c[0], c[1], c[2])
+/// A colour from a drive as it can be read on the background.
+pub fn marker(c: [u8; 3]) -> [u8; 3] {
+    if markers_read_as_they_are() { c } else { legible(c, &fit_now(), current().text, MARK) }
 }
 
-/// Nearest colour in the xterm 6x6x6 cube or the grey ramp.
-fn xterm256(r: u8, g: u8, b: u8) -> u8 {
-    const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
-    let nearest = |v: u8| LEVELS.iter().enumerate().min_by_key(|(_, l)| (**l as i32 - v as i32).abs()).unwrap().0;
-    let (ri, gi, bi) = (nearest(r), nearest(g), nearest(b));
-    let cube = [LEVELS[ri], LEVELS[gi], LEVELS[bi]];
-    let dist = |c: [u8; 3]| -> i32 { c.iter().zip([r, g, b]).map(|(a, b)| (*a as i32 - b as i32).pow(2)).sum() };
-    let avg = (r as u32 + g as u32 + b as u32) / 3;
-    let gi_ = ((avg.saturating_sub(8)) / 10).min(23) as u8;
-    let grey = 8 + gi_ * 10;
-    if dist([grey, grey, grey]) < dist(cube) { 232 + gi_ } else { 16 + 36 * ri as u8 + 6 * gi as u8 + bi as u8 }
+/// What reads best on `paper`: the theme's ink, or its text colour.
+pub fn ink_on(paper: [u8; 3]) -> [u8; 3] {
+    better_ink(current().ink, current().text, paper)
 }
 
 /// The player's themes: the default, then each plugin's (`[[contributes.themes]]`), by
@@ -234,19 +361,22 @@ pub fn themes() -> &'static [Named] {
 /// The theme drawn in, by its place in [`themes`].
 static CURRENT: AtomicUsize = AtomicUsize::new(0);
 
-#[cfg(test)]
-thread_local! {
-    /// A test's own theme, so tests drawing in different themes can run side by side.
-    static TEST_THEME: std::cell::Cell<Option<&'static Theme>> = const { std::cell::Cell::new(None) };
-}
+/// [`themes`] fitted to the terminal, a list for each tier, worked out when first drawn: every
+/// colour search there is happens here, once.
+static FITTED: [OnceLock<Vec<Theme>>; 3] = [const { OnceLock::new() }; 3];
 
-/// The theme the player draws in: every colour of its chrome, its waveforms and the shared ones.
+/// The theme the player draws in, fitted to the terminal: every colour of its chrome, its waveforms
+/// and the shared ones.
 pub fn current() -> &'static Theme {
     #[cfg(test)]
-    if let Some(t) = TEST_THEME.with(std::cell::Cell::get) {
+    if let Some(t) = TEST_CURRENT.with(std::cell::Cell::get) {
         return t;
     }
-    themes().get(CURRENT.load(Ordering::Relaxed)).map_or(&Theme::DEFAULT, |n| &n.theme)
+    let fitted = FITTED[tier() as usize].get_or_init(|| {
+        let fit = fit_now();
+        themes().iter().map(|n| resolve(&n.theme, &fit)).collect()
+    });
+    &fitted[CURRENT.load(Ordering::Relaxed)]
 }
 
 /// Draw in the theme `key` names (`<plugin>.<name>`), or the default without one or for one no
@@ -254,6 +384,8 @@ pub fn current() -> &'static Theme {
 pub fn select(key: Option<&str>) -> Option<&'static str> {
     let at = key.and_then(|k| themes().iter().position(|n| !n.key.is_empty() && n.key == k)).unwrap_or(0);
     CURRENT.store(at, Ordering::Relaxed);
+    #[cfg(test)]
+    refit_test();
     chosen()
 }
 
@@ -266,12 +398,15 @@ pub fn chosen() -> Option<&'static str> {
 #[cfg(test)]
 pub fn set_test_theme(theme: Option<&'static Theme>) {
     TEST_THEME.with(|t| t.set(theme));
+    refit_test();
 }
 
 /// The palette the player's waveforms, visualisers and cover art draw in, the theme's, for the
-/// mode it draws in.
+/// mode and tier it draws in.
 pub fn palette() -> Palette<'static> {
-    Palette { paint: rgb3, image, plain: plain(), ..Palette::of(current()) }
+    // Settled here, not for each of a waveform's columns.
+    let marker = if markers_read_as_they_are() { |c| c } else { marker };
+    Palette { paint: rgb3, image, marker, plain: plain(), background: page(), ..Palette::of(current()) }
 }
 
 pub fn fg(c: [u8; 3]) -> Style {
@@ -283,11 +418,16 @@ pub fn text() -> Style {
 }
 
 pub fn dim() -> Style {
-    fg(current().dim)
+    if sixteen() { Style::new().add_modifier(Modifier::DIM) } else { fg(current().dim) }
 }
 
 pub fn faint() -> Style {
-    if plain() { Style::new().add_modifier(Modifier::DIM) } else { fg(current().faint) }
+    if flat() { Style::new().add_modifier(Modifier::DIM) } else { fg(current().faint) }
+}
+
+/// A line that isn't read: a rail, an idle pane's border.
+pub fn rule() -> Style {
+    if flat() { Style::new().add_modifier(Modifier::DIM) } else { fg(current().rule) }
 }
 
 pub fn bold(c: [u8; 3]) -> Style {
@@ -295,44 +435,52 @@ pub fn bold(c: [u8; 3]) -> Style {
 }
 
 pub fn border(focused: bool) -> Style {
-    if focused { fg(current().info) } else { faint() }
+    if focused { fg(current().info) } else { rule() }
 }
 
-/// Rounded borders; without colours, the focused pane's are heavy.
+/// Rounded borders; with nothing but the border to show focus by, the focused pane's are heavy.
 pub fn border_type(focused: bool) -> BorderType {
-    if focused && plain() { BorderType::Thick } else { BorderType::Rounded }
+    if focused && flat() { BorderType::Thick } else { BorderType::Rounded }
 }
 
 pub fn selected() -> Style {
-    if plain() {
+    if flat() {
         Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD)
     } else {
         Style::new().bg(rgb3(current().selection)).add_modifier(Modifier::BOLD)
     }
 }
 
-/// `ink` on `paper`, bold (the active tab, chips): reverse video without colours.
-pub fn on(paper: [u8; 3], ink: [u8; 3]) -> Style {
-    if plain() {
-        Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD)
-    } else {
-        Style::new().fg(rgb3(ink)).bg(rgb3(paper)).add_modifier(Modifier::BOLD)
+/// The selection in a pane without focus: there, but quieter than the one that has it.
+pub fn unfocused() -> Style {
+    if flat() { Style::new().add_modifier(Modifier::REVERSED | Modifier::DIM) } else { behind(current().idle) }
+}
+
+/// Bold text on `paper` (the active tab, chips), in what reads best on it. With 16 colours it's
+/// `paper` in reverse video, so the text is the terminal's own background, which the scheme made
+/// to read with its colours; without colours, reverse video alone.
+pub fn chip(paper: [u8; 3]) -> Style {
+    let style = Style::new().add_modifier(Modifier::BOLD);
+    match (plain(), flat()) {
+        (true, _) => style.add_modifier(Modifier::REVERSED),
+        (_, true) => style.fg(rgb3(paper)).add_modifier(Modifier::REVERSED),
+        _ => style.fg(rgb3(ink_on(paper))).bg(rgb3(paper)),
     }
 }
 
 /// A colour behind something that a symbol already marks (a marked row, the selection in a
-/// pane without focus): nothing without colours.
+/// pane without focus): nothing where there's no colour behind things.
 pub fn behind(c: [u8; 3]) -> Style {
-    if plain() { Style::new() } else { Style::new().bg(rgb3(c)) }
+    if flat() { Style::new() } else { Style::new().bg(rgb3(c)) }
 }
 
-/// A track's rekordbox colour as a dot; without colours, its number (1 pink to 8 purple, as the
-/// colour menu numbers them).
+/// A track's rekordbox colour as a dot; where a hue alone can't be trusted to read, its number
+/// (1 pink to 8 purple, as the colour menu numbers them), in its colour if there are any.
 pub fn colour_dot(c: TrackColor) -> Span<'static> {
-    if plain() {
-        Span::styled(c.id().to_string(), Style::new().add_modifier(Modifier::BOLD))
+    if flat() {
+        Span::styled(c.id().to_string(), bold(current().track_color(c)))
     } else {
-        Span::styled("●", fg(current().track_color(c)))
+        Span::styled(icons::DOT.get(), fg(current().track_color(c)))
     }
 }
 
@@ -341,5 +489,7 @@ pub fn key() -> Style {
     bold(current().accent)
 }
 
+#[cfg(test)]
+mod screens;
 #[cfg(test)]
 mod tests;

@@ -1,6 +1,6 @@
 <!--
-  The two places a panel's tracks can come from — the page in the active tab,
-  or the session queue — as one control at the top of the three tools that can
+  The two places a panel's tracks can come from (the page in the active tab,
+  or the session queue), as one control at the top of the two tools that can
   read either.
 -->
 <script lang="ts">
@@ -10,7 +10,7 @@
   import type { Pref } from '$lib/prefs.svelte.ts';
 
   interface Props {
-    /** A choicePref over SOURCES; see $lib/source.js. */
+    /** A choicePref over SOURCES; see $lib/source.ts. */
     source: Pref<string>;
     /** How many tracks the queue holds, shown on its button. */
     queued?: number;

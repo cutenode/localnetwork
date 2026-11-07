@@ -44,7 +44,7 @@ try {
 		process.exitCode = 2;
 	}
 } catch (error) {
-	logger.error({ err: error }, `db-backup ${command} failed`);
+	logger.error(`db-backup ${command} failed`, { err: error });
 	process.exitCode = 1;
 } finally {
 	store.close();

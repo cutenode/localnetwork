@@ -1,4 +1,4 @@
-// The sizes that actually turn up.
+// The sizes that turn up.
 //
 // The pages this runs on are not small: a curated playlist of five hundred
 // tracks is ordinary, and a Likes page grows without limit. Two things go
@@ -8,7 +8,7 @@
 // The first is cost to SoundCloud. Asking for one track at a time is
 // invisible at three and rude at five hundred, so the request count for a full
 // page is asserted against the batch size rather than against a number
-// somebody typed: a change that quietly drops the batching fails here.
+// somebody typed: a change that drops the batching fails here.
 //
 // The second is cost to the machine, and the assertions about it count work
 // rather than time: requests made, writes performed, searches of the DOM,
@@ -45,9 +45,9 @@ declare const chrome: ChromeMock;
 
 const SET = '/curator/sets/big';
 
-const API_BATCH = 50; // content.js: ids per /tracks request
+const API_BATCH = 50; // content.ts: ids per /tracks request
 
-const LIKES_PAGE = 200; // content.js: likes per listing request
+const LIKES_PAGE = 200; // content.ts: likes per listing request
 
 afterEach(disposeContentScripts);
 
@@ -69,8 +69,8 @@ const bigPlaylist = (n: number) =>
 // A stopwatch is the obvious way to ask whether something scales, and the
 // wrong one here: the answer depends on what else the machine is doing, which
 // makes a threshold either useless or flaky. Counting the searches instead is
-// exact, is the same number on every machine, and is the thing that actually
-// grows when a scan turns quadratic.
+// exact, is the same number on every machine, and is the thing that grows
+// when a scan turns quadratic.
 async function searches<Value>(work: () => Promise<Value>) {
 	const spies = [
 		vi.spyOn(Element.prototype, 'querySelector'),
@@ -94,9 +94,9 @@ describe('reading a large playlist', () => {
 	// Nothing here waits on a timer, but the script sets one: a page rendered
 	// under a running script is a mutation, and the repaint it schedules is a
 	// real 150 ms timeout that disposing the script cannot reach. Left real, it
-	// fired in whichever test ran next and repainted that test's page from this
-	// one's empty marks — taking every marker off it. Faked, it is thrown away
-	// with the fake clock when this test ends (test/setup.js).
+	// would fire in whichever test ran next and repaint that test's page from
+	// this one's empty marks, taking every marker off it. Faked, it is thrown
+	// away with the fake clock when this test ends (test/setup.ts).
 	beforeEach(() => {
 		vi.useFakeTimers();
 	});
@@ -244,7 +244,7 @@ describe('painting markers over a large page', () => {
 		// The marks arrive on a storage event, and the repaint the page's own
 		// mutations schedule follows them; both are waited for rather than
 		// assumed to have happened within a fixed number of turns. What this test
-		// is really about is asserted below whichever way the waiting goes: the
+		// is about is asserted below whichever way the waiting goes: the
 		// count, the kind, one marker per row rather than one per repaint, and a
 		// second pass changing nothing.
 		await until(() => document.querySelectorAll('.tbx-mark').length === 120, { ms: 10000 });

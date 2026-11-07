@@ -74,3 +74,4 @@ jobs:
       dist: false
       other-os: true
       semver: false
+      commands: false

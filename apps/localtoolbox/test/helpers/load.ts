@@ -1,5 +1,5 @@
-// Loads the extension's classic scripts the way Chrome does — as fresh,
-// top-level scripts against the prepared globals — through Vitest's module
+// Loads the extension's classic scripts the way Chrome does (as fresh,
+// top-level scripts against the prepared globals) through Vitest's module
 // pipeline, so coverage lands on the real files.
 //
 // `vi.resetModules()` makes each load re-execute the file; the content
@@ -42,7 +42,7 @@ export async function loadStore() {
 	return TbxDownloaded;
 }
 
-// state-transfer.js reaches for TbxDownloaded, so the store loads with it,
+// state-transfer.ts reaches for TbxDownloaded, so the store loads with it,
 // exactly as the popup page loads the two in that order.
 export async function loadState() {
 	vi.resetModules();
@@ -138,18 +138,18 @@ export async function loadContentScript(): Promise<ContentScript> {
 		Reflect.deleteProperty(document, 'addEventListener');
 	}
 
-	// The script finishes starting up — its storage reads, its first marker
-	// pass — after the import resolves, and it is ready exactly when its
+	// The script finishes starting up (its storage reads, its first marker
+	// pass) after the import resolves, and it is ready exactly when its
 	// storage listener goes on, which is the last thing that startup does.
-	// Waiting for that rather than for a fixed number of turns is what makes
-	// "tests observe a ready script" true rather than likely: a test's first
-	// write cannot land before the script is listening for it.
+	// Waiting for that rather than for a fixed number of turns makes "tests
+	// observe a ready script" true rather than likely: a test's first write
+	// cannot land before the script is listening for it.
 	//
 	// Storage that refuses to be read leaves the script with no listener to
-	// register and nothing to wait for — two tests are about exactly that — so
-	// the wait gives up quietly. The budget is short because everything between
-	// the import and the listener is promises already in this worker; it is
-	// headroom, not a deadline.
+	// register and nothing to wait for (two tests are about exactly that), so
+	// the wait gives up without an error. The budget is short because
+	// everything between the import and the listener is promises already in
+	// this worker; it is headroom, not a deadline.
 	await until(() => registered.onChanged.length > 0, { ms: 300 });
 	await flush();
 

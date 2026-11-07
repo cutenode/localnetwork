@@ -20,7 +20,7 @@ export const load: PageServerLoad = async ({ locals, url, parent }) => {
 		managers: project.managers.map((did) => managers.get(did)),
 		// Streamed, for the press kit and stats summaries; a lookup that fails leaves its summary out.
 		kits: app.epks.dashboard(project).catch((error) => {
-			locals.log.warn({ err: error }, 'could not read press kits for the project summary');
+			locals.log.warn('could not read press kits for the project summary', { err: error });
 
 			return null;
 		}),

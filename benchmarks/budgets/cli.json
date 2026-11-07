@@ -4,7 +4,7 @@
 	"tolerance_percent": 1,
 	"metrics": {
 		"version": {
-			"limit": 1303875,
+			"limit": 1303450,
 			"unit": "instructions",
 			"measures": "Instructions `--version` runs on the 3,886-track fixture, under cachegrind."
 		},
@@ -14,22 +14,32 @@
 			"measures": "Instructions `drive ls` runs on the 3,886-track fixture, under cachegrind."
 		},
 		"tracks_filter": {
-			"limit": 83801025,
+			"limit": 82277673,
 			"unit": "instructions",
 			"measures": "Instructions `tracks --filter` runs on the 3,886-track fixture, under cachegrind."
 		},
+		"tracks_search": {
+			"limit": 103587296,
+			"unit": "instructions",
+			"measures": "Instructions `tracks --search` runs on the 3,886-track fixture, under cachegrind."
+		},
+		"tracks_sort": {
+			"limit": 204902030,
+			"unit": "instructions",
+			"measures": "Instructions `tracks --sort` runs on the 3,886-track fixture, under cachegrind."
+		},
 		"diff": {
-			"limit": 186088278,
+			"limit": 167011904,
 			"unit": "instructions",
 			"measures": "Instructions `diff` runs on the 3,886-track fixture, under cachegrind."
 		},
 		"check": {
-			"limit": 1508315306,
+			"limit": 1454641153,
 			"unit": "instructions",
 			"measures": "Instructions `check` runs on the 3,886-track fixture, under cachegrind."
 		},
 		"doctor": {
-			"limit": 742440471,
+			"limit": 708540945,
 			"unit": "instructions",
 			"measures": "Instructions `doctor` runs on the 3,886-track fixture, under cachegrind."
 		}

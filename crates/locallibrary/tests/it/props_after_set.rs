@@ -162,3 +162,72 @@ fn both_databases_count_once_and_say_what_players_did(tc: TestCase) {
     }
     assert_eq!(line, if want.is_empty() { "nothing".to_string() } else { want.join(", ") });
 }
+
+/// Two drives that held no state in common don't resolve, whichever is given first; when a
+/// drive's database or files can't be read, or the store lost the files or the record of the
+/// state they had in common, or its list of libraries can't be read, the resolve fails.
+#[cfg(unix)]
+#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(fault = 0u8, left_first = true)]
+#[hegel::explicit_test_case(fault = 1u8, left_first = false)]
+#[hegel::explicit_test_case(fault = 1u8, left_first = true)]
+#[hegel::explicit_test_case(fault = 2u8, left_first = true)]
+#[hegel::explicit_test_case(fault = 3u8, left_first = false)]
+#[hegel::explicit_test_case(fault = 4u8, left_first = true)]
+#[hegel::explicit_test_case(fault = 5u8, left_first = false)]
+fn prop_drives_without_a_readable_state_in_common_dont_resolve(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let mut main = Device::open(common::demo_drive(dir.path(), "Main")).unwrap();
+    main.adopt(Some("Main")).unwrap();
+    let club_root = common::blank(dir.path(), "Club");
+    let mut club = Device::open(&club_root).unwrap();
+    sync::sync_drive_to_drive(&mut main, &mut club, &SyncOptions::default(), &Ctx::silent()).unwrap();
+    sync::pull(&store, &mut main, &PullOptions::default(), &Ctx::silent()).unwrap();
+    let main = Device::open(main.root()).unwrap();
+    let fault = tc.draw(gs::integers::<u8>().max_value(5));
+    let locked = club_root.join("Contents/locked");
+    let other = match fault {
+        0 => {
+            let mut d = Device::open(common::bigger_drive(dir.path(), "Other")).unwrap();
+            d.adopt(Some("Other")).unwrap();
+            sync::pull(&store, &mut d, &PullOptions::default(), &Ctx::silent()).unwrap();
+            Device::open(d.root()).unwrap()
+        }
+        1 => {
+            fs::write(club_root.join(paths::EXPORT_PDB), b"not a database").unwrap();
+            Device::open(&club_root).unwrap()
+        }
+        2 => {
+            fs::remove_dir_all(store.root().join("objects")).unwrap();
+            Device::open(&club_root).unwrap()
+        }
+        4 | 5 => {
+            fs::remove_dir_all(store.root().join("snapshots")).unwrap();
+            if fault == 5 {
+                fs::write(store.root().join("libraries.json"), b"not json").unwrap();
+            }
+            Device::open(&club_root).unwrap()
+        }
+        _ => {
+            use std::os::unix::fs::PermissionsExt;
+            fs::create_dir_all(&locked).unwrap();
+            fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+            Device::open(&club_root).unwrap()
+        }
+    };
+    let left_first = tc.draw(gs::booleans());
+    let (left, right) = if left_first { (&main, &other) } else { (&other, &main) };
+    let resolved = after_set::resolve(&store, left, right, &Ctx::silent());
+    if fault == 3 {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    match fault {
+        0 => {
+            assert!(after_set::common_snapshot(&store, &main, &other).unwrap().is_none());
+            assert!(resolved.unwrap().is_none());
+        }
+        _ => assert!(resolved.is_err(), "{resolved:?}"),
+    }
+}

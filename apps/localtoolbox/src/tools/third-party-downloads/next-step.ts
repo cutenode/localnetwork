@@ -2,13 +2,12 @@
 //
 // Most of these gates fail for a reason a fetch can never fix: they want a
 // connected account, a CAPTCHA answered, a step the page does to itself. So a
-// failure is not the end of a row — it is the point where the work goes back
-// to a person, and the row's job is to hand it over rather than only to
-// explain itself.
+// failure is the point where the work goes back to a person, and the row's job
+// is to hand it over rather than only to explain itself.
 //
 // Where it leads is nearly always the gate, which is what a row does with no
 // instruction at all. The exceptions are the things the settings sheet already
-// asks for — an address, a name — where a trip to the gate would be a wasted
+// asks for (an address, a name), where a trip to the gate would be a wasted
 // one. An adapter says so by throwing a Wanting, and the panel opens the
 // sheet instead of the tab.
 

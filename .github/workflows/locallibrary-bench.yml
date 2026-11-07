@@ -93,7 +93,9 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # The CLI's default `playback` feature builds ALSA's bindings, which need its headers.
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: libasound2-dev
       # Keep in step with codspeed-criterion-compat's version in Cargo.toml. It has no
       # install-action manifest, so this falls back to cargo-binstall, which fetches CodSpeed's
       # release binary.
@@ -114,7 +116,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Two release builds: dist's for the CLI and the release profile's for the frame test.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

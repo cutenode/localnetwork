@@ -1,0 +1,45 @@
+name: Apt packages
+description: >-
+  Installs Ubuntu packages from the Actions cache, asking Ubuntu's mirror only the first time a runner
+  image needs them: the mirror has stalled at 30 kB/s long enough to cancel jobs. Keyed on the runner
+  image, which fixes what's already installed, so nothing else has to resolve at install time.
+
+inputs:
+  packages:
+    description: The packages, separated by spaces.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - id: key
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: echo "key=apt-$ImageVersion-${PACKAGES// /-}" >> "$GITHUB_OUTPUT"
+    - id: cached
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/apt-packages
+        key: ${{ steps.key.outputs.key }}
+    - if: steps.cached.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        mkdir -p ~/apt-packages/partial
+        sudo apt-get update
+        sudo apt-get install -y --download-only -o Dir::Cache::archives="$HOME/apt-packages" $PACKAGES
+        sudo rm -rf ~/apt-packages/partial ~/apt-packages/lock
+    - if: steps.cached.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/apt-packages
+        key: ${{ steps.key.outputs.key }}
+    # What a package needs is in the folder or on the image, so this asks no one. An empty folder
+    # means the image has them all.
+    - shell: bash
+      run: |
+        shopt -s nullglob
+        debs=(~/apt-packages/*.deb)
+        (( ${#debs[@]} == 0 )) || sudo dpkg -i "${debs[@]}"

@@ -1,9 +1,9 @@
 import { Secp256k1Keypair } from '@atproto/crypto';
 import type { JsonObject } from '@atproto/lex-json';
-import { pino } from 'pino';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { type Db, nowIso, openDatabase } from '#lib/server/db/index.ts';
 import { serviceJwt } from '#lib/server/testing/service-jwt.ts';
+import { type WrittenLine, writtenLog } from '#lib/server/testing/written-log.ts';
 import { callRoute } from '#lib/testing/route-event.ts';
 import { POST } from './+server.ts';
 
@@ -32,8 +32,8 @@ let key: Secp256k1Keypair;
 
 let syncer: FakeSyncer;
 
-/** What the endpoint logged, one JSON line each. */
-let logged: string[];
+/** What the endpoint logged. */
+let logged: WrittenLine[];
 
 beforeEach(async () => {
 	db = await openDatabase(':memory:');
@@ -78,7 +78,7 @@ async function notify(body: string, authorization?: string) {
 			syncer
 		},
 		request: new Request(`https://localnetwork.test/xrpc/${LXM}`, { method: 'POST', headers, body }),
-		log: pino({ level: 'warn' }, { write: (line: string) => void logged.push(line) })
+		log: writtenLog('warn', logged).logger
 	});
 
 	await new Promise((resolve) => setImmediate(resolve));
@@ -95,7 +95,7 @@ it('answers at once and logs the failure when the sync it started fails', async 
 	syncer.down = true;
 
 	expect(await notify(JSON.stringify({ space: SPACE }), await token())).toEqual({ status: 200, body: {} });
-	expect(logged.map((line) => JSON.parse(line).msg)).toEqual(['notified sync failed']);
+	expect(logged.map((line) => line.message)).toEqual(['notified sync failed']);
 });
 
 it("says so for a space this site doesn't watch", async () => {

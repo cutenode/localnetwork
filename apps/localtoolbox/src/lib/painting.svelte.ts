@@ -9,11 +9,11 @@
 //
 // The search box needs the same thing. Typing only takes rows away, which is
 // cheap, but deleting a search puts every row it hid back at once: with three
-// hundred tracks a single Backspace froze the input for nearly half a second.
-// So the budget is per frame rather than per list: rows already on screen stay
-// where they are, and the ones joining them, from a longer list or a shorter
-// search, come in a frame's worth at a time. A frame's worth is small, so
-// the keystroke that brings rows back waits on forty of them at most.
+// hundred tracks a single Backspace would freeze the input for nearly half a
+// second. So the budget is per frame rather than per list: rows already on
+// screen stay where they are, and the ones joining them, from a longer list or
+// a shorter search, come in a frame's worth at a time. A frame's worth is
+// small, so the keystroke that brings rows back waits on forty of them at most.
 
 /** Rows the first paint puts up: a screenful, with room to scroll. */
 const FIRST_PAINT = 60;
@@ -43,9 +43,9 @@ export function createPainting(keys: () => string[]) {
 	});
 
 	// A frame if there is one, a timeout if there is not. `requestAnimationFrame`
-	// is what says "after the paint", which is the whole point of chunking, but
-	// it does not run at all while the page is hidden, and a list that stopped
-	// growing there would still be sixty rows long when it came back.
+	// is what says "after the paint", which chunking depends on, but it does not
+	// run at all while the page is hidden, and a list that stopped growing there
+	// would still be sixty rows long when it came back.
 	$effect(() => {
 		if (painted.size >= keys().length) {
 			settled = painted;

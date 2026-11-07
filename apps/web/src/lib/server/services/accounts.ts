@@ -113,7 +113,7 @@ export class AccountService {
 					)
 					.execute();
 			} catch (error) {
-				this.logger.debug({ err: error, did }, 'could not resolve account');
+				this.logger.debug('could not resolve account', { err: error, did });
 			}
 		}
 	}

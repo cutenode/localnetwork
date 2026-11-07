@@ -579,9 +579,10 @@ A theme is the colours the player draws in, a plugin's as data: the player's own
 the selection), the waveform's gradients, cue and phrase colours, rekordbox's track colours and
 good, warning and critical. "Night theme" and the others in the player's palette (`:`) draw in
 one from then on, and "default theme" puts the default back; the one chosen is kept in the
-player's `tui.json`, and the next run starts in it. What a theme leaves out is the default's. On a
-light terminal its colours are turned round as the default's are, and with `NO_COLOR` there are
-none.
+player's `tui.json`, and the next run starts in it. What a theme leaves out is the default's, or
+on a light terminal the light palette's. Its own colours are made for a dark background, so on any
+other they're blended towards the terminal's foreground as far as it takes to read. With 16 colours
+each becomes the nearest of them, and with `NO_COLOR` there are none.
 
 ## Writing one
 

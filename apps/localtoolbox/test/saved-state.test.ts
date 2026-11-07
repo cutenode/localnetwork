@@ -1,19 +1,17 @@
-// src/lib/components/StateTransfer.svelte — the settings sheet's last
+// src/lib/components/StateTransfer.svelte, the settings sheet's last
 // section: everything the extension has saved, out to a JSON file and back.
 //
-// It was the Manager panel's footer, and these tests were in
-// test/panels/manager.test.ts. The file carries four other tools' worth of
-// state — the marks a SoundCloud page paints, the content script's cache of
-// lookups, the session queue behind every header's count, three panels'
-// options — so it is about the extension rather than about the one tool whose
-// footer happened to hold it. Which means every test here mounts the whole
-// popup and opens the sheet, as somebody using it would.
+// The file carries other tools' state too (the marks a SoundCloud page paints,
+// the content script's cache of lookups, the session queue behind every
+// header's count, three panels' options), so it belongs to the extension
+// and not to the Manager, whose footer only points here. Every test here
+// mounts the whole popup and opens the sheet, as somebody using it would.
 //
 // What is most worth holding down is the promise the section makes: an import
-// **adds**. Every part of it does — marks merge, the newer lookups win, listed
-// and queued tracks go on the end without landing twice, and an option already
-// chosen is left alone — and the one way to the other behaviour is a switch
-// that starts off every time the popup opens.
+// adds. Every part of it does: marks merge, the newer lookups win, listed and
+// queued tracks go on the end without landing twice, and an option already
+// chosen is left alone. The one way to the other behaviour is a switch that
+// starts off every time the popup opens.
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { createValidator, explain } from '../scripts/validate-state.mts';
 import { MAX as ARTISTS_MAX } from '../src/tools/artists/artists.svelte.ts';
@@ -292,8 +290,8 @@ describe('exporting', () => {
 // --- what is in the box ------------------------------------------------------
 
 describe('reading what is about to be imported', () => {
-	// The point of judging it here: a file chosen by mistake says so before
-	// anything is written, and the button that would write it stays off.
+	// Judged here so that a file chosen by mistake says so before anything
+	// is written, and the button that would write it stays off.
 	it('says what a good file holds, and when it was written', async () => {
 		await openApp();
 		await openImport();
@@ -346,7 +344,7 @@ describe('reading what is about to be imported', () => {
 	});
 
 	// Both routes fill the same box, so what is about to be imported is always
-	// the text on screen — and is read by the same eye before it is written.
+	// the text on screen, and is read by the same eye before it is written.
 	it('fills the box from a chosen file, and says so when the file cannot be read', async () => {
 		await openApp();
 		await openImport();
@@ -473,7 +471,7 @@ describe('importing, which adds to what is here', () => {
 	});
 
 	// Each list stops at what its store holds, and an import past that refuses
-	// rather than dropping what is here — and says how many it turned away.
+	// rather than dropping what is here, and says how many it turned away.
 	it('says how many tracks and artists did not fit on a full list', async () => {
 		const full = <Entry>(count: number, entry: (i: number) => Entry) =>
 			Array.from({ length: count }, (_, i) => entry(i));
@@ -632,7 +630,7 @@ describe('importing, asked to replace', () => {
 	});
 });
 
-// --- where it is, and where it used to be ------------------------------------
+// --- where it is, and how it is reached --------------------------------------
 
 describe('getting to it', () => {
 	// The list is the biggest thing in the backup, so the Manager's footer is

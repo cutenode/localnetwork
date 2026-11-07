@@ -9,10 +9,10 @@
 // Two kinds of thing are set here, kept in two places, and which is which is
 // the thing most worth holding down. What the SoundCloud page obeys lives in
 // chrome.storage.local, because the content script has to be able to read it
-// and cannot see the popup's localStorage — a setting written to the wrong
+// and cannot see the popup's localStorage: a setting written to the wrong
 // place is a setting the page never hears about. What the Downloader hands to
 // a gate is the popup's own (src/lib/downloader.svelte.ts), read by the panel
-// under this sheet rather than by anything outside the popup — and read from
+// under this sheet rather than by anything outside the popup, and read from
 // the *same object*, which is what a value typed here and used there needs to
 // be.
 import { describe, it, expect } from 'vitest';
@@ -111,7 +111,7 @@ describe('the button in the header', () => {
 	});
 
 	// The popup is destroyed on every click that opens a tab, and a sheet left
-	// open is a place like any other (view.svelte.js).
+	// open is a place like any other (view.svelte.ts).
 	it('comes back open when the popup is opened again', async () => {
 		await openApp();
 		await openSettings();
@@ -189,7 +189,7 @@ describe('opening your likes as a list', () => {
 		await openSettings();
 		expect(listViewOn()).toBe(false);
 		expect(text()).toContain('open your likes as a list');
-		// Both halves of SoundCloud's own toggle, by the words on them — the one
+		// Both halves of SoundCloud's own toggle, by the words on them: the one
 		// it presses and the one it leaves you to press back.
 		expect(text()).toContain('Badges');
 		expect(text()).toContain('List');
@@ -234,9 +234,9 @@ describe('opening your likes as a list', () => {
 });
 
 // The address a gate is given, the name beside it, and whether saving a file
-// marks its track. They were the Downloader panel's own, in a drawer at the
-// bottom of it, which is the wrong place for something typed once: a failed
-// row now sends you here instead (see test/panels/third-party-downloads.test.ts).
+// marks its track. They live here and not in the Downloader panel because they
+// are typed once: a failed row sends you here instead (see
+// test/panels/third-party-downloads.test.ts).
 describe('what the Downloader asks for', () => {
 	it('starts empty, marking, and says where the address goes', async () => {
 		await openApp();
@@ -327,7 +327,7 @@ describe('the search badges', () => {
 	});
 
 	// Turning the lot off is allowed, and is a row with nothing on it but its
-	// own toggles — which the sheet says out loud rather than leaving somebody
+	// own toggles, which the sheet says out loud rather than leaving somebody
 	// to find out on a track they cannot get.
 	it('says what all of them off comes to', async () => {
 		await openApp();
@@ -475,7 +475,7 @@ describe('when the browser says no', () => {
 	});
 
 	// The sheet is a chunk of its own, for the same reason the panels are, and
-	// it can go missing the same way — mid-update, with the popup open.
+	// it can go missing the same way: mid-update, with the popup open.
 	it('says so when the sheet’s own chunk cannot be loaded', async () => {
 		panelChrome({ tab: OTHER_TAB });
 		await mountApp({ chunks: false });

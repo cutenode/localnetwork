@@ -104,10 +104,10 @@ export class Notifier {
 		if (created.queued) {
 			outbox
 				?.kick()
-				.catch((error) => this.deps.logger.warn({ err: error }, 'could not schedule notification delivery'));
+				.catch((error) => this.deps.logger.warn('could not schedule notification delivery', { err: error }));
 		}
 
-		if (created.rows > 0) this.deps.logger.debug({ kind: input.kind, key: input.key, ...created }, 'notified');
+		if (created.rows > 0) this.deps.logger.debug('notified', { kind: input.kind, key: input.key, ...created });
 
 		return created.rows;
 	}
@@ -205,7 +205,7 @@ export class Notifier {
 
 		const deleted = Number(result.numDeletedRows);
 
-		if (deleted > 0) this.deps.logger.info({ deleted }, 'pruned old inbox items');
+		if (deleted > 0) this.deps.logger.info('pruned old inbox items', { deleted });
 
 		return deleted;
 	}

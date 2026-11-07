@@ -8,8 +8,8 @@ export const flush = async (rounds = 5) => {
 };
 
 // The real timer and the real clock, taken before any test can replace them.
-// `vi.useFakeTimers()` freezes `setTimeout`, and `vi.setSystemTime` — which
-// every test gets from test/setup.js — freezes `Date`, so neither can be used
+// `vi.useFakeTimers()` freezes `setTimeout`, and `vi.setSystemTime`, which
+// every test gets from test/setup.ts, freezes `Date`, so neither can be used
 // to wait for, or to measure, something happening outside this worker.
 const realSetTimeout = globalThis.setTimeout;
 
@@ -26,7 +26,7 @@ const now = () => Number(process.hrtime.bigint() / 1000000n);
  * first one in a worker goes out to Vite for the file and comes back about
  * three seconds later, which is tens of thousands of turns. A test that
  * waited a fixed number of turns for one passed only because an earlier test
- * in the same file had already warmed that chunk — and failed, once, whenever
+ * in the same file had already warmed that chunk, and failed, once, whenever
  * the shuffled order made it the test that paid for it.
  *
  * The budget is a backstop rather than a timeout: a condition that never

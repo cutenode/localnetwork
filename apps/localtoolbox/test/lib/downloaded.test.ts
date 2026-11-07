@@ -1,4 +1,4 @@
-// src/lib/downloaded.svelte.ts — the reactive mirror of the marks store.
+// src/lib/downloaded.svelte.ts: the reactive mirror of the marks store.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { flush } from '../helpers/flush.ts';
 import { createChrome, type ChromeMock } from '../helpers/chrome.ts';

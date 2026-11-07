@@ -1,0 +1,47 @@
+{
+	"$schema": "../budget.schema.json",
+	"job": "pull-request",
+	"tolerance_percent": 1,
+	"metrics": {
+		"library.allocations": {
+			"limit": 1520,
+			"unit": "allocations",
+			"measures": "Allocations of one frame of the Library view at 160x45, with the 3,886-track fixture open and a track playing."
+		},
+		"library.bytes": {
+			"limit": 114549,
+			"unit": "bytes",
+			"measures": "Bytes allocated by one frame of the Library view at 160x45, with the 3,886-track fixture open and a track playing."
+		},
+		"deck.allocations": {
+			"limit": 756,
+			"unit": "allocations",
+			"measures": "Allocations of one frame of the full-screen deck at 160x45, with the 3,886-track fixture open and a track playing."
+		},
+		"deck.bytes": {
+			"limit": 77624,
+			"unit": "bytes",
+			"measures": "Bytes allocated by one frame of the full-screen deck at 160x45, with the 3,886-track fixture open and a track playing."
+		},
+		"drives.allocations": {
+			"limit": 364,
+			"unit": "allocations",
+			"measures": "Allocations of one frame of the Drives view at 160x45, with the 3,886-track fixture open and a track playing."
+		},
+		"drives.bytes": {
+			"limit": 47159,
+			"unit": "bytes",
+			"measures": "Bytes allocated by one frame of the Drives view at 160x45, with the 3,886-track fixture open and a track playing."
+		},
+		"prepare.allocations": {
+			"limit": 201,
+			"unit": "allocations",
+			"measures": "Allocations of one frame of the Prepare view at 160x45, with the 3,886-track fixture open and a track playing."
+		},
+		"prepare.bytes": {
+			"limit": 11873,
+			"unit": "bytes",
+			"measures": "Bytes allocated by one frame of the Prepare view at 160x45, with the 3,886-track fixture open and a track playing."
+		}
+	}
+}

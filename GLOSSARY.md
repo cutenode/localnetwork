@@ -12,6 +12,10 @@ _Avoid_: profile view, read-only page
 The signed-in area where every change to what public pages show happens. There's one per account, and its sections follow what that account takes part in, whether as a DJ, a member or manager of an act, a promoter, or several of these.
 _Avoid_: app, account area, my page, DJ dashboard, promoter dashboard
 
+**Private spaces**:
+The four spaces staff can read from any client: audit, moderation, staff and industry. Losing a staff role means leaving all of them, and anyone left in one is a stray member until they're out.
+_Avoid_: staff spaces, root spaces (those include public ones)
+
 **Staff console**:
 The separate area where staff moderate and run the site. Only staff can see it. Staff can add or remove people from any act or party, and every action they take there is logged.
 _Avoid_: admin dashboard, admin panel
@@ -86,6 +90,10 @@ _Avoid_: gig, party (the party is the series)
 One performer's appearance on an event's lineup. What they played there, once published, is a set.
 _Avoid_: gig, booking (a booking is the conversation that leads to one), set (the set is what was played)
 
+**Booking**:
+The conversation between a promoter and an act about a show, in a thread only they can read. A booking starts open, can go through negotiating, and can be confirmed. Once declined or cancelled it's settled, and nothing reopens it.
+_Avoid_: gig, inquiry (the inquiry is what opens one)
+
 **Request**:
 Asking staff to list a DJ, act or party in the directory, or to confirm someone owns a venue. Profiles go live as soon as they're saved, but the directory only shows what staff have approved.
 _Avoid_: proposal, submission, ticket
@@ -123,3 +131,21 @@ _Avoid_: mix (when meaning the audio), upload, file
 **Artist**:
 A producer credited in DJs' tracklists. Artists are not DJs or acts.
 _Avoid_: DJ, act
+
+## Behind the site
+
+**Root account**:
+The site's own account. It holds what several people share, and writes for people who can't write for themselves.
+_Avoid_: site account, service account, admin account
+
+**Space**:
+A private place for records, with a list of who can read it and who can write to it. Press kits' private parts, booking threads and backstage are all spaces.
+_Avoid_: group, room, channel
+
+**Directory**:
+The list of DJs, acts and parties people browse and search, which only shows what staff have approved.
+_Avoid_: index, catalogue
+
+**Staff**:
+The people who moderate and run the site. A moderator reviews requests, hides what shouldn't show and changes who's in a space. An admin can do all that, edit directly, and decide who's staff.
+_Avoid_: mod, team, superuser

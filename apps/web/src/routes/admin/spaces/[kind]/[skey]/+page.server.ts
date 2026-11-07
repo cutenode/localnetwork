@@ -22,7 +22,7 @@ export const load: PageServerLoad = async ({ locals, url, params }) => {
 	if (!view) error(404, 'Not found');
 
 	const failed = (what: string) => (cause: unknown) => {
-		locals.log.warn({ err: cause, space }, `could not read a space's ${what}`);
+		locals.log.warn(`could not read a space's ${what}`, { err: cause, space });
 
 		return null;
 	};

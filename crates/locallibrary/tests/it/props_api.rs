@@ -2076,3 +2076,137 @@ fn requests_are_taken_as_their_schemas_describe(tc: TestCase) {
     };
     assert_eq!(serde_json::from_value::<Direction>(serde_json::to_value(d).unwrap()).unwrap(), d);
 }
+
+/// Writing the settings profile to several drives at once: one whose PIONEER folder can't be
+/// written fails on its own, saying why, while the others take the profile.
+#[cfg(unix)]
+#[hegel::test(test_cases = 3)]
+fn prop_a_drive_that_cant_take_the_settings_fails_alone(tc: TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let vols = common::isolate(dir.path(), None);
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let roots: Vec<PathBuf> = ["USB", "Stick"]
+        .iter()
+        .map(|n| Device::open(common::demo_drive(&vols, n)).unwrap().root().to_path_buf())
+        .collect();
+    // The demo drive's settings aren't the profile's.
+    let values = IndexMap::from([("quantize".to_string(), "off".to_string())]);
+    api::settings_set(&store, &api::SetSettings { values, drive: None }).unwrap();
+    let req = api::SettingsApplyRequest { drives: roots.iter().map(|r| path(r)).collect(), create_missing: true };
+    let planned = api::settings_apply_plan(&store, &req).unwrap();
+    assert!(!planned.noop, "{:?}", planned.summary);
+    let locked = tc.draw(gs::sampled_from(roots.clone()));
+    let pioneer = locked.join("PIONEER");
+    let mode = |m: u32| fs::set_permissions(&pioneer, fs::Permissions::from_mode(m)).unwrap();
+    mode(0o555);
+    let results = planned.apply(Some(&store), &Ctx::silent());
+    mode(0o755);
+    let results = results.unwrap();
+    assert_eq!(results.len(), 2, "{results:?}");
+    for r in &results {
+        assert_eq!(r.error.is_some(), r.root == locked, "{r:?}");
+        assert_eq!(r.report.is_some(), r.root != locked, "{r:?}");
+    }
+    let drift = |root: &Path| api::settings_show(Some(&store), &api::DriveRef { drive: path(root) }).unwrap().drift;
+    for root in &roots {
+        assert_eq!(drift(root).is_empty(), *root != locked, "{}", root.display());
+    }
+}
+
+/// Syncing several drives when only a guess tells which is newest (a copy of Main a player saved
+/// history on, nothing else telling them apart): refused, offering to take the guess, unless it's
+/// taken; taken, the copy is the source, whichever order the drives come in.
+#[hegel::test(test_cases = 6)]
+#[hegel::explicit_test_case(main_first = true, allow = true)]
+fn prop_a_guess_at_the_newest_of_several_drives_is_taken_only_when_asked(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let main = common::demo_drive(dir.path(), "Main");
+    let copy = dir.path().join("Copy");
+    common::copy_dir(&main, &copy);
+    let ids: Vec<u32> = library(&copy).tracks.iter().map(|t| t.id).collect();
+    common::add_history(&copy, "HISTORY 001", &ids);
+    let main_first = tc.draw(gs::booleans());
+    let drives = match main_first {
+        true => [main.as_path(), copy.as_path()],
+        false => [copy.as_path(), main.as_path()],
+    };
+    let allow = tc.draw(gs::booleans());
+    let req = api::SyncManyRequest { allow_low_confidence: allow, ..common::sync_many(&drives) };
+    let planned = api::sync_many_plan(&req, &Ctx::silent());
+    if !allow {
+        let e = planned.unwrap_err();
+        assert_eq!(e.reason(), Some(Reason::Uncertain), "{e}");
+        assert!(e.to_string().contains("can't tell with confidence"), "{e}");
+        return;
+    }
+    let planned = planned.unwrap();
+    assert_eq!(planned.plan.source, Device::open(&copy).unwrap().root());
+}
+
+/// A blank drive is only ever a sync's target: paired with a drive holding an export, on either
+/// side, the export is copied onto it with high confidence, the whole library added; two blank
+/// drives are refused.
+#[hegel::test(test_cases = 8)]
+fn prop_a_blank_drive_is_only_ever_the_target(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let main = common::demo_drive(dir.path(), "Main");
+    let (blank, other) = (common::blank(dir.path(), "Blank"), common::blank(dir.path(), "Other"));
+    let (left, right) = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => (&main, &blank),
+        1 => (&blank, &main),
+        _ => (&blank, &other),
+    };
+    let planned = api::sync_plan(&common::sync_pair(left, right), &Ctx::silent());
+    if *right != main && *left != main {
+        let e = planned.unwrap_err();
+        assert!(e.to_string().contains("neither drive holds a rekordbox export"), "{e}");
+        return;
+    }
+    let p = planned.unwrap().plan;
+    let want = if *left == main { Relation::LeftNewer } else { Relation::RightNewer };
+    assert_eq!((p.comparison.relation, p.comparison.confidence), (want, compare::Confidence::High));
+    assert_eq!(p.source.as_deref(), Some(Device::open(&main).unwrap().root()));
+    assert_eq!(p.target.as_deref(), Some(Device::open(&blank).unwrap().root()));
+    assert_eq!(p.comparison.diff.added_tracks.len(), library(&main).tracks.len());
+}
+
+/// A drive's own setting overrides the profile's base for it alone: written to the drive, it no
+/// longer drifts; taken off again, the base holds for the drive, which drifts from it once more
+/// when the two differ. Importing the drive's settings as the base then leaves nothing to write
+/// to it.
+#[hegel::test(test_cases = 6)]
+fn prop_a_drive_s_own_setting_holds_until_it_is_taken_off(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let vols = common::isolate(dir.path(), None);
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let root = Device::open(common::demo_drive(&vols, "USB")).unwrap().root().to_path_buf();
+    let drive = Some(path(&root));
+    let def = tc.draw(gs::sampled_from(SCHEMA.iter().collect::<Vec<_>>()));
+    let (base, own) = (tc.draw(gs::sampled_from(def.choices)).id, tc.draw(gs::sampled_from(def.choices)).id);
+    let key = def.key.to_string();
+    let set = |value: &str, drive: Option<String>| {
+        let values = IndexMap::from([(key.clone(), value.to_string())]);
+        api::settings_set(&store, &api::SetSettings { values, drive }).unwrap()
+    };
+    set(base, None);
+    let profile = set(own, drive.clone());
+    let id = Device::open(&root).unwrap().id();
+    assert_eq!(profile.effective(id).get(&key).map(String::as_str), Some(own));
+    assert_eq!(profile.effective(None).get(&key).map(String::as_str), Some(base), "the base, for other drives");
+    let apply = api::ApplySettings { drive: path(&root), dry_run: false, create_missing: true };
+    api::settings_apply(&store, &apply).unwrap();
+    let drift = || api::settings_show(Some(&store), &api::DriveRef { drive: path(&root) }).unwrap().drift;
+    assert!(drift().is_empty(), "{:?}", drift());
+
+    let profile = api::settings_unset(&store, &api::UnsetSettings { keys: vec![key.clone()], drive }).unwrap();
+    assert_eq!(profile.effective(id).get(&key).map(String::as_str), Some(base));
+    assert_eq!(
+        drift().iter().map(|d| d.key.as_str()).collect::<Vec<_>>(),
+        if own == base { vec![] } else { vec![def.key] }
+    );
+
+    api::settings_import(&store, &api::ImportSettings { drive: Some(path(&root)) }).unwrap();
+    let write = api::SettingsApplyRequest { drives: vec![path(&root)], create_missing: false };
+    assert!(api::settings_apply_plan(&store, &write).unwrap().noop, "the base is the drive's now");
+}

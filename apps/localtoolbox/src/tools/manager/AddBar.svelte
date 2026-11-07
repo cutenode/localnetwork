@@ -2,14 +2,14 @@
   What the Manager can add to its list right now, and the buttons that do it.
 
   The tool keeps its own list and nothing goes onto it by itself (see
-  ./listed.svelte.ts), so this is the one place tracks come in — and it has to
-  be honest about two things at once: what the tab in front is offering, and
-  how much of that the list already holds. "add 42" on a page whose forty-two
-  tracks are all on the list already would be a button that does nothing
-  visible, so it says **refresh** instead, which is what it really does.
+  ./listed.svelte.ts), so this is the one place tracks come in, and it has to be
+  honest about two things at once: what the tab in front is offering, and how
+  much of that the list already holds. "add 42" on a page whose forty-two tracks
+  are all on the list already would be a button that does nothing visible, so it
+  says "refresh" instead, which is what it does.
 
-  It draws large when the list is empty — that opening is the whole panel, and
-  the only thing to do on it is add — and as one line above the list once there
+  It draws large when the list is empty (that opening is the whole panel, and
+  the only thing to do on it is add) and as one line above the list once there
   is a list to be above. Both are this component rather than two, so the words
   stay the same as the panel fills up.
 
@@ -29,7 +29,7 @@
   interface Props {
     /**
      * What the active tab is offering:
-     * `{ reading, name, meta, fresh, here, reason }` — see the panel, which
+     * `{ reading, name, meta, fresh, here, reason }`. See the panel, which
      * builds it from one read of the page.
      */
     offer: {
@@ -57,7 +57,7 @@
 
   // What pressing the button would really touch: the tracks it can add, plus
   // the ones it would bring up to date. Not every row of a page is one of
-  // them — a track the page rendered without a permalink is not something a
+  // them: a track the page rendered without a permalink is not something a
   // list can hold, since there would be nothing to tell it from another.
   const addable = $derived(offer.fresh + offer.here);
 
@@ -78,7 +78,7 @@
 
   const canAddTab = $derived(!adding && !offer.reading && addable > 0);
 
-  // The queue's button counts what it would add, as the tab's does — and is
+  // The queue's button counts what it would add, as the tab's does, and is
   // off when that is none, because a queue wholly on the list is a button
   // that would do nothing visible. It says the whole queue's size then, so
   // the number on it still answers the count in the header.

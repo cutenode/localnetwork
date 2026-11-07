@@ -35,6 +35,8 @@
 
 <Story name="Verified and out of date on a phone" args={{ verifications, live }} globals={{ viewport: { value: 'mobile2', isRotated: false } }} />
 
+<Story name="Out of date, with no name left" args={{ verifications: verifications.slice(0, 1), live: { 'did:plc:neon': { handle: null, displayName: null } } }} />
+
 <Story name="Checking" args={{ verifications, live: checking }} />
 
 <Story name="Nobody verified" args={{ verifications: [], live: {} }} />

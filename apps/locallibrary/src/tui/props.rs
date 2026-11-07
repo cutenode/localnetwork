@@ -232,8 +232,8 @@ fn check(app: &mut App, (w, h): (u16, u16)) {
     let s = screen(app, w, h);
     let lines: Vec<&str> = s.lines().collect();
     assert_eq!(lines.len(), h as usize, "{w}x{h}");
-    if !overlay(app) && w >= 80 && h >= 3 {
-        assert!(lines[0].contains("◉ locallibrary"), "no header at {w}x{h}:\n{s}");
+    if !overlay(app) && w >= 60 && h >= 20 {
+        assert!(lines[0].contains("◉"), "no header at {w}x{h}:\n{s}");
         assert!(!lines[h as usize - 1].trim().is_empty(), "no footer at {w}x{h}:\n{s}");
     }
     // What clicks are matched against is where it was drawn, on the screen.
@@ -250,11 +250,11 @@ fn check(app: &mut App, (w, h): (u16, u16)) {
         ("menu", a.menu),
         ("overview", a.overview),
     ];
-    // The Drives and Snapshots views' lists are only looked at there.
+    // The Drives view's panes and the Prepare view's list are only looked at there.
     let own = match app.view {
-        View::Drives => Some(("drive list", a.drive_list)),
-        View::Snapshots => Some(("snapshots", a.history)),
-        _ => None,
+        View::Drives => vec![("drive list", a.drive_list), ("snapshots", a.history), ("played", a.played)],
+        View::Prepare => vec![("jobs", a.prepare)],
+        _ => Vec::new(),
     };
     for (what, r) in named.into_iter().chain(own).chain(a.columns.iter().map(|c| ("column", c.1))) {
         assert!(r.is_empty() || screen_rect.intersection(r) == r, "{what} {r:?} is off the {w}x{h} screen:\n{s}");
@@ -417,14 +417,15 @@ fn library_walks_keep_the_player_whole(tc: TestCase) {
     walk_in(&tc, "1", LIBRARY_KEYS, 30);
 }
 
-/// What a library walk found: the outputs list (`d`) in a terminal three rows tall is drawn over
-/// the header, as a dialog is.
+/// What a library walk found: the outputs list (`d`) in a terminal too short for it is drawn over
+/// the header, as a dialog is, and in one three rows tall it has what's under the deck.
 #[test]
 fn the_outputs_list_may_cover_the_header() {
     let Fixture { _dir, mut app, .. } = walk_fixture();
     app.on_key(key_event("1"));
     app.on_key(key_event("d"));
-    assert!(screen(&mut app, 80, 3).contains("the system's default"));
+    assert!(screen(&mut app, 80, 20).contains("the system's default"));
+    check(&mut app, (80, 20));
     check(&mut app, (80, 3));
 }
 
@@ -543,8 +544,8 @@ impl Toggles {
             "'" => self.pads = !self.pads,
             "<tab>" | "<backtab>" => {
                 let mut order = vec![Focus::Drives, Focus::Playlists, Focus::Tracks];
-                order.extend(self.details.then_some(Focus::Details));
                 order.extend(self.crate_panel.then_some(Focus::Crate));
+                order.extend(self.details.then_some(Focus::Details));
                 let n = order.len();
                 let i = order.iter().position(|f| *f == self.focus).unwrap();
                 self.focus = order[if key == "<tab>" { (i + 1) % n } else { (i + n - 1) % n }];
@@ -580,7 +581,7 @@ fn toggles_do_what_they_say(tc: TestCase) {
 }
 
 /// The keys of the marks and the crate, with moving about and between the panes.
-const CRATE_KEYS: &[&str] = &["j", "k", "g", "G", "m", "m", "M", "a", "a", "t", "<tab>", "K", "J", "<del>", "X"];
+const CRATE_KEYS: &[&str] = &["j", "k", "<home>", "G", "m", "m", "M", "a", "a", "t", "<tab>", "K", "J", "<del>", "X"];
 
 /// The marks and the crate as a person keeping count would see them: which tracks are marked,
 /// what's in the crate in its order and which of it is selected, and where the cursor is.
@@ -633,14 +634,14 @@ fn marks_and_the_crate_keep_count(tc: TestCase) {
         let step = match key {
             "j" => 1,
             "k" => -1,
-            "g" => -1000,
+            "<home>" => -1000,
             "G" => 1000,
             _ => 0,
         };
         match (key, m.focus) {
-            ("j" | "k" | "g" | "G", Focus::Tracks) => m.track = clamp(m.track, step, n),
-            ("j" | "k" | "g" | "G", Focus::Playlists) => m.tree = clamp(m.tree, step, tree.len()),
-            ("j" | "k" | "g" | "G", Focus::Crate) if !m.crate_list.is_empty() => {
+            ("j" | "k" | "<home>" | "G", Focus::Tracks) => m.track = clamp(m.track, step, n),
+            ("j" | "k" | "<home>" | "G", Focus::Playlists) => m.tree = clamp(m.tree, step, tree.len()),
+            ("j" | "k" | "<home>" | "G", Focus::Crate) if !m.crate_list.is_empty() => {
                 m.crate_sel = Some(clamp(m.crate_sel.unwrap_or(0), step, m.crate_list.len()))
             }
             ("m", Focus::Tracks) => {
@@ -1020,7 +1021,7 @@ fn edits_write_what_they_say(tc: TestCase) {
             _ => continue,
         };
         let select = |app: &mut App, i: usize| {
-            app.on_key(key_event("g"));
+            app.on_key(key_event("<home>"));
             (0..i).for_each(|_| app.on_key(key_event("j")));
         };
         // The playlist `name` selected in the tree.
@@ -1234,7 +1235,7 @@ fn my_tags_go_on_and_come_off(tc: TestCase) {
         // Which tracks: the one selected, or all of them marked.
         let all = tc.draw(gs::booleans());
         app.marks.clear();
-        app.on_key(key_event("g"));
+        app.on_key(key_event("<home>"));
         if all {
             app.on_key(key_event("M"));
         }
@@ -1313,7 +1314,7 @@ fn the_drive_list_follows_what_is_plugged_in(tc: TestCase) {
     let mut first = true;
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(8)) {
         if tc.draw(gs::booleans()) {
-            app.on_key(key_event(tc.draw(gs::sampled_from(&["j", "k", "g", "G"][..]))));
+            app.on_key(key_event(tc.draw(gs::sampled_from(&["j", "k", "<home>", "G"][..]))));
             continue;
         }
         let mut list = tc.draw(gs::subsequences(&pool[..]));
@@ -1524,12 +1525,12 @@ fn the_drives_view_lists_libraries_and_their_drives(tc: TestCase) {
 
     let mut at = rows.iter().position(|r| *r == DriveRow::Drive(0)).unwrap();
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(10)) {
-        let key = tc.draw(gs::sampled_from(&["j", "k", "g", "G", "<pgdn>", "<pgup>", "e"][..]));
+        let key = tc.draw(gs::sampled_from(&["j", "k", "<home>", "G", "<pgdn>", "<pgup>", "e"][..]));
         let last = rows.len() - 1;
         at = match key {
             "j" => (at + 1).min(last),
             "k" => at.saturating_sub(1),
-            "g" | "<pgup>" if key == "g" || at < 10 => 0,
+            "<home>" | "<pgup>" if key == "<home>" || at < 10 => 0,
             "<pgup>" => at - 10,
             "G" => last,
             "<pgdn>" => (at + 10).min(last),
@@ -1630,7 +1631,7 @@ fn the_details_list_what_mixes_into_the_track(tc: TestCase) {
     let lib = locallibrary::Library { tracks, ..Default::default() };
     let (mut app, _dir) = app_with(lib.clone());
     let at = tc.draw(gs::integers::<usize>().max_value(n as usize - 1));
-    app.on_key(key_event("g"));
+    app.on_key(key_event("<home>"));
     (0..at).for_each(|_| app.on_key(key_event("j")));
     app.on_key(key_event("i"));
     wait(&mut app, |a| a.details_current());

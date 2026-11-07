@@ -311,9 +311,9 @@ fn keys_move_zoom_and_type() {
     assert!(app.mix.folders.is_empty(), "a folder with none isn't kept");
 
     // Keys the view doesn't use still work.
-    press(&mut app, "1");
+    press(&mut app, "gl");
     assert_eq!(app.view, View::Library);
-    press(&mut app, "5");
+    press(&mut app, "gr");
     assert_eq!(app.view, View::Mixes);
     press(&mut app, "q");
     assert!(app.quit);
@@ -432,7 +432,7 @@ fn a_tab_clicked_while_typing_a_path_puts_the_line_away() {
     let (mut app, _dir) = blank(View::Mixes);
     press(&mut app, "O~/Music");
     assert!(screen(&mut app, 120, 30).contains("Open a recording or folder:"));
-    point(&mut app, LEFT, "1 Library");
+    point(&mut app, LEFT, "l Library");
     assert_eq!(app.view, View::Library);
     press(&mut app, "\u{1b}5");
     let s = screen(&mut app, 120, 30);

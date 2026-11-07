@@ -20,6 +20,10 @@ const uncachedGlobs: Plugin = {
 // port (63315 and up) instead of moving on, so test runs in two checkouts at once collide.
 const BROWSER_TEST_SERVER = { strictPort: false };
 
+// A media element's clock follows the audio output, and on a Mac that has stopped, a recording sitting at 0:00 while
+// its player says it's playing. Without audio output, Chromium keeps the time itself.
+const browserTests = () => playwright({ launchOptions: { args: ['--disable-audio-output'] } });
+
 // The most a module in the client build's shared group (below) may weigh, and our modules, which
 // the group takes with Lucide's icons.
 const SHARED_MODULE_SIZE = 4096;
@@ -161,7 +165,7 @@ export default defineConfig({
 			],
 			// CI's pull request comment reads the summary, and json for each changed file's uncovered lines.
 			reporter: ['text', 'html', 'lcov', 'json-summary', 'json'],
-			thresholds: { lines: 98.1, functions: 96.5, statements: 97.1, branches: 91.8 }
+			thresholds: { lines: 99.6, functions: 99.5, statements: 99.3, branches: 94.6 }
 		},
 		projects: [
 			{
@@ -182,7 +186,7 @@ export default defineConfig({
 					name: 'client',
 					browser: {
 						enabled: true,
-						provider: playwright(),
+						provider: browserTests(),
 						instances: [{ browser: 'chromium', headless: true }]
 					},
 					include: ['src/**/*.svelte.{test,spec}.ts'],
@@ -221,7 +225,7 @@ export default defineConfig({
 					name: 'storybook',
 					browser: {
 						enabled: true,
-						provider: playwright(),
+						provider: browserTests(),
 						instances: [{ browser: 'chromium', headless: true }]
 					}
 				}

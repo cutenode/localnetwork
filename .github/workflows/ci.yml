@@ -56,6 +56,7 @@ jobs:
       locallibrary_dist: ${{ steps.scope.outputs.locallibrary_dist }}
       locallibrary_other_os: ${{ steps.scope.outputs.locallibrary_other_os }}
       locallibrary_semver: ${{ steps.scope.outputs.locallibrary_semver }}
+      locallibrary_commands: ${{ steps.scope.outputs.locallibrary_commands }}
       web: ${{ steps.scope.outputs.web }}
       web_verify: ${{ steps.scope.outputs.web_verify }}
       web_integration: ${{ steps.scope.outputs.web_integration }}
@@ -128,6 +129,7 @@ jobs:
               - 'benchmarks/**'
               - '.github/workflows/locallibrary-ci.yml'
               - '.github/actions/pr-comment/**'
+              - '.github/actions/apt-packages/**'
               - '.github/actions/release-budgets/**'
               - '!**/*.md'
               - '!apps/locallibrary/bombadil/**'
@@ -147,6 +149,13 @@ jobs:
               - '!crates/*/tests/**'
               - '!crates/*/examples/**'
               - '!**/*.md'
+            # What decides which commands each build has: lint builds the headless sidecar's tests
+            # for these.
+            locallibrary_commands:
+              - 'apps/locallibrary/src/main.rs'
+              - 'apps/locallibrary/Cargo.toml'
+              - 'apps/locallibrary/tests/it/cli.rs'
+              - '.github/workflows/locallibrary-ci.yml'
             # What `dist plan` reads (see locallibrary-release.yml).
             locallibrary_dist:
               - '**/Cargo.toml'
@@ -422,9 +431,9 @@ jobs:
           declare -A out=()
           set_if() { if "${@:2}"; then out[$1]=true; else out[$1]=false; fi; }
           for name in locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny \
-            locallibrary_dist locallibrary_other_os locallibrary_semver web_verify web_integration \
-            web_e2e web_lighthouse web_docker localtoolbox atstore mix_report npm_advisories \
-            workflow_lint repo_checks_policy repo_checks_lexicons repo_checks_ruleset; do
+            locallibrary_dist locallibrary_other_os locallibrary_semver locallibrary_commands web_verify \
+            web_integration web_e2e web_lighthouse web_docker localtoolbox atstore mix_report \
+            npm_advisories workflow_lint repo_checks_policy repo_checks_lexicons repo_checks_ruleset; do
             out[$name]=false
           done
           if [ "$linux" = true ] && [ "$EVENT" = pull_request ]; then
@@ -433,6 +442,7 @@ jobs:
             set_if locallibrary_deny changed locallibrary_deny
             set_if locallibrary_dist changed locallibrary_dist
             set_if locallibrary_semver changed locallibrary_semver
+            set_if locallibrary_commands changed locallibrary_commands
             set_if web_verify changed web
             set_if web_integration changed web_integration
             set_if web_e2e changed web_e2e
@@ -538,6 +548,7 @@ jobs:
       dist: ${{ needs.changes.outputs.locallibrary_dist == 'true' }}
       other-os: ${{ needs.changes.outputs.locallibrary_other_os == 'true' }}
       semver: ${{ needs.changes.outputs.locallibrary_semver == 'true' }}
+      commands: ${{ needs.changes.outputs.locallibrary_commands == 'true' }}
 
   web:
     needs: changes

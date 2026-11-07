@@ -137,7 +137,7 @@ export const actions: Actions = {
 		try {
 			to = await app.oauth.authorize(viewer.did, state, { account, optional: 'email' });
 		} catch (error) {
-			log.info({ err: error }, 'could not ask for the email address');
+			log.info('could not ask for the email address', { err: error });
 
 			if (error instanceof OptionalScopeUnsupported) {
 				return failed(400, 'email', "Your account's server can't share your email address with apps.");

@@ -13,7 +13,7 @@ export const load: PageServerLoad = async ({ locals, url, parent }) => {
 		app.bookings.threadsFor(viewer.did),
 		// Undefined while the directory can't say, so nobody is asked to set up a profile they have.
 		app.profiles.get(viewer.did).catch((error) => {
-			locals.log.warn({ err: error }, "couldn't tell whether the account has a profile");
+			locals.log.warn("couldn't tell whether the account has a profile", { err: error });
 
 			return undefined;
 		})

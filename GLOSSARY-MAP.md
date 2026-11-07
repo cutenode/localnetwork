@@ -5,6 +5,7 @@
 - [Local Network](./GLOSSARY.md): the website at localnetwork.computer
 - [locallibrary](./apps/locallibrary/GLOSSARY.md): the command line tool, player and sidecar, and
   their plugins and accounts
+- [localtoolbox](./apps/localtoolbox/GLOSSARY.md): the Chrome extension
 
 ## Relationships
 

@@ -2,8 +2,8 @@
   Session Queue: the tracks picked out while working through a page, held
   together until something is done with the whole batch.
 
-  The Manager tool fills it — opening a download link queues its track, and
-  the list button on each row queues one by hand — and everything that is done
+  The Manager tool fills it (opening a download link queues its track, and
+  the list button on each row queues one by hand), and everything that is done
   to a batch is here: mark the lot as downloaded once the files have really
   been saved, or send it to one of the other tools, which then read the queue
   instead of the page (the same tracks, whatever tab is open in front).
@@ -13,11 +13,11 @@
   lasts.
 
   Why it is a sheet and not a tool: the queue is about the other tools rather
-  than beside them. As the fourth entry in the menu it could only be reached
-  by leaving whichever tool had filled it, and coming back meant reading the
-  page again. It comes up over the open tool now, from a button in the header
-  of every view (QueueButton.svelte), and goes away leaving that tool exactly
-  as it was. The sheet itself, and where focus goes, is Sheet.svelte.
+  than beside them. As an entry in the menu it could only be reached by leaving
+  whichever tool had filled it, and coming back would mean reading the page
+  again. It comes up over the open tool, from a button in the header of every
+  view (QueueButton.svelte), and goes away leaving that tool exactly as it was.
+  The sheet itself, and where focus goes, is Sheet.svelte.
 -->
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
@@ -97,14 +97,14 @@
   // The other half of "mark the batch": once the files really have been saved
   // and the marks made, the marked tracks are what is *done* with, and the
   // queue is a working list rather than a record of one. Taking them out in
-  // one go leaves exactly what is left to do — which is what "clear" cannot
-  // give you, since it empties the lot, and what taking them out row by row
-  // costs a click each.
+  // one go leaves exactly what is left to do. "Clear" cannot give you that,
+  // since it empties the lot, and taking them out row by row costs a click
+  // each.
   //
   // The marks are untouched, as they are everywhere else here: they live in
-  // local storage and outlast the session (downloaded-store.js). Nothing is
+  // local storage and outlast the session (downloaded-store.ts). Nothing is
   // lost that the marks do not already hold, so unlike "clear" this does not
-  // ask twice — it is the Manager's `unqueue` on the tracks the queue itself
+  // ask twice: it is the Manager's `unqueue` on the tracks the queue itself
   // can pick out. The button is only there while something is marked, so
   // there is always something to take.
   function removeMarked() {
@@ -124,8 +124,8 @@
   // the button for a few seconds, the second empties the queue.
   //
   // The timer is cleared on the way out because the sheet goes in and out far
-  // more often than a panel ever did — it is put away on every Escape, every
-  // close, every hand-off — and a countdown left running belongs to a sheet
+  // more often than a panel does (it is put away on every Escape, every
+  // close, every hand-off), and a countdown left running belongs to a sheet
   // that is no longer there. A sheet opened again comes back disarmed, which
   // is what a confirm button should do.
   let armed = $state(false);
@@ -153,7 +153,7 @@
   // The same bargain PanelShell strikes for a panel's body, and a simpler one:
   // the queue is read before anything is drawn, so the rows are all there on
   // the first turn and the place can go straight back. `untrack`, because the
-  // stored number is only ever read here — after this it is written.
+  // stored number is only ever read here; after this it is written.
   const scrolled = remembered('queue', 'scroll', 0);
 
   const startAt = untrack(() => scrolled.value);

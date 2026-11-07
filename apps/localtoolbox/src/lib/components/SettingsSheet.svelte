@@ -2,35 +2,35 @@
   Settings: the handful of choices that belong to the extension rather than to
   any one tool.
 
-  A panel's own options stay on the panel — the sort order and "background
+  A panel's own options stay on the panel: the sort order and "background
   tabs" say how the Manager list behaves and are read a foot from where they
   are set. What is here is the other kind: the theme, which is every view at
   once; what the content script does to a SoundCloud page, which is somewhere
   the popup is not (see $lib/settings.svelte.ts for why those cannot live in
-  the popup's own storage); and what the Downloader hands to a gate that asks
+  the popup's own storage); what the Downloader hands to a gate that asks
   for it, which is typed once and never thought about again
-  ($lib/downloader.svelte.ts); and which shops the Manager's search badges
+  ($lib/downloader.svelte.ts); which shops the Manager's search badges
   point at, which is a fact about where somebody buys records rather than
   about the list in front of them ($lib/search-sites.svelte.ts, over the sites
   named in $lib/search-sites.json); and whether an opened row's words are put
   into Title Case, which is a house style for a tracklist rather than a fact
   about any one of them ($lib/title-case.svelte.ts, over $lib/title-case.ts).
 
-  So the two kinds of storage both turn up here, and that is the point rather
-  than a muddle: what a setting *is* decides where it is set, and where it is
-  kept is a question about who has to read it. The switches at the top are in
-  chrome.storage.local because a SoundCloud page obeys them; the address, the
-  name, the badge switches and the casing below are in the popup's own
-  localStorage because nothing outside the popup has any use for them.
+  So the two kinds of storage both turn up here: what a setting *is* decides
+  where it is set, and who has to read it decides where it is kept. The
+  switches at the top are in chrome.storage.local because a SoundCloud page
+  obeys them; the address, the name, the badge switches and the casing below
+  are in the popup's own localStorage because nothing outside the popup has
+  any use for them.
 
-  One section is not a setting at all. Everything the extension has saved
-  — the marks, the looked-up details, the Manager's list, the session queue and
-  every panel option — goes out to one file there and reads back in
-  (StateTransfer.svelte). It was in the Manager panel's footer, which was the
-  wrong place for it twice over: the file carries four other tools' worth of
-  state, and a backup is something you take before opening a playlist rather
-  than while looking at one. Nor is the last: which version this is, and a
-  link to report a bug with that version already filled in ($lib/bug-report.ts),
+  One section is not a setting at all. Everything the extension has saved (the
+  marks, the looked-up details, the Manager's list, the artists list, the
+  session queue and every panel option) goes out to one file there and reads
+  back in (StateTransfer.svelte). It is here rather than in the Manager panel's
+  footer because the file carries other tools' state too, and a backup is
+  something you take before opening a playlist rather than while looking at
+  one. The last section is not one either: which version this is, and a link
+  to report a bug with that version already filled in ($lib/bug-report.ts),
   since this sheet is about the extension rather than any one tool.
 
   A sheet rather than a tool, and for the reason the session queue is one: it
@@ -199,7 +199,7 @@
       The badges a link-less track carries in Manager, one switch each.
       Which sites there are is data rather than code
       (src/lib/search-sites.json), so this list is however long that file
-      is and nothing here names a site — somebody who adds one to the
+      is and nothing here names a site. Somebody who adds one to the
       file gets its switch for free.
 
       Here rather than on the Manager panel for the reason the address

@@ -91,7 +91,11 @@
 	</ShowList>
 </Story>
 
+<Story name="Nothing on, just a title" args={{ shows: [], empty: { title: 'No upcoming shows' } }} />
+
 <Story name="Offline" args={{ shows: null, empty, retryHref: '/shows' }} />
+
+<Story name="Offline, nowhere to retry" args={{ shows: null, empty }} />
 
 <Story name="Offline on a phone" args={{ shows: null, empty, retryHref: '/shows' }} globals={{ viewport: { value: 'mobile2', isRotated: false } }} />
 

@@ -1,10 +1,10 @@
-// src/tools/third-party-downloads/sites/* — one adapter per site, each against
+// src/tools/third-party-downloads/sites/*: one adapter per site, each against
 // a stubbed `fetch` standing in for that site: the page as HTML, then whatever
 // endpoints walking it goes through.
 //
-// Every adapter answers the same two ways — {kind:'file'} for something to
-// save, {kind:'link'} for somewhere to go — or throws with the sentence the row
-// should show, so these read as: give it this page, and see which it is.
+// Every adapter answers the same two ways ({kind:'file'} for something to save,
+// {kind:'link'} for somewhere to go) or throws with the sentence the row should
+// show, so these read as: give it this page, and see which it is.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import droploud from '../../src/tools/third-party-downloads/sites/droploud.ts';
 import featurefm from '../../src/tools/third-party-downloads/sites/featurefm.ts';
@@ -165,7 +165,7 @@ describe('Hypeddit', () => {
 		expect(calls.map((one) => new URL(one.url).pathname)).toEqual(['/886rp1', '/gate/ge', '/gate/download/ul']);
 
 		// Every request carries the session cookie the page set, and every post
-		// the page's nonce with it — without both the post is a stranger's.
+		// the page's nonce with it: without both the post is a stranger's.
 		for (const one of calls) expect(one.options.credentials).toBe('include');
 
 		for (const one of calls.slice(1)) expect(one.options.headers!['X-CSRF-TOKEN']).toBe('CSRF');
@@ -1104,7 +1104,7 @@ describe('Pump Your Sound', () => {
 			url: FILE,
 			title: 'LOVE ME NOW'
 		});
-		// Where the form says, resolved against the page — not the page itself.
+		// Where the form says, resolved against the page, not the page itself.
 		expect(calls[1].url).toBe(new URL(ACTION, GATE).href);
 		expect(form(calls, 'pumpyoursound.com')).toEqual({
 			fangate_comment: 'Really amazing track!',
@@ -1358,7 +1358,7 @@ describe('Laylo', () => {
 		expect(why(await laylo.unlock(DROP, ME))).toMatch(/takes an Instagram follow or a phone number/);
 
 		// An artist's own options stand in for the drop's, the way the page reads
-		// them — here, taking email off a drop that offered it.
+		// them: here, taking email off a drop that offered it.
 		net(offering({ rsvpOptions: { email: 0 } }, { rsvpOptions: { sms: 0, email: -1 } }));
 		expect(why(await laylo.unlock(DROP, ME))).toMatch(/takes a phone number/);
 	});

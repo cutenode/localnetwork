@@ -5,7 +5,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	requireAdmin(locals, url);
 
 	const verifications = await locals.app.verifications.list().catch((error) => {
-		locals.log.warn({ err: error }, 'could not list verifications');
+		locals.log.warn('could not list verifications', { err: error });
 
 		return null;
 	});

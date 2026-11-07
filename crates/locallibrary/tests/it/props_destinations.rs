@@ -465,3 +465,374 @@ fn a_store_restored_again_moves_on_only_to_what_descends_from_its_own(tc: TestCa
         assert!(sound(&other));
     }
 }
+
+/// What `memory` holds: its records' names and its stored files.
+fn kept(memory: &Memory) -> (Vec<String>, Vec<String>) {
+    let mut records: Vec<String> = memory.records.lock().unwrap().keys().cloned().collect();
+    let mut blobs: Vec<String> = memory.blobs.lock().unwrap().keys().map(Hash::to_hex).collect();
+    records.sort();
+    blobs.sort();
+    (records, blobs)
+}
+
+/// A copy to a destination that stops answering at any one of the requests a whole copy makes
+/// fails, and the next copy leaves it holding what a copy never stopped does; restoring from it
+/// into an empty store, stopped at any one of a restore's requests, fails too, and the next
+/// restore brings back the store as it was.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_copy_or_restore_stopped_at_any_request_fails_and_the_next_finishes(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = pulled(dir.path(), tc.draw(gs::integers::<usize>().min_value(1).max_value(2)));
+    let silent = Ctx::silent();
+    let whole = Memory::default();
+    offsite::copy_to(&store, &whole, &CopyOptions::default(), &silent).unwrap();
+    let requests = whole.answered.load(Ordering::SeqCst);
+    for stop in 0..requests {
+        let memory = Memory::default();
+        *memory.stops_after.lock().unwrap() = Some(stop);
+        let err = offsite::copy_to(&store, &memory, &CopyOptions::default(), &silent).unwrap_err();
+        assert!(matches!(err, Error::Cancelled), "stopped at request {stop}: {err}");
+        *memory.stops_after.lock().unwrap() = None;
+        let r = offsite::copy_to(&store, &memory, &CopyOptions::default(), &silent).unwrap();
+        assert!(r.complete, "{r:?}");
+        assert_eq!(kept(&memory), kept(&whole), "stopped at request {stop}");
+    }
+
+    let asked = whole.answered.load(Ordering::SeqCst);
+    let first = Store::open_or_init(dir.path().join("restored")).unwrap();
+    offsite::restore(&first, &whole, &RestoreOptions::default(), &silent).unwrap();
+    let requests = whole.answered.load(Ordering::SeqCst) - asked;
+    for stop in 0..requests {
+        let other = Store::open_or_init(dir.path().join(format!("restored {stop}"))).unwrap();
+        *whole.stops_after.lock().unwrap() = Some(whole.answered.load(Ordering::SeqCst) + stop);
+        let err = offsite::restore(&other, &whole, &RestoreOptions::default(), &silent).unwrap_err();
+        assert!(matches!(err, Error::Cancelled), "stopped at request {stop}: {err}");
+        *whole.stops_after.lock().unwrap() = None;
+        offsite::restore(&other, &whole, &RestoreOptions::default(), &silent).unwrap();
+        assert_eq!(holding(&other), holding(&store), "stopped at request {stop}");
+        assert!(sound(&other));
+    }
+}
+
+/// A destination whose records read as garbage is refused saying which: copying there, its
+/// store's id, libraries or index of snapshots; restoring from it, those or its labels. One
+/// naming a store by something that isn't an id is another store's copy to a copy (refused
+/// unless forced) and a damaged one to a restore.
+#[hegel::test(test_cases = 10)]
+fn prop_a_destination_whose_records_read_as_garbage_is_refused_saying_which(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = pulled(dir.path(), 1);
+    let silent = Ctx::silent();
+    // Not JSON at all: the store's id is read as any JSON first.
+    let garbage = tc.draw(gs::sampled_from(vec!["", "{", "[1", "nope"])).as_bytes().to_vec();
+    let said = |name: &str| format!("the memory:here destination failed: its {name} can't be read: ");
+    let name = tc.draw(gs::sampled_from(vec!["store.json", "libraries.json", "snapshots.json"]));
+    let memory = Memory::default();
+    memory.records.lock().unwrap().insert(name.into(), garbage.clone());
+    let e = offsite::copy_to(&store, &memory, &CopyOptions::default(), &silent).unwrap_err().to_string();
+    assert!(e.starts_with(&said(name)), "{e}");
+
+    let whole = Memory::default();
+    offsite::copy_to(&store, &whole, &CopyOptions::default(), &silent).unwrap();
+    let other = Store::open_or_init(dir.path().join("other")).unwrap();
+    let name = tc.draw(gs::sampled_from(vec!["store.json", "snapshots.json", "labels.json"]));
+    let was = whole.records.lock().unwrap().insert(name.into(), garbage).unwrap();
+    let e = offsite::restore(&other, &whole, &RestoreOptions::default(), &silent).unwrap_err().to_string();
+    assert!(e.starts_with(&said(name)), "{e}");
+    whole.records.lock().unwrap().insert(name.into(), was);
+
+    let id = tc.draw(gs::sampled_from(vec!["\"not an id\"", "1", "null"]));
+    let named = format!("{{\"id\": {id}}}").into_bytes();
+    let was = whole.records.lock().unwrap().insert("store.json".into(), named).unwrap();
+    let e = offsite::restore(&other, &whole, &RestoreOptions::default(), &silent).unwrap_err().to_string();
+    assert!(e.starts_with("the memory:here destination failed: its store.json: "), "{e}");
+    let e = offsite::copy_to(&store, &whole, &CopyOptions::default(), &silent).unwrap_err();
+    assert_eq!(e.reason(), Some(locallibrary::error::Reason::DifferentStore), "{e}");
+    let forced = CopyOptions { force: true, ..Default::default() };
+    offsite::copy_to(&store, &whole, &forced, &silent).unwrap();
+    assert_eq!(whole.records.lock().unwrap().get("store.json"), Some(&was), "the store's own id replaced it");
+    assert!(other.libraries().unwrap().is_empty(), "nothing came back from garbage");
+}
+
+/// A destination whose libraries' latest snapshots include one the store has neither kept nor
+/// pruned (pulled into elsewhere) is copied over only when forced, which leaves it the store's.
+#[hegel::test(test_cases = 10)]
+fn prop_a_destination_ahead_of_the_store_is_copied_over_only_when_forced(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = pulled(dir.path(), 1);
+    let silent = Ctx::silent();
+    let memory = Memory::default();
+    offsite::copy_to(&store, &memory, &CopyOptions::default(), &silent).unwrap();
+    let mut libraries: Vec<LibraryRecord> = memory.record("libraries.json").unwrap();
+    let ahead = Hash::of(tc.draw(gs::text().max_size(8)).as_bytes());
+    libraries[0].head = Some(ahead);
+    memory.records.lock().unwrap().insert("libraries.json".into(), serde_json::to_vec(&libraries).unwrap());
+    let e = offsite::copy_to(&store, &memory, &CopyOptions::default(), &silent).unwrap_err();
+    assert_eq!(e.reason(), Some(locallibrary::error::Reason::CopyAhead), "{e}");
+    let name = &libraries[0].name;
+    assert!(e.to_string().contains(&format!("{name} ({})", ahead.short())), "{e}");
+    let forced = CopyOptions { force: true, ..Default::default() };
+    offsite::copy_to(&store, &memory, &forced, &silent).unwrap();
+    let now: Vec<LibraryRecord> = memory.record("libraries.json").unwrap();
+    assert_eq!(now[0].head, store.libraries().unwrap()[0].head);
+}
+
+/// A copy to a destination fails, saying which, when one of the store's records can't be read
+/// (its id, libraries, pruned snapshots, labels or settings) or a snapshot lists a file without its
+/// hash, and while another holds the store; put right, the copy goes through.
+#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_copy_to_a_destination_names_the_store_record_it_cant_read(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = pulled(dir.path(), 2);
+    let silent = Ctx::silent();
+    let memory = Memory::default();
+    let held = store.lock().unwrap();
+    let e = offsite::copy_to(&store, &memory, &CopyOptions::default(), &silent).unwrap_err();
+    assert!(matches!(e, Error::Locked(_)), "{e}");
+    let e = offsite::restore(&store, &memory, &RestoreOptions::default(), &silent).unwrap_err();
+    assert!(matches!(e, Error::Locked(_)), "{e}");
+    drop(held);
+    for name in ["store.json", "libraries.json", "pruned.json", "labels.json", "settings.json"] {
+        let path = store.root().join(name);
+        let was = std::fs::read(&path).ok();
+        let _ = std::fs::remove_file(&path);
+        match name {
+            "settings.json" => std::fs::create_dir(&path).unwrap(),
+            _ => std::fs::write(&path, tc.draw(gs::sampled_from(vec!["", "{", "[1]"]))).unwrap(),
+        }
+        let e = offsite::copy_to(&store, &memory, &CopyOptions::default(), &silent).unwrap_err();
+        assert_eq!(e.detail().fields.get("path"), Some(&path.display().to_string().into()), "{e}");
+        let _ = std::fs::remove_dir(&path);
+        if let Some(bytes) = was {
+            std::fs::write(&path, bytes).unwrap();
+        } else {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+    let sid = tc.draw(gs::sampled_from(store.snapshot_ids().unwrap()));
+    let manifest = store.root().join("snapshots").join(format!("{}.json", sid.to_hex()));
+    let was = std::fs::read(&manifest).unwrap();
+    let mut snap: serde_json::Value = serde_json::from_slice(&was).unwrap();
+    snap["files"][0].as_object_mut().unwrap().remove("hash");
+    std::fs::write(&manifest, snap.to_string()).unwrap();
+    let e = offsite::copy_to(&store, &memory, &CopyOptions::default(), &silent).unwrap_err().to_string();
+    assert_eq!(e, format!("snapshot {}: {} has no hash", sid.short(), snap["files"][0]["path"].as_str().unwrap()));
+    std::fs::write(&manifest, was).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let h = store.load_snapshot(&sid).unwrap().files.iter().find_map(|f| f.hash).unwrap();
+        let object = store.object_path(&h);
+        let memory = Memory::default();
+        std::fs::set_permissions(&object, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let e = offsite::copy_to(&store, &memory, &CopyOptions::default(), &silent).unwrap_err();
+        std::fs::set_permissions(&object, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(e.detail().fields.get("path"), Some(&object.display().to_string().into()), "{e}");
+    }
+    let r = offsite::copy_to(&store, &memory, &CopyOptions::default(), &silent).unwrap();
+    assert!(r.complete, "{r:?}");
+}
+
+/// Restoring fails, saying where, when the store restored into can't take what comes back: its
+/// pruned snapshots can't be read, its folder for stored files on the way in or one they go in
+/// is a file, or (where permissions say so) its own folder can't be written; and when the
+/// destination lacks a stored file a snapshot lists. Put right, it all comes back.
+#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_restore_names_what_it_cant_bring_back_and_brings_it_once_its_put_right(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = pulled(dir.path(), 1);
+    let silent = Ctx::silent();
+    let memory = Memory::default();
+    offsite::copy_to(&store, &memory, &CopyOptions::default(), &silent).unwrap();
+    let blobs: Vec<Hash> = memory.blobs.lock().unwrap().keys().copied().collect();
+    let h = tc.draw(gs::sampled_from(blobs));
+    let restore = |other: &Store| offsite::restore(other, &memory, &RestoreOptions::default(), &silent);
+    let hex = h.to_hex();
+    let shard = format!("objects/{}", &hex[..2]);
+    // Records it can't read, files where its folders go, a stored file the destination lacks, and
+    // folders it can't write: its own, and the one stored files come in through.
+    let faults = ["pruned.json", "libraries.json", "objects/tmp", &shard, "a blob", "read-only", "read-only tmp"];
+    for (n, fault) in faults.into_iter().enumerate() {
+        if fault.starts_with("read-only") && !cfg!(unix) {
+            continue;
+        }
+        let other = Store::open_or_init(dir.path().join(format!("other {n}"))).unwrap();
+        let tmp = other.root().join("objects").join("tmp");
+        let path = other.root().join(fault);
+        let mut lost = None;
+        match fault {
+            "pruned.json" | "libraries.json" => std::fs::write(&path, b"{").unwrap(),
+            "a blob" => lost = memory.blobs.lock().unwrap().remove(&h),
+            "read-only" => read_only(other.root(), true),
+            "read-only tmp" => {
+                std::fs::create_dir_all(&tmp).unwrap();
+                read_only(&tmp, true);
+            }
+            _ => {
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(&path, b"a file").unwrap();
+            }
+        }
+        if fault == "libraries.json" {
+            let dry = RestoreOptions { dry_run: true, ..Default::default() };
+            let e = offsite::restore(&other, &memory, &dry, &silent).unwrap_err();
+            assert_eq!(e.detail().fields.get("path"), Some(&path.display().to_string().into()), "{e}");
+        }
+        let e = restore(&other).unwrap_err();
+        let at = e.detail().fields.get("path").and_then(|p| p.as_str().map(std::path::PathBuf::from));
+        match fault {
+            "a blob" => assert_eq!(e.to_string(), "not found: a blob"),
+            "read-only" => assert!(at.is_some_and(|p| p.starts_with(other.root())), "{e}"),
+            "read-only tmp" => assert!(at.is_some_and(|p| p.starts_with(&tmp)), "{e}"),
+            _ => assert_eq!(at.as_deref(), Some(path.as_path()), "{e}"),
+        }
+        match fault {
+            "a blob" => {
+                memory.blobs.lock().unwrap().insert(h, lost.unwrap());
+            }
+            "read-only" => read_only(other.root(), false),
+            "read-only tmp" => read_only(&tmp, false),
+            _ => std::fs::remove_file(&path).unwrap(),
+        }
+        restore(&other).unwrap();
+        assert_eq!(holding(&other), holding(&store), "{fault}");
+    }
+}
+
+/// A snapshot a destination lists but no longer has the record of (removed there since) is left
+/// out of a restore, and the rest comes back; one whose record comes back rewritten is refused.
+#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_a_restore_leaves_out_a_snapshot_the_destination_no_longer_has(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = pulled(dir.path(), tc.draw(gs::integers::<usize>().min_value(2).max_value(3)));
+    let memory = Memory::default();
+    offsite::copy_to(&store, &memory, &CopyOptions::default(), &Ctx::silent()).unwrap();
+    let head = store.libraries().unwrap()[0].head.unwrap();
+    let older: Vec<Hash> = store.snapshot_ids().unwrap().into_iter().filter(|id| *id != head).collect();
+    let gone = tc.draw(gs::sampled_from(older.clone()));
+    memory.records.lock().unwrap().shift_remove(&format!("snapshots/{}.json", gone.to_hex()));
+    let other = Store::open_or_init(dir.path().join("other")).unwrap();
+    let r = offsite::restore(&other, &memory, &RestoreOptions::default(), &Ctx::silent()).unwrap();
+    assert_eq!(r.snapshots, older.len(), "{r:?}");
+    assert!(other.load_snapshot(&gone).is_err());
+    assert_eq!(other.libraries().unwrap()[0].head, Some(head));
+
+    // One whose record comes back rewritten is refused.
+    let name = format!("snapshots/{}.json", head.to_hex());
+    let mut record: serde_json::Value = memory.record(&name).unwrap();
+    record["message"] = format!("rewritten {}", tc.draw(gs::text().max_size(8))).into();
+    memory.records.lock().unwrap().insert(name, record.to_string().into_bytes());
+    let fresh = Store::open_or_init(dir.path().join("fresh")).unwrap();
+    let e = offsite::restore(&fresh, &memory, &RestoreOptions::default(), &Ctx::silent()).unwrap_err();
+    assert_eq!(
+        e.to_string(),
+        format!("the memory:here destination failed: snapshot {} came back damaged", head.short())
+    );
+}
+
+/// Makes `dir` read-only, or writable again.
+fn read_only(dir: &Path, read_only: bool) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(if read_only { 0o555 } else { 0o755 })).unwrap();
+    }
+    #[cfg(not(unix))]
+    let _ = (dir, read_only);
+}
+
+/// A copy to a destination or a restore from it stopped before it starts, or as it starts on the
+/// stored files, or (copying) once they're all there, stops there; the next one finishes.
+#[hegel::test(test_cases = 10)]
+fn prop_a_copy_or_restore_stopped_between_its_steps_finishes_next_time(tc: TestCase) {
+    use locallibrary::progress::{CancelToken, Event, Phase};
+    let dir = tempfile::tempdir().unwrap();
+    let store = pulled(dir.path(), 1);
+    let at = tc.draw(gs::sampled_from(vec![None, Some(true), Some(false)]));
+    // Cancelled before it starts (`None`), as the stored files start (`Some(true)`) or once
+    // they're done (`Some(false)`).
+    let stopper = || {
+        let token = CancelToken::new();
+        let stop = token.clone();
+        let progress = move |e: &Event| match (e, at) {
+            (Event::PhaseStart { phase: Phase::Copy, .. }, Some(true))
+            | (Event::PhaseEnd { phase: Phase::Copy }, Some(false)) => stop.cancel(),
+            _ => {}
+        };
+        if at.is_none() {
+            token.cancel();
+        }
+        (progress, token)
+    };
+    let (progress, token) = stopper();
+    let memory = Memory::default();
+    let e = offsite::copy_to(&store, &memory, &CopyOptions::default(), &Ctx::new(&progress, token)).unwrap_err();
+    assert!(matches!(e, Error::Cancelled), "{e}");
+    assert!(memory.record::<serde_json::Value>("libraries.json").is_none(), "no copy reaches a library yet");
+    offsite::copy_to(&store, &memory, &CopyOptions::default(), &Ctx::silent()).unwrap();
+
+    // A restore checks nothing more once its stored files are in.
+    let other = Store::open_or_init(dir.path().join("other")).unwrap();
+    if at != Some(false) {
+        let (progress, token) = stopper();
+        let e = offsite::restore(&other, &memory, &RestoreOptions::default(), &Ctx::new(&progress, token)).unwrap_err();
+        assert!(matches!(e, Error::Cancelled), "{e}");
+        assert!(other.libraries().unwrap().is_empty());
+    }
+    offsite::restore(&other, &memory, &RestoreOptions::default(), &Ctx::silent()).unwrap();
+    assert_eq!(holding(&other), holding(&store));
+}
+
+/// Offering repairs from a destination that doesn't answer fails, offering none. Fetching the
+/// files offered takes each once, however many problems share it, and not while another holds
+/// the store's lock.
+#[hegel::test(test_cases = 20)]
+fn prop_a_fetch_from_a_destination_takes_each_file_once_and_only_with_the_store_to_itself(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let memory = Memory::default();
+    let bytes = tc.draw(gs::binary().min_size(1).max_size(64));
+    let hash = Hash::of(&bytes);
+    memory.blobs.lock().unwrap().insert(hash, bytes.clone());
+    let problem = |i: usize| FileProblem {
+        path: format!("contents/{i}.mp3"),
+        class: FileClass::Audio,
+        size: bytes.len() as u64,
+        expected: Some(hash),
+        actual: None,
+        reference: None,
+        mtime: None,
+        error: None,
+        repair: None,
+    };
+    let sharing = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
+    let mut report = ScrubReport {
+        drive: "Main".into(),
+        root: dir.path().into(),
+        snapshot: None,
+        files: sharing,
+        bytes: 0,
+        verified: 0,
+        unverified: 0,
+        damaged: (0..sharing).map(problem).collect(),
+        unreadable: Vec::new(),
+        missing: Vec::new(),
+        tracks: Vec::new(),
+        playlists: Vec::new(),
+    };
+    *memory.stops_after.lock().unwrap() = Some(0);
+    assert!(matches!(scrub::offer(&mut report, &memory, &Ctx::silent()), Err(Error::Cancelled)));
+    assert!(report.problems().all(|p| p.repair.is_none()), "nothing offered");
+    *memory.stops_after.lock().unwrap() = None;
+    scrub::offer(&mut report, &memory, &Ctx::silent()).unwrap();
+    let offered: Vec<FileProblem> = report.problems().cloned().collect();
+    let held = store.lock().unwrap();
+    let e = scrub::fetch(&store, &memory, &offered, &Ctx::silent()).unwrap_err();
+    assert!(matches!(e, Error::Locked(_)), "{e}");
+    assert!(!store.has_object(&hash));
+    drop(held);
+    let asked = memory.answered.load(Ordering::SeqCst);
+    scrub::fetch(&store, &memory, &offered, &Ctx::silent()).unwrap();
+    assert_eq!(memory.answered.load(Ordering::SeqCst) - asked, 1, "fetched once for {sharing} problems");
+    assert_eq!(std::fs::read(store.object_path(&hash)).unwrap(), bytes);
+}

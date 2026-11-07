@@ -1,16 +1,15 @@
-// content.ts — the queue button on cover art: where it turns up, what it
+// content.ts, the queue button on cover art: where it turns up, what it
 // says, and what a click on it writes into the session queue.
 //
-// It is also where the page says a track *is* in the queue — that used to be a
-// pill of its own in the opposite corner — so its resting word carries the
-// state ("queued") and its `data-hover` the word it takes under the pointer
-// ("unqueue").
+// It is also where the page says a track *is* in the queue, so its resting
+// word carries the state ("queued") and its `data-hover` the word it takes
+// under the pointer ("unqueue").
 //
 // Hovering itself is CSS (content.css keeps the button at opacity 0 until the
 // artwork is hovered, the button is focused, or the track is in the queue, and
 // swaps the resting word for `data-hover`), so what is asserted here is that
 // the button is on the page, says the right thing in both words, and toggles
-// the right track — the part a stylesheet cannot get wrong.
+// the right track, the part a stylesheet cannot get wrong.
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { loadContentScript, disposeContentScripts } from '../helpers/load.ts';
 import { createChrome, type ChromeMock } from '../helpers/chrome.ts';
@@ -217,8 +216,8 @@ describe('what a click on it does', () => {
 	});
 
 	// A row whose thumbnail never lazy-loaded shows no cover, but what is known
-	// about the track names one — so it goes into the queue with a picture
-	// rather than a placeholder. See detailsOf in content.js.
+	// about the track names one, so it goes into the queue with a picture
+	// rather than a placeholder. See detailsOf in content.ts.
 	it('takes the cover from the details when the row never loaded one', async () => {
 		const cover = ART('from-the-api', 'large');
 		globalThis.chrome = createChrome({
@@ -354,8 +353,8 @@ describe('what a click on it does', () => {
 
 		await clickQueue(buttonOf('/a/one'));
 		await clickQueue(buttonOf('/l/one'));
-		// A 32 px thumbnail has room for a sign: the "+" the pill used to carry,
-		// and the "−" hovering would make of it.
+		// A 32 px thumbnail has room for a sign: a "+", and the "−" hovering
+		// would make of it.
 		expect(readButton(buttonOf('/a/one'))).toMatchObject({
 			text: '+',
 			hover: '−',

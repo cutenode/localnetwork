@@ -412,7 +412,7 @@ pub fn read_sets(app: &mut App) {
     }
 }
 
-/// The message the footer shows now ("" for none).
+/// The message on the status line now ("" for none).
 pub fn last_message(app: &App) -> &str {
     app.toast.as_ref().map_or("", |t| t.0.as_str())
 }
@@ -714,6 +714,16 @@ pub fn keys_accounts() {
 pub fn mounted(dir: &Path) {
     // SAFETY: as in `echo_plugin`.
     unsafe { std::env::set_var("LOCALLIBRARY_VOLUMES", dir) };
+}
+
+/// No drive counts as mounted unless a test says so ([`mounted`]): the Profile view reads every
+/// drive it finds, in the background, and a real one plugged into the machine takes seconds and
+/// goes on being read after the test case that asked.
+pub fn no_drives() {
+    if std::env::var_os("LOCALLIBRARY_VOLUMES").is_none() {
+        // SAFETY: as in `echo_plugin`: this is the process's first app, so none of its workers runs.
+        unsafe { std::env::set_var("LOCALLIBRARY_VOLUMES", "") };
+    }
 }
 
 /// The folder a property test's drives are mounted in, with the echo plugin's manifest beside

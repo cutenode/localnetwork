@@ -92,8 +92,9 @@ impl Hooks {
         self
     }
 
-    /// The features with a method among these hooks', and the SDK's own (`blobs`, `net`, what a
-    /// hook may send the host, see [`Host`]; `choose`, a question it may answer).
+    /// The features with a method among these hooks', and the SDK's own (`accounts`, `blobs`,
+    /// `net`, what a hook may send the host, see [`Host`]; `analysis`, `choose`, `views`, what it
+    /// may answer).
     fn features(&self) -> Vec<String> {
         let handled = |m: &&str| self.hooks.contains_key(m) || self.notified.contains_key(m);
         let had = FEATURES.iter().filter(|f| f.methods.is_empty() || f.methods.iter().any(handled));
