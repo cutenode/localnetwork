@@ -4008,6 +4008,39 @@
       }
     },
     {
+      "name": "drive.speed",
+      "aliases": [],
+      "kind": "read",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/DriveRef"
+      },
+      "result": {
+        "$ref": "#/$defs/DriveSpeedReport"
+      }
+    },
+    {
+      "name": "drive.speed.measure",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/DriveRef"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/DriveSpeedReport"
+      }
+    },
+    {
       "name": "drive.recognise",
       "aliases": [],
       "kind": "read",
@@ -14391,6 +14424,17 @@
           },
           "description": "The library's other mounted clones, which applying copies the drive it writes onto, but\nthose `left_alone`."
         },
+        "estimate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WriteEstimate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How long writing it to its drive will take, for a write big enough to matter."
+        },
         "planned_at": {
           "type": "string",
           "format": "date-time"
@@ -14457,6 +14501,276 @@
         "root"
       ],
       "description": "A mounted clone of the library a plan writes, which applying the plan copies the drive it wrote\nonto unless it's left alone (see `Planned::reaching_clones`)."
+    },
+    "WriteEstimate": {
+      "type": "object",
+      "properties": {
+        "work": {
+          "$ref": "#/$defs/Work"
+        },
+        "speed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DriveSpeed"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The result it's worked out from. `None`: the drive hasn't been measured."
+        },
+        "seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Seconds it will take, or at least take when `best_case`."
+        },
+        "best_case": {
+          "type": "boolean",
+          "description": "The write is longer than the rate has been seen to hold, so it could slow down past a cache\nregion the test didn't reach."
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Limit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Which cost is the bigger."
+        },
+        "stale": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Stale"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the result may no longer hold."
+        },
+        "port_limit_bps": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The USB link the drive is on, in bits a second, when it's near or below the drive's rate."
+        },
+        "ran_test": {
+          "type": "boolean",
+          "description": "The drive was timed for this plan, with a short test whose files are gone."
+        }
+      },
+      "required": [
+        "work",
+        "speed",
+        "best_case",
+        "ran_test"
+      ],
+      "description": "How long a write to a drive will take."
+    },
+    "Work": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "folders": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Folders to make: those the files go in that the drive doesn't have."
+        },
+        "plus": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "What else the time depends on that isn't the drive (downloads, transcoding), as a line\nsays it."
+        }
+      },
+      "required": [
+        "bytes",
+        "files",
+        "folders"
+      ],
+      "description": "What a write asks of a drive."
+    },
+    "DriveSpeed": {
+      "type": "object",
+      "properties": {
+        "bytes_per_sec": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Bytes a second, once the drive has settled."
+        },
+        "create_us": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Microseconds to make a small file."
+        },
+        "mkdir_us": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Microseconds to make a folder."
+        },
+        "holds_for": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "How many bytes the rate has been seen to hold for. `None`: it fell during the test and this\nis the rate past the drive's cache region, good for any size."
+        },
+        "measured_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "measured_by": {
+          "$ref": "#/$defs/MeasuredBy"
+        },
+        "link_bps": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The USB link the drive was on then, in bits a second."
+        },
+        "logged_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The drive's logged `bytes_written` then (see [`crate::fleet::DriveLog`])."
+        }
+      },
+      "required": [
+        "bytes_per_sec",
+        "create_us",
+        "mkdir_us",
+        "holds_for",
+        "measured_at",
+        "measured_by"
+      ],
+      "description": "What a drive costs to write to, as measured on it."
+    },
+    "MeasuredBy": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "test",
+          "description": "A timed write of a scratch file."
+        },
+        {
+          "type": "string",
+          "const": "write",
+          "description": "A real write to the drive, whose rate replaced the test's."
+        }
+      ]
+    },
+    "Limit": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "rate",
+          "description": "The drive's sustained rate: the bytes take longest."
+        },
+        {
+          "type": "string",
+          "const": "files",
+          "description": "Making files and folders takes longest."
+        }
+      ],
+      "description": "Which of a write's costs is the bigger."
+    },
+    "Stale": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "old"
+            },
+            "days": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          "required": [
+            "reason",
+            "days"
+          ],
+          "description": "Measured this many days ago."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "worn"
+            },
+            "bytes": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "reason",
+            "bytes"
+          ],
+          "description": "This many bytes written since, a capacity's worth or more."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "moved"
+            },
+            "then": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "now": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "reason",
+            "then",
+            "now"
+          ],
+          "description": "Measured on a link of `then` bits a second, and now on `now`."
+        }
+      ],
+      "description": "Why a stored result may no longer hold."
     },
     "LibraryPage": {
       "type": "object",
@@ -29167,6 +29481,49 @@
       ],
       "description": "The disk a drive was seen on."
     },
+    "DriveSpeedReport": {
+      "type": "object",
+      "properties": {
+        "drive": {
+          "type": "string"
+        },
+        "speed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DriveSpeed"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The stored result. `None`: it hasn't been measured."
+        },
+        "stale": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Stale"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why that may no longer hold."
+        },
+        "link_bps": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "The USB link it's on now, in bits a second."
+        }
+      },
+      "required": [
+        "drive",
+        "speed"
+      ]
+    },
     "Recognition": {
       "type": "object",
       "properties": {
@@ -34415,6 +34772,11 @@
           "type": "string",
           "const": "upload",
           "description": "Sending files to a server (a set's recording, by a plugin's `net/fetch`)."
+        },
+        {
+          "type": "string",
+          "const": "measure",
+          "description": "Timing writes to a drive, of scratch data that's removed after."
         }
       ]
     },

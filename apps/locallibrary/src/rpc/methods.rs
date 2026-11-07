@@ -840,6 +840,8 @@ fn build() -> Registry {
     r.immediate("drive.role", |c, req| Ok(api::drive_role(&c.to_read()?, &req)?));
     r.immediate("drive.retire", |c, req| Ok(api::drive_retire(&c.to_read()?, &req)?));
     r.read("drive.log", |c, req| Ok(api::drive_log(&c.to_read()?, &req)?)).quick();
+    r.read("drive.speed", |_, req| Ok(api::drive_speed(&req)?));
+    r.immediate("drive.speed.measure", |c, req| Ok(api::drive_speed_measure(&req, c.ctx)?)).long();
     r.read("drive.recognise", |c, req| Ok(api::drive_recognise(c.existing()?.as_ref(), &req, c.ctx)?)).long();
     r.plan("drive.adopt_as.plan", |c, req| Ok(api::drive_adopt_as_plan(&c.to_read()?, &req)?)).destructive();
     r.apply("drive.adopt_as.apply", Required, |c, req| Ok(api::drive_adopt_as(&c.to_read()?, &req, c.ctx)?))

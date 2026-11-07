@@ -1,5 +1,6 @@
 //! Planned operations: every change locallibrary makes is worked out first, shown, and then made
-//! exactly as it was shown.
+//! exactly as it was shown. Making a plan writes nothing to a drive, except that one may time a
+//! drive and say so (see [`allow_measuring`]).
 //!
 //! A [`Planned`] wraps an operation's plan with what a front end needs to ask for confirmation:
 //! an id, the operation's name, summary lines, warnings, whether it destroys anything, and the
@@ -24,12 +25,14 @@ use std::cell::{Cell, RefCell};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Serialize, Serializer};
 
 use crate::device::{Device, DeviceState};
+use crate::drive_speed::WriteEstimate;
 use crate::hash::Hash;
 use crate::progress::Ctx;
 use crate::store::Store;
@@ -37,6 +40,8 @@ use crate::{Error, Result, fsutil, paths};
 
 thread_local! {
     static ARCHIVE_WRITES: Cell<bool> = const { Cell::new(false) };
+    /// Whether plans made on this thread may time their drive (see [`allow_measuring`]).
+    static MEASURING: Cell<bool> = const { Cell::new(false) };
     /// The drives the plans being applied on this thread write, with their databases when the
     /// plans were made (see [`planned_databases`]); `None` once a write has locked the drive.
     static PLANNED: RefCell<Vec<(PathBuf, Option<Hash>)>> = const { RefCell::new(Vec::new()) };
@@ -75,10 +80,12 @@ pub(crate) fn planned_databases(root: &Path) -> Option<Hash> {
 
 /// A plan being applied on this thread, until it's done (a panic included): the drives it
 /// writes, noted for [`planned_databases`], and its archive-write permission, which what it runs
-/// (a provision's format and push) shares. Both are put back as they were when it's dropped.
+/// (a provision's format and push) shares. Both are put back as they were when it's dropped. No
+/// plan made along the way times its drive: nobody is shown it.
 struct Applying {
     planned: usize,
     archive_writes: bool,
+    measuring: bool,
 }
 
 impl Applying {
@@ -86,12 +93,13 @@ impl Applying {
     fn start(drives: &[Touched], archive: bool) -> Applying {
         let archive_writes = archive_writes_allowed();
         allow_archive_writes(archive);
+        let measuring = MEASURING.with(|m| m.replace(false));
         PLANNED.with(|planned| {
             let mut planned = planned.borrow_mut();
             let before = planned.len();
             let written = drives.iter().filter(|t| t.writes && t.drive);
             planned.extend(written.filter_map(|t| t.databases.map(|h| (t.root.clone(), Some(h)))));
-            Applying { planned: before, archive_writes }
+            Applying { planned: before, archive_writes, measuring }
         })
     }
 }
@@ -100,6 +108,7 @@ impl Drop for Applying {
     fn drop(&mut self) {
         PLANNED.with(|planned| planned.borrow_mut().truncate(self.planned));
         allow_archive_writes(self.archive_writes);
+        allow_measuring(self.measuring);
     }
 }
 
@@ -108,6 +117,30 @@ impl Drop for Applying {
 /// keeps the permission wherever it's applied.
 pub fn allow_archive_writes(yes: bool) {
     ARCHIVE_WRITES.with(|a| a.set(yes));
+}
+
+/// Let plans made on this thread time the drive they write to, when it hasn't been measured or
+/// that's stale (see [`crate::drive_speed`]). That writes to the drive before anything's confirmed,
+/// so only a front end about to ask sets it: not a dry run, and not plans made for later.
+pub fn allow_measuring(yes: bool) {
+    MEASURING.with(|m| m.set(yes));
+}
+
+pub(crate) fn measuring_allowed() -> bool {
+    MEASURING.with(Cell::get)
+}
+
+/// Run `f` with no plan timing its drive on this thread (put back after): the plans made in it are
+/// steps of another, and their estimates aren't shown.
+pub(crate) fn without_measuring<T>(f: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            allow_measuring(self.0);
+        }
+    }
+    let _restore = Restore(MEASURING.with(|m| m.replace(false)));
+    f()
 }
 
 /// Whether [`allow_archive_writes`] is set on this thread.
@@ -395,6 +428,8 @@ pub struct Planned<P, R = ()> {
     /// The library's other mounted clones, which applying copies the drive it writes onto, but
     /// those left alone (see `Self::reaching_clones`).
     pub clones: Vec<CloneTarget>,
+    /// How long writing it to its drive will take, for a write big enough to matter.
+    pub estimate: Option<WriteEstimate>,
     pub planned_at: DateTime<Utc>,
     /// What was asked for, as applying needs it (not shown).
     pub(crate) request: R,
@@ -418,6 +453,7 @@ impl<P, R> Planned<P, R> {
             noop: false,
             drives: Vec::new(),
             clones: Vec::new(),
+            estimate: None,
             planned_at: Utc::now(),
             request,
             overwrite_archive: archive_writes_allowed(),
@@ -441,6 +477,13 @@ impl<P, R> Planned<P, R> {
                 self.warnings.push(w);
             }
         }
+        self
+    }
+
+    /// How long it'll take, with what that comes to in the summary.
+    pub(crate) fn estimated(mut self, estimate: Option<WriteEstimate>) -> Self {
+        self.summary.extend(estimate.iter().flat_map(WriteEstimate::lines));
+        self.estimate = estimate;
         self
     }
 
@@ -616,7 +659,14 @@ impl<P: Operation> Planned<P, P::Request> {
         self.unblocked()?;
         self.check(store)?;
         let _applying = Applying::start(&self.drives, self.archive_allowed());
+        if let Some(estimate) = &self.estimate {
+            estimate.keep();
+        }
+        let started = Instant::now();
         let report = P::apply(self, store, ctx)?;
+        if let (Some(estimate), Some(written)) = (&self.estimate, self.written()) {
+            crate::api::learn_write(&written.root, estimate, started.elapsed(), ctx);
+        }
         let clones: Vec<&CloneTarget> = self.copied().collect();
         if let Some(written) = self.written().filter(|_| !clones.is_empty()) {
             crate::api::copy_onto_clones(&written.root, &clones, store, ctx);
@@ -677,6 +727,9 @@ pub struct PlanFields<'a> {
     /// those `left_alone`.
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     pub clones: &'a [CloneTarget],
+    /// How long writing it to its drive will take, for a write big enough to matter.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimate: Option<&'a WriteEstimate>,
     pub planned_at: DateTime<Utc>,
 }
 
@@ -701,6 +754,7 @@ impl<P: Serialize, R> Serialize for Planned<P, R> {
             noop: self.noop,
             drives: &self.drives,
             clones: &self.clones,
+            estimate: self.estimate.as_ref(),
             planned_at: self.planned_at,
         };
         if let serde_json::Value::Object(fields) = json::<_, S::Error>(&fields)? {
