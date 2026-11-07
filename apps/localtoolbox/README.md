@@ -2565,7 +2565,8 @@ takes one off again.
    badges, up to three on the row and a **+n** for the rest. Each badge opens
    that page, behind the popup or in front depending on the **background
    tabs** switch the Manager also has. An artist SoundCloud had no public
-   profile for, or whose request failed, says **no public profile**.
+   profile for says **no public profile**. A lookup that fails says **lookup
+   failed** and leaves what the row knew.
 4. The chevron opens the row into everything else, one field a line, each a
    button that copies it: the SoundCloud profile and every link as an address
    (with an arrow to open it), SoundCloud's own name for the account where the

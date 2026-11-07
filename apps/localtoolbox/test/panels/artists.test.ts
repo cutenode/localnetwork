@@ -57,9 +57,15 @@ const profile = (permalink: string, extra: Partial<ArtistProfile> = {}) => ({
 	...extra
 });
 
-const answer = (profiles: ArtistProfile[] = [], failed: string[] = [], error: LookupError = ''): ProfilesAnswer => ({
+const answer = (
+	profiles: ArtistProfile[] = [],
+	missing: string[] = [],
+	error: LookupError = '',
+	failed: string[] = []
+): ProfilesAnswer => ({
 	ok: true,
 	profiles,
+	missing,
 	failed,
 	error
 });
@@ -238,7 +244,7 @@ describe('adding from the tab', () => {
 		await load();
 		await addTab();
 
-		await chrome.testSendMessage({ type: 'ARTIST_PROFILES_PROGRESS', done: 1, total: 2, failed: ['/fourtet'] });
+		await chrome.testSendMessage({ type: 'ARTIST_PROFILES_PROGRESS', done: 1, total: 2, missing: ['/fourtet'] });
 		await settle();
 		expect(rowText()).toEqual(['Bicep looking up…', 'Four Tet no public profile']);
 
@@ -607,6 +613,39 @@ describe('a row opened out', () => {
 		await click(again);
 		expect(lookups()).toEqual([{ type: 'GET_ARTIST_PROFILES', permalinks: ['/mid'] }]);
 		expect(rowText()[0]).toMatch(/Derry, GB/);
+	});
+
+	it('keeps the profile when looking it up again fails, and says so', async () => {
+		chromeAnswering({ storage: { artists: [MID] }, lookup: answer([], [], '', ['/mid']) });
+		await load();
+		const before = stored()[0].profile;
+		await click(chevron('Mid'));
+		await click(labelled('look up Mid again', HTMLButtonElement));
+
+		expect(stored()[0].profile).toEqual(before);
+		expect(rowText()[0]).toMatch(/lookup failed/);
+		expect(rowText()[0]).not.toMatch(/no public profile/);
+	});
+
+	it('clears the failure once a lookup works', async () => {
+		const mock = chromeAnswering({ storage: { artists: [MID] }, lookup: answer([], [], '', ['/mid']) });
+		await load();
+		await click(chevron('Mid'));
+		await click(labelled('look up Mid again', HTMLButtonElement));
+		expect(rowText()[0]).toMatch(/lookup failed/);
+
+		mock.tabs.sendMessage.mockImplementation(async () => answer([profile('/mid', { city: 'Derry' })]));
+		await click(labelled('look up Mid again', HTMLButtonElement));
+		expect(rowText()[0]).toMatch(/Derry, GB/);
+	});
+
+	it('leaves a new row to be looked up when its lookup fails, rather than calling it private', async () => {
+		chromeAnswering({ lookup: answer([profile('/bicep')], [], '', ['/fourtet']) });
+		await load();
+		await addTab();
+		await settle();
+		expect(rowText()[1]).toMatch(/Four Tet lookup failed/);
+		expect(stored().find((one) => one.permalink === '/fourtet')!.profile).toBe(null);
 	});
 
 	it('is off to look up again without a SoundCloud tab', async () => {

@@ -76,10 +76,10 @@
   import { motion } from '$lib/motion.ts';
   import { HIDE_DOWNLOADED_PREF } from '$lib/filter.ts';
   import { queue } from '$lib/queue.svelte.ts';
-  import { choicePref, flagPref } from '$lib/prefs.svelte.ts';
+  import { flagPref } from '$lib/prefs.svelte.ts';
   import { remembered, view } from '$lib/view.svelte.ts';
   import { count, EXTRACTION_FAILED, RELOAD_THE_TAB } from '$lib/soundcloud.ts';
-  import { PAGE, QUEUE, SOURCE_PREF, SOURCES } from '$lib/source.ts';
+  import { QUEUE, source } from '$lib/source.ts';
   import { toasts } from '$lib/toast.svelte.ts';
   import type { DetailedTrack, PageProgress, PanelProps, Track } from '$lib/types';
   import { extractGateUrls, labelOfUrl, siteFor, SITES, unwrapGate } from './sites/index.ts';
@@ -89,12 +89,6 @@
   import { walked, type Row } from './walked.svelte.ts';
 
   let { tool, onback }: PanelProps = $props();
-
-  // The address a gate is given, the name beside it, and whether saving a file
-  // marks its track: settings rather than this list's options, so they are set
-  // in the settings sheet and shared from one place (see
-  // $lib/downloader.svelte.ts).
-  const source = choicePref(SOURCE_PREF, PAGE, SOURCES);
 
   // "Hide downloaded" is the one the Manager tool has, under the key they
   // share; "Hide queued" is this list's own.
@@ -466,6 +460,16 @@
 
   walked.start().then(() => collect({ keep: true }));
 
+  // The source can change under this panel from the picker, or from the queue
+  // sheet sending to the tool that is already open. Either way the list follows.
+  let collectedFrom = source.value;
+
+  $effect(() => {
+    if (source.value === collectedFrom) return;
+    collectedFrom = source.value;
+    untrack(() => void collect());
+  });
+
   function onAdd() {
     const urls = extractGateUrls(pasted.value);
 
@@ -680,7 +684,7 @@
   {/snippet}
 
   <div class="flex flex-col gap-2.5">
-    <SourcePicker {source} queued={queue.count} onchange={() => collect()} />
+    <SourcePicker queued={queue.count} />
 
     {#if rows.length > 0}
       <div class="flex flex-col gap-1.5">
