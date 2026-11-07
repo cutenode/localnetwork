@@ -234,10 +234,7 @@ fn write_fat32(letter: char, layout: &fat32::Layout, label: &str, ctx: &Ctx<'_>)
     use std::os::windows::io::AsRawHandle;
 
     let path = format!(r"\\.\{letter}:");
-    let mut f = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(&path)
+    let mut f = when_ready(|| std::fs::OpenOptions::new().read(true).write(true).open(&path))
         .map_err(|e| Error::Io { path: path.clone().into(), source: e })?;
     // Explorer and indexers open new volumes briefly; retry the lock for a few seconds.
     let mut tries = 0;
@@ -258,6 +255,24 @@ fn write_fat32(letter: char, layout: &fat32::Layout, label: &str, ctx: &Ctx<'_>)
     f.sync_all().map_err(|e| Error::Io { path: path.into(), source: e })?;
     // Closing the handle unlocks the volume; Windows mounts it as FAT32 on the next access.
     Ok(())
+}
+
+/// `open` once the volume it opens is ready: a volume Windows has just formatted and given a
+/// letter answers ERROR_NOT_READY for a moment before it can be opened. Waits up to 10 seconds.
+fn when_ready<T>(mut open: impl FnMut() -> std::io::Result<T>) -> std::io::Result<T> {
+    const ERROR_NOT_READY: i32 = 21;
+    // The tests don't wait.
+    let pause = std::time::Duration::from_millis(if cfg!(test) { 0 } else { 250 });
+    let mut tries = 0;
+    loop {
+        match open() {
+            Err(e) if e.raw_os_error() == Some(ERROR_NOT_READY) && tries < 40 => {
+                tries += 1;
+                std::thread::sleep(pause);
+            }
+            done => return done,
+        }
+    }
 }
 
 #[cfg(not(windows))]
