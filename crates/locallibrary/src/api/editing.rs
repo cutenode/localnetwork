@@ -37,6 +37,10 @@ pub struct EditRequest {
 
 /// What edits would do to a drive.
 pub fn edit_plan(req: &EditRequest, ctx: &Ctx<'_>) -> Result<Planned<EditPlan>> {
+    // No backup can bring its files back, so it comes only from a plugin that may ask for it.
+    if req.edits.iter().any(|e| matches!(e, Edit::DeleteUnbacked { .. })) {
+        return Err(Error::invalid("delete_unbacked is only for plugins with the library:delete-unbacked capability"));
+    }
     let d = resolve_drive(&req.drive)?;
     planned_edit("edit", edit::plan(&d, &req.edits, &req.options, ctx)?, Touched::library(&d, true), ctx)
 }

@@ -115,6 +115,21 @@ _Avoid_: stick, device, volume, USB
 A saved copy of a drive's library in the store.
 _Avoid_: backup, version, commit
 
+**Backup**:
+What a change to a drive keeps on that drive so `undo` can put it back: the databases and the files
+the change replaces or deletes.
+_Avoid_: snapshot
+
+**Demo sample**:
+One of the tracks rekordbox ships in its collection and puts back with every export. `clean` and
+`refresh` remove them.
+_Avoid_: bundled track, sample track
+
+**Unbacked file**:
+A file a change deleted and left out of its backup, because rekordbox's next export puts it back.
+Only demo samples' files are. Undoing the change brings the track back without the file.
+_Avoid_: skipped file, excluded file
+
 **History**:
 A play history list a player recorded.
 _Avoid_: session, play log

@@ -87,7 +87,7 @@ flowchart LR
     subgraph before["Before the swap"]
         direction TB
         lock["Lock the drive,<br/>check its databases"] --> build["Build and read back<br/>in memory"]
-        build --> backup["Back up what changes, but<br/>for repairs, firmware, recordings"]
+        build --> backup["Back up what changes, but for repairs,<br/>firmware, recordings, demo samples' files"]
         backup --> marker["Mark it as being written"]
         marker --> stage["Stage files and databases,<br/>flush, set times"]
     end
@@ -232,9 +232,9 @@ How `undo` picks a backup and puts it back.
 
 ```mermaid
 flowchart TD
-    pick["undo picks the last change's<br/>backup the drive still holds"] --> changed{"Drive changed since,<br/>or audio gone?"}
+    pick["undo picks the last change's<br/>backup the drive still holds"] --> changed{"Drive changed since, or audio<br/>gone that no backup left out?"}
     changed -->|"yes, no --force"| refused["Refused"]
-    changed -->|"no, or --force"| plan["Plan: files, playlists, history lists<br/>dropped, journal entries taken off"]
+    changed -->|"no, or --force"| plan["Plan: files, playlists, history lists<br/>dropped, journal entries taken off,<br/>tracks coming back without audio"]
     plan --> redo["Once confirmed, back up what it<br/>replaces: putting that back is the redo"]
     redo --> write["Put the backup back through<br/>the one write routine"]
     write --> journal["Put the backup's journal back"]

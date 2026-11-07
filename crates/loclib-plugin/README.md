@@ -143,7 +143,8 @@ assert!(manifest.validate(false).is_err());
 
 - `capabilities`: `library:read`, `analysis:read`, `artwork:read`, `drive:info`, `health:read`,
   `store:read`, `settings:read`, `plays:read`, `sets:read`, `account:status`,
-  `collection:read`, `library:plan`, `library:delete`, `tags:plan`, `cues:plan`,
+  `collection:read`, `library:plan`, `library:delete`, `library:delete-unbacked` (plugins
+  locallibrary ships only), `tags:plan`, `cues:plan`,
   `artwork:plan`, `analysis:plan`, `events:drives`, `events:jobs`, `events:plans`, `fs:read`, and `net:<host>`, or `net:*.<domain>` for any host below the domain: what
   `net/fetch` may reach (shown to the user; a native plugin can't be held to it otherwise). Any
   other is refused, and each is granted once.

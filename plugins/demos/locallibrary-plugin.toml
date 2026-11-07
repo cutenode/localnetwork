@@ -3,7 +3,8 @@ name = "rekordbox's demo tracks"
 version = "0.1.0"
 protocol = "^0.2"
 # library:delete: removing the demo tracks deletes them and their files.
-capabilities = ["library:read", "library:plan", "library:delete"]
+# library:delete-unbacked: their files stay out of the backup, as every export puts them back.
+capabilities = ["library:read", "library:plan", "library:delete", "library:delete-unbacked"]
 
 # In `locallibrary check` and doctor, fixed by `clean`.
 [[contributes.checks]]
