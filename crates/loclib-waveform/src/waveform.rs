@@ -45,7 +45,7 @@ impl Widget for Overview<'_> {
             for c in self.cues {
                 if let Some(end) = c.end_ms {
                     for x in x_of(c.start_ms)..=x_of(end).min(area.width - 1) {
-                        p.put(buf, area.x + x, marker_y, "▁", paint(scale(p.cue_color(c), 0.8)), None);
+                        p.put(buf, area.x + x, marker_y, "▁", paint(p.fade(p.cue_color(c), 0.8)), None);
                     }
                 }
             }
@@ -81,9 +81,9 @@ impl Widget for Overview<'_> {
                 paint(if x == head {
                     p.playhead
                 } else if played {
-                    scale(c, 0.5)
+                    p.fade((p.marker)(c), 0.5)
                 } else {
-                    scale(c, 1.25)
+                    (p.marker)(scale(c, 1.25))
                 })
             };
             let (front_color, back_color) = (shade(col.front.color), shade(col.back.color));
@@ -154,7 +154,7 @@ impl Widget for Detail<'_> {
             if b < 0.0 || a >= w {
                 continue;
             }
-            let wash = paint(scale(p.cue_color(c), 0.22));
+            let wash = paint(p.fade(p.cue_color(c), 0.22));
             for x in a as u16..=b as u16 {
                 for y in wave_area.y..wave_area.bottom() {
                     if let Some(cell) = buf.cell_mut((area.x + x, y)) {
@@ -170,11 +170,11 @@ impl Widget for Detail<'_> {
         for x in 0..area.width {
             let t0 = start + x as f64 * secs_per_col;
             let Some(col) = column(self.wave, t0 * cps, (t0 + secs_per_col) * cps) else { continue };
-            let color = if x == centre { p.playhead } else { col.back.color };
+            let color = if x == centre { p.playhead } else { (p.marker)(col.back.color) };
             let past = x < centre;
-            let color = if past { scale(color, 0.7) } else { color };
+            let color = if past { p.fade(color, 0.7) } else { color };
             // Painted once a column, not once a cell.
-            let (paint_color, reflection) = (paint(color), paint(scale(color, 0.55)));
+            let (paint_color, reflection) = (paint(color), paint(p.fade(color, 0.55)));
             let a = col.back.height;
             // Upper half grows up from the centre line, in eighths.
             let up = a * up_rows as f32;

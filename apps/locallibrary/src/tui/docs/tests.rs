@@ -25,7 +25,7 @@ const RERUN: &str = "LOCALLIBRARY_BLESS=1 cargo nextest run -p locallibrary-cli 
 const KEYS_START: &str = "[//]: # (The key tables are generated from the keymap: see src/tui/docs/tests.rs.)";
 const KEYS_END: &str = "[//]: # (End of the key tables.)";
 
-const VIEWS: [View; 5] = [View::Library, View::Drives, View::Snapshots, View::Profile, View::Mixes];
+const VIEWS: [View; 5] = View::ALL;
 const SIZES: [(u16, u16); 2] = [(80, 24), (160, 45)];
 /// A cell in the screenshots, and where its text sits in it.
 const CELL: (usize, usize) = (9, 18);

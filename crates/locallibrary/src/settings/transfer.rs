@@ -44,8 +44,8 @@ pub struct SettingsExport {
     /// artists, genre spellings and headline.
     #[serde(default)]
     pub profile: Map<String, Value>,
-    /// The player's preferences ([`PlayerPrefs`]): its theme, columns, sort, visualiser and
-    /// playback modes.
+    /// The player's preferences ([`PlayerPrefs`]): its theme, colours, icons, columns, sort,
+    /// visualiser and playback modes.
     #[serde(default)]
     pub player: Map<String, Value>,
     /// What's set for identifying mixes ([`MixPrefs`]): the largest fingerprint index kept.
@@ -86,6 +86,12 @@ pub struct PlayerPrefs {
     /// A plugin's theme, `<plugin>.<name>`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
+    /// The colour tier: `truecolor`, `256` or `16`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// The icons: `nerd`, `unicode` or `ascii`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icons: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort: Option<SortKey>,
     #[serde(skip_serializing_if = "Option::is_none")]

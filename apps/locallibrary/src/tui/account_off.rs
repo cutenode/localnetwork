@@ -7,6 +7,7 @@ use ratatui::crossterm::event::KeyEvent;
 use ratatui::text::Line;
 
 use super::app::{App, Level};
+use super::icons;
 use super::theme::dim;
 
 const NONE: &str = "this locallibrary was built without the Atmosphere account";
@@ -16,6 +17,10 @@ pub struct Account {}
 
 impl Account {
     pub fn load(&mut self, _store_root: &Path) {}
+
+    pub fn handle(&self) -> Option<&str> {
+        None
+    }
 
     pub fn busy(&self) -> bool {
         false
@@ -30,7 +35,10 @@ impl Account {
 
     /// The bar at the top of the view.
     pub fn line(&self, _width: u16) -> Line<'static> {
-        Line::styled(" ○ No Atmosphere account: this locallibrary was built without it", dim())
+        Line::styled(
+            format!(" {} No Atmosphere account: this locallibrary was built without it", icons::RING.get()),
+            dim(),
+        )
     }
 }
 

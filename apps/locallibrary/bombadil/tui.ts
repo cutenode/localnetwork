@@ -11,7 +11,17 @@ import { actions, extract, weighted, type State } from "@antithesishq/bombadil/t
 import { CharSets, lastAction } from "@antithesishq/bombadil/terminal/defaults/actions";
 export { exitSuccess, noReplacementChars } from "@antithesishq/bombadil/terminal/defaults/properties";
 
-const VIEWS = ["Library", "Drives", "Snapshots", "Profile", "Mixes"];
+/** The views in tab order, each with the letter that follows `g` to go there. */
+const VIEWS = [
+  ["Library", "l"],
+  ["Prepare", "p"],
+  ["Drives", "d"],
+  ["Recordings", "r"],
+  ["Publish", "u"],
+];
+
+/** Below this, there's only the deck and the size it needs. */
+const SMALLEST = { columns: 60, rows: 20 };
 
 /** What the properties look at, read off the terminal grid once per state. */
 type Screen = {
@@ -19,6 +29,8 @@ type Screen = {
   columns: number;
   lines: string[];
   header: string;
+  /** What the player's doing, above the footer. */
+  status: string;
   footer: string;
   /** Tab labels found in the header (all five, unless the terminal is narrow or covered). */
   tabs: number;
@@ -44,8 +56,8 @@ function screenOf(state: State): Screen {
   let tabs = 0;
   let active = 0;
   let activeCount = 0;
-  VIEWS.forEach((view, i) => {
-    const at = text.indexOf(` ${i + 1} ${view} `);
+  VIEWS.forEach(([view, letter], i) => {
+    const at = text.indexOf(` ${letter} ${view} `);
     if (at < 0) return;
     tabs++;
     // The active tab is bold on a coloured background; the others are dim.
@@ -61,6 +73,7 @@ function screenOf(state: State): Screen {
     columns,
     lines,
     header: lines[0] ?? "",
+    status: lines[rows - 2] ?? "",
     footer: lines[rows - 1] ?? "",
     tabs,
     active,
@@ -72,6 +85,16 @@ const screen: Cell<Screen> = extract(screenOf);
 
 function has(s: Screen, needle: string): boolean {
   return s.lines.some((l) => l.includes(needle));
+}
+
+/** Only the deck: the terminal is smaller than the views need. */
+function deckOnly(s: Screen): boolean {
+  return s.columns < SMALLEST.columns || s.rows < SMALLEST.rows;
+}
+
+/** `g` was pressed and the next key finishes it. */
+function chord(s: Screen): boolean {
+  return s.status.includes(" GO TO ");
 }
 
 /** The key help (or the message log, which works the same way) is open. Known by its footer:
@@ -120,17 +143,14 @@ function picking(s: Screen): boolean {
   return s.footer.startsWith(" ◆ ");
 }
 
-/** The base state: global keys (views, help, quit) do what they say, digits aside while the
- *  pads are on. */
+/** The base state: global keys (views, help, quit) do what they say. */
 function base(s: Screen): boolean {
-  return s.tabs === VIEWS.length && !overlay(s) && !typing(s) && !picking(s);
+  return s.tabs === VIEWS.length && !overlay(s) && !typing(s) && !picking(s) && !chord(s);
 }
 
-/** The digit row plays hot cues instead of switching views: in the library with the pads on or
- *  in full screen, where the player's title says `' pads on` or `f back`. */
-function padsOn(s: Screen): boolean {
-  const player = s.lines.find((l) => l.includes(" Now playing "));
-  return s.active === 1 && player !== undefined && /( ' pads on | f back )/.test(player);
+/** Full screen, whose title says `f back`, in place of the deck strip. */
+function fullScreen(s: Screen): boolean {
+  return has(s, " Now playing ") && has(s, " f back ");
 }
 
 /** A confirmation ("Write to DEMO?", "Eject DEMO?"), known by its keys at the bottom: only `y`
@@ -139,9 +159,9 @@ function confirming(s: Screen): boolean {
   return s.lines.some((l) => / y (write|save|eject|sync|pack|undo) {2}n cancel /.test(l));
 }
 
-/** Planning or making a change (the header says so until the job is done). */
+/** Planning or making a change (the status line says so until the job is done). */
 function editing(s: Screen): boolean {
-  return /\b(Planning|Writing|Saving|Ejecting|Syncing|Packing|Undoing) /.test(s.header);
+  return /\b(Planning|Writing|Saving|Ejecting|Syncing|Packing|Undoing) /.test(s.status);
 }
 
 function typed(): string | null {
@@ -153,16 +173,30 @@ function typed(): string | null {
 // Properties
 // ---------------------------------------------------------------------------------------------
 
-/** The header (row 0) is always drawn, unless a dialog covers it or there's no room. */
+/** The header (row 0) is always drawn, unless a dialog covers it or there's only the deck. */
 export const headerShown = always(() => {
   const s = screen.current;
-  return s.rows < 3 || s.columns < 16 || overlay(s) || s.header.includes("◉ locallibrary");
+  return deckOnly(s) || overlay(s) || s.header.includes("◉");
 });
 
-/** All five views are listed whenever the terminal is wide enough for them. */
+/** All five views are listed whenever there's more than the deck. */
 export const allViewsListed = always(() => {
   const s = screen.current;
-  return s.columns < 75 || overlay(s) || !s.header.includes("locallibrary") || s.tabs === VIEWS.length;
+  return deckOnly(s) || overlay(s) || !s.header.includes("◉") || s.tabs === VIEWS.length;
+});
+
+/** The deck strip is on screen in every view, whatever's open over the view: it says what's
+ *  playing, or that nothing is. */
+export const deckStripShown = always(() => {
+  const s = screen.current;
+  return s.rows < 3 || s.columns < 20 || fullScreen(s) || /Noth|▶|‖/.test(s.lines.join("\n"));
+});
+
+/** With only the deck, the screen names the size it needs, unless a dialog has what's under it. */
+export const tooSmallNamesTheSize = always(() => {
+  const s = screen.current;
+  const boxed = s.lines.some((l) => /[╭┏]/.test(l));
+  return !deckOnly(s) || boxed || s.rows < 2 || s.columns < 5 || has(s, `${SMALLEST.columns}x${SMALLEST.rows}`);
 });
 
 /** Exactly one view is active whenever the tabs are on screen. */
@@ -175,19 +209,13 @@ export const oneActiveView = always(() => {
  *  with a space, so a terminal one column wide shows none of it. */
 export const footerNeverBlank = always(() => {
   const s = screen.current;
-  return s.rows < 2 || s.columns < 2 || overlay(s) || s.footer.trim() !== "";
-});
-
-/** With the machine's drives hidden, the only drive is the fixture copy. */
-export const onlyTheFixtureDrive = always(() => {
-  const m = /(\d+) drives? \? help/.exec(screen.current.header);
-  return !m || Number(m[1]) <= 1;
+  return deckOnly(s) || overlay(s) || s.footer.trim() !== "";
 });
 
 /** Wherever text is being typed, the cursor after it is on screen (if the terminal has room). */
 export const typingShowsCursor = always(() => {
   const s = screen.current;
-  return s.columns < 60 || s.rows < 12 || overlay(s) || (typingLine(s)?.includes("▏") ?? true);
+  return deckOnly(s) || overlay(s) || (typingLine(s)?.includes("▏") ?? true);
 });
 
 /** Never a Rust panic message on screen (the process may survive one on another thread). */
@@ -198,14 +226,13 @@ export const editsFinish = always(
   now(() => editing(screen.current)).implies(eventually(() => !editing(screen.current)).within(30, "seconds")),
 );
 
-/** Pressing 1-5 in the base state switches to that view, unless the pads are on. */
-export const digitsSwitchViews = always(() => {
-  if (!base(screen.current) || padsOn(screen.current)) return true;
+/** `g` and a view's letter in the base state switches to that view. */
+export const gotoSwitchesViews = always(() => {
+  if (!base(screen.current)) return true;
   return next(() => {
-    const t = typed();
-    if (t === null || !/^[1-5]$/.test(t)) return true;
+    const view = VIEWS.findIndex(([, letter]) => typed() === `g${letter}`);
     const s = screen.current;
-    return s.tabs < VIEWS.length || s.active === Number(t);
+    return view < 0 || s.tabs < VIEWS.length || s.active === view + 1;
   });
 });
 
@@ -245,6 +272,9 @@ export const escapeLeavesSearch = always(() => {
 const KEYS = CharSet.fromLiterals(
   ..."1234567890?!/abcdefghijklmnoprstuvwxyzABCDEGHJKMNPQRSTX*#[]+=-_ ',.<>{}()".split(""),
 );
+
+/** `g` and each view's letter, typed at once. */
+const GOTO = CharSet.fromLiterals(...VIEWS.map(([, letter]) => `g${letter}`));
 
 const NAVIGATION = CharSet.union(
   CharSets.CONTROL_ARROWS,
@@ -288,6 +318,7 @@ export const keys = weighted([
     ),
   ],
   [50, actions(() => [{ TypeText: { CharSet: KEYS } }])],
+  [10, actions(() => [{ TypeText: { CharSet: GOTO } }])],
   [30, actions(() => [{ TypeText: { CharSet: NAVIGATION } }])],
   // Typing goes into the search box and name prompts more than anywhere else.
   [10, actions(() => [{ TypeText: { CharSet: typing(screen.current) ? TEXT : KEYS } }])],

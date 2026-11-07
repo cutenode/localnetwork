@@ -1,4 +1,5 @@
-//! The Drives view, with each library's clones, and the Snapshots view.
+//! The Drives view: the list, and beside it a drive or a library's clones, the store's snapshots,
+//! or what players recorded.
 
 use locallibrary::DeviceInfo;
 use locallibrary::api::{DriveStatus, FleetLibrary};
@@ -8,15 +9,20 @@ use locallibrary::local_time;
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Cell, ListItem, Paragraph, Row, Table, Wrap};
+use ratatui::widgets::{Cell, List, ListItem, Padding, Paragraph, Row, Table, Wrap};
 use uuid::Uuid;
 
+use crate::tui::icons;
+
 use crate::output::{bytes, duration, plural};
-use crate::tui::app::App;
+use crate::tui::app::{App, DrivePane};
 use crate::tui::drives::DriveRow;
 use crate::tui::theme::{self, bold, dim, faint, fg, text};
 
 use super::*;
+
+/// How wide the snapshots' table has to be for every column.
+const ALL_COLUMNS: u16 = 100;
 
 /// A section's heading in the Drives view's right pane.
 fn pane_heading(s: &str) -> Line<'static> {
@@ -33,22 +39,31 @@ fn pane_field(k: &str, v: String) -> Line<'static> {
 pub(super) fn standing(s: &DriveStatus, hints: bool) -> Vec<Span<'static>> {
     let save = Some("e, then save a snapshot");
     let (icon, msg, hint, c) = match (s.relation, &s.error) {
-        (_, Some(e)) => ("✖", format!("error: {e}"), None, theme::current().critical),
-        (None, _) if s.library.is_none() => ("○", "not in the store".to_string(), save, theme::current().dim),
-        (None, _) => ("○", "library has no snapshots".to_string(), None, theme::current().dim),
-        (Some(Relation::Identical), _) => ("✓", "up to date".to_string(), None, theme::current().good),
+        (_, Some(e)) => (icons::CROSS.get(), format!("error: {e}"), None, theme::current().critical),
+        (None, _) if s.library.is_none() => {
+            (icons::RING.get(), "not in the store".to_string(), save, theme::current().dim)
+        }
+        (None, _) => (icons::RING.get(), "library has no snapshots".to_string(), None, theme::current().dim),
+        (Some(Relation::Identical), _) => (icons::CHECK.get(), "up to date".to_string(), None, theme::current().good),
         (Some(Relation::RightNewer), _) => match s.back_from_set {
-            Some(0) => ("▲", "back from a set".to_string(), save, theme::current().warning),
-            Some(n) => ("▲", format!("back from a set: {}", plural(n, "new session")), save, theme::current().warning),
-            None => ("▲", "has changes not in the store".to_string(), save, theme::current().warning),
+            Some(0) => (icons::AHEAD.get(), "back from a set".to_string(), save, theme::current().warning),
+            Some(n) => (
+                icons::AHEAD.get(),
+                format!("back from a set: {}", plural(n, "new history list")),
+                save,
+                theme::current().warning,
+            ),
+            None => (icons::AHEAD.get(), "has changes not in the store".to_string(), save, theme::current().warning),
         },
         (Some(Relation::LeftNewer), _) => (
-            "▼",
+            icons::BEHIND.get(),
             "behind the store".to_string(),
             Some("e, then sync, or locallibrary library push"),
             theme::current().warning,
         ),
-        (Some(Relation::Diverged), _) => ("⑂", "diverged from the store".to_string(), None, theme::current().critical),
+        (Some(Relation::Diverged), _) => {
+            (icons::FORK.get(), "diverged from the store".to_string(), None, theme::current().critical)
+        }
         (Some(other), _) => ("?", format!("{other:?}").to_lowercase(), None, theme::current().dim),
     };
     let msg = match hint.filter(|_| hints) {
@@ -59,10 +74,61 @@ pub(super) fn standing(s: &DriveStatus, hints: bool) -> Vec<Span<'static>> {
 }
 
 pub(super) fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
-    let [list, detail] =
-        Layout::horizontal([Constraint::Length(36.min(area.width / 2)), Constraint::Min(0)]).areas(area);
+    let [list, side] = if app.areas.density == Density::Compact {
+        let open = if app.drive_pane == DrivePane::List { DrivePane::List } else { DrivePane::Info };
+        Layout::vertical(accordion(&[DrivePane::List, DrivePane::Info], open)).areas(area)
+    } else {
+        Layout::horizontal([Constraint::Length(36.min(area.width / 2)), Constraint::Min(0)]).areas(area)
+    };
     app.areas.drive_list = list;
     draw_drive_rows(f, app, list);
+    app.areas.drive_side = side;
+    let tabs = side_tabs(app, side);
+    let focused = app.drive_pane != DrivePane::List;
+    if side.height <= 1 {
+        return title_row(f, tabs, focused, side);
+    }
+    let b = block(tabs, focused).padding(Padding::horizontal(1));
+    let inner = b.inner(side);
+    f.render_widget(b, side);
+    match app.drive_tab {
+        DrivePane::Snapshots => {
+            app.areas.history = side;
+            draw_history(f, app, inner);
+        }
+        DrivePane::History => {
+            app.areas.played = side;
+            draw_played(f, app, inner);
+        }
+        _ => draw_info(f, app, inner),
+    }
+}
+
+/// The title of what's beside the list: its tabs, each with its number, there for clicks.
+fn side_tabs(app: &mut App, area: Rect) -> Line<'static> {
+    let name = match app.drive_header {
+        Some(DriveRow::Library(_)) => "Library",
+        Some(_) => "No library",
+        None => "Drive",
+    };
+    let tabs = [(DrivePane::Info, name), (DrivePane::Snapshots, "Snapshots"), (DrivePane::History, "History")];
+    let focused = app.drive_pane != DrivePane::List;
+    let mut spans = Vec::new();
+    // The title starts a column in, after the corner.
+    let mut x = area.x + 1;
+    for (n, (pane, name)) in (2u8..).zip(tabs) {
+        let shown = app.drive_tab == pane;
+        let tab = pane_title(n, name, shown && focused);
+        let w = tab.width() as u16;
+        app.areas.drive_tabs.push((pane, Rect::new(x, area.y, w, 1)));
+        x += w;
+        spans.extend(tab.spans.into_iter().map(|s| if shown { s } else { s.patch_style(faint()) }));
+    }
+    Line::from(spans)
+}
+
+/// The selected drive, or library.
+fn draw_info(f: &mut Frame, app: &mut App, detail: Rect) {
     match app.drive_header {
         Some(DriveRow::Library(id)) => return draw_library_clones(f, app, id, detail),
         Some(_) => {
@@ -72,8 +138,7 @@ pub(super) fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
                 Line::styled("Select one, then e to save a snapshot: that starts its library.", dim()),
             ])
             .alignment(Alignment::Center)
-            .wrap(Wrap { trim: true })
-            .block(block(title("No library", false), false));
+            .wrap(Wrap { trim: true });
             return f.render_widget(p, detail);
         }
         None => {}
@@ -84,8 +149,7 @@ pub(super) fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
             Line::styled("No rekordbox drives mounted.", bold(theme::current().text)),
             Line::styled("Drives appear here as soon as they're plugged in.", dim()),
         ])
-        .alignment(Alignment::Center)
-        .block(block(title("Drive", false), false));
+        .alignment(Alignment::Center);
         f.render_widget(p, detail);
         return;
     };
@@ -207,19 +271,25 @@ pub(super) fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
                 }
                 for (what, c) in [("verified", &log.last_scrub), ("fs check", &log.last_fs_check)] {
                     if let Some(c) = c {
-                        let mark = if c.ok { "✓" } else { "✖" };
+                        let mark = if c.ok { icons::CHECK.get() } else { icons::CROSS.get() };
                         lines.push(pane_field(what, format!("{mark} {}  {}", local_time(c.at, "%Y-%m-%d"), c.summary)));
                     }
                 }
                 if let Some(p) = log.problems.last() {
                     lines.push(Line::styled(
-                        format!("  ✖ {} {}: {}", local_time(p.at, "%Y-%m-%d"), p.kind.replace('_', " "), p.detail),
+                        format!(
+                            "  {} {} {}: {}",
+                            icons::CROSS.get(),
+                            local_time(p.at, "%Y-%m-%d"),
+                            p.kind.replace('_', " "),
+                            p.detail
+                        ),
                         fg(theme::current().critical),
                     ));
                 }
             }
             for w in warn {
-                lines.push(Line::styled(format!("  ⚠ {w}"), fg(theme::current().warning)));
+                lines.push(Line::styled(format!("  {} {w}", icons::WARNING.get()), fg(theme::current().warning)));
             }
             lines.push(Line::raw(""));
         }
@@ -244,7 +314,8 @@ pub(super) fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
     if let Some(p) = &d.pending {
         lines.push(Line::styled(
             format!(
-                "⚠ interrupted: {} ({}), re-run it to finish",
+                "{} interrupted: {} ({}), re-run it to finish",
+                icons::WARNING.get(),
                 p.description,
                 local_time(p.started, "%Y-%m-%d %H:%M")
             ),
@@ -263,10 +334,8 @@ pub(super) fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
         lines.push(Line::from(vec![Span::styled(format!("  {k:<6}"), theme::key()), Span::styled(what, text())]));
     }
 
-    let p = Paragraph::new(lines)
-        .wrap(Wrap { trim: false })
-        .block(block(title("Drive", false), false).padding(ratatui::widgets::Padding::horizontal(1)));
-    f.render_widget(p, detail);
+    app.drive_scroll = app.drive_scroll.min(lines.len() as u16);
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).scroll((app.drive_scroll, 0)), detail);
 }
 
 /// The Drives view's list: each library (how many of its clones are plugged in, how they stand),
@@ -317,9 +386,13 @@ fn draw_drive_rows(f: &mut Frame, app: &mut App, area: Rect) {
         })
         .collect();
     app.drive_rows.select(app.drive_row(&rows));
+    let focused = app.drive_pane == DrivePane::List;
+    if area.height <= 1 {
+        return title_row(f, pane_title(1, "Drives", focused), focused, area);
+    }
     // Each row takes two lines.
     app.drive_rows.fit(area.height.saturating_sub(2) as usize / 2, rows.len());
-    f.render_stateful_widget(drive_list(items, true), area, &mut app.drive_rows);
+    f.render_stateful_widget(drive_list(items, focused), area, &mut app.drive_rows);
 }
 
 /// How a library's clones plugged in stand together: whether they hold the same, and whether
@@ -386,7 +459,12 @@ fn draw_library_clones(f: &mut Frame, app: &App, id: Uuid, area: Rect) {
             None if app.status_loading => vec![Span::styled("checking…", dim())],
             None => Vec::new(),
         };
-        lines.push(clone(Span::styled("● ", fg(theme::current().good)), drive_name(d), fd.and_then(|f| f.role), state));
+        lines.push(clone(
+            Span::styled(icons::DOT.spaced(), fg(theme::current().good)),
+            drive_name(d),
+            fd.and_then(|f| f.role),
+            state,
+        ));
     }
     for k in away {
         let behind = match &k.standing {
@@ -396,7 +474,7 @@ fn draw_library_clones(f: &mut Frame, app: &App, id: Uuid, area: Rect) {
             Standing::Unknown => String::new(),
         };
         let state = vec![Span::styled(format!("not plugged in{behind}"), dim())];
-        lines.push(clone(Span::styled("○ ", faint()), k.name.clone(), k.role, state));
+        lines.push(clone(Span::styled(icons::RING.spaced(), faint()), k.name.clone(), k.role, state));
     }
     lines.push(Line::raw(""));
     lines.push(pane_heading("Store"));
@@ -419,24 +497,44 @@ fn draw_library_clones(f: &mut Frame, app: &App, id: Uuid, area: Rect) {
     for (k, what) in [("enter", "browse its newest clone in the library"), ("e", "sync, check or eject its clones")] {
         lines.push(Line::from(vec![Span::styled(format!("  {k:<6}"), theme::key()), Span::styled(what, text())]));
     }
-    let p = Paragraph::new(lines)
-        .wrap(Wrap { trim: false })
-        .block(block(title("Library", false), false).padding(ratatui::widgets::Padding::horizontal(1)));
-    f.render_widget(p, area);
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
 }
 
-pub(super) fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
-    app.areas.history = area;
-    let b = block(title("Snapshots", true), true);
+/// What players recorded on the drive open in the library, a list a line.
+fn draw_played(f: &mut Frame, app: &mut App, area: Rect) {
+    let focused = app.drive_pane == DrivePane::History;
+    let lists = app.played_lists();
+    if lists.is_empty() {
+        let why = if app.loaded.is_some() { "Nothing recorded on this drive yet." } else { "No drive open." };
+        let p = Paragraph::new(vec![Line::raw(""), Line::styled(why, dim())]).alignment(Alignment::Center);
+        return f.render_widget(p, area);
+    }
+    let width = area.width.saturating_sub(1);
+    let len = lists.len();
+    let items: Vec<ListItem> = lists
+        .iter()
+        .map(|h| {
+            let tracks = vec![Span::styled(plural(h.track_ids.len(), "track"), dim())];
+            ListItem::new(spread(vec![Span::styled(h.name.clone(), text())], tracks, width))
+        })
+        .collect();
+    let list = List::new(items)
+        .highlight_style(if focused { theme::selected() } else { theme::unfocused() })
+        .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
+    app.played.fit(area.height as usize, len);
+    f.render_stateful_widget(list, area, &mut app.played);
+}
+
+/// The store's snapshots, every library's.
+fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
+    let focused = app.drive_pane == DrivePane::Snapshots;
     let libs = match &app.history {
         None => {
-            f.render_widget(Paragraph::new(Line::styled("loading…", dim())).block(b), area);
+            f.render_widget(Paragraph::new(Line::styled("loading…", dim())), area);
             return;
         }
         Some(Err(e)) => {
-            let p = Paragraph::new(vec![Line::raw(""), Line::styled(e.clone(), dim())])
-                .alignment(Alignment::Center)
-                .block(b);
+            let p = Paragraph::new(vec![Line::raw(""), Line::styled(e.clone(), dim())]).alignment(Alignment::Center);
             f.render_widget(p, area);
             return;
         }
@@ -453,7 +551,7 @@ pub(super) fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
                     bold(theme::current().accent),
                 )),
                 Cell::from(Span::styled(
-                    if head { "●" } else { "│" },
+                    if head { icons::DOT.get() } else { "│" },
                     fg(if head { theme::current().good } else { theme::current().faint }),
                 )),
                 Cell::from(Span::styled(s.short_id.clone(), fg(theme::current().warning))),
@@ -471,18 +569,21 @@ pub(super) fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
             Line::styled("The store has no snapshots yet.", bold(theme::current().text)),
             Line::styled("locallibrary pull <drive> -m \"after Friday's export\"", fg(theme::current().info)),
         ])
-        .alignment(Alignment::Center)
-        .block(b);
+        .alignment(Alignment::Center);
         f.render_widget(p, area);
         return;
     }
-    // Under the border and the header row.
-    app.history_state.fit(area.height.saturating_sub(3) as usize, rows.len());
+    // Under the header row.
+    app.history_state.fit(area.height.saturating_sub(1) as usize, rows.len());
     let header = ["Library", "", "Snapshot", "Created", "Tracks", "Size", "From", "Message"];
+    // Narrow, the library's name takes what the columns after the date leave.
+    let wide = area.width >= ALL_COLUMNS;
+    let (columns, spacing) = if wide { (8, 2) } else { (4, 1) };
+    let first = if wide { Constraint::Length(16) } else { Constraint::Fill(1) };
     let table = Table::new(
         rows,
         [
-            Constraint::Length(16),
+            first,
             Constraint::Length(1),
             Constraint::Length(9),
             Constraint::Length(16),
@@ -490,12 +591,13 @@ pub(super) fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Length(9),
             Constraint::Length(16),
             Constraint::Fill(1),
-        ],
+        ]
+        .into_iter()
+        .take(columns),
     )
     .header(Row::new(header.into_iter().map(|h| Cell::from(Span::styled(h, bold(theme::current().dim))))))
-    .block(b)
-    .column_spacing(2)
-    .row_highlight_style(theme::selected())
-    .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
+    .column_spacing(spacing)
+    .row_highlight_style(if focused { theme::selected() } else { theme::unfocused() })
+    .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
     f.render_stateful_widget(table, area, &mut app.history_state);
 }

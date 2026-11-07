@@ -1,107 +1,76 @@
-//! The player: the bar under the Library view and the full-screen deck, with the art, the track's
-//! info, the waveforms and the visualisers.
+//! The full-screen deck, with the art, the track's info, the waveforms and the visualisers.
 
 use loclib_waveform::{CueLane, Detail, Overview, PhraseStrip, Pixels, Scope, Spectrum, bar_layout, cue_letter, vinyl};
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 
 use crate::output::{bytes, clock, plural};
 use crate::tui::analyzer::Bands;
-use crate::tui::app::{App, Matches, Repeat, Vis};
+use crate::tui::app::{App, Matches, NowPlaying, Repeat, Vis};
+use crate::tui::icons;
 use crate::tui::keys::Relation as KeyRelation;
 use crate::tui::theme::{self, bold, dim, faint, fg, text};
 
 use super::*;
 
-pub(super) fn draw_player(f: &mut Frame, app: &mut App, area: Rect, big: bool) {
+pub(super) fn draw_player(f: &mut Frame, app: &mut App, area: Rect) {
     let playing = app.is_playing();
     let b = block(
         Line::from(vec![
             Span::raw(" "),
-            Span::styled(if playing { "▶" } else { "■" }, bold(theme::current().accent)),
+            Span::styled(if playing { icons::PLAY.get() } else { icons::SQUARE.get() }, bold(theme::current().accent)),
             Span::styled(" Now playing ", bold(theme::current().text)),
         ]),
         false,
     )
-    .title_top(
-        if big {
-            Line::from(vec![Span::styled(" f ", theme::key()), Span::styled("back ", dim())])
-        } else {
-            let mut spans = Vec::new();
-            if app.deck.pads {
-                spans.extend([
-                    Span::styled(" ' ", theme::key()),
-                    Span::styled("pads on ", bold(theme::current().warning)),
-                ]);
-            }
-            spans.extend([Span::styled(" v ", theme::key()), Span::styled(format!("{} ", app.vis.name()), dim())]);
-            Line::from(spans)
-        }
-        .right_aligned(),
-    );
+    .title_top(Line::from(vec![Span::styled(" f ", theme::key()), Span::styled("back ", dim())]).right_aligned());
     let inner = b.inner(area);
     f.render_widget(b, area);
     if inner.height < 3 || inner.width < 20 {
         return;
     }
 
-    let (head, visual, overview, progress) = if big {
-        let art_rows = (inner.height / 3).clamp(6, 16);
-        // One more row under the overview for the phrase strip, when there are phrases.
-        let strip = u16::from(app.now.as_ref().is_some_and(|n| !n.phrases.is_empty()));
-        let [head, _, visual, overview, progress] = Layout::vertical([
-            Constraint::Length(art_rows),
-            Constraint::Length(1),
-            Constraint::Min(3),
-            Constraint::Length(5 + strip),
-            Constraint::Length(1),
-        ])
-        .areas(inner);
-        (head, visual, overview, progress)
-    } else {
-        let wave_h = if inner.height >= 10 { 4 } else { 3 };
-        let [head, overview, progress] =
-            Layout::vertical([Constraint::Min(1), Constraint::Length(wave_h), Constraint::Length(1)]).areas(inner);
-        (head, Rect::default(), overview, progress)
-    };
+    let art_rows = (inner.height / 3).clamp(6, 16);
+    // One more row under the overview for the phrase strip, when there are phrases.
+    let strip = u16::from(app.now.as_ref().is_some_and(|n| !n.phrases.is_empty()));
+    let [head, _, visual, overview, progress] = Layout::vertical([
+        Constraint::Length(art_rows),
+        Constraint::Length(1),
+        Constraint::Min(3),
+        Constraint::Length(5 + strip),
+        Constraint::Length(1),
+    ])
+    .areas(inner);
 
-    // Artwork as a square: cells are about twice as tall as they are wide.
-    let art_rows = if big { head.height } else { inner.height };
-    let art_cols = (art_rows * 2).min(inner.width / 3);
+    // Artwork as a square: cells are about twice as tall as they are wide. It sits beside the head;
+    // the waveform and clock span the width.
+    let art_cols = (head.height * 2).min(inner.width / 3);
     let art_area = Rect { x: inner.x, y: inner.y, width: art_cols, height: art_cols / 2 };
     let rest_x = inner.x + art_cols + 2;
-    let right = |r: Rect| Rect { x: rest_x, width: (r.x + r.width).saturating_sub(rest_x), ..r };
-    // Full screen, the art only sits beside the head; the waveform and clock span the width.
-    let (head, overview, progress) =
-        if big { (right(head), overview, progress) } else { (right(head), right(overview), right(progress)) };
+    let head = Rect { x: rest_x, width: (head.x + head.width).saturating_sub(rest_x), ..head };
     let info_w = (head.width * 2 / 5).clamp(28.min(head.width), 52);
     let [info, _, beside] =
         Layout::horizontal([Constraint::Length(info_w), Constraint::Length(2), Constraint::Min(0)]).areas(head);
     app.areas.overview = overview;
 
     draw_art(f, app, art_area);
-    draw_info(f, app, info, big);
-    if big {
-        if beside.width >= 16 {
-            let inner = section(f, beside, "mirror");
-            draw_spectrum(f, app, inner, true);
-        }
-        // Wide enough: track details and mixing suggestions beside the visualisers.
-        if visual.width >= 110 {
-            let side_w = (visual.width / 3).min(48);
-            let [wall, _, side] =
-                Layout::horizontal([Constraint::Min(0), Constraint::Length(2), Constraint::Length(side_w)])
-                    .areas(visual);
-            draw_wall(f, app, wall);
-            draw_details(f, app, side);
-        } else {
-            draw_wall(f, app, visual);
-        }
+    draw_info(f, app, info);
+    if beside.width >= 16 {
+        let inner = section(f, beside, "mirror");
+        draw_spectrum(f, app, inner, true);
+    }
+    // Wide enough: track details and mixing suggestions beside the visualisers.
+    if visual.width >= 110 {
+        let side_w = (visual.width / 3).min(48);
+        let [wall, _, side] =
+            Layout::horizontal([Constraint::Min(0), Constraint::Length(2), Constraint::Length(side_w)]).areas(visual);
+        draw_wall(f, app, wall);
+        draw_details(f, app, side);
     } else {
-        draw_visual(f, app, beside);
+        draw_wall(f, app, visual);
     }
 
     let pos = app.position();
@@ -110,7 +79,7 @@ pub(super) fn draw_player(f: &mut Frame, app: &mut App, area: Rect, big: bool) {
         Some(now) => {
             let dur = now.duration.as_secs_f64().max(0.001);
             let progress_frac = (pos.as_secs_f64() / dur) as f32;
-            let (overview, strip) = if big && !now.phrases.is_empty() {
+            let (overview, strip) = if !now.phrases.is_empty() {
                 let [o, s] = Layout::vertical([Constraint::Min(2), Constraint::Length(1)]).areas(overview);
                 (o, Some(s))
             } else {
@@ -180,10 +149,38 @@ fn draw_art(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn chip(s: String, c: [u8; 3]) -> Span<'static> {
-    Span::styled(format!(" {s} "), theme::on(c, [14, 14, 20]))
+    Span::styled(format!(" {s} "), theme::chip(c))
 }
 
-fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
+/// The loop playing, as a chip.
+pub(super) fn loop_chip(app: &App) -> Option<Span<'static>> {
+    let (_, beats) = app.loop_playing()?;
+    Some(chip(format!("LOOP {}", beats.map_or("on".into(), crate::tui::deck::beats_label)), theme::current().loop_cue))
+}
+
+/// The track's hot cues in their order, each a chip, the one the playhead last passed underlined;
+/// with the pads on, each with the key that plays it before it.
+pub(super) fn pad_chips(app: &App, now: &NowPlaying, pos_ms: f64) -> Vec<Span<'static>> {
+    let cues = &now.analysis.cues;
+    let mut hot: Vec<_> = cues.iter().filter(|c| c.hot_cue.is_some()).collect();
+    hot.sort_by_key(|c| c.hot_cue);
+    let current = cues.iter().filter(|c| c.hot_cue.is_some() && c.start_ms as f64 <= pos_ms).max_by_key(|c| c.start_ms);
+    let pads = app.pads_on();
+    let mut spans = Vec::new();
+    for c in hot {
+        if pads && let Some(h) = c.hot_cue.filter(|h| *h < crate::tui::deck::PADS) {
+            spans.push(Span::styled((h + 1).to_string(), theme::key()));
+        }
+        let mut s = chip(cue_letter(c).unwrap_or('?').to_string(), theme::palette().cue_color(c));
+        if current.is_some_and(|cur| std::ptr::eq(cur, c)) {
+            s.style = s.style.add_modifier(Modifier::UNDERLINED);
+        }
+        spans.push(s);
+    }
+    spans
+}
+
+fn draw_info(f: &mut Frame, app: &App, area: Rect) {
     let Some(now) = &app.now else {
         let mut lines = vec![Line::raw(""), Line::styled("Nothing playing", bold(theme::current().text))];
         match app.resumable() {
@@ -208,7 +205,7 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
     ];
     let mut about: Vec<String> =
         [&t.album, &t.remixer, &t.mix_name].into_iter().filter(|s| !s.is_empty()).cloned().collect();
-    if big && !t.label.is_empty() {
+    if !t.label.is_empty() {
         about.push(t.label.clone());
     }
     if t.year > 0 {
@@ -232,21 +229,17 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
     if let Some((_, n, bar)) = beat {
         for k in 1..=4u16 {
             let (sym, c) = match (k == n, n == 1) {
-                (true, true) => ("■", theme::current().accent),
-                (true, false) => ("■", theme::current().info),
-                _ => ("□", theme::current().faint),
+                (true, true) => (icons::SQUARE.get(), theme::current().accent),
+                (true, false) => (icons::SQUARE.get(), theme::current().info),
+                _ => (icons::HOLLOW.get(), theme::current().faint),
             };
             chips.push(Span::styled(sym, bold(c)));
         }
         chips.push(Span::styled(format!(" {bar}.{n}"), dim()));
     }
     // A loop playing before the phrase, which the strip under the overview shows too.
-    if let Some((_, beats)) = app.loop_playing() {
-        chips.push(Span::raw("  "));
-        chips.push(chip(
-            format!("LOOP {}", beats.map_or("on".into(), crate::tui::deck::beats_label)),
-            theme::current().loop_cue,
-        ));
+    if let Some(c) = loop_chip(app) {
+        chips.extend([Span::raw("  "), c]);
     }
     let phrase = now.phrase_at(pos_ms);
     if let Some((_, p, bar)) = phrase {
@@ -256,7 +249,7 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
     }
     lines.push(Line::raw(""));
     lines.push(Line::from(chips));
-    if big && let Some((i, _, _)) = phrase {
+    if let Some((i, _, _)) = phrase {
         let mut spans = vec![Span::styled("phrase ", faint())];
         match now.phrases.get(i + 1) {
             Some(next) => {
@@ -280,10 +273,10 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
     if t.sample_rate > 0 {
         fmt.push(format!("{:.1} kHz", t.sample_rate as f64 / 1000.0));
     }
-    if big && t.sample_depth > 0 {
+    if t.sample_depth > 0 {
         fmt.push(format!("{}-bit", t.sample_depth));
     }
-    if big && t.file_size > 0 {
+    if t.file_size > 0 {
         fmt.push(bytes(t.file_size));
     }
     fmt.push(now.drive.clone());
@@ -295,75 +288,56 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
 
     let cues = &now.analysis.cues;
     if !cues.is_empty() {
-        let mut hot: Vec<_> = cues.iter().filter(|c| c.hot_cue.is_some()).collect();
-        hot.sort_by_key(|c| c.hot_cue);
-        let memory = cues.len() - hot.len();
-        // The hot cue the playhead last passed is underlined.
-        let current =
-            cues.iter().filter(|c| c.hot_cue.is_some() && c.start_ms as f64 <= pos_ms).max_by_key(|c| c.start_ms);
-        let mut spans = Vec::new();
-        // With the pads on, each hot cue's key before it.
-        let pads = app.pads_on();
-        for c in &hot {
-            if pads && let Some(h) = c.hot_cue.filter(|h| *h < crate::tui::deck::PADS) {
-                spans.push(Span::styled((h + 1).to_string(), theme::key()));
-            }
-            let mut s = chip(cue_letter(c).unwrap_or('?').to_string(), theme::palette().cue_color(c));
-            if current.is_some_and(|cur| std::ptr::eq(cur, *c)) {
-                s.style = s.style.add_modifier(Modifier::UNDERLINED);
-            }
-            spans.push(s);
-        }
+        let memory = cues.iter().filter(|c| c.hot_cue.is_none()).count();
+        let mut spans = pad_chips(app, now, pos_ms);
         if memory > 0 {
-            spans.push(Span::styled(format!(" ◆{memory}"), fg(theme::current().memory_cue)));
+            spans.push(Span::styled(format!(" {}{memory}", icons::DIAMOND.get()), fg(theme::current().memory_cue)));
         }
         let next =
             cues.iter().filter(|c| c.start_ms as f64 > pos_ms + 50.0).min_by_key(|c| (c.start_ms, c.hot_cue.is_none()));
         if let Some(c) = next {
-            let mark = cue_letter(c).map_or("◆".to_string(), |l| l.to_string());
+            let mark = cue_letter(c).map_or(icons::DIAMOND.get().to_string(), |l| l.to_string());
             spans.push(Span::styled("  next ", faint()));
             spans.push(Span::styled(mark, bold(theme::palette().cue_color(c))));
             spans.push(Span::styled(format!(" {}", clock((c.start_ms as f64 - pos_ms) / 1000.0)), dim()));
         }
         lines.push(Line::from(spans));
     }
-    if big {
-        let mut meta: Vec<Span> = Vec::new();
-        let mut add = |s: Span<'static>| {
-            if !meta.is_empty() {
-                meta.push(Span::styled(" · ", faint()));
-            }
-            meta.push(s);
-        };
-        if let Some(c) = t.color {
-            add(theme::colour_dot(c));
-        }
-        if !t.genre.is_empty() {
-            add(Span::styled(t.genre.clone(), text()));
-        }
-        if t.rating > 0 {
-            add(Span::styled(rating(t.rating), fg(theme::current().warning)));
-        }
-        if t.play_count > 0 {
-            add(Span::styled(format!("played {}×", t.play_count), dim()));
-        }
-        if !t.date_added.is_empty() {
-            add(Span::styled(format!("added {}", t.date_added), dim()));
-        }
+    let mut meta: Vec<Span> = Vec::new();
+    let mut add = |s: Span<'static>| {
         if !meta.is_empty() {
-            lines.push(Line::from(meta));
+            meta.push(Span::styled(" · ", faint()));
         }
-        if !t.comment.trim().is_empty() {
-            lines.push(Line::styled(format!("“{}”", t.comment.trim()), dim().add_modifier(Modifier::ITALIC)));
-        }
-        let credits: Vec<String> = [("composer", &t.composer), ("original", &t.original_artist), ("ISRC", &t.isrc)]
-            .into_iter()
-            .filter(|(_, v)| !v.is_empty())
-            .map(|(k, v)| format!("{k} {v}"))
-            .collect();
-        if !credits.is_empty() {
-            lines.push(Line::styled(credits.join(" · "), faint()));
-        }
+        meta.push(s);
+    };
+    if let Some(c) = t.color {
+        add(theme::colour_dot(c));
+    }
+    if !t.genre.is_empty() {
+        add(Span::styled(t.genre.clone(), text()));
+    }
+    if t.rating > 0 {
+        add(Span::styled(rating(t.rating), fg(theme::current().warning)));
+    }
+    if t.play_count > 0 {
+        add(Span::styled(format!("played {}×", t.play_count), dim()));
+    }
+    if !t.date_added.is_empty() {
+        add(Span::styled(format!("added {}", t.date_added), dim()));
+    }
+    if !meta.is_empty() {
+        lines.push(Line::from(meta));
+    }
+    if !t.comment.trim().is_empty() {
+        lines.push(Line::styled(format!("“{}”", t.comment.trim()), dim().add_modifier(Modifier::ITALIC)));
+    }
+    let credits: Vec<String> = [("composer", &t.composer), ("original", &t.original_artist), ("ISRC", &t.isrc)]
+        .into_iter()
+        .filter(|(_, v)| !v.is_empty())
+        .map(|(k, v)| format!("{k} {v}"))
+        .collect();
+    if !credits.is_empty() {
+        lines.push(Line::styled(credits.join(" · "), faint()));
     }
     let lines: Vec<Line> = lines.into_iter().take(area.height as usize).collect();
     f.render_widget(Paragraph::new(lines), area);
@@ -393,7 +367,7 @@ fn draw_details(f: &mut Frame, app: &mut App, area: Rect) {
     if !now.phrases.is_empty() {
         let mut spans = vec![Span::styled(format!("{} phrases ", now.phrases.len()), text())];
         for p in &now.phrases {
-            spans.push(Span::styled("▮", fg(theme::current().phrase(p.kind))));
+            spans.push(Span::styled(icons::PHRASE.get(), fg(theme::current().phrase(p.kind))));
         }
         about.push(Line::from(spans));
     }
@@ -445,7 +419,7 @@ pub(super) fn draw_matches(
     let boost = matches.is_some_and(|m| m.items.iter().any(|x| x.relation == KeyRelation::EnergyBoost));
     let relations = [KeyRelation::Same, KeyRelation::Adjacent, KeyRelation::Relative, KeyRelation::EnergyBoost];
     for r in relations.into_iter().take(if boost { 4 } else { 3 }) {
-        let mark = if theme::plain() { relation_mark(r) } else { "■" };
+        let mark = if theme::plain() { relation_mark(r) } else { icons::SQUARE.get() };
         title.push(Span::styled(mark, fg(key_relation_color(r))));
         title.push(Span::styled(format!(" {} ", r.describe()), faint()));
     }
@@ -483,20 +457,10 @@ pub(super) fn draw_matches(
                 })
                 .collect();
             let list = List::new(items)
-                .highlight_style(if focused { theme::selected() } else { Style::new() })
-                .highlight_symbol(if focused {
-                    Span::styled("▍", fg(theme::current().accent))
-                } else {
-                    Span::raw("")
-                });
+                .highlight_style(if focused { theme::selected() } else { theme::unfocused() })
+                .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
             state.fit(inner.height as usize, m.items.len());
-            if focused {
-                f.render_stateful_widget(list, inner, state);
-            } else {
-                // Unfocused, keep the scroll but don't highlight.
-                let mut shown = ListState::default().with_offset(state.offset());
-                f.render_stateful_widget(list, inner, &mut shown);
-            }
+            f.render_stateful_widget(list, inner, state);
             inner
         }
     }
@@ -613,8 +577,8 @@ fn key_relation_color(r: KeyRelation) -> [u8; 3] {
     }
 }
 
-/// The compact player's visualiser: the one picked with `v`, with the cue lane under the spectrum
-/// and scope.
+/// The visualiser picked with `v`, with the cue lane under the spectrum and scope: all there's room
+/// for in a small full screen.
 fn draw_visual(f: &mut Frame, app: &mut App, area: Rect) {
     if area.width < 4 || area.height < 1 {
         return;
@@ -683,22 +647,25 @@ fn draw_progress(f: &mut Frame, app: &App, area: Rect) {
     let pos = app.position().as_secs_f64();
     let (dur, have) = app.now.as_ref().map_or((0.0, false), |n| (n.duration.as_secs_f64(), true));
     let glyph = if !have {
-        Span::styled("■ ", faint())
+        Span::styled(icons::SQUARE.spaced(), faint())
     } else if app.is_playing() {
-        Span::styled("▶ ", bold(theme::current().accent))
+        Span::styled(icons::PLAY.spaced(), bold(theme::current().accent))
     } else {
-        Span::styled("‖ ", bold(theme::current().warning))
+        Span::styled(icons::PAUSE.spaced(), bold(theme::current().warning))
     };
     let left =
         vec![glyph, Span::styled(clock(if have { pos } else { 0.0 }), bold(theme::current().text)), Span::raw(" ")];
     let vol = app.volume;
     let repeat = match app.repeat {
-        Repeat::Off => Span::styled("↻ off", faint()),
-        Repeat::All => Span::styled("↻ all", fg(theme::current().info)),
-        Repeat::One => Span::styled("↻ one", fg(theme::current().info)),
+        Repeat::Off => Span::styled(format!("{} off", icons::REPEAT.get()), faint()),
+        Repeat::All => Span::styled(format!("{} all", icons::REPEAT.get()), fg(theme::current().info)),
+        Repeat::One => Span::styled(format!("{} one", icons::REPEAT.get()), fg(theme::current().info)),
     };
-    let shuffle =
-        if app.shuffle { Span::styled("⇄ on", fg(theme::current().info)) } else { Span::styled("⇄ off", faint()) };
+    let shuffle = if app.shuffle {
+        Span::styled(format!("{} on", icons::MIX.get()), fg(theme::current().info))
+    } else {
+        Span::styled(format!("{} off", icons::MIX.get()), faint())
+    };
     let quantize = if app.deck.quantize {
         Span::styled("Q on", fg(theme::current().warning))
     } else {
@@ -730,7 +697,7 @@ fn draw_progress(f: &mut Frame, app: &App, area: Rect) {
     let mut spans = left;
     if bar_w > 2 {
         spans.push(Span::styled("━".repeat(filled.min(bar_w - 1)), fg(theme::current().accent)));
-        spans.push(Span::styled("●", bold(theme::current().text)));
+        spans.push(Span::styled(icons::DOT.get(), bold(theme::current().text)));
         spans.push(Span::styled("─".repeat(bar_w.saturating_sub(filled + 1)), faint()));
     }
     spans.extend(right);

@@ -241,7 +241,9 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   flushed to the device, and only then given their source's modification time, so a copy whose data
   never reached the drive can't pass for a finished one. The database files are then staged and swapped in back to back, and stale files are deleted
   only after that. If a sync is interrupted (unplugged drive, Ctrl-C), the database on the drive
-  still finds every file it references; a file the sync changed may already hold its new contents. A
+  still finds every file it references; a file the sync changed may already hold its new contents.
+  (With `--delete-first` the old databases go first, so the drive holds no library until the new
+  ones are in.) A
   marker is left that `locallibrary drive info` reports, and re-running finishes the job: `diff
   --summary` and `sync` take the interrupted drive as the older one, and the next sync copies again
   any file changed since the interrupted one started, unless its content is known to match. `pack`

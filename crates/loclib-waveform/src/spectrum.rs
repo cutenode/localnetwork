@@ -52,7 +52,7 @@ impl Widget for Spectrum<'_> {
                 if let Some((tint, t)) = self.tint {
                     color = mix(color, tint, t * 0.7);
                 }
-                (paint(color), paint(mix(color, [255, 255, 255], 0.35)))
+                (paint(color), paint(mix(color, p.playhead, 0.35)))
             })
             .collect();
         for (slot, &band) in order.iter().enumerate() {

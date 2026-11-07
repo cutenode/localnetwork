@@ -1,7 +1,20 @@
 # The player
 
 `locallibrary` on its own (or `locallibrary tui [<library>]`) opens a terminal UI for browsing and
-listening to your library the way the players see it:
+listening to your library the way the players see it. It has five views, one for each job: Library,
+Prepare, Drives, Recordings and Publish. `g` and a letter goes to one (`g l`, `g p`, `g d`, `g r`,
+`g u`; pause after `g` and it lists them). Panes have numbers in their titles, and a digit jumps to
+that pane; the pane with focus has `▸` in its title as well as its border. The deck strip stays
+under every view, with what's playing, its waveform, tempo, key, time left, hot cues and loop.
+Dialogs open above it, and `esc` closes one thing at a time.
+
+Above the view a context line says which drive and list you're in, what's searched for and how much
+is marked. Under 30 rows the header carries it. Under the deck a status line says what keys do now,
+the latest job or message, where the selection is, the space left on the drive and who's signed in.
+On a smaller terminal, panes stacked in a column collapse to their title rows (from 120x34 down to
+100x28), then the details pane shows only while it has focus (down to 80x24), then one pane has the
+room and the rest are title rows (down to 60x20). Below that there's only the deck and the size it
+needs.
 
 - **Library**: mounted drives (hot-plugged ones appear on their own, and an unplugged one is
   marked), the playlist tree with folders, and the track list with BPM, key and rekordbox's track
@@ -10,7 +23,7 @@ listening to your library the way the players see it:
   on the Camelot wheel. **Browse**, at the top of the tree, groups the drive like a CDJ's top menu:
   by artist, album, genre, key, BPM (5-BPM bands), rating, colour, month added, My Tag, the sets in
   the store (newest first, each with its tracks on this drive in the order played, and a count of
-  the rest), the sessions players recorded (their history lists), and problems.
+  the rest), the history lists players recorded, and problems.
 - **Search and sort**: `/` searches as you type the way `tracks --filter` does (plain words look in
   title, artist, album, genre, label, key, comment, remixer, mix name and file path), and takes the
   whole [filter language](editing.md#filters) (`bpm:120-128 key:8A~ rating:>=4 -genre:house
@@ -111,7 +124,7 @@ listening to your library the way the players see it:
 - **Hot cue pads**: in full screen the number keys `1` to `8` play hot cues A to H the way a
   CDJ's pads do: the track jumps to the cue and plays (from pause too: a terminal can't tell when
   a key is let go, so there's no previewing while it's held). `'` turns the pads on in the
-  library as well, until it's pressed again (`1` to `5` switch views only while they're off).
+  library as well, until it's pressed again (digits jump to panes only while they're off).
   Each hot cue shows its key while the pads are on.
 - **Beat jumps and quantize**: `,` and `.` jump a beat back or forward along the track's beat
   grid, `<` and `>` a bar, `{` and `}` eight bars (a phrase); the arrows still seek by time.
@@ -128,7 +141,8 @@ listening to your library the way the players see it:
   player is drawn like a saved one.
 - **Visualisers** (`v`): a log-frequency spectrum with peak caps, a mirrored spectrum, an
   oscilloscope, and *deck*, rekordbox's scrolling colour waveform with beat ticks. The whole-track
-  overview waveform sits under the player; click it to seek. `f` goes full screen and shows every
+  overview waveform is in the deck strip; click it to seek. `v` picks what a small full screen
+  shows. `f` goes full screen and shows every
   visualiser at once: the deck across the top, spectrum and scope side by side, the mirrored
   spectrum beside the track details, and the cue lane along the bottom. Wide terminals also get a
   details column: tracks on the drive that **mix into** the playing one (compatible key on the
@@ -159,19 +173,23 @@ listening to your library the way the players see it:
   (the playlists and tracks, the files, the recorded edits that come off the journal).
 - **After a rekordbox export**: when rekordbox exported to the drive after locallibrary last wrote
   to it, and replaying the [edits recorded on it](editing.md#when-rekordbox-exports-again) would
-  change something, a line above the footer says "rekordbox exported over 3 edits on REKORDBOX.
+  change something, a line over the status line says "rekordbox exported over 3 edits on REKORDBOX.
   Replay?": `y` shows the replay to confirm, `esc` puts the offer away for the run.
 - **Rule-based playlists**: in the palette, "smart new" makes a
   [rule](editing.md#rule-based-playlists) from the search box's filter and the list's sort (saved in
   the store, then shown filling its playlist on the open drive), "smart apply" fills every rule on
   the drive, and "smart" lists them.
-- **Drives** (`2`): each library with its drives under it (how many are plugged in, whether they're
+- **Prepare** (`g p`): the jobs that get a drive ready for a set, each with what it does. `enter`
+  runs the one selected, on the drive open in the library, the same as in the palette: check it,
+  check every drive of its library together, sync, pack, save a snapshot, fill the rule-based
+  playlists, read it again.
+- **Drives** (`g d`): each library with its drives under it (how many are plugged in, whether they're
   identical and saved), then the drives of no library. On a library, `enter` opens its newest drive
   in the library view, and `e` syncs, checks or ejects its drives plugged in; the pane beside it
   lists its drives, those not plugged in too. On a drive: identity, library summary, space, store
   status, role, logbook (writes, clean ejects, the last verify and file-system check, problems),
   copies, My Settings files and interrupted operations, and the work: `e` lists what can be done to
-  the selected drive, each planned in the background (with progress in the header; `esc` stops it)
+  the selected drive, each planned in the background (with progress in the status line; `esc` stops it)
   and confirmed like an edit. **Pull** saves it in the store. **Check** runs the checklist of
   `locallibrary check` against the player models remembered for it, and **set prep** checks it with
   the other mounted drives of its library, with the results in a panel. **Sync** copies the newest
@@ -181,19 +199,20 @@ listening to your library the way the players see it:
   folder from a snapshot picked from its library's. **Replay** makes recorded edits again, **undo**
   takes its last change back (`u` undoes the last change made this run, on whichever drive it was
   made to, which may not be the selected one), and **eject** unmounts it and powers it off (playback
-  from it stops first). **Snapshots** (`3`): the store's snapshots; `enter` brings a playlist back
-  from the selected one onto the drive open in the library. **Profile** (`4`): your [DJ
-  profile](sets.md#dj-profile), section by section, with what each would reveal. `i` puts a section
+  from it stops first). Beside the list are **Snapshots** (`3`), the store's snapshots, where `enter`
+  brings a playlist back from the selected one onto the drive open in the library, and **History**
+  (`4`), what players recorded on the drive open in the library, where `enter` opens a list there.
+- **Publish** (`g u`): your [DJ profile](sets.md#dj-profile), section by section, with what each would reveal. `i` puts a section
   in the public document or takes it out, `m`/`h`/`H` pin and hide tracks and artists, `D` shows the
   document and `w` writes it. The bar at the top shows your [Atmosphere account](account.md): `L`
   signs in (type your handle, approve in the browser), and signed in, `L` twice signs out.
-- **Export**: in the palette, "export" writes the playlist, set, session or all tracks shown as
+- **Export**: in the palette, "export" writes the playlist, set, history list or all tracks shown as
   M3U8, CSV or text, asking where first. A plugin's format ("export for traktor…", or "export for
   rekordbox…" for rekordbox XML, in a drive's `e` menu too) asks where and for the format's options in a form, then shows what it would write (each
   file, what goes in, what the format can't hold) and writes it on `y`, asking first when that
   overwrites files there already; it takes the marked playlists too. A set's format ("export the
   set for …") writes out the set open in Browse › Sets.
-- **Mixes** (`5`): a recorded set and the tracks it plays, like [`locallibrary mix`](sets.md#mixes)
+- **Recordings** (`g r`): a recorded set and the tracks it plays, like [`locallibrary mix`](sets.md#mixes)
   against the drive open in the library. Pick one of the drive's recordings (XDJ-AZ and OPUS-QUAD
   MASTER REC files), or `O` to type the path of a recording or a folder of them on this computer. A
   folder stays in the list with every recording in it and its subfolders, new ones included, and
@@ -206,25 +225,50 @@ listening to your library the way the players see it:
   the timeline seeks, `z` zooms. `o` goes to the selected track in the library, `E` exports the set
   as data for [Local Network](sets.md#mixes) and `w` writes the HTML report and opens it.
 
-Each view drawn in a terminal of two sizes: Library ([80x24](player/library-80x24.svg), [160x45](player/library-160x45.svg)), Drives ([80x24](player/drives-80x24.svg), [160x45](player/drives-160x45.svg)), Snapshots ([80x24](player/snapshots-80x24.svg), [160x45](player/snapshots-160x45.svg)), Profile ([80x24](player/profile-80x24.svg), [160x45](player/profile-160x45.svg)), Mixes ([80x24](player/mixes-80x24.svg), [160x45](player/mixes-160x45.svg)).
+Each view drawn in a terminal of two sizes: Library ([80x24](player/library-80x24.svg), [160x45](player/library-160x45.svg)), Prepare ([80x24](player/prepare-80x24.svg), [160x45](player/prepare-160x45.svg)), Drives ([80x24](player/drives-80x24.svg), [160x45](player/drives-160x45.svg)), Recordings ([80x24](player/recordings-80x24.svg), [160x45](player/recordings-160x45.svg)), Publish ([80x24](player/publish-80x24.svg), [160x45](player/publish-160x45.svg)).
 
 Colours are the theme's: the default, or a plugin's chosen in the palette ("Night theme",
-"default theme"), kept for the next run in `tui.json`. They're made for a dark terminal. For a
-light one, set `LOCALLIBRARY_THEME=light`; terminals
-that set `COLORFGBG` (rxvt, Konsole and others) are recognised without it, and
-`LOCALLIBRARY_THEME=dark` overrides them. With [`NO_COLOR`](https://no-color.org) set, the player
-draws no colours: the selection is in reverse video, the focused pane has a heavy border, keys
-that mix are marked `⇄` and underlined, track colours show as their numbers (1 pink to 8 purple)
-and cover art is left out. `LOCALLIBRARY_REDUCED_MOTION=1` redraws only a few times a second and
-stops the spinning record, the pulsing logo and the cue flashes.
+"default theme"), kept for the next run in `tui.json`.
 
-Cover art is drawn in half blocks (24-bit colour where the terminal supports it, the nearest of
-256 colours otherwise). The player remembers the drive, list, view, sort, volume, visualiser,
-panels and columns, shuffle, repeat, quantize, single play and auto cue, the output, the crate,
+As it starts, the player asks the terminal what it can draw and what its colours are, and is done
+as soon as the terminal has answered, or after 100 ms at most (on a slow SSH connection, say). It
+goes by the terminal's real background: a light one gets the light palette, and anything that
+wouldn't read on the background, at 4.5:1 for text and 3:1 for waveforms and markers, is blended
+towards the foreground until it does. Without an answer, `COLORFGBG` (set by rxvt, Konsole and
+others) says which it is, and otherwise it's dark. `LOCALLIBRARY_THEME=light` or `dark` overrides
+all of that.
+
+| Colours | Who gets them |
+| --- | --- |
+| 24-bit | A terminal that says so, `COLORTERM=truecolor`, Terminal.app from macOS 26 on and others known to draw it |
+| 256 | `TERM` with `256color` in it |
+| 16 | Any other `TERM`: `xterm`, `linux`, `vt100` |
+
+If the terminal says the wrong thing of itself, pick "24-bit colour", "256 colours" or "16 colours"
+in the palette ("colours as the terminal says" goes back), or set `LOCALLIBRARY_COLOR=truecolor`,
+`256` or `16`, which wins over the palette. 256 colours stay within the cube and greys (16-255), so
+a terminal's scheme can't change them. 16 colours are the scheme's own: text is the terminal's
+foreground, quieter text is dim, the selection and chips are in reverse video, the focused pane has
+a heavy border, and track colours show as their numbers.
+
+Icons come in three sets. "Nerd Font icons", "Unicode icons" and "ASCII icons" in the palette
+choose one, kept in `tui.json`, and `LOCALLIBRARY_ICONS=nerd`, `unicode` or `ascii` wins over that.
+Without a choice it's Unicode; ASCII on the Linux console, `TERM=vt*` and a locale that isn't
+UTF-8, where everything else on screen becomes ASCII too, line drawing and waveforms included; and
+Nerd Font icons in the terminals that bring the font along (Ghostty, kitty, WezTerm).
+
+With [`NO_COLOR`](https://no-color.org) set, the player draws no colours and asks the terminal
+nothing: the selection is in reverse video, the focused pane has a heavy border, keys that mix are
+marked `⇄` and underlined, track colours show as their numbers (1 pink to 8 purple) and cover art
+is left out. `LOCALLIBRARY_REDUCED_MOTION=1` redraws only a few times a second and stops the
+spinning record, the pulsing logo and the cue flashes.
+
+Cover art is drawn in half blocks, in as many colours as the terminal has. The player remembers the drive, list, view, sort, volume, visualiser,
+panels and columns, colours and icons, shuffle, repeat, quantize, single play and auto cue, the output, the crate,
 and the queue with how far into its track it got, to the last 15 seconds (`space` carries on
 from there). It saves them as they change, in the
 store once there is one and in a `locallibrary-player` folder beside it until then. Messages show
-in the footer: errors stay until `esc`, and `!` lists every message since starting. The footer
+in the status line: errors stay until `esc`, and `!` lists every message since starting. The footer
 hints at the keys for where focus is, as many as fit. `?` lists every key, the view's own first;
 all of them come from one table, so a key means one thing in every view (`l` loops, `d` picks the
 output, `o` goes to a track, `w` writes a file, `e` opens the Library and Drives actions).
@@ -240,7 +284,7 @@ Browsing:
 | `/` | search title, artist, album, genre, label, key, comment and path as you type |
 |  | or filter: bpm:120-128 key:8A~ rating:>=4 -genre:house tag:Deep |
 |  | in the box: enter keeps it, esc clears it, ctrl-u empties it, ctrl-w deletes a word, tab searches the whole drive or the list shown |
-| `Browse` | at the top of the tree: by artist, album, genre, key, BPM, rating, colour, date added, My Tags, sets, sessions, problems |
+| `Browse` | at the top of the tree: by artist, album, genre, key, BPM, rating, colour, date added, My Tags, sets, history, problems |
 | `b  B` | sort by the next column / the other way (or click a header) |
 | `*` | show / hide the rating column |
 | `#` | show / hide the My Tags column |
@@ -269,8 +313,16 @@ Changing the drive:
 | `e` | actions for the marked or selected tracks, the playlist shown and the crate: rating, colour, add to a playlist, remove, new / rename / delete a playlist or folder, sort a playlist on the drive, plugins' operations |
 | `right-click` | the same, for what's under the pointer |
 | `T` | give the marked (or selected) tracks a My Tag, or take one off (asks first) |
-| `y` | after rekordbox exported over edits made here: replay them (it says so above the footer; esc puts it away) |
+| `y` | after rekordbox exported over edits made here: replay them (it says so over the status line; esc puts it away) |
 | `del` | remove from the playlist shown; delete the selected playlist |
+
+## Keys in Prepare
+
+Prepare:
+
+| Keys | |
+| --- | --- |
+| `enter` | run the job selected, on the drive open in the library |
 
 ## Keys in Drives
 
@@ -281,8 +333,6 @@ Drives:
 | `enter` | open the drive in the library (a library: its newest clone) |
 | `e` | what can be done to the selected drive: save a snapshot, check, sync, pack, bring back a playlist, replay edits, undo, eject, plugins' commands; to a library's clones: sync, check, eject (each shows its plan and asks first) |
 
-## Keys in Snapshots
-
 Snapshots:
 
 | Keys | |
@@ -290,25 +340,15 @@ Snapshots:
 |  | every library in the store, its snapshots newest first (locallibrary pull adds one) |
 | `enter` | bring back a playlist from the selected snapshot onto the drive open in the library |
 
-## Keys in Profile
-
-Profile:
+History:
 
 | Keys | |
 | --- | --- |
-| `i` | put the section in the document, or take it out |
-| `tab  enter` | move between sections and their lists (esc goes back) |
-| `m` | pin a track first among signature tracks |
-| `h  H` | never name a track / its artist (still counted) |
-| `D` | show the document a public profile would get |
-| `w` | write the document as JSON in the store folder |
-| `a` | every drive and the store, or just the open drive |
-| `#` | rounded or exact numbers in the document |
-| `L` | sign in with your Atmosphere account (the one for Bluesky and other AT Protocol apps; alpha); signed in, press twice to sign out |
+| `enter` | open the list players recorded in the library |
 
-## Keys in Mixes
+## Keys in Recordings
 
-Mixes:
+Recordings:
 
 | Keys | |
 | --- | --- |
@@ -323,6 +363,22 @@ Mixes:
 | `E` | export the set as data (.mix.json) for Local Network |
 | `w` | write the HTML report and open it in a browser |
 | `click` | on the timeline: play from there, or pick the track under it |
+
+## Keys in Publish
+
+Publish:
+
+| Keys | |
+| --- | --- |
+| `i` | put the section in the document, or take it out |
+| `tab  enter` | move between sections and their lists (esc goes back) |
+| `m` | pin a track first among signature tracks |
+| `h  H` | never name a track / its artist (still counted) |
+| `D` | show the document a public profile would get |
+| `w` | write the document as JSON in the store folder |
+| `a` | every drive and the store, or just the open drive |
+| `#` | rounded or exact numbers in the document |
+| `L` | sign in with your Atmosphere account (the one for Bluesky and other AT Protocol apps; alpha); signed in, press twice to sign out |
 
 ## Keys everywhere
 
@@ -339,14 +395,14 @@ Playback:
 | `+  -` | volume |
 | `s  r` | shuffle / repeat (off, all, one) |
 | `x` | stop |
-| `o` | go to the playing track (in Mixes, the selected track in the library) |
+| `o` | go to the playing track (in Recordings, the selected track in the library) |
 
 Deck:
 
 | Keys | |
 | --- | --- |
 | `1 … 8` | in full screen, or with the pads on: hot cue A … H (jumps there and plays) |
-| `'` | pads on / off: in the library the digit row plays hot cues instead of switching views |
+| `'` | pads on / off: the digit row plays hot cues instead of jumping to panes |
 | `,  .` | beat jump: one beat back / forward |
 | `<  >` | one bar (4 beats) back / forward |
 | `{  }` | 8 bars (32 beats, a phrase) back / forward |
@@ -370,21 +426,28 @@ Moving about:
 
 | Keys | |
 | --- | --- |
+| `g g` | the first row |
 | `↑ ↓  j k` | move |
 | `pgup  pgdn` | a page up / down |
-| `g  G` | the first / last row (home, end) |
-| `tab` | next pane: drives, playlists, tracks, open panels (shift-tab: back) |
+| `home  G` | the first / last row (end too) |
+| `tab` | next pane (shift-tab: back) |
 | `esc` | stop a change before it writes; hide an error; clear the search, then the marks (press twice) |
+| `1 … 5` | the pane with that number in its title (while the pads are off) |
+| `g` | then a letter, for a view (the letter beside its tab), or g for the first row |
 
 The player:
 
 | Keys | |
 | --- | --- |
-| `1 … 5` | library · drives · snapshots · profile · mixes (while the pads are off) |
+| `g l` | Library |
+| `g p` | Prepare |
+| `g d` | Drives, their snapshots and history |
+| `g r` | Recordings |
+| `g u` | Publish |
 | `R  F5` | read again: the drive, the drives' status, the snapshots, the profile, the recordings |
 | `:` | commands: every action by name (type a few of its letters), the commands with no key, and plugins' commands |
 | `?` | this help |
-| `!` | messages: everything the footer said since starting |
+| `!` | messages: everything the status line said since starting |
 |  | found a bug? locallibrary bug, in a terminal, reports it |
 | `q` | quit (a write to the drive finishes first) |
 
@@ -413,5 +476,5 @@ Commands (type : and a few letters):
 
 [//]: # (End of the key tables.)
 
-Mouse: click to select (or a tab to switch views), double-click to play, scroll to move, click a
+Mouse: click to select (or a tab to switch views, or a pane's title to open it), double-click to play, scroll to move, click a
 column header to sort, click or drag the waveform to seek, right-click in the library for actions.

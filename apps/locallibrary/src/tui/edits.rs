@@ -433,7 +433,7 @@ struct Reporter {
     outer: CancelToken,
     inner: CancelToken,
     committed: AtomicBool,
-    /// The phase under way, and when the header was last told.
+    /// The phase under way, and when the status line was last told.
     state: Mutex<(String, Option<Instant>)>,
 }
 
@@ -487,7 +487,7 @@ impl Progress for Reporter {
 
 /// How the player puts a plan: the confirmation's question and its yes, the drives it changes
 /// and what it does to them (for plans that aren't edits or an undo, which show in detail), and
-/// the header's label while it's made. `drive` names the drive it was planned for.
+/// the status line's label while it's made. `drive` names the drive it was planned for.
 pub struct Wording {
     pub ask: String,
     pub yes: &'static str,
@@ -629,6 +629,7 @@ impl App {
     /// Whether keys go somewhere other than the view: to a dialog, or a line being typed.
     pub(super) fn input_taken(&self) -> bool {
         self.modal.is_some()
+            || self.chord.is_some()
             || self.searching
             || self.picking.is_some()
             || self.deck.outputs.is_some()
@@ -1116,7 +1117,7 @@ impl App {
     }
 
     /// Run `make` in the background (something that changes nothing, like a check), with its
-    /// progress in the header and esc to stop it; what it hands back finishes on the UI thread.
+    /// progress in the status line and esc to stop it; what it hands back finishes on the UI thread.
     pub(super) fn task(&mut self, label: String, make: impl FnOnce(&Ctx<'_>) -> Result<Done, Error> + Send + 'static) {
         self.task_showing(label, |ctx, _| make(ctx));
     }
@@ -1356,7 +1357,7 @@ impl App {
                 let changes = report["edits"]["changes"].as_u64().unwrap_or(0) as usize;
                 let sessions = report["sessions"].as_array().map_or(0, Vec::len);
                 let mut msg =
-                    format!("{by}: {} written, {} kept", plural(changes, "change"), plural(sessions, "session"));
+                    format!("{by}: {} written, {} kept", plural(changes, "change"), plural(sessions, "history list"));
                 if report["edits"]["backup"].is_string() {
                     self.last_backup = Some(self.drive_at(root.clone()));
                     msg.push_str(" · u to undo");
