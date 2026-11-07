@@ -132,11 +132,18 @@ pub mod tree;
 pub mod upgrade;
 pub mod watch;
 mod workers;
+mod writing;
 
 /// Hooks for tests: what a failed write leaves behind, tests that share a process, and big files
 /// that take no room.
 #[doc(hidden)]
 pub mod testing {
+    /// Write every copy as to a drive with no clones, for tests whose drives share one disk. Holds
+    /// for the process.
+    pub fn no_reflinks() {
+        crate::fsutil::NO_REFLINKS.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
     pub use crate::commit::{fail_after_swap, fail_before_swap};
 
     /// Make the file at `path` (made if missing) `len` bytes long without taking the room: sparse,

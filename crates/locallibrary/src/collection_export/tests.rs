@@ -706,6 +706,74 @@ fn downloads_onto_the_targets_disk_count_in_its_space() {
     }
 }
 
+/// A new file is written under its own name, so a crash can leave part of one there. The drive is
+/// marked as being written, and the next export writes that file again, even if what's there
+/// happens to look finished: as long as its source, written moments ago, and with its size.
+#[test]
+fn an_export_cut_off_part_way_through_a_new_file_writes_it_again() {
+    let pc = Computer::new();
+    let mut target = pc.folder("Export");
+    let (plan_made, _) = pc.export(&mut target, &CollectionExportOptions::default());
+    let key = "Contents/Daft Punk/Discovery/One More Time.mp3";
+    assert!(plan_made.copies.iter().any(|c| c.path == key));
+
+    let source = pc.dir.path().join("Music/One More Time.mp3");
+    fsutil::set_mtime(&source, Utc::now().timestamp()).unwrap();
+    target.begin(LineageOp::Export, "export rekordbox's collection", None).unwrap();
+    std::fs::write(target.path(key), b"one more ????").unwrap();
+    fsutil::set_mtime(&target.path(key), Utc::now().timestamp()).unwrap();
+    // Nothing says it's unsettled but the mark: a crash can lose the drive's hash cache too.
+    std::fs::remove_file(target.state_dir().join("index.json")).unwrap();
+
+    let (again, _) = pc.export(&mut target, &CollectionExportOptions::default());
+    assert!(again.copies.iter().any(|c| c.path == key), "{:?}", again.copies);
+    assert_eq!(std::fs::read(target.path(key)).unwrap(), b"one more time");
+}
+
+/// The progress bar fills: every file copied counts its bytes, an analysis file with its new path
+/// as much as audio.
+#[test]
+fn an_export_reports_every_byte_it_copies() {
+    let pc = Computer::new();
+    let mut target = pc.folder("Export");
+    let planned = plan(&pc.collection(), &pc.cloud(), &target, &Default::default(), &Ctx::silent()).unwrap();
+    let copied = std::sync::atomic::AtomicU64::new(0);
+    let progress = |e: &Event| {
+        if let Event::Bytes { phase: Phase::Copy, bytes } = e {
+            copied.fetch_add(*bytes, std::sync::atomic::Ordering::Relaxed);
+        }
+    };
+    apply(&planned, &mut target, None, &Ctx::new(&progress, Default::default())).unwrap();
+    assert_eq!(copied.into_inner(), planned.copy_bytes);
+}
+
+/// An export stopped part way leaves no part-written file, and the next one finishes it.
+#[test]
+fn an_export_stopped_part_way_finishes_when_run_again() {
+    let pc = Computer::new();
+    let mut target = pc.folder("Export");
+    let planned = plan(&pc.collection(), &pc.cloud(), &target, &Default::default(), &Ctx::silent()).unwrap();
+    let cancel = crate::progress::CancelToken::new();
+    let stop = cancel.clone();
+    let progress = move |e: &Event| {
+        if matches!(e, Event::Item { phase: Phase::Copy, .. }) {
+            stop.cancel();
+        }
+    };
+    let err = apply(&planned, &mut target, None, &Ctx::new(&progress, cancel)).unwrap_err();
+    assert!(matches!(err, Error::Cancelled), "{err}");
+    for c in &planned.copies {
+        if let Ok(bytes) = std::fs::read(target.path(&c.path)) {
+            assert_eq!(bytes.len() as u64, c.size, "{} is part written", c.path);
+        }
+    }
+    let (_, report) = pc.export(&mut target, &CollectionExportOptions::default());
+    assert_eq!(report.tracks, 2);
+    for c in &planned.copies {
+        assert_eq!(std::fs::metadata(target.path(&c.path)).unwrap().len(), c.size, "{}", c.path);
+    }
+}
+
 /// What a drawn library source track brings: nothing, a hot cue and a beat grid, a waveform ten
 /// seconds longer than the track, or a cue whose name is too long to write.
 #[derive(Debug, Clone, Copy, PartialEq)]

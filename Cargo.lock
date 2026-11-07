@@ -4356,6 +4356,7 @@ dependencies = [
  "hegeltest",
  "indexmap",
  "loclib-progress",
+ "reflink-copy",
  "rustc-hash",
  "schemars",
  "serde",
@@ -6665,6 +6666,18 @@ dependencies = [
  "parking_lot",
  "percent-encoding",
  "serde_json",
+]
+
+[[package]]
+name = "reflink-copy"
+version = "0.1.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ad64f61357bcf16105a0f353f9783733409c8bd889bc326ad857959605ea927"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "rustix",
+ "windows",
 ]
 
 [[package]]

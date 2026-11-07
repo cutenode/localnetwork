@@ -838,17 +838,28 @@ pub(crate) fn add_rows_from_analysis(
     device: &Device,
     t: &Track,
 ) -> Result<Option<usize>> {
+    add_rows(one, id, rows_from_analysis(device, t))
+}
+
+/// The rows the analysis files of `t` on `device` give it: none if it has none, `None` if they
+/// can't be read. Only reads the drive, so tracks can go at once (see [`add_rows`]).
+pub(crate) fn rows_from_analysis(device: &Device, t: &Track) -> Option<Vec<CueRow>> {
     let dat = paths::key(&t.analyze_path);
     let readable = paths::is_safe_key(&dat) && paths::classify(&dat) == Some(FileClass::Analysis);
     if t.analyze_path.is_empty() || !readable || !device.checked_path(&dat).is_ok_and(|p| p.is_file()) {
-        return Ok(Some(0));
+        return Some(Vec::new());
     }
-    let Ok(loaded) = load(device, t) else { return Ok(None) };
-    let rows: Vec<CueRow> = loaded.cues.iter().map(|c| row_for(c, CueRow::default())).collect();
-    if rows.is_empty() {
-        return Ok(Some(0));
+    let loaded = load(device, t).ok()?;
+    Some(loaded.cues.iter().map(|c| row_for(c, CueRow::default())).collect())
+}
+
+/// Add the `rows` of [`rows_from_analysis`] to the track `id`: how many went in, `None` if they
+/// couldn't be read.
+pub(crate) fn add_rows(one: &mut OneLibrary, id: u32, rows: Option<Vec<CueRow>>) -> Result<Option<usize>> {
+    match rows {
+        Some(rows) if !rows.is_empty() => Ok(Some(one.replace_cues(id, &rows)?.added)),
+        rows => Ok(rows.map(|_| 0)),
     }
-    Ok(Some(one.replace_cues(id, &rows)?.added))
 }
 
 /// `c` as a row of the `cue` table, starting from `row` (its current row, a copied one, or none).
