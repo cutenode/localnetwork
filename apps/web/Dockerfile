@@ -17,6 +17,7 @@ COPY apps/web/package.json apps/web/
 # skips this step while the lockfile and manifests are unchanged.
 RUN pnpm install --frozen-lockfile --filter localnetwork
 COPY lexicons lexicons/
+COPY flags flags/
 COPY packages/tokens packages/tokens/
 # apps/web, and the tools' READMEs and docs for their pages (.dockerignore sends only those).
 COPY apps apps/

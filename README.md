@@ -16,6 +16,7 @@ The website and locallibrary read every atproto record through Local Network's [
 apps/web/             Local Network, the website (its README covers setup and deployment)
 apps/locallibrary/    locallibrary's command line tool, player and sidecar, with its docs
 apps/localtoolbox/    localtoolbox, the Chrome extension (its README is also its spec, checked by its tests)
+flags/                The website's feature flags, one file each (its README)
 lexicons/             Every tool's lexicons (computer.localnetwork.*), and copies of others' they use (its README)
 crates/               Rust libraries: locallibrary's core and the loclib-* crates other DJ tools can use
 plugins/              locallibrary's own plugins, each a crate on its plugin SDK, and in accounts/ its account plugins, a manifest each

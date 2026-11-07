@@ -27,7 +27,11 @@ const loadNeedingReauth = (url: string) =>
 	loadRoute<LayoutServerData>(load, { app: t, sessionToken: 'session-token', reauth: true, url });
 
 it('gives someone signed out no viewer and no requests to review', async () => {
-	expect(await loadRoute<LayoutServerData>(load, { app: t, url: '/' })).toEqual({ viewer: null, pendingRequests: 0 });
+	expect(await loadRoute<LayoutServerData>(load, { app: t, url: '/' })).toEqual({
+		viewer: null,
+		pendingRequests: 0,
+		flags: { parityCanary: false }
+	});
 });
 
 it('counts the pending requests for staff only', async () => {
@@ -42,11 +46,13 @@ it('counts the pending requests for staff only', async () => {
 
 	expect(await loadRoute<LayoutServerData>(load, { app: t, viewer: admin, url: '/' })).toEqual({
 		viewer: admin,
-		pendingRequests: 1
+		pendingRequests: 1,
+		flags: { parityCanary: false }
 	});
 	expect(await loadRoute<LayoutServerData>(load, { app: t, viewer: dj, url: '/' })).toEqual({
 		viewer: dj,
-		pendingRequests: 0
+		pendingRequests: 0,
+		flags: { parityCanary: false }
 	});
 });
 
@@ -58,5 +64,15 @@ it('sends a session that has to sign in again to the login page, back to where i
 });
 
 it('lets a session that has to sign in again load the login page itself', async () => {
-	expect(await loadNeedingReauth('/login')).toEqual({ viewer: null, pendingRequests: 0 });
+	expect(await loadNeedingReauth('/login')).toEqual({
+		viewer: null,
+		pendingRequests: 0,
+		flags: { parityCanary: false }
+	});
+});
+
+it('hands pages the flags the server hook worked out', async () => {
+	const data = await loadRoute<LayoutServerData>(load, { app: t, url: '/', flags: { parityCanary: true } });
+
+	expect(data.flags).toEqual({ parityCanary: true });
 });
