@@ -390,6 +390,33 @@ describe('what a click on it does', () => {
 		});
 	});
 
+	it('leaves a downloaded thumbnail its one check, and keeps the unqueue under the pointer', async () => {
+		globalThis.chrome = createChrome({
+			session: {
+				queue: [{ permalink: '/a/one', title: 'One', artist: 'A', artworkUrl: '', details: null }]
+			}
+		});
+		render(playlistPage({ rows: [playlistRow({ href: '/a/one?in=c/sets/p' })] }), '/c/sets/p');
+		await loadContentScript();
+		expect(readButton(buttonOf('/a/one'))).toMatchObject({ text: '✓', state: 'small:yes' });
+
+		// Downloaded since it was queued: the mark's check says the track is
+		// done, and a second check beside it would only say the same thing.
+		await chrome.storage.local.set({ downloaded: { '/a/one': ISO } });
+		await vi.advanceTimersByTimeAsync(200);
+		expect(artOf('/a/one').querySelectorAll('.tbx-mark')).toHaveLength(1);
+		expect(readButton(buttonOf('/a/one'))).toMatchObject({
+			text: '−',
+			hover: undefined,
+			label: 'queued, take out of the session queue',
+			state: 'small:downloaded'
+		});
+
+		await clickQueue(buttonOf('/a/one'));
+		expect(queueIn()).toEqual([]);
+		expect(readButton(buttonOf('/a/one'))).toMatchObject({ text: '+', state: 'small:no' });
+	});
+
 	it('says queued for what was queued before the page loaded, and adds behind it', async () => {
 		globalThis.chrome = createChrome({
 			session: {

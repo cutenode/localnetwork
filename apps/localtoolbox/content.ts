@@ -2175,11 +2175,22 @@
 	// A queued track's label starts with the word the large button shows. A
 	// screen reader gets the state from it, which the small "+" alone does not
 	// give, and voice control finds the button by the word on it.
+	// A thumbnail that is downloaded already carries the mark's "✓", so a
+	// queued one there keeps its button out of sight until hovered, where it
+	// shows the "−" straight away: one check per thumbnail, and the one that
+	// stays is the one that says the track is done.
 	const QUEUE_BUTTON_STATES = {
 		'large:no': { text: '+ queue', hover: '', label: 'add to the session queue' },
 		'large:yes': { text: 'queued', hover: 'unqueue', label: 'queued, take out of the session queue' },
 		'small:no': { text: '+', hover: '', label: 'add to the session queue' },
-		'small:yes': { text: '✓', hover: '−', label: 'queued, take out of the session queue' }
+		'small:yes': { text: '✓', hover: '−', label: 'queued, take out of the session queue' },
+		'small:downloaded': { text: '−', hover: '', label: 'queued, take out of the session queue' }
+	};
+
+	const queueStateOf = (permalink: string, variant: MarkerTarget['variant']): keyof typeof QUEUE_BUTTON_STATES => {
+		if (!queued.has(permalink)) return `${variant}:no`;
+
+		return variant === 'small' && downloaded[permalink] ? 'small:downloaded' : `${variant}:yes`;
 	};
 
 	// The details the queue should carry for a track: what has been looked up
@@ -2301,7 +2312,7 @@
 		// Which track the click will queue. Read at click time, because the row
 		// it was painted on can be recycled for another track before then.
 		button.dataset.permalink = permalink;
-		const state: keyof typeof QUEUE_BUTTON_STATES = `${target.variant}:${queued.has(permalink) ? 'yes' : 'no'}`;
+		const state = queueStateOf(permalink, target.variant);
 
 		if (button.dataset.state === state) return;
 		button.dataset.state = state;
