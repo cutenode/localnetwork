@@ -46,7 +46,7 @@ fn an_import_is_planned_confirmed_and_made() {
     let (operation, summary) = confirming(&mut app);
     assert_eq!(operation, "echo.import.lines");
     assert!(summary.starts_with("import 1 of 1 track(s) found on"), "{summary}");
-    assert_eq!(say_yes(&mut app), "Echo: 1 change written, 0 sessions kept · u to undo");
+    assert_eq!(say_yes(&mut app), "Echo: 1 change written, 0 history lists kept · u to undo");
     import(&mut app, &list);
     wait(&mut app, |a| a.job.is_none());
     assert!(last_message(&app).contains("nothing to change"));
@@ -221,8 +221,8 @@ fn any_import_is_planned_and_made_as_its_form_says(tc: TestCase) {
     let said = say_yes(&mut app);
     assert_eq!((tags(&drive.0), store().unwrap_or(0)), (tagged.len(), sessions.len()));
     let kept = match sessions.len() {
-        1 => "1 session kept".to_string(),
-        n => format!("{n} sessions kept"),
+        1 => "1 history list kept".to_string(),
+        n => format!("{n} history lists kept"),
     };
     assert!(said.starts_with("Echo: "));
     assert!(said.contains(&kept));

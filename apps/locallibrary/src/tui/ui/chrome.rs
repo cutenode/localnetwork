@@ -4,24 +4,50 @@
 use locallibrary::DeviceInfo;
 use ratatui::Frame;
 use ratatui::layout::Rect;
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
-use crate::output::plural;
+use crate::output::bytes;
 use crate::tui::app::{App, Level, View, typed_tail};
 use crate::tui::edits::Modal;
-use crate::tui::icons;
-use crate::tui::theme::{self, bold, dim, faint, fg};
+use crate::tui::theme::{self, bold, dim, faint, fg, text};
+use crate::tui::{icons, keymap};
 
 use super::*;
 
-pub(super) fn block(title: impl Into<Line<'static>>, focused: bool) -> Block<'static> {
+const NAME: &str = "locallibrary";
+
+pub(in crate::tui) fn block(title: impl Into<Line<'static>>, focused: bool) -> Block<'static> {
     Block::bordered().border_type(theme::border_type(focused)).border_style(theme::border(focused)).title(title.into())
 }
 
-pub(super) fn title(s: &str, focused: bool) -> Line<'static> {
-    let style = if focused { bold(theme::current().info) } else { bold(theme::current().dim) };
-    Line::from(vec![Span::raw(" "), Span::styled(s.to_string(), style), Span::raw(" ")])
+pub(in crate::tui) fn title(s: &str, focused: bool) -> Line<'static> {
+    Line::from(vec![Span::raw(" "), Span::styled(s.to_string(), title_style(focused)), Span::raw(" ")])
+}
+
+fn title_style(focused: bool) -> Style {
+    if focused { bold(theme::current().info) } else { bold(theme::current().dim) }
+}
+
+/// How a pane's title starts: a marker when it has focus, so that reads without colour, and the
+/// number that jumps to it.
+pub(in crate::tui) fn pane_start(number: u8, focused: bool) -> Vec<Span<'static>> {
+    let mark = if focused { Span::styled(icons::FOCUS.padded(), title_style(true)) } else { Span::raw(" ") };
+    vec![mark, Span::styled(format!("{number} "), if focused { theme::key() } else { faint() })]
+}
+
+/// A pane's title.
+pub(in crate::tui) fn pane_title(number: u8, s: &str, focused: bool) -> Line<'static> {
+    let mut spans = pane_start(number, focused);
+    spans.extend([Span::styled(s.to_string(), title_style(focused)), Span::raw(" ")]);
+    Line::from(spans)
+}
+
+/// A pane with no room for more than its title, one row of the border.
+pub(super) fn title_row(f: &mut Frame, title: impl Into<Line<'static>>, focused: bool, area: Rect) {
+    let b = Block::new().borders(Borders::TOP).border_type(theme::border_type(focused));
+    f.render_widget(b.border_style(theme::border(focused)).title(title.into()), area);
 }
 
 /// `left` and `right` on one line, `right` flush right when it fits.
@@ -79,28 +105,66 @@ pub(super) fn spinner(app: &App) -> &'static str {
     frames[(app.started.elapsed().as_secs_f32() * 12.0) as usize % frames.len()]
 }
 
-pub(super) fn draw_header(f: &mut Frame, app: &mut App, area: Rect) {
+/// What the screen's about, as far as a line can say: the drive, the list shown, the search and
+/// how much is marked. Nothing until a drive is open.
+fn context(app: &App) -> Vec<Span<'static>> {
+    let Some(l) = &app.loaded else { return Vec::new() };
+    let mut spans = vec![
+        Span::styled(app.drive_label(l.root()), bold(theme::current().text)),
+        Span::styled(" › ", faint()),
+        Span::styled(l.playlist_name(), dim()),
+    ];
+    if !app.query.is_empty() {
+        spans.extend([Span::styled("  / ", theme::key()), Span::styled(clip(&app.query, 28), text())]);
+        if app.search_all {
+            spans.push(Span::styled(" whole drive", fg(theme::current().info)));
+        }
+    }
+    let marked = app.marks.len() + app.list_marks.len();
+    if marked > 0 {
+        spans.push(Span::styled(format!("  {}{marked} marked", icons::CHECK.padded()), bold(theme::current().accent)));
+    }
+    spans
+}
+
+pub(super) fn draw_context(f: &mut Frame, app: &App, area: Rect) {
+    if !area.is_empty() {
+        let mut spans = vec![Span::raw(" ")];
+        spans.extend(fit(context(app), (area.width as usize).saturating_sub(1)));
+        f.render_widget(Line::from(spans), area);
+    }
+}
+
+/// The logo, a tab for each view and, when it has no row of its own (`carries_context`), the
+/// context on the right. The player's name goes first as the width runs out.
+pub(super) fn draw_header(f: &mut Frame, app: &mut App, area: Rect, carries_context: bool) {
     // The logo dot pulses with the music.
     let pulse = theme::mix(theme::current().accent, theme::current().warning, app.analyzer.level);
     let pulsing = app.is_playing() && !theme::reduced_motion();
-    let mut spans = vec![
-        Span::styled(icons::LOGO.padded(), bold(if pulsing { pulse } else { theme::current().accent })),
-        Span::styled("locallibrary", bold(theme::current().text)),
-        Span::raw("   "),
-    ];
-    app.areas.tabs.clear();
+    let logo_style = bold(if pulsing { pulse } else { theme::current().accent });
+    let about = if carries_context { context(app) } else { Vec::new() };
+    let about_w: usize = about.iter().map(Span::width).sum();
+    let tabs: Vec<(View, String)> =
+        View::ALL.into_iter().map(|v| (v, format!(" {} {} ", keymap::view_letter(v), v.title()))).collect();
+    let tabs_w: usize = tabs.iter().map(|(_, l)| l.len()).sum();
+    let mut spans = vec![Span::styled(icons::LOGO.padded(), logo_style)];
+    if area.width as usize >= tabs_w + NAME.len() + 6 + about_w {
+        spans.extend([Span::styled(NAME, bold(theme::current().text)), Span::raw("   ")]);
+    }
     let mut x = area.x + spans.iter().map(|s| s.width() as u16).sum::<u16>();
-    for (i, v) in View::ALL.into_iter().enumerate() {
-        let label = format!(" {} {} ", i + 1, v.title());
+    for (v, label) in tabs {
         let w = label.chars().count() as u16;
         let style = if app.view == v { theme::chip(theme::current().info) } else { dim() };
         app.areas.tabs.push((v, Rect::new(x, area.y, w, 1)));
         spans.push(Span::styled(label, style));
-        spans.push(Span::raw(" "));
-        x += w + 1;
+        x += w;
     }
     let room = (area.width as usize).saturating_sub(spans.iter().map(Span::width).sum::<usize>() + 1);
-    // A job's progress comes first and is cut short if need be; the rest shows when it fits.
+    f.render_widget(spread(spans, fit(about, room), area.width), area);
+}
+
+/// What the player's doing: a job's progress first, cut short if need be, else what's loading.
+fn busy(app: &App) -> Vec<Span<'static>> {
     let mut busy = Vec::new();
     if let Some(j) = &app.job {
         busy.push(Span::styled(format!("{} ", spinner(app)), fg(theme::current().warning)));
@@ -116,29 +180,82 @@ pub(super) fn draw_header(f: &mut Frame, app: &mut App, area: Rect) {
             busy.push(Span::styled(" esc ", theme::key()));
             busy.push(Span::styled("cancel ", dim()));
         }
-        busy.push(Span::raw(" "));
     } else if app.loading.is_some() || app.status_loading || app.profile.loading || app.mix.is_loading() {
         busy.push(Span::styled(format!("{} ", spinner(app)), fg(theme::current().info)));
         if let Some(m) = &app.loading {
-            busy.push(Span::styled(format!("{m}  "), dim()));
+            busy.push(Span::styled(format!("{m} "), dim()));
         } else if let Some(m) = app.profile.status() {
-            busy.push(Span::styled(format!("{m}  "), dim()));
+            busy.push(Span::styled(format!("{m} "), dim()));
         } else if let Some(m) = app.mix.status() {
-            busy.push(Span::styled(format!("{m}  "), dim()));
+            busy.push(Span::styled(format!("{m} "), dim()));
         }
     }
-    let mut right = fit(busy, room);
-    let n = app.drives.len();
-    let rest = vec![
-        Span::styled(format!("{} ", plural(n, "drive")), dim()),
-        Span::styled("? ", theme::key()),
-        Span::styled("help ", dim()),
-    ];
-    let used: usize = right.iter().map(Span::width).sum();
-    if used + rest.iter().map(Span::width).sum::<usize>() <= room {
-        right.extend(rest);
+    busy
+}
+
+/// What keys do now, for the status line.
+fn mode(app: &App) -> &'static str {
+    let typing = matches!(app.modal, Some(Modal::Prompt(_))) || app.mix.input.is_some() || app.profile.account.typing();
+    if app.chord.is_some() {
+        "GO TO"
+    } else if app.searching {
+        "SEARCH"
+    } else if typing {
+        "TYPING"
+    } else if app.picking.is_some() {
+        "PICK"
+    } else if app.fullscreen && app.view == View::Library {
+        "DECK"
+    } else if app.deck.pads {
+        "PADS"
+    } else {
+        "BROWSE"
     }
-    f.render_widget(Paragraph::new(spread(spans, right, area.width)), area);
+}
+
+/// Where the selection is in its list, the space left on the drive, and who's signed in. What's
+/// about the drive comes from the last read of the drive list, so a frame touches no disk.
+fn whereabouts(app: &mut App) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    let (selected, len) = app.list_selection();
+    if let Some(at) = selected.filter(|_| len > 0) {
+        spans.push(Span::styled(format!("{}/{len}", at.min(len - 1) + 1), dim()));
+    }
+    let root = app.action_drive();
+    let free = app.drives.iter().find(|d| Some(&d.root) == root.as_ref()).and_then(|d| d.free_space);
+    if let Some(free) = free {
+        spans.push(Span::styled(format!("  {} free", bytes(free)), dim()));
+    }
+    if let Some(handle) = app.profile.account.handle() {
+        spans.push(Span::styled(format!("  @{handle}"), fg(theme::current().info)));
+    }
+    spans.push(Span::raw(" "));
+    spans
+}
+
+/// The status line: what keys do on the left, where things are on the right and between them
+/// what's under way. Returns where that leaves for the latest message.
+pub(super) fn draw_status(f: &mut Frame, app: &mut App, area: Rect) -> Rect {
+    if area.is_empty() {
+        return area;
+    }
+    let width = area.width as usize;
+    let mode = Span::styled(format!(" {} ", mode(app)), theme::chip(theme::current().dim));
+    let mode_w = mode.width() + 1;
+    // The right side gives way first, from its end.
+    let mut right = whereabouts(app);
+    while right.len() > 1 && right.iter().map(Span::width).sum::<usize>() * 2 > width.saturating_sub(mode_w) {
+        right.remove(right.len() - 2);
+    }
+    let right_w: usize = right.iter().map(Span::width).sum();
+    let room = width.saturating_sub(mode_w + right_w + 1);
+    let doing = fit(busy(app), room);
+    let doing_w: u16 = doing.iter().map(|s| s.width() as u16).sum();
+    let mut left = vec![mode, Span::raw(" ")];
+    left.extend(doing);
+    f.render_widget(spread(left, right, area.width), area);
+    let x = area.x + mode_w as u16 + doing_w;
+    Rect { x, width: (room as u16).saturating_sub(doing_w), ..area }
 }
 
 /// A line being typed: the search box, or a prompt for a name.
@@ -198,7 +315,7 @@ pub(super) fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         spans.push(Span::styled(k, theme::key()));
         spans.push(Span::styled(format!(" {label}  "), dim()));
     }
-    f.render_widget(Paragraph::new(Line::from(spans)), area);
+    f.render_widget(Line::from(spans), area);
 }
 
 /// `s` in lines of at most `width` columns, broken between words, and inside words too long
@@ -248,16 +365,15 @@ fn message_lines(msg: &str, level: Level, width: u16) -> Vec<Line<'static>> {
         .collect()
 }
 
-/// The messages: an error that's waiting to be dismissed above the latest message, wrapped to
-/// the width. They end on the footer's row, or just above it while it's in use (a prompt, the
-/// search box, picking a playlist). With a dialog open, only the latest shows, on the footer's
-/// row, so the dialog isn't covered.
-pub(super) fn draw_toasts(f: &mut Frame, app: &App, area: Rect, footer: Rect) {
+/// The messages: an error that's waiting to be dismissed above the latest message. One line that
+/// fits goes on the status line, in `room`. More are wrapped to the width and end just above the
+/// deck. With a dialog open, only the latest shows, in `room`, so the dialog isn't covered.
+pub(super) fn draw_toasts(f: &mut Frame, app: &App, area: Rect, room: Rect) {
     let dialog = matches!(
         app.modal,
         Some(Modal::Menu(_) | Modal::Confirm(_) | Modal::Ask(..) | Modal::Pick(_) | Modal::Report(_) | Modal::Form(_))
     );
-    let footer_busy = matches!(app.modal, Some(Modal::Prompt(_))) || app.searching || app.picking.is_some();
+    let width = area.width;
     let mut lines: Vec<Line> = Vec::new();
     if let Some(o) = app.replay_offer.as_ref().filter(|_| !dialog) {
         let edits = if o.edits == 1 { "1 edit".to_string() } else { format!("{} edits", o.edits) };
@@ -272,18 +388,18 @@ pub(super) fn draw_toasts(f: &mut Frame, app: &App, area: Rect, footer: Rect) {
             Span::styled("esc", theme::key()),
             Span::styled(" not now", dim()),
         ];
-        lines.push(Line::from(fit(spans, footer.width as usize)));
+        lines.push(Line::from(fit(spans, width as usize)));
     }
     if let Some(m) = app.held.as_ref().filter(|_| !dialog) {
-        lines.extend(message_lines(m, Level::Error, footer.width));
+        lines.extend(message_lines(m, Level::Error, width));
     }
     if let Some((m, level, _)) = &app.toast {
         if dialog {
             let (icon, c) = level_style(*level);
             let spans = vec![Span::styled(format!(" {icon} "), bold(c)), Span::styled(m.clone(), fg(c))];
-            lines.push(Line::from(fit(spans, footer.width as usize)));
+            lines.push(Line::from(fit(spans, room.width as usize)));
         } else {
-            lines.extend(message_lines(m, *level, footer.width));
+            lines.extend(message_lines(m, *level, width));
         }
     }
     if lines.is_empty() {
@@ -291,18 +407,22 @@ pub(super) fn draw_toasts(f: &mut Frame, app: &App, area: Rect, footer: Rect) {
     }
     // Errors stay until esc: say so where there's room.
     let error = app.held.is_some() || app.toast.as_ref().is_some_and(|t| t.1 == Level::Error);
-    if let Some(last) = lines.last_mut().filter(|l| error && l.width() + 13 <= footer.width as usize) {
+    if let Some(last) = lines.last_mut().filter(|l| error && l.width() + 13 <= width as usize) {
         last.spans.push(Span::styled("  esc hides", faint()));
     }
-    // The offer to replay edits keeps the footer's hints in view: it says which key.
-    let above = footer_busy || app.replay_offer.is_some();
-    let bottom = if above && !dialog { footer.y } else { footer.bottom() };
+    if let [line] = &lines[..]
+        && line.width() <= room.width as usize
+    {
+        f.render_widget(Paragraph::new(line.clone()), room);
+        return;
+    }
     // At most a third of the screen; the newest lines when that's not enough.
-    let room = (bottom.saturating_sub(area.y + 1)).min((area.height / 3).max(1)) as usize;
-    let skip = lines.len().saturating_sub(room);
+    let bottom = area.bottom();
+    let rows = (bottom.saturating_sub(area.y + 1)).min((bottom / 3).max(1)) as usize;
+    let skip = lines.len().saturating_sub(rows);
     let lines: Vec<Line> = lines.into_iter().skip(skip).collect();
     let h = lines.len() as u16;
-    let r = Rect { x: footer.x, y: bottom.saturating_sub(h), width: footer.width, height: h };
+    let r = Rect { x: area.x, y: bottom.saturating_sub(h), width, height: h };
     f.render_widget(Clear, r);
     f.render_widget(Paragraph::new(lines), r);
 }

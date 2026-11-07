@@ -412,7 +412,7 @@ pub fn read_sets(app: &mut App) {
     }
 }
 
-/// The message the footer shows now ("" for none).
+/// The message on the status line now ("" for none).
 pub fn last_message(app: &App) -> &str {
     app.toast.as_ref().map_or("", |t| t.0.as_str())
 }

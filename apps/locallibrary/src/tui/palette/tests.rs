@@ -52,9 +52,9 @@ fn the_palette_lists_the_views_commands_first_and_runs_one() {
     let (mut app, _dir) = app_with(library());
     press(&mut app, ":");
     assert!(matches!(app.modal, Some(Modal::Pick(_))));
-    press(&mut app, "drives");
+    press(&mut app, "gotod");
     let Some(Modal::Pick(p)) = &app.modal else { panic!() };
-    assert_eq!(p.items[p.selected().unwrap()].label, "the drives");
+    assert_eq!(p.items[p.selected().unwrap()].label, "go to Drives");
     // Keys go to the box, not to the player: q didn't quit.
     press(&mut app, "q");
     assert!(!app.quit);
@@ -108,7 +108,7 @@ fn the_palette_moves_and_is_clicked() {
     mouse(&mut app, LEFT, title);
     assert_eq!(selected(&app), Some(0));
     press(&mut app, "drive");
-    point(&mut app, LEFT, "the drives");
+    point(&mut app, LEFT, "go to Drives");
     assert!(app.modal.is_none());
     assert_eq!(app.view, View::Drives);
     // Nothing matching: there's nothing to move to.
@@ -142,9 +142,9 @@ fn every_views_commands_name_their_keys_as_the_help_does() {
         acts.sort_by_key(|a| format!("{a:?}"));
         acts.dedup();
         assert_eq!(acts.len(), n, "{view:?} lists a command twice");
-        // (The Snapshots view has no commands of its own.)
+        // (The Prepare view has no commands of its own.)
         let first = KEYMAP.iter().find(|b| b.act == cmds[0].0).unwrap();
-        assert!(view == View::Snapshots || first.scope != Scope::Global, "{view:?} starts with its own");
+        assert!(view == View::Prepare || first.scope != Scope::Global, "{view:?} starts with its own");
     }
     // Each command in the palette, beside the key the help shows for it.
     for b in KEYMAP.iter().filter(|b| !b.name.is_empty() && !b.shown.is_empty()) {

@@ -57,7 +57,8 @@ open by hand all put tracks here.
 
 Once the files are saved, **mark N tracks as downloaded** marks the batch, and **take N marked
 out** clears what's done. **send the queue somewhere** hands it to playlist to text or the
-third-party downloader. The queue lasts until you close the browser; to keep a batch longer, add
+third-party downloader; a tool already open under the sheet picks it up the next time it opens.
+The queue lasts until you close the browser; to keep a batch longer, add
 it to the Manager's list or [save it to a file](saving.md).
 
 ## Download gates

@@ -77,7 +77,7 @@ fn check(app: &mut App, what: &str) {
 fn every_view_stays_in_its_tiers_colours() {
     let Fixture { _dir, mut app, .. } = fixture();
     check(&mut app, "library");
-    for view in [View::Drives, View::Snapshots, View::Profile, View::Mixes] {
+    for view in [View::Prepare, View::Drives, View::Mixes, View::Profile] {
         app.view = view;
         check(&mut app, view.title());
     }

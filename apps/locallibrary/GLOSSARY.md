@@ -3,13 +3,14 @@
 The command line tool, terminal player and sidecar that keep rekordbox USB drives in sync, backed
 up and edited, and the plugins that add to them.
 
-## Writes to drives
+## Changing a library
 
 **Plan**:
-What a command will change, worked out and shown before it changes anything, then applied exactly
-as shown. Making one writes nothing to a drive, with one exception: a plan of a big write may time
-a new drive, or one whose drive speed has gone stale, and says so.
-_Avoid_: dry run, which is stopping at the plan
+What a command is going to change, worked out and shown before anything is written. It's applied
+only as shown: if the drive has moved on since, it's refused and worked out again. Making one
+writes nothing to a drive, with one exception: a plan of a big write may time a new drive, or one
+whose drive speed has gone stale, and says so.
+_Avoid_: preview, dry run, diff
 
 **Drive speed**:
 What a drive costs to write to, measured on it: its sustained rate, what a file costs to make and
@@ -21,11 +22,39 @@ How long a write to a drive will take, worked out from its drive speed and what 
 the drive. A best case when the write runs past what the rate was seen to hold for.
 _Avoid_: ETA, which is the time left once a write is under way
 
+**Clone**:
+A drive holding a copy of a library. Clones of one library stay alike through syncs.
+_Avoid_: mirror, replica
+
+**Lead clone**:
+The clone a command given a library's name uses: the newest one plugged in, or the primary when
+they're identical or can't be put in order.
+_Avoid_: source drive, main drive
+
+**Lineage**:
+The states of a library a drive has held, oldest first. It's how one drive can tell it's behind
+another rather than different from it.
+_Avoid_: history (a drive's history is what a player recorded on it), ancestry
+
+**Journal**:
+The edits a drive remembers making, so they can be put back after rekordbox exports over them.
+_Avoid_: log, edit history
+
 ## Plugins
 
 **Built-in plugin**:
 A plugin that ships with locallibrary. Its publisher is Local Network.
 _Avoid_: first-party, bundled, core plugin
+
+**Capability**:
+What a plugin's manifest asks of locallibrary, such as reaching a server or hearing an event. An
+account's scopes are a separate thing, given through access.
+_Avoid_: permission, feature
+
+**Guard**:
+A plugin's check on a plan that edits a library, run before it's applied. It warns unless the user
+makes it blocking.
+_Avoid_: validator, hook, lint
 
 **Account plugin**:
 A plugin that provides one account type by describing how to sign in to it, and does nothing
@@ -103,7 +132,7 @@ A play history list a player recorded.
 _Avoid_: session, play log
 
 **Prepare**:
-Getting drives ready before a gig.
+Getting drives ready before a gig, and the player's view of those jobs.
 _Avoid_: set prep, gig prep, pre-flight
 
 ## The player

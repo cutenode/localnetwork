@@ -451,6 +451,11 @@ pub fn selected() -> Style {
     }
 }
 
+/// The selection in a pane without focus: there, but quieter than the one that has it.
+pub fn unfocused() -> Style {
+    if flat() { Style::new().add_modifier(Modifier::REVERSED | Modifier::DIM) } else { behind(current().idle) }
+}
+
 /// Bold text on `paper` (the active tab, chips), in what reads best on it. With 16 colours it's
 /// `paper` in reverse video, so the text is the terminal's own background, which the scheme made
 /// to read with its colours; without colours, reverse video alone.

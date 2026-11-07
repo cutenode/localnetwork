@@ -8,6 +8,7 @@ use ratatui::layout::{Position, Rect};
 
 use crate::tui::browse::{self};
 use crate::tui::edits::{Menu, Modal};
+use crate::tui::ui::Density;
 
 use super::*;
 
@@ -15,6 +16,10 @@ use super::*;
 #[derive(Default)]
 pub struct Areas {
     pub tabs: Vec<(View, Rect)>,
+    /// How much room the panes had.
+    pub density: Density,
+    /// The titles of what's beside the Drives view's list.
+    pub drive_tabs: Vec<(DrivePane, Rect)>,
     pub drives: Rect,
     pub playlists: Rect,
     pub tracks: Rect,
@@ -32,7 +37,14 @@ pub struct Areas {
     /// Every spectrum drawn: width and whether it's mirrored (each needs its own bands).
     pub spectra: Vec<(u16, bool)>,
     pub drive_list: Rect,
+    /// What's beside the Drives view's list.
+    pub drive_side: Rect,
+    /// The rows of the Drives view's snapshots.
     pub history: Rect,
+    /// The rows of the Drives view's list of what players recorded.
+    pub played: Rect,
+    /// The Prepare view's list.
+    pub prepare: Rect,
 }
 
 /// A row clicked: its view, its pane (none for the full-screen player's matches) and its index.
@@ -60,33 +72,32 @@ impl App {
             }
             return;
         }
-        if self.modal.is_some() {
-            self.on_modal_mouse(m);
-            return;
-        }
         if self.deck.outputs.is_some() {
             if matches!(m.kind, MouseEventKind::Down(_)) {
                 self.deck.outputs = None;
             }
             return;
         }
-        if self.view == View::Profile
-            && !self.areas.tabs.iter().any(|(_, r)| r.contains(p))
-            && crate::tui::profile::on_mouse(self, m)
-        {
+        if self.modal.is_some() {
+            self.on_modal_mouse(m);
             return;
         }
-        if self.view == View::Mixes
-            && !self.areas.tabs.iter().any(|(_, r)| r.contains(p))
-            && crate::tui::mix::on_mouse(self, m)
-        {
+        // The tabs and the deck are the same everywhere, and with only the deck, the panes aren't
+        // there to click.
+        let around = self.areas.density == Density::DeckOnly
+            || self.areas.overview.contains(p)
+            || self.areas.tabs.iter().any(|(_, r)| r.contains(p));
+        if self.view == View::Profile && !around && crate::tui::profile::on_mouse(self, m) {
+            return;
+        }
+        if self.view == View::Mixes && !around && crate::tui::mix::on_mouse(self, m) {
             return;
         }
         match m.kind {
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
                 let delta = if m.kind == MouseEventKind::ScrollUp { -3 } else { 3 };
                 if let Some(f) = self.pane_at(p).filter(|f| self.picking.is_none() || *f == Focus::Playlists) {
-                    self.focus = f;
+                    self.point_at(f);
                 }
                 self.move_selection(delta);
             }
@@ -105,6 +116,8 @@ impl App {
                     if self.picking.is_none() {
                         self.set_view(v);
                     }
+                } else if let Some(&(pane, _)) = self.areas.drive_tabs.iter().find(|(_, r)| r.contains(p)) {
+                    self.show_drive_pane(pane);
                 } else if self.areas.overview.contains(p) {
                     self.seek_click(m.column);
                 } else if self.fullscreen && self.areas.matches.contains(p) {
@@ -122,7 +135,7 @@ impl App {
                     if self.picking.is_some() && f != Focus::Playlists {
                         return;
                     }
-                    self.focus = f;
+                    self.point_at(f);
                     if let Some(i) = self.click_row(f, m.row)
                         && again(self, (self.view, Some(f), i))
                     {
@@ -198,9 +211,29 @@ impl App {
             .into_iter()
             .find(|(r, _)| r.contains(p))
             .map(|(_, f)| f),
-            View::Drives => self.areas.drive_list.contains(p).then_some(Focus::Drives),
-            View::Snapshots => self.areas.history.contains(p).then_some(Focus::Tracks),
+            View::Prepare => self.areas.prepare.contains(p).then_some(Focus::Tracks),
+            View::Drives => [
+                (self.areas.drive_list, Focus::Drives),
+                (self.areas.history, Focus::Tracks),
+                (self.areas.played, Focus::Playlists),
+                (self.areas.drive_side, Focus::Details),
+            ]
+            .into_iter()
+            .find(|(r, _)| r.contains(p))
+            .map(|(_, f)| f),
             View::Profile | View::Mixes => None,
+        }
+    }
+
+    /// Give the pane `f` focus, as [`Self::pane_at`] names it in the view.
+    fn point_at(&mut self, f: Focus) {
+        match (self.view, f) {
+            (View::Library, _) => self.focus = f,
+            (View::Drives, Focus::Drives) => self.show_drive_pane(DrivePane::List),
+            (View::Drives, Focus::Tracks) => self.show_drive_pane(DrivePane::Snapshots),
+            (View::Drives, Focus::Playlists) => self.show_drive_pane(DrivePane::History),
+            (View::Drives, _) => self.show_drive_pane(DrivePane::Info),
+            _ => {}
         }
     }
 
@@ -214,18 +247,20 @@ impl App {
             (View::Library, Focus::Details) => (self.areas.matches.y, self.details_state.offset()),
             (View::Library, Focus::Crate) => (self.areas.crate_rows.y, self.crate_state.offset()),
             (View::Library, Focus::Drives) => (self.areas.drives.y + 1, self.drive_state.offset()),
-            (View::Drives, _) => (self.areas.drive_list.y + 1, self.drive_rows.offset()),
-            (View::Snapshots, _) => (self.areas.history.y + 2, self.history_state.offset()),
-            (View::Profile | View::Mixes, _) => return None,
+            (View::Prepare, _) => (self.areas.prepare.y + 1, self.prepare.offset()),
+            (View::Drives, Focus::Drives) => (self.areas.drive_list.y + 1, self.drive_rows.offset()),
+            (View::Drives, Focus::Tracks) => (self.areas.history.y + 2, self.history_state.offset()),
+            (View::Drives, Focus::Playlists) => (self.areas.played.y + 1, self.played.offset()),
+            (View::Drives, _) | (View::Profile | View::Mixes, _) => return None,
         };
         if row < top || (f == Focus::Details && self.areas.matches.height == 0) {
             return None;
         }
         // The Drives view shows each row on two lines: a drive's name, then where it's mounted (a
         // library's, then how its clones stand).
-        let lines = if self.view == View::Drives { 2 } else { 1 };
-        let i = offset + (row - top) as usize / lines;
-        if self.view == View::Drives {
+        let two_lines = self.view == View::Drives && f == Focus::Drives;
+        let i = offset + (row - top) as usize / if two_lines { 2 } else { 1 };
+        if two_lines {
             let &r = self.drive_rows().get(i)?;
             self.select_drive_row(r);
             return Some(i);

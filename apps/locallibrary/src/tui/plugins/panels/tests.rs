@@ -67,7 +67,7 @@ fn a_tracks_panels_come_once_the_selection_settles() {
     let first = app.selected_track().unwrap();
     // Too short for a panel's rows: none drawn.
     assert!(!screen(&mut app, 80, 24).contains("About the track"));
-    for (w, h) in [(80, 45), (160, 45)] {
+    for (w, h) in [(100, 45), (160, 45)] {
         let s = screen(&mut app, w, h);
         assert!(
             s.contains("About the track") && s.contains(&format!("title  {}", tracks[first].title)),

@@ -7,7 +7,7 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use unicode_width::UnicodeWidthStr;
 
-use super::app::{App, Focus, View};
+use super::app::{App, DrivePane, Focus, View};
 
 /// Where a binding applies. The keys of the most specific scope win: a key bound in the crate
 /// panel means that there, and what it means elsewhere everywhere else.
@@ -31,8 +31,13 @@ pub enum Scope {
     Pads,
     /// The library in full screen (footer hints only).
     FullScreen,
+    /// What follows `g`.
+    Goto,
+    Prepare,
     Drives,
     Snapshots,
+    /// The Drives view's list of what players recorded.
+    History,
     Profile,
     Mixes,
     /// The offer to replay edits after a rekordbox export is showing.
@@ -78,8 +83,10 @@ pub enum Act {
     Help,
     Palette,
     Messages,
-    /// A view, by the digit pressed.
-    ViewKey,
+    /// A pane, by the digit pressed.
+    PaneKey,
+    /// `g`: what follows goes somewhere.
+    Goto,
     ShowView(View),
     Refresh,
     // Playback
@@ -237,8 +244,10 @@ pub enum Group {
     Browsing,
     Crate,
     Changing,
+    Prepare,
     Drives,
     Snapshots,
+    History,
     Profile,
     Mixes,
     Commands,
@@ -255,10 +264,12 @@ impl Group {
             Group::Browsing => "Browsing",
             Group::Crate => "Marks and the crate",
             Group::Changing => "Changing the drive",
+            Group::Prepare => "Prepare",
             Group::Drives => "Drives",
             Group::Snapshots => "Snapshots",
-            Group::Profile => "Profile",
-            Group::Mixes => "Mixes",
+            Group::History => "History",
+            Group::Profile => "Publish",
+            Group::Mixes => "Recordings",
             Group::Commands => "Commands (type : and a few letters)",
         }
     }
@@ -390,7 +401,7 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Library, &[K::Ch('/')], "/", A::Search, "search or filter the tracks", "search title, artist, album, genre, label, key, comment and path as you type", G::Browsing),
     note(S::Library, "", "or filter: bpm:120-128 key:8A~ rating:>=4 -genre:house tag:Deep", G::Browsing),
     note(S::Library, "", "in the box: enter keeps it, esc clears it, ctrl-u empties it, ctrl-w deletes a word, tab searches the whole drive or the list shown", G::Browsing),
-    note(S::Library, "Browse", "at the top of the tree: by artist, album, genre, key, BPM, rating, colour, date added, My Tags, sets, sessions, problems", G::Browsing),
+    note(S::Library, "Browse", "at the top of the tree: by artist, album, genre, key, BPM, rating, colour, date added, My Tags, sets, history, problems", G::Browsing),
     key(S::Library, &[K::Ch('b')], "b  B", A::Sort, "sort by the next column", "sort by the next column / the other way (or click a header)", G::Browsing),
     key(S::Library, &[K::Ch('B')], "", A::SortReverse, "sort the other way", "", G::Browsing),
     key(S::Library, &[K::Ch('*')], "*", A::Ratings, "show or hide the rating column", "show / hide the rating column", G::Browsing),
@@ -406,10 +417,16 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Library, &[K::Ch('e')], "e", A::Actions, "actions that change the drive", "actions for the marked or selected tracks, the playlist shown and the crate: rating, colour, add to a playlist, remove, new / rename / delete a playlist or folder, sort a playlist on the drive, plugins' operations", G::Changing),
     note(S::Library, "right-click", "the same, for what's under the pointer", G::Changing),
     key(S::Library, &[K::Ch('T')], "T", A::Tag, "give the tracks a My Tag, or take one off", "give the marked (or selected) tracks a My Tag, or take one off (asks first)", G::Changing),
-    note(S::Library, "y", "after rekordbox exported over edits made here: replay them (it says so above the footer; esc puts it away)", G::Changing),
+    note(S::Library, "y", "after rekordbox exported over edits made here: replay them (it says so over the status line; esc puts it away)", G::Changing),
     key(S::Library, &[K::Code(C::Delete), K::Code(C::Backspace)], "del", A::Remove, "", "remove from the playlist shown; delete the selected playlist", G::Changing),
     // -----------------------------------------------------------------------------------------
-    // The Drives and Snapshots views
+    // The Prepare view
+    // -----------------------------------------------------------------------------------------
+    note(S::Prepare, "enter", "run the job selected, on the drive open in the library", G::Prepare),
+    tip(S::Prepare, "enter", "run", 9),
+    tip(S::Prepare, "↑↓", "select", 4),
+    // -----------------------------------------------------------------------------------------
+    // The Drives view
     // -----------------------------------------------------------------------------------------
     note(S::Drives, "enter", "open the drive in the library (a library: its newest clone)", G::Drives),
     key(S::Drives, &[K::Ch('e')], "e", A::DriveActions, "actions for the drive", "what can be done to the selected drive: save a snapshot, check, sync, pack, bring back a playlist, replay edits, undo, eject, plugins' commands; to a library's clones: sync, check, eject (each shows its plan and asks first)", G::Drives),
@@ -423,8 +440,11 @@ pub static KEYMAP: &[Binding] = &[
     tip(S::Snapshots, "enter", "bring back a playlist", 7),
     tip(S::Snapshots, "↑↓", "scroll", 4),
     tip(S::Snapshots, "R", "refresh", 5),
+    note(S::History, "enter", "open the list players recorded in the library", G::History),
+    tip(S::History, "enter", "open", 7),
+    tip(S::History, "↑↓", "select", 4),
     // -----------------------------------------------------------------------------------------
-    // The Profile view
+    // The Publish view
     // -----------------------------------------------------------------------------------------
     tip(S::Profile, "↑↓", "select", 3),
     key(S::Profile, &[K::Ch('i')], "i", A::ProfileInclude, "put the section in the document, or take it out", "put the section in the document, or take it out", G::Profile)
@@ -446,7 +466,7 @@ pub static KEYMAP: &[Binding] = &[
     tip(S::Profile, "R", "rebuild", 4),
     ACCOUNT_KEY,
     // -----------------------------------------------------------------------------------------
-    // The Mixes view
+    // The Recordings view
     // -----------------------------------------------------------------------------------------
     note(S::Mixes, "", "A recorded set, and which of the open drive's tracks it plays (like locallibrary mix).", G::Mixes),
     note(S::Mixes, "enter", "on a recording: find its tracks; on a track: play the set from there", G::Mixes),
@@ -484,6 +504,16 @@ pub static KEYMAP: &[Binding] = &[
     tip(S::FullScreen, "S", "autoplay", 5),
     tip(S::FullScreen, "f", "back", 7),
     key(S::Pads, &[K::Digits('1', '8')], "1 … 8", A::HotCue, "", "in full screen, or with the pads on: hot cue A … H (jumps there and plays)", G::Deck),
+    tip(S::Pads, "1-8", "hot cue", 9),
+    // -----------------------------------------------------------------------------------------
+    // After g
+    // -----------------------------------------------------------------------------------------
+    key(S::Goto, &[K::Ch('l')], "g l", A::ShowView(View::Library), "go to Library", "Library", G::Player),
+    key(S::Goto, &[K::Ch('p')], "g p", A::ShowView(View::Prepare), "go to Prepare", "Prepare", G::Player),
+    key(S::Goto, &[K::Ch('d')], "g d", A::ShowView(View::Drives), "go to Drives", "Drives, their snapshots and history", G::Player),
+    key(S::Goto, &[K::Ch('r')], "g r", A::ShowView(View::Mixes), "go to Recordings", "Recordings", G::Player),
+    key(S::Goto, &[K::Ch('u')], "g u", A::ShowView(View::Profile), "go to Publish", "Publish", G::Player),
+    key(S::Goto, &[K::Ch('g')], "g g", A::End(-1), "", "the first row", G::Moving),
     // -----------------------------------------------------------------------------------------
     // Everywhere
     // -----------------------------------------------------------------------------------------
@@ -502,8 +532,8 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[K::Ch('s')], "s  r", A::Shuffle, "shuffle on or off", "shuffle / repeat (off, all, one)", G::Playback),
     key(S::Global, &[K::Ch('r')], "", A::Repeat, "repeat: off, all, one", "", G::Playback),
     key(S::Global, &[K::Ch('x')], "x", A::Stop, "stop", "stop", G::Playback),
-    key(S::Global, &[K::Ch('o')], "o", A::GoTo, "go to the playing track", "go to the playing track (in Mixes, the selected track in the library)", G::Playback),
-    key(S::Global, &[K::Ch('\'')], "'", A::Pads, "pads on or off", "pads on / off: in the library the digit row plays hot cues instead of switching views", G::Deck),
+    key(S::Global, &[K::Ch('o')], "o", A::GoTo, "go to the playing track", "go to the playing track (in Recordings, the selected track in the library)", G::Playback),
+    key(S::Global, &[K::Ch('\'')], "'", A::Pads, "pads on or off", "pads on / off: the digit row plays hot cues instead of jumping to panes", G::Deck),
     key(S::Global, &[K::Ch(',')], ",  .", A::BeatJump(-1), "beat jump back", "beat jump: one beat back / forward", G::Deck),
     key(S::Global, &[K::Ch('.')], "", A::BeatJump(1), "beat jump forward", "", G::Deck),
     key(S::Global, &[K::Ch('<')], "<  >", A::BeatJump(-4), "a bar back", "one bar (4 beats) back / forward", G::Deck),
@@ -526,21 +556,17 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[K::Code(C::Down), K::Ch('j')], "", A::Move(1), "", "", G::Moving),
     key(S::Global, &[K::Code(C::PageUp)], "pgup  pgdn", A::Page(-1), "", "a page up / down", G::Moving),
     key(S::Global, &[K::Code(C::PageDown)], "", A::Page(1), "", "", G::Moving),
-    key(S::Global, &[K::Code(C::Home), K::Ch('g')], "g  G", A::End(-1), "", "the first / last row (home, end)", G::Moving),
+    key(S::Global, &[K::Code(C::Home)], "home  G", A::End(-1), "", "the first / last row (end too)", G::Moving),
     key(S::Global, &[K::Code(C::End), K::Ch('G')], "", A::End(1), "", "", G::Moving),
-    key(S::Global, &[K::Code(C::Tab)], "tab", A::Focus(false), "", "next pane: drives, playlists, tracks, open panels (shift-tab: back)", G::Moving),
+    key(S::Global, &[K::Code(C::Tab)], "tab", A::Focus(false), "", "next pane (shift-tab: back)", G::Moving),
     key(S::Global, &[K::Code(C::BackTab)], "", A::Focus(true), "", "", G::Moving),
     key(S::Global, &[K::Code(C::Esc)], "esc", A::Escape, "", "stop a change before it writes; hide an error; clear the search, then the marks (press twice)", G::Moving),
-    key(S::Global, &[K::Digits('1', '5')], "1 … 5", A::ViewKey, "", "library · drives · snapshots · profile · mixes (while the pads are off)", G::Player),
-    key(S::Global, &[], "1", A::ShowView(View::Library), "the library", "", G::Player),
-    key(S::Global, &[], "2", A::ShowView(View::Drives), "the drives", "", G::Player),
-    key(S::Global, &[], "3", A::ShowView(View::Snapshots), "the store's snapshots", "", G::Player),
-    key(S::Global, &[], "4", A::ShowView(View::Profile), "the DJ profile", "", G::Player),
-    key(S::Global, &[], "5", A::ShowView(View::Mixes), "recorded mixes", "", G::Player),
+    key(S::Global, &[K::Digits('1', '5')], "1 … 5", A::PaneKey, "", "the pane with that number in its title (while the pads are off)", G::Moving),
+    key(S::Global, &[K::Ch('g')], "g", A::Goto, "", "then a letter, for a view (the letter beside its tab), or g for the first row", G::Moving),
     key(S::Global, &[K::Ch('R'), K::Code(C::F(5))], "R  F5", A::Refresh, "refresh: read the drive and the view again", "read again: the drive, the drives' status, the snapshots, the profile, the recordings", G::Player),
     key(S::Global, &[K::Ch(':')], ":", A::Palette, "", "commands: every action by name (type a few of its letters), the commands with no key, and plugins' commands", G::Player).hint("commands", 6),
     key(S::Global, &[K::Ch('?')], "?", A::Help, "the keys", "this help", G::Player).hint("help", 5),
-    key(S::Global, &[K::Ch('!')], "!", A::Messages, "messages since starting", "messages: everything the footer said since starting", G::Player),
+    key(S::Global, &[K::Ch('!')], "!", A::Messages, "messages since starting", "messages: everything the status line said since starting", G::Player),
     note(S::Global, "", "found a bug? locallibrary bug, in a terminal, reports it", G::Player),
     // Commands with no key of their own, for the drive open in the library (the selected one in
     // the Drives view).
@@ -566,22 +592,26 @@ pub fn scopes(app: &App) -> Vec<Scope> {
     if app.replay_offer.is_some() {
         v.push(Scope::Replay);
     }
+    if app.view == View::Library {
+        v.push(match app.focus {
+            Focus::Drives => Scope::DriveList,
+            Focus::Playlists => Scope::Tree,
+            Focus::Tracks => Scope::Tracks,
+            Focus::Details => Scope::Details,
+            Focus::Crate => Scope::Crate,
+        });
+    }
+    if app.pads_on() {
+        v.push(Scope::Pads);
+    }
     match app.view {
-        View::Library => {
-            v.push(match app.focus {
-                Focus::Drives => Scope::DriveList,
-                Focus::Playlists => Scope::Tree,
-                Focus::Tracks => Scope::Tracks,
-                Focus::Details => Scope::Details,
-                Focus::Crate => Scope::Crate,
-            });
-            if app.pads_on() {
-                v.push(Scope::Pads);
-            }
-            v.push(Scope::Library);
-        }
-        View::Drives => v.push(Scope::Drives),
-        View::Snapshots => v.push(Scope::Snapshots),
+        View::Library => v.push(Scope::Library),
+        View::Prepare => v.push(Scope::Prepare),
+        View::Drives => v.push(match app.drive_pane {
+            DrivePane::List | DrivePane::Info => Scope::Drives,
+            DrivePane::Snapshots => Scope::Snapshots,
+            DrivePane::History => Scope::History,
+        }),
         View::Profile => v.push(Scope::Profile),
         View::Mixes => v.push(Scope::Mixes),
     }
@@ -592,6 +622,17 @@ pub fn scopes(app: &App) -> Vec<Scope> {
 /// What `act` is called in the palette and the menus that offer it.
 pub fn name(act: Act) -> &'static str {
     KEYMAP.iter().find(|b| b.act == act && !b.name.is_empty()).map_or("", |b| b.name)
+}
+
+/// What the help says of `act`.
+pub fn about(act: Act) -> &'static str {
+    KEYMAP.iter().find(|b| b.act == act && !b.help.is_empty()).map_or("", |b| b.help)
+}
+
+/// The letter after `g` that goes to `view`.
+pub fn view_letter(view: View) -> &'static str {
+    let row = KEYMAP.iter().find(|b| b.scope == Scope::Goto && b.act == Act::ShowView(view));
+    row.map_or("", |b| &b.shown[2..])
 }
 
 /// The binding `key` means in `scopes` (most specific first).
@@ -645,15 +686,16 @@ fn sections(rows: impl Iterator<Item = &'static Binding>) -> Vec<HelpSection> {
 pub fn help(view: View) -> (Vec<HelpSection>, Vec<HelpSection>) {
     let own: &[Scope] = match view {
         View::Library => &[Scope::Library, Scope::Tree, Scope::Tracks, Scope::Details, Scope::Crate, Scope::DriveList],
-        View::Drives => &[Scope::Drives],
-        View::Snapshots => &[Scope::Snapshots],
+        View::Prepare => &[Scope::Prepare],
+        View::Drives => &[Scope::Drives, Scope::Snapshots, Scope::History],
         View::Profile => &[Scope::Profile],
         View::Mixes => &[Scope::Mixes],
     };
     // The crate's own keys under its heading, after marking and adding to it.
     let mut rows: Vec<&'static Binding> = KEYMAP.iter().filter(|b| own.contains(&b.scope)).collect();
     rows.sort_by_key(|b| (b.group as u8, b.scope == Scope::Crate));
-    let global = KEYMAP.iter().filter(|b| matches!(b.scope, Scope::Global | Scope::Pads) && !own.contains(&b.scope));
+    let everywhere = |b: &&Binding| matches!(b.scope, Scope::Global | Scope::Pads | Scope::Goto);
+    let global = KEYMAP.iter().filter(everywhere);
     let mut global: Vec<&'static Binding> = global.collect();
     global.sort_by_key(|b| b.group as u8);
     (sections(rows.into_iter()), sections(global.into_iter()))
