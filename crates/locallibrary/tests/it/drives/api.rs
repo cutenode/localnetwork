@@ -299,3 +299,26 @@ fn provisioning_an_archive_drive_is_refused_before_anything_is_written() {
     assert!(matches!(err.inner(), Error::Conflict(m) if m.contains("archive")), "{err}");
     assert_eq!(Device::open(&vault).unwrap().name(), "Vault", "not renamed");
 }
+
+/// Through the API, a drive's speed is none until measured, then what was measured, and a record
+/// damaged in between counts as none again.
+#[hegel::test(test_cases = 4)]
+fn a_drives_speed_is_what_was_last_measured(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let volumes = common::isolate(dir.path(), None);
+    let drive = common::demo_drive(&volumes, "Speedy");
+    let req = api::DriveRef { drive: path(&drive) };
+    assert!(api::drive_speed(&req).unwrap().speed.is_none());
+    let measured = api::drive_speed_measure(&req, &Ctx::silent()).unwrap();
+    let speed = measured.speed.clone().expect("measured");
+    assert_eq!(speed.measured_by, drive_speed::MeasuredBy::Test);
+    assert_eq!(measured.drive, api::drive_speed(&req).unwrap().drive);
+    let damaged = tc.draw(gs::booleans());
+    if damaged {
+        std::fs::write(drive.join(".locallibrary/speed.json"), b"{").unwrap();
+    }
+    let read = api::drive_speed(&req).unwrap();
+    assert_eq!(read.speed, (!damaged).then_some(speed));
+    assert!(read.stale.is_none());
+}

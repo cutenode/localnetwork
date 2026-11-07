@@ -669,3 +669,202 @@ fn a_record_reads_back_or_counts_as_none(tc: TestCase) {
     std::fs::write(record_path(dir.path()), junk).unwrap();
     let _ = stored(&device);
 }
+
+/// What a drive holds before a plan: nothing, a result that holds, one gone stale, or a record that
+/// can't be read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Before {
+    Nothing,
+    Fresh,
+    Stale,
+    Damaged,
+}
+
+/// A plan's estimate uses what's stored when it holds, tests the drive only with leave to and when
+/// it doesn't, says when it did, and a plan that isn't applied leaves a drive that had no
+/// `.locallibrary/` as it found it.
+#[hegel::test(test_cases = 12)]
+fn an_estimate_tests_only_when_it_must_and_may(tc: TestCase) {
+    let (dir, device) = drive();
+    let state = dir.path().join(crate::paths::STATE_DIR);
+    let before = tc.draw(gs::sampled_from(vec![Before::Nothing, Before::Fresh, Before::Stale, Before::Damaged]));
+    let used = before != Before::Nothing || tc.draw(gs::booleans());
+    if used {
+        std::fs::create_dir(&state).unwrap();
+        std::fs::write(state.join("state.json"), b"{}").unwrap();
+    }
+    let kept = DriveSpeed {
+        measured_at: Utc::now() - TimeDelta::days(if before == Before::Stale { 400 } else { 1 }),
+        ..speed(100 * MB, 1_000, 1_000)
+    };
+    match before {
+        Before::Fresh | Before::Stale => save(dir.path(), &kept).unwrap(),
+        Before::Damaged => std::fs::write(record_path(dir.path()), b"{damaged").unwrap(),
+        Before::Nothing => {}
+    }
+    let may_measure = tc.draw(gs::booleans());
+    let cancelled = tc.draw(gs::weighted_booleans(0.15));
+    let cancel = CancelToken::new();
+    if cancelled {
+        cancel.cancel();
+    }
+    let progress = crate::progress::NoProgress;
+    let ctx = Ctx::new(&progress, cancel);
+    let must_test = before != Before::Fresh;
+    let made = match estimate(&device, work(64 << 20, 300, 3), &now(), may_measure, &ctx) {
+        Err(crate::Error::Cancelled) => {
+            assert!(cancelled && may_measure && must_test);
+            assert_eq!(state.exists(), used, "a cancelled test leaves the drive as it was");
+            return;
+        }
+        made => made.unwrap().unwrap(),
+    };
+    let tested = may_measure && must_test;
+    assert_eq!(made.ran_test, tested);
+    assert_eq!(made.lines().iter().any(|l| l.contains("ran a short test")), tested);
+    match (tested, before) {
+        (true, _) => assert_eq!(made.speed.as_ref().map(|s| s.measured_by), Some(MeasuredBy::Test)),
+        (false, Before::Fresh | Before::Stale) => assert_eq!(made.speed.as_ref(), Some(&kept)),
+        (false, _) => assert_eq!(made.speed, None),
+    }
+    assert_eq!(made.stale.is_some(), !tested && before == Before::Stale);
+    if !may_measure {
+        assert_eq!(state.exists(), used, "without leave to test, nothing is written");
+    }
+    let applied = tc.draw(gs::booleans());
+    if applied {
+        made.keep();
+    }
+    drop(made);
+    match (tested, used, applied) {
+        (true, false, false) => assert!(!state.exists(), "a blank drive is left as it was"),
+        (true, _, _) => assert!(stored(&device).is_some()),
+        _ => {}
+    }
+    if used {
+        assert!(state.join("state.json").exists());
+    }
+}
+
+/// A result is stale on another port, after a capacity's worth of writes, or after 90 days, in that
+/// order.
+#[hegel::test]
+fn staleness_is_ports_then_writes_then_age(tc: TestCase) {
+    let links = || gs::optional(gs::sampled_from(vec![USB2, USB3]));
+    let days = tc.draw(gs::integers::<i64>().min_value(-30).max_value(400));
+    let then_logged = tc.draw(gs::optional(gs::integers::<u64>().max_value(1 << 40)));
+    let result = DriveSpeed {
+        measured_at: Utc::now() - TimeDelta::days(days),
+        link_bps: tc.draw(links()),
+        logged_bytes: then_logged,
+        ..speed(100 * MB, 1_000, 1_000)
+    };
+    let facts = DriveNow {
+        at: Utc::now(),
+        logged_bytes: tc.draw(gs::optional(gs::integers::<u64>().max_value(1 << 41))),
+        capacity: tc.draw(gs::optional(gs::integers::<u64>().min_value(1).max_value(1 << 40))),
+        link_bps: tc.draw(links()),
+    };
+    let written = facts.logged_bytes.unwrap_or(0).saturating_sub(then_logged.unwrap_or(0));
+    let want = match (result.link_bps, facts.link_bps) {
+        (Some(then), Some(now)) if then != now => Some(Stale::Moved { then, now }),
+        _ if facts.capacity.is_some_and(|c| written >= c) => Some(Stale::Worn { bytes: written }),
+        _ if days > MAX_AGE_DAYS => Some(Stale::Old { days }),
+        _ => None,
+    };
+    assert_eq!(result.stale(&facts), want);
+}
+
+/// What a plan says carries each thing the estimate knows: the time, what else it waits on, why the
+/// result may be out of date, the test and the port.
+#[hegel::test]
+fn an_estimates_lines_say_what_it_knows(tc: TestCase) {
+    let mut job = any_work(&tc);
+    if tc.draw(gs::booleans()) {
+        job = job.plus("downloads");
+    }
+    let stale = tc.draw(gs::optional(gs::sampled_from(vec![
+        Stale::Old { days: 120 },
+        Stale::Worn { bytes: 320 * GB },
+        Stale::Moved { then: USB3, now: USB2 },
+    ])));
+    let link = tc.draw(gs::optional(gs::sampled_from(vec![12 * MB, USB2, USB3, 10 * GB])));
+    let measured = tc.draw(gs::booleans()).then(|| any_speed(&tc));
+    let mut made = WriteEstimate::new(job.clone(), measured.clone(), stale, link);
+    made.ran_test = tc.draw(gs::booleans());
+    let lines = made.lines();
+    let Some(_) = measured else {
+        assert_eq!(lines, ["time unknown: this drive hasn't been measured"]);
+        return;
+    };
+    let first = &lines[0];
+    assert!(
+        ["about ", "under a minute", "at least ", "a minute or more"].iter().any(|s| first.starts_with(s)),
+        "{first}"
+    );
+    assert_eq!(first.contains(", plus downloads"), job.plus.is_some());
+    assert_eq!(first.contains("measured "), stale.is_some(), "{first}");
+    assert_eq!(lines.iter().any(|l| l.contains("ran a short test")), made.ran_test);
+    assert_eq!(lines.iter().any(|l| l.starts_with("this port")), made.port_limit_bps.is_some());
+    assert_eq!(lines.len(), 1 + usize::from(made.ran_test) + usize::from(made.port_limit_bps.is_some()));
+}
+
+/// A real write replaces the stored rate only when it's big, from this computer, measured against a
+/// result, and slower than its files alone; one that can't be kept is said, not an error.
+#[hegel::test(test_cases = 50)]
+fn a_real_write_is_learned_from_only_when_it_tells(tc: TestCase) {
+    let (dir, device) = drive();
+    let unwritable = tc.draw(gs::weighted_booleans(0.2));
+    if unwritable {
+        std::fs::write(dir.path().join(crate::paths::STATE_DIR), b"a file, not a folder").unwrap();
+    } else {
+        std::fs::create_dir(dir.path().join(crate::paths::STATE_DIR)).unwrap();
+    }
+    let bytes = tc.draw(gs::integers::<u64>().min_value(MIN_LEARNED_BYTES / 2).max_value(64 * GB));
+    let mut job = work(bytes, tc.draw(gs::integers::<u64>().max_value(20_000)), 0);
+    if tc.draw(gs::weighted_booleans(0.2)) {
+        job = job.read_elsewhere();
+    }
+    let measured = tc.draw(gs::weighted_booleans(0.85)).then(|| any_speed(&tc));
+    let made = WriteEstimate::new(job.clone(), measured.clone(), None, None);
+    let elapsed = Duration::from_millis(tc.draw(gs::integers::<u64>().min_value(1).max_value(10_000_000)));
+    let warnings = Warnings::default();
+    let ctx = Ctx::new(&warnings, CancelToken::new());
+    learn(dir.path(), &made, elapsed, &now(), &ctx);
+    let tells = measured.as_ref().is_some_and(|s| {
+        made.drive_alone() && bytes >= MIN_LEARNED_BYTES && elapsed.as_secs_f64() > job.small_files_secs(s)
+    });
+    assert_eq!(warnings.said("couldn't keep"), tells && unwritable);
+    let learned = (!unwritable).then(|| stored(&device)).flatten();
+    match learned {
+        Some(l) => {
+            assert!(tells);
+            assert_eq!(l.measured_by, MeasuredBy::Write);
+        }
+        None => assert!(!tells || unwritable || speed_rounds_to_nothing(bytes, elapsed, &job, measured.as_ref())),
+    }
+}
+
+/// A rate under one byte a second reads back as none: it can't be divided by.
+fn speed_rounds_to_nothing(bytes: u64, elapsed: Duration, job: &Work, measured: Option<&DriveSpeed>) -> bool {
+    let small = measured.map_or(0.0, |s| job.small_files_secs(s));
+    (bytes as f64 / (elapsed.as_secs_f64() - small)) < 1.0
+}
+
+/// A plan that tested a blank drive and wasn't applied takes away what the test left, and only
+/// that: anything else that arrived in the folder meanwhile stays, and so does the folder then.
+#[hegel::test(test_cases = 8)]
+fn a_blank_drive_gets_back_to_blank_unless_something_else_arrived(tc: TestCase) {
+    let (dir, device) = drive();
+    let state = dir.path().join(crate::paths::STATE_DIR);
+    let files = tc.draw(gs::integers::<u64>().min_value(256).max_value(20_000));
+    let made = estimate(&device, work(64 << 20, files, 3), &now(), true, &Ctx::silent()).unwrap().unwrap();
+    assert!(made.ran_test && state.join(RECORD_FILE).exists());
+    let arrived = tc.draw(gs::booleans());
+    if arrived {
+        std::fs::write(state.join("state.json"), b"{}").unwrap();
+    }
+    drop(made);
+    assert!(!state.join(RECORD_FILE).exists());
+    assert_eq!(state.exists(), arrived);
+}
