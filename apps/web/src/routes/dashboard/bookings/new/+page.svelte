@@ -2,7 +2,7 @@
 	import { enhance } from '$app/forms';
 	import Avatar from '#lib/components/Avatar.svelte';
 	import DraftNotice from '#lib/components/DraftNotice.svelte';
-	import FormMessage from '#lib/components/FormMessage.svelte';
+	import FormActions from '#lib/components/form/FormActions.svelte';
 	import GenreInput from '#lib/components/GenreInput.svelte';
 	import PlacePicker from '#lib/components/PlacePicker.svelte';
 	import { draftKey, FormDraft } from '#lib/form-draft.svelte.ts';
@@ -23,6 +23,8 @@
 	const v: Record<string, string> = $derived(draft.values ?? form?.values ?? data.values);
 
 	const fields = $derived(formFields(v));
+
+	let sending = $state(false);
 </script>
 
 <svelte:head><title>Inquire with {data.project.profile.name} · Local Network</title></svelte:head>
@@ -42,16 +44,20 @@
 	</header>
 	<form
 		method="POST"
-		class="card flex flex-col gap-5 p-5 sm:p-6"
+		class="flex flex-col gap-5"
 		{@attach draft.attach}
-		use:enhance={({ formElement }) =>
-			async ({ result, update }) => {
+		use:enhance={({ formElement }) => {
+			sending = true;
+
+			return async ({ result, update }) => {
 				if (result.type === 'redirect') draft.sent(formElement);
 				await update({ reset: false });
-			}}
+				sending = false;
+			};
+		}}
 	>
-		<FormMessage {form} />
 		<DraftNotice {draft} />
+		<div class="card flex flex-col gap-5 p-5 sm:p-6">
 		{#key draft.revision}
 			<div>
 				<label class="label" for="title">Show name</label>
@@ -88,9 +94,10 @@
 				<textarea id="message" name="message" class="input min-h-36" required maxlength="2000" placeholder="Tell them about the night, the crowd, and what you'd like from them." bind:value={fields.message}></textarea>
 			</div>
 		{/key}
-		<div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-			<a href="/projects/{data.project.slug}" class="btn-ghost">Cancel</a>
-			<button class="btn-primary">Send inquiry</button>
 		</div>
+		<FormActions {form} submitting={sending} kept>
+			<a href="/projects/{data.project.slug}" class="btn-ghost">Cancel</a>
+			<button class="btn-primary" disabled={sending}>{sending ? 'Sending…' : 'Send inquiry'}</button>
+		</FormActions>
 	</form>
 </div>
