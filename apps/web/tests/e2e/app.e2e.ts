@@ -717,16 +717,23 @@ test.describe('signed in', () => {
 		await page.locator('input[name="latE6"]').evaluate((input: HTMLInputElement) => (input.value = '52520000'));
 		await page.locator('input[name="lngE6"]').evaluate((input: HTMLInputElement) => (input.value = '13405000'));
 		await page.getByRole('button', { name: 'Announce show' }).click();
+		// Saving stays on the show and says so, with the way to where it's listed.
+		await expect(page.getByRole('status').filter({ hasText: 'Announced.' })).toBeVisible();
+		await expectAccessible(page);
+		await page.goto('/dashboard/projects/neon-tide#shows');
 		const listed = page.getByRole('listitem').filter({ hasText: name });
 		await expect(listed).toContainText('23:00 to 05:00');
-		await expectAccessible(page);
 
 		await listed.getByRole('link', { name: `Edit ${name}` }).click();
 		await page.getByLabel('This show is cancelled').check();
 		await page.getByRole('button', { name: 'Save changes' }).click();
+		await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible();
+		await page.goto('/dashboard/projects/neon-tide#shows');
 		await expect(listed).toContainText('Cancelled');
 
 		await listed.getByRole('link', { name: `Edit ${name}` }).click();
+		// Deleting asks once more, as a press kit's does.
+		await page.getByRole('button', { name: 'Delete…' }).click();
 		await page.getByRole('button', { name: 'Delete show' }).click();
 		await expect(page.getByRole('heading', { name: 'Upcoming shows' })).toBeVisible();
 		await expect(listed).toHaveCount(0);
@@ -881,7 +888,8 @@ test.describe('keeps what people entered', () => {
 
 		const kitHeadline = page.getByLabel('Headline');
 		const longBio = page.getByLabel('Full bio');
-		const open = page.getByRole('radio', { name: /^Open/ });
+		// One of the common presets, which the editor offers before any rule is set.
+		const open = page.getByRole('radio', { name: /^Promoters automatically/ });
 		const quote = page.getByLabel('Quote 1', { exact: true });
 
 		await beforeHydration(page, '/dashboard/projects/neon-tide/press-kits/new', async () => {
@@ -894,8 +902,10 @@ test.describe('keeps what people entered', () => {
 		await expect(longBio).toHaveValue('A full bio typed early');
 		await expect(open).toBeChecked();
 		await expect(quote).toHaveValue('Relentless');
-		// Picking a preset before the script loaded still sets the rules it stands for.
-		await expect(page.getByRole('radio', { name: 'Anyone signed in: Approved automatically' })).toBeChecked();
+		// Picking a preset before the script loaded still sets the rules it stands for. The table of rules only shows
+		// for your own mix, so the radio is read as the form would send it.
+		await expect(page.locator('input[name="access.promoters"][value="auto"]')).toBeChecked();
+		await expect(page.locator('input[name="access.anyone"][value="review"]')).toBeChecked();
 	});
 
 	test('a claim can change its relationship and links when revised', async ({ page }) => {

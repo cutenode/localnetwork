@@ -98,7 +98,13 @@ async function otherProject(managers: string[]) {
 }
 
 it('opens an empty form for a new show', async () => {
-	expect(await loaded('new')).toEqual({ isNew: true, values: showFormDefaults, geocoder: false });
+	expect(await loaded('new')).toEqual({ isNew: true, values: showFormDefaults, geocoder: false, saved: null });
+});
+
+it('passes on what a save did, and nothing else from the address', async () => {
+	expect((await loaded('new', '?saved=announced')).saved).toBe('announced');
+	expect((await loaded('new', '?saved=updated')).saved).toBe('updated');
+	expect((await loaded('new', '?saved=<b>')).saved).toBeNull();
 });
 
 it('fills a new show in from the confirmed booking it was opened from', async () => {
@@ -141,10 +147,10 @@ it('opens a show the manager announced, and 404s for one that is not there', asy
 	await expect(loaded('3m2ixkcvzq22c')).rejects.toMatchObject({ status: 404 });
 });
 
-it("announces a show and goes back to the project's shows", async () => {
+it('announces a show and says so on its page', async () => {
 	await expect(send('save', DJ, 'new', { ...form, venue: 'Halle Nord' })).rejects.toMatchObject({
 		status: 303,
-		location: `/dashboard/projects/${f.project.slug}#shows`
+		location: expect.stringMatching(new RegExp(`^/dashboard/projects/${f.project.slug}/shows/\\w+\\?saved=announced$`))
 	});
 
 	expect((await f.t.shows.forProject(f.project)).map((show) => show.record.name)).toEqual(['Tidal Hours']);

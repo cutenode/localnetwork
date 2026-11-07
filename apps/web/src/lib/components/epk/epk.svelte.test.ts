@@ -2,42 +2,13 @@ import { createRawSnippet } from 'svelte';
 import { page, userEvent } from 'vitest/browser';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
-import { ACCESS_PRESETS, epkFormDefaults } from '#lib/epk.ts';
+import { epkFormDefaults } from '#lib/epk.ts';
 import { stubFormAction } from '#lib/testing/form-action.ts';
-import AccessMatrix from './AccessMatrix.svelte';
 import EpkAccessCard from './EpkAccessCard.svelte';
 import EpkForm from './EpkForm.svelte';
 import EpkPhotos from './EpkPhotos.svelte';
 
 afterEach(() => vi.unstubAllGlobals());
-
-describe('AccessMatrix', () => {
-	it('shows the preset as a rule per group, and becomes your own mix when one changes', async () => {
-		await render(AccessMatrix, { access: ACCESS_PRESETS[1].access, preset: ACCESS_PRESETS[1].id });
-
-		await expect.element(page.getByRole('radio', { name: /Promoters automatically/ })).toBeChecked();
-		await expect.element(page.getByRole('radio', { name: 'Anyone signed in: You approve' })).toBeChecked();
-
-		await userEvent.click(page.getByRole('radio', { name: 'Anyone signed in: Approved automatically' }));
-		await expect.element(page.getByRole('radio', { name: /^Open/ })).toBeChecked();
-
-		await userEvent.click(page.getByRole('radio', { name: "Promoters: Can't ask" }));
-		await expect.element(page.getByRole('radio', { name: /Your own mix/ })).toBeChecked();
-
-		await userEvent.click(page.getByRole('radio', { name: /Nobody can ask/ }));
-		await expect.element(page.getByRole('radio', { name: "People you've booked with: Can't ask" })).toBeChecked();
-	});
-
-	it('keeps the rules on screen when the owner picks their own mix', async () => {
-		await render(AccessMatrix, { access: ACCESS_PRESETS[1].access, preset: ACCESS_PRESETS[1].id });
-
-		await userEvent.click(page.getByRole('radio', { name: /Your own mix/ }));
-
-		await expect.element(page.getByRole('radio', { name: /Your own mix/ })).toBeChecked();
-		await expect.element(page.getByRole('radio', { name: 'Promoters: Approved automatically' })).toBeChecked();
-		await expect.element(page.getByRole('radio', { name: 'Anyone signed in: You approve' })).toBeChecked();
-	});
-});
 
 describe('EpkAccessCard', () => {
 	const props = { name: 'Neon Tide', askHref: '/dashboard/access/did:plc:dj/3k' };
@@ -177,7 +148,12 @@ describe('EpkForm', () => {
 		const props = { photoBase: null, editHref: '/dashboard/projects/neon-tide/profile', submitLabel: 'Save changes' };
 		const { rerender } = await render(EpkForm, { ...props, values: epkFormDefaults });
 		const extraMix = page.getByRole('textbox', { name: 'Extra mix 2 name' });
-		const quote = page.getByRole('textbox', { name: 'Quote 5', exact: true });
+		const quote = page.getByRole('textbox', { name: 'Quote 2', exact: true });
+
+		await expect.element(extraMix).not.toBeInTheDocument();
+		await expect.element(quote).not.toBeInTheDocument();
+		await userEvent.click(page.getByRole('button', { name: 'Add mix' }));
+		await userEvent.click(page.getByRole('button', { name: 'Add quote' }));
 
 		await extraMix.fill('Promo');
 		await page
@@ -192,12 +168,43 @@ describe('EpkForm', () => {
 		await expect.element(quote).toHaveValue('Relentless');
 
 		await rerender({ ...props, values: { ...epkFormDefaults, quotes: [{ text: 'Patient', source: 'Mixmag' }] } });
-		await expect.element(extraMix).toHaveValue('');
-		await expect
-			.element(page.getByRole('group', { name: 'Who can play extra mix 2' }).getByRole('radio', { name: 'On request' }))
-			.toBeChecked();
-		await expect.element(quote).toHaveValue('');
+		await expect.element(extraMix).not.toBeInTheDocument();
+		await expect.element(quote).not.toBeInTheDocument();
 		await expect.element(page.getByRole('textbox', { name: 'Quote 1', exact: true })).toHaveValue('Patient');
+	});
+
+	it('drops a row when asked', async () => {
+		await render(EpkForm, {
+			photoBase: null,
+			editHref: '/dashboard/projects/neon-tide/profile',
+			submitLabel: 'Save changes',
+			values: {
+				...epkFormDefaults,
+				quotes: [
+					{ text: 'Patient', source: 'Mixmag' },
+					{ text: 'Relentless', source: 'RA' }
+				],
+				extraMixes: [{ title: 'Promo', url: 'https://soundcloud.com/promo', visibility: 'private' }]
+			}
+		});
+
+		await userEvent.click(page.getByRole('button', { name: 'Remove quote 1' }));
+		await userEvent.click(page.getByRole('button', { name: 'Remove extra mix 1' }));
+
+		await expect.element(page.getByRole('textbox', { name: 'Quote 1', exact: true })).toHaveValue('Relentless');
+		await expect.element(page.getByRole('textbox', { name: 'Quote 2', exact: true })).not.toBeInTheDocument();
+		await expect.element(page.getByRole('textbox', { name: 'Extra mix 1 name' })).not.toBeInTheDocument();
+	});
+
+	it('counts the press photo checks', async () => {
+		await render(EpkForm, {
+			photoBase: null,
+			editHref: '/dashboard/projects/neon-tide/profile',
+			submitLabel: 'Save changes',
+			values: epkFormDefaults
+		});
+
+		await expect.element(page.getByText(/^0 of \d done$/)).toBeVisible();
 	});
 
 	it('shows saved photos with their size, and the press checklist they pass', async () => {
@@ -321,7 +328,7 @@ describe('EpkForm', () => {
 		expect(sent.get('title')).toBe('Clubs');
 		expect(sent.get('bio')).toBe('Berlin DJ duo.');
 		expect(sent.get('longBio')).toBe('Neon Tide plays long, patient sets.');
-		expect(sent.getAll('extraMixUrl')).toEqual(['https://soundcloud.com/neon/promo', '']);
+		expect(sent.getAll('extraMixUrl')).toEqual(['https://soundcloud.com/neon/promo']);
 		expect(sent.getAll('quoteSource')[0]).toBe('Mixmag');
 		expect(sent.getAll('quoteUrl')[0]).toBe('https://mixmag.net/neon-tide');
 		expect(sent.get('techRider')).toBe('2x CDJ-3000, DJM-V10');
