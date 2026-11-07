@@ -471,3 +471,93 @@ fn a_new_export_ext_holds_the_tags_given_and_nothing_else(tc: TestCase) {
         .collect();
     assert_eq!(carried.skipped, past);
 }
+
+/// `bytes` with `at` (a file offset) holding `value`.
+fn patch_u32(bytes: &mut [u8], at: usize, value: u32) {
+    bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+/// exportExt.pdb rows that belong to nothing (a link to a tag that isn't there, a second category
+/// row with an id already used) are counted as strays and read as nothing else, and moving the
+/// links to a rebuilt export.pdb's track ids drops exactly the links to a missing tag.
+#[hegel::test(test_cases = 20)]
+fn prop_ext_rows_that_point_nowhere_are_strays_and_dropped_on_remap(tc: TestCase) {
+    let library = six_tracks();
+    let linked: Vec<u32> = tc.draw(gs::subsequences(&[1, 2, 3, 4, 5, 6]));
+    let tag = |name: &str, track_ids: Vec<u32>| crate::masterdb::TagEntry { name: name.into(), track_ids };
+    let categories = [
+        crate::masterdb::TagCategory {
+            name: "Genre".into(),
+            tags: vec![tag("Deep", linked.clone()), tag("House", vec![])],
+        },
+        crate::masterdb::TagCategory { name: "Venue".into(), tags: vec![tag("Club", vec![])] },
+    ];
+    let (mut bytes, _) = new_ext(&DbTags::collection(&categories, &library), &library).unwrap();
+    let clean = ext_tree(&parse_ext(bytes.clone(), Path::new("x")).unwrap(), &library);
+    assert_eq!(clean.strays, 0);
+    let db = ExtDatabase::from_bytes(bytes.clone()).unwrap();
+    let gone = tc.draw(gs::integers::<usize>().max_value(linked.len()));
+    for &at in &db.row_locations(ExtTableType::TagTracks)[..gone] {
+        patch_u32(&mut bytes, at + 8, 9999); // the tag id
+    }
+    let twin = tc.draw(gs::booleans());
+    if twin {
+        // House becomes a second category with Genre's id.
+        let i = db.tags.iter().position(|t| t.name == "House").unwrap();
+        let genre = db.tags.iter().find(|t| t.name == "Genre").unwrap().id;
+        let at = db.row_locations(ExtTableType::Tags)[i];
+        patch_u32(&mut bytes, at + 0x14, genre);
+        patch_u32(&mut bytes, at + 0x18, 0x0100_0000);
+    }
+    let tree = ext_tree(&parse_ext(bytes.clone(), Path::new("x")).unwrap(), &library);
+    assert_eq!(tree.strays, gone + usize::from(twin));
+    let shape = |t: &Tree| t.categories.iter().map(|c| (c.name.clone(), c.tags.len())).collect::<Vec<_>>();
+    let mut expected = shape(&clean);
+    expected[0].1 -= usize::from(twin);
+    assert_eq!(shape(&tree), expected);
+    assert_eq!(tree.categories[0].tags[0].tracks.len(), linked.len() - gone);
+    let (out, dropped) = remap_ext(bytes, Some(&library), &library).unwrap();
+    assert_eq!(dropped, gone);
+    if let Some(out) = out {
+        let after = ext_tree(&parse_ext(out, Path::new("x")).unwrap(), &library);
+        let deep = &after.categories[0].tags[0];
+        assert_eq!(deep.tracks.len(), linked.len() - gone);
+        assert_eq!(deep.strays, 0);
+    }
+}
+
+/// A damaged exportExt.pdb (bytes past its header changed, in a My Tag row or anywhere, or the
+/// file cut short) is read or refused with an error naming it, never a crash; a My Tag whose name
+/// is of no kind of string rekordbox writes is always refused.
+#[hegel::test(test_cases = 100)]
+fn prop_a_damaged_export_ext_is_read_or_refused(tc: TestCase) {
+    let mut bytes = EXT_TEMPLATE.to_vec();
+    let rows = ExtDatabase::from_bytes(bytes.clone()).unwrap().row_locations(ExtTableType::Tags).to_vec();
+    let unnamed = tc.draw(gs::booleans());
+    if unnamed {
+        // A near name's offset is the row's byte 0x1d; its first byte says what kind of string.
+        let row = tc.draw(gs::sampled_from(rows.clone()));
+        assert_eq!(u16::from_le_bytes([bytes[row], bytes[row + 1]]) & 0x04, 0, "a near name");
+        let kind = tc.draw(gs::sampled_from(vec![0x00u8, 0x02, 0x3e, 0x42, 0x92, 0xfe]));
+        let name_at = row + usize::from(bytes[row + 0x1d]);
+        bytes[name_at] = kind;
+    } else {
+        for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
+            let at = if tc.draw(gs::booleans()) {
+                tc.draw(gs::sampled_from(rows.clone())) + tc.draw(gs::integers::<usize>().max_value(0x20))
+            } else {
+                tc.draw(gs::integers::<usize>().min_value(0x1c).max_value(bytes.len() - 1))
+            };
+            bytes[at] = tc.draw(gs::integers::<u8>());
+        }
+        if tc.draw(gs::booleans()) {
+            let len = tc.draw(gs::integers::<usize>().max_value(bytes.len()));
+            bytes.truncate(len);
+        }
+    }
+    let path = Path::new("PIONEER/rekordbox/exportExt.pdb");
+    match parse_ext(bytes, path) {
+        Ok(_) => assert!(!unnamed, "a name of no kind was read"),
+        Err(e) => assert!(e.to_string().contains("exportExt.pdb"), "{e}"),
+    }
+}

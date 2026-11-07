@@ -33,7 +33,7 @@ const color = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 
 const camelot = z.string().regex(/^(?:1[0-2]|[1-9])[AB]$/);
 
-const trackSchema = z.object({
+export const trackSchema = z.object({
 	title: text(300),
 	artist: optionalText(300),
 	remixer: optionalText(300),
@@ -68,6 +68,11 @@ const playSchema = z.object({
 	tempo: z.number().min(0.25).max(4),
 	/** The slowest and fastest speeds, when the pitch fader was ridden. */
 	speedRange: z.tuple([z.number().min(0.25).max(4), z.number().min(0.25).max(4)]).optional(),
+	/** Where it was heard at each speed and from which part of the track, in mix order. */
+	lines: z
+		.array(z.object({ start: secs, trackStart: secs, tempo: z.number().min(0.25).max(4) }))
+		.max(256)
+		.optional(),
 	playedBpm: z.number().positive().max(800).optional(),
 	keyLock: z.boolean().nullable(),
 	semitones: z.number().min(-48).max(48),
@@ -150,10 +155,11 @@ export function parseMixReport(value: JsonValue): ParseResult {
 	const result = mixReportSchema.safeParse(value);
 
 	if (result.success) return { ok: true, report: result.data };
+	// zod fails a parse only with at least one issue.
 	const issue = result.error.issues[0];
-	const where = issue?.path.length ? ` (at ${issue.path.join('.')})` : '';
+	const where = issue.path.length ? ` (at ${issue.path.join('.')})` : '';
 
-	return { ok: false, error: `This mix report is damaged or incomplete: ${issue?.message ?? 'invalid'}${where}.` };
+	return { ok: false, error: `This mix report is damaged or incomplete: ${issue.message}${where}.` };
 }
 
 /** Parses an export's raw text (or bytes), enforcing the size limit first. */

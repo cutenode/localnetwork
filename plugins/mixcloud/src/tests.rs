@@ -10,6 +10,9 @@ use serde_json::{Value, json};
 use super::show::{self, MAX_DESCRIPTION, MAX_TAGS, Section};
 use super::*;
 
+/// The Mixcloud account plugin's manifest: the account type the plugin asks for.
+const MIXCLOUD_ACCOUNT: &str = include_str!("../../accounts/mixcloud-account/locallibrary-plugin.toml");
+
 fn set() -> PublishedSet {
     PublishedSet {
         id: "s1".into(),
@@ -26,9 +29,9 @@ fn entry(artist: Option<&str>, title: Option<&str>, start: Option<u32>) -> Track
     TracklistEntry { artist: artist.map(Into::into), title: title.map(Into::into), start_seconds: start }
 }
 
-/// It reaches Mixcloud's API alone, publishes sets at one destination, signs in to Mixcloud
-/// through Local Network's token exchange with the token in the query, and keeps the tags, the
-/// picture and whether a show is unlisted as settings.
+/// It reaches Mixcloud's API alone, publishes sets at one destination, asks for a Mixcloud account
+/// to upload with, naming it in the query parameter the Mixcloud account plugin puts its token in,
+/// and keeps the tags, the picture and whether a show is unlisted as settings.
 #[test]
 fn the_manifest_is_a_built_in_set_destination_on_mixcloud() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
@@ -37,17 +40,14 @@ fn the_manifest_is_a_built_in_set_destination_on_mixcloud() {
     let [destination] = &manifest.contributes.destinations[..] else { panic!("{manifest:?}") };
     assert_eq!((manifest.id.as_str(), destination.name.as_str()), ("mixcloud", "show"));
     assert_eq!(destination.kind, DestinationKind::Set);
-    let [account] = &manifest.contributes.accounts[..] else { panic!("{manifest:?}") };
-    assert_eq!(account.token, TokenPlace::Query("access_token".into()));
-    let named = format!("?{}={{account:{}}}", "access_token", account.id);
+    let [need] = &manifest.accounts[..] else { panic!("{manifest:?}") };
+    assert_eq!((need.name.as_str(), need.scopes.as_slice()), ("mixcloud", ["upload".to_string()].as_slice()));
+    assert!(need.optional.is_empty(), "{need:?}");
+    let mixcloud = Manifest::parse(MIXCLOUD_ACCOUNT).unwrap();
+    let [account_type] = &mixcloud.contributes.account_types[..] else { panic!("{mixcloud:?}") };
+    let TokenPlace::Query(query) = &account_type.token else { panic!("in the query: {account_type:?}") };
+    let named = format!("?{query}={{account:{}}}", account_type.name);
     assert!(upload::UPLOAD.ends_with(&named), "{}", upload::UPLOAD);
-    assert_eq!(account.authorize_url, "https://www.mixcloud.com/oauth/authorize");
-    assert_eq!(account.token_url, None);
-    assert_eq!(account.token_exchange.as_deref(), Some("https://localnetwork.computer/api/token-exchange/mixcloud"));
-    // Mixcloud has no scopes, no revoking and no registered redirect URI to match.
-    assert!(account.scopes.is_empty());
-    assert_eq!((account.revoke_url.as_deref(), account.redirect_port), (None, None));
-    assert!(account.client_id.starts_with("PLACEHOLDER"), "{}", account.client_id);
     let settings: Vec<(&str, SettingType, Option<&Value>)> =
         manifest.contributes.settings.iter().map(|s| (s.key.as_str(), s.kind, s.default.as_ref())).collect();
     assert_eq!(
@@ -64,7 +64,7 @@ fn the_manifest_is_a_built_in_set_destination_on_mixcloud() {
 /// not, and nothing else of Mixcloud's API.
 #[test]
 fn mixclouds_upload_scope_covers_the_upload() {
-    let mixcloud = Manifest::parse(include_str!("../../accounts/mixcloud-account/locallibrary-plugin.toml")).unwrap();
+    let mixcloud = Manifest::parse(MIXCLOUD_ACCOUNT).unwrap();
     let scope = &mixcloud.contributes.account_types[0].scopes["upload"];
     let covers = |method: &str, url: &str| scope.covers(method, &url::Url::parse(url).unwrap());
     assert!(covers("POST", upload::UPLOAD));

@@ -40,7 +40,7 @@ fn a_recording_on_the_drive_is_left_out_of_its_own_tracks() {
     let library = Arc::new(Library { tracks, ..Default::default() });
     let device = Device::open(&root).unwrap();
     let cache = Cache::new(dir.path().join("cache"));
-    let id = Identifier::with_library(&device, library, &cache, &Ctx::silent()).unwrap();
+    let id = Identifier::with_library(&device, library, &cache, &MixPrefs::default(), &Ctx::silent()).unwrap();
     let r = id.identify(&root.join("Contents/set.wav"), &Options { tempo_range: 0.02 }, &Ctx::silent()).unwrap();
     assert_eq!(r.plays.iter().map(|p| p.track.id).collect::<Vec<_>>(), [1, 2]);
 }
@@ -65,15 +65,93 @@ fn a_ridden_pitch_fader_gives_the_speeds_it_went_between() {
         std::fs::write(root.join("Contents").join(name), pcm(x)).unwrap();
     }
     std::fs::write(dir.path().join("set.wav"), pcm(&set)).unwrap();
-    let tracks = vec![track(1, "A", "One", "/Contents/a.wav"), track(2, "B", "Two", "/Contents/b.wav")];
+    let mut tracks = vec![track(1, "A", "One", "/Contents/a.wav"), track(2, "B", "Two", "/Contents/b.wav")];
+    tracks.iter_mut().for_each(|t| t.bpm = 120.0);
     let library = Arc::new(Library { tracks, ..Default::default() });
     let device = Device::open(&root).unwrap();
-    let id = Identifier::with_library(&device, library, &Cache::new(dir.path().join("cache")), &Ctx::silent()).unwrap();
+    let id = Identifier::with_library(
+        &device,
+        library,
+        &Cache::new(dir.path().join("cache")),
+        &MixPrefs::default(),
+        &Ctx::silent(),
+    )
+    .unwrap();
     let r = id.identify(&dir.path().join("set.wav"), &Options { tempo_range: 0.08 }, &Ctx::silent()).unwrap();
     let plays: Vec<(u32, Option<(f64, f64)>)> = r.plays.iter().map(|p| (p.track.id, p.speed_range)).collect();
     let [(1, Some((slowest, fastest))), (2, None)] = plays[..] else { panic!("{plays:?}") };
     assert!((slowest - 1.0).abs() < 0.002 && (fastest - 1.04).abs() < 0.002, "{plays:?}");
     assert!((slowest..=fastest).contains(&r.plays[0].tempo), "{plays:?}");
+    // Along the ride: 45 s into the track when the fader moved, played at +0% before it and +4%
+    // after. At the average speed it would be most of a second out there.
+    let p = &r.plays[0];
+    assert!((p.track_secs(45.0) - 45.0).abs() < 0.25, "{:?}", p.lines);
+    let bpm = |t: f64| p.bpm_at(t).unwrap();
+    assert!((bpm(20.0) - 120.0).abs() < 0.25 && (bpm(70.0) - 124.8).abs() < 0.25, "{} then {}", bpm(20.0), bpm(70.0));
+    // The next track comes in at +2%, down from +4% then.
+    let change = r.transitions[0].tempo_change.unwrap();
+    assert!((change - (1.02 / 1.04 - 1.0) * 100.0).abs() < 0.25, "{change}");
+}
+
+/// A play's matcher [`Found`] from `start` (mix seconds), along `fits`.
+fn found(start: f64, fits: Vec<matcher::Fit>) -> Found {
+    Found {
+        slot: 0,
+        start,
+        end: start,
+        track_start: 0.0,
+        track_end: 0.0,
+        tempo: 1.0,
+        key_lock: None,
+        votes: 0,
+        strongest: 0,
+        heard: 0,
+        spanned: 1,
+        presence: Vec::new(),
+        jumps: 0,
+        alternates: Vec::new(),
+        fits,
+    }
+}
+
+/// A play is where in the track the matcher's nearest line to each moment puts it (the first of
+/// two as near), as the matcher traced it: across a gap between lines, an overlap, a line inside
+/// another and the fades either side.
+#[hegel::test(test_cases = 300)]
+fn a_play_follows_the_nearest_of_its_lines(tc: TestCase) {
+    use loclib_model::test_util::track;
+    let secs = || gs::floats::<f64>().min_value(0.0).max_value(600.0);
+    let mut fits: Vec<matcher::Fit> = tc
+        .draw(
+            gs::vecs(gs::tuples!(secs(), gs::floats::<f64>().min_value(0.0).max_value(120.0), secs()))
+                .min_size(1)
+                .max_size(5),
+        )
+        .into_iter()
+        .map(|(start, long, at)| {
+            let ratio = tc.draw(gs::floats::<f64>().min_value(0.84).max_value(1.16));
+            let (start, end) = (start * FRAMES_PER_SEC, (start + long) * FRAMES_PER_SEC);
+            matcher::Fit { ratio, intercept: at * FRAMES_PER_SEC - ratio * start, start, end, measured: true }
+        })
+        .collect();
+    fits.sort_by(|a, b| a.start.total_cmp(&b.start));
+    let start = fits[0].start / FRAMES_PER_SEC - tc.draw(gs::floats::<f64>().min_value(0.0).max_value(10.0));
+    let f = found(start, fits);
+    let p = Play { lines: play_lines(&f), ..report::tests::play(track(1, "A", "One", "/Contents/one.wav")) };
+    let t = tc.draw(gs::floats::<f64>().min_value(start).max_value(1400.0));
+    let frame = t * FRAMES_PER_SEC;
+    let off = |l: &matcher::Fit| (l.start - frame).max(frame - l.end).max(0.0);
+    let mut near: Vec<&matcher::Fit> = f.fits.iter().collect();
+    near.sort_by(|a, b| off(a).total_cmp(&off(b)));
+    // Two as near (to rounding) may be told apart either way.
+    let tied = near.get(1).is_some_and(|l| off(l) - off(near[0]) < 1e-6);
+    let expect = near[0].track_frame(frame) / FRAMES_PER_SEC;
+    assert!(tied || (p.track_secs(t) - expect).abs() < 1e-6, "{t}: {} not {expect}: {:?}", p.track_secs(t), p.lines);
+    assert!(
+        p.lines.windows(2).all(|w| w[0].start <= w[1].start) && (p.lines[0].start - start).abs() < 1e-9,
+        "{:?}",
+        p.lines
+    );
 }
 
 #[test]
@@ -320,7 +398,8 @@ fn the_mix_waveform_has_a_column_every_quarter_second(tc: TestCase) {
 }
 
 /// One transition between each play and the next: when the next comes in, how long both
-/// are heard, how the keys heard relate and by how much the tempo moves.
+/// are heard, how the keys heard relate and by how much the tempo moves then (a ridden track's
+/// at the speed it was at, not its average).
 #[hegel::test(test_cases = 200)]
 fn transitions_follow_the_plays(tc: TestCase) {
     use loclib_model::test_util::track;
@@ -328,15 +407,41 @@ fn transitions_follow_the_plays(tc: TestCase) {
     let plays: Vec<Play> = (0..n)
         .map(|i| {
             let start = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(3600.0));
-            Play {
+            let end = start + tc.draw(gs::floats::<f64>().min_value(1.0).max_value(600.0));
+            let mut p = Play {
                 start,
-                end: start + tc.draw(gs::floats::<f64>().min_value(1.0).max_value(600.0)),
+                end,
                 played_key: tc.draw(gs::optional(keys().map(Camelot::code))),
                 played_bpm: tc.draw(gs::optional(gs::floats::<f64>().min_value(60.0).max_value(200.0))),
                 ..report::tests::play(track(i as u32, "A", "One", "/Contents/one.wav"))
+            };
+            // A ride: lines at speeds within it, and one searched at, outside it.
+            if let Some(bpm) = p.played_bpm.filter(|_| tc.draw(gs::booleans())) {
+                let speed = || gs::floats::<f64>().min_value(0.9).max_value(1.1);
+                let (a, b) = (tc.draw(speed()), tc.draw(speed()));
+                let lines = tc.draw(
+                    gs::vecs(gs::tuples!(gs::floats::<f64>().min_value(start).max_value(end), speed()))
+                        .min_size(1)
+                        .max_size(4),
+                );
+                let mut lines: Vec<PlayLine> =
+                    lines.into_iter().map(|(start, tempo)| PlayLine { start, track_start: 0.0, tempo }).collect();
+                lines.sort_by(|x, y| x.start.total_cmp(&y.start));
+                lines[0].start = start;
+                (p.speed_range, p.lines, p.track.bpm) = (Some((a.min(b), a.max(b))), lines, bpm);
             }
+            p
         })
         .collect();
+    // The BPM `t` into the mix: a ride's line's then (the last to start by then), within the
+    // ride's speeds.
+    let bpm_at = |p: &Play, t: f64| match p.speed_range {
+        Some((slowest, fastest)) => {
+            let line = p.lines.iter().rfind(|l| l.start <= t).unwrap_or(&p.lines[0]);
+            p.played_bpm.map(|_| p.track.bpm * line.tempo.clamp(slowest, fastest))
+        }
+        None => p.played_bpm,
+    };
     let t = transitions(&plays);
     assert_eq!(t.len(), n.saturating_sub(1));
     for (i, t) in t.iter().enumerate() {
@@ -349,7 +454,12 @@ fn transitions_follow_the_plays(tc: TestCase) {
             (Some((x, y)), Some(h)) => assert_eq!(h, x.relation_with_boost(y).map_or("clash", |r| r.describe())),
             other => panic!("{other:?}"),
         }
-        match (a.played_bpm.zip(b.played_bpm), t.tempo_change) {
+        let ride = |p: &Play| p.bpm_range().zip(bpm_at(p, b.start));
+        for p in [a, b] {
+            let in_range = ride(p).is_none_or(|((lo, hi), bpm)| (lo..=hi).contains(&bpm));
+            assert!(in_range && p.bpm_at(b.start) == bpm_at(p, b.start), "{p:?}");
+        }
+        match (bpm_at(a, b.start).zip(bpm_at(b, b.start)), t.tempo_change) {
             (None, None) => {}
             (Some((x, y)), Some(change)) => {
                 assert!((change - (y / x - 1.0) * 100.0).abs() <= 0.05 + 1e-9, "{x} to {y}: {change}");
@@ -567,7 +677,7 @@ fn a_set_on_a_drive_is_identified_as_its_tracks(tc: TestCase) {
     let device = Device::open(&root).unwrap();
     let library = Arc::new(Library { tracks, ..Default::default() });
     let cache = Cache::new(dir.path().join("cache"));
-    let id = Identifier::with_library(&device, library.clone(), &cache, &Ctx::silent()).unwrap();
+    let id = Identifier::with_library(&device, library.clone(), &cache, &MixPrefs::default(), &Ctx::silent()).unwrap();
     assert_eq!((id.report.tracks, id.report.indexed, id.report.fingerprinted), (5, 3, 3));
     assert_eq!((id.report.failed.len(), id.report.long.iter().map(|t| t.id).collect::<Vec<_>>()), (1, vec![9]));
 
@@ -595,7 +705,7 @@ fn a_set_on_a_drive_is_identified_as_its_tracks(tc: TestCase) {
     assert_eq!((r.mix.title.as_str(), r.mix.sample_rate, r.mix.channels), ("set", RATE, 2));
     assert!((r.waveform.peak.len() as f64 - r.mix.duration_secs * WAVEFORM_RATE).abs() <= 1.0);
 
-    let again = Identifier::with_library(&device, library, &cache, &Ctx::silent()).unwrap();
+    let again = Identifier::with_library(&device, library, &cache, &MixPrefs::default(), &Ctx::silent()).unwrap();
     assert_eq!((again.report.fingerprinted, again.report.hashes), (0, id.report.hashes));
 }
 
@@ -761,7 +871,9 @@ fn a_mix_with_nothing_to_hear_is_identified_as_nothing(tc: TestCase) {
     let path = project(dir.path(), "project", Some(&x), &[]);
     let device = Device::open(dir.path()).unwrap();
     let cache = Cache::new(dir.path().join("cache"));
-    let id = Identifier::with_library(&device, Arc::new(Library::default()), &cache, &Ctx::silent()).unwrap();
+    let id =
+        Identifier::with_library(&device, Arc::new(Library::default()), &cache, &MixPrefs::default(), &Ctx::silent())
+            .unwrap();
     let r = id.identify(&path, &Options::default(), &Ctx::silent()).unwrap();
     assert!(r.plays.is_empty() && r.transitions.is_empty(), "{:?}", r.plays);
     assert_eq!(r.mix.duration_secs, 0.0);
@@ -826,7 +938,9 @@ fn a_mix_nothing_is_heard_in_is_unidentified_throughout(tc: TestCase) {
     let path = project(dir.path(), "project", Some(&x), &[]);
     let device = Device::open(dir.path()).unwrap();
     let cache = Cache::new(dir.path().join("cache"));
-    let id = Identifier::with_library(&device, Arc::new(Library::default()), &cache, &Ctx::silent()).unwrap();
+    let id =
+        Identifier::with_library(&device, Arc::new(Library::default()), &cache, &MixPrefs::default(), &Ctx::silent())
+            .unwrap();
     let r = id.identify(&path, &Options::default(), &Ctx::silent()).unwrap();
     assert!(r.plays.is_empty(), "{:?}", r.plays);
     assert_eq!(r.mix.duration_secs, secs as f64);
@@ -848,4 +962,117 @@ fn blends_are_called_as_the_website_calls_them() {
     assert_eq!(terms["blendSecs"].as_f64(), Some(BLEND_SECS));
     let at = |overlap| Transition { from: 0, to: 1, at: 0.0, overlap, harmony: None, tempo_change: None };
     assert!(at(BLEND_SECS).is_blend() && !at(BLEND_SECS - 0.1).is_blend());
+}
+
+/// Only an image can be given as a recording's cover: one is kept by its absolute path (given
+/// relative to the current folder or not) and reads back as its bytes; anything else is refused
+/// as no cover, and a file that isn't there as the file it is.
+#[hegel::test(test_cases = 30)]
+fn prop_only_an_image_can_be_given_as_a_cover(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("cover.png");
+    // 0: an image, 1: text, 2: nothing there.
+    let kind = tc.draw(gs::integers::<u8>().max_value(2));
+    match kind {
+        0 => {
+            let side = tc.draw(gs::integers::<u32>().min_value(16).max_value(40));
+            image::RgbImage::from_fn(side, side, |x, y| image::Rgb([x as u8, y as u8, 9])).save(&file).unwrap();
+        }
+        1 => std::fs::write(&file, format!("not an image {}", tc.draw(gs::text().max_size(40)))).unwrap(),
+        _ => {}
+    }
+    // On Windows the temporary folder can be on another drive, which no relative path reaches.
+    let relative = cfg!(unix) && tc.draw(gs::booleans());
+    let given = if relative {
+        let up = std::env::current_dir().unwrap().components().count() - 1;
+        std::iter::repeat_n(Path::new(".."), up).collect::<PathBuf>().join(file.strip_prefix("/").unwrap())
+    } else {
+        file.clone()
+    };
+    match (CoverSource::given(&given), kind) {
+        (Ok(c @ CoverSource::Given(_)), 0) => {
+            let CoverSource::Given(kept) = &c else { unreachable!() };
+            assert!(kept.is_absolute() && kept.canonicalize().unwrap() == file.canonicalize().unwrap(), "{kept:?}");
+            assert_eq!(c.read().unwrap(), std::fs::read(&file).unwrap());
+        }
+        (Err(Error::Invalid(m)), 1) => {
+            assert!(m.starts_with(&format!("{} can't be a cover: ", given.display())), "{m}")
+        }
+        (Err(Error::Io { path, .. }), 2) => assert_eq!(path, given),
+        (other, _) => panic!("{kind}: {other:?}"),
+    }
+}
+
+/// A play's speed is its tempo as a percentage, or, when the pitch fader was ridden, the slowest
+/// and fastest it went between: each to a tenth of a percent, signed.
+#[hegel::test(test_cases = 200)]
+fn prop_a_plays_speed_reads_as_the_percentages_it_was_played_at(tc: TestCase) {
+    use loclib_model::test_util::track;
+    let speed = || gs::floats::<f64>().min_value(0.5).max_value(1.5);
+    let mut p = crate::mix::report::tests::play(track(1, "A", "B", "/C/d.mp3"));
+    p.tempo = tc.draw(speed());
+    p.speed_range = tc.draw(gs::optional(gs::tuples!(speed(), speed())));
+    let said = p.speed();
+    let read = |s: &str| -> f64 {
+        assert!(
+            s.starts_with(['+', '-']) && s.ends_with('%') && s.split('.').nth(1).is_some_and(|d| d.len() == 2),
+            "{s}"
+        );
+        s.trim_end_matches('%').parse().unwrap()
+    };
+    let near = |s: &str, speed: f64| assert!((read(s) - (speed - 1.0) * 100.0).abs() <= 0.05 + 1e-9, "{said}");
+    match p.speed_range {
+        Some((slowest, fastest)) => {
+            let (a, b) = said.split_once(" to ").unwrap();
+            near(a, slowest);
+            near(b, fastest);
+        }
+        None => near(&said, p.tempo),
+    }
+}
+
+/// Files beside a mix named like a cover but with no extension saying they're an image aren't
+/// its cover, and nothing is found beside a mix whose folder is gone.
+#[test]
+fn only_images_beside_a_mix_are_its_cover() {
+    let dir = tempfile::tempdir().unwrap();
+    let set = dir.path().join("set.wav");
+    for name in ["set", "cover", "folder.txt"] {
+        std::fs::write(dir.path().join(name), b"x").unwrap();
+    }
+    assert_eq!(cover_next_to(&set), None);
+    std::fs::write(dir.path().join("front.PNG"), b"x").unwrap();
+    assert_eq!(cover_next_to(&set), Some(dir.path().join("front.PNG")));
+    assert_eq!(cover_next_to(&dir.path().join("gone/set.wav")), None);
+}
+
+/// A play kept without its lines (a report made before they were) follows its tempo from where it
+/// starts in the track; it starts at the whole second it was first heard, never before 0. Two
+/// plays blend when they're heard together for [`BLEND_SECS`] or more.
+#[hegel::test(test_cases = 200)]
+fn prop_a_play_without_lines_follows_its_tempo(tc: TestCase) {
+    use loclib_model::test_util::track;
+    let secs = || gs::floats::<f64>().min_value(-5.0).max_value(600.0);
+    let mut p = crate::mix::report::tests::play(track(1, "A", "B", "/C/d.mp3"));
+    (p.start, p.track_start) = (tc.draw(secs()), tc.draw(secs()));
+    p.tempo = tc.draw(gs::floats::<f64>().min_value(0.84).max_value(1.16));
+    let at = tc.draw(secs());
+    assert_eq!(p.track_secs(at), p.track_start + (at - p.start) * p.tempo);
+    let second = p.start_second();
+    assert!(f64::from(second) <= p.start.max(0.0) && p.start.max(0.0) < f64::from(second) + 1.0, "{}", p.start);
+    let overlap = tc.draw(gs::floats::<f64>().min_value(-30.0).max_value(30.0));
+    let t = Transition { from: 0, to: 1, at, overlap, harmony: None, tempo_change: None };
+    assert_eq!(t.is_blend(), overlap >= BLEND_SECS);
+}
+
+/// A drive with no library has nothing to identify a mix against: it says it isn't an export.
+#[hegel::test(test_cases = 5)]
+fn prop_a_drive_without_a_library_identifies_nothing(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let name = tc.draw(gs::sampled_from(vec!["Main", "Spare"]));
+    std::fs::create_dir(dir.path().join(name)).unwrap();
+    let device = Device::open(dir.path().join(name)).unwrap();
+    let cache = Cache::new(dir.path().join("cache"));
+    let made = Identifier::new(&device, &cache, &MixPrefs::default(), &Ctx::silent());
+    assert!(matches!(made, Err(Error::NotAnExport(_))), "{:?}", made.err());
 }

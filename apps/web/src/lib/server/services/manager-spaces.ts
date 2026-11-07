@@ -1,6 +1,8 @@
+import type { z } from 'zod';
+import { epkGrantSchema } from '#lib/epk-schema.ts';
 import { COLLECTION } from '#lib/nsid.ts';
-import type { RootRepoClient } from '../atproto/repo-client';
-import { backstageSpace, epkSpace, parsePublicRecordUri } from '../atproto/spaces';
+import { listAllSpaceRecords, type RootRepoClient } from '../atproto/repo-client';
+import { backstageSpace, epkRequestSpace, epkSpace, parsePublicRecordUri } from '../atproto/spaces';
 import type { Core } from '../core';
 import type { IndexedRepo } from '../happyview/indexed';
 import { auditedProjects, openedProjects } from './bookings';
@@ -16,6 +18,8 @@ function isLiveBooking(status: string, showDate: string | null): boolean {
 
 	return status === 'confirmed' && (showDate === null || Date.parse(showDate) > Date.now());
 }
+
+type Grant = z.infer<typeof epkGrantSchema>;
 
 /** A space whose member list follows a project's managers. A manager who leaves the project leaves every space. */
 type ManagerSpace = Omit<MemberSync, 'wanted'> & {
@@ -44,8 +48,9 @@ export class ManagerSpaces {
 	}
 
 	/**
-	 * The project's backstage, once a manager has made one, where managers read and write, and the spaces of the press
-	 * kits the root holds for it, which managers read beside the people granted access, who stay.
+	 * The project's backstage, once a manager has made one, where managers read and write, its request space, once
+	 * someone has asked or been let in, which only managers read, and the spaces of the press kits the root holds for it,
+	 * which managers read beside the people granted access, who stay.
 	 */
 	private async pressKitSpaces(projectUri: string): Promise<ManagerSpace[]> {
 		const project = parsePublicRecordUri(projectUri);
@@ -54,36 +59,48 @@ export class ManagerSpaces {
 		const root = await this.core.root();
 		const spaces: ManagerSpace[] = [];
 		const backstage = backstageSpace(root.did, project.rkey);
+		const requests = epkRequestSpace(root.did, project.rkey);
 
 		if (await root.getSpace(backstage)) spaces.push({ uri: backstage, joinable: true, write: true, others: [] });
+
+		const asked = await root.getSpace(requests);
+
+		if (asked) spaces.push({ uri: requests, joinable: true, write: false, others: [] });
+
+		let granted: Grant[] = [];
+
+		try {
+			if (asked) granted = await this.grants(root, requests);
+		} catch (error) {
+			// Without the grants, the sync can't tell a grantee from a manager who left, so it leaves the press kits' spaces
+			// for next time.
+			this.core.logger.warn("could not read a project's press kit grants", { err: error, space: requests });
+
+			return spaces;
+		}
 
 		for (const { uri, value } of await this.indexed.listAll(root.did, COLLECTION.epk, { strict: true })) {
 			if (value.project !== projectUri) continue;
 			const space = epkSpace(root.did, uri.split('/').at(-1)!);
 
 			try {
-				spaces.push({ uri: space, joinable: true, write: false, others: await this.grantees(root, space) });
+				// Grants not moved out of the press kit's space yet count too.
+				const others = [...granted.filter((grant) => grant.epk === uri), ...(await this.grants(root, space))];
+				spaces.push({ uri: space, joinable: true, write: false, others: others.map((grant) => grant.subject) });
 			} catch (error) {
-				// Without the grants, the sync can't tell a grantee from a manager who left, so it leaves the space for next time.
-				this.core.logger.warn({ err: error, space }, "could not read a press kit's grants");
+				// As above, for this press kit's space only.
+				this.core.logger.warn("could not read a press kit's grants", { err: error, space });
 			}
 		}
 
 		return spaces;
 	}
 
-	/** Who the root's grant records in a press kit's space let in. */
-	private async grantees(root: RootRepoClient, space: string): Promise<string[]> {
-		const subjects: string[] = [];
-		let cursor: string | undefined;
+	/** The root's grant records in `space`. */
+	private async grants(root: RootRepoClient, space: string): Promise<Grant[]> {
+		const records = await listAllSpaceRecords(root, { space, repo: root.did, collection: COLLECTION.epkGrant });
 
-		do {
-			const page = await root.listSpaceRecords({ space, repo: root.did, collection: COLLECTION.epkGrant, cursor });
-			subjects.push(...page.records.map((record) => record.rkey));
-			cursor = page.cursor;
-		} while (cursor);
-
-		return subjects;
+		return records.flatMap((record) => epkGrantSchema.safeParse(record.value).data ?? []);
 	}
 
 	/**
@@ -123,18 +140,18 @@ export class ManagerSpaces {
 
 			if (fromOpening && fromAudit && fromOpening !== fromAudit) {
 				this.core.logger.warn(
-					{ space, opening: fromOpening, audit: fromAudit },
-					'skipping a booking thread whose opening record and audit entry name different projects'
+					'skipping a booking thread whose opening record and audit entry name different projects',
+					{ space, opening: fromOpening, audit: fromAudit }
 				);
 
 				return [];
 			}
 
 			if ((fromOpening ?? fromAudit) !== projectUri) {
-				this.core.logger.info(
-					{ space, project: projectUri },
-					'skipping a booking thread no root record ties to the project'
-				);
+				this.core.logger.info('skipping a booking thread no root record ties to the project', {
+					space,
+					project: projectUri
+				});
 
 				return [];
 			}

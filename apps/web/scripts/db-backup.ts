@@ -4,19 +4,15 @@
 //   node scripts/db-backup.ts backup
 //   node scripts/db-backup.ts restore <key|latest> [path]
 // The bucket comes from the BACKUP_S3_* variables (.env.example), the database from DATABASE_PATH.
-import { existsSync } from 'node:fs';
 import { listBackups, restoreBackup, takeBackup } from '../src/lib/server/backup/backups.ts';
 import { DEFAULT_DATABASE_PATH, loadBackupSettings } from '../src/lib/server/backup/config.ts';
 import { createStore } from '../src/lib/server/backup/store.ts';
+import { loadEnvFiles } from '../src/lib/server/env-files.ts';
 import { createLogger } from '../src/lib/server/logger.ts';
 
 const USAGE = 'usage: db-backup.ts list | backup | restore <key|latest> [path]';
 
-if (process.env.NODE_ENV !== 'production') {
-	for (const file of ['.env.local', '.env']) {
-		if (existsSync(file)) process.loadEnvFile(file);
-	}
-}
+loadEnvFiles();
 
 const [command, ...args] = process.argv.slice(2);
 
@@ -48,7 +44,7 @@ try {
 		process.exitCode = 2;
 	}
 } catch (error) {
-	logger.error({ err: error }, `db-backup ${command} failed`);
+	logger.error(`db-backup ${command} failed`, { err: error });
 	process.exitCode = 1;
 } finally {
 	store.close();

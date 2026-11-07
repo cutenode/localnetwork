@@ -5,7 +5,8 @@
 //! (`stopped`), exits (`exit`), never stops (`stuck`), answers its context (`context`) or the
 //! folder it runs in (`cwd`), calls back (`call` with `params`), fetches (`fetch`, a `net/fetch`
 //! request, its blobs named in its scratch folder, logging what it's answered and answering what
-//! it fetched into a blob; with `orphan`, one a process it starts sends, see `--orphan`) or
+//! it fetched into a blob; with `orphan`, one a process it starts sends, see `--orphan`), sends
+//! lines later from a process it starts (`late`, see `--late`) or
 //! sends its rows in parts (`partial`, `partial_items`) when its
 //! params say so; its operation answers the `edits` (and `inputs`) it's given; both ask the
 //! question `ask` (a `Choice`) until they're given its param (or, `ask_again`, always), the
@@ -19,22 +20,27 @@
 //! as JSON (beat grids, phrases and waveforms too, writing the files its `blobs` give first), and
 //! one named `order` answers fields `a` (null for a one-byte audio file) then `b`, or fails naming
 //! an empty audio file; its exporter names the playlists it's given in a note, and would write to
-//! `outside`, or files of the `sizes` given, or writes `extra` too without saying so first, and
+//! `outside`, or files of the `sizes` given, or writes `extra` too without saying so first, or says
+//! it would write `only_dry` and doesn't, and
 //! given a set or a mix writes its
 //! tracklist; its importer answers a JSON file as it is (in a blob with the `blob` option); its
 //! destinations are echo's (a store kept in `destination/` where it runs, and a set published
 //! nowhere, or as its `answer` setting says, or sending its recording as its `upload` setting says,
-//! see `plugin::upload`), each request noted as `<method> <what>` in `asked`
+//! see `plugin::upload`; or answering what the host refuses, as its `misbehave` setting says, see
+//! `plugin::misbehaves`), each request noted as `<method> <what>` in `asked`
 //! where it runs; it logs each event it's told of and tells the user it heard it, suggesting
 //! echo's `playlist` (or tells them what its payload's `tell` says); and its services run as their
 //! names say (see `plugin::serve_service`). Any library source reads the files in the folders it's
 //! granted, and what `.json` files beside them say (see `plugin::read_library`).
 //! `--manifest <file>` serves another manifest, `--protocol <version>` answers `hello` with
 //! another protocol and stops, `--silent` never answers, `--paused <file>` logs `paused` and
-//! serves only once `<file>` is there, `--wrong-fields` answers fields of the wrong type, and
+//! serves only once `<file>` is there (exiting if it isn't by then, see [`WAIT`]), `--partials` sends an empty part of a view at the start of
+//! each hook but a command's, `--wrong-fields` answers fields of the wrong type, and
 //! `--without <feature>` leaves out that feature's hooks, and the feature from its `hello` (the
 //! SDK's own too). `--orphan <line>` writes the line and holds the output it was given open for
-//! 15 s: the host's, once the plugin that started it is killed.
+//! 15 s: the host's, once the plugin that started it is killed. `--late <file> <line>...` writes
+//! the lines once `<file>` is there, at once with an empty name, and exits (its `echo` command's
+//! `late`, `{"after": file, "lines": [...]}`).
 
 mod plugin;
 
@@ -58,20 +64,44 @@ fn main() {
                 println!("{}", value());
                 return std::thread::sleep(std::time::Duration::from_secs(15));
             }
+            "--late" => {
+                let file = value();
+                if file.is_empty() || waited(&file) {
+                    args.for_each(|line| println!("{line}"));
+                }
+                return;
+            }
             "--paused" => paused = Some(value()),
             "--wrong-fields" => wrong_fields = true,
+            "--partials" => plugin::PARTIALS.store(true, std::sync::atomic::Ordering::SeqCst),
             "--without" => without.push(value()),
             other => panic!("unknown argument {other}"),
         }
     }
     if let Some(file) = paused {
         eprintln!("paused");
-        while !std::path::Path::new(&file).exists() {
-            std::thread::sleep(std::time::Duration::from_millis(10));
+        if !waited(&file) {
+            return;
         }
     }
     let hooks = Test { wrong_fields }.hooks(&without);
     serve(&manifest, hooks, std::io::stdin(), Saying { out: std::io::stdout(), without, greeted: Vec::new() });
+}
+
+/// How long it waits for a file: it reads no input meanwhile, so it can't see its host go, and
+/// would outlive it.
+const WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Waits for `file` to be there, for at most [`WAIT`]: whether it is.
+fn waited(file: &str) -> bool {
+    let until = std::time::Instant::now() + WAIT;
+    while !std::path::Path::new(file).exists() {
+        if std::time::Instant::now() >= until {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    true
 }
 
 /// Its output, the `hello` reply (its first line) without the features it does `without`.

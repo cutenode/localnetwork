@@ -58,8 +58,8 @@ pub struct SourceFormat {
 /// catch it themselves. An MP4 that would have it ask for more memory than the file could fill,
 /// an abort nothing can catch, is refused before it reads it ([`vet_container`]).
 pub fn open(path: &Path) -> Result<(Box<dyn FormatReader>, Track)> {
-    vet_container(path)?;
-    let file = File::open(path).map_err(|source| Error::Io { path: path.to_path_buf(), source })?;
+    let mut file = File::open(path).map_err(|source| Error::Io { path: path.to_path_buf(), source })?;
+    mp4::vet_file(&mut file, path)?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {

@@ -63,7 +63,9 @@ locallibrary drive format disk4 --check-capacity  # catch a fake-capacity stick 
   best reference there is: a stored snapshot of exactly this state, the drive's own hash records
   when the file's size and modification time haven't changed, or an older snapshot holding the same
   version of the file. A file a player or rekordbox rewrote has a new modification time and counts
-  as unverified, not damaged. Unreadable files are reported too, with the tracks and playlists
+  as unverified, not damaged. `exportLibrary.db` and its WAL are compared by the library they hold,
+  as its bytes change with the drive's name and colour, or when a player checkpoints it, and any
+  damage stops it decrypting. Unreadable files are reported too, with the tracks and playlists
   affected. `--repair` checks each file again, copies a good copy with every byte verified (keeping
   the modification time), and reads it back. A file that is still wrong after that means the flash
   itself is failing: replace the drive.
@@ -275,12 +277,12 @@ later runs decode only new files and those that failed), which estimates its tem
 - tracks whose true peak is over 0 dBTP, that have runs of three or more samples at full scale, or
   whose integrated loudness is more than 6 LU from the library's median.
 
-The estimates are a second opinion, not a correction: on the GiantSteps datasets rekordbox gets
-about 72% of keys right and about 75% of tempos within 4%, and stratum-dsp's own figures are
-similar. Where they disagree, listen. Ordering a set (`playlist order`) uses what was analysed
-already: a key the analysis heard a fifth away, or as its relative or parallel, counts as less
-sure (and one it heard as unrelated, least sure), so a clash it causes weighs less.
-None of this counts as a problem for doctor's exit status.
+Treat the estimates as a second opinion: on the GiantSteps datasets rekordbox gets about 72% of
+keys right and about 75% of tempos within 4%, and stratum-dsp's own figures are similar. Where
+they disagree, listen. Ordering a set (`playlist order`) uses what was analysed already: a key the
+analysis heard a fifth away, or as its relative or parallel, counts as less sure (and one it heard
+as unrelated, least sure), so a clash it causes weighs less. None of this counts as a problem for
+doctor's exit status.
 
 `--fix-tempo` runs the same analysis, then doubles the beat grid of each track whose stored tempo
 is half what it heard (a beat halfway between each two) and halves it where it's double (every

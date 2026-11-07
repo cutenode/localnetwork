@@ -1,7 +1,7 @@
 //! Everything set here in one file, to keep a copy or take it to another computer: the My Settings
 //! profile, the players `check` remembers, the profile's preferences, the player's preferences
-//! (never where it was: the drive, the list, the queue, its panels), the host's settings for
-//! plugins and each plugin's own (its services' switches and the player's keys for its commands
+//! (never where it was: the drive, the list, the queue, its panels), what's set for identifying
+//! mixes, the host's settings for plugins and each plugin's own (its services' switches and the player's keys for its commands
 //! included). A plugin's settings go as the JSON object the store keeps for it, installed here or
 //! not. Secrets never do: they're kept apart (see [`crate::plugin`]).
 //!
@@ -19,6 +19,7 @@ use serde_json::{Map, Value};
 
 use super::SettingsProfile;
 use crate::equipment::Remembered;
+use crate::mix::prefs::{self as mix_prefs, MixPrefs};
 use crate::profile::{PREFS_FILE, ProfilePrefs};
 use crate::query::SortKey;
 use crate::store::{PLAYER_FILE, Store, player_fallback};
@@ -43,10 +44,13 @@ pub struct SettingsExport {
     /// artists, genre spellings and headline.
     #[serde(default)]
     pub profile: Map<String, Value>,
-    /// The player's preferences ([`PlayerPrefs`]): its theme, columns, sort, visualiser and
-    /// playback modes.
+    /// The player's preferences ([`PlayerPrefs`]): its theme, colours, icons, columns, sort,
+    /// visualiser and playback modes.
     #[serde(default)]
     pub player: Map<String, Value>,
+    /// What's set for identifying mixes ([`MixPrefs`]): the largest fingerprint index kept.
+    #[serde(default)]
+    pub mix: Map<String, Value>,
     /// The host's settings for plugins: which analyzer each field role is read from, when a
     /// provider's candidate is picked, and whether each check runs.
     #[serde(default)]
@@ -65,6 +69,7 @@ impl Default for SettingsExport {
             players: Map::new(),
             profile: Map::new(),
             player: Map::new(),
+            mix: Map::new(),
             plugin_host: Map::new(),
             plugins: Map::new(),
         }
@@ -81,6 +86,12 @@ pub struct PlayerPrefs {
     /// A plugin's theme, `<plugin>.<name>`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
+    /// The colour tier: `truecolor`, `256` or `16`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// The icons: `nerd`, `unicode` or `ascii`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icons: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort: Option<SortKey>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -122,11 +133,11 @@ fn player_file(store: &Store) -> Option<PathBuf> {
     }
 }
 
-/// What the player remembers, as a JSON object (none when it's missing or can't be read: the
-/// player starts afresh then too).
-fn player_state(store: &Store) -> Map<String, Value> {
-    let read = player_file(store).and_then(|f| fsutil::read_json_opt::<Map<String, Value>>(&f).ok().flatten());
-    read.unwrap_or_default()
+/// What the player remembers, as a JSON object (none when it's missing or damaged: the player
+/// starts afresh then too). An error when it can't be read right now: importing writes it back.
+fn player_state(store: &Store) -> Result<Map<String, Value>> {
+    let Some(file) = player_file(store) else { return Ok(Map::new()) };
+    Ok(fsutil::unless_damaged(fsutil::read_json_opt(&file))?.unwrap_or_default())
 }
 
 /// What importing does with one of the file's values.
@@ -183,6 +194,7 @@ enum Target {
     Players,
     Profile,
     Player,
+    Mix,
     PluginHost,
     Plugin(String),
 }
@@ -194,6 +206,7 @@ impl Target {
             Target::Players => "players.json".into(),
             Target::Profile => PREFS_FILE.into(),
             Target::Player => PLAYER_FILE.into(),
+            Target::Mix => mix_prefs::PREFS_FILE.into(),
             Target::PluginHost => "plugins/settings.json".into(),
             Target::Plugin(id) => format!("plugins/{id}/settings.json"),
         }
@@ -212,10 +225,11 @@ impl Target {
             Target::Profile => typed::<ProfilePrefs>(value)?.save(store),
             Target::Player => {
                 // Into what the player remembers, where it was kept as it was.
-                let mut state = player_state(store);
+                let mut state = player_state(store)?;
                 state.extend(untyped(&typed::<PlayerPrefs>(value)?));
                 fsutil::write_json_atomic(&store.root().join(PLAYER_FILE), &state)
             }
+            Target::Mix => typed::<MixPrefs>(value)?.save(store),
             Target::PluginHost => plugin::save_host_settings(store, &typed(value)?),
             Target::Plugin(id) => plugin::save_settings(store, id, &typed(value)?),
         }
@@ -223,7 +237,7 @@ impl Target {
 }
 
 /// The sections, by their names in the file.
-const SECTIONS: [&str; 6] = ["my_settings", "players", "profile", "player", "plugin_host", "plugins"];
+const SECTIONS: [&str; 7] = ["my_settings", "players", "profile", "player", "mix", "plugin_host", "plugins"];
 
 impl SettingsExport {
     /// The store files its sections are kept in, below the store's folder: what importing it
@@ -234,6 +248,7 @@ impl SettingsExport {
             (Target::Players, &self.players),
             (Target::Profile, &self.profile),
             (Target::Player, &self.player),
+            (Target::Mix, &self.mix),
             (Target::PluginHost, &self.plugin_host),
         ];
         let sections = sections.into_iter().filter(|(_, s)| !s.is_empty()).map(|(t, _)| t.file());
@@ -246,6 +261,7 @@ impl SettingsExport {
             "players" => &self.players,
             "profile" => &self.profile,
             "player" => &self.player,
+            "mix" => &self.mix,
             "plugin_host" => &self.plugin_host,
             _ => &self.plugins,
         }
@@ -257,6 +273,7 @@ impl SettingsExport {
             "players" => &mut self.players,
             "profile" => &mut self.profile,
             "player" => &mut self.player,
+            "mix" => &mut self.mix,
             "plugin_host" => &mut self.plugin_host,
             _ => &mut self.plugins,
         }
@@ -290,6 +307,7 @@ impl SettingsExport {
         self.profile = retyped::<ProfilePrefs>("profile", &self.profile)?;
         // Only the preferences: what else a hand-made file has of the player's is left out.
         self.player = retyped::<PlayerPrefs>("player", &self.player)?;
+        self.mix = retyped::<MixPrefs>("mix", &self.mix)?;
         if let Some((id, _)) = self.plugins.iter().find(|(id, v)| !crate::fields::is_name(id) || !v.is_object()) {
             return Err(in_section("plugins", Error::invalid(format!("{id:?} isn't a plugin's id with its settings"))));
         }
@@ -367,10 +385,11 @@ pub fn export(store: &Store) -> Result<SettingsExport> {
         players: kept::<Remembered>(store, &Target::Players.file())?,
         profile: kept::<ProfilePrefs>(store, &Target::Profile.file())?,
         // A value the player can't read means it starts afresh, so there are none to export.
-        player: serde_json::from_value::<PlayerPrefs>(player_state(store).into())
+        player: serde_json::from_value::<PlayerPrefs>(player_state(store)?.into())
             .map(|p| untyped(&p))
             .unwrap_or_default(),
-        plugin_host: plugin::host_settings(Some(store)).into_iter().collect(),
+        mix: kept::<MixPrefs>(store, mix_prefs::PREFS_FILE)?,
+        plugin_host: plugin::host_settings_to_change(store)?.into_iter().collect(),
         plugins: plugins.collect(),
     };
     doc.normalized()
@@ -401,6 +420,7 @@ pub fn merge(store: &Store, file: &SettingsExport, replace: bool) -> Result<Merg
             "players" => Target::Players,
             "profile" => Target::Profile,
             "player" => Target::Player,
+            "mix" => Target::Mix,
             "plugin_host" => Target::PluginHost,
             _ => {
                 ids.dedup();

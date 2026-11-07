@@ -364,6 +364,20 @@ fn signing_in_only_reaches_public_https_servers() {
     assert!(listener.accept().is_err(), "no connection was made");
 }
 
+/// The sign-in page a server sends prints as one line: the line breaks and tabs in it are left
+/// out, the control characters at its ends too, and the others percent-encoded, in the link and
+/// the server it names.
+#[test]
+fn a_sign_in_page_prints_as_one_line() {
+    let sent = "https://pds.exa\tmple.com/oauth/authorize?client_id=c&request_uri=urn:x\n\u{1b}[2Jgot\u{7}cha\r\u{7}";
+    let (url, server) = sign_in_page(sent).unwrap();
+    assert_eq!(url, "https://pds.example.com/oauth/authorize?client_id=c&request_uri=urn:x%1B[2Jgot%07cha");
+    assert_eq!(server, "pds.example.com");
+    assert!(!format!("{url}{server}").chars().any(char::is_control));
+    let err = sign_in_page("http://pds.example.com/oauth/authorize").unwrap_err().to_string();
+    assert!(err.starts_with("the account's server sent a sign-in page that can't be opened: "), "{err}");
+}
+
 #[test]
 fn the_development_client_stands_in_only_while_the_document_is_offline() {
     let (client, note) = own_client(Ok(())).unwrap();
@@ -1122,4 +1136,249 @@ fn signing_in_again_keeps_what_the_session_may_do() {
     assert_eq!(check_document(&doc, CLIENT_ID, &kept_scopes(&signed_in_with(&both))), Ok(()));
     // Only a bug report asks for its scope: signing in and publishing don't.
     assert!(!publish_scopes().contains(&report()) && !DEFAULT_SCOPES.contains(&REPORT_SCOPE));
+}
+
+/// `LOCALLIBRARY_OAUTH_CLIENT_ID` names the client: `loopback` or `localhost` (around any blanks)
+/// the development client, any other text a hosted document's address as given, and nothing
+/// (unset or blank) locallibrary's own.
+#[hegel::test(test_cases = 50)]
+fn prop_the_client_named_in_the_environment_signs_in(tc: TestCase) {
+    let named: Option<String> = tc.draw(gs::optional(hegel::one_of!(
+        gs::sampled_from(vec!["", "  ", "loopback", " localhost ", "https://dev.example/c.json"]).map(String::from),
+        gs::text().max_size(12)
+    )));
+    let var = "LOCALLIBRARY_OAUTH_CLIENT_ID";
+    // SAFETY: nextest gives each test a process of its own, and no other thread of it reads the
+    // environment while the test runs.
+    match &named {
+        Some(v) if !v.contains('\0') => unsafe { std::env::set_var(var, v) },
+        _ => unsafe { std::env::remove_var(var) },
+    }
+    let trimmed = named.as_deref().filter(|v| !v.contains('\0')).map(str::trim);
+    let want = match trimmed {
+        Some("loopback" | "localhost") => Some(Client::Loopback),
+        Some(id) if !id.is_empty() => Some(Client::Hosted { client_id: id.to_string() }),
+        _ => None,
+    };
+    assert_eq!(Client::from_env(), want, "{named:?}");
+    unsafe { std::env::remove_var(var) };
+}
+
+/// Why a client document can't be used reads as the reason itself, offline or unfit.
+#[hegel::test(test_cases = 50)]
+fn prop_an_unusable_document_reads_as_its_reason(tc: TestCase) {
+    let why = tc.draw(gs::text().max_size(20));
+    let unusable = if tc.draw(gs::booleans()) { Unusable::Offline(why.clone()) } else { Unusable::Unfit(why.clone()) };
+    assert_eq!(unusable.to_string(), why);
+}
+
+/// What can't be a sign-in is refused before anything is sent: scopes without `atproto`, a
+/// hosted client whose ID starts like an https address but isn't one, and a client document
+/// address that isn't a URL.
+#[hegel::test(test_cases = 30)]
+fn prop_a_sign_in_that_cant_be_one_stops_before_the_network(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let asked: Vec<String> = tc
+        .draw(gs::vecs(gs::sampled_from(vec!["transition:generic", "repo:app.example.thing"])).min_size(1).max_size(2))
+        .into_iter()
+        .map(String::from)
+        .collect();
+    let options = LoginOptions { client: Some(Client::Loopback), storage: Storage::File, scopes: asked.clone() };
+    let err = begin_login(dir.path(), "dj.example.com", &options).unwrap_err();
+    assert!(err.to_string().contains("have to include `atproto`"), "{asked:?}: {err}");
+
+    let host: String = tc.draw(gs::from_regex(r"[a-z]{1,6} [a-z]{1,6}\.example").fullmatch(true));
+    let client = Client::Hosted { client_id: format!("https://{host}/c.json") };
+    let err = client_config(&client, "http://127.0.0.1:1/callback", scopes(&[]).unwrap()).unwrap_err();
+    assert!(err.to_string().contains("isn't a URL"), "{err}");
+    let err = client_metadata(&host, &[]).unwrap_err();
+    assert!(err.to_string().contains("isn't a URL"), "{err}");
+    assert!(PENDING.lock().unwrap().is_empty(), "nothing waits for the browser");
+}
+
+/// A sign-in nobody comes back to in time is over: it says how long it waited, and can't be
+/// finished or cancelled after.
+#[hegel::test(test_cases = 5)]
+fn prop_a_sign_in_nobody_comes_back_to_is_over(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let id = waiting(dir.path(), &tc.draw(alnum()));
+    let err = finish_login(&id, Duration::ZERO, &Ctx::silent()).unwrap_err();
+    assert_eq!(err.to_string(), "no answer from the browser within 0 seconds; sign in again");
+    assert!(!cancel_login(&id));
+    assert!(matches!(finish_login_with_url(&id, "http://127.0.0.1:1/callback?code=c"), Err(Error::NotFound(_))));
+    assert_eq!(status(dir.path()).unwrap(), None);
+}
+
+/// A sign-in's own code is only exchanged once the account's folder can be locked: one that
+/// can't (a file in the way) fails, saying where, and nobody is signed in.
+#[hegel::test(test_cases = 5)]
+fn prop_a_sign_in_whose_folder_cant_be_locked_fails(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let state = tc.draw(alnum());
+    let in_the_way = dir.path().join("in the way");
+    std::fs::write(&in_the_way, "").unwrap();
+    let root = in_the_way.join("store");
+    let id = waiting(&root, &state);
+    let err = finish_login_with_url(&id, &format!("http://127.0.0.1:1/callback?code=c&state={state}")).unwrap_err();
+    assert_eq!(err.code(), "io", "{err}");
+    assert!(err.to_string().contains("in the way"), "{err}");
+    assert!(!cancel_login(&id), "over");
+    assert_eq!(status(dir.path()).unwrap(), None);
+}
+
+/// How an account file is damaged.
+#[derive(Debug, Clone, Copy)]
+enum Damage {
+    /// Text that isn't JSON.
+    NotJson,
+    /// JSON of another shape.
+    Shape,
+    /// A folder in its place.
+    Folder,
+}
+
+/// An account file that's been damaged is said to be wherever it's read, not taken for nobody
+/// signed in: the account's status, checking it, signing out, and every session jacquard asks the
+/// store for. Only the handle to offer next time is quietly left out.
+#[hegel::test(test_cases = 10)]
+fn prop_a_damaged_account_file_is_said_to_be(tc: TestCase) {
+    let damage = tc.draw(gs::sampled_from(vec![Damage::NotJson, Damage::Shape, Damage::Folder]));
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let file = root.join(store::ACCOUNT_FILE);
+    match damage {
+        Damage::NotJson => std::fs::write(&file, tc.draw(gs::sampled_from(vec!["", "{", "not json"]))).unwrap(),
+        Damage::Shape => {
+            std::fs::write(&file, tc.draw(gs::sampled_from(vec!["[1]", "5", r#"{"account":5}"#]))).unwrap()
+        }
+        Damage::Folder => std::fs::create_dir(&file).unwrap(),
+    }
+    let said = |e: Error| {
+        let text = e.to_string();
+        assert!(text.contains(store::ACCOUNT_FILE), "{damage:?}: {text}");
+    };
+    said(status(root).unwrap_err());
+    said(check(root, &Ctx::silent()).unwrap_err());
+    said(logout(root).unwrap_err());
+    said(directory::request_index(root, &signed_in_with(&["atproto"])).unwrap_err());
+    assert_eq!(last_handle(root), None);
+    let local = LocalStore::new(root, Storage::File, Client::Loopback, "http://127.0.0.1:1/callback".into(), vec![]);
+    let did: Did = Did::new_owned("did:plc:abc").unwrap();
+    assert!(block_on(ClientAuthStore::get_session(&local, &did, "s1")).is_err());
+    assert!(block_on(ClientAuthStore::delete_session(&local, &did, "s1")).is_err());
+    assert!(block_on(ClientAuthStore::list_session_keys(&local)).is_err());
+    assert!(block_on(ClientAuthStore::upsert_session(&local, session("did:plc:abc", "refresh-1"))).is_err());
+}
+
+/// Checking stops at once when it's been cancelled, before anything is read or sent; so does
+/// it, and every write, when the account's lock can't be taken (a folder in its place), with the
+/// session left as it was.
+#[hegel::test(test_cases = 5)]
+fn prop_checking_stops_when_cancelled_or_unlockable(tc: TestCase) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let server = format!("http://{}", listener.local_addr().unwrap());
+    // The directory and website too: nothing may go anywhere else.
+    crate::testing::directory_on_this_thread(Some(server.clone()));
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    crate::store::Store::open_or_init(root).unwrap();
+    let granted = mock_pds::granted(&publish_scopes()).join(" ");
+    save_session(root, "did:plc:abc", &server, &granted);
+    let cancel = crate::progress::CancelToken::new();
+    cancel.cancel();
+    let cancelled = Ctx::new(&crate::progress::NoProgress, cancel);
+    assert!(matches!(check(root, &cancelled), Err(Error::Cancelled)));
+
+    std::fs::create_dir(root.join("atmosphere.lock")).unwrap();
+    let locked = |e: Error| assert!(e.to_string().contains("atmosphere.lock"), "{e}");
+    locked(check(root, &Ctx::silent()).unwrap_err());
+    locked(logout(root).unwrap_err());
+    let collection = tc.draw(gs::sampled_from(vec![lexicon::SET, lexicon::SETTINGS]));
+    let record = crate::publish::settings_record(&[("sync".into(), "on".into())].into(), Utc::now());
+    if collection == lexicon::SETTINGS {
+        locked(repo::put_record(root, "did:plc:abc", collection, "self", &record, None).unwrap_err());
+    } else {
+        locked(repo::delete_record(root, "did:plc:abc", collection, "self").unwrap_err());
+    }
+    let info = status(root).unwrap().unwrap();
+    let note = directory::request_index(root, &info).unwrap().unwrap();
+    assert!(note.contains("atmosphere.lock"), "{note}");
+    assert!(listener.accept().is_err(), "nothing was sent");
+    assert_eq!(info.did, "did:plc:abc");
+}
+
+/// Signing in again asks for what the session may do now, whatever it was granted: publishing
+/// when it may write any record type, bug reports when it may file them, `atproto` always; the
+/// way on from a missing bug-report scope asks for that scope once, on top. locallibrary's
+/// document allows all of it.
+#[hegel::test(test_cases = 100)]
+fn prop_signing_in_again_keeps_what_the_session_may_do(tc: TestCase) {
+    let publishing = mock_pds::granted(&publish_scopes());
+    let pool: Vec<String> = publishing.into_iter().chain([REPORT_SCOPE.to_string()]).collect();
+    let granted: Vec<String> = tc.draw(gs::subsequences(pool));
+    let info = signed_in_with(&[&["atproto"][..], &granted.iter().map(String::as_str).collect::<Vec<_>>()].concat());
+    let kept = kept_scopes(&info);
+    let publishes = lexicon::COLLECTIONS.iter().any(|c| missing_scope(&info, c).is_none());
+    let reports = may_create(&info, lexicon::DISCUSSION);
+    assert_eq!(kept.contains(&format!("include:{PUBLISH_SET}")), publishes, "{granted:?}");
+    assert_eq!(kept.contains(&REPORT_SCOPE.to_string()), reports, "{granted:?}");
+    assert_eq!(kept[0], "atproto");
+    assert_eq!(check_document(&client_metadata(CLIENT_ID, &[]).unwrap(), CLIENT_ID, &kept), Ok(()));
+    let again = repo::scope_error(&info, lexicon::DISCUSSION).detail().actions[0].params["scopes"].clone();
+    let asked: Vec<String> = serde_json::from_value(again).unwrap();
+    assert_eq!(asked.iter().filter(|s| *s == REPORT_SCOPE).count(), 1, "{asked:?}");
+    assert_eq!(
+        asked.iter().filter(|s| *s != REPORT_SCOPE).collect::<Vec<_>>(),
+        kept.iter().filter(|s| *s != REPORT_SCOPE).collect::<Vec<_>>()
+    );
+}
+
+/// The sign-in page a server sends is opened only at a public https address, printed on one
+/// line with the server it's on; a redirect whose state no sign-in knows is another attempt's.
+#[hegel::test(test_cases = 100)]
+fn prop_a_sign_in_page_is_public_and_one_line(tc: TestCase) {
+    let host: String = tc.draw(gs::from_regex(r"[a-z]{1,8}\.[a-z]{2,5}").fullmatch(true));
+    let scheme = tc.draw(gs::sampled_from(vec!["https", "http"]));
+    let noise = tc.draw(gs::sampled_from(vec!["", "\n", "\t", "\u{1b}[2J", "\u{7}"]));
+    let sent = format!("{scheme}://{host}/oauth/authorize?request_uri=urn:x{noise}");
+    match sign_in_page(&sent) {
+        Ok((url, server)) => {
+            assert_eq!((scheme, server.as_str()), ("https", host.as_str()));
+            assert!(url.starts_with(&format!("https://{host}/oauth/authorize?")), "{url}");
+            assert!(!url.chars().any(char::is_control), "{url:?}");
+        }
+        Err(e) => {
+            assert_eq!(scheme, "http");
+            assert!(e.to_string().starts_with("the account's server sent a sign-in page that can't be opened"));
+        }
+    }
+    let missing = OAuthError::Callback(jacquard_oauth::error::CallbackError::MissingState);
+    assert_eq!(oauth_error(missing).to_string(), other_attempt().to_string());
+}
+
+/// Signing out while the keychain won't let go of an earlier account's secrets still signs out,
+/// saying what stayed behind; signing out again, once it answers, removes them.
+#[hegel::test(test_cases = 5)]
+fn prop_signing_out_tries_the_keychain_again(tc: TestCase) {
+    mock_keychain();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    crate::store::Store::open_or_init(root).unwrap();
+    let (earlier, now) =
+        tc.draw(gs::sampled_from(vec![("did:plc:abc", "did:plc:other"), ("did:plc:other", "did:plc:abc")]));
+    let store =
+        |storage| LocalStore::new(root, storage, Client::Loopback, "http://127.0.0.1:1/callback".into(), vec![]);
+    block_on(ClientAuthStore::upsert_session(&store(Storage::Keychain), session(earlier, "refresh-1"))).unwrap();
+    keychain_fails(root, earlier);
+    block_on(ClientAuthStore::upsert_session(&store(Storage::File), session(now, "refresh-2"))).unwrap();
+    keychain_fails(root, earlier);
+    let out = logout(root).unwrap();
+    assert_eq!(out.account.map(|a| a.did).as_deref(), Some(now));
+    assert!(out.left_behind.unwrap().contains("keychain isn't available"));
+    assert_eq!(status(root).unwrap(), None);
+    assert_eq!(AccountFile::load(root).unwrap().left_behind, [(Storage::Keychain, earlier.to_string())]);
+    let again = logout(root).unwrap();
+    assert!(again.account.is_none() && again.left_behind.is_none());
+    assert_eq!(store::read_secrets(root, Storage::Keychain, earlier).unwrap(), None);
 }

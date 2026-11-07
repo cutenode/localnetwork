@@ -95,9 +95,9 @@ fn a_tab_clicked_while_typing_a_handle_puts_it_away() {
     let (mut app, _dir) = blank(View::Profile);
     super::press(&mut app);
     assert!(screen(&mut app, 120, 30).contains("Atmosphere handle or server:"));
-    point(&mut app, LEFT, "1 Library");
+    point(&mut app, LEFT, "l Library");
     assert_eq!(app.view, View::Library);
-    press(&mut app, "4");
+    press(&mut app, "gu");
     assert!(!screen(&mut app, 120, 30).contains("Atmosphere handle or server:"));
     press(&mut app, "q");
     assert!(app.quit, "q quits, not typed");
@@ -279,7 +279,7 @@ fn the_bar_follows_typing_and_signing_in(tc: hegel::TestCase) {
 fn the_bar_says_whos_signed_in_and_l_twice_signs_out(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, _dir) = blank(View::Profile);
-    let days = tc.draw(gs::sampled_from(&[-400i64, -1, 3, 200][..]));
+    let days = tc.draw(gs::sampled_from(&[-400i64, -1, 1, 3, 200][..]));
     let until = (chrono::Utc::now() + chrono::Duration::days(days) + chrono::Duration::hours(12)).to_rfc3339();
     let mut info = signed_in(&until);
     let loopback = tc.draw(gs::booleans());
@@ -296,6 +296,11 @@ fn the_bar_says_whos_signed_in_and_l_twice_signs_out(tc: hegel::TestCase) {
     } else {
         let by = local_time(info.sign_in_again_by, "%Y-%m-%d");
         assert!(bar.contains(&format!("sign in again by {by} ({} days)", info.days_left())), "{bar}");
+        // A warning in its last two days, in the colour the terminal draws it with.
+        let line = app.profile.account.line(width);
+        let again = line.spans.iter().find(|s| s.content.contains("sign in again by")).unwrap();
+        let warning = crate::tui::theme::fg(crate::tui::theme::current().warning);
+        assert_eq!(again.style.fg == warning.fg, days == 1, "{bar}");
     }
     // A handle being typed is put away when another view is shown.
     if tc.draw(gs::booleans()) {

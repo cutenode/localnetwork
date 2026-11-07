@@ -1,9 +1,16 @@
+import { generateKeyPairSync, type JsonWebKey } from 'node:crypto';
+import { once } from 'node:events';
+import { createServer } from 'node:http';
+import { type AddressInfo, createServer as createNetServer, type Socket } from 'node:net';
 import { IncludeScope, ScopePermissions, ScopePermissionsTransition, SpacePermission } from '@atproto/oauth-scopes';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CALENDAR_EVENT, CALENDAR_RSVP, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
 import { loadConfig } from '../config';
-import { openDatabase } from '../db';
+import { nowIso, openDatabase } from '../db';
 import { silentLogger } from '../logger';
+import { collectingGarbage } from '../testing/gc';
+import { type Loopback, rebindToLoopback } from '../testing/rebind';
+import { IdentityResolver } from './identity';
 import { permissionSetFor } from './lexicons';
 import {
 	clientMetadata,
@@ -19,6 +26,11 @@ import {
 	SCOPES,
 	type SignedInAccount
 } from './oauth';
+
+/** A fetch for services whose client never reaches the network. */
+const offline: typeof globalThis.fetch = async (input) => {
+	throw new Error(`no network in this test: ${new Request(input).url}`);
+};
 
 const config = (publicUrl: string) =>
 	loadConfig({
@@ -45,6 +57,10 @@ describe('OAuth scopes', () => {
 		...full.split(' ').filter((scope) => !scope.startsWith('include:'))
 	];
 
+	/** Where requests to see a press kit went before, and where they go now. */
+	const KIT_REQUESTS = `space:computer.localnetwork.space.epk?authority=${root}&collection=computer.localnetwork.epk.request&action=read_self&action=create&action=delete`;
+	const PROJECT_REQUESTS = KIT_REQUESTS.replace('space.epk?', 'space.epkRequests?');
+
 	/**
 	 * What accounts hold from before the profiles permissions: the grant `full` got from the permission set and scopes as
 	 * they were, with the shared spaces pinned to the root, written out as the PDS stores it, so it doesn't change with
@@ -60,7 +76,7 @@ describe('OAuth scopes', () => {
 		'repo:computer.localnetwork.follow?action=create&action=delete',
 		`space:computer.localnetwork.space.epk?authority=${user}&collection=computer.localnetwork.epk.content&collection=computer.localnetwork.epk.grant&manage=create&manage=update&manage=delete`,
 		`space:computer.localnetwork.space.backstage?authority=${root}&collection=computer.localnetwork.epk.draft&action=read_self&action=create&action=update&action=delete`,
-		`space:computer.localnetwork.space.epk?authority=${root}&collection=computer.localnetwork.epk.request&action=read_self&action=create&action=delete`,
+		KIT_REQUESTS,
 		'atproto',
 		'blob?accept=image/jpeg&accept=image/png&accept=image/webp&accept=application/json',
 		'repo:community.lexicon.calendar.event?action=create&action=update&action=delete'
@@ -108,18 +124,23 @@ describe('OAuth scopes', () => {
 		).toBe(false);
 	});
 
-	it("lets a DJ run their own press kit spaces, and anyone ask for access to the root's", () => {
+	it("lets a DJ run their own press kit spaces, and anyone ask for access in a project's request space", () => {
 		const permissions = new ScopePermissions(granted);
 		const own = { type: SPACE_TYPE.epk, authority: user, skey: '3mabc' } as const;
 		const theirs = { ...own, authority: root } as const;
-		// Another DJ's own press kit space, made before the root held them: the root asks there on the user's behalf.
+		const requests = { type: SPACE_TYPE.epkRequests, authority: root, skey: '3mproj' } as const;
+		// Another DJ's own press kit space, made before the root held them.
 		const legacy = { ...own, authority: 'did:plc:other' } as const;
 
 		expect(permissions.allowsRepo({ collection: COLLECTION.epk, action: 'create' })).toBe(true);
 		expect(permissions.allowsRepo({ collection: COLLECTION.project, action: 'create' })).toBe(false);
 		expect(permissions.allowsSpace({ ...own, manage: 'update' })).toBe(true);
 		expect(permissions.allowsSpace({ ...own, action: 'create', collection: COLLECTION.epkGrant })).toBe(true);
-		expect(permissions.allowsSpace({ ...theirs, action: 'create', collection: COLLECTION.epkRequest })).toBe(true);
+		expect(permissions.allowsSpace({ ...requests, action: 'create', collection: COLLECTION.epkRequest })).toBe(true);
+		expect(permissions.allowsSpace({ ...requests, action: 'read' })).toBe(false);
+		// Not in a press kit's own space, which everyone granted the press kit reads.
+		expect(permissions.allowsSpace({ ...theirs, action: 'create', collection: COLLECTION.epkRequest })).toBe(false);
+		expect(permissions.allowsSpace({ ...theirs, action: 'delete', collection: COLLECTION.epkRequest })).toBe(false);
 		expect(permissions.allowsSpace({ ...theirs, action: 'create', collection: COLLECTION.epkGrant })).toBe(false);
 		expect(permissions.allowsSpace({ ...theirs, action: 'read' })).toBe(false);
 		expect(permissions.allowsSpace({ ...legacy, action: 'create', collection: COLLECTION.epkRequest })).toBe(false);
@@ -208,7 +229,7 @@ describe('OAuth scopes', () => {
 			{ type: SPACE_TYPE.moderation, skey: 'main', collection: COLLECTION.request },
 			{ type: SPACE_TYPE.booking, skey: '3mxq3whd6gi2d', collection: COLLECTION.bookingInquiry },
 			{ type: SPACE_TYPE.backstage, skey: '3mabc', collection: COLLECTION.epkDraft },
-			{ type: SPACE_TYPE.epk, skey: '3mabc', collection: COLLECTION.epkRequest }
+			{ type: SPACE_TYPE.epkRequests, skey: '3mproj', collection: COLLECTION.epkRequest }
 		] as const;
 
 		for (const write of writes) {
@@ -231,7 +252,10 @@ describe('OAuth scopes', () => {
 	});
 
 	it('counts a grant from before profiles as one with spaces, so nobody is signed out at deploy', () => {
-		const before = beforeProfiles.join(' ');
+		// Requests have moved to a project's own request space since, so the grant held then asks to write them there.
+		const held = beforeProfiles.flatMap((scope) => (scope === KIT_REQUESTS ? [PROJECT_REQUESTS] : [scope]));
+
+		const before = held.join(' ');
 
 		// The app signs a spaces-capable account out when this is false for its stored grant.
 		expect(grantsSpaces(before, user, root)).toBe(true);
@@ -243,8 +267,16 @@ describe('OAuth scopes', () => {
 		// Every space write it had is still needed, drafts in a project's backstage included.
 		const publicRecords = (scope: string) => /localnetwork\.(show|follow)|calendar\.event/.test(scope);
 
-		for (const dropped of beforeProfiles.filter((scope) => !publicRecords(scope)))
-			expect(grantsSpaces(beforeProfiles.filter((scope) => scope !== dropped).join(' '), user, root)).toBe(false);
+		for (const dropped of held.filter((scope) => !publicRecords(scope)))
+			expect(grantsSpaces(held.filter((scope) => scope !== dropped).join(' '), user, root)).toBe(false);
+	});
+
+	it('signs in again an account whose grant asks to write requests into a press kit space, where everyone let in reads them', () => {
+		// The app signs a spaces-capable account out when this is false for its stored grant, and the new one gets the
+		// project's request space instead.
+		expect(grantsSpaces(beforeProfiles.join(' '), user, root)).toBe(false);
+		expect(granted).toContain(PROJECT_REQUESTS);
+		expect(granted).not.toContain(KIT_REQUESTS);
 	});
 
 	it('declares every scope it may ask for in its client metadata', () => {
@@ -258,6 +290,9 @@ describe('OAuth scopes', () => {
 	it('compares grants the way the PDS writes them, and spots any scope missing', () => {
 		expect(grantsAll(granted.join(' '), full, user, root)).toBe(true);
 		expect(grantsAll(granted.join(' '), full, 'did:plc:someoneelse', root)).toBe(false);
+		// A scope it can't parse only matches itself, as written.
+		expect(grantsAll('atproto x:unknown', 'x:unknown', user, root)).toBe(true);
+		expect(grantsAll('atproto', 'x:unknown', user, root)).toBe(false);
 
 		for (const dropped of granted)
 			expect(grantsAll(granted.filter((scope) => scope !== dropped).join(' '), full, user, root)).toBe(false);
@@ -317,17 +352,27 @@ describe('OAuth scopes', () => {
 describe('OAuthService', () => {
 	/** Signing in at an http PDS from a production build with ALLOW_PRIVATE_NETWORK as given. */
 	const signInAtHttpPds = async (allowPrivateNetwork: string) => {
-		const oauth = new OAuthService({
-			config: loadConfig({
-				NODE_ENV: 'production',
-				ALLOW_PRIVATE_NETWORK: allowPrivateNetwork,
-				ROOT_IDENTIFIER: 'did:plc:root',
-				ROOT_PASSWORD: 'x',
-				PUBLIC_URL: 'https://localnetwork.test',
-				HAPPYVIEW_URL: 'http://127.0.0.1:8000'
-			}),
-			db: await openDatabase(':memory:'),
+		const production = loadConfig({
+			NODE_ENV: 'production',
+			ALLOW_PRIVATE_NETWORK: allowPrivateNetwork,
+			ROOT_IDENTIFIER: 'did:plc:root',
+			ROOT_PASSWORD: 'x',
+			PUBLIC_URL: 'https://localnetwork.test',
+			HAPPYVIEW_URL: 'http://127.0.0.1:8000'
+		});
+
+		// The guarded fetch the app gives it, for the same network.
+		const identity = new IdentityResolver({
+			plcUrl: production.plcUrl,
+			allowPrivateNetwork: production.allowPrivateNetwork,
 			logger: silentLogger
+		});
+
+		const oauth = new OAuthService({
+			config: production,
+			db: await openDatabase(':memory:'),
+			logger: silentLogger,
+			fetch: identity.serviceFetch
 		});
 
 		// Port 9 is one fetch refuses to connect to, so nothing leaves the machine either way.
@@ -362,12 +407,13 @@ describe('OAuthService.authorize', () => {
 	 */
 	const service = async (
 		refused: (scope: string) => boolean,
-		error = new Error('invalid_scope: unsupported scope')
+		error: Error | string = new Error('invalid_scope: unsupported scope')
 	) => {
 		const oauth = new OAuthService({
 			config: config('http://127.0.0.1:5173'),
 			db: await openDatabase(':memory:'),
-			logger: silentLogger
+			logger: silentLogger,
+			fetch: offline
 		});
 
 		const asked: string[] = [];
@@ -393,6 +439,13 @@ describe('OAuthService.authorize', () => {
 		const down = await service(() => true, new Error('fetch failed'));
 		await expect(down.oauth.authorize('alice.test', '{}')).rejects.toThrow('fetch failed');
 		expect(down.asked).toHaveLength(1);
+	});
+
+	it('throws the last scope error once even plain atproto is refused, whatever the PDS threw', async () => {
+		const { oauth, asked } = await service(() => true, 'invalid_scope');
+
+		await expect(oauth.authorize('alice.test', '{}')).rejects.toBe('invalid_scope');
+		expect(asked).toEqual([SCOPES.full, SCOPES.base, SCOPES.minimal]);
 	});
 
 	it('asks again for the optional scopes an account holds, so signing in keeps them', async () => {
@@ -443,5 +496,275 @@ describe('OAuthService.authorize', () => {
 			})
 		).rejects.toThrow(OptionalScopeUnsupported);
 		expect(unknown.asked).toHaveLength(3);
+	});
+});
+
+describe('OAuthService sign-in, given servers a DID document names', () => {
+	const PDS = 'pds.rebind.localnetwork.computer';
+	const ISSUER = 'auth.rebind.localnetwork.computer';
+	const did = 'did:plc:visitor';
+	let loopback: Loopback;
+
+	beforeEach(async () => {
+		loopback = await rebindToLoopback([PDS, ISSUER]);
+
+		return async () => {
+			vi.unstubAllGlobals();
+			vi.restoreAllMocks();
+			await loopback.close();
+		};
+	});
+
+	/**
+	 * Signs `did` in as /login does, with the app's guarded fetch, a DID document whose PDS is `pds`, and private
+	 * addresses allowed or not.
+	 */
+	const signIn = async (pds: string, allowPrivateNetwork = false, timeoutMs?: number) => {
+		const identity = new IdentityResolver({
+			plcUrl: 'https://plc.directory',
+			allowPrivateNetwork,
+			logger: silentLogger
+		});
+
+		const oauth = new OAuthService({
+			config: config('https://localnetwork.computer'),
+			db: await openDatabase(':memory:'),
+			logger: silentLogger,
+			fetch: identity.serviceFetch,
+			timeoutMs
+		});
+
+		vi.spyOn(oauth.client.identityResolver, 'resolve').mockResolvedValue({
+			did,
+			handle: 'visitor.localnetwork.computer',
+			didDoc: { id: did, service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: pds }] }
+		});
+
+		// What came of it: the authorization page, or the innermost cause of the error (for a request fetch refused, why).
+		return oauth.authorize(did, '{}').then(
+			(page) => page.href,
+			(error: Error) => {
+				let cause = error;
+
+				while (cause.cause instanceof Error) cause = cause.cause;
+
+				return cause.message;
+			}
+		);
+	};
+
+	it('gives up on a PDS that takes the connection and never answers, once the time limit is up', async () => {
+		// Connections it takes, which it holds open without a word.
+		const held: Socket[] = [];
+		const server = createNetServer((socket) => void held.push(socket));
+
+		await once(server.listen(0, '127.0.0.1'), 'listening');
+		// SAFETY: a server listening on a TCP port reports an AddressInfo.
+		const { port } = server.address() as AddressInfo;
+
+		try {
+			const started = performance.now();
+
+			// Collection runs while it waits, as it does in a busy process, so the limit has to survive it.
+			const outcome = await collectingGarbage(signIn(`http://127.0.0.1:${port}`, true, 200));
+
+			expect(outcome).toBe('The operation was aborted due to timeout');
+			expect(performance.now() - started).toBeLessThan(2_000);
+			expect(held).toHaveLength(1);
+		} finally {
+			for (const socket of held) socket.destroy();
+			await new Promise((resolve) => server.close(resolve));
+		}
+	});
+
+	it('refuses a PDS whose name points at loopback when it connects, and never reaches it', async () => {
+		expect(await signIn(`https://${PDS}:${loopback.port}`)).toBe('Hostname resolved to non-unicast address');
+		expect(loopback.connections()).toBe(0);
+	});
+
+	it("refuses an authorization server, named in the PDS's metadata, whose name points at loopback", async () => {
+		const real = globalThis.fetch;
+		const pds = 'https://pds.localnetwork.computer';
+
+		// The PDS answers from a public address; everything else goes out to the network.
+		vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+			const request = new Request(input, init);
+
+			if (!request.url.startsWith(`${pds}/`)) return real(input, init);
+
+			return Response.json({ resource: pds, authorization_servers: [`https://${ISSUER}:${loopback.port}`] });
+		});
+
+		expect(await signIn(pds)).toBe('Hostname resolved to non-unicast address');
+		expect(loopback.connections()).toBe(0);
+	});
+
+	it('follows no redirect from the authorization server, even where private addresses are allowed', async () => {
+		let inside = 0;
+		let origin = '';
+
+		// A PDS that is its own authorization server, and sends its pushed authorization requests somewhere else.
+		const server = createServer((request, response) => {
+			if (request.url === '/.well-known/oauth-protected-resource') {
+				response.setHeader('content-type', 'application/json');
+				response.end(JSON.stringify({ resource: origin, authorization_servers: [origin] }));
+			} else if (request.url === '/.well-known/oauth-authorization-server') {
+				response.setHeader('content-type', 'application/json');
+
+				response.end(
+					JSON.stringify({
+						issuer: origin,
+						authorization_endpoint: `${origin}/authorize`,
+						token_endpoint: `${origin}/token`,
+						pushed_authorization_request_endpoint: `${origin}/par`,
+						require_pushed_authorization_requests: true,
+						response_types_supported: ['code'],
+						code_challenge_methods_supported: ['S256'],
+						token_endpoint_auth_methods_supported: ['none', 'private_key_jwt'],
+						token_endpoint_auth_signing_alg_values_supported: ['ES256'],
+						dpop_signing_alg_values_supported: ['ES256'],
+						client_id_metadata_document_supported: true
+					})
+				);
+			} else if (request.url === '/par') {
+				response.writeHead(307, { location: '/inside' }).end();
+			} else {
+				inside++;
+				response.writeHead(201, { 'content-type': 'application/json' });
+				response.end(JSON.stringify({ request_uri: 'urn:ietf:params:oauth:request_uri:x', expires_in: 60 }));
+			}
+		});
+
+		await once(server.listen(0, '127.0.0.1'), 'listening');
+		// SAFETY: a server listening on a TCP port reports an AddressInfo.
+		origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+		try {
+			expect(await signIn(origin, true)).toBe('unexpected redirect');
+			expect(inside).toBe(0);
+		} finally {
+			await new Promise((resolve) => server.close(resolve));
+		}
+	});
+});
+
+describe('OAuthService sessions', () => {
+	// A full-length did:plc, the only form the OAuth client takes as a token's subject.
+	const did = 'did:plc:ewvi7nxzyoun6zhxrhs64oiz';
+	const pds = 'https://pds.test';
+	const issuer = 'https://auth.test';
+	const appState = JSON.stringify({ next: '/settings' });
+	const newDpopJwk = () => generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ format: 'jwk' });
+
+	/**
+	 * The service over a PDS and its authorization server, both answering in memory, with an authorization for `did`
+	 * started under the state `started` and the DPoP key `dpopJwk`, as authorize leaves it in the store. Collects the
+	 * tokens it revokes.
+	 */
+	const service = async (dpopJwk: JsonWebKey = newDpopJwk()) => {
+		const db = await openDatabase(':memory:');
+		const revoked: string[] = [];
+
+		const oauth = new OAuthService({
+			config: config('http://127.0.0.1:5173'),
+			db,
+			logger: silentLogger,
+			fetch: async (input, init) => {
+				const request = new Request(input, init);
+				const { origin, pathname } = new URL(request.url);
+
+				switch (`${origin}${decodeURIComponent(pathname)}`) {
+					case `https://plc.directory/${did}`:
+						return Response.json({
+							id: did,
+							alsoKnownAs: [],
+							service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: pds }]
+						});
+					case `${pds}/.well-known/oauth-protected-resource`:
+						return Response.json({ resource: pds, authorization_servers: [issuer] });
+					case `${issuer}/.well-known/oauth-authorization-server`:
+						return Response.json({
+							issuer,
+							authorization_endpoint: `${issuer}/authorize`,
+							token_endpoint: `${issuer}/token`,
+							revocation_endpoint: `${issuer}/revoke`,
+							pushed_authorization_request_endpoint: `${issuer}/par`,
+							require_pushed_authorization_requests: true,
+							response_types_supported: ['code'],
+							code_challenge_methods_supported: ['S256'],
+							token_endpoint_auth_methods_supported: ['none'],
+							dpop_signing_alg_values_supported: ['ES256'],
+							client_id_metadata_document_supported: true
+						});
+					case `${issuer}/token`:
+						return Response.json({
+							access_token: 'access',
+							refresh_token: 'refresh',
+							token_type: 'DPoP',
+							scope: SCOPES.full,
+							sub: did,
+							expires_in: 3600
+						});
+					case `${issuer}/revoke`:
+						revoked.push(new URLSearchParams(await request.text()).get('token') ?? '');
+
+						return Response.json({});
+					default:
+						return new Response(null, { status: 404 });
+				}
+			}
+		});
+
+		const started = { iss: issuer, dpopJwk, verifier: 'v'.repeat(43), appState, authMethod: { method: 'none' } };
+		await db
+			.insertInto('oauthState')
+			.values({ key: 'started', value: JSON.stringify(started), updatedAt: nowIso() })
+			.execute();
+
+		return { oauth, revoked };
+	};
+
+	const declined = new URLSearchParams({ state: 'started', iss: issuer, error: 'access_denied' });
+
+	it('finishes a sign-in into a session it restores, writes with, and revokes', async () => {
+		const { oauth, revoked } = await service();
+
+		expect(await oauth.callback(new URLSearchParams({ state: 'started', iss: issuer, code: 'code' }))).toMatchObject({
+			session: { did },
+			state: appState,
+			scope: SCOPES.full
+		});
+		expect(await oauth.restore(did)).toMatchObject({ did });
+		expect((await oauth.repoClient(did))?.did).toBe(did);
+
+		await oauth.revoke(did);
+		expect(revoked).toEqual(['access']);
+		expect(await oauth.restore(did)).toBeNull();
+		expect(await oauth.repoClient(did)).toBeNull();
+	});
+
+	it('signs out without throwing when revoking fails, as it does for a DID the client refuses', async () => {
+		const { oauth } = await service();
+
+		await expect(oauth.revoke('did:plc:short')).resolves.toBeUndefined();
+	});
+
+	it('sends a declined sign-in back where it started, once, and knows nothing of a state it never stored', async () => {
+		const { oauth } = await service();
+
+		expect(await oauth.failedState(declined)).toBe(appState);
+		expect(await oauth.failedState(declined)).toBeUndefined();
+	});
+
+	it('knows no state for an authorization whose stored key is unreadable', async () => {
+		const { oauth } = await service({ kty: 'EC' });
+
+		expect(await oauth.failedState(declined)).toBeUndefined();
+	});
+
+	it('publishes the client metadata it was built with', async () => {
+		const { oauth } = await service();
+
+		expect(oauth.metadata).toMatchObject({ redirect_uris: ['http://127.0.0.1:5173/oauth/callback'] });
 	});
 });

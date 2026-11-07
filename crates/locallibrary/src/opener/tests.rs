@@ -146,3 +146,49 @@ fn the_opener_gets_exactly_what_was_asked(tc: hegel::TestCase) {
         Err(e) => panic!("{e}"),
     }
 }
+
+/// With [`NO_OPEN`] set, or [`never_open`] called, nothing is started: an address or a file
+/// fails to open as if there were no opener, and the system's opener is never run.
+#[cfg(all(unix, debug_assertions))]
+#[test]
+fn a_test_opens_nothing() {
+    let fake = fake_tools::FakeTools::new();
+    let program = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let file = fake.dir().join("page.html");
+    std::fs::write(&file, "").unwrap();
+    let not_run = format!("{program} failed: not run: {NO_OPEN} is set");
+    // SAFETY: nextest gives each test a process of its own, and no other thread of it reads the
+    // environment while the test runs.
+    unsafe { std::env::set_var(NO_OPEN, "1") };
+    let by_env = [open_url("https://accounts.google.com/o/oauth2/v2/auth"), open_file(&file)];
+    unsafe { std::env::remove_var(NO_OPEN) };
+    never_open();
+    let by_call = [open_url("https://accounts.google.com/o/oauth2/v2/auth"), open_file(&file)];
+    for opened in by_env.iter().chain(&by_call) {
+        assert_eq!(opened.as_ref().map_err(ToString::to_string), Err(not_run.clone()));
+    }
+    assert!(fake.calls().is_empty(), "the opener was run: {:?}", fake.calls());
+}
+
+/// With no opener on the system, opening an address or a file fails naming the opener and why it
+/// couldn't be started.
+#[cfg(unix)]
+#[hegel::test(test_cases = 10)]
+fn prop_a_missing_opener_is_named(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let fake = fake_tools::FakeTools::new();
+    let program = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let name: String = tc.draw(gs::text().alphabet("abc").min_size(1).max_size(8));
+    let file = fake.dir().join(&name);
+    std::fs::write(&file, "").unwrap();
+    let opened = match tc.draw(gs::booleans()) {
+        true => open_url(&format!("https://bsky.app/{name}")),
+        false => open_file(&file),
+    };
+    // ENOENT, as the system says it.
+    let not_found = std::io::Error::from_raw_os_error(2).to_string();
+    match opened {
+        Err(Error::External { command, message }) => assert_eq!((command.as_str(), message), (program, not_found)),
+        other => panic!("{other:?}"),
+    }
+}

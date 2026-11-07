@@ -325,3 +325,117 @@ fn inits_over_what_locallibrary_left_there() {
     Store::open_or_init(dir.path()).unwrap();
     assert!(dir.path().join("store.json").is_file());
 }
+
+/// A store whose making was cut off (by a crash, after its folders and before `store.json`) is
+/// made when it's next opened: nothing but locallibrary wrote what's there.
+#[test]
+fn a_store_whose_making_was_cut_off_is_made_next_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("s");
+    for d in ["objects", "snapshots"] {
+        fs::create_dir_all(root.join(d)).unwrap();
+    }
+    fs::write(root.join("lock"), "").unwrap();
+    Store::open_or_init(&root).unwrap();
+    assert!(root.join("store.json").is_file());
+}
+
+/// Whatever a cut-off make left (its folders, its lock, the temp file `store.json` was being
+/// written through, in any mix), the store is made there next time, and a temp file left beside
+/// it doesn't stop it opening again. Anything locallibrary didn't write, beside them or in its
+/// folders, keeps the folder refused, under the lock too.
+#[hegel::test(test_cases = 100)]
+fn prop_a_cut_off_make_is_finished_unless_something_else_is_there(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("s");
+    fs::create_dir(&root).unwrap();
+    for d in ["objects", "snapshots"] {
+        if tc.draw(gs::booleans()) {
+            fs::create_dir(root.join(d)).unwrap();
+        }
+    }
+    if tc.draw(gs::booleans()) {
+        fs::write(root.join("lock"), "").unwrap();
+    }
+    if tc.draw(gs::booleans()) {
+        fs::write(root.join(format!("{}store.json", crate::paths::TEMP_PREFIX)), "{\"form").unwrap();
+    }
+    let foreign = tc.draw(gs::sampled_from(vec![
+        None,
+        Some("notes.txt"),
+        Some("objects/notes.txt"),
+        Some("snapshots/notes.txt"),
+    ]));
+    if let Some(f) = foreign {
+        let path = root.join(f);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "mine").unwrap();
+    }
+    let made = Store::open_or_init(&root).and_then(|s| s.id());
+    match foreign {
+        Some(f) => {
+            assert!(matches!(made, Err(Error::Invalid(_))), "{made:?}");
+            assert!(!root.join("store.json").exists());
+            assert_eq!(fs::read_to_string(root.join(f)).unwrap(), "mine");
+        }
+        None => {
+            let id = made.unwrap();
+            assert!(root.join("store.json").is_file());
+            assert_eq!(Store::open_or_init(&root).unwrap().id().unwrap(), id);
+        }
+    }
+}
+
+/// A library from another store keeps its id and head, unless this store has a library of that
+/// id or of that name (in any case), or can't read its own: then it's refused, and the libraries
+/// stay as they were.
+#[hegel::test(test_cases = 30)]
+fn prop_a_library_from_another_store_keeps_its_id_unless_taken(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("s")).unwrap();
+    let ours = store.create_library("Main").unwrap();
+    let id_taken = tc.draw(gs::booleans());
+    let name = tc.draw(gs::sampled_from(vec!["Main", "MAIN", "Club"]));
+    let id = if id_taken { ours.id } else { Uuid::new_v4() };
+    let head = tc.draw(gs::booleans()).then(|| Hash::of(b"head"));
+    if tc.draw(gs::booleans()) {
+        // Libraries this store can't read: none is added.
+        fs::write(store.root().join("libraries.json"), b"{").unwrap();
+        assert!(matches!(store.add_library(id, name, head), Err(Error::Parse { .. })));
+        return;
+    }
+    let json = |store: &Store| serde_json::to_value(store.libraries().unwrap()).unwrap();
+    let before = json(&store);
+    let added = store.add_library(id, name, head);
+    let taken = id_taken || name.eq_ignore_ascii_case("Main");
+    match added {
+        Ok(()) => {
+            assert!(!taken, "{name} {id_taken}");
+            let lib = store.library_by_id(id).unwrap().unwrap();
+            assert_eq!((lib.name.as_str(), lib.head), (name, head));
+            assert_eq!(store.libraries().unwrap().len(), 2);
+        }
+        Err(e) => {
+            assert!(taken, "{e}");
+            assert_eq!(e.code(), "conflict", "{e}");
+            assert_eq!(json(&store), before);
+        }
+    }
+}
+
+/// `$LOCALLIBRARY_STORE` names the store's folder when it's set.
+#[hegel::test(test_cases = 10)]
+fn prop_the_default_store_is_where_the_environment_says(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join(tc.draw(gs::sampled_from(vec!["store", "Ünï", "a b"])));
+    // SAFETY: nextest gives each test a process of its own, and no other thread of it reads the
+    // environment while the test runs.
+    unsafe { std::env::set_var("LOCALLIBRARY_STORE", &root) };
+    let set = Store::default_root();
+    unsafe { std::env::remove_var("LOCALLIBRARY_STORE") };
+    assert_eq!(set, root);
+    assert_ne!(Store::default_root(), root);
+}

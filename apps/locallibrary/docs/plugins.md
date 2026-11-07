@@ -2,8 +2,8 @@
 
 A plugin adds to locallibrary the kinds of things below (commands, operations that change a
 library, analyzers that work out values for each track, export and import formats, accounts,
-places to copy the store to...), each in a section of its own. It's a program of its own that
-locallibrary starts when it's first used and talks to over its stdin and stdout (the protocol is in
+places to copy the store to...). It's a program of its own that locallibrary starts when it's
+first used and talks to over its stdin and stdout (the protocol is in
 [loclib-plugin](../../../crates/loclib-plugin)). A plugin never writes to a drive: it reads the
 library through locallibrary, within what its capabilities allow, and an operation hands
 locallibrary the edits it would make, which you're shown and asked about as any edit is, backed up
@@ -52,9 +52,9 @@ are:
   as many as plyr.fm's 5,000 bytes hold) and tagged `dj mix`, and keeps the track's page as the
   set's link, named plyr.fm, and the track's `fm.plyr.track` record as the set's recording.
   plyr.fm takes mp3, wav, m4a, aiff, flac, webm and ogg recordings of up to 1536 MiB, and the
-  plugin refuses others before anything goes. It needs a developer token from
-  plyr.fm/settings#developer, kept as a secret: `locallibrary plugin settings plyr token
-  --secret`. The recording goes straight from its file in the parts plyr.fm asks for (10 MiB),
+  plugin refuses others before anything goes. It uploads with a plyr.fm account (plyr-account's),
+  signed in to with a developer token from plyr.fm/settings#developer: `locallibrary account plyr
+  sign-in`. The recording goes straight from its file in the parts plyr.fm asks for (10 MiB),
   each sent again a few times when it doesn't arrive, with the time locallibrary gives a request
   sending a file (enough for about 1 Mbit/s up). An upload that stops partway is dropped by
   plyr.fm after a day, and publishing again starts over.
@@ -65,9 +65,9 @@ are:
   (`05:30 Artist - Title` lines, as many as fit in the 8,000-byte header it's sent in) and tagged
   `dj mix` and the set's kind, venue and city, and keeps the item's page as the set's link. The item
   is called `CREATOR-DATE-TITLE` (`dj-kit-2026-10-03-closing-set`), with `-2` and on when that's
-  taken. It needs the pair of S3 keys from archive.org/account/s3.php, kept as secrets:
-  `locallibrary plugin settings archive access --secret` and `locallibrary plugin settings archive
-  secret --secret`. The recording goes in one upload, sent again a few times (waiting while the
+  taken. It uploads with an Internet Archive account (archive-account's), signed in to with the
+  pair of S3 keys from archive.org/account/s3.php: `locallibrary account archive sign-in`. The
+  recording goes in one upload, sent again a few times (waiting while the
   Archive says it's busy) when it doesn't arrive; locallibrary gives it as long as 128 KiB/s
   would take, so a 2 GB recording needs about 1 Mbit/s up. The Archive takes a few minutes, sometimes longer, to show a
   new item while it processes it, and the link works once it has. The Archive is only for what
@@ -87,7 +87,7 @@ are:
   chapters when there are three or more, in order, each at least ten seconds long, so a time that
   would break that is left off its line (the dry run says how many). Who can watch it is the
   `privacy` setting, `unlisted` unless you set `private` or `public`. Sign in first with
-  `locallibrary plugin account youtube google sign-in`: it asks Google only to upload videos.
+  `locallibrary account google sign-in --for youtube`: it asks Google only to upload videos.
   The video goes in 16 MiB parts, and one that doesn't arrive is sent again from where YouTube got
   to, a few times at most; an upload that stops partway starts over when you publish again.
 
@@ -109,7 +109,7 @@ are:
   it starts at: a time no later than the one before it is left off, and the dry run says how
   many. The `tags` setting (`locallibrary plugin settings mixcloud tags "house, disco"`) tags it,
   five at most; the `picture` setting is its picture (10 MB at most); and `unlisted` keeps it
-  private. Sign in first with `locallibrary plugin account mixcloud mixcloud sign-in`. The
+  private. Sign in first with `locallibrary account mixcloud sign-in --for mixcloud`. The
   recording goes up in one request, as Mixcloud has no upload in parts: one that doesn't arrive,
   or that Mixcloud fails, is sent again whole, a few times at most, and when Mixcloud says it's
   over its rate limit, publishing waits as long as it asks, up to 15 minutes, else says when to
@@ -124,8 +124,8 @@ are:
 
 - **soundcloud**: a set destination, `track`: `locallibrary sets publish SET --to
   soundcloud:track` uploads the set's recording to SoundCloud as a track of yours and keeps the
-  track's page as the set's link. Sign in first with `locallibrary plugin account soundcloud
-  soundcloud sign-in`. The track is titled after the set (else its venue and date), with its
+  track's page as the set's link. Sign in first with `locallibrary account soundcloud sign-in --for
+  soundcloud`. The track is titled after the set (else its venue and date), with its
   tracklist as the description (`05:30 Artist - Title` lines, as many as SoundCloud's 4,000
   characters hold), tagged `dj mix`, not downloadable, and private unless the `sharing` setting
   says `public`. The `genre` setting is its genre, and the `picture` setting (a JPEG or PNG under
@@ -148,11 +148,16 @@ are:
   Local Network's SoundCloud app is registered with the redirect address
   `http://127.0.0.1:47110/callback`, so signing in needs port 47110 free.
 
-- **google-account**: an account plugin (see [Account plugins](#account-plugins)), the `google`
-  account type, signed in to through Local Network's token exchange. Its scope `youtube-upload`
-  uploads videos to YouTube.
+- **archive-account**: an account plugin (see [Account plugins](#account-plugins)), the
+  `archive` account type, signed in to with the pair of S3 keys from
+  archive.org/account/s3.php. The Archive doesn't say whose keys they are, so you name the
+  account. Its scope `upload` uploads items to the Internet Archive.
+- **google-account**: an account plugin, the `google` account type, signed in to through Local
+  Network's token exchange. Its scope `youtube-upload` uploads videos to YouTube.
 - **mixcloud-account**: an account plugin, the `mixcloud` account type, signed in to through the
   token exchange. Its scope `upload` uploads shows to Mixcloud.
+- **plyr-account**: an account plugin, the `plyr` account type, signed in to with a developer
+  token from plyr.fm/settings#developer. Its scope `upload` uploads tracks to plyr.fm.
 - **soundcloud-account**: an account plugin, the `soundcloud` account type, signed in to through
   the token exchange. Its scopes are `upload`, for uploading tracks to SoundCloud, and `read`, for
   reading from SoundCloud as you.
@@ -186,8 +191,7 @@ On the command line, what a plugin adds runs as commands of its own or of locall
 palette (`:`), and a drive's menu or the actions menu (`e`) where it works on a drive, tracks or a
 playlist, with a form for what it takes, a param the plugin fills from what's selected (the
 tracks, the playlist, the drive) starting as it (see [the player](player.md)). The sidecar has all of it for desktop apps as
-`plugins.*` methods (see [Building a GUI](sidecar.md)). Each kind is below, in a section of its
-own.
+`plugins.*` methods (see [Building a GUI](sidecar.md)).
 
 ## Account plugins
 
@@ -196,35 +200,89 @@ alone, its `[[contributes.account_types]]`: how to sign in to the service, how t
 signed in, and the scopes a plugin may be given, each with the requests it covers. It has no
 code, so locallibrary never starts one: it runs every sign-in from the manifest and keeps the
 tokens itself (see [the decision](adr/0001-account-plugins-are-manifests.md)). Only the ones
-locallibrary ships may use Local Network's token exchange. Those are google-account,
-mixcloud-account and soundcloud-account, in `plugins/accounts/`. `locallibrary plugin` lists the
-account type each adds, and `plugin info` its scopes.
+locallibrary ships, in `plugins/accounts/`, may use Local Network's token exchange:
+google-account, mixcloud-account and soundcloud-account do, and archive-account and plyr-account
+take keys you enter instead (see [the decision](adr/0002-keys-accounts.md)). `locallibrary plugin` lists the account type each adds, and `plugin
+info` its scopes.
 
-Plugins don't use account types yet: each still declares its own accounts (below), which are what
-you sign in to, until they move onto account types.
+A plugin asks for accounts of a type with `[[accounts]]`, naming the scopes it needs and why:
+youtube asks for a google account to upload videos with; archive, mixcloud, plyr and soundcloud
+each for an account of their own type to upload with.
 
 ## Accounts
 
-A plugin may have accounts on other services (a mix host, a cloud drive). `locallibrary plugin
-account PLUGIN ACCOUNT sign-in` opens the service's sign-in page in the browser and waits for it
-to come back to this computer (`--no-browser` prints the link, `--paste` takes the address the
-browser ended up on when it runs on another computer); `status` says whether you're signed in and
-until when, and `sign-out` forgets the tokens and tells the service when it can. In the player,
-"sign in to ACCOUNT…" and "sign out of ACCOUNT" are in the palette, beside the plugin's settings.
+You sign in to an account once, through an account plugin, and the store keeps it. A plugin uses
+it only through the access you give it: the scopes it may use, on that account. `locallibrary
+account` lists your accounts after the DJ account, each with whether it's signed in and the
+plugins that have access to it. `locallibrary account TYPE sign-in` opens the service's sign-in
+page in the browser and waits for it to come back to this computer (`--no-browser` prints the
+link, `--paste` takes the address the browser ended up on when it runs on another computer).
+For a service that gives you keys instead, it prints where to get them and reads them from
+stdin, typed without being shown in a terminal or a line each in the order it lists them, then
+the account's name when the service doesn't say whose they are.
+`--for PLUGIN` gives a plugin access to it, `--with PLUGIN` picks the account plugin when several
+provide the type, and `--scope NAME` asks for one of the type's scopes besides. A service may let
+you leave some of that out on its page: a plugin then goes without the scopes it can do without
+that you left out, and the sign-in says which. `locallibrary account TYPE:NAME sign-in` signs in
+again as that account, also once it's signed out, asking for what every plugin's access to it
+needs; when the browser signs in to someone else, that account is kept too, but the plugin it was
+for gets no access to it.
+`locallibrary account TYPE:NAME sign-out` forgets its tokens and tells the service when it can;
+plugins keep their access, unused until it's signed in again.
+
+`locallibrary plugin access PLUGIN` lists a plugin's access, `--give ACCOUNT` gives it access to
+an account (`--scope NAME` adds a scope it can do without), `--default ACCOUNT` makes an account
+the one it uses for that type, and `--take-away ACCOUNT` takes its access away. When a plugin's
+request fails because its account is signed out or wasn't granted a scope, the error offers to
+sign in again as that account, allowing what's missing. A plugin's destination (and publishing
+a set there) starts only once each type the plugin needs has an account it may use: signed in,
+with every scope it needs, granted by the service, and, when the service doesn't refresh it,
+signed in for an hour yet besides how long sending the recording may take. In the terminal, a
+plugin with no access asks which of your accounts it may use, or to sign in to another; one whose
+account is signed out, won't stay signed in or wasn't granted what it needs asks to sign in again;
+one whose access lacks a scope it needs asks to give it. With `--json`, `--yes` or no terminal,
+and in the sidecar, nothing is asked: it fails and says how to resolve it.
+
+In the player's palette, "sign in to a TYPE account…" signs in to one, "sign out of NAME" signs
+out of one, and "access for PLUGIN…" opens a form choosing which account of each type the plugin
+uses, saying what for, or signing in to another. Signing in with keys there opens a form saying
+where to get them, each typed unseen, then the account's name when the service doesn't say.
+
+A plugin asks for the scopes it can do without when it needs them. In a terminal, and in the
+player, you're asked whether it may, and why it wants them; when the account wasn't granted them,
+allowing it signs in again in the browser, or asks for the account's keys. A no is remembered: it isn't asked again until
+`locallibrary plugin access PLUGIN --give ACCOUNT --scope SCOPE` gives the scope. With `--json`,
+`--yes` or no terminal, in `watch` and in the sidecar, nothing's asked: the plugin fails, saying
+how to give it the scope.
 
 The tokens are kept in the system's keychain, as secret settings are (see [Settings](#settings)),
-and refreshed a minute before they expire. The plugin never sees them: a request it makes names
-the account (`{account:ID}`) where its token goes, the `Authorization` header unless the service
-only takes it in the address (Mixcloud), and locallibrary fills in the token once it has checked
-the request, never sending it on to another server a redirect leads to.
+and refreshed a minute before they expire. An account that isn't refreshed signs itself out as its
+token expires, and one whose service says how long its refresh token lasts signs itself out then:
+`locallibrary account` says when (`signs_out` with `--json`), and in its last two days warns, as a
+destination using it does (offering to sign in again in a terminal) and the player as it starts. A plugin never sees them: a request it makes names the
+account by its type (`{account:TYPE}`) where the type says its token goes, the `Authorization`
+header unless the service only takes it in the address (Mixcloud), and locallibrary fills in the
+token once it has checked the request against the scopes of the plugin's access, never sending it
+on to another server a redirect leads to. When the service refuses the token (a 401), locallibrary
+refreshes it and sends the request once more. A refusal that isn't sent again (the second, or
+one for an account with no refresh token) is passed on to the plugin, and signs the account out
+only when the service says the token is no good (`error="invalid_token"`); one the service won't
+refresh signs it out too. When the service says the token lacks a
+scope, the request fails saying which, and signing in again is offered.
+
+Keys are kept in the keychain the same way, and go only in the `Authorization` header, as the
+account type spells it out (`LOW {access}:{secret}` for the Archive), never in the address.
+Nothing refreshes them: when the service refuses them, the plugin is told what it answered and
+the account stays signed in. Signing in again with the keys the service has now replaces them,
+and a sign-in whose keys the service refuses says to check them where you got them.
 
 Some services (SoundCloud) only take the browser back at the exact address their app was
-registered with, port included. A plugin's account on one of those names its port, and its
+registered with, port included. An account type on one of those names its port, and its
 service's app is registered with `http://127.0.0.1:PORT/callback`. Signing in then needs that port
 free on this computer, and says so when another program has it.
 
 Some services (Mixcloud, SoundCloud, Google) want a client secret when the code is traded for
-tokens, or when they're refreshed. A secret can't ship inside locallibrary, so a plugin's account
+tokens, or when they're refreshed. A secret can't ship inside locallibrary, so an account type
 on one of those is signed in to through Local Network's token exchange
 (`localnetwork.computer/api/token-exchange/<service>`), which adds the secret and passes the
 tokens back. The website never keeps them, and the exchange is the only server besides the
@@ -491,9 +549,9 @@ A service is something a plugin keeps running in the background (watching a fold
 off until you turn it on, `locallibrary plugin settings ID services.NAME on` (or its switch in the
 player's settings form), and runs while the player, the sidecar or `watch` (but not `watch
 --once`) do, never for a command run once. A plugin with a service running isn't stopped as idle.
-One that stops or crashes is started again a second later, then twice that, and so on, and left
-off (saying so) after failing five times in a row. `plugin info` and `plugin list` show each
-plugin's services, and whether they're on.
+One that stops or crashes is started again a second later, then twice that, and so on, up to five
+times in a row, then left off (saying so). `plugin info` and `plugin list` show each plugin's
+services, and whether they're on.
 
 ## Keys
 
@@ -520,9 +578,10 @@ A theme is the colours the player draws in, a plugin's as data: the player's own
 the selection), the waveform's gradients, cue and phrase colours, rekordbox's track colours and
 good, warning and critical. "Night theme" and the others in the player's palette (`:`) draw in
 one from then on, and "default theme" puts the default back; the one chosen is kept in the
-player's `tui.json`, and the next run starts in it. What a theme leaves out is the default's. On a
-light terminal its colours are turned round as the default's are, and with `NO_COLOR` there are
-none.
+player's `tui.json`, and the next run starts in it. What a theme leaves out is the default's, or
+on a light terminal the light palette's. Its own colours are made for a dark background, so on any
+other they're blended towards the terminal's foreground as far as it takes to read. With 16 colours
+each becomes the nearest of them, and with `NO_COLOR` there are none.
 
 ## Writing one
 
@@ -558,13 +617,15 @@ A plugin goes online through locallibrary, which fetches only from the servers i
 capabilities name (`plugin info` lists them), at public https addresses without a user name or password, following redirects only
 to those, as `locallibrary/VERSION` with the plugin's contact setting if it has one, as often as
 its manifest says each server allows. A secret setting, or an account's token, goes only where
-such a request names it (an account's token, only where its manifest says it goes), filled in by
+such a request names it (an account's token, only where its account type says it goes and a scope
+of the plugin's access covers), filled in by
 locallibrary, never on to another server a redirect leads to, and is left out of the plugin's log
 and of the errors it's told. What a server answers is passed on as it is, but for an account's
-token sent in the address, which comes back as the placeholder that named it. The files a plugin
-sends are those in its request's folder (see below) and a set's recording while it publishes the
-set, nothing else. A destination is given stored files to read, never the store's folder to
-write: what it gives back is checked before locallibrary keeps it.
+token sent in the address, which comes back as the placeholder that named it, and a server
+refusing an account's token, which locallibrary answers itself (see [Accounts](#accounts)). The
+files a plugin sends are those in its request's folder (see below) and a set's recording while it
+publishes the set, nothing else. A destination is given stored files to read, never the store's
+folder to write: what it gives back is checked before locallibrary keeps it.
 Images and other large answers come back as files in a folder locallibrary makes for each request
 (`plugins/ID/scratch/`), which it reads itself, never past the folder (nor a link, or a file with
 another name) or more than 512 MiB of them, and removes; `store gc` removes those a locallibrary
@@ -572,5 +633,5 @@ that crashed left. A library source names audio files by path, and locallibrary 
 only when it's in a folder you granted for that build, its links resolved (see
 [Library sources](#library-sources)).
 
-A plugin runs as you and isn't sandboxed, so this is what locallibrary does, not a wall your
-system keeps: a plugin could still read any file you can.
+A plugin runs as you and isn't sandboxed. The limits above are locallibrary's own, and your
+system doesn't enforce them: a plugin could still read any file you can.

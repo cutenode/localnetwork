@@ -112,9 +112,9 @@ fn tokens_match_the_shared_json() {
     );
 }
 
-/// The colours a theme sets are colors.schema.json's colours, but a light background's phrase, cue
-/// and status colours (hosts work those out from the dark ones), in its order, then the player's
-/// own.
+/// The colours a theme sets are colors.schema.json's colours, but a light background's phrase, cue,
+/// status, hot cue label and playhead colours (hosts work those out from the dark ones), in its
+/// order, then the player's own.
 #[test]
 fn theme_tokens_are_the_schemas_colours() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -140,7 +140,11 @@ fn theme_tokens_are_the_schemas_colours() {
     let named: Vec<&str> = named
         .iter()
         .map(String::as_str)
-        .filter(|n| !["status.light.", "phrasesLight.", "cuesLight."].iter().any(|light| n.starts_with(light)))
+        .filter(|n| {
+            !["status.light.", "phrasesLight.", "cuesLight.", "hotCueTextLight", "playheadLight"]
+                .iter()
+                .any(|light| n.starts_with(light))
+        })
         .collect();
     let tokens = loclib_model::theme::TOKENS;
     let ours = tokens.iter().position(|t| t.starts_with("ui.")).expect("the player's own");

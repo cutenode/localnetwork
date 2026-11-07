@@ -74,7 +74,7 @@ describe('the tool menu', () => {
 			panelChrome({ tab: { id: 1, url: 'https://example.com/' } });
 			await mountApp();
 			await click(menuButtons()[index]);
-			// The panel itself, not the ghost that stands in while it loads — the
+			// The panel itself, not the ghost that stands in while it loads: the
 			// ghost has the tool's heading too.
 			await settleUntil(() => document.querySelector('[aria-busy="true"]') === null);
 			expect(document.querySelector('[aria-busy="true"]'), tool.id).toBe(null);
@@ -134,7 +134,7 @@ describe('where the popup was left', () => {
 // A panel is its own chunk, and the session it restores from is a browser
 // API away, so between picking a tool and seeing it there is a moment the
 // popup has to draw something for. What it draws is the tool's own header
-// over a ghost of its body — and the header is drawn from the localStorage
+// over a ghost of its body, and the header is drawn from the localStorage
 // mirror of the route, which needs nothing awaited at all.
 describe('opening a tool that is not there yet', () => {
 	const ghost = () => document.querySelector('[aria-busy="true"]');
@@ -167,9 +167,9 @@ describe('opening a tool that is not there yet', () => {
 		expect(ghost()).not.toBe(null);
 		expect(browser.tabs.query).toHaveBeenCalled();
 
-		// And when the panel does arrive — which is a real dynamic import, so it
-		// is waited for rather than assumed — it is handed that read rather than
-		// starting a second one.
+		// And when the panel does arrive (a real dynamic import, so it is waited
+		// for rather than assumed), it is handed that read rather than starting
+		// a second one.
 		await settleUntil(() => ghost() === null);
 		expect(ghost()).toBe(null);
 		expect(browser.tabs.query).toHaveBeenCalledTimes(1);
@@ -193,9 +193,9 @@ describe('opening a tool that is not there yet', () => {
 	});
 
 	// The queue behind the count in that header is another round trip, and it
-	// has a mirror for the same reason the route does: without one the badge was
-	// missing for a round trip on every single opening, for a queue that had not
-	// moved since the last one.
+	// has a mirror for the same reason the route does: without one the badge
+	// would be missing for a round trip on every opening, for a queue that had
+	// not moved since the last one.
 	it('carries the count of the queue it was left with, before the session has answered', async () => {
 		chrome.storage.session.get.mockReturnValue(new Promise(() => {}));
 		localStorage.setItem('queue:items', JSON.stringify([{ permalink: '/a/one' }, { permalink: '/b/two' }]));
@@ -231,7 +231,7 @@ describe('opening a tool that is not there yet', () => {
 	});
 
 	// The sheet is a chunk of its own, for the same reason the panels are, and
-	// it can go missing the same way — mid-update, with the popup open.
+	// it can go missing the same way: mid-update, with the popup open.
 	it('says so when the queue sheet’s chunk cannot be loaded', async () => {
 		panelChrome({
 			tab: { id: 1, url: 'https://example.com/' },
@@ -352,5 +352,49 @@ describe('the theme', () => {
 		} finally {
 			Object.defineProperty(globalThis, 'localStorage', real!);
 		}
+	});
+});
+
+describe('the toasts', () => {
+	const toastsModule = () => import('../src/lib/toast.svelte.ts');
+
+	const shown = () => [...document.querySelectorAll('[aria-live] > *')].map((t) => t.textContent.trim());
+
+	it('lets something that went wrong be put away by hand, and only that', async () => {
+		await mountApp();
+		const { toasts } = await toastsModule();
+		toasts.ok('copied');
+		toasts.bad('couldn’t copy');
+		await settle();
+		expect(shown()).toEqual(['copied', 'couldn’t copy']);
+		expect(document.querySelectorAll('[aria-live] button')).toHaveLength(1);
+
+		await click(document.querySelector('[aria-live] [aria-label="dismiss"]'));
+		expect(shown()).toEqual(['copied']);
+	});
+
+	it('holds one under the pointer or with focus in it, and lets it go after', async () => {
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+		await mountApp();
+		const { toasts } = await toastsModule();
+		toasts.bad('couldn’t save');
+		await settle();
+		const toast = document.querySelector('[aria-live] > *')!;
+
+		toast.dispatchEvent(new PointerEvent('pointerenter'));
+		vi.advanceTimersByTime(60_000);
+		await settle();
+		expect(shown()).toEqual(['couldn’t save']);
+		toast.dispatchEvent(new PointerEvent('pointerleave'));
+
+		toast.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+		vi.advanceTimersByTime(60_000);
+		await settle();
+		expect(shown()).toEqual(['couldn’t save']);
+
+		toast.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+		vi.advanceTimersByTime(6000);
+		await settle();
+		expect(shown()).toEqual([]);
 	});
 });

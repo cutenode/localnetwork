@@ -6,6 +6,7 @@ import { FEE_TIERS, FORMATS, isOneOf, SET_TYPES } from '#lib/taxonomy/options.ts
 import type { ShowDetails } from '#lib/types.ts';
 import { showDate } from '#lib/server/forms/show.ts';
 import { act, all, requireViewer } from '#lib/server/http.ts';
+import { pageMeta } from '#lib/server/meta.ts';
 import type { Actions, PageServerLoad } from './$types';
 
 function criteriaFrom(params: URLSearchParams) {
@@ -38,7 +39,17 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	// Null when the directory is offline: the form keeps what was entered, so a retry is one click.
 	const results = searched ? await unlessOffline(locals.log, () => locals.app.projects.match(criteria, 30)) : [];
 
-	return { criteria, searched, results, geocoder: locals.app.geocoder.enabled };
+	return {
+		criteria,
+		searched,
+		results,
+		geocoder: locals.app.geocoder.enabled,
+		meta: pageMeta(locals.app.config.publicUrl, {
+			title: 'Match a show',
+			description: 'Describe your show and see which Local Network DJs fit it best, and why.',
+			path: '/match'
+		})
+	};
 };
 
 export const actions: Actions = {

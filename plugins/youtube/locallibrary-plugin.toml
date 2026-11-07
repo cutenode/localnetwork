@@ -13,18 +13,11 @@ name = "video"
 title = "A video on YouTube"
 kind = "set"
 
-# Google wants a client secret when a code is traded for tokens, so the trade goes through Local
-# Network's token exchange, which holds it. Uploading is all the plugin asks to do.
-[[contributes.accounts]]
-id = "google"
-title = "Google (YouTube)"
-authorize_url = "https://accounts.google.com/o/oauth2/v2/auth"
-token_exchange = "https://localnetwork.computer/api/token-exchange/google"
-scopes = ["https://www.googleapis.com/auth/youtube.upload"]
-# PLACEHOLDER: Local Network's Google client isn't registered yet. Once it is, this is its client
-# id (public), the same as the website's GOOGLE_CLIENT_ID, which the token exchange sends with it.
-client_id = "PLACEHOLDER-unregistered.apps.googleusercontent.com"
-revoke_url = "https://oauth2.googleapis.com/revoke"
+# Uploading is all it asks a Google account for.
+[[accounts]]
+type = "google"
+scopes = ["youtube-upload"]
+why = "It uploads each set you publish to YouTube as a video on your channel."
 
 [[contributes.settings]]
 key = "privacy"

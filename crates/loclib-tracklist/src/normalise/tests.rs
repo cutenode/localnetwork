@@ -243,3 +243,45 @@ fn version_word_spellings_are_one_token(tc: TestCase) {
     words.insert(at, spelled);
     assert_eq!(tokens(&words.join(" ")), with_word);
 }
+
+/// ASCII skips taking accents apart and putting them back, and folds as if it hadn't.
+#[hegel::test(test_cases = 200)]
+fn ascii_folds_as_unicode_does(tc: hegel::TestCase) {
+    let s = tc.draw(hegel::generators::text().alphabet("aZ9 \t.&'`-\u{e9}\u{301}\u{2019}\u{fb01}").max_size(12));
+    let mut out = String::new();
+    for c in normalize(&s).nfd() {
+        match c {
+            '\u{300}'..='\u{36f}' | '\'' | '\u{2018}' | '\u{2019}' | '`' | '\u{b4}' | '.' => {}
+            '&' => out.push_str(" and "),
+            c if c.is_alphanumeric() => out.push(c),
+            _ => out.push(' '),
+        }
+    }
+    let unicode: String = out.nfc().collect();
+    assert_eq!(fold(&s), unicode.split_whitespace().collect::<Vec<_>>().join(" "), "{s:?}");
+}
+
+/// A title's core is the same with an aside in brackets nested in brackets; words after a dash
+/// that are neither a version nor a credit stay part of the title; a guest the artist already
+/// credits is credited once; and a version matches itself at least as well as another version.
+#[hegel::test(test_cases = 200)]
+fn prop_asides_suffixes_and_credits_fold_as_they_should(tc: TestCase) {
+    let title = plain_words(&tc, 3).join(" ");
+    let aside = plain_words(&tc, 2).join(" ");
+    let artist = plain_words(&tc, 2).join(" ");
+    let (open, close) = tc.draw(gs::sampled_from(vec![("((", "))"), ("[(", ")]"), ("{[", "]}")]));
+    let nested = Key::new(&format!("{title} {open}{aside}{close}"), &artist, "", None);
+    assert_eq!(nested.title, Key::new(&title, &artist, "", None).title);
+
+    let suffix = plain_words(&tc, 2).join(" ");
+    let dashed = Key::new(&format!("{title} - {suffix}"), &artist, "", None);
+    assert_eq!(dashed.title, fold(&format!("{title} {suffix}")));
+
+    let credited = Key::new(&format!("{title} feat. {artist}"), &artist, "", None);
+    assert_eq!(credited.artists, split_artists(&artist));
+
+    let mix = format!("{} remix", plain_words(&tc, 2).join(" "));
+    let other = format!("{} remix", plain_words(&tc, 2).join(" "));
+    let version = Key::new(&title, &artist, &mix, None);
+    assert!(score(&version, &version) >= score(&version, &Key::new(&title, &artist, &other, None)));
+}

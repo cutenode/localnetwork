@@ -43,7 +43,8 @@ jobs:
     permissions:
       # Cancelling a merge queue group's runs once the group is gone.
       actions: write
-      contents: read
+      # Submitting main's npm packages to the dependency graph.
+      contents: write
       # Labelling the pull request.
       pull-requests: write
     outputs:
@@ -55,6 +56,7 @@ jobs:
       locallibrary_dist: ${{ steps.scope.outputs.locallibrary_dist }}
       locallibrary_other_os: ${{ steps.scope.outputs.locallibrary_other_os }}
       locallibrary_semver: ${{ steps.scope.outputs.locallibrary_semver }}
+      locallibrary_commands: ${{ steps.scope.outputs.locallibrary_commands }}
       web: ${{ steps.scope.outputs.web }}
       web_verify: ${{ steps.scope.outputs.web_verify }}
       web_integration: ${{ steps.scope.outputs.web_integration }}
@@ -71,6 +73,8 @@ jobs:
       repo_checks_lexicons: ${{ steps.scope.outputs.repo_checks_lexicons }}
       repo_checks_ruleset: ${{ steps.scope.outputs.repo_checks_ruleset }}
       codeql: ${{ steps.scope.outputs.codeql }}
+      codeql_unchanged: ${{ steps.scope.outputs.codeql_unchanged }}
+      codeql_base: ${{ steps.scope.outputs.codeql_base }}
       draft: ${{ steps.scope.outputs.draft }}
     steps:
       # A pull request's files come from the API. A push is diffed against the last commit this
@@ -121,8 +125,12 @@ jobs:
               - '.cargo/**'
               - '.config/nextest.toml'
               - 'tools/hegel-coverage.sh'
+              - 'tools/budgets/**'
+              - 'benchmarks/**'
               - '.github/workflows/locallibrary-ci.yml'
               - '.github/actions/pr-comment/**'
+              - '.github/actions/apt-packages/**'
+              - '.github/actions/release-budgets/**'
               - '!**/*.md'
               - '!apps/locallibrary/bombadil/**'
               - '!apps/locallibrary/assets/icon.svg'
@@ -141,6 +149,13 @@ jobs:
               - '!crates/*/tests/**'
               - '!crates/*/examples/**'
               - '!**/*.md'
+            # What decides which commands each build has: lint builds the headless sidecar's tests
+            # for these.
+            locallibrary_commands:
+              - 'apps/locallibrary/src/main.rs'
+              - 'apps/locallibrary/Cargo.toml'
+              - 'apps/locallibrary/tests/it/cli.rs'
+              - '.github/workflows/locallibrary-ci.yml'
             # What `dist plan` reads (see locallibrary-release.yml).
             locallibrary_dist:
               - '**/Cargo.toml'
@@ -199,7 +214,7 @@ jobs:
               - '!tools/oxlint/**'
               - '!.dockerignore'
               - '!apps/web/Dockerfile'
-              - '!apps/web/scripts/docker-smoke.sh'
+              - '!apps/web/tests/docker.test.ts'
               - '!apps/web/tests/e2e/**'
               - '!apps/web/playwright.config.ts'
               - '!apps/web/lighthouserc.cjs'
@@ -226,12 +241,12 @@ jobs:
               - '!apps/web/.storybook/**'
               - '!apps/web/tests/integration/**'
               - '!apps/web/Dockerfile'
-              - '!apps/web/scripts/docker-smoke.sh'
+              - '!apps/web/tests/docker.test.ts'
               - '!apps/web/lighthouserc.cjs'
               - '!apps/web/knip.json'
-            # What the Docker image is built from (.dockerignore lets in only these) and the smoke
-            # test that starts it, which runs the dev network from the workspace. Left out: the
-            # app's tests, stories and the configs only they read.
+            # What the Docker image is built from (.dockerignore lets in only these) and the test
+            # that starts it (tests/docker.test.ts), which runs the dev network from the workspace.
+            # Left out: the app's other tests, stories and the configs only they read.
             web_docker:
               - 'apps/web/**'
               - 'apps/*/README.md'
@@ -244,11 +259,12 @@ jobs:
               - 'patches/**'
               - '.dockerignore'
               - '.github/workflows/web-ci.yml'
-              - '!apps/web/**/*.test.ts'
+              - '!apps/web/{src,scripts}/**/*.test.ts'
               - '!apps/web/**/*.stories.svelte'
               - '!apps/web/**/*.mdx'
               - '!apps/web/.storybook/**'
-              - '!apps/web/tests/**'
+              - '!apps/web/tests/{e2e,integration}/**'
+              - '!apps/web/tests/{build.test,sign-in}.ts'
               - '!apps/web/playwright.config.ts'
               - '!apps/web/lighthouserc.cjs'
               - '!apps/web/knip.json'
@@ -257,9 +273,9 @@ jobs:
             # data it measures them on, its build and Lighthouse config, the dependencies, and the
             # README and guides of the one tool page lighthouse/pages.json marks `pr` (add a tool here
             # when its page is marked). Left out: the app's tests and the helpers and fixture only
-            # they import (src/lib/server/testing, the mix fixture), stories and Storybook docs, and
-            # everything outside these paths (tests/, .storybook/, the lint and format configs, the
-            # website's README, the Dockerfile).
+            # they import (src/lib/server/testing, src/lib/testing, the mix fixture), stories and
+            # Storybook docs, and everything outside these paths (tests/, .storybook/, the lint and
+            # format configs, the website's README, the Dockerfile).
             web_lighthouse:
               - 'apps/web/src/**'
               - 'apps/web/static/**'
@@ -285,6 +301,7 @@ jobs:
               - '!apps/web/**/*.stories.svelte'
               - '!apps/web/**/*.mdx'
               - '!apps/web/src/lib/server/testing/**'
+              - '!apps/web/src/lib/testing/**'
               - '!apps/web/src/lib/mix/fixtures/**'
             localtoolbox:
               - 'apps/localtoolbox/**'
@@ -304,6 +321,10 @@ jobs:
             atstore:
               - 'packages/atstore/**'
               - 'apps/locallibrary/assets/icon.svg'
+              - 'apps/locallibrary/bombadil/lib.mjs'
+              # The playlist page's markup, which the marks capture draws from.
+              - 'apps/localtoolbox/test/helpers/dom.ts'
+              - 'apps/localtoolbox/test/helpers/json.ts'
               - '.oxlintrc.json'
               - '.oxfmtrc.json'
               - 'tools/oxlint/**'
@@ -358,6 +379,19 @@ jobs:
               - '.github/rulesets/**'
               - 'tools/ruleset.sh'
               - '.github/workflows/repo-checks.yml'
+            # What CodeQL extracts for each language without a build, its config, and the
+            # workflow that pins its version: a language none of them changed for has the same
+            # results as the commit this one is diffed against.
+            codeql_rust:
+              - '**/*.rs'
+              - '**/Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/codeql/**'
+              - '.github/workflows/codeql.yml'
+            codeql_javascript:
+              - '**/*.{js,mjs,cjs,jsx,ts,mts,cts,tsx,svelte,vue,html}'
+              - '.github/codeql/**'
+              - '.github/workflows/codeql.yml'
       # Whether the pull request is a draft now, and has the `all-os` label, from the API. The event
       # has the pull request as it was when the event was made: #211 was marked ready a second after
       # a push, GitHub started a run for the push and none for ready_for_review, and the push's event
@@ -383,6 +417,7 @@ jobs:
           DRAFT: ${{ steps.pr.outputs.draft }}
           ALL_OS: ${{ steps.pr.outputs.all_os }}
           BASE: ${{ github.base_ref }}
+          LAST_PASSED: ${{ steps.base.outputs.sha }}
         run: |
           matched() { [ "$(jq -r --arg f "$1" '.[$f] // "false"' <<< "$FILTER")" = true ]; }
           all=false
@@ -396,9 +431,9 @@ jobs:
           declare -A out=()
           set_if() { if "${@:2}"; then out[$1]=true; else out[$1]=false; fi; }
           for name in locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny \
-            locallibrary_dist locallibrary_other_os locallibrary_semver web_verify web_integration \
-            web_e2e web_lighthouse web_docker localtoolbox atstore mix_report npm_advisories \
-            workflow_lint repo_checks_policy repo_checks_lexicons repo_checks_ruleset; do
+            locallibrary_dist locallibrary_other_os locallibrary_semver locallibrary_commands web_verify \
+            web_integration web_e2e web_lighthouse web_docker localtoolbox atstore mix_report \
+            npm_advisories workflow_lint repo_checks_policy repo_checks_lexicons repo_checks_ruleset; do
             out[$name]=false
           done
           if [ "$linux" = true ] && [ "$EVENT" = pull_request ]; then
@@ -407,6 +442,7 @@ jobs:
             set_if locallibrary_deny changed locallibrary_deny
             set_if locallibrary_dist changed locallibrary_dist
             set_if locallibrary_semver changed locallibrary_semver
+            set_if locallibrary_commands changed locallibrary_commands
             set_if web_verify changed web
             set_if web_integration changed web_integration
             set_if web_e2e changed web_e2e
@@ -450,11 +486,26 @@ jobs:
           # every language too.
           codeql=false
           if [ "$DRAFT" != true ] && { [ "$EVENT" != pull_request ] || [ "$BASE" = main ]; }; then codeql=true; fi
+          # A language whose code didn't change (not `all`: a change to this workflow doesn't change
+          # what CodeQL finds) reuses the analysis of the commit this one was diffed against:
+          # main's last passed one for a push or a merge queue group, the base a pull request's
+          # merge commit sits on for a pull request (codeql.yml finds that one).
+          unchanged=()
+          if [ "$EVENT" = pull_request ] || [ -n "$LAST_PASSED" ]; then
+            if ! matched codeql_javascript; then unchanged+=(javascript-typescript); fi
+            if ! matched codeql_rust; then unchanged+=(rust); fi
+          fi
           {
             for name in "${!out[@]}"; do echo "$name=${out[$name]}"; done
             echo "codeql=$codeql"
+            echo "codeql_unchanged=$(jq -cn '$ARGS.positional' --args "${unchanged[@]}")"
+            echo "codeql_base=$LAST_PASSED"
             echo "draft=${DRAFT:-false}"
           } >> "$GITHUB_OUTPUT"
+      # Each commit on main's npm packages, for the dependency graph and for the base side of
+      # dependency-review.yml's review, which looks for a snapshot of the exact base commit.
+      - if: github.event_name == 'push'
+        uses: ./.github/actions/npm-snapshot
       # The tools, areas and kinds of file the pull request changes, as labels (.github/labeler.yml).
       # A fork's pull request gets a read-only token here, so pr-labels.yml labels those instead.
       - if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -497,6 +548,7 @@ jobs:
       dist: ${{ needs.changes.outputs.locallibrary_dist == 'true' }}
       other-os: ${{ needs.changes.outputs.locallibrary_other_os == 'true' }}
       semver: ${{ needs.changes.outputs.locallibrary_semver == 'true' }}
+      commands: ${{ needs.changes.outputs.locallibrary_commands == 'true' }}
 
   web:
     needs: changes
@@ -561,6 +613,9 @@ jobs:
       # Uploading the results to code scanning.
       security-events: write
     uses: ./.github/workflows/codeql.yml
+    with:
+      unchanged: ${{ needs.changes.outputs.codeql_unchanged }}
+      base: ${{ needs.changes.outputs.codeql_base }}
 
   # The check the "Protect Main" ruleset requires. It starts a runner only to fail: when a tool's
   # workflow failed or was cancelled, or was skipped while its changes output was true (it didn't

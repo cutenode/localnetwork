@@ -218,6 +218,21 @@ fn bands_scaled_together_keep_their_ratios() {
     assert_eq!(scaled([&dither], Scale::Together { floor: 0.01 }, [1.0]), [vec![1; 8]]);
 }
 
+/// Series scaled apart are each drawn as it would be scaled together with copies of itself and
+/// no floor: against its own loudest, whatever the others hold.
+#[hegel::test(test_cases = 100)]
+fn prop_series_scaled_apart_are_each_against_their_own_loudest(tc: TestCase) {
+    let n = tc.draw(gs::integers::<usize>().max_value(100));
+    let level = || gs::vecs(gs::floats::<f32>().min_value(0.0).max_value(1.0)).min_size(n).max_size(n);
+    let series: [Vec<f32>; 3] = [tc.draw(level()), tc.draw(level()), tc.draw(level())];
+    let gamma = [1.0, 0.8, 0.5];
+    let apart = scaled(series.each_ref().map(Vec::as_slice), Scale::Apart, gamma);
+    for (k, s) in series.iter().enumerate() {
+        let alone = scaled([s.as_slice(); 3], Scale::Together { floor: 0.0 }, gamma);
+        assert_eq!(apart[k], alone[k], "series {k}");
+    }
+}
+
 /// Any levels scaled together: louder is never drawn lower, whichever series it's in; the
 /// loudest is full height when it's over the floor, and under it as high as it is against it.
 #[hegel::test(test_cases = 200)]

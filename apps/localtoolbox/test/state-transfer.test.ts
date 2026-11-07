@@ -1,4 +1,4 @@
-// state-transfer.ts — the import/export of the Manager tool’s saved state.
+// state-transfer.ts: the import/export of the Manager tool’s saved state.
 //
 // What a valid file looks like is specified in
 // docs/manager-state.schema.json; test/state-schema.test.ts
@@ -57,7 +57,7 @@ describe('the format it reads and writes', () => {
 		expect(state.ARTISTS_KEY).toBe('artists');
 		// The queue's key is not one of them: this file never reaches into the
 		// session area, because the store that owns the queue hands it over and
-		// takes it back (src/lib/queue.svelte.js).
+		// takes it back (src/lib/queue.svelte.ts).
 		// @ts-expect-error -- asking after a key it deliberately does not have
 		expect(state.QUEUE_KEY).toBeUndefined();
 	});
@@ -100,7 +100,7 @@ describe('parse', () => {
 	});
 
 	// The list is newer than the format, so every file exported before it has
-	// no such member — and those still have to read back, marks, lookups and
+	// no such member, and those still have to read back, marks, lookups and
 	// half-worked batch and all.
 	it('reads a file exported before the tool kept a list', () => {
 		const old = file();
@@ -120,7 +120,7 @@ describe('parse', () => {
 
 	// The tool used to be called SoundCloud downloads, and every file exported
 	// then says so. Only the name changed, so such a file is read exactly as a
-	// current one is — refusing it would lose the marks, the cached lookups and
+	// current one is: refusing it would lose the marks, the cached lookups and
 	// the half-worked batch the file was written to keep.
 	it('reads a file exported before the rename', () => {
 		const old = file({ format: 'toolbox.soundcloud-downloads.state' });
@@ -147,11 +147,12 @@ describe('parse', () => {
 		);
 	});
 
-	// The panel shows `error.message`, so a refusal has to be a sentence this
-	// file chose. A value that refuses to become a string — `{"toString": null}`
-	// is valid JSON, and coercing it throws — used to throw a TypeError out of
-	// the message itself, and the panel showed "Cannot convert object to
-	// primitive value" instead of what was wrong with the file.
+	// The settings sheet shows `error.message`, so a refusal has to be a
+	// sentence this file chose. A value that refuses to become a string
+	// (`{"toString": null}` is valid JSON, and coercing it throws) would
+	// otherwise throw a TypeError out of the message itself, and the sheet would
+	// show "Cannot convert object to primitive value" instead of what was wrong
+	// with the file.
 	it('refuses a value that will not turn into a string, in its own words', () => {
 		const awkward = { toString: null };
 		const refused = refusal(state, file({ format: awkward }));
@@ -197,8 +198,8 @@ describe('parse', () => {
 
 		// What the schema calls a date-time, and not whatever Date.parse will
 		// take: that takes a bare date, a lone number, a sentence, a time with no
-		// seconds, and a day the month does not have — all of which the schema
-		// refuses, and none of which `merge` could put in order against a mark
+		// seconds, and a day the month does not have. The schema refuses all of
+		// those, and `merge` could put none of them in order against a mark
 		// already here.
 		it('refuses a time that is not RFC 3339, however readable', () => {
 			const loose = ['2026-09-08', '1', 'Sep 8 2026', '2026-09-08T12:00Z', '2026-02-30T12:00:00Z'];
@@ -419,7 +420,7 @@ describe('parse', () => {
 		});
 
 		// A lookup that failed is not an answer about the track, so it is never
-		// what a track was queued with — and a file saying otherwise is a file
+		// what a track was queued with, and a file saying otherwise is a file
 		// that would hand the Downloader something it cannot read.
 		it('refuses a remembered lookup failure in place of a track’s details', () => {
 			expect(refusal(state, withQueue([queueEntry({ details: { unavailable: true, at: AT } })]))).toMatch(
@@ -510,10 +511,10 @@ describe('snapshot', () => {
 		expect(chrome.storage.local.get).toHaveBeenCalledWith(['downloaded', 'details']);
 	});
 
-	// The queue on screen is the queue in the file. Its store keeps it in
-	// memory when the session area will not take it, so a file written from
-	// storage would leave out exactly the batch someone is looking at — and a
-	// backup that omits what is on screen is the one thing a backup must not do.
+	// The queue on screen is the queue in the file. Its store keeps it in memory
+	// when the session area will not take it, so a file written from storage
+	// would leave out the batch someone is looking at, and a backup must not
+	// omit what is on screen.
 	it('carries the queue it is handed, and reads none from the session area', async () => {
 		globalThis.chrome = createChrome({
 			session: { queue: [queueEntry({ permalink: '/in/storage', details: null })] }
@@ -612,9 +613,10 @@ describe('apply', () => {
 	});
 
 	// The queue is not this file's to write, however much of one the document
-	// carries: the panel hands `doc.queue` to the store that owns it, which is
-	// what keeps a track from being queued twice (test/lib/queue.test.ts) and
-	// what holds the queue at all when the session area will not take it.
+	// carries: the settings sheet hands `doc.queue` to the store that owns it,
+	// which is what keeps a track from being queued twice
+	// (test/lib/queue.test.ts) and what holds the queue at all when the
+	// session area will not take it.
 	it('leaves the session queue alone, and never so much as reads it', async () => {
 		const held = queueEntry({ permalink: '/already/here', details: null });
 		globalThis.chrome = createChrome({ session: { queue: [held] } });
@@ -676,7 +678,7 @@ describe('apply, asked to replace', () => {
 	});
 
 	// The one case an add would have refused outright: a file whose details are
-	// older than what is cached. Replacing takes them anyway — the file is the
+	// older than what is cached. Replacing takes them anyway: the file is the
 	// answer, not a second opinion.
 	it('takes the file’s details even where what is stored is newer', async () => {
 		globalThis.chrome = createChrome({

@@ -18,6 +18,9 @@ path = "src/main.rs"
 doc = false
 # Its unit tests are built as the `unit` test below.
 test = false
+# Nothing here is a benchmark. `cargo bench --benches`, as `cargo codspeed build` runs it, would
+# otherwise build its tests without debug assertions, which they need.
+bench = false
 
 # The binary's unit tests (src/main.rs and its modules, through src/unit.rs), built as an
 # integration test so cargo and nextest hand them the binary's path (`CARGO_BIN_EXE_locallibrary`)
@@ -43,7 +46,7 @@ account = ["locallibrary/account"]
 # `store serve` and `store fetch`: copying snapshots between computers over the network.
 peers = ["locallibrary/peers"]
 # The interactive player (`locallibrary tui`, and `locallibrary` on its own in a terminal).
-tui = ["dep:ratatui", "dep:rodio", "dep:rustfft", "dep:loclib-waveform"]
+tui = ["dep:ratatui", "dep:rodio", "dep:rustfft", "dep:loclib-waveform", "dep:crossterm", "dep:terminal-colorsaurus", "dep:terminal-trx"]
 # The player's audio output: cpal, and ALSA on Linux. Without it the player browses, edits and
 # shows waveforms, but there's no output to play through.
 playback = ["tui", "rodio/playback"]
@@ -107,13 +110,23 @@ locallibrary-plugin-archive = { version = "0.1.0", path = "../../plugins/archive
 locallibrary-plugin-youtube = { version = "0.1.0", path = "../../plugins/youtube" }
 locallibrary-plugin-mixcloud = { version = "0.1.0", path = "../../plugins/mixcloud" }
 locallibrary-plugin-soundcloud = { version = "0.1.0", path = "../../plugins/soundcloud" }
+# The player asks the terminal for its real colours (OSC 10 and 11) as it starts.
+terminal-colorsaurus = { version = "1.0.3", optional = true }
 
 [target.'cfg(unix)'.dependencies]
+# Only for `use-dev-tty`: the player's input read with poll(2) rather than mio (ratatui brings the
+# rest). A terminal that has gone away (closed, or taken from the player as the shell it ran in
+# exits) reads empty at once, forever. mio's reader retries those reads without end, so the player
+# spun at full CPU and never got back to quit on SIGHUP or SIGTERM; this one returns at the poll's
+# timeout, or with the error.
+crossterm = { version = "0.29", default-features = false, features = ["use-dev-tty"], optional = true }
 # Sending a long listing through a pager (dup2), and SIGPIPE for output piped into `head`.
 libc = "0.2"
 # SIGTERM for the RPC sidecar; the TUI also lets a drive write finish and saves its state when the
 # terminal closes (SIGHUP) or it's told to stop (SIGTERM). Already built for crossterm.
 signal-hook = "0.3"
+# The terminal the player asks about colour depth, as terminal-colorsaurus finds it (and brings it).
+terminal-trx = { version = "0.2.6", optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true
@@ -135,10 +148,14 @@ tokio.workspace = true
 loclib-model = { workspace = true, features = ["test-util"] }
 # Writes the Traktor collections the interop plugin's library source is tested on.
 loclib-interop.workspace = true
+# The mock OAuth service accounts are signed in to at (crates/locallibrary/tests/support/mock_oauth.rs).
+oauth2 = { version = "5.0.0", default-features = false }
+form_urlencoded = "1.2.2"
 
 [lints]
 workspace = true
 
 [build-dependencies]
+serde_json.workspace = true
 # Reads this manifest's dependencies, to check there's one for every plugin (build.rs).
-toml = { version = "1.1.6", default-features = false, features = ["std", "serde", "parse"] }
+toml = { version = "1.1.6", default-features = false, features = ["std", "serde", "parse", "preserve_order"] }

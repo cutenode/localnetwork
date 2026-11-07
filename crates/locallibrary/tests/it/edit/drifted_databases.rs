@@ -71,8 +71,7 @@ fn what_onelibrary_lacks_is_edited_in_export_pdb_and_skipped_there() {
 }
 
 /// A CDJ-3000X saves its playlist edits to OneLibrary alone. An edit planned on export.pdb's
-/// entries used to give OneLibrary export.pdb's entries plus the edit, dropping the player's; they
-/// stay, after the edit's, with a warning.
+/// entries doesn't drop the player's: they stay, after the edit's, with a warning.
 #[test]
 fn entries_only_onelibrary_has_survive_an_edit_of_the_playlist() {
     use locallibrary::onelibrary::OneLibrary;

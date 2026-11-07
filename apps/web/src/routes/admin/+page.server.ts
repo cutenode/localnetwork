@@ -20,7 +20,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		requests,
 		projects,
 		audit,
-		recent: recent.map((entry) => ({ ...entry, actor: accounts.get(entry.actorDid)! })),
+		recent: recent.map((entry) => ({ ...entry, actor: accounts.get(entry.actorDid) })),
 		syncErrors: sync.filter((space) => space.lastError).length,
 		spaces: sync.length,
 		pending

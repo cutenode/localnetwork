@@ -3,6 +3,7 @@ import { ACCESS_PRESETS, type EpkAccess, type EpkFields, type EpkPhoto, type Epk
 import { COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import type { ProjectView } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
+import { memberSpacePolicy } from '../atproto/repo-client';
 import { toJson } from '../services/epk-fields';
 import { createTestServices, ROOT } from './core';
 
@@ -80,6 +81,26 @@ export async function pressKitServices() {
 			return result.epk;
 		},
 
+		/**
+		 * A grant the root wrote into the press kit's space, as grants were, with the subject's place there, indexed as the
+		 * sync would. Returns the record's URI.
+		 */
+		async grantedBefore(epk: EpkView, value: { subject: string; via: string; createdAt: string }): Promise<string> {
+			const root = t.net.client(ROOT);
+			await root.putMember({ space: epk.space, did: value.subject, read: true, write: false });
+
+			const ref = await root.putSpaceRecord({
+				space: epk.space,
+				collection: COLLECTION.epkGrant,
+				rkey: value.subject,
+				record: validateRecord(COLLECTION.epkGrant, value)
+			});
+
+			await t.epks.indexGrant({ space: epk.space, uri: ref.uri, repoDid: ROOT, value });
+
+			return ref.uri;
+		},
+
 		/** A photo uploaded to `did`'s repo. */
 		async photo(did: string, name: string): Promise<EpkPhoto> {
 			return { image: await t.net.client(did).uploadBlob(new TextEncoder().encode(name), 'image/png'), alt: name };
@@ -95,9 +116,7 @@ export async function pressKitServices() {
 			const space = await client.createSpace({
 				spaceType: SPACE_TYPE.epk,
 				skey: rkey,
-				readPolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
-				writePolicy: { $type: 'com.atproto.simplespace.defs#publicPolicy' },
-				appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+				policy: memberSpacePolicy({ publicWrite: true })
 			});
 
 			await client.putMember({ space, did: ROOT, read: true, write: true });

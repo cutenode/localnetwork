@@ -13,7 +13,7 @@ import {
 import { COLLECTION } from '#lib/nsid.ts';
 import type { SharedSpaceSummary, SpacePerson, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
-import type { RepoWrite, RootRepoClient } from '../atproto/repo-client';
+import { memberSpacePolicy, type RepoWrite, type RootRepoClient } from '../atproto/repo-client';
 import { parseSpaceUri, SHARED_SPACE_TYPES, sharedSpace, sharedSpaceKind } from '../atproto/spaces';
 import type { ActorRole, AuditAction, AuditChange } from '../audit/log';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
@@ -24,8 +24,6 @@ import { reconcileMembers } from './space-members';
 
 /** The one listing status record's key in each space. */
 const LISTING_STATUS_KEY = 'self';
-
-const memberList = { $type: 'com.atproto.simplespace.defs#memberListPolicy' } as const;
 
 const personRecord = z.object({
 	subject: z.string(),
@@ -151,9 +149,7 @@ export class SharedSpaces {
 		await root.createSpace({
 			spaceType: SHARED_SPACE_TYPES[kind],
 			skey,
-			readPolicy: memberList,
-			writePolicy: memberList,
-			appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+			policy: memberSpacePolicy()
 		});
 		await root.applySpaceWrites(space, [
 			{
@@ -173,7 +169,7 @@ export class SharedSpaces {
 		await this.savePerson(space, kind, person);
 		await this.syncPeople({ space, kind, root, people: new Map([[actor.did, person]]) });
 		await this.core.watchSpace?.(space);
-		this.core.logger.info({ space, kind }, 'created a shared space');
+		this.core.logger.info('created a shared space', { space, kind });
 		await this.record(actor, 'member', 'space.create', space, `Started a ${kind}`, { person: actor.did, role });
 
 		return space;
@@ -219,10 +215,11 @@ export class SharedSpaces {
 		return rows.map((row) => ({
 			uri: row.spaceUri,
 			kind: row.kind,
-			skey: parseSpaceUri(row.spaceUri)?.skey ?? '',
+			// saveStatus only runs for a space index() or live() parsed, so every row's URI parses.
+			skey: parseSpaceUri(row.spaceUri)!.skey,
 			listed: row.listed === 1,
 			people: Number(row.people),
-			createdBy: accounts.get(row.createdBy) ?? { did: row.createdBy, handle: null },
+			createdBy: accounts.get(row.createdBy),
 			createdAt: row.createdAt
 		}));
 	}
@@ -242,7 +239,7 @@ export class SharedSpaces {
 
 		return shown.map((row) => ({
 			did: row.did,
-			handle: accounts.get(row.did)?.handle ?? null,
+			handle: accounts.get(row.did).handle,
 			role: row.role,
 			capabilities: parseJson<Capability[]>(row.capabilities, []),
 			hidden: row.hidden === 1,
@@ -444,7 +441,7 @@ export class SharedSpaces {
 			try {
 				spaces = await root.listSpaces(type);
 			} catch (error) {
-				this.core.logger.warn({ err: error, type }, "could not list the root's shared spaces");
+				this.core.logger.warn("could not list the root's shared spaces", { err: error, type });
 				continue;
 			}
 
@@ -452,7 +449,7 @@ export class SharedSpaces {
 				try {
 					await this.syncMembers(space);
 				} catch (error) {
-					this.core.logger.warn({ err: error, space }, "could not sync a shared space's members");
+					this.core.logger.warn("could not sync a shared space's members", { err: error, space });
 				}
 			}
 		}
@@ -469,10 +466,11 @@ export class SharedSpaces {
 		const indexed = await this.save(kind, change);
 
 		if (!indexed)
-			this.core.logger.warn(
-				{ space: change.space, collection: change.collection, rkey: change.rkey },
-				'ignoring a shared space record this app cannot read'
-			);
+			this.core.logger.warn('ignoring a shared space record this app cannot read', {
+				space: change.space,
+				collection: change.collection,
+				rkey: change.rkey
+			});
 	}
 
 	/** Saves a shared space's record to the index, or returns false when it isn't one this app reads. */
@@ -679,7 +677,7 @@ export class SharedSpaces {
 		if (manages(after) || !manages(live.people)) return false;
 
 		if (!actor.isStaff) throw new UserError('Someone else has to be able to manage its people first');
-		this.core.logger.warn({ space: live.space, actor: actor.did }, 'staff left a shared space nobody can manage');
+		this.core.logger.warn('staff left a shared space nobody can manage', { space: live.space, actor: actor.did });
 
 		return true;
 	}

@@ -42,10 +42,46 @@ fn each_accounts_secrets_have_their_own_place_in_the_file() {
     assert_eq!(read_secrets(root, Storage::File, "did:plc:b").unwrap(), None);
     delete_secrets(root, Storage::File, "did:plc:b").unwrap();
     assert_eq!(read_secrets(root, Storage::File, "did:plc:a").unwrap(), Some(secrets("ref-a")));
-    // A file that can't be read is replaced by the next sign-in.
+    // A damaged file is replaced by the next sign-in.
     std::fs::write(root.join(SECRETS_FILE), "{ not json").unwrap();
     write_secrets(root, Storage::File, "did:plc:b", &secrets("ref-b")).unwrap();
     assert_eq!(read_secrets(root, Storage::File, "did:plc:b").unwrap(), Some(secrets("ref-b")));
+}
+
+/// The session file holds every account's secrets. One that can't be read right now stays as it
+/// is: signing in or out says why it can't, where it used to replace the file or delete it. One
+/// that's damaged, even past being text, is still replaced.
+#[cfg(unix)]
+#[hegel::test(test_cases = 10)]
+fn a_session_file_that_cant_be_read_keeps_every_account(tc: hegel::TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let file = root.join(SECRETS_FILE);
+    let secrets = |refresh: &str| Map::from_iter([("refresh_token".to_string(), Value::from(refresh))]);
+    let token: String = tc.draw(hegel::generators::from_regex("[a-z]{1,6}").fullmatch(true));
+    write_secrets(root, Storage::File, "did:plc:a", &secrets(&token)).unwrap();
+    write_secrets(root, Storage::File, "did:plc:b", &secrets("ref-b")).unwrap();
+    let before = std::fs::read(&file).unwrap();
+    let mode = |bits: u32| std::fs::set_permissions(&file, std::fs::Permissions::from_mode(bits)).unwrap();
+    mode(0o000);
+    // Root reads anything.
+    if std::fs::read(&file).is_ok() {
+        return mode(0o600);
+    }
+    let signed_in = write_secrets(root, Storage::File, "did:plc:c", &secrets("ref-c"));
+    let signed_out = delete_secrets(root, Storage::File, "did:plc:a");
+    let kept = file.exists();
+    if kept {
+        mode(0o600);
+    }
+    assert!(kept, "signing out left the file");
+    assert!(matches!(signed_in, Err(Error::Io { .. })), "{signed_in:?}");
+    assert!(matches!(signed_out, Err(Error::Io { .. })), "{signed_out:?}");
+    assert_eq!(std::fs::read(&file).unwrap(), before);
+    std::fs::write(&file, [0xff, 0xfe]).unwrap();
+    write_secrets(root, Storage::File, "did:plc:c", &secrets("ref-c")).unwrap();
+    assert_eq!(read_secrets(root, Storage::File, "did:plc:c").unwrap(), Some(secrets("ref-c")));
 }
 
 #[test]
@@ -387,4 +423,61 @@ fn the_store_agrees_with_a_model_of_one_account(tc: TestCase) {
             assert!(!in_keychain.expects(state), "each store's own");
         }
     }
+}
+
+/// The keychain keeps a store's secrets only for a folder that is a store (its item is named by
+/// the store's ID): reading, writing or removing them anywhere else says so. A keychain item
+/// that isn't JSON, or isn't an object, is said to be damaged without quoting it.
+#[hegel::test(test_cases = 20)]
+fn prop_keychain_secrets_need_a_store_and_an_object(tc: TestCase) {
+    crate::atmosphere::tests::mock_keychain();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let did = tc.draw(gs::sampled_from(DIDS.to_vec()));
+    let secrets = Map::from_iter([("refresh_token".to_string(), Value::from("super-secret"))]);
+    let not_a_store = |e: Error| assert_eq!(e.code(), "not_found", "{e}");
+    match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => not_a_store(read_secrets(root, Storage::Keychain, did).unwrap_err()),
+        1 => not_a_store(write_secrets(root, Storage::Keychain, did, &secrets).unwrap_err()),
+        _ => not_a_store(delete_secrets(root, Storage::Keychain, did).unwrap_err()),
+    }
+    crate::store::Store::open_or_init(root).unwrap();
+    let kept = tc.draw(gs::sampled_from(vec!["{\"refresh_token\": \"super-secret\",", "[\"super-secret\"]", "\"x\""]));
+    keychain_entry(root, did).unwrap().set_password(kept).unwrap();
+    let err = read_secrets(root, Storage::Keychain, did).unwrap_err().to_string();
+    assert!(!err.contains("super-secret") && err.ends_with("sign in again"), "{err}");
+    write_secrets(root, Storage::Keychain, did, &secrets).unwrap();
+    assert_eq!(read_secrets(root, Storage::Keychain, did).unwrap(), Some(secrets));
+    delete_secrets(root, Storage::Keychain, did).unwrap();
+    assert_eq!(read_secrets(root, Storage::Keychain, did).unwrap(), None);
+}
+
+/// Secrets left behind are remembered once each, however often they're left; and a saved account
+/// whose DID isn't one any more is no session jacquard is told of.
+#[hegel::test(test_cases = 20)]
+fn prop_what_is_left_behind_is_remembered_once(tc: TestCase) {
+    let places: Vec<(Storage, &str)> = tc.draw(gs::vecs(gs::tuples!(
+        gs::sampled_from(vec![Storage::File, Storage::Keychain]),
+        gs::sampled_from(DIDS.to_vec())
+    )));
+    let mut file = AccountFile::default();
+    for (storage, did) in &places {
+        file.leave_behind(*storage, did);
+    }
+    let mut want: Vec<(Storage, String)> = Vec::new();
+    for (storage, did) in places {
+        if !want.contains(&(storage, did.to_string())) {
+            want.push((storage, did.to_string()));
+        }
+    }
+    assert_eq!(file.left_behind, want);
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let store = LocalStore::new(root, Storage::File, Client::Loopback, "http://127.0.0.1:1/callback".into(), vec![]);
+    block_on(store.upsert_session(crate::atmosphere::tests::session(DIDS[0], "refresh-1"))).unwrap();
+    let mut saved = AccountFile::load(root).unwrap();
+    saved.account.as_mut().unwrap().info.did = tc.draw(gs::sampled_from(vec!["", "did:", "not a did"])).into();
+    saved.save(root).unwrap();
+    assert!(block_on(store.list_session_keys()).unwrap().is_empty());
 }

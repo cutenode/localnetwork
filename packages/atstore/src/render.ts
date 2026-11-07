@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { Browser } from 'playwright';
-import type { Frame, Listing, Shot } from './types.ts';
+import type { Frame, Listing } from './types.ts';
 
 /** The icon's side. The AT Store crops icons to a square and rounds the corners itself. */
 export const ICON_SIZE = 1024;
@@ -27,7 +27,8 @@ export async function snap(browser: Browser, html: string, width: number, height
 
 	try {
 		await page.setContent(html, { waitUntil: 'load' });
-		await page.evaluate(() => document.fonts.ready);
+		// An expression rather than a function: it runs in the page, where this process's coverage can't count a function.
+		await page.evaluate('document.fonts.ready');
 
 		return await page.screenshot({ type: 'png' });
 	} finally {
@@ -55,12 +56,12 @@ function bar(frame: Frame): string {
 	return `<div class="bar">${dots}${label}</div>`;
 }
 
-/** The hero's HTML: the icon, eyebrow and name on the left, the screenshots in their frame running off the right. */
-export function heroHtml(listing: Listing, svg: string, shots: Shot[]): string {
+/** The hero's HTML: the icon, eyebrow and name on the left, the screenshots (PNGs) in their frame running off the right. */
+export function heroHtml(listing: Listing, svg: string, shots: Buffer[]): string {
 	const { frame } = listing.hero;
 
 	const windows = shots
-		.map((shot) => `<figure>${bar(frame)}<img src="${dataUrl('image/png', shot.png)}" alt=""></figure>`)
+		.map((png) => `<figure>${bar(frame)}<img src="${dataUrl('image/png', png)}" alt=""></figure>`)
 		.join('');
 
 	return `<!doctype html>
@@ -110,6 +111,6 @@ figure img { display: block; width: 100%; }
 }
 
 /** The hero, drawn at HERO's size. */
-export function renderHero(browser: Browser, listing: Listing, svg: string, shots: Shot[]): Promise<Buffer> {
+export function renderHero(browser: Browser, listing: Listing, svg: string, shots: Buffer[]): Promise<Buffer> {
 	return snap(browser, heroHtml(listing, svg, shots), HERO.width, HERO.height);
 }

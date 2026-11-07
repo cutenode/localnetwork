@@ -101,8 +101,14 @@ export class FakeSpaceHost {
 	readonly issued: string[] = [];
 	/** An error the repo host answers its writers' repo reads with, as a hostile or broken PDS could. */
 	repoError: string | null = null;
+	/** Errors one writer's repo reads answer with, by DID, for one bad repo among good ones. */
+	readonly repoErrors = new Map<string, string>();
+	/** How many repos a listRepos page holds. */
+	repoPageSize = 500;
 	/** MACs responses with a secret of its own instead of the one it shares with the syncer. */
 	forgeMacs = false;
+	/** Answers a method gets in place of the real one, by NSID, as a hostile host could send. */
+	readonly overrides = new Map<string, () => Response>();
 	readonly identity = new HostIdentity(this);
 	private readonly repos = new Map<string, HostedRepo>();
 
@@ -154,6 +160,9 @@ export class FakeSpaceHost {
 		const nsid = url.pathname.replace(/^\/xrpc\//, '');
 		const body: unknown = request.method === 'POST' ? await request.json() : undefined;
 		this.requests.push({ nsid, headers: request.headers, body });
+		const override = this.overrides.get(nsid);
+
+		if (override) return override();
 
 		if (nsid === 'com.atproto.space.getSpaceCredential') {
 			const asked = credentialRequest.safeParse(body);
@@ -180,12 +189,20 @@ export class FakeSpaceHost {
 
 		if (nsid === 'com.atproto.space.listRepos') {
 			const since = params.cursor ?? '';
-			const repos = [...this.repos].filter(([, repo]) => repo.rev > since);
 
-			return Response.json({ repos: repos.map(([did, { rev }]) => ({ did, repoRev: rev, spaceRev: rev })) });
+			const repos = [...this.repos]
+				.filter(([, repo]) => repo.rev > since)
+				.toSorted(([, a], [, b]) => (a.rev < b.rev ? -1 : 1));
+
+			const page = repos.slice(0, this.repoPageSize);
+			const cursor = repos.length > page.length ? page.at(-1)?.[1].rev : undefined;
+
+			return Response.json({ repos: page.map(([did, { rev }]) => ({ did, repoRev: rev, spaceRev: rev })), cursor });
 		}
 
-		if (this.repoError) return xrpcError(400, this.repoError);
+		const repoError = this.repoError ?? this.repoErrors.get(params.repo);
+
+		if (repoError) return xrpcError(400, repoError);
 		const repo = this.repos.get(params.repo);
 
 		if (!repo || !isDidString(params.repo)) return xrpcError(400, 'RepoNotFound');

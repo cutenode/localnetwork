@@ -151,9 +151,7 @@ fn refused(answer: &Fetched) -> (Next, RpcError) {
     let limit = format!("{} {}", said.kind, said.message).to_lowercase().contains("limit");
     match status {
         408 | 500.. => (Next::Again(None), failed("external", "")),
-        401 => {
-            (Next::Stop, failed("permission", "sign in again: locallibrary plugin account mixcloud mixcloud sign-in"))
-        }
+        401 => (Next::Stop, failed("permission", "")),
         400..=499 if limit => {
             let why = "a free Mixcloud account keeps 10 shows published: move one to your drafts, or go Pro";
             (Next::Stop, failed("invalid", why))

@@ -1157,3 +1157,141 @@ fn setting_up_stops_at_the_step_the_drive_went_away_in(tc: TestCase) {
         false => assert!(registered.is_empty(), "{registered:?}"),
     }
 }
+
+/// Main and Backup, clones of the library Main, Backup's database damaged (rewritten as garbage,
+/// or cut short): the status and the fleet view still list Backup in Main, saying why it can't be
+/// compared with the newest snapshot, and Main as identical to it; the fleet view can't tell
+/// whether the two hold the same.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_drive_whose_database_cant_be_read_is_listed_with_why(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, main) = saved_copy(dir.path());
+    let backup = main.with_file_name("Backup");
+    saved_demo().1.write(&backup);
+    crate::props_api_jobs::own_identity(&store, &mut locallibrary::device::Device::open(&backup).unwrap(), "Backup");
+    let pdb = backup.join(locallibrary::paths::EXPORT_PDB);
+    match tc.draw(gs::booleans()) {
+        true => std::fs::write(&pdb, b"not a database").unwrap(),
+        false => {
+            let bytes = std::fs::read(&pdb).unwrap();
+            std::fs::write(&pdb, &bytes[..bytes.len() / 3]).unwrap();
+        }
+    }
+    let ctx = Ctx::silent();
+    let status = api::status(Some(&store), &ctx).unwrap();
+    let of = |root: &Path| status.iter().find(|s| s.drive.root == root).unwrap();
+    let broken = of(&backup);
+    assert_eq!((broken.library.as_deref(), broken.relation), (Some("Main"), None));
+    assert!(broken.error.is_some(), "{broken:?}");
+    let fine = of(&main);
+    assert_eq!((fine.relation, fine.error.as_deref()), (Some(locallibrary::compare::Relation::Identical), None));
+    let fleet = api::fleet_status(Some(&store), &api::FleetRequest::default(), &ctx).unwrap();
+    let [lib] = fleet.libraries.as_slice() else { panic!("{:?}", fleet.libraries) };
+    assert_eq!((lib.mounted.len(), lib.identical), (2, None));
+}
+
+/// A saved drive with an analysis file damaged, whose good copy in the store is damaged too: the
+/// check finds the file and names the store to repair it from, and the repair fails for it,
+/// writing nothing and noting the failure as a problem in the drive's logbook.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_repair_from_a_damaged_copy_fails_and_is_noted(tc: TestCase) {
+    use locallibrary::paths::{FileClass, classify};
+    let dir = tempfile::tempdir().unwrap();
+    let (store, root) = saved_copy(dir.path());
+    let ctx = Ctx::silent();
+    let analysis: Vec<String> = common::library_files(&root)
+        .into_iter()
+        .map(|(k, _)| k)
+        .filter(|k| classify(k) == Some(FileClass::Analysis))
+        .collect();
+    let key = tc.draw(gs::sampled_from(analysis));
+    common::rot(&locallibrary::paths::to_fs(&root, &key));
+    let verify = api::VerifyRequest { drive: path(&root), snapshot: None, against: Vec::new() };
+    let report = api::drive_verify(Some(&store), &verify, &ctx).unwrap();
+    let [problem] = report.damaged.as_slice() else { panic!("{:?}", report.damaged) };
+    assert_eq!(problem.path, key);
+    let object = store.object_path(&problem.expected.unwrap());
+    let mut perms = std::fs::metadata(&object).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    perms.set_readonly(false);
+    std::fs::set_permissions(&object, perms).unwrap();
+    common::rot(&object);
+    let before = std::fs::read(locallibrary::paths::to_fs(&root, &key)).unwrap();
+
+    let req = api::RepairRequest { drive: path(&root), problems: report.damaged.clone(), against: Vec::new() };
+    let repaired = api::drive_repair(Some(&store), &req, &ctx).unwrap();
+    assert!(repaired.repaired.is_empty(), "{:?}", repaired.repaired);
+    assert_eq!(repaired.failed.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), [key.as_str()]);
+    assert_eq!(std::fs::read(locallibrary::paths::to_fs(&root, &key)).unwrap(), before, "nothing written");
+    let id = locallibrary::device::Device::open(&root).unwrap().id().unwrap();
+    let problems = store.drives().unwrap()[&id].log.problems.clone();
+    assert!(problems.iter().any(|p| p.kind == "repair_failed"), "{problems:?}");
+}
+
+/// With the store's drive registry unreadable (garbage, or cut short), the drive commands that
+/// read it fail, naming the file, rather than taking the registry as empty: the fleet view, a
+/// drive's logbook by name or path, the record a change would make, the known drives, forgetting
+/// a drive and giving it a role. The registry is left as it was.
+#[hegel::test(test_cases = 10)]
+fn prop_an_unreadable_drive_registry_fails_the_commands_that_read_it(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, main) = saved_copy(dir.path());
+    let registry = store.root().join("drives.json");
+    let damaged = match tc.draw(gs::booleans()) {
+        true => b"not json".to_vec(),
+        false => {
+            let bytes = std::fs::read(&registry).unwrap();
+            bytes[..bytes.len() / 2].to_vec()
+        }
+    };
+    std::fs::write(&registry, &damaged).unwrap();
+    let spec = tc.draw(gs::sampled_from(vec!["Main".to_string(), path(&main)]));
+    let drive = DriveRef { drive: spec.clone() };
+    let ctx = Ctx::silent();
+    let failed = match tc.draw(gs::integers::<u8>().max_value(5)) {
+        0 => api::fleet_status(Some(&store), &api::FleetRequest::default(), &ctx).map(|_| ()),
+        1 => api::drive_log(&store, &drive).map(|_| ()),
+        2 => api::drive_to_change(&store, &drive).map(|_| ()),
+        3 => api::drives_known(&store, &api::FleetRequest::default()).map(|_| ()),
+        4 => api::drive_forget(&store, &drive).map(|_| ()),
+        _ => api::drive_role(&store, &api::SetRole { drive: spec, role: Some("backup".into()) }).map(|_| ()),
+    };
+    let e = failed.unwrap_err();
+    assert!(e.to_string().contains("drives.json"), "{e}");
+    assert_eq!(std::fs::read(&registry).unwrap(), damaged, "left as it was");
+}
+
+/// Done in one go, without a plan to confirm: tidying a drive removes the clutter a plan lists
+/// (Finder's `.DS_Store` files, drawn into its folders), and removing player updates deletes the
+/// `.UPD` files at its root; the library is left as it was, and planning again finds nothing.
+#[hegel::test(test_cases = 6)]
+fn prop_tidying_and_removing_updates_in_one_go_do_what_was_planned(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "USB");
+    let before = common::library(&root);
+    let drive = DriveRef { drive: path(&root) };
+    let ctx = Ctx::silent();
+    let folders = ["", "PIONEER", "Contents"];
+    let clutter = tc.draw(gs::vecs(gs::sampled_from(folders.to_vec())).max_size(3).unique(true));
+    for f in &clutter {
+        std::fs::write(root.join(f).join(".DS_Store"), b"Bud1").unwrap();
+    }
+    let updates = tc.draw(gs::vecs(gs::sampled_from(vec!["CDJ3Kv321.UPD", "xdj1000mk2.upd"])).max_size(2).unique(true));
+    for u in &updates {
+        std::fs::write(root.join(u), b"update").unwrap();
+    }
+    let tidy = api::TidyRequest { drive: path(&root), options: Default::default() };
+    let planned = api::tidy_plan(&tidy, &ctx).unwrap();
+    assert_eq!(planned.plan.items.len(), clutter.len(), "{:?}", planned.plan.items);
+    let report = api::tidy_apply(&tidy, &ctx).unwrap();
+    assert_eq!((report.removed, report.failed.len()), (clutter.len(), 0));
+    assert!(clutter.iter().all(|f| !root.join(f).join(".DS_Store").exists()));
+    assert!(api::tidy_plan(&tidy, &ctx).unwrap().noop);
+    let mut removed = api::firmware_remove(&drive, &ctx).unwrap();
+    removed.sort();
+    let mut want: Vec<String> = updates.iter().map(|u| u.to_string()).collect();
+    want.sort();
+    assert_eq!(removed, want);
+    assert!(api::firmware_remove_plan(&drive).unwrap().noop);
+    assert_eq!(common::library(&root), before, "the library is as it was");
+}

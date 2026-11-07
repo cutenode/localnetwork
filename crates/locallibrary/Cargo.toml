@@ -2,7 +2,7 @@
 name = "locallibrary"
 description = "Store, sync, compare, merge and configure rekordbox USB library exports"
 # Not on crates.io: it's built on the vendored rekordbox-pdb, which isn't published either, it's to
-# be renamed `locallibrary-core` first (TODO.md), and it carries the test plugin below. The
+# be renamed `locallibrary-core` first (LOC-69), and it carries the test plugin below. The
 # loclib-* crates are its parts that can be.
 publish = false
 version.workspace = true
@@ -18,6 +18,12 @@ name = "test-plugin"
 path = "src/bin/test-plugin/main.rs"
 test = false
 doc = false
+bench = false
+
+# The benchmarks are in benches/: without this, `cargo codspeed build` also builds the library's
+# tests, without the debug assertions they need.
+[lib]
+bench = false
 
 [features]
 default = ["account", "peers"]
@@ -102,6 +108,8 @@ form_urlencoded = "1.2.2"
 oauth2 = { version = "5.0.0", default-features = false }
 # A file sent as a request's body, as the stream of its chunks.
 futures-util = { version = "0.3.34", default-features = false }
+rayon = "1.12.0"
+memchr = "2.8.3"
 
 [dev-dependencies]
 hegeltest = { workspace = true, features = ["chrono"] }
@@ -120,6 +128,7 @@ loclib-interop.workspace = true
 locallibrary-plugin-demos = { path = "../../plugins/demos" }
 # Waiting until a connection reaches the sign-in listener's queue (`callback` tests).
 mio = { version = "1.2.4", features = ["os-poll", "net"] }
+criterion.workspace = true
 
 [target."cfg(windows)".dependencies]
 # A file's index and its volume's serial number, which the drive watcher tells rewrites by.
@@ -134,3 +143,7 @@ libc = "0.2"
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "library"
+harness = false

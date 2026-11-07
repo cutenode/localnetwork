@@ -1,14 +1,19 @@
+import { TID } from '@atproto/common-web';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type EpkAccess, MAX_EPKS_PER_PROJECT } from '#lib/epk.ts';
+import { type EpkAccess, type EpkView, MAX_EPKS_PER_PROJECT } from '#lib/epk.ts';
 import { followSchema } from '#lib/epk-schema.ts';
 import { BSKY_FOLLOW, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
+import { isValidDid, isValidRecordKey } from '@atproto/syntax';
+import { RecordValidationError, TOO_DEEP } from '../atproto/lexicons';
+import { memberSpacePolicy } from '../atproto/repo-client';
+import { epkRequestSpace, epkSpace } from '../atproto/spaces';
 import { ensureRootSpaces } from '../bootstrap';
 import { ForbiddenError, UserError } from '../core';
 import { HappyViewClient, HappyViewError } from '../happyview/client';
 import { IndexedRepo } from '../happyview/indexed';
 import { silentLogger } from '../logger';
 import { ROOT } from '../testing/core';
-import { EpkService } from './epk';
+import { EpkService, grantKey } from './epk';
 import {
 	ADMIN,
 	CODJ,
@@ -39,8 +44,11 @@ describe('EpkService', () => {
 		await f.t.bookings.start({ actor, projectUri: uri, show: { title: 'Night' }, message: 'Hi' });
 	};
 
-	const grantOf = (space: string, did: string) =>
-		f.t.net.spaceRecords.get(`${space}|${ROOT}|${COLLECTION.epkGrant}|${did}`)?.value;
+	const requestSpace = () => epkRequestSpace(ROOT, f.project.rkey);
+
+	/** The grant the root wrote for `did` to see `epk`, in the project's request space. */
+	const grantOf = (epk: EpkView, did: string) =>
+		f.t.net.spaceRecords.get(`${requestSpace()}|${ROOT}|${COLLECTION.epkGrant}|${grantKey(epk.rkey, did)}`)?.value;
 
 	it("publishes press kits for the project in the root's repo, with the rest in a root-owned space each", async () => {
 		const clubs = await f.publish(DJ);
@@ -64,7 +72,9 @@ describe('EpkService', () => {
 			[DJ]: { read: true, write: false },
 			[CODJ]: { read: true, write: false }
 		});
-		expect(f.t.net.spaces.get(clubs.space)?.writePolicy.$type).toBe('com.atproto.simplespace.defs#publicPolicy');
+		// Only the root writes there: requests go into the project's request space.
+		expect(f.t.net.spaces.get(clubs.space)?.policy).toEqual(memberSpacePolicy());
+		expect(f.t.net.spaces.has(requestSpace())).toBe(false);
 	});
 
 	it('finds a press kit by project and key, and from an old link by the repo that held it', async () => {
@@ -164,24 +174,50 @@ describe('EpkService', () => {
 		expect((await f.t.epks.request(stranger, kit, { role: 'press', message: 'For a feature' })).kind).toBe('pending');
 		const [request] = await f.t.epks.requests(epk);
 		expect(request).toMatchObject({ role: 'press', message: 'For a feature', status: 'pending', rule: 'review' });
-		expect(f.t.net.spaceRecordsIn(epk.space, STRANGER)).toHaveLength(1);
+		expect(f.t.net.spaceRecordsIn(requestSpace(), STRANGER)).toHaveLength(1);
+		expect(f.t.net.spaceRecordsIn(epk.space, STRANGER)).toEqual([]);
 
 		await expect(f.t.epks.decide(stranger, kit, request.uri, 'approve')).rejects.toBeInstanceOf(ForbiddenError);
 		// The manager who didn't make it answers just the same.
 		await f.t.epks.decide(await f.t.viewer(CODJ), kit, request.uri, 'approve');
 
 		expect((await f.t.epks.accessState(kit, stranger)).kind).toBe('granted');
-		expect(grantOf(epk.space, STRANGER)).toMatchObject({ subject: STRANGER, via: 'approved', request: request.uri });
+		expect(grantOf(epk, STRANGER)).toMatchObject({
+			subject: STRANGER,
+			epk: epk.uri,
+			via: 'approved',
+			request: request.uri
+		});
 		expect(f.t.net.spaces.get(epk.space)?.members.get(STRANGER)).toEqual({ read: true, write: false });
+		// Those let in read the press kit's space, which holds the private part and nothing about anyone else.
+		expect(f.t.net.spaceRecordsIn(epk.space).map((record) => record.uri.split('/').at(-2))).toEqual([
+			COLLECTION.epkContent
+		]);
+		// Being let in doesn't let them read anyone's request, their own included: only the managers read those.
+		expect(Object.fromEntries(f.t.net.spaces.get(requestSpace())!.members)).toEqual({
+			[DJ]: { read: true, write: false },
+			[CODJ]: { read: true, write: false }
+		});
+		expect(f.t.net.spaces.get(requestSpace())?.policy).toEqual(memberSpacePolicy({ publicWrite: true }));
 		expect((await f.t.epks.content(epk))?.techRider).toBe('2x CDJ-3000');
 		expect(await f.t.epks.request(stranger, kit, {})).toMatchObject({ kind: 'granted' });
+	});
+
+	it('reads the private part as none when the space host serves it too deep to read', async () => {
+		const epk = await f.publish(DJ);
+		// What the real reader throws for a record nested deeper than 32 levels.
+		f.t.core.readSpaceRecord = async () => {
+			throw new RecordValidationError(COLLECTION.epkContent, TOO_DEEP);
+		};
+
+		expect(await f.t.epks.content(epk)).toBeNull();
 	});
 
 	it('approves at once when the rules say so', async () => {
 		const epk = await f.publish(DJ, { access: preset('open') });
 
 		expect((await f.t.epks.request(await f.t.viewer(STRANGER), f.kit(epk), {})).kind).toBe('granted');
-		expect(grantOf(epk.space, STRANGER)?.via).toBe('auto');
+		expect(grantOf(epk, STRANGER)?.via).toBe('auto');
 		expect(await f.t.epks.requests(epk)).toEqual([]);
 	});
 
@@ -264,13 +300,13 @@ describe('EpkService', () => {
 
 		expect(await f.t.epks.accessState(kit, null)).toEqual({ kind: 'closed' });
 		await f.t.epks.invite(await f.t.viewer(CODJ), kit, FRIEND);
-		expect(grantOf(epk.space, FRIEND)?.via).toBe('invited');
+		expect(grantOf(epk, FRIEND)?.via).toBe('invited');
 		expect((await f.t.epks.grants(epk)).map((grant) => grant.via)).toEqual(['invited']);
 		await expect(f.t.epks.invite(await f.t.viewer(CODJ), kit, 'nobody.test')).rejects.toThrow(/Couldn't find @nobody/);
 		await expect(f.t.epks.invite(await f.t.viewer(CODJ), kit, DJ)).rejects.toThrow(/already see/);
 
 		await f.t.epks.revoke(await f.t.viewer(DJ), kit, FRIEND);
-		expect(grantOf(epk.space, FRIEND)).toBeUndefined();
+		expect(grantOf(epk, FRIEND)).toBeUndefined();
 		expect(f.t.net.spaces.get(epk.space)?.members.has(FRIEND)).toBe(false);
 		expect(await f.t.epks.accessState(kit, await f.t.viewer(FRIEND))).toEqual({ kind: 'closed' });
 	});
@@ -300,7 +336,7 @@ describe('EpkService', () => {
 		await f.t.epks.request(await f.t.viewer(NO_SPACES), kit, {});
 
 		const written = f.t.net
-			.spaceRecordsIn(kit.epk.space, ROOT)
+			.spaceRecordsIn(requestSpace(), ROOT)
 			.find((record) => record.uri.includes(COLLECTION.epkRequest));
 
 		expect(written?.value).toMatchObject({ epk: kit.epk.uri, onBehalfOf: NO_SPACES });
@@ -309,16 +345,26 @@ describe('EpkService', () => {
 
 	it("lets any manager delete a press kit with its space, and everyone's access with it", async () => {
 		const epk = await f.publish(DJ, { access: preset('open') });
+		const other = await f.publish(DJ, { title: 'Festivals' });
 		const kit = f.kit(epk);
 		await f.t.epks.request(await f.t.viewer(STRANGER), kit, {});
+		await f.t.epks.request(await f.t.viewer(NO_SPACES), kit, {});
+		await f.t.epks.request(await f.t.viewer(NO_SPACES), f.kit(other), {});
+		// A grant not moved out of the press kit's space yet goes with the space.
+		await f.grantedBefore(epk, { subject: FRIEND, via: 'invited', createdAt: new Date().toISOString() });
 
 		await expect(f.t.epks.remove(await f.t.viewer(STRANGER), kit)).rejects.toBeInstanceOf(ForbiddenError);
 		await f.t.epks.remove(await f.t.viewer(CODJ), kit);
 
 		expect(f.t.net.spaces.has(epk.space)).toBe(false);
 		expect(f.t.net.records.has(`${ROOT}|${COLLECTION.epk}|${epk.rkey}`)).toBe(false);
-		expect(await f.t.epks.forProject(f.project)).toEqual([]);
+		expect((await f.t.epks.forProject(f.project)).map((kept) => kept.uri)).toEqual([other.uri]);
 		expect(await f.t.epks.grants(epk)).toEqual([]);
+		// The requests the root wrote for it and its grants go too; the asker's own request is theirs to delete, and the
+		// other press kit's stays.
+		expect(f.t.net.spaceRecordsIn(requestSpace(), ROOT).map((record) => record.value.epk)).toEqual([other.uri]);
+		expect(f.t.net.spaceRecordsIn(requestSpace(), STRANGER)).toHaveLength(1);
+		expect((await f.t.epks.requests(other)).map((request) => request.requester.did)).toEqual([NO_SPACES]);
 	});
 
 	it('fails a change or an access decision while HappyView is down, rather than taking a press kit for missing', async () => {
@@ -345,11 +391,12 @@ describe('EpkService', () => {
 		expect(await down.forProject(f.project)).toEqual([]);
 	});
 
-	it('has the bootstrap watch the press kit spaces and backstages the root made', async () => {
+	it('has the bootstrap watch the press kit, request spaces and backstages the root made', async () => {
 		const epk = await f.publish(DJ);
+		await f.t.epks.request(await f.t.viewer(STRANGER), f.kit(epk), {});
 
 		expect(await ensureRootSpaces(f.t.core)).toEqual(
-			expect.arrayContaining([epk.space, f.t.epks.drafts.space(f.project)])
+			expect.arrayContaining([epk.space, requestSpace(), f.t.epks.drafts.space(f.project)])
 		);
 	});
 
@@ -389,6 +436,30 @@ describe('EpkService', () => {
 		await f.t.epks.unindexRequest(uri(STRANGER));
 		expect(await f.t.epks.requests(kit.epk)).toEqual([]);
 
+		// In a project's request space, a request counts for the press kit it names, when that's one of the project's.
+		const theirs = await f.t.projectAdmin.create({
+			actor: await f.t.viewer(ADMIN),
+			profile: { name: 'Squat', kind: 'solo', genres: ['techno'], location: { city: 'Berlin', country: 'DE' } }
+		});
+
+		const asked = (space: string, epk: string, rkey: string) =>
+			f.t.epks.indexRequest({
+				space,
+				uri: `${space}/${FRIEND}/${COLLECTION.epkRequest}/${rkey}`,
+				repoDid: FRIEND,
+				value: { epk, createdAt }
+			});
+
+		await asked(epkRequestSpace(ROOT, theirs.rkey), kit.epk.uri, '3other');
+		await asked(epkRequestSpace(STRANGER, f.project.rkey), kit.epk.uri, '3notroot');
+		await asked(requestSpace(), `at://${ROOT}/${COLLECTION.project}/${f.project.rkey}`, '3notkit');
+		expect(await f.t.epks.requests(kit.epk)).toEqual([]);
+
+		await asked(requestSpace(), kit.epk.uri, '3mine');
+		expect(await f.t.epks.requests(kit.epk)).toMatchObject([
+			{ uri: `${requestSpace()}/${FRIEND}/${COLLECTION.epkRequest}/3mine`, requester: { did: FRIEND } }
+		]);
+
 		await f.t.epks.indexGrant({
 			space: kit.epk.space,
 			uri: `${kit.epk.space}/${ROOT}/${COLLECTION.epkGrant}/${STRANGER}`,
@@ -396,5 +467,188 @@ describe('EpkService', () => {
 			value: { subject: STRANGER, via: 'approved', createdAt }
 		});
 		expect((await f.t.epks.accessState(kit, await f.t.viewer(STRANGER))).kind).toBe('granted');
+
+		// A request synced from the request space by someone already let in is answered already.
+		await f.t.epks.indexRequest({
+			space: requestSpace(),
+			uri: `${requestSpace()}/${STRANGER}/${COLLECTION.epkRequest}/3again`,
+			repoDid: STRANGER,
+			value: { epk: kit.epk.uri, createdAt }
+		});
+
+		const again = await f.t.db
+			.selectFrom('epkRequest')
+			.select('status')
+			.where('uri', '=', `${requestSpace()}/${STRANGER}/${COLLECTION.epkRequest}/3again`)
+			.executeTakeFirst();
+
+		expect(again?.status).toBe('approved');
+	});
+
+	it('indexes grants from the request space only for the root press kit of its project they name', async () => {
+		const kit = f.kit(await f.publish(DJ));
+		const legacy = await f.legacy(DJ);
+		const grant = { subject: STRANGER, epk: kit.epk.uri, via: 'approved', createdAt: new Date().toISOString() };
+
+		const uri = (space: string, repo: string) =>
+			`${space}/${repo}/${COLLECTION.epkGrant}/${grantKey(kit.epk.rkey, STRANGER)}`;
+
+		const synced = (space: string, repoDid: string, value: Record<string, string>) =>
+			f.t.epks.indexGrant({ space, uri: uri(space, repoDid), repoDid, value });
+
+		const theirs = await f.t.projectAdmin.create({
+			actor: await f.t.viewer(ADMIN),
+			profile: { name: 'Squat', kind: 'solo', genres: ['techno'], location: { city: 'Berlin', country: 'DE' } }
+		});
+
+		// Anyone can write into the request space, but only the root grants; a grant names a press kit of the space's
+		// project the root holds, and only the request space and press kits' spaces hold grants.
+		await synced(requestSpace(), STRANGER, grant);
+		await synced(requestSpace(), ROOT, { subject: STRANGER, via: 'approved', createdAt: grant.createdAt });
+		await synced(epkRequestSpace(ROOT, theirs.rkey), ROOT, grant);
+		await synced(requestSpace(), ROOT, { ...grant, epk: legacy.uri });
+		await synced(f.t.epks.drafts.space(f.project), ROOT, grant);
+		expect(await f.t.db.selectFrom('epkGrant').selectAll().execute()).toEqual([]);
+
+		await synced(requestSpace(), ROOT, grant);
+		expect(await f.t.db.selectFrom('epkGrant').select(['spaceUri', 'subjectDid', 'uri']).execute()).toEqual([
+			{ spaceUri: kit.epk.space, subjectDid: STRANGER, uri: uri(requestSpace(), ROOT) }
+		]);
+		expect(await f.t.epks.accessState(kit, await f.t.viewer(STRANGER))).toMatchObject({ kind: 'granted' });
+
+		await f.t.epks.unindexGrant(uri(requestSpace(), ROOT));
+		expect(await f.t.epks.accessState(kit, await f.t.viewer(STRANGER))).toMatchObject({ kind: 'canAsk' });
+	});
+
+	it('keys a grant by press kit and subject, a record key even for a did:web with a port', async () => {
+		const epk = await f.publish(DJ);
+		const web = 'did:web:localhost%3A2583';
+		const grant = { subject: web, via: 'invited', createdAt: new Date().toISOString() } as const;
+
+		expect(grantKey(epk.rkey, DJ)).toBe(`${epk.rkey}:${DJ}`);
+		expect(grantKey(epk.rkey, web)).toBe(`${epk.rkey}:did:web:localhost~3A2583`);
+		expect([isValidRecordKey(web), isValidRecordKey(grantKey(epk.rkey, web))]).toEqual([false, true]);
+		// No DID has a "~", so no other subject's key is the same.
+		expect(isValidDid('did:web:localhost~3A2583')).toBe(false);
+
+		await f.t.epks.writeGrant(f.project, epk, grant);
+		await f.t.epks.writeGrant(f.project, epk, grant);
+		expect(grantOf(epk, web)).toMatchObject({ subject: web, epk: epk.uri });
+		expect(f.t.net.spaceRecordsIn(requestSpace(), ROOT)).toHaveLength(1);
+	});
+
+	it("takes away a grant not moved out of the press kit's space yet", async () => {
+		const kit = f.kit(await f.publish(DJ, { access: preset('closed') }));
+		await f.grantedBefore(kit.epk, { subject: FRIEND, via: 'invited', createdAt: new Date().toISOString() });
+		expect(await f.t.epks.accessState(kit, await f.t.viewer(FRIEND))).toMatchObject({ kind: 'granted' });
+
+		await f.t.epks.revoke(await f.t.viewer(CODJ), kit, FRIEND);
+		expect(f.t.net.spaceRecordsIn(kit.epk.space).map((record) => record.uri.split('/').at(-2))).toEqual([
+			COLLECTION.epkContent
+		]);
+		expect(f.t.net.spaces.get(kit.epk.space)?.members.has(FRIEND)).toBe(false);
+		expect(await f.t.epks.accessState(kit, await f.t.viewer(FRIEND))).toEqual({ kind: 'closed' });
+	});
+});
+
+describe('EpkService reads', () => {
+	let f: Awaited<ReturnType<typeof pressKitServices>>;
+
+	beforeEach(async () => {
+		f = await pressKitServices();
+	});
+	afterEach(async () => {
+		await f.t.audit.idle();
+		await f.t.db.destroy();
+	});
+
+	/** The same services without a way to download blobs. */
+	const blind = () =>
+		new EpkService(
+			{ ...f.t.core, fetchBlob: undefined, fetchSpaceBlob: undefined },
+			f.t.projects,
+			f.t.indexedRepo,
+			async (id) => id
+		);
+
+	it('serves public photos to anyone and private ones only with the private part', async () => {
+		const wide = await f.photo(DJ, 'wide');
+		const secret = await f.photo(DJ, 'secret');
+		const epk = await f.publish(DJ, { photos: [wide], content: { ...values().content, photos: [secret] } });
+		const cid = (photo: typeof wide) => photo.image.ref.$link;
+		const text = (found: { bytes: Uint8Array } | null) => found && new TextDecoder().decode(found.bytes);
+
+		const shown = await f.t.epks.photo(epk, cid(wide), false);
+		expect([text(shown), shown?.isPublic]).toEqual(['wide', true]);
+		expect(await f.t.epks.photo(epk, cid(secret), false)).toBeNull();
+
+		const hidden = await f.t.epks.photo(epk, cid(secret), true);
+		expect([text(hidden), hidden?.isPublic]).toEqual(['secret', false]);
+		expect(await f.t.epks.photo(epk, 'bafkreinotthere', true)).toBeNull();
+
+		// Without a blob reader there's nothing to serve, and nothing to copy a photo with.
+		expect(await blind().photo(epk, cid(wide), false)).toBeNull();
+		expect(await blind().photo(epk, cid(secret), true)).toBeNull();
+		await expect(blind().copyPhoto(f.t.net.client(ROOT), wide, { did: DJ })).rejects.toThrow(/no way to download/);
+	});
+
+	it("reads no private part when its space holds none, or one that doesn't validate", async () => {
+		const epk = await f.publish(DJ);
+		const root = f.t.net.client(ROOT);
+		const at = { space: epk.space, collection: COLLECTION.epkContent, rkey: EPK_CONTENT_KEY };
+
+		await root.putSpaceRecord({ ...at, record: { bio: 'No updatedAt' } });
+		expect(await f.t.epks.content(epk)).toBeNull();
+
+		await root.deleteSpaceRecord(at);
+		expect(await f.t.epks.content(epk)).toBeNull();
+	});
+
+	it("skips a record in the root's repo that doesn't validate, and orders one never updated by when it was made", async () => {
+		const clubs = await f.publish(DJ);
+		const root = f.t.net.client(ROOT);
+		const { updatedAt: _updatedAt, ...record } = f.t.net.records.get(`${ROOT}|${COLLECTION.epk}|${clubs.rkey}`)!.value;
+
+		await root.putRecord({
+			collection: COLLECTION.epk,
+			rkey: TID.nextStr(),
+			record: { ...record, title: 'Oldest', createdAt: '2020-01-01T00:00:00.000Z' }
+		});
+		await root.putRecord({ collection: COLLECTION.epk, rkey: TID.nextStr(), record: { ...record, title: '' } });
+		await f.publish(CODJ, { title: 'Festivals' });
+		f.t.epks.forget();
+
+		expect((await f.t.epks.forProject(f.project)).map((epk) => epk.record.title)).toEqual([
+			'Festivals',
+			'Clubs',
+			'Oldest'
+		]);
+	});
+
+	it('deletes a press kit whose space is gone already, and revokes someone who had no grant', async () => {
+		const epk = await f.publish(DJ);
+		const kit = f.kit(epk);
+		await f.t.epks.invite(await f.t.viewer(DJ), kit, FRIEND);
+
+		await f.t.epks.revoke(await f.t.viewer(DJ), kit, STRANGER);
+		expect((await f.t.epks.grants(epk)).map((grant) => grant.subject.did)).toEqual([FRIEND]);
+
+		await f.t.net.client(ROOT).deleteSpace(epk.space);
+		await f.t.epks.remove(await f.t.viewer(CODJ), kit);
+		expect(f.t.net.records.has(`${ROOT}|${COLLECTION.epk}|${epk.rkey}`)).toBe(false);
+		expect(await f.t.epks.forProject(f.project)).toEqual([]);
+	});
+
+	it("doesn't index a request in a press kit space under another account than the press kit's", async () => {
+		const epk = await f.publish(DJ);
+		const elsewhere = epkSpace(STRANGER, epk.rkey);
+
+		await f.t.epks.indexRequest({
+			space: elsewhere,
+			uri: `${elsewhere}/${FRIEND}/${COLLECTION.epkRequest}/3req`,
+			repoDid: FRIEND,
+			value: { epk: epk.uri, createdAt: new Date().toISOString() }
+		});
+		expect(await f.t.epks.requests(epk)).toEqual([]);
 	});
 });

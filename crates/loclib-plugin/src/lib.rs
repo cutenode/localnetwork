@@ -14,13 +14,21 @@ mod peer;
 mod protocol;
 mod reads;
 mod sdk;
+#[cfg(feature = "test-util")]
+pub mod test_util;
 mod view;
+mod words;
 
 pub use choice::{Choice, ChoiceItem};
 pub use error::{ErrorData, RpcError, params};
 pub use features::{FEATURES, Feature};
-pub use hooks::account_types::{AccountType, SUBJECT_PLACEHOLDER, Scope, ScopeRequest, Whoami};
-pub use hooks::accounts::{ACCOUNT_PLACEHOLDER, Account, TokenPlace, names_a_user, not_plain_https};
+pub use hooks::account_types::{
+    AccountType, Key, KeyPlace, SUBJECT_PLACEHOLDER, Scope, ScopeRequest, SignIn, TOKEN_KEY, Whoami,
+};
+pub use hooks::accounts::{
+    ACCOUNT_PLACEHOLDER, AccountNeed, EnsureAccount, Ensured, OptionalScopes, TokenPlace, account_placeholder,
+    names_a_user, not_plain_https,
+};
 pub use hooks::analysis::{Output, WaveformBlob};
 pub use hooks::analyzers::{
     Analysis, AnalyzeTrack, Analyzer, FieldDisplay, FieldFormat, FieldType, FieldValue, Role, Track,
@@ -65,6 +73,7 @@ pub use reads::{
 };
 pub use sdk::{Hook, Hooks, Host, serve};
 pub use view::{ChartStyle, Column, ColumnKind, ListItem, Pair, Section, Series, TreeItem, TypedColumn, View};
+pub use words::a_or_an;
 
 /// The error codes.
 pub mod code {

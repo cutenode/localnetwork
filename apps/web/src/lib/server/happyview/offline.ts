@@ -11,7 +11,7 @@ export async function unlessOffline<T>(log: Pick<Logger, 'warn'>, query: () => P
 	} catch (error) {
 		if (!(error instanceof HappyViewError)) throw error;
 
-		log.warn({ err: error }, 'directory offline');
+		log.warn('directory offline', { err: error });
 
 		return null;
 	}

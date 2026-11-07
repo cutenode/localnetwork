@@ -100,7 +100,7 @@ fn a_failing_keychain_says_how_to_do_without() {
     crate::keychain::tests::mock_keychain();
     let (plugins, _dir, store) = host(Storage::Keychain);
     let slot = plugins.slot("keeper").unwrap();
-    let entry = slot.entry(&store, "token").unwrap();
+    let entry = entry(&slot.place(&store, "token")).unwrap();
     let cred: &keyring_core::mock::Cred = entry.as_any().downcast_ref().unwrap();
     cred.set_error(keyring::Error::NoStorageAccess(std::io::Error::other("locked").into()));
     let e = slot.secret(&store, "token").unwrap_err().to_string();
@@ -119,6 +119,128 @@ fn a_secrets_file_in_the_plugins_folder_is_moved_out_of_it() {
     assert!(plugins.secrets("keeper", Some(&store)).unwrap()["token"]);
     assert!(!old.exists() && store.root().join("secrets/plugins/keeper.json").is_file());
     assert_eq!(plugins.slot("keeper").unwrap().secret(&store, "token").unwrap().as_deref(), Some("kept"));
+}
+
+/// Makes `file` unreadable or readable again. Whether it worked is for the caller to check: root
+/// reads anything.
+#[cfg(unix)]
+fn set_mode(file: &std::path::Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(file, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+/// A secrets file that can't be read, in a folder that can be written, keeps its keys: the change
+/// is refused with the read's error, where it used to replace the file with the one new key.
+#[cfg(unix)]
+#[test]
+fn a_secrets_file_that_cant_be_read_keeps_its_other_secrets() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path()).unwrap();
+    let file = store.root().join("secrets/plugins/keeper.json");
+    let place = |key: &str| Place {
+        store: &store,
+        service: "locallibrary-plugin-keeper".into(),
+        file: file.clone(),
+        key: key.into(),
+        moved_from: None,
+    };
+    set_secret(Storage::File, &place("a"), Some("1")).unwrap();
+    set_secret(Storage::File, &place("b"), Some("2")).unwrap();
+    let before = std::fs::read(&file).unwrap();
+    set_mode(&file, 0o000);
+    if std::fs::read(&file).is_ok() {
+        return;
+    }
+    let refused = |e: Error| matches!(e, Error::Io { path, .. } if path == file);
+    let (set, forgot) =
+        (set_secret(Storage::File, &place("c"), Some("3")), set_secret(Storage::File, &place("a"), None));
+    set_mode(&file, 0o600);
+    assert!(refused(set.unwrap_err()));
+    assert!(refused(forgot.unwrap_err()));
+    assert_eq!(std::fs::read(&file).unwrap(), before);
+}
+
+/// A secrets file left in the plugin's folder that can't be moved out of it is still its secrets:
+/// setting another one is refused, where it used to start a new file that hid the old one for good.
+#[cfg(unix)]
+#[test]
+fn a_secrets_file_that_cant_be_moved_stays_the_plugins_secrets() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path()).unwrap();
+    let old = store.root().join("plugins/keeper/secrets.json");
+    let file = store.root().join("secrets/plugins/keeper.json");
+    std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+    std::fs::write(&old, r#"{"a":"1"}"#).unwrap();
+    let place = Place {
+        store: &store,
+        service: "locallibrary-plugin-keeper".into(),
+        file: file.clone(),
+        key: "b".into(),
+        moved_from: Some(old.clone()),
+    };
+    set_mode(old.parent().unwrap(), 0o555);
+    let set = set_secret(Storage::File, &place, Some("2"));
+    set_mode(old.parent().unwrap(), 0o755);
+    // Root moves it anyway.
+    if !old.exists() {
+        return;
+    }
+    assert!(matches!(set.unwrap_err(), Error::Io { path, .. } if path == old));
+    assert!(!file.exists());
+}
+
+/// A change to any of a plugin's files that can't be read right now is refused with the read's
+/// error, and the file stays exactly as it was. Once it can be read, the change goes through and
+/// nothing else in the file is lost.
+#[cfg(unix)]
+#[hegel::test(test_cases = 40)]
+fn a_change_to_a_file_that_cant_be_read_loses_nothing(tc: TestCase) {
+    type Change<'a> = Box<dyn Fn() -> crate::Result<()> + 'a>;
+    let (plugins, _dir, store) = host(Storage::File);
+    let slot = plugins.slot("keeper").unwrap();
+    let text = || gs::from_regex("[a-z0-9]{1,6}").fullmatch(true);
+    let (first, other) = (tc.draw(text()), tc.draw(text()));
+    let value: Option<Value> = tc.draw(gs::optional(text())).map(Value::from);
+    let (file, change): (std::path::PathBuf, Change<'_>) = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => {
+            plugins.set_setting("keeper", &store, "token", Some(json!(first))).unwrap();
+            set_secret(Storage::File, &slot.place(&store, "other"), Some(&other)).unwrap();
+            let change = Box::new(|| plugins.set_setting("keeper", &store, "token", value.clone()).map(drop));
+            (slot.place(&store, "token").file, change)
+        }
+        1 => {
+            plugins.set_setting("keeper", &store, "name", Some(json!(first))).unwrap();
+            let file = store.root().join("plugins/keeper/settings.json");
+            let mut kept: IndexMap<String, Value> = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+            kept.insert("other".into(), json!(other));
+            std::fs::write(&file, serde_json::to_vec(&kept).unwrap()).unwrap();
+            (file, Box::new(|| plugins.set_setting("keeper", &store, "name", value.clone()).map(drop)))
+        }
+        _ => {
+            crate::plugin::set_host_setting(&store, "changed", Some(json!(first))).unwrap();
+            crate::plugin::set_host_setting(&store, "other", Some(json!(other))).unwrap();
+            let change = Box::new(|| crate::plugin::set_host_setting(&store, "changed", value.clone()));
+            (store.root().join("plugins/settings.json"), change)
+        }
+    };
+    let before = std::fs::read(&file).unwrap();
+    set_mode(&file, 0o000);
+    // Root reads anything.
+    if std::fs::read(&file).is_err() {
+        let refused = change();
+        set_mode(&file, 0o600);
+        let refused = refused.unwrap_err();
+        assert!(matches!(&refused, Error::Io { path, .. } if *path == file), "{refused}");
+        assert_eq!(std::fs::read(&file).unwrap(), before);
+    }
+    set_mode(&file, 0o600);
+    change().unwrap();
+    let kept: IndexMap<String, Value> = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(kept["other"], json!(other));
+    // Damaged, it has nothing usable in it, and the same change writes it anew.
+    std::fs::write(&file, "not json").unwrap();
+    change().unwrap();
+    assert_ne!(std::fs::read(&file).ok().as_deref(), Some(&b"not json"[..]));
 }
 
 /// For any secrets set, forgotten and set wrong, kept in either place, with the keychain failing
@@ -141,7 +263,7 @@ fn a_secret_is_what_the_last_change_made_it(tc: TestCase) {
         )));
         let fails = storage == Storage::Keychain && tc.draw(gs::booleans());
         if fails {
-            let entry = slot.entry(&store, "token").unwrap();
+            let entry = entry(&slot.place(&store, "token")).unwrap();
             let cred: &keyring_core::mock::Cred = entry.as_any().downcast_ref().unwrap();
             cred.set_error(keyring::Error::NoStorageAccess(std::io::Error::other("locked").into()));
         }
@@ -165,5 +287,93 @@ fn a_secret_is_what_the_last_change_made_it(tc: TestCase) {
         assert_eq!(plugins.secrets("keeper", Some(&store)).unwrap()["token"], kept.is_some());
         assert_eq!(slot.secret(&store, "token").unwrap(), kept);
         assert!(!plugins.settings("keeper", Some(&store)).unwrap().contains_key("token"));
+    }
+}
+
+/// How a store's secrets can't be read or kept, as
+/// [`prop_secrets_that_cant_be_read_or_kept_fail_and_stay`] draws it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Unkept {
+    /// The secrets file isn't JSON.
+    Damaged,
+    /// The store's id can't be read (so its keychain item can't be named).
+    NoStoreId,
+    /// A file where the folder for secrets files goes.
+    NoFolder,
+    /// The first builds' secrets file, with no folder to move it to.
+    OldNoFolder,
+    /// The first builds' secrets file, with a folder it can't be moved into (on Unix).
+    OldUnmovable,
+}
+
+/// For any way a store's secrets can't be read (a damaged file, a store whose id can't be read,
+/// an old file that can't be moved where they're kept now), whether a secret is set can't be said
+/// and the secret can't be read; for one where they can't be kept, setting one fails. A plugin
+/// that isn't there has none. The old file stays where it was.
+#[hegel::test(test_cases = 1)]
+fn prop_secrets_that_cant_be_read_or_kept_fail_and_stay(tc: TestCase) {
+    for unkept in [Unkept::Damaged, Unkept::NoStoreId, Unkept::NoFolder, Unkept::OldNoFolder, Unkept::OldUnmovable] {
+        prop_secrets_that_cant_be_read_or_kept_fail_and_stay_case(&tc, unkept);
+    }
+}
+
+/// Makes `dir`, if there is one, a folder the host can write in or can't (on Unix).
+fn writable(dir: Option<&std::path::Path>, can: bool) {
+    #[cfg(not(unix))]
+    let _ = (dir, can);
+    #[cfg(unix)]
+    if let Some(dir) = dir {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = if can { 0o700 } else { 0o500 };
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+}
+
+/// [`prop_secrets_that_cant_be_read_or_kept_fail_and_stay`] for one `unkept`.
+#[hegel::test_helper]
+fn prop_secrets_that_cant_be_read_or_kept_fail_and_stay_case(tc: &TestCase, unkept: Unkept) {
+    crate::keychain::tests::mock_keychain();
+    let storage = match unkept {
+        Unkept::NoStoreId => Storage::Keychain,
+        _ => Storage::File,
+    };
+    let (plugins, _dir, store) = host(storage);
+    assert_eq!(plugins.secrets("nope", Some(&store)).unwrap_err().code(), "not_found");
+    let slot = plugins.slot("keeper").unwrap();
+    let secrets = store.root().join("secrets");
+    let old = store.root().join("plugins/keeper/secrets.json");
+    let secret: String = tc.draw(gs::from_regex("[a-z0-9]{1,8}").fullmatch(true));
+    let blocked = (unkept == Unkept::OldUnmovable).then(|| secrets.join("plugins"));
+    match unkept {
+        Unkept::Damaged => {
+            std::fs::create_dir_all(secrets.join("plugins")).unwrap();
+            std::fs::write(secrets.join("plugins/keeper.json"), "damaged").unwrap();
+        }
+        Unkept::NoStoreId => std::fs::write(store.root().join("store.json"), "damaged").unwrap(),
+        Unkept::NoFolder | Unkept::OldNoFolder => std::fs::write(&secrets, "").unwrap(),
+        Unkept::OldUnmovable => std::fs::create_dir_all(secrets.join("plugins")).unwrap(),
+    }
+    if matches!(unkept, Unkept::OldNoFolder | Unkept::OldUnmovable) {
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        std::fs::write(&old, json!({ "token": secret }).to_string()).unwrap();
+    }
+    writable(blocked.as_deref(), false);
+    let said = plugins.secrets("keeper", Some(&store));
+    let read = slot.secret(&store, "token");
+    let set = plugins.set_setting("keeper", &store, "token", Some(json!(secret)));
+    writable(blocked.as_deref(), true);
+    if unkept == Unkept::OldUnmovable && cfg!(not(unix)) {
+        return;
+    }
+    match unkept {
+        // One that can't be read is written anew.
+        Unkept::Damaged => assert!(set.is_ok(), "{set:?}"),
+        _ => assert!(set.is_err(), "{unkept:?}: {set:?}"),
+    }
+    if unkept != Unkept::NoFolder {
+        assert!(said.is_err() && read.is_err(), "{unkept:?}");
+    }
+    if matches!(unkept, Unkept::OldNoFolder | Unkept::OldUnmovable) {
+        assert!(old.is_file(), "the old file stays");
     }
 }

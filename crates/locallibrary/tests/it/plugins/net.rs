@@ -2,89 +2,17 @@
 //! tests may reach, `Options::test_loopback`), and what it keeps from the plugin: hosts it isn't
 //! granted, redirects elsewhere, more than it may hold, and its secrets.
 
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::Read;
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::AtomicU64;
 
-use indexmap::IndexMap;
 use locallibrary::keychain::Storage;
 
 use super::*;
-
-/// A request the server got.
-#[derive(Debug, Clone, Default)]
-pub(super) struct Got {
-    pub(super) method: String,
-    /// With its query.
-    pub(super) target: String,
-    /// By name, in lowercase.
-    pub(super) headers: IndexMap<String, String>,
-    pub(super) body: String,
-}
-
-pub(super) struct Reply {
-    pub(super) status: u16,
-    pub(super) headers: Vec<(&'static str, String)>,
-    pub(super) body: Vec<u8>,
-}
-
-pub(super) fn ok(body: impl Into<Vec<u8>>) -> Reply {
-    Reply { status: 200, headers: Vec::new(), body: body.into() }
-}
+pub(super) use crate::mock_oauth::{Got, Reply, Server, ok};
 
 fn redirect(to: String) -> Reply {
     Reply { status: 302, headers: vec![("Location", to)], body: Vec::new() }
-}
-
-/// A server on this computer answering each request as `route` says (given its own address and
-/// the request), keeping what it was asked.
-pub(super) struct Server {
-    /// `http://127.0.0.1:<port>`.
-    pub(super) url: String,
-    got: Arc<Mutex<Vec<Got>>>,
-}
-
-impl Server {
-    pub(super) fn new(route: impl Fn(&str, &Got) -> Reply + Send + 'static) -> Server {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!("http://{}", listener.local_addr().unwrap());
-        let got: Arc<Mutex<Vec<Got>>> = Arc::default();
-        let (base, log) = (url.clone(), got.clone());
-        std::thread::spawn(move || {
-            for stream in listener.incoming() {
-                let mut stream = stream.unwrap();
-                let mut reader = BufReader::new(stream.try_clone().unwrap());
-                let mut line = String::new();
-                reader.read_line(&mut line).unwrap();
-                let mut words = line.split(' ');
-                let (method, target) = (words.next().unwrap().to_string(), words.next().unwrap().to_string());
-                let mut headers = IndexMap::new();
-                loop {
-                    line.clear();
-                    reader.read_line(&mut line).unwrap();
-                    let Some((name, value)) = line.trim_end().split_once(": ") else { break };
-                    headers.insert(name.to_lowercase(), value.to_string());
-                }
-                let length = headers.get("content-length").map_or(0, |n| n.parse().unwrap());
-                let mut body = vec![0; length];
-                reader.read_exact(&mut body).unwrap();
-                let got = Got { method, target, headers, body: String::from_utf8_lossy(&body).into() };
-                log.lock().unwrap().push(got.clone());
-                let Reply { status, headers, body } = route(&base, &got);
-                let mut head =
-                    format!("HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n", body.len());
-                for (name, value) in headers {
-                    head.push_str(&format!("{name}: {value}\r\n"));
-                }
-                let _ = stream.write_all(format!("{head}\r\n").as_bytes()).and_then(|()| stream.write_all(&body));
-            }
-        });
-        Server { url, got }
-    }
-
-    pub(super) fn got(&self) -> Vec<Got> {
-        self.got.lock().unwrap().clone()
-    }
 }
 
 /// The echo plugin, talking to this computer (`net:127.0.0.1`), at most
@@ -1023,4 +951,528 @@ fn a_secret_with_control_characters_never_comes_back(tc: hegel::TestCase) {
     for part in &parts {
         assert!(!said.contains(part.as_str()), "{part:?} of {secret:?} came back: {said}");
     }
+}
+
+/// What a [`raw`] server does once it has answered a request.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Then {
+    /// Closes the connection, and takes the next.
+    Closes,
+    /// Holds the connection open.
+    Holds,
+    /// Closes the connection, and takes no other.
+    Stops,
+}
+
+/// A server on this computer, as [`raw`] starts it.
+struct Raw {
+    url: String,
+    /// Told each time it has answered.
+    answered: Receiver<()>,
+}
+
+/// A server on this computer answering each request with `head` (its status line and headers)
+/// and `body`, then going on as `then` says.
+fn raw(head: &'static str, body: &'static [u8], then: Then) -> Raw {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let (told, answered) = mpsc::channel();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let mut stream = stream.unwrap();
+            let mut asked = [0; 4096];
+            let _ = stream.read(&mut asked);
+            let _ = std::io::Write::write_all(&mut stream, head.as_bytes());
+            let _ = std::io::Write::write_all(&mut stream, body);
+            let _ = told.send(());
+            match then {
+                Then::Closes => {}
+                Then::Holds => std::thread::sleep(Duration::from_secs(20)),
+                Then::Stops => return,
+            }
+        }
+    });
+    Raw { url, answered }
+}
+
+impl Raw {
+    /// Waits until it has answered, and what asked has had time to read the head of that.
+    fn wait(self) {
+        self.answered.recv_timeout(Duration::from_secs(10)).expect("it's asked");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+impl Fixture {
+    /// [`Fixture::fetch`], cancelled once `when` has returned, what it returned held until the
+    /// fetch is answered. Cancelled before the hook has started, nothing is fetched: the same to
+    /// the caller as one cancelled under way, which the plugin is told.
+    fn fetch_cancelled<T>(&self, fetch: Value, when: impl FnOnce() -> T + Send) -> Value {
+        let cancel = locallibrary::progress::CancelToken::new();
+        let later = cancel.clone();
+        std::thread::scope(|s| {
+            let (answered, gone) = mpsc::channel::<()>();
+            s.spawn(move || {
+                let _held = when();
+                later.cancel();
+                let _ = gone.recv();
+            });
+            let ctx = Ctx::new(&locallibrary::progress::NoProgress, cancel);
+            let answer = self.echo_under(json!({ "fetch": fetch }), &ctx);
+            drop(answered);
+            match answer {
+                Ok(answer) => answer,
+                Err(Error::Cancelled) => json!({ "error": { "data": { "kind": "cancelled" } } }),
+                Err(e) => panic!("{e}"),
+            }
+        })
+    }
+}
+
+/// What a fetch meets, as [`prop_a_fetch_that_cant_be_made_or_read_fails_saying_why`] draws it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Fetching {
+    /// Params that aren't a `net/fetch`'s.
+    NotAFetch,
+    /// A contact that can't be sent in a header.
+    Contact,
+    /// A form's text naming a secret that isn't set.
+    FormSecret,
+    /// A form's file that isn't in its scratch folder.
+    FormFile,
+    /// A redirect to what isn't a web address.
+    Redirect,
+    /// An answer cut short.
+    CutShort,
+    /// An answer cut short, into a blob.
+    CutShortIntoBlob,
+    /// Cancelled while its answer comes.
+    Cancelled,
+}
+
+/// For any `net/fetch` that can't be made (params that aren't one, a contact that can't be sent,
+/// a form's secret that isn't set or file that isn't in its scratch folder) or read (a redirect
+/// to what isn't a web address, an answer cut short, as text or into a blob), the plugin is
+/// answered why; cancelled while its answer comes, it's answered that.
+#[hegel::test(test_cases = 1)]
+fn prop_a_fetch_that_cant_be_made_or_read_fails_saying_why(tc: hegel::TestCase) {
+    for fetching in [
+        Fetching::NotAFetch,
+        Fetching::Contact,
+        Fetching::FormSecret,
+        Fetching::FormFile,
+        Fetching::Redirect,
+        Fetching::CutShort,
+        Fetching::CutShortIntoBlob,
+        Fetching::Cancelled,
+    ] {
+        prop_a_fetch_that_cant_be_made_or_read_fails_saying_why_case(&tc, fetching);
+    }
+}
+
+/// [`prop_a_fetch_that_cant_be_made_or_read_fails_saying_why`] for one `fetching`.
+#[hegel::test_helper]
+fn prop_a_fetch_that_cant_be_made_or_read_fails_saying_why_case(tc: &hegel::TestCase, fetching: Fetching) {
+    use hegel::generators as gs;
+    let f = fixture(&talking(100.0), &[], Options::default());
+    let name: String = tc.draw(gs::from_regex("[a-z]{1,6}").fullmatch(true));
+    let cut = "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n";
+    let answer = match fetching {
+        Fetching::NotAFetch => f.echo_params(json!({ "call": "net/fetch", "params": { "url": 5 } })).unwrap(),
+        Fetching::Contact => {
+            f.plugins.set_setting("echo", &f.store, "contact", Some(json!(format!("{name}\nx")))).unwrap();
+            f.fetch(json!({ "url": raw(cut, b"", Then::Closes).url }))
+        }
+        Fetching::FormSecret => {
+            let parts = json!([{ "name": name, "value": "{secret:token}" }]);
+            f.fetch(json!({ "url": raw(cut, b"", Then::Closes).url, "method": "POST", "multipart": parts }))
+        }
+        Fetching::FormFile => {
+            let parts = json!([{ "name": name, "file": f._dir.path().join(&name) }]);
+            f.fetch(json!({ "url": raw(cut, b"", Then::Closes).url, "method": "POST", "multipart": parts }))
+        }
+        Fetching::Redirect => f.fetch(
+            json!({ "url": raw("HTTP/1.1 302 Found\r\nLocation: http://[\r\nContent-Length: 0\r\n\r\n", b"", Then::Closes).url }),
+        ),
+        Fetching::CutShort => f.fetch(json!({ "url": raw(cut, b"short", Then::Closes).url })),
+        Fetching::CutShortIntoBlob => {
+            f.fetch(json!({ "url": raw(cut, b"short", Then::Closes).url, "into_blob": name }))
+        }
+        Fetching::Cancelled => {
+            let held = raw(cut, b"short", Then::Holds);
+            f.fetch_cancelled(json!({ "url": held.url.clone() }), || held.wait())
+        }
+    };
+    let (kind, message) = (answer["error"]["data"]["kind"].as_str(), answer["error"]["message"].as_str());
+    let message = message.unwrap_or_default();
+    match fetching {
+        Fetching::NotAFetch => assert!(message.contains("invalid type: integer `5`"), "{answer}"),
+        Fetching::Contact => assert_eq!(message, "its contact can't be sent in a header"),
+        Fetching::FormSecret => assert!(message.starts_with("its secret token isn't set"), "{answer}"),
+        Fetching::FormFile => assert!(message.contains("nor a file one was given"), "{answer}"),
+        Fetching::Redirect => {
+            assert_eq!((kind, message), (Some("external"), "redirected to http://[, which isn't a web address"))
+        }
+        Fetching::CutShort | Fetching::CutShortIntoBlob => assert_eq!(kind, Some("external"), "{answer}"),
+        Fetching::Cancelled => assert_eq!(kind, Some("cancelled"), "{answer}"),
+    }
+}
+
+/// What a fetch asks for, as [`prop_each_fetch_is_answered_as_its_rule_says`] draws it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Asking {
+    /// An answer past `max_body`, as text.
+    TooBig,
+    /// An answer that isn't text.
+    NotText,
+    /// An answer into a file in its scratch folder.
+    IntoBlob,
+    /// An answer into a file it has, there.
+    IntoBlobThere,
+    /// An answer into a file past what its folder may hold.
+    IntoBlobFull,
+    /// An answer into a file outside it.
+    IntoBlobElsewhere,
+    /// Its secret, not set yet.
+    SecretUnset,
+    /// Its secret, in a header, its query and its body.
+    Secret,
+    /// Its secret, where the store's secrets can't be read.
+    SecretsUnreadable,
+    /// A host off this computer, in tests kept offline.
+    Offline,
+    /// A server that isn't there.
+    NoServer,
+    /// Redirects past how many are followed.
+    Redirects,
+    /// A HEAD redirected.
+    HeadRedirected,
+    /// A form's part with a value and a file.
+    FormBoth,
+    /// A redirect elsewhere with its secret in the address.
+    SecretInAddress,
+    /// A redirect elsewhere with its secret in the body.
+    SecretInBody,
+    /// Waiting its turn, cancelled.
+    WaitCancelled,
+    /// Over https, to this computer.
+    Https,
+    /// Its secret, run without a store.
+    NoStore,
+    /// A header's value that can't be sent.
+    BadHeader,
+    /// A form's file of a type that isn't one.
+    BadType,
+    /// Cancelled while it's sent.
+    SendCancelled,
+    /// A file bigger than one read sends.
+    BigFile,
+    /// A body and a body_blob both.
+    BodyAndBlob,
+    /// A redirect to where it may not go.
+    RedirectAway,
+    /// A body naming a secret that isn't one of its settings.
+    BodyUndeclared,
+    /// A range of no file.
+    RangeWithoutBlob,
+    /// A secret's placeholder that isn't closed.
+    Unclosed,
+}
+
+/// For any fetch, it's answered as its rule says: an answer too big or not text for a message
+/// goes to a file, which must be a new one in its scratch folder with room; a secret is filled in
+/// where it's named once it's set (and can be read), and never sent on to another server; tests
+/// kept offline reach only this computer; a server that isn't there, too many redirects or a form
+/// part with both a value and a file fail it, saying why; a HEAD redirected stays one; and
+/// waiting for its turn stops once cancelled.
+#[hegel::test(test_cases = 1, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_each_fetch_is_answered_as_its_rule_says(tc: hegel::TestCase) {
+    for asking in [
+        Asking::TooBig,
+        Asking::NotText,
+        Asking::IntoBlob,
+        Asking::IntoBlobThere,
+        Asking::IntoBlobFull,
+        Asking::IntoBlobElsewhere,
+        Asking::SecretUnset,
+        Asking::Secret,
+        Asking::SecretsUnreadable,
+        Asking::Offline,
+        Asking::NoServer,
+        Asking::Redirects,
+        Asking::HeadRedirected,
+        Asking::FormBoth,
+        Asking::SecretInAddress,
+        Asking::SecretInBody,
+        Asking::WaitCancelled,
+        Asking::Https,
+        Asking::NoStore,
+        Asking::BadHeader,
+        Asking::BadType,
+        Asking::SendCancelled,
+        Asking::BigFile,
+        Asking::BodyAndBlob,
+        Asking::RedirectAway,
+        Asking::BodyUndeclared,
+        Asking::RangeWithoutBlob,
+        Asking::Unclosed,
+    ] {
+        prop_each_fetch_is_answered_as_its_rule_says_case(&tc, asking);
+    }
+}
+
+/// [`prop_each_fetch_is_answered_as_its_rule_says`] for one `asking`.
+#[hegel::test_helper]
+fn prop_each_fetch_is_answered_as_its_rule_says_case(tc: &hegel::TestCase, asking: Asking) {
+    use hegel::generators as gs;
+    // Marked, so it's never part of a path an error names.
+    let secret = format!("Sx{}xS", tc.draw(gs::from_regex("[a-z0-9]{4,10}").fullmatch(true)));
+    let server = Server::new(|base, got| match got.target.as_str() {
+        "/big" => ok(vec![b'a'; 64]),
+        "/image" => Reply {
+            status: 200,
+            headers: vec![("X-Two", "1".into()), ("X-Two", "2".into())],
+            body: vec![0xff, 0xd8, 0xff, 0x00],
+        },
+        "/away" => redirect(format!("{}/end?k={}", base.replace("127.0.0.1", "localhost"), got.headers["x-token"])),
+        target if target.starts_with("/hop") => redirect(format!("{base}/hop")),
+        "/head" => redirect(format!("{base}/end")),
+        "/elsewhere" => redirect("https://example.net/".into()),
+        _ => ok(format!("{} {}", got.headers.get("x-token").cloned().unwrap_or_default(), got.body)),
+    });
+    let per_second = if asking == Asking::WaitCancelled { 1.0 / 3600.0 } else { 100.0 };
+    let manifest =
+        talking(per_second).replace(r#""net:127.0.0.1""#, r#""net:127.0.0.1", "net:localhost", "net:example.org""#);
+    let options = Options { max_body: 32, max_blobs: 100, test_offline: true, ..Options::default() };
+    let f = fixture(&manifest, &[], options);
+    if !matches!(asking, Asking::SecretUnset) {
+        f.plugins.set_setting("echo", &f.store, "token", Some(json!(secret))).unwrap();
+    }
+    let url = |path: &str| format!("{}{path}", server.url);
+    let secretly = json!({
+        "url": url("/q?key={secret:token}"),
+        "method": "POST",
+        "headers": { "X-Token": "{secret:token}", "User-Agent": "not the host" },
+        "body": "t={secret:token}",
+    });
+    let answer = match asking {
+        Asking::TooBig => f.fetch(json!({ "url": url("/big") })),
+        Asking::NotText => f.fetch(json!({ "url": url("/image") })),
+        Asking::IntoBlob => f.fetch(json!({ "url": url("/image"), "into_blob": "a.jpg" })),
+        Asking::IntoBlobThere => f
+            .echo_params(json!({ "fetch": { "url": url("/image"), "into_blob": "a.jpg" }, "blobs": { "a.jpg": [1] } }))
+            .unwrap(),
+        Asking::IntoBlobFull => f
+            .echo_params(
+                json!({ "fetch": { "url": url("/big"), "into_blob": "more" }, "blobs": { "held": vec![0; 48] } }),
+            )
+            .unwrap(),
+        Asking::IntoBlobElsewhere => f.fetch(json!({ "url": url("/image"), "into_blob": f._dir.path().join("a.jpg") })),
+        Asking::SecretUnset | Asking::Secret => f.fetch(secretly),
+        Asking::SecretsUnreadable => {
+            std::fs::write(f.store.root().join("secrets/plugins/echo.json"), "not json").unwrap();
+            f.fetch(secretly)
+        }
+        Asking::Offline => f.fetch(json!({ "url": "https://example.org/" })),
+        Asking::NoServer => f.fetch(json!({ "url": "http://127.0.0.1:1/" })),
+        Asking::Redirects => f.fetch(json!({ "url": url("/hop") })),
+        Asking::HeadRedirected => f.fetch(json!({ "url": url("/head"), "method": "HEAD" })),
+        Asking::FormBoth => {
+            let parts = json!([{ "name": "a", "value": "v", "file": "f" }]);
+            f.fetch(json!({ "url": url("/"), "method": "POST", "multipart": parts }))
+        }
+        Asking::SecretInAddress => f.fetch(json!({ "url": url("/away"), "headers": { "X-Token": "{secret:token}" } })),
+        Asking::SecretInBody => {
+            let to = format!("{}/end", server.url.replace("127.0.0.1", "localhost"));
+            let away = Server::new(move |_, _| Reply {
+                status: 307,
+                headers: vec![("Location", to.clone())],
+                body: Vec::new(),
+            });
+            f.fetch(json!({ "url": away.url.clone(), "method": "POST", "body": "t={secret:token}" }))
+        }
+        Asking::Https => f.fetch(json!({ "url": "https://127.0.0.1:1/" })),
+        Asking::NoStore => {
+            let params = json!({ "fetch": secretly });
+            match f.plugins.run_command("echo", "echo", params, f.context(), None, &Ctx::silent(), &|_| {}).unwrap() {
+                CommandOutput::Headless(answer) => answer,
+                view => panic!("{view:?}"),
+            }
+        }
+        Asking::BadHeader => f.fetch(json!({ "url": url("/"), "headers": { "X": format!("{secret}\nx") } })),
+        Asking::BadType => {
+            let parts = json!([{ "name": "f", "file": "x", "content_type": "not a type" }]);
+            let fetch = json!({ "url": url("/"), "method": "POST", "multipart": parts });
+            f.echo_params(json!({ "fetch": fetch, "blobs": { "x": [1] } })).unwrap()
+        }
+        Asking::SendCancelled => {
+            let (up, connections) = silent();
+            f.fetch_cancelled(json!({ "url": up }), move || connections.recv_timeout(Duration::from_secs(10)))
+        }
+        Asking::BigFile => {
+            // Room for it: more than this case's other requests may hold.
+            let roomy = fixture(&manifest, &[], Options { test_offline: true, ..Options::default() });
+            let fetch = json!({ "url": url("/"), "method": "PUT", "body_blob": "big" });
+            let answer = roomy.echo_params(json!({ "fetch": fetch, "blobs": { "big": letters(300_000) } })).unwrap();
+            assert_eq!(server.got().last().unwrap().body.len(), 300_000);
+            answer
+        }
+        Asking::BodyAndBlob => f.fetch(json!({ "url": url("/"), "body": "a", "body_blob": "b" })),
+        Asking::RedirectAway => f.fetch(json!({ "url": url("/elsewhere") })),
+        Asking::BodyUndeclared => f.fetch(json!({ "url": url("/"), "method": "POST", "body": "{secret:greeting}" })),
+        Asking::RangeWithoutBlob => f.fetch(json!({ "url": url("/"), "body_range": { "offset": 1 } })),
+        Asking::Unclosed => f.fetch(json!({ "url": url("/"), "method": "POST", "body": "{secret:token" })),
+        Asking::WaitCancelled => {
+            f.fetch(json!({ "url": url("/") }));
+            f.fetch_cancelled(json!({ "url": url("/") }), || std::thread::sleep(Duration::from_millis(200)))
+        }
+    };
+    let kind = answer["error"]["data"]["kind"].as_str().unwrap_or_default();
+    let message = answer["error"]["message"].as_str().unwrap_or_default();
+    match asking {
+        Asking::TooBig => assert_eq!((kind, message), ("too_big", "the answer is over 32 B: fetch it into_blob")),
+        Asking::NotText => assert_eq!(message, "the answer isn't text: fetch it into_blob"),
+        Asking::IntoBlob => {
+            assert!(answer["result"]["blob"].as_str().unwrap().ends_with("a.jpg"), "{answer}");
+            assert_eq!(answer["result"]["headers"]["x-two"], "1, 2");
+        }
+        Asking::IntoBlobThere => assert!(message.contains("a.jpg: "), "{answer}"),
+        Asking::IntoBlobFull => {
+            assert_eq!(message, "the answer is more than the scratch folder has room for (52 B)", "{answer}")
+        }
+        Asking::IntoBlobElsewhere => {
+            assert!(message.ends_with("isn't in the scratch folder of a request under way"), "{answer}")
+        }
+        Asking::SecretUnset => assert!(message.starts_with("its secret token isn't set"), "{answer}"),
+        Asking::Secret => {
+            assert_eq!(answer["result"]["body"], format!("{secret} t={secret}"));
+            assert!(server.got()[0].target.ends_with(&format!("?key={secret}")));
+        }
+        Asking::SecretsUnreadable => assert_eq!(kind, "external", "{answer}"),
+        Asking::Offline => assert_eq!(message, "example.org isn't on this computer, and tests stay offline"),
+        Asking::NoServer | Asking::Redirects => assert_eq!(kind, "external", "{answer}"),
+        Asking::HeadRedirected => {
+            assert_eq!(server.got().iter().map(|g| g.method.as_str()).collect::<Vec<_>>(), ["HEAD", "HEAD"]);
+        }
+        Asking::FormBoth => {
+            assert_eq!(message, "the form's part \"a\" has a value or a file (and its range), not both")
+        }
+        Asking::SecretInAddress => assert!(message.ends_with("which a secret in its address isn't for"), "{answer}"),
+        Asking::SecretInBody => assert!(message.ends_with("which its body's secret isn't for"), "{answer}"),
+        Asking::WaitCancelled => assert_eq!(kind, "cancelled", "{answer}"),
+        Asking::Https => assert_eq!(kind, "external", "{answer}"),
+        Asking::SendCancelled => assert_eq!(kind, "cancelled", "{answer}"),
+        Asking::BigFile => assert_eq!(answer["result"]["status"], 200, "{answer}"),
+        Asking::BodyAndBlob => assert_eq!(message, "a request sends a body or a body_blob, not both"),
+        Asking::RedirectAway => assert!(message.contains("redirected to where it may not go: "), "{answer}"),
+        Asking::BodyUndeclared => assert_eq!(message, "\"greeting\" isn't one of its secret settings"),
+        Asking::Unclosed => assert_eq!(message, "a {secret:<key>} placeholder isn't closed"),
+        Asking::RangeWithoutBlob => assert_eq!(message, "a body_range is of a body_blob, which it doesn't send"),
+        Asking::NoStore => assert!(message.starts_with("its secret token isn't set"), "{answer}"),
+        Asking::BadHeader => assert_eq!(message, "the x header's value can't be sent"),
+        Asking::BadType => assert_eq!(message, "\"not a type\" isn't a content type", "{answer}"),
+    }
+    assert!(!message.contains(&secret), "{answer}");
+}
+
+/// What a request through an account meets, as
+/// [`prop_a_request_through_an_account_is_answered_as_its_rule_says`] draws it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Through {
+    /// Its token in the `Authorization` header, answered.
+    Answered,
+    /// The account named in a header otherwise than as the whole of it.
+    Misplaced,
+    /// A 401 whose body is cut short.
+    RefusedCutShort,
+    /// A 401 whose body never comes, cancelled.
+    RefusedCancelled,
+    /// A 401, its token refreshed and sent again, to a server that's gone.
+    RefusedThenGone,
+    /// A token that can't go in a header.
+    BadToken,
+}
+
+/// For any request through an account: its token goes in the header, filled in; named otherwise
+/// than as the whole header, it's refused, saying where it goes; a 401 whose body is cut short,
+/// or sent again once the token is refreshed to a server that's gone, fails it, and cancelled
+/// while that body comes, it's cancelled; and a token that can't go in a header fails it, saying so.
+/// No token gets out.
+#[hegel::test(test_cases = 1)]
+fn prop_a_request_through_an_account_is_answered_as_its_rule_says(tc: hegel::TestCase) {
+    for through in [
+        Through::Answered,
+        Through::Misplaced,
+        Through::RefusedCutShort,
+        Through::RefusedCancelled,
+        Through::RefusedThenGone,
+        Through::BadToken,
+    ] {
+        prop_a_request_through_an_account_is_answered_as_its_rule_says_case(&tc, through);
+    }
+}
+
+/// [`prop_a_request_through_an_account_is_answered_as_its_rule_says`] for one `through`.
+#[hegel::test_helper]
+fn prop_a_request_through_an_account_is_answered_as_its_rule_says_case(tc: &hegel::TestCase, through: Through) {
+    use super::accounts::{Scripted, trading_at};
+    use super::shared_accounts::{asking, mock_with, options, who};
+    use hegel::generators as gs;
+    let path: String = format!("/r/{}", tc.draw(gs::from_regex("[a-z]{1,6}").fullmatch(true)));
+    let refused = "HTTP/1.1 401 X\r\nContent-Length: 100\r\nConnection: close\r\n\r\n";
+    let refusing = match through {
+        Through::RefusedCutShort => Some(raw(refused, b"short", Then::Stops)),
+        Through::RefusedCancelled => Some(raw(refused, b"short", Then::Holds)),
+        Through::RefusedThenGone => {
+            Some(raw("HTTP/1.1 401 X\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", b"", Then::Stops))
+        }
+        _ => None,
+    };
+    let raw_at = refusing.as_ref().map(|r| r.url.clone());
+    // A token endpoint answering, refreshed, a token that can't go in a header, for `BadToken`.
+    let scripted = Scripted::new();
+    let m = match through {
+        // Signed in with a token lasting half a minute: it's refreshed before it's used.
+        Through::BadToken => trading_at(&scripted.url, false),
+        _ => mock_with(
+            3600,
+            move |server| {
+                let plugin = crate::mock_oauth::account_plugin(server, &format!("{server}/userinfo"), "");
+                match &raw_at {
+                    Some(raw) => plugin.replace(&format!("{server}/r/*"), &format!("{raw}/r/*")),
+                    None => plugin,
+                }
+            },
+            &asking(&["read"], &[]),
+            options(),
+        ),
+    };
+    m.sign_in(who(json!("a"), None), None, &["read"]).0.unwrap();
+    if through == Through::BadToken {
+        let token = json!({ "access_token": "at\n10", "token_type": "bearer", "expires_in": 3600 });
+        scripted.then(None, crate::mock_oauth::json_reply(200, token));
+    }
+    let base = refusing.as_ref().map_or(m.server.url.clone(), |r| r.url.clone());
+    let named = if through == Through::Misplaced { "Bearer {account:mock}" } else { "{account:mock}" };
+    let fetch = json!({ "url": format!("{base}{path}"), "headers": { "Authorization": named } });
+    let answer = match through {
+        Through::RefusedCancelled => m.f.fetch_cancelled(fetch, || refusing.unwrap().wait()),
+        _ => m.f.fetch(fetch),
+    };
+    let (kind, message) = (answer["error"]["data"]["kind"].as_str(), answer["error"]["message"].as_str());
+    match through {
+        Through::Answered => assert_eq!(answer["result"]["body"], format!("{path} Bearer at-1"), "{answer}"),
+        Through::Misplaced => assert_eq!(kind, Some("invalid"), "{answer}"),
+        Through::RefusedCutShort | Through::RefusedThenGone => assert_eq!(kind, Some("external"), "{answer}"),
+        Through::RefusedCancelled => assert_eq!(kind, Some("cancelled"), "{answer}"),
+        Through::BadToken => {
+            assert_eq!(message, Some("the account's token can't be sent in a header"), "{answer}");
+        }
+    }
+    if through == Through::RefusedThenGone {
+        assert_eq!(m.refreshes(), 1, "refreshed, then sent again");
+    }
+    // What the service answered is the service's: it echoes the token it got.
+    let ours = if through == Through::Answered { Value::Null } else { answer };
+    assert!(!m.leaked(&[ours]), "a token is out: {through:?}");
 }

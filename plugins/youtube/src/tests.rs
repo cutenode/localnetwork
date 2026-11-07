@@ -3,11 +3,14 @@ mod publishing;
 
 use hegel::TestCase;
 use hegel::generators as gs;
-use loclib_plugin::{Capability, DestinationKind, Manifest, PublishedSet, SettingType, TracklistEntry};
+use loclib_plugin::{Capability, DestinationKind, Manifest, PublishedSet, SettingType, TokenPlace, TracklistEntry};
 use serde_json::{Value, json};
 
 use super::video::{self, MAX_DESCRIPTION, MAX_TITLE, MIN_CHAPTER, MIN_CHAPTERS};
 use super::*;
+
+/// The Google account plugin's manifest: the account type the plugin asks for.
+const GOOGLE_ACCOUNT: &str = include_str!("../../accounts/google-account/locallibrary-plugin.toml");
 
 fn set() -> PublishedSet {
     PublishedSet {
@@ -23,9 +26,9 @@ fn entry(artist: Option<&str>, title: Option<&str>, start: Option<u32>) -> Track
     TracklistEntry { artist: artist.map(Into::into), title: title.map(Into::into), start_seconds: start }
 }
 
-/// It reaches YouTube's API alone, publishes sets at one destination, signs in to Google through
-/// Local Network's token exchange asking to upload and nothing else, and keeps who can watch and
-/// the picture as settings.
+/// It reaches YouTube's API alone, publishes sets at one destination, asks for a Google account
+/// to upload with and nothing else, naming it where the Google account plugin puts its token
+/// (after `Bearer`), and keeps who can watch and the picture as settings.
 #[test]
 fn the_manifest_is_a_built_in_set_destination_on_youtube() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
@@ -34,16 +37,13 @@ fn the_manifest_is_a_built_in_set_destination_on_youtube() {
     let [destination] = &manifest.contributes.destinations[..] else { panic!("{manifest:?}") };
     assert_eq!((manifest.id.as_str(), destination.name.as_str()), ("youtube", "video"));
     assert_eq!(destination.kind, DestinationKind::Set);
-    let [account] = &manifest.contributes.accounts[..] else { panic!("{manifest:?}") };
-    assert_eq!(format!("{{account:{}}}", account.id), upload::AUTHORIZATION);
-    assert_eq!(account.authorize_url, "https://accounts.google.com/o/oauth2/v2/auth");
-    assert_eq!(account.token_url, None);
-    assert_eq!(account.token_exchange.as_deref(), Some("https://localnetwork.computer/api/token-exchange/google"));
-    assert_eq!(account.scopes, ["https://www.googleapis.com/auth/youtube.upload"]);
-    assert_eq!(account.revoke_url.as_deref(), Some("https://oauth2.googleapis.com/revoke"));
-    // Google's client ids are `<number>-<id>.apps.googleusercontent.com`; until Local Network has
-    // one, a placeholder that says so.
-    assert!(account.client_id.ends_with(".apps.googleusercontent.com"), "{}", account.client_id);
+    let [need] = &manifest.accounts[..] else { panic!("{manifest:?}") };
+    assert_eq!((need.name.as_str(), need.scopes.as_slice()), ("google", ["youtube-upload".to_string()].as_slice()));
+    assert!(need.optional.is_empty(), "{need:?}");
+    let google = Manifest::parse(GOOGLE_ACCOUNT).unwrap();
+    let [account_type] = &google.contributes.account_types[..] else { panic!("{google:?}") };
+    assert_eq!(format!("{{account:{}}}", account_type.name), upload::AUTHORIZATION);
+    assert_eq!(account_type.token, TokenPlace::Scheme("Bearer".into()));
     let settings: Vec<(&str, SettingType, Option<&Value>)> =
         manifest.contributes.settings.iter().map(|s| (s.key.as_str(), s.kind, s.default.as_ref())).collect();
     assert_eq!(
@@ -58,7 +58,7 @@ fn the_manifest_is_a_built_in_set_destination_on_youtube() {
 /// guide to the resumable upload shows one), and not YouTube's other API.
 #[test]
 fn googles_youtube_upload_scope_covers_the_upload() {
-    let google = Manifest::parse(include_str!("../../accounts/google-account/locallibrary-plugin.toml")).unwrap();
+    let google = Manifest::parse(GOOGLE_ACCOUNT).unwrap();
     let scope = &google.contributes.account_types[0].scopes["youtube-upload"];
     let covers = |method: &str, url: &str| scope.covers(method, &url::Url::parse(url).unwrap());
     let session = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&upload_id=xa298sd_f&part=snippet,status,contentDetails";
@@ -149,6 +149,18 @@ fn the_description_is_chapters_youtube_takes(tc: TestCase) {
     assert_eq!(few, (1..MIN_CHAPTERS).contains(&chapters), "{:?}", d.notes);
     let cut = d.notes.iter().any(|n| n.starts_with("the description lists"));
     assert_eq!(cut, more.is_some());
+}
+
+/// A set without a title is named after where it was played (its venue, else its city, else "DJ
+/// set") and when, each as YouTube takes it.
+#[hegel::test(test_cases = 100)]
+fn prop_an_untitled_set_is_named_after_where_and_when(tc: TestCase) {
+    let place = || gs::optional(gs::sampled_from(vec!["Warehouse".to_string(), " ".into(), "<Club>".into()]));
+    let (venue, city) = (tc.draw(place()), tc.draw(place()));
+    let set = PublishedSet { title: None, venue: venue.clone(), city: city.clone(), ..set() };
+    let given = |s: Option<String>| s.map(|s| s.replace(['<', '>'], "")).filter(|s| !s.trim().is_empty());
+    let place = given(venue).or_else(|| given(city)).unwrap_or_else(|| "DJ set".into());
+    assert_eq!(video::of(&set, &[], 60).title, format!("{place}, 2026-10-03"));
 }
 
 /// A chapter's time, as `05:30` or past an hour `1:02:03`, reads back as the second it's for.

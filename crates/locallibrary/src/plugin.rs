@@ -15,10 +15,11 @@
 //! Plugins never write to a drive. They read the library by calling back for the sidecar's read
 //! methods their capabilities grant, within limits (see [`Reads`]), and reach the servers their
 //! `net:` capabilities grant through the host (`net/fetch`), which fills in their secret settings
-//! (kept in the keychain) and their accounts' tokens (signed in to by the host, see
-//! [`Plugins::begin_sign_in`]); an operation's edits are planned and applied by the host as any
-//! edit plan is, and an exporter's overwrites are confirmed first. Answers too big for a message are
-//! files in a folder the host makes for each request (`scratch`), which it reads itself.
+//! (kept in the keychain) and the tokens of the accounts they're given access to (signed in to by
+//! the host, see [`Plugins::begin_account_sign_in`]); an operation's edits are planned and applied
+//! by the host as any edit plan is, and an exporter's overwrites are confirmed first. Answers too
+//! big for a message are files in a folder the host makes for each request (`scratch`), which it
+//! reads itself.
 //! Analyzers' values go to the [`crate::fields`] store, their beat grids, phrases and waveforms
 //! to its overlay store. What providers find for tracks, the host offers the user and makes the
 //! edits of itself (see [`Plugins::provide`]), as it does of what importers read (see
@@ -58,7 +59,7 @@ mod sources;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use indexmap::IndexMap;
@@ -72,7 +73,11 @@ use crate::keychain::Storage;
 use crate::model::{Library, Track};
 use crate::{Error, Result};
 
-pub use accounts::{AccountStatus, REFRESH_BEFORE, SignIn, SignedOut};
+pub use accounts::access::{Access, AccountId};
+pub use accounts::ensure::{AccessQuestion, AskAccess, EnteredKeys};
+pub use accounts::ready::Unready;
+pub use accounts::shared::{Account, AccountSignIn, AccountSignedIn, AccountSignedOut, Accounts};
+pub use accounts::{REFRESH_BEFORE, WARN_DAYS, due_soon};
 pub use analysis::{AnalysisPart, ApplyAnalysis, same_grid};
 pub use analyzers::Analyzed;
 pub use apply::ApplyFields;
@@ -94,7 +99,9 @@ pub use operations::OpPlanned;
 pub use providers::{
     AUTO_PICK, Found, Offer, Pick, PlanProvided, Provide, Provided, auto_pick, plan_provided, set_auto_pick,
 };
-pub(crate) use settings::{all_saved_settings, host_settings, save_host_settings, save_settings, set_host_setting};
+pub(crate) use settings::{
+    all_saved_settings, host_settings, host_settings_to_change, save_host_settings, save_settings, set_host_setting,
+};
 pub use sources::SourceExport;
 
 pub(crate) use process::THREAD_ELEVATED;
@@ -127,12 +134,17 @@ pub struct PluginSpec {
 }
 
 impl PluginSpec {
-    /// A plugin locallibrary ships, from its manifest (`locallibrary-plugin.toml`, compiled in),
-    /// which is checked only in builds with debug assertions (the tests'): it's the same on every
-    /// start, and checking it compiles its JSON Schemas against the 2020-12 meta-schema, which
-    /// added about a millisecond to every run of the CLI, `--version` included.
+    /// A plugin locallibrary ships, from its manifest (`locallibrary-plugin.toml`, compiled in).
     pub fn built_in(manifest: &str, launch: Launch) -> Result<PluginSpec> {
         let manifest = Manifest::parse(manifest).map_err(|e| Error::invalid(format!("a plugin's manifest: {e}")))?;
+        PluginSpec::shipped(manifest, launch)
+    }
+
+    /// A plugin locallibrary ships, from its parsed manifest, which is checked only in builds with
+    /// debug assertions (the tests'): it's the same on every start, and checking it compiles its
+    /// JSON Schemas against the 2020-12 meta-schema, which added about a millisecond to every run
+    /// of the CLI.
+    pub fn shipped(manifest: Manifest, launch: Launch) -> Result<PluginSpec> {
         check_built_in(&manifest)?;
         Ok(PluginSpec { manifest, launch, built_in: true })
     }
@@ -190,6 +202,9 @@ pub struct Options {
     /// What plugins tell the user (`host/notify`), and that a service was left off: each front
     /// end shows them its own way. Called on the thread reading the plugin, so it mustn't wait.
     pub notices: Notices,
+    /// How the front end asks the user whether a plugin may use more of an account it has access
+    /// to (`accounts/ensure`, see [`AskAccess`]): with none, the plugin is told how to give it.
+    pub ask: Option<Arc<dyn AskAccess>>,
     /// How many times in a row a service may stop or fail before it's left off.
     pub restarts: u32,
     /// How long a service that stopped waits to be started again, the first time: twice that the
@@ -229,6 +244,7 @@ impl Default for Options {
             log: Arc::new(|id, line| eprintln!("{id}: {line}")),
             events: 64,
             notices: Arc::new(|n| eprintln!("{}: {}", n.plugin, n.message)),
+            ask: None,
             restarts: 5,
             backoff: Duration::from_secs(1),
         }
@@ -238,8 +254,8 @@ impl Default for Options {
 /// The plugins the app has, by id.
 pub struct Plugins {
     plugins: IndexMap<String, Arc<Slot>>,
-    /// Sign-ins to plugins' accounts waiting for the browser.
-    signing_in: accounts::SigningIn,
+    /// What every plugin is hosted with.
+    host: Arc<process::Host>,
 }
 
 impl Plugins {
@@ -249,13 +265,18 @@ impl Plugins {
     /// [`PluginSpec::built_in`]), two plugins with one id, and two commands (or operations) with
     /// one `cli` place (the app checks them against its own commands).
     pub fn new(specs: Vec<PluginSpec>, reads: Arc<dyn Reads>, options: Options) -> Result<Plugins> {
-        let host = Arc::new(process::Host { reads, options, turns: Mutex::default() });
+        let host = Arc::new(process::Host::new(reads, options));
         let mut plugins = IndexMap::new();
         let mut cli: FxHashSet<String> = FxHashSet::default();
         for spec in specs {
-            let manifest = process::printable_manifest(spec.manifest)
-                .map_err(|e| Error::invalid(format!("a plugin's manifest: {e}")))?;
-            let spec = PluginSpec { manifest, ..spec };
+            // Only in builds with debug assertions: the plugins locallibrary ships print as they
+            // are, which its tests check, and this was a tenth of the time of every run of the CLI.
+            #[cfg(debug_assertions)]
+            let spec = PluginSpec {
+                manifest: process::printable_manifest(spec.manifest)
+                    .map_err(|e| Error::invalid(format!("a plugin's manifest: {e}")))?,
+                ..spec
+            };
             let m = &spec.manifest;
             if !spec.built_in {
                 return Err(Error::invalid(format!("{}: third-party plugins aren't supported yet", m.id)));
@@ -272,7 +293,11 @@ impl Plugins {
             let id = m.id.clone();
             plugins.insert(id, Arc::new(Slot::new(spec.manifest, spec.launch, host.clone())));
         }
-        Ok(Plugins { plugins, signing_in: Default::default() })
+        let account_plugins = plugins.iter().filter(|(_, s)| s.manifest.is_account_plugin());
+        let account_plugins = account_plugins.map(|(id, s)| (id.clone(), Arc::downgrade(&s.plugin))).collect();
+        // Set here only, once every plugin is.
+        let _ = host.account_plugins.set(account_plugins);
+        Ok(Plugins { plugins, host })
     }
 
     /// Each plugin's manifest, in the order the app gave them.

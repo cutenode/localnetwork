@@ -11,6 +11,7 @@ use hegel::generators as gs;
 use indexmap::IndexMap;
 use locallibrary::api::{self, ImportSettingsFile};
 use locallibrary::equipment::Remembered;
+use locallibrary::mix::prefs::MixPrefs;
 use locallibrary::profile::{Precision, ProfilePrefs, Section};
 use locallibrary::query::{SortField, SortKey};
 use locallibrary::settings::transfer::{Action, PlayerPrefs, SettingsExport};
@@ -27,6 +28,7 @@ struct Contents {
     prefs: Option<ProfilePrefs>,
     /// What the player remembers (`tui.json`), its preferences and where it was.
     player: Option<Map<String, Value>>,
+    mix: Option<MixPrefs>,
     host: Map<String, Value>,
     plugins: Map<String, Value>,
 }
@@ -40,6 +42,9 @@ impl Contents {
         }
         if let Some(player) = &self.player {
             fs::write(store.root().join("tui.json"), serde_json::to_vec(player).unwrap()).unwrap();
+        }
+        if let Some(mix) = &self.mix {
+            mix.save(store).unwrap();
         }
         let plugins = store.root().join("plugins");
         fs::create_dir_all(&plugins).unwrap();
@@ -116,6 +121,8 @@ fn contents(tc: &TestCase) -> Contents {
         let maybe = |tc: &TestCase| tc.draw(gs::optional(gs::booleans()));
         let prefs = PlayerPrefs {
             theme: tc.draw(gs::optional(gs::sampled_from(vec!["themes.night", "themes.day"]))).map(String::from),
+            color: tc.draw(gs::optional(gs::sampled_from(vec!["truecolor", "256", "16"]))).map(String::from),
+            icons: tc.draw(gs::optional(gs::sampled_from(vec!["nerd", "unicode", "ascii"]))).map(String::from),
             sort: tc
                 .draw(gs::optional(gs::sampled_from(vec![SortField::Bpm, SortField::Title])))
                 .map(|field| SortKey { field, descending: tc.draw(gs::booleans()) }),
@@ -139,6 +146,10 @@ fn contents(tc: &TestCase) -> Contents {
             }
         }
         c.player = Some(player);
+    }
+    if tc.draw(gs::booleans()) {
+        let limit = gs::sampled_from(vec![0, 64, 256, 1024]);
+        c.mix = Some(MixPrefs { index_limit_mib: tc.draw(gs::optional(limit)) });
     }
     for key in tc.draw(gs::vecs(gs::sampled_from(vec!["checks.sound.bpm.on", "providers.auto_pick"])).max_size(2)) {
         c.host.insert(key.into(), scalar(tc));
@@ -205,7 +216,8 @@ fn holds(before: &Value, after: &Value, at: &str) {
 fn an_export_fits_its_schema(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path(), "store");
-    contents(&tc).write(&store);
+    let c = contents(&tc);
+    c.write(&store);
     let schema = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/locallibrary/docs/settings-export.schema.json");
     let schema: Value = serde_json::from_slice(&fs::read(schema).unwrap()).unwrap();
     let validator = jsonschema::validator_for(&schema).unwrap();
@@ -213,6 +225,7 @@ fn an_export_fits_its_schema(tc: TestCase) {
     for (key, _) in SESSION.iter() {
         assert!(export["player"].get(key).is_none(), "{key} went out: {export}");
     }
+    assert_eq!(export["mix"], serde_json::to_value(c.mix.unwrap_or_default()).unwrap(), "{export}");
     let errors: Vec<String> = validator.iter_errors(&export).map(|e| format!("{}: {e}", e.instance_path())).collect();
     assert!(errors.is_empty(), "{errors:?}\n{export:#}");
 }
@@ -231,7 +244,8 @@ fn an_export_comes_back_from_an_empty_store(tc: TestCase) {
 }
 
 /// Importing adds the file's values without changing any set here; replacing makes each of the
-/// file's values the file's, and still keeps what the file doesn't have.
+/// file's values the file's, and still keeps what the file doesn't have. A plan applied without
+/// the store is refused, importing nothing.
 #[hegel::test(test_cases = 100)]
 fn importing_adds_and_replacing_overwrites(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -243,6 +257,9 @@ fn importing_adds_and_replacing_overwrites(tc: TestCase) {
         (json_of(&api::settings_export(&from).unwrap()), json_of(&api::settings_export(&into).unwrap()));
     let replace = tc.draw(gs::booleans());
     let plan = api::settings_import_file_plan(&into, &ImportSettingsFile { file: file.clone(), replace }).unwrap();
+    let err = plan.apply(None, &locallibrary::progress::Ctx::silent()).unwrap_err();
+    assert!(err.to_string().contains("importing settings needs the store"), "{err}");
+    assert_eq!(json_of(&api::settings_export(&into).unwrap()), ours, "nothing imported without the store");
     let after = json_of(&import(&into, &file, replace));
     let refused = if replace { Action::Keep } else { Action::Replace };
     assert!(plan.plan.changes.iter().all(|c| c.action != refused), "{:?}", plan.plan.changes);
@@ -348,6 +365,68 @@ fn a_plan_is_stale_once_the_store_changes() {
     assert!(!store.settings_profile().unwrap().base.contains_key("quantize"));
 }
 
+/// Importing into a store with a section it can't read right now is refused, and the file stays as
+/// it was: read as empty, importing would write just the file's values over it.
+#[cfg(unix)]
+#[hegel::test(test_cases = 5)]
+fn importing_over_a_file_that_cant_be_read_leaves_it_alone(tc: TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path(), "store");
+    let doc = dir.path().join("settings.json");
+    let value = tc.draw(gs::integers::<u8>());
+    let set = json!({ "version": 1, "player": { "ratings": true }, "plugin_host": { "new": value } });
+    fs::write(&doc, set.to_string()).unwrap();
+    let plugins = store.root().join("plugins");
+    fs::create_dir_all(&plugins).unwrap();
+    let (player, host) = (store.root().join("tui.json"), plugins.join("settings.json"));
+    fs::write(&player, json!({ "root": "/Volumes/USB" }).to_string()).unwrap();
+    fs::write(&host, json!({ "kept": 2 }).to_string()).unwrap();
+    for file in [&player, &host] {
+        let before = fs::read(file).unwrap();
+        let mode = |bits: u32| fs::set_permissions(file, fs::Permissions::from_mode(bits)).unwrap();
+        mode(0o000);
+        // Root reads anything.
+        if fs::read(file).is_ok() {
+            return mode(0o644);
+        }
+        let imported = api::settings_import_file(&store, &ImportSettingsFile { file: doc.clone(), replace: false });
+        mode(0o644);
+        assert!(matches!(imported, Err(locallibrary::Error::Io { path, .. }) if path == *file));
+        assert_eq!(fs::read(file).unwrap(), before, "{}", file.display());
+    }
+}
+
+/// Importing into a store whose plugins can't be listed right now is refused: their settings read
+/// as none, importing would write just the file's values over a plugin's.
+#[cfg(unix)]
+#[hegel::test(test_cases = 5)]
+fn importing_when_the_plugins_cant_be_listed_leaves_theirs_alone(tc: TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path(), "store");
+    let doc = dir.path().join("settings.json");
+    let value = tc.draw(gs::integers::<u8>());
+    fs::write(&doc, json!({ "version": 1, "plugins": { "echo": { "new": value } } }).to_string()).unwrap();
+    let plugins = store.root().join("plugins");
+    let kept = plugins.join("echo/settings.json");
+    fs::create_dir_all(kept.parent().unwrap()).unwrap();
+    fs::write(&kept, json!({ "kept": 2 }).to_string()).unwrap();
+    let before = fs::read(&kept).unwrap();
+    let mode = |bits: u32| fs::set_permissions(&plugins, fs::Permissions::from_mode(bits)).unwrap();
+    mode(0o311);
+    // Root lists anything.
+    if fs::read_dir(&plugins).is_ok() {
+        return mode(0o755);
+    }
+    let imported = api::settings_import_file(&store, &ImportSettingsFile { file: doc.clone(), replace: false });
+    let exported = api::settings_export(&store);
+    mode(0o755);
+    assert!(matches!(imported, Err(locallibrary::Error::Io { path, .. }) if path == plugins));
+    assert!(matches!(exported, Err(locallibrary::Error::Io { path, .. }) if path == plugins));
+    assert_eq!(fs::read(&kept).unwrap(), before);
+}
+
 /// Importing the player's preferences keeps where it was: the queue and the drive stay, and a
 /// player that kept its state beside the store (there was none yet) finds it in the store.
 #[test]
@@ -376,4 +455,100 @@ fn importing_the_players_preferences_keeps_where_it_was() {
     );
     let after = import(&store, &file, true);
     assert_eq!(after.player["theme"], "themes.night");
+}
+
+/// A file whose version isn't this one's, or with a section that isn't what that section holds
+/// (a value of the wrong kind, a setting that doesn't exist, in the base or a drive's
+/// overrides, a plugin's entry that isn't one), is refused naming the version or the section,
+/// before anything is planned or written.
+#[hegel::test(test_cases = 10)]
+fn prop_a_file_with_a_section_it_cant_read_is_refused(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path(), "store");
+    let drive = Uuid::from_u128(1).to_string();
+    let drive = drive.as_str();
+    let replace = tc.draw(gs::booleans());
+    for case in 0..10u8 {
+        let (doc, says) = match case {
+            0 => (json!({ "version": 0 }), "not one locallibrary wrote".to_string()),
+            1 => {
+                let v = tc.draw(gs::integers::<u32>().min_value(2));
+                (json!({ "version": v }), format!("its version is {v}: a newer"))
+            }
+            2 => (json!({ "version": 1, "my_settings": { "base": 5 } }), "my_settings".into()),
+            3 => {
+                (json!({ "version": 1, "my_settings": { "base": { "no_such_setting": "on" } } }), "my_settings".into())
+            }
+            4 => (
+                json!({ "version": 1, "my_settings": { "drives": { drive: { "name": "SD", "values": { "quantize": "sideways" } } } } }),
+                "my_settings".into(),
+            ),
+            5 => (json!({ "version": 1, "players": { "default": 5 } }), "players".into()),
+            6 => (json!({ "version": 1, "profile": { "precision": [] } }), "profile".into()),
+            7 => (json!({ "version": 1, "player": { "theme": 5 } }), "player".into()),
+            8 => (json!({ "version": 1, "mix": { "index_limit_mib": "lots" } }), "mix".into()),
+            _ => {
+                let id = tc.draw(gs::sampled_from(vec!["../up", "a b", ""]));
+                (json!({ "version": 1, "plugins": { id: {} } }), "plugins".into())
+            }
+        };
+        let file = dir.path().join("settings.json");
+        fs::write(&file, doc.to_string()).unwrap();
+        let req = ImportSettingsFile { file: file.clone(), replace };
+        let err = api::settings_import_file_plan(&store, &req).unwrap_err().to_string();
+        assert!(err.contains(&says) && err.contains(&file.display().to_string()), "{doc}: {err}");
+        let err = locallibrary::settings::transfer::read(&file).unwrap_err();
+        assert_eq!(err.code(), "parse", "{err}");
+    }
+    assert_eq!(
+        fs::read_dir(store.root()).unwrap().count(),
+        fs::read_dir(store_in(dir.path(), "fresh").root()).unwrap().count()
+    );
+}
+
+/// A file the store keeps settings in that can't be read stops an export, and an import, which
+/// compares the file with what's set here: nothing's made of what was set.
+#[hegel::test(test_cases = 20)]
+fn prop_a_store_file_that_cant_be_read_stops_export_and_import(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path(), "store");
+    let damaged = tc.draw(gs::sampled_from(vec![
+        "settings.json",
+        "players.json",
+        locallibrary::profile::PREFS_FILE,
+        locallibrary::mix::prefs::PREFS_FILE,
+        "plugins/sound/settings.json",
+    ]));
+    let path = store.root().join(damaged);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, tc.draw(gs::sampled_from(vec![&b"not json"[..], b"{", b"[1, 2"]))).unwrap();
+    assert!(api::settings_export(&store).is_err());
+    let file = dir.path().join("import.json");
+    fs::write(&file, json!({ "version": 1, "mix": { "index_limit_mib": 64 } }).to_string()).unwrap();
+    let doc = locallibrary::settings::transfer::read(&file).unwrap();
+    assert!(locallibrary::settings::transfer::merge(&store, &doc, tc.draw(gs::booleans())).is_err());
+    assert!(api::settings_import_file_plan(&store, &ImportSettingsFile { file, replace: false }).is_err());
+}
+
+/// An import whose file can't be written where the store keeps it fails, saying so, and the
+/// other sections' files are as they were.
+#[hegel::test(test_cases = 10)]
+fn prop_an_import_that_cant_be_written_fails(tc: TestCase) {
+    use locallibrary::settings::transfer;
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path(), "store");
+    let (section, kept_in) = tc.draw(gs::sampled_from(vec![
+        (json!({ "my_settings": { "base": { "quantize": "off" } } }), "settings.json"),
+        (json!({ "players": { "default": ["CDJ-3000"] } }), "players.json"),
+        (json!({ "mix": { "index_limit_mib": 64 } }), locallibrary::mix::prefs::PREFS_FILE),
+    ]));
+    let mut doc = section;
+    doc["version"] = json!(1);
+    let file = dir.path().join("import.json");
+    fs::write(&file, doc.to_string()).unwrap();
+    let merged = transfer::merge(&store, &transfer::read(&file).unwrap(), tc.draw(gs::booleans())).unwrap();
+    assert!(!merged.changes.is_empty());
+    fs::create_dir_all(store.root().join(kept_in).join("in the way")).unwrap();
+    assert!(merged.write(&store).is_err());
+    assert!(store.root().join(kept_in).is_dir());
 }

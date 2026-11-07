@@ -33,32 +33,55 @@ fn refused(manifests: &[Manifest]) -> String {
     why[0].clone().unwrap()
 }
 
+/// The manifests locallibrary links in, as build.rs wrote them.
+fn shipped() -> impl Iterator<Item = Manifest> {
+    BUILT_IN.iter().map(|(_, json, _)| Manifest::from_json(json).unwrap())
+}
+
 /// The plugins locallibrary links in are never left out (a clash is a build's mistake, caught
 /// here before it ships).
 #[test]
 fn the_plugins_locallibrary_ships_are_accepted() {
-    let launch = Launch { program: "locallibrary".into(), args: Vec::new(), env_remove: Vec::new() };
-    let specs: Vec<PluginSpec> =
-        BUILT_IN.iter().map(|(m, _)| PluginSpec::built_in(m, launch.clone()).unwrap()).collect();
-    assert_eq!(check(&specs.iter().map(|s| &s.manifest).collect::<Vec<_>>()), vec![None; BUILT_IN.len()]);
+    let manifests: Vec<Manifest> = shipped().collect();
+    assert_eq!(left_out(&manifests), vec![None; BUILT_IN.len()]);
 }
 
-/// The manifests locallibrary links in are valid, their JSON Schemas included: a release build
-/// doesn't check them as it starts (see `PluginSpec::built_in`), so this does, whatever the
-/// build.
+/// The manifests locallibrary links in are valid, their JSON Schemas included, and what build.rs
+/// wrote says what the TOML does: a release build doesn't check them as it starts (see
+/// `PluginSpec::shipped`), so this does, whatever the build.
 #[test]
 fn the_manifests_locallibrary_ships_are_valid() {
-    for (manifest, _) in BUILT_IN {
-        let m = Manifest::parse(manifest).unwrap();
-        m.validate(true).unwrap_or_else(|e| panic!("the {} plugin's manifest: {e}", m.id));
+    let plugins = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
+    for ((id, json, _), m) in BUILT_IN.iter().zip(shipped()) {
+        let at = |dir: std::path::PathBuf| dir.join("locallibrary-plugin.toml");
+        let file = [at(plugins.join(id)), at(plugins.join("accounts").join(id))].into_iter().find(|f| f.is_file());
+        let toml = Manifest::parse(&std::fs::read_to_string(file.unwrap()).unwrap()).unwrap();
+        toml.validate(true).unwrap_or_else(|e| panic!("the {} plugin's manifest: {e}", toml.id));
+        // As text: the order of a form's fields is what it shows them in.
+        assert_eq!(serde_json::to_string(&m).unwrap(), serde_json::to_string(&toml).unwrap(), "{json}");
     }
+}
+
+/// What the host says of the plugins locallibrary ships is their manifests as they are, so a
+/// release needn't make them printable as it starts (see `Plugins::new`).
+#[test]
+fn the_manifests_locallibrary_ships_print_as_they_are() {
+    let printed: Vec<Manifest> = host().unwrap().manifests().cloned().collect();
+    assert_eq!(printed, shipped().collect::<Vec<_>>());
+}
+
+/// A plugin that's served is found by its id, and one with nothing to serve it isn't.
+#[test]
+fn only_plugins_with_a_crate_are_served_directly() {
+    assert!(!serve_shipped("no-such-plugin"));
+    let account = BUILT_IN.iter().find(|row| row.2.is_none()).unwrap();
+    assert!(!serve_shipped(account.0));
 }
 
 /// Only account plugins ship without a crate to serve them, and every one does.
 #[test]
 fn only_account_plugins_ship_without_a_crate() {
-    for (manifest, serve) in BUILT_IN {
-        let m = Manifest::parse(manifest).unwrap();
+    for ((_, _, serve), m) in BUILT_IN.iter().zip(shipped()) {
         assert_eq!(serve.is_none(), m.is_account_plugin(), "the {} plugin", m.id);
     }
 }
@@ -70,9 +93,8 @@ fn the_account_plugins_locallibrary_ships_use_services_the_token_exchange_has() 
     let file =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/src/lib/server/token-exchange/services.json");
     let services: Value = serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
-    let manifests = BUILT_IN.iter().map(|(m, _)| Manifest::parse(m).unwrap());
     let exchanges: Vec<String> =
-        manifests.flat_map(|m| m.contributes.account_types).filter_map(|t| t.token_exchange).collect();
+        shipped().flat_map(|m| m.contributes.account_types).filter_map(|t| t.token_exchange).collect();
     assert!(!exchanges.is_empty());
     for exchange in exchanges {
         let service = exchange.strip_prefix("https://localnetwork.computer/api/token-exchange/").unwrap_or(&exchange);
@@ -93,6 +115,96 @@ fn only_plugins_that_clash_are_left_out() {
     let why = "the say plugin's id is the echo plugin's command already".to_string();
     let other = manifest("other", "");
     assert_eq!(left_out(&[echo, other, manifest("say", "")]), [Some(why.clone()), None, Some(why)]);
+}
+
+/// An account plugin `id` providing the type `kind`, its scopes (`read`, `write`) covering
+/// requests to the hosts given.
+fn account_plugin(id: &str, kind: &str, scopes: &[(&str, &str)]) -> Manifest {
+    let scopes: String = scopes
+        .iter()
+        .map(|(scope, host)| {
+            format!(
+                "[contributes.account_types.scopes.{scope}]\ntitle = \"T\"\nrequests = [{{ method = \"GET\", url = \"https://{host}/*\" }}]\n"
+            )
+        })
+        .collect();
+    let at = "https://accounts.example";
+    manifest(
+        id,
+        &format!(
+            "[[contributes.account_types]]\ntype = \"{kind}\"\ntitle = \"T\"\nauthorize_url = \"{at}/authorize\"\n\
+             token_url = \"{at}/token\"\nclient_id = \"c\"\nwhoami = {{ url = \"{at}/me\", subject = \"/sub\", name = \"/name\" }}\n{scopes}"
+        ),
+    )
+}
+
+/// For any account plugins providing `mock` (or a type named like an `account` command), listing
+/// any of its scopes with requests to any host, and a plugin asking for any of those scopes,
+/// reaching any of the hosts, in any order: an account plugin is left out exactly when its type
+/// is named like an `account` command, and the plugin exactly when no account plugin kept
+/// provides the type, none of those lists a scope it asks for, or one of them that does sends a
+/// request of it to a host the plugin can't reach, saying which.
+#[hegel::test(test_cases = 200)]
+fn only_plugins_whose_accounts_can_be_used_are_kept(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let commands = crate::Cli::command().find_subcommand("account").map(|a| a.get_subcommands().count()).unwrap_or(0);
+    let hosts = ["a.example", "b.example"];
+    let mut providers = Vec::new();
+    for i in 0..tc.draw(gs::integers::<usize>().max_value(2)) {
+        let kind = tc.draw(gs::sampled_from(vec!["mock", "mock", "status"]));
+        let scopes: Vec<(&str, &str)> = ["read", "write"]
+            .into_iter()
+            .filter(|_| tc.draw(gs::booleans()))
+            .map(|s| (s, tc.draw(gs::sampled_from(hosts.to_vec()))))
+            .collect();
+        providers.push((format!("mock-{i}"), kind, scopes));
+    }
+    let needs: Vec<&str> = ["read", "write"].into_iter().filter(|_| tc.draw(gs::booleans())).collect();
+    let needs = if needs.is_empty() { vec!["read"] } else { needs };
+    let reaches: Vec<&str> = hosts.into_iter().filter(|_| tc.draw(gs::booleans())).collect();
+    let capabilities: Vec<String> = ["c.example"].iter().chain(&reaches).map(|h| format!("net:{h}")).collect();
+    let asker = manifest(
+        "asker",
+        &format!("capabilities = {capabilities:?}\n[[accounts]]\ntype = \"mock\"\nscopes = {needs:?}\nwhy = \"W\"\n"),
+    );
+    let mut all: Vec<Manifest> = providers.iter().map(|(id, kind, scopes)| account_plugin(id, kind, scopes)).collect();
+    let at = tc.draw(gs::integers::<usize>().max_value(all.len()));
+    all.insert(at, asker);
+
+    // An `account` command: refused when locallibrary has `account status`.
+    let clashes = |kind: &str| kind == "status" && commands > 0;
+    let kept: Vec<_> = providers.iter().filter(|(_, kind, _)| *kind == "mock").collect();
+    let ids: Vec<&str> = kept.iter().map(|(id, _, _)| id.as_str()).collect();
+    let unmet = || {
+        if kept.is_empty() {
+            return Some("the asker plugin asks for mock accounts, which no account plugin provides".to_string());
+        }
+        for scope in &needs {
+            let listed: Vec<&str> =
+                kept.iter().flat_map(|(_, _, s)| s.iter().filter(|(n, _)| n == scope).map(|(_, h)| *h)).collect();
+            if listed.is_empty() {
+                let ids = ids.join(", ");
+                return Some(format!(
+                    "the asker plugin asks for mock's scope {scope:?}, which no account plugin providing mock lists ({ids})"
+                ));
+            }
+            if let Some(host) = listed.into_iter().find(|h| !reaches.contains(h)) {
+                return Some(format!(
+                    "the asker plugin asks for mock's scope {scope:?}, whose requests go to {host}, which it has no net:{host} capability for"
+                ));
+            }
+        }
+        None
+    };
+    let mut expected: Vec<Option<String>> = providers
+        .iter()
+        .map(|(id, kind, _)| {
+            clashes(kind)
+                .then(|| format!("the {id} plugin's account type {kind:?} is named like the account {kind} command"))
+        })
+        .collect();
+    expected.insert(at, unmet());
+    assert_eq!(left_out(&all), expected);
 }
 
 /// Ids and places on the command line clash with locallibrary's commands, their aliases, the

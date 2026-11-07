@@ -74,7 +74,7 @@ export class LogEmailSender implements EmailSender {
 	constructor(private readonly logger: Logger) {}
 
 	async send(email: Email): Promise<SendOutcome> {
-		this.logger.info({ subject: email.subject, text: email.text }, 'email not sent (EMAIL_PROVIDER=log)');
+		this.logger.info('email not sent (EMAIL_PROVIDER=log)', { subject: email.subject, text: email.text });
 
 		return { kind: 'sent', providerId: null };
 	}
@@ -138,7 +138,7 @@ export function confirmationSender(
 		const outcome = await sender.send({ to: address, subject, text, html, headers: {} }, key);
 
 		if (outcome.kind !== 'sent')
-			logger.warn({ outcome: outcome.kind, error: outcome.error }, 'could not send an email confirmation');
+			logger.warn('could not send an email confirmation', { outcome: outcome.kind, error: outcome.error });
 	};
 }
 

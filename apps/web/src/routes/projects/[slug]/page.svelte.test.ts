@@ -6,6 +6,7 @@ import { djProfileSchema, djSetSchema } from '#lib/dj-schema.ts';
 import { EVENT_STATUS } from '#lib/shows.ts';
 import type { ProjectView, ShowView, Viewer } from '#lib/types.ts';
 import Page from './+page.svelte';
+import { PAGE_META } from '#lib/testing/page-meta.ts';
 
 it('renders a record that repeats genres, highlights, links, and mixes', async () => {
 	const mix = { title: 'Tidal Hours', url: 'https://soundcloud.com/neon/tidal-hours' };
@@ -39,6 +40,7 @@ it('renders a record that repeats genres, highlights, links, and mixes', async (
 		data: {
 			viewer: null,
 			pendingRequests: 0,
+			meta: PAGE_META,
 			project,
 			sets: undefined,
 			details: null,
@@ -77,6 +79,7 @@ const neon: ProjectView = {
 const base = {
 	viewer: null,
 	pendingRequests: 0,
+	meta: PAGE_META,
 	project: neon,
 	sets: undefined,
 	details: null,
@@ -227,7 +230,7 @@ it('shows the follower count, and links to sign-in to follow when signed out', a
 
 	await expect
 		.element(page.getByRole('link', { name: 'Follow 3 followers' }))
-		.toHaveAttribute('href', '/login?next=/projects/neon-tide');
+		.toHaveAttribute('href', '/login?next=%2Fprojects%2Fneon-tide%23follow');
 
 	await rerender({ data: { ...base, viewer: neonViewer, follow: Promise.resolve({ followers: 1, following: true }) } });
 	await expect
@@ -247,4 +250,15 @@ it('offers to sign in again when following needs a permission the session lacks'
 	await expect.element(again).toBeInTheDocument();
 	expect(again.element().closest('form')?.getAttribute('action')).toBe('/login');
 	expect(new FormData(again.element().closest('form')!).get('handle')).toBe('did:plc:neon');
+});
+
+it('says when the project was updated, with its record behind Technical details', async () => {
+	await render(Page, { params: { slug: 'neon-tide' }, data: base, form: null });
+
+	await expect.element(page.getByText(/^Updated \w{3} \d+, \d{4}$/)).toBeVisible();
+	await expect.element(page.getByText(neon.uri)).not.toBeVisible();
+
+	await page.getByText('Technical details').click();
+	await expect.element(page.getByText(neon.uri)).toBeVisible();
+	await expect.element(page.getByText('Revision')).toBeVisible();
 });

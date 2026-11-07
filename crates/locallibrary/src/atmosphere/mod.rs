@@ -240,6 +240,12 @@ impl AccountInfo {
     pub fn expired(&self) -> bool {
         Utc::now() >= self.sign_in_again_by
     }
+
+    /// Whether signing in again is due within [`crate::plugin::WARN_DAYS`], or was: front ends
+    /// warn, offering to.
+    pub fn due_soon(&self) -> bool {
+        crate::plugin::due_soon(self.sign_in_again_by)
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -398,6 +404,17 @@ fn take_pending(id: &str) -> Result<Pending> {
     })
 }
 
+/// The sign-in page `sent` (from the server's metadata, for the browser and the terminal) as it
+/// parses, and the server it's on, when it's a public https address. As it parses, it has none of
+/// the line breaks and tabs a parser skips, and its other control characters are percent-encoded,
+/// so it prints as one line and moves no cursor.
+fn sign_in_page(sent: &str) -> Result<(String, String)> {
+    let url = net::public(sent).map_err(|why| {
+        Error::Account(format!("the account's server sent a sign-in page that can't be opened: {why}"))
+    })?;
+    Ok((url.to_string(), url.authority().to_string()))
+}
+
 /// Start signing in with `input`: a handle (`alice.bsky.social`), a DID, or the account's server
 /// (`https://bsky.social`, which also lets people pick an account or make one). Returns the URL
 /// to open; the sign-in finishes with [`finish_login`] or [`finish_login_with_url`].
@@ -432,11 +449,7 @@ pub fn begin_login(root: &Path, input: &str, options: &LoginOptions) -> Result<L
     let store = LocalStore::new(root, options.storage, client.clone(), redirect_uri.clone(), requested.clone());
     let oauth = oauth(store, config, true)?;
     let url = block_on(oauth.start_auth(&input, AuthorizeOptions::default())).map_err(oauth_error)?;
-    // The address comes from the server's metadata, and goes to the browser.
-    net::public(&url).map_err(|why| {
-        Error::Account(format!("the account's server sent a sign-in page that can't be opened: {why}"))
-    })?;
-    let server = url.split("://").nth(1).and_then(|r| r.split(['/', '?']).next()).unwrap_or_default().to_string();
+    let (url, server) = sign_in_page(&url)?;
     let id = uuid::Uuid::new_v4().simple().to_string();
     let mut pending = PENDING.lock().unwrap();
     pending.retain(|_, p| p.started.elapsed() < PENDING_LIMIT);
@@ -491,12 +504,8 @@ async fn document_check(client_id: &str, requested: &[String]) -> std::result::R
     // Checked before anything is fetched: a client ID is a public https address.
     net::public(client_id).map_err(Unusable::Unfit)?;
     let offline = Unusable::Offline;
-    let http = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| offline(e.to_string()))?;
-    let response = http.get(client_id).send().await.map_err(|e| {
+    let http = crate::net::unpooled().map_err(offline)?;
+    let response = http.get(client_id).timeout(Duration::from_secs(5)).send().await.map_err(|e| {
         offline(if e.is_timeout() {
             "it didn't answer within 5 seconds".to_string()
         } else if e.is_connect() {

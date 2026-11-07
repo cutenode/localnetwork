@@ -1,4 +1,4 @@
-// src/tools/artists/lookup.ts — asking a SoundCloud tab about artists.
+// src/tools/artists/lookup.ts: asking a SoundCloud tab about artists.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createChrome, type ChromeMock } from '../helpers/chrome.ts';
 
@@ -63,12 +63,5 @@ describe('the lookup', () => {
 				status: LOOKUP_FAILED
 			});
 		}
-	});
-
-	it('has words for what the content script says went wrong', async () => {
-		const { LOOKUP_ERRORS } = await fresh();
-		expect(LOOKUP_ERRORS['no-client-id']).toMatch(/API key/);
-		expect(LOOKUP_ERRORS.unauthorized).toMatch(/rejected/);
-		expect(LOOKUP_ERRORS['']).toBeUndefined();
 	});
 });

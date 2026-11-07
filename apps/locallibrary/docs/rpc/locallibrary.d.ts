@@ -1663,7 +1663,7 @@ export type NewSet = {
   title?: string | null;
   /** The day it was played, `2026-10-03`. */
   date?: string | null;
-  /** `club`, `festival`, `radio`, `livestream`, `mix`, or another word. */
+  /** `club`, `festival`, `radio`, `livestream`, `studio`, or another word. */
   kind?: string | null;
   venue?: string | null;
   city?: string | null;
@@ -1710,7 +1710,7 @@ export type EditSet = {
   title?: string | null;
   /** The day it was played, `2026-10-03`. */
   date?: string | null;
-  /** `club`, `festival`, `radio`, `livestream`, `mix`, or another word. */
+  /** `club`, `festival`, `radio`, `livestream`, `studio`, or another word. */
   kind?: string | null;
   venue?: string | null;
   city?: string | null;
@@ -2298,6 +2298,79 @@ export type CollectionExportRequest = {
   overwrite_archive?: boolean;
 };
 
+export type BeginSignIn = {
+  /** The account type (`google`). */
+  type: string;
+  /** The account plugin to sign in through [default: the only one providing the type]. */
+  with?: string | null;
+  /**
+   * The plugin it's for, given access to it: to the scopes it needs, and those of `scopes` it
+   * can do without.
+   */
+  for?: string | null;
+  /**
+   * An account the store keeps, or one signed out that plugins still have access to, by
+   * subject, to sign in to again (asking for more scopes, say).
+   */
+  account?: string | null;
+  /** The type's scopes to ask for besides, by name. */
+  scopes?: string[];
+};
+
+export type FinishSignIn = {
+  /** What its `sign_in.begin` answered. */
+  id: string;
+  /** How long to wait for the browser (default 300, an hour at most). */
+  timeout_secs?: number | null;
+  /**
+   * For a sign-in with keys, which finishes at once: each key its `sign_in.begin` listed, by
+   * name, as the user entered it. The host keeps them in the keychain and never answers them;
+   * pass them straight from the user's input, nowhere else.
+   */
+  keys?: { [key: string]: string } | null;
+  /** With `keys`, when its `sign_in.begin` answered `named`: what the user calls the account. */
+  name?: string | null;
+};
+
+export type PasteSignIn = {
+  id: string;
+  /** The address the browser ended up on after approving. */
+  url: string;
+};
+
+export type CancelSignIn = {
+  id: string;
+};
+
+export type SignOut = {
+  account: AccountId;
+};
+
+/** An account kept in a store: the account plugin that signed it in, and its subject there. */
+export type AccountId = {
+  plugin: string;
+  subject: string;
+};
+
+export type ListAccesses = {
+  /** Only this plugin's. */
+  plugin?: string | null;
+};
+
+export type GiveAccess = {
+  /** The plugin's id. */
+  plugin: string;
+  account: AccountId;
+  /** Scopes of the account's type it can do without to give it besides those it needs, by name. */
+  scopes?: string[];
+};
+
+export type AccessRef = {
+  /** The plugin's id. */
+  plugin: string;
+  account: AccountId;
+};
+
 export type PluginRef = {
   /** The plugin's id. */
   plugin: string;
@@ -2312,29 +2385,6 @@ export type SetPluginSetting = {
    * puts it back to its default, or forgets a secret.
    */
   value?: unknown;
-};
-
-export type AccountRef = {
-  plugin: string;
-  /** The account's id, as the plugin's manifest has it. */
-  account: string;
-};
-
-export type FinishSignIn = {
-  /** What `plugins.account.sign_in.begin` answered. */
-  id: string;
-  /** How long to wait for the browser (default 300, an hour at most). */
-  timeout_secs?: number | null;
-};
-
-export type PasteSignIn = {
-  id: string;
-  /** The address the browser ended up on after approving. */
-  url: string;
-};
-
-export type CancelSignIn = {
-  id: string;
 };
 
 /** What to write to a drive's tracks' analysis files, from what one analyzer kept. */
@@ -3443,6 +3493,11 @@ export type BackupInfo = {
    * absent). Missing when the change didn't finish, or an earlier version made the backup.
    */
   after?: { [key: string]: Hash | null } | null;
+  /**
+   * Files its change was to write in place that weren't there when it was taken (an image's
+   * medium copy rekordbox didn't leave): putting it back removes them.
+   */
+  added?: string[];
 };
 
 export type RestorePreview = {
@@ -3585,6 +3640,11 @@ export type UndoableBackup = {
    * absent). Missing when the change didn't finish, or an earlier version made the backup.
    */
   after?: { [key: string]: Hash | null } | null;
+  /**
+   * Files its change was to write in place that weren't there when it was taken (an image's
+   * medium copy rekordbox didn't leave): putting it back removes them.
+   */
+  added?: string[];
   /** Recorded edits putting it back takes off the journal. */
   journal: number;
   /** It's the one `undo` puts back. */
@@ -4968,10 +5028,12 @@ export type SettingsExport = {
    */
   profile: { [key: string]: unknown };
   /**
-   * The player's preferences ([`PlayerPrefs`]): its theme, columns, sort, visualiser and
-   * playback modes.
+   * The player's preferences ([`PlayerPrefs`]): its theme, colours, icons, columns, sort,
+   * visualiser and playback modes.
    */
   player: { [key: string]: unknown };
+  /** What's set for identifying mixes ([`MixPrefs`]): the largest fingerprint index kept. */
+  mix: { [key: string]: unknown };
   /**
    * The host's settings for plugins: which analyzer each field role is read from, when a
    * provider's candidate is picked, and whether each check runs.
@@ -6643,8 +6705,8 @@ export type Set = {
   /** The day it was played (local). */
   date: string;
   /**
-   * `club`, `festival`, `radio`, `livestream`, `mix` (the Lexicon's `knownValues`) or the DJ's
-   * own word.
+   * `club`, `festival`, `radio`, `livestream`, `studio` (`mix` in older sets), the Lexicon's
+   * `knownValues`, or the DJ's own word.
    */
   kind?: string | null;
   venue?: string | null;
@@ -7001,6 +7063,12 @@ export type Play = {
    * (see [`matcher::Found::speed_range`]); `tempo` is then their average.
    */
   speed_range?: [number, number] | null;
+  /**
+   * Where it was heard at each speed and from which part of the track, in mix order: one line
+   * for a steady play, more for a ride or a loop or cue jump. Reports made before these were
+   * kept have none.
+   */
+  lines?: PlayLine[];
   /** The track's BPM at that speed. */
   played_bpm: number | null;
   /** Whether key lock (master tempo) was on: `None` when the speed is too close to 1.0 to tell. */
@@ -7024,6 +7092,16 @@ export type Play = {
   jumps: number;
   /** Other library tracks matching the same stretch of the mix. */
   alternates: Alternate[];
+};
+
+/** A stretch of a [`Play`] at one speed, from `start` until the next line's. */
+export type PlayLine = {
+  /** Seconds into the mix. */
+  start: number;
+  /** Seconds into the track at `start`. */
+  track_start: number;
+  /** Playback speed: 1.0 as recorded. */
+  tempo: number;
 };
 
 export type Alternate = {
@@ -7174,6 +7252,11 @@ export type ExportPlay = {
   tempo: number;
   /** The slowest and fastest speeds, when the pitch fader was ridden; `tempo` is their average. */
   speedRange?: [number, number] | null;
+  /**
+   * Where it was heard at each speed and from which part of the track, in mix order (see
+   * [`ExportLine`]); left out of reports made before they were kept.
+   */
+  lines?: ExportLine[];
   playedBpm?: number | null;
   /** `None` when the speed is too close to 1.0 to tell. */
   keyLock: boolean | null;
@@ -7229,6 +7312,19 @@ export type ExportPhrase = {
   start: number;
   end: number;
   kind: string;
+};
+
+/**
+ * A stretch of a play at one speed, from `start` until the next line's (see
+ * [`crate::mix::PlayLine`]).
+ */
+export type ExportLine = {
+  /** Seconds into the mix. */
+  start: number;
+  /** Seconds into the track at `start`. */
+  trackStart: number;
+  /** Playback speed: 1.03 is +3%. */
+  tempo: number;
 };
 
 export type ExportTransition = {
@@ -8079,19 +8175,177 @@ export type CollectionExportReport = {
   backup: string | null;
 };
 
+/** The accounts a store keeps and the accesses plugins were given to them, as hosts show them. */
+export type Accounts = {
+  /**
+   * Those it keeps, in the order they were first signed in, then those signed out that plugins
+   * still have access to.
+   */
+  accounts: StoreAccount[];
+  accesses: Access[];
+};
+
+/** An account a store keeps, as hosts show it: never a token. */
+export type StoreAccount = {
+  type: string;
+  /** The account plugin it was signed in through. */
+  plugin: string;
+  /** Its id at the service. */
+  subject: string;
+  /** What it's shown as. */
+  name: string;
+  /** What the service granted, as it names them. */
+  scopes: string[];
+  /**
+   * When its access token expires, when the service said: it's refreshed before then when it
+   * can be.
+   */
+  expires?: string | null;
+  /** It's refreshed without signing in again. */
+  refreshes: boolean;
+  /**
+   * When it signs itself out, when it does: as its access token expires when it isn't
+   * refreshed, else as its refresh token runs out, when the service said. Front ends warn
+   * within [`crate::plugin::WARN_DAYS`] of it.
+   */
+  signs_out?: string | null;
+  /** Its tokens are kept (the keychain may have lost them). */
+  signed_in: boolean;
+};
+
+/** The scopes of an account a plugin was given. */
+export type Access = {
+  /** 8 lowercase hex digits, which `{account:<type>/<id>}` names it by. */
+  id: string;
+  /** The plugin given it. */
+  plugin: string;
+  type: string;
+  account: AccountId;
+  /** What the account is shown as, kept so an access to one signed out still says. */
+  name: string;
+  /** The type's scopes, by name. */
+  scopes: string[];
+  /** It's the plugin's default for the type: `{account:<type>}` names it. */
+  default: boolean;
+  /**
+   * The scopes (by name) the user declined when the plugin asked for them, or a sign-in for it
+   * asked the service for and the service didn't grant all they ask, until it's given them
+   * again: the plugin isn't asked about them till then. Those it needs are in `scopes` too, and
+   * still can't be used.
+   */
+  declined?: string[];
+};
+
+/** A sign-in to an account of a type, waiting for the browser, or for the user's keys. */
+export type AccountSignIn = {
+  /**
+   * Finishes it: [`Plugins::finish_account_sign_in`] or
+   * [`Plugins::finish_account_sign_in_with_url`], or with keys
+   * [`Plugins::finish_account_sign_in_with_keys`].
+   */
+  id: string;
+  type: string;
+  /** What the account type is called (`Mixcloud`), from its plugin's manifest. */
+  title: string;
+  /** The account plugin signing in. */
+  plugin: string;
+  /** Open this in the browser: the service's sign-in page, or where the user gets the keys. */
+  url: string;
+  /** Where the browser comes back to, when it signs in there. */
+  redirect_uri?: string | null;
+  /** The keys to enter, by name, and what each is called, when it's signed in to with keys. */
+  keys?: { [key: string]: string };
+  /**
+   * The user names the account, since its type's keys don't say who they're for: the sign-in
+   * finishes with its name besides the keys.
+   */
+  named?: boolean;
+};
+
+/** What signing in to an account of a type did. */
+export type AccountSignedIn = {
+  type: string;
+  /** The account plugin it was signed in through. */
+  plugin: string;
+  /** Its id at the service. */
+  subject: string;
+  /** What it's shown as. */
+  name: string;
+  /** What the service granted, as it names them. */
+  scopes: string[];
+  /**
+   * When its access token expires, when the service said: it's refreshed before then when it
+   * can be.
+   */
+  expires?: string | null;
+  /** It's refreshed without signing in again. */
+  refreshes: boolean;
+  /**
+   * When it signs itself out, when it does: as its access token expires when it isn't
+   * refreshed, else as its refresh token runs out, when the service said. Front ends warn
+   * within [`crate::plugin::WARN_DAYS`] of it.
+   */
+  signs_out?: string | null;
+  /** Its tokens are kept (the keychain may have lost them). */
+  signed_in: boolean;
+  /**
+   * The account it was to sign in again, when the browser signed in to another: that one is
+   * kept too, and this one as it was. The plugin it was for isn't given access to it.
+   */
+  instead_of?: string | null;
+  /** The access it gave the plugin it was signed in for, if it was. */
+  access?: Access | null;
+  /**
+   * The scopes (by name) asked for that plugin that the service didn't grant all they ask:
+   * those it can do without aren't in its access.
+   */
+  declined?: string[];
+};
+
+/** What signing out of an account of a type did. */
+export type AccountSignedOut = {
+  type: string;
+  /** The account plugin it was signed in through. */
+  plugin: string;
+  /** Its id at the service. */
+  subject: string;
+  /** What it's shown as. */
+  name: string;
+  /** What the service granted, as it names them. */
+  scopes: string[];
+  /**
+   * When its access token expires, when the service said: it's refreshed before then when it
+   * can be.
+   */
+  expires?: string | null;
+  /** It's refreshed without signing in again. */
+  refreshes: boolean;
+  /**
+   * When it signs itself out, when it does: as its access token expires when it isn't
+   * refreshed, else as its refresh token runs out, when the service said. Front ends warn
+   * within [`crate::plugin::WARN_DAYS`] of it.
+   */
+  signs_out?: string | null;
+  /** Its tokens are kept (the keychain may have lost them). */
+  signed_in: boolean;
+  /** The service was told to forget its tokens (it has a revocation endpoint, which answered). */
+  revoked: boolean;
+};
+
 /** A plugin, as `plugin list` and the sidecar's `plugins.list` show it. */
 export type Listed = {
   id: string;
   name: string;
   version: string;
   capabilities: Granted[];
+  /** The account types it asks for (`[[accounts]]`). */
+  accounts: string[];
   /**
-   * What it adds: its account types by type, its accounts by id, its commands, destinations,
-   * operations, panels, analyzers, checks, providers, services, library sources and themes by
-   * name, the events it listens for, its export and import formats and its settings' keys.
+   * What it adds: its account types by type, its commands, destinations, operations, panels,
+   * analyzers, checks, providers, services, library sources and themes by name, the events it
+   * listens for, its export and import formats and its settings' keys.
    */
   account_types: string[];
-  accounts: string[];
   commands: string[];
   destinations: string[];
   events: string[];
@@ -8127,7 +8381,7 @@ export type Capability = string;
 /**
  * A plugin in full, as `plugin info` and the sidecar's `plugins.describe` show it: its manifest
  * (with the JSON Schemas of its params and options, to draw forms from), what its capabilities
- * let it do, its settings now, and whether each of its accounts is signed in.
+ * let it do, its settings now, and the access it has to your accounts.
  */
 export type Described = {
   manifest: Manifest;
@@ -8141,10 +8395,10 @@ export type Described = {
   /** Why the keychain can't say, when it can't: the rest is answered all the same. */
   secrets_unknown?: string | null;
   /**
-   * Each of its accounts, and whether it's signed in (never a token): none signed in when the
-   * keychain can't say (see `secrets_unknown`).
+   * Its access to the accounts the store keeps, of the types it asks for (`manifest.accounts`)
+   * or any other.
    */
-  accounts: PluginAccountStatus[];
+  accesses: Access[];
   running: boolean;
 };
 
@@ -8162,14 +8416,39 @@ export type Manifest = {
   protocol: string;
   /** What it may call back for (see [`Capability`]). */
   capabilities: Capability[];
+  /** The account types it asks for, and the scopes of each it needs. */
+  accounts?: AccountNeed[];
   contributes: Contributions;
   /** How often the host may send `net/fetch` requests to some of the hosts it talks to. */
   net?: NetLimit[];
 };
 
+/**
+ * `[[accounts]]`: an account type a plugin asks for, the scopes of it it needs and why, and those
+ * it can do without.
+ */
+export type AccountNeed = {
+  /** The account type (`google`), which an account plugin provides. */
+  type: string;
+  /** The type's scopes it needs, by name (`youtube-upload`). */
+  scopes: string[];
+  /** Why it needs them, shown when the user gives it access. */
+  why: string;
+  /** Scopes it asks for besides, which the user may leave out. */
+  optional?: OptionalScopes[];
+};
+
+/**
+ * `optional = [{ scopes = ["read"], why = "..." }]`: scopes a plugin can do without, and what
+ * they're for.
+ */
+export type OptionalScopes = {
+  scopes: string[];
+  why: string;
+};
+
 export type Contributions = {
   account_types: AccountType[];
-  accounts: Account[];
   commands: Command[];
   destinations: Destination[];
   events: Listener[];
@@ -8186,16 +8465,23 @@ export type Contributions = {
   settings: Setting[];
 };
 
-/** `[[contributes.account_types]]`: an account type, signed in to in the browser. */
+/**
+ * `[[contributes.account_types]]`: an account type, signed in to in the browser, or by entering
+ * keys (`kind = "keys"`). Its OAuth fields are an account type's signed in to in the browser,
+ * and only its; `keys`, `keys_url` and `authorization` are one's signed in to with keys, and only
+ * its.
+ */
 export type AccountType = {
   /** The account type it provides (`google`), which other account plugins may provide too. */
   type: string;
   title: string;
+  /** How it's signed in to: in the browser unless it says. */
+  kind?: SignIn;
   /** The service's authorization endpoint, where the browser signs in (https). */
-  authorize_url: string;
+  authorize_url?: string | null;
   /**
    * Its token endpoint, where the host trades the browser's code for tokens and refreshes
-   * them (https). An account type has this or `token_exchange`.
+   * them (https). An account type signed in to in the browser has this or `token_exchange`.
    */
   token_url?: string | null;
   /**
@@ -8207,7 +8493,7 @@ export type AccountType = {
    * Its client at the service: a public one, without a secret, or Local Network's, whose
    * secret the token exchange holds.
    */
-  client_id: string;
+  client_id?: string | null;
   /** Where its tokens are revoked at signing out (RFC 7009), when the service has one (https). */
   revoke_url?: string | null;
   /** Where its access token goes in a request: `Authorization: Bearer <token>` unless it says. */
@@ -8219,8 +8505,11 @@ export type AccountType = {
   redirect_port?: number | null;
   /** The service's scopes every sign-in asks for, as the service names them (`openid`). */
   always?: string[];
-  /** Where the host asks the service who signed in. */
-  whoami: Whoami;
+  /**
+   * Where the host asks the service who signed in. One signed in to with keys may leave it
+   * out: the user names the account then.
+   */
+  whoami?: Whoami | null;
   /**
    * The authorize params that sign in again as one account the host knows (`login_hint =
    * "{subject}"`): their values may name it only as [`SUBJECT_PLACEHOLDER`].
@@ -8231,13 +8520,35 @@ export type AccountType = {
    * (`prompt = "select_account"`).
    */
   another_account?: { [key: string]: string };
+  /**
+   * The authorize params every sign-in sends besides (`access_type = "offline"`), none of
+   * `one_account`'s or `another_account`'s.
+   */
+  params?: { [key: string]: string };
+  /** The keys the user enters, by name (`access`), which the service gave them. */
+  keys?: { [key: string]: Key };
+  /** Where the user gets them (https). */
+  keys_url?: string | null;
+  /**
+   * The `Authorization` header's value they make in a request (`LOW {access}:{secret}`), each
+   * key named in braces.
+   */
+  authorization?: string | null;
   /** What a plugin may be given access to, by name (`youtube-upload`). */
   scopes?: { [key: string]: Scope };
 };
 
+/** How an account of a type is signed in to. */
+export type SignIn =
+  /** In the browser, with OAuth 2: `oauth`. */
+  | "oauth"
+  /** By entering the keys the service gave the user: `keys`. */
+  | "keys";
+
 /**
- * Where an account's access token goes in a `net/fetch` request: `token = { scheme = "OAuth" }`
- * or `token = { query = "access_token" }`. The request names the account there, and only there.
+ * Where an account type's access token goes in a `net/fetch` request: `token = { scheme =
+ * "OAuth" }` or `token = { query = "access_token" }`. The request names the account there, and
+ * only there.
  */
 export type TokenPlace =
   /** The `Authorization` header, as this scheme and the token (`OAuth <token>`). */
@@ -8254,7 +8565,7 @@ export type TokenPlace =
 
 /**
  * `whoami = { url = "...", subject = "/sub", name = "/email" }`: the endpoint the host gets with a
- * new access token, and JSON pointers into its answer.
+ * new access token, or keys just entered, and JSON pointers into its answer.
  */
 export type Whoami = {
   /** Where (https). */
@@ -8263,6 +8574,12 @@ export type Whoami = {
   subject: string;
   /** What the account is shown as (`/email`). */
   name: string;
+};
+
+/** `[contributes.account_types.keys.<name>]`: a key the user enters. */
+export type Key = {
+  /** What it's called where the user gets it (`S3 access key`). */
+  title: string;
 };
 
 /** `[contributes.account_types.scopes.<name>]`: one thing a plugin may do with an account. */
@@ -8287,45 +8604,6 @@ export type ScopeRequest = {
   /** `GET`, `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE`. */
   method: string;
   url: string;
-};
-
-/** `[[contributes.accounts]]`: an account on a service, signed in to in the browser. */
-export type Account = {
-  /** How requests name it (`{account:<id>}`). */
-  id: string;
-  title: string;
-  /** The service's authorization endpoint, where the browser signs in (https). */
-  authorize_url: string;
-  /**
-   * Its token endpoint, where the host trades the browser's code for tokens and refreshes
-   * them (https). An account has this or `token_exchange`.
-   */
-  token_url?: string | null;
-  /**
-   * Local Network's token exchange for its service
-   * (`https://localnetwork.computer/api/token-exchange/<service>`), in `token_url`'s place, for
-   * a service that wants a client secret there.
-   */
-  token_exchange?: string | null;
-  /** What it asks the service for, as the service names them. */
-  scopes?: string[];
-  /**
-   * The plugin's client at the service: a public one, without a secret, or Local Network's,
-   * whose secret its token exchange holds.
-   */
-  client_id: string;
-  /** Signing in uses PKCE: always, and a manifest saying otherwise is refused. */
-  pkce: boolean;
-  /** Where its tokens are revoked at signing out (RFC 7009), when the service has one (https). */
-  revoke_url?: string | null;
-  /** Where its access token goes in a request: `Authorization: Bearer <token>` unless it says. */
-  token?: TokenPlace;
-  /**
-   * The port on 127.0.0.1 the browser comes back to, for a service that compares the redirect
-   * URI with the one its client was registered with, port and all (SoundCloud): that's then
-   * `http://127.0.0.1:<port>/callback`. Any free port otherwise.
-   */
-  redirect_port?: number | null;
 };
 
 /** Run with `command/run`. */
@@ -8644,23 +8922,6 @@ export type NetLimit = {
   per_second: number;
 };
 
-/** An account of a plugin's, as hosts show it: never a token. */
-export type PluginAccountStatus = {
-  plugin: string;
-  account: string;
-  title: string;
-  signed_in: boolean;
-  /**
-   * When its access token expires, when the service said: it's refreshed before then when it
-   * can be.
-   */
-  expires?: string | null;
-  /** It's refreshed without signing in again. */
-  refreshes: boolean;
-  /** What the service granted, as it names them. */
-  scopes: string[];
-};
-
 /** A plugin's settings now: each one set, else its default. */
 export type Settings = {
   plugin: string;
@@ -8673,39 +8934,6 @@ export type Settings = {
   secrets: { [key: string]: boolean | null };
   /** Why the keychain can't say, when it can't: the rest is answered all the same. */
   secrets_unknown?: string | null;
-};
-
-/** A sign-in waiting for the browser. */
-export type SignIn = {
-  /** Finishes it: [`Plugins::finish_sign_in`], [`Plugins::finish_sign_in_with_url`]. */
-  id: string;
-  plugin: string;
-  account: string;
-  /** Open this in the browser. */
-  url: string;
-  /** Where the browser comes back to. */
-  redirect_uri: string;
-};
-
-/** What signing out did. */
-export type SignedOut = {
-  plugin: string;
-  account: string;
-  title: string;
-  signed_in: boolean;
-  /**
-   * When its access token expires, when the service said: it's refreshed before then when it
-   * can be.
-   */
-  expires?: string | null;
-  /** It's refreshed without signing in again. */
-  refreshes: boolean;
-  /** What the service granted, as it names them. */
-  scopes: string[];
-  /** It was signed in. */
-  was_signed_in: boolean;
-  /** The service was told to forget its tokens (it has a revocation endpoint, which answered). */
-  revoked: boolean;
 };
 
 /** What a command answers. */
@@ -9536,12 +9764,23 @@ export type Reason =
   | "empty_profile"
   /** It needs administrator rights: run it again elevated. */
   | "needs_admin"
-  /** Not signed in to an Atmosphere account. */
+  /**
+   * Not signed in to an Atmosphere account, or the account a plugin's access is to is signed
+   * out or won't stay signed in long enough: sign in.
+   */
   | "not_signed_in"
   /** The session ended or was revoked: sign in again. */
   | "session_ended"
-  /** The session may not publish: sign in again allowing it. */
+  /**
+   * The session may not publish, or a plugin's access doesn't reach what it asked: sign in
+   * again allowing it.
+   */
   | "missing_scope"
+  /**
+   * A plugin has no access to an account of the type it asked for (`fields.type`): sign in to
+   * one for it, or make one its default.
+   */
+  | "no_access"
   /** The system keychain isn't available: keep the session in a file instead. */
   | "no_keychain";
 
@@ -10072,6 +10311,26 @@ export interface Methods {
   /** apply method; paired with `collection.export.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "collection.export.apply": { params: ApplyPlan | (CollectionExportRequest & WriteOptions); result: CollectionExportReport };
   /** read method */
+  "accounts.list": { params: NoParams; result: Accounts };
+  /** immediate method */
+  "accounts.sign_in.begin": { params: BeginSignIn & WriteOptions; result: AccountSignIn };
+  /** immediate method; long running: sends `progress`, can be cancelled */
+  "accounts.sign_in.finish": { params: FinishSignIn & WriteOptions; result: AccountSignedIn };
+  /** immediate method */
+  "accounts.sign_in.paste": { params: PasteSignIn & WriteOptions; result: AccountSignedIn };
+  /** immediate method */
+  "accounts.sign_in.cancel": { params: CancelSignIn & WriteOptions; result: Cancelled };
+  /** immediate method */
+  "accounts.sign_out": { params: SignOut & WriteOptions; result: AccountSignedOut };
+  /** read method */
+  "accounts.access.list": { params: ListAccesses; result: Access[] };
+  /** immediate method */
+  "accounts.access.give": { params: GiveAccess & WriteOptions; result: Access };
+  /** immediate method */
+  "accounts.access.set_default": { params: AccessRef & WriteOptions; result: Access };
+  /** immediate method */
+  "accounts.access.take_away": { params: AccessRef & WriteOptions; result: Access };
+  /** read method */
   "plugins.list": { params: NoParams; result: Listed[] };
   /** read method */
   "plugins.describe": { params: PluginRef; result: Described };
@@ -10079,18 +10338,6 @@ export interface Methods {
   "plugins.settings": { params: PluginRef; result: Settings };
   /** immediate method */
   "plugins.settings.set": { params: SetPluginSetting & WriteOptions; result: Settings };
-  /** read method */
-  "plugins.accounts": { params: PluginRef; result: PluginAccountStatus[] };
-  /** immediate method */
-  "plugins.account.sign_in.begin": { params: AccountRef & WriteOptions; result: SignIn };
-  /** immediate method; long running: sends `progress`, can be cancelled */
-  "plugins.account.sign_in.finish": { params: FinishSignIn & WriteOptions; result: PluginAccountStatus };
-  /** immediate method */
-  "plugins.account.sign_in.paste": { params: PasteSignIn & WriteOptions; result: PluginAccountStatus };
-  /** immediate method */
-  "plugins.account.sign_in.cancel": { params: CancelSignIn & WriteOptions; result: Cancelled };
-  /** immediate method */
-  "plugins.account.sign_out": { params: AccountRef & WriteOptions; result: SignedOut };
   /** plan method; paired with `plugins.apply_analysis.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.apply_analysis.plan": { params: ApplyAnalysis & WriteOptions; result: EditPlan & PlanFields };
   /** apply method; paired with `plugins.apply_analysis.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */

@@ -1,6 +1,7 @@
 // The SoundCloud page the localtoolbox screenshots are taken over: a playlist of made-up tracks by
 // made-up artists, with the answers its content script would give about them, and the stand-in
 // for chrome.* that hands those to the popup.
+import type { Json } from '../../../../apps/localtoolbox/test/helpers/json.ts';
 
 const TRACKS = [
 	['Halflight', 'Glass Hours', 'Deep House'],
@@ -141,20 +142,18 @@ export function cover(url: string): string {
 	return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${hue} 70% 58%)"/><stop offset="1" stop-color="hsl(${(hue + 70) % 360} 60% 28%)"/></linearGradient></defs><rect width="10" height="10" fill="url(#g)"/><circle cx="6.5" cy="3.5" r="1.6" fill="hsl(${(hue + 180) % 360} 80% 75% / 0.55)"/></svg>`;
 }
 
-/** What chrome.storage keeps: JSON. */
-type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
-
 /** A key's change, as onChanged hands it over. */
 type Change = { oldValue?: Json; newValue: Json };
 
 type ChangeListener = (changes: Record<string, Change>, area: string) => void;
 
 /**
- * The chrome.* the popup uses, in memory: storage areas that notify onChanged as Chrome's do,
- * the active tab, and a content script that answers from `page`. Runs in the page, so it can use
- * nothing from outside it (types aside, which are gone by then).
+ * The chrome.* the popup and the content script use, in memory: storage areas that notify
+ * onChanged as Chrome's do (`local` holding `page.local` to begin with), the active tab, and a
+ * content script that answers from `page`. Runs in the page, so it can use nothing from outside it
+ * (types aside, which are gone by then).
  */
-export function installChrome(page: typeof PAGE) {
+export function installChrome(page: typeof PAGE & { local?: Record<string, Json> }) {
 	const event = <Listener>(list: Listener[]) => ({
 		addListener: (listener: Listener) => void list.push(listener),
 		removeListener: (listener: Listener) => void list.splice(list.indexOf(listener) >>> 0, 1)
@@ -162,8 +161,8 @@ export function installChrome(page: typeof PAGE) {
 
 	const changed: ChangeListener[] = [];
 
-	const area = (name: string) => {
-		const data: Record<string, Json> = {};
+	const area = (name: string, held: Record<string, Json> = {}) => {
+		const data: Record<string, Json> = structuredClone(held);
 
 		return {
 			/** The keys asked for that it holds, or everything for none. */
@@ -191,7 +190,7 @@ export function installChrome(page: typeof PAGE) {
 	const answers = new Map(Object.entries(page.answers));
 
 	const chrome = {
-		storage: { local: area('local'), session: area('session'), onChanged: event(changed) },
+		storage: { local: area('local', page.local), session: area('session'), onChanged: event(changed) },
 		runtime: { id: 'localtoolbox', onMessage: event<() => void>([]), sendMessage: async () => undefined },
 		tabs: {
 			query: async () => [page.tab],

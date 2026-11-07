@@ -14,6 +14,7 @@ import {
 	type EpkRecord,
 	type EpkRequestView,
 	type EpkView,
+	grantVia,
 	LEGACY_KIT,
 	MAX_EPKS_PER_PROJECT,
 	readRule,
@@ -24,10 +25,18 @@ import {
 import { BSKY_FOLLOW, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import type { ProjectView, Viewer } from '#lib/types.ts';
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
-import { createSpaceIfMissing, type RepoClient } from '../atproto/repo-client';
-import { epkSpace, parseSpaceUri } from '../atproto/spaces';
+import { memberSpacePolicy, type RepoClient, type StoredRecord } from '../atproto/repo-client';
+import {
+	epkSpace,
+	parsePublicRecordUri,
+	parseSpaceRecordUri,
+	parseSpaceUri,
+	publicRecordUri,
+	spaceOfRecord
+} from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso } from '../db';
+import type { EpkRequestRow } from '../db/schema';
 import { EPK_PHOTO_MAX_BYTES } from '../forms/epk';
 import type { DirectoryRecord } from '../happyview/client';
 import type { IndexedRepo } from '../happyview/indexed';
@@ -37,6 +46,7 @@ import { type LegacyMigration, LegacyEpks } from './epk-legacy';
 import { spaceWriter } from './own-repo';
 import type { ProjectService } from './projects';
 import { actorRole } from './requests';
+import { ensureRootSpace } from './space-members';
 
 /** How long the lists of press kits are reused. */
 const FRESH_MS = 60_000;
@@ -65,14 +75,35 @@ const newestFirst = (a: EpkView, b: EpkView) =>
 	(b.record.updatedAt ?? b.record.createdAt).localeCompare(a.record.updatedAt ?? a.record.createdAt);
 
 /**
+ * A grant's record key in its project's request space: the press kit's key, then the subject's DID with every "%" as
+ * "~". A record key can't hold a "%" and no DID holds a "~", so each press kit and subject gets a valid key of its own.
+ */
+export const grantKey = (kitRkey: string, subject: string): string => `${kitRkey}:${subject.replaceAll('%', '~')}`;
+
+/** Deletes the record at `uri` in one of the root's spaces. */
+export async function deleteAt(root: RepoClient, uri: string): Promise<void> {
+	const { collection, rkey } = parseSpaceRecordUri(uri)!;
+	await root.deleteSpaceRecord({ space: spaceOfRecord(uri)!, collection, rkey });
+}
+
+/** The press kit record a press kit's space belongs to: the one under the same key in its authority's repo. */
+function kitOfSpace(space: string): string {
+	const { authority, skey } = parseSpaceUri(space)!;
+
+	return publicRecordUri(authority, COLLECTION.epk, skey);
+}
+
+/**
  * Press kits, which belong to their project. The root account holds each one: the public record in its repo and the
- * rest in a space per press kit, whose readers are the project's managers and the people granted access. Managers
- * change a press kit through drafts ({@link EpkDrafts}), and any of them answers requests and grants access, which the
- * root writes as a grant record plus a place in the space, so access is on the protocol, not in this app's database.
- * Press kits made before the root held them stay in their maker's repo and space until that manager's next visit
- * ({@link LegacyEpks}); until then they're listed and read as before, but only their maker can move them. Every press
- * kit is read through HappyView (lua/computer/localnetwork/epk.lua), strictly where a write or an access decision
- * depends on it, so a HappyView that's down fails those instead of reading as no press kit.
+ * rest in a space per press kit, whose readers are the project's managers and the people granted access. Requests to
+ * see one, and the root's grant records, go into a space per project that only its managers read, so nobody asking or
+ * let in sees anyone else's. Managers change a press kit through drafts ({@link EpkDrafts}), and any of them answers
+ * requests and grants access, which the root writes as a grant record plus a place in the press kit's space, so access
+ * is on the protocol, not in this app's database. Press kits made before the root held them stay in their maker's repo
+ * and space until that manager's next visit ({@link LegacyEpks}); until then they're listed and read as before, but
+ * only their maker can move them. Every press kit is read through HappyView (lua/computer/localnetwork/epk.lua),
+ * strictly where a write or an access decision depends on it, so a HappyView that's down fails those instead of
+ * reading as no press kit.
  */
 export class EpkService {
 	readonly drafts: EpkDrafts;
@@ -181,18 +212,28 @@ export class EpkService {
 
 	/** The private part, read with the root account's membership. */
 	async content(epk: EpkView): Promise<EpkContent | null> {
-		const stored = await this.core.readSpaceRecord?.({
-			space: epk.space,
-			repo: epk.did,
-			collection: COLLECTION.epkContent,
-			rkey: EPK_CONTENT_KEY
-		});
+		let stored: StoredRecord | null | undefined;
+
+		try {
+			stored = await this.core.readSpaceRecord?.({
+				space: epk.space,
+				repo: epk.did,
+				collection: COLLECTION.epkContent,
+				rkey: EPK_CONTENT_KEY
+			});
+		} catch (error) {
+			// The reader refuses a record nested too deep to check its MAC.
+			if (!(error instanceof RecordValidationError)) throw error;
+			this.core.logger.warn('press kit content does not validate', { space: epk.space, err: error });
+
+			return null;
+		}
 
 		if (!stored) return null;
 
 		const content = this.parse(COLLECTION.epkContent, epkContentSchema, stored.value);
 
-		if (!content) this.core.logger.warn({ space: epk.space }, 'press kit content does not validate');
+		if (!content) this.core.logger.warn('press kit content does not validate', { space: epk.space });
 
 		return content;
 	}
@@ -236,7 +277,7 @@ export class EpkService {
 		const latest = await this.core.db
 			.selectFrom('epkRequest')
 			.select(['status', 'createdAt', 'rule'])
-			.where('spaceUri', '=', epk.space)
+			.where('epkUri', '=', epk.uri)
 			.where('requesterDid', '=', viewer.did)
 			.orderBy('createdAt', 'desc')
 			.executeTakeFirst();
@@ -273,7 +314,10 @@ export class EpkService {
 		return ruleFor(kit.epk.record.access, await this.audiences(kit, did));
 	}
 
-	/** Deletes a press kit: its space, which takes everyone's access with it, then the public record. */
+	/**
+	 * Deletes a press kit: its space, which takes everyone's access with it, the requests the root wrote for people and
+	 * its grants, then the public record.
+	 */
 	async remove(actor: Viewer, kit: PressKit): Promise<void> {
 		await this.assertCanManage(actor, kit);
 		const { epk } = kit;
@@ -281,11 +325,12 @@ export class EpkService {
 
 		// The space goes first: a failure after it leaves the record, so deleting again finishes the job.
 		if (await root.getSpace(epk.space)) await root.deleteSpace(epk.space);
+		await this.dropRecords(epk);
 		await root.deleteRecord({ collection: COLLECTION.epk, rkey: epk.rkey });
 		await this.indexed.awaitWrite(root.did, COLLECTION.epk, epk.rkey, null);
 		await this.forgetIndex(epk.space);
 		this.forget();
-		this.core.logger.info({ epk: epk.uri, actor: actor.did }, 'deleted a press kit');
+		this.core.logger.info('deleted a press kit', { epk: epk.uri, actor: actor.did });
 		await this.core.audit.record({
 			actor: actor.did,
 			actorRole: actorRole(actor),
@@ -298,10 +343,10 @@ export class EpkService {
 	}
 
 	/**
-	 * Asks for access. The request goes into the press kit's space from the asker's own PDS (or the root's, on their
-	 * behalf, when theirs can't write to spaces, or the press kit is a legacy one: the permission set grants requests
-	 * only in the root's press kit spaces). When the rules approve it at once, the root writes the grant straight
-	 * away; for a legacy press kit, only its maker could, so the grant waits for the press kit to move.
+	 * Asks for access. The request goes into the project's request space, which only its managers read, from the asker's
+	 * own PDS (or the root's, on their behalf, when theirs can't write to spaces). When the rules approve it at once,
+	 * the root writes the grant straight away; for a legacy press kit, only its maker could, so the grant waits for the
+	 * press kit to move.
 	 */
 	async request(actor: Viewer, kit: PressKit, input: { role?: string; message?: string }): Promise<EpkAccessState> {
 		const { epk } = kit;
@@ -323,17 +368,16 @@ export class EpkService {
 
 		if (message) draft.message = message;
 
-		const { client, onBehalf } = epk.legacy
-			? { client: await this.core.root(), onBehalf: true }
-			: await spaceWriter(this.core, actor);
+		const space = await this.ensureRequestSpace(kit.project);
+		const { client, onBehalf } = await spaceWriter(this.core, actor);
 
 		if (onBehalf) draft.onBehalfOf = actor.did;
 		const record = validateRecord(COLLECTION.epkRequest, draft);
-		const ref = await client.createSpaceRecord({ space: epk.space, collection: COLLECTION.epkRequest, record });
+		const ref = await client.createSpaceRecord({ space, collection: COLLECTION.epkRequest, record });
 
 		await this.saveRequest({
 			uri: ref.uri,
-			space: epk.space,
+			space,
 			epk: epk.uri,
 			requester: actor.did,
 			role: role ?? null,
@@ -355,10 +399,9 @@ export class EpkService {
 		);
 
 		if (state.rule === 'auto' && epk.legacy)
-			this.core.logger.info(
-				{ epk: epk.uri },
-				'auto-approved a legacy press kit request; the grant waits for it to move'
-			);
+			this.core.logger.info('auto-approved a legacy press kit request; the grant waits for it to move', {
+				epk: epk.uri
+			});
 		else if (state.rule === 'auto') await this.grant(kit, { subject: actor.did, via: 'auto', request: ref.uri }, null);
 
 		return this.accessState(kit, actor);
@@ -373,7 +416,7 @@ export class EpkService {
 			.selectFrom('epkRequest')
 			.selectAll()
 			.where('uri', '=', requestUri)
-			.where('spaceUri', '=', epk.space)
+			.where('epkUri', '=', epk.uri)
 			.executeTakeFirst();
 
 		if (!row) throw new NotFoundError('That request does not exist');
@@ -416,13 +459,18 @@ export class EpkService {
 		await this.grant(kit, { subject: did, via: 'invited' }, actor);
 	}
 
-	/** One of the project's managers takes someone's access away: the grant record, and their place in the space. */
+	/**
+	 * One of the project's managers takes someone's access away: their place in the press kit's space, and the grant
+	 * record, wherever it is.
+	 */
 	async revoke(actor: Viewer, kit: PressKit, subject: string): Promise<void> {
 		await this.assertCanManage(actor, kit);
 		const { epk } = kit;
 		const root = await this.core.root();
 		await root.removeMember({ space: epk.space, did: subject });
-		await root.deleteSpaceRecord({ space: epk.space, collection: COLLECTION.epkGrant, rkey: subject });
+		const grant = await this.grantRow(epk.space, subject);
+
+		if (grant) await deleteAt(root, grant.uri);
 		await this.core.db
 			.deleteFrom('epkGrant')
 			.where('spaceUri', '=', epk.space)
@@ -448,7 +496,7 @@ export class EpkService {
 		const rows = await this.core.db
 			.selectFrom('epkRequest')
 			.selectAll()
-			.where('spaceUri', '=', epk.space)
+			.where('epkUri', '=', epk.uri)
 			.where('status', 'in', ['pending', 'declined'])
 			.orderBy('createdAt', 'desc')
 			.execute();
@@ -457,7 +505,7 @@ export class EpkService {
 
 		return rows.map((row) => ({
 			uri: row.uri,
-			requester: accounts.get(row.requesterDid) ?? { did: row.requesterDid, handle: null },
+			requester: accounts.get(row.requesterDid),
 			role: REQUEST_ROLES.find((role): role is RequestRole => role === row.role) ?? null,
 			message: row.message,
 			status: row.status,
@@ -478,25 +526,27 @@ export class EpkService {
 		const accounts = await this.core.accounts.views(rows.map((row) => row.subjectDid));
 
 		return rows.map((row) => ({
-			subject: accounts.get(row.subjectDid) ?? { did: row.subjectDid, handle: null },
-			via: row.via === 'auto' || row.via === 'invited' ? row.via : 'approved',
+			subject: accounts.get(row.subjectDid),
+			via: grantVia(row.via),
 			createdAt: row.createdAt
 		}));
 	}
 
-	/** Indexes a request synced from a press kit space, written outside this app. */
+	/**
+	 * Indexes a request synced from a project's request space, or from a press kit's space, where requests went before,
+	 * written outside this app.
+	 */
 	async indexRequest(input: { space: string; uri: string; repoDid: string; value: JsonObject }): Promise<void> {
 		const request = epkRequestSchema.safeParse(input.value);
-		const space = parseSpaceUri(input.space);
 
-		if (!request.success || !space) return;
+		if (!request.success) return;
 		const requester = input.repoDid === this.core.rootDid ? request.data.onBehalfOf : input.repoDid;
 
 		if (!requester) return;
-		const kit = await this.locate(space.authority, space.skey);
+		const kit = await this.requestedKit(input.space, request.data.epk);
 
-		if (!kit || kit.epk.space !== input.space || kit.project.managers.includes(requester)) return;
-		const granted = await this.grantRow(input.space, requester);
+		if (!kit || kit.project.managers.includes(requester)) return;
+		const granted = await this.grantRow(kit.epk.space, requester);
 
 		await this.saveRequest({
 			uri: input.uri,
@@ -511,18 +561,30 @@ export class EpkService {
 		});
 	}
 
-	/** Indexes a grant synced from a press kit space; only the space's authority can grant. */
+	/**
+	 * Indexes a grant synced from a project's request space, for the root press kit it names when that's one of the
+	 * project's, or from a press kit's space, where grants went before. Only the space's authority can grant.
+	 */
 	async indexGrant(input: { space: string; uri: string; repoDid: string; value: JsonObject }): Promise<void> {
 		const grant = epkGrantSchema.safeParse(input.value);
+		const ref = parseSpaceUri(input.space);
 
-		if (parseSpaceUri(input.space)?.authority !== input.repoDid || !grant.success) return;
-		const { subject, via, request, createdAt } = grant.data;
+		if (ref?.authority !== input.repoDid || !grant.success) return;
+		const { subject, epk, via, request, createdAt } = grant.data;
+		let space = input.space;
 
-		await this.saveGrant(input.space, subject, input.uri, via, request, createdAt);
+		if (ref.type === SPACE_TYPE.epkRequests) {
+			const kit = epk ? await this.requestedKit(input.space, epk) : null;
+
+			if (!kit || kit.epk.legacy) return;
+			space = kit.epk.space;
+		} else if (ref.type !== SPACE_TYPE.epk) return;
+
+		await this.saveGrant(space, subject, input.uri, via, request, createdAt);
 	}
 
-	async unindexGrant(space: string, uri: string): Promise<void> {
-		await this.core.db.deleteFrom('epkGrant').where('spaceUri', '=', space).where('uri', '=', uri).execute();
+	async unindexGrant(uri: string): Promise<void> {
+		await this.core.db.deleteFrom('epkGrant').where('uri', '=', uri).execute();
 	}
 
 	async unindexRequest(uri: string): Promise<void> {
@@ -552,42 +614,109 @@ export class EpkService {
 
 	/**
 	 * A press kit's space under the root, created the first time with the project's managers as readers. After that,
-	 * ManagerSpaces keeps them in step with the project, and grants add the rest.
+	 * ManagerSpaces keeps them in step with the project, and grants add the rest. Only the root writes to it.
 	 */
-	async ensureKitSpace(rkey: string, managers: string[]): Promise<string> {
-		const root = await this.core.root();
-		const space = epkSpace(root.did, rkey);
-
-		if (await root.getSpace(space)) return space;
-		await createSpaceIfMissing(root, {
+	ensureKitSpace(rkey: string, managers: string[]): Promise<string> {
+		return ensureRootSpace(this.core, {
 			spaceType: SPACE_TYPE.epk,
 			skey: rkey,
-			readPolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
-			// Anyone signed in can write a request into it; only the root's content and grants count.
-			writePolicy: { $type: 'com.atproto.simplespace.defs#publicPolicy' },
-			appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+			policy: memberSpacePolicy(),
+			members: managers,
+			access: { read: true, write: false }
 		});
-
-		for (const did of managers) await root.putMember({ space, did, read: true, write: false });
-		await this.core.watchSpace?.(space);
-		this.core.logger.info({ space }, 'created a press kit space');
-
-		return space;
 	}
 
-	/** Writes a grant as the root, the space's authority: the subject as a reader, then the record. */
-	async writeGrant(space: string, grant: GrantInput): Promise<void> {
-		const root = await this.core.root();
-		await root.putMember({ space, did: grant.subject, read: true, write: false });
+	/**
+	 * Where people ask to see the project's press kits, and the root keeps its grants: a space under the root that anyone
+	 * signed in can write a request into, created the first time with the project's managers as its only readers. The
+	 * people granted a press kit are members of that press kit's space, never this one, so they can't read each other's
+	 * requests or grants.
+	 */
+	ensureRequestSpace(project: ProjectView): Promise<string> {
+		return ensureRootSpace(this.core, {
+			spaceType: SPACE_TYPE.epkRequests,
+			skey: project.rkey,
+			policy: memberSpacePolicy({ publicWrite: true }),
+			members: project.managers,
+			access: { read: true, write: false }
+		});
+	}
 
-		const ref = await root.putSpaceRecord({
-			space,
-			collection: COLLECTION.epkGrant,
-			rkey: grant.subject,
-			record: validateRecord(COLLECTION.epkGrant, toJson(grant))
+	/**
+	 * Writes a request indexed somewhere else into the project's request space as the root, on its asker's behalf, for
+	 * `epk` (the press kit's URI now), and indexes it with the old one's status. Each asker picked their own request's
+	 * key, so two can share one; the root writes each under a key of its own, once: a move that stopped part way finds
+	 * the copy it made. Returns the copy's URI.
+	 */
+	async copyRequest(row: EpkRequestRow, project: ProjectView, epk: string): Promise<string> {
+		const space = await this.ensureRequestSpace(project);
+
+		const copied = await this.core.db
+			.selectFrom('epkRequest')
+			.select('uri')
+			.where('spaceUri', '=', space)
+			.where('epkUri', '=', epk)
+			.where('requesterDid', '=', row.requesterDid)
+			.where('createdAt', '=', row.createdAt)
+			.executeTakeFirst();
+
+		if (copied) return copied.uri;
+		const root = await this.core.root();
+
+		const record = toJson({
+			epk,
+			role: row.role ?? undefined,
+			message: row.message ?? undefined,
+			onBehalfOf: row.requesterDid,
+			createdAt: row.createdAt
 		});
 
-		await this.saveGrant(space, grant.subject, ref.uri, grant.via, grant.request, grant.createdAt);
+		const ref = await root.createSpaceRecord({
+			space,
+			collection: COLLECTION.epkRequest,
+			record: validateRecord(COLLECTION.epkRequest, record)
+		});
+
+		await this.saveRequest({
+			uri: ref.uri,
+			space,
+			epk,
+			requester: row.requesterDid,
+			role: row.role,
+			message: row.message,
+			rule: row.rule,
+			createdAt: row.createdAt
+		});
+		// The sync may have indexed the copy first, as a new request.
+		await this.core.db
+			.updateTable('epkRequest')
+			.set({ status: row.status, decidedAt: row.decidedAt })
+			.where('uri', '=', ref.uri)
+			.execute();
+
+		return ref.uri;
+	}
+
+	/**
+	 * Writes a grant to a root press kit as the root: the subject as a reader of the press kit's space, then the record
+	 * in the project's request space, where only the managers see who else is let in.
+	 */
+	async writeGrant(
+		project: ProjectView,
+		epk: Pick<EpkView, 'uri' | 'rkey' | 'space'>,
+		grant: GrantInput
+	): Promise<void> {
+		const root = await this.core.root();
+		await root.putMember({ space: epk.space, did: grant.subject, read: true, write: false });
+
+		const ref = await root.putSpaceRecord({
+			space: await this.ensureRequestSpace(project),
+			collection: COLLECTION.epkGrant,
+			rkey: grantKey(epk.rkey, grant.subject),
+			record: validateRecord(COLLECTION.epkGrant, toJson({ ...grant, epk: epk.uri }))
+		});
+
+		await this.saveGrant(epk.space, grant.subject, ref.uri, grant.via, grant.request, grant.createdAt);
 	}
 
 	/**
@@ -637,7 +766,7 @@ export class EpkService {
 	/** Drops a deleted space's requests and grants from the index. */
 	async forgetIndex(space: string): Promise<void> {
 		await this.core.db.deleteFrom('epkGrant').where('spaceUri', '=', space).execute();
-		await this.core.db.deleteFrom('epkRequest').where('spaceUri', '=', space).execute();
+		await this.core.db.deleteFrom('epkRequest').where('epkUri', '=', kitOfSpace(space)).execute();
 	}
 
 	/**
@@ -676,7 +805,7 @@ export class EpkService {
 	}
 
 	private async grant(kit: PressKit, grant: Omit<GrantInput, 'createdAt'>, actor: Viewer | null): Promise<void> {
-		await this.writeGrant(kit.epk.space, { ...grant, createdAt: nowIso() });
+		await this.writeGrant(kit.project, kit.epk, { ...grant, createdAt: nowIso() });
 		await this.core.audit.record({
 			actor: actor?.did ?? this.core.rootDid,
 			actorRole: actor ? actorRole(actor) : 'system',
@@ -707,7 +836,7 @@ export class EpkService {
 		await this.core.db
 			.updateTable('epkRequest')
 			.set({ status: 'approved', decidedAt: createdAt })
-			.where('spaceUri', '=', space)
+			.where('epkUri', '=', kitOfSpace(space))
 			.where('requesterDid', '=', subject)
 			.where('status', '=', 'pending')
 			.execute();
@@ -720,6 +849,56 @@ export class EpkService {
 			.where('spaceUri', '=', space)
 			.where('subjectDid', '=', did)
 			.executeTakeFirst();
+	}
+
+	/**
+	 * The press kit a request in `space` asks for, or null when it can't ask for it there. In a press kit's space, that's
+	 * the press kit; in a project's request space, the press kit the request names, when it's one of that project's.
+	 */
+	private async requestedKit(space: string, epk: string): Promise<PressKit | null> {
+		const ref = parseSpaceUri(space);
+
+		if (ref?.type === SPACE_TYPE.epk) {
+			const kit = await this.locate(ref.authority, ref.skey);
+
+			return kit?.epk.space === space ? kit : null;
+		}
+
+		const named = parsePublicRecordUri(epk);
+
+		if (
+			ref?.type !== SPACE_TYPE.epkRequests ||
+			ref.authority !== this.core.rootDid ||
+			named?.collection !== COLLECTION.epk
+		)
+			return null;
+		const kit = await this.locate(named.did, named.rkey);
+
+		return kit?.project.rkey === ref.skey ? kit : null;
+	}
+
+	/**
+	 * Deletes the requests for `epk` the root wrote on people's behalf, and its grants. Each row goes with its record, so a
+	 * delete that stopped part way picks up where it left off. Deleting a record that's gone, with the press kit's space
+	 * or before, does nothing.
+	 */
+	private async dropRecords(epk: EpkView): Promise<void> {
+		const root = await this.core.root();
+		const { db } = this.core;
+		const requests = await db.selectFrom('epkRequest').select('uri').where('epkUri', '=', epk.uri).execute();
+
+		for (const { uri } of requests) {
+			if (parseSpaceRecordUri(uri)?.author !== root.did) continue;
+			await deleteAt(root, uri);
+			await db.deleteFrom('epkRequest').where('uri', '=', uri).execute();
+		}
+
+		const grants = await db.selectFrom('epkGrant').select('uri').where('spaceUri', '=', epk.space).execute();
+
+		for (const { uri } of grants) {
+			await deleteAt(root, uri);
+			await db.deleteFrom('epkGrant').where('uri', '=', uri).execute();
+		}
 	}
 
 	private async assertCanManage(actor: Viewer, kit: PressKit): Promise<void> {
@@ -761,7 +940,7 @@ export class EpkService {
 		const record = this.parse(COLLECTION.epk, epkRecordSchema, value);
 
 		if (!record) {
-			this.core.logger.debug({ did, rkey }, 'press kit record does not validate');
+			this.core.logger.debug('press kit record does not validate', { did, rkey });
 
 			return null;
 		}

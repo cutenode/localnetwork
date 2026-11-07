@@ -1,4 +1,4 @@
-// src/tools/soundcloud-playlist-to-text/Panel.svelte — the text tool.
+// src/tools/soundcloud-playlist-to-text/Panel.svelte: the text tool.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
 	button,
@@ -166,6 +166,23 @@ describe('with tracks', () => {
 		expect(text()).toMatch(/2 lines · 1 duplicate removed/);
 	});
 
+	it('counts more than one duplicate in the plural', async () => {
+		panelChrome({
+			response: extraction({ tracks: [track('Bicep', 'Glue'), track('Bicep', 'Glue'), track('bicep', 'glue')] })
+		});
+		await setOption('dedupe', '1');
+		await load();
+		expect(output()).toBe('Bicep - Glue');
+		expect(text()).toMatch(/1 line · 2 duplicates removed/);
+	});
+
+	it('pulls the artist out of the title once the box is ticked, and remembers it', async () => {
+		await load();
+		await click(document.getElementById('split-title'));
+		expect(output()).toBe('Bicep - Glue\nFour Tet - Baby\nJustin Timberlake - Sexyback (EDIT)');
+		expect(localStorage.getItem('pref:split-title')).toBe('1');
+	});
+
 	it('remembers an option that is changed', async () => {
 		await load();
 		const dedupe = document.getElementById('dedupe');
@@ -210,7 +227,7 @@ describe('copying', () => {
 	});
 
 	// The button itself says "copied" for a moment, then goes back to offering
-	// the copy — so a second one is still one click away.
+	// the copy, so a second one is still one click away.
 	it('says “copied” on the button for a moment, then offers it again', async () => {
 		vi.useFakeTimers();
 		installClipboard();
@@ -302,6 +319,18 @@ describe('the session queue as the source', () => {
 		expect(text()).not.toMatch(/open a SoundCloud playlist, likes or track page/);
 	});
 
+	it('says the page is still being read when switched back to it before it answers', async () => {
+		await setOption('source', 'queue');
+		panelChrome({ session: { queue: QUEUED } });
+		chrome.tabs.sendMessage.mockReturnValue(new Promise(() => {}));
+		await load();
+		expect(output()).toBe('Bicep - Glue\nFour Tet - Baby');
+
+		await click(sourceButton('this page'));
+		expect(document.querySelector('textarea')).toBe(null);
+		expect(text()).toMatch(/reading the page…/);
+	});
+
 	it('names the saved file after the queue', async () => {
 		await setOption('source', 'queue');
 		const { link } = installDownload();
@@ -311,8 +340,8 @@ describe('the session queue as the source', () => {
 		expect(link.download).toBe('session-queue.txt');
 	});
 
-	// A queued track may carry no title or artist — a state file can hold just
-	// the permalink — and reads as a row that named none: blank, not "undefined",
+	// A queued track may carry no title or artist (a state file can hold just
+	// the permalink) and reads as a row that named none: blank, not "undefined",
 	// and not a panel that falls over when the artist is pulled out of the title.
 	it('turns a queued track with no title or artist into a blank line', async () => {
 		await setOption('source', 'queue');

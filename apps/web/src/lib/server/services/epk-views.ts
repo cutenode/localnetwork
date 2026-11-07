@@ -77,9 +77,9 @@ export class EpkViews {
 					createdAt
 				})
 				.execute();
-			this.core.logger.debug({ epk: epk.uri, entry: entry.id }, 'recorded a press kit view');
+			this.core.logger.debug('recorded a press kit view', { epk: epk.uri, entry: entry.id });
 		} catch (error) {
-			this.core.logger.warn({ err: error, epk: epk.uri }, 'could not record a press kit view');
+			this.core.logger.warn('could not record a press kit view', { err: error, epk: epk.uri });
 		}
 	}
 
@@ -98,7 +98,7 @@ export class EpkViews {
 
 		return rows.map((row) => ({
 			id: row.id,
-			viewer: accounts.get(row.viewerDid) ?? { did: row.viewerDid, handle: null },
+			viewer: accounts.get(row.viewerDid),
 			epk: { uri: row.epkUri, rkey: parsePublicRecordUri(row.epkUri)?.rkey ?? '', title: row.epkTitle },
 			viewedAt: row.createdAt
 		}));
@@ -132,7 +132,7 @@ export class EpkViews {
 		const result = await this.core.db.deleteFrom('epkView').where('createdAt', '<', this.cutoff()).executeTakeFirst();
 		const expired = Number(result.numDeletedRows);
 
-		if (expired) this.core.logger.info({ expired }, 'expired press kit view receipts');
+		if (expired) this.core.logger.info('expired press kit view receipts', { expired });
 
 		return expired;
 	}

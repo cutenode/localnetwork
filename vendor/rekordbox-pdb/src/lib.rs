@@ -183,7 +183,7 @@ pub(crate) fn decode_string(buf: &[u8], off: usize) -> Result<String> {
     let b0 = read_u8(buf, off)?;
     if b0 & 1 != 0 {
         let len = ((b0 >> 1) as usize).saturating_sub(1);
-        return Ok(String::from_utf8_lossy(bytes_at(buf, off + 1, len)?).into_owned());
+        return Ok(lossy(bytes_at(buf, off + 1, len)?));
     }
     if b0 != 0x40 && b0 != 0x90 {
         return Err(PdbError::UnknownString {
@@ -201,13 +201,22 @@ pub(crate) fn decode_string(buf: &[u8], off: usize) -> Result<String> {
     };
     let payload = bytes_at(buf, off + 4, body)?;
     if b0 == 0x40 {
-        return Ok(String::from_utf8_lossy(payload).into_owned());
+        return Ok(lossy(payload));
     }
     let units: Vec<u16> = payload
         .chunks_exact(2)
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .collect();
     Ok(String::from_utf16_lossy(&units))
+}
+
+/// `bytes` as text, what isn't UTF-8 replaced. (locallibrary patch: a track has 21 strings, nearly
+/// all short and valid, and `from_utf8_lossy` took a tenth of the time of reading a library.)
+fn lossy(bytes: &[u8]) -> String {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text.to_owned(),
+        Err(_) => String::from_utf8_lossy(bytes).into_owned(),
+    }
 }
 
 /// Decode a track's ISRC (its string 0) starting at `off`. rekordbox writes a non-empty ISRC as

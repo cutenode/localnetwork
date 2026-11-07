@@ -13,7 +13,9 @@ workspace = true
 
 [dev-dependencies]
 hegeltest.workspace = true
+loclib-plugin = { workspace = true, features = ["test-util"] }
 tempfile.workspace = true
+url = "2.5"
 
 [dependencies]
 chrono.workspace = true

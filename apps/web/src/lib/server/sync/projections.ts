@@ -26,9 +26,9 @@ const SHARED_SPACE_COLLECTIONS = new Set<string>([
 /**
  * Maps records synced from spaces onto the local index. Records are checked
  * against our lexicons, and authority rules are enforced here: only the root
- * account's decisions, roles, and details count, only the grants of a press
- * kit space's authority, and in a performer's, party's or venue's space, only
- * what the root wrote, in a space under the root.
+ * account's decisions, roles, and details count, only the press kit grants
+ * of their space's authority, and in a performer's, party's or venue's space,
+ * only what the root wrote, in a space under the root.
  */
 export function createProjections(deps: {
 	core: Core;
@@ -73,12 +73,12 @@ export function createProjections(deps: {
 					)
 					.where(column, '=', change.uri)
 					.execute();
-				core.logger.warn({ uri: change.uri }, 'an audit copy was deleted');
+				core.logger.warn('an audit copy was deleted', { uri: change.uri });
 			} else if (type === SPACE_TYPE.booking) {
 				await core.db.deleteFrom('bookingEvent').where('uri', '=', change.uri).execute();
-			} else if (type === SPACE_TYPE.epk && change.collection === COLLECTION.epkGrant) {
-				await epks.unindexGrant(change.space, change.uri);
-			} else if (type === SPACE_TYPE.epk && change.collection === COLLECTION.epkRequest) {
+			} else if (change.collection === COLLECTION.epkGrant) {
+				await epks.unindexGrant(change.uri);
+			} else if (change.collection === COLLECTION.epkRequest) {
 				await epks.unindexRequest(change.uri);
 			} else if (type === SPACE_TYPE.backstage && change.collection === COLLECTION.epkDraft) {
 				await epks.drafts.unindex(change.uri);
@@ -96,7 +96,7 @@ export function createProjections(deps: {
 			value = validateRecord(change.collection, change.value);
 		} catch (error) {
 			if (!(error instanceof RecordValidationError)) throw error;
-			core.logger.warn({ uri: change.uri, err: error }, 'ignoring invalid synced record');
+			core.logger.warn('ignoring invalid synced record', { uri: change.uri, err: error });
 
 			return;
 		}
@@ -118,7 +118,7 @@ export function createProjections(deps: {
 				if (change.space !== spaces.moderation) return;
 
 				if (!isRequestKind(value.kind)) {
-					core.logger.warn({ uri: change.uri, kind: value.kind }, 'ignoring synced request of an unknown kind');
+					core.logger.warn('ignoring synced request of an unknown kind', { uri: change.uri, kind: value.kind });
 
 					return;
 				}
@@ -148,7 +148,7 @@ export function createProjections(deps: {
 				}
 
 				// The record no longer holds a role this app knows, so it grants nothing, including what it held before.
-				core.logger.warn({ uri: change.uri, role: value.role }, 'ignoring synced staff role this app does not know');
+				core.logger.warn('ignoring synced staff role this app does not know', { uri: change.uri, role: value.role });
 				await staff.removeRoleByUri(change.uri);
 
 				return;
@@ -180,13 +180,13 @@ export function createProjections(deps: {
 
 				return;
 			case COLLECTION.epkRequest:
-				if (type === SPACE_TYPE.epk)
-					await epks.indexRequest({ space: change.space, uri: change.uri, repoDid: change.repoDid, value });
+				// indexRequest checks the space: a project's request space, or a press kit's, where requests went before.
+				await epks.indexRequest({ space: change.space, uri: change.uri, repoDid: change.repoDid, value });
 
 				return;
 			case COLLECTION.epkGrant:
-				if (type === SPACE_TYPE.epk)
-					await epks.indexGrant({ space: change.space, uri: change.uri, repoDid: change.repoDid, value });
+				// indexGrant checks the space too: a project's request space, or a press kit's, where grants went before.
+				await epks.indexGrant({ space: change.space, uri: change.uri, repoDid: change.repoDid, value });
 
 				return;
 			case COLLECTION.person:

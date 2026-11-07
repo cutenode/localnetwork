@@ -28,6 +28,9 @@ pub struct Manifest {
     /// What it may call back for (see [`Capability`]).
     #[serde(default)]
     pub capabilities: Vec<Capability>,
+    /// The account types it asks for, and the scopes of each it needs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub accounts: Vec<hooks::accounts::AccountNeed>,
     #[serde(default)]
     pub contributes: Contributions,
     /// How often the host may send `net/fetch` requests to some of the hosts it talks to.
@@ -45,7 +48,6 @@ pub struct Manifest {
 #[serde(default)]
 pub struct Contributions {
     pub account_types: Vec<hooks::account_types::AccountType>,
-    pub accounts: Vec<hooks::accounts::Account>,
     pub commands: Vec<hooks::commands::Command>,
     pub destinations: Vec<hooks::destinations::Destination>,
     pub events: Vec<hooks::events::Listener>,
@@ -526,9 +528,7 @@ pub fn check_params(schema: Option<&Value>, params: &Value) -> Result<(), RpcErr
 /// `invalid_params` about the param at `path` (a JSON pointer).
 fn invalid_at(path: &str, message: &str) -> RpcError {
     let mut error = RpcError::invalid_params(format!("{path}: {message}"));
-    if let Some(data) = error.data.as_mut() {
-        data.fields.insert("path".into(), path.into());
-    }
+    error.data.as_mut().expect("invalid_params has data").fields.insert("path".into(), path.into());
     error
 }
 
@@ -549,6 +549,12 @@ impl Manifest {
             serde_ignored::deserialize(toml::Deserializer::parse(toml)?, |path| unknown.push(at(&path)))?;
         manifest.unknown = unknown;
         Ok(manifest)
+    }
+
+    /// A manifest the app's build read from TOML and wrote as JSON: what it ships parses in a
+    /// tenth of the time, on every start.
+    pub fn from_json(json: &str) -> serde_json::Result<Manifest> {
+        serde_json::from_str(json)
     }
 
     /// The keys [`Manifest::parse`] left out, where they were (`contributes.commands[0].colour`):

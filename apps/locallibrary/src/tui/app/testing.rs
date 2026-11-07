@@ -337,9 +337,9 @@ pub fn wait(app: &mut App, done: impl Fn(&App) -> bool) {
     if !done(app) {
         // Hegel keeps a failure's panic message to itself when its replays pass, so where it
         // waited is written out first.
-        let (job, modal) = (app.job.is_some(), app.modal.is_some());
+        let (job, modal) = (app.job.as_ref().map(|j| j.label.clone()), app.modal.is_some());
         eprintln!(
-            "wait at {} gave up after 60 s (job running: {job}, modal open: {modal})",
+            "wait at {} gave up after 60 s (job running: {job:?}, modal open: {modal})",
             std::panic::Location::caller()
         );
     }
@@ -412,7 +412,7 @@ pub fn read_sets(app: &mut App) {
     }
 }
 
-/// The message the footer shows now ("" for none).
+/// The message on the status line now ("" for none).
 pub fn last_message(app: &App) -> &str {
     app.toast.as_ref().map_or("", |t| t.0.as_str())
 }
@@ -621,9 +621,31 @@ default = "calm"
     unsafe { std::env::set_var("LOCALLIBRARY_TEST_PLUGINS", &file) };
 }
 
-/// The echo plugin [`echo_plugin`] wrote in `dir` given an account, Echo Cloud (`main`), whose
-/// sign-in page is on this computer, which only tests' plugin hosts reach: signing in fails
-/// before anything is opened. Its secrets are kept in files.
+/// An account plugin providing the `mock` account type (`read`, titled "read things"), whose
+/// sign-in page is on this computer.
+const MOCK_ACCOUNTS: &str = r#"id = "mock-accounts"
+name = "Mock accounts"
+version = "0.1.0"
+protocol = "^0.2"
+
+[[contributes.account_types]]
+type = "mock"
+title = "Mock"
+authorize_url = "http://127.0.0.1:9/authorize"
+token_url = "http://127.0.0.1:9/token"
+client_id = "locallibrary-test"
+whoami = { url = "http://127.0.0.1:9/userinfo", subject = "/sub", name = "/email" }
+
+[contributes.account_types.scopes.read]
+title = "read things"
+asks = ["read"]
+requests = [{ method = "GET", url = "http://127.0.0.1:9/r/*" }]
+"#;
+
+/// The echo plugin [`echo_plugin`] wrote in `dir` asking for a `mock` account, which the account
+/// plugin [`MOCK_ACCOUNTS`] (written beside it) provides, its sign-in page on this computer,
+/// which only tests' plugin hosts reach: signing in fails before anything is opened. Its secrets
+/// are kept in files.
 pub fn echo_account(dir: &Path) {
     let file = dir.join("echo.toml");
     let manifest = std::fs::read_to_string(&file).unwrap();
@@ -631,17 +653,59 @@ pub fn echo_account(dir: &Path) {
     let granted = "capabilities = [";
     assert!(manifest.contains(granted));
     let account = r#"
-[[contributes.accounts]]
-id = "main"
-title = "Echo Cloud"
-authorize_url = "http://127.0.0.1:9/authorize"
-token_url = "http://127.0.0.1:9/token"
-client_id = "echo"
+[[accounts]]
+type = "mock"
+scopes = ["read"]
+why = "Tests"
 "#;
-    let manifest = manifest.replacen(granted, r#"capabilities = ["net:echo.example", "#, 1) + account;
+    let manifest = manifest.replacen(granted, r#"capabilities = ["net:127.0.0.1", "#, 1) + account;
     std::fs::write(&file, manifest).unwrap();
+    let mock = dir.join("mock-accounts.toml");
+    std::fs::write(&mock, MOCK_ACCOUNTS).unwrap();
     // SAFETY: as in `echo_plugin`.
-    unsafe { std::env::set_var("LOCALLIBRARY_SESSION_STORE", "file") };
+    unsafe {
+        std::env::set_var("LOCALLIBRARY_TEST_PLUGINS", std::env::join_paths([file, mock]).unwrap());
+        std::env::set_var("LOCALLIBRARY_SESSION_STORE", "file");
+    }
+}
+
+/// An account plugin providing the `mock-keys` account type, signed in to with an access and a
+/// secret key that don't say whose they are, got at a page on this computer.
+const KEYS_ACCOUNTS: &str = r#"id = "keys-accounts"
+name = "Keys accounts"
+version = "0.1.0"
+protocol = "^0.2"
+
+[[contributes.account_types]]
+type = "mock-keys"
+title = "Mock keys"
+kind = "keys"
+keys_url = "http://127.0.0.1:9/keys"
+authorization = "LOW {access}:{secret}"
+
+[contributes.account_types.keys.access]
+title = "Access key"
+
+[contributes.account_types.keys.secret]
+title = "Secret key"
+
+[contributes.account_types.scopes.read]
+title = "read things"
+requests = [{ method = "GET", url = "http://127.0.0.1:9/r/*" }]
+"#;
+
+/// [`plugins_once`]'s plugins, and [`KEYS_ACCOUNTS`] written beside them, for this test's process
+/// (the first call sets it up). Call it before anything opens the palette or a menu.
+pub fn keys_accounts() {
+    static DONE: std::sync::Once = std::sync::Once::new();
+    DONE.call_once(|| {
+        let file = plugins_once().join("keys-accounts.toml");
+        std::fs::write(&file, KEYS_ACCOUNTS).unwrap();
+        let listed = std::env::var_os("LOCALLIBRARY_TEST_PLUGINS").unwrap();
+        let all: Vec<PathBuf> = std::env::split_paths(&listed).chain([file]).collect();
+        // SAFETY: as in `echo_plugin`.
+        unsafe { std::env::set_var("LOCALLIBRARY_TEST_PLUGINS", std::env::join_paths(all).unwrap()) };
+    });
 }
 
 /// The drives in `dir` taken for mounted ones, for this test: a plugin finds the drive it's
@@ -650,6 +714,16 @@ client_id = "echo"
 pub fn mounted(dir: &Path) {
     // SAFETY: as in `echo_plugin`.
     unsafe { std::env::set_var("LOCALLIBRARY_VOLUMES", dir) };
+}
+
+/// No drive counts as mounted unless a test says so ([`mounted`]): the Profile view reads every
+/// drive it finds, in the background, and a real one plugged into the machine takes seconds and
+/// goes on being read after the test case that asked.
+pub fn no_drives() {
+    if std::env::var_os("LOCALLIBRARY_VOLUMES").is_none() {
+        // SAFETY: as in `echo_plugin`: this is the process's first app, so none of its workers runs.
+        unsafe { std::env::set_var("LOCALLIBRARY_VOLUMES", "") };
+    }
 }
 
 /// The folder a property test's drives are mounted in, with the echo plugin's manifest beside

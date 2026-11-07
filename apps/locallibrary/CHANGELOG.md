@@ -281,8 +281,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   plans applied (capabilities `events:drives`, `events:jobs`, `events:plans`), told by the player,
   the sidecar, `watch` and any command applying a plan, through a bounded queue for each plugin
   that never holds them up; and run services, turned on with `plugin settings ID services.NAME on`
-  and run by the player, the sidecar and `watch` (never a command run once), started again when
-  they fail and left off after five failures in a row. What a plugin tells you back is a message
+  and run by the player, the sidecar and `watch` (never a command run once), started again up to
+  five times in a row when they fail, then left off. What a plugin tells you back is a message
   in the player (what it suggests reviewed from the palette or dismissed, and kept until it is:
   one of its operations, planned and confirmed as any, or one of locallibrary's own flows on its
   own contributions, fetching from its providers, exporting in its format or running its
@@ -357,36 +357,36 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     doesn't arrive), titled after the set, its tracklist as the description and tagged `dj mix`,
     and keeping the track's page as the set's link and its `fm.plyr.track` record as the set's
     recording. A recording plyr.fm wouldn't take (another format, or over 1536 MiB) is refused
-    before anything goes. It signs in with a plyr.fm developer token, kept as a secret setting, and
-    goes online only to publish.
+    before anything goes. It uploads with a `plyr` account, signed in to with a plyr.fm developer
+    token, and goes online only to publish.
   - `archive`: a set destination, `sets publish SET --to archive:item`, uploading the set's
     recording to the Internet Archive in one PUT as an item in Community Audio, at an identifier
     no item has (`CREATOR-DATE-TITLE`, with `-2` and on when it's taken), titled after the set,
     by the `creator` setting, its tracklist as the description and tagged `dj mix`, sent again a
     few times when it doesn't arrive or the Archive says to slow down, and keeping the item's page
-    as the set's link. It signs in with the account's S3 keys, kept as secret settings, goes
+    as the set's link. It uploads with an `archive` account, signed in to with its S3 keys, goes
     online only to publish, and never waits for the Archive to process the item.
   - `youtube`: a set destination, `sets publish SET --to youtube:video`, publishing the set to
     YouTube as a video: FFmpeg makes it from a still picture (the `picture` setting, else a black
     frame) over the recording, and it goes up through YouTube's resumable upload, titled after the
     set, unlisted unless the `privacy` setting says, with the tracklist as chapters in the
-    description, keeping the video's page as the set's link. It signs in to Google through Local
-    Network's token exchange, asking only to upload videos.
+    description, keeping the video's page as the set's link. It asks for a google account, and
+    only to upload videos.
   - `mixcloud`: a set destination, `sets publish SET --to mixcloud:show`, uploading the set's
     recording to Mixcloud as a show in one form, titled after the set, with the tracklist as the
     show's sections (artist, title and start time), the `tags` setting's tags (five at most), the
     `picture` setting's picture and, with `unlisted`, kept private, and keeping the show's page as
     the set's link. A recording or picture Mixcloud wouldn't take is refused first; an upload that
-    fails on the way, or over Mixcloud's rate limit, is sent again whole. It signs in to Mixcloud
-    through Local Network's token exchange, with the token in the query as Mixcloud takes it.
+    fails on the way, or over Mixcloud's rate limit, is sent again whole. It asks for a mixcloud
+    account, to upload with.
   - `soundcloud`: a set destination, `sets publish SET --to soundcloud:track`, uploading the set's
     recording to SoundCloud as a track in one form, titled after the set, its tracklist as the
     description, tagged `dj mix`, not downloadable and private unless the `sharing` setting says,
     with the `genre` and `picture` settings as its genre and artwork, and keeping the track's page
     as the set's link. A recording or artwork SoundCloud wouldn't take is refused before anything
     goes. An upload that fails on the way is sent again whole a few times, once the plugin has
-    checked SoundCloud didn't make the track anyway. It signs in to SoundCloud through Local
-    Network's token exchange.
+    checked SoundCloud didn't make the track anyway. It asks for a soundcloud account, to upload
+    with.
 - **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
   grid (`PQTZ`), phrases (`PSSI`, masked as rekordbox 6 writes them) and waveforms (`PWAV`,
   `PWV2`, `PWV3`, `PWV5`, `PWV6`, `PWV7`) into a track's analysis files as a journaled, undoable
@@ -406,22 +406,14 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   beat grids and waveforms a track brings go into analysis files made for it, read back first.
   The player has "build from …" in the palette and a drive's menu, the sidecar
   `plugins.source.plan/apply`. Not yet tried on players.
-- **Plugins' accounts and destinations.** A plugin may have accounts on other services, which
-  locallibrary signs you in to in the browser (`plugin account PLUGIN ACCOUNT sign-in`, or the
-  player's palette), keeping the tokens in the keychain and refreshing them itself: the plugin
-  never sees one. A service that wants a client secret for its tokens (Mixcloud, SoundCloud,
-  Google) is signed in to through Local Network's token exchange, which holds the secret, so
-  none ships with locallibrary. An account says how its service takes the token: after `Bearer`
-  in the `Authorization` header unless it names another scheme (SoundCloud's `OAuth`) or a query
-  parameter (Mixcloud's `access_token`). It may name the port the browser comes back to, for a
-  service registered with an exact redirect address (SoundCloud). A plugin may keep a copy of the store (`store copy --to PLUGIN:DESTINATION`,
+- **Plugins' destinations.** A plugin may keep a copy of the store (`store copy --to PLUGIN:DESTINATION`,
   `store restore --from`, `drive verify --from`), every file it gives back checked against its
   hash, or publish a set with its recording (`sets publish SET --to`), after a dry run you confirm,
   the link it answers kept in the set. The plugin uploads the recording through locallibrary
   (`net/fetch`'s `body_blob`, perhaps a `body_range` of it, or a `multipart` form's file), which
   reads it as it sends it rather than all at once, shows how much has gone (phase `upload`) and
   lets it send nothing else but files in its request's scratch folder. The sidecar has both as
-  `plugins.account*`, `plugins.store.*` and `plugins.publish.*`.
+  `plugins.store.*` and `plugins.publish.*`.
 - **Where a set's recording plays.** A set destination may name the link it answers (plyr's
   `plyr.fm`, archive's `Internet Archive`, youtube's `YouTube`, mixcloud's `Mixcloud`) and give the
   Atmosphere record holding the recording (plyr's track, as a `com.atproto.repo.strongRef`). The
@@ -444,11 +436,19 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   (`[[contributes.account_types]]`) saying how to sign in to the service, who signed in, and the
   scopes a plugin may be given, each with the requests it covers. It has no code, so locallibrary
   never starts one (`plugin serve` refuses), and only the ones it ships may use Local Network's
-  token exchange. Three ship, a folder each in `plugins/accounts/`: google-account (its scope
-  `youtube-upload`), mixcloud-account (`upload`) and soundcloud-account (`upload` and `read`).
+  token exchange. Five ship, a folder each in `plugins/accounts/`: google-account (its scope
+  `youtube-upload`), mixcloud-account (`upload`), soundcloud-account (`upload` and `read`), and
+  archive-account and plyr-account (`upload` each), signed in to with the keys the service gives
+  you (the Archive's S3 keys, a plyr.fm developer token).
   `plugin list` shows the account type each adds and `plugin info` its scopes; the sidecar's
-  `plugins.list` has them as `account_types`. Plugins still sign in through their own accounts
-  for now.
+  `plugins.list` has them as `account_types`. locallibrary signs you in in the browser, keeping
+  the tokens in the keychain and refreshing them itself. A service that wants a client secret for
+  its tokens (Mixcloud, SoundCloud, Google) is signed in to through Local Network's token
+  exchange, which holds the secret, so none ships with locallibrary. An account type says how its
+  service takes the token: after `Bearer` in the `Authorization` header unless it names another
+  scheme (SoundCloud's `OAuth`) or a query parameter (Mixcloud's `access_token`). It may name the
+  port the browser comes back to, for a service registered with an exact redirect address
+  (SoundCloud).
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're
@@ -496,8 +496,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   Windows (x86_64), with shell and PowerShell installers and a Homebrew formula.
 - **Smaller builds.** Cargo features: `account` (the Atmosphere account and publishing, in the
   library and the CLI), `tui` (the player) and `playback` (its audio output, and ALSA on Linux),
-  all on by default. `--no-default-features` builds a headless sidecar of about 150 crates
-  instead of 430, with no ALSA; without `account`, the account and publishing commands and RPC
+  all on by default. `--no-default-features` builds a headless sidecar of about 440 crates
+  instead of 610, with no ALSA; without `account`, the account and publishing commands and RPC
   methods aren't there and `initialize` doesn't list the `account` capability.
 - **Reporting a bug.** `bug` posts a report from your Atmosphere account to Local Network's space on
   userinput.app (asking first, and signing in again to allow only that), or opens GitHub's bug

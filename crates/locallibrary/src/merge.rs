@@ -356,8 +356,9 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
         false => None,
     };
     if let Some(db) = &dst_pdb {
+        let source_track = src_lib.track_lookup();
         new_tracks.retain(|t| {
-            let fits = src_lib.track(t.source_id).is_none_or(|st| db.check_new_track(&new_track_row(st, t, 0)).is_ok());
+            let fits = source_track(t.source_id).is_none_or(|st| db.check_new_track(&new_track_row(st, t, 0)).is_ok());
             if !fits {
                 warnings.push(format!("{}: its details are too long for the target's export.pdb; skipped", t.name));
             }
@@ -544,8 +545,9 @@ fn plan_my_tags(
     let dst = DriveTags::read(target, dst_lib, dst_plus.as_ref().map(|(_, one)| one), warnings);
     let (mut for_ext, mut for_plus): (Wanted, Wanted) = (Vec::new(), Vec::new());
     let mut tagged = 0;
+    let source_track = src_lib.track_lookup();
     for (i, t) in new_tracks.iter().enumerate() {
-        let Some(st) = src_lib.track(t.source_id) else { continue };
+        let Some(st) = source_track(t.source_id) else { continue };
         let (ext, plus) = src.of(&paths::file_key(&st.file_path));
         tagged += usize::from(!ext.is_empty() || !plus.is_empty());
         for_ext.push((i as u32, fold(&t.audio), ext));
@@ -788,8 +790,9 @@ pub fn apply(
     let mut tag_warnings = Vec::new();
     let src_tags = DriveTags::read(source, &src_lib, src_plus.as_ref(), &mut tag_warnings);
     let (mut ext_tags, mut plus_tags) = (FxHashMap::default(), FxHashMap::default());
+    let source_track = src_lib.track_lookup();
     for t in &plan.new_tracks {
-        let Some(st) = src_lib.track(t.source_id) else { continue };
+        let Some(st) = source_track(t.source_id) else { continue };
         let (ext, plus) = src_tags.of(&paths::file_key(&st.file_path));
         ext_tags.insert(t.source_id, ext);
         plus_tags.insert(t.source_id, plus);
@@ -847,8 +850,7 @@ pub fn apply(
         let bytes = pdb::guard_editor(|| {
             for t in &plan.new_tracks {
                 ctx.check()?;
-                let st = src_lib
-                    .track(t.source_id)
+                let st = source_track(t.source_id)
                     .ok_or_else(|| Error::NotFound(format!("source track {}", t.source_id)))?;
                 let artwork_id = match (st.artwork_id, st.artwork_path.as_deref()) {
                     (Some(src_art), Some(src_path)) => match artwork_map.get(&src_art) {
@@ -888,7 +890,7 @@ pub fn apply(
         if check.tracks.len() != target_lib.tracks.len() + report.tracks_added {
             return Err(Error::Pdb("merged database failed verification; drive left unchanged".into()));
         }
-        pdb_after = Some(pdb::library_from_database(&check));
+        pdb_after = Some(pdb::into_library(check));
         pdb_bytes = Some(bytes);
     }
     let mut plus_bytes = None;
@@ -1028,12 +1030,13 @@ impl PlusMerge<'_> {
             plan.matches.clone()
         } else {
             let plus_ids = by_path(self.plus_lib);
+            let target_track = self.target_lib.track_lookup();
             let mut missing = 0;
             let map = plan
                 .matches
                 .iter()
                 .filter_map(|(src, dst)| {
-                    let path = &self.target_lib.track(*dst)?.file_path;
+                    let path = &target_track(*dst)?.file_path;
                     let found = plus_ids.get(&paths::file_key(path)).map(|id| (*src, *id));
                     missing += usize::from(found.is_none());
                     found
@@ -1056,12 +1059,11 @@ impl PlusMerge<'_> {
         let mut cue_ids: FxHashMap<i64, i64> = FxHashMap::default();
         let mut images: FxHashMap<u32, Option<u32>> = FxHashMap::default();
         let mut wanted: Wanted = Vec::new();
+        let source_track = self.src_lib.track_lookup();
         for t in &plan.new_tracks {
             ctx.check()?;
-            let st = self
-                .src_lib
-                .track(t.source_id)
-                .ok_or_else(|| Error::NotFound(format!("source track {}", t.source_id)))?;
+            let st =
+                source_track(t.source_id).ok_or_else(|| Error::NotFound(format!("source track {}", t.source_id)))?;
             let image = match (st.artwork_id, st.artwork_path.as_deref()) {
                 (Some(art), Some(src_path)) => match images.get(&art) {
                     Some(id) => *id,
@@ -1219,7 +1221,7 @@ fn copy_artwork(
     let Some(src_key) = src_tree.resolve(&paths::key(src_path)).map(|e| e.path.clone()) else {
         return Ok(None);
     };
-    let next_id = editor.database()?.artwork.iter().map(|a| a.id).max().unwrap_or(0) + 1;
+    let next_id = editor.next_artwork_id()?;
     let ext = src_key.rsplit_once('.').map(|(_, e)| e).unwrap_or("jpg");
     let key = crate::artwork::free_artwork_key(target.root(), next_id, ext);
     for (from, to) in [

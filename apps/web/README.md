@@ -2,15 +2,21 @@
 
 Promoters find local DJs who fit their shows. DJs (called _projects_: a solo DJ, a b2b duo, a group, or a collective) get a profile built around what promoters book on: sound, distance, slot, room size, and budget. Fans follow DJs and see where they play next.
 
-All data lives on the AT Protocol. Public profiles are ordinary atproto records; everything private (requests, staff roles, the audit log, booking threads, personal planners) lives in [atproto spaces](https://atproto.com/blog/atproto-spaces-alpha), the protocol's permissioned-data extension. Published projects, the DJ stats, sets, press kits, shows and follows their managers and fans publish, and the few Bluesky and userinput.app records the site reads are indexed by [HappyView](https://happyview.dev), an AppView whose Lua scripts answer directory search and the show matcher and serve those records to the site. The app keeps its own SQLite index only for space data, and can rebuild it from the network. Every public record is read through HappyView, never straight from a PDS or Bluesky's AppView (see [Directory](#directory) for the few exceptions); writes go to the PDS.
+All data lives on the AT Protocol. Public profiles are ordinary atproto records; everything else (requests, staff roles, the audit log, booking threads, personal planners) lives in [atproto spaces](https://atproto.com/blog/atproto-spaces-alpha), the protocol's permissioned-data extension, where each space's read policy decides who can read it. Published projects, the DJ stats, sets, press kits, shows and follows their managers and fans publish, and the few Bluesky and userinput.app records the site reads are indexed by [HappyView](https://happyview.dev), an AppView whose Lua scripts answer directory search and the show matcher and serve those records to the site. The app keeps its own SQLite index only for space data, and can rebuild it from the network. Every public record is read through HappyView, never straight from a PDS or Bluesky's AppView (see [Directory](#directory) for the few exceptions); writes go to the PDS.
 
-> Atproto spaces is an alpha (released 2026). This app is built against `@atproto/*@0.0.0-spaces-alpha-20261022141228` and the [0016 spaces proposal](https://github.com/bluesky-social/proposals/tree/main/0016-permissioned-data). Expect breaking changes upstream; all versions are pinned.
+> Atproto spaces is an alpha (released 2026). This app is built against `@atproto/*@0.0.0-spaces-alpha-20261029171913` and the [0016 spaces proposal](https://github.com/bluesky-social/proposals/tree/main/0016-permissioned-data). Expect breaking changes upstream; all versions are pinned.
 
 ## Features
 
+### Signing in
+
+- `/login` says why someone is there from where they'll go next ("to follow Neon Tide", "to book Neon Tide"), takes one handle, and suggests up to five accounts as they type. The suggestions come from Bluesky's AppView (`app.bsky.actor.searchActorsTypeahead`) through `/api/actors`, so visitors' keystrokes never leave this server, repeats are answered from a ten-minute in-memory cache, and the CSP keeps `connect-src 'self'`. HappyView can't answer them: it only keeps the display names of accounts this site lists.
+- "Make an account" (`/login/create`) lists the hosts in [`src/lib/hosts.json`](src/lib/hosts.json) (schema beside it) and starts sign-up at the one picked (OAuth `prompt=create`), which sends the new account straight back. On the dev network its own PDS comes first.
+- "How signing in works" lists what the app can and can't do in plain words, from [`src/lib/sign-in.ts`](src/lib/sign-in.ts); a test fails if a scope the app asks for isn't explained there.
+
 ### Dashboard
 
-- Signing in lands on `/dashboard`, where every change to what a public page shows happens: each project you manage (`/dashboard/projects/<slug>`, with its profile, shows and press kits), your inbox, requests, booking threads, planner, and activity. Staff work in the staff console at `/admin`, on the same sidebar layout.
+- Signing in lands on `/dashboard`, where every change to what a public page shows happens: each project you manage (`/dashboard/projects/<slug>`, with its profile, shows and press kits), your inbox, requests, booking threads, planner, activity, and the records the root holds on your behalf (`/dashboard/data`). Staff work in the staff console at `/admin`, on the same sidebar layout.
 - The inbox (`/dashboard/inbox`) tells each participant in a booking thread about a new inquiry, message or status change from someone else in it, with a count of unread items in the sidebar. An item names the project, never which of its managers wrote, and holds none of what was written. Opening an item, or its thread, marks it read. Read items go after 90 days and unread ones after 180. People can also have new items emailed: the address comes from their account's host, read only after they approve it, and nothing goes to it until they open a link we email it, which works for a day. New items wait two minutes so a burst goes as one email. Anything older than six hours when it's indexed stays on the site. They can also have them sent as Bluesky DMs from the root account, a minute apart at most; when Bluesky chat says the root can't DM them yet, the settings page asks them to allow DMs from people they follow and to follow the root. The site asks chat alone, not the AppView, so it doesn't know which of the two is missing. `/dashboard/inbox/settings` turns each on and off, picks what gets sent, and sends a test.
 - People edit their profile at `/dashboard/profile`: the basics, and the DJ and promoter sections they turn on, each adding its own fields (the project form is built from the same basics and performer fields). Turning a section off asks first, since saving deletes what was in it. The profile goes to the account's own repo with its session, over the version the form opened on. A session from before profiles is offered "Sign in again" when the page opens. Someone without a profile gets a card on `/dashboard` to make one from their Bluesky name and picture, read once from their own repo. The sections decide the dashboard sidebar: a DJ's projects, and a promoter's planner (everything shows until there's a profile, and projects someone manages always do).
 - A DJ asks staff to list them in Find DJs from their profile editor, once their profile has the DJ section on: a `list` request in the moderation space that names their profile and the version they asked with. Staff review it at `/admin/requests` like any other, seeing the profile as it is now, with a note when it changed since the request and when the same account manages a solo project, which would put them in Find DJs twice. Approving writes the root's `computer.localnetwork.listing.profile` for them and has HappyView read their profile again; `/admin/listings/<did>` (staff's Manage link on a profile) shows the listing and takes them out again. Both are audited.
@@ -21,13 +27,13 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 - Directory search (Find DJs, `/projects`) over active projects and the DJs staff list, together, by text, genre family (a search for "house" finds deep house and afro house), distance from a venue, fee tier, slot, format, and type. A listed DJ counts as a solo DJ, found by the genres their profile names or else the ones they play most, and a solo project they manage alone gives way to their profile.
 - Show matcher: describe the night and get a ranked shortlist, scored on sound (40%), distance (25%), budget (15%), room size, slot, and booth setup, with the reasons for each match.
-- Booking inquiries open a private thread (its own space) shared only with the project's managers, with show details up front and a status flow (open → negotiating → confirmed / declined / cancelled).
+- Booking inquiries open a private thread (its own space) shared only with the project's managers, with show details up front and a status flow (open → negotiating → confirmed / declined / cancelled). Managers negotiate, confirm or decline; the promoter can confirm once a manager has answered, or withdraw; either side can cancel a confirmed booking. The server refuses any other change (`src/lib/bookings.ts`).
 - A private planner (saved projects and shows with working lineups) in a personal space on the promoter's own PDS. Inquiring from a planner show fills the inquiry in from the show's details.
 
 ### DJs (projects)
 
 - List a new project, or claim one an admin added. Several managers per project (crews, agents).
-- When a project's managers change, a new manager joins its booking threads that are still being worked out or confirmed for an upcoming show, and a manager who leaves is taken out of all of them. The promoter always stays. The same step keeps the project's backstage and its press kit spaces to the current managers, leaving the people granted a press kit. The app repeats this at startup, every hour, and on the System page's bootstrap, so a change that failed part way still finishes. A thread follows the project named in the root's opening record, which the promoter can't rewrite, or for a thread opened before that record named one, in its `booking.create` audit entry (written by the app, and rebuilt only from the root's copy). A thread with neither, or where the two disagree, is left as it is.
+- When a project's managers change, a new manager joins its booking threads that are still being worked out or confirmed for an upcoming show, and a manager who leaves is taken out of all of them. The promoter always stays. The same step keeps the project's backstage, its press kit request space and its press kit spaces to the current managers, leaving the people granted a press kit. The app repeats this at startup, every hour, and on the System page's bootstrap, so a change that failed part way still finishes. A thread follows the project named in the root's opening record, which the promoter can't rewrite, or for a thread opened before that record named one, in its `booking.create` audit entry (written by the app, and rebuilt only from the root's copy). A thread with neither, or where the two disagree, is left as it is.
 - Acts, parties and venues each get a space under the root (no pages for them yet). Its people records say who's in it, in what role, with which capabilities, and whether they're hidden from everyone outside it. The root writes every record there, for someone who holds the capability the change needs or for staff, whose changes the audit log marks with their role. Someone always has to be left who can manage its people, unless staff decide otherwise. The space's members follow its people: everyone reads, and those with a capability that writes also write. The app repeats that at startup and every hour, so a member update that failed part way still finishes.
 - People come into one by an invite to their account, an invite link, or a request to join that someone with people.manage approves, and choose then whether to be hidden. A link's token is shown once and only its hash is kept, and a link never lets anyone manage people. Invites last 30 days and links 7 unless their maker picks up to 90, someone can have 50 open in a space at once, and both go when their maker can no longer add people, unless staff made them.
 - When staff list one, the root writes a `computer.localnetwork.listing` record to its public repo with what its public page shows and the people in a listed role (an act's members, a party's hosts and cohosts) who haven't hidden. It's rewritten only when that changes, and checked every hour. No kind has a public page yet, so nothing is listed. Staff see every space and its people, hidden ones marked, at `/admin/spaces`, where they add and remove people, change roles, and list or unlist it.
@@ -38,7 +44,7 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 - Private booking details (email, phone, rates, tech rider, hospitality), shown to the project's managers and staff on its pages, and to everyone else only inside a press kit they've been let into, so each look at them leaves a receipt.
 - The project form and the booking inquiry keep unsent changes as a draft in the browser (`localStorage`, per account), so a reload or a trip to another page doesn't lose them. Files have to be picked again, and the draft goes once the form is sent, discarded, or back to its saved values, or its account signs out (the sign-out response sets an `ln_signed_out` cookie naming the account, and the next page load drops its drafts, so it works even if Sign out was pressed before the page's scripts ran).
 - A project page shows how its DJs play: the playing stats and recent sets each manager publishes from locallibrary (`computer.localnetwork.dj.profile` and `dj.set`), read from HappyView when the page loads and streamed in, so a slow answer never holds the page up. The app stores none of it; a few minutes' cache in memory keeps busy pages from asking again.
-- Press kits as records, which belong to the project, so all its managers share control of them. A project has up to 20 (`/dashboard/projects/<slug>/press-kits/new`), one per kind of booking. Each is a public `computer.localnetwork.epk` record in the root account's repo, holding the mixes and photos shown to everyone, plus a space of its own under the root holding the rest: a full bio, on-request mixes and photos, press quotes, contact and rider. Managers edit at `/dashboard/projects/<slug>/press-kits/<rkey>` through drafts kept in the project's backstage, a space under the root that only its current managers read and write, so each sees the others' work in progress and whether it's behind the published version. A draft saves only over the published version its form was opened on (otherwise the manager is asked to reload). Publishing a draft applies only the fields it changed, shows each field another manager published since next to the version the draft started from and lets the manager pick which of theirs to publish, and copies its photos into the root's repo so they outlive a manager leaving. People ask for access from `/projects/<slug>/press-kits/<rkey>`, with the form at `/dashboard/access/<slug>/<rkey>`; the rules approve them at once, send them for review, or don't take requests, per group (people they've booked with, people any of the managers follows on Bluesky, promoters, anyone signed in), with seven presets from open to closed. Any manager answers requests and adds or removes people at `/dashboard/projects/<slug>/press-kits/<rkey>/access`; the root writes each grant record and adds the person to the space. The editor has a press-photo checklist (3 or more photos, every orientation, 3,000 px, credited).
+- Press kits as records, which belong to the project, so all its managers share control of them. A project has up to 20 (`/dashboard/projects/<slug>/press-kits/new`), one per kind of booking. Each is a public `computer.localnetwork.epk` record in the root account's repo, holding the mixes and photos shown to everyone, plus a space of its own under the root holding the rest: a full bio, on-request mixes and photos, press quotes, contact and rider. Managers edit at `/dashboard/projects/<slug>/press-kits/<rkey>` through drafts kept in the project's backstage, a space under the root that only its current managers read and write, so each sees the others' work in progress and whether it's behind the published version. A draft saves only over the published version its form was opened on (otherwise the manager is asked to reload). Publishing a draft applies only the fields it changed, shows each field another manager published since next to the version the draft started from and lets the manager pick which of theirs to publish, and copies its photos into the root's repo so they outlive a manager leaving. People ask for access from `/projects/<slug>/press-kits/<rkey>`, with the form at `/dashboard/access/<slug>/<rkey>`; the rules approve them at once, send them for review, or don't take requests, per group (people they've booked with, people any of the managers follows on Bluesky, promoters, anyone signed in), with seven presets from open to closed. Requests go into the project's request space, a space under the root that only its current managers read, so nobody asking or let in sees anyone else's request. Any manager answers requests and adds or removes people at `/dashboard/projects/<slug>/press-kits/<rkey>/access`; the root adds the person to the press kit's space and writes the grant record into the request space, so nobody let in sees who else is. At startup, the app moves grant records and requests left in a press kit's space from before into the request space (grants copied as the root, requests as the root on the asker's behalf with their answer, the old records deleted), then stops that space taking anyone's writes. The editor has a press-photo checklist (3 or more photos, every orientation, 3,000 px, credited).
 - Press kits made before the root held them stay in their maker's repo and space until the maker next opens the dashboard, which moves each to the root with the same key: photos, private part, grants and open requests first, the public record last, then the old record and space go with the maker's session, the only one that can delete them. A move that fails part way finishes on a later visit.
 - Receipts of press kit views. Each time someone let into a press kit opens it (once per person and press kit every 30 minutes at most), the audit log records a view with the root as its actor and an HMAC of the viewer's DID under a random salt, never the DID. The DID and the salt stay in the app's database, and the project's managers see who viewed which press kit, and when, at `/dashboard/projects/<slug>/press-kits`, where any of them can delete one. Receipts expire after `EPK_VIEW_RETENTION_DAYS` (90 by default), checked every hour. Deleting one drops the DID and the salt, so the hash chain still verifies but no longer says who viewed. Only views through the site get receipts: the people let in are members of the press kit's space, so they can still read its private part (not the booking details) with another atproto client.
 - `/projects/<slug>/press-kits` lists a project's press kits, then one put together from the profile, mixes, stats, sets and (for its managers) booking details. Both print or save as a PDF on white. Links from before press kits moved to the project (`/projects/<slug>/epk`, `/epk/<did>/<rkey>` and its photos) redirect there, since they sit in emails.
@@ -48,7 +54,7 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 ### Fans
 
 - Follow a project from its page with any Atmosphere account. The follow is a `computer.localnetwork.follow` record in the follower's own repo; unfollowing deletes it. The page shows the follower count.
-- `/shows` lists upcoming shows by date near a city (picked with the same city search as the directory, and remembered in a cookie), or, under Following, the shows of the projects you follow, nearest first once you pick a city. A show drops off once it ends, or 12 hours after it starts when it has no end. There are no email or push notifications yet.
+- `/shows` lists upcoming shows by date near a city (picked with the same city search as the directory, and remembered in a cookie), or, under Following, the shows of the projects you follow, nearest first once you pick a city. A show drops off once it ends, or 12 hours after it starts when it has no end. There are no email or push notifications for shows yet.
 
 ### Artists and charts
 
@@ -60,16 +66,17 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 ### Tools
 
-- `/tools` lists Local Network's other tools, [locallibrary](../locallibrary) and [localtoolbox](../localtoolbox). Each has a page at `/tools/<id>` with what it does, how to install it, and its guides (its README and `docs/*.md`), which are bundled from the repo at build time. See [Tools' pages and hosts](#tools-pages-and-hosts).
+- `/tools` lists Local Network's other tools, [locallibrary](../locallibrary) and [localtoolbox](../localtoolbox). Each has a page at `/tools/<id>` that shows what it does as hot cues on a real track's waveform, each with a capture of the tool at work, then how to install it and its guides, which are bundled from the repo at build time: its README and `docs/*.md`, or only `docs/*.md` led by `docs/overview.md` when the README is written for developers, as localtoolbox's is. A guide with four or more sections opens on a list of them. See [Tools' pages and hosts](#tools-pages-and-hosts).
 
 ### Bug reports
 
-- "Report a bug" in the footer opens `/report`. Signed in, it posts the report from the person's own account to Local Network's space on [userinput.app](https://userinput.app) (an `app.userinput.discussion` record in their repo, tagged `bug` and `web`, with the page they came from and their browser), then links to it there. Signed out, or without `USERINPUT_SPACE`, it opens GitHub's website bug form with the page and browser filled in, and so does a report that fails to post, with what they wrote.
+- "Report a bug" in the footer opens `/report`. Signed in, it posts the report from the person's own account to Local Network's space on [userinput.app](https://userinput.app) (an `app.userinput.discussion` record in their repo, tagged `bug` and `web`, with the page they came from and their browser), then links to it there. Signed out (where the link reads "Report a bug on GitHub"), or without `USERINPUT_SPACE`, it opens GitHub's website bug form with the page and browser filled in, and so does a report that fails to post, with what they wrote.
 - Posting asks for one more OAuth scope, `repo:app.userinput.discussion?action=create`, the first time someone sends a report, not at sign-in: sessions from before it keep working, and the client metadata lists it so the PDS allows the request.
 
 ### Staff
 
 - Admins add and edit projects directly, change visibility, manage managers, and grant moderator/admin roles.
+- Staff are members of the audit, moderation, staff and industry spaces. Every 5 minutes, at startup, and on the System page's bootstrap, the app compares those member lists with the roles in the root's repo and takes out anyone without one, which finishes a removal that failed and drops an account taken out of `ADMIN_DIDS`. The audit log marks a removal that left someone in a space as failed, then records when they're out, and `/admin/staff` lists who's left until then. A space credential already issued stays valid for up to 10 minutes after someone leaves.
 - Admins verify project managers' accounts on Bluesky from the root account (`/admin/verifications`), which reads the verifications and the display names they compare from HappyView. Apps that trust the root show a badge while the account's handle and display name match the ones verified, so a rename shows as out of date until it's re-issued. An approved claim from the act's own account or a member, and each manager on a project's admin page, link straight to it. Bluesky's own app only shows verifications from accounts it has made trusted verifiers.
 - Moderators review creates, claims, and changes with field-level diffs and stale-revision warnings. Nobody can review their own request.
 - A complete audit log of every account's actions, with filters, per-entry detail, hash-chain verification, and JSONL export.
@@ -82,62 +89,95 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 | Published projects (`computer.localnetwork.project`)                      | Root account's public repo                                        | Root, after admin action or approval | Everyone, via HappyView |
 | DJ stats and sets (`computer.localnetwork.dj.profile`, `dj.set`)          | The DJ's own public repo                                          | The DJ, with locallibrary            | Everyone, via HappyView |
 | rekordbox settings (`computer.localnetwork.locallibrary.settings`)        | The DJ's own public repo                                          | The DJ, with locallibrary            | Everyone, via HappyView |
-| Requests (`computer.localnetwork.moderation.request`)                     | Requester's repo in the root's moderation space                   | The requester                        | Staff (via the app)     |
+| Requests (`computer.localnetwork.moderation.request`)                     | Requester's repo in the root's moderation space                   | Requester, or root on their behalf   | Staff (via the app)     |
 | Decisions                                                                 | Root's repo in the moderation space                               | Root                                 | Staff                   |
 | Staff roles (`computer.localnetwork.staff.role`)                          | Root's repo in the staff space                                    | Root                                 | Staff                   |
 | Verifications (`app.bsky.graph.verification`)                             | Root account's public repo                                        | Root, after admin action             | Everyone, via HappyView |
 | Private booking details                                                   | Root's repo in the industry space                                 | Root                                 | Staff (others via app)  |
 | Audit entries (`computer.localnetwork.audit.entry`)                       | Both the actor's repo and the root's repo in the audit space      | Actor and root                       | Staff                   |
-| Booking threads                                                           | One booking space per thread; each party writes in their own repo | Promoter and managers                | Thread members only     |
+| Booking threads                                                           | One booking space per thread; each party writes in their own repo | Each party, or root on their behalf  | Thread members only     |
 | Planner                                                                   | A personal planner space under the promoter's own DID             | The promoter                         | The promoter only       |
 | Press kits (`computer.localnetwork.epk`)                                  | Root account's public repo                                        | Root, when a manager publishes       | Everyone, via HappyView |
 | Shows (`community.lexicon.calendar.event` + `computer.localnetwork.show`) | The announcing manager's public repo                              | The manager                          | Everyone, via HappyView |
 | Follows (`computer.localnetwork.follow`)                                  | The follower's public repo                                        | The follower                         | Everyone, via HappyView |
-| Press kits' private part, requests and grants                             | One space per press kit under the root                            | Root (content, grants), askers       | Managers, granted       |
-| Press kit drafts (`computer.localnetwork.epk.draft`)                      | Each manager's repo in the project's backstage space              | Managers                             | The project's managers  |
+| Press kits' private part                                                  | One space per press kit under the root                            | Root                                 | Managers, granted       |
+| Press kit requests (`computer.localnetwork.epk.request`)                  | The project's request space under the root                        | Askers, or root on their behalf      | The project's managers  |
+| Press kit grants (`computer.localnetwork.epk.grant`)                      | The project's request space under the root                        | Root, when a manager lets someone in | The project's managers  |
+| Press kit drafts (`computer.localnetwork.epk.draft`)                      | Each manager's repo in the project's backstage space              | Managers, or root on their behalf    | The project's managers  |
 | Press kit view receipts                                                   | The app's database only                                           | The app                              | The project's managers  |
-| People in acts, parties and venues (`computer.localnetwork.people.*`)     | One space per performer, party or venue under the root            | Root, for its people or staff        | Its people, staff       |
-| Directory listing status (`computer.localnetwork.listing.status`)         | The same space                                                    | Root, after staff action             | Its people, staff       |
+| People in acts, parties and venues (`computer.localnetwork.people.*`)     | One space per performer, party or venue under the root            | Root, for its people or staff        | Members (staff via app) |
+| Directory listing status (`computer.localnetwork.listing.status`)         | The same space                                                    | Root, after staff action             | Members (staff via app) |
 | Bluesky display names (`app.bsky.actor.profile`)                          | The account's own public repo                                     | The account, in any Bluesky app      | Admins, via HappyView   |
 | Managers' Bluesky follows (`app.bsky.graph.follow`)                       | The manager's public repo                                         | The manager, in any Bluesky app      | The app, via HappyView  |
 | The bug report space (`app.userinput.space`)                              | Its owner's public repo on userinput.app                          | userinput.app                        | The app, via HappyView  |
 
-Space policies (`com.atproto.simplespace`):
+Space policies (every space is a `com.atproto.memberspace.policy` with `publicRead: false`; a public write policy is `publicWrite: true`):
 
-| Space                   | Read policy                       | Write policy                                |
-| ----------------------- | --------------------------------- | ------------------------------------------- |
-| audit                   | member list (staff)               | public (everyone records their own entries) |
-| moderation              | member list (staff)               | public (everyone can file requests)         |
-| staff                   | member list (staff)               | member list (root)                          |
-| industry                | member list (staff)               | member list (root)                          |
-| booking (per thread)    | member list (promoter + managers) | member list                                 |
-| planner (personal)      | member list (owner)               | member list                                 |
-| epk (per press kit)     | member list (managers, granted)   | public (anyone can ask; only root's count)  |
-| backstage (per project) | member list (managers)            | member list (managers)                      |
-| performer, party, venue | member list (its people)          | member list (people who write)              |
+| Space                     | Read policy                       | Write policy                                |
+| ------------------------- | --------------------------------- | ------------------------------------------- |
+| audit                     | member list (staff)               | public (everyone records their own entries) |
+| moderation                | member list (staff)               | public (everyone can file requests)         |
+| staff                     | member list (staff)               | member list (root)                          |
+| industry                  | member list (staff)               | member list (root)                          |
+| booking (per thread)      | member list (promoter + managers) | member list                                 |
+| planner (personal)        | member list (owner)               | member list                                 |
+| epk (per press kit)       | member list (managers, granted)   | member list (root)                          |
+| epkRequests (per project) | member list (managers)            | public (anyone can ask)                     |
+| backstage (per project)   | member list (managers)            | member list (managers)                      |
+| performer, party, venue   | member list (its people)          | member list (people who write)              |
+
+### Where writes go
+
+The app writes with each person's OAuth session or the root's session, and locallibrary writes to the DJ's own repo.
 
 ```mermaid
 flowchart LR
-  subgraph User PDS
-    UR[user's space repos]
-    PL[(planner space)]
+  App["Local Network app"]
+  Tool["locallibrary"]
+  subgraph UserPds["User PDS"]
+    UR["User's space repos: requests,<br/>inquiries, messages, drafts,<br/>audit copies"]
+    PL[("Planner space")]
+    UP["Public repo: profile, shows,<br/>calendar events, follows,<br/>bug reports"]
+    DJ["Public repo: stats, sets,<br/>recordings, settings"]
   end
-  subgraph Root PDS
-    PUB[(public repo: projects)]
-    RS[root's space repos]
-    SH{{space host}}
+  subgraph RootPds["Root PDS"]
+    PUB[("Public repo: performers,<br/>press kits, listings,<br/>verifications")]
+    RS["Root's space repos"]
   end
-  App[Local Network app]
-  App -- OAuth: createRecord in spaces --> UR
-  App -- root session: putRecord / spaces --> PUB & RS
-  UR -- notifyWrite --> SH
-  SH -- notifyWrite --> App
-  App -- space credential: listRepos / listRepoOps / getRepo --> SH & UR
-  PUB -- relay + Jetstream --> HV[(HappyView)]
-  SETS[(DJs' repos: stats, sets, press kits, settings)] -- Jetstream, or a backfill of one repo --> HV
-  FANS[(managers' and fans' repos: shows, calendar events, follows)] -- Jetstream, or a backfill of one repo --> HV
-  App -- directory queries and record reads --> HV
+  App -- "OAuth: createRecord,<br/>putRecord in spaces" --> UR
+  App -- "OAuth: reads and writes" --> PL
+  App -- "OAuth: repo writes" --> UP
+  App -- "root session: putRecord" --> PUB
+  App -- "root session: spaces" --> RS
+  Tool -- "its own session" --> DJ
 ```
+
+Source: [`src/lib/server/services/own-repo.ts`](src/lib/server/services/own-repo.ts), [`src/lib/server/atproto/repo-client.ts`](src/lib/server/atproto/repo-client.ts), [`src/lib/server/services/planner.ts`](src/lib/server/services/planner.ts)
+
+### Where reads come from
+
+Most space records come back through the app's own sync, and public records through HappyView. The app reads a press kit's private part and planners straight from their space, and a few public reads go straight to a PDS (see [Directory](#directory)).
+
+```mermaid
+flowchart TD
+  App["Local Network app"]
+  SH{{"Space host:<br/>the authority's PDS"}}
+  UR["User's and root's<br/>space repos"]
+  PUB[("Root's<br/>public repo")]
+  SETS[("DJs' repos: stats, sets,<br/>recordings, settings,<br/>older press kits")]
+  FANS[("Managers' and fans' repos:<br/>profiles, shows, calendar<br/>events, follows")]
+  HV[("HappyView")]
+  UR -- "notifyWrite" --> SH
+  SH -- "notifyWrite" --> App
+  App -- "space credential:<br/>listRepos" --> SH
+  App -- "space credential: listRepoOps,<br/>getRepo, getRecord. OAuth: planners" --> UR
+  PUB -- "Jetstream,<br/>or a backfill" --> HV
+  SETS -- "Jetstream,<br/>or a backfill" --> HV
+  FANS -- "Jetstream,<br/>or a backfill" --> HV
+  App -- "directory queries<br/>and record reads" --> HV
+```
+
+Source: [`src/lib/server/sync/engine.ts`](src/lib/server/sync/engine.ts), [`src/lib/server/atproto/credentials.ts`](src/lib/server/atproto/credentials.ts), [`src/lib/server/happyview/client.ts`](src/lib/server/happyview/client.ts), [`src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts`](src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts)
 
 ### The audit log
 
@@ -149,7 +189,7 @@ Every action (sign-in/out, submissions, revisions, withdrawals, decisions, direc
 
 Failed writes retry with exponential backoff. The syncer reads both copies back from the network and marks them _verified_ only if their content matches the chained entry; a copy edited later is flagged _failed_. If the local database is lost, the log is rebuilt from the root's chained copies. Denied attempts (e.g. a non-moderator trying to approve) are recorded with outcome `denied`. Booking message contents are never copied into the audit log, only metadata. A press kit view (`epk.view`) names no viewer: its details hold an HMAC of the viewer's DID under a salt only the app's receipt has, so deleting or expiring the receipt leaves the entry, and the chain, as they were.
 
-Accounts whose PDS doesn't run the spaces alpha can still sign in: the root files their requests and messages on their behalf (`onBehalfOf`), and their audit entries are marked "no spaces support".
+Accounts whose PDS doesn't run the spaces alpha can still sign in: the root files their requests and messages on their behalf (`onBehalfOf`), and their audit entries are marked "no spaces support". They see what the root holds for them at `/dashboard/data` (requests, booking inquiries and messages, press kit requests and drafts) and can delete any of it, one at a time or a kind at once. The server deletes a record only when both the index and the record itself name the signed-in account in `onBehalfOf`, and records a `record.delete` audit entry. An open request then leaves the index, as if withdrawn; a decided one keeps its row without what it said (`deletedAt`), so its decision stands and a declined press kit request can't be asked again; a booking message leaves its thread. Audit entries can't be deleted there, since the root's copies form the hash chain, and neither can booking status changes, which set the thread's status for both sides.
 
 ### Mix tracklists
 
@@ -161,7 +201,7 @@ A mix whose link is a plyr.fm track (`https://plyr.fm/track/<id>`) also gets a `
 
 ### Sync
 
-The app is a space syncer. For each watched space it asks the space host (the authority's PDS) for a space credential, sending a delegation token from the root's PDS and a fresh P-256 key the credential is bound to, and signs every request with that key (RFC 9421). It enumerates writers with `listRepos`, pulls each repo's oplog with `listRepoOps`, and checks the result against the repo's LtHash commit, falling back to a full download (`getRepo`, a STAR archive) when needed. Commits and records aren't signed: the repo host MACs each response with a secret shared for that one request, derived from the author's `#atproto_kem` key. When a MAC fails, the app refetches the author's DID document once, in case the key rotated. Accounts whose DID document has no KEM key can't be synced, and the system page says so. A deleted space is dropped with everything derived from it, however often the authority says so, and a space recreated under the same URI syncs from scratch. It registers for `notifyWrite` (verified with inter-service auth) and also polls. Records are validated against the lexicons, and authority rules are enforced: only root-authored decisions, roles, and details count, a press kit's grants count only from its space's authority and drafts only from the project's current managers, a booking thread's project comes from the root's opening record (or the root's audit copy of its creation) rather than the inquiry, and booking records from non-participants are ignored.
+The app is a space syncer. For each watched space it asks the space host (the authority's PDS) for a space credential, sending a delegation token from the root's PDS and a fresh P-256 key the credential is bound to, and signs every request with that key (RFC 9421). It enumerates writers with `listRepos`, pulls each repo's oplog with `listRepoOps`, and checks the result against the repo's LtHash commit, falling back to a full download (`getRepo`, a STAR archive) when needed. Commits and records aren't signed: the repo host MACs each response with a secret shared for that one request, derived from the author's `#atproto_kem` key. When a MAC fails, the app refetches the author's DID document once, in case the key rotated. Accounts whose DID document has no KEM key can't be synced, and the system page says so. A deleted space is dropped with everything derived from it, however often the authority says so, and a space recreated under the same URI syncs from scratch. A repo that fails doesn't hold back the others: the pass carries on through the space's later pages, and the repo is retried on its own, after a minute at first and at most an hour once it keeps failing. It registers for `notifyWrite` (verified with inter-service auth) and also polls. Records are validated against the lexicons, and authority rules are enforced: only root-authored decisions, roles, and details count, a press kit's grants count only from their space's authority (in a project's request space, only for a press kit of that project) and drafts only from the project's current managers, a booking thread's project comes from the root's opening record (or the root's audit copy of its creation) rather than the inquiry, booking records from non-participants are ignored, and a booking status record counts only when the thread's rules allow its author that move ([ADR 0008](../../docs/adr/0008-booking-status-follows-the-rules-not-record-dates.md)).
 
 ### Directory
 
@@ -267,7 +307,7 @@ Git hooks (lefthook, from the root `lefthook.yml`) format and lint staged files 
 
 ## Design system
 
-`src/lib/ui/` holds the design system the site is built on: dark ink surfaces, white type, Instrument Sans for words and JetBrains Mono for data, and no brand accent, since colour comes only from DJ data. The tokens live in `packages/tokens/theme.css`, which localtoolbox shares, and `src/lib/ui/theme.css` adds the fonts and Tailwind plugins on top; `packages/tokens/data-colors.css` is generated from `packages/tokens/colors.json` (a test fails when it's stale and says how to regenerate it). Each component has stories beside it. **Patterns/Homepage** renders the real homepage and layout with the seed data, and **Proposals/Homepage** holds section ideas that aren't on the site. `pnpm storybook` to browse it. `src/routes/layout.css` imports the theme for the whole site; its shared classes (`btn-primary`, `input`, `card`, `chip`, `table-base` and the rest) live in the shared theme so a plain form button and the `Button` component draw the same way. Printed pages switch the same tokens to light values (localtoolbox's light theme uses them too).
+`src/lib/ui/` holds the design system the site is built on: dark ink surfaces, white type, Instrument Sans for words and JetBrains Mono for data, and no brand accent, since colour comes only from DJ data. The tokens live in `packages/tokens/theme.css`, which localtoolbox shares, and `src/lib/ui/theme.css` adds the fonts and Tailwind plugins on top; `packages/tokens/data-colors.css` is generated from `packages/tokens/colors.json` (a test fails when it's stale and says how to regenerate it). Each component has stories beside it. **Patterns/Homepage** renders the real homepage and layout with the seed data, **Patterns/Tools** the Tools pages with the real captures, and **Proposals/Homepage** holds section ideas that aren't on the site. `pnpm storybook` to browse it. `src/routes/layout.css` imports the theme for the whole site; its shared classes (`btn-primary`, `input`, `card`, `chip`, `table-base` and the rest) live in the shared theme so a plain form button and the `Button` component draw the same way. Printed pages switch the same tokens to light values (localtoolbox's light theme uses them too).
 
 ## Configuration
 
@@ -282,6 +322,7 @@ See [`.env.example`](.env.example) for every option. The essentials:
 - `USERINPUT_SPACE`: Local Network's space on [userinput.app](https://userinput.app), as `at://<did>/app.userinput.space/<rkey>`. See [Bug reports](#bug-reports). Optional; without it, "Report a bug" opens GitHub's issue form.
 - `RESEND_API_KEY` (and optionally `EMAIL_FROM`, `EMAIL_PROVIDER`): sends inbox email through [Resend](https://resend.com) for people who turn it on. Optional; in production without it, email is off and the settings page says so. Outside production, email goes to the log.
 - `DM_PROVIDER` (and optionally `CHAT_SERVICE_DID`): `bluesky` sends inbox DMs from the root account through Bluesky chat. Off in production until set; first check that Bluesky's relay and AppView know the root account and that it can call `chat.bsky.convo.getConvoAvailability`. Outside production, DMs go to the log.
+- `ACTOR_SEARCH`: where sign-in's account suggestions come from, `bluesky` (the default) or `none`.
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, `MIXCLOUD_CLIENT_ID` / `MIXCLOUD_CLIENT_SECRET`, `SOUNDCLOUD_CLIENT_ID` / `SOUNDCLOUD_CLIENT_SECRET`: Local Network's clients at the services locallibrary plugins sign in to through the [token exchange](#token-exchange). Optional; a service without both answers that it isn't set up yet.
 
 ## Deploying
@@ -299,11 +340,15 @@ See [`.env.example`](.env.example) for every option. The essentials:
    ```bash
    docker run -p 3000:3000 -v localnetwork-data:/data --env-file .env localnetwork
    ```
-   To try an image first, `apps/web/scripts/docker-smoke.sh localnetwork` (from the repo root) runs it against the local network with an empty volume and fetches a few pages, as CI does.
+   To try an image first, `pnpm -C apps/web test:docker` runs the one tagged `localnetwork` against the local network with an empty volume and fetches a few pages, as CI does.
 5. Run **one** instance (SQLite and in-process background jobs). Give it a bucket for [backups](#backups) of `/data`: it holds OAuth sessions, the audit outbox, and records that exist nowhere else.
 6. Point `locallibrary.localnetwork.computer` at the same deployment (a DNS record, plus the custom domain on your host) for [its client document](#tools-pages-and-hosts).
 
 `/healthz` reports database, root-account, HappyView, and backup status (`backup` is `stale` with no backup in two days, `off` without a bucket). It answers 200 either way.
+
+### Logs
+
+The app logs through [evlog](https://www.evlog.dev), one line per request or background job ([ADR 0007](../../docs/adr/0007-one-log-line-per-request-or-job.md)). In production that's JSON on stdout, so `railway logs --service localnetwork --filter "@level:warn"` finds warnings and `--filter "space sync failed"` finds a message. What happened along the way is in the line's `notes`, and its first error in `error`. `LOG_LEVEL` sets the lowest level written.
 
 ### Backups
 
@@ -321,7 +366,7 @@ A restore downloads the backup, checks its integrity, keeps the database it repl
 
 ### Tools' pages and hosts
 
-Each tool has an entry in `src/lib/tools/` (name, tagline, what it does, install steps) and a page at `/tools/<id>`. Its guides are the tool's own `README.md` and `docs/*.md` in `apps/<tool>/`, bundled at build time and rendered on the server with GitHub's heading ids. Links to the tool's other guides stay on this site, links to other files in the repo go to GitHub, and raw HTML in the Markdown shows as text. Adding a tool is one file there, listed in `src/lib/tools/index.ts`, plus the steps in [Adding an app or plugin](../../.github/NEW_PROJECT.md).
+Each tool has an entry in `src/lib/tools/` (name, tagline, one to eight things it does with a capture for each, install steps) and a page at `/tools/<id>`. The captures in `src/lib/tools/captures/`, and the demo track their hot cues sit on, come from `pnpm atstore` at the repo root ([packages/atstore](../../packages/atstore)); the build turns them into AVIF and WebP at the widths they're shown at, and the page offers only those, with one JPEG or PNG as the fallback. The hot cues draw the track the way the tool's own world does: rekordbox's coloured overview for locallibrary, SoundCloud's flat bars for localtoolbox (`lookOf` in `HotCues.svelte`). A tool's guides are its own `README.md` and `docs/*.md` in `apps/<tool>/` (localtoolbox leaves out its README, which is for developers, and leads with `docs/overview.md`), bundled at build time and rendered on the server with GitHub's heading ids. Links to the tool's other guides stay on this site, links to other files in the repo go to GitHub, and raw HTML in the Markdown shows as text. Adding a tool is one file there, listed in `src/lib/tools/index.ts`, plus the steps in [Adding an app or plugin](../../.github/NEW_PROJECT.md).
 
 A tool with a host of its own lists it in its entry, and this app answers that host before anything else runs, so it works even while the app isn't configured. `/` redirects (308) to the tool's page on `PUBLIC_URL` (`https://localnetwork.computer` when it isn't set), `/oauth-client-metadata.json` serves the tool's OAuth client document if it has one, and every other path is a 404.
 
@@ -343,15 +388,15 @@ The services are in [`src/lib/server/token-exchange/services.json`](src/lib/serv
 
 ## Security notes
 
-- OAuth uses DPoP-bound tokens and granular scopes: a permission set ([`permissions.json`](../../lexicons/computer/localnetwork/permissions.json), requested as `include:computer.localnetwork.permissions`) with write-only access to the user's own repos in the audit, moderation, booking, backstage, and performer spaces and a self-authority planner space, and to the profile, shows and follows in their public repo and updates to their sets (plus deleting press kits made before the root held them, as they move), plus blob uploads limited to PNG, JPEG, and WebP avatars and JSON tracklists, and calendar events and RSVPs (`repo:community.lexicon.calendar.event` and `.rsvp`, asked for on their own since a permission set can only grant its own namespace). The PDS grants the set as the scopes it lists. The shared spaces it grants writes to are the root's only: `did:web:root.invalid` in the file stands for the root, and each network's root publishes the set with its own DID there (`pnpm lexicons:publish` for production; the dev network and the integration tests publish their own). So a request for a legacy press kit, one still in its maker's space, is written by the root on the asker's behalf. Accounts without spaces support are asked for `atproto` plus the profile, show, follow, and calendar event writes and the blob uploads, and fall back to plain `atproto` if their PDS refuses those; they, and anyone who approves only part of the request, have the root account write their space records on their behalf. Sessions granted before the app asked for a new space or blob scope are sent back through sign-in on their next page load. Profile, show, follow, calendar event and RSVP writes, set updates, and drafts in a performer's space are asked for when they're needed instead, with a one-click "Sign in again"; a PDS that still won't grant them after that gets a plain "your account's server doesn't allow this yet". Posting bug reports to userinput.app is asked for separately, when someone first sends one, and only allows creating `app.userinput.discussion` records. Nothing lets the app read other users' data with a user's session; shared spaces are read with credentials issued to the root authority.
+- OAuth uses DPoP-bound tokens and granular scopes: a permission set ([`permissions.json`](../../lexicons/computer/localnetwork/permissions.json), requested as `include:computer.localnetwork.permissions`) with write-only access to the user's own repos in the audit, moderation, booking, backstage, press kit request, and performer spaces and a self-authority planner space, and to the profile, shows and follows in their public repo and updates to their sets (plus deleting press kits made before the root held them, as they move), plus blob uploads limited to PNG, JPEG, and WebP avatars and JSON tracklists, and calendar events and RSVPs (`repo:community.lexicon.calendar.event` and `.rsvp`, asked for on their own since a permission set can only grant its own namespace). The PDS grants the set as the scopes it lists. The shared spaces it grants writes to are the root's only: `did:web:root.invalid` in the file stands for the root, and each network's root publishes the set with its own DID there (`pnpm lexicons:publish` for production; the dev network and the integration tests publish their own). Accounts without spaces support are asked for `atproto` plus the profile, show, follow, and calendar event writes and the blob uploads, and fall back to plain `atproto` if their PDS refuses those; they, and anyone who approves only part of the request, have the root account write their space records on their behalf. Sessions granted before the app asked for a new space or blob scope are sent back through sign-in on their next page load. Profile, show, follow, calendar event and RSVP writes, set updates, and drafts in a performer's space are asked for when they're needed instead, with a one-click "Sign in again"; a PDS that still won't grant them after that gets a plain "your account's server doesn't allow this yet". Posting bug reports to userinput.app is asked for separately, when someone first sends one, and only allows creating `app.userinput.discussion` records. Nothing lets the app read other users' data with a user's session; shared spaces are read with credentials issued to the root authority.
 - Browser sessions are opaque random tokens stored as SHA-256 hashes; cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` on HTTPS, except `ln_signed_out`, which holds only the DIDs whose drafts to drop and is read by the page's scripts.
 - CSP with per-request nonces, `frame-ancestors 'none'`, `nosniff`, strict referrer policy, HSTS on HTTPS, and SvelteKit's CSRF origin checks.
-- Every request to a host from a DID document goes through `@atproto-labs/fetch-node`'s safe fetch in production: no redirects, HTTPS only, and no private or loopback address, checked as it connects so DNS can't swap the address after. That covers resolving a DID or handle and fetching another account's avatar (default port only, responses up to 2 MB), and space credential calls, space sync, blob downloads and streamed recordings from a PDS (any port, no size or time cap, since callers bound what they read and how long they wait). ast-grep's [`no-unguarded-fetch`](../../tools/ast-grep/rules/no-unguarded-fetch.yml) rule fails a plain or passed-in `fetch` in any function that reads such a host. did:web hosts and handles that are IP addresses, carry a port, or use `localhost` or a reserved TLD are refused before any request, and `/@<handle>` lookups that find no account are rate-limited per IP.
+- Every request to a host from a DID document goes through `@atproto-labs/fetch-node`'s safe fetch in production: no redirects, HTTPS only, and no private or loopback address, checked as it connects so DNS can't swap the address after. Resolving a DID or handle and fetching another account's avatar use the default port only, with responses up to 2 MB. Space credential calls, space sync, blob downloads and streamed recordings from a PDS, and everything the OAuth client sends (identity lookups, PDS and authorization server metadata, authorization and token requests, session requests) allow any port and have no size or time cap of their own, since callers bound what they read and how long they wait. The OAuth client sets no time limit on session requests, so the app gives each of its requests 30 seconds. The OAuth client leaves its requests to follow redirects, so the app makes them refuse redirects instead. ast-grep's [`no-unguarded-fetch`](../../tools/ast-grep/rules/no-unguarded-fetch.yml) rule fails a plain or passed-in `fetch` in any function that reads such a host. did:web hosts and handles that are IP addresses, carry a port, or use `localhost` or a reserved TLD are refused before any request, and `/@<handle>` lookups that find no account are rate-limited per IP.
 - Links people wrote into their own records (profiles, sets, press kits, shows, requests) are only made clickable when they're http(s) addresses (`src/lib/web-url.ts`).
 - Uploaded images are type- and magic-byte-checked and capped at 1 MB for avatars and 5 MB for press kit photos. Stored images are served only if their blob's type is one their lexicon accepts (PNG, JPEG or WebP), since a PDS doesn't check, with a sandboxing CSP and `nosniff`.
-- `/media/audio/<did>/<cid>` streams only a blob that an indexed `computer.localnetwork.dj.recording` of an active project's manager references, as the type and size that record declares, with Range answered by the app since `getBlob` ignores it. The type and size limits are the lexicon's own (`audio/*` or `video/mp4`, at most 300 MiB); `video/mp4` is what a PDS calls an M4A it can't tell is audio, so it goes out as `audio/mp4`. It stores nothing, and sends a locked-down CSP and `nosniff`. The page CSP allows media only from the site, plyr.fm's CDN and archive.org's download hosts, and scripts only from SoundCloud's and Mixcloud's widget hosts besides its own.
+- `/media/audio/<did>/<cid>` streams only a blob that an indexed `computer.localnetwork.dj.recording` of an active project's manager references, as the type and size that record declares, with Range answered by the app since `getBlob` ignores it. The type and size limits are the lexicon's own (`audio/*` or `video/mp4`, at most 300 MiB); `video/mp4` is what a PDS calls an M4A it can't tell is audio, so it goes out as `audio/mp4`. It stores nothing, and sends a locked-down CSP and `nosniff`. The page CSP allows media only from the site, plyr.fm's CDN and archive.org's download hosts, images only from the site and Bluesky's avatar CDN (for sign-in's account suggestions), and scripts only from SoundCloud's and Mixcloud's widget hosts besides its own.
 - ast-grep's [`stored-type-response`](../../tools/ast-grep/rules/stored-type-response.yml) rule fails any response that takes its content type from data, outside the two helpers that check it for stored images and recordings.
-- Rate limits on sign-in, writes, and city search.
+- Rate limits on sign-in, writes, city search, and account suggestions.
 - The [token exchange](#token-exchange) only sends requests to the token endpoints `services.json` lists, and never logs what it relays.
 - Spaces are access control, not end-to-end encryption: the hosting PDSes and this app can read the data they handle.
 
@@ -363,6 +408,7 @@ scripts/                        dev-network (local atproto network), publish-lex
 scripts/lib/                    Local HappyView container and Jetstream stand-in
 src/lib/                        Shared code: matching, genre taxonomy, geo, formatting, components
 src/lib/headline.json           The homepage headline's words ("<verb> your <noun>."), to edit by hand
+src/lib/hosts.json              The hosts "Make an account" offers, to edit by hand
 src/lib/ui/                     The design system: theme tokens, components and their stories
 src/lib/server/atproto/         Identity, OAuth, root session, repo clients, space credentials, service auth
 src/lib/server/audit/           Hash-chained audit log with dual atproto delivery
@@ -373,6 +419,11 @@ src/lib/server/sync/            Space syncer and record projections
 src/lib/server/token-exchange/  The token exchange for locallibrary plugins, and the services it signs in to
 src/lib/server/tools/           The tools' own hosts, and their guides rendered to HTML
 src/lib/tools/                  The tools: one entry per tool, with its guides bundled from apps/<tool>/
+src/lib/server/meta.ts          What each public page tells link previews and search engines, returned by its load as `meta`
+src/lib/server/meta-records.ts  The records behind a public page, written into its head as at-tags (`at:canonical`, `at:alternate`, `at:author`)
+src/lib/server/structured-data.ts  The schema.org structured data (JSON-LD) a performer, profile, mix or artist page adds to its `meta`
+src/lib/og/cards/               The link-preview pictures (1200×630), one Svelte component each, with their stories
+src/lib/server/og/              Draws them as PNGs for src/routes/og/, keeping recent ones in memory
 src/routes/                     SvelteKit 3 pages, form actions, and endpoints
 tests/integration/              Flows against an in-process spaces PDS and a HappyView container
 tests/e2e/                      Playwright
@@ -386,3 +437,297 @@ tests/e2e/                      Playwright
 - Account deactivation/deletion events arrive on the firehose, which this app doesn't subscribe to yet.
 - The directory scripts query HappyView's SQLite directly, so the HappyView instance must use SQLite, not Postgres.
 - HappyView drops a Jetstream cursor older than 72 hours. The boot backfill recovers new and changed projects after a longer outage, but not deletions (nothing deletes projects today).
+
+## Diagrams
+
+These diagrams cover what the app does, as drawn from the code. Website code says `project` for what these call a performer.
+
+- Overview: [Where writes go](#where-writes-go), [Where reads come from](#where-reads-come-from), [Architecture](#architecture), [Deployment](#deployment), [External services](#external-services), [What the browser reaches](#what-the-browser-reaches), [Where state lives](#where-state-lives), [Local tables: bookings and press kits](#local-tables-bookings-and-press-kits), [Local tables: shared spaces](#local-tables-shared-spaces), [Local tables: audit and sync](#local-tables-audit-and-sync), [Local tables: inbox](#local-tables-inbox)
+- [Requests and routes](docs/diagrams/requests-and-routes.md): the request path, errors, rate limits, and every route family
+- [Sign-in and roles](docs/diagrams/accounts.md): OAuth, scopes, sessions, token exchange, roles and capabilities
+- [Spaces](docs/diagrams/spaces.md): credentials, sync, notifications, projections and member lists
+- [Jobs and the directory](docs/diagrams/jobs-and-directory.md): startup, scheduled jobs and HappyView
+- [Profiles, requests and bookings](docs/diagrams/profiles-and-bookings.md): listings, moderation, search, the planner and booking threads
+- [Press kits](docs/diagrams/press-kits.md): drafts, grants, views, moves and deletes
+- [Shows and the inbox](docs/diagrams/shows-and-inbox.md): shows, follows, inbox delivery and channels
+- [Mixes, sets and charts](docs/diagrams/mixes-and-sets.md): tracklists, sets, recordings, stats and artist pages
+- [Staff and upkeep](docs/diagrams/staff-and-upkeep.md): bug reports, the audit log, staff actions, listings and backups
+
+### Architecture
+
+The app, what it stores, and the services it depends on.
+
+```mermaid
+flowchart TD
+  Browser["Browser"]
+  Tool["locallibrary"]
+  App["Local Network app<br/>SvelteKit on Node"]
+  Db[("SQLite on /data")]
+  Bucket[("Backup bucket")]
+  HV["HappyView<br/>directory and record gates"]
+  Root["Root PDS<br/>public repo and space host"]
+  Pds["People's PDSes"]
+  Jet["Jetstream"]
+
+  Browser -- "pages, forms, /api" --> App
+  Tool -- "token exchange,<br/>requestIndex" --> App
+  Tool -- "reads its<br/>records back" --> HV
+  Tool -- "stats, sets,<br/>recordings" --> Pds
+  App -- "the index, sessions,<br/>audit, inboxes" --> Db
+  App -- "daily backup" --> Bucket
+  App -- "queries, scripts,<br/>re-reads" --> HV
+  App -- "root session" --> Root
+  App -- "OAuth sessions,<br/>space sync" --> Pds
+  Root -- "notifyWrite" --> App
+  Root --> Jet
+  Pds --> Jet
+  Jet --> HV
+```
+
+Source: [`src/lib/server/app.ts`](src/lib/server/app.ts), [`src/lib/server/happyview/client.ts`](src/lib/server/happyview/client.ts), [`src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts`](src/routes/xrpc/com.atproto.space.notifyWrite/+server.ts)
+
+### Deployment
+
+How the website reaches production on Railway. HappyView and the root's PDS run outside this Railway project.
+
+```mermaid
+flowchart LR
+  Build["main, once checks pass:<br/>Railway builds apps/web/Dockerfile"] --> Service["Service localnetwork<br/>one replica"]
+  Config[".railway/railway.ts"] -- "railway config apply" --> Service
+  Site["localnetwork.computer"] --> Service
+  ToolHost["locallibrary.localnetwork<br/>.computer"] --> Service
+  Health["Health check"] -- "/healthz" --> Service
+  Service -- "/data" --> Volume[("Volume localnetwork-data<br/>with localnetwork.db")]
+  Service -- "BACKUP_S3_*" --> Bucket[("Bucket<br/>localnetwork-backups")]
+  Service -- "HAPPYVIEW_URL" --> HV["happyview.localnetwork<br/>.computer"]
+  Publish["pnpm lexicons:publish"] -- "lexicon records" --> RootRepo["Root's repo"]
+  Publish -- "_lexicon TXT records" --> Dns["Cloudflare DNS"]
+```
+
+Source: [`../../.railway/railway.ts`](../../.railway/railway.ts), [`Dockerfile`](Dockerfile), [`scripts/publish-lexicons.ts`](scripts/publish-lexicons.ts)
+
+### External services
+
+What the server calls, and why.
+
+```mermaid
+flowchart LR
+  App["Local Network app"]
+  App -- "DIDs and handles" --> Identity["PLC directory, did:web hosts,<br/>handle resolution"]
+  App -- "OAuth, writes, blobs, space sync" --> Pds["PDSes"]
+  App -- "directory" --> HV["HappyView"]
+  App -- "sign-in suggestions" --> Bsky["public.api.bsky.app"]
+  App -- "city search" --> Geo["Open-Meteo or Nominatim"]
+  App -- "track records" --> Plyr["api.plyr.fm"]
+  App -- "inbox email" --> Resend["Resend"]
+  App -- "inbox DMs from the root" --> Chat["Bluesky chat"]
+  App -- "token exchange" --> Tokens["Google, Mixcloud and SoundCloud<br/>token endpoints"]
+  App -- "backups" --> S3["S3 bucket"]
+```
+
+Source: [`src/lib/server/atproto/identity.ts`](src/lib/server/atproto/identity.ts), [`src/lib/server/actor-search.ts`](src/lib/server/actor-search.ts), [`src/lib/server/geocode.ts`](src/lib/server/geocode.ts), [`src/lib/server/plyr.ts`](src/lib/server/plyr.ts), [`src/lib/server/notifications/email.ts`](src/lib/server/notifications/email.ts), [`src/lib/server/notifications/dm.ts`](src/lib/server/notifications/dm.ts), [`src/lib/server/token-exchange/services.json`](src/lib/server/token-exchange/services.json), [`src/lib/server/backup/store.ts`](src/lib/server/backup/store.ts)
+
+### What the browser reaches
+
+Where a page's browser goes besides this site. The CSP lists the audio, script, frame and image hosts.
+
+```mermaid
+flowchart LR
+  Browser["Browser"]
+  Browser -- "pages, media, /api" --> App["Local Network app"]
+  Browser -- "set player audio" --> Audio["audio.plyr.fm,<br/>archive.org download hosts"]
+  Browser -- "widget scripts" --> Scripts["widget.mixcloud.com,<br/>w.soundcloud.com"]
+  Browser -- "embedded players" --> Frames["SoundCloud, Mixcloud, Bandcamp,<br/>YouTube, plyr.fm"]
+  Browser -- "avatars in sign-in suggestions" --> Cdn["cdn.bsky.app"]
+  Browser -- "form posts and redirects" --> Auth["The account's PDS,<br/>GitHub's bug form"]
+```
+
+Source: [`vite.config.ts`](vite.config.ts), [`src/lib/bug-report.ts`](src/lib/bug-report.ts)
+
+### Where state lives
+
+Every place the app keeps something, and what rebuilds it.
+
+```mermaid
+flowchart TD
+  subgraph Network["On the network"]
+    Repos["Public repos<br/>root's and people's"]
+    Spaces["Spaces<br/>each writer's repo in each space"]
+  end
+  subgraph Server["On the server"]
+    Index[("SQLite, rebuilt by sync:<br/>requests, threads, grants, people")]
+    Only[("SQLite, not rebuilt:<br/>sessions, inboxes, receipts")]
+    Outbox[("SQLite audit log:<br/>rebuilt from the root's copies")]
+    Memory["Memory:<br/>rate limits, credentials, caches"]
+  end
+  subgraph Elsewhere["Elsewhere"]
+    HV[("HappyView:<br/>public records its gates keep")]
+    Bucket[("Bucket: database backups")]
+  end
+  subgraph Client["In the browser"]
+    Cookies["Cookies: ln_session, ln_signed_out,<br/>the shows page's city"]
+    Local["localStorage: unsent form drafts,<br/>the hotkeys preference"]
+  end
+  Repos -- "Jetstream, re-reads" --> HV
+  Spaces -- "sync, apart from planners" --> Index
+  Spaces -- "sync" --> Outbox
+  Only -- "daily" --> Bucket
+  Index -- "daily" --> Bucket
+  Outbox -- "daily" --> Bucket
+```
+
+Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/server/sync/engine.ts`](src/lib/server/sync/engine.ts), [`src/lib/form-draft.svelte.ts`](src/lib/form-draft.svelte.ts), [`src/lib/server/shows-place.ts`](src/lib/server/shows-place.ts)
+
+### Local tables: bookings and press kits
+
+The tables that index booking threads, and press kit requests and grants. Only the link from participants to threads is a foreign key; the other lines are columns the rows share.
+
+```mermaid
+erDiagram
+  booking_thread ||--o{ booking_participant : "space_uri"
+  booking_thread ||--o{ booking_event : "space_uri"
+  epk_request ||--o| epk_grant : "request_uri"
+  booking_thread {
+    text space_uri PK
+    text project_uri
+    text promoter_did
+    text status
+  }
+  booking_participant {
+    text space_uri
+    text did
+    text role
+  }
+  booking_event {
+    text uri PK
+    text space_uri
+    text kind
+  }
+  epk_request {
+    text uri PK
+    text epk_uri
+    text requester_did
+    text status
+  }
+  epk_grant {
+    text space_uri
+    text subject_did
+    text request_uri
+  }
+```
+
+Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/server/db/migrations.ts`](src/lib/server/db/migrations.ts)
+
+### Local tables: shared spaces
+
+The tables that index performer, party and venue spaces. Each line is a column the rows share.
+
+```mermaid
+erDiagram
+  shared_space ||--o{ space_person : "space_uri"
+  shared_space ||--o{ space_invite : "space_uri"
+  shared_space ||--o{ space_invite_link : "space_uri"
+  shared_space ||--o{ space_join_request : "space_uri"
+  shared_space {
+    text space_uri PK
+    text kind
+    int listed
+  }
+  space_person {
+    text did
+    text role
+    text capabilities
+    int hidden
+  }
+  space_invite {
+    text did
+    text role
+  }
+  space_invite_link {
+    text rkey
+    text token_hash
+  }
+  space_join_request {
+    text did
+  }
+```
+
+Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/server/services/shared-spaces.ts`](src/lib/server/services/shared-spaces.ts)
+
+### Local tables: audit and sync
+
+The tables behind the audit log and the syncer. Each line is a column the rows share.
+
+```mermaid
+erDiagram
+  audit_entry ||--o{ audit_copy : "rkey is the entry id"
+  audit_entry ||--o| epk_view : "same id"
+  space_watch ||--o{ synced_repo : "space_uri"
+  space_watch ||--o{ sync_repo_retry : "space_uri"
+  space_watch ||--o{ space_record : "space_uri"
+  audit_entry {
+    text id PK
+    int seq
+    text hash
+    text root_status
+    text actor_status
+  }
+  audit_copy {
+    text uri PK
+    text repo_did
+    text rkey
+  }
+  epk_view {
+    text id PK
+    text viewer_did
+    text salt
+  }
+  space_watch {
+    text space_uri PK
+    text space_rev
+  }
+  synced_repo {
+    text repo_did
+    text rev
+  }
+  sync_repo_retry {
+    text repo_did
+    int attempts
+  }
+  space_record {
+    text repo_did
+    text collection
+    text rkey
+  }
+```
+
+Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/server/audit/log.ts`](src/lib/server/audit/log.ts), [`src/lib/server/sync/engine.ts`](src/lib/server/sync/engine.ts)
+
+### Local tables: inbox
+
+The tables behind the inbox. Deliveries have a foreign key to their item, and the channel is looked up by DID and channel.
+
+```mermaid
+erDiagram
+  notification ||--o{ notification_delivery : "notification_id"
+  notification_channel ||--o{ notification_delivery : "did and channel"
+  notification {
+    text id PK
+    text recipient_did
+    text dedupe_key
+    text read_at
+  }
+  notification_channel {
+    text did
+    text channel
+    text status
+  }
+  notification_delivery {
+    text id PK
+    text notification_id
+    text status
+    text batch_id
+  }
+```
+
+Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/server/notifications/outbox.ts`](src/lib/server/notifications/outbox.ts)

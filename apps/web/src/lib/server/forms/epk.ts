@@ -294,14 +294,12 @@ export async function parseEpkForm(
 }
 
 async function parseUploads(form: FormData): Promise<PhotoUpload[]> {
-	const files = form.getAll('newPhotos').filter((file) => file instanceof File && file.size > 0);
+	const files = form.getAll('newPhotos').filter((file): file is File => file instanceof File && file.size > 0);
 	const place = text(form, 'newPhotoVisibility', 16) === 'private' ? 'private' : 'public';
 	const credit = text(form, 'newPhotoCredit', 200) || undefined;
 	const uploads: PhotoUpload[] = [];
 
 	for (const file of files) {
-		if (!(file instanceof File)) continue;
-
 		if (!PHOTO_TYPES.has(file.type)) throw new UserError(`${file.name} isn't a PNG, JPEG or WebP image`);
 
 		if (file.size > EPK_PHOTO_MAX_BYTES) throw new UserError(`${file.name} is over 5 MB`);

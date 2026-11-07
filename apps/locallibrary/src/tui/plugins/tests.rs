@@ -690,7 +690,7 @@ fn plugins_settings_are_a_form_kept_in_the_store() {
     let f = settings_form(&mut app);
     assert_eq!(
         (f.title.as_str(), texts(f)),
-        ("Echo settings", ["hello", "1.5", "false", "calm", "", "", "", "", ""].map(String::from).to_vec())
+        ("Echo settings", ["hello", "1.5", "false", "calm", "", "", "", "", "", ""].map(String::from).to_vec())
     );
     let s = screen(&mut app, 120, 40);
     for needle in ["Echo settings", "greeting", "Greeting (empty for hello)", "enter save · esc cancel"] {
@@ -719,7 +719,7 @@ fn plugins_settings_are_a_form_kept_in_the_store() {
     let written: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
     assert_eq!(written, json!({ "greeting": "hi", "loud": true, "mood": "wild" }), "only what changed");
     // Open again: as set now. Nothing changed: nothing written.
-    assert_eq!(texts(settings_form(&mut app)), ["hi", "1.5", "true", "wild", "", "", "", "", ""]);
+    assert_eq!(texts(settings_form(&mut app)), ["hi", "1.5", "true", "wild", "", "", "", "", "", ""]);
     press(&mut app, "\n");
     wait(&mut app, |a| a.job.is_none());
     assert_eq!(last_message(&app), "nothing changed");
@@ -1067,8 +1067,9 @@ fn plugins_own(act: &Act) -> bool {
             | Act::Source(..)
             | Act::FieldColumn(_)
             | Act::PluginSettings(_)
-            | Act::PluginSignIn(..)
-            | Act::PluginSignOut(..)
+            | Act::AccountSignIn(..)
+            | Act::AccountSignOut(_)
+            | Act::PluginAccess(_)
             | Act::ProviderSettings
             | Act::CheckSettings
             | Act::Fix(_)
@@ -1175,14 +1176,15 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
         press(&mut app, "\u{1b}");
         press(&mut app, open);
 
-        // Only what runs here and now: the echo plugin's hooks, analyzer and sign-in; the others'
-        // hooks (each asks for params first, nothing run until they're given), writing an
-        // analyzer's values (a form first too), exports, settings and columns. Another plugin's
-        // sign-in would open its service's page in the browser.
+        // Only what runs here and now: the echo plugin's hooks and analyzer, and signing in to a
+        // mock account; the others' hooks (each asks for params first, nothing run until they're
+        // given), writing an analyzer's values (a form first too), exports, settings, access and
+        // columns. Another account plugin's sign-in would open its service's page in the browser.
         let safe: Vec<usize> = (first..acts.len())
             .filter(|&i| match acts[i] {
                 Act::Plugin(p, n) => p == "echo" || !hook(p, n).1.is_empty(),
-                Act::Analyze(p, _) | Act::PluginSignIn(p, _) => p == "echo",
+                Act::Analyze(p, _) => p == "echo",
+                Act::AccountSignIn(_, with) => with == "mock-accounts",
                 _ => true,
             })
             .collect();
@@ -1332,17 +1334,19 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             assert_eq!(form_open(app), ("Provider settings".into(), vec!["auto_pick".into()]));
             press(app, "\u{1b}");
         }
-        // Echo's sign-in page is on this computer, which the player never reaches: refused before
-        // anything opens. Never signed in, so never signed out either.
-        Act::PluginSignIn(..) => {
+        // A mock account's sign-in page is on this computer, which the player never reaches:
+        // refused before anything opens.
+        Act::AccountSignIn(..) => {
             wait(app, |a| a.job.is_none());
             assert!(last_message(app).starts_with("signing in: "), "signing in failed as it began");
         }
-        Act::PluginSignOut(p, a) => {
-            wait(app, |a| a.job.is_none());
+        // None is kept here, so none is offered.
+        Act::AccountSignOut(_) => unreachable!("no account is kept"),
+        Act::PluginAccess(p) => {
             let m = crate::plugins::host().unwrap().manifest(p).unwrap();
-            let account = m.contributes.accounts.iter().find(|x| x.id == a).unwrap();
-            assert_eq!(last_message(app), format!("not signed in to {}", account.title));
+            let kinds: Vec<String> = m.accounts.iter().map(|n| n.name.clone()).collect();
+            assert_eq!(form_open(app), (format!("Access for {}", m.name), kinds));
+            press(app, "\u{1b}");
         }
         Act::CheckSettings => {
             let plugins = crate::plugins::host().unwrap();
@@ -1750,7 +1754,7 @@ fn a_commands_answer_shows_whole_at_any_size(tc: TestCase) {
         tc.draw(gs::integers::<u16>().min_value(1).max_value(50)),
     );
     assert_eq!(screen(&mut app, w, h).lines().count(), h as usize);
-    if w >= 8 && h >= 4 {
+    if w >= 60 && h >= 20 {
         // The panel's rows, as scrolling one at a time shows them; each row's text by where it
         // is in the whole.
         let (pw, inner_w) = (w.min(100), w.min(100) as usize - 4);
@@ -1764,7 +1768,7 @@ fn a_commands_answer_shows_whole_at_any_size(tc: TestCase) {
                 break;
             }
             last = Some(r.scroll);
-            for (k, row) in panel_rows(&s, w, h, pw).into_iter().enumerate() {
+            for (k, row) in panel_rows(&s, w, pw).into_iter().enumerate() {
                 let at = r.scroll as usize + k;
                 if rows.len() <= at {
                     rows.resize(at + 1, None);
@@ -1787,17 +1791,16 @@ fn a_commands_answer_shows_whole_at_any_size(tc: TestCase) {
     assert!(app.modal.is_none(), "any other key closes it");
 }
 
-/// The text inside the borders and padding of the panel `pw` columns wide, centred on the screen
-/// `s` (`w` by `h`), row by row. (A wide character takes two columns, the second drawn as a
+/// The text inside the borders and padding of the panel `pw` columns wide, in the middle of the
+/// screen `s` (`w` wide), row by row. (A wide character takes two columns, the second drawn as a
 /// space.)
-fn panel_rows(s: &str, w: u16, h: u16, pw: u16) -> Vec<String> {
+fn panel_rows(s: &str, w: u16, pw: u16) -> Vec<String> {
     let rows: Vec<Vec<char>> = s.lines().map(|l| l.chars().collect()).collect();
     let (left, right) = (((w - pw) / 2) as usize, ((w - pw) / 2 + pw - 1) as usize);
     let edge = |r: &[char], a: char, b: char| r.get(left) == Some(&a) && r.get(right) == Some(&b);
     for top in (0..rows.len()).filter(|&t| edge(&rows[t], '╭', '╮')) {
         let sides = rows[top + 1..].iter().take_while(|r| edge(r, '│', '│')).count();
-        let centred = top == (h as usize - (sides + 2)) / 2;
-        if centred && rows.get(top + 1 + sides).is_some_and(|r| edge(r, '╰', '╯')) {
+        if rows.get(top + 1 + sides).is_some_and(|r| edge(r, '╰', '╯')) {
             return rows[top + 1..=top + sides].iter().map(|r| r[left + 2..right - 1].iter().collect()).collect();
         }
     }
@@ -2009,7 +2012,7 @@ fn settings_are_kept_as_the_form_has_them(tc: TestCase) {
     let loud = tc.draw(gs::booleans());
     let mood = tc.draw(gs::integers::<usize>().max_value(2));
     press(&mut app, ":echo plugin settings\n");
-    let commands = ["keys.echo", "keys.titles", "keys.steps", "keys.wait", "keys.playlist"];
+    let commands = ["keys.echo", "keys.titles", "keys.steps", "keys.ensure", "keys.wait", "keys.playlist"];
     assert_eq!(form_open(&app).1, [&["greeting", "speed", "loud", "mood"][..], &commands].concat());
     for field in turns(&tc, 4) {
         to_field(&tc, &mut app, field);

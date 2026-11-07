@@ -3,7 +3,7 @@
 // ports apart from `pnpm dev`'s, the end-to-end tests' and Lighthouse's so it can run beside them.
 import { join } from 'node:path';
 import { ROOT, run, start } from '../run.ts';
-import type { Listing, Shot } from '../types.ts';
+import type { Capture, Listing } from '../types.ts';
 
 const PORT = 5196;
 
@@ -25,9 +25,11 @@ export const web: Listing = {
 	eyebrow: 'localnetwork.computer',
 	icon: 'apps/web/src/lib/assets/favicon.svg',
 	glow: '#3987e5',
-	hero: { shots: [1], frame: { kind: 'browser', url: 'localnetwork.computer/projects/neon-tide' } },
-	async capture(browser) {
-		await run('pnpm', ['-C', 'apps/web', 'build']);
+	hero: { shots: ['profile'], frame: { kind: 'browser', url: 'localnetwork.computer/projects/neon-tide' } },
+	screenshots: PAGES.map((page) => page.name),
+	page: false,
+	async capture(browser, signal) {
+		await run('pnpm', ['-C', 'apps/web', 'build'], { signal });
 
 		const app = await start('pnpm', ['exec', 'tsx', 'scripts/dev-network.ts', '--app', '--production'], {
 			cwd: join(ROOT, 'apps/web'),
@@ -41,7 +43,8 @@ export const web: Listing = {
 				LOG_LEVEL: 'warn'
 			},
 			// adapter-node prints this once the app has connected its root account and is serving.
-			ready: /Listening on/
+			ready: /Listening on/,
+			signal
 		});
 
 		try {
@@ -51,7 +54,7 @@ export const web: Listing = {
 				colorScheme: 'dark'
 			});
 
-			const shots: Shot[] = [];
+			const shots: Capture[] = [];
 
 			for (const { name, path } of PAGES) {
 				const response = await page.goto(`${ORIGIN}${path}`, { waitUntil: 'networkidle' });
@@ -60,7 +63,7 @@ export const web: Listing = {
 				if (!response?.ok()) throw new Error(`${path} answered ${response?.status()}`);
 
 				await page.evaluate(() => document.fonts.ready);
-				shots.push({ name, png: await page.screenshot({ type: 'png' }) });
+				shots.push({ file: `${name}.png`, bytes: await page.screenshot({ type: 'png' }) });
 			}
 
 			return shots;

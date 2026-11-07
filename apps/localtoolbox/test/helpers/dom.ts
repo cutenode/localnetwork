@@ -1,9 +1,9 @@
-// Builders for the SoundCloud markup the content script reads — the same
+// Builders for the SoundCloud markup the content script reads: the same
 // structure and class names the README documents (verified against
 // soundcloud.com in September 2026), reduced to the elements that matter.
 //
 // Every builder returns an HTML string; `render` puts it on the page.
-import type { Json } from './chrome.ts';
+import type { Json } from './json.ts';
 
 const esc = (s: string | number | null | undefined) =>
 	String(s ?? '')
@@ -26,7 +26,7 @@ const gateSc = (url: string) => `https://gate.sc?url=${encodeURIComponent(url)}&
 // reading the link's textContent would take the name as "Uploader Verified".
 const verifiedBadge = () => '<span class="verifiedBadge"><svg><title>Verified</title></svg></span>';
 
-// The genre tag SoundCloud renders beside a title — one `.sc-tag` holding the
+// The genre tag SoundCloud renders beside a title: one `.sc-tag` holding the
 // uploader's genre. Sound-list rows carry it in the title block's tag
 // container; a track page's hero renders the same tag without one. `null`
 // renders none, which is what a playlist row and a badge tile do.
@@ -156,7 +156,7 @@ export interface ApiTrackOptions {
 
 // A row's like and repost buttons, which SoundCloud renders on every row of a
 // playlist or Likes page, signed in or not. An "on" one carries both tells the
-// content script reads — `sc-button-selected` and aria-pressed — and each can
+// content script reads (`sc-button-selected` and aria-pressed), and each can
 // be given on its own, to stand for a redesign that drops the other.
 //
 // `actions: false` leaves them out altogether, which is what the badge tiles
@@ -420,7 +420,7 @@ export function ownLikesPage({
 
 // A track page: hero without a tracks summary, plus the engagement bar. The
 // hero's artwork nests a second .sc-artwork inside the first, as the real one
-// does — the marker takes the outer box.
+// does; the marker takes the outer box.
 export function trackPage({
 	uploader = 'uploader',
 	uploaderName = 'Uploader',
@@ -478,7 +478,7 @@ export function trackPage({
 // (`soundcloud.com/n/<user>/<track>`) as a React app sharing no markup with
 // the classic one: no .fullHero, no .listenEngagement, and MUI buttons whose
 // only class is a hash of the stylesheet that built them. What it does carry
-// is the accessibility tree the content script reads it by — a
+// is the accessibility tree the content script reads it by: a
 // `section[aria-label="Track header"]`, an <h1>, and one outbound link.
 //
 // `render` this at `/n/<uploader>/<track>`, the path the frame really has.
@@ -599,7 +599,7 @@ export function apiTrack({
 	genre = null,
 	// What SoundCloud names as the cover: the track's own artwork, else the
 	// uploader's avatar, which is what its rows fall back to. `null` for both is
-	// an API answer too — a track with neither.
+	// an API answer too: a track with neither.
 	artworkUrl = null,
 	avatarUrl = null,
 	kind = 'track'

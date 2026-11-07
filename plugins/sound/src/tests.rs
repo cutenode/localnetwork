@@ -71,12 +71,26 @@ fn manifest() -> Manifest {
 /// `doctor --analyze` tests use.
 fn recording(dir: &Path, seed: u32, secs: f64, rate: u32, gain: f32) -> PathBuf {
     let path = dir.join(format!("{seed}.wav"));
-    let pcm: Vec<i32> = resample(&synth(secs, seed), loclib_mixid::fingerprint::RATE, rate)
+    std::fs::write(&path, wav_of(rate, 16, pcm(seed, secs, rate, gain).into_iter())).unwrap();
+    path
+}
+
+/// The 16-bit samples [`recording`] writes to each of its two channels.
+fn pcm(seed: u32, secs: f64, rate: u32, gain: f32) -> Vec<i32> {
+    resample(&synth(secs, seed), loclib_mixid::fingerprint::RATE, rate)
         .iter()
         .map(|s| ((s * gain) as i32).clamp(-32_768, 32_767))
-        .collect();
-    std::fs::write(&path, wav_of(rate, 16, pcm.into_iter())).unwrap();
-    path
+        .collect()
+}
+
+/// The clipped runs loclib-analysis counts in a recording of `pcm`: runs of three or more
+/// full-scale samples in a row (32,767 or more either way, as 16-bit audio decodes), in each of
+/// its two channels. Gain over full scale doesn't make one: a short or quiet stretch can clip
+/// only one or two samples at a time.
+fn clipped_runs(pcm: &[i32]) -> u64 {
+    let full = |s: &i32| s.abs() >= 32_767;
+    let runs = pcm.chunk_by(|a, b| full(a) == full(b)).filter(|run| full(&run[0]) && run.len() >= 3);
+    2 * runs.count() as u64
 }
 
 #[test]
@@ -112,6 +126,17 @@ fn describes_one_analyzer_and_hears_of_drives_changing() {
 /// `drive.library` with tracks 1 to `tracks` and each `track.fields` with those of them in
 /// `analysed`: what it suggests, and the reads it asked for (each one's method and how many tracks).
 fn told(events: &[EventNotify], tracks: u32, analysed: &[u32]) -> (Vec<HostNotify>, Vec<(String, usize)>) {
+    told_failing(events, tracks, analysed, None)
+}
+
+/// [`told`], with the host failing each read of the method `failing` (`not_found`, as for a drive
+/// that has gone).
+fn told_failing(
+    events: &[EventNotify],
+    tracks: u32,
+    analysed: &[u32],
+    failing: Option<&str>,
+) -> (Vec<HostNotify>, Vec<(String, usize)>) {
     let (plugin_in, to_plugin) = pipe().unwrap();
     let (from_plugin, plugin_out) = pipe().unwrap();
     let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
@@ -154,7 +179,10 @@ fn told(events: &[EventNotify], tracks: u32, analysed: &[u32]) -> (Vec<HostNotif
                 if !last && req.method == "drive.library" {
                     reads.push((req.method.clone(), 0));
                 }
-                host.respond(&req.id, Ok(answer));
+                let fails = !last && failing == Some(req.method.as_str());
+                let answer =
+                    if fails { Err(RpcError::failed("not_found", "not found: drive USB")) } else { Ok(answer) };
+                host.respond(&req.id, answer);
             }
             Incoming::Notification { method: m, params } if m == method::HOST_NOTIFY => {
                 let notice: HostNotify = serde_json::from_value(params).unwrap();
@@ -220,6 +248,24 @@ fn a_drive_plugged_in_has_its_new_tracks_suggested_for_analysing() {
     assert_eq!((suggested, reads.len()), (vec![expected], 2), "{reads:?}");
 }
 
+/// Whichever of its reads the host fails (the drive's library, or the fields it keeps), nothing
+/// is suggested for that drive, nothing more is read for it, and the events after it are still
+/// handled; a change to a drive's state alone isn't read at all.
+#[hegel::test(test_cases = 10)]
+fn prop_a_read_that_fails_suggests_nothing(tc: TestCase) {
+    let failing = tc.draw(gs::sampled_from(vec!["drive.library", "track.fields"]));
+    let tracks = tc.draw(gs::integers::<u32>().min_value(1).max_value(2500));
+    let state = EventNotify { payload: json!({ "changed": ["state"] }), ..databases_changed("USB") };
+    let (suggested, reads) = told_failing(&[state, databases_changed("USB")], tracks, &[], Some(failing));
+    assert_eq!(suggested, []);
+    let methods: Vec<&str> = reads.iter().map(|(m, _)| m.as_str()).collect();
+    let read = match failing {
+        "drive.library" => &["drive.library"][..],
+        _ => &["drive.library", "track.fields"][..],
+    };
+    assert_eq!(methods, read);
+}
+
 /// For any library, what it suggests is its tracks without fields, in the library's order, the
 /// first [`MAX_SUGGESTED_TRACKS`] of them, and nothing when there are none.
 #[hegel::test(test_cases = 20)]
@@ -253,6 +299,7 @@ fn the_analyzers_version_is_loclib_analysis_s() {
 #[hegel::explicit_test_case(seed = 31u32, secs = 5.0f64, rate = 11_025u32, gain = 200_000.0f32)]
 #[hegel::explicit_test_case(seed = 5u32, secs = 3.0f64, rate = 48_000u32, gain = 0.0f32)]
 #[hegel::explicit_test_case(seed = 5u32, secs = 0.05f64, rate = 44_100u32, gain = 12_000.0f32)]
+#[hegel::explicit_test_case(seed = 44_276_527u32, secs = 0.0625f64, rate = 11_025u32, gain = 200_000.0f32)]
 fn fields_are_what_doctor_reports(tc: TestCase) {
     let seed = tc.draw(gs::integers::<u32>());
     let secs = tc.draw(gs::floats::<f64>().min_value(0.05).max_value(8.0));
@@ -288,6 +335,7 @@ fn fields_are_what_doctor_reports(tc: TestCase) {
     assert_eq!(number("integrated_lufs"), l.integrated_lufs);
     assert_eq!(number("true_peak_dbtp"), Some(l.true_peak_dbtp()).filter(|db| db.is_finite()));
     assert_eq!(fields["clipped_runs"], FieldValue::Integer(l.clipped_runs as i64));
+    assert_eq!(l.clipped_runs, clipped_runs(&pcm(seed, secs, rate, gain)), "{fields:?}");
     // A waveform but for silence.
     let columns = a.waveform.unwrap().columns;
     assert_eq!(drawn, columns.iter().any(|c| *c != [0; 3]).then(|| columns.as_flattened().to_vec()));
@@ -296,8 +344,8 @@ fn fields_are_what_doctor_reports(tc: TestCase) {
         let shown: Vec<(&String, &FieldValue)> = fields.iter().filter(|(_, v)| **v != FieldValue::Null).collect();
         assert_eq!(shown, [(&"clipped_runs".to_string(), &FieldValue::Integer(0))]);
     } else if gain > 32_768.0 {
-        // What doctor calls over 0 dBTP and clipped.
-        assert!(number("true_peak_dbtp").unwrap() > 0.0 && l.clipped_runs > 0, "{fields:?}");
+        // What doctor calls over 0 dBTP.
+        assert!(number("true_peak_dbtp").unwrap() > 0.0, "{fields:?}");
     }
 }
 
@@ -534,18 +582,32 @@ fn waveforms_are_kept_for_up_to_a_day(tc: TestCase) {
     assert_eq!(within_a_day(columns), columns as u64 * 1024 <= 86_400 * 44_100, "{columns}");
 }
 
-/// The waveform goes in the request's scratch folder: without one (a host without `blobs`) it's
-/// left out and the rest answered, and one that's gone fails the track as `io`, naming the file.
-#[test]
-fn the_waveform_needs_a_scratch_folder() {
+/// Whatever the recording, its waveform goes in the request's scratch folder, a file of its
+/// columns; without one (a host without `blobs`) it's left out and the rest answered, and one
+/// that's gone fails the track as `io`, naming the file.
+#[hegel::test(test_cases = 4)]
+fn prop_the_waveform_is_a_file_in_the_scratch_folder(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
-    let audio = recording(dir.path(), 7919, 1.0, 44_100, 12_000.0);
+    let seed = tc.draw(gs::integers::<u32>().max_value(10_000));
+    let audio = recording(dir.path(), seed, 1.0, 44_100, 12_000.0);
     let s = start();
-    let fields = s.analyze_in(&audio, None).wait::<Analysis>().unwrap().fields;
-    assert!(!fields.contains_key("waveform") && fields.contains_key("clipped_runs"), "{fields:?}");
     let gone = dir.path().join("gone");
-    let e = s.analyze_in(&audio, Some(&gone)).wait::<Analysis>().unwrap_err();
-    assert_eq!((e.code, e.kind()), (code::FAILED, Some("io")), "{e:?}");
-    assert!(e.message.starts_with(&gone.join(WAVEFORM_BLOB).display().to_string()), "{e:?}");
+    for case in 0..3 {
+        match case {
+            0 => {
+                let fields = s.analyze(&audio).wait::<Analysis>().unwrap().fields;
+                assert!(!s.waveform(&fields["waveform"]).is_empty());
+            }
+            1 => {
+                let fields = s.analyze_in(&audio, None).wait::<Analysis>().unwrap().fields;
+                assert!(!fields.contains_key("waveform") && fields.contains_key("clipped_runs"), "{fields:?}");
+            }
+            _ => {
+                let e = s.analyze_in(&audio, Some(&gone)).wait::<Analysis>().unwrap_err();
+                assert_eq!((e.code, e.kind()), (code::FAILED, Some("io")), "{e:?}");
+                assert!(e.message.starts_with(&gone.join(WAVEFORM_BLOB).display().to_string()), "{e:?}");
+            }
+        }
+    }
     s.stop();
 }

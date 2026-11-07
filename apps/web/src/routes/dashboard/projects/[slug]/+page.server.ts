@@ -13,8 +13,18 @@ export const load: PageServerLoad = async ({ locals, url, parent }) => {
 		app.requests.openUpdate(project.uri, viewer.did)
 	]);
 
+	// The layout's requireManager let only this project's managers through.
+	const own = managers.get(viewer.did);
+
 	return {
-		managers: project.managers.map((did) => managers.get(did) ?? { did, handle: null }),
+		managers: project.managers.map((did) => managers.get(did)),
+		// Streamed, for the press kit and stats summaries; a lookup that fails leaves its summary out.
+		kits: app.epks.dashboard(project).catch((error) => {
+			locals.log.warn('could not read press kits for the project summary', { err: error });
+
+			return null;
+		}),
+		stats: app.dj.fresh([own]) ?? app.dj.activity([own]),
 		pendingUpdate,
 		// Streamed, so the page shows while the directory finds the shows.
 		shows,

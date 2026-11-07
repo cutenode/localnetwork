@@ -1,11 +1,11 @@
-// Laylo — laylo.com
+// Laylo (laylo.com)
 //
 // A laylo.com/<artist>/<slug> "drop" is a notify-me page: you leave an email
 // address or a phone number, and the artist's link reaches you later, by mail
-// or by text. There is no file on the page and no request that produces one —
-// the only way through is to be sent it. Which means the signup *is* the walk,
-// and that is what this does: it reads the drop, and hands the address in
-// settings to the artist's list the way the page would.
+// or by text. There is no file on the page and no request that produces one:
+// the only way through is to be sent it. So the signup *is* the walk: this
+// reads the drop, and hands the address in settings to the artist's list the
+// way the page would.
 //
 // Reading the drop
 // ----------------
@@ -16,8 +16,8 @@
 // Laylo to confirm an address by mail before adding it. Both URLs are read off
 // the page rather than guessed at.
 //
-// A drop of the link kind — where the artist put a destination on it rather
-// than a signup — has somewhere to go, and that goes back as a link to open,
+// A drop of the link kind (where the artist put a destination on it rather
+// than a signup) has somewhere to go, and that goes back as a link to open,
 // with nothing signed up for.
 //
 // Signing up
@@ -29,21 +29,21 @@
 //
 // `creatorId` is the only field the endpoint refuses outright without.
 // Everything past it is checked later and out of sight, so `success` means
-// taken, not subscribed — which is the most a row can honestly claim, and what
+// taken, not subscribed, which is the most a row can honestly claim, and what
 // it says.
 //
 // The page also attaches a captcha token (reCAPTCHA v3, or Turnstile). That
-// field is optional — the endpoint takes a signup carrying none — and a forged
-// one is refused, so none is sent rather than one faked. If Laylo ever makes
-// it compulsory the signups start coming back refused, and the row goes back
-// to offering the drop, which is where it was before any of this.
+// field is optional (the endpoint takes a signup carrying none) and a forged
+// one is refused, so none is sent rather than one faked. If Laylo ever makes it
+// compulsory the signups start coming back refused, and the row goes back to
+// offering the drop.
 //
 // What it will not do
 // -------------------
 // A drop collecting only a phone number, one that confirms by text (Laylo
 // offers double opt-in over SMS alone), and one asking questions beyond a
 // name: this has no phone number to give and no way to answer the rest. Those
-// come back as what they always were — a page to open and do yourself.
+// come back as what they always were: a page to open and do yourself.
 
 import { fallback, z } from '$lib/zod';
 import { EMAIL, NAME, Wanting } from '../next-step.ts';
@@ -124,7 +124,7 @@ export function dropUrlOf(html: string, pageUrl: string) {
 
 /**
  * Where the page says the artist's own record lives. The page builds that URL
- * rather than writing it whole — `fetch(<base> + '/users/' + id + '.json')` —
+ * rather than writing it whole (`fetch(<base> + '/users/' + id + '.json')`),
  * so the base is what there is to read off it. The path has also been written
  * onto the end of the base itself, so both shapes count.
  */
@@ -146,7 +146,7 @@ const CHANNELS = new Map([
  * The channels the drop is collecting, in the order the page offers them. The
  * numbers are that order, not a count: -1 is "not offered at all", and 0 is
  * offered and first. An artist's own options, where they have set any,
- * override the drop's — which is how the page reads them too.
+ * override the drop's, which is how the page reads them too.
  */
 export function channels(drop: Drop, artist: ArtistRecord = {}) {
 	const options = artist.rsvpOptions || drop.rsvpOptions || {};
@@ -289,7 +289,7 @@ async function unlock(pageUrl: string, details: UnlockDetails): Promise<Unlocked
 	const drop = Drop.parse(await readJson(dropUrl, 'drop'));
 
 	// The drop's own copy of the artist is an id and a username; the name to put
-	// on a row — and the one setting the signup turns on — are on their record,
+	// on a row (and the one setting the signup turns on) are on their record,
 	// which is the second file the page fetches.
 	const artist = drop.user?.id ? ArtistRecord.parse(await readJson(userUrlOf(html, drop.user.id), 'artist')) : {};
 	const who = artist.displayName || drop.user?.displayName || '';

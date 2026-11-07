@@ -333,6 +333,20 @@ export type RequestView = {
 	updatedAt: string;
 	decision: { by: AccountView | null; at: string | null; reason: string | null } | null;
 	resultProjectSlug: string | null;
+	/** When the requester deleted what it said (the root's record of it), after it was decided. */
+	deletedAt: string | null;
+};
+
+/** The kinds of record the root writes into a space on someone's behalf, naming them in `onBehalfOf`. */
+export type HeldRecordKind = 'request' | 'booking' | 'epkRequest' | 'epkDraft';
+
+/** A record the root wrote for the viewer, as their data page lists it. `excerpt` is what they wrote in it, if anything. */
+export type HeldRecordView = {
+	uri: string;
+	kind: HeldRecordKind;
+	title: string;
+	excerpt: string | null;
+	createdAt: string;
 };
 
 export type StaffRole = 'admin' | 'moderator';
@@ -347,6 +361,9 @@ export type StaffMember = {
 	createdAt: string | null;
 	bootstrap: boolean;
 };
+
+/** An account still in private spaces with no staff role, because a removal hasn't gone through. */
+export type StrayMember = AccountView & { spaces: string[] };
 
 /** A Bluesky verification (`app.bsky.graph.verification`) the root account issued: who, under what handle and name. */
 export type IssuedVerification = {
@@ -399,6 +416,8 @@ export type BookingThreadView = {
 	project: { uri: string; slug: string; name: string } | null;
 	promoter: AccountView;
 	participants: (AccountView & { role: 'promoter' | 'manager' })[];
+	/** Who wrote in the thread last (a message, the inquiry, or a status change), to tell whose turn it is. */
+	lastAuthor: string | null;
 	lastActivityAt: string;
 	createdAt: string;
 };
@@ -490,3 +509,6 @@ export type PendingInvite = AccountView & { role: string; createdAt: string; exp
 
 /** A request to join a space waiting on an answer. */
 export type JoinRequestView = AccountView & { message: string | null; createdAt: string };
+
+/** Somewhere to make an Atmosphere account (hosts.json): sign-up starts at `service`, and handles end in `domain`. */
+export type AccountHost = { name: string; domain: string; service: string; country: string; note?: string };

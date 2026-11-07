@@ -1,5 +1,8 @@
 import { error } from '@sveltejs/kit';
 import { UserError } from '#lib/server/core.ts';
+import { listed, mixMeta } from '#lib/server/meta.ts';
+import { projectRecords } from '#lib/server/meta-records.ts';
+import { mixRecording } from '#lib/server/structured-data.ts';
 import type { PageServerLoad } from './$types';
 
 /** A mix's tracklist (a locallibrary mix report), by the mix's position on the profile. */
@@ -30,7 +33,12 @@ export const load: PageServerLoad = async ({ params, locals, setHeaders }) => {
 			// What the player plays, streamed too: the mix's or its linked set's recording may be asked of plyr.fm.
 			source: app.recordings.forMix(mix),
 			n,
-			report
+			report,
+			meta: await listed(locals, mixMeta(app.config.publicUrl, project, mix, n, report.plays.length), {
+				// The mix lives in the project's record, so the project is the record that takes this page down.
+				records: () => projectRecords(app.requests, project, { alternate: [mix.set?.uri] }),
+				jsonLd: mixRecording(project, mix, report)
+			})
 		};
 	} catch (cause) {
 		if (cause instanceof UserError) error(cause.status, cause.message);

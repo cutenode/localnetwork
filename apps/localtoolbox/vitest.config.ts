@@ -24,7 +24,14 @@ const here = import.meta.dirname;
 // coverage, file by file. Components are held to less: a rendered panel has
 // branches (a hover card, a transition's end state) that a jsdom test cannot
 // reach, and chasing them teaches nothing about the tool.
-const LOGIC = ['content.ts', 'downloaded-store.ts', 'state-transfer.ts', 'src/lib/*.ts', 'src/tools/**/*.ts'];
+const LOGIC = [
+	'content.ts',
+	'downloaded-store.ts',
+	'state-transfer.ts',
+	'src/*.ts',
+	'src/lib/*.ts',
+	'src/tools/**/*.ts'
+];
 
 // The page scripts: classic scripts written in TypeScript, which the build
 // ships with their types blanked out (vite.config.ts, `pageScripts`). The tests
@@ -131,26 +138,27 @@ export default defineConfig({
 			// the global figures are the floor every file clears (components
 			// included), and the glob holds the logic to the full standard.
 			//
-			// The floor is what a component can reasonably reach: Svelte compiles
-			// every interpolated attribute into a "has this changed?" branch whose
-			// unchanged half a freshly mounted component never takes, so a
-			// component's branch percentage says more about the compiler than about
-			// the test. The same goes for the two components that are nothing but
-			// interpolation (the loading ghost, the toast list), which is why the
-			// branch floor is as low as it is.
+			// The floor is what a component can reach. Svelte compiles a value
+			// interpolated into text or into an attribute string (`{count}`,
+			// `class="… {tone}"`) to `value ?? ''`, and the `''` half only runs
+			// when the value is null or undefined. Where its type says it never
+			// is, no test can take that half, so a component's branch percentage
+			// says more about the compiler than about the test. Those halves are
+			// the only branches left uncovered in any component, and the two that
+			// are little but interpolation (the loading ghost, the tool menu's
+			// level bars) sit at half, which is why the branch floor is as low as
+			// it is. A `??` or `||` written in a component is real behaviour and
+			// has a test.
 			//
-			// Their statements, functions and lines still have to be exercised, and
-			// every one of those is a line of real behaviour: there is no component
-			// here with an unreached line, so the line floor is the full 100% and a
-			// new one that no test reaches fails the run. Statements and functions
-			// keep a point or two of headroom for the snippets a tooltip only
-			// renders under a real pointer. Everything that is not a component is
-			// held to 100% across the board.
+			// Statements, functions and lines are the full 100%: a component line
+			// no test reaches fails the run.
+			//
+			// Everything that is not a component is held to 100% across the board.
 			thresholds: {
 				perFile: true,
-				statements: 95,
+				statements: 100,
 				branches: 50,
-				functions: 95,
+				functions: 100,
 				lines: 100,
 				'{content.ts,downloaded-store.ts,state-transfer.ts,src/**/*.ts}': {
 					perFile: true,

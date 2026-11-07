@@ -3,11 +3,13 @@ import { DEFAULT_ACCESS } from '#lib/epk.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { JsonRecord } from '../atproto/repo-client';
 import type { ProjectView } from '#lib/types.ts';
-import { spaceRecordUri } from '../atproto/spaces';
+import { epkRequestSpace, spaceRecordUri } from '../atproto/spaces';
 import { ForbiddenError } from '../core';
 import { createTestServices, ROOT } from '../testing/core';
 import type { BookingRecord } from './bookings';
 import { FakeRootClient } from '../testing/fakes';
+import { IndexedRepo } from '../happyview/indexed';
+import { ManagerSpaces } from './manager-spaces';
 
 const ADMIN = 'did:plc:admin';
 
@@ -16,6 +18,9 @@ const PROMOTER = 'did:plc:promoter';
 const OLD = 'did:plc:old';
 
 const NEW = 'did:plc:new';
+
+/** Someone let into a press kit before its grants moved out of its space. */
+const EARLY = 'did:plc:early';
 
 describe('ManagerSpaces', () => {
 	let t: Awaited<ReturnType<typeof createTestServices>>;
@@ -41,7 +46,10 @@ describe('ManagerSpaces', () => {
 		await t.db.destroy();
 	});
 
-	/** Opens a booking thread with the project, for a show on `date` if given, and moves it to `status`. */
+	/**
+	 * Opens a booking thread with the project, for a show on `date` if given, and moves it to `status`: the promoter
+	 * withdraws it, and the project's first manager answers it otherwise.
+	 */
 	const thread = async (status: string, date?: string) => {
 		const promoter = await t.viewer(PROMOTER);
 
@@ -52,7 +60,12 @@ describe('ManagerSpaces', () => {
 			message: 'Free?'
 		});
 
-		if (status !== 'open') await t.bookings.setStatus({ actor: promoter, space, status });
+		if (status !== 'open')
+			await t.bookings.setStatus({
+				actor: status === 'cancelled' ? promoter : await t.viewer(project.managers[0]),
+				space,
+				status
+			});
 
 		return space;
 	};
@@ -294,7 +307,7 @@ describe('ManagerSpaces', () => {
 		});
 	});
 
-	it("keeps a project's backstage and press kit spaces to its managers, leaving the people granted access", async () => {
+	it("keeps a project's backstage, request and press kit spaces to its managers, leaving the people granted access", async () => {
 		const old = await t.viewer(OLD);
 		const draft = await t.epks.drafts.save(old, project, { values: { title: 'Clubs', access: DEFAULT_ACCESS } });
 		const result = await t.epks.drafts.publish(old, project, draft!.rkey);
@@ -302,33 +315,62 @@ describe('ManagerSpaces', () => {
 		if (result.kind !== 'published') throw new Error('the draft conflicts');
 		const { epk } = result;
 		await t.epks.invite(old, { epk, project }, PROMOTER);
+		// Someone let in before grants moved out of the press kit's space.
+		const root = t.net.client(ROOT);
+		await root.putMember({ space: epk.space, did: EARLY, read: true, write: false });
+		await root.putSpaceRecord({
+			space: epk.space,
+			collection: COLLECTION.epkGrant,
+			rkey: EARLY,
+			record: { subject: EARLY, via: 'invited', createdAt: new Date().toISOString() }
+		});
+		await t.epks.request(await t.viewer(ADMIN), { epk, project }, {});
 		const backstage = t.epks.drafts.space(project);
+		const requests = epkRequestSpace(ROOT, project.rkey);
 		const access = (space: string) => Object.fromEntries(t.net.spaces.get(space)!.members);
 
 		await setManagers([OLD, NEW]);
 		expect(access(backstage)).toEqual({ [OLD]: { read: true, write: true }, [NEW]: { read: true, write: true } });
+		// Nobody granted a press kit reads its requests.
+		expect(access(requests)).toEqual({ [OLD]: { read: true, write: false }, [NEW]: { read: true, write: false } });
 		expect(access(epk.space)).toEqual({
 			[OLD]: { read: true, write: false },
 			[NEW]: { read: true, write: false },
-			[PROMOTER]: { read: true, write: false }
+			[PROMOTER]: { read: true, write: false },
+			[EARLY]: { read: true, write: false }
 		});
 
 		await setManagers([NEW]);
 		expect(access(backstage)).toEqual({ [NEW]: { read: true, write: true } });
-		expect(access(epk.space)).toEqual({
-			[NEW]: { read: true, write: false },
-			[PROMOTER]: { read: true, write: false }
-		});
+		expect(access(requests)).toEqual({ [NEW]: { read: true, write: false } });
 
-		// A space whose grants or members can't be read is left for the next sync.
-		const left = { [NEW]: { read: true, write: false }, [PROMOTER]: { read: true, write: false } };
-		vi.spyOn(FakeRootClient.prototype, 'listSpaceRecords').mockRejectedValueOnce(new Error('down'));
+		const left = {
+			[NEW]: { read: true, write: false },
+			[PROMOTER]: { read: true, write: false },
+			[EARLY]: { read: true, write: false }
+		};
+
+		expect(access(epk.space)).toEqual(left);
+
+		// A space whose grants or members can't be read is left for the next sync: the request space's grants count for
+		// every press kit, and a press kit's own for it.
+		const spy = vi.spyOn(FakeRootClient.prototype, 'listSpaceRecords').mockRejectedValueOnce(new Error('down'));
 		await setManagers([OLD]);
 		expect(access(epk.space)).toEqual(left);
 		expect(access(backstage)).toEqual({ [OLD]: { read: true, write: true } });
 
-		vi.spyOn(FakeRootClient.prototype, 'listMembers').mockRejectedValue(new Error('down'));
+		spy.mockImplementation(async (input) => {
+			if (input.space === epk.space) throw new Error('down');
+
+			return { records: [] };
+		});
 		await setManagers([NEW]);
+		expect(access(epk.space)).toEqual(left);
+		expect(access(backstage)).toEqual({ [NEW]: { read: true, write: true } });
+		spy.mockRestore();
+
+		vi.spyOn(FakeRootClient.prototype, 'listMembers').mockRejectedValue(new Error('down'));
+		await setManagers([OLD]);
 		expect(access(epk.space)).toEqual(left);
 	});
 
@@ -349,5 +391,32 @@ describe('ManagerSpaces', () => {
 		const open = await thread('open');
 		expect(members(open)).toEqual([NEW, OLD, PROMOTER].sort());
 		expect(await threadsOf(NEW)).toEqual([open]);
+	});
+
+	it("skips a grant record it can't read and still syncs the press kit's space", async () => {
+		const old = await t.viewer(OLD);
+		const draft = await t.epks.drafts.save(old, project, { values: { title: 'Clubs', access: DEFAULT_ACCESS } });
+		const result = await t.epks.drafts.publish(old, project, draft!.rkey);
+
+		if (result.kind !== 'published') throw new Error('the draft conflicts');
+		const { epk } = result;
+		await t.epks.request(await t.viewer(ADMIN), { epk, project }, {});
+		await t.net.client(ROOT).putSpaceRecord({
+			space: epkRequestSpace(ROOT, project.rkey),
+			collection: COLLECTION.epkGrant,
+			rkey: 'broken',
+			record: { via: 'invited' }
+		});
+
+		await setManagers([NEW]);
+		expect(members(epk.space)).toEqual([NEW]);
+	});
+
+	it('syncs nothing for a URI that names no public record', async () => {
+		const spaces = new ManagerSpaces(t.core, new IndexedRepo(t.directory, t.core.logger, 0));
+		const before = [...t.net.spaces.keys()];
+
+		await spaces.sync(`at://${ROOT}/space/${project.rkey}`, [NEW]);
+		expect([...t.net.spaces.keys()]).toEqual(before);
 	});
 });

@@ -2,6 +2,7 @@ import { page } from 'vitest/browser';
 import { expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import type { ProfileView, RequestView, Viewer } from '#lib/types.ts';
+import { ada, harbour, neon, neonTide, request as projectRequest } from '#lib/testing/requests.ts';
 import Page from './+page.svelte';
 
 const DJ = 'did:plc:neon';
@@ -33,7 +34,8 @@ const request: RequestView = {
 	createdAt: '2026-10-30T00:00:00Z',
 	updatedAt: '2026-10-30T00:00:00Z',
 	decision: null,
-	resultProjectSlug: null
+	resultProjectSlug: null,
+	deletedAt: null
 };
 
 const profile: ProfileView = {
@@ -60,11 +62,13 @@ it('shows staff the profile to list, and flags a change since the request and a 
 			listing: { profile, changed: true, soloProjects: [{ slug: 'neon-tide', name: 'Neon Tide' }], listed: false },
 			changes: [],
 			detailChanges: [],
+			managers: [],
+			decided: null,
 			history: [],
 			trail: [],
 			stale: false,
 			verification: null,
-			hasAvatar: false,
+			avatar: null,
 			tracklists: []
 		},
 		form: null
@@ -76,5 +80,118 @@ it('shows staff the profile to list, and flags a change since the request and a 
 	await expect.element(page.getByText(/Their profile changed since they asked/)).toBeInTheDocument();
 	await expect.element(page.getByRole('link', { name: 'Neon Tide' })).toHaveAttribute('href', '/projects/neon-tide');
 	await expect.element(page.getByRole('link', { name: 'Open their profile' })).toHaveAttribute('href', '/@neon.test');
-	await expect.element(page.getByRole('radio', { name: 'Approve and list' })).toBeChecked();
+	await expect.element(page.getByRole('radio', { name: 'Approve and list' })).not.toBeChecked();
+});
+
+const base = {
+	viewer: ada,
+	pendingRequests: 1,
+	request: projectRequest('update'),
+	project: neonTide,
+	listing: null,
+	changes: [{ field: 'profile.tagline', after: 'Dub' }],
+	detailChanges: [],
+	stale: false,
+	managers: [neon],
+	decided: null,
+	history: [],
+	trail: [],
+	verification: null,
+	avatar: null,
+	tracklists: []
+};
+
+it('starts a decision with no outcome picked, and lists the managers a claim would join', async () => {
+	await render(Page, {
+		params: { rkey: '3kclaim' },
+		data: {
+			...base,
+			request: projectRequest('claim', {
+				requester: harbour,
+				record: {
+					kind: 'claim',
+					claim: { relationship: 'member', evidence: 'I play in it' },
+					createdAt: '2026-10-01T00:00:00Z'
+				}
+			})
+		},
+		form: null
+	});
+
+	await expect.element(page.getByRole('heading', { level: 1 })).toHaveTextContent('Claim: Neon Tide');
+	await expect.element(page.getByText(/Current managers:/).getByText('@neon.test')).toBeInTheDocument();
+	await expect.element(page.getByRole('radio', { name: 'Approve and add as manager' })).not.toBeChecked();
+	const submit = page.getByRole('button', { name: 'Submit decision' });
+	await expect.element(submit).toBeDisabled();
+	await page.getByRole('radio', { name: 'Reject' }).click();
+	await expect.element(submit).toBeEnabled();
+});
+
+it('warns about a stale pending request and says what the last decision did', async () => {
+	await render(Page, {
+		params: { rkey: '3kupdate' },
+		data: { ...base, stale: true, decided: 'Approved and published' },
+		form: null
+	});
+
+	await expect.element(page.getByText(/The project changed since this request was made/)).toBeInTheDocument();
+	await expect
+		.element(page.getByText('Approved and published. This is the next oldest request waiting for review.'))
+		.toBeInTheDocument();
+	await expect.element(page.getByRole('heading', { name: 'Proposed changes' })).toBeInTheDocument();
+});
+
+it('shows an approved request as the changes it published', async () => {
+	await render(Page, {
+		params: { rkey: '3kupdate' },
+		data: {
+			...base,
+			request: projectRequest('update', {
+				status: 'approved',
+				decision: { by: ada, at: '2026-10-02T00:00:00Z', reason: null }
+			})
+		},
+		form: null
+	});
+
+	await expect.element(page.getByRole('heading', { name: 'Published changes' })).toBeInTheDocument();
+	await expect.element(page.getByText('Dub')).toBeInTheDocument();
+	await expect.element(page.getByRole('button', { name: 'Submit decision' })).not.toBeInTheDocument();
+});
+
+it("warns before approving an avatar the site can't show, in place of the broken image", async () => {
+	const svg = { type: 'image/svg+xml', shown: false };
+	const { rerender } = await render(Page, { params: { rkey: '3kupdate' }, data: { ...base, avatar: svg }, form: null });
+
+	const warning = page.getByText(/Their avatar is image\/svg\+xml, which the site can't show/);
+	const image = page.getByRole('img', { name: 'Proposed' });
+	await expect.element(warning).toBeInTheDocument();
+	await expect.element(image).not.toBeInTheDocument();
+
+	// Only a pending request can still be approved.
+	await rerender({ data: { ...base, avatar: svg, request: projectRequest('update', { status: 'rejected' }) } });
+	await expect.element(warning).not.toBeInTheDocument();
+
+	await rerender({ data: { ...base, avatar: { type: 'image/png', shown: true } } });
+	await expect.element(image).toBeInTheDocument();
+	await expect.element(warning).not.toBeInTheDocument();
+});
+
+it('tells staff when the requester deleted what a decided request said', async () => {
+	const decided = {
+		status: 'rejected' as const,
+		decision: { by: ada, at: '2026-10-02T00:00:00Z', reason: 'Duplicate' }
+	};
+
+	const { rerender } = await render(Page, {
+		params: { rkey: '3kupdate' },
+		data: { ...base, request: projectRequest('update', decided) },
+		form: null
+	});
+
+	await expect.element(page.getByText(/they deleted what it said/)).not.toBeInTheDocument();
+	await rerender({
+		data: { ...base, request: projectRequest('update', { ...decided, deletedAt: '2026-10-05T12:00:00Z' }) }
+	});
+	await expect.element(page.getByText(/they deleted what it said/)).toBeVisible();
 });

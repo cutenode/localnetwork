@@ -148,6 +148,8 @@ fn preferences_of(saved: &Saved) -> Saved {
         tags_column,
         field_columns,
         theme,
+        color,
+        icons,
         shuffle,
         repeat,
         quantize,
@@ -162,6 +164,8 @@ fn preferences_of(saved: &Saved) -> Saved {
         tags_column,
         field_columns,
         theme,
+        color,
+        icons,
         shuffle,
         repeat,
         quantize,
@@ -197,6 +201,8 @@ fn its_preferences_go_to_another_store_and_where_it_was_stays(tc: hegel::TestCas
         tags_column: on(),
         field_columns: (0..tc.draw(gs::integers::<usize>().max_value(2))).map(|i| format!("sound.f{i}")).collect(),
         theme: maybe("themes.night"),
+        color: maybe("16"),
+        icons: maybe("ascii"),
         shuffle: on(),
         repeat: maybe("one"),
         quantize: tc.draw(gs::optional(gs::booleans())),
@@ -225,4 +231,30 @@ fn its_preferences_go_to_another_store_and_where_it_was_stays(tc: hegel::TestCas
     let other = locallibrary::Store::open_or_init(&there).unwrap();
     api::settings_import_file(&other, &api::ImportSettingsFile { file, replace: false }).unwrap();
     assert_eq!(load(&there), preferences_of(&saved));
+}
+
+/// What's kept in a file that can't be read right now isn't saved over: `load` said the defaults
+/// for it, and those aren't what the file holds.
+#[cfg(unix)]
+#[hegel::test(test_cases = 10)]
+fn a_state_file_that_cant_be_read_is_left_alone(tc: hegel::TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("store");
+    std::fs::create_dir_all(&store).unwrap();
+    std::fs::write(store.join("store.json"), "{}").unwrap();
+    let file = store.join(FILE);
+    let volume = tc.draw(hegel::generators::integers::<u8>().min_value(1).max_value(100));
+    let kept = Saved { volume: Some(f32::from(volume) / 100.0), ..Default::default() };
+    save(&store, &kept);
+    let mode = |bits: u32| std::fs::set_permissions(&file, std::fs::Permissions::from_mode(bits)).unwrap();
+    mode(0o000);
+    // Root reads anything.
+    if std::fs::read(&file).is_ok() {
+        return mode(0o644);
+    }
+    assert_eq!(load(&store), Saved::default());
+    save(&store, &Saved::default());
+    mode(0o644);
+    assert_eq!(load(&store), kept);
 }

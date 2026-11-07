@@ -56,7 +56,7 @@ afterEach(disposeContentScripts);
 
 /**
  * Puts a page on screen and starts the real content script over it, with a
- * chrome whose `tabs.sendMessage` delivers to that script — which is what the
+ * chrome whose `tabs.sendMessage` delivers to that script, which is what the
  * browser does when the popup messages the active tab.
  */
 async function openPage(
@@ -82,7 +82,7 @@ const repaint = async () => {
 };
 
 // What the panel says, read off the panel alone. `text()` reads the whole
-// document, and here that is the SoundCloud page as well — which carries the
+// document, and here that is the SoundCloud page as well, which carries the
 // playlist's title, its curator and its tracks' names in its own markup.
 const panelMeta = () => document.querySelector('header p')!.textContent.trim();
 
@@ -164,7 +164,7 @@ describe('a song page read by the Manager panel', () => {
 	};
 
 	// The whole of it, end to end: the hero on the page, the content script
-	// reading it, and one row on the list — with the details taken out of the
+	// reading it, and one row on the list, with the details taken out of the
 	// page's own hydration, so SoundCloud is not asked anything at all.
 	it('puts the one track the page is about on the list, answers and all', async () => {
 		await openSong();

@@ -1,6 +1,29 @@
+import { createSpaceIfMissing, type MemberSpacePolicy } from '../atproto/repo-client';
+import { spaceUri } from '../atproto/spaces';
 import type { Core } from '../core';
 
 export type MemberAccess = { read: boolean; write: boolean };
+
+/**
+ * A space under the root, created the first time with `members` in it, and watched from then on. After that,
+ * ManagerSpaces keeps its members in step with their project.
+ */
+export async function ensureRootSpace(
+	core: Core,
+	input: { spaceType: string; skey: string; policy: MemberSpacePolicy; members: string[]; access: MemberAccess }
+): Promise<string> {
+	const root = await core.root();
+	const space = spaceUri(root.did, input.spaceType, input.skey);
+
+	if (await root.getSpace(space)) return space;
+	await createSpaceIfMissing(root, input);
+
+	for (const did of input.members) await root.putMember({ space, did, ...input.access });
+	await core.watchSpace?.(space);
+	core.logger.info('created a space', { space, members: input.members.length });
+
+	return space;
+}
 
 /** A space whose member list the app keeps in step with a list of the people who should be in it. */
 export type MemberSync = {
@@ -16,6 +39,8 @@ export type MemberSync = {
 		recorded(): Promise<string[]>;
 		record(members: string[]): Promise<void>;
 	};
+	/** Told each time someone is taken out, for a caller that has to say so. */
+	onLeft?: (did: string) => void;
 };
 
 const sameAccess = (a: MemberAccess, b: MemberAccess) => a.read === b.read && a.write === b.write;
@@ -33,7 +58,7 @@ export async function reconcileMembers(core: Core, space: MemberSync): Promise<v
 		members = new Map((await root.listMembers(space.uri)).map(({ did, read, write }) => [did, { read, write }]));
 	} catch (error) {
 		// Fail closed: someone no longer wanted still loses access in the app, and nobody joins until the space can be read.
-		core.logger.warn({ err: error, space: space.uri }, "could not read a space's members");
+		core.logger.warn("could not read a space's members", { err: error, space: space.uri });
 
 		if (!space.ledger) return;
 		const recorded = new Set(await space.ledger.recorded());
@@ -62,7 +87,7 @@ export async function reconcileMembers(core: Core, space: MemberSync): Promise<v
 			await root.putMember({ space: space.uri, did, ...access });
 			(members.has(did) ? changed : joined).push(did);
 		} catch (error) {
-			core.logger.warn({ err: error, space: space.uri, did }, "could not update someone's access to a space");
+			core.logger.warn("could not update someone's access to a space", { err: error, space: space.uri, did });
 		}
 	}
 
@@ -70,8 +95,9 @@ export async function reconcileMembers(core: Core, space: MemberSync): Promise<v
 		try {
 			await root.removeMember({ space: space.uri, did });
 			left.push(did);
+			space.onLeft?.(did);
 		} catch (error) {
-			core.logger.warn({ err: error, space: space.uri, did }, 'could not remove someone from a space');
+			core.logger.warn('could not remove someone from a space', { err: error, space: space.uri, did });
 		}
 	}
 
@@ -79,5 +105,5 @@ export async function reconcileMembers(core: Core, space: MemberSync): Promise<v
 	await space.ledger?.record([...wanted.keys()].filter((did) => members.has(did) || joined.includes(did)));
 
 	if (joined.length > 0 || changed.length > 0 || left.length > 0)
-		core.logger.info({ space: space.uri, joined, changed, left }, "updated a space's members");
+		core.logger.info("updated a space's members", { space: space.uri, joined, changed, left });
 }

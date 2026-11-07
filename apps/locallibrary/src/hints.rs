@@ -96,6 +96,29 @@ fn command(a: &Action) -> Option<String> {
         }
         "account.login.begin" if yes("publish") => "locallibrary account login --publish".into(),
         "account.login.begin" => "locallibrary account login".into(),
+        "accounts.sign_in.begin" => {
+            // Again as an account, named TYPE:SUBJECT.
+            let target = match a.params.get("account").and_then(Value::as_str) {
+                Some(subject) => quote(&format!("{}:{subject}", a.params.get("type")?.as_str()?)),
+                None => p("type")?,
+            };
+            let flags = [("with", p("with")), ("for", p("for"))]
+                .into_iter()
+                .filter_map(|(f, v)| Some(format!(" --{f} {}", v?)));
+            let scopes = a.params.get("scopes").and_then(Value::as_array).into_iter().flatten();
+            let scopes = scopes.filter_map(Value::as_str).map(|s| format!(" --scope {}", quote(s)));
+            format!("locallibrary account {target} sign-in{}", flags.chain(scopes).collect::<String>())
+        }
+        "accounts.access.set_default" => {
+            let subject = a.params.get("account").and_then(|x| x.get("subject")).and_then(Value::as_str).map(quote);
+            format!("locallibrary plugin access {} --default {}", p("plugin")?, subject?)
+        }
+        "accounts.access.give" => {
+            let subject = a.params.get("account").and_then(|x| x.get("subject")).and_then(Value::as_str).map(quote);
+            let scopes = a.params.get("scopes").and_then(Value::as_array).into_iter().flatten();
+            let scopes: String = scopes.filter_map(Value::as_str).map(|s| format!(" --scope {}", quote(s))).collect();
+            format!("locallibrary plugin access {} --give {}{scopes}", p("plugin")?, subject?)
+        }
         "settings.schema" => "locallibrary settings schema".into(),
         "settings.import.plan" => "locallibrary settings import <DRIVE>".into(),
         "library.list" => "locallibrary library ls".into(),

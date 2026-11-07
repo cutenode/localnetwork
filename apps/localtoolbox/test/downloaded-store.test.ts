@@ -1,4 +1,4 @@
-// downloaded-store.ts — the set of downloaded tracks in extension storage.
+// downloaded-store.ts: the set of downloaded tracks in extension storage.
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createChrome, type ChromeMock } from './helpers/chrome.ts';
 import { loadStore, type DownloadedStore } from './helpers/load.ts';
@@ -30,7 +30,7 @@ describe('TbxDownloaded', () => {
 		globalThis.chrome = createChrome({ storage: { downloaded: 7 } });
 		expect(await store.load()).toEqual({});
 		// An array is an object too, but one that would hold a mark as a named
-		// property — which storage drops, so the mark would be gone on the way in.
+		// property, which storage drops, so the mark would be gone on the way in.
 		globalThis.chrome = createChrome({ storage: { downloaded: ['/x/y'] } });
 		expect(await store.load()).toEqual({});
 		await store.set('/a/b', true);
@@ -83,7 +83,7 @@ describe('TbxDownloaded', () => {
 	});
 
 	// Earlier as instants, not as text. A file may carry a time with an offset,
-	// which sorts after a "Z" time an hour later than it — and one instant can
+	// which sorts after a "Z" time an hour later than it, and one instant can
 	// be written both ways, which is not a newer mark.
 	it('keeps the earlier instant, however each time is written', async () => {
 		const HOUR_BEFORE = '2026-09-08T13:00:00+02:00';

@@ -955,7 +955,10 @@ fn verify(a: VerifyArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_
     // Its good copies are fetched into the store.
     let dest = match (&from, &store) {
         (None, _) => None,
-        (Some(spec), Some(store)) => Some(crate::plugins::host()?.store_destination(spec, Some(store))?),
+        (Some(spec), Some(store)) => {
+            crate::account_cmd::access::ask(spec, store, out, ctx)?;
+            Some(crate::plugins::host()?.store_destination(spec, Some(store))?)
+        }
         (Some(_), None) => return Err(crate::jobs_cmd::usage("--from needs the store, and there's none yet")),
     };
     let req = api::VerifyRequest { drive: drive.clone(), snapshot, against: against.clone() };

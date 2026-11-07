@@ -1,6 +1,10 @@
-import { Secp256k1Keypair } from '@atproto/crypto';
-import { describe, expect, it, vi } from 'vitest';
+import { once } from 'node:events';
+import { type AddressInfo, createServer, type Socket } from 'node:net';
+import { P256Keypair, Secp256k1Keypair } from '@atproto/crypto';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger';
+import { collectingGarbage } from '../testing/gc';
+import { MEBIBYTE, streamed } from '../testing/streamed';
 import type { DidDocument } from '@atproto-labs/did-resolver';
 import type { AtprotoHandleResolverNode } from '@atproto-labs/handle-resolver-node';
 import { IdentityError, IdentityResolver } from './identity';
@@ -58,6 +62,168 @@ describe('IdentityResolver.resolve', () => {
 	});
 });
 
+describe('IdentityResolver, given what a DID document and its handle say', () => {
+	const did = 'did:plc:ewvi7nxzyoun6zhxrhs64oiz';
+	const pds = 'https://pds.example.com';
+
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+
+		return () => {
+			vi.useRealTimers();
+			vi.unstubAllGlobals();
+		};
+	});
+
+	/**
+	 * A resolver whose PLC directory serves `doc` for `did`, whose handles resolve themselves to `handles` (a handle not
+	 * listed doesn't), and that falls back to a handle resolver service when given one. Counts each handle lookup.
+	 */
+	const resolver = ({
+		doc,
+		handles = {},
+		handleResolverUrl
+	}: { doc?: DidDoc; handles?: Record<string, string>; handleResolverUrl?: string } = {}) => {
+		const identity = new IdentityResolver({
+			plcUrl: 'https://plc.directory',
+			handleResolverUrl,
+			allowPrivateNetwork: true,
+			logger: silentLogger,
+			fetch: async (input) => {
+				const asked = decodeURIComponent(new URL(input instanceof Request ? input.url : input).pathname.slice(1));
+
+				return asked === did && doc ? Response.json(doc) : new Response(null, { status: 404 });
+			}
+		});
+
+		const lookups: string[] = [];
+		vi.spyOn(identity.resolver.handle, 'resolve').mockImplementation(async (handle) => {
+			lookups.push(handle);
+
+			if (handle === 'broken.example.com') throw new Error('DNS timed out');
+
+			// SAFETY: every DID these tests list is a did:plc.
+			return (handles[handle] ?? null) as ResolvedHandle;
+		});
+
+		return { identity, lookups };
+	};
+
+	/** A DID document for `did` with `methods` as its verification methods, claiming @alice.example.com. */
+	const document = (methods: { id: string; type: string; publicKeyMultibase: string }[], service = pds) => ({
+		id: did,
+		alsoKnownAs: ['at://alice.example.com'],
+		verificationMethod: methods.map((method) => ({ ...method, id: `${did}#${method.id}`, controller: did })),
+		service: service ? [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: service }] : []
+	});
+
+	type DidDoc = ReturnType<typeof document>;
+
+	const multikey = async (keypair: Promise<{ did(): string }>) => (await keypair).did().slice('did:key:'.length);
+
+	it('remembers what a handle resolved to for five minutes, however it was typed', async () => {
+		const { identity, lookups } = resolver({ handles: { 'alice.example.com': did } });
+
+		expect(await identity.resolveHandle(' @Alice.Example.com')).toBe(did);
+		expect(await identity.resolveHandle('alice.example.com')).toBe(did);
+		expect(lookups).toEqual(['alice.example.com']);
+
+		vi.setSystemTime(Date.now() + 5 * 60_000);
+		expect(await identity.resolveHandle('alice.example.com')).toBe(did);
+		expect(lookups).toHaveLength(2);
+	});
+
+	it('asks the handle resolver service about a handle that does not resolve itself, trusting only a DID from it', async () => {
+		vi.stubGlobal('fetch', async (url: URL) => {
+			switch (url.searchParams.get('handle')) {
+				case 'broken.example.com':
+					return Response.json({ did });
+				case 'odd.example.com':
+					return Response.json({ did: 'alice' });
+				default:
+					return new Response(null, { status: 400 });
+			}
+		});
+		const { identity } = resolver({ handleResolverUrl: 'https://resolver.test' });
+
+		expect(await identity.resolveHandle('broken.example.com')).toBe(did);
+		expect(await identity.resolveHandle('gone.example.com')).toBeNull();
+		expect(await identity.resolveHandle('odd.example.com')).toBeNull();
+		expect(await resolver().identity.resolveHandle('broken.example.com')).toBeNull();
+	});
+
+	it('turns a handle into its DID, and says which handle it could not resolve', async () => {
+		const { identity } = resolver({ handles: { 'alice.example.com': did } });
+
+		expect(await identity.resolveIdentifier('@alice.example.com')).toBe(did);
+		await expect(identity.resolveIdentifier('@bob.example.com')).rejects.toThrow(
+			new IdentityError('Could not resolve @bob.example.com')
+		);
+	});
+
+	it('reads the PDS, signing key, and KEM key a DID document publishes, and the handle that resolves back', async () => {
+		const signing = await multikey(Secp256k1Keypair.create());
+		const kem = await multikey(P256Keypair.create());
+
+		const { identity } = resolver({
+			doc: document(
+				[
+					{ id: 'atproto', type: 'Multikey', publicKeyMultibase: signing },
+					{ id: 'atproto_kem', type: 'Multikey', publicKeyMultibase: kem }
+				],
+				`${pds}/`
+			),
+			handles: { 'alice.example.com': did }
+		});
+
+		expect(await identity.resolve(did)).toEqual({
+			did,
+			handle: 'alice.example.com',
+			pds,
+			signingKey: `did:key:${signing}`,
+			kemKey: `did:key:${kem}`
+		});
+		expect(await identity.signingKey(did)).toBe(`did:key:${signing}`);
+	});
+
+	it('leaves out a handle it cannot check or none is claimed, and a KEM key of a kind it cannot read', async () => {
+		vi.stubGlobal('fetch', async () => {
+			throw new Error('resolver down');
+		});
+		const signing = await multikey(Secp256k1Keypair.create());
+
+		const { identity } = resolver({
+			doc: document([
+				{ id: 'atproto', type: 'Multikey', publicKeyMultibase: signing },
+				{ id: 'atproto_kem', type: 'UnknownKey2030', publicKeyMultibase: signing }
+			]),
+			handleResolverUrl: 'https://resolver.test'
+		});
+
+		expect(await identity.resolve(did)).toMatchObject({ handle: null, kemKey: null });
+
+		const unclaimed = {
+			...document([{ id: 'atproto', type: 'Multikey', publicKeyMultibase: signing }]),
+			alsoKnownAs: []
+		};
+
+		expect(await resolver({ doc: unclaimed }).identity.resolve(did)).toMatchObject({ handle: null, kemKey: null });
+	});
+
+	it('refuses a DID document without a PDS, or without a signing key it can read', async () => {
+		const signing = await multikey(Secp256k1Keypair.create());
+		const resolving = (doc: DidDoc) => resolver({ doc }).identity.resolve(did);
+
+		await expect(
+			resolving(document([{ id: 'atproto', type: 'Multikey', publicKeyMultibase: signing }], ''))
+		).rejects.toThrow(`${did} has no PDS endpoint`);
+		await expect(resolving(document([]))).rejects.toThrow(`${did} has no atproto signing key`);
+		await expect(
+			resolving(document([{ id: 'atproto', type: 'UnknownKey2030', publicKeyMultibase: signing }]))
+		).rejects.toThrow(`${did} has an unsupported #atproto key type (UnknownKey2030)`);
+	});
+});
+
 describe('IdentityResolver, given names someone else chose', () => {
 	/** A resolver whose network requests go to `requests` instead, answering each with `answer`. */
 	const resolver = (allowPrivateNetwork: boolean, answer = () => new Response(null, { status: 404 })) => {
@@ -108,7 +274,7 @@ describe('IdentityResolver, given names someone else chose', () => {
 		expect(requests).toEqual(['https://dj.localnetwork.computer/.well-known/did.json']);
 	});
 
-	it.each(['fetch', 'serviceFetch'] as const)(
+	it.each(['fetch', 'serviceFetch', 'serviceApiFetch'] as const)(
 		"%s won't connect to a private or loopback address, speak plain HTTP, or follow a redirect",
 		async (name) => {
 			const strict = new IdentityResolver({
@@ -133,4 +299,75 @@ describe('IdentityResolver, given names someone else chose', () => {
 			expect(await refusal('https://dj.localnetwork.computer/')).toBe('Request redirect must be "error" or "manual"');
 		}
 	);
+
+	describe('serviceApiFetch', () => {
+		const answering = (response: Response) =>
+			new IdentityResolver({
+				plcUrl: 'https://plc.directory',
+				allowPrivateNetwork: true,
+				logger: silentLogger,
+				fetch: async () => response
+			});
+
+		const read = (identity: IdentityResolver) =>
+			identity.serviceApiFetch('https://pds.test/', { redirect: 'error' }).then((response) => response.arrayBuffer());
+
+		it('reads an answer of exactly the cap', async () => {
+			const { body } = streamed(32);
+
+			expect((await read(answering(new Response(body)))).byteLength).toBe(32 * MEBIBYTE);
+		});
+
+		it('stops reading a body past the cap, however long it would have run', async () => {
+			const answer = streamed(64);
+
+			await expect(read(answering(new Response(answer.body)))).rejects.toThrow('Response too large');
+			expect(answer.made()).toBeLessThan(40 * MEBIBYTE);
+		});
+
+		it('reads nothing of a body that declares itself past the cap', async () => {
+			const answer = streamed(64);
+			const declared = new Response(answer.body, { headers: { 'content-length': String(64 * MEBIBYTE) } });
+
+			await expect(read(answering(declared))).rejects.toThrow('Response too large');
+			expect(answer.made()).toBeLessThan(2 * MEBIBYTE);
+		});
+
+		it('leaves serviceFetch free to read further, for repo exports', async () => {
+			const identity = answering(new Response(streamed(33).body));
+			const response = await identity.serviceFetch('https://pds.test/', { redirect: 'error' });
+
+			expect((await response.arrayBuffer()).byteLength).toBe(33 * MEBIBYTE);
+		});
+	});
+
+	it("gives a service up at the caller's time limit when it never answers, while garbage is collected", async () => {
+		// Connections it takes, which it holds open without a word.
+		const held: Socket[] = [];
+		const server = createServer((socket) => void held.push(socket));
+
+		await once(server.listen(0, '127.0.0.1'), 'listening');
+		// SAFETY: a server listening on a TCP port reports an AddressInfo.
+		const { port } = server.address() as AddressInfo;
+
+		const dev = new IdentityResolver({
+			plcUrl: 'https://plc.directory',
+			allowPrivateNetwork: true,
+			logger: silentLogger
+		});
+
+		try {
+			// The caller's limit, as SpaceCredentialManager, fetchBlob and the recording route pass theirs.
+			const asked = dev.serviceFetch(`http://127.0.0.1:${port}/`, {
+				redirect: 'error',
+				signal: AbortSignal.timeout(200)
+			});
+
+			await expect(collectingGarbage(asked)).rejects.toMatchObject({ name: 'TimeoutError' });
+			expect(held).toHaveLength(1);
+		} finally {
+			for (const socket of held) socket.destroy();
+			await new Promise((resolve) => server.close(resolve));
+		}
+	});
 });

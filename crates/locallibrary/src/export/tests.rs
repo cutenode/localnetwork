@@ -110,7 +110,7 @@ fn split_folders_give_each_playlist_a_file_of_its_own(tc: hegel::TestCase) {
         // Every playlist below once (folders nest as folders), each with its own tracks.
         let ids = |ts: &[&Track]| ts.iter().map(|t| t.id).collect::<Vec<_>>();
         let mut want: Vec<Vec<u32>> =
-            lib.playlists.iter().filter(|p| !p.is_folder).map(|p| ids(&playlist_tracks(&lib, p))).collect();
+            lib.playlists.iter().filter(|p| !p.is_folder).map(|p| ids(&lib.tracks_by_id(&p.track_ids))).collect();
         let mut got: Vec<Vec<u32>> = picked.iter().map(|s| ids(&s.tracks)).collect();
         want.sort();
         got.sort();
@@ -122,4 +122,25 @@ fn split_folders_give_each_playlist_a_file_of_its_own(tc: hegel::TestCase) {
             );
         }
     }
+}
+
+/// A file name asks for a format only by an extension that names one, in any case: one that
+/// isn't text (bytes that aren't UTF-8), another extension or none asks for none.
+#[cfg(unix)]
+#[hegel::test(test_cases = 60)]
+fn prop_only_a_formats_extension_names_it(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use std::os::unix::ffi::OsStrExt;
+    let ext = tc.draw(gs::sampled_from(vec!["m3u8", "M3U", "csv", "Txt", "wav", "", "m3u8x"]));
+    let want = match ext.to_ascii_lowercase().as_str() {
+        "m3u8" | "m3u" => Some(Format::M3u8),
+        "csv" => Some(Format::Csv),
+        "txt" => Some(Format::Txt),
+        _ => None,
+    };
+    assert_eq!(Format::from_path(Path::new(&format!("set.{ext}"))), want);
+    let mut raw = b"set.".to_vec();
+    raw.extend(tc.draw(gs::vecs(gs::integers::<u8>().min_value(0x80)).min_size(1).max_size(4)));
+    raw.extend_from_slice(ext.as_bytes());
+    assert_eq!(Format::from_path(Path::new(std::ffi::OsStr::from_bytes(&raw))), None);
 }

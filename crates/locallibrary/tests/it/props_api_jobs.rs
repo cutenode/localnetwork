@@ -672,3 +672,300 @@ fn a_write_to_a_clone_reaches_the_others(tc: TestCase) {
         false => assert_eq!(titles(&p.backup), titles(&p.main), "copied onto"),
     }
 }
+
+/// Main, Backup and Spare, clones of the saved demo in the library Main, after rekordbox exported
+/// a new track to Main; each of the others caught up with Main by a sync since, or didn't.
+/// Getting the three ready for a set copies Main onto the ones behind it (onto both at once when
+/// both are), naming the one that matches it already; once they match, refreshing Main after the
+/// My Settings profile changed copies it onto both, as the refresh writes to it. Applied, every
+/// drive holds Main's library.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(backup_caught_up = false, spare_caught_up = false)]
+#[hegel::explicit_test_case(backup_caught_up = true, spare_caught_up = false)]
+fn prop_main_is_copied_onto_every_clone_behind_it(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = locallibrary::progress::Ctx::silent();
+    let (store, main) = saved_copy(dir.path());
+    let clones = [main.with_file_name("Backup"), main.with_file_name("Spare")];
+    for (root, name) in clones.iter().zip(["Backup", "Spare"]) {
+        saved_demo().1.write(root);
+        own_identity(&store, &mut Device::open(root).unwrap(), name);
+    }
+    common::export_new_track(&main, "Artist", "Fresh at home");
+    let backup_caught_up = tc.draw(gs::booleans());
+    let spare_caught_up = tc.draw(gs::booleans());
+    let caught_up = [backup_caught_up, spare_caught_up];
+    for (root, _) in clones.iter().zip(caught_up).filter(|(_, c)| *c) {
+        api::sync_apply(Some(&store), &common::sync_pair(&main, root), &ctx).unwrap();
+    }
+
+    let drives = std::iter::once(&main).chain(&clones).map(|d| path(d)).collect();
+    let req = api::SetJobRequest { drives, eject: false, ..Default::default() };
+    let plan = api::set_job_plan(&store, &req, &ctx).unwrap();
+    let sync = plan.steps.iter().find(|s| s.step == StepKind::Sync).unwrap();
+    let matching: Vec<&str> =
+        ["Backup", "Spare"].into_iter().zip(caught_up).filter(|(_, c)| *c).map(|(n, _)| n).collect();
+    match matching.len() {
+        2 => assert_eq!(sync.reason.as_deref(), Some("the drives hold the same library already")),
+        1 => assert_eq!(sync.summary.last(), Some(&format!("{} already matches Main", matching[0]))),
+        _ => assert!(sync.runs && !sync.summary.iter().any(|l| l.contains("already match")), "{:?}", sync.summary),
+    }
+    assert_eq!(sync.runs, matching.len() < 2);
+    if sync.runs {
+        assert_eq!(sync.summary[0], "Main holds the newest library");
+    }
+    let report = plan.apply(Some(&store), &ctx).unwrap();
+    assert!(report.stopped.is_none(), "{:?}", report.stopped);
+    for c in &clones {
+        assert_eq!(titles(c), titles(&main), "{} holds Main's library", c.display());
+    }
+
+    let values = indexmap::IndexMap::from([("quantize".to_string(), "off".to_string())]);
+    api::settings_set(&store, &api::SetSettings { values, drive: None }).unwrap();
+    let req = api::RefreshRequest { drive: Some(path(&main)), sync: true, ..Default::default() };
+    let plan = api::refresh_plan(&store, &req, &ctx).unwrap();
+    assert!(running(&plan).contains(&StepKind::Settings), "{:?}", running(&plan));
+    let sync = plan.steps.iter().find(|s| s.step == StepKind::Sync).unwrap();
+    assert_eq!(sync.summary, ["copy Main's changes onto Backup", "copy Main's changes onto Spare"]);
+    let report = plan.apply(Some(&store), &ctx).unwrap();
+    assert!(report.stopped.is_none(), "{:?}", report.stopped);
+    let done: Vec<StepKind> = report.steps.iter().map(|s| s.step).collect();
+    assert_eq!(done.last(), Some(&StepKind::Sync), "{done:?}");
+    for c in &clones {
+        assert_eq!(common::library(c), common::library(&main), "{} holds Main's library", c.display());
+    }
+}
+
+/// A write to Main that can't be copied onto Backup, whose database folder is read-only, still
+/// lands on Main, and warns that the change wasn't copied onto Backup, which keeps its library.
+#[cfg(unix)]
+#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_write_a_clone_cant_take_lands_on_the_lead_and_warns(tc: TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let (store, main) = saved_copy(dir.path());
+    let backup = main.with_file_name("Backup");
+    saved_demo().1.write(&backup);
+    own_identity(&store, &mut Device::open(&backup).unwrap(), "Backup");
+    let name = tc.draw(gs::sampled_from(vec!["Warm up", "Peak time"]));
+    let edits = vec![Edit::CreatePlaylist { path: name.into(), folder: false }];
+    let warnings = common::Warnings::default();
+    let plan =
+        api::edit_plan(&api::EditRequest { drive: path(&main), edits, options: Default::default() }, &warnings.ctx())
+            .unwrap();
+    assert_eq!(plan.clones.iter().map(|c| c.root.as_path()).collect::<Vec<_>>(), [backup.as_path()]);
+    let before = common::library(&backup);
+    let db = backup.join(paths::EXPORT_PDB).parent().unwrap().to_path_buf();
+    let mode = |m: u32| std::fs::set_permissions(&db, std::fs::Permissions::from_mode(m)).unwrap();
+    mode(0o555);
+    let applied = plan.apply(Some(&store), &warnings.ctx());
+    mode(0o755);
+    applied.unwrap();
+    let lists: Vec<String> = common::library(&main).playlists.into_iter().map(|l| l.name).collect();
+    assert!(lists.contains(&name.to_string()), "{lists:?}");
+    assert_eq!(common::library(&backup), before, "Backup keeps its library");
+    let said = warnings.said();
+    assert!(said.iter().any(|w| w.starts_with("the change wasn't copied onto Backup")), "{said:?}");
+}
+
+/// Runs `then` once, as the step `step` of an operation begins.
+struct AsStepBegins<F>(&'static str, std::sync::Mutex<Option<F>>);
+
+impl<F: FnOnce() + Send> locallibrary::progress::Progress for AsStepBegins<F> {
+    fn on_event(&self, _: &locallibrary::progress::Event) {}
+    fn on_step(&self, scope: &locallibrary::progress::Scope) {
+        if scope.step.is_some_and(|s| s.id == self.0)
+            && let Some(then) = self.1.lock().unwrap().take()
+        {
+            then();
+        }
+    }
+}
+
+/// Main, after rekordbox exported to it, and Backup, a clone of it, getting ready for a set:
+/// Backup unplugged once Main is saved, or another drive mounted where it was, the job stops as
+/// the copy onto Backup begins, saying what's at Backup's mount path now, Main saved.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(swapped = true)]
+#[hegel::explicit_test_case(swapped = false)]
+fn prop_a_job_stops_once_a_drive_it_planned_for_is_gone(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, main) = saved_copy(dir.path());
+    let backup = main.with_file_name("Backup");
+    saved_demo().1.write(&backup);
+    own_identity(&store, &mut Device::open(&backup).unwrap(), "Backup");
+    common::export_new_track(&main, "Artist", "Fresh at home");
+    let req = api::SetJobRequest { drives: vec![path(&main), path(&backup)], eject: false, ..Default::default() };
+    let plan = api::set_job_plan(&store, &req, &locallibrary::progress::Ctx::silent()).unwrap();
+    assert_eq!(running(&plan), [StepKind::Pull, StepKind::Sync, StepKind::Check]);
+    let snapshots = store.snapshot_ids().unwrap().len();
+
+    let swapped = tc.draw(gs::booleans());
+    let unplug = || {
+        std::fs::rename(&backup, dir.path().join("away")).unwrap();
+        if swapped {
+            saved_demo().1.write(&backup);
+            own_identity(&store, &mut Device::open(&backup).unwrap(), "Other");
+        }
+    };
+    let progress = AsStepBegins("sync", std::sync::Mutex::new(Some(unplug)));
+    let ctx = locallibrary::progress::Ctx::new(&progress, locallibrary::progress::CancelToken::new());
+    let report = plan.apply(Some(&store), &ctx).unwrap();
+    let stopped = report.stopped.as_ref().map(|s| (s.step.as_str(), s.kind));
+    assert_eq!(stopped, Some(("sync", "stale_plan")), "{:?}", report.stopped);
+    let message = &report.stopped.as_ref().unwrap().message;
+    let said = match swapped {
+        true => format!("another drive is at {}", backup.display()),
+        false => format!("{} is gone", backup.display()),
+    };
+    assert!(message.contains(&said), "{message}");
+    assert_eq!(report.steps.iter().map(|s| s.step).collect::<Vec<_>>(), [StepKind::Pull]);
+    assert_eq!(store.snapshot_ids().unwrap().len(), snapshots + 1, "Main saved");
+}
+
+/// Main and its clones (Backup, and Spare or not) getting ready for a set after rekordbox
+/// exported to Main: when, once Main is saved, Backup catches up with Main and gets an export of
+/// its own, the copy of Main, planned again as it runs, finds Backup newer and stops the job
+/// there, Backup keeping its export.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(spare = true)]
+#[hegel::explicit_test_case(spare = false)]
+fn prop_a_job_never_copies_over_a_drive_newer_by_then(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, main) = saved_copy(dir.path());
+    let mut clones = vec![main.with_file_name("Backup")];
+    let spare = tc.draw(gs::booleans());
+    if spare {
+        clones.push(main.with_file_name("Spare"));
+    }
+    for (root, name) in clones.iter().zip(["Backup", "Spare"]) {
+        saved_demo().1.write(root);
+        own_identity(&store, &mut Device::open(root).unwrap(), name);
+    }
+    common::export_new_track(&main, "Artist", "Fresh at home");
+    let drives = std::iter::once(&main).chain(&clones).map(|d| path(d)).collect();
+    let req = api::SetJobRequest { drives, eject: false, ..Default::default() };
+    let plan = api::set_job_plan(&store, &req, &locallibrary::progress::Ctx::silent()).unwrap();
+    assert!(running(&plan).contains(&StepKind::Sync), "{:?}", running(&plan));
+
+    let backup = &clones[0];
+    let moves_on = || {
+        let silent = locallibrary::progress::Ctx::silent();
+        api::sync_apply(Some(&store), &common::sync_pair(&main, backup), &silent).unwrap();
+        common::export_new_track(backup, "Artist", "Fresh at the club");
+    };
+    let progress = AsStepBegins("sync", std::sync::Mutex::new(Some(moves_on)));
+    let ctx = locallibrary::progress::Ctx::new(&progress, locallibrary::progress::CancelToken::new());
+    let report = plan.apply(Some(&store), &ctx).unwrap();
+    let stopped = report.stopped.as_ref().map(|s| (s.step.as_str(), s.kind));
+    assert_eq!(stopped, Some(("sync", "conflict")), "{:?}", report.stopped);
+    let message = &report.stopped.as_ref().unwrap().message;
+    assert!(message.contains("looks newer than") && message.contains("now; plan again"), "{message}");
+    assert!(titles(backup).contains(&"Fresh at the club".to_string()), "Backup keeps its export");
+}
+
+/// Refreshing Main and copying it onto its clone Backup after rekordbox exported to Backup (and
+/// to Main too, or not): the copy doesn't run, saying why, with a warning; Main is still saved,
+/// and Backup keeps its export.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(main_changed = false)]
+fn prop_a_refresh_never_copies_over_a_newer_or_diverged_clone(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = locallibrary::progress::Ctx::silent();
+    let (store, main) = saved_copy(dir.path());
+    let backup = main.with_file_name("Backup");
+    saved_demo().1.write(&backup);
+    own_identity(&store, &mut Device::open(&backup).unwrap(), "Backup");
+    common::export_new_track(&backup, "Artist", "Fresh at the club");
+    let main_changed = tc.draw(gs::booleans());
+    if main_changed {
+        common::export_new_track(&main, "Artist", "Fresh at home");
+    }
+    let req = api::RefreshRequest { drive: Some(path(&main)), sync: true, ..Default::default() };
+    let plan = api::refresh_plan(&store, &req, &ctx).unwrap();
+    let sync = plan.steps.iter().find(|s| s.step == StepKind::Sync).unwrap();
+    assert!(!sync.runs);
+    if !main_changed {
+        assert_eq!(sync.reason.as_deref(), Some("Backup is newer than Main"));
+    }
+    assert_eq!(sync.warnings.len(), 1, "{:?}", sync.warnings);
+    assert_eq!(running(&plan), if main_changed { vec![StepKind::Pull] } else { vec![] });
+    let report = plan.apply(Some(&store), &ctx).unwrap();
+    assert!(report.stopped.is_none(), "{:?}", report.stopped);
+    assert!(titles(&backup).contains(&"Fresh at the club".to_string()), "Backup keeps its export");
+    assert!(!titles(&main).contains(&"Fresh at the club".to_string()), "nor copied onto Main");
+}
+
+/// Saving Main and Backup, clones of the library Main, as their drive group, after rekordbox
+/// exported to either or neither: the drives the store doesn't hold are saved, each said; when
+/// it holds both already, the step says so for each and saves nothing.
+#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_drive_group_saves_the_drives_the_store_lacks(tc: TestCase) {
+    let p = &Pair::new(&tc);
+    let ctx = locallibrary::progress::Ctx::silent();
+    let snapshots = p.store.snapshot_ids().unwrap().len();
+    let report = api::pull_group(&p.store, &api::PullGroupRequest::default(), &ctx).unwrap();
+    assert!(report.stopped.is_none(), "{:?}", report.stopped);
+    let [step] = report.steps.as_slice() else { panic!("{:?}", report.steps) };
+    let changed: Vec<&str> = [(&p.main, "Main"), (&p.backup, "Backup")]
+        .into_iter()
+        .filter(|(root, _)| p.changed(root))
+        .map(|(_, name)| name)
+        .collect();
+    let saved = p.store.snapshot_ids().unwrap().len() - snapshots;
+    match changed.as_slice() {
+        [] => {
+            let mut done = step.done.clone();
+            done.sort();
+            assert_eq!(done, ["the store holds Backup already (Main)", "the store holds Main already (Main)"]);
+            assert_eq!(saved, 0, "nothing saved");
+        }
+        [one] => {
+            assert!(step.done.iter().any(|l| l.starts_with(&format!("saved {one} in Main"))), "{step:?}");
+            assert_eq!(saved, 1);
+        }
+        _ => assert!(saved >= 1, "{step:?}"),
+    }
+}
+
+/// Main and Backup, clones of the library Main: when rekordbox exported to both, they can't be
+/// ordered, and the library's lead clone is its primary when that's one of them, else none (the
+/// conflict says why), a write to both going to the first named alone (its plan says it can't
+/// copy onto the other). When Backup's database can't be read, there's no lead clone, primary or
+/// not, nor a drive for a write to both: the error says why.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_clones_that_cant_be_ordered_lead_from_their_primary(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = locallibrary::progress::Ctx::silent();
+    let (store, main) = saved_copy(dir.path());
+    let backup = main.with_file_name("Backup");
+    saved_demo().1.write(&backup);
+    own_identity(&store, &mut Device::open(&backup).unwrap(), "Backup");
+    let unreadable = tc.draw(gs::booleans());
+    match unreadable {
+        true => std::fs::write(backup.join(paths::EXPORT_PDB), b"not a database").unwrap(),
+        false => {
+            common::export_new_track(&main, "Artist", "Fresh at home");
+            common::export_new_track(&backup, "Artist", "Fresh at the club");
+        }
+    }
+    let primary = tc.draw(gs::sampled_from(vec![None, Some(&main), Some(&backup)]));
+    if let Some(p) = primary {
+        fleet::set_role(&store, Device::open(p).unwrap().id().unwrap(), Some(Role::Primary)).unwrap();
+    }
+    let group = api::drive_group(Some(&store), Some("Main")).unwrap();
+    assert_eq!(group.drives.len(), 2, "{:?}", group.drives);
+    let lead = api::lead_clone(Some(&store), &group, &ctx).map(|d| d.root().to_path_buf());
+    match (unreadable, primary) {
+        (true, _) => assert!(matches!(lead, Err(ref e) if !matches!(e.inner(), Error::Conflict(_))), "{lead:?}"),
+        (false, Some(p)) => assert_eq!(&lead.unwrap(), p),
+        (false, None) => assert!(matches!(lead, Err(ref e) if matches!(e.inner(), Error::Conflict(_))), "{lead:?}"),
+    }
+    let named = vec![path(&backup), path(&main)];
+    let once = api::libraries_once(named.clone());
+    match (unreadable, primary) {
+        (true, _) => assert!(matches!(once, Err(Error::Parse { .. })), "{once:?}"),
+        (false, Some(p)) => assert_eq!(once.unwrap(), [path(p)]),
+        (false, None) => assert_eq!(once.unwrap(), [named[0].clone()]),
+    }
+}

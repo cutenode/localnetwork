@@ -1,3 +1,4 @@
+import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
 	bookingSpace,
@@ -7,6 +8,7 @@ import {
 	parseSpaceUri,
 	plannerSpace,
 	publicRecordUri,
+	rkeyOf,
 	rootSpaces,
 	sharedSpace,
 	sharedSpaceKind,
@@ -37,6 +39,22 @@ describe('space URIs', () => {
 		const uri = publicRecordUri(ROOT, 'computer.localnetwork.project', 'abc');
 		expect(parsePublicRecordUri(uri)).toEqual({ did: ROOT, collection: 'computer.localnetwork.project', rkey: 'abc' });
 		expect(parsePublicRecordUri(`at://${ROOT}/space/x`)).toBeNull();
+	});
+
+	it("takes a record URI's rkey", () => {
+		expect(rkeyOf(publicRecordUri(ROOT, 'app.bsky.graph.verification', '3kverify'))).toBe('3kverify');
+		expect(rkeyOf('self')).toBe('self');
+		expect(rkeyOf(`at://${ROOT}/`)).toBe('');
+	});
+
+	it('always takes the last segment between slashes', () => {
+		fc.assert(
+			fc.property(fc.array(fc.string()), fc.string(), (head, last) => {
+				const segment = last.replaceAll('/', '');
+
+				expect(rkeyOf([...head, segment].join('/'))).toBe(segment);
+			})
+		);
 	});
 
 	it('names root, booking, and planner spaces', () => {

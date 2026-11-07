@@ -1,0 +1,9 @@
+# Models for CodeQL's Rust queries. The CodeQL CLI, which the codeql-action runs, finds packs in
+# .github/codeql/extensions when it creates the database and stores them in it for the analysis.
+name: cutenode/locallibrary-models
+version: 0.0.1
+library: true
+extensionTargets:
+  codeql/rust-all: "*"
+dataExtensions:
+  - models/*.yml

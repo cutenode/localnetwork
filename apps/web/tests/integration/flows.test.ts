@@ -15,7 +15,7 @@ import {
 	VERIFICATION
 } from '../../src/lib/nsid.ts';
 import { grantsAll, SCOPES } from '../../src/lib/server/atproto/oauth.ts';
-import { AgentRepoClient, type RepoClient } from '../../src/lib/server/atproto/repo-client.ts';
+import { AgentRepoClient, memberSpacePolicy, type RepoClient } from '../../src/lib/server/atproto/repo-client.ts';
 import { ROOT_SPACE_POLICIES } from '../../src/lib/server/bootstrap.ts';
 import { ForbiddenError, NotFoundError, ReauthError, UserError } from '../../src/lib/server/core.ts';
 import type { ShowEdit } from '../../src/lib/server/services/shows.ts';
@@ -73,8 +73,7 @@ describe('Local Network on a real atproto spaces network', () => {
 
 		for (const [name, uri] of Object.entries(net.app.spaces)) {
 			const space = await root.getSpace(uri);
-			expect(space?.readPolicy.$type).toBe(policies.get(name)?.readPolicy.$type);
-			expect(space?.writePolicy.$type).toBe(policies.get(name)?.writePolicy.$type);
+			expect(space?.policy).toEqual(policies.get(name));
 		}
 
 		const bootstrap = await net.app.audit.list({ action: 'system' });
@@ -350,6 +349,26 @@ describe('Local Network on a real atproto spaces network', () => {
 
 		expect(blob.status).toBe(200);
 		expect(new Uint8Array(await blob.arrayBuffer())).toEqual(png);
+	});
+
+	it("tells staff reviewing a request when its avatar is a type the site can't show", async () => {
+		// The site's form refuses an SVG, but another client can upload one and file the request.
+		const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>');
+
+		const request = await net.app.requests.submit({
+			actor: await net.viewer('neon'),
+			kind: 'create',
+			profile: profile('Vector Party'),
+			avatar: { bytes: svg, mimeType: 'image/svg+xml' }
+		});
+
+		const review = await adminRequest({
+			params: { rkey: request.rkey },
+			url: new URL(`http://localhost/admin/requests/${request.rkey}`),
+			locals: { app: net.app, viewer: await net.viewer('ada'), log: silentLogger }
+		});
+
+		expect(review.avatar).toEqual({ type: 'image/svg+xml', shown: false });
 	});
 
 	it('lets a DJ signed in with OAuth propose a mix tracklist that root publishes on approval', async () => {
@@ -878,7 +897,7 @@ describe('Local Network on a real atproto spaces network', () => {
 		]);
 		expect((await net.app.planner.show(lee, rkey))?.lineup[0]).toMatchObject({ status: 'contacted' });
 		const space = await net.user('lee').client.getSpace(plannerSpace(lee.did));
-		expect(space?.readPolicy.$type).toBe('com.atproto.simplespace.defs#memberListPolicy');
+		expect(space?.policy).toEqual(memberSpacePolicy());
 		await net.app.planner.unsave(lee, projectUri);
 		expect(await net.app.planner.saves(lee)).toEqual([]);
 	});
@@ -1143,9 +1162,7 @@ describe('Local Network on a real atproto spaces network', () => {
 		await root.createSpace({
 			spaceType: SPACE_TYPE.booking,
 			skey: space.split('/').at(-1)!,
-			readPolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
-			writePolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
-			appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+			policy: memberSpacePolicy()
 		});
 		await root.putMember({ space, did: lee.did, read: true, write: true });
 		// The authority learns of a writer from its writes, so the promoter's old repo reappears with a new one.
@@ -1178,7 +1195,7 @@ describe('Local Network on a real atproto spaces network', () => {
 		const show = { title: 'Warehouse' };
 		const open = await net.app.bookings.start({ actor: lee, projectUri: project.uri, show, message: 'Free?' });
 		const settled = await net.app.bookings.start({ actor: lee, projectUri: project.uri, show, message: 'And now?' });
-		await net.app.bookings.setStatus({ actor: lee, space: settled, status: 'declined' });
+		await net.app.bookings.setStatus({ actor: await net.viewer('pat'), space: settled, status: 'declined' });
 
 		const members = async (space: string) => (await root.listMembers(space)).map((member) => member.did).sort();
 		const threads = async (did: string) => (await net.app.bookings.threadsFor(did)).map((thread) => thread.space);

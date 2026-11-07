@@ -4,7 +4,7 @@
 
   The list is the tool's own and is kept for good (./artists.svelte.ts), the
   way the Manager's is: nothing goes onto it by itself, and the bar at the top
-  is the one place artists come in — from the tab in front, from the Manager's
+  is the one place artists come in: from the tab in front, from the Manager's
   list, or from the session queue. Adding puts the artists on the list at once,
   from what the source itself says (a name and the tracks), and then asks
   SoundCloud about each one it has no answer for: the public profile behind
@@ -12,10 +12,10 @@
   first answer and fill in as the answers land.
 
   A row is the artist's picture, name and a line about them, and then their
-  socials as lettered badges — one per link, each opening that page. The
+  socials as lettered badges, one per link, each opening that page. The
   chevron opens the row into everything else: every link as an address to
   copy, the bio, the place, the follower count, the tracks that brought the
-  artist here — and, from Settings, the search badges that look for the
+  artist here, and the search badges from Settings that look for the
   artist on the shops the Manager searches.
 
   The socials are asked for through a SoundCloud tab (./lookup.ts), any page
@@ -34,19 +34,21 @@
   import Trash2 from '@lucide/svelte/icons/trash-2';
   import User from '@lucide/svelte/icons/user';
   import X from '@lucide/svelte/icons/x';
+  import Badge from '$lib/components/Badge.svelte';
+  import HintSwitch from '$lib/components/HintSwitch.svelte';
   import PanelShell from '$lib/components/PanelShell.svelte';
   import StatusNote from '$lib/components/StatusNote.svelte';
   import AddBar from './AddBar.svelte';
   import { Button } from '$lib/components/ui/button/index.ts';
   import { Input } from '$lib/components/ui/input/index.ts';
-  import { Label } from '$lib/components/ui/label/index.ts';
   import { Progress } from '$lib/components/ui/progress/index.ts';
-  import { Switch } from '$lib/components/ui/switch/index.ts';
   import * as Select from '$lib/components/ui/select/index.ts';
   import * as Tooltip from '$lib/components/ui/tooltip/index.ts';
-  import { openTab } from '$lib/chrome.ts';
+  import { BACKGROUND_HINT, openTab } from '$lib/chrome.ts';
   import { copyText } from '$lib/clipboard.ts';
   import { matches } from '$lib/filter.ts';
+  import { LOOKUP_ERRORS } from '$lib/lookup-errors.ts';
+  import { createPainting } from '$lib/painting.svelte.ts';
   import { choicePref, flagPref } from '$lib/prefs.svelte.ts';
   import { queue } from '$lib/queue.svelte.ts';
   import { queryOf, searchable, searchUrl } from '$lib/search-sites.ts';
@@ -56,7 +58,7 @@
   import { remembered } from '$lib/view.svelte.ts';
   import { listed } from '../manager/listed.svelte.ts';
   import { artists, MAX } from './artists.svelte.ts';
-  import { LOOKUP_ERRORS, lookupProfiles, onSoundCloud, OPEN_A_TAB } from './lookup.ts';
+  import { lookupProfiles, onSoundCloud, OPEN_A_TAB } from './lookup.ts';
   import {
     artistsOf,
     asText,
@@ -89,8 +91,6 @@
   let { tool, onback }: PanelProps = $props();
 
   const SORT_HINT = 'by name sorts the list. list order keeps the order you added them.';
-
-  const BACKGROUND_HINT = 'opens links behind the popup instead of taking focus.';
 
   const OPEN_HINT = 'everything known about this artist. click a field to copy it.';
 
@@ -231,7 +231,7 @@
   let note = $state<{ tone: 'bad' | 'info'; text: string } | null>(null);
 
   // Answers arriving from the lookup, an artist at a time, taken straight
-  // into the list — the store coalesces the writes. A row stops saying it is
+  // into the list; the store coalesces the writes. A row stops saying it is
   // being looked up the moment its own answer lands, not when the whole
   // lookup ends.
   try {
@@ -296,7 +296,10 @@
       take(answersIn(result.data!));
       const why = LOOKUP_ERRORS[result.data!.error];
 
+      // Said once it is over, through the toasts' live region: the bar above
+      // the list says how far it has got, and nothing says when it is done.
       if (why) note = { tone: 'bad', text: `some socials weren’t looked up. ${why}` };
+      else toasts.ok(`looked up ${count(permalinks.length, 'artist')}`);
     }
 
     await artists.flush();
@@ -323,7 +326,7 @@
     if (extra) note = { tone: 'info', text: `${said(tally, from)}. ${extra}` };
     else toasts.ok(said(tally, from));
 
-    // Then the socials, for whichever of them nobody has asked about — where
+    // Then the socials, for whichever of them nobody has asked about, where
     // there is a SoundCloud tab to ask. Without one the rows say so, and the
     // bar offers the lookup once there is.
     if (!onSc) return;
@@ -338,6 +341,12 @@
   const ordered = $derived(sorted(artists.items, sort.value));
 
   const visible = $derived(ordered.filter((entry) => matches(searchText(entry), query.value)));
+
+  // What has been drawn of it so far: a long list, or a search being deleted,
+  // goes up a frame's worth of rows at a time ($lib/painting.svelte.ts).
+  const drawing = createPainting(() => visible.map((entry) => entry.permalink));
+
+  const painted = $derived(visible.filter((entry) => drawing.has(entry.permalink)));
 
   const withSocials = $derived(
     artists.items.filter((entry) => hasProfile(entry) && linksOf(entry.profile).length > 0).length
@@ -404,17 +413,13 @@
      page. The address is the tooltip, so a badge says where it goes before it
      is pressed. -->
 {#snippet linkBadge(link: Link)}
-  <Button
-    size="icon-sm"
-    variant="ghost"
+  <Badge
+    badge={link.badge}
+    action={`open ${link.name}`}
     style={link.style}
-    class="w-7 border-transparent text-[10px] font-bold hover:brightness-110"
-    aria-label={`open ${link.name}: ${link.url}`}
-    title={link.title ? `${link.title} — ${link.url}` : link.url}
+    title={link.title ? `${link.title} · ${link.url}` : link.url}
     onclick={() => openLink(link.url)}
-  >
-    {link.badge}
-  </Button>
+  />
 {/snippet}
 
 <!-- What a row opens into: every field of the artist, each a button that
@@ -440,7 +445,7 @@
                    disabled:text-fg-subtle disabled:italic
                    {fact.id === 'bio' ? 'line-clamp-4 whitespace-pre-line' : 'truncate'}"
             disabled={!fact.copy}
-            aria-label={fact.copy ? `copy the ${fact.label}` : `${fact.label}: ${fact.value}`}
+            aria-label={fact.copy ? undefined : `${fact.label}: ${fact.value}`}
             title={fact.copy ? (fact.open ? LINK_HINT : FACT_HINT) : ''}
             onclick={() => onCopyFact(fact)}
           >
@@ -466,18 +471,14 @@
     {#each badgeSites as site (site.id)}
       {@const track = { artist: name, title: '' }}
       {@const search = queryOf(site, track)}
-      <Button
-        size="icon-sm"
-        variant="ghost"
+      <Badge
+        badge={site.badge}
+        action={`search ${site.name}`}
         style={site.style}
-        class="w-7 border-transparent text-[10px] font-bold hover:brightness-110"
-        disabled={!searchable(site, track)}
-        aria-label={`search ${site.name} for ${search}`}
         title={`search ${site.name} for “${search}”`}
+        disabled={!searchable(site, track)}
         onclick={() => openLink(searchUrl(site, track))}
-      >
-        {site.badge}
-      </Button>
+      />
     {/each}
     <div class="ml-auto flex items-center gap-1">
       <Button
@@ -531,7 +532,15 @@
           <span>looking up socials…</span>
           <span class="font-mono">{progress.done} / {progress.total}</span>
         </div>
-        <Progress value={progress.done} max={progress.total || 1} class="h-1" />
+        <!-- The total is never 0: the page only reports on a lookup that has
+             artists to look up (content.ts). -->
+        <Progress
+          value={progress.done}
+          max={progress.total}
+          class="h-1"
+          aria-label="looking up socials"
+          aria-valuetext={`${progress.done} of ${progress.total}`}
+        />
       </div>
     {/if}
   {/snippet}
@@ -559,7 +568,7 @@
       {#if artists.count > 0}
         {#if unchecked.length > 0 || lookingUp}
           <!-- The artists nobody has asked SoundCloud about, and the button
-               that asks — or, on a tab that cannot ask, why it is off. -->
+               that asks, or why it is off on a tab that cannot ask. -->
           <div
             class="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-caption text-fg-soft"
             role="status"
@@ -622,48 +631,45 @@
         </div>
 
         <div class="flex items-center gap-2.5">
+          <!-- The hint is a tooltip for the pointer and the trigger's description
+               for a screen reader. The wrapper is the tooltip's trigger rather
+               than the select's own button, since a tooltip opened by focus would
+               sit over the open list; -1 keeps it out of the tab order. -->
           <Tooltip.Root>
-            <Tooltip.Trigger class="min-w-0 flex-1">
+            <Tooltip.Trigger tabindex={-1}>
               {#snippet child({ props })}
                 <div {...props} class="min-w-0 flex-1">
                   <Select.Root type="single" bind:value={sort.value}>
-                    <Select.Trigger class="h-8 w-full text-label" aria-label="sort order">
+                    <Select.Trigger
+                      class="h-8 w-full text-label"
+                      aria-label="sort order"
+                      aria-describedby={`${here}-sort-hint`}
+                    >
                       {SORTS.find((s) => s.value === sort.value)?.label}
                     </Select.Trigger>
                     <Select.Content>
                       {#each SORTS as option (option.value)}
-                        <Select.Item value={option.value} label={option.label}>
-                          {option.label}
-                        </Select.Item>
+                        <Select.Item value={option.value} label={option.label} />
                       {/each}
                     </Select.Content>
                   </Select.Root>
+                  <span id={`${here}-sort-hint`} class="sr-only">{SORT_HINT}</span>
                 </div>
               {/snippet}
             </Tooltip.Trigger>
             <Tooltip.Content class="max-w-72">{SORT_HINT}</Tooltip.Content>
           </Tooltip.Root>
 
-          <Tooltip.Root>
-            <Tooltip.Trigger>
-              {#snippet child({ props })}
-                <div {...props} class="flex shrink-0 items-center gap-1.5">
-                  <Switch id="background" bind:checked={background.value} />
-                  <Label
-                    for="background"
-                    class="text-caption font-normal whitespace-nowrap text-fg-muted"
-                  >
-                    background tabs
-                  </Label>
-                </div>
-              {/snippet}
-            </Tooltip.Trigger>
-            <Tooltip.Content class="max-w-72">{BACKGROUND_HINT}</Tooltip.Content>
-          </Tooltip.Root>
+          <HintSwitch
+            id="background"
+            label="background tabs"
+            hint={BACKGROUND_HINT}
+            bind:checked={background.value}
+          />
         </div>
 
         <ul class="flex flex-col gap-1.5">
-          {#each visible as entry (entry.permalink)}
+          {#each painted as entry (entry.permalink)}
             {@const name = nameOf(entry)}
             {@const links = linksOf(entry.profile)}
             {@const checking = checkingIds.has(entry.permalink)}

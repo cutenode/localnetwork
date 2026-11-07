@@ -5,13 +5,23 @@ name: Dependency review
 # and advisories, and npm-advisories.yml the npm packages' advisories. What's left is mostly the
 # licences of npm packages and of the actions the workflows use, and advisories for those actions.
 #
-# Its own workflow, since it covers all three ecosystems and only means anything on a pull request.
-# It isn't a required check, so it can filter on paths in its trigger: a pull request that changes
-# none of the files the dependency graph reads starts no runner. Those are the lockfiles and
-# manifests (pnpm-lock.yaml, package-lock.json and package.json, Cargo.lock and Cargo.toml) and the
-# workflows, which only count as manifests in .github/workflows/, so the composite actions in
-# .github/actions/ aren't among them. pnpm-workspace.yaml isn't one either: what its overrides
-# change shows up in pnpm-lock.yaml.
+# The dependency graph can't read pnpm-lock.yaml: pnpm 12 writes it as two YAML documents, the
+# pnpm version it resolved and then the project's packages, and the graph reads only the first
+# (https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/dependency-graph-supported-package-ecosystems).
+# Without help it sees the npm packages the package.json files name and none they pull in. So the
+# job submits the lockfile's packages to it first, read by Microsoft's Component Detection, which
+# reads both documents, and the review then compares those too.
+#
+# The review compares the snapshot of the pull request's base commit, so main needs one for every
+# commit: ci.yml's changes job submits it on each push, under the same correlator (`pnpm-lock`).
+#
+# Its own workflow, since it covers all three ecosystems and only reviews pull requests. It isn't a
+# required check, so it can filter on paths in its trigger: a pull request that changes none of the
+# files the dependency graph reads starts no runner. Those are the lockfiles and manifests
+# (pnpm-lock.yaml, package-lock.json and package.json, Cargo.lock and Cargo.toml) and the
+# workflows, which only count as manifests in .github/workflows/, plus the action that submits the
+# lockfile's packages. pnpm-workspace.yaml isn't one: what its overrides change shows up in
+# pnpm-lock.yaml.
 on:
   # Not `reopened`: a reopened pull request has the same changes it was reviewed on.
   pull_request:
@@ -23,6 +33,7 @@ on:
       - "**/Cargo.lock"
       - "**/Cargo.toml"
       - ".github/workflows/**"
+      - ".github/actions/npm-snapshot/**"
 
 permissions:
   contents: read
@@ -40,22 +51,55 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: read
+      # Submitting the lockfile's packages to the dependency graph.
+      contents: write
       # The summary comment, posted only when the review fails. Pull requests from forks get a
       # read-only token, and the action logs a warning in place of the comment.
       pull-requests: write
     steps:
-      # Reads the base and head commits through the API: nothing to check out.
+      # A fork's pull request gets a read-only token, which can't submit, so its review sees only
+      # what the dependency graph reads itself. The checkout is the lockfile and the action that
+      # submits it, and pnpm-workspace.yaml for the advisories pnpm audit ignores, at the pull
+      # request's head, the commit the review compares, rather than the merge commit checkout
+      # picks by default.
+      - if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            /pnpm-lock.yaml
+            /pnpm-workspace.yaml
+            /.github/actions/npm-snapshot/
+          sparse-checkout-cone-mode: false
+      # Before the review, in the same job, so the snapshot is there when the review asks for it
+      # (https://docs.github.com/en/code-security/concepts/supply-chain-security/dependency-review).
+      - if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: ./.github/actions/npm-snapshot
+      # The advisories `pnpm audit` ignores (auditConfig.ignoreGhsas, each with its reason), so
+      # the review ignores the same ones now that it sees the packages they're in. yq is on the
+      # runner.
+      - id: ignored
+        run: |
+          ghsas=""
+          if [ -f pnpm-workspace.yaml ]; then
+            ghsas=$(yq -r '.auditConfig.ignoreGhsas // [] | join(",")' pnpm-workspace.yaml)
+          fi
+          echo "ghsas=$ghsas" >> "$GITHUB_OUTPUT"
+      # Reads the base and head commits through the API.
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           # Like `pnpm audit --prod` in npm-advisories.yml: an advisory of any severity fails, in
           # what ships (the runtime scope) and not the dev tooling.
           fail-on-severity: low
           fail-on-scopes: runtime
+          allow-ghsas: ${{ steps.ignored.outputs.ghsas }}
           # The same list as [licenses] allow in deny.toml, so both ecosystems follow one policy.
           # Keep the two in step. OFL-1.1 is added for the website's fonts (@fontsource-variable),
           # which no Rust crate ships, and MITNFA for bowser, which the bug reports read the
           # browser with: MIT, plus a clause that a changed copy can't claim its authors made it.
+          # BlueOak-1.0.0 is for lru-cache, which keeps the link preview cards in memory: a
+          # permissive licence like MIT, with a patent grant.
           allow-licenses: >-
             0BSD,
             Apache-2.0,
@@ -73,7 +117,35 @@ jobs:
             Unlicense,
             Zlib,
             OFL-1.1,
-            MITNFA
+            MITNFA,
+            BlueOak-1.0.0
           # rust-cache is LGPL-3.0. It runs in CI and nothing it contains ships with the tools.
-          allow-dependencies-licenses: pkg:githubactions/Swatinem/rust-cache
+          # sharp's prebuilt libvips (@img/sharp-libvips-*, and bundled in the win32 and wasm32
+          # builds) is LGPL-3.0-or-later. sharp loads it as an unmodified shared library, and the
+          # website only runs it on its own server to draw link preview cards, so nothing LGPL is
+          # changed or handed to anyone. sharp itself is Apache-2.0.
+          # brotli-decompressor declares "BSD-3-Clause/MIT", the old Cargo form of BSD-3-Clause OR MIT,
+          # both allowed above, which the dependency graph can't parse and reports as a LicenseRef.
+          # elkjs (EPL-2.0 OR GPL-3.0-or-later) and robust-predicates (public domain and Unlicense,
+          # which the graph reports as a LicenseRef) come with mermaid, a root dev dependency that
+          # parses the READMEs' diagrams in tests. Neither ships with any tool.
+          allow-dependencies-licenses: >-
+            pkg:cargo/brotli-decompressor,
+            pkg:githubactions/Swatinem/rust-cache,
+            pkg:npm/@img/sharp-libvips-darwin-arm64,
+            pkg:npm/@img/sharp-libvips-darwin-x64,
+            pkg:npm/@img/sharp-libvips-linux-arm,
+            pkg:npm/@img/sharp-libvips-linux-arm64,
+            pkg:npm/@img/sharp-libvips-linux-ppc64,
+            pkg:npm/@img/sharp-libvips-linux-riscv64,
+            pkg:npm/@img/sharp-libvips-linux-s390x,
+            pkg:npm/@img/sharp-libvips-linux-x64,
+            pkg:npm/@img/sharp-libvips-linuxmusl-arm64,
+            pkg:npm/@img/sharp-libvips-linuxmusl-x64,
+            pkg:npm/@img/sharp-win32-arm64,
+            pkg:npm/@img/sharp-win32-ia32,
+            pkg:npm/@img/sharp-win32-x64,
+            pkg:npm/@img/sharp-wasm32,
+            pkg:npm/elkjs,
+            pkg:npm/robust-predicates
           comment-summary-in-pr: on-failure

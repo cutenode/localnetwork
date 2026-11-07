@@ -1,0 +1,13 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.space.epkRequests",
+	"defs": {
+		"main": {
+			"type": "space",
+			"description": "Requests to see a project's press kits, and the grants that answer them. Owned by the Local Network root account, one space per project, keyed by the project record's key. Anyone signed in can write a request into it, and only the root writes grants; only its members (the project's current managers) can read it, so the people asking, and those granted access, never see each other's requests or grants.",
+			"key": "tid",
+			"name": "Local Network press kit requests",
+			"collections": ["computer.localnetwork.epk.request", "computer.localnetwork.epk.grant"]
+		}
+	}
+}

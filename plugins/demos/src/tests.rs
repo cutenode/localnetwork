@@ -180,6 +180,28 @@ fn it_needs_a_drive() {
     s.stop();
 }
 
+/// Whatever the library, the check and `clean` without a drive ask for one, and on a drive the
+/// host doesn't know fail as its read did, reporting and removing nothing.
+#[hegel::test(test_cases = 20)]
+fn prop_without_a_drive_it_knows_nothing_is_found_or_removed(tc: TestCase) {
+    let check = tc.draw(gs::booleans());
+    let on = tc.draw(gs::optional(gs::sampled_from(vec!["SD", "usb"])));
+    let s = start(drive());
+    let context = json!({ "drive": on });
+    let e = match check {
+        true => s.host.request::<_, Value>(method::RUN_CHECK, &json!({ "check": "tracks", "context": context })),
+        false => s.host.request::<_, Value>(method::PLAN_OP, &json!({ "operation": "clean", "context": context })),
+    }
+    .unwrap_err();
+    let said = on.map(|d| format!("not found: drive \"{d}\""));
+    match said {
+        None => assert_eq!(e.message, "invalid params: say which drive"),
+        Some(said) => assert_eq!((e.kind(), e.message.as_str()), (Some("not_found"), said.as_str())),
+    }
+    let calls = s.stop();
+    assert!(calls.iter().all(|(m, _)| m == "drive.library"), "{calls:?}");
+}
+
 /// For any library, `clean` deletes exactly the files of the demo tracks no other track shares,
 /// each once, and the check names exactly those tracks; every other track's file is left out.
 #[hegel::test(test_cases = 100)]

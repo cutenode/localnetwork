@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use unicode_normalization::UnicodeNormalization;
+use unicode_normalization::{IsNormalized, UnicodeNormalization, is_nfkc_quick};
 
 use crate::tokens::{Rgb, track_colors};
 
@@ -68,7 +68,7 @@ pub struct Track {
 impl Track {
     /// "Artist - Title", for display.
     pub fn display_name(&self) -> String {
-        if self.artist.is_empty() { self.title.clone() } else { format!("{} - {}", self.artist, self.title) }
+        if self.artist.is_empty() { self.title.clone() } else { [&self.artist, " - ", &self.title].concat() }
     }
 
     /// Identity used to recognise the same recording across *different* libraries, where row
@@ -180,11 +180,18 @@ impl Library {
     }
 
     /// The tracks of `ids` in order, repeats kept, leaving out ids no track has: a playlist's
-    /// entries, say. [`Library::track`] for each would scan the library each time.
+    /// entries, say. [`Library::track`] for each would scan the library each time; for many
+    /// playlists, [`Library::track_lookup`] indexes it once for them all.
     pub fn tracks_by_id(&self, ids: &[u32]) -> Vec<&Track> {
+        let get = self.track_lookup();
+        ids.iter().filter_map(|&id| get(id)).collect()
+    }
+
+    /// [`Library::track`] through a map built once, for looking up many ids.
+    pub fn track_lookup<'a>(&'a self) -> impl Fn(u32) -> Option<&'a Track> {
         // Collected from the back, so the first of a repeated id wins, as in `track`.
         let by_id: FxHashMap<u32, &Track> = self.tracks.iter().rev().map(|t| (t.id, t)).collect();
-        ids.iter().filter_map(|id| by_id.get(id).copied()).collect()
+        move |id| by_id.get(&id).copied()
     }
 
     pub fn playlist(&self, id: u32) -> Option<&Playlist> {
@@ -314,6 +321,27 @@ impl Library {
             .collect()
     }
 
+    /// The playlists and folders `ids`, everything below them and the folders above them. The
+    /// folders above are kept apart from the walks down: one that's also among `ids`, after
+    /// something in it, is walked down from like any other.
+    pub fn with_relatives(&self, ids: impl IntoIterator<Item = u32>) -> FxHashSet<u32> {
+        let (mut below, mut above) = (FxHashSet::default(), FxHashSet::default());
+        for id in ids {
+            let mut queue = vec![id];
+            while let Some(id) = queue.pop() {
+                if below.insert(id) {
+                    queue.extend(self.children(Some(id)).iter().map(|c| c.id));
+                }
+            }
+            let mut parent = self.playlist(id).and_then(|p| p.parent_id);
+            while let Some(id) = parent.filter(|id| above.insert(*id)) {
+                parent = self.playlist(id).and_then(|f| f.parent_id);
+            }
+        }
+        below.extend(above);
+        below
+    }
+
     /// The playlists and folders in `only` (paths like `Folder/Name`, or unique names, as
     /// [`Library::find_playlist`] finds them), everything below them, the folders above them (so
     /// their paths stay the same) and the tracks they hold: what an export of some playlists
@@ -322,22 +350,8 @@ impl Library {
         if only.is_empty() {
             return Ok(self);
         }
-        let mut keep = FxHashSet::default();
-        for query in only {
-            let p = self.find_playlist(query).ok_or(query.as_str())?;
-            // The node and everything below it...
-            let mut queue = vec![p.id];
-            while let Some(id) = queue.pop() {
-                if keep.insert(id) {
-                    queue.extend(self.children(Some(id)).iter().map(|c| c.id));
-                }
-            }
-            // ...and the folders above it.
-            let mut parent = p.parent_id;
-            while let Some(id) = parent.filter(|id| keep.insert(*id)) {
-                parent = self.playlist(id).and_then(|f| f.parent_id);
-            }
-        }
+        let ids = only.iter().map(|query| self.find_playlist(query).map(|p| p.id).ok_or(query.as_str()));
+        let keep = self.with_relatives(ids.collect::<Result<Vec<u32>, _>>()?);
         self.playlists.retain(|p| keep.contains(&p.id));
         let used: FxHashSet<u32> = self.playlists.iter().flat_map(|p| p.track_ids.iter().copied()).collect();
         self.tracks.retain(|t| used.contains(&t.id));
@@ -456,8 +470,20 @@ pub fn pick<S: AsRef<str>, T>(items: impl IntoIterator<Item = (S, T)>, query: &s
 
 /// Lower-case, NFKC, whitespace-collapsed form for fuzzy comparisons.
 pub fn normalize(s: &str) -> String {
-    let lower: String = s.nfkc().collect::<String>().to_lowercase();
-    lower.split_whitespace().collect::<Vec<_>>().join(" ")
+    // Most tags are NFKC already, which being ASCII says at once and a quick check tells without
+    // normalising. A search does this for every field of every track.
+    let lower = match s.is_ascii() || matches!(is_nfkc_quick(s.chars()), IsNormalized::Yes) {
+        true => s.to_lowercase(),
+        false => s.nfkc().collect::<String>().to_lowercase(),
+    };
+    let mut out = String::with_capacity(lower.len());
+    for word in lower.split_whitespace() {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(word);
+    }
+    out
 }
 
 /// `s` split wherever one of the (ASCII) separators appears, ignoring case.
@@ -586,13 +612,14 @@ impl LibraryDiff {
     /// Diff `old` -> `new`.
     pub fn between(old: &Library, new: &Library) -> LibraryDiff {
         let mut diff = LibraryDiff::default();
-        let old_by_path: FxHashMap<String, &Track> =
-            old.tracks.iter().map(|t| (crate::paths::key(&t.file_path), t)).collect();
-        let new_by_path: FxHashMap<String, &Track> =
-            new.tracks.iter().map(|t| (crate::paths::key(&t.file_path), t)).collect();
+        // Each track's key worked out once, for its map and its lookup in the other.
+        let keys = |lib: &Library| lib.tracks.iter().map(|t| crate::paths::key(&t.file_path)).collect::<Vec<_>>();
+        let (old_keys, new_keys) = (keys(old), keys(new));
+        let old_by_path: FxHashMap<&str, &Track> = old_keys.iter().map(String::as_str).zip(&old.tracks).collect();
+        let new_by_path: FxHashMap<&str, &Track> = new_keys.iter().map(String::as_str).zip(&new.tracks).collect();
 
-        for t in &new.tracks {
-            match old_by_path.get(&crate::paths::key(&t.file_path)) {
+        for (key, t) in new_keys.iter().zip(&new.tracks) {
+            match old_by_path.get(key.as_str()) {
                 None => diff.added_tracks.push(t.into()),
                 Some(o) => {
                     let fields = track_field_changes(o, t);
@@ -602,8 +629,8 @@ impl LibraryDiff {
                 }
             }
         }
-        for t in &old.tracks {
-            if !new_by_path.contains_key(&crate::paths::key(&t.file_path)) {
+        for (key, t) in old_keys.iter().zip(&old.tracks) {
+            if !new_by_path.contains_key(key.as_str()) {
                 diff.removed_tracks.push(t.into());
             }
         }
@@ -643,23 +670,23 @@ fn playlist_contents(lib: &Library) -> IndexMap<PlaylistKey<'_>, (String, Vec<St
 
 fn track_field_changes(a: &Track, b: &Track) -> Vec<FieldChange> {
     let mut out = Vec::new();
-    let mut cmp = |field: &str, x: String, y: String| {
+    let mut cmp = |field: &str, x: &str, y: &str| {
         if x != y {
-            out.push(FieldChange { field: field.into(), old: x, new: y });
+            out.push(FieldChange { field: field.into(), old: x.into(), new: y.into() });
         }
     };
-    cmp("title", a.title.clone(), b.title.clone());
-    cmp("artist", a.artist.clone(), b.artist.clone());
-    cmp("album", a.album.clone(), b.album.clone());
-    cmp("genre", a.genre.clone(), b.genre.clone());
-    cmp("key", a.key.clone(), b.key.clone());
-    cmp("label", a.label.clone(), b.label.clone());
-    cmp("comment", a.comment.clone(), b.comment.clone());
-    cmp("bpm", format!("{:.2}", a.bpm), format!("{:.2}", b.bpm));
-    cmp("rating", a.rating.to_string(), b.rating.to_string());
-    cmp("color", format!("{:?}", a.color), format!("{:?}", b.color));
-    cmp("file_size", a.file_size.to_string(), b.file_size.to_string());
-    cmp("artwork", a.artwork_id.is_some().to_string(), b.artwork_id.is_some().to_string());
+    cmp("title", &a.title, &b.title);
+    cmp("artist", &a.artist, &b.artist);
+    cmp("album", &a.album, &b.album);
+    cmp("genre", &a.genre, &b.genre);
+    cmp("key", &a.key, &b.key);
+    cmp("label", &a.label, &b.label);
+    cmp("comment", &a.comment, &b.comment);
+    cmp("bpm", &format!("{:.2}", a.bpm), &format!("{:.2}", b.bpm));
+    cmp("rating", &a.rating.to_string(), &b.rating.to_string());
+    cmp("color", &format!("{:?}", a.color), &format!("{:?}", b.color));
+    cmp("file_size", &a.file_size.to_string(), &b.file_size.to_string());
+    cmp("artwork", &a.artwork_id.is_some().to_string(), &b.artwork_id.is_some().to_string());
     out
 }
 

@@ -822,26 +822,12 @@ fn panics_everywhere() -> Hooks {
     hooks.on(bug::<PutManifest, Kept>).on(bug::<GetManifest, GotManifest>)
 }
 
-/// Any hooks, run at once: one the plugin doesn't implement isn't found, whatever its params. The
-/// others answer only for a contribution the manifest declares (a provider or a destination, of
-/// its kind), with
-/// params that read: params that don't are refused saying where, an undeclared name saying what
-/// isn't declared, and one that panics still answers. The rest answer what the plugin does.
-#[hegel::test(test_cases = 25)]
-fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
-    let plugin = tc.draw(gs::sampled_from(vec!["answers", "bare", "panics"]));
-    let s = match plugin {
-        "answers" => greeted(answers()),
-        "bare" => greeted(Hooks::new()),
-        _ => greeted(panics_everywhere()),
-    };
-    let manifest = echo_manifest();
-    let c = &manifest.contributes;
+/// The names the manifest declares for each of [`HOOKS`], in turn: the commands but echo's
+/// `steps` and `titles`, the checks run with a check and with a plan, and every destination.
+fn declared_names(c: &Contributions) -> [Vec<String>; 15] {
     let run_when = |when: When| c.checks.iter().filter(|x| x.when.contains(&when)).map(|x| x.name.clone()).collect();
     let destinations: Vec<String> = c.destinations.iter().map(|x| x.name.clone()).collect();
-    let of_kind = |kind| c.destinations.iter().find(|x| x.kind == kind).map(|x| x.name.clone()).unwrap();
-    let (store, set) = (of_kind(DestinationKind::Store), of_kind(DestinationKind::Set));
-    let declared: [Vec<String>; 15] = [
+    [
         c.commands.iter().filter(|x| !["steps", "titles"].contains(&x.name.as_str())).map(|x| x.name.clone()).collect(),
         c.analyzers.iter().map(|x| x.name.clone()).collect(),
         c.exporters.iter().map(|x| x.format.clone()).collect(),
@@ -857,7 +843,86 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
         destinations.clone(),
         destinations.clone(),
         destinations,
-    ];
+    ]
+}
+
+/// The params of a request to hook `hook` (one of [`HOOKS`]) about the contribution `name`,
+/// and what [`answers`] answers it.
+#[hegel::test_helper]
+fn hook_request(tc: &TestCase, hook: usize, name: &str) -> (Value, Value) {
+    let id = tc.draw(gs::integers::<u32>());
+    let echoed = json!({ "n": tc.draw(gs::integers::<i32>()) });
+    let output = if cfg!(windows) { "C:\\out" } else { "/out" };
+    match hook {
+        0 => (run(name, echoed.clone(), None), json!({ "command": name, "params": echoed })),
+        1 => {
+            let track = json!({ "id": id, "file_path": "/Contents/a.mp3", "audio_path": "/a.mp3" });
+            (json!({ "analyzer": name, "track": track }), json!({ "fields": { "bytes": id } }))
+        }
+        2 => {
+            let req = json!({ "exporter": name, "source": { "drive": "USB" }, "output": output });
+            (req, json!({ "files": [{ "path": output, "what": name, "bytes": 0 }], "warnings": [] }))
+        }
+        3 => {
+            let plan = json!({ "summary": name, "warnings": [], "edits": [echoed] });
+            (json!({ "operation": name, "params": echoed }), plan)
+        }
+        4 => {
+            // Echo's provider gives tags.
+            let kind = tc.draw(gs::sampled_from(vec!["metadata", "artwork"]));
+            let found = json!({ "candidates": [{ "track": id, "score": 1.0, "source": name, "label": "" }] });
+            (json!({ "provider": name, "kind": kind, "tracks": [{ "id": id }] }), found)
+        }
+        5 => (json!({ "panel": name }), json!({ "kind": "text", "title": name, "text": "" })),
+        6 => {
+            let read = json!({ "tracks": [{ "match": { "path": output }, "my_tags": [name] }] });
+            (json!({ "importer": name, "file": output }), read)
+        }
+        7 => {
+            let found = json!({ "findings": [{ "level": "info", "check": name, "message": "" }] });
+            (json!({ "check": name }), found)
+        }
+        8 => {
+            let said = json!({ "findings": [{ "level": "info", "check": name, "message": "edit" }] });
+            (json!({ "check": name, "operation": "edit", "edits": [echoed] }), said)
+        }
+        9 => {
+            let hash = format!("{id:064x}");
+            (json!({ "destination": name, "hashes": [hash] }), json!({ "missing": [hash] }))
+        }
+        10 => {
+            let set = json!({ "id": format!("set{id}"), "date": "2026-10-03" });
+            let req = json!({ "destination": name, "set": set, "recording": output, "tracklist": [{}] });
+            (req, json!({ "url": format!("set{id}") }))
+        }
+        11 => (json!({ "destination": name, "hash": format!("{id:064x}"), "path": output }), json!({})),
+        12 => {
+            let hash = format!("{id:064x}");
+            (json!({ "destination": name, "hash": hash }), json!({ "blob": { "blob": hash } }))
+        }
+        13 => (json!({ "destination": name, "name": "libraries.json", "blob": { "blob": "record" } }), json!({})),
+        _ => (json!({ "destination": name, "name": "libraries.json" }), json!({})),
+    }
+}
+
+/// Any hooks, run at once: one the plugin doesn't implement isn't found, whatever its params. The
+/// others answer only for a contribution the manifest declares (a provider or a destination, of
+/// its kind), with
+/// params that read: params that don't are refused saying where, an undeclared name saying what
+/// isn't declared, and one that panics still answers. The rest answer what the plugin does.
+#[hegel::test(test_cases = 25)]
+fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
+    let plugin = tc.draw(gs::sampled_from(vec!["answers", "bare", "panics"]));
+    let s = match plugin {
+        "answers" => greeted(answers()),
+        "bare" => greeted(Hooks::new()),
+        _ => greeted(panics_everywhere()),
+    };
+    let manifest = echo_manifest();
+    let c = &manifest.contributes;
+    let of_kind = |kind| c.destinations.iter().find(|x| x.kind == kind).map(|x| x.name.clone()).unwrap();
+    let (store, set) = (of_kind(DestinationKind::Store), of_kind(DestinationKind::Set));
+    let declared = declared_names(c);
     let mut sent = Vec::new();
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(6)) {
         let hook = tc.draw(gs::integers::<usize>().max_value(HOOKS.len() - 1));
@@ -868,59 +933,8 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
                 tc.draw(gs::from_regex("[a-z]{1,6}").filter(|n: &String| !declared.iter().flatten().any(|d| d == n)))
             }
         };
-        let id = tc.draw(gs::integers::<u32>());
-        let echoed = json!({ "n": tc.draw(gs::integers::<i32>()) });
         let output = if cfg!(windows) { "C:\\out" } else { "/out" };
-        let (params, answer) = match hook {
-            0 => (run(&name, echoed.clone(), None), json!({ "command": name, "params": echoed })),
-            1 => {
-                let track = json!({ "id": id, "file_path": "/Contents/a.mp3", "audio_path": "/a.mp3" });
-                (json!({ "analyzer": name, "track": track }), json!({ "fields": { "bytes": id } }))
-            }
-            2 => {
-                let req = json!({ "exporter": name, "source": { "drive": "USB" }, "output": output });
-                (req, json!({ "files": [{ "path": output, "what": name, "bytes": 0 }], "warnings": [] }))
-            }
-            3 => {
-                let plan = json!({ "summary": name, "warnings": [], "edits": [echoed] });
-                (json!({ "operation": name, "params": echoed }), plan)
-            }
-            4 => {
-                // Echo's provider gives tags.
-                let kind = tc.draw(gs::sampled_from(vec!["metadata", "artwork"]));
-                let found = json!({ "candidates": [{ "track": id, "score": 1.0, "source": name, "label": "" }] });
-                (json!({ "provider": name, "kind": kind, "tracks": [{ "id": id }] }), found)
-            }
-            5 => (json!({ "panel": name }), json!({ "kind": "text", "title": name, "text": "" })),
-            6 => {
-                let read = json!({ "tracks": [{ "match": { "path": output }, "my_tags": [name] }] });
-                (json!({ "importer": name, "file": output }), read)
-            }
-            7 => {
-                let found = json!({ "findings": [{ "level": "info", "check": name, "message": "" }] });
-                (json!({ "check": name }), found)
-            }
-            8 => {
-                let said = json!({ "findings": [{ "level": "info", "check": name, "message": "edit" }] });
-                (json!({ "check": name, "operation": "edit", "edits": [echoed] }), said)
-            }
-            9 => {
-                let hash = format!("{id:064x}");
-                (json!({ "destination": name, "hashes": [hash] }), json!({ "missing": [hash] }))
-            }
-            10 => {
-                let set = json!({ "id": format!("set{id}"), "date": "2026-10-03" });
-                let req = json!({ "destination": name, "set": set, "recording": output, "tracklist": [{}] });
-                (req, json!({ "url": format!("set{id}") }))
-            }
-            11 => (json!({ "destination": name, "hash": format!("{id:064x}"), "path": output }), json!({})),
-            12 => {
-                let hash = format!("{id:064x}");
-                (json!({ "destination": name, "hash": hash }), json!({ "blob": { "blob": hash } }))
-            }
-            13 => (json!({ "destination": name, "name": "libraries.json", "blob": { "blob": "record" } }), json!({})),
-            _ => (json!({ "destination": name, "name": "libraries.json" }), json!({})),
-        };
+        let (params, answer) = hook_request(&tc, hook, &name);
         // Params that don't read, and where `invalid_params` says they're wrong.
         let (params, path) = match tc.draw(gs::weighted_booleans(0.25)) {
             false => (params, None),
@@ -984,6 +998,50 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
                 assert_eq!((e.code, e.message), (code::INTERNAL, format!("internal error while handling {method:?}")));
             }
             got => assert_eq!(got, Ok(answer), "{method} {params}"),
+        }
+    }
+    s.stop();
+}
+
+/// Every hook answers for a contribution the manifest declares, and refuses one it doesn't, or
+/// a destination of the other kind, saying so: each of them in every run.
+#[hegel::test(test_cases = 5)]
+fn prop_every_hook_answers_only_for_what_the_manifest_declares(tc: TestCase) {
+    let s = greeted(answers());
+    let manifest = echo_manifest();
+    let c = &manifest.contributes;
+    let of_kind = |kind| c.destinations.iter().find(|x| x.kind == kind).map(|x| x.name.clone()).unwrap();
+    let (store, set) = (of_kind(DestinationKind::Store), of_kind(DestinationKind::Set));
+    let declared = declared_names(c);
+    for (hook, (method, what)) in HOOKS.into_iter().enumerate() {
+        let (ours, other) = match hook {
+            9 | 11.. => (store.clone(), Some((set.clone(), "store"))),
+            10 => (set.clone(), Some((store.clone(), "set"))),
+            _ => (declared[hook][0].clone(), None),
+        };
+        let (params, answer) = hook_request(&tc, hook, &ours);
+        let got = s.call(method, params.clone());
+        match params["kind"] == "artwork" {
+            true => assert_eq!(got.unwrap_err().message, format!("invalid params: {ours} provides no artwork")),
+            false => assert_eq!(got, Ok(answer), "{method} {params}"),
+        }
+        // Echo's provider gives tags: asked for artwork, whatever was drawn, it refuses.
+        if method == method::PROVIDE {
+            let artwork = json!({ "provider": ours, "kind": "artwork", "tracks": [] });
+            let e = s.call(method, artwork).unwrap_err();
+            assert_eq!(e.message, format!("invalid params: {ours} provides no artwork"));
+        }
+        let unknown = "zz-undeclared";
+        let (params, _) = hook_request(&tc, hook, unknown);
+        let e = s.call(method, params).unwrap_err();
+        let said = format!("invalid params: the manifest declares no {what} {unknown:?}");
+        assert_eq!((e.code, e.message), (code::INVALID_PARAMS, said));
+        let e = s.call(method, json!([tc.draw(gs::integers::<i64>())])).unwrap_err();
+        assert_eq!(e.kind(), Some("invalid_params"), "{method}: {e}");
+        if let Some((theirs, kind)) = other {
+            let (params, _) = hook_request(&tc, hook, &theirs);
+            let e = s.call(method, params).unwrap_err();
+            assert_eq!(e.message, format!("invalid params: {theirs} isn't a {kind} destination"));
         }
     }
     s.stop();
@@ -1100,6 +1158,34 @@ fn cancelling_a_hook_reaches_it_and_its_callback(tc: TestCase) {
     s.served.join().unwrap();
 }
 
+/// For any of an account type's scopes, naming an access or not: echo's `ensure` asks the host
+/// which it may use (`accounts/ensure`, its request as the host gets it), and answers what the host
+/// does, which scopes are granted and which declined, or its error, as it is.
+#[hegel::test(test_cases = 25)]
+fn a_hook_asks_the_host_which_scopes_of_an_account_it_may_use(tc: TestCase) {
+    let scopes: Vec<String> =
+        ["read", "write", "upload"].into_iter().filter(|_| tc.draw(gs::booleans())).map(String::from).collect();
+    let access = tc.draw(gs::optional(gs::sampled_from(vec!["0a1b2c3d".to_string()])));
+    let ensure = EnsureAccount { kind: "mock".into(), scopes: scopes.clone(), access: access.clone() };
+    let s = greeted(echo::hooks());
+    let asked = json!({ "type": "mock", "scopes": scopes, "access": access });
+    let pending = s.host.send_request(method::RUN_COMMAND, &run("ensure", asked, None)).unwrap();
+    let Incoming::Request(req) = s.next() else { panic!("not a callback") };
+    assert_eq!(req.method, method::ACCOUNTS_ENSURE);
+    assert_eq!(req.params, serde_json::to_value(&ensure).unwrap());
+    assert_eq!((&req.params["type"], req.params.get("access").is_some()), (&json!("mock"), access.is_some()));
+    let answer = match tc.draw(gs::booleans()) {
+        true => Err(RpcError::failed("scope", "it may not")),
+        false => {
+            let (granted, declined) = scopes.into_iter().partition(|_| tc.draw(gs::booleans()));
+            Ok(Ensured { granted, declined })
+        }
+    };
+    s.host.respond(&req.id, answer.clone().map(|a| serde_json::to_value(a).unwrap()));
+    assert_eq!(pending.wait_timeout::<Ensured>(Duration::from_secs(10)).unwrap(), answer);
+    s.stop();
+}
+
 /// A hook fetches through the host (`net/fetch`, its request as the host gets it), and sends a
 /// view's rows and items in parts, which reach the host's request before its answer, in order.
 #[test]
@@ -1129,5 +1215,121 @@ fn a_hook_fetches_through_the_host_and_sends_its_rows_in_parts() {
             (vec![vec![json!("second")], vec![json!(200)]], vec![])
         ]
     );
+    s.stop();
+}
+
+/// For any rows and items a hook sends in parts, around a fetch of any URL: the fetch reaches the
+/// host as its request, after the parts sent before it, and the parts reach the host's request in
+/// order, before its answer, which is what the host's fetch answered.
+#[hegel::test(test_cases = 20)]
+fn prop_a_hooks_fetch_and_parts_reach_the_host_in_order(tc: TestCase) {
+    let sent: Vec<(bool, String)> = tc.draw(gs::vecs(gs::tuples!(gs::booleans(), gs::text().max_size(4))).max_size(4));
+    let fetched_at = tc.draw(gs::integers::<usize>().max_value(sent.len()));
+    let url = format!("https://a.org/{}", tc.draw(gs::from_regex("[a-z]{0,6}").fullmatch(true)));
+    let (parts, fetch) = (sent.clone(), url.clone());
+    let s = greeted(Hooks::new().on(move |_: RunCommand, host: &Host| {
+        let mut fetched = None;
+        for (i, (row, text)) in parts.iter().enumerate() {
+            if i == fetched_at {
+                fetched = Some(host.fetch(&Fetch::get(fetch.clone()))?);
+            }
+            match row {
+                true => host.partial_rows(vec![vec![json!(text)]]),
+                false => host.partial_items(vec![ListItem { label: text.clone(), detail: None }]),
+            }
+        }
+        let fetched = match fetched {
+            Some(f) => f,
+            None => host.fetch(&Fetch::get(fetch.clone()))?,
+        };
+        Ok(serde_json::to_value(fetched).expect("JSON"))
+    }));
+    let pending = s.host.send_request_reporting(method::RUN_COMMAND, &run("echo", json!({}), None)).unwrap();
+    let Incoming::Request(req) = s.next() else { panic!("not a callback") };
+    assert_eq!((req.method.as_str(), req.params.clone()), (method::NET_FETCH, json!({ "url": url, "method": "GET" })));
+    let parts = || -> Vec<(bool, String)> {
+        let part = |p: crate::Partial| match p.rows.is_empty() {
+            true => (false, p.items[0].label.clone()),
+            false => (true, p.rows[0][0].as_str().unwrap().to_string()),
+        };
+        pending.partials().map(part).collect()
+    };
+    // Those sent before the fetch are there when it is, the rest only after its answer.
+    assert_eq!(parts(), sent[..fetched_at]);
+    let status = tc.draw(gs::integers::<u16>().min_value(100).max_value(599));
+    let answer = json!({ "status": status, "headers": {}, "body": "ok" });
+    s.host.respond(&req.id, Ok(answer.clone()));
+    assert_eq!(pending.wait_timeout::<Value>(Duration::from_secs(10)).unwrap().unwrap(), answer);
+    assert_eq!(parts(), sent[fetched_at..]);
+    s.stop();
+}
+
+/// A hook the host cancels before it calls back fails its callback at once with `cancelled`, the
+/// callback never sent, and answers that.
+#[hegel::test(test_cases = 10)]
+fn prop_a_hook_cancelled_before_it_calls_back_isnt_called_back(tc: TestCase) {
+    let s = greeted(Hooks::new().on(|req: RunCommand, host: &Host| {
+        host.notify(&HostNotify { message: "started".into(), ..HostNotify::default() });
+        while host.ctx().check().is_ok() {
+            std::thread::yield_now();
+        }
+        host.call::<_, Value>("tracks.query", &json!({ "drive": req.context.drive }))
+    }));
+    let drive = tc.draw(gs::from_regex("[A-Z]{1,6}").fullmatch(true));
+    let pending = s.host.send_request(method::RUN_COMMAND, &run("echo", json!({}), Some(&drive))).unwrap();
+    let Incoming::Notification { params, .. } = s.next() else { panic!("not a notification") };
+    assert_eq!(params["message"], "started");
+    pending.cancel();
+    assert_eq!(pending.wait::<Value>().unwrap_err(), RpcError::cancelled());
+    s.call(method::DESCRIBE, json!({})).unwrap();
+    assert!(s.incoming.try_recv().is_err(), "no callback was sent");
+    s.stop();
+}
+
+/// A hook the host cancels before it has started never runs, and answers `cancelled`. Whether the
+/// cancel comes before the hook starts is a race, so it's run until it does.
+#[hegel::test(test_cases = 5)]
+fn prop_a_hook_cancelled_before_it_starts_never_runs(tc: TestCase) {
+    let started = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let runs = started.clone();
+    let s = greeted(Hooks::new().on(move |_: RunCommand, host: &Host| {
+        runs.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        host.ctx().check()?;
+        Ok(Value::Null)
+    }));
+    let command = run("echo", json!({ "n": tc.draw(gs::integers::<i32>()) }), None);
+    let never_ran = (0..1000).any(|_| {
+        let before = started.load(std::sync::atomic::Ordering::SeqCst);
+        let pending = s.host.send_request(method::RUN_COMMAND, &command).unwrap();
+        pending.cancel();
+        let got = pending.wait::<Value>();
+        assert!(matches!(&got, Ok(Value::Null)) || got == Err(RpcError::cancelled()), "{got:?}");
+        got.is_err() && started.load(std::sync::atomic::Ordering::SeqCst) == before
+    });
+    assert!(never_ran, "the cancel never came first");
+    s.stop();
+}
+
+/// A service starts, and a source reads its library, only for one the manifest declares: one it
+/// doesn't is refused saying so.
+#[hegel::test(test_cases = 10)]
+fn prop_a_service_or_source_runs_only_when_declared(tc: TestCase) {
+    let manifest = echo::MANIFEST.replacen(r#"capabilities = ["#, r#"capabilities = ["fs:read", "#, 1);
+    let manifest = format!(
+        "{manifest}\n[[contributes.services]]\nname = \"beat\"\ntitle = \"Beat\"\n\
+         [[contributes.sources]]\nname = \"beat\"\ntitle = \"Beat\"\n"
+    );
+    let hooks = Hooks::new().on(|_: crate::StartService, _: &Host| Ok(()));
+    let s = start_with(manifest, hooks.on(|_: ReadLibrary, _: &Host| Ok(LibraryPage::default())));
+    s.host.request::<_, HelloReply>(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
+    let other = tc.draw(gs::from_regex("[a-z]{1,6}").fullmatch(true).filter(|n: &String| n != "beat"));
+    for (method, what, answer) in
+        [(method::SERVICE_START, "service", Value::Null), (method::READ_LIBRARY, "source", json!({}))]
+    {
+        let asked = |name: &str| json!({ "service": name, "source": name, "roots": [] });
+        assert_eq!(s.call(method, asked("beat")), Ok(answer));
+        let e = s.call(method, asked(&other)).unwrap_err();
+        assert_eq!(e.message, format!("invalid params: the manifest declares no {what} {other:?}"));
+    }
     s.stop();
 }

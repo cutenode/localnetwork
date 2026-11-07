@@ -1,14 +1,17 @@
 import { epkGrantSchema } from '#lib/epk-schema.ts';
-import type { EpkView } from '#lib/epk.ts';
+import { type EpkView, grantVia } from '#lib/epk.ts';
 import { COLLECTION, EPK_CONTENT_KEY } from '#lib/nsid.ts';
-import type { Viewer } from '#lib/types.ts';
+import type { ProjectView, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
-import type { RepoClient } from '../atproto/repo-client';
+import { listAllSpaceRecords, type RepoClient } from '../atproto/repo-client';
 import type { Core } from '../core';
 import { nowIso } from '../db';
 import type { EpkService } from './epk';
 import { toJson } from './epk-fields';
 import type { ProjectService } from './projects';
+
+/** A legacy press kit as the root holds it once moved. */
+type MovedKit = Pick<EpkView, 'uri' | 'rkey' | 'space'>;
 
 /** The keys of the press kits a visit moved, and of those it couldn't. */
 export type LegacyMigration = { migrated: string[]; failed: string[] };
@@ -56,10 +59,10 @@ export class LegacyEpks {
 		const owner = await this.core.userClient(viewer.did);
 
 		if (!owner) {
-			this.core.logger.info(
-				{ did: viewer.did, kits: kits.length },
-				'legacy press kits wait for their maker to sign in again'
-			);
+			this.core.logger.info('legacy press kits wait for their maker to sign in again', {
+				did: viewer.did,
+				kits: kits.length
+			});
 
 			return result;
 		}
@@ -68,10 +71,10 @@ export class LegacyEpks {
 			try {
 				if (await this.move(owner, viewer, epk)) result.migrated.push(epk.rkey);
 			} catch (error) {
-				this.core.logger.warn(
-					{ err: error, epk: epk.uri },
-					'could not move a legacy press kit; the next visit tries again'
-				);
+				this.core.logger.warn('could not move a legacy press kit; the next visit tries again', {
+					err: error,
+					epk: epk.uri
+				});
 				result.failed.push(epk.rkey);
 			}
 		}
@@ -90,10 +93,10 @@ export class LegacyEpks {
 		// The root's press kit under this key is this one moved only if it's of the same project. Anyone can pick a key in
 		// their own repo, so one of another project means a clash, and deleting the maker's copy would lose it.
 		if (held && held.record.project !== epk.record.project) {
-			this.core.logger.warn(
-				{ ...log, held: held.uri },
-				'leaving a legacy press kit whose key the root holds for another project'
-			);
+			this.core.logger.warn('leaving a legacy press kit whose key the root holds for another project', {
+				...log,
+				held: held.uri
+			});
 
 			return false;
 		}
@@ -102,7 +105,7 @@ export class LegacyEpks {
 			const project = await this.projects.current(epk.record.project);
 
 			if (!project?.managers.includes(viewer.did)) {
-				this.core.logger.info(log, "leaving a legacy press kit of a project its maker doesn't manage");
+				this.core.logger.info("leaving a legacy press kit of a project its maker doesn't manage", log);
 
 				return false;
 			}
@@ -113,7 +116,7 @@ export class LegacyEpks {
 			const lists = await Promise.all(others.map((did) => this.epks.publishedBy(did, true)));
 
 			if (lists.flat().some((other) => other.rkey === epk.rkey)) {
-				this.core.logger.warn(log, "leaving a legacy press kit another manager's press kit has the key of");
+				this.core.logger.warn("leaving a legacy press kit another manager's press kit has the key of", log);
 
 				return false;
 			}
@@ -125,7 +128,7 @@ export class LegacyEpks {
 
 			for (const photo of content?.photos ?? [])
 				await this.epks.copyPhoto(root, photo, { did: epk.did, space: epk.space });
-			this.core.logger.info(log, "copied a legacy press kit's photos to the root");
+			this.core.logger.info("copied a legacy press kit's photos to the root", log);
 
 			const space = await this.epks.ensureKitSpace(epk.rkey, project.managers);
 			const uri = `at://${root.did}/${COLLECTION.epk}/${epk.rkey}`;
@@ -139,12 +142,14 @@ export class LegacyEpks {
 				});
 			}
 
-			const requests = await this.carryRequests(epk, space, uri);
-			await this.carryGrants(owner, epk, space, requests);
-			this.core.logger.info(
-				{ ...log, space, requests: requests.size },
-				"copied a legacy press kit's private part, requests and grants"
-			);
+			const moved = { uri, rkey: epk.rkey, space };
+			const requests = await this.carryRequests(epk, project, moved);
+			await this.carryGrants(owner, epk, project, moved, requests);
+			this.core.logger.info("copied a legacy press kit's private part, requests and grants", {
+				...log,
+				space,
+				requests: requests.size
+			});
 
 			const ref = await root.putRecord({
 				collection: COLLECTION.epk,
@@ -154,7 +159,7 @@ export class LegacyEpks {
 			});
 
 			await this.epks.indexed.awaitWrite(root.did, COLLECTION.epk, epk.rkey, ref.cid);
-			this.core.logger.info(log, 'moved a legacy press kit to the root');
+			this.core.logger.info('moved a legacy press kit to the root', log);
 			await this.core.audit.record({
 				actor: viewer.did,
 				actorRole: 'member',
@@ -171,69 +176,36 @@ export class LegacyEpks {
 		await owner.deleteRecord({ collection: COLLECTION.epk, rkey: epk.rkey });
 		await this.epks.indexed.awaitWrite(owner.did, COLLECTION.epk, epk.rkey, null);
 		await this.epks.forgetIndex(epk.space);
-		this.core.logger.info(log, "deleted a moved press kit's old record and space");
+		this.core.logger.info("deleted a moved press kit's old record and space", log);
 
 		return true;
 	}
 
 	/**
-	 * Rewrites the old space's open requests into the new one as the root, on the askers' behalf,
-	 * and grants the ones the rules approved, which waited for the move. Returns each old request's new URI.
+	 * Moves the press kit's requests over to the root's copy: the open ones still in the old space are rewritten into the
+	 * project's request space as the root, on the askers' behalf, and the ones made there since only change press kit.
+	 * Grants the open ones the rules approved, which waited for the move. Returns each old request's URI now.
 	 */
-	private async carryRequests(epk: EpkView, space: string, uri: string): Promise<Map<string, string>> {
-		const root = await this.core.root();
+	private async carryRequests(epk: EpkView, project: ProjectView, moved: MovedKit): Promise<Map<string, string>> {
 		const carried = new Map<string, string>();
-
-		const rows = await this.core.db
-			.selectFrom('epkRequest')
-			.selectAll()
-			.where('spaceUri', '=', epk.space)
-			.where('status', '=', 'pending')
-			.execute();
+		const rows = await this.core.db.selectFrom('epkRequest').selectAll().where('epkUri', '=', epk.uri).execute();
 
 		for (const row of rows) {
-			const record = toJson({
-				epk: uri,
-				role: row.role ?? undefined,
-				message: row.message ?? undefined,
-				onBehalfOf: row.requesterDid,
-				createdAt: row.createdAt
-			});
+			const inOldSpace = row.spaceUri === epk.space;
 
-			// Each asker picked their own request's key, so two can share one; the root writes each under a key of its own,
-			// once per asker, which an earlier, unfinished move may have done already.
-			const moved = await this.core.db
-				.selectFrom('epkRequest')
-				.select('uri')
-				.where('spaceUri', '=', space)
-				.where('requesterDid', '=', row.requesterDid)
-				.executeTakeFirst();
+			if (inOldSpace && row.status !== 'pending') continue;
 
-			const ref =
-				moved ??
-				(await root.createSpaceRecord({
-					space,
-					collection: COLLECTION.epkRequest,
-					record: validateRecord(COLLECTION.epkRequest, record)
-				}));
+			if (inOldSpace) carried.set(row.uri, await this.epks.copyRequest(row, project, moved.uri));
+			else {
+				await this.core.db.updateTable('epkRequest').set({ epkUri: moved.uri }).where('uri', '=', row.uri).execute();
+				carried.set(row.uri, row.uri);
+			}
 
-			await this.epks.saveRequest({
-				uri: ref.uri,
-				space,
-				epk: uri,
-				requester: row.requesterDid,
-				role: row.role,
-				message: row.message,
-				rule: row.rule,
-				createdAt: row.createdAt
-			});
-			carried.set(row.uri, ref.uri);
-
-			if (row.rule === 'auto')
-				await this.epks.writeGrant(space, {
+			if (row.status === 'pending' && row.rule === 'auto')
+				await this.epks.writeGrant(project, moved, {
 					subject: row.requesterDid,
 					via: 'auto',
-					request: ref.uri,
+					request: carried.get(row.uri),
 					createdAt: nowIso()
 				});
 		}
@@ -241,39 +213,35 @@ export class LegacyEpks {
 		return carried;
 	}
 
-	/** Rewrites the maker's grants as the root's, read from their repo in the old space. */
+	/**
+	 * Rewrites the maker's grants as the root's, read from their repo in the old space, into the project's request space.
+	 */
 	private async carryGrants(
 		owner: RepoClient,
 		epk: EpkView,
-		space: string,
+		project: ProjectView,
+		moved: MovedKit,
 		requests: Map<string, string>
 	): Promise<void> {
-		let cursor: string | undefined;
+		const records = await listAllSpaceRecords(owner, {
+			space: epk.space,
+			repo: owner.did,
+			collection: COLLECTION.epkGrant
+		});
 
-		do {
-			const page = await owner.listSpaceRecords({
-				space: epk.space,
-				repo: owner.did,
-				collection: COLLECTION.epkGrant,
-				cursor
+		for (const record of records) {
+			const grant = epkGrantSchema.safeParse(record.value);
+
+			if (!grant.success) continue;
+			const { subject, via, request, createdAt } = grant.data;
+
+			await this.epks.writeGrant(project, moved, {
+				subject,
+				via: grantVia(via),
+				// The old request goes with the old space, unless it was still open and moved too.
+				request: request && requests.get(request),
+				createdAt
 			});
-
-			for (const record of page.records) {
-				const grant = epkGrantSchema.safeParse(record.value);
-
-				if (!grant.success) continue;
-				const { subject, via, request, createdAt } = grant.data;
-
-				await this.epks.writeGrant(space, {
-					subject,
-					via: via === 'auto' || via === 'invited' ? via : 'approved',
-					// The old request goes with the old space, unless it was still open and moved too.
-					request: request && requests.get(request),
-					createdAt
-				});
-			}
-
-			cursor = page.cursor;
-		} while (cursor);
+		}
 	}
 }

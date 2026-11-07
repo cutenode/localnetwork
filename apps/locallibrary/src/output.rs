@@ -1,10 +1,11 @@
-//! Terminal output: JSON or human-readable rendering, progress bars, confirmation prompts.
+//! Terminal output: JSON or human-readable rendering, progress bars, confirmation and entry
+//! prompts.
 
 use std::borrow::Cow;
 use std::io::{IsTerminal, Write};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 use console::style;
@@ -309,7 +310,7 @@ impl Output {
         None
     }
     pub fn progress(&self) -> CliProgress {
-        CliProgress { bar: Mutex::new(None), enabled: !self.json && !self.quiet && std::io::stderr().is_terminal() }
+        CliProgress { bar: Arc::default(), enabled: !self.json && !self.quiet && std::io::stderr().is_terminal() }
     }
 }
 
@@ -485,6 +486,25 @@ pub fn clones<P, R>(plan: &Planned<P, R>) {
     }
 }
 
+/// What the user enters for `what` on stdin: typed in a terminal after a prompt on stderr (without
+/// being shown when `hidden`), else its next line, empty when there's none.
+pub fn read_entry(what: &str, hidden: bool) -> std::io::Result<String> {
+    use std::io::BufRead;
+    let terminal = std::io::stdin().is_terminal();
+    if terminal {
+        eprint!("{what}: ");
+    }
+    let entered = match terminal && hidden {
+        true => console::Term::stderr().read_secure_line()?,
+        false => {
+            let mut line = String::new();
+            std::io::stdin().lock().read_line(&mut line)?;
+            line
+        }
+    };
+    Ok(entered.trim_end_matches(['\r', '\n']).into())
+}
+
 pub fn heading(s: &str) {
     say!("{}", style(s).bold());
 }
@@ -622,8 +642,30 @@ pub fn duration(secs: u64) -> String {
 /// Progress bars on stderr, driven by library events.
 pub struct CliProgress {
     /// The current bar, and whether it counts items (true) or bytes (false).
-    bar: Mutex<Option<(ProgressBar, bool)>>,
+    bar: Arc<Mutex<Option<(ProgressBar, bool)>>>,
     enabled: bool,
+}
+
+impl CliProgress {
+    /// Where it draws, for something else to say there (a question) with the bar out of the way.
+    pub fn drawing(&self) -> Drawing {
+        Drawing(self.bar.clone())
+    }
+}
+
+/// Where a [`CliProgress`] draws its bars.
+#[derive(Clone)]
+pub struct Drawing(Arc<Mutex<Option<(ProgressBar, bool)>>>);
+
+impl Drawing {
+    /// Runs `f` with the bar hidden, drawing it again after.
+    pub fn suspend<T>(&self, f: impl FnOnce() -> T) -> T {
+        let bar = self.0.lock().unwrap_or_else(PoisonError::into_inner).as_ref().map(|(bar, _)| bar.clone());
+        match bar {
+            Some(bar) => bar.suspend(f),
+            None => f(),
+        }
+    }
 }
 
 fn phase_label(p: Phase) -> &'static str {

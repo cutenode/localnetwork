@@ -63,11 +63,11 @@ export class SupportService {
 		const params = 'mbid' in artist ? artist : { name: truncateUtf8(artist.name, ARTIST_BYTES) };
 		const { djs, ...supports } = await this.query('getArtist', params);
 		const handles = await this.accounts.views(djs.map((dj) => dj.did));
-		this.logger.debug({ artist, tracks: supports.tracks.length, djs: djs.length }, 'artist supports');
+		this.logger.debug('artist supports', { artist, tracks: supports.tracks.length, djs: djs.length });
 
 		return {
 			...supports,
-			djs: Object.fromEntries(djs.map((dj) => [dj.did, { ...dj, handle: handles.get(dj.did)?.handle ?? null }]))
+			djs: Object.fromEntries(djs.map((dj) => [dj.did, { ...dj, handle: handles.get(dj.did).handle }]))
 		};
 	}
 

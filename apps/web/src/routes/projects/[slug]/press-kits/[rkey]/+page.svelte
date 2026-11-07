@@ -52,11 +52,6 @@
 	}
 </script>
 
-<svelte:head>
-	<title>{profile.name}: {record.title} · Local Network</title>
-	<meta name="description" content="{profile.name}'s press kit: {record.headline ?? profile.tagline ?? `${kindLabel(profile.kind)} from ${placeLabel(profile)}`}" />
-</svelte:head>
-
 <div class="container-page flex flex-wrap items-center justify-between gap-3 pt-6 print:hidden">
 	<a href="/projects/{data.project.slug}/press-kits" class="menu-link inline-flex items-center gap-1.5 text-small"><ArrowLeft class="size-4" />{profile.name}'s press kits</a>
 	<div class="flex flex-wrap gap-2">

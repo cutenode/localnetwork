@@ -1,4 +1,5 @@
 import type { JsonObject, JsonValue } from '@atproto/lex-json';
+import { sql } from 'kysely';
 import { z } from 'zod';
 import { COLLECTION } from '#lib/nsid.ts';
 import { MIX_REPORT_MAX_BYTES } from '#lib/mix/report.ts';
@@ -6,6 +7,7 @@ import { parseMixReportText } from '#lib/mix/schema.ts';
 import type {
 	BlobRefJson,
 	ClaimEvidence,
+	FieldChange,
 	ProjectDetails,
 	ProjectMix,
 	ProjectProfile,
@@ -22,6 +24,7 @@ import { parseSpaceRecordUri } from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 import type { RequestRow } from '../db/schema';
+import { AVATAR_TYPES } from '../images';
 import { diff } from './diff';
 import type { DjListings } from './dj-listings';
 import type { ProfileService } from './profiles';
@@ -634,7 +637,7 @@ export class RequestService {
 
 			return { ...mix, tracklist: blob };
 		} catch (error) {
-			this.core.logger.warn({ err: error, repoDid }, 'could not copy a tracklist; publishing the mix without it');
+			this.core.logger.warn('could not copy a tracklist; publishing the mix without it', { err: error, repoDid });
 
 			return without;
 		}
@@ -643,6 +646,8 @@ export class RequestService {
 	/**
 	 * Moves an avatar the requester uploaded to their own PDS into the root
 	 * account's repo, so the published record references a blob root hosts.
+	 * Refuses a type /media won't serve: the site's form checks it, but any
+	 * client can write the request record.
 	 */
 	private async copyAvatar(profile: ProjectProfile, repoDid: string): Promise<ProjectProfile> {
 		const avatar = profile.avatar;
@@ -663,12 +668,22 @@ export class RequestService {
 				avatar.ref.$link
 			);
 
+			const type = mimeType || avatar.mimeType;
+
+			// MIME types match whatever their case, as /media compares them.
+			if (!AVATAR_TYPES.has(type.toLowerCase())) {
+				throw new UserError(
+					`Their avatar is ${type}, which the site can't show. Ask for changes so they can upload a PNG, JPEG, or WebP image`
+				);
+			}
+
 			const root = await this.core.root();
-			const blob = await root.uploadBlob(bytes, mimeType || avatar.mimeType);
+			const blob = await root.uploadBlob(bytes, type);
 
 			return { ...profile, avatar: blob };
 		} catch (error) {
-			this.core.logger.warn({ err: error, repoDid }, 'could not copy avatar; publishing without it');
+			if (error instanceof UserError) throw error;
+			this.core.logger.warn('could not copy avatar; publishing without it', { err: error, repoDid });
 			const { avatar: _dropped, ...rest } = profile;
 
 			return rest;
@@ -790,6 +805,76 @@ export class RequestService {
 		return open ?? null;
 	}
 
+	/**
+	 * What a request changes in its project's profile and private details. A pending one is compared with the project as
+	 * it is now, and is stale once the project moved past the revision it started from. A published one (approved) shows
+	 * what its approval changed, as the project's audit entry recorded it then: compared with now it would match.
+	 */
+	async changes(
+		request: RequestView,
+		project: ProjectView | null
+	): Promise<{ profile: FieldChange[]; details: FieldChange[]; stale: boolean }> {
+		const { record } = request;
+
+		if (request.status === 'approved' && (record.kind === 'create' || record.kind === 'update')) {
+			const entry = await this.core.db
+				.selectFrom('auditEntry')
+				.select('changes')
+				.where('action', 'in', ['project.create', 'project.update'])
+				.where(sql<string>`json_extract(details, '$.request')`, '=', request.uri)
+				.executeTakeFirst();
+
+			const changes = parseJson<FieldChange[]>(entry?.changes ?? null, []);
+
+			return {
+				profile: changes.filter((change) => change.field.startsWith('profile.')),
+				details: changes.filter((change) => change.field.startsWith('details.')),
+				stale: false
+			};
+		}
+
+		const current = record.kind === 'update' ? project : null;
+
+		const profile =
+			record.kind === 'create'
+				? diff({}, { profile: record.profile })
+				: current
+					? diff({ profile: current.profile }, { profile: record.profile ?? current.profile })
+					: [];
+
+		const details =
+			record.details && record.kind !== 'claim'
+				? diff((current && (await this.projects.details(current.uri))) ?? {}, record.details, 'details')
+				: [];
+
+		const stale =
+			request.status === 'pending' &&
+			!!current &&
+			record.baseRevision !== undefined &&
+			record.baseRevision !== current.revision;
+
+		return { profile, details, stale };
+	}
+
+	/**
+	 * Which of a project's managers asked for it themselves: their own request to create or claim it was approved.
+	 * Admins can name managers without asking them, and those aren't here.
+	 */
+	async joinedManagers(project: Pick<ProjectView, 'uri' | 'managers'>): Promise<Set<string>> {
+		if (project.managers.length === 0) return new Set();
+
+		const rows = await this.core.db
+			.selectFrom('request')
+			.select('requesterDid')
+			.where('requesterDid', 'in', project.managers)
+			.where('kind', 'in', ['create', 'claim'])
+			.where('status', '=', 'approved')
+			.where('resultProjectUri', '=', project.uri)
+			.execute();
+
+		return new Set(rows.map((row) => row.requesterDid));
+	}
+
 	async byRkey(rkey: string): Promise<RequestView | null> {
 		const row = await this.core.db.selectFrom('request').selectAll().where('rkey', '=', rkey).executeTakeFirst();
 
@@ -863,7 +948,7 @@ export class RequestService {
 				rkey: row.rkey,
 				kind: record.kind,
 				status: row.status,
-				requester: accounts.get(row.requesterDid) ?? { did: row.requesterDid, handle: null },
+				requester: accounts.get(row.requesterDid),
 				repoDid: row.repoDid,
 				projectUri: row.projectUri,
 				project: project ? { slug: project.slug, name: project.profile.name } : null,
@@ -872,24 +957,24 @@ export class RequestService {
 				updatedAt: row.updatedAt,
 				decision: row.decidedAt
 					? {
-							by: row.decidedBy ? (accounts.get(row.decidedBy) ?? null) : null,
+							by: row.decidedBy ? accounts.get(row.decidedBy) : null,
 							at: row.decidedAt,
 							reason: row.decisionReason
 						}
 					: null,
-				resultProjectSlug: result?.slug ?? null
+				resultProjectSlug: result?.slug ?? null,
+				deletedAt: row.deletedAt
 			};
 		});
 	}
 }
 
-/** The record a request row was indexed from; `index` stores it as JSON, so it always parses. */
+/**
+ * The record a request row was indexed from. `index` stores it as JSON of an object, and forgetting a deleted one only
+ * removes fields, so it always parses to one.
+ */
 function storedRecord(row: RequestRow): RequestRecord {
-	const record = parseJson<RequestRecord | null>(row.record, null);
-
-	if (!record) throw new Error(`Request ${row.uri} has no stored record`);
-
-	return record;
+	return parseJson<RequestRecord | null>(row.record, null)!;
 }
 
 export function actorRole(viewer: Viewer): 'admin' | 'moderator' | 'member' {

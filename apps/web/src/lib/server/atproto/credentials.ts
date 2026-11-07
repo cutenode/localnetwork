@@ -19,6 +19,7 @@ import {
 import { z } from 'zod';
 import type { Logger } from '../logger';
 import { type IdentityResolver, type ResolvedIdentity, requireKemKey } from './identity';
+import { isTooDeep, RecordValidationError, TOO_DEEP } from './lexicons';
 import type { StoredRecord } from './repo-client';
 import { parseSpaceUri, spaceRecordUri } from './spaces';
 
@@ -164,7 +165,7 @@ export class SpaceCredentialManager {
 		// The credential is bound to this key (its `cnf.kid`), which signs every request it authorizes.
 		const key = await P256Keypair.create();
 
-		const response = await this.deps.identity.serviceFetch(
+		const response = await this.deps.identity.serviceApiFetch(
 			new URL('/xrpc/com.atproto.space.getSpaceCredential', host),
 			{
 				method: 'POST',
@@ -183,7 +184,7 @@ export class SpaceCredentialManager {
 			// The authority refused the token the root's PDS minted (its audience, subject, or lifetime). Unlike
 			// SpaceDeleted, which the syncer drops the space for, this says nothing about the space itself.
 			if (error.error === 'InvalidDelegationToken') {
-				this.deps.logger.warn({ err: error, space, host }, 'space authority rejected the delegation token');
+				this.deps.logger.warn('space authority rejected the delegation token', { err: error, space, host });
 			}
 
 			throw error;
@@ -192,32 +193,23 @@ export class SpaceCredentialManager {
 		const output = spaceCredentialOutput.safeParse(body);
 
 		if (!output.success) throw new XrpcResponseError(502, 'InvalidResponse', 'No credential returned');
-		this.deps.logger.debug({ space }, 'minted space credential');
+		this.deps.logger.debug('minted space credential', { space });
 
 		return new SpaceCredential(space, output.data.credential, key);
 	}
 
 	/**
-	 * Calls a credential-authenticated space query (listRepos, listRepoOps,
-	 * getRecord, ...), decodes the response as lex JSON (bytes and CIDs
-	 * decoded), and parses it with the method's output `schema`. Retries once
-	 * with a fresh credential if it was rejected.
+	 * Calls a credential-authenticated space query (listRepos, ...), decodes
+	 * the response as lex JSON (bytes and CIDs decoded), and parses it with
+	 * the method's output `schema`. Retries once with a fresh credential if it
+	 * was rejected. Responses that carry records are read with {@link macRequest}
+	 * instead, which leaves their depth to the caller to check.
 	 */
 	async query<T>(input: RequestInput & { schema: z.ZodType<T> }): Promise<T> {
 		const response = await this.request(input);
 		const text = await response.text();
 
 		return input.schema.parse(lexParse(text));
-	}
-
-	/** Like {@link query}, for a method that answers with a MAC (see {@link macRequest}). */
-	async macQuery<T>(
-		input: RequestInput & { schema: z.ZodType<T>; mac: MacRequest }
-	): Promise<{ body: T; macParams: MacParams }> {
-		const { response, macParams } = await this.macRequest(input);
-		const text = await response.text();
-
-		return { body: input.schema.parse(lexParse(text)), macParams };
 	}
 
 	/** Calls a credential-authenticated space procedure (e.g. registerNotify) with a JSON body and parses the response with `schema`. */
@@ -232,7 +224,7 @@ export class SpaceCredentialManager {
 		return this.retryRejected(input.space, async () => {
 			const credential = await this.get(input.space);
 
-			const response = await this.deps.identity.serviceFetch(new URL(`/xrpc/${input.nsid}`, input.service), {
+			const response = await this.deps.identity.serviceApiFetch(new URL(`/xrpc/${input.nsid}`, input.service), {
 				method: 'POST',
 				redirect: 'error',
 				headers: { ...(await credential.headers(input.audience)), 'content-type': 'application/json' },
@@ -285,7 +277,7 @@ export class SpaceCredentialManager {
 			return await attempt(false);
 		} catch (error) {
 			if (!isMacFailure(error)) throw error;
-			this.deps.logger.info({ err: error, did }, 'MAC did not verify; retrying with a refreshed KEM key');
+			this.deps.logger.info('MAC did not verify; retrying with a refreshed KEM key', { err: error, did });
 
 			return attempt(true);
 		}
@@ -311,7 +303,11 @@ export class SpaceCredentialManager {
 					mac: { type: RECORD_MAC_TYPE, kemKey }
 				});
 
-				const record = spaceRecordOutput.parse(await response.json());
+				const body: JsonValue = await response.json();
+
+				// z.json() and jsonToLex recurse, so the record, one level into the body, is checked with a stack first.
+				if (isTooDeep(body, 0)) throw new RecordValidationError(input.collection, TOO_DEEP);
+				const record = spaceRecordOutput.parse(body);
 				// verifyRecord re-encodes the value to check its CID, so it needs the CIDs and bytes decoded.
 				const value = jsonToLex(record.value);
 
@@ -348,7 +344,11 @@ export class SpaceCredentialManager {
 			if (value !== undefined) url.searchParams.set(name, String(value));
 		}
 
-		const response = await this.deps.identity.serviceFetch(url, {
+		// A repo export is read as a stream. Everything else here is read whole.
+		const { identity } = this.deps;
+		const guarded = input.nsid === 'com.atproto.space.getRepo' ? identity.serviceFetch : identity.serviceApiFetch;
+
+		const response = await guarded(url, {
 			redirect: 'error',
 			headers: { ...(await credential.headers(input.audience)), ...headers },
 			signal: AbortSignal.timeout(30_000)

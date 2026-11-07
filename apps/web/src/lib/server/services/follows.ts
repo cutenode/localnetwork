@@ -83,7 +83,7 @@ export class FollowService {
 			return (await this.status(project, actor)).follows;
 		} catch (error) {
 			if (!(error instanceof HappyViewError)) throw error;
-			this.core.logger.warn({ err: error }, 'could not look up follows');
+			this.core.logger.warn('could not look up follows', { err: error });
 			throw new UserError("Following isn't available right now. Try again in a minute.", 503);
 		}
 	}
@@ -96,7 +96,7 @@ export class FollowService {
 		const served = async () => (await this.status(project, actor)).follows.join(' ') === follows.join(' ');
 
 		if (await awaitIndexed(served, this.indexWaitMs)) return;
-		this.core.logger.warn({ project: project.uri, actor }, 'the directory has not caught up with a follow yet');
+		this.core.logger.warn('the directory has not caught up with a follow yet', { project: project.uri, actor });
 		await reindex(this.directory, this.core.logger, COLLECTION.follow, actor);
 	}
 }

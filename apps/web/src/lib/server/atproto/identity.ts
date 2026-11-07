@@ -55,6 +55,12 @@ export type IdentityOptions = {
 const RESPONSE_MAX_BYTES = 2 * 1024 * 1024;
 
 /**
+ * The largest answer `serviceApiFetch` reads, in bytes. The largest it should see is a page of 500 synced records at
+ * 64 KiB each, and a 5 MB press kit photo is the largest blob read whole.
+ */
+const SERVICE_API_RESPONSE_MAX_BYTES = 32 * 1024 * 1024;
+
+/**
  * DID and handle resolution with caching, and guarded fetches for the hosts
  * they name. A space authority is resolved like any account:
  * its PDS is its space host.
@@ -64,7 +70,7 @@ const RESPONSE_MAX_BYTES = 2 * 1024 * 1024;
  * private and loopback addresses at the moment it connects, so DNS can't point a checked name somewhere else after.
  * Names that could only lead somewhere private (IP addresses, ports, `localhost` and reserved TLDs) are refused before
  * any request. The services a DID document names (its PDS, which is also a space authority's host) are anyone's to
- * choose too, so every request to one goes through `serviceFetch`, guarded the same way. Development allows private
+ * choose too, so every request to one goes through `serviceFetch` or `serviceApiFetch`, guarded the same way. Development allows private
  * addresses, where the local PDS lives.
  */
 export class IdentityResolver {
@@ -72,16 +78,21 @@ export class IdentityResolver {
 	/** A fetch safe to point at an address someone else chose. Callers must pass `redirect`. */
 	readonly fetch: typeof globalThis.fetch;
 	/**
-	 * Like `fetch`, for a service a DID document names (a PDS or space host): a port is allowed, and nothing caps the
-	 * response or its time, since repo exports and blobs run large and recordings stream, so callers bound what they read
+	 * Like `fetch`, for a stream from a service a DID document names (a PDS or space host): a port is allowed, and nothing
+	 * caps the response or its time, since repo exports run large and recordings stream, so callers bound what they read
 	 * and pass their own `signal`. A time limit here would also pipe each body through a stream that reads ahead of the
 	 * caller and holds the upstream open after the caller cancels.
 	 */
 	readonly serviceFetch: typeof globalThis.fetch;
+	/**
+	 * Like `serviceFetch`, for an answer read whole, which is what most requests to a service get. A hostile PDS can
+	 * send a body that never ends, so this one stops reading past SERVICE_API_RESPONSE_MAX_BYTES.
+	 */
+	readonly serviceApiFetch: typeof globalThis.fetch;
 	private readonly handleCache = new Map<string, { did: string | null; at: number }>();
 
 	constructor(private readonly options: IdentityOptions) {
-		const base = options.fetch ?? globalThis.fetch;
+		const base = holdingRequests(options.fetch ?? globalThis.fetch);
 
 		this.fetch = safeFetchWrap({
 			fetch: base,
@@ -95,6 +106,14 @@ export class IdentityResolver {
 			ssrfProtection: !options.allowPrivateNetwork,
 			allowCustomPort: true,
 			responseMaxSize: Infinity,
+			timeout: Infinity
+		});
+
+		this.serviceApiFetch = safeFetchWrap({
+			fetch: base,
+			ssrfProtection: !options.allowPrivateNetwork,
+			allowCustomPort: true,
+			responseMaxSize: SERVICE_API_RESPONSE_MAX_BYTES,
 			timeout: Infinity
 		});
 
@@ -131,7 +150,7 @@ export class IdentityResolver {
 		try {
 			did = (await this.resolver.handle.resolve(normalized)) ?? null;
 		} catch (error) {
-			this.options.logger.debug({ err: error, handle: normalized }, 'handle resolution failed');
+			this.options.logger.debug('handle resolution failed', { err: error, handle: normalized });
 		}
 
 		if (!did && this.options.handleResolverUrl) {
@@ -173,7 +192,7 @@ export class IdentityResolver {
 		if (web !== null && !this.isPublicHost(web)) throw new IdentityError(`Refusing to resolve ${did}`);
 
 		const doc = await this.resolver.did.resolve(did, { noCache: forceRefresh }).catch((cause: unknown) => {
-			this.options.logger.debug({ err: cause, did }, 'DID resolution failed');
+			this.options.logger.debug('DID resolution failed', { err: cause, did });
 
 			return null;
 		});
@@ -208,6 +227,23 @@ export class IdentityResolver {
 	async signingKey(did: string, forceRefresh = false): Promise<string> {
 		return (await this.resolve(did, forceRefresh)).signingKey;
 	}
+}
+
+/**
+ * `fetch`, keeping each Request it's given alive as long as the request runs and its response is held. A Request
+ * passes its signal on to the one fetch builds from it through a weak reference, and safeFetchWrap hands fetch a
+ * Request of its own that nothing else holds. A garbage collection while the request waited could drop the link, so
+ * an abort or a time limit never reached the request, and a server that never answered held it forever.
+ */
+function holdingRequests(fetch: typeof globalThis.fetch): typeof globalThis.fetch {
+	const held = new WeakMap<Response, Parameters<typeof globalThis.fetch>[0]>();
+
+	return async (input, init) => {
+		const response = await fetch(input, init);
+		held.set(response, input);
+
+		return response;
+	};
 }
 
 /** The account's KEM key, or an error saying why its space repos can't be read without one. */

@@ -4,7 +4,7 @@ Tools for DJs and the people who book them, built on the AT Protocol. Each tool 
 
 | Tool                              | What it is                                                                                                             | Built with                |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| [Local Network](apps/web)         | The website at localnetwork.computer: promoters find local DJs, DJs keep a profile, bookings run in private spaces     | SvelteKit, atproto spaces |
+| [Local Network](apps/web)         | The website at localnetwork.computer: promoters find local DJs, DJs keep a profile, bookings run in member-only spaces | SvelteKit, atproto spaces |
 | [locallibrary](apps/locallibrary) | A command line tool and terminal player that keeps rekordbox USB drives in sync, backed up and edited                  | Rust                      |
 | [localtoolbox](apps/localtoolbox) | A Chrome extension for digging on SoundCloud: track lists, download links, artists' socials, and a queue to batch them | Svelte, Manifest V3       |
 
@@ -20,9 +20,9 @@ lexicons/             Every tool's lexicons (computer.localnetwork.*), and copie
 crates/               Rust libraries: locallibrary's core and the loclib-* crates other DJ tools can use
 plugins/              locallibrary's own plugins, each a crate on its plugin SDK, and in accounts/ its account plugins, a manifest each
 packages/tokens/      The shared design system: colours for DJ data, and the theme the website and extension use
-packages/atstore/     Makes each tool's AT Store listing pictures (pnpm atstore)
+packages/atstore/     Makes each tool's AT Store listing pictures and the website's tool captures (pnpm atstore)
 vendor/               Vendored Rust crates
-tools/oxlint/         The vendored anti-slop Oxlint plugin, for every TypeScript app
+tools/oxlint/         The vendored anti-slop Oxlint plugin, for every TypeScript app, and its tests (pnpm test:tools)
 ```
 
 The repo root is both the pnpm workspace and the Cargo workspace, so commands run from here.
@@ -37,7 +37,7 @@ The TypeScript apps need the Node.js version in `.node-version` (24) and [pnpm](
 pnpm install                 # every TypeScript app's dependencies and the git hooks
 pnpm dev                     # the website on a local network with demo accounts (http://127.0.0.1:5173), and the extension's watch build
 pnpm verify                  # each app's format, lint, type check, tests and build, and the lexicons' format
-pnpm atstore                 # each tool's AT Store icon, hero and screenshots (packages/atstore)
+pnpm atstore                 # each tool's AT Store icon, hero and screenshots, and the website's tool captures (packages/atstore)
 pnpm exec ast-grep scan      # the repo's ast-grep rules (sgconfig.yml), over the Rust and TypeScript code
 
 cargo build                  # locallibrary

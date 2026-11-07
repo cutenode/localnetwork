@@ -1,9 +1,8 @@
 <!--
   The popup: the tool menu, and whichever tool is open on top of it.
 
-  The tools used to be a page each, which the popup window navigated between:
-  a reload — and a fresh round of lookups — every time one went back. They are
-  one app now: picking a tool swaps the view, going back is instant, and the
+  The tools are one app rather than a page each: picking a tool swaps the view,
+  going back is instant, with no reload or fresh round of lookups, and the
   marks read from storage once are shared by all of them.
 
   Two things here are not tools. The session queue is about the others rather
@@ -11,19 +10,19 @@
   one of them; both are reached from buttons in the header of every view and
   drawn by this component as a sheet over whichever tool is open (see
   QueueButton.svelte and QueueSheet.svelte, SettingsButton.svelte and
-  SettingsSheet.svelte). Only one sheet is ever up — $lib/view.svelte.ts sees
-  to that — so this draws whichever it is.
+  SettingsSheet.svelte). Only one sheet is ever up ($lib/view.svelte.ts sees
+  to that), so this draws whichever it is.
 
-  Which tool is open is not this component's own state but the session's (see
-  $lib/view.svelte.ts): the popup closes on every click that opens a tab, and
-  it comes back where it was rather than at the menu.
+  Which tool is open is the session's state (see $lib/view.svelte.ts), since
+  the popup closes on every click that opens a tab and has to come back where
+  it was rather than at the menu.
 
-  What is *drawn* for it, though, is this component's business, and the order
-  it does things in is the whole of how fast the popup feels:
+  What is *drawn* for it is this component's business, and the order it does
+  things in decides how fast the popup feels:
 
     1. The route is known synchronously (the localStorage mirror in
        view.svelte.ts), so the colour is painted and the header drawn on the
-       first turn — nothing is ever blank while a browser API is asked.
+       first turn, so nothing is ever blank while a browser API is asked.
     2. The tool's chunk and the page it will read are both started right
        then, at the same time, rather than one after the panel has mounted.
     3. A ghost of the panel's body stands in until the chunk has arrived and
@@ -32,6 +31,7 @@
        it is meant to restore.
 -->
 <script lang="ts">
+  import { tick } from 'svelte';
   import { fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import ToolMenu from '$lib/components/ToolMenu.svelte';
@@ -42,6 +42,8 @@
   import { toolById, loadPanel, type PanelComponent } from '$lib/tools.ts';
   import { theme } from '$lib/theme.svelte.ts';
   import { downloaded } from '$lib/downloaded.svelte.ts';
+  import { motion } from '$lib/motion.ts';
+  import { frameHeight } from '$lib/frame-height.svelte.ts';
   import { queue } from '$lib/queue.svelte.ts';
   import { settings } from '$lib/settings.svelte.ts';
   import { view } from '$lib/view.svelte.ts';
@@ -50,12 +52,17 @@
 
   theme.start();
 
-  // Every panel shows the marks, and two of them make them; reading the map
-  // once here means going back to the menu and into another tool does not
-  // read it again. The session queue is read the same way, once, and shared:
-  // one tool fills it, two of them work from it, and the count in every
-  // header comes from it. None of the three is awaited — what they read is
-  // drawn when it arrives, and the popup is on screen long before then.
+  // A panel's frame is as tall as the popup has room for, which is less than
+  // usual zoomed in or on a short screen ($lib/frame-height.svelte.ts).
+  frameHeight.start();
+
+  // The Manager, the Downloader and the queue sheet show the marks and make
+  // them; reading the map once here means going back to the menu and into
+  // another tool does not read it again. The session queue is read the same
+  // way, once, and shared: one tool fills it, two of them work from it, and
+  // the count in every header comes from it. None of the three is awaited:
+  // what they read is drawn when it arrives, and the popup is on screen long
+  // before then.
   downloaded.start();
 
   queue.start();
@@ -89,23 +96,21 @@
   }
 
   // Fetching the chunk, and starting the slow thing the panel will do first
-  // (see `warm` in $lib/tools.js). Both begin the moment the route is known,
+  // (see `warm` in $lib/tools.ts). Both begin the moment the route is known,
   // which with the synchronous mirror is before the first paint.
   $effect(() => {
     const opening = tool;
     // Cleared here rather than where it is set, so leaving a tool that would
-    // not open — the one thing there is to do about one — takes its message
+    // not open (the one thing there is to do about one) takes its message
     // with it. Nothing reads `failed` in this effect, so writing it starts
     // nothing off again.
     failed = '';
 
     if (!opening || loaded === opening.id) return;
     opening.warm?.();
-    const chunk = loadPanel(opening.id);
-
-    if (!chunk) return;
     void arrive(
-      chunk,
+      // A tool from the registry always has a chunk; only an unknown id has none.
+      loadPanel(opening.id)!,
       (component) => {
         Panel = component;
         loaded = opening.id;
@@ -121,10 +126,10 @@
   // --- the queue sheet -------------------------------------------------------
 
   // The queue is reached from the header of every view rather than from the
-  // menu, so what draws it is here rather than in any one panel — and it is a
-  // chunk of its own, for the reason the panels are: it brings the component
-  // library with it, and the tool menu the popup boots into is deliberately
-  // free of that.
+  // menu, so what draws it is here rather than in any one panel. It is a chunk
+  // of its own, for the reason the panels are: it brings the component library
+  // with it, and the tool menu the popup boots into is deliberately free of
+  // that.
   //
   // Fetched before it is asked for, but only once there is a reason to: a
   // queue with something in it is one that will be opened, and a sheet left
@@ -177,9 +182,9 @@
 
   // `inert` as an attribute rather than as `inert={…}`: Svelte sets it as a
   // DOM property, which a browser reflects onto the element and jsdom does
-  // not — so the tests that check the view behind the sheet really is shut
+  // not, so the tests that check the view behind the sheet really is shut
   // away would be checking nothing. Toggling the attribute is what every
-  // reader of it, here and in the browser, actually looks at.
+  // reader of it, here and in the browser, looks at.
   $effect(() => {
     behind?.toggleAttribute('inert', covered);
   });
@@ -188,28 +193,76 @@
 
   const OUT = { duration: 150, easing: cubicOut };
 
-  // A view slides in when it is a navigation — the user picked a tool, or came
-  // back — and is simply there when it is the popup opening on what was left
+  // A view slides in when it is a navigation (the user picked a tool, or came
+  // back) and is just there when it is the popup opening on what was left
   // open. Both go through these two handlers, so setting the flag in them
   // covers every case; it is read as the transition is created, one flush
   // after the click, and never needs to be reactive.
   let navigating = false;
 
-  const enter = () => (navigating ? IN : { duration: 0 });
+  /** Whether the next view to be drawn is one a click asked for, so focus follows it. */
+  let navigated = false;
+
+  const enter = () => motion(navigating ? IN : { duration: 0 });
+
+  const leave = () => motion(OUT);
 
   function open(id: string) {
-    navigating = true;
+    navigating = navigated = true;
     view.open = id;
   }
 
   function back() {
-    navigating = true;
+    navigating = navigated = true;
     view.open = null;
   }
+
+  // --- where focus goes ------------------------------------------------------
+
+  // The button that was pressed goes with the view it was in, which leaves
+  // focus on nothing: a keyboard starts again from the top and a screen reader
+  // says nothing about where it is. So the new view's heading takes focus
+  // after a navigation, and again when a panel replaces its ghost or a sheet
+  // goes away with no opener left to give it back to (Sheet.svelte), as long
+  // as focus really was lost. The popup opening is left alone: Chrome puts
+  // focus in it, and a heading has nothing to say that the popup appearing
+  // does not.
+
+  /** The heading of the view that is staying, not the one sliding out (inert while it goes). */
+  const heading = () =>
+    [...(behind?.children ?? [])]
+      .find((child) => child instanceof HTMLElement && !child.inert)
+      ?.querySelector('h1');
+
+  function lost() {
+    const active = document.activeElement;
+
+    return !active || active === document.body || !!active.closest('[inert]');
+  }
+
+  /** Once the new view is drawn: to its heading if a click asked for it, or if focus is nowhere. */
+  async function follow(asked: boolean) {
+    await tick();
+
+    if (asked || lost()) heading()?.focus();
+  }
+
+  let wasCovered = false;
+
+  $effect(() => {
+    void [tool, showing];
+    const asked = navigated;
+    const uncovered = wasCovered && !covered;
+    navigated = false;
+    wasCovered = covered;
+
+    if (covered || !(asked || uncovered || navigating)) return;
+    void follow(asked);
+  });
 </script>
 
 <!-- Shut away from the keyboard and from screen readers while the sheet is
-     over it: a sheet that can be tabbed out of behind is not a sheet.
+     over it, so nobody can tab out of the sheet into the view behind it.
 
      And given a floor while it is: a browser-action popup is only as tall as
      its content, and the sheet is `fixed`, which is to say out of the flow and
@@ -220,7 +273,7 @@
 <main bind:this={behind} class="relative overflow-hidden {covered ? 'min-h-[420px]' : ''}">
   {#if tool}
     {#key tool.id}
-      <div in:fly={{ x: 18, ...enter() }} out:fly={{ x: 18, ...OUT }}>
+      <div in:fly={{ x: 18, ...enter() }} out:fly={{ x: 18, ...leave() }}>
         {#if showing}
           {@const Open = showing}
           <Open {tool} onback={back} />
@@ -230,7 +283,7 @@
       </div>
     {/key}
   {:else}
-    <div in:fly={{ x: -18, ...enter() }} out:fly={{ x: -18, ...OUT }}>
+    <div in:fly={{ x: -18, ...enter() }} out:fly={{ x: -18, ...leave() }}>
       <ToolMenu onopen={open} />
     </div>
   {/if}

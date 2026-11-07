@@ -10,6 +10,7 @@ use hegel::generators as gs;
 use locallibrary::api::{self, RepairRequest, VerifyRequest};
 use locallibrary::catalog::LibraryOutcome;
 use locallibrary::device::Device;
+use locallibrary::error::Reason;
 use locallibrary::hash::Hash;
 use locallibrary::offsite::{self, CopyOptions, RestoreOptions};
 use locallibrary::op::AnyPlanned;
@@ -20,6 +21,7 @@ use locallibrary::sets::{Recording, Set, SetBook, SetEntry};
 use locallibrary::sync::{self, PullOptions};
 use loclib_plugin::StrongRef;
 
+use super::shared_accounts::{WITH, asking, mock_for, who};
 use super::*;
 
 impl Fixture {
@@ -487,7 +489,7 @@ fn a_set_is_published_as_its_dry_run_said(tc: TestCase) {
         gs::sampled_from(vec![None, Some("https://pub.example/friday"), Some("http://pub.example/friday")]),
         gs::optional(hegel::one_of!(
             gs::sampled_from(vec![" plyr.fm ".to_string(), " ".to_string(), "é".repeat(64), "n".repeat(65)]),
-            gs::text().max_size(64)
+            gs::text().exclude_categories(&["Cc"]).max_size(64)
         )),
         gs::optional(gs::sampled_from(vec![TRACK, ("https://plyr.fm/track/1", TRACK.1), (TRACK.0, "bafy"),])),
         gs::vecs(gs::sampled_from(vec!["heard".to_string(), "slow".to_string()])).max_size(2)
@@ -641,6 +643,156 @@ fn a_set_is_published_as_its_dry_run_said(tc: TestCase) {
         None => (before.0, None),
     };
     assert_eq!(now(), (kept.0, kept.1, record), "the host keeps where it's published, and the record");
+}
+
+/// How long the mock service's tokens last in
+/// [`a_destination_starts_only_when_its_accounts_will_last`].
+#[derive(Debug, Clone, Copy)]
+enum Lasting {
+    /// An hour, then they're refreshed.
+    Refreshed,
+    /// Two hours, with nothing to refresh them with.
+    TwoHours,
+    /// Half an hour, with nothing to refresh them with.
+    HalfAnHour,
+    /// Until they're revoked.
+    Ever,
+}
+
+/// What's wrong with echo's access to the account in
+/// [`a_destination_starts_only_when_its_accounts_will_last`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Mistake {
+    /// The account is signed out.
+    SignedOut,
+    /// The account's tokens are lost.
+    Lost,
+    /// The access lacks a scope echo needs now.
+    Ungiven,
+}
+
+/// For echo needing any of the mock type's `read` and `write`, an account signed in for it or not,
+/// the service granting any of what they ask, its tokens refreshed or lasting two hours, half an
+/// hour or until they're revoked, and the account then signed out, its tokens lost or echo's access
+/// lacking a scope it needs, or none of these: echo's store destination, and publishing a set with
+/// a recording small or a gigabyte big (which takes over two hours to send at the slowest), start
+/// only when echo has a default access to an account signed in, with every scope it needs, each
+/// granted what it asks, and staying signed in for an hour besides sending the recording when it
+/// isn't refreshed; otherwise each fails as `account` (`no_access`, `not_signed_in`,
+/// `missing_scope`), offering to sign in again as the account once echo has access, and echo is
+/// never asked. Publishing checks again before it's applied: a plan whose account was signed out
+/// since is refused, and echo isn't asked to publish.
+#[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(
+    needs = vec!["read"],
+    lasting = Lasting::TwoHours,
+    grants = vec!["read"],
+    given = true,
+    mistake = Option::<Mistake>::None,
+    publishing = true,
+    big = false,
+    later = true
+)]
+fn a_destination_starts_only_when_its_accounts_will_last(tc: TestCase) {
+    let some = vec![vec![], vec!["read"], vec!["write"], vec!["read", "write"]];
+    let needs: Vec<&str> = tc.draw(gs::sampled_from(some[1..].to_vec()));
+    let m = mock_for(3600, "/userinfo", "", &asking(&needs, &[]));
+    let lasting =
+        tc.draw(gs::sampled_from(vec![Lasting::Refreshed, Lasting::TwoHours, Lasting::HalfAnHour, Lasting::Ever]));
+    let grants: Vec<&str> = tc.draw(gs::sampled_from(some));
+    {
+        let mut s = m.state.lock().unwrap();
+        s.refreshless = !matches!(lasting, Lasting::Refreshed);
+        s.expires_in = match lasting {
+            Lasting::Refreshed => Some(3600),
+            Lasting::TwoHours => Some(7200),
+            Lasting::HalfAnHour => Some(1800),
+            Lasting::Ever => None,
+        };
+        s.grants = Some(grants.iter().map(|g| g.to_string()).collect());
+    }
+    let given = tc.draw(gs::booleans());
+    m.sign_in_for(given.then_some("echo"), who(json!("a"), None), None, &[]).0.unwrap();
+    let mistake =
+        tc.draw(gs::sampled_from(vec![None, Some(Mistake::SignedOut), Some(Mistake::Lost), Some(Mistake::Ungiven)]));
+    let store = &m.f.store;
+    match mistake {
+        Some(Mistake::SignedOut) => drop(m.f.plugins.sign_out_account(WITH, "a", store).unwrap()),
+        Some(Mistake::Lost) => std::fs::remove_file(store.root().join("secrets/accounts.json")).unwrap(),
+        Some(Mistake::Ungiven) if given => {
+            let file = store.root().join("accounts.json");
+            let mut kept: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+            kept["accesses"][0]["scopes"] = json!(needs[1..]);
+            std::fs::write(&file, kept.to_string()).unwrap();
+        }
+        _ => {}
+    }
+    let publishing = tc.draw(gs::booleans());
+    let big = tc.draw(gs::booleans());
+    let big = big && publishing;
+
+    let recording = store.root().join("friday.wav");
+    std::fs::File::create(&recording).unwrap().set_len(if big { 1 << 30 } else { 4 }).unwrap();
+    let s = Set {
+        id: "3m4nset0000000".into(),
+        title: Some("Friday".into()),
+        date: NaiveDate::from_ymd_opt(2026, 10, 2).unwrap(),
+        recording: Some(Recording { path: recording.clone(), report: None }),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        ..Set::default()
+    };
+    SetBook { sets: vec![s], ..SetBook::default() }.save(store).unwrap();
+
+    let asks = |scope: &str| if scope == "write" { vec!["write", "read"] } else { vec!["read"] };
+    let granted = needs.iter().all(|n| asks(n).iter().all(|a| grants.contains(a)));
+    let lasts = match lasting {
+        Lasting::Refreshed | Lasting::Ever => true,
+        Lasting::TwoHours => !big,
+        Lasting::HalfAnHour => false,
+    };
+    let expected = match mistake {
+        _ if !given => Some(Reason::NoAccess),
+        Some(Mistake::SignedOut | Mistake::Lost) => Some(Reason::NotSignedIn),
+        Some(Mistake::Ungiven) => Some(Reason::MissingScope),
+        None if !granted => Some(Reason::MissingScope),
+        None if !lasts => Some(Reason::NotSignedIn),
+        None => None,
+    };
+    let asked = || std::fs::read_to_string(Fixture::kept(store).with_file_name("asked")).unwrap_or_default();
+    let started = match publishing {
+        true => m.f.plugins.publish_plan("echo:nowhere", "last", &[], store, &Ctx::silent()).map(Some),
+        false => m.f.plugins.store_destination("echo:folder", Some(store)).map(|_| None),
+    };
+    let said = format!("{lasting:?} {mistake:?} given {given} needs {needs:?} grants {grants:?} big {big}");
+    let Some(reason) = expected else {
+        let Some(plan) = started.unwrap() else { return };
+        assert_eq!(asked().lines().count(), 1, "{said}: the dry run");
+        let later = tc.draw(gs::booleans());
+        if later {
+            m.f.plugins.sign_out_account(WITH, "a", store).unwrap();
+        }
+        let done = plan.apply(Some(store), &Ctx::silent());
+        assert_eq!(done.is_ok(), !later, "{said}");
+        if later {
+            assert_eq!(done.unwrap_err().reason(), Some(Reason::NotSignedIn), "{said}");
+            assert_eq!(asked().lines().count(), 1, "{said}: asked to publish");
+        }
+        return;
+    };
+    let e = started.err().unwrap();
+    assert_eq!((e.code(), e.reason()), ("account", Some(reason)), "{said}: {e}");
+    assert!(asked().is_empty(), "{said}: echo was asked");
+    // What resolves it for the account echo has access to comes first: giving its access what it
+    // lacks when the account was granted that, else signing in again as the account.
+    let actions = e.detail().actions;
+    let first = actions.first().and_then(|a| Some((a.method.clone()?, a.params.get("account")?.clone())));
+    let givable = matches!(mistake, Some(Mistake::Ungiven)) && asks(needs[0]).iter().all(|a| grants.contains(a));
+    let resolving = given.then(|| match givable {
+        true => ("accounts.access.give".to_string(), json!({ "plugin": WITH, "subject": "a" })),
+        false => ("accounts.sign_in.begin".to_string(), json!("a")),
+    });
+    assert_eq!(first, resolving, "{said}: {actions:?}");
 }
 
 /// A step of [`a_store_copied_through_a_plugin_comes_back_as_it_was_last_copied`].
@@ -901,4 +1053,279 @@ fn a_recording_stops_being_sent_once_publishing_is_cancelled() {
     let read = server.join().unwrap();
     assert!(read < size / 2, "{read} of {size} sent");
     assert_eq!(SetBook::load(&f.store).unwrap().sets[0].link, None);
+}
+
+/// What publishing a set meets, as
+/// [`prop_publishing_a_set_that_cant_be_planned_or_kept_fails_saying_why`] draws it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Publishing {
+    /// A set the store doesn't have.
+    UnknownSet,
+    /// The store's sets can't be read.
+    SetsUnreadable,
+    /// The DJ's profile can't be read.
+    ProfileUnreadable,
+    /// The plugin fails its dry run.
+    Fails,
+    /// Applied without the store.
+    NoStore,
+    /// The store's sets can't be read once it's planned.
+    SetsUnreadableLater,
+    /// The plugin is gone by the time it's applied.
+    Gone,
+    /// The store is locked by someone else as its link is kept.
+    Locked,
+    /// Its link (named) and its record are kept.
+    Kept,
+    /// The set changed since it was planned.
+    Changed,
+    /// It says the set is at what isn't an https address.
+    NotHttps,
+    /// It names the link past what a name may be.
+    LongName,
+    /// It says only the record holding the recording.
+    RecordOnly,
+    /// It says nothing of where it is.
+    Nowhere,
+    /// The set has a link already, which publishing replaces.
+    Relinked,
+    /// It says the recording is a record that isn't one.
+    NotARecord,
+    /// Its upload fails once it's real (a dry run only warns).
+    UploadFails,
+    /// A position to hide that the set doesn't have.
+    HideMissing,
+}
+
+/// For any way publishing a set can't be planned (a set or sets the store can't give, a profile
+/// it can't read, the plugin failing its dry run) or applied (without the store, its sets
+/// unreadable since, the plugin gone, the store locked as its link is kept), it fails, saying
+/// why, and the set keeps no link; otherwise where the plugin says it would be is planned, and
+/// the link it's at (with its name) and the record holding its recording are kept.
+#[hegel::test(test_cases = 1)]
+fn prop_publishing_a_set_that_cant_be_planned_or_kept_fails_saying_why(tc: TestCase) {
+    for publishing in [
+        Publishing::UnknownSet,
+        Publishing::SetsUnreadable,
+        Publishing::ProfileUnreadable,
+        Publishing::Fails,
+        Publishing::NoStore,
+        Publishing::SetsUnreadableLater,
+        Publishing::Gone,
+        Publishing::Locked,
+        Publishing::Kept,
+        Publishing::Changed,
+        Publishing::NotHttps,
+        Publishing::LongName,
+        Publishing::RecordOnly,
+        Publishing::Nowhere,
+        Publishing::Relinked,
+        Publishing::NotARecord,
+        Publishing::UploadFails,
+        Publishing::HideMissing,
+    ] {
+        prop_publishing_a_set_that_cant_be_planned_or_kept_fails_saying_why_case(&tc, publishing);
+    }
+}
+
+/// [`prop_publishing_a_set_that_cant_be_planned_or_kept_fails_saying_why`] for one `publishing`.
+#[hegel::test_helper]
+fn prop_publishing_a_set_that_cant_be_planned_or_kept_fails_saying_why_case(tc: &TestCase, publishing: Publishing) {
+    let upload = "\n[[contributes.settings]]\nkey = \"upload\"\ntitle = \"Upload\"\ntype = \"string\"\n";
+    let manifest =
+        format!("{ECHO}\n[[contributes.settings]]\nkey = \"answer\"\ntitle = \"Answer\"\ntype = \"string\"\n{upload}");
+    let f = Fixture::new(|dir| vec![spec(dir, &manifest, &["--partials"])], Options::default());
+    let s = set(&f.store, f.store.root());
+    let url = format!("https://sets.example/{}", s.id);
+    let link: String = tc.draw(gs::from_regex("[A-Za-z]{1,12}").fullmatch(true));
+    let record = StrongRef { uri: TRACK.0.into(), cid: TRACK.1.into() };
+    let answer = match publishing {
+        Publishing::Fails => "not json".to_string(),
+        Publishing::NotHttps => json!({ "url": "javascript:alert(1)" }).to_string(),
+        Publishing::LongName => json!({ "url": url, "name": "n".repeat(65) }).to_string(),
+        Publishing::RecordOnly => json!({ "record": record }).to_string(),
+        Publishing::Nowhere => json!({}).to_string(),
+        Publishing::NotARecord => json!({ "record": { "uri": "https://plyr.fm/track/1", "cid": TRACK.1 } }).to_string(),
+        _ => json!({ "url": url, "name": link, "record": record }).to_string(),
+    };
+    f.plugins.set_setting("echo", &f.store, "answer", Some(answer.into())).unwrap();
+    let sets = f.store.root().join(locallibrary::sets::SETS_FILE);
+    let mut named = "last";
+    match publishing {
+        Publishing::UnknownSet => named = "nope",
+        Publishing::SetsUnreadable => std::fs::write(&sets, "damaged").unwrap(),
+        Publishing::ProfileUnreadable => std::fs::write(f.store.root().join("profile.json"), "damaged").unwrap(),
+        Publishing::Relinked => {
+            let mut book = SetBook::load(&f.store).unwrap();
+            book.sets[0].link = Some(url.clone());
+            book.save(&f.store).unwrap();
+        }
+        Publishing::UploadFails => {
+            let fetches = json!([{ "url": "http://127.0.0.1:1/", "method": "PUT", "body_blob": "recording" }]);
+            f.plugins.set_setting("echo", &f.store, "upload", Some(fetches.to_string().into())).unwrap();
+        }
+        _ => {}
+    }
+    let hide: &[usize] = if publishing == Publishing::HideMissing { &[99] } else { &[] };
+    let planned = f.plugins.publish_plan("echo:nowhere", named, hide, &f.store, &Ctx::silent());
+    let code = match publishing {
+        Publishing::UnknownSet => Some("not_found"),
+        Publishing::SetsUnreadable | Publishing::ProfileUnreadable => Some("parse"),
+        Publishing::Fails | Publishing::HideMissing => Some("invalid"),
+        _ => None,
+    };
+    if let Some(code) = code {
+        return assert_eq!(planned.err().unwrap().code(), code, "{publishing:?}");
+    }
+    let planned = planned.unwrap();
+    match publishing {
+        Publishing::UploadFails => {
+            assert!(planned.warnings.iter().any(|w| w.contains("127.0.0.1")), "{:?}", planned.warnings);
+            assert!(planned.apply(Some(&f.store), &Ctx::silent()).is_err());
+            return assert_eq!(SetBook::load(&f.store).unwrap().sets[0].link, None);
+        }
+        Publishing::Relinked => {
+            assert!(planned.destructive && planned.summary.contains(&format!("replace its link {url}")));
+        }
+        _ => {}
+    }
+    if matches!(publishing, Publishing::RecordOnly | Publishing::Nowhere) {
+        let done = planned.apply(Some(&f.store), &Ctx::silent()).unwrap();
+        let kept = SetBook::load(&f.store).unwrap().sets.remove(0);
+        let record = (publishing == Publishing::RecordOnly).then_some(record);
+        assert_eq!((done.url, kept.link, kept.recording_record), (None, None, record));
+        return;
+    }
+    if !matches!(publishing, Publishing::NotHttps | Publishing::NotARecord) {
+        assert!(planned.summary.contains(&format!("it would be at {url}")), "{:?}", planned.summary);
+    }
+    let applied = match publishing {
+        Publishing::NoStore => planned.apply(None, &Ctx::silent()),
+        Publishing::SetsUnreadableLater => {
+            std::fs::write(&sets, "damaged").unwrap();
+            planned.apply(Some(&f.store), &Ctx::silent())
+        }
+        Publishing::Gone => {
+            drop(f.plugins);
+            planned.apply(Some(&f.store), &Ctx::silent())
+        }
+        Publishing::Locked => {
+            let _held = f.store.lock().unwrap();
+            planned.apply(Some(&f.store), &Ctx::silent())
+        }
+        Publishing::Changed => {
+            let mut book = SetBook::load(&f.store).unwrap();
+            book.sets[0].updated_at = Utc::now() + chrono::Duration::seconds(5);
+            book.save(&f.store).unwrap();
+            planned.apply(Some(&f.store), &Ctx::silent())
+        }
+        _ => planned.apply(Some(&f.store), &Ctx::silent()),
+    };
+    let expected = match publishing {
+        Publishing::NoStore => "invalid",
+        Publishing::SetsUnreadableLater => "parse",
+        Publishing::Gone => "stale_plan",
+        Publishing::Locked => "locked",
+        Publishing::Changed => "stale_plan",
+        Publishing::NotHttps | Publishing::LongName | Publishing::NotARecord => "external",
+        _ => {
+            let done = applied.unwrap();
+            assert_eq!((done.url.as_deref(), done.name.as_deref()), (Some(url.as_str()), Some(link.as_str())));
+            let kept = SetBook::load(&f.store).unwrap().sets.remove(0);
+            assert_eq!((kept.link, kept.recording_record), (Some(url), Some(record)));
+            return;
+        }
+    };
+    assert_eq!(applied.err().unwrap().code(), expected, "{publishing:?}");
+    if publishing != Publishing::SetsUnreadableLater {
+        assert_eq!(SetBook::load(&f.store).unwrap().sets[0].link, None);
+    }
+}
+
+/// What a store destination meets, as [`prop_a_store_destination_that_misbehaves_fails_the_copy`]
+/// draws it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Keeping {
+    /// Asked what it lacks, cancelled.
+    MissingFails,
+    /// A stored file is fetched into a file that can't be made.
+    GetNowhere,
+    /// A stored file it doesn't have is fetched.
+    GetUnknown,
+    /// A record is given and fetched back, as it is.
+    Record,
+    /// It says it lacks a stored file it wasn't asked about, and answers files that aren't in its
+    /// scratch folder.
+    Misbehaves,
+}
+
+/// For any store destination asked without a store, it's the plugin's as it says; one
+/// asked what it lacks once cancelled is, a file fetched where it can't be written fails naming
+/// where, and one it doesn't have fails; a record given comes back as it prints. Its parts of a
+/// view, sent as any request's may be, change nothing.
+#[hegel::test(test_cases = 1)]
+fn prop_a_store_destination_that_misbehaves_fails_the_copy(tc: TestCase) {
+    for keeping in
+        [Keeping::MissingFails, Keeping::GetNowhere, Keeping::GetUnknown, Keeping::Record, Keeping::Misbehaves]
+    {
+        prop_a_store_destination_that_misbehaves_fails_the_copy_case(&tc, keeping);
+    }
+}
+
+/// [`prop_a_store_destination_that_misbehaves_fails_the_copy`] for one `keeping`.
+#[hegel::test_helper]
+fn prop_a_store_destination_that_misbehaves_fails_the_copy_case(tc: &TestCase, keeping: Keeping) {
+    use locallibrary::offsite::Destination;
+    let misbehave = "\n[[contributes.settings]]\nkey = \"misbehave\"\ntitle = \"Misbehave\"\ntype = \"boolean\"\n";
+    let manifest = format!("{ECHO}{misbehave}");
+    let f = Fixture::new(|dir| vec![spec(dir, &manifest, &["--partials"])], Options::default());
+    if keeping == Keeping::Misbehaves {
+        f.plugins.set_setting("echo", &f.store, "misbehave", Some(json!(true))).unwrap();
+    }
+    let dest = f.plugins.store_destination("echo:folder", None).unwrap();
+    assert_eq!((dest.plugin(), dest.name()), ("echo", "folder"));
+    assert_eq!(f.plugins.store_destination("echo", None).err().unwrap().code(), "invalid", "no destination named");
+    let hash = Hash::of(b"stored");
+    // In its folder in the temporary folder: it's running once that's asked.
+    let kept = f.work_folder(None).join("destination");
+    match keeping {
+        Keeping::MissingFails => {
+            let cancel = locallibrary::CancelToken::new();
+            cancel.cancel();
+            let asked = dest.missing(&[hash], &Ctx::new(&locallibrary::progress::NoProgress, cancel));
+            assert!(matches!(asked, Err(Error::Cancelled)), "{asked:?}");
+        }
+        Keeping::GetNowhere => {
+            std::fs::create_dir_all(kept.join("objects")).unwrap();
+            std::fs::write(kept.join("objects").join(hash.to_hex()), b"stored").unwrap();
+            let into = f._dir.path().join("none").join("got");
+            let e = dest.get(&hash, &into, &Ctx::silent()).unwrap_err();
+            assert!(e.to_string().contains(&into.display().to_string()), "{e}");
+        }
+        Keeping::Misbehaves => {
+            let dest = f.plugins.store_destination("echo:folder", Some(&f.store)).unwrap();
+            let fails = "the Echo plugin failed: ";
+            let e = failure(dest.missing(&[hash], &Ctx::silent()).unwrap_err());
+            assert_eq!(e, format!("{fails}it lacks {:?}, which it wasn't asked about", "0".repeat(64)));
+            let e = failure(dest.get(&hash, &f._dir.path().join("got"), &Ctx::silent()).unwrap_err());
+            assert!(e.starts_with(&format!("{fails}its file \"none\" isn't there")), "{e}");
+            let e = failure(dest.get_manifest("store.json", &Ctx::silent()).unwrap_err());
+            assert!(e.starts_with(&format!("{fails}its file \"none\" isn't there")), "{e}");
+        }
+        Keeping::GetUnknown => {
+            let e = dest.get(&hash, &f._dir.path().join("got"), &Ctx::silent()).unwrap_err();
+            assert_eq!(e.code(), "not_found", "{e}");
+        }
+        Keeping::Record => {
+            let bytes: Vec<u8> = tc.draw(gs::vecs(gs::integers::<u8>()).max_size(16));
+            dest.put_manifest("store.json", &bytes, &Ctx::silent()).unwrap();
+            assert_eq!(dest.get_manifest("store.json", &Ctx::silent()).unwrap(), Some(bytes));
+            assert_eq!(dest.get_manifest("none.json", &Ctx::silent()).unwrap(), None);
+            let colored = json!({ "name": "\u{1b}[31mred" }).to_string();
+            dest.put_manifest("labels.json", colored.as_bytes(), &Ctx::silent()).unwrap();
+            let back: Value =
+                serde_json::from_slice(&dest.get_manifest("labels.json", &Ctx::silent()).unwrap().unwrap()).unwrap();
+            assert_eq!(back, json!({ "name": "red" }));
+        }
+    }
 }

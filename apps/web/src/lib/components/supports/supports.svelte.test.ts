@@ -77,48 +77,64 @@ describe('ArtistSupport', () => {
 		await expect.element(more).toBeVisible();
 	});
 
-	it('shows placeholders while loading, and says when no set credits the artist or the directory is offline', async () => {
-		const screen = await render(ArtistSupport, {
-			supports: pending<ArtistSupports | null>(),
-			retryHref: '/artists/ferrule'
-		});
+	it('says when no set credits the artist or the directory is offline', async () => {
+		const screen = await render(ArtistSupport, { supports: { tracks: [], djs: {} }, retryHref: '/artists/ferrule' });
 
-		await expect.element(page.getByText('Loading who played their tracks')).toBeInTheDocument();
-
-		await screen.rerender({ supports: { tracks: [], djs: {} } });
 		await expect.element(page.getByText('No plays yet')).toBeVisible();
 		await expect.element(page.getByRole('link', { name: 'Find another artist' })).toHaveAttribute('href', '/artists');
 
 		await screen.rerender({ supports: null });
 		await expect.element(page.getByText('Artists offline')).toBeVisible();
 	});
+
+	it('falls back for a DJ, place and track the directory knows little about', async () => {
+		const track = { id: 'name:dusk', title: 'Dusk', artist: 'Ferrule', artists: [{ name: 'Ferrule' }], supports: 1 };
+
+		const supports: ArtistSupports = {
+			artist: { name: 'Ferrule', supports: 1, djCount: 1 },
+			tracks: [
+				{
+					track,
+					plays: [
+						{
+							did: 'did:plc:ghost',
+							set: {
+								uri: 'at://did:plc:ghost/computer.localnetwork.dj.set/3k',
+								cid: 'bafyset',
+								date: '2026-10-13',
+								trackCount: 12
+							}
+						}
+					]
+				}
+			],
+			djs: {}
+		};
+
+		await render(ArtistSupport, { supports, retryHref: '/artists/name/Ferrule' });
+
+		await expect.element(page.getByText('1 all-time support from 1 DJ', { exact: true })).toBeVisible();
+		await expect.element(page.getByRole('link', { name: /MusicBrainz/ })).not.toBeInTheDocument();
+		await expect
+			.element(page.getByRole('list', { name: 'Plays of Dusk' }).getByRole('listitem'))
+			.toHaveTextContent('Tue 13 Oct did:plc:ghost Somewhere');
+	});
 });
 
 describe('ArtistPage', () => {
-	const canonical = () => document.head.querySelector('link[rel="canonical"]')?.getAttribute('href');
+	// Its title and canonical address come from the load (see src/lib/server/meta.test.ts).
+	it('shows the artist under a way back to all artists', async () => {
+		await render(ArtistPage, { supports: artistSupports });
 
-	it('names an MBID page and its canonical address before the data comes', async () => {
-		await render(ArtistPage, {
-			name: null,
-			canonical: '/artists/2a8e4f60-1c3b-4d7e-9a05-6b1f0c2d3e41',
-			origin: 'https://localnetwork.test',
-			supports: pending<ArtistSupports | null>()
-		});
-
-		await expect.poll(() => document.title).toBe('Artist · Local Network');
-		expect(canonical()).toBe('https://localnetwork.test/artists/2a8e4f60-1c3b-4d7e-9a05-6b1f0c2d3e41');
+		await expect.element(page.getByRole('link', { name: 'Artists' })).toHaveAttribute('href', '/artists');
+		await expect.element(page.getByRole('heading', { level: 1, name: 'Ferrule' })).toBeVisible();
 	});
 
-	it('titles a name page by its name, and points it at the MBID page once sets give the name one', async () => {
-		await render(ArtistPage, {
-			name: 'ferrule',
-			canonical: null,
-			origin: 'https://localnetwork.test',
-			supports: Promise.resolve(artistSupports)
-		});
+	it('offers to try again when the directory is offline', async () => {
+		await render(ArtistPage, { supports: null });
 
-		await expect.poll(() => document.title).toBe('Ferrule · Local Network');
-		expect(canonical()).toBe('https://localnetwork.test/artists/2a8e4f60-1c3b-4d7e-9a05-6b1f0c2d3e41');
+		await expect.element(page.getByText('Artists offline')).toBeVisible();
+		await expect.element(page.getByRole('link', { name: 'Try again' })).toBeVisible();
 	});
 });
 

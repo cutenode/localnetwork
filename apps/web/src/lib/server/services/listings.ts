@@ -4,7 +4,7 @@ import { isListedRole, SPACE_KINDS, type SpaceKind } from '#lib/capabilities.ts'
 import { COLLECTION } from '#lib/nsid.ts';
 import { validateRecord } from '../atproto/lexicons';
 import { type StoredRecord, xrpcErrorName } from '../atproto/repo-client';
-import { parseSpaceUri, sharedSpace } from '../atproto/spaces';
+import { parseSpaceUri, rkeyOf, sharedSpace } from '../atproto/spaces';
 import { canonicalJson } from '../audit/chain';
 import type { Core } from '../core';
 import { nowIso } from '../db';
@@ -22,8 +22,6 @@ const LISTING_KIND = { performer: 'act', party: 'party', venue: 'venue' } as con
 const MAX_PEOPLE = 50;
 
 const digestKey = (space: string) => `listing_digest:${space}`;
-
-const rkeyOf = (record: StoredRecord) => record.uri.split('/').at(-1) ?? '';
 
 const digestOf = (record: JsonObject) => createHash('sha256').update(canonicalJson(record)).digest('base64url');
 
@@ -67,7 +65,7 @@ export class ListingWriter {
 			try {
 				await this.update(space);
 			} catch (error) {
-				this.core.logger.warn({ err: error, space }, "could not update a space's listing");
+				this.core.logger.warn("could not update a space's listing", { err: error, space });
 			}
 		})();
 
@@ -89,16 +87,17 @@ export class ListingWriter {
 		// The root's own repo: each listing is checked against what the root wrote, which a directory that's behind can't say.
 		// ast-grep-ignore: no-direct-pds-read
 		const records = await root.listRecords(COLLECTION.listing);
-		const published = new Map(records.map((record) => [rkeyOf(record), record]));
+		const published = new Map(records.map((record) => [rkeyOf(record.uri), record]));
 		const spaces = await this.core.db.selectFrom('sharedSpace').select('spaceUri').execute();
 
 		for (const { spaceUri } of spaces) {
-			const skey = parseSpaceUri(spaceUri)?.skey ?? '';
+			// Every sharedSpace row's URI parses: saveStatus only runs for a space index() or live() parsed.
+			const skey = parseSpaceUri(spaceUri)!.skey;
 
 			try {
 				await this.update(spaceUri, published.get(skey) ?? null);
 			} catch (error) {
-				this.core.logger.warn({ err: error, space: spaceUri }, "could not check a space's listing");
+				this.core.logger.warn("could not check a space's listing", { err: error, space: spaceUri });
 			}
 
 			published.delete(skey);
@@ -110,7 +109,7 @@ export class ListingWriter {
 
 			if (exists.some(Boolean)) continue;
 			await root.deleteRecord({ collection: COLLECTION.listing, rkey });
-			this.core.logger.info({ rkey }, 'deleted the listing of a space that is gone');
+			this.core.logger.info('deleted the listing of a space that is gone', { rkey });
 		}
 	}
 
@@ -140,7 +139,7 @@ export class ListingWriter {
 
 			if (await current()) {
 				await root.deleteRecord({ collection: COLLECTION.listing, rkey });
-				this.core.logger.info({ space }, 'deleted a listing');
+				this.core.logger.info('deleted a listing', { space });
 			}
 
 			await db.deleteFrom('kv').where('key', '=', digestKey(space)).execute();
@@ -187,7 +186,7 @@ export class ListingWriter {
 		const leaked = rows.filter((row) => row.hidden === 1 && json.includes(row.did));
 
 		if (leaked.length > 0) {
-			this.core.logger.error({ space }, 'refusing to write a listing that names someone hidden');
+			this.core.logger.error('refusing to write a listing that names someone hidden', { space });
 
 			return null;
 		}
@@ -219,6 +218,6 @@ export class ListingWriter {
 			await put(await this.published(rkey));
 		}
 
-		this.core.logger.info({ space }, 'wrote a listing');
+		this.core.logger.info('wrote a listing', { space });
 	}
 }

@@ -181,28 +181,31 @@ fn key_name(k: &K) -> String {
 pub fn commands(view: View) -> Vec<(Act, Item)> {
     let own: &[Scope] = match view {
         View::Library => &[Scope::Tracks, Scope::Tree, Scope::Details, Scope::Library, Scope::Crate],
+        View::Prepare => &[Scope::Prepare],
         View::Drives => &[Scope::Drives],
-        View::Snapshots => &[Scope::Snapshots],
         View::Profile => &[Scope::Profile],
         View::Mixes => &[Scope::Mixes],
     };
-    let scopes = own.iter().chain(&[Scope::Global]);
+    let scopes = own.iter().chain(&[Scope::Global, Scope::Goto]);
     let named = scopes.flat_map(|scope| KEYMAP.iter().filter(move |b| b.scope == *scope && !b.name.is_empty()));
     named
         .map(|b| {
-            let detail = b.keys.first().map_or_else(|| b.shown.to_string(), key_name);
+            // What follows `g` needs the `g`.
+            let keys = b.keys.first().filter(|_| b.scope != Scope::Goto);
+            let detail = keys.map_or_else(|| b.shown.to_string(), key_name);
             (b.act, Item::new(b.name, detail))
         })
         .collect()
 }
 
 impl App {
-    /// `:`: every action by name, then plugins' commands, operations and analyzers, in the
+    /// `:`: every action by name, the player's looks, then plugins' commands, operations and analyzers, in the
     /// library the columns of their fields, their settings, what they suggest, and the fixes the
     /// last check found.
     pub(super) fn open_palette(&mut self) {
         let acts = commands(self.view)
             .into_iter()
+            .chain(super::looks::items())
             .chain(self.plugin_items(self.action_drive().as_deref(), &super::plugins::EVERYWHERE));
         let fields = (self.view == View::Library).then(|| self.field_items()).into_iter().flatten();
         let fixes = super::plugins::checks::items(self);

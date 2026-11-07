@@ -60,6 +60,36 @@ export function playSpeed(play: Pick<MixPlay, 'tempo' | 'speedRange'>): string {
 /** Plays at or above this are shown as certain. */
 export const CONFIDENT = 0.5;
 
+/** A stretch of the mix a play was heard at one BPM, in seconds into the mix. */
+export type TempoStep = { from: number; to: number; bpm: number };
+
+/**
+ * A play's BPM across the mix: one step at `playedBpm`, or where the pitch fader was ridden, one
+ * per line at its speed (kept within `speedRange`, which leaves out speeds only searched at).
+ * None without a BPM.
+ */
+export function tempoSteps(play: MixPlay): TempoStep[] {
+	if (play.playedBpm === undefined) return [];
+
+	const lines = play.lines ?? [];
+
+	if (!play.speedRange || !lines.length) return [{ from: play.start, to: play.end, bpm: play.playedBpm }];
+
+	const [slowest, fastest] = play.speedRange;
+	const recorded = play.track.bpm ?? play.playedBpm / play.tempo;
+
+	return lines.map((line, k) => ({
+		from: Math.max(line.start, play.start),
+		to: lines[k + 1]?.start ?? play.end,
+		bpm: recorded * Math.min(Math.max(line.tempo, slowest), fastest)
+	}));
+}
+
+/** The BPM `t` seconds into the mix, of the step heard then (the first, before it starts). */
+export function bpmAt(steps: TempoStep[], t: number): number | undefined {
+	return (steps.findLast((step) => step.from <= t) ?? steps[0])?.bpm;
+}
+
 export type Summary = {
 	tracks: number;
 	confident: number;
@@ -75,6 +105,9 @@ export function summarize(report: MixReport): Summary {
 		.filter((b): b is number => b !== undefined)
 		.sort((a, b) => a - b);
 
+	// The slowest and fastest, a ridden pitch fader's ends included.
+	const stepped = report.plays.flatMap(tempoSteps).map((step) => step.bpm);
+
 	const known = report.transitions.filter((t) => t.harmony);
 
 	return {
@@ -85,9 +118,9 @@ export function summarize(report: MixReport): Summary {
 		tempo: bpms.length
 			? {
 					median: bpms[Math.floor(bpms.length / 2)],
-					low: bpms[0],
-					high: bpms[bpms.length - 1],
-					steady: Math.round(bpms[bpms.length - 1]) - Math.round(bpms[0]) < 2
+					low: Math.min(...stepped),
+					high: Math.max(...stepped),
+					steady: Math.round(Math.max(...stepped)) - Math.round(Math.min(...stepped)) < 2
 				}
 			: null,
 		harmonic: { good: known.filter((t) => t.harmony !== 'clash').length, known: known.length }
@@ -188,14 +221,33 @@ export function niceTicks(low: number, high: number, count: number): number[] {
 	const span = high - low;
 
 	if (!(span > 0)) return [low];
-	const raw = span / count;
-	const mag = 10 ** Math.floor(Math.log10(raw));
-	const step = [1, 2, 5, 10].map((m) => m * mag).find((s) => span / s <= count) ?? mag * 10;
+	// Climb the 1, 2, 5, 10, 20... ladder from span / count's power of ten to the first step that leaves at most `count`
+	// gaps. Steps grow without bound, so the climb always ends (a count of 0 or less starts it at NaN, which ends it at
+	// once). Then step down while a step is as wide as the span, so at least one tick lands in it. That only happens for a
+	// count under 3: the first fitting step is under 2.5 * span / count.
+	let rung = 3 * Math.floor(Math.log10(span / count));
+
+	while (span / ladder(rung, 1) > count) rung++;
+
+	while (ladder(rung, 1) >= span) rung--;
+	const step = ladder(rung, 1);
+	// A BPM off a pitch multiply can land a rounding error short of a round value, which still gets its tick. That error
+	// scales with the values, so a wide step mustn't widen it: a billionth of 1000 would let 0 in for a low of 0.000001.
+	const slack = Math.min(step * 1e-9, 8 * Number.EPSILON * Math.max(Math.abs(low), Math.abs(high)));
 	const out: number[] = [];
 
-	for (let v = Math.ceil(low / step) * step; v <= high + 1e-9; v += step) out.push(Number(v.toFixed(6)));
+	// One step past each end, as low / step and high / step can round across a whole number.
+	for (let i = Math.ceil(low / step) - 1; i <= Math.floor(high / step) + 1; i++) out.push(ladder(rung, i));
 
-	return out;
+	return out.filter((tick) => tick >= low - slack && tick <= high + slack);
+}
+
+/** `i` steps of rung `rung` on the 1, 2, 5, 10, 20... ladder, rounded once so it prints as a short decimal. */
+function ladder(rung: number, i: number): number {
+	const units = i * [1, 2, 5][((rung % 3) + 3) % 3];
+	const exponent = Math.floor(rung / 3);
+
+	return exponent < 0 ? units / 10 ** -exponent : units * 10 ** exponent;
 }
 
 /** Seconds between time labels so about `target` fit along `duration`. */

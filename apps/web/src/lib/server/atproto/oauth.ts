@@ -259,12 +259,44 @@ function sqliteStore<T>(db: Db, table: 'oauthState' | 'oauthSession') {
 	};
 }
 
+/**
+ * How long a request from the OAuth client may take, its body included. The client sets no limit on session requests,
+ * and the guarded fetch has none of its own. 30 seconds is what the app gives a space read from a PDS
+ * (SpaceCredentialManager's `send`), and covers the largest blob a session uploads, a 5 MB press kit photo
+ * (EPK_PHOTO_MAX_BYTES).
+ */
+const REQUEST_TIMEOUT_MS = 30_000;
+
 export class OAuthService {
 	readonly client: NodeOAuthClient;
 	readonly scopes = SCOPES;
 
-	constructor(private readonly deps: { config: Config; db: Db; logger: Logger }) {
+	constructor(
+		private readonly deps: {
+			config: Config;
+			db: Db;
+			logger: Logger;
+			/**
+			 * A guarded fetch (IdentityResolver's `serviceApiFetch`). Signing in talks to servers a user's DID document
+			 * names: their PDS, the authorization server its metadata names, and the PDS again for every session request.
+			 */
+			fetch: typeof globalThis.fetch;
+			/** How long a request may take, for tests (REQUEST_TIMEOUT_MS otherwise). */
+			timeoutMs?: number;
+		}
+	) {
 		this.client = new NodeOAuthClient({
+			// The client hands fetch a Request, whose redirect mode the guarded fetch can't tell from the default and so
+			// refuses. Passing the mode along, with `follow` turned into `error`, means no request leaves the guard. Each
+			// request also gets a time limit, on top of any signal the client gave it, so a server that never answers
+			// can't hold a sign-in or a session request open.
+			fetch: (input, init) => {
+				const request = new Request(input, init);
+				const signal = AbortSignal.any([request.signal, AbortSignal.timeout(deps.timeoutMs ?? REQUEST_TIMEOUT_MS)]);
+				const redirect = request.redirect === 'follow' ? 'error' : request.redirect;
+
+				return deps.fetch(request, { redirect, signal });
+			},
 			clientMetadata: clientMetadata(deps.config, DECLARED_SCOPES),
 			// An http PDS only lives on a private network, which ALLOW_PRIVATE_NETWORK already lets the
 			// production build reach (scripts/dev-network.ts --production, for Lighthouse's signed-in pages).
@@ -282,9 +314,10 @@ export class OAuthService {
 	}
 
 	/**
-	 * Starts an authorization for `identifier` (a handle or DID). If the user's PDS rejects the spaces scopes (it does
-	 * not run the spaces alpha yet), falls back to the base scopes and the root account writes on the user's behalf,
-	 * then to plain `atproto` for a PDS that doesn't know granular scopes at all.
+	 * Starts an authorization for `identifier`, a handle or DID, or a host's URL with `prompt: 'create'` to make an
+	 * account there first. If the user's PDS rejects the spaces scopes (it does not run the spaces alpha yet), falls
+	 * back to the base scopes and the root account writes on the user's behalf, then to plain `atproto` for a PDS that
+	 * doesn't know granular scopes at all.
 	 *
 	 * A grant replaces the one before it, so the optional scopes `account` already holds are asked for again, or
 	 * approving one would drop another. Asking for `optional` too never falls back below the tier `account` signed in
@@ -294,9 +327,9 @@ export class OAuthService {
 	async authorize(
 		identifier: string,
 		state: string,
-		options: { account?: SignedInAccount; optional?: OptionalScope } = {}
+		options: { account?: SignedInAccount; optional?: OptionalScope; prompt?: 'create' } = {}
 	): Promise<URL> {
-		const { account, optional } = options;
+		const { account, optional, prompt } = options;
 		const held = account ? heldOptionalScopes(account.grantedScope, account.did) : [];
 		const floor = optional && account ? TIERS.indexOf(tierOf(account)) : TIERS.length - 1;
 		const extras = optional ? OPTIONAL_SCOPES[optional] : [''];
@@ -310,7 +343,7 @@ export class OAuthService {
 
 		for (;;) {
 			try {
-				return await this.client.authorize(identifier, { scope, state });
+				return await this.client.authorize(identifier, { scope, state, prompt });
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				const next = rest.shift();
@@ -318,7 +351,7 @@ export class OAuthService {
 				if (!/scope/i.test(message)) throw error;
 
 				if (!next) throw optional ? new OptionalScopeUnsupported(optional) : error;
-				this.deps.logger.info({ identifier, err: error, scope: next }, 'PDS rejected scopes; asking for fewer');
+				this.deps.logger.info('PDS rejected scopes; asking for fewer', { identifier, err: error, scope: next });
 				scope = next;
 			}
 		}
@@ -349,7 +382,7 @@ export class OAuthService {
 		try {
 			return await this.client.restore(did);
 		} catch (error) {
-			this.deps.logger.debug({ did, err: error }, 'no usable OAuth session');
+			this.deps.logger.debug('no usable OAuth session', { did, err: error });
 
 			return null;
 		}
@@ -365,7 +398,7 @@ export class OAuthService {
 		try {
 			await this.client.revoke(did);
 		} catch (error) {
-			this.deps.logger.warn({ did, err: error }, 'could not revoke OAuth session');
+			this.deps.logger.warn('could not revoke OAuth session', { did, err: error });
 		}
 	}
 }

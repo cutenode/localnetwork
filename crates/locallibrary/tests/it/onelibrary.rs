@@ -556,3 +556,62 @@ fn a_drives_schema_is_not_trusted() {
     one.connection().execute_batch("DROP TABLE futureCue; CREATE TABLE futureMenu (name varchar)").unwrap();
     one.remove_tracks(&[copy]).unwrap();
 }
+
+/// Remakes the fixtures in fixtures/onelibrary/ with the sqlcipher CLI (`brew install sqlcipher`),
+/// an implementation independent of locallibrary's, using SQLCipher 4's defaults as rekordbox does:
+/// `cargo test -p locallibrary --test it remake_sqlcipher_fixtures -- --ignored`.
+///
+/// - `empty.db`: src/onelibrary/schema.sql only (what locallibrary creates new databases from).
+/// - `wal.db` and `wal.db-wal`: wal.sql, one track in the database file and a second one only in
+///   the WAL (copied while the connection is open, before SQLite checkpoints on close).
+#[test]
+#[ignore = "rewrites the committed fixtures"]
+fn remake_sqlcipher_fixtures() {
+    let fixtures = common::fixtures().join("onelibrary");
+    let schema = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/onelibrary/schema.sql");
+    let schema = format!(".read {}", schema.display());
+    let tmp = tempfile::tempdir().unwrap();
+    let run = |db: &str, statements: &[&str]| {
+        common::sqlcipher::run(&tmp.path().join(db), onelibrary::cipher::PASSPHRASE, statements)
+            .expect("remaking the fixtures needs the sqlcipher CLI");
+    };
+
+    run("empty.db", &[&schema]);
+    fs::copy(tmp.path().join("empty.db"), fixtures.join("empty.db")).unwrap();
+
+    let (wal, copy) = (tmp.path().join("wal.db"), fixtures.join("wal.db"));
+    let copy_both = format!(
+        ".shell cp '{}' '{}' && cp '{}-wal' '{}-wal'",
+        wal.display(),
+        copy.display(),
+        wal.display(),
+        copy.display()
+    );
+    let wal_sql = format!(".read {}", fixtures.join("wal.sql").display());
+    run("wal.db", &["PRAGMA journal_mode = WAL;", &schema, &wal_sql, &copy_both]);
+}
+
+/// A OneLibrary database that can't be read is reported and left alone on a drive that has
+/// export.pdb too (its My Tags read from there), and is an error on a drive exported for
+/// OneLibrary players only.
+#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn prop_an_unreadable_onelibrary_fails_only_a_drive_without_export_pdb(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "USB");
+    let with_pdb = tc.draw(gs::booleans());
+    match with_pdb {
+        true => common::add_onelibrary(&root),
+        false => common::onelibrary_only(&root),
+    }
+    common::rot(&root.join(paths::LIBRARY_PLUS_DB));
+    let d = Device::open_export(&root).unwrap();
+    let read = locallibrary::tags::read(&d);
+    match with_pdb {
+        true => {
+            let tags = read.unwrap();
+            assert!(tags.warnings.iter().any(|w| w.contains("Only export.pdb will be changed")), "{:?}", tags.warnings);
+        }
+        false => assert!(read.is_err()),
+    }
+}

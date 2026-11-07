@@ -61,7 +61,9 @@ jobs:
       - run: pnpm lint
       - run: pnpm check
       - run: pnpm knip
-      - run: pnpm exec playwright install --with-deps chromium
+      # No --with-deps, here or below: the runner has the libraries Chromium needs, and the fonts it
+      # would add come from Ubuntu's mirror, which has taken long enough to cancel the job.
+      - run: pnpm exec playwright install chromium
       - run: pnpm test
       - run: pnpm test:storybook
       - run: pnpm test:build
@@ -95,7 +97,7 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright install chromium
       - name: Pull the HappyView image (scripts/lib/happyview.ts)
         run: docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0
       - run: pnpm test:coverage
@@ -121,7 +123,7 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright install chromium
       - name: Pull the HappyView image (scripts/lib/happyview.ts)
         run: docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0
       - run: pnpm test:e2e --project chromium
@@ -150,7 +152,7 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright install chromium
       # Lighthouse starts Playwright's Chromium itself, with its sandbox. Ubuntu's AppArmor policy
       # keeps programs without a profile of their own from creating the user namespaces the sandbox
       # runs in. Lifted here rather than running Chromium without its sandbox.
@@ -187,7 +189,7 @@ jobs:
           path: apps/web/lighthouse-report/
 
   # The image as it's deployed: built from the repo root, then started with an empty volume at
-  # /data against the local network and asked for a few pages (scripts/docker-smoke.sh). The
+  # /data against the local network and asked for a few pages (tests/docker.test.ts). The
   # network runs from the workspace, so it's installed here too.
   docker:
     name: Docker image
@@ -213,11 +215,11 @@ jobs:
         with:
           context: .
           file: apps/web/Dockerfile
-          tags: localnetwork:ci
+          tags: localnetwork
           load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - run: scripts/docker-smoke.sh localnetwork:ci
+      - run: pnpm test:docker
 
   # Coverage and size on the pull request, in one comment each push updates: the integration job's
   # coverage against main's latest (davelosert/vitest-coverage-report-action, with each changed

@@ -7,15 +7,23 @@ use chrono::TimeDelta;
 use hegel::TestCase;
 use hegel::generators as gs;
 use loclib_plugin::{
-    Capability, DestinationKind, Fetched, Manifest, PublishedSet, SettingType, TokenPlace, TracklistEntry, method,
+    AccountType, Capability, DestinationKind, Fetched, Manifest, PublishedSet, SettingType, TokenPlace, TracklistEntry,
+    method,
 };
 use loclib_progress::{Event, Phase};
 use serde_json::{Value, json};
 
-use self::soundcloud::{PAGE, Reply, SoundCloud, TOKEN, refusal, start};
+use self::soundcloud::{PAGE, Reply, SIGNED_OUT, SoundCloud, TOKEN, refusal, start};
 use super::track::{MAX_DESCRIPTION, MAX_TITLE};
 use super::upload::{AUTHORIZATION, LONGEST_WAIT, NEWEST, TRACKS, TRIES, retry_after};
 use super::*;
+
+/// The account type the plugin asks for, as the SoundCloud account plugin provides it.
+fn account_type() -> AccountType {
+    let manifest = Manifest::parse(include_str!("../../accounts/soundcloud-account/locallibrary-plugin.toml"));
+    let [account_type] = &manifest.unwrap().contributes.account_types[..] else { panic!("one account type") };
+    account_type.clone()
+}
 
 fn set() -> PublishedSet {
     PublishedSet {
@@ -61,9 +69,9 @@ fn phases(events: &[Event]) -> Vec<u64> {
     started
 }
 
-/// It reaches SoundCloud's API alone, publishes sets at one destination, signs in to SoundCloud
-/// through Local Network's token exchange at a fixed port, sending the token as `OAuth`, and
-/// keeps who can listen, the genre and the artwork as settings.
+/// It reaches SoundCloud's API alone, publishes sets at one destination, asks for a SoundCloud
+/// account to upload with, naming it where the SoundCloud account plugin puts its token (after
+/// `OAuth`), and keeps who can listen, the genre and the artwork as settings.
 #[test]
 fn the_manifest_is_a_built_in_set_destination_on_soundcloud() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
@@ -73,16 +81,12 @@ fn the_manifest_is_a_built_in_set_destination_on_soundcloud() {
     let [destination] = &manifest.contributes.destinations[..] else { panic!("{manifest:?}") };
     assert_eq!((manifest.id.as_str(), destination.name.as_str()), ("soundcloud", "track"));
     assert_eq!(destination.kind, DestinationKind::Set);
-    let [account] = &manifest.contributes.accounts[..] else { panic!("{manifest:?}") };
-    assert_eq!(format!("{{account:{}}}", account.id), AUTHORIZATION);
-    assert_eq!(account.authorize_url, "https://secure.soundcloud.com/authorize");
-    assert_eq!(account.token_url, None);
-    assert_eq!(account.token_exchange.as_deref(), Some("https://localnetwork.computer/api/token-exchange/soundcloud"));
-    assert!(account.scopes.is_empty(), "{:?}", account.scopes);
-    assert!(account.pkce);
-    assert_eq!(account.token, TokenPlace::Scheme("OAuth".into()));
-    assert_eq!(account.redirect_port, Some(47110));
-    assert!(account.client_id.starts_with("PLACEHOLDER"), "{}", account.client_id);
+    let [need] = &manifest.accounts[..] else { panic!("{manifest:?}") };
+    assert_eq!((need.name.as_str(), need.scopes.as_slice()), ("soundcloud", ["upload".to_string()].as_slice()));
+    assert!(need.optional.is_empty(), "{need:?}");
+    let account_type = account_type();
+    assert_eq!(format!("{{account:{}}}", account_type.name), AUTHORIZATION);
+    assert_eq!(account_type.token, TokenPlace::Scheme("OAuth".into()));
     let settings: Vec<(&str, SettingType, Option<&Value>)> =
         manifest.contributes.settings.iter().map(|s| (s.key.as_str(), s.kind, s.default.as_ref())).collect();
     assert_eq!(
@@ -103,6 +107,20 @@ fn the_manifest_is_a_built_in_set_destination_on_soundcloud() {
     let described: Manifest = s.host.request(method::DESCRIBE, &json!({})).unwrap();
     assert_eq!(described, manifest);
     s.stop();
+}
+
+/// The SoundCloud account plugin's `upload` scope covers every request the plugin makes, the
+/// upload and reading the account's newest tracks, so it needs no `read`; and not the rest of
+/// SoundCloud's API.
+#[test]
+fn soundclouds_upload_scope_covers_every_request() {
+    let account_type = account_type();
+    let scope = &account_type.scopes["upload"];
+    let covers = |method: &str, url: &str| scope.covers(method, &url::Url::parse(url).unwrap());
+    assert!(covers("POST", TRACKS));
+    assert!(covers("GET", NEWEST));
+    assert!(!covers("GET", "https://api.soundcloud.com/tracks/123"));
+    assert!(!covers("DELETE", "https://api.soundcloud.com/tracks/123"));
 }
 
 /// The recording goes up whole in one form with the track's title, who can listen (private
@@ -257,17 +275,16 @@ fn a_dry_run_sends_nothing() {
     assert!(s.stop().forms.is_empty());
 }
 
-/// Not signed in, nothing goes: the host's error says how to sign in. From a host that gives no
-/// scratch folder (one without `blobs`), or one the artwork can't be copied to, a set with artwork
-/// doesn't go either.
+/// Signed out, nothing goes: the host's error is the answer. From a host that gives no scratch
+/// folder (one without `blobs`), or one the artwork can't be copied to, a set with artwork doesn't
+/// go either.
 #[test]
 fn signed_out_or_without_a_scratch_folder_nothing_goes() {
     let dir = tempfile::tempdir().unwrap();
     let path = file(dir.path(), "set.flac", 10);
     let s = start(SoundCloud::signed_out());
     let e = s.publish(&set(), &path, &[], json!({}), false).0.unwrap_err();
-    assert_eq!(e.kind(), Some("invalid"));
-    assert!(e.message.ends_with("(locallibrary plugin account soundcloud soundcloud sign-in)"), "{e:?}");
+    assert_eq!((e.kind(), e.message.as_str()), (Some("access"), SIGNED_OUT));
     assert!(s.stop().forms.is_empty());
 
     let picture = file(dir.path(), "cover.png", 10);
@@ -353,7 +370,7 @@ fn a_track_made_anyway_is_the_answer() {
         (Reply::Unreachable, "connection reset"),
         (
             Reply::Status(401, Vec::new(), refusal(401, "Unauthorized")),
-            "SoundCloud refused the account's tracks (401: Unauthorized): sign in again: locallibrary plugin account soundcloud soundcloud sign-in",
+            "SoundCloud refused the account's tracks (401: Unauthorized)",
         ),
         (
             Reply::Status(200, Vec::new(), "[]".into()),
@@ -385,18 +402,14 @@ fn a_track_made_anyway_is_the_answer() {
 }
 
 /// SoundCloud refusing says why, in its words, and what to do where there's something to do: a
-/// sign-in it doesn't take, a track it won't take. None is sent again.
+/// track it won't take. A token it doesn't take (which locallibrary refreshes or signs out of
+/// before it gets here) is refused as it says. None is sent again.
 #[test]
 fn soundcloud_refusing_says_why() {
     let dir = tempfile::tempdir().unwrap();
     let path = file(dir.path(), "set.ogg", 10);
     let cases = [
-        (
-            401,
-            refusal(401, "invalid_token"),
-            "permission",
-            "SoundCloud refused the set (401: invalid_token): sign in again: locallibrary plugin account soundcloud soundcloud sign-in",
-        ),
+        (401, refusal(401, "invalid_token"), "permission", "SoundCloud refused the set (401: invalid_token)"),
         (403, refusal(403, "Forbidden"), "permission", "SoundCloud refused the set (403: Forbidden)"),
         (
             422,
@@ -509,6 +522,30 @@ fn the_track_is_the_set_within_soundclouds_lengths(tc: TestCase) {
         lines.len()
     );
     assert!(t.notes.contains(&note), "{:?}", t.notes);
+}
+
+/// However long its lines, a tracklist longer than a description holds keeps the lines that fit,
+/// in order, then how many more there are, within SoundCloud's characters, and says so.
+#[hegel::test(test_cases = 50)]
+fn prop_a_tracklist_too_long_keeps_the_lines_that_fit(tc: TestCase) {
+    let n = tc.draw(gs::integers::<usize>().min_value(20).max_value(60));
+    let tracklist: Vec<TracklistEntry> = (0..n)
+        .map(|_| {
+            entry(Some(&"\u{3a9}".repeat(tc.draw(gs::integers::<usize>().min_value(200).max_value(400)))), None, None)
+        })
+        .collect();
+    let t = track::of(&set(), &tracklist);
+    let lines: Vec<String> = tracklist.iter().map(track::line).collect();
+    assert!(t.description.chars().count() <= MAX_DESCRIPTION);
+    let (kept, more) = t.description.rsplit_once('\n').unwrap();
+    let kept: Vec<&str> = kept.lines().collect();
+    assert_eq!(kept, lines[..kept.len()]);
+    assert_eq!(more, format!("+ {} more", n - kept.len()));
+    let note = format!(
+        "the description lists {} of the {n} tracks, as many as SoundCloud's {MAX_DESCRIPTION} characters hold",
+        kept.len()
+    );
+    assert_eq!(t.notes, [note]);
 }
 
 /// Where the count of the tracks left out loses a digit, the description keeps every line that
@@ -706,4 +743,242 @@ fn any_publish_sends_the_set_whole_or_stops_saying_why(tc: TestCase) {
         Some(kind) => assert_eq!(answer.unwrap_err().kind(), Some(kind)),
         None => assert_eq!(answer.unwrap().url.as_deref(), Some(PAGE)),
     }
+}
+
+/// Each way an upload stops says why, as SoundCloud put it: a recording too big, too many
+/// requests every try, a server error every try (with the account's tracks not having it), or
+/// the account's tracks not to be had or read after one (it may have made the track); and the
+/// host's request cancelled (the form's, or the account's tracks'), or the publish cancelled
+/// while it waits to send the form again, answers `cancelled`. The forms sent and the account's
+/// tracks asked for stop there.
+#[hegel::test(test_cases = 1)]
+fn prop_each_way_an_upload_stops_says_why(tc: TestCase) {
+    let busy = || Reply::Status(503, Vec::new(), String::new());
+    let tries = TRIES as usize;
+    let may_have = "SoundCloud failed the set (503), and SoundCloud may have made the track anyway (";
+    let cancelled = || "operation cancelled".to_string();
+    let size = tc.draw(gs::integers::<u64>().min_value(1).max_value(1000));
+    // SoundCloud's reply to the form and to the account's tracks; what it fails as, how its
+    // message starts; how many forms and lists of tracks went (forms at most one more, after a
+    // cancel).
+    let stops = [
+        (
+            Reply::Status(413, Vec::new(), String::new()),
+            None,
+            "invalid",
+            "SoundCloud refused the set (413): the recording is bigger than SoundCloud takes".to_string(),
+            1,
+            0,
+        ),
+        (
+            Reply::Status(429, Vec::new(), String::new()),
+            None,
+            "external",
+            "SoundCloud refused the set (429): SoundCloud is taking too many requests".into(),
+            tries,
+            0,
+        ),
+        (busy(), None, "external", "SoundCloud failed the set (503)".into(), tries, tries),
+        (
+            busy(),
+            Some(Reply::Status(500, Vec::new(), String::new())),
+            "external",
+            format!("{may_have}SoundCloud failed the account's tracks (500))"),
+            1,
+            1,
+        ),
+        (
+            busy(),
+            Some(Reply::Status(200, Vec::new(), "{}".into())),
+            "external",
+            format!("{may_have}SoundCloud's answer can't be read: "),
+            1,
+            1,
+        ),
+        (Reply::Cancelled, None, "cancelled", cancelled(), 1, 0),
+        (Reply::Cancels(Box::new(busy())), None, "cancelled", cancelled(), 1, 0),
+        (Reply::Cancels(Box::new(Reply::Unreachable)), None, "cancelled", cancelled(), 1, 0),
+        // Cancelled while it asks for the account's tracks.
+        (busy(), Some(Reply::Cancelled), "cancelled", cancelled(), 1, 1),
+    ];
+    for (upload, newest, kind_said, said, forms, listed) in stops {
+        upload_stops(size, upload, newest, kind_said, &said, forms, listed);
+    }
+}
+
+/// Asked to wait longer than it waits, however long that is, the upload stops, saying when to
+/// publish again, having sent the form once.
+#[hegel::test(test_cases = 10)]
+fn prop_a_wait_too_long_stops_the_upload(tc: TestCase) {
+    let wait = tc.draw(gs::integers::<u64>().min_value(LONGEST_WAIT + 1).max_value(LONGEST_WAIT * 10));
+    let reply = Reply::Status(429, vec![("retry-after", wait.to_string())], refusal(429, "Too Many Requests"));
+    let said = format!(
+        "SoundCloud refused the set (429: Too Many Requests): SoundCloud is taking too many requests: publish again \
+         in {} minutes",
+        wait.div_ceil(60)
+    );
+    upload_stops(100, reply, None, "external", &said, 1, 0);
+}
+
+/// An upload of a recording `size` bytes long that SoundCloud answers `upload` (and its account's
+/// tracks `newest`, `None` as it would) fails as `kind_said`, its message starting `said`, having
+/// sent `forms` forms and asked for the account's tracks `listed` times (each one more at most
+/// after a cancel). On a session of its own, so a form sent before a cancel arrives goes to it,
+/// not to the next.
+fn upload_stops(
+    size: u64,
+    upload: Reply,
+    newest: Option<Reply>,
+    kind_said: &str,
+    said: &str,
+    forms: usize,
+    listed: usize,
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = file(dir.path(), "set.flac", size);
+    let replying = upload.clone();
+    let s = start(SoundCloud::scripted(move |route, _| match route {
+        "upload" => Some(replying.clone()),
+        _ => newest.clone(),
+    }));
+    let (answer, _) = s.publish(&set(), &path, &[], json!({}), false);
+    let r = s.stop();
+    let e = answer.unwrap_err();
+    assert_eq!(e.kind(), Some(kind_said), "{e:?}");
+    assert!(e.message.starts_with(said), "{e:?}, not {said:?}");
+    let cancelled = matches!(upload, Reply::Cancels(_));
+    assert!((forms..=forms + usize::from(cancelled)).contains(&r.forms.len()), "{} forms", r.forms.len());
+    assert!((listed..=listed + usize::from(cancelled)).contains(&r.listed), "{} lists", r.listed);
+}
+
+/// After a try SoundCloud fails with a server error, the track it made of it anyway is the answer
+/// (found among the account's tracks by its title, made since the upload began, whatever older
+/// one has the title); when it made none, the form goes again, and that track is the answer.
+#[hegel::test(test_cases = 1)]
+fn prop_a_track_made_anyway_is_the_answer(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = file(dir.path(), "set.flac", tc.draw(gs::integers::<u64>().min_value(1).max_value(1000)));
+    let s = start(SoundCloud::new());
+    for made_anyway in [false, true] {
+        for older in [false, true] {
+            let failing =
+                if made_anyway { Reply::MadeAnyway(500) } else { Reply::Status(503, Vec::new(), String::new()) };
+            let soundcloud =
+                SoundCloud::scripted(move |route, tried| (route == "upload" && tried == 0).then(|| failing.clone()));
+            s.script(if older { soundcloud.having("Closing set", TimeDelta::hours(1)) } else { soundcloud });
+            let (answer, _) = s.publish(&set(), &path, &[], json!({}), false);
+            let r = s.received();
+            assert_eq!(answer.unwrap().url.as_deref(), Some(PAGE));
+            assert_eq!((r.forms.len(), r.listed), (if made_anyway { 1 } else { 2 }, 1));
+        }
+    }
+    s.stop();
+}
+
+/// A recording past what SoundCloud takes, or that isn't there, is refused before anything goes,
+/// and a dry run without a picture names no artwork.
+#[hegel::test(test_cases = 1)]
+fn prop_a_recording_too_big_is_refused_first(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let size = tc.draw(gs::integers::<u64>().min_value(1).max_value(1000));
+    let s = start(SoundCloud::new());
+    for case in 0..3 {
+        let path = file(dir.path(), "set.flac", 0);
+        // Sparse where the file system can be, so it takes little room.
+        let size = if case == 1 { MAX_BYTES + 1 } else { size };
+        std::fs::File::options().write(true).open(&path).unwrap().set_len(size).unwrap();
+        if case == 2 {
+            std::fs::remove_file(&path).unwrap();
+        }
+        let (answer, _) = s.publish(&set(), &path, &[], json!({}), true);
+        match case {
+            0 => assert!(!answer.unwrap().warnings[0].contains("artwork")),
+            1 => {
+                let e = answer.unwrap_err();
+                assert_eq!(e.kind(), Some("invalid"));
+                let said = "SoundCloud takes recordings of up to 4000.0 MB, and set.flac is ";
+                assert!(e.message.starts_with(said), "{e:?}");
+            }
+            _ => {
+                let e = answer.unwrap_err();
+                assert!(e.kind() == Some("io") && e.message.starts_with(&path.display().to_string()), "{e:?}");
+            }
+        }
+    }
+    assert!(s.stop().forms.is_empty());
+}
+
+/// Whatever the artwork setting's picture, a dry run says it would go as the track's artwork, and
+/// one that isn't there, isn't a JPEG or PNG, or is past what SoundCloud takes is refused first;
+/// sending it needs the request's scratch folder, and a picture that can't be read there fails
+/// as `io`, naming it.
+#[hegel::test(test_cases = 1)]
+fn prop_the_artwork_goes_from_the_scratch_folder(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = file(dir.path(), "set.flac", 100);
+    let name = tc.draw(gs::sampled_from(vec!["cover.png", "Cover.JPG", "art.jpeg"]));
+    let s = start(SoundCloud::new());
+    // A picture that can't be read, only on Unix.
+    for case in [0, 1, 2, 4, 5].into_iter().chain(cfg!(unix).then_some(3)) {
+        // A picture of its own each time, as each changes it.
+        let folder = dir.path().join(case.to_string());
+        std::fs::create_dir(&folder).unwrap();
+        let picture = file(&folder, name, 50);
+        let settings = json!({ "picture": picture });
+        match case {
+            5 => {
+                let gif = file(&folder, "cover.gif", 50);
+                let e = s.publish(&set(), &path, &[], json!({ "picture": gif }), true).0.unwrap_err();
+                let said = format!(
+                    "SoundCloud takes JPEG and PNG artwork, which {} isn't (locallibrary plugin settings soundcloud \
+                     picture)",
+                    gif.display()
+                );
+                assert_eq!((e.kind(), e.message.as_str()), (Some("invalid"), said.as_str()));
+            }
+            0 => {
+                let published = s.publish(&set(), &path, &[], settings, true).0.unwrap();
+                let said =
+                    format!("would go to SoundCloud as the private track \"Closing set\" with {name} as its artwork");
+                assert!(published.warnings[0].ends_with(&said), "{published:?}");
+            }
+            2 => {
+                // Sparse: it takes no room.
+                std::fs::File::options().write(true).open(&picture).unwrap().set_len(MAX_PICTURE + 1).unwrap();
+                let e = s.publish(&set(), &path, &[], settings, true).0.unwrap_err();
+                let said = format!(
+                    "SoundCloud takes artwork of up to 2.0 MB, and {} is 2.0 MB (locallibrary plugin settings soundcloud \
+                 picture)",
+                    picture.display()
+                );
+                assert_eq!((e.kind(), e.message.as_str()), (Some("invalid"), said.as_str()));
+            }
+            1 => {
+                let req = json!({ "destination": "track", "set": set(), "recording": path, "tracklist": [],
+                "context": { "settings": settings } });
+                let e = s.host.request::<_, Published>(method::SET_PUBLISH, &req).unwrap_err();
+                assert_eq!(e.message, "invalid params: no scratch folder to send the artwork from");
+            }
+            4 => {
+                std::fs::remove_file(&picture).unwrap();
+                let e = s.publish(&set(), &path, &[], settings, true).0.unwrap_err();
+                let said = format!(
+                    "the picture setting, {}, isn't a file (locallibrary plugin settings soundcloud picture)",
+                    picture.display()
+                );
+                assert_eq!((e.kind(), e.message.as_str()), (Some("invalid"), said.as_str()));
+            }
+            _ => {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    std::fs::set_permissions(&picture, std::fs::Permissions::from_mode(0o000)).unwrap();
+                }
+                let e = s.publish(&set(), &path, &[], settings, false).0.unwrap_err();
+                assert_eq!(e.kind(), Some("io"), "{e:?}");
+                assert!(e.message.starts_with(&format!("{} to ", picture.display())), "{e:?}");
+            }
+        }
+    }
+    assert!(s.stop().forms.is_empty());
 }

@@ -15,9 +15,9 @@ fn the_most_specific_scope_wins() {
     assert_eq!(lookup(&[Scope::Profile, Scope::Global], &w).map(|b| b.act), Some(Act::ProfileWrite));
     assert_eq!(lookup(&[Scope::Mixes, Scope::Global], &w).map(|b| b.act), Some(Act::MixReport));
     assert!(lookup(&[Scope::Drives, Scope::Global], &w).is_none());
-    // Digits are views, unless the pads are on.
+    // Digits are panes, unless the pads are on.
     let three = press(KeyCode::Char('3'));
-    assert_eq!(lookup(&[Scope::Library, Scope::Global], &three).map(|b| b.act), Some(Act::ViewKey));
+    assert_eq!(lookup(&[Scope::Library, Scope::Global], &three).map(|b| b.act), Some(Act::PaneKey));
     assert_eq!(lookup(&[Scope::Pads, Scope::Library, Scope::Global], &three).map(|b| b.act), Some(Act::HotCue));
     let nine = press(KeyCode::Char('9'));
     assert!(lookup(&[Scope::Pads, Scope::Global], &nine).is_none());
@@ -96,7 +96,7 @@ fn every_key_is_in_the_help_or_the_palette() {
     assert_eq!(titles[..3], ["Browsing", "Marks and the crate", "Changing the drive"]);
     assert!(titles.contains(&"Playback") && titles.contains(&"Deck"));
     let (own, _) = help(View::Profile);
-    assert_eq!(own[0].0, "Profile");
+    assert_eq!(own[0].0, "Publish");
 }
 
 #[test]
@@ -122,7 +122,7 @@ fn the_footer_drops_the_least_important_hints_to_fit() {
 /// follow, the commands with no key last.
 #[test]
 fn each_views_help_starts_with_its_own_keys() {
-    for (view, title) in [(View::Drives, "Drives"), (View::Snapshots, "Snapshots"), (View::Mixes, "Mixes")] {
+    for (view, title) in [(View::Prepare, "Prepare"), (View::Drives, "Drives"), (View::Mixes, "Recordings")] {
         let (own, global) = help(view);
         assert_eq!(own[0].0, title);
         assert!(global.iter().all(|(t, _)| *t != title), "{view:?}");
@@ -216,7 +216,7 @@ fn every_row_is_what_its_constructor_makes(tc: hegel::TestCase) {
 /// Every view's help says how to report a bug.
 #[test]
 fn every_views_help_says_how_to_report_a_bug() {
-    for view in [View::Library, View::Drives, View::Snapshots, View::Profile, View::Mixes] {
+    for view in View::ALL {
         let (_, global) = help(view);
         let mut lines = global.iter().flat_map(|(_, lines)| lines);
         assert!(lines.any(|(_, help)| help.contains("locallibrary bug")), "{view:?}");

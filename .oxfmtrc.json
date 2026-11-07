@@ -11,9 +11,10 @@
 		"coverage",
 		"node_modules",
 		"pnpm-lock.yaml",
-		"data",
+		"apps/web/data",
 		"test-results",
 		"playwright-report",
+		"apps/web/src/lib/tools/captures",
 		"tools/oxlint/anti-slop"
 	]
 }

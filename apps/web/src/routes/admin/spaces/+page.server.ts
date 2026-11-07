@@ -7,7 +7,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	return {
 		// Streamed, so the page shows at once and the list fills in.
 		spaces: locals.app.sharedSpaces.list().catch((error) => {
-			locals.log.warn({ err: error }, 'could not list shared spaces');
+			locals.log.warn('could not list shared spaces', { err: error });
 
 			return null;
 		})

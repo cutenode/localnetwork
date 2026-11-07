@@ -1,14 +1,28 @@
 import adapter from '@sveltejs/adapter-node';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
+import { enhancedImages } from '@sveltejs/enhanced-img';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { playwright } from '@vitest/browser-playwright';
-import type { Rolldown } from 'vite';
+import type { Plugin, Rolldown } from 'vite';
 import { defineConfig } from 'vitest/config';
+
+// Vitest's module cache leaves out a module that calls `import.meta.glob(`, whose output changes when a file the glob
+// matches is added or removed, but it misses a typed call (`import.meta.glob<string>(`), so after a new Lua script or
+// guide a test still saw the old list. This leaves out both.
+const uncachedGlobs: Plugin = {
+	name: 'uncached-globs',
+	configureVitest: ({ defineCacheKeyGenerator }) =>
+		defineCacheKeyGenerator(({ sourceCode }) => (/import\.meta\.glob\s*[<(]/.test(sourceCode) ? false : undefined))
+};
 
 // The browser test projects inherit the dev server's strictPort, which makes Vitest fail on a taken
 // port (63315 and up) instead of moving on, so test runs in two checkouts at once collide.
 const BROWSER_TEST_SERVER = { strictPort: false };
+
+// A media element's clock follows the audio output, and on a Mac that has stopped, a recording sitting at 0:00 while
+// its player says it's playing. Without audio output, Chromium keeps the time itself.
+const browserTests = () => playwright({ launchOptions: { args: ['--disable-audio-output'] } });
 
 // The most a module in the client build's shared group (below) may weigh, and our modules, which
 // the group takes with Lucide's icons.
@@ -31,7 +45,10 @@ const isSmall = (id: string, ctx: Rolldown.ChunkingContext, seen = new Set<strin
 
 export default defineConfig({
 	plugins: [
+		uncachedGlobs,
 		tailwindcss(),
+		// `?enhanced` images: AVIF and WebP at each width, with their size set so nothing shifts as they load.
+		enhancedImages(),
 		sveltekit({
 			adapter: adapter({ precompress: true }),
 			compilerOptions: {
@@ -45,7 +62,8 @@ export default defineConfig({
 					// Mixcloud's and SoundCloud's widget APIs, loaded when someone opens one of their players.
 					'script-src': ['self', 'https://widget.mixcloud.com', 'https://w.soundcloud.com'],
 					'style-src': ['self', 'unsafe-inline'],
-					'img-src': ['self', 'data:', 'blob:'],
+					// cdn.bsky.app: the avatars in sign-in's account suggestions (src/lib/server/actor-search.ts).
+					'img-src': ['self', 'data:', 'blob:', 'https://cdn.bsky.app'],
 					'font-src': ['self'],
 					'connect-src': ['self'],
 					// Recordings the set player plays: DJs' own (/media/audio), plyr.fm's CDN, and archive.org downloads,
@@ -89,7 +107,9 @@ export default defineConfig({
 								{
 									name: (id, ctx) =>
 										ctx.getModuleInfo(id)?.importedIds.every((dep) => isSmall(dep, ctx)) ? 'shared' : null,
-									test: /[\\/]src[\\/]lib[\\/]|@lucide/,
+									// Not the Tools pages' own components, or the booking rules the dashboard's booking pages
+									// share: only those pages load them, and every page loads this.
+									test: /[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|GuideList\.svelte)|bookings\.ts$)|@lucide/,
 									minShareCount: 2,
 									maxModuleSize: SHARED_MODULE_SIZE
 								}
@@ -119,13 +139,25 @@ export default defineConfig({
 			{
 				name: 'budget',
 				description:
-					"Measures a limit (Lua instructions) that coverage doesn't change but whose wall time it multiplies, so test:coverage leaves it to pnpm test"
+					"Measures a limit (Lua instructions) that coverage doesn't change but whose wall time it multiplies, so test:coverage leaves it to pnpm test",
+				// No deadline for these tests. Their time goes to the Lua VM running queries over a thousand-odd
+				// records, which a busy machine stretches past the 5s default, and the instruction limit
+				// (src/lib/server/testing/happyview.ts) already stops a script that runs away.
+				timeout: 0
 			}
 		],
 		coverage: {
 			provider: 'v8',
-			include: ['src/lib/**/*.{ts,svelte}'],
+			include: [
+				'src/lib/**/*.{ts,svelte}',
+				'src/routes/**/+*.server.ts',
+				'src/routes/**/+server.ts',
+				'src/hooks.server.ts'
+			],
+			// The tests, their harness (fakes and request builders that only tests import), stories and types.
 			exclude: [
+				'src/lib/server/testing/**',
+				'src/lib/testing/**',
 				'src/lib/**/*.{test,spec}.ts',
 				'src/lib/**/*.svelte.{test,spec}.ts',
 				'src/lib/**/*.stories.svelte',
@@ -133,7 +165,7 @@ export default defineConfig({
 			],
 			// CI's pull request comment reads the summary, and json for each changed file's uncovered lines.
 			reporter: ['text', 'html', 'lcov', 'json-summary', 'json'],
-			thresholds: { lines: 93, functions: 92, statements: 91, branches: 80 }
+			thresholds: { lines: 99.6, functions: 99.5, statements: 99.3, branches: 94.6 }
 		},
 		projects: [
 			{
@@ -154,7 +186,7 @@ export default defineConfig({
 					name: 'client',
 					browser: {
 						enabled: true,
-						provider: playwright(),
+						provider: browserTests(),
 						instances: [{ browser: 'chromium', headless: true }]
 					},
 					include: ['src/**/*.svelte.{test,spec}.ts'],
@@ -180,6 +212,12 @@ export default defineConfig({
 			},
 			{
 				extends: './vite.config.ts',
+				// Starts the Docker image (`pnpm test:docker`), which has to be built first, so it stays out
+				// of the other runs.
+				test: { name: 'docker', environment: 'node', include: ['tests/docker.test.ts'] }
+			},
+			{
+				extends: './vite.config.ts',
 				// Each story renders in a browser and fails on an accessibility violation (.storybook/preview.ts).
 				plugins: [storybookTest({ configDir: `${import.meta.dirname}/.storybook` })],
 				server: BROWSER_TEST_SERVER,
@@ -187,7 +225,7 @@ export default defineConfig({
 					name: 'storybook',
 					browser: {
 						enabled: true,
-						provider: playwright(),
+						provider: browserTests(),
 						instances: [{ browser: 'chromium', headless: true }]
 					}
 				}

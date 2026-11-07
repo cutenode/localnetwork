@@ -17,7 +17,7 @@ import { TID } from '@atproto/common-web';
 import { mockNetworkUtilities, TestPds, TestPlc } from '@atproto/dev-env';
 import { USERINPUT } from '../src/lib/bug-report.ts';
 import { LEXICON_DOCS, publishLexicons, validateRecord } from '../src/lib/server/atproto/lexicons.ts';
-import { AgentRepoClient } from '../src/lib/server/atproto/repo-client.ts';
+import { AgentRepoClient, memberSpacePolicy } from '../src/lib/server/atproto/repo-client.ts';
 import { BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '../src/lib/nsid.ts';
 import { sampleReport } from '../src/lib/mix/sample.ts';
 import { HappyViewClient } from '../src/lib/server/happyview/client.ts';
@@ -256,8 +256,8 @@ async function main() {
 	log(`Seeded ${DEMO_PROJECTS.length} demo projects`);
 
 	// Neon Tide's press kits, written as the site writes them: a space per press kit (under the root, whose members are
-	// the project's managers as readers, or for the legacy one under neon.test with the root as a member), the private
-	// part in it, then the public record.
+	// the project's managers as readers and which only the root writes, or for the legacy one under neon.test with the
+	// root as a member, which took requests too), the private part in it, then the public record.
 	const rootClient = new AgentRepoClient(root.did, rootAgent);
 	const neonClient = new AgentRepoClient(dids['neon.test'], neon);
 
@@ -268,9 +268,7 @@ async function main() {
 		const space = await owner.createSpace({
 			spaceType: SPACE_TYPE.epk,
 			skey: rkey,
-			readPolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
-			writePolicy: { $type: 'com.atproto.simplespace.defs#publicPolicy' },
-			appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+			policy: memberSpacePolicy({ publicWrite: epk.legacy })
 		});
 
 		const members = epk.legacy

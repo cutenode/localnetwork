@@ -1,9 +1,9 @@
 // @vitest-environment node
 //
-// The thing that actually gets loaded into Chrome.
+// The thing that gets loaded into Chrome.
 //
 // test/consistency.test.ts reads vite.config.ts and asserts what it says it
-// will do. This runs it and asserts what it did — which is the only way to
+// will do. This runs it and asserts what it did, which is the only way to
 // catch a plugin that stopped copying, an asset path that went absolute (the
 // popup is opened from chrome-extension://, where "/assets/x.js" is not where
 // the file is), a sourcemap shipped by accident, or an `eval` pulled in by a
@@ -38,6 +38,9 @@ const walk = (dir = DIST, prefix = ''): string[] =>
 
 let files: string[];
 
+// No deadline (the 0 below). The build blocks this worker (execFileSync), so Vitest can't stop a
+// hung one, only fail a slow one after it finishes, and how long it takes follows the machine's
+// load. CI's job timeout still ends a hung one.
 beforeAll(() => {
 	// The real build, run the way `pnpm build` runs it. Vitest sets NODE_ENV to `test`, which would
 	// make Vite compile the components in Svelte's dev mode (file paths and all), so it is unset.
@@ -48,7 +51,7 @@ beforeAll(() => {
 		stdio: 'pipe'
 	});
 	files = walk();
-}, 120000);
+}, 0);
 
 describe('what the build produces', () => {
 	it('is a folder Chrome can load: a manifest and everything it names', () => {
@@ -127,11 +130,15 @@ describe('the popup page', () => {
 		}
 	});
 
-	it('loads the two shared page scripts before the bundle that reads them', () => {
+	it('loads the shared page script before the bundle that reads it', () => {
 		const html = read('popup.html');
 		const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => m[1]);
-		expect(scripts.slice(0, 2)).toEqual(['./downloaded-store.js', './state-transfer.js']);
-		expect(scripts.slice(2).every((src) => src.includes('assets/'))).toBe(true);
+		expect(scripts[0]).toBe('./downloaded-store.js');
+		expect(scripts.slice(1).every((src) => src.includes('assets/'))).toBe(true);
+		// The state file's script is the settings sheet's alone, which puts it on
+		// the page when it opens (src/lib/globals.ts), so no popup waits for it.
+		expect(html).not.toContain('state-transfer.js');
+		expect(there('state-transfer.js')).toBe(true);
 		// They define globals, which a module cannot do.
 		expect(html).not.toMatch(/<script[^>]+type="module"[^>]+downloaded-store/);
 	});
@@ -150,7 +157,56 @@ describe('the popup page', () => {
 			}
 		}
 	});
+
+	// Chrome gives every extension page `body { font-family: system-ui;
+	// font-size: 75% }`, unlayered, and an unlayered rule beats any layer: a
+	// body rule in `@layer base` loses to it, and the popup draws in the system
+	// font at 12px. So the type is set on body outside every layer.
+	it('sets its own type on body where Chrome’s sheet for extension pages cannot beat it', () => {
+		const css = files
+			.filter((file) => file.endsWith('.css'))
+			.map(read)
+			.join('');
+
+		const unlayered = outsideLayers(css);
+		const body = [...unlayered.matchAll(/(?:^|[}\s])body\{([^}]*)\}/g)].map((m) => m[1]).join(';');
+		expect(body).toMatch(/font-family:var\(--font-sans\)/);
+		expect(body).toMatch(/font-size:var\(--text-label\)/);
+	});
 });
+
+/** The stylesheet with every `@layer name { … }` block taken out. */
+function outsideLayers(css: string) {
+	let out = '';
+	let depth = 0;
+
+	for (let i = 0; i < css.length; i++) {
+		if (depth === 0 && css.startsWith('@layer', i)) {
+			const open = css.indexOf('{', i);
+			const statement = css.indexOf(';', i);
+
+			// `@layer a, b;` only declares the order, and has no block.
+			if (statement !== -1 && statement < open) {
+				i = statement;
+				continue;
+			}
+
+			depth = 1;
+			i = open;
+			continue;
+		}
+
+		if (depth > 0) {
+			if (css[i] === '{') depth++;
+			else if (css[i] === '}') depth--;
+			continue;
+		}
+
+		out += css[i];
+	}
+
+	return out;
+}
 
 describe('the bundle', () => {
 	const js = () => files.filter((file) => /\.m?js$/.test(file)).map((file) => [file, read(file)]);
@@ -160,9 +216,8 @@ describe('the bundle', () => {
 	// anything can be drawn is kept to the shell: the menu, the registry's
 	// names and colours, the stores and the ghost. Every panel is a chunk of
 	// its own, fetched when its tool is opened, and so is each of the two
-	// sheets. A stray static import of one undoes that silently — the extension
-	// still works, it just opens slower every time — which is what this is here
-	// to catch.
+	// sheets. A stray static import of one undoes that silently: the extension
+	// still works, but opens slower every time. This is here to catch that.
 	it('boots from a chunk with the shell in it and none of the tools', () => {
 		const entry = [...read('popup.html').matchAll(/<script[^>]*src="\.\/(assets\/[^"]+\.mjs)"/g)]
 			.map((match) => match[1])
@@ -171,7 +226,7 @@ describe('the bundle', () => {
 		// What has to arrive before anything is drawn is the entry and every
 		// chunk it imports statically, not the entry alone: code the shell shares
 		// with the panels is split into a chunk of its own, which the entry then
-		// imports — the entry by itself is a quarter of what a boot reads.
+		// imports. The entry by itself is a quarter of what a boot reads.
 		const boot = new Set<string>();
 
 		const visit = (file: string) => {
@@ -218,12 +273,12 @@ describe('the bundle', () => {
 	// Vite's dynamic-import helper preloads a chunk's dependencies by putting
 	// <link rel="modulepreload" crossorigin> in the head. Chrome counts a
 	// crossorigin preload on a chrome-extension:// page as a different request
-	// from the module fetch that follows it — "cross-world extension resource
-	// mismatch" — so each one is fetched, thrown away and warned about, and
+	// from the module fetch that follows it ("cross-world extension resource
+	// mismatch"), so each one is fetched, thrown away and warned about, and
 	// there is nothing to gain either way: these are files inside the
 	// extension, not a network round trip worth saving. `modulePreload: false`
 	// in vite.config.ts turns it off, leaving only the stylesheet a panel's
-	// chunk genuinely has to load before it renders.
+	// chunk has to load before it renders.
 	it('preloads no script, which a chrome-extension:// page cannot use', () => {
 		expect(read('popup.html')).not.toContain('modulepreload');
 
@@ -234,7 +289,7 @@ describe('the bundle', () => {
 		// The table the helper maps a dynamic import's dependencies through. It
 		// is there as long as any chunk has one, which the panels' CSS gives it;
 		// gone would mean Vite changed how it emits this, and the check below
-		// would be quietly passing on nothing.
+		// would be passing on nothing.
 		const table = /m\.f=\[([^\]]*)\]/.exec(read(entry!));
 		expect(table, 'no dependency table found — has Vite changed its codegen?').not.toBe(null);
 
@@ -253,13 +308,13 @@ describe('the bundle', () => {
 	});
 
 	// Every built chunk, not just the one the page names: the panels are
-	// chunks of their own now, and they are where most of the URLs are.
+	// chunks of their own, and they are where most of the URLs are.
 	it('asks for nothing off the network at runtime', () => {
 		for (const [file, code] of js().filter(([name]) => name.startsWith('assets/'))) {
 			// The only URLs the popup builds are SoundCloud's, and they are built
 			// from strings in the source rather than fetched as code. The one
 			// exception is a scheme put in front of an address read out of an
-			// artist's bio (src/tools/artists/profiles.js), which is opened when
+			// artist's bio (src/tools/artists/profiles.ts), which is opened when
 			// its badge is pressed and never fetched: the host is the bio's, not
 			// the bundle's. Svelte's own errors end in a link to their page on
 			// svelte.dev, which is text in a message, not a request. The settings
@@ -305,7 +360,7 @@ describe('the bundle', () => {
 describe('the background worker', () => {
 	// A service worker has no document, no window and no localStorage, and
 	// Chrome refuses to start one that reaches for them as it loads. The walk
-	// that needs a document runs in the offscreen page for exactly that reason
+	// that needs a document runs in the offscreen page for that reason
 	// (background.ts), so a static import that pulled a panel's code, or a site
 	// module, into the worker would be the bug this is here to catch.
 	it('loads only files beside it, none of which reaches for a page', () => {
@@ -349,7 +404,7 @@ const MV3_SCHEMA = {
 	properties: {
 		manifest_version: { const: 3 },
 		name: { type: 'string', minLength: 1, maxLength: 75 },
-		// Chrome's version: one to four dot-separated integers, each 0–65535.
+		// Chrome's version: one to four dot-separated integers, each 0 to 65535.
 		version: {
 			type: 'string',
 			pattern: '^(0|[1-9][0-9]{0,4})(\\.(0|[1-9][0-9]{0,4})){0,3}$'

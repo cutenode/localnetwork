@@ -51,6 +51,11 @@ export function publicRecordUri(did: string, collection: string, rkey: string): 
 	return `at://${did}/${collection}/${rkey}`;
 }
 
+/** A record URI's last segment, its rkey. */
+export function rkeyOf(uri: string): string {
+	return uri.slice(uri.lastIndexOf('/') + 1);
+}
+
 export function parsePublicRecordUri(uri: string): { did: string; collection: string; rkey: string } | null {
 	const match = PUBLIC_RECORD_URI.exec(uri);
 
@@ -87,6 +92,11 @@ export function plannerSpace(userDid: string): string {
 /** A press kit's space, with the press kit record's key: under the root, or for one made before the root held press kits, under the manager who made it. */
 export function epkSpace(authority: string, rkey: string): string {
 	return spaceUri(authority, SPACE_TYPE.epk, rkey);
+}
+
+/** Where people ask to see a project's press kits: under the root, with the project record's key. */
+export function epkRequestSpace(rootDid: string, projectRkey: string): string {
+	return spaceUri(rootDid, SPACE_TYPE.epkRequests, projectRkey);
 }
 
 /** A project's backstage: under the root, with the project record's key. */

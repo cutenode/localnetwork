@@ -996,6 +996,54 @@ fn a_print_lines_up_with_itself_and_not_with_nothing(tc: TestCase) {
     assert!([itself.coverage.0, itself.coverage.1].iter().all(|c| (0.0..=1.0).contains(c)), "{itself:?}");
 }
 
+/// Pairs all at one mix time have no slope of their own: the line through them takes the one
+/// it's given, through their middle.
+#[hegel::test(test_cases = 100)]
+fn all_at_one_mix_time_a_line_takes_the_slope_it_is_given(tc: TestCase) {
+    let t = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1e6));
+    let taus: Vec<f64> = tc.draw(gs::vecs(gs::floats::<f64>().min_value(0.0).max_value(1e6)).min_size(1).max_size(8));
+    let fallback = tc.draw(gs::floats::<f64>().min_value(0.9).max_value(1.1));
+    let pairs: Vec<(f64, f64)> = taus.iter().map(|&tau| (t, tau)).collect();
+    let (slope, intercept) = least_squares(&pairs, fallback);
+    assert_eq!(slope, fallback);
+    let middle = pairs.iter().fold(0.0, |a, p| a + p.1 / pairs.len() as f64);
+    assert!((intercept + slope * t - middle).abs() <= 1e-6 * middle.max(1.0), "{intercept}");
+}
+
+/// Mix frames are whole, and for these counts their mean rounds, so the spread of the times comes
+/// out just above 0: 7 pairs at frame 12 gave a slope of 0 or of up to about 1e14.
+#[test]
+fn a_mean_that_rounds_doesnt_make_a_slope_of_nothing() {
+    for (t, n) in [(3.0, 7), (12.0, 7), (1000.0, 6), (1000.0, 7), (123_457.0, 6)] {
+        let pairs: Vec<(f64, f64)> = (0..n).map(|i| (t, f64::from(i) * 5.0)).collect();
+        assert_eq!(least_squares(&pairs, 1.04).0, 1.04, "{t} {n}");
+    }
+}
+
+/// Strays dropped, what's left of a long stretch can be too short to measure, down to a single mix
+/// frame. Its speed is then the one searched, however little of the stretch is left and whether
+/// or not the mean of a single frame rounds.
+#[hegel::test(test_cases = 50)]
+#[hegel::explicit_test_case(count = 16usize, width = 0u32)]
+#[hegel::explicit_test_case(count = 17usize, width = 0u32)]
+#[hegel::explicit_test_case(count = 16usize, width = 1u32)]
+fn a_line_left_too_short_to_measure_isnt_measured(tc: TestCase) {
+    let variants = fingerprint::variants(0.08);
+    let (mix, track) = (1000, 500);
+    let away = 9 * FRAMES_PER_SEC as u32;
+    let count = tc.draw(gs::integers::<usize>().min_value(16).max_value(40));
+    let width = tc.draw(gs::integers::<u32>().max_value(300));
+    let mut pairs = vec![(mix - away, track + 90_000), (mix + away, track + 90_000)];
+    pairs.extend(std::iter::repeat_n((mix, track), count));
+    pairs.extend(std::iter::repeat_n((mix + width, track + width), count));
+    let detection = Detection { slot: 1, slice: 0, variant: 0, votes: 20, stretch_votes: 0, pitch_votes: 20, pairs };
+    let line = fit(&Chain { slot: 1, detections: vec![detection] }, &variants);
+    assert_eq!(line.ratio, variants[0].ratio, "{count} pairs");
+    assert!(!line.measured, "{count} pairs");
+    let off = (line.track_frame(f64::from(mix)) - f64::from(track)).abs();
+    assert!(off <= f64::from(width) * 0.1 + 1e-6, "{count} pairs, {off} off");
+}
+
 /// A vote of other audio that lands on a chain's line, as one can up to a slice past where the
 /// track is heard, isn't where the track came in or went out: along a track every anchor has
 /// another within a second.
@@ -1065,4 +1113,103 @@ fn tracing_hears_a_bin_from_matches_that_share_no_peak(tc: TestCase) {
     } else {
         assert!(f.end * FRAMES_PER_SEC < gone, "{second:?}: {f:#?}");
     }
+}
+
+/// Every vote of a cell with enough of them is kept, whichever places its two bins fall in,
+/// in key order; nearly all strays, far from any other vote, are dropped before the sort.
+#[test]
+fn ballots_keep_the_votes_cells_need() {
+    let vote = |slot: u64, bin: u64, t| Vote { key: (slot << 32) | (3 << 24) | bin, t, tau: 0 };
+    // Track 1: 3 + 3 votes over a cell starting on an even bin, then 5 + 1 over one starting
+    // on an odd bin (the lone vote is only in the cell before it). Track 2: strays.
+    let cells: Vec<Vote> = [(1000, 3), (1001, 3), (2001, 5), (2002, 1)]
+        .into_iter()
+        .flat_map(|(bin, n)| (0..n).map(move |t| vote(1, bin, t)))
+        .collect();
+    let strays = (0..100).map(|i| vote(2, 5000 + 10 * i, i as u32));
+    let mut ballots = Ballots { cast: strays.chain(cells.iter().copied()).rev().collect(), ..Ballots::default() };
+    ballots.keep();
+    let kept = &ballots.kept;
+    assert!(kept.is_sorted_by_key(|v| v.key));
+    assert!(cells.iter().all(|c| kept.iter().any(|k| (k.key, k.t) == (c.key, c.t))));
+    assert!(kept.len() < cells.len() + 10, "{} kept", kept.len());
+}
+
+/// A chain whose anchors are each more than a second from the next (none backed by another, as
+/// along a track every one is) is still one play, of one line, from its first anchor to its
+/// last: a lone anchor a play of no length, heard once. However far apart, there's no bend to
+/// find in them.
+#[hegel::test(test_cases = 100)]
+// Two anchors far enough apart (70 s) for a bend between them to be looked for.
+#[hegel::explicit_test_case(n = 2u32, gap = 3000u32, from = 0u32, at = 0u32)]
+fn prop_anchors_a_second_apart_are_a_play_from_the_first_to_the_last(tc: TestCase) {
+    let variants = fingerprint::variants(0.08);
+    let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(6));
+    let second = (EDGE_GAP * FRAMES_PER_SEC) as u32;
+    let gap = tc.draw(gs::integers::<u32>().min_value(second + 1).max_value(70 * second));
+    let from = tc.draw(gs::integers::<u32>().max_value(100_000));
+    let at = tc.draw(gs::integers::<u32>().max_value(100_000));
+    let unit = (0..variants.len())
+        .min_by(|&a, &b| (variants[a].ratio - 1.0).abs().total_cmp(&(variants[b].ratio - 1.0).abs()));
+    let detections: Vec<Detection> = (0..n)
+        .map(|i| {
+            let t = from + i * gap;
+            Detection {
+                slot: 1,
+                slice: t / SLICE,
+                variant: unit.unwrap() as u16,
+                votes: PLAY_VOTES,
+                stretch_votes: 0,
+                pitch_votes: PLAY_VOTES,
+                pairs: vec![(t, at + i * gap)],
+            }
+        })
+        .collect();
+    let found = plays(vec![Chain { slot: 1, detections }], &variants);
+    assert_eq!(found.len(), 1, "{found:#?}");
+    let f = &found[0];
+    let (first, last) = (f64::from(from), f64::from(from + (n - 1) * gap));
+    assert_eq!((f.start, f.end), (first / FRAMES_PER_SEC, last / FRAMES_PER_SEC), "{f:#?}");
+    assert_eq!(f.fits.len(), 1, "{f:#?}");
+    assert!((f.track_start - f64::from(at) / FRAMES_PER_SEC).abs() < 1e-6, "{f:#?}");
+}
+
+/// Dropping strays from no pairs leaves none, and from any pairs keeps the middle one off the
+/// line (and so never all of them).
+#[hegel::test(test_cases = 100)]
+fn prop_dropping_strays_keeps_the_median_pair(tc: TestCase) {
+    let mut pairs: Vec<(f64, f64)> = tc.draw(gs::vecs(gs::tuples!(
+        gs::floats::<f64>().min_value(0.0).max_value(1e6),
+        gs::floats::<f64>().min_value(-1e3).max_value(1e3)
+    )));
+    let mut off: Vec<f64> = pairs.iter().map(|p| p.1.abs()).collect();
+    off.sort_by(f64::total_cmp);
+    drop_strays(&mut pairs, |p| p.1);
+    match off.get(off.len() / 2) {
+        Some(median) => assert!(pairs.iter().any(|p| p.1.abs() == *median), "{median} dropped"),
+        None => assert!(pairs.is_empty()),
+    }
+}
+
+/// Pairs all at one mix frame have no slope of their own: the line through them takes the one
+/// it's given, through their middle. (Counts of pairs whose mean mix frame sums back exactly:
+/// with others the mean rounds, and the slope comes from the rounding.)
+#[hegel::test(test_cases = 100)]
+fn prop_pairs_at_one_mix_time_take_the_slope_given(tc: TestCase) {
+    let t = f64::from(tc.draw(gs::integers::<u32>()));
+    let n = tc.draw(gs::sampled_from(vec![1, 2, 4, 8]));
+    let taus: Vec<f64> = tc.draw(gs::vecs(gs::floats::<f64>().min_value(0.0).max_value(1e6)).min_size(n).max_size(n));
+    let fallback = tc.draw(gs::floats::<f64>().min_value(0.9).max_value(1.1));
+    let pairs: Vec<(f64, f64)> = taus.iter().map(|&tau| (t, tau)).collect();
+    let (slope, intercept) = least_squares(&pairs, fallback);
+    assert_eq!(slope, fallback);
+    let middle = pairs.iter().fold(0.0, |a, p| a + p.1 / pairs.len() as f64);
+    assert!((intercept + slope * t - middle).abs() <= 1e-6 * middle.max(1.0), "{intercept}");
+}
+
+/// No chains of a track are no play of it.
+#[hegel::test(test_cases = 5)]
+fn prop_no_chains_are_no_play(tc: TestCase) {
+    let slot = tc.draw(gs::integers::<u32>());
+    assert!(play(slot, Vec::new(), &fingerprint::variants(0.08)).is_none());
 }

@@ -9,7 +9,7 @@
 	import ProjectForm from '#lib/components/ProjectForm.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
 	import { draftKey, hasDraft } from '#lib/form-draft.svelte.ts';
-	import { formatDateTime } from '#lib/format.ts';
+	import { formatDateTime, requestTitle } from '#lib/format.ts';
 	import { CLAIM_RELATIONSHIPS, labelFor } from '#lib/taxonomy/options.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import Card from '#lib/ui/Card.svelte';
@@ -23,15 +23,7 @@
 
 	const editable = $derived(request.requester.did === data.viewer?.did && (request.status === 'pending' || request.status === 'changes_requested'));
 
-	const title = $derived(
-		request.kind === 'create'
-			? `New project: ${request.record.profile?.name}`
-			: request.kind === 'claim'
-				? `Claim: ${request.project?.name}`
-				: request.kind === 'list'
-					? 'Listing in Find DJs'
-					: `Changes to ${request.project?.name}`
-	);
+	const title = $derived(requestTitle(request));
 
 	let editing = $state(false);
 
@@ -59,18 +51,18 @@
 <svelte:head><title>{title} · Local Network</title></svelte:head>
 
 <div class="flex max-w-4xl flex-col gap-6">
-	<a href="/dashboard/requests" class="inline-flex items-center gap-1.5 self-start text-small text-fg-muted no-underline hover:text-fg"><ArrowLeft class="size-4" />All requests</a>
+	<a href="/dashboard/requests" class="inline-flex items-center gap-1.5 self-start text-small text-fg-muted no-underline hover:text-fg"><ArrowLeft class="size-4" />All submissions</a>
 	<header class="flex flex-col gap-3">
 		<Eyebrow>Request</Eyebrow>
 		<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
 			<h1 class="m-0 text-title font-semibold">{title}</h1>
 			<StatusPill status={request.status} />
 		</div>
-		<p class="m-0 text-small text-fg-muted">Submitted {formatDateTime(request.createdAt)}{request.updatedAt !== request.createdAt ? ` · revised ${formatDateTime(request.updatedAt)}` : ''}</p>
+		<p class="m-0 text-small text-fg-muted">Submitted {formatDateTime(request.createdAt)}{request.updatedAt !== request.createdAt ? ` · revised ${formatDateTime(request.updatedAt)}` : ''}{request.deletedAt ? ` · you deleted what it said ${formatDateTime(request.deletedAt)}` : ''}</p>
 	</header>
 
 	{#if data.submitted}
-		<FormMessage form={{ success: "Submitted. A moderator will review it soon; it was written to your PDS inside Local Network's private moderation space." }} />
+		<FormMessage form={{ success: 'Submitted. A moderator will review it soon.' }} />
 	{/if}
 	<FormMessage {form} />
 
@@ -97,7 +89,7 @@
 		</Card>
 	{:else if request.kind === 'update'}
 		<Card as="section" class="flex flex-col gap-3">
-			<h2 class="m-0 text-emphasis font-semibold">Proposed changes</h2>
+			<h2 class="m-0 text-emphasis font-semibold">{request.status === 'approved' ? 'Published changes' : 'Proposed changes'}</h2>
 			<DiffTable changes={data.changes} />
 		</Card>
 	{/if}
@@ -135,10 +127,4 @@
 			{/if}
 		{/if}
 	{/if}
-
-	<Card as="section" tone="well" padding="sm" class="flex flex-col gap-1">
-		<h2 class="m-0 text-small font-medium text-fg-soft">Where this lives</h2>
-		<p class="m-0 text-caption text-fg-muted">{request.repoDid === request.requester.did ? 'Your repo' : 'Filed for you by the root account'} inside the moderation space:</p>
-		<p class="m-0 font-mono text-caption break-all text-fg-subtle">{request.uri}</p>
-	</Card>
 </div>

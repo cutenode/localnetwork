@@ -4,6 +4,7 @@ import { render } from 'vitest-browser-svelte';
 import { sampleReport } from '#lib/mix/sample.ts';
 import type { DjSetView, ProjectStatus } from '#lib/types.ts';
 import Page from './+page.svelte';
+import { PAGE_META } from '#lib/testing/page-meta.ts';
 
 const set = { uri: 'at://did:plc:neon/computer.localnetwork.dj.set/3kset', cid: 'bafylinked' };
 
@@ -15,6 +16,7 @@ const show = (sets?: Promise<Map<string, DjSetView> | null>, status: ProjectStat
 		data: {
 			viewer: null,
 			pendingRequests: 0,
+			meta: PAGE_META,
 			project: { slug: 'neon-tide', name: 'Neon Tide', avatarUrl: null, status },
 			mix: { title: 'Tidal Hours', url: 'https://mixes.test/tidal', set },
 			sets,

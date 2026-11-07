@@ -1,5 +1,7 @@
+import { Agent } from '@atproto/api';
 import type { JsonObject } from '@atproto/lex-json';
 import type { LexiconDoc } from '@atproto/lexicon';
+import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { COLLECTION, PERMISSIONS } from '#lib/nsid.ts';
@@ -8,12 +10,14 @@ import { DEMO_DJ_SETS } from '../../../../scripts/seed-data.ts';
 import {
 	LEXICON_DOCS,
 	permissionSetFor,
+	publishLexicons,
 	RecordValidationError,
 	REFERENCED_DOCS,
 	ROOT_AUTHORITY,
 	schemaRecord,
 	validateRecord
 } from './lexicons.ts';
+import { recordCid } from './repo-client.ts';
 
 describe('the bundled lexicons', () => {
 	// The scripts' loader reads lexicons/ from disk, so this also checks the two loaders agree.
@@ -64,6 +68,35 @@ describe('schemaRecord', () => {
 	});
 });
 
+describe('publishLexicons', () => {
+	it("puts every lexicon in the agent's own repo under its NSID, with the agent as the root", async () => {
+		const did = 'did:plc:root';
+		const cid = await recordCid({});
+		const puts: { repo: string; collection: string; rkey: string; record: unknown }[] = [];
+
+		// A PDS that takes every putRecord.
+		const agent = new Agent({
+			did,
+			fetchHandler: async (_url, init) => {
+				puts.push(await new Response(init.body).json());
+
+				return Response.json({ uri: `at://${did}/com.atproto.lexicon.schema/x`, cid });
+			}
+		});
+
+		await publishLexicons(agent);
+
+		expect(puts).toEqual(
+			LEXICON_DOCS.map((doc) => ({
+				repo: did,
+				collection: 'com.atproto.lexicon.schema',
+				rkey: doc.id,
+				record: schemaRecord(doc, did)
+			}))
+		);
+	});
+});
+
 describe('validateRecord', () => {
 	const cid = 'bafkreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm';
 
@@ -94,6 +127,47 @@ describe('validateRecord', () => {
 		expect(() => validateRecord(COLLECTION.project, project({ cid, mimeType: 'image/png' }))).toThrow(
 			RecordValidationError
 		);
+	});
+
+	describe('nesting', () => {
+		const avatar = { $type: 'blob', ref: { $link: cid }, mimeType: 'image/png', size: 100 };
+
+		// The record is the first level, so `arrays` nested arrays in a field make 1 + `arrays` levels.
+		const nestedProject = (arrays: number) => ({
+			...project(avatar),
+			extra: JSON.parse(`${'['.repeat(arrays)}0${']'.repeat(arrays)}`)
+		});
+
+		it('accepts a record 32 levels deep', () => {
+			expect(validateRecord(COLLECTION.project, nestedProject(31)).slug).toBe('neon-tide');
+		});
+
+		it("rejects a record deeper than 32 levels, atproto's suggested limit", () => {
+			expect(() => validateRecord(COLLECTION.project, nestedProject(32))).toThrow(
+				new RecordValidationError(COLLECTION.project, 'nested deeper than 32 levels')
+			);
+		});
+
+		it('rejects a record too deep for the call stack as invalid, rather than overflowing it', () => {
+			expect(() => validateRecord(COLLECTION.project, nestedProject(20_000))).toThrow(RecordValidationError);
+		});
+
+		it('accepts a record at any depth up to 32 levels', () => {
+			fc.assert(
+				fc.property(fc.nat({ max: 31 }), (arrays) => {
+					expect(() => validateRecord(COLLECTION.project, nestedProject(arrays))).not.toThrow();
+				})
+			);
+		});
+
+		it('rejects a record at any depth past 32 levels', () => {
+			// Well past the 3,700 or so levels where a recursive walk overflowed, without building huge arrays every run.
+			fc.assert(
+				fc.property(fc.integer({ min: 32, max: 20_000 }), (arrays) => {
+					expect(() => validateRecord(COLLECTION.project, nestedProject(arrays))).toThrow(RecordValidationError);
+				})
+			);
+		});
 	});
 
 	describe('profiles', () => {

@@ -1,125 +1,357 @@
-//! Plugins' accounts in the player: signing in to each and out of it from the palette, in the
-//! background.
+//! Accounts in the player: signing in to an account of a type (in the browser, or with keys in a
+//! form) and out of one the store keeps, and giving a plugin access to one, from the palette, in
+//! the background.
 
 use hegel::TestCase;
 use hegel::generators as gs;
+use indexmap::IndexMap;
+use locallibrary::plugin::{Access, AccessQuestion, AccountId, AccountSignIn};
+use ratatui::crossterm::event::KeyCode;
 
-use super::super::super::app::View as Screen;
-use super::super::super::app::testing::{
-    blank, demo_drive, echo_account, echo_plugin, last_message, plugins_once, press, wait,
-};
+use super::super::super::app::testing::{blank, key, keys_accounts, last_message, plugins_once, press, wait};
+use super::super::super::app::{App, View as Screen};
+use super::super::super::ui::screen;
 use super::{entry, picker};
 
-/// The echo plugin's account is in the palette by the plugin's name, with or without a drive,
-/// signing in and out; and in no drive's menu.
-#[test]
-fn a_plugins_account_is_signed_in_to_and_out_of_from_the_palette() {
-    let (dir, _root) = demo_drive();
-    echo_plugin(dir.path());
-    echo_account(dir.path());
-    let (mut app, _store) = blank(Screen::Library);
-    press(&mut app, ":");
-    let labels: Vec<&str> = picker(&app).items.iter().map(|i| i.label.as_str()).collect();
-    let settings = labels.iter().position(|l| *l == "Echo plugin settings…").unwrap();
-    assert_eq!(
-        labels[settings + 1..settings + 3],
-        ["sign in to Echo Cloud…", "sign out of Echo Cloud"],
-        "beside its settings"
-    );
-    for label in ["sign in to Echo Cloud…", "sign out of Echo Cloud"] {
-        assert_eq!((entry(&app, label).0.detail.as_str(), entry(&app, label).1), ("Echo", None));
-    }
-    press(&mut app, "\u{1b}");
-
-    // Signed out already: said so, and nothing's asked.
-    press(&mut app, ":sign out of echo cloud\n");
-    assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Signing out"));
-    wait(&mut app, |a| a.job.is_none());
-    assert_eq!(last_message(&app), "not signed in to Echo Cloud");
+/// The store at `app`'s keeping the mock accounts `subjects` (signed in through mock-accounts,
+/// named `<subject>@mock.example`), as a sign-in leaves them, without their tokens.
+fn kept(app: &App, subjects: &[&str]) {
+    locallibrary::Store::open_or_init(&app.store_root).unwrap();
+    let account = |s: &&str| {
+        let name = format!("{s}@mock.example");
+        serde_json::json!({ "type": "mock", "plugin": "mock-accounts", "subject": s, "name": name, "scopes": ["read"], "refreshes": true })
+    };
+    let book = serde_json::json!({ "accounts": subjects.iter().map(account).collect::<Vec<_>>(), "accesses": [] });
+    std::fs::write(app.store_root.join("accounts.json"), book.to_string()).unwrap();
 }
 
-/// Signing out of an account signed in forgets its tokens on this computer, and says the service
-/// wasn't told when it has no way to be.
-#[test]
-fn signing_out_forgets_the_accounts_tokens() {
-    let (dir, _root) = demo_drive();
-    echo_plugin(dir.path());
-    echo_account(dir.path());
-    let (mut app, _store) = blank(Screen::Library);
+/// The accounts the store keeps, by subject.
+fn subjects(app: &App) -> Vec<String> {
     let store = locallibrary::Store::open_or_init(&app.store_root).unwrap();
-    // As a sign-in leaves it (with secrets in files): the plugin's secrets file holds the tokens.
-    let file = app.store_root.join("secrets/plugins/echo.json");
-    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-    let kept = serde_json::json!({ "account:main": serde_json::json!({ "access_token": "a1" }).to_string() });
-    std::fs::write(&file, kept.to_string()).unwrap();
-    let plugins = crate::plugins::host().unwrap();
-    assert!(plugins.account("echo", "main", Some(&store)).unwrap().signed_in);
-    press(&mut app, ":sign out of echo cloud\n");
-    wait(&mut app, |a| a.job.is_none());
-    assert_eq!(last_message(&app), "signed out of Echo Cloud on this computer");
-    assert!(!plugins.account("echo", "main", Some(&store)).unwrap().signed_in);
+    let kept = crate::plugins::host().unwrap().kept_accounts(&store).unwrap();
+    kept.into_iter().map(|a| a.subject).collect()
 }
 
-/// Signing in runs in the background, and an account whose sign-in page can't be opened fails
-/// before the browser is sent anywhere.
+/// The account echo uses for mock accounts, by subject.
+fn echos_default(app: &App) -> Option<String> {
+    let store = locallibrary::Store::open_or_init(&app.store_root).unwrap();
+    let accesses = crate::plugins::host().unwrap().accesses(&store, Some("echo"), None).unwrap();
+    accesses.into_iter().find(|a| a.default).map(|a| a.account.subject)
+}
+
+/// The palette signs in to an account of each type an account plugin provides (in the
+/// background, failing as it begins when its page is on this computer), signs out of each the
+/// store keeps, and opens echo's access.
 #[test]
-fn signing_in_is_a_task_that_fails_before_the_browser_opens_on_a_bad_page() {
-    let (dir, _root) = demo_drive();
-    echo_plugin(dir.path());
-    echo_account(dir.path());
+fn accounts_are_signed_in_to_and_out_of_from_the_palette() {
+    plugins_once();
     let (mut app, _store) = blank(Screen::Library);
-    press(&mut app, ":sign in to echo cloud\n");
+    kept(&app, &["a", "b"]);
+    press(&mut app, ":");
+    for (label, detail) in [
+        ("sign in to a Mock account…", "Mock accounts"),
+        ("access for Echo…", "Echo"),
+        ("sign out of a@mock.example", "Mock account"),
+        ("sign out of b@mock.example", "Mock account"),
+    ] {
+        assert_eq!(entry(&app, label).0.detail, detail, "{label}");
+    }
+    press(&mut app, "\u{1b}:sign in to a mock account\n");
     assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Signing in"));
     wait(&mut app, |a| a.job.is_none());
     let said = last_message(&app);
-    assert!(said.starts_with("signing in: ") && said.contains("can't be opened"), "it failed as it began");
-    let store = locallibrary::Store::open_or_init(&app.store_root).unwrap();
-    assert!(!crate::plugins::host().unwrap().account("echo", "main", Some(&store)).unwrap().signed_in);
+    assert!(said.starts_with("signing in: ") && said.contains("can't be opened"), "{said}");
+
+    press(&mut app, ":sign out of a@mock.example\n");
+    assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Signing out"));
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!(last_message(&app), "signed out of a@mock.example on this computer");
+    assert_eq!(subjects(&app), ["b"]);
+    press(&mut app, ":");
+    assert!(picker(&app).items.iter().all(|i| i.label != "sign out of a@mock.example"), "gone from the palette");
 }
 
-/// For any steps (a sign-in kept as the host keeps one, with a refresh token or not; signing
-/// out; signing in) from the palette: signing out says whether the account was signed in, and
-/// leaves it signed out; signing in fails before the browser opens (its page is on this
-/// computer), keeping what was kept; and the account is signed in exactly when a sign-in was
-/// kept since it was last signed out of.
-#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn signing_in_and_out_from_the_palette_leaves_the_account_as_the_steps_say(tc: TestCase) {
+/// Echo's access is a form naming what echo needs a mock account for and why, offering the
+/// accounts the store keeps and signing in to another: the one chosen becomes echo's default,
+/// and the form starts on it next time; signing in to another fails as it begins here.
+#[test]
+fn the_access_form_says_what_for_and_makes_the_account_chosen_the_default() {
     plugins_once();
     let (mut app, _store) = blank(Screen::Library);
-    let store = locallibrary::Store::open_or_init(&app.store_root).unwrap();
-    let plugins = crate::plugins::host().unwrap();
+    kept(&app, &["a", "b"]);
+    press(&mut app, ":access for echo\n");
+    let shown = screen(&mut app, 120, 30);
+    for text in ["Access for Echo", "mock  ‹ a@mock.example ›", "Echo needs it to read things: Tests", "enter save"]
+    {
+        assert!(shown.contains(text), "{text:?} isn't shown:\n{shown}");
+    }
+    key(&mut app, KeyCode::Right);
+    press(&mut app, "\n");
+    assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Giving access"));
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!(last_message(&app), "Echo uses b@mock.example");
+    assert_eq!(echos_default(&app).as_deref(), Some("b"));
+
+    press(&mut app, ":access for echo\n");
+    assert!(screen(&mut app, 120, 30).contains("mock  ‹ b@mock.example ›"), "the default first");
+    key(&mut app, KeyCode::Right);
+    assert!(screen(&mut app, 120, 30).contains("mock  ‹ sign in to another ›"));
+    press(&mut app, "\n");
+    wait(&mut app, |a| a.job.is_none());
+    let said = last_message(&app);
+    assert!(said.starts_with("giving access: ") && said.contains("can't be opened"), "{said}");
+    assert_eq!(echos_default(&app).as_deref(), Some("b"), "as it was");
+}
+
+/// For any accounts the store keeps and any one chosen in echo's access form (from the one it
+/// starts on, echo's default or the first), that one becomes echo's default.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn whichever_account_is_chosen_becomes_echos_default(tc: TestCase) {
+    plugins_once();
+    let (mut app, _store) = blank(Screen::Library);
+    let all = ["a", "b", "c"];
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+    kept(&app, &all[..n]);
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
+        let before = echos_default(&app);
+        let at = before.as_deref().and_then(|b| all.iter().position(|s| *s == b)).unwrap_or(0);
+        let moves = tc.draw(gs::integers::<usize>().max_value(n - 1 - at));
+        press(&mut app, ":access for echo\n");
+        for _ in 0..moves {
+            key(&mut app, KeyCode::Right);
+        }
+        press(&mut app, "\n");
+        wait(&mut app, |a| a.job.is_none());
+        let chosen = all[at + moves];
+        assert_eq!(echos_default(&app).as_deref(), Some(chosen), "{before:?}, {moves} on");
+    }
+}
+
+/// For any steps (keeping a mock account as a sign-in leaves it, signing out of it, signing in
+/// to another) from the palette: signing out of it is offered exactly while it's kept, and leaves
+/// it signed out; signing in fails before the browser opens (its page is on this computer),
+/// keeping what was kept; and the store keeps the account exactly when it was kept since it was
+/// last signed out of.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn signing_in_and_out_from_the_palette_leaves_the_accounts_as_the_steps_say(tc: TestCase) {
+    plugins_once();
+    let (mut app, _store) = blank(Screen::Library);
     let mut signed_in = false;
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(2).max_value(6)) {
         match tc.draw(gs::integers::<u8>().max_value(2)) {
             0 => {
-                let mut kept = serde_json::json!({ "access_token": "a1" });
-                if tc.draw(gs::booleans()) {
-                    kept["refresh_token"] = "r1".into();
-                }
-                let file = app.store_root.join("secrets/plugins/echo.json");
-                std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-                std::fs::write(&file, serde_json::json!({ "account:main": kept.to_string() }).to_string()).unwrap();
+                kept(&app, &["a"]);
                 signed_in = true;
             }
             1 => {
-                press(&mut app, ":sign out of echo cloud\n");
-                assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Signing out"));
-                wait(&mut app, |a| a.job.is_none());
-                let said = match signed_in {
-                    true => "signed out of Echo Cloud on this computer",
-                    false => "not signed in to Echo Cloud",
-                };
-                assert!(last_message(&app) == said, "not what signing out says");
+                press(&mut app, ":");
+                let offered = picker(&app).items.iter().any(|i| i.label == "sign out of a@mock.example");
+                press(&mut app, "\u{1b}");
+                assert_eq!(offered, signed_in, "signing out is offered exactly while it's kept");
+                if offered {
+                    press(&mut app, ":sign out of a@mock.example\n");
+                    assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Signing out"));
+                    wait(&mut app, |a| a.job.is_none());
+                    assert_eq!(last_message(&app), "signed out of a@mock.example on this computer");
+                }
                 signed_in = false;
             }
             _ => {
-                press(&mut app, ":sign in to echo cloud\n");
+                press(&mut app, ":sign in to a mock account\n");
                 assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Signing in"));
                 wait(&mut app, |a| a.job.is_none());
                 let said = last_message(&app);
                 assert!(said.starts_with("signing in: ") && said.contains("can't be opened"), "it failed as it began");
             }
         }
-        assert_eq!(plugins.account("echo", "main", Some(&store)).unwrap().signed_in, signed_in);
+        assert_eq!(subjects(&app), if signed_in { vec!["a".to_string()] } else { Vec::new() });
     }
+}
+
+/// For a mock account the store keeps, refreshed or not, signing itself out in any number of
+/// hours (as its access token expires, or its refresh token runs out) or never: the player warns
+/// of it as it starts exactly when that's within `WARN_DAYS`, saying where to sign in again.
+#[hegel::test(test_cases = 20)]
+fn the_player_warns_of_an_account_signing_itself_out_soon(tc: TestCase) {
+    let (mut app, _store) = blank(Screen::Library);
+    plugins_once();
+    let refreshes = tc.draw(gs::booleans());
+    let hours = tc.draw(gs::optional(gs::integers::<i64>().min_value(1).max_value(24 * 30)));
+    let at = hours.map(|h| chrono::Utc::now() + chrono::Duration::hours(h));
+    let lasting = if refreshes { "refresh_expires_at" } else { "expires_at" };
+    kept(&app, &["a"]);
+    let file = app.store_root.join("accounts.json");
+    let mut book: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    book["accounts"][0]["refreshes"] = refreshes.into();
+    book["accounts"][0][lasting] = serde_json::json!(at);
+    std::fs::write(&file, book.to_string()).unwrap();
+    app.warn_signing_out();
+    let warned = hours.is_some_and(|h| h <= 24 * locallibrary::plugin::WARN_DAYS);
+    let said = last_message(&app);
+    assert_eq!(said.contains("the Mock account a@mock.example signs itself out "), warned, "{hours:?}: {said}");
+    assert_eq!(said.ends_with(": sign in to it again from the palette (:)"), warned, "{said}");
+}
+
+/// What a plugin asks of the mock account `a`: `write`, signing in again to it or not.
+fn wanting(sign_in: bool) -> AccessQuestion {
+    let account = AccountId { plugin: "mock-accounts".into(), subject: "a".into() };
+    let (kind, name, scopes) = ("mock".to_string(), "a@mock.example".to_string(), vec!["read".to_string()]);
+    let access = Access {
+        id: "0a1b2c3d".into(),
+        plugin: "echo".into(),
+        kind,
+        account,
+        name,
+        scopes,
+        default: true,
+        declined: vec![],
+    };
+    let write = vec!["write".to_string()];
+    let why = vec!["More".to_string()];
+    AccessQuestion {
+        plugin: "Echo".into(),
+        access,
+        title: "Mock".into(),
+        scopes: write.clone(),
+        titles: write,
+        why,
+        sign_in,
+    }
+}
+
+/// For a plugin wanting more of an account, signing in again to or not, the player's asker shows
+/// a form saying what it wants and why, and waits for its answer: enter allows it (or signs in
+/// again to), "don't allow" doesn't, and esc leaves it unanswered; a sign-in it takes opens the
+/// browser, or says where to go when it can't.
+#[hegel::test(test_cases = 8)]
+fn a_plugin_wanting_more_of_an_account_asks_in_a_form(tc: TestCase) {
+    let (mut app, _store) = blank(Screen::Library);
+    let ask = app.plugin_asker();
+    let sign_in = tc.draw(gs::booleans());
+    let (keys, answered) = tc.draw(gs::sampled_from(vec![("\n", Some(true)), (" \n", Some(false)), ("\u{1b}", None)]));
+    let asking = std::thread::spawn(move || ask.allow(&wanting(sign_in)));
+    wait(&mut app, |app| app.modal.is_some());
+    let s = screen(&mut app, 120, 30);
+    assert!(s.contains("Access for Echo"), "{s}");
+    assert!(s.contains("Echo wants to write with the Mock account a@mock.example (More)"), "{s}");
+    assert!(s.contains(if sign_in { "sign in again to allow" } else { "allow" }), "{s}");
+    press(&mut app, keys);
+    assert!(app.modal.is_none(), "{}", last_message(&app));
+    assert_eq!(asking.join().unwrap(), answered);
+
+    app.plugin_asker().sign_in("http://127.0.0.1:9/authorize?state=x");
+    wait(&mut app, |app| last_message(app).contains("open this in your browser to sign in"));
+}
+
+/// The keys a test enters.
+const ACCESS: &str = "ak-0123456789";
+const SECRET: &str = "sk-9876543210";
+
+/// What's drawn of `app`, checked to show neither key.
+fn unseen(app: &mut App) -> String {
+    let shown = screen(app, 120, 30);
+    assert!(!shown.contains(ACCESS) && !shown.contains(SECRET), "a key is shown:\n{shown}");
+    shown
+}
+
+/// Types the keys in the form open, unseen as they're typed, then the account's name when `named`.
+fn type_keys(app: &mut App, named: Option<&str>) {
+    for typed in [ACCESS, SECRET] {
+        for c in typed.chars() {
+            press(app, &c.to_string());
+            unseen(app);
+        }
+        key(app, KeyCode::Tab);
+    }
+    if let Some(name) = named {
+        press(app, name);
+    }
+}
+
+/// Signing in to a Mock keys account from the palette opens a form, never the browser, saying
+/// where to get the keys and taking each unseen, then the account's name as it's typed; entered,
+/// the store keeps the account (the keys in its secrets alone), and the palette offers to sign out
+/// of it. Closed, the form ends the sign-in, keeping nothing more.
+#[test]
+fn a_keys_sign_in_is_typed_unseen_and_kept() {
+    keys_accounts();
+    let (mut app, _store) = blank(Screen::Library);
+    press(&mut app, ":sign in to a mock keys account\n");
+    assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Signing in"));
+    wait(&mut app, |a| a.modal.is_some());
+    let shown = unseen(&mut app);
+    for text in [
+        "Sign in to a Mock keys account",
+        "Access key",
+        "Secret key",
+        "Account name",
+        "Get the Mock keys account's Access key and Secret key at",
+        "http://127.0.0.1:9/keys",
+        "enter sign in",
+    ] {
+        assert!(shown.contains(text), "{text:?} isn't shown:\n{shown}");
+    }
+    type_keys(&mut app, Some("me"));
+    let shown = unseen(&mut app);
+    let dots = "•".repeat(ACCESS.len());
+    assert_eq!(shown.matches(&dots).count(), 2, "each key as a dot a character:\n{shown}");
+    for text in ["Account name  me", "What to call the account: Mock keys doesn't say who the keys are for"] {
+        assert!(shown.contains(text), "{text:?} isn't shown:\n{shown}");
+    }
+    press(&mut app, "\n");
+    assert!(app.modal.is_none(), "the form stayed open");
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!(last_message(&app), "me signed in");
+    let messages: Vec<&str> = app.log.iter().map(|(m, ..)| m.as_str()).collect();
+    assert!(!messages.iter().any(|m| m.contains(ACCESS) || m.contains(SECRET)), "{messages:?}");
+    assert_eq!(subjects(&app), ["me"]);
+    let kept = std::fs::read_to_string(app.store_root.join("accounts.json")).unwrap();
+    assert!(!kept.contains(ACCESS) && !kept.contains(SECRET), "a key is in accounts.json");
+    press(&mut app, ":");
+    assert_eq!(entry(&app, "sign out of me").0.detail, "Mock keys account");
+    press(&mut app, "\u{1b}");
+
+    press(&mut app, ":sign in to a mock keys account\n");
+    wait(&mut app, |a| a.modal.is_some());
+    press(&mut app, "\u{1b}");
+    assert!(app.modal.is_none(), "the form stayed open");
+    wait(&mut app, |a| a.job.is_none());
+    let said: Vec<&str> = app.log.iter().map(|(m, ..)| m.as_str()).collect();
+    assert_eq!(said.iter().filter(|m| m.contains("sign")).collect::<Vec<_>>(), [&"me signed in"], "{said:?}");
+    assert_eq!(subjects(&app), ["me"]);
+}
+
+/// For a plugin's sign-in again with keys, the player's asker takes them in the form, the
+/// account's name only when the sign-in asks for it: entered, they go back by key; closed,
+/// nothing does.
+#[hegel::test(test_cases = 6)]
+fn the_players_asker_takes_keys_in_the_form(tc: TestCase) {
+    keys_accounts();
+    let (mut app, _store) = blank(Screen::Library);
+    let named = tc.draw(gs::booleans());
+    let entered = tc.draw(gs::booleans());
+    let keys = IndexMap::from_iter([("access".into(), "Access key".into()), ("secret".into(), "Secret key".into())]);
+    let start = AccountSignIn {
+        id: "x".into(),
+        kind: "mock-keys".into(),
+        title: "Mock keys".into(),
+        plugin: "keys-accounts".into(),
+        url: "http://127.0.0.1:9/keys".into(),
+        redirect_uri: None,
+        keys,
+        named,
+    };
+    let ask = app.plugin_asker();
+    let asking = std::thread::spawn(move || ask.enter_keys(&start));
+    wait(&mut app, |app| app.modal.is_some());
+    assert_eq!(unseen(&mut app).contains("Account name"), named);
+    if !entered {
+        press(&mut app, "\u{1b}");
+        assert_eq!(asking.join().unwrap(), None);
+        return;
+    }
+    type_keys(&mut app, named.then_some("me"));
+    press(&mut app, "\n");
+    let keys = IndexMap::from_iter([("access".to_string(), ACCESS.to_string()), ("secret".into(), SECRET.into())]);
+    assert_eq!(asking.join().unwrap(), Some((keys, named.then(|| "me".to_string()))));
 }

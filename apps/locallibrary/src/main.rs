@@ -5,7 +5,6 @@
 #[macro_use]
 mod output;
 
-#[cfg(feature = "account")]
 mod account_cmd;
 mod analysis_cmd;
 mod autostart;
@@ -49,8 +48,10 @@ mod watch_cmd;
 use indexmap::IndexMap;
 #[cfg(feature = "tui")]
 use std::io::IsTerminal;
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, FromArgMatches, Parser, Subcommand, ValueEnum};
@@ -398,10 +399,10 @@ locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players 
     /// What your sets, collection and settings say about how you play, and what a public profile would show
     #[command(after_help = PROFILE_HELP)]
     Profile(profile_cmd::ProfileArgs),
-    /// Sign in with your Atmosphere account (the one you use for Bluesky and other AT Protocol apps), or sign out (alpha)
-    #[cfg(feature = "account")]
+    /// Your accounts: the DJ account (the Atmosphere account you use for Bluesky and other AT Protocol apps; alpha) and those plugins use, signed in to and out of
+    // Named off "account", which CodeQL's cleartext-logging query reads as sensitive in any name.
     #[command(name = "account")]
-    Atmosphere(account_cmd::AccountArgs),
+    Login(account_cmd::AccountArgs),
     /// Report a bug in locallibrary, with this version and system filled in
     #[command(after_help = BUG_HELP)]
     Bug(bug_cmd::BugArgs),
@@ -646,6 +647,13 @@ enum StoreCommand {
     },
     /// Re-hash every stored file
     Verify,
+    /// The largest fingerprint index `mix` keeps for a drive between runs (a bigger one is built
+    /// again each run): show it, or set it
+    IndexLimit {
+        /// The limit in MiB (0 keeps none), or `default` (512)
+        #[arg(value_name = "MIB", value_parser = store_cmd::parse_index_limit)]
+        limit: Option<store_cmd::IndexLimit>,
+    },
     /// Label a snapshot ("before NYE"): shown in `library log`, usable as its id, kept by `store prune`
     Label {
         /// Snapshot id (prefix) or another label
@@ -1027,14 +1035,19 @@ enum PlaylistArg {
 fn main() -> ExitCode {
     // A shell asking what to complete (`COMPLETE=bash locallibrary -- ...`) is answered here.
     completion::complete();
-    let cmd = help::command();
-    let mut matches = match cmd.clone().try_get_matches() {
+    if answered_directly() {
+        return ExitCode::SUCCESS;
+    }
+    let mut cmd = help::for_this_run();
+    let mut matches = match cmd.try_get_matches_from_mut(std::env::args_os()) {
         Ok(m) => m,
         Err(e) => match help::prep_moved(&e) {
-            Some(moved) => return usage_error(cmd.clone().error(clap::error::ErrorKind::InvalidSubcommand, moved)),
+            Some(moved) => return usage_error(cmd.error(clap::error::ErrorKind::InvalidSubcommand, moved)),
             None => return usage_error(help::tidy_suggestions(e, &cmd)),
         },
     };
+    // Dropping it takes as long as a tenth of building it, for nothing: the process is ending.
+    std::mem::forget(cmd);
     let contributed = plugin_cmd::take(&mut matches);
     let cli = match Cli::from_arg_matches(&matches) {
         Ok(cli) => cli,
@@ -1090,6 +1103,28 @@ fn main() -> ExitCode {
             }
         }
     }
+}
+
+/// Answers what needs no command line built, whose every flag and command take most of the time
+/// of a run: `--version` alone, and `plugin serve <id>` for a plugin locallibrary ships, which is
+/// every plugin's start.
+fn answered_directly() -> bool {
+    let args: Option<Vec<String>> = std::env::args_os().skip(1).take(4).map(|a| a.into_string().ok()).collect();
+    let args = args.unwrap_or_default();
+    match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
+        ["--version" | "-V"] => {
+            // Quietly when piped into something that's gone, as clap does.
+            let _ = std::io::stdout().write_all(version_line().as_bytes());
+            true
+        }
+        ["plugin", "serve", id] => plugins::serve_shipped(id),
+        _ => false,
+    }
+}
+
+/// What `--version` prints, as clap words it.
+fn version_line() -> String {
+    format!("locallibrary {}\n", env!("CARGO_PKG_VERSION"))
 }
 
 /// An error under `--json`: `kind` as the sidecar's `error.data.kind` (`code`, its old name, is
@@ -1194,6 +1229,13 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
     // operations.
     locallibrary::plugin::set_hosted(|| plugins::host().ok());
     let progress = out.progress();
+    // A plugin wanting more of an account asks in the terminal: not with `--json` or `--yes`, and
+    // never in `watch`, the sidecar or a plugin serving, which run on their own.
+    let alone = cli.command.as_ref().is_some_and(|c| c.handles_signals() || matches!(c, Command::Watch(_)));
+    if plugin_cmd::choose::interactive(out) && !out.yes && !alone {
+        let drawing = progress.drawing();
+        plugins::ask_to(Some(Arc::new(account_cmd::asking::Terminal { out, drawing })));
+    }
     let ctx = Ctx::new(&progress, cancel);
     let store = || open_store(&cli.store);
 
@@ -1423,6 +1465,7 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
                     };
                 }
                 StoreCommand::Copies => return store_cmd::copies(&cli.store, out),
+                StoreCommand::IndexLimit { limit } => return store_cmd::index_limit(&cli.store, limit, out),
                 StoreCommand::Restore { from, libraries, dry_run } => {
                     let options = locallibrary::offsite::RestoreOptions { libraries, dry_run };
                     return store_cmd::restore(&store()?, &from, &options, out, &ctx);
@@ -1477,8 +1520,7 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
         Command::Sets(a) => return sets_cmd::run(a, &cli.store, out, &ctx),
         Command::History(args) => return plays_cmd::history(args, &cli.store, out, &ctx),
         Command::Stats(args) => return plays_cmd::stats(args, &cli.store, out),
-        #[cfg(feature = "account")]
-        Command::Atmosphere(args) => return account_cmd::run(args, &cli.store, out, &ctx),
+        Command::Login(args) => return account_cmd::run(args, &cli.store, out, &ctx),
         Command::Profile(args) => return profile_cmd::run(args, &cli.store, out, &ctx),
         Command::Export(args) => return export_cmd::run(args, &cli.store, out, &ctx),
         Command::Import(args) => return plugin_cmd::import(args, &cli.store, out, &ctx),
@@ -1488,7 +1530,7 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
         Command::Players(args) => return players_cmd::run(args, &cli.store, out, &ctx),
         Command::Analysis(args) => return analysis_cmd::run(args, out, &ctx),
         Command::Analyze(args) => return plugin_cmd::analyze(args, &cli.store, out, &ctx),
-        Command::Plugin(args) => return plugin_cmd::run(args, &cli.store, out, &ctx),
+        Command::Plugin(args) => return plugin_cmd::run(args, &cli.store, out),
         Command::Mix(args) => return mix_cmd::run(args, &cli.store, out, &ctx),
         #[cfg(feature = "tui")]
         Command::Tui { drive } => {

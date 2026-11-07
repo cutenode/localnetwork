@@ -30,6 +30,15 @@ describe('installChrome', () => {
 		await expect(storage.session.setAccessLevel()).resolves.toBeUndefined();
 	});
 
+	it('starts local storage with what it is handed, and session storage empty', async () => {
+		const held = { downloaded: { '/a/b': '2026-11-01T12:00:00.000Z' } };
+		const { storage } = installChrome({ ...PAGE, local: held });
+		held.downloaded['/a/b'] = 'later';
+
+		expect(await storage.local.get()).toEqual({ downloaded: { '/a/b': '2026-11-01T12:00:00.000Z' } });
+		expect(await storage.session.get()).toEqual({});
+	});
+
 	it('hands out copies, so what a reader changes is not what is kept', async () => {
 		const { storage } = installChrome(PAGE);
 		const marks = ['/a'];

@@ -10,6 +10,7 @@ import {
 	buttons,
 	byLabel,
 	click,
+	focusHint,
 	mountApp,
 	openQueue,
 	panelChrome,
@@ -245,7 +246,7 @@ describe('taking the marked ones out', () => {
 		expect(chrome.testStore('session').queue).toEqual([]);
 		expect(Object.keys(chrome.testStore().downloaded)).toHaveLength(3);
 		expect(meta()).toBe('nothing in it yet');
-		// Emptied, not closed — as clearing it is.
+		// Emptied, not closed, as clearing it is.
 		expect(queueSheet()).not.toBe(null);
 	});
 
@@ -361,6 +362,16 @@ describe('handing the batch to another tool', () => {
 		expect(heading()).toBe('third-party downloader');
 		// The sheet was a way of getting there, not somewhere to come back to.
 		expect(queueSheet()).toBe(null);
+	});
+
+	// The button's hint is a tooltip, so a keyboard reaching the button gets it.
+	it('says what each tool does with the batch when its button has focus', async () => {
+		await openApp({ session: queued() });
+		await openQueue();
+		expect(text()).not.toMatch(/walk the queue’s gate links/);
+
+		await focusHint(sendButton('downloader'));
+		expect(text()).toMatch(/walk the queue’s gate links and save the files/);
 	});
 
 	it('sends it to the text tool, which reads the queue rather than the tab', async () => {

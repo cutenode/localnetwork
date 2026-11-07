@@ -5,7 +5,8 @@
 //! Fingerprinting decodes every track once, which takes minutes for a few thousand tracks. The
 //! peaks are cached per audio file (see [`crate::audio_cache`]), and so is what's heard in a
 //! recording ([`Recordings`]). The index is built from the cache in seconds, and kept beside it,
-//! one per drive, until the prints it was built from change ([`library_index`]).
+//! one per drive, until the prints it was built from change and while it's under the store's limit
+//! ([`library_index`], [`super::prefs::MixPrefs`]).
 
 use std::path::{Path, PathBuf};
 
@@ -210,19 +211,42 @@ pub(crate) fn older(prints: &Cache) -> Vec<PathBuf> {
 }
 
 /// The index of `prints`: the one kept for `drive` beside `cache` when it was built from the same
-/// prints, else built now and kept in its place. Says whether it was the one kept.
-pub fn library_index(cache: &Cache, drive: &str, prints: Vec<Fingerprinted>, ctx: &Ctx<'_>) -> (LibraryIndex, bool) {
+/// prints, else built now and kept in its place. One over `limit` bytes isn't kept, and goes once
+/// it's read (kept under a higher limit), as does one of other prints then. Says whether it was
+/// the one kept.
+pub fn library_index(
+    cache: &Cache,
+    drive: &str,
+    prints: Vec<Fingerprinted>,
+    limit: u64,
+    ctx: &Ctx<'_>,
+) -> (LibraryIndex, bool) {
     let key = index_key(&prints);
     let file = index_file(cache, drive);
-    let kept = std::fs::read(&file).ok().and_then(|b| {
-        let index = b.strip_prefix(key.as_slice())?;
-        LibraryIndex::decode(index)
-    });
+    // Whether `size` bytes is over the limit, and if so, that it's said and the kept file gone.
+    let over = |size: u64| {
+        if size <= limit {
+            return false;
+        }
+        // In MiB, as the limit is set.
+        let why = format!("not kept: {} MiB, over the {} MiB limit", size.div_ceil(1 << 20), limit >> 20);
+        ctx.emit(Event::Item { phase: Phase::Index, path: why, bytes: 0 });
+        if let Err(e) = fsutil::remove_if_exists(&file) {
+            ctx.warn(format!("couldn't remove the library's kept index: {e}"));
+        }
+        true
+    };
+    let read = std::fs::read(&file).ok();
+    let kept = read.as_deref().and_then(|b| LibraryIndex::decode(b.strip_prefix(key.as_slice())?));
     if let Some(index) = kept {
         ctx.emit(Event::Item { phase: Phase::Index, path: "from the cache".into(), bytes: 0 });
+        over(read.map_or(0, |b| b.len() as u64));
         return (index, true);
     }
     let index = LibraryIndex::build(prints.into_iter().map(|f| (f.id, f.print)).collect());
+    if over((key.len() + index.encoded_len()) as u64) {
+        return (index, false);
+    }
     let mut bytes = key.to_vec();
     bytes.extend(index.encode());
     if let Err(e) = fsutil::write_deferred(&file, &bytes) {
@@ -283,7 +307,7 @@ pub fn fingerprint_library(
         tracks: library.tracks.len(),
         indexed: run.done.len(),
         fingerprinted: run.computed,
-        missing: run.missing.iter().filter_map(|id| library.track(*id)).map(TrackRef::from).collect(),
+        missing: library.tracks_by_id(&run.missing).into_iter().map(TrackRef::from).collect(),
         failed: run.failed,
         long: long.into_iter().map(TrackRef::from).collect(),
         hashes: 0,

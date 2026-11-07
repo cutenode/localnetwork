@@ -117,3 +117,52 @@ fn history_lists_are_asked_for() {
     assert!(session.calls("sets.get").is_empty());
     session.stop();
 }
+
+/// In each format that keeps no history, `include_history` with the history lists named (or
+/// all), beside the playlists named (or all, or none when only history lists are named), plans
+/// the library loclib-interop's `with_history` makes, warning they stop being history there; a
+/// history list or a playlist the drive hasn't is refused, naming it.
+#[hegel::test(test_cases = 6)]
+fn prop_history_lists_go_as_playlists_as_named(tc: TestCase) {
+    let format = tc.draw(gs::sampled_from(vec!["traktor", "serato", "engine"]));
+    let drive = drive();
+    let session = start(&drive);
+    let output = drive.dir.path().join("out");
+    for history in [vec![], vec!["HISTORY 001"], vec!["HISTORY 404"]] {
+        for playlists in [vec![], vec!["Booth"], vec!["Sunday"]] {
+            planned_with_history(&session, &drive, format, &history, &playlists, &output);
+        }
+    }
+    session.stop();
+}
+
+/// The `format` export [`prop_history_lists_go_as_playlists_as_named`] plans of `drive` with the
+/// `history` lists and `playlists` named.
+fn planned_with_history(
+    session: &Session,
+    drive: &Drive,
+    format: &str,
+    history: &[&str],
+    playlists: &[&str],
+    output: &Path,
+) {
+    let source = json!({ "drive": "USB", "history": history, "playlists": playlists });
+    let planned = session.export_of(format, source, output, json!({ "include_history": true }), true);
+    assert!(!output.exists());
+    if history == ["HISTORY 404"] {
+        assert_eq!(planned.unwrap_err().message, "not found: history list \"HISTORY 404\"");
+        return;
+    }
+    if playlists == ["Sunday"] {
+        assert_eq!(planned.unwrap_err().message, "not found: playlist \"Sunday\"");
+        return;
+    }
+    let planned = planned.unwrap();
+    let software: Software = serde_json::from_value(json!(format)).unwrap();
+    let warned = format!("{WARNING}: in {} they're playlists, not history", software.name());
+    assert_eq!(planned.warnings.first(), Some(&warned));
+    let named = playlists.is_empty() && !history.is_empty();
+    let want = with_history(drive, playlists, named);
+    let lists = want.library.playlists.iter().filter(|p| !p.is_folder).count() as u64;
+    assert_eq!((planned.counts["tracks"], planned.counts["playlists"]), (want.library.tracks.len() as u64, lists));
+}

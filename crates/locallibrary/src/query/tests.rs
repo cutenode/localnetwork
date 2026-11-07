@@ -357,6 +357,8 @@ fn plugins_fields_are_refused_when_they_cant_be_answered() {
     assert!(f.uses_fields() && !Filter::parse("bpm:>120").unwrap().uses_fields());
     let said = f.check(&QueryContext::new(&lib)).unwrap_err().to_string();
     assert!(said.contains("a sound.bpm: term needs what analyzers worked out"), "{said}");
+    let said = Filter::parse("echo.bpm:>120").unwrap().check(&QueryContext::new(&lib)).unwrap_err().to_string();
+    assert!(said.contains("an echo.bpm: term needs what analyzers worked out"), "{said}");
 }
 
 /// A value worked out with nothing to show (null) matches no comparison, so negated every one,
@@ -453,4 +455,107 @@ fn a_plugins_number_filters_and_sorts_as_its_values_say(tc: hegel::TestCase) {
     assert!(got[with..].iter().all(Option::is_none), "{got:?}");
     let ordered = got[..with].windows(2).all(|w| if descending { w[0] >= w[1] } else { w[0] <= w[1] });
     assert!(ordered, "{got:?}");
+}
+
+/// Each colour's name (any case, either spelling) and rekordbox's number for it name the same
+/// colour, and `color:` with the name selects exactly the tracks of that colour.
+#[hegel::test(test_cases = 60)]
+fn prop_a_colours_name_and_number_agree(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let names: [&[&str]; 8] = [
+        &["pink"],
+        &["red"],
+        &["orange"],
+        &["yellow"],
+        &["green"],
+        &["aqua", "cyan"],
+        &["blue"],
+        &["purple", "violet"],
+    ];
+    let n = tc.draw(gs::integers::<u8>().min_value(1).max_value(8));
+    let name = tc.draw(gs::sampled_from(names[usize::from(n) - 1].to_vec()));
+    let name = if tc.draw(gs::booleans()) { name.to_uppercase() } else { name.to_string() };
+    assert_eq!(parse_color(&name).unwrap(), TrackColor::from_id(n));
+    let lib = lib();
+    let coloured: Vec<u32> = lib.tracks.iter().filter(|t| t.color == TrackColor::from_id(n)).map(|t| t.id).collect();
+    assert_eq!(ids(&format!("color:{name}")), coloured);
+}
+
+/// A date with a part that isn't a number (in a bound or either end of a range), a tempo after
+/// `~` that isn't one, and a My Tag term with nothing to look for are refused, never matched.
+#[hegel::test(test_cases = 60)]
+fn prop_values_their_field_cant_read_are_refused(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let good = tc.draw(gs::sampled_from(vec!["2025", "2025-01", "2025-01-02"]));
+    let bad = tc.draw(gs::sampled_from(vec!["2025-xx", "2025-01-xx", "x", "2025-1-2-3"]));
+    let term = tc.draw(gs::sampled_from(vec![
+        format!("added:{bad}"),
+        format!("added:>={bad}"),
+        format!("added:{good}..{bad}"),
+        format!("added:{bad}..{good}"),
+        "bpm:~fast".to_string(),
+        "bpm:~".to_string(),
+        "tag:|".to_string(),
+    ]));
+    let said = Filter::parse(&term).unwrap_err().to_string();
+    assert!(said.contains(term.split(':').next().unwrap()), "{term}: {said}");
+    assert!(Filter::parse(&format!("added:{good}..{good}")).is_ok());
+}
+
+/// The plugins' fields a filter names are listed once each, lowercased, in the order they first
+/// come, whatever other terms there are; a plugin or field name may hold digits, `-` and `_`.
+#[hegel::test(test_cases = 60)]
+fn prop_a_filters_plugin_fields_are_listed_once_in_order(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let terms = tc.draw(gs::vecs(gs::sampled_from(vec![
+        "sound.bpm:>120",
+        "Sound.BPM:<90",
+        "echo-2.x_y:1",
+        "-sound.key:8a",
+        "genre:house",
+        "bpm:120",
+        "daft",
+    ])));
+    let filter = Filter::parse(&terms.join(" ")).unwrap();
+    let mut expected: Vec<String> = Vec::new();
+    for t in &terms {
+        let Some((word, _)) = t.trim_start_matches('-').split_once(':') else { continue };
+        let word = word.to_ascii_lowercase();
+        if word.contains('.') && !expected.contains(&word) {
+            expected.push(word);
+        }
+    }
+    assert_eq!(filter.fields(), expected);
+    assert_eq!(filter.uses_fields(), !expected.is_empty());
+}
+
+/// Any two values of a plugin's field, of any kinds, compare one way round as the reverse of the
+/// other; two numbers by size, otherwise as text (a number as its digits).
+#[hegel::test(test_cases = 200)]
+fn prop_values_of_any_kinds_compare_consistently(tc: hegel::TestCase) {
+    use hegel::Generator;
+    use hegel::generators as gs;
+    let value = |tc: &hegel::TestCase| match tc.draw(gs::integers::<u8>().max_value(4)) {
+        0 => FieldValue::Integer(tc.draw(gs::integers::<i64>().min_value(-20).max_value(20))),
+        1 => FieldValue::Number(tc.draw(gs::sampled_from(vec![-1.5, 0.0, 2.0, 9.5, 10.0]))),
+        2 => FieldValue::String(tc.draw(gs::sampled_from(vec!["10", "9.5", "a", "B", ""])).to_string()),
+        3 => FieldValue::Boolean(tc.draw(gs::booleans())),
+        _ => FieldValue::Strings(tc.draw(gs::vecs(gs::sampled_from(vec!["2", "x"]).map(String::from)).max_size(2))),
+    };
+    let (a, b) = (value(&tc), value(&tc));
+    assert_eq!(compare_values(&a, &b), compare_values(&b, &a).reverse(), "{a:?} {b:?}");
+    let number = |v: &FieldValue| match v {
+        FieldValue::Integer(n) => Some(*n as f64),
+        FieldValue::Number(n) => Some(*n),
+        _ => None,
+    };
+    if let (Some(x), None) = (number(&a), number(&b)) {
+        let text = |v: &FieldValue| match v {
+            FieldValue::String(s) => normalize(s),
+            FieldValue::Strings(all) => all.first().map(|s| normalize(s)).unwrap_or_default(),
+            FieldValue::Boolean(b) => b.to_string(),
+            _ => unreachable!(),
+        };
+        assert_eq!(compare_values(&a, &b), x.to_string().cmp(&text(&b)), "{a:?} {b:?}");
+    }
 }

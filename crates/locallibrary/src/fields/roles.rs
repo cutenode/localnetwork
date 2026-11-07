@@ -124,7 +124,7 @@ pub fn choices(store: Option<&Store>) -> Vec<RoleChoice> {
 }
 
 /// Read `role` from `analyzer` (`<plugin>.<analyzer>`, one that has it), or with `None` from the
-/// default again. Answers every role then. Settings that can't be read are written anew.
+/// default again. Answers every role then. Damaged settings are written anew.
 pub fn choose(store: &Store, role: Role, analyzer: Option<&str>) -> Result<Vec<RoleChoice>> {
     let offered = offered();
     let names: Vec<String> = offered.get(&role).into_iter().flatten().map(RoleField::name).collect();

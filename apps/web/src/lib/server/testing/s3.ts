@@ -1,4 +1,4 @@
-import { once } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { buffer } from 'node:stream/consumers';
@@ -8,10 +8,14 @@ const escapeXml = (value: string) => value.replace(/[<>&]/g, (c) => ({ '<': '&lt
 
 /**
  * An in-memory bucket that answers the four S3 calls backups make (path-style), so tests run the
- * real S3 client without MinIO or Docker. `pageSize` makes listings page, as S3 does past 1000 keys.
+ * real S3 client without MinIO or Docker. `pageSize` makes listings page, as S3 does past 1000 keys,
+ * and `silent` takes requests without ever answering them, for a client that hangs.
  */
-export async function fakeS3({ bucket = 'backups', pageSize = 1000 } = {}) {
+export async function fakeS3({ bucket = 'backups', pageSize = 1000, silent = false } = {}) {
 	const objects = new Map<string, Buffer>();
+	const puts = new EventEmitter();
+
+	const unanswered = new Set<IncomingMessage>();
 
 	async function answer(request: IncomingMessage, response: ServerResponse) {
 		const url = new URL(request.url ?? '/', 'http://s3.test');
@@ -42,6 +46,7 @@ export async function fakeS3({ bucket = 'backups', pageSize = 1000 } = {}) {
 
 		if (request.method === 'PUT') {
 			objects.set(key, await buffer(request));
+			puts.emit('put');
 
 			return void response.writeHead(200).end();
 		}
@@ -67,7 +72,12 @@ export async function fakeS3({ bucket = 'backups', pageSize = 1000 } = {}) {
 		response.writeHead(405).end();
 	}
 
-	const server = createServer((request, response) => void answer(request, response));
+	const server = createServer((request, response) => {
+		unanswered.add(request);
+		response.on('finish', () => unanswered.delete(request));
+
+		if (!silent) void answer(request, response);
+	});
 
 	server.listen(0, '127.0.0.1');
 	await once(server, 'listening');
@@ -95,6 +105,12 @@ export async function fakeS3({ bucket = 'backups', pageSize = 1000 } = {}) {
 			BACKUP_S3_SECRET_ACCESS_KEY: 'test',
 			BACKUP_S3_PATH_STYLE: 'true'
 		},
+		/** Resolves once the bucket holds `count` objects, for uploads that run in the background. */
+		stored: async (count: number) => {
+			while (objects.size < count) await once(puts, 'put');
+		},
+		/** The requests taken and not answered yet, as `METHOD /path?query`: what a client is waiting on. */
+		unanswered: () => [...unanswered].map(({ method, url }) => `${method} ${url}`),
 		close: () => new Promise<void>((resolve) => server.close(() => resolve()))
 	};
 }

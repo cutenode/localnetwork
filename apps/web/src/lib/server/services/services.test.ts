@@ -1,12 +1,15 @@
 import type { JsonValue } from '@atproto/lex-json';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sampleReport } from '#lib/mix/sample.ts';
-import { COLLECTION } from '#lib/nsid.ts';
+import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
 import type { ProjectProfile } from '#lib/types.ts';
+import { RecordValidationError } from '../atproto/lexicons';
 import { plannerSpace } from '../atproto/spaces';
 import { ForbiddenError, NotFoundError, UserError } from '../core';
 import { HappyViewClient } from '../happyview/client';
 import { createTestServices, ROOT } from '../testing/core';
+import { FakeRootClient } from '../testing/fakes';
+import type { BookingRecord } from './bookings';
 import { ProjectService, slugify } from './projects';
 
 const ADMIN = 'did:plc:admin';
@@ -352,6 +355,53 @@ describe('services', () => {
 			expect(decision?.value).toMatchObject({ outcome: 'approved', decidedBy: MOD, requester: DJ });
 		});
 
+		it("refuses to approve an avatar of a type the site won't serve, whatever its case", async () => {
+			const dj = await t.viewer(DJ);
+			const mod = await t.viewer(MOD);
+			const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>');
+
+			// Another client can write a request record the site's form would have refused.
+			const request = await t.requests.submit({
+				actor: dj,
+				kind: 'create',
+				profile: profile('Vector'),
+				avatar: { bytes: svg, mimeType: 'image/svg+xml' }
+			});
+
+			await expect(t.requests.decide({ actor: mod, uri: request.uri, outcome: 'approved' })).rejects.toThrow(
+				new UserError(
+					"Their avatar is image/svg+xml, which the site can't show. Ask for changes so they can upload a PNG, JPEG, or WebP image"
+				)
+			);
+			expect((await t.requests.get(request.uri))?.status).toBe('pending');
+			expect(await t.projects.bySlug('vector')).toBeNull();
+
+			const shouting = await t.requests.submit({
+				actor: await t.viewer(PROMOTER),
+				kind: 'create',
+				profile: profile('Loud'),
+				avatar: { bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1]), mimeType: 'IMAGE/PNG' }
+			});
+
+			await t.requests.decide({ actor: mod, uri: shouting.uri, outcome: 'approved' });
+			expect((await t.projects.bySlug('loud'))?.avatarUrl).toMatch(/^\/media\/did:plc:root\//);
+		});
+
+		it("publishes without the avatar when the requester's PDS can't serve it", async () => {
+			const request = await t.requests.submit({
+				actor: await t.viewer(DJ),
+				kind: 'create',
+				profile: profile('Gone'),
+				avatar: { bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 2]), mimeType: 'image/png' }
+			});
+
+			t.net.blobs.delete(request.record.profile!.avatar!.ref.$link);
+			await t.requests.decide({ actor: await t.viewer(MOD), uri: request.uri, outcome: 'approved' });
+			const project = await t.projects.bySlug('gone');
+			expect(project?.profile.name).toBe('Gone');
+			expect(project?.profile.avatar).toBeUndefined();
+		});
+
 		it('copies proposed tracklists on approval and keeps published files on updates', async () => {
 			const dj = await t.viewer(DJ);
 			const mod = await t.viewer(MOD);
@@ -484,6 +534,106 @@ describe('services', () => {
 
 			await t.requests.decide({ actor: await t.viewer(MOD), uri: update.uri, outcome: 'approved' });
 			expect(await t.projects.details(project.uri)).toEqual({});
+		});
+
+		it('shows what a pending request would change, and what an approved one changed', async () => {
+			const dj = await t.viewer(DJ);
+			const mod = await t.viewer(MOD);
+			const admin = await t.viewer(ADMIN);
+
+			const project = await t.projectAdmin.create({
+				actor: admin,
+				profile: profile('Tide'),
+				details: { bookingEmail: 'a@b.test' },
+				managers: [DJ]
+			});
+
+			const update = await t.requests.submit({
+				actor: dj,
+				kind: 'update',
+				projectUri: project.uri,
+				profile: profile('Tide', { tagline: 'Dub' }),
+				details: { bookingEmail: 'c@d.test' }
+			});
+
+			const tagline = { field: 'profile.tagline', after: 'Dub' };
+			expect(await t.requests.changes(update, project)).toEqual({
+				profile: [tagline],
+				details: [{ field: 'details.bookingEmail', before: 'a@b.test', after: 'c@d.test' }],
+				stale: false
+			});
+
+			// An admin's edit moves the project past the revision the request started from.
+			const edited = await t.projectAdmin.update({
+				actor: admin,
+				project,
+				profile: profile('Tide', { pronouns: 'they/them' })
+			});
+
+			expect((await t.requests.changes(update, edited)).stale).toBe(true);
+
+			// A change to the private details alone leaves the profile as it is.
+			const detailsOnly = { ...update, record: { ...update.record, profile: undefined } };
+			expect((await t.requests.changes(detailsOnly, edited)).profile).toEqual([]);
+
+			await t.requests.decide({ actor: mod, uri: update.uri, outcome: 'approved' });
+			const approved = (await t.requests.byRkey(update.rkey))!;
+			const published = (await t.projects.byUri(project.uri))!;
+
+			// Compared with now it would match; the audit entry kept what approving it changed.
+			expect(await t.requests.changes(approved, published)).toEqual({
+				profile: [{ field: 'profile.pronouns', before: 'they/them' }, tagline],
+				details: [{ field: 'details.bookingEmail', before: '[private]', after: '[private]' }],
+				stale: false
+			});
+
+			const rejected = await t.requests.submit({
+				actor: dj,
+				kind: 'update',
+				projectUri: project.uri,
+				profile: profile('Tide', { tagline: 'Dub techno' })
+			});
+
+			await t.projectAdmin.update({ actor: admin, project: published, profile: profile('Tide') });
+			await t.requests.decide({ actor: mod, uri: rejected.uri, outcome: 'rejected', reason: 'No' });
+			const latest = (await t.projects.byUri(project.uri))!;
+
+			// Only a pending request can still be approved, so only one is ever stale.
+			expect(await t.requests.changes((await t.requests.byRkey(rejected.rkey))!, latest)).toEqual({
+				profile: [{ field: 'profile.tagline', after: 'Dub techno' }],
+				details: [],
+				stale: false
+			});
+
+			const create = await t.requests.submit({
+				actor: dj,
+				kind: 'create',
+				profile: profile('Glow'),
+				details: { bookingEmail: 'g@h.test' }
+			});
+
+			const proposed = await t.requests.changes(create, null);
+			expect(proposed.profile).toContainEqual({ field: 'profile.name', after: 'Glow' });
+			expect(proposed.details).toEqual([{ field: 'details.bookingEmail', after: 'g@h.test' }]);
+			await t.requests.decide({ actor: mod, uri: create.uri, outcome: 'approved' });
+			const created = (await t.requests.byRkey(create.rkey))!;
+			expect((await t.requests.changes(created, null)).profile).toContainEqual({
+				field: 'profile.name',
+				after: 'Glow'
+			});
+
+			// An approval with no audit entry naming it has nothing to show, rather than a comparison with now.
+			const unrecorded = { ...created, uri: `${created.uri}-unrecorded` };
+			expect(await t.requests.changes(unrecorded, null)).toEqual({ profile: [], details: [], stale: false });
+
+			const claim = await t.requests.submit({
+				actor: await t.viewer(PROMOTER),
+				kind: 'claim',
+				projectUri: project.uri,
+				claim: { relationship: 'agent', evidence: 'I book them' }
+			});
+
+			expect(await t.requests.changes(claim, latest)).toEqual({ profile: [], details: [], stale: false });
 		});
 
 		it('supports rejection, withdrawal, and blocks double decisions', async () => {
@@ -674,6 +824,341 @@ describe('services', () => {
 			await t.db.schema.dropTable('notification').execute();
 			await t.bookings.message({ actor: promoter, space, text: 'See you there' });
 			expect((await t.bookings.thread(promoter, space)).events.at(-1)?.text).toBe('See you there');
+		});
+
+		it('lets each side of a booking make only its own status changes', async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Turns'),
+				managers: [DJ]
+			});
+
+			const promoter = await t.viewer(PROMOTER);
+			const dj = await t.viewer(DJ);
+
+			const open = () =>
+				t.bookings.start({ actor: promoter, projectUri: project.uri, show: { title: 'x' }, message: 'hi' });
+
+			const status = async (space: string) => (await t.bookings.thread(promoter, space)).thread.status;
+			const space = await open();
+
+			// The promoter can't decline their own inquiry, or confirm one nobody has answered.
+			await expect(t.bookings.setStatus({ actor: promoter, space, status: 'declined' })).rejects.toThrow(
+				"You can't mark this booking declined while it's open"
+			);
+			await expect(t.bookings.setStatus({ actor: promoter, space, status: 'confirmed' })).rejects.toMatchObject({
+				status: 409
+			});
+			await expect(t.bookings.setStatus({ actor: dj, space, status: 'open' })).rejects.toThrow(
+				'This booking is already open'
+			);
+			expect((await t.audit.list({ action: 'booking.status' })).map((entry) => entry.outcome)).toEqual([
+				'denied',
+				'denied',
+				'denied'
+			]);
+
+			await t.bookings.setStatus({ actor: dj, space, status: 'negotiating' });
+			await t.bookings.setStatus({ actor: promoter, space, status: 'confirmed' });
+			// Once it's booked, either side can only call it off, and nothing reopens it.
+			await expect(t.bookings.setStatus({ actor: dj, space, status: 'declined' })).rejects.toThrow(/declined while/);
+			await t.bookings.setStatus({ actor: dj, space, status: 'cancelled' });
+			await expect(t.bookings.setStatus({ actor: promoter, space, status: 'confirmed' })).rejects.toThrow(
+				/confirmed while it's cancelled/
+			);
+			expect(await status(space)).toBe('cancelled');
+
+			const withdrawn = await open();
+			await t.bookings.setStatus({ actor: promoter, space: withdrawn, status: 'cancelled' });
+			expect(await status(withdrawn)).toBe('cancelled');
+
+			const declined = await open();
+			await t.bookings.setStatus({ actor: dj, space: declined, status: 'declined' });
+			await expect(t.bookings.setStatus({ actor: dj, space: declined, status: 'negotiating' })).rejects.toThrow(
+				/negotiating while it's declined/
+			);
+		});
+
+		it('leaves no thread behind when the inquiry write fails, and asks the promoter to send it again', async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ]
+			});
+
+			t.net.failWrites(PROMOTER);
+
+			await expect(
+				t.bookings.start({
+					actor: await t.viewer(PROMOTER),
+					projectUri: project.uri,
+					show: { title: 'Night' },
+					message: 'Free?'
+				})
+			).rejects.toMatchObject({
+				name: 'UserError',
+				status: 503,
+				message: "Couldn't send your inquiry. Try again in a minute."
+			});
+
+			expect(await t.bookings.threadsFor(PROMOTER)).toEqual([]);
+			expect(await t.bookings.threadsFor(DJ)).toEqual([]);
+			expect([...t.net.spaces.keys()].filter((space) => space.includes(SPACE_TYPE.booking))).toEqual([]);
+		});
+
+		it("still asks the promoter to send the inquiry again when its space can't be deleted", async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ]
+			});
+
+			t.net.failWrites(PROMOTER);
+			vi.spyOn(FakeRootClient.prototype, 'deleteSpace').mockRejectedValueOnce(new Error('PDS unreachable'));
+
+			await expect(
+				t.bookings.start({
+					actor: await t.viewer(PROMOTER),
+					projectUri: project.uri,
+					show: { title: 'Night' },
+					message: 'Free?'
+				})
+			).rejects.toMatchObject({ status: 503, message: "Couldn't send your inquiry. Try again in a minute." });
+
+			expect(await t.bookings.threadsFor(PROMOTER)).toEqual([]);
+			expect(await t.bookings.threadsFor(DJ)).toEqual([]);
+		});
+
+		it("asks the promoter to send the inquiry again when the thread's space can't be made", async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ]
+			});
+
+			// The root's next write is the space, once the audit copies of creating the project are in.
+			await t.audit.idle();
+			t.net.failWrites(ROOT);
+
+			await expect(
+				t.bookings.start({
+					actor: await t.viewer(PROMOTER),
+					projectUri: project.uri,
+					show: { title: 'Night' },
+					message: 'Free?'
+				})
+			).rejects.toMatchObject({ status: 503, message: "Couldn't send your inquiry. Try again in a minute." });
+
+			expect(await t.bookings.threadsFor(PROMOTER)).toEqual([]);
+		});
+
+		/** A booking thread the promoter opened with the project, and a manager's own inquiry written into it. */
+		const threadWithManagerInquiry = async (project: { uri: string }, named = project.uri) => {
+			const space = await t.bookings.start({
+				actor: await t.viewer(PROMOTER),
+				projectUri: project.uri,
+				show: { title: 'Night' },
+				message: 'Free?'
+			});
+
+			await t.net.client(DJ).createSpaceRecord({
+				space,
+				collection: COLLECTION.bookingInquiry,
+				record: {
+					$type: COLLECTION.bookingInquiry,
+					project: named,
+					show: { title: 'Mine now' },
+					message: 'Hi',
+					createdAt: new Date().toISOString()
+				}
+			});
+
+			return space;
+		};
+
+		/** Indexes the thread again from nothing, as a fresh sync does, reading the repos in `order`. */
+		const reindex = async (space: string, order: string[]) => {
+			await t.bookings.forget(space);
+
+			for (const did of order) {
+				for (const record of t.net.spaceRecordsIn(space, did)) {
+					await t.bookings.indexEvent({
+						space,
+						uri: record.uri,
+						repoDid: did,
+						collection: record.uri.split('/').at(-2)!,
+						// SAFETY: every record in a booking space here is an inquiry, message or status that start() or this
+						// test wrote, each a subset of BookingRecord.
+						value: record.value as BookingRecord
+					});
+				}
+			}
+		};
+
+		/** Takes the promoter out of the root's opening record, as on a thread opened before the record named one. */
+		const openedBeforePromoters = (space: string) => {
+			for (const [key, stored] of t.net.spaceRecords) {
+				if (key.startsWith(`${space}|${ROOT}|${COLLECTION.bookingStatus}|`)) delete stored.value.promoter;
+			}
+		};
+
+		const members = (space: string) => [...(t.net.spaces.get(space)?.members.keys() ?? [])].sort();
+
+		it("keeps the promoter in their thread when a sync indexes a manager's inquiry first", async () => {
+			let project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ, LEGACY]
+			});
+
+			const space = await threadWithManagerInquiry(project);
+			await reindex(space, [DJ, PROMOTER, ROOT]);
+			project = await t.projectAdmin.setManagers({ actor: await t.viewer(ADMIN), project, managers: [LEGACY] });
+
+			const [thread] = await t.bookings.threadsFor(PROMOTER);
+			expect(thread).toMatchObject({ promoter: { did: PROMOTER }, title: 'Night' });
+			expect(members(space)).toEqual([LEGACY, PROMOTER]);
+		});
+
+		it("keeps the promoter when a manager's inquiry names a project they don't manage", async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ, LEGACY]
+			});
+
+			const elsewhere = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Elsewhere'),
+				managers: [LEGACY]
+			});
+
+			const space = await threadWithManagerInquiry(project, elsewhere.uri);
+			await reindex(space, [DJ, PROMOTER, ROOT]);
+
+			const [thread] = await t.bookings.threadsFor(PROMOTER);
+			expect(thread).toMatchObject({ promoter: { did: PROMOTER }, title: 'Night', project: { uri: project.uri } });
+		});
+
+		it('opens the thread from its promoter even once they manage the project too', async () => {
+			let project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ]
+			});
+
+			const space = await t.bookings.start({
+				actor: await t.viewer(PROMOTER),
+				projectUri: project.uri,
+				show: { title: 'Night' },
+				message: 'Free?'
+			});
+
+			project = await t.projectAdmin.setManagers({ actor: await t.viewer(ADMIN), project, managers: [DJ, PROMOTER] });
+			await reindex(space, [PROMOTER, ROOT]);
+
+			const [thread] = await t.bookings.threadsFor(DJ);
+			expect(thread).toMatchObject({ promoter: { did: PROMOTER }, title: 'Night' });
+		});
+
+		it('goes by the managers for a thread whose opening record names no promoter', async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ, LEGACY]
+			});
+
+			const space = await threadWithManagerInquiry(project);
+			openedBeforePromoters(space);
+			await reindex(space, [DJ, PROMOTER, ROOT]);
+
+			const [thread] = await t.bookings.threadsFor(PROMOTER);
+			expect(thread).toMatchObject({ promoter: { did: PROMOTER }, title: 'Night' });
+		});
+
+		it("goes by the managers when the root's repo can't be read", async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ, LEGACY]
+			});
+
+			const space = await threadWithManagerInquiry(project);
+			vi.spyOn(FakeRootClient.prototype, 'listSpaceRecords').mockRejectedValueOnce(new Error('PDS unreachable'));
+			await reindex(space, [DJ, PROMOTER, ROOT]);
+
+			const [thread] = await t.bookings.threadsFor(PROMOTER);
+			expect(thread).toMatchObject({ promoter: { did: PROMOTER }, title: 'Night' });
+		});
+
+		it("skips the root's status records that don't fit their lexicon when looking for the opening one", async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ, LEGACY]
+			});
+
+			const elsewhere = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Elsewhere'),
+				managers: [LEGACY]
+			});
+
+			const space = await threadWithManagerInquiry(project, elsewhere.uri);
+
+			await t.net.client(ROOT).createSpaceRecord({
+				space,
+				collection: COLLECTION.bookingStatus,
+				record: { $type: COLLECTION.bookingStatus, status: 42 }
+			});
+			await reindex(space, [DJ, PROMOTER]);
+
+			const [thread] = await t.bookings.threadsFor(PROMOTER);
+			expect(thread).toMatchObject({ promoter: { did: PROMOTER }, title: 'Night' });
+		});
+
+		it("keeps the error of a failed start that isn't the PDS's", async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ]
+			});
+
+			const start = async () =>
+				t.bookings.start({
+					actor: await t.viewer(PROMOTER),
+					projectUri: project.uri,
+					show: { title: 'Night' },
+					message: 'Free?'
+				});
+
+			vi.spyOn(FakeRootClient.prototype, 'createSpace').mockRejectedValueOnce(new Error('broken space'));
+			await expect(start()).rejects.toThrow('broken space');
+
+			vi.spyOn(FakeRootClient.prototype, 'putMember').mockRejectedValueOnce(new Error('broken member'));
+			await expect(start()).rejects.toThrow('broken member');
+			expect(await t.bookings.threadsFor(PROMOTER)).toEqual([]);
+		});
+
+		it('opens no thread for an inquiry that fails its lexicon', async () => {
+			const project = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: profile('Bookable'),
+				managers: [DJ]
+			});
+
+			// The form takes up to 20,000 characters; the inquiry record holds 2,000 graphemes.
+			await expect(
+				t.bookings.start({
+					actor: await t.viewer(PROMOTER),
+					projectUri: project.uri,
+					show: { title: 'Night' },
+					message: 'a'.repeat(2001)
+				})
+			).rejects.toBeInstanceOf(RecordValidationError);
+
+			expect(await t.bookings.threadsFor(DJ)).toEqual([]);
+			expect([...t.net.spaces.keys()].filter((space) => space.includes(SPACE_TYPE.booking))).toEqual([]);
 		});
 
 		it('keeps a personal planner and refuses accounts without spaces', async () => {

@@ -13,17 +13,12 @@ name = "item"
 title = "An item on the Internet Archive"
 kind = "set"
 
-# The Archive's S3 API signs requests in with an account's pair of keys. The host keeps them in the
-# keychain and fills them into the plugin's requests to the Archive; the plugin never sees them.
-[[contributes.settings]]
-key = "access"
-title = "S3 access key (from archive.org/account/s3.php)"
-type = "secret"
-
-[[contributes.settings]]
-key = "secret"
-title = "S3 secret key (from archive.org/account/s3.php)"
-type = "secret"
+# The Archive's S3 API takes an account's pair of S3 keys in the Authorization header. The host
+# keeps them and fills them into the upload, which names the account; the plugin never sees them.
+[[accounts]]
+type = "archive"
+scopes = ["upload"]
+why = "It uploads each set you publish to the Internet Archive as an item on your account."
 
 # Who the item is by, and what its identifier starts with.
 [[contributes.settings]]

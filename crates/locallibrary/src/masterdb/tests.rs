@@ -1323,3 +1323,46 @@ fn keys_and_the_collection_default_to_rekordboxs(tc: hegel::TestCase) {
         assert_eq!(default_path(), home);
     }
 }
+
+/// My Tags by file name each track's tags as `Category/Tag`, in the categories' and tags' order,
+/// under its file's key whatever the path's case; a tag's tracks the library doesn't hold are
+/// left out.
+#[hegel::test(test_cases = 50)]
+fn prop_tags_by_file_name_each_tracks_tags(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let n = tc.draw(gs::integers::<u32>().max_value(4));
+    let library = Library {
+        tracks: (1..=n)
+            .map(|id| Track {
+                id,
+                file_path: format!("/Music/{}{id}.mp3", tc.draw(gs::sampled_from(vec!["a", "A", "Ü"]))),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    };
+    let categories: Vec<TagCategory> = (0..tc.draw(gs::integers::<usize>().max_value(3)))
+        .map(|c| TagCategory {
+            name: format!("C{c}"),
+            tags: (0..tc.draw(gs::integers::<usize>().max_value(3)))
+                .map(|t| TagEntry {
+                    name: format!("T{t}"),
+                    track_ids: tc
+                        .draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(6)).unique(true).max_size(4)),
+                })
+                .collect(),
+        })
+        .collect();
+    let by_file = tags_by_file(&categories, &library);
+    for t in &library.tracks {
+        let want: Vec<String> = categories
+            .iter()
+            .flat_map(|c| {
+                c.tags.iter().filter(|g| g.track_ids.contains(&t.id)).map(move |g| format!("{}/{}", c.name, g.name))
+            })
+            .collect();
+        let got = by_file.get(&paths::file_key(&t.file_path.to_uppercase())).cloned().unwrap_or_default();
+        assert_eq!(got, want, "{t:?}");
+    }
+    assert!(by_file.len() <= library.tracks.len(), "only the library's tracks: {by_file:?}");
+}

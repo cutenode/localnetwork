@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { cues } from '#lib/testing/tools.ts';
 import { loadDocs } from '#lib/tools/docs.ts';
 import { tools } from '#lib/tools/index.ts';
 import type { Tool } from '#lib/tools/types.ts';
-import { renderMarkdown, rewriteHref } from './markdown';
+import { renderMarkdown, renderSections, rewriteHref } from './markdown';
 
 const tool: Tool = {
 	id: 'localthing',
@@ -10,7 +11,7 @@ const tool: Tool = {
 	kind: '',
 	tagline: '',
 	summary: '',
-	features: [],
+	cues,
 	install: { steps: [] },
 	docs: loadDocs('apps/localthing', {
 		'../../../../localthing/README.md': '# localthing\n\nSee [the guide](docs/guide.md).\n',
@@ -108,5 +109,25 @@ describe('renderMarkdown', () => {
 
 		expect(pages.size).toBeGreaterThan(10);
 		expect(broken).toEqual([]);
+	});
+});
+
+describe('renderSections', () => {
+	it("resolves a section's links from the overview, docs/overview.md for a tool without a README", () => {
+		const readmeless: Tool = {
+			...tool,
+			sections: [{ title: 'More', markdown: 'See [the guide](guide.md) and [the code](../src/main.ts).\n' }],
+			docs: loadDocs('apps/localthing', {
+				'../../../../localthing/docs/overview.md': '# Overview\n\nSee [the guide](guide.md).\n',
+				'../../../../localthing/docs/guide.md': '# A guide\n\nBody.\n'
+			})
+		};
+
+		const [section] = renderSections(readmeless);
+		expect(section.title).toBe('More');
+		expect(section.html).toContain('href="/tools/localthing/docs/guide"');
+		expect(section.html).toContain(
+			'href="https://github.com/cutenode/localnetwork/blob/main/apps/localthing/src/main.ts"'
+		);
 	});
 });

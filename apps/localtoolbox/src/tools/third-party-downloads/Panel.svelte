@@ -1,10 +1,10 @@
 <!--
-  Third-Party Downloader: takes the download links behind a playlist's tracks —
-  Hypeddit, ToneDen, Droploud, Pump Your Sound, Laylo, Feature.fm, FanLink —
+  Third-Party Downloader: takes the download links behind a playlist's tracks
+  (Hypeddit, ToneDen, Droploud, Pump Your Sound, Laylo, Feature.fm, FanLink),
   walks each one as far as it goes, and saves what comes back.
 
   Where the links come from: the active tab, the session queue, or the drawer
-  at the bottom, which is a paste box and nothing else — what a gate asks for
+  at the bottom, which is a paste box and nothing else: what a gate asks for
   is typed in the settings sheet instead (see $lib/downloader.svelte.ts for
   why an address is not one of this panel's options). A tab on one of those
   sites contributes its own link; a SoundCloud playlist or Likes tab
@@ -18,8 +18,8 @@
   offers to open it, instead of reporting a failure it did not have.
 
   A row that really did fail is not a dead end either. Most of these gates fail
-  because they want something a fetch cannot give them — a connected account, a
-  CAPTCHA, a step done on the page — so a failed row carries the next step
+  because they want something a fetch cannot give them (a connected account, a
+  CAPTCHA, a step done on the page), so a failed row carries the next step
   rather than only the reason: Open takes you to the gate itself (or, if the
   walk got as far as the file, to the file), queueing the track on the way out
   so a link left half-done is still on a list somewhere once the popup has
@@ -30,7 +30,7 @@
   One kind of "something a fetch cannot give them" the panel can give anyway: a
   sign-in. Hypeddit's Spotify step is enforced on Spotify's side, so the panel
   sends a tab out through the step's own authorize URL and waits for it to come
-  back — a second, and no clicking, for anyone who has allowed the app once.
+  back: a second, and no clicking, for anyone who has allowed the app once.
   The first time, Spotify has a login or a consent screen to put up, which a
   tab opened behind a popup cannot ask anybody to answer: the row says to press
   Connect on the gate once, and says it once for the whole run rather than
@@ -38,13 +38,13 @@
 
   Links that came from SoundCloud know their track, so a row says when that
   track is already marked as downloaded, or waiting in the queue, saving one
-  marks it, and the two toggles above the list drop the rows in either state —
+  marks it, and the two toggles above the list drop the rows in either state,
   leaving the links still to walk.
 
   The check button on such a row makes that mark by hand, and takes it off
-  again. Plenty of tracks are had without this tool saving them — a row that
+  again. Plenty of tracks are had without this tool saving them (a row that
   only ever resolved to a page you went to yourself, a gate you finished in a
-  tab, a file that was already on the disk — and the mark is what the rest of
+  tab, a file that was already on the disk), and the mark is what the rest of
   the extension goes by, so it has to be reachable from the row rather than
   only from a walk that worked.
 -->
@@ -61,18 +61,19 @@
   import Plus from '@lucide/svelte/icons/plus';
   import Settings2 from '@lucide/svelte/icons/settings-2';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
+  import HintSwitch from '$lib/components/HintSwitch.svelte';
   import PanelShell from '$lib/components/PanelShell.svelte';
   import StatusNote from '$lib/components/StatusNote.svelte';
   import SourcePicker from '$lib/components/SourcePicker.svelte';
   import { Button } from '$lib/components/ui/button/index.ts';
   import { Label } from '$lib/components/ui/label/index.ts';
-  import { Switch } from '$lib/components/ui/switch/index.ts';
   import { Textarea } from '$lib/components/ui/textarea/index.ts';
   import * as Collapsible from '$lib/components/ui/collapsible/index.ts';
   import * as Tooltip from '$lib/components/ui/tooltip/index.ts';
   import { activeTab, askPage, isSoundCloudUrl, openTab, roundTrip } from '$lib/chrome.ts';
   import { downloaded } from '$lib/downloaded.svelte.ts';
   import { downloader } from '$lib/downloader.svelte.ts';
+  import { motion } from '$lib/motion.ts';
   import { HIDE_DOWNLOADED_PREF } from '$lib/filter.ts';
   import { queue } from '$lib/queue.svelte.ts';
   import { choicePref, flagPref } from '$lib/prefs.svelte.ts';
@@ -92,11 +93,11 @@
   // The address a gate is given, the name beside it, and whether saving a file
   // marks its track: settings rather than this list's options, so they are set
   // in the settings sheet and shared from one place (see
-  // $lib/downloader.svelte.js).
+  // $lib/downloader.svelte.ts).
   const source = choicePref(SOURCE_PREF, PAGE, SOURCES);
 
-  // "Hide downloaded" is the one the Cover Art and Manager tools have, under
-  // the key they share; "Hide queued" is this list's own.
+  // "Hide downloaded" is the one the Manager tool has, under the key they
+  // share; "Hide queued" is this list's own.
   const hideDownloaded = flagPref(HIDE_DOWNLOADED_PREF, false);
 
   const hideQueued = flagPref('pref:hide-queued', false);
@@ -122,9 +123,9 @@
   const ADD_NAME_HINT = 'this one wants a name too. opens settings, then run the row again.';
 
   // One row per link, in the order they were added, and where they were taken
-  // from — the session's rather than this panel's, because a row's whole point
-  // is the tab it sends you to, and opening a tab closes the popup. See
-  // ./walked.svelte.js.
+  // from. These are the session's rather than this panel's, because a row is
+  // there to send you to a tab, and opening a tab closes the popup. See
+  // ./walked.svelte.ts.
   const rows = $derived(walked.rows);
 
   const origin = $derived(walked.origin);
@@ -139,7 +140,7 @@
   // so they are kept for the session rather than for good: pasting a page of
   // links, closing the popup to deal with one of them and coming back should
   // not mean pasting them again. (The settings a gate asks for are the other
-  // way about — a choice, kept for good, and set elsewhere entirely.)
+  // way about: a choice, kept for good, and set elsewhere entirely.)
   //
   // The drawer is remembered as three states rather than two: a panel with no
   // links to show opens it, since it is the only other place links come from,
@@ -190,7 +191,7 @@
     )
   );
 
-  // "Download all" runs what is listed, so hiding is also how a batch is
+  // "Get all" runs what is listed, so hiding is also how a batch is
   // chosen; the counts in the header are of everything collected.
   const left = $derived(visible.filter((row) => !settled(row)).length);
 
@@ -269,12 +270,12 @@
         track,
         label: label || labelOfUrl(url),
         // Pasted into the drawer, which is the one source that cannot be read
-        // again — so the list puts those back itself.
+        // again, so the list puts those back itself.
         byHand,
         state: 'queued',
         detail: '',
         // Where a resolved row leads, once it has been run: the page it turned
-        // out to point at, or — for one that failed — the thing to open to
+        // out to point at, or, for one that failed, the thing to open to
         // carry on by hand.
         openUrl: '',
         // What a failed row offers to do about it: EMAIL, or 'open'.
@@ -318,7 +319,7 @@
   /**
    * The tracks the SoundCloud page lists, as the lookup fills their details
    * in. Every row this tool has comes out of a track's purchase link, so this
-   * is what the list is built from — twice over: once from what the page
+   * is what the list is built from, twice over: once from what the page
    * itself renders, and again from each answer as it arrives.
    */
   let listed: DetailedTrack[] = [];
@@ -359,9 +360,9 @@
 
     if (!isSoundCloudUrl(tab.url)) return;
 
-    // The details are the slow half of this — the content script asks
+    // The details are the slow half of this (the content script asks
     // SoundCloud about every track the page shows, which on a scrolled page is
-    // seconds — and they are started first so they run underneath everything
+    // seconds), and they are started first so they run underneath everything
     // below rather than after it.
     const answer = askPage(tab.id!, 'GET_DOWNLOAD_DETAILS');
 
@@ -410,13 +411,13 @@
    *
    * Switching the source is a choice, and a choice empties the list first: what
    * is listed is then always what the chosen source holds. (What became of each
-   * row is not forgotten — a link the other source offers too comes back as the
+   * row is not forgotten: a link the other source offers too comes back as the
    * row it was.)
    *
    * The popup coming back is not a choice anybody made, so `keep` is how it
    * collects: the list is the one that was there, and the source is read again
    * only for what is new to it. It matters most when the tab in front is the
-   * gate a row has just sent you to — a link this tool claims, and one that
+   * gate a row has just sent you to: a link this tool claims, and one that
    * would otherwise be the whole list.
    */
   async function collect({ keep = false } = {}) {
@@ -444,13 +445,13 @@
     if (rows.length > 0) status = '';
 
     // Nor is it renamed by a source that did not name itself, or by the one
-    // loose gate in the active tab — a link appended to twelve does not say
+    // loose gate in the active tab: a link appended to twelve does not say
     // where the twelve came from.
     if (held && (walked.origin === '' || walked.origin === THIS_TAB)) walked.origin = held;
 
     if (rows.length === 0) {
       // The drawer is the only other place a link can come from, so a panel
-      // with nothing to show opens it — unless it has been closed since.
+      // with nothing to show opens it, unless it has been closed since.
       if (drawer.value === null) drawer.value = true;
 
       if (!status) {
@@ -490,13 +491,13 @@
   // --- running ---------------------------------------------------------------
 
   async function run(pending: Row[]) {
+    // Never empty, and never while a run is going: both buttons that start one
+    // are off until there is something left to walk and nothing walking.
     const todo = pending.filter((row) => !settled(row));
 
-    if (running || todo.length === 0) return;
-
     running = true;
-    // A trip that needed a person needed one for the account, not for the gate
-    // — so the next twenty rows would wait out the same timeout for the same
+    // A trip that needed a person needed one for the account, not for the gate,
+    // so the next twenty rows would wait out the same timeout for the same
     // answer. The first no is taken as the answer for the rest of this run;
     // pressing Get again after connecting asks afresh.
     let connectable = true;
@@ -518,9 +519,9 @@
 
     // One at a time: a gate is a handful of round trips and several of these
     // sites hand out a per-visit token, so there is nothing to gain from
-    // overlapping them — and every one of them is somebody's small server.
+    // overlapping them, and every one of them is somebody's small server.
     for (const row of todo) {
-      // However the row ends — saved, somewhere to open, failed — the list is
+      // However the row ends (saved, somewhere to open, failed), the list is
       // written back with it, so the popup closing on the tab it sends you to
       // does not take the answer with it.
       try {
@@ -558,7 +559,7 @@
 
         // Chrome would not take the name the file came with, so it was saved
         // without one. It is in the download folder rather than the site's,
-        // under whatever Chrome called it — worth a line, not a failure.
+        // under whatever Chrome called it: worth a line, not a failure.
         if (renamed) row.detail = 'saved, but Chrome renamed it — check your downloads folder';
         // The transfer is the browser's from here, and outlives this popup, so
         // the row calls it saved as soon as it starts; onDownloadChanged below
@@ -570,7 +571,7 @@
         row.state = 'failed';
         row.detail = error instanceof Error ? error.message : String(error);
         // A gate that wants an email or a name wants it here, not in a tab;
-        // everything else is a trip to the page — to the file, if the walk got
+        // everything else is a trip to the page, or to the file if the walk got
         // that far.
         row.next = error instanceof Wanting ? error.next : 'open';
 
@@ -685,22 +686,12 @@
       <div class="flex flex-col gap-1.5">
         <div class="flex items-center gap-4">
           {#each TOGGLES as toggle (toggle.id)}
-            <Tooltip.Root>
-              <Tooltip.Trigger>
-                {#snippet child({ props })}
-                  <div {...props} class="flex items-center gap-1.5">
-                    <Switch id={toggle.id} bind:checked={toggle.pref.value} />
-                    <Label
-                      for={toggle.id}
-                      class="text-caption whitespace-nowrap text-fg-muted"
-                    >
-                      {toggle.label}
-                    </Label>
-                  </div>
-                {/snippet}
-              </Tooltip.Trigger>
-              <Tooltip.Content class="max-w-72">{toggle.hint}</Tooltip.Content>
-            </Tooltip.Root>
+            <HintSwitch
+              id={toggle.id}
+              label={toggle.label}
+              hint={toggle.hint}
+              bind:checked={toggle.pref.value}
+            />
           {/each}
         </div>
         {#if hiddenLine}
@@ -758,11 +749,11 @@
               <div class="flex shrink-0 items-center gap-1.5">
                 <!--
                   The mark comes first on every row that has a track, whatever
-                  state the walk left it in: a row that ended on a page, one that
-                  failed and was finished in a tab, one that was never worth
-                  running because the file was already on the disk — all of them
-                  are marked the same way, and a mark made in error is taken off
-                  the same way.
+                  state the walk left it in: a row that ended on a page, one
+                  that failed and was finished in a tab, one that was never
+                  worth running because the file was already on the disk. All of
+                  them are marked the same way, and a mark made in error is
+                  taken off the same way.
                 -->
                 {#if row.permalink}{@render markButton(row)}{/if}
                 {#if row.state === 'link' || row.state === 'sent'}
@@ -777,10 +768,10 @@
                   </Button>
                 {:else}
                   <!--
-                    A failed row leads with what will actually get the track: the
-                    gate itself, or the settings sheet when what is missing is
-                    something typed there — the email address, the name beside
-                    it. Get is still there beside it, for the failures worth
+                    A failed row leads with what will get the track: the gate
+                    itself, or the settings sheet when what is missing is
+                    something typed there (the email address, the name beside
+                    it). Get is still there beside it, for the failures worth
                     another go on their own.
                   -->
                   {#if row.state === 'failed' && (row.next === EMAIL || row.next === NAME)}
@@ -815,18 +806,18 @@
               What went wrong gets the whole width of the card rather than the
               sliver of column left beside the buttons. These messages carry a
               URL, or a gate's own words, and one that has to wrap five times
-              down a third of the row is one nobody reads — so the card opens
+              down a third of the row is one nobody reads, so the card opens
               underneath itself and says it in full. It opens with the failure
-              and closes with it, which is what makes a retry that works look
-              like the card healing over.
+              and closes with it, so a retry that works looks like the card
+              healing over.
             -->
             {#if fault}
               <p
-                transition:slide={{ duration: 240, easing: cubicOut }}
+                transition:slide={motion({ duration: 240, easing: cubicOut })}
                 class="border-t border-critical/40 bg-critical/5 px-2.5 py-2 text-caption
                        leading-relaxed text-critical"
               >
-                <span class="min-w-0 break-words" in:fade={{ duration: 200, delay: 110 }}>
+                <span class="min-w-0 break-words" in:fade={motion({ duration: 200, delay: 110 })}>
                   {fault}
                 </span>
               </p>

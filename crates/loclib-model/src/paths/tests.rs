@@ -132,6 +132,15 @@ fn path_styles_round_trip_through_json(tc: TestCase) {
     assert_eq!(PathStyle::default(), PathStyle::Relative);
 }
 
+/// Slashes are trimmed before normalising and NFC paths aren't normalised again, landing where
+/// normalising everything first would.
+#[hegel::test(test_cases = 200)]
+fn keys_are_the_nfc_path_without_leading_slashes(tc: hegel::TestCase) {
+    let s = tc.draw(hegel::generators::text().alphabet("/\\a.e\u{301}\u{e9}\u{338}\u{fb01}").max_size(10));
+    let nfc: String = s.nfc().collect();
+    assert_eq!(key(&s), nfc.replace('\\', "/").trim_start_matches('/'), "{s:?}");
+}
+
 /// Made absolute, a path is the current folder (when it's relative) followed by its parts, each
 /// `..` taking the part before it away and each `.` nothing; nothing at all stays nothing. With
 /// what's real followed, the part that exists is the real folder, followed by the rest.
@@ -252,4 +261,75 @@ fn a_relative_path_leads_from_the_folder_to_the_file(tc: TestCase) {
     }
     assert_eq!(at, to, "{from_path:?} + {r:?}");
     assert_eq!(r.split('/').filter(|s| *s == "..").count(), from.len() - common, "{r:?}");
+}
+
+/// Below a real folder without links, a path resolves to the folder's real path with its parts
+/// folded on: `.` is nothing and `..` takes away the part before it, whether that part exists
+/// yet or not.
+#[hegel::test(test_cases = 100)]
+fn prop_paths_below_a_real_folder_resolve_folded(tc: TestCase) {
+    let parts: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(vec!["a", "b", "..", ".", "c d"])).max_size(6));
+    let dir = tempfile::tempdir().unwrap();
+    let root = without_verbatim_prefix(dir.path().canonicalize().unwrap());
+    if tc.draw(gs::booleans()) {
+        std::fs::create_dir_all(root.join("a/b")).unwrap();
+    }
+    let mut folded = root.clone();
+    for p in &parts {
+        match *p {
+            ".." => drop(folded.pop()),
+            "." => {}
+            name => folded.push(name),
+        }
+    }
+    assert_eq!(resolved(&dir.path().join(parts.join("/"))), folded, "{parts:?}");
+    // From a relative folder there's no way to anywhere, even one below it.
+    let below = PathBuf::from("a").join(parts.join("/"));
+    assert_eq!(relative(Path::new("a"), &below), None);
+}
+
+/// With the current folder gone (removed under the process), a relative path has nothing to be
+/// absolute from: it's folded part by part as it is, `.` being nothing and `..` taking away the
+/// part before it. A rooted path is folded the same way from its root, as it always is.
+#[cfg(unix)]
+#[hegel::test(test_cases = 50)]
+fn prop_without_a_current_folder_relative_paths_are_folded_as_they_are(tc: TestCase) {
+    // One closure for both calls: coverage counts `absolute_with` by its best instance.
+    let unknown = |_: &Path| None;
+    let parts: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(vec!["a", "b", ".", ".."])).min_size(1).max_size(6));
+    let path = PathBuf::from(parts.join("/"));
+    let mut want = PathBuf::new();
+    for p in &parts {
+        match *p {
+            ".." => drop(want.pop()),
+            "." => {}
+            name => want.push(name),
+        }
+    }
+    /// Goes back to the folder the process was in, failing assertions or not.
+    struct Back(PathBuf);
+    impl Drop for Back {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.0);
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let gone = dir.path().join("gone");
+    std::fs::create_dir(&gone).unwrap();
+    // The current folder is the process's: nextest runs each test in a process of its own, so
+    // nothing else reads it meanwhile.
+    let back = Back(std::env::current_dir().unwrap());
+    std::env::set_current_dir(&gone).unwrap();
+    std::fs::remove_dir(&gone).unwrap();
+    let got = absolute_with(&path, unknown);
+    drop(back);
+    assert_eq!(got, want, "{path:?}");
+    assert_eq!(absolute_with(&Path::new("/").join(&path), unknown), Path::new("/").join(&want), "{path:?}");
+}
+
+/// A key is NFC with forward slashes and no leading slash, from ASCII and from anything else.
+#[test]
+fn keys_come_out_in_one_form() {
+    assert_eq!(key("\\\\Contents\\a b/c.mp3"), "Contents/a b/c.mp3");
+    assert_eq!(key("/Contents/Cafe\u{301}.mp3"), "Contents/Caf\u{E9}.mp3");
 }

@@ -22,6 +22,7 @@ export interface Database {
 	auditCopy: AuditCopyTable;
 	spaceWatch: SpaceWatchTable;
 	syncedRepo: SyncedRepoTable;
+	syncRepoRetry: SyncRepoRetryTable;
 	spaceRecord: SpaceRecordTable;
 	bookingThread: BookingThreadTable;
 	bookingParticipant: BookingParticipantTable;
@@ -104,6 +105,8 @@ export interface RequestTable {
 	decidedAt: string | null;
 	decisionReason: string | null;
 	resultProjectUri: string | null;
+	/** When its requester deleted the root's record of it, after it was decided. The row stays, without the content. */
+	deletedAt: string | null;
 }
 
 export interface StaffRoleTable {
@@ -180,6 +183,14 @@ export interface SyncedRepoTable {
 	lastError: string | null;
 }
 
+export interface SyncRepoRetryTable {
+	spaceUri: string;
+	repoDid: string;
+	attempts: number;
+	nextAttemptAt: string;
+	lastError: string;
+}
+
 export interface SpaceRecordTable {
 	spaceUri: string;
 	repoDid: string;
@@ -213,7 +224,8 @@ export interface BookingEventTable {
 	uri: string;
 	spaceUri: string;
 	authorDid: string;
-	kind: 'inquiry' | 'message' | 'status';
+	/** `unapplied` is a status record the thread's rules haven't allowed, so far. */
+	kind: 'inquiry' | 'message' | 'status' | 'unapplied';
 	record: string;
 	createdAt: string;
 }
@@ -230,6 +242,8 @@ export interface EpkRequestTable {
 	status: 'pending' | 'approved' | 'declined' | 'withdrawn';
 	createdAt: string;
 	decidedAt: string | null;
+	/** When its asker deleted the root's record of it, after it was answered. The row stays, without role or message. */
+	deletedAt: string | null;
 }
 
 export interface EpkGrantTable {
@@ -403,6 +417,8 @@ export interface NotificationDeliveryTable {
 }
 
 export type RequestRow = Selectable<RequestTable>;
+
+export type EpkRequestRow = Selectable<EpkRequestTable>;
 
 export type AuditEntryRow = Selectable<AuditEntryTable>;
 

@@ -44,6 +44,7 @@ pub(crate) fn report(plays: &[(u32, f64, f64)]) -> MixReport {
         track_end: 200.0,
         tempo: 1.0,
         speed_range: None,
+        lines: Vec::new(),
         played_bpm: None,
         key_lock: None,
         semitones: 0.0,
@@ -450,4 +451,64 @@ fn musicbrainz_ids_come_from_the_store_without_the_drive(tc: TestCase) {
     };
     assert_eq!(tracks[0].musicbrainz.recording, want, "tagged {tagged}, held {held}, kept {kept}, older {older}");
     assert!(tracks[1].musicbrainz.is_empty(), "no library holds it");
+}
+
+/// A library with no snapshot yet, or whose latest snapshot lists the file without a hash (as
+/// nothing can be read back without one), gives a track no MusicBrainz IDs from the store, while
+/// a library that keeps the tagged file does.
+#[hegel::test(test_cases = 10)]
+fn prop_libraries_without_a_hashed_copy_give_no_ids(tc: TestCase) {
+    use crate::model::LibrarySummary;
+    use crate::progress::Ctx;
+    use crate::store::Snapshot;
+    use crate::tree::FileEntry;
+    use lofty::config::WriteOptions;
+    use lofty::tag::{ItemKey, Tag, TagExt, TagType};
+    use uuid::Uuid;
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("s")).unwrap();
+    let id = Uuid::from_u128(7);
+    let path = dir.path().join("glue.wav");
+    std::fs::write(&path, crate::probe::tests::wav(8_000, 16, 0.25)).unwrap();
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.insert_text(ItemKey::MusicBrainzRecordingId, id.to_string());
+    tag.save_to_path(&path, WriteOptions::default()).unwrap();
+    let h = store.import_file(&path, None, &Ctx::silent()).unwrap().0;
+    let snapshot = |name: &str| {
+        let lib = store.create_library(name).unwrap();
+        let entry =
+            FileEntry { path: "Contents/glue.wav".into(), size: 0, mtime: 0, class: FileClass::Audio, hash: Some(h) };
+        let s = store
+            .save_snapshot(Snapshot {
+                id: Hash::of(b""),
+                library_id: lib.id,
+                parents: vec![],
+                created: Utc::now(),
+                message: None,
+                source: None,
+                fingerprint: Hash::of(name.as_bytes()),
+                summary: LibrarySummary::default(),
+                lineage: vec![],
+                files: vec![entry],
+            })
+            .unwrap();
+        store.set_head(lib.id, s.id).unwrap();
+        s
+    };
+    let kept = tc.draw(gs::booleans());
+    if kept {
+        snapshot("Main");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    store.create_library("Empty").unwrap();
+    if tc.draw(gs::booleans()) {
+        // Changed last, so looked at first: its copy has no hash to read.
+        let mut s = snapshot("Unhashed");
+        s.files[0].hash = None;
+        crate::fsutil::write_json_atomic(&store.snapshot_path(&s.id), &s).unwrap();
+    }
+    let mut tracks = vec![SetEntry { file: Some("/Contents/glue.wav".into()), ..SetEntry::added("A - Glue") }];
+    read_musicbrainz(&store, &mut tracks, &[]);
+    assert_eq!(tracks[0].musicbrainz.recording, kept.then_some(id));
 }

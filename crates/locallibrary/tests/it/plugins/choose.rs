@@ -212,3 +212,49 @@ fn any_question_passed_on_is_one_its_answers_plan(tc: TestCase) {
         }
     }
 }
+
+/// For any command run on a drive that isn't known here, it isn't run; a view command's question
+/// from a plugin without the `choose` feature is refused; a headless command's parts of a view
+/// aren't shown (it has none), its answer as it is, and a view command's are, as they come.
+#[hegel::test(test_cases = 1)]
+fn prop_a_command_runs_on_a_known_drive_and_asks_only_if_it_can(tc: TestCase) {
+    for case in 0..=3 {
+        prop_a_command_runs_on_a_known_drive_and_asks_only_if_it_can_case(&tc, case);
+    }
+}
+
+/// [`prop_a_command_runs_on_a_known_drive_and_asks_only_if_it_can`] for one `case`.
+#[hegel::test_helper]
+fn prop_a_command_runs_on_a_known_drive_and_asks_only_if_it_can_case(tc: &TestCase, case: u8) {
+    let f = Fixture::new(|dir| vec![spec(dir, ECHO, &["--without", "choose"])], Options::default());
+    let rows: Vec<String> = tc.draw(gs::vecs(gs::from_regex("[a-z]{1,4}").fullmatch(true)).min_size(1).max_size(3));
+    let shown = std::sync::atomic::AtomicUsize::new(0);
+    let run = |command: &str, params: Value, context: Context| {
+        let count = |_| {
+            shown.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        };
+        f.plugins.run_command("echo", command, params, context, Some(&f.store), &Ctx::silent(), &count)
+    };
+    match case {
+        0 => {
+            let elsewhere = Context { drive: Some("ELSEWHERE".into()), ..Context::default() };
+            assert_eq!(run("echo", json!({}), elsewhere).unwrap_err().code(), "not_found");
+        }
+        1 => {
+            let params = json!({ "ask": choice("pick", vec![json!(1)]) });
+            let e = failure(run("titles", params, f.context()).unwrap_err());
+            assert_eq!(e, "the Echo plugin failed: it asks a question without the choose feature");
+        }
+        2 => {
+            let answered = run("echo", json!({ "partial": rows }), f.context()).unwrap();
+            let CommandOutput::Headless(answer) = answered else { panic!("headless") };
+            assert_eq!(answer["kind"], "table");
+            assert_eq!(shown.load(std::sync::atomic::Ordering::SeqCst), 0);
+        }
+        _ => {
+            let answered = run("titles", json!({ "partial": rows }), f.context()).unwrap();
+            assert!(matches!(answered, CommandOutput::View(View::Table { .. })));
+            assert_eq!(shown.load(std::sync::atomic::Ordering::SeqCst), rows.len(), "a view's parts are shown");
+        }
+    }
+}

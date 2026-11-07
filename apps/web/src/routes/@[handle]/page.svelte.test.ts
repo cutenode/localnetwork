@@ -3,6 +3,7 @@ import { expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import type { ProfileRecord, ProfileView, ProjectView, Viewer } from '#lib/types.ts';
 import Page from './+page.svelte';
+import { PAGE_META } from '#lib/testing/page-meta.ts';
 
 const DID = 'did:plc:neon';
 
@@ -44,7 +45,7 @@ const open = (profile: ProfileView | null, viewer: Viewer | null = null, name = 
 			profile,
 			name,
 			account: { did: DID, handle: 'neon.test' },
-			canonical: 'https://localnetwork.test/@neon.test',
+			meta: PAGE_META,
 			dj: Promise.resolve([]),
 			sets: undefined,
 			playsIn: Promise.resolve([crew])
@@ -52,7 +53,7 @@ const open = (profile: ProfileView | null, viewer: Viewer | null = null, name = 
 		form: null
 	});
 
-it("shows a DJ's sections, the projects they play in, and its canonical address", async () => {
+it("shows a DJ's sections and the projects they play in", async () => {
 	await open(
 		view({
 			basics: {
@@ -76,9 +77,6 @@ it("shows a DJ's sections, the projects they play in, and its canonical address"
 	await expect.element(page.getByText('Leipzig, DE')).toBeInTheDocument();
 	await expect.element(page.getByRole('link', { name: 'Website' })).toHaveAttribute('href', 'https://neon.example/');
 	await expect.element(page.getByRole('link', { name: 'Neon Crew' })).toHaveAttribute('href', '/projects/neon-crew');
-	expect(document.querySelector('link[rel="canonical"]')?.getAttribute('href')).toBe(
-		'https://localnetwork.test/@neon.test'
-	);
 	await expect.element(page.getByRole('link', { name: 'Manage' })).not.toBeInTheDocument();
 });
 

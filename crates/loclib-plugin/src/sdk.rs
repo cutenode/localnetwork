@@ -17,8 +17,8 @@ use crate::protocol::{
     check_protocol, method,
 };
 use crate::{
-    Contributions, EventNotify, FEATURES, HostNotify, Incoming, ListItem, Manifest, PROTOCOL_VERSION, Peer, Request,
-    RpcError,
+    Contributions, EnsureAccount, Ensured, EventNotify, FEATURES, HostNotify, Incoming, ListItem, Manifest,
+    PROTOCOL_VERSION, Peer, Request, RpcError,
 };
 
 /// A request the host sends a hook: its method, what it answers, and the contribution it's for,
@@ -92,8 +92,9 @@ impl Hooks {
         self
     }
 
-    /// The features with a method among these hooks', and the SDK's own (`blobs`, `net`, what a
-    /// hook may send the host, see [`Host`]; `choose`, a question it may answer).
+    /// The features with a method among these hooks', and the SDK's own (`accounts`, `blobs`,
+    /// `net`, what a hook may send the host, see [`Host`]; `analysis`, `choose`, `views`, what it
+    /// may answer).
     fn features(&self) -> Vec<String> {
         let handled = |m: &&str| self.hooks.contains_key(m) || self.notified.contains_key(m);
         let had = FEATURES.iter().filter(|f| f.methods.is_empty() || f.methods.iter().any(handled));
@@ -156,6 +157,13 @@ impl Host {
     /// `net:` capabilities grant (see [`Fetch`]).
     pub fn fetch(&self, req: &Fetch) -> Result<Fetched, RpcError> {
         self.call(method::NET_FETCH, req)
+    }
+
+    /// `accounts/ensure`: which of the scopes `req` names of an account the hook may use, and which
+    /// the user declined (see [`EnsureAccount`]). The host may ask the user first: this waits for
+    /// them, until the host cancels the hook.
+    pub fn ensure_account(&self, req: &EnsureAccount) -> Result<Ensured, RpcError> {
+        self.call(method::ACCOUNTS_ENSURE, req)
     }
 
     /// Sends the host the next rows of the table a view command will answer (`partial`), to

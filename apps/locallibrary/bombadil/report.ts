@@ -1,6 +1,6 @@
 // Bombadil specification for the mix report `locallibrary mix --html` writes.
 //
-// Run it through `./report.sh`, which builds a drive with synthetic audio, records a "set"
+// Run it through `node report.mjs`, which builds a drive with synthetic audio, records a "set"
 // from it, writes the report and serves it with the set's audio.
 
 import { always, eventually, now, type Cell } from "@antithesishq/bombadil";

@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import favicon from '#lib/assets/favicon.svg';
 	import { clearSignedOutDrafts } from '#lib/form-draft.svelte.ts';
+	import SocialMeta from '#lib/components/SocialMeta.svelte';
 	import { type NavLink, siteNav } from '#lib/nav.ts';
 	import SiteHeader from '#lib/ui/SiteHeader.svelte';
 	import { hotkeys, hotkeyTarget, loadHotkeyPreference, setHotkeysEnabled } from '#lib/hotkeys.svelte.ts';
@@ -63,6 +64,9 @@
 	<meta name="theme-color" content="#09090b" />
 </svelte:head>
 
+<!-- Public pages' loads say what they are. The pages search engines skip (see isUnlisted) set their own title. -->
+{#if page.data.meta}<SocialMeta meta={page.data.meta} />{/if}
+
 <svelte:window {onkeydown} />
 
 <a href="#main" class="sr-only rounded-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-fg focus:px-3 focus:py-2 focus:text-fg-inverse">Skip to content</a>
@@ -84,8 +88,9 @@
 		<a class="menu-link" href="/about" aria-keyshortcuts={shortcut('A')}>How it works</a>
 		<a class="menu-link" href="/privacy" aria-keyshortcuts={shortcut('P')}>Privacy</a>
 		<a class="menu-link" href="/tools">Tools</a>
-		<a class="menu-link" href="/report?from={encodeURIComponent(page.url.pathname)}">Report a bug</a>
+		<!-- Signed out, /report sends people on to GitHub, so the link says so. -->
+		<a class="menu-link" href="/report?from={encodeURIComponent(page.url.pathname)}">{data.viewer ? 'Report a bug' : 'Report a bug on GitHub'}</a>
 		<button type="button" class="menu-link inline-flex min-h-9 items-center gap-2" aria-pressed={hotkeys.enabled} onclick={() => setHotkeysEnabled(!hotkeys.enabled)}>Keyboard shortcuts: {hotkeys.enabled ? 'on' : 'off'}</button>
-		<span class="text-fg-subtle sm:ml-auto">Records on the AT Protocol · private data in atproto spaces</span>
+		<span class="text-fg-subtle sm:ml-auto">Records on the AT Protocol · private data in spaces only their members can read</span>
 	</div>
 </footer>

@@ -34,13 +34,9 @@
 
 	const loginHref = $derived(`/login?next=/projects/${project.slug}`);
 
-	const followLogin = $derived(viewer ? undefined : loginHref);
+	// `#follow` lets sign-in say it's to follow them, and brings them back to the button.
+	const followLogin = $derived(viewer ? undefined : `/login?next=${encodeURIComponent(`/projects/${project.slug}#follow`)}`);
 </script>
-
-<svelte:head>
-	<title>{profile.name} · Local Network</title>
-	<meta name="description" content={profile.tagline ?? `${kindLabel(profile.kind)} from ${placeLabel(profile)}`} />
-</svelte:head>
 
 <div class="border-b border-line">
 	<div class="container-page flex flex-col gap-6 py-10 sm:py-14">
@@ -67,7 +63,7 @@
 				{#each profile.genres as genre, index (index)}<li><Tag href="/projects?genres={encodeURIComponent(genre)}">{genre}</Tag></li>{/each}
 			</ul>
 		{/if}
-		<div class="flex flex-wrap gap-2">
+		<div id="follow" class="flex flex-wrap gap-2">
 			{#if !viewer}
 				<a href={loginHref} class="btn-primary"><CalendarPlus class="size-4" />Sign in to book</a>
 			{:else if claimed && !data.isManager}
@@ -192,10 +188,15 @@
 				<p class="m-0 text-fg-muted">Nobody yet. Listed by Local Network staff.{#if viewer && project.status !== 'archived'}{' '}<a class="link" href="/dashboard/claim/{project.slug}">Is this you?</a>{/if}</p>
 			{/if}
 		</section>
-		<section aria-labelledby="record" class="flex flex-col gap-1.5 px-1 text-caption text-fg-subtle">
-			<h2 id="record" class="m-0 eyebrow">On the AT Protocol</h2>
-			<p class="m-0">Revision {project.revision}, updated {formatDate(project.updatedAt)}</p>
-			<p class="m-0 font-mono break-all">{project.uri}</p>
-		</section>
+		<div class="flex flex-col gap-1.5 px-1 text-caption text-fg-subtle">
+			<p class="m-0">Updated {formatDate(project.updatedAt)}</p>
+			<details>
+				<summary class="cursor-pointer marker:text-fg-subtle hover:text-fg">Technical details</summary>
+				<dl class="m-0 mt-1.5 flex flex-col gap-1">
+					<div class="flex gap-1.5"><dt>Revision</dt><dd class="m-0">{project.revision}</dd></div>
+					<div><dt class="sr-only">Record</dt><dd class="m-0 font-mono break-all">{project.uri}</dd></div>
+				</dl>
+			</details>
+		</div>
 	</aside>
 </div>

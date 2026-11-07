@@ -1,4 +1,4 @@
-//! The browser's half of signing in (to the Atmosphere account, or a plugin's account): an HTTP
+//! The browser's half of signing in (to the Atmosphere account, or an account of a type): an HTTP
 //! listener on 127.0.0.1 that waits for the authorization server's redirect, or the redirect URL
 //! pasted by hand when the browser runs on another computer.
 //!

@@ -186,11 +186,147 @@ fn a_refusal_is_said_in_mixclouds_words(tc: TestCase) {
     let limit = format!("{kind} {message}").to_lowercase().contains("limit");
     let (expected, then) = match status {
         _ if rate_limited => ("external", "publish again in 16 minutes"),
-        401 => ("permission", "sign in again: locallibrary plugin account mixcloud mixcloud sign-in"),
+        401 => ("permission", ")"),
         _ if limit => ("invalid", "move one to your drafts, or go Pro"),
         403 => ("permission", ")"),
         _ => ("invalid", ")"),
     };
     assert_eq!(e.kind(), Some(expected), "{e:?}");
     assert!(e.message.ends_with(then), "{e:?}");
+}
+
+/// Each way a publish can't go says why, sending nothing more: a recording that isn't there, or
+/// is empty; a picture too big, without a scratch folder to send it from, or that can't be read;
+/// the host failing the upload; Mixcloud failing it every try, answering what can't be read, or
+/// refusing it as forbidden. A dry run without a tracklist says none, and names the picture when
+/// there's one and the show unlisted when it is; with a picture and nothing in the way, the show
+/// is made, the picture sent with it.
+#[hegel::test(test_cases = 1)]
+fn prop_each_way_a_publish_cant_go_says_why(tc: TestCase) {
+    for case in [0, 1, 2, 3, 4, 6, 9, 10, 11, 12, 13, 14, 15] {
+        publish_cant_go(&tc, case);
+    }
+}
+
+/// However Mixcloud says it, an answer naming no show and a field's problems listed in any shape
+/// fail the publish saying so, and cancelled while it waits to send it again after any failure,
+/// it answers `cancelled`, sending nothing more.
+#[hegel::test(test_cases = 4)]
+fn prop_how_mixcloud_says_it_doesnt_change_how_a_publish_stops(tc: TestCase) {
+    for case in [5, 7, 8] {
+        publish_cant_go(&tc, case);
+    }
+}
+
+/// [`prop_each_way_a_publish_cant_go_says_why`]'s `case`, on a session of its own.
+#[hegel::test_helper]
+fn publish_cant_go(tc: &TestCase, case: u8) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut recording = file(dir.path(), "set.mp3", 10);
+    let picture = file(dir.path(), "cover.png", 30);
+    let (mut settings, mut scratch, mut dry_run, mut every) = (json!({}), true, false, false);
+    // Mixcloud's answer to the first upload; what the publish fails as, how its message starts and
+    // what it says after; how many uploads went (one more at most, after a cancel).
+    let (reply, kind_said, said, then, sent) = match case {
+        0 => {
+            recording = dir.path().join("gone.mp3");
+            (None, "io", format!("{}: ", recording.display()), String::new(), 0)
+        }
+        1 => {
+            (settings, scratch) = (json!({ "picture": picture }), false);
+            (
+                None,
+                "invalid_params",
+                "invalid params: no scratch folder to send the picture from".into(),
+                String::new(),
+                0,
+            )
+        }
+        2 if cfg!(unix) => {
+            settings = json!({ "picture": picture });
+            #[cfg(unix)]
+            std::fs::set_permissions(&picture, std::os::unix::fs::PermissionsExt::from_mode(0o000)).unwrap();
+            (None, "io", format!("{}: ", picture.display()), String::new(), 0)
+        }
+        3 => (Some(Reply::Fails("access")), "access", "the host failed it".into(), String::new(), 1),
+        4 => {
+            let html = Reply::Status(200, Vec::new(), "<html>".into());
+            (Some(html), "external", "Mixcloud's answer can't be read: ".into(), String::new(), 1)
+        }
+        5 => {
+            let key =
+                tc.draw(gs::sampled_from(vec![None, Some(""), Some("/djkit/"), Some("/dj kit/set/"), Some("/a/b/c/")]));
+            let body = json!({ "result": { "success": true, "key": key } }).to_string();
+            let said = format!("Mixcloud's answer named no show: {:?}", key.unwrap_or_default());
+            (Some(Reply::Status(200, Vec::new(), body)), "external", said, String::new(), 1)
+        }
+        6 => {
+            let said = "Mixcloud refused the show (403 PermissionException: Forbidden)";
+            (Some(error(403, "PermissionException", "Forbidden")), "permission", said.into(), String::new(), 1)
+        }
+        7 => {
+            let problems = tc.draw(gs::sampled_from(vec![json!([1, "Really."]), json!([null]), json!([{ "a": 2 }])]));
+            let listed = problems.as_array().unwrap().iter().map(|p| p.as_str().map_or(p.to_string(), String::from));
+            let then = format!("; mp3: {})", listed.collect::<Vec<_>>().join(" "));
+            let body =
+                json!({ "error": { "type": "PostValidationError", "message": "No." }, "details": { "mp3": problems } });
+            let refused = Reply::Status(400, Vec::new(), body.to_string());
+            (Some(refused), "invalid", "Mixcloud refused the show (400 PostValidationError: No.".into(), then, 1)
+        }
+        // The one way it goes: the show made, its picture sent from the scratch folder.
+        15 => {
+            settings = json!({ "picture": picture });
+            (None, "", String::new(), String::new(), 1)
+        }
+        14 => {
+            // Sparse: it takes no room.
+            std::fs::File::options().write(true).open(&picture).unwrap().set_len(10_000_001).unwrap();
+            settings = json!({ "picture": picture });
+            let said = "Mixcloud takes pictures of up to 10.0 MB, and cover.png is 10.0 MB";
+            (None, "invalid", said.into(), String::new(), 0)
+        }
+        12 => {
+            every = true;
+            let failed = "Mixcloud failed the show (503)".to_string();
+            (Some(error(503, "", "")), "external", failed, String::new(), TRIES as usize)
+        }
+        8 => {
+            let then = tc.draw(gs::sampled_from(vec![Reply::Unreachable, error(503, "", "")]));
+            (Some(Reply::Cancels(Box::new(then))), "cancelled", "operation cancelled".into(), String::new(), 1)
+        }
+        // A dry run of an unlisted show with a picture, and of a show without either.
+        9 | 13 => {
+            dry_run = true;
+            settings = json!({ "unlisted": case == 9 });
+            if case == 9 {
+                settings["picture"] = json!(picture);
+            }
+            (None, "", String::new(), String::new(), 0)
+        }
+        _ => {
+            recording = file(dir.path(), "empty.mp3", 0);
+            (None, "invalid", "empty.mp3 is empty".into(), String::new(), 0)
+        }
+    };
+    let s = start(Mixcloud::scripted(move |n| (n == 0 || every).then(|| reply.clone()).flatten()));
+    let pending = s.send(&super::set(), &recording, &[], settings.clone(), dry_run, scratch);
+    let answer = pending.wait_timeout::<Published>(std::time::Duration::from_secs(60)).expect("an answer");
+    let uploads = s.stop().len();
+    if dry_run {
+        let warnings = answer.unwrap().warnings;
+        assert!(!warnings[0].contains("tracklist"), "{warnings:?}");
+        assert_eq!(warnings[0].ends_with(", cover.png as its picture"), settings.get("picture").is_some());
+        assert_eq!(warnings[0].contains(" as the unlisted show "), settings["unlisted"] == true, "{warnings:?}");
+        assert_eq!(uploads, 0);
+        return;
+    }
+    if kind_said.is_empty() {
+        assert_eq!((answer.unwrap().url.as_deref(), uploads), (Some(PAGE), sent));
+        return;
+    }
+    let e = answer.unwrap_err();
+    assert_eq!(e.kind(), Some(kind_said), "{e:?}");
+    assert!(e.message.starts_with(&said) && e.message.ends_with(&then), "{e:?}, not {said:?} ... {then:?}");
+    let cancelled = kind_said == "cancelled";
+    assert!((sent..=sent + usize::from(cancelled)).contains(&uploads), "{uploads} uploads");
 }

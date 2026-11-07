@@ -473,6 +473,10 @@ pub struct OneLibrary {
     journal: [u8; 2],
     path: PathBuf,
     _dir: tempfile::TempDir,
+    /// `content`'s row count as last set in `property`, kept by [`OneLibrary::add_track`] and
+    /// [`OneLibrary::remove_tracks`], which alone write `content`: counting every row again for
+    /// each track added made adding a library's tracks take quadratic time.
+    contents: Option<i64>,
 }
 
 impl std::fmt::Debug for OneLibrary {
@@ -566,7 +570,7 @@ impl OneLibrary {
         // committing after each statement made building a 3,000-track database 20 to 40% slower.
         // Edits that must go whole or not at all are savepoints within it.
         conn.execute_batch("PRAGMA journal_mode = MEMORY; PRAGMA synchronous = OFF; BEGIN;")?;
-        Ok(OneLibrary { conn, codec, journal, path, _dir: dir })
+        Ok(OneLibrary { conn, codec, journal, path, _dir: dir, contents: None })
     }
 
     /// Plain SQLite access to the working copy (tests and diagnostics).
@@ -726,16 +730,20 @@ impl OneLibrary {
         Ok(self.conn.query_row(&format!("SELECT coalesce(max({column}), 0) + 1 FROM {table}"), [], |r| r.get(0))?)
     }
 
-    fn update_count(&self) -> Result<()> {
+    /// Set `numberOfContents` to `content`'s row count: `known`, or counted.
+    fn update_count(&mut self, known: Option<i64>) -> Result<()> {
         // Only a count kept beside the tracks: a database without the table (which plans as
         // readable) takes the tracks all the same.
         if self.columns("property")?.is_empty() {
             return Ok(());
         }
-        self.conn
-            .execute("UPDATE property SET numberOfContents = (SELECT count(*) FROM content)", [])
-            .map(|_| ())
-            .map_err(Into::into)
+        let count = match known {
+            Some(n) => n,
+            None => self.conn.query_row("SELECT count(*) FROM content", [], |r| r.get(0))?,
+        };
+        self.conn.execute("UPDATE property SET numberOfContents = ?1", [count])?;
+        self.contents = Some(count);
+        Ok(())
     }
 
     // -- removing tracks --------------------------------------------------------------------
@@ -809,6 +817,7 @@ impl OneLibrary {
     /// Remove tracks with their cues, playlist, history, My Tag and recommendation entries, and the
     /// lookup rows nothing else uses. Playlists and histories are renumbered without gaps.
     pub fn remove_tracks(&mut self, ids: &[u32]) -> Result<()> {
+        self.contents = None;
         self.check_no_unknown_references()?;
         let removed: FxHashSet<u32> = ids.iter().copied().collect();
         let lookups = self.unused_lookups(&removed)?;
@@ -884,7 +893,7 @@ impl OneLibrary {
             }
         }
         tx.commit()?;
-        self.update_count()
+        self.update_count(None)
     }
 
     // -- artwork ----------------------------------------------------------------------------
@@ -1121,6 +1130,8 @@ impl OneLibrary {
         analyze_path: &str,
         image: Option<u32>,
     ) -> Result<(u32, FxHashMap<i64, i64>)> {
+        // Taken until the count is set again, so an add that fails part way leaves it to be counted.
+        let contents = self.contents.take().map(|n| n + 1);
         let artist = |n: &Option<String>| n.as_deref().map(|n| self.named(Lookup::Artist, n)).transpose();
         let file_name = path.rsplit('/').next().unwrap_or(path).to_string();
         let album_artist = rec.album.as_ref().and_then(|(_, a)| a.clone());
@@ -1185,7 +1196,7 @@ impl OneLibrary {
             };
             self.conn.execute("INSERT INTO myTag_content (myTag_id, content_id) VALUES (?1, ?2)", params![tag, id])?;
         }
-        self.update_count()?;
+        self.update_count(contents)?;
         Ok((id32(id, "content")?, cue_ids))
     }
 

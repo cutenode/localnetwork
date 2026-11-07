@@ -14,6 +14,7 @@ use locallibrary::anlz::{TrackAnalysis, Waveform};
 use locallibrary::api;
 use locallibrary::mix::export;
 use locallibrary::mix::index::Cache;
+use locallibrary::mix::prefs::MixPrefs;
 use locallibrary::mix::report::{self, Drive};
 use locallibrary::mix::{self, Identifier, MixReport, MixWaveform, Play, Transition};
 use locallibrary::profile::ProfilePrefs;
@@ -27,13 +28,14 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, Mous
 use ratatui::layout::{Alignment, Constraint, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Cell, List, ListItem, ListState, Paragraph, Row, Table, TableState, Wrap};
+use ratatui::widgets::{Cell, List, ListItem, ListState, Paragraph, Row, Table, TableState, Wrap};
 
 use super::app::{App, Level, Msg, edit_line, typed_tail};
+use super::icons;
 use super::keymap::Act;
 use super::keys::Camelot;
 use super::theme::{self, bold, dim, faint, fg, rgb3, text};
-use super::ui::{Scrolled, clip};
+use super::ui::{Scrolled, block, clip, pane_title, title};
 use crate::output::clock;
 
 /// Recordings remembered between runs.
@@ -44,7 +46,6 @@ fn lane(i: usize) -> [u8; 3] {
     let t = theme::current();
     [t.accent, t.info, t.warning, t.secondary, t.good][i % 5]
 }
-const INK: [u8; 3] = [14, 14, 20];
 const LOWER: [&str; 9] = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
 
 /// A recording to choose from.
@@ -207,7 +208,7 @@ impl MixTab {
         self.loading.is_some()
     }
 
-    /// What the header shows while a set is being identified.
+    /// What the status line shows while a set is being identified.
     pub fn status(&self) -> Option<String> {
         let l = self.loading.as_ref()?;
         let p = l.progress.lock().ok()?;
@@ -505,7 +506,8 @@ fn identify(
     let device = Device::open(root)?;
     // Fingerprints are cached in the store, made here if there's none yet.
     let store = Store::open_or_init(store_root)?;
-    let id = Identifier::with_library(&device, library.clone(), &Cache::in_store(&store), &ctx)?;
+    let id =
+        Identifier::with_library(&device, library.clone(), &Cache::in_store(&store), &MixPrefs::load(&store)?, &ctx)?;
     let report = id.identify(path, &mix::Options::default(), &ctx)?;
     let analyses = report.plays.iter().map(|p| api::analysis_of(&device, &p.track)).collect();
     let cover = report.mix.cover.as_ref().and_then(|c| c.read().ok()).and_then(|b| Art::decode(&b));
@@ -772,6 +774,15 @@ pub fn switch_pane(app: &mut App) {
     }
 }
 
+/// A digit: the pane with that number, when there's something in it.
+pub fn jump_to_pane(app: &mut App, n: u32) {
+    match n {
+        1 => app.mix.pane = Pane::Mixes,
+        2 if app.mix.report().is_some_and(|r| !r.plays.is_empty()) => app.mix.pane = Pane::Tracks,
+        _ => {}
+    }
+}
+
 /// Enter: on a recording, find its tracks; on a track, play the set from there.
 pub fn enter(app: &mut App) {
     if app.mix.pane == Pane::Tracks {
@@ -926,15 +937,6 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
     draw_tab(f, &mut app.mix, area, &cx);
 }
 
-fn block(title: Line<'static>, focused: bool) -> Block<'static> {
-    Block::bordered().border_type(theme::border_type(focused)).border_style(theme::border(focused)).title(title)
-}
-
-fn title(s: &str, focused: bool) -> Line<'static> {
-    let style = if focused { bold(theme::current().info) } else { bold(theme::current().dim) };
-    Line::from(vec![Span::raw(" "), Span::styled(s.to_string(), style), Span::raw(" ")])
-}
-
 fn draw_tab(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
     // The selection follows the set as it plays into each track.
     if let (Some(pos), Some(r)) = (cx.playhead, t.report()) {
@@ -1009,7 +1011,7 @@ fn draw_tab(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
 
 fn draw_list(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
     let focused = t.pane == Pane::Mixes;
-    let b = block(title("Recordings", focused), focused)
+    let b = block(pane_title(1, "Recordings", focused), focused)
         .title_bottom(Line::from(vec![Span::styled(" O ", theme::key()), Span::styled("open… ", faint())]));
     let mut inner = b.inner(area);
     f.render_widget(b, area);
@@ -1018,7 +1020,10 @@ fn draw_list(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
         let shown = typed_tail(text_, (input.width as usize).saturating_sub(1));
         let lines = vec![
             Line::styled("Open a recording or folder:", bold(theme::current().warning)),
-            Line::from(vec![Span::styled(shown.to_string(), text()), Span::styled("▏", fg(theme::current().accent))]),
+            Line::from(vec![
+                Span::styled(shown.to_string(), text()),
+                Span::styled(icons::CURSOR.get(), fg(theme::current().accent)),
+            ]),
             Line::styled("enter open · esc cancel", faint()),
         ];
         f.render_widget(Paragraph::new(lines), input);
@@ -1051,9 +1056,9 @@ fn draw_list(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
         .iter()
         .map(|s| {
             let mark = if loading.as_ref() == Some(&s.path) {
-                Span::styled("⟳ ", fg(theme::current().info))
+                Span::styled(icons::BUSY.spaced(), fg(theme::current().info))
             } else if opened.as_ref() == Some(&s.path) {
-                Span::styled("● ", fg(theme::current().good))
+                Span::styled(icons::DOT.spaced(), fg(theme::current().good))
             } else {
                 Span::raw("  ")
             };
@@ -1072,8 +1077,8 @@ fn draw_list(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
         })
         .collect();
     let list = List::new(items)
-        .highlight_style(if focused { theme::selected() } else { Style::new().add_modifier(Modifier::BOLD) })
-        .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
+        .highlight_style(if focused { theme::selected() } else { theme::unfocused() })
+        .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
     // Two lines a recording.
     t.list.fit(inner.height as usize / 2, t.sources.len());
     f.render_stateful_widget(list, inner, &mut t.list);
@@ -1178,7 +1183,7 @@ fn draw_report(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
     }
     if let Some(pos) = cx.playhead {
         first.push(Span::styled(
-            format!("   ▶ {} / {}", clock(pos), clock(m.duration_secs)),
+            format!("   {} {} / {}", icons::PLAY.get(), clock(pos), clock(m.duration_secs)),
             fg(theme::current().accent),
         ));
         if let Some(i) = playing {
@@ -1200,7 +1205,7 @@ fn draw_report(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
     for (i, p) in r.plays.iter().enumerate() {
         if i > 0 {
             let arrow = match r.transitions.iter().find(|tr| tr.to == i).and_then(|tr| tr.harmony.as_deref()) {
-                Some("clash") => Span::styled(" ✕ ", bold(theme::current().critical)),
+                Some("clash") => Span::styled(icons::CLASH.padded(), bold(theme::current().critical)),
                 Some(_) => Span::styled(" → ", fg(theme::current().good)),
                 None => Span::styled(" → ", faint()),
             };
@@ -1216,8 +1221,8 @@ fn draw_report(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
     // Timeline.
     let focus = cx.playhead.or_else(|| selected.map(|i| (r.plays[i].start + r.plays[i].end) / 2.0)).unwrap_or(0.0);
     let win = window(m.duration_secs, t.zoom, focus);
-    let bpms: Vec<f64> = r.plays.iter().filter_map(|p| p.played_bpm).collect();
-    let (lo, hi) = (bpms.iter().copied().fold(f64::INFINITY, f64::min), bpms.iter().copied().fold(0.0, f64::max));
+    let bpms: Vec<(f64, f64)> = r.plays.iter().filter_map(Play::bpm_range).collect();
+    let (lo, hi) = bpms.iter().fold((f64::INFINITY, 0.0f64), |(lo, hi), b| (lo.min(b.0), hi.max(b.1)));
     let mut right = Vec::new();
     if !bpms.is_empty() {
         let range = if hi - lo < 0.5 { format!("{lo:.0} BPM") } else { format!("{lo:.0}–{hi:.0} BPM") };
@@ -1283,7 +1288,7 @@ fn shade(c: [u8; 3], played: bool, head: bool) -> [u8; 3] {
     if head {
         theme::current().playhead
     } else if played {
-        theme::scale(c, 0.5)
+        theme::fade(c, 0.5)
     } else {
         c
     }
@@ -1402,21 +1407,21 @@ fn draw_lanes(
             let heard = p.presence.get(k).or(p.presence.last()).copied().unwrap_or(1.0).clamp(0.0, 1.0);
             let level = (0.3 + 0.7 * heard) * if chosen { 1.0 } else { 0.7 };
             let played = head.is_some_and(|h| t < h);
-            let c = theme::scale(base, if played { level * 0.6 } else { level });
-            put(buf, area.x + x, y, " ", INK, Some(c));
+            let c = theme::fade(base, if played { level * 0.6 } else { level });
+            put(buf, area.x + x, y, " ", theme::current().ink, Some(c));
         }
         let label = format!("{} {}", i + 1, p.track.title);
         let room = (b - a) as usize;
         if room >= 2 {
-            let style =
-                Style::new().fg(rgb3(INK)).add_modifier(if chosen { Modifier::BOLD } else { Modifier::empty() });
+            let weight = if chosen { Modifier::BOLD } else { Modifier::empty() };
+            let style = Style::new().fg(rgb3(theme::ink_on(base))).add_modifier(weight);
             buf.set_stringn(area.x + a, y, clip(&label, room), room, style);
         }
     }
     if let Some(x) = head_x(area, (from, to), head) {
         for y in [area.y, area.y + 1] {
             if let Some(cell) = buf.cell_mut((area.x + x, y)) {
-                cell.set_symbol("▏").set_fg(rgb3(theme::current().playhead));
+                cell.set_symbol(icons::CURSOR.get()).set_fg(rgb3(theme::current().playhead));
             }
         }
     }
@@ -1452,7 +1457,8 @@ fn draw_axis(buf: &mut Buffer, area: Rect, (from, to): (f64, f64), selected: Opt
     }
 }
 
-/// The tempo the set was played at, track by track, between the slowest and fastest.
+/// The tempo the set was played at, track by track (and line by line where the pitch fader was
+/// ridden), between the slowest and fastest.
 fn draw_tempo(
     buf: &mut Buffer,
     area: Rect,
@@ -1468,7 +1474,7 @@ fn draw_tempo(
     let rows = area.height as f64;
     for x in 0..area.width {
         let t = from + (x as f64 + 0.5) / area.width as f64 * (to - from);
-        let Some(bpm) = play_at(plays, t).and_then(|i| plays[i].played_bpm) else { continue };
+        let Some(bpm) = play_at(plays, t).and_then(|i| plays[i].bpm_at(t)) else { continue };
         let height = ((bpm - lo) / (hi - lo)).clamp(0.05, 1.0) * rows;
         let played = head.is_some_and(|h| t < h);
         for row in 0..area.height {
@@ -1515,7 +1521,7 @@ fn draw_tracklist(
         .enumerate()
         .map(|(i, p)| {
             let number = if playing == Some(i) {
-                Span::styled("▶", fg(theme::current().accent))
+                Span::styled(icons::PLAY.get(), fg(theme::current().accent))
             } else {
                 Span::styled(format!("{}", i + 1), fg(lane(i)))
             };
@@ -1577,11 +1583,11 @@ fn draw_tracklist(
     let head = Row::new(header.iter().take(cols).map(|h| Cell::from(Line::styled(*h, faint()))));
     let table = Table::new(body, widths)
         .header(head)
-        .block(block(title("Tracklist", focused), focused))
-        .row_highlight_style(if focused { theme::selected() } else { Style::new().add_modifier(Modifier::BOLD) })
+        .block(block(pane_title(2, "Tracklist", focused), focused))
+        .row_highlight_style(if focused { theme::selected() } else { theme::unfocused() })
         .highlight_symbol(Text::from(vec![
-            Line::styled("▍", fg(theme::current().accent)),
-            Line::styled("▍", fg(theme::current().accent)),
+            Line::styled(icons::SELECTED.get(), fg(theme::current().accent)),
+            Line::styled(icons::SELECTED.get(), fg(theme::current().accent)),
         ]));
     // Two lines a track, under the border and the header row.
     rows.fit(area.height.saturating_sub(3) as usize / 2, r.plays.len());
@@ -1620,7 +1626,7 @@ fn draw_detail(f: &mut Frame, r: &MixReport, analyses: &[TrackAnalysis], i: usiz
     let inner = Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner };
     let track_secs = (p.track.duration_secs as f64).max(p.track_end).max(1.0);
     // Where the playhead is in the track, while this play is heard.
-    let in_track = head.filter(|h| *h >= p.start && *h < p.end).map(|h| p.track_start + (h - p.start) * p.tempo);
+    let in_track = head.filter(|h| *h >= p.start && *h < p.end).map(|h| p.track_secs(h));
 
     let graphic = inner.height >= 9 && inner.width >= 30;
     let text_area = if graphic {
@@ -1647,22 +1653,23 @@ fn draw_detail(f: &mut Frame, r: &MixReport, analyses: &[TrackAnalysis], i: usiz
             for c in cues {
                 let x = x_of(c.start_ms as f64 / 1000.0);
                 let color = theme::palette().cue_color(c);
-                let color = if played(x) { color } else { theme::scale(color, 0.5) };
+                let color = if played(x) { color } else { theme::fade(color, 0.5) };
                 match cue_letter(c) {
-                    Some(l) => put(buf, marks.x + x, marks.y, &l.to_string(), INK, Some(color)),
-                    None => put(buf, marks.x + x, marks.y, "▼", color, None),
+                    Some(l) => put(buf, marks.x + x, marks.y, &l.to_string(), theme::ink_on(color), Some(color)),
+                    None => put(buf, marks.x + x, marks.y, icons::BEHIND.get(), color, None),
                 }
             }
             for (s, e, name, color) in phrase_spans(a, track_secs * 1000.0) {
                 let (xa, xb) = (x_of(s / 1000.0), x_of(e / 1000.0).max(x_of(s / 1000.0) + 1));
                 for x in xa..xb.min(phrases.width) {
-                    let c = if played(x) { color } else { theme::scale(color, 0.35) };
-                    let c = if x == xa { theme::scale(c, 0.7) } else { c };
-                    put(buf, phrases.x + x, phrases.y, " ", INK, Some(c));
+                    let c = if played(x) { color } else { theme::fade(color, 0.35) };
+                    let c = if x == xa { theme::fade(c, 0.7) } else { c };
+                    put(buf, phrases.x + x, phrases.y, " ", theme::current().ink, Some(c));
                 }
                 let room = xb.saturating_sub(xa + 1) as usize;
                 if room >= 2 {
-                    buf.set_stringn(phrases.x + xa + 1, phrases.y, &name, room, Style::new().fg(rgb3(INK)));
+                    let ink = Style::new().fg(rgb3(theme::ink_on(color)));
+                    buf.set_stringn(phrases.x + xa + 1, phrases.y, &name, room, ink);
                 }
             }
         }
@@ -1790,9 +1797,9 @@ fn draw_track_wave(
             if head == Some(x) {
                 theme::current().playhead
             } else if lit {
-                theme::scale(c, 1.2)
+                theme::marker(theme::scale(c, 1.2))
             } else {
-                theme::scale(c, 0.3)
+                theme::fade(theme::marker(c), 0.3)
             }
         };
         let bands = [(col.back.height * rows, tone(col.back.color)), (col.front.height * rows, tone(col.front.color))];

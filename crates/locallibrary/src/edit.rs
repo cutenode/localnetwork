@@ -485,7 +485,7 @@ enum Op {
         from: String,
         to: String,
     },
-    /// The track of audio file `track` (a key, lower-cased) points at `path` (a device path), a
+    /// The tracks of audio file `track` (a key, lower-cased) point at `path` (a device path), a
     /// file `file` describes when it's another encoding, whose times are `shift_ms` later.
     SetPath {
         track: String,
@@ -603,7 +603,8 @@ trait EditDb {
     fn place(&mut self, id: u32, parent: u32, sort_order: u32) -> Result<()>;
     fn delete(&mut self, ids: &[u32]) -> Result<()>;
     fn set_entries(&mut self, id: u32, tracks: &[u32]) -> Result<()>;
-    fn set_fields(&mut self, ids: &[u32], fields: &TrackFields) -> Result<()>;
+    /// Set `fields` on the tracks with `ids`, which are at `at` in [`EditDb::lib`]'s tracks.
+    fn set_fields(&mut self, ids: &[u32], at: &[usize], fields: &TrackFields) -> Result<()>;
     fn delete_tracks(&mut self, ids: &[u32]) -> Result<()>;
     fn repoint(&mut self, from: u32, to: u32) -> Result<()>;
     /// Point a track at `path`; with `file`, a file of another encoding, whose cues are
@@ -621,7 +622,37 @@ struct ModelDb<'a> {
     lib: Library,
     /// export.pdb's database, when `lib` is its library: names and details too long for one of
     /// its rows are refused here, as export.pdb's editor would only refuse them when applying.
-    pdb: Option<&'a Database>,
+    pdb: Option<&'a PdbRows<'a>>,
+}
+
+/// export.pdb's database, with where each track's row is, for the rows of a few tracks among
+/// many.
+struct PdbRows<'a> {
+    db: &'a Database,
+    rows: FxHashMap<u32, usize>,
+}
+
+impl<'a> PdbRows<'a> {
+    fn of(db: &'a Database) -> PdbRows<'a> {
+        PdbRows { db, rows: rows_by_id(db) }
+    }
+
+    fn track(&self, id: u32) -> Option<&'a rekordbox_pdb::Track> {
+        self.rows.get(&id).map(|&i| &self.db.tracks[i])
+    }
+}
+
+impl std::ops::Deref for PdbRows<'_> {
+    type Target = Database;
+
+    fn deref(&self) -> &Database {
+        self.db
+    }
+}
+
+/// Where each track id's row is in `db.tracks`: the first, for an id two rows have.
+fn rows_by_id(db: &Database) -> FxHashMap<u32, usize> {
+    db.tracks.iter().enumerate().rev().map(|(i, t)| (t.id, i)).collect()
 }
 
 /// `what` (a name) is too long for export.pdb.
@@ -660,7 +691,7 @@ impl EditDb for ModelDb<'_> {
     fn set_entries(&mut self, _: u32, _: &[u32]) -> Result<()> {
         Ok(())
     }
-    fn set_fields(&mut self, ids: &[u32], f: &TrackFields) -> Result<()> {
+    fn set_fields(&mut self, _: &[u32], at: &[usize], f: &TrackFields) -> Result<()> {
         let Some(db) = self.pdb else { return Ok(()) };
         // The names PdbDb::set_fields looks up, adding a row for one it doesn't find.
         for (field, name, table) in [
@@ -693,8 +724,7 @@ impl EditDb for ModelDb<'_> {
         .filter_map(|(field, v)| v.as_ref().map(|_| field))
         .collect();
         let Some((last, rest)) = set.split_last() else { return Ok(()) };
-        let rows: FxHashMap<u32, &rekordbox_pdb::Track> = db.tracks.iter().map(|t| (t.id, t)).collect();
-        for t in self.lib.tracks.iter().filter(|t| ids.contains(&t.id)) {
+        for t in at.iter().map(|&i| &self.lib.tracks[i]) {
             let mut after = t.clone();
             f.apply_to(&mut after);
             let strings = [
@@ -704,7 +734,7 @@ impl EditDb for ModelDb<'_> {
                 ("isrc", after.isrc.as_str()),
                 ("release_date", after.release_date.as_str()),
             ];
-            if let Some(row) = rows.get(&t.id)
+            if let Some(row) = db.track(t.id)
                 && db.check_track_strings(row, &strings).is_err()
             {
                 let (fields, verb) = match rest {
@@ -726,7 +756,7 @@ impl EditDb for ModelDb<'_> {
         Ok(())
     }
     fn set_path(&mut self, id: u32, path: &str, _: Option<&AudioFile>, _: i32) -> Result<()> {
-        let row = self.pdb.and_then(|db| db.tracks.iter().find(|t| t.id == id).map(|row| (db, row)));
+        let row = self.pdb.and_then(|db| db.track(id).map(|row| (db, row)));
         if let Some((db, row)) = row
             && db.check_track_strings(row, &[("file_path", path), ("filename", file_name(path))]).is_err()
         {
@@ -757,11 +787,17 @@ struct PdbDb {
     /// nothing uses them any more.
     candidates: Vec<(TableType, u32)>,
     original: Database,
+    /// Where each track's row is in `original` (see [`rows_by_id`]).
+    original_rows: FxHashMap<u32, usize>,
 }
 
 impl PdbDb {
     fn note_lookups(&mut self, ids: &[u32], artwork: bool) {
-        for t in self.original.tracks.iter().filter(|t| ids.contains(&t.id)) {
+        // In the order of the rows, as the lookups they use are pruned in.
+        let mut rows: Vec<usize> = ids.iter().filter_map(|id| self.original_rows.get(id).copied()).collect();
+        rows.sort_unstable();
+        rows.dedup();
+        for t in rows.into_iter().map(|i| &self.original.tracks[i]) {
             for a in [t.artist_id, t.remixer_id, t.original_artist_id, t.composer_id] {
                 self.candidates.push((TableType::Artists, a));
             }
@@ -854,12 +890,16 @@ impl EditDb for PdbDb {
     fn set_entries(&mut self, id: u32, tracks: &[u32]) -> Result<()> {
         Ok(self.editor.set_playlist_entries(id, tracks)?)
     }
-    fn set_fields(&mut self, ids: &[u32], f: &TrackFields) -> Result<()> {
+    fn set_fields(&mut self, ids: &[u32], at: &[usize], f: &TrackFields) -> Result<()> {
         self.note_lookups(ids, false);
         let color = f.color_value()?;
+        // Each id's album as its first track has it.
+        let mut albums: FxHashMap<u32, (String, String)> = FxHashMap::default();
+        for t in at.iter().map(|&i| &self.lib.tracks[i]) {
+            albums.entry(t.id).or_insert_with(|| (t.album.clone(), t.album_artist.clone()));
+        }
         for &id in ids {
-            let (album, album_artist) =
-                self.lib.track(id).map(|t| (t.album.clone(), t.album_artist.clone())).unwrap_or_default();
+            let (album, album_artist) = albums.get(&id).cloned().unwrap_or_default();
             let ed = &mut self.editor;
             let mut strings = Vec::new();
             for (name, v) in [
@@ -990,7 +1030,7 @@ impl EditDb for PlusDb {
     fn set_entries(&mut self, id: u32, tracks: &[u32]) -> Result<()> {
         self.one.set_playlist_entries(id, tracks)
     }
-    fn set_fields(&mut self, ids: &[u32], fields: &TrackFields) -> Result<()> {
+    fn set_fields(&mut self, ids: &[u32], _: &[usize], fields: &TrackFields) -> Result<()> {
         self.one.set_track_fields(ids, fields)
     }
     fn delete_tracks(&mut self, ids: &[u32]) -> Result<()> {
@@ -1024,7 +1064,26 @@ fn too_deep(path: &[String], depth: usize) -> Result<()> {
 /// Apply one operation to a database and its model. With `strict`, anything the operation names
 /// that the database lacks is an error; otherwise (the drive's second database) it's skipped
 /// with a warning.
+#[cfg(test)]
 fn apply_op(db: &mut dyn EditDb, op: &Op, strict: bool, label: &str, warnings: &mut Vec<String>) -> Result<()> {
+    apply_op_indexed(db, &mut None, op, strict, label, warnings)
+}
+
+/// [`apply_op`], finding the tracks a set-fields op names through `index`: built when first
+/// needed and dropped by any other op, which may add, remove or move tracks. An import or an
+/// analysis makes one such op for each track, and finding each one's tracks by going through
+/// every track took time in the square of the library's size.
+fn apply_op_indexed(
+    db: &mut dyn EditDb,
+    index: &mut Option<TrackIndex>,
+    op: &Op,
+    strict: bool,
+    label: &str,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
+    if !matches!(op, Op::SetFields { .. }) {
+        *index = None;
+    }
     let mut skip = |msg: String| -> Result<()> {
         if strict {
             return Err(Error::NotFound(msg));
@@ -1046,6 +1105,10 @@ fn apply_op(db: &mut dyn EditDb, op: &Op, strict: bool, label: &str, warnings: &
             })
             .collect();
         (ids, missing)
+    };
+    // Every row of the audio file `key`: two can share one.
+    let rows_of = |lib: &Library, key: &str| -> Vec<u32> {
+        lib.tracks.iter().filter(|t| paths::file_key(&t.file_path) == key).map(|t| t.id).collect()
     };
     let folder_id = |lib: &Library, path: &[String]| -> std::result::Result<Option<u32>, String> {
         if path.is_empty() {
@@ -1102,9 +1165,7 @@ fn apply_op(db: &mut dyn EditDb, op: &Op, strict: bool, label: &str, warnings: &
                 .with("name", name));
             }
             db.rename(id, name)?;
-            if let Some(p) = db.lib().playlists.iter_mut().find(|p| p.id == id) {
-                p.name = name.clone();
-            }
+            db.lib().playlists.iter_mut().find(|p| p.id == id).expect("find_node found it").name = name.clone();
         }
         Op::Place { node, folder, parent, position } => {
             let Some(id) = find_node(db.lib(), node, Some(*folder)) else {
@@ -1209,21 +1270,19 @@ fn apply_op(db: &mut dyn EditDb, op: &Op, strict: bool, label: &str, warnings: &
                 return Ok(());
             }
             db.set_entries(id, &ids)?;
-            if let Some(p) = db.lib().playlists.iter_mut().find(|p| p.id == id) {
-                p.track_ids = ids;
-            }
+            db.lib().playlists.iter_mut().find(|p| p.id == id).expect("find_node found it").track_ids = ids;
         }
         Op::SetFields { tracks, fields } => {
-            let (ids, missing) = ids_of(db.lib(), tracks);
+            let (ids, at, missing) = index.get_or_insert_with(|| TrackIndex::of(db.lib())).targets(db.lib(), tracks);
             if !missing.is_empty() {
                 skip(format!("{} track(s) aren't in this database (e.g. {})", missing.len(), missing[0]))?;
             }
             if ids.is_empty() {
                 return Ok(());
             }
-            db.set_fields(&ids, fields)?;
-            for t in db.lib().tracks.iter_mut().filter(|t| ids.contains(&t.id)) {
-                fields.apply_to(t);
+            db.set_fields(&ids, &at, fields)?;
+            for &i in &at {
+                fields.apply_to(&mut db.lib().tracks[i]);
             }
         }
         Op::DeleteTracks { tracks, elsewhere } => {
@@ -1241,10 +1300,11 @@ fn apply_op(db: &mut dyn EditDb, op: &Op, strict: bool, label: &str, warnings: &
                 return Ok(());
             }
             db.delete_tracks(&ids)?;
+            let doomed: FxHashSet<u32> = ids.into_iter().collect();
             let lib = db.lib();
-            lib.tracks.retain(|t| !ids.contains(&t.id));
+            lib.tracks.retain(|t| !doomed.contains(&t.id));
             for p in lib.playlists.iter_mut().chain(lib.history.iter_mut()) {
-                p.track_ids.retain(|t| !ids.contains(t));
+                p.track_ids.retain(|t| !doomed.contains(t));
             }
         }
         Op::Repoint { from, to } => {
@@ -1252,23 +1312,30 @@ fn apply_op(db: &mut dyn EditDb, op: &Op, strict: bool, label: &str, warnings: &
             if !missing.is_empty() {
                 return skip(format!("track {} isn't in this database", missing[0]));
             }
-            let (from, to) = (ids[0], ids[1]);
-            db.repoint(from, to)?;
+            let to = ids[1];
+            // The entries of every row of `from`'s file move, not only those of one.
+            let froms = rows_of(db.lib(), from);
+            for &from in &froms {
+                db.repoint(from, to)?;
+            }
             let lib = db.lib();
             for p in lib.playlists.iter_mut().chain(lib.history.iter_mut()) {
-                for t in p.track_ids.iter_mut().filter(|t| **t == from) {
+                for t in p.track_ids.iter_mut().filter(|t| froms.contains(t)) {
                     *t = to;
                 }
             }
         }
         Op::SetPath { track, path, file, shift_ms } => {
-            let (ids, missing) = ids_of(db.lib(), std::slice::from_ref(track));
-            if !missing.is_empty() {
+            // The file moved for every row of it.
+            let ids = rows_of(db.lib(), track);
+            if ids.is_empty() {
                 return skip(format!("track {track} isn't in this database"));
             }
-            db.set_path(ids[0], path, file.as_ref(), *shift_ms)?;
+            for &id in &ids {
+                db.set_path(id, path, file.as_ref(), *shift_ms)?;
+            }
             let size = file.map(|f| db.stored_size(f.size));
-            if let Some(t) = db.lib().tracks.iter_mut().find(|t| t.id == ids[0]) {
+            for t in db.lib().tracks.iter_mut().filter(|t| ids.contains(&t.id)) {
                 t.file_path = path.clone();
                 if let (Some(f), Some(size)) = (file, size) {
                     (t.file_size, t.sample_rate, t.sample_depth, t.bitrate) =
@@ -1592,15 +1659,14 @@ impl<'a> Resolver<'a> {
                         .filter(|t| used_elsewhere.contains(&t.id))
                         .map(|t| paths::file_key(&t.file_path))
                         .collect();
+                    let track = lib.track_lookup();
                     let mut only_here: Vec<u32> = lib
                         .playlists
                         .iter()
                         .filter(|q| inside.contains(&q.id))
                         .flat_map(|q| q.track_ids.iter().copied())
                         .filter(|t| !used_elsewhere.contains(t))
-                        .filter(|t| {
-                            lib.track(*t).is_none_or(|t| !files_elsewhere.contains(&paths::file_key(&t.file_path)))
-                        })
+                        .filter(|t| track(*t).is_none_or(|t| !files_elsewhere.contains(&paths::file_key(&t.file_path))))
                         .collect();
                     only_here.sort_unstable();
                     only_here.dedup();
@@ -1761,7 +1827,7 @@ impl<'a> Resolver<'a> {
                         let (ops, _, canonical) = fill_new(spec, &ids)?;
                         return Ok((ops, desc(&split_path(spec)?.join("/")), canonical));
                     }
-                    None => return Err(list(spec).err().unwrap_or_else(|| Error::NotFound(spec.clone()))),
+                    None => return Err(list(spec).expect_err("`found` is this same lookup, and found nothing")),
                 }
             }
             Edit::SetEntries { playlist: spec, paths: files_given, create } => {
@@ -1796,10 +1862,11 @@ impl<'a> Resolver<'a> {
             Edit::Dedupe { playlist: spec, recordings } => {
                 let p = list(spec)?;
                 let mut seen = FxHashSet::default();
+                let track = lib.track_lookup();
                 let new: Vec<u32> = entries(p)
                     .into_iter()
                     .filter(|id| {
-                        let k = match (recordings, lib.track(*id)) {
+                        let k = match (recordings, track(*id)) {
                             (true, Some(t)) => t.fingerprint_key(),
                             _ => id.to_string(),
                         };
@@ -2358,8 +2425,9 @@ fn plan_edit(
 ) -> Result<(Vec<Op>, String, Vec<Edit>)> {
     let (edit_ops, desc, canonical) = resolver.resolve(edit, &model.lib)?;
     let before = model.lib.clone();
+    let mut index = None;
     for op in &edit_ops {
-        if let Err(e) = apply_op(model, op, true, "plan", warnings) {
+        if let Err(e) = apply_op_indexed(model, &mut index, op, true, "plan", warnings) {
             model.lib = before;
             return Err(e);
         }
@@ -2426,7 +2494,8 @@ fn plan_with(
             Err(e) => skip(e, &mut warnings)?,
         }
     }
-    let mut model = ModelDb { lib: primary.clone(), pdb: dbs.pdb.as_ref().map(|(_, db, _)| db) };
+    let pdb_rows = dbs.pdb.as_ref().map(|(_, db, _)| PdbRows::of(db));
+    let mut model = ModelDb { lib: primary.clone(), pdb: pdb_rows.as_ref() };
     let mut ops = Vec::new();
     let mut recorded = Vec::new();
     // Tracks deleted by an edit that keeps their files (the others' files go).
@@ -2460,7 +2529,7 @@ fn plan_with(
         let mut second = ModelDb { lib: plus_lib.clone(), pdb: None };
         let mut index = None;
         for op in &ops {
-            track_index::apply_op_indexed(&mut second, &mut index, op, false, "exportLibrary.db", &mut warnings)?;
+            apply_op_indexed(&mut second, &mut index, op, false, "exportLibrary.db", &mut warnings)?;
         }
         onelibrary_changes = second.lib != *plus_lib;
     }
@@ -3028,9 +3097,6 @@ fn replay_set_path(device: &mut Device, step: &Edit, ctx: &Ctx<'_>) -> Result<Re
             return Ok(Replayed { warnings: vec![format!("a track's new file: {e}; skipped")], ..Default::default() });
         }
     };
-    if plan.is_noop() {
-        return Ok(Replayed::default());
-    }
     let r = apply_locked(&plan, device, false, Vec::new(), ctx)?;
     Ok(Replayed { databases: r.databases, fingerprint: r.fingerprint, warnings: r.warnings })
 }
@@ -3053,10 +3119,9 @@ fn apply_locked(
     // Analysis files record the audio file they belong to: a track pointed at another records it.
     let primary = dbs.pdb.as_ref().map(|(_, _, l)| l).or(dbs.plus.as_ref().map(|(l, _)| l));
     for op in &plan.ops {
-        // The row the databases' edit takes: the last of the file's (see `apply_op`).
+        // The file's one row: a track is pointed only when no other shares its file.
         if let Op::SetPath { track, path, shift_ms, .. } = op
-            && let Some(t) =
-                primary.and_then(|l| l.tracks.iter().rev().find(|t| paths::file_key(&t.file_path) == *track))
+            && let Some(t) = primary.and_then(|l| l.tracks.iter().find(|t| paths::file_key(&t.file_path) == *track))
         {
             let mut unreadable = Vec::new();
             files.extend(analysis_pointed_at(device, &t.analyze_path, path, *shift_ms, &mut unreadable)?);
@@ -3086,17 +3151,19 @@ fn apply_locked(
                 deleted: Vec::new(),
                 repointed: Vec::new(),
                 candidates: Vec::new(),
+                original_rows: rows_by_id(&original),
                 original,
             };
             let bytes = pdb::guard_editor(|| {
+                let mut index = None;
                 for op in &plan.ops {
-                    apply_op(&mut db, op, true, "export.pdb", &mut warnings)?;
+                    apply_op_indexed(&mut db, &mut index, op, true, "export.pdb", &mut warnings)?;
                 }
                 db.prune()?;
                 Ok(db.editor.to_bytes())
             })?;
             let check = pdb::parse_database(bytes.clone(), &device.path(paths::EXPORT_PDB))?;
-            if let Err(e) = verify(&db.lib, &pdb::library_from_database(&check)) {
+            if let Err(e) = verify(&db.lib, &pdb::into_library(check)) {
                 return Err(Error::Pdb(format!("the edited database failed verification ({e}); drive left unchanged")));
             }
             ext_bytes = match ext_after(device, &db.deleted, &db.repointed) {
@@ -3113,8 +3180,9 @@ fn apply_locked(
         None => None,
         Some((lib, one)) => {
             let mut db = PlusDb { one, lib };
+            let mut index = None;
             for op in &plan.ops {
-                apply_op(&mut db, op, !has_pdb, "exportLibrary.db", &mut warnings)?;
+                apply_op_indexed(&mut db, &mut index, op, !has_pdb, "exportLibrary.db", &mut warnings)?;
             }
             let bytes = db.one.to_encrypted()?;
             let check = OneLibrary::from_encrypted(&bytes, None)?.library()?;
@@ -3173,29 +3241,16 @@ pub(crate) struct Subset {
     pub warnings: Vec<String>,
 }
 
-/// The source drive's databases holding only `playlists` (paths of playlists or folders; a
-/// folder brings everything in it), the folders above them and the tracks they use, plus the
-/// history lists when `history`. Nothing on the drive changes.
 /// The playlists and folders `specs` name in `lib`, with everything below them and the folders
 /// above them.
 pub(crate) fn chosen_nodes(lib: &Library, specs: &[String]) -> Result<FxHashSet<u32>> {
-    let mut keep: FxHashSet<u32> = FxHashSet::default();
-    for spec in specs {
-        let p = playlist(lib, spec)?;
-        let mut queue = vec![p.id];
-        while let Some(id) = queue.pop() {
-            if keep.insert(id) {
-                queue.extend(lib.children(Some(id)).iter().map(|c| c.id));
-            }
-        }
-        let mut up = p.parent_id;
-        while let Some(id) = up.filter(|id| keep.insert(*id)) {
-            up = lib.playlist(id).and_then(|q| q.parent_id);
-        }
-    }
-    Ok(keep)
+    let ids = specs.iter().map(|spec| playlist(lib, spec).map(|p| p.id));
+    Ok(lib.with_relatives(ids.collect::<Result<Vec<u32>>>()?))
 }
 
+/// The source drive's databases holding only `playlists` (paths of playlists or folders; a
+/// folder brings everything in it), the folders above them and the tracks they use, plus the
+/// history lists when `history`. Nothing on the drive changes.
 pub(crate) fn subset(device: &Device, playlists: &[String], history: bool, ctx: &Ctx<'_>) -> Result<Subset> {
     let mut warnings = Vec::new();
     let dbs = open_databases(device, &mut warnings)?;
@@ -3247,8 +3302,9 @@ pub(crate) fn subset(device: &Device, playlists: &[String], history: bool, ctx: 
     }
     ctx.check()?;
     let mut model = ModelDb { lib: primary, pdb: None };
+    let mut index = None;
     for op in &ops {
-        apply_op(&mut model, op, true, "plan", &mut warnings)?;
+        apply_op_indexed(&mut model, &mut index, op, true, "plan", &mut warnings)?;
     }
     let (pdb, ext, plus, second) = edit_in_memory(device, dbs, &ops, true, &mut warnings)?;
     Ok(Subset { pdb, ext, plus, library: model.lib, second, warnings: dedup(warnings) })
@@ -3322,17 +3378,19 @@ fn edit_in_memory(
                 deleted: Vec::new(),
                 repointed: Vec::new(),
                 candidates: Vec::new(),
+                original_rows: rows_by_id(&original),
                 original,
             };
             let bytes = pdb::guard_editor(|| {
+                let mut index = None;
                 for op in ops {
-                    apply_op(&mut db, op, strict, "export.pdb", warnings)?;
+                    apply_op_indexed(&mut db, &mut index, op, strict, "export.pdb", warnings)?;
                 }
                 db.prune()?;
                 Ok(db.editor.to_bytes())
             })?;
             let check = pdb::parse_database(bytes.clone(), &device.path(paths::EXPORT_PDB))?;
-            if let Err(e) = verify(&db.lib, &pdb::library_from_database(&check)) {
+            if let Err(e) = verify(&db.lib, &pdb::into_library(check)) {
                 return Err(Error::Pdb(format!("the packed database failed verification ({e})")));
             }
             ext = ext_after(device, &db.deleted, &db.repointed)?;
@@ -3343,8 +3401,9 @@ fn edit_in_memory(
         None => (None, None),
         Some((lib, one)) => {
             let mut db = PlusDb { one, lib };
+            let mut index = None;
             for op in ops {
-                apply_op(&mut db, op, strict && !has_pdb, "exportLibrary.db", warnings)?;
+                apply_op_indexed(&mut db, &mut index, op, strict && !has_pdb, "exportLibrary.db", warnings)?;
             }
             let bytes = db.one.to_encrypted()?;
             let check = OneLibrary::from_encrypted(&bytes, None)?.library()?;
@@ -3362,6 +3421,7 @@ fn edit_in_memory(
 // ---------------------------------------------------------------------------------------------
 
 mod track_index;
+use track_index::TrackIndex;
 
 /// The edits made to a drive, kept in `.locallibrary/edits.json` so they can be made again after
 /// rekordbox replaces the drive's databases with a new export.

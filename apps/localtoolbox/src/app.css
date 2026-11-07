@@ -8,26 +8,33 @@
 @import '../../../packages/tokens/theme.css';
 
 /* shadcn-svelte's components are written against `data-checked` and
-   `data-open` attributes, which the released bits-ui does not set — it says
+   `data-open` attributes, which the released bits-ui does not set: it says
    `data-state="checked"` and `data-state="open"`. These variants accept
    either spelling, so a component copied from the registry styles its states
-   correctly on the bits-ui this project actually installs, and keeps working
-   if a later one starts setting the attributes the registry expects. */
+   correctly on the bits-ui this project installs, and keeps working if a
+   later one starts setting the attributes the registry expects. */
 @custom-variant data-checked (&:is([data-checked], [data-state="checked"]));
 @custom-variant data-unchecked (&:is([data-unchecked], [data-state="unchecked"]));
 @custom-variant data-open (&:is([data-open], [data-state="open"]));
 @custom-variant data-closed (&:is([data-closed], [data-state="closed"]));
 
-@layer base {
-	body {
-		/* A browser-action popup sizes itself to its content, between these
-       bounds; past the height Chrome scrolls the whole popup, so the lists
-       inside keep their own scroll areas well under it. The website's body
-       size is too big for a 400px panel, so the popup reads at label size. */
-		@apply m-0 bg-canvas text-label;
-		width: 400px;
-	}
+/* Outside the layers on purpose: Chrome gives every extension page a sheet of
+   its own, `body { font-family: system-ui; font-size: 75% }`, and an
+   unlayered rule beats anything in a layer, so a body rule in `base` would
+   lose to it and the popup would draw in the system font at 12px.
 
+   A browser-action popup sizes itself to its content, up to 800 by 600; past
+   the height Chrome scrolls the whole popup, so the lists inside keep their
+   own scroll areas well under it. The website's body size is too big for a
+   400px panel, so the popup reads at label size. The width is in rem so the
+   whole popup grows with Chrome's font size setting rather than squeezing
+   bigger text into 400px. */
+body {
+	@apply m-0 bg-canvas font-sans text-label;
+	width: min(25rem, 800px);
+}
+
+@layer base {
 	/* Counts, sizes and track numbers line up column-wise as they change. */
 	.tabular {
 		font-variant-numeric: tabular-nums;

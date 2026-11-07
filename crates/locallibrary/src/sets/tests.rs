@@ -379,3 +379,59 @@ fn tags_come_first_and_roles_fill_in_the_rest() {
     let untagged = MusicBrainzIds { artists: vec![], ..tagged };
     assert_eq!(untagged.or(heard.clone()).artists, heard.artists);
 }
+
+/// What an analyzer says it worked an ISRC out from, or a credit, in a shape neither can take (a
+/// number, a flag, a list for the ISRC, one name for the credit) is about another track: the IDs
+/// it found are stale, and none of them are read.
+#[hegel::test(test_cases = 100)]
+fn prop_answers_of_another_shape_are_stale(tc: TestCase) {
+    use crate::fields::FieldValue;
+    use crate::fields::roles::{Role, RoleValues};
+    let e = SetEntry { isrc: "GBCFB1700586".into(), ..SetEntry::added("Artist 0 - Title") };
+    let mut values = RoleValues::new();
+    values.insert(Role::Recording, FieldValue::String("a3e7b2a9-0a4c-4f5b-9d1e-2c3b4a5d6e7f".into()));
+    let odd = tc.draw(gs::sampled_from(vec![
+        FieldValue::Integer(1),
+        FieldValue::Number(1.5),
+        FieldValue::Boolean(true),
+        FieldValue::Strings(vec!["GBCFB1700586".into()]),
+        FieldValue::String("Artist 0".into()),
+    ]));
+    let about_isrc = !matches!(odd, FieldValue::String(_)) && tc.draw(gs::booleans());
+    match about_isrc {
+        true => values.insert(Role::Isrc, odd),
+        false => values.insert(Role::Credits, odd),
+    };
+    assert!(MusicBrainzIds::stale(&values, &e), "{values:?}");
+    let read = MusicBrainzIds::from_roles(&values, &e);
+    assert_eq!(read.recording.is_some(), !about_isrc, "{values:?}");
+    assert!(read.artists.is_empty());
+}
+
+/// A set found to edit is the set found to read, by any query, and a book that isn't one doesn't
+/// load.
+#[hegel::test(test_cases = 100)]
+fn prop_a_set_found_to_edit_is_the_one_found_to_read(tc: TestCase) {
+    let mut book = SetBook {
+        sets: vec![
+            set("3m2abcdefgh22", "2026-10-03", Some("Friday")),
+            set("3m2abzzzzzz22", "2026-09-12", Some("Warm-up")),
+            set("3m4qqqqqqqq22", "2026-09-12", None),
+        ],
+        ..Default::default()
+    };
+    let query =
+        tc.draw(gs::sampled_from(vec!["last", "3m2abc", "WARM-UP", "2026-10-03", "2026-09-12", "3m2", "nope", " "]));
+    let found = book.find(query).map(|s| s.id.clone()).map_err(|e| e.to_string());
+    let editing = book.find_mut(query).map(|s| s.id.clone()).map_err(|e| e.to_string());
+    assert_eq!(editing, found, "{query:?}");
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    assert!(SetBook::load(&store).unwrap().sets.is_empty());
+    book.save(&store).unwrap();
+    assert_eq!(SetBook::load(&store).unwrap().sets.len(), 3);
+    let garbage = tc.draw(gs::sampled_from(vec!["", "not json", "{\"sets\": 3}"]));
+    std::fs::write(store.root().join(SETS_FILE), garbage).unwrap();
+    assert!(SetBook::load(&store).is_err(), "{garbage:?}");
+}

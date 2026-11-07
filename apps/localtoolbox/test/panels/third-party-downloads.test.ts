@@ -1,8 +1,8 @@
-// src/tools/third-party-downloads/Panel.svelte — the third-party downloader,
+// src/tools/third-party-downloads/Panel.svelte: the third-party downloader,
 // against the real downloaded-store.ts. The sites themselves are a stubbed
 // `fetch`: a gate page as HTML, then whatever endpoints walking it goes
 // through. What each site's walk looks like is tested in test/tools/gates.test.ts;
-// what is here is the panel around them — where the links come from, what a row
+// what is here is the panel around them: where the links come from, what a row
 // says as it runs, and which of "saved" and "somewhere to open" it ends on.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { flush } from '../helpers/flush.ts';
@@ -33,7 +33,7 @@ const load = () => mountPanel('third-party-downloads');
 
 // The whole popup, opened on this tool, for the tests whose gesture leads out
 // of the panel: the address and the name a gate asks for are set in the
-// settings sheet now, and only the shell draws that (src/App.svelte).
+// settings sheet, and only the shell draws that (src/App.svelte).
 const loadInPopup = async () => {
 	await mountApp();
 	await click(button('third-party downloader'));
@@ -42,8 +42,8 @@ const loadInPopup = async () => {
 /**
  * Sets one of the Downloader's settings where the settings sheet would.
  *
- * They are the popup's own options (src/lib/downloader.svelte.js), read out of
- * localStorage as the module graph is built — which a mount does — so a test
+ * They are the popup's own options (src/lib/downloader.svelte.ts), read out of
+ * localStorage as the module graph is built (which a mount does), so a test
  * that needs one already set writes it before mounting, rather than opening
  * the sheet it is not there to test.
  */
@@ -144,7 +144,7 @@ function net(over: Record<string, Route> = {}) {
 const clean = (node: Element) => node.textContent.replace(/\s+/g, ' ').trim();
 
 // A row's first paragraph is its title; everything after it is what the row
-// says about itself — the state line, and, on a row that failed, the band the
+// says about itself: the state line, and, on a row that failed, the band the
 // card opens underneath to give the message the full width. Read as one
 // string, the way it reads on screen.
 const rows = () =>
@@ -171,8 +171,8 @@ const exactButton = (label: string) => [...document.querySelectorAll('button')].
 
 const meta = () => document.querySelector('header p')?.textContent.trim() ?? '';
 
-// The drawer is the paste box and nothing else: what a gate asks for moved to
-// the settings sheet.
+// The drawer is the paste box and nothing else: what a gate asks for is in the
+// settings sheet.
 const drawer = async () => {
 	const trigger = [...document.querySelectorAll('button')].find((b) => /add links by hand/.test(clean(b)));
 
@@ -379,6 +379,17 @@ describe('the paste box', () => {
 		await click(exactButton('add links'));
 		expect(text()).toMatch(/already listed: that link/);
 	});
+
+	it('says when several links pasted at once are all there already', async () => {
+		panelChrome({ response: page(HYPE, DROP) });
+		await load();
+		await drawer();
+
+		await type(field('paste'), `${HYPE} ${DROP}`);
+		await click(exactButton('add links'));
+		expect(text()).toMatch(/already listed: all of those/);
+		expect(rows()).toHaveLength(2);
+	});
 });
 
 // --- running -----------------------------------------------------------------
@@ -563,6 +574,15 @@ describe('walking a link', () => {
 		});
 	});
 
+	it('says what a failure that is not an Error said', async () => {
+		panelChrome({ response: page(HYPE) });
+		chrome.downloads.download.mockRejectedValue('Download blocked by policy');
+		await load();
+
+		await click(rowButtons('get')[0]);
+		expect(rows()[0].state).toBe('Hypeddit Download blocked by policy');
+	});
+
 	// Chrome refuses a whole download over a name it does not like, and the name
 	// is the least of what was wanted: the file is asked for again without one.
 	it('saves the file anyway when Chrome refuses the name, and says so', async () => {
@@ -655,6 +675,16 @@ describe('walking a link', () => {
 		expect(rowButtons('get')[0].disabled).toBe(false);
 	});
 
+	it('leaves a row saved when its transfer finishes while the panel is open', async () => {
+		panelChrome({ response: page(HYPE) });
+		await load();
+		await click(rowButtons('get')[0]);
+
+		chrome.testEmitDownloadChange({ id: 1, state: { current: 'complete' } });
+		await settle();
+		expect(rows()[0].state).toBe('Hypeddit saved');
+	});
+
 	it('turns a row red when the transfer is interrupted while the panel is open', async () => {
 		panelChrome({ response: page(HYPE) });
 		await load();
@@ -683,12 +713,12 @@ describe('walking a link', () => {
 // --- marking by hand ---------------------------------------------------------
 
 // Hypeddit's Spotify step is the one a fetch cannot answer: a tab has to go
-// through Spotify's own sign-in and come back. What the panel owns is the trip
-// — whether one is made at all, and how many times it is worth making.
+// through Spotify's own sign-in and come back. What the panel owns is the
+// trip: whether one is made at all, and how many times it is worth making.
 describe('a step that needs a tab', () => {
-	// A trip is paced by a real timer — it is a tab being watched, not a promise
-	// — so the run outlives the click that started it. Waited out by the state
-	// the rows land on rather than by a guess at how long it takes.
+	// A trip is paced by a real timer (it is a tab being watched, not a
+	// promise), so the run outlives the click that started it. Waited out by the
+	// state the rows land on rather than by a guess at how long it takes.
 	const walked = async () => {
 		for (let round = 0; round < 60; round += 1) {
 			await new Promise((resume) => setTimeout(resume, 50));
@@ -892,7 +922,7 @@ describe('the toggles', () => {
 describe('what the panel remembers', () => {
 	// The sheet and the panel are two components, and the address is one value:
 	// typed over there, used over here a moment later, without the popup having
-	// closed in between. See src/lib/downloader.svelte.js for what makes that
+	// closed in between. See src/lib/downloader.svelte.ts for what makes that
 	// one value rather than two copies of a storage key.
 	it('hands a gate the address typed in settings, without being reopened', async () => {
 		panelChrome({ response: page(HYPE) });
@@ -915,7 +945,7 @@ describe('what the panel remembers', () => {
 
 	// The popup is destroyed by the very thing a failed row offers to do, so a
 	// run that is not kept is a run that is mostly thrown away. See
-	// src/tools/third-party-downloads/walked.svelte.js.
+	// src/tools/third-party-downloads/walked.svelte.ts.
 	it('gives every row back what became of it when the popup comes back', async () => {
 		panelChrome({ response: page(HYPE, DROP, LAYLO) });
 		await load();
@@ -961,6 +991,20 @@ describe('what the panel remembers', () => {
 		expect(rowButtons('get')[0].disabled).toBe(false);
 		await click(rowButtons('get')[0]);
 		expect(rows()[0].state).toMatch(/saved/);
+	});
+
+	// A kept row reads a missing field as its default (walked.svelte.ts), so a
+	// failure kept without the page it ended on still has its gate to go to.
+	it('opens the gate for a failed row kept without anywhere else to open', async () => {
+		panelChrome({
+			response: page(HYPE),
+			session: { downloader: { known: { [HYPE]: { url: HYPE, state: 'failed', detail: 'gone wrong' } } } }
+		});
+		await load();
+		expect(rows()[0].state).toBe('Hypeddit gone wrong');
+
+		await click(rowButtons('open')[0]);
+		expect(chrome.tabs.create).toHaveBeenCalledWith({ url: HYPE, active: true });
 	});
 
 	it('gives a row its old state back when the source is switched away and back', async () => {

@@ -101,6 +101,34 @@ fn file_types() {
     assert_eq!(file_type("/Contents/a/b"), 0);
 }
 
+/// `numberOfContents` follows the tracks added and removed, also after an add that fails part
+/// way (here once its track row is written).
+#[test]
+fn the_track_count_follows_adds_and_removes() {
+    let mut one = OneLibrary::create().unwrap();
+    let defaults = one.content_defaults().unwrap();
+    let count = |one: &OneLibrary| -> (i64, i64) {
+        let q = |sql| one.conn.query_row(sql, [], |r| r.get(0)).unwrap();
+        (q("SELECT numberOfContents FROM property"), q("SELECT count(*) FROM content"))
+    };
+    let add = |one: &mut OneLibrary, n: u32, cues| {
+        let path = format!("/Contents/A/{n}.mp3");
+        let rec = ContentRecord {
+            cues,
+            ..ContentRecord::from_track(&loclib_model::test_util::track(n, "A", "B", &path), true, &defaults)
+        };
+        one.add_track(&rec, &path, "", None)
+    };
+    let ids: Vec<u32> = (1..=3).map(|n| add(&mut one, n, Vec::new()).unwrap()).collect();
+    assert_eq!(count(&one), (3, 3));
+    one.remove_tracks(&ids[..1]).unwrap();
+    assert_eq!(count(&one), (2, 2));
+    one.conn.execute_batch("DROP TABLE cue").unwrap();
+    assert!(add(&mut one, 4, vec![(1, Vec::new())]).is_err());
+    add(&mut one, 5, Vec::new()).unwrap();
+    assert_eq!(count(&one), (4, 4));
+}
+
 /// A drawn library's tracks (artist, album, genre, key, cue count, My Tag), playlist entries
 /// and tracks then removed, all as indexes into the tracks.
 #[hegel::test_helper]
@@ -229,7 +257,7 @@ fn remove_tracks_one_by_one(one: &mut OneLibrary, ids: &[u32]) -> Result<()> {
         }
     }
     tx.commit()?;
-    one.update_count()
+    one.update_count(None)
 }
 
 /// A value a drive's database may hold where a track or cue id belongs: mostly one, sometimes
@@ -311,4 +339,24 @@ fn removing_tracks_leaves_the_database_deletes_track_by_track_did(tc: hegel::Tes
     fast.to_encrypted().unwrap();
     slow.to_encrypted().unwrap();
     assert!(std::fs::read(&fast.path).unwrap() == std::fs::read(&slow.path).unwrap(), "the databases differ");
+}
+
+/// A value matches an integer exactly when SQLite's `=` says so: an integer always, a real of
+/// that very value (inside i64, however large), never NaN, an infinity or a fraction.
+#[hegel::test(test_cases = 300)]
+fn prop_values_match_integers_as_sqlite_compares_them(tc: hegel::TestCase) {
+    use hegel::Generator;
+    use hegel::generators as gs;
+    let conn = Connection::open_in_memory().unwrap();
+    let f = tc.draw(hegel::one_of!(
+        gs::floats::<f64>(),
+        gs::integers::<i64>().map(|i| i as f64),
+        gs::sampled_from(vec![i64::MIN as f64, i64::MAX as f64, -0.0, 0.5, 1e19, -1e19])
+    ));
+    let n = f as i64;
+    let equal: Option<bool> = conn.query_row("SELECT ?1 = ?2", params![f, n], |r| r.get(0)).unwrap();
+    assert_eq!(sql_int(ValueRef::Real(f)), (equal == Some(true)).then_some(n), "{f:e}");
+    let i = tc.draw(gs::integers::<i64>());
+    assert_eq!(sql_int(ValueRef::Integer(i)), Some(i));
+    assert_eq!(sql_int(ValueRef::Text(i.to_string().as_bytes())), None);
 }

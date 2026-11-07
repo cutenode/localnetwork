@@ -1,12 +1,14 @@
 import { RepoCommit, WANT_MAC_HEADER } from '@atproto/space';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SPACE_TYPE } from '#lib/nsid.ts';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { SpaceCredentialManager, XrpcResponseError } from '../atproto/credentials';
 import { IdentityResolver } from '../atproto/identity';
 import { bookingSpace } from '../atproto/spaces';
 import { type Db, nowIso, openDatabase } from '../db';
-import { silentLogger } from '../logger';
+import { type Logger, silentLogger } from '../logger';
 import { FakeSpaceHost } from '../testing/space-host';
-import { type SyncedChange, SpaceSyncer } from './engine';
+import { writtenLog } from '../testing/written-log';
+import { type ChangeHandler, type SyncedChange, SpaceSyncer } from './engine';
 
 const SPACE = bookingSpace('did:plc:root', 'gig');
 
@@ -25,8 +27,12 @@ describe('SpaceSyncer', () => {
 	afterEach(() => db.destroy());
 
 	// Every pass resolves the space authority first, so `passes` counts passes. `listReposError`
-	// makes the space host's listRepos fail; otherwise it reports no repos.
-	const syncer = (listReposError?: Error) => {
+	// makes the space host's listRepos fail; otherwise it reports no repos. `register` answers registerNotify, which
+	// is only asked for when it's given.
+	const syncer = (
+		listReposError?: Error | string,
+		options: { logger?: Logger; register?: () => Promise<{ expiresAt?: string }> } = {}
+	) => {
 		const identity = new IdentityResolver({
 			plcUrl: 'https://plc.test',
 			allowPrivateNetwork: false,
@@ -56,10 +62,12 @@ describe('SpaceSyncer', () => {
 		if (listReposError) listRepos.mockRejectedValue(listReposError);
 		else listRepos.mockResolvedValue({ repos: [] });
 
+		if (options.register) vi.spyOn(credentials, 'procedure').mockImplementation(options.register);
+
 		return new SpaceSyncer({
 			db,
-			logger: silentLogger,
-			notifyService: null,
+			logger: options.logger ?? silentLogger,
+			notifyService: options.register ? 'did:web:localnetwork.test#notify' : null,
 			onChange: async (change) => void changes.push(change),
 			onSpaceDropped: async (space) => void dropped.push(space),
 			identity,
@@ -116,6 +124,79 @@ describe('SpaceSyncer', () => {
 		expect(await db.selectFrom('spaceRecord').selectAll().execute()).toEqual([]);
 		expect(dropped).toEqual([SPACE]);
 	});
+
+	it('refuses to watch anything but a space', async () => {
+		await expect(syncer().watch('at://did:plc:root/app.bsky.feed.post/3k')).rejects.toThrow('Not a space URI');
+	});
+
+	it('syncs every watched space, keeping each failure on its watch, and forgets an unwatched one', async () => {
+		const other = bookingSpace('did:plc:root', 'other');
+		const s = syncer(new Error('host unreachable'));
+		await s.watch(SPACE);
+		await s.watch(other);
+
+		await s.syncAll();
+		expect(passes).toBe(2);
+		expect((await s.status()).map((status) => [status.space, status.type, status.lastError, status.repos])).toEqual([
+			[SPACE, SPACE_TYPE.booking, 'host unreachable', []],
+			[other, SPACE_TYPE.booking, 'host unreachable', []]
+		]);
+
+		await s.unwatch(SPACE);
+		await s.sync(SPACE);
+		expect(passes).toBe(2);
+		expect((await s.status()).map((status) => status.space)).toEqual([other]);
+	});
+
+	it('keeps a failure that is not an Error as its text', async () => {
+		const s = syncer('connection reset');
+		await s.watch(SPACE);
+		await expect(s.sync(SPACE)).rejects.toBe('connection reset');
+		expect((await watchRow())?.lastError).toBe('connection reset');
+	});
+
+	it('runs the queued pass after a failing one, and warns about a failure only until it repeats', async () => {
+		const { logger, lines } = writtenLog();
+		const s = syncer(new Error('host unreachable'), { logger });
+		await s.watch(SPACE);
+
+		const results = await Promise.allSettled([s.sync(SPACE), s.sync(SPACE)]);
+		expect(results.map((result) => result.status)).toEqual(['rejected', 'rejected']);
+		expect(passes).toBe(2);
+		expect(lines.map(({ level, message, space }) => [level, message, space])).toEqual([
+			['warn', 'space sync failed', SPACE],
+			['debug', 'space sync still failing', SPACE]
+		]);
+	});
+
+	it('registers for write notifications, renewing only a registration close to running out', async () => {
+		const answers = [
+			async () => ({ expiresAt: new Date(Date.now() + 3_600_000).toISOString() }),
+			async () => ({}),
+			async () => Promise.reject(new Error('registerNotify is not supported'))
+		];
+
+		let registrations = 0;
+		const s = syncer(undefined, { register: () => answers[registrations++]() });
+		await s.watch(SPACE);
+
+		await s.sync(SPACE);
+		expect(registrations).toBe(1);
+		expect((await watchRow())?.registrationExpiresAt).toBeTruthy();
+		await s.sync(SPACE);
+		expect(registrations).toBe(1);
+
+		const soon = new Date(Date.now() + 60_000).toISOString();
+		await db.updateTable('spaceWatch').set({ registrationExpiresAt: soon }).execute();
+		await s.sync(SPACE);
+		expect(registrations).toBe(2);
+		expect((await watchRow())?.registrationExpiresAt).toBeNull();
+
+		// A host that can't register is polled instead, and the pass still succeeds.
+		await s.sync(SPACE);
+		expect(registrations).toBe(3);
+		expect((await watchRow())?.lastError).toBeNull();
+	});
 });
 
 describe('SpaceSyncer against a repo host', () => {
@@ -136,7 +217,7 @@ describe('SpaceSyncer against a repo host', () => {
 	});
 	afterEach(() => db.destroy());
 
-	const syncer = async () => {
+	const syncer = async (onChange: ChangeHandler = async (change) => void changes.push(change)) => {
 		const credentials = new SpaceCredentialManager({
 			source: async () => ({ getDelegationToken: async () => 'token' }),
 			identity: host.identity,
@@ -147,7 +228,7 @@ describe('SpaceSyncer against a repo host', () => {
 			db,
 			logger: silentLogger,
 			notifyService: null,
-			onChange: async (change) => void changes.push(change),
+			onChange,
 			onSpaceDropped: async (space) => void dropped.push(space),
 			identity: host.identity,
 			credentials
@@ -188,6 +269,131 @@ describe('SpaceSyncer against a repo host', () => {
 		expect(shares).toHaveLength(2);
 		expect(new Set(shares).size).toBe(2);
 		expect((await repoRow())?.lastError).toBeNull();
+	});
+
+	it('drops a record its oplog serves nested deeper than 32 levels, and syncs the rest', async () => {
+		const s = await syncer();
+		await host.put(DJ, NOTE, 'a', note('one'));
+		await s.sync(SPACE);
+
+		// The record is the first level, so 32 nested arrays in a field make 33.
+		const extra = JSON.parse(`${'['.repeat(32)}0${']'.repeat(32)}`);
+		await host.put(DJ, NOTE, 'a', { ...note('deep'), extra });
+		await host.put(DJ, NOTE, 'b', note('two'));
+		await s.sync(SPACE);
+
+		expect(calls('listRepoOps')).toHaveLength(1);
+		expect(await records()).toEqual([['b', 'two']]);
+		expect(changes.findLast((change) => change.rkey === 'a')).toMatchObject({ kind: 'delete' });
+		expect((await repoRow())?.lastError).toBeNull();
+	});
+
+	describe('with one failing repo among good ones', () => {
+		const BAD = 'did:plc:bad';
+		const NOON = new Date('2026-11-04T12:00:00.000Z').getTime();
+
+		const watch = () => db.selectFrom('spaceWatch').selectAll().executeTakeFirstOrThrow();
+		const retries = () => db.selectFrom('syncRepoRetry').selectAll().execute();
+
+		/** Two repos on a page each, the failing one first, synced once at noon. */
+		const failOnce = async () => {
+			vi.useFakeTimers({ toFake: ['Date'], now: NOON });
+			onTestFinished(() => void vi.useRealTimers());
+			const s = await syncer();
+			host.repoPageSize = 1;
+			await host.put(BAD, NOTE, 'a', note('late'));
+			await host.put(DJ, NOTE, 'b', note('good'));
+			host.repoErrors.set(BAD, 'UpstreamFailure');
+			await expect(s.sync(SPACE)).rejects.toThrow('UpstreamFailure');
+
+			return s;
+		};
+
+		it('syncs the later pages, and moves the cursor past it', async () => {
+			await failOnce();
+
+			expect(await records()).toEqual([['b', 'good']]);
+			expect(await watch()).toMatchObject({ spaceRev: expect.any(String), lastError: 'UpstreamFailure' });
+			expect(await retries()).toEqual([
+				{
+					spaceUri: SPACE,
+					repoDid: BAD,
+					attempts: 1,
+					nextAttemptAt: '2026-11-04T12:01:00.000Z',
+					lastError: 'UpstreamFailure'
+				}
+			]);
+		});
+
+		it('retries it after its backoff, though listRepos no longer lists it', async () => {
+			const s = await failOnce();
+			host.repoErrors.clear();
+
+			vi.setSystemTime(NOON + 59_000);
+			await s.sync(SPACE);
+			expect(await records()).toEqual([['b', 'good']]);
+			expect((await watch()).lastError).toBe('UpstreamFailure');
+
+			vi.setSystemTime(NOON + 60_000);
+			await s.sync(SPACE);
+			expect(await records()).toEqual([
+				['a', 'late'],
+				['b', 'good']
+			]);
+			expect(await retries()).toEqual([]);
+			expect((await watch()).lastError).toBeNull();
+		});
+
+		it('keeps to the backoff when the repo changes again', async () => {
+			const s = await failOnce();
+			const downloads = calls('getRepo').length;
+			host.repoErrors.clear();
+			await host.put(BAD, NOTE, 'c', note('later'));
+
+			await s.sync(SPACE);
+
+			expect(calls('getRepo')).toHaveLength(downloads);
+			expect(await records()).toEqual([['b', 'good']]);
+		});
+
+		it('waits twice as long each time it fails again, up to an hour', async () => {
+			const s = await failOnce();
+			const minutes: number[] = [];
+
+			for (let attempt = 0; attempt < 8; attempt++) {
+				const [retry] = await retries();
+				const at = Date.parse(retry.nextAttemptAt);
+				minutes.push((at - Date.now()) / 60_000);
+				vi.setSystemTime(at);
+				await expect(s.sync(SPACE)).rejects.toThrow('UpstreamFailure');
+			}
+
+			expect(minutes).toEqual([1, 2, 4, 8, 16, 32, 60, 60]);
+		});
+
+		it('forgets it when the space is deleted', async () => {
+			const s = await failOnce();
+
+			await s.onSpaceDeleted(SPACE);
+
+			expect(await retries()).toEqual([]);
+		});
+	});
+
+	it('stops at a credential it cannot get, without blaming the repo or moving the cursor', async () => {
+		const s = await syncer();
+		await host.put(DJ, NOTE, 'a', note('one'));
+		await s.sync(SPACE);
+		const before = await db.selectFrom('spaceWatch').select('spaceRev').executeTakeFirstOrThrow();
+
+		// The cached credential lists repos, then the repo host rejects it and a new one can't be had.
+		await host.put(DJ, NOTE, 'b', note('two'));
+		host.repoError = 'CredentialRevoked';
+		host.credentialError = 'InvalidDelegationToken';
+
+		await expect(s.sync(SPACE)).rejects.toThrow('InvalidDelegationToken');
+		expect(await db.selectFrom('syncRepoRetry').selectAll().execute()).toEqual([]);
+		expect(await db.selectFrom('spaceWatch').select('spaceRev').executeTakeFirstOrThrow()).toEqual(before);
 	});
 
 	it('refreshes a KEM key that rotated, and tries again', async () => {
@@ -296,6 +502,156 @@ describe('SpaceSyncer against a repo host', () => {
 
 		host.credentialError = 'SpaceDeleted';
 		await s.sync(SPACE);
+		expect(await db.selectFrom('spaceWatch').selectAll().execute()).toEqual([]);
+	});
+
+	/** Has the host answer the methods in `nsids` with `edit(response)` instead, as a broken or hostile host could. */
+	const tamper = (nsids: string[], edit: (response: Response) => Promise<Response>) => {
+		const real = host.fetch;
+		vi.spyOn(host, 'fetch').mockImplementation(async (input, init) => {
+			const url = new URL(input instanceof Request ? input.url : input);
+			const nsid = url.pathname.replace('/xrpc/com.atproto.space.', '');
+			const response = await real(input, init);
+
+			return nsids.includes(nsid) ? edit(response) : response;
+		});
+	};
+
+	/** Rewrites a listRepoOps page's JSON, keeping its MAC header. */
+	const editOps = (edit: (page: { ops: { value?: object }[]; commit?: object }) => void) =>
+		tamper(['listRepoOps'], async (response) => {
+			const page = await response.json();
+			edit(page);
+
+			return new Response(JSON.stringify(page), { headers: response.headers });
+		});
+
+	it('reports each watched space with its repos, and skips repos already up to date when listing from the start', async () => {
+		const s = await syncer();
+		await host.put(DJ, NOTE, 'a', note('one'));
+		await s.sync(SPACE);
+		const synced = await repoRow();
+
+		expect(await s.status()).toEqual([
+			{
+				space: SPACE,
+				type: SPACE_TYPE.booking,
+				skey: 'gig',
+				spaceRev: synced?.rev,
+				lastSyncedAt: expect.any(String),
+				lastError: null,
+				registrationExpiresAt: null,
+				repos: [{ did: DJ, rev: synced?.rev, lastSyncedAt: synced?.lastSyncedAt, lastError: null }]
+			}
+		]);
+
+		await db.updateTable('spaceWatch').set({ spaceRev: null }).execute();
+		await s.sync(SPACE);
+		expect(calls('getRepo')).toHaveLength(1);
+		expect(calls('listRepoOps')).toHaveLength(0);
+		expect(await repoRow()).toEqual(synced);
+	});
+
+	it('takes only the latest value of a record written twice since the last pass', async () => {
+		const s = await syncer();
+		await host.put(DJ, NOTE, 'a', note('one'));
+		await s.sync(SPACE);
+		await host.put(DJ, NOTE, 'a', note('two'));
+		await host.put(DJ, NOTE, 'a', note('three'));
+		changes = [];
+
+		await s.sync(SPACE);
+		expect(await records()).toEqual([['a', 'three']]);
+		expect(changes.map((change) => change.kind === 'upsert' && change.value.text)).toEqual(['three']);
+		expect(calls('getRepo')).toHaveLength(1);
+	});
+
+	it('downloads the repo in full when the oplog ends without a commit', async () => {
+		const s = await syncer();
+		await host.put(DJ, NOTE, 'a', note('one'));
+		await s.sync(SPACE);
+		editOps((page) => delete page.commit);
+		await host.put(DJ, NOTE, 'b', note('two'));
+
+		await s.sync(SPACE);
+		expect(calls('getRepo')).toHaveLength(2);
+		expect(await records()).toEqual([
+			['a', 'one'],
+			['b', 'two']
+		]);
+	});
+
+	it('downloads the repo in full when the oplog leaves out a current value', async () => {
+		const s = await syncer();
+		await host.put(DJ, NOTE, 'a', note('one'));
+		await s.sync(SPACE);
+		editOps((page) => page.ops.forEach((op) => delete op.value));
+		await host.put(DJ, NOTE, 'b', note('two'));
+
+		await s.sync(SPACE);
+		expect(calls('getRepo')).toHaveLength(2);
+		expect(await records()).toEqual([
+			['a', 'one'],
+			['b', 'two']
+		]);
+	});
+
+	it('leaves a repo alone when its host has no ops and no commit for it', async () => {
+		const s = await syncer();
+		await host.put(DJ, NOTE, 'a', note('one'));
+		await s.sync(SPACE);
+		const synced = await repoRow();
+		editOps((page) => delete page.commit);
+
+		await s.syncRepo(SPACE, DJ);
+		expect(calls('listRepoOps')).toHaveLength(1);
+		expect(calls('getRepo')).toHaveLength(1);
+		expect(await repoRow()).toEqual(synced);
+	});
+
+	it('fails a first download that comes back empty, with no repo row to put the error on', async () => {
+		const s = await syncer();
+		await host.put(DJ, NOTE, 'a', note('one'));
+		tamper(['getRepo'], async (response) => new Response(null, { headers: response.headers }));
+
+		await expect(s.sync(SPACE)).rejects.toThrow('Empty repo response');
+		expect(await repoRow()).toBeUndefined();
+		expect((await db.selectFrom('spaceWatch').select('lastError').executeTakeFirst())?.lastError).toBe(
+			'Empty repo response'
+		);
+	});
+
+	it('keeps a failure that is not an Error as its text on the repo', async () => {
+		const s = await syncer();
+		await host.put(DJ, NOTE, 'a', note('one'));
+		await s.sync(SPACE);
+		await host.put(DJ, NOTE, 'b', note('two'));
+		tamper(['listRepoOps', 'getRepo'], () => Promise.reject('connection reset'));
+
+		await expect(s.sync(SPACE)).rejects.toBe('connection reset');
+		expect((await repoRow())?.lastError).toBe('connection reset');
+	});
+
+	it('stores records it could not project, and drops a space whose deletes it could not project', async () => {
+		const s = await syncer(async () => Promise.reject(new Error('projection broke')));
+		await host.put(DJ, NOTE, 'a', note('one'));
+
+		await s.sync(SPACE);
+		expect(await records()).toEqual([['a', 'one']]);
+		await s.onSpaceDeleted(SPACE);
+		expect(await records()).toEqual([]);
+		expect(dropped).toEqual([SPACE]);
+	});
+
+	it('waits out a failing pass before purging', async () => {
+		const s = await syncer();
+		await host.put(DJ, NOTE, 'a', note('one'));
+		host.repoError = 'RepoNotFound';
+		const running = s.sync(SPACE);
+
+		await s.onSpaceDeleted(SPACE);
+		await expect(running).rejects.toThrow('RepoNotFound');
+		expect(dropped).toEqual([SPACE]);
 		expect(await db.selectFrom('spaceWatch').selectAll().execute()).toEqual([]);
 	});
 });

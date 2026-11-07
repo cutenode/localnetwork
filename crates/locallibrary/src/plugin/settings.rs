@@ -31,10 +31,16 @@ pub(crate) fn host_settings(store: Option<&Store>) -> IndexMap<String, Value> {
     store.and_then(|s| fsutil::read_json_opt(&host_file(s)).ok().flatten()).unwrap_or_default()
 }
 
-/// Keeps one of the host's settings for plugins as `value`, or with `None` forgets it. Settings
-/// that can't be read are written anew.
+/// The host's settings for plugins, for something that writes them back: none when they're
+/// damaged, an error when they can't be read right now.
+pub(crate) fn host_settings_to_change(store: &Store) -> Result<IndexMap<String, Value>> {
+    Ok(fsutil::unless_damaged(fsutil::read_json_opt(&host_file(store)))?.unwrap_or_default())
+}
+
+/// Keeps one of the host's settings for plugins as `value`, or with `None` forgets it. Damaged
+/// settings are written anew.
 pub(crate) fn set_host_setting(store: &Store, key: &str, value: Option<Value>) -> Result<()> {
-    let mut kept = host_settings(Some(store));
+    let mut kept = host_settings_to_change(store)?;
     match value {
         Some(v) => kept.insert(key.into(), v),
         None => kept.shift_remove(key),
@@ -50,10 +56,16 @@ fn write(path: &Path, settings: &IndexMap<String, Value>) -> Result<()> {
 }
 
 /// Every plugin's settings the store keeps, by its id (in order), as they were written: whether
-/// or not the plugin is here.
+/// or not the plugin is here. An error when they can't be listed: importing writes them back.
 pub(crate) fn all_saved_settings(store: &Store) -> Result<IndexMap<String, IndexMap<String, Value>>> {
-    let dirs = std::fs::read_dir(store.root().join("plugins")).into_iter().flatten().flatten();
-    let mut ids: Vec<String> = dirs.filter_map(|e| e.file_name().into_string().ok()).collect();
+    let folder = store.root().join("plugins");
+    let dirs = match std::fs::read_dir(&folder) {
+        Ok(dirs) => dirs,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(IndexMap::new()),
+        Err(e) => return Err(Error::Io { path: folder, source: e }),
+    };
+    let entries = dirs.collect::<std::io::Result<Vec<_>>>().at(&folder)?;
+    let mut ids: Vec<String> = entries.iter().filter_map(|e| e.file_name().into_string().ok()).collect();
     ids.retain(|id| crate::fields::is_name(id) && file(store, id).is_file());
     ids.sort();
     ids.into_iter().map(|id| Ok((id.clone(), fsutil::read_json_opt(&file(store, &id))?.unwrap_or_default()))).collect()
@@ -142,7 +154,7 @@ impl Plugins {
     /// Sets one of a plugin's settings (or turns one of its services on or off,
     /// `services.<name>`) to `value`, which must be of its type, or with `None` puts it back to
     /// its default (a secret, forgets it). Answers its settings then (see [`Plugins::settings`]).
-    /// A file for them that can't be read is written anew. A running host starts or stops the
+    /// A damaged file for them is written anew. A running host starts or stops the
     /// services with [`Plugins::run_services`].
     pub fn set_setting(
         &self,
@@ -174,7 +186,7 @@ impl Plugins {
             }
             _ => {}
         }
-        let mut saved = slot.saved(store).unwrap_or_default();
+        let mut saved = fsutil::unless_damaged(slot.saved(store))?;
         match value {
             Some(v) => saved.insert(key.into(), v),
             None => saved.shift_remove(key),

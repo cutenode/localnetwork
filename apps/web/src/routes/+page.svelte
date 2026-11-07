@@ -28,11 +28,6 @@
 	];
 </script>
 
-<svelte:head>
-	<title>Local Network · Find local DJs for your show</title>
-	<meta name="description" content="Promoters find local DJs who fit their show. DJs get a profile they control, built on the AT Protocol." />
-</svelte:head>
-
 <section aria-labelledby="hero-title" class="border-b border-line bg-canvas bg-grid">
 	<div class="container-page flex flex-col items-center gap-8 py-14 sm:gap-10 sm:py-24">
 		{#snippet headline()}<HeroHeadline />{/snippet}
@@ -150,7 +145,7 @@
 							<span class="text-fg-muted">{tool.tagline}</span>
 						</span>
 						<span class="mt-auto flex flex-col border-t border-line bg-canvas px-5 py-2 sm:px-6">
-							{#each tool.features as feature (feature)}<span class="border-b border-well py-2 text-small text-fg-soft last:border-b-0">{feature}</span>{/each}
+							{#each tool.lines as line (line)}<span class="border-b border-well py-2 text-small text-fg-soft last:border-b-0">{line}</span>{/each}
 						</span>
 					</Card>
 				</li>

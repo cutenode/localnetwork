@@ -1,7 +1,10 @@
 import { error, fail } from '@sveltejs/kit';
 import { unlessOffline } from '#lib/server/happyview/offline.ts';
 import { act, requireViewer } from '#lib/server/http.ts';
+import { listed, performerMeta } from '#lib/server/meta.ts';
+import { djProfiles, projectRecords } from '#lib/server/meta-records.ts';
 import { loadProjectPage } from '#lib/server/project-page.ts';
+import { performerProfile } from '#lib/server/structured-data.ts';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
@@ -19,7 +22,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		try {
 			saved = (await app.planner.saves(viewer)).some((save) => save.project === project.uri);
 		} catch (cause) {
-			locals.log.debug({ err: cause }, 'could not load planner');
+			locals.log.debug('could not load planner', { err: cause });
 		}
 	}
 
@@ -36,7 +39,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				: undefined,
 		saved,
 		pendingClaim: openRequests.find((request) => request.kind === 'claim') ?? null,
-		pendingUpdate: openRequests.find((request) => request.kind === 'update') ?? null
+		pendingUpdate: openRequests.find((request) => request.kind === 'update') ?? null,
+		meta: await listed(locals, performerMeta(app.config.publicUrl, project), {
+			records: () => projectRecords(app.requests, project, { alternate: djProfiles(shared.dj) }),
+			jsonLd: performerProfile(project)
+		})
 	};
 };
 

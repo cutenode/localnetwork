@@ -90,9 +90,12 @@ const PREP_FLAGS: &[&str] = &["--no-eject", "--players", "--audio", "--library",
 pub fn prep_moved(e: &clap::Error) -> Option<String> {
     use clap::error::{ContextKind, ContextValue, ErrorKind};
     let words = command_words();
-    let sets = crate::Cli::command().find_subcommand("sets").cloned()?;
     let first = words.first().map(String::as_str);
-    if !matches!(first, Some("set" | "sets")) || words.get(1).is_some_and(|w| sets.find_subcommand(w).is_some()) {
+    if !matches!(first, Some("set" | "sets")) {
+        return None;
+    }
+    let sets = crate::Cli::command().find_subcommand("sets").cloned()?;
+    if words.get(1).is_some_and(|w| sets.find_subcommand(w).is_some()) {
         return None;
     }
     let given = |kind| match e.get(kind) {
@@ -173,6 +176,41 @@ fn visible_names(cmd: &Command, out: &mut Vec<String>) {
 /// The command line `locallibrary` parses: [`crate::Cli`] and what plugins add, with the
 /// top-level help grouped.
 pub fn command() -> Command {
+    let mut cmd = tree();
+    // Built first, so the help subcommand clap adds is there to be listed.
+    cmd.build();
+    let groups = grouped(&cmd);
+    let header = cmd.get_styles().get_header();
+    let template = format!(
+        "{{about-with-newline}}\n{{usage-heading}} {{usage}}\n\n{groups}{header}Options:{header:#}\n{{options}}{{after-help}}"
+    );
+    cmd.help_template(template)
+}
+
+/// [`command`] for reading this run's command line. Only asking for help shows the top-level help,
+/// and building every command for that took a sixth of the time of each run.
+pub fn for_this_run() -> Command {
+    match help_may_be_asked(std::env::args_os().skip(1)) {
+        true => command(),
+        false => tree(),
+    }
+}
+
+/// Whether `args` might show the top-level help: none at all, `help`, or `-h`, `--help` or a short
+/// flag cluster with an `h` in it anywhere. Too many is fine: they only take [`command`]'s time.
+fn help_may_be_asked(args: impl Iterator<Item = std::ffi::OsString>) -> bool {
+    let mut args = args.peekable();
+    if args.peek().is_none() {
+        return true;
+    }
+    args.any(|a| {
+        let a = a.to_string_lossy();
+        a == "help" || a == "--help" || (a.starts_with('-') && !a.starts_with("--") && a.contains('h'))
+    })
+}
+
+/// Every command and flag, with the plugins' and the marks of what writes.
+fn tree() -> Command {
     // The plugins first: `export --format` lists their formats once they're checked. Refused,
     // they add nothing (what uses them says why).
     let plugins = crate::plugins::host().ok();
@@ -185,17 +223,10 @@ pub fn command() -> Command {
     cmd = cmd.mut_subcommand("analyze", |c| c.hide(!analyzers));
     let json = cmd.get_arguments().find(|a| a.get_id() == "json").cloned().expect("--json is global");
     mark_writes(&mut cmd, &json);
-    // Built first, so the help subcommand clap adds is there to be listed.
-    cmd.build();
-    let groups = grouped(&cmd);
-    if let Some(choice) = color_asked() {
-        cmd = cmd.color(choice);
+    match color_asked() {
+        Some(choice) => cmd.color(choice),
+        None => cmd,
     }
-    let header = cmd.get_styles().get_header();
-    let template = format!(
-        "{{about-with-newline}}\n{{usage-heading}} {{usage}}\n\n{groups}{header}Options:{header:#}\n{{options}}{{after-help}}"
-    );
-    cmd.help_template(template)
 }
 
 /// `--color WHEN` as given on the command line, for clap's own help and errors (which are

@@ -8,7 +8,8 @@
 		{
 			"name": "anti-slop",
 			"specifier": "./tools/oxlint/anti-slop/index.ts"
-		}
+		},
+		"@stylistic/eslint-plugin"
 	],
 	"categories": {
 		"correctness": "error",
@@ -23,17 +24,7 @@
 	"ignorePatterns": [
 		"coverage/**",
 		"node_modules/**",
-		".agent/**",
-		".agents/**",
-		".claude/**",
-		".codex/**",
-		".continue/**",
-		".cursor/**",
-		".gemini/**",
-		".opencode/**",
-		".pi/**",
-		".roo/**",
-		".windsurf/**",
+		".*/**",
 		"tools/oxlint/anti-slop/**"
 	],
 	"rules": {
@@ -110,7 +101,39 @@
 		"anti-slop/no-unknown-type-aliases": "error",
 		"anti-slop/no-unsafe-dictionary-type": "error",
 		"anti-slop/no-widen-then-assert": "error",
-		"anti-slop/require-readable-spacing": "error",
+		// Structural blank lines, fixed by --fix: after imports, around top-level statements,
+		// declarations and multiline bindings, and before control flow. Short local bindings,
+		// consecutive imports and overload signatures stay grouped. Later entries win.
+		"@stylistic/padding-line-between-statements": [
+			"error",
+			{ "blankLine": "always", "prev": "import", "next": "*" },
+			{ "blankLine": "always", "prev": "*", "next": { "selector": "Program > :not(ImportDeclaration)" } },
+			{ "blankLine": "always", "prev": { "selector": "Program > :not(ImportDeclaration)" }, "next": "*" },
+			{ "blankLine": "always", "prev": "*", "next": ["function", "class", "interface", "type"] },
+			{ "blankLine": "always", "prev": ["function", "class", "interface", "type"], "next": "*" },
+			{
+				"blankLine": "always",
+				"prev": "*",
+				"next": ["multiline-const", "multiline-let", "multiline-var", "multiline-using"]
+			},
+			{
+				"blankLine": "always",
+				"prev": ["multiline-const", "multiline-let", "multiline-var", "multiline-using"],
+				"next": "*"
+			},
+			{ "blankLine": "always", "prev": "*", "next": ["return", "if", "switch", "try", "for", "while", "do"] },
+			{ "blankLine": "always", "prev": "block-like", "next": "*" },
+			{ "blankLine": "any", "prev": "import", "next": "import" },
+			{
+				"blankLine": "any",
+				"prev": {
+					"selector": ":matches(TSDeclareFunction, ExportNamedDeclaration[declaration.type=\"TSDeclareFunction\"])"
+				},
+				"next": {
+					"selector": ":matches(TSDeclareFunction, FunctionDeclaration, ExportNamedDeclaration[declaration.type=\"TSDeclareFunction\"], ExportNamedDeclaration[declaration.type=\"FunctionDeclaration\"])"
+				}
+			}
+		],
 		"anti-slop/require-safety-comment-for-type-assertion": "error"
 	},
 	"overrides": [

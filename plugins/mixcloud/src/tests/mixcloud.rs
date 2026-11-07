@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use loclib_plugin::test_util::Canceller;
 use loclib_plugin::{
     Fetch, Fetched, HelloReply, Incoming, PROTOCOL_VERSION, Peer, Pending, ProgressReport, Progressed, Published,
     PublishedSet, RpcError, TracklistEntry, method,
@@ -21,6 +22,9 @@ use crate::upload::UPLOAD;
 const KEY: &str = "/djkit/closing-set/";
 pub(super) const PAGE: &str = "https://www.mixcloud.com/djkit/closing-set/";
 
+/// As the host fails a request for a Mixcloud account that's signed out.
+pub(super) const SIGNED_OUT: &str = "the mixcloud account djkit is signed out: sign in again";
+
 /// A file `name` of `size` bytes.
 pub(super) fn file(dir: &Path, name: &str, size: u64) -> PathBuf {
     let path = dir.join(name);
@@ -29,11 +33,14 @@ pub(super) fn file(dir: &Path, name: &str, size: u64) -> PathBuf {
 }
 
 /// How Mixcloud answers an upload through the host, in place of what it would: a status, headers
-/// and body, or the host failing to reach it.
+/// and body, the host failing to reach it (or failing it as another kind), or either of those
+/// and then the host cancelling the publish.
 #[derive(Clone, Debug)]
 pub(super) enum Reply {
     Status(u16, Vec<(&'static str, String)>, String),
     Unreachable,
+    Fails(&'static str),
+    Cancels(Box<Reply>),
 }
 
 /// Mixcloud's error, as its answers have one.
@@ -73,6 +80,8 @@ pub(super) struct Mixcloud {
     signed_in: bool,
     script: Script,
     received: Received,
+    /// Cancels the publish once the call in hand is answered, when [`Reply::Cancels`] says to.
+    cancel: Arc<Canceller>,
 }
 
 impl Mixcloud {
@@ -86,16 +95,13 @@ impl Mixcloud {
     }
 
     pub(super) fn scripted(script: impl Fn(usize) -> Option<Reply> + Send + 'static) -> Mixcloud {
-        Mixcloud { signed_in: true, script: Box::new(script), received: Received::new() }
+        Mixcloud { signed_in: true, script: Box::new(script), received: Received::new(), cancel: Arc::default() }
     }
 
     /// The host's answer to `fetch`.
     fn answer(&mut self, fetch: &Fetch) -> Result<Fetched, RpcError> {
         if !self.signed_in {
-            // As the host fails a request for an account that isn't signed in.
-            let why =
-                "mixcloud's account mixcloud isn't signed in: locallibrary plugin account mixcloud mixcloud sign-in";
-            return Err(RpcError::failed("invalid", why));
+            return Err(RpcError::failed("access", SIGNED_OUT));
         }
         // The token goes in the query alone, and the form is all there is to send.
         assert_eq!((fetch.method.as_str(), fetch.url.as_str()), ("POST", UPLOAD));
@@ -120,8 +126,17 @@ impl Mixcloud {
             .collect();
         let before = self.received.len();
         self.received.push(form);
-        let (status, headers, body) = match (self.script)(before) {
+        let reply = match (self.script)(before) {
+            Some(Reply::Cancels(then)) => {
+                self.cancel.arm();
+                Some(*then)
+            }
+            reply => reply,
+        };
+        let (status, headers, body) = match reply {
             Some(Reply::Unreachable) => return Err(RpcError::failed("external", "connection reset")),
+            Some(Reply::Fails(kind)) => return Err(RpcError::failed(kind, "the host failed it")),
+            Some(Reply::Cancels(_)) => panic!("a cancel cancels once"),
             Some(Reply::Status(status, headers, body)) => (status, headers, body),
             None => as_mixcloud(&self.received[before]),
         };
@@ -192,8 +207,11 @@ pub(super) fn start(mixcloud: Mixcloud) -> Session {
             let Incoming::Request(req) = msg else { continue };
             assert_eq!(req.method, method::NET_FETCH, "the plugin reads nothing else");
             let fetch: Fetch = serde_json::from_value(req.params).unwrap();
-            let answer = answers.lock().unwrap().answer(&fetch).map(|f| serde_json::to_value(f).unwrap());
-            to.respond(&req.id, answer);
+            let mut mixcloud = answers.lock().unwrap();
+            let answer = mixcloud.answer(&fetch).map(|f| serde_json::to_value(f).unwrap());
+            let cancel = mixcloud.cancel.clone();
+            drop(mixcloud);
+            cancel.respond(&to, &req.id, answer);
         }
     });
     let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
@@ -252,12 +270,14 @@ impl Session {
             context["scratch"] = json!(self.scratch.path());
         }
         let req = json!({ "destination": "show", "set": set, "recording": recording, "tracklist": tracklist, "dry_run": dry_run, "context": context });
-        self.host.send_request_reporting(method::SET_PUBLISH, &req).unwrap()
+        let cancel = self.mixcloud.lock().unwrap().cancel.clone();
+        cancel.send(|| self.host.send_request_reporting(method::SET_PUBLISH, &req).unwrap())
     }
 
     /// Its fetches answered by `mixcloud` from now on.
     pub(super) fn script(&self, mixcloud: Mixcloud) {
-        *self.mixcloud.lock().unwrap() = mixcloud;
+        let mut answering = self.mixcloud.lock().unwrap();
+        *answering = Mixcloud { cancel: answering.cancel.clone(), ..mixcloud };
     }
 
     /// What Mixcloud has been sent since it was last asked.
@@ -270,12 +290,12 @@ impl Session {
         self.mixcloud.lock().unwrap().received.len()
     }
 
-    /// Closes the plugin's input: it stops. What Mixcloud was sent.
+    /// Closes the plugin's input: it stops. What Mixcloud was sent, read once all of it is
+    /// answered: what the plugin sent before a cancel reached it may still be on its way.
     pub(super) fn stop(self) -> Received {
-        let received = self.received();
         self.host.close();
         self.served.join().unwrap();
         self.answering.join().unwrap();
-        received
+        std::mem::take(&mut self.mixcloud.lock().unwrap().received)
     }
 }

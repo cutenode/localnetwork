@@ -42,9 +42,12 @@ crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one messag
                             reads lines and reports errors with it
 plugins/accounts/           the account plugins: a manifest each and no crate, which locallibrary signs in from
                             and never starts
+  archive-account/          the `archive` account type, signed in to with the account's S3 keys; its scope
+                            `upload`
   google-account/           the `google` account type, signed in to through Local Network's token exchange;
                             its scope `youtube-upload`
   mixcloud-account/         the `mixcloud` account type, through the token exchange; its scope `upload`
+  plyr-account/             the `plyr` account type, signed in to with a developer token; its scope `upload`
   soundcloud-account/       the `soundcloud` account type, through the token exchange; its scopes `upload`
                             and `read`
 plugins/archive/            the archive plugin: the `item` set destination, a set's recording uploaded to the
@@ -232,7 +235,9 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   source's modification time, so a copy whose data never reached the drive can't pass for a finished
   one. The database files are then staged and swapped in back to back, and stale files are deleted
   only after that. If a sync is interrupted (unplugged drive, Ctrl-C), the database on the drive
-  still finds every file it references; a file the sync changed may already hold its new contents. A
+  still finds every file it references; a file the sync changed may already hold its new contents.
+  (With `--delete-first` the old databases go first, so the drive holds no library until the new
+  ones are in.) A
   marker is left that `locallibrary drive info` reports, and re-running finishes the job: `diff
   --summary` and `sync` take the interrupted drive as the older one, and the next sync copies again
   any file changed since the interrupted one started, unless its content is known to match. `pack`

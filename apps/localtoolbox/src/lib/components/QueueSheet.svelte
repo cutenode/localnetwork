@@ -2,8 +2,8 @@
   Session Queue: the tracks picked out while working through a page, held
   together until something is done with the whole batch.
 
-  The Manager tool fills it — opening a download link queues its track, and
-  the list button on each row queues one by hand — and everything that is done
+  The Manager tool fills it (opening a download link queues its track, and
+  the list button on each row queues one by hand), and everything that is done
   to a batch is here: mark the lot as downloaded once the files have really
   been saved, or send it to one of the other tools, which then read the queue
   instead of the page (the same tracks, whatever tab is open in front).
@@ -13,27 +13,21 @@
   lasts.
 
   Why it is a sheet and not a tool: the queue is about the other tools rather
-  than beside them. As the fourth entry in the menu it could only be reached
-  by leaving whichever tool had filled it, and coming back meant reading the
-  page again. It comes up over the open tool now, from a button in the header
-  of every view (QueueButton.svelte), and goes away leaving that tool exactly
-  as it was.
-
-  It carries its own Tooltip.Provider because it is rendered at the root of
-  the app rather than inside PanelShell, which is where every other tooltip in
-  the extension lives.
+  than beside them. As an entry in the menu it could only be reached by leaving
+  whichever tool had filled it, and coming back would mean reading the page
+  again. It comes up over the open tool, from a button in the header of every
+  view (QueueButton.svelte), and goes away leaving that tool exactly as it was.
+  The sheet itself, and where focus goes, is Sheet.svelte.
 -->
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
-  import { fly, fade } from 'svelte/transition';
-  import { cubicOut } from 'svelte/easing';
   import Check from '@lucide/svelte/icons/check';
   import Eraser from '@lucide/svelte/icons/eraser';
   import ListChecks from '@lucide/svelte/icons/list-checks';
   import ListX from '@lucide/svelte/icons/list-x';
   import X from '@lucide/svelte/icons/x';
+  import Sheet from '$lib/components/Sheet.svelte';
   import StatusNote from '$lib/components/StatusNote.svelte';
-  import ToolTile from '$lib/components/ToolTile.svelte';
   import TrackRow from '$lib/components/TrackRow.svelte';
   import { Button } from '$lib/components/ui/button/index.ts';
   import * as Tooltip from '$lib/components/ui/tooltip/index.ts';
@@ -103,19 +97,19 @@
   // The other half of "mark the batch": once the files really have been saved
   // and the marks made, the marked tracks are what is *done* with, and the
   // queue is a working list rather than a record of one. Taking them out in
-  // one go leaves exactly what is left to do — which is what "clear" cannot
-  // give you, since it empties the lot, and what taking them out row by row
-  // costs a click each.
+  // one go leaves exactly what is left to do. "Clear" cannot give you that,
+  // since it empties the lot, and taking them out row by row costs a click
+  // each.
   //
   // The marks are untouched, as they are everywhere else here: they live in
-  // local storage and outlast the session (downloaded-store.js). Nothing is
+  // local storage and outlast the session (downloaded-store.ts). Nothing is
   // lost that the marks do not already hold, so unlike "clear" this does not
-  // ask twice — it is the Manager's `unqueue` on the tracks the queue itself
-  // can pick out.
+  // ask twice: it is the Manager's `unqueue` on the tracks the queue itself
+  // can pick out. The button is only there while something is marked, so
+  // there is always something to take.
   function removeMarked() {
     const permalinks = queue.permalinks.filter((permalink) => downloaded.has(permalink));
 
-    if (permalinks.length === 0) return;
     queue.removeMany(permalinks);
     toasts.ok(`took ${count(permalinks.length, 'track')} out of the queue`);
   }
@@ -130,8 +124,8 @@
   // the button for a few seconds, the second empties the queue.
   //
   // The timer is cleared on the way out because the sheet goes in and out far
-  // more often than a panel ever did — it is put away on every Escape, every
-  // close, every hand-off — and a countdown left running belongs to a sheet
+  // more often than a panel does (it is put away on every Escape, every
+  // close, every hand-off), and a countdown left running belongs to a sheet
   // that is no longer there. A sheet opened again comes back disarmed, which
   // is what a confirm button should do.
   let armed = $state(false);
@@ -154,20 +148,12 @@
     toasts.ok('queue emptied');
   }
 
-  // Escape closes it, wherever the focus is: a sheet over the whole popup has
-  // to answer the key that puts one away.
-  function onkeydown(event: KeyboardEvent) {
-    if (event.key !== 'Escape') return;
-    event.stopPropagation();
-    onclose();
-  }
-
   // --- where the list was ----------------------------------------------------
 
   // The same bargain PanelShell strikes for a panel's body, and a simpler one:
   // the queue is read before anything is drawn, so the rows are all there on
   // the first turn and the place can go straight back. `untrack`, because the
-  // stored number is only ever read here — after this it is written.
+  // stored number is only ever read here; after this it is written.
   const scrolled = remembered('queue', 'scroll', 0);
 
   const startAt = untrack(() => scrolled.value);
@@ -178,175 +164,129 @@
     if (body && startAt > 0) body.scrollTop = startAt;
   });
 
-  function onscroll() {
-    if (body) scrolled.value = body.scrollTop;
+  function onscroll({ currentTarget }: { currentTarget: HTMLElement }) {
+    scrolled.value = currentTarget.scrollTop;
   }
 </script>
 
-<svelte:window {onkeydown} />
+<Sheet
+  title="session queue"
+  icon={ListChecks}
+  {meta}
+  closeLabel="close the queue"
+  {onclose}
+  bind:body
+  {onscroll}
+>
+  {#snippet actions()}
+    {#if queue.count > 0}
+      <Button
+        size="sm"
+        variant={armed ? 'destructive' : 'outline'}
+        class={armed ? 'bg-critical/10' : ''}
+        title="empties the queue. marks stay."
+        onclick={onClear}
+      >
+        <Eraser />
+        {armed ? 'empty it?' : 'clear'}
+      </Button>
+    {/if}
+  {/snippet}
 
-<Tooltip.Provider delayDuration={350}>
-  <div class="fixed inset-0 z-40 flex flex-col justify-end">
-    <!-- The ground behind the sheet. A click on it puts the sheet away, which
-         is a shortcut rather than the way out: the close button in the header
-         is what a keyboard uses, so this is hidden from the tree entirely. -->
-    <button
-      type="button"
-      tabindex="-1"
-      aria-hidden="true"
-      class="absolute inset-0 bg-black/50"
-      transition:fade={{ duration: 150 }}
-      onclick={onclose}
-    ></button>
+  {#if queue.count === 0}
+    <StatusNote tone="info">nothing here yet. queue tracks from Manager.</StatusNote>
+  {:else}
+    <div class="flex flex-col gap-2.5">
+      <Button disabled={unmarked === 0} onclick={markAll}>
+        <Check />
+        {unmarked === 0
+          ? 'all marked downloaded'
+          : `mark ${count(unmarked, 'track')} downloaded`}
+      </Button>
 
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="session queue"
-      class="relative flex max-h-[85vh] flex-col rounded-t-xl border-t border-line-strong bg-canvas"
-      transition:fly={{ y: 240, duration: 240, easing: cubicOut, opacity: 1 }}
-    >
-      <header class="flex h-13 shrink-0 items-center gap-2.5 border-b border-line px-3">
-        <ToolTile icon={ListChecks} />
+      <!-- Only when there is something for it to take: the same rule the
+           header's "clear" follows, and the reason neither appears over
+           an empty queue. -->
+      {#if marked > 0}
+        <Button
+          variant="outline"
+          title="takes the tracks already marked downloaded out of the queue. the marks stay."
+          onclick={removeMarked}
+        >
+          <ListX />
+          take {marked === queue.count ? 'all' : count(marked, 'track')} marked out
+        </Button>
+      {/if}
 
-        <div class="min-w-0 flex-1">
-          <h2 class="m-0 truncate text-label leading-tight font-semibold">session queue</h2>
-          <p class="tabular m-0 truncate text-caption leading-tight text-fg-muted" title={meta}>
-            {meta}
-          </p>
-        </div>
-
-        <div class="flex shrink-0 items-center gap-1.5">
-          {#if queue.count > 0}
-            <Button
-              size="sm"
-              variant={armed ? 'destructive' : 'outline'}
-              class={armed ? 'bg-critical/10' : ''}
-              title="empties the queue. marks stay."
-              onclick={onClear}
-            >
-              <Eraser />
-              {armed ? 'empty it?' : 'clear'}
-            </Button>
-          {/if}
-
-          <!-- The browser's own tooltip rather than the shell's, which is
-               what the back arrow in a panel header has. The difference is
-               that this is the only way out of an empty queue, and a tooltip
-               trigger is a wrapper around the button: the one control a
-               screen reader has to find here is better off being the button
-               itself. -->
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            class="-mr-1"
-            aria-label="close the queue"
-            title="close"
-            onclick={onclose}
-          >
-            <X />
-          </Button>
-        </div>
-      </header>
-
-      <div bind:this={body} {onscroll} class="scroll-slim min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        {#if queue.count === 0}
-          <StatusNote tone="info">nothing here yet. queue tracks from Manager.</StatusNote>
-        {:else}
-          <div class="flex flex-col gap-2.5">
-            <Button disabled={unmarked === 0} onclick={markAll}>
-              <Check />
-              {unmarked === 0
-                ? 'all marked downloaded'
-                : `mark ${count(unmarked, 'track')} downloaded`}
-            </Button>
-
-            <!-- Only when there is something for it to take: the same rule the
-                 header's "clear" follows, and the reason neither appears over
-                 an empty queue. -->
-            {#if marked > 0}
-              <Button
-                variant="outline"
-                title="takes the tracks already marked downloaded out of the queue. the marks stay."
-                onclick={removeMarked}
-              >
-                <ListX />
-                take {marked === queue.count ? 'all' : count(marked, 'track')} marked out
-              </Button>
-            {/if}
-
-            <div class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-2.5">
-              <span class="section-title">send the queue somewhere</span>
-              <div class="flex flex-wrap gap-1.5">
-                {#each sendTo as entry (entry.id)}
-                  {@const Icon = entry.icon}
-                  <Tooltip.Root>
-                    <Tooltip.Trigger>
-                      {#snippet child({ props })}
-                        <Button
-                          {...props}
-                          size="sm"
-                          variant="outline"
-                          class="pl-1"
-                          onclick={() => open(entry.id)}
-                        >
-                          <span
-                            class="grid size-5 place-items-center rounded-xs {entry.tone} text-black"
-                            aria-hidden="true"
-                          >
-                            <Icon class="size-3" />
-                          </span>
-                          {entry.short}
-                        </Button>
-                      {/snippet}
-                    </Tooltip.Trigger>
-                    <Tooltip.Content class="max-w-64">{HINTS.get(entry.id)}</Tooltip.Content>
-                  </Tooltip.Root>
-                {/each}
-              </div>
-            </div>
-
-            <ul class="flex flex-col gap-1.5">
-              {#each queue.items as item (item.permalink)}
-                {@const isDownloaded = downloaded.has(item.permalink)}
-                <TrackRow
-                  permalink={item.permalink}
-                  title={item.title}
-                  artist={item.artist}
-                  artworkUrl={artworkOf(item)}
-                  {isDownloaded}
-                >
-                  {#snippet actions()}
-                    <Button
-                      size="icon-sm"
-                      variant={isDownloaded ? 'default' : 'outline'}
-                      class={isDownloaded
-                        ? 'bg-good text-fg-inverse hover:bg-good/85'
-                        : 'text-fg-muted'}
-                      aria-pressed={isDownloaded}
-                      aria-label="mark downloaded"
-                      title="toggle the downloaded mark"
-                      onclick={() => downloaded.toggle(item.permalink)}
+      <div class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-2.5">
+        <span class="section-title">send the queue somewhere</span>
+        <div class="flex flex-wrap gap-1.5">
+          {#each sendTo as entry (entry.id)}
+            {@const Icon = entry.icon}
+            <Tooltip.Root>
+              <Tooltip.Trigger>
+                {#snippet child({ props })}
+                  <Button
+                    {...props}
+                    size="sm"
+                    variant="outline"
+                    class="pl-1"
+                    onclick={() => open(entry.id)}
+                  >
+                    <span
+                      class="grid size-5 place-items-center rounded-xs {entry.tone} text-black"
+                      aria-hidden="true"
                     >
-                      <Check />
-                    </Button>
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      class="text-fg-muted"
-                      aria-label="remove from the queue"
-                      title="take out of the queue. its mark stays."
-                      onclick={() => queue.remove(item.permalink)}
-                    >
-                      <X />
-                    </Button>
-                  {/snippet}
-                </TrackRow>
-              {/each}
-            </ul>
-          </div>
-        {/if}
+                      <Icon class="size-3" />
+                    </span>
+                    {entry.short}
+                  </Button>
+                {/snippet}
+              </Tooltip.Trigger>
+              <Tooltip.Content class="max-w-64">{HINTS.get(entry.id)}</Tooltip.Content>
+            </Tooltip.Root>
+          {/each}
+        </div>
       </div>
+
+      <ul class="flex flex-col gap-1.5">
+        {#each queue.items as item (item.permalink)}
+          {@const isDownloaded = downloaded.has(item.permalink)}
+          <TrackRow
+            permalink={item.permalink}
+            title={item.title}
+            artist={item.artist}
+            artworkUrl={artworkOf(item)}
+            {isDownloaded}
+          >
+            {#snippet actions()}
+              <Button
+                size="icon-sm"
+                variant={isDownloaded ? 'default' : 'outline'}
+                class={isDownloaded
+                  ? 'bg-good text-fg-inverse hover:bg-good/85'
+                  : 'text-fg-muted'}
+                aria-pressed={isDownloaded}
+                aria-label="mark downloaded"
+                title="toggle the downloaded mark"
+                onclick={() => downloaded.toggle(item.permalink)}
+              >
+                <Check />
+              </Button>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                class="text-fg-muted"
+                aria-label="remove from the queue"
+                title="take out of the queue. its mark stays."
+                onclick={() => queue.remove(item.permalink)}
+              >
+                <X />
+              </Button>
+            {/snippet}
+          </TrackRow>
+        {/each}
+      </ul>
     </div>
-  </div>
-</Tooltip.Provider>
+  {/if}
+</Sheet>

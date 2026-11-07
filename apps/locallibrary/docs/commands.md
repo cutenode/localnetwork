@@ -71,8 +71,8 @@ take the mounted drives of one library, and given a library's name (as `sync` is
 drives (archive and retired drives are left out unless named); `pull --library` names the library a
 drive is pulled into, so it doesn't go with a library's name.
 
-Every command that writes shows its plan first and asks, then makes exactly the change it showed: if
-the drive changed in between (rekordbox exported again, another command wrote to it), nothing is
+Every command that changes a library on a drive (but `watch`, which you opt into) shows its plan
+first and asks, then makes exactly the change it showed: if the drive changed in between (rekordbox exported again, another command wrote to it), nothing is
 written and it says to plan again. A change to a library (an edit to its playlists, tracks, My Tags,
 cues or artwork, `clean`, `convert`, `merge` into it, `smart apply`, `edits replay`, `drive restore
 --playlist`, `doctor --fix-orphans`, `undo`) is made on its lead clone, then copied onto its other
@@ -112,7 +112,7 @@ its drives.
 | `locallibrary drive verify [<drive>] [--from PLUGIN:DESTINATION] [--repair]` / `drive fsck <drive> [--repair]` | Re-read every file against a known-good copy (`--from`: also a plugin's copy of the store) and rewrite damaged ones; the OS's file-system check (`fsck`: experimental on Linux and Windows), see [Health](drives.md#health) |
 | `locallibrary drive space [<drive>]` / `drive tidy <drive>` / `drive recordings [<drive>]` | What's using a drive and when it fills; remove OS clutter; copy off set recordings, see [Space](drives.md#space) |
 | `locallibrary drive firmware <drive> [file.UPD] [--remove]` | Stage a player or mixer firmware update, see [Setting up and handing over](drives.md#setting-up-and-handing-over) |
-| `locallibrary drive backups [<drive>]` / `drive restore <library> \| <drive>` | The backups taken before every change to a drive; put any of them back (`--backup ID`; `--dry-run` shows what would change; refuses a backup whose audio has since been removed, unless `--force`). `--playlist P` brings back one playlist or folder from a snapshot or backup, see [Bringing back a playlist](editing.md#bringing-back-a-playlist) |
+| `locallibrary drive backups [<drive>]` / `drive restore <library> \| <drive>` | The backups taken before every change to a library made in place; put any of them back (`--backup ID`; `--dry-run` shows what would change; refuses a backup whose audio has since been removed, unless `--force`). `--playlist P` brings back one playlist or folder from a snapshot or backup, see [Bringing back a playlist](editing.md#bringing-back-a-playlist) |
 | `locallibrary provision <target>` | Set up a new drive in one step, see [Setting up and handing over](drives.md#setting-up-and-handing-over) |
 | `locallibrary doctor [<library>] [--hash-audio] [--by-sound] [--audio] [--analyze] [--only SECTION,...]` | Health report: duplicates with a suggested keeper (`--by-sound`: also the same recording in another file or encoding), missing or cut-short files, orphaned files, tracks in no playlist, database drift, files over 4 GB, how players read the drive, what plugins' checks find (`--audio`: audio files cut short or that don't decode; `--analyze`: tempos and keys an analysis of the audio disagrees with, and tracks too loud, clipped or far from the library's level); `--fix-orphans` deletes orphans after a backup; `--fix-tempo` doubles or halves the beat grids of tempos that are half or double |
 | `locallibrary analysis bench [<library> \| <drive>] [--keys PATH] [--tempos DIR] [--audio DIR]` | Score rekordbox's stored keys and tempos, and the analysis `doctor --analyze` runs, against the GiantSteps datasets (`--keys`, `--tempos` or both), see [Checking the analysis](drives.md#checking-the-analysis) |
@@ -129,6 +129,7 @@ its drives.
 | `locallibrary library push <drive> [--snapshot ID]` | Write the latest (or any) snapshot onto a drive |
 | `locallibrary library prune [--keep-last N] ...` | Remove old snapshots (as `store prune`), see [Pruning old snapshots](store.md#pruning-old-snapshots) |
 | `locallibrary store [info\|gc\|verify\|label\|unlabel\|prune]` | Store size, garbage collection, integrity check, snapshot labels, removing old snapshots |
+| `locallibrary store index-limit [MIB\|default]` | The largest fingerprint index `mix` keeps for a drive (512 MiB unless set), see [Mixes](sets.md#mixes) |
 | `locallibrary store serve` / `store fetch <code>` | Copy snapshots between computers over the network: one serves its store, the other fetches what it lacks, see [From another computer](store.md#from-another-computer) |
 | `locallibrary store copy <dir>` / `store copies` | Copy the store somewhere else (a NAS, another disk, a cloud-synced folder), only what's new; where copies were made, see [Off-site copies](store.md#off-site-copies) |
 | `locallibrary store copy --to PLUGIN:DESTINATION [--dry-run]` / `store restore --from PLUGIN:DESTINATION [--library L]... [--dry-run]` | Copy the store to a plugin's store destination, and bring back what a copy there has that this store lacks (nothing here is replaced), see [Plugins](plugins.md) |
@@ -189,8 +190,12 @@ its drives.
 
 | | |
 | --- | --- |
-| `locallibrary account [login\|logout\|status]` | Sign in with your Atmosphere account (the one you use for Bluesky and other AT Protocol apps; alpha), see [Atmosphere account](account.md) |
-| `locallibrary plugin [list\|info ID\|settings ID [KEY [VALUE \| --reset \| --secret]]\|account ID ACCOUNT [status\|sign-in\|sign-out]\|roles [ROLE [PLUGIN.ANALYZER \| --reset]]\|checks [PLUGIN.CHECK [--on\|--off] [--blocking\|--no-blocking] [--reset]] [--timeout SECS]\|providers [--auto-pick SCORE \| --reset]]` | The plugins locallibrary has, what each may do and adds, their settings (`--secret` reads a secret one from stdin, kept in the keychain; `services.NAME on` turns a service on), their accounts on other services (signed in to in the browser; the tokens stay in the keychain), which analyzer each role (a track's key, tempo, level) is read from, which of their checks run with `check` and `doctor` and which guards stop changes they find something about, and the providers `art fetch` and `track fetch` ask, with the score one's candidate is chosen for you at; the commands and operations they add are `locallibrary ID NAME` or where the plugin puts them (`--choose PARAM=VALUE` answers what one asks), see [Plugins](plugins.md#roles) |
+| `locallibrary account` | Your accounts: the DJ account, then those plugins use, with the plugins that have access to each, see [Accounts](plugins.md#accounts) |
+| `locallibrary account [login\|logout\|status]` | Sign in with your Atmosphere account as the DJ account (the one you use for Bluesky and other AT Protocol apps; alpha), see [Atmosphere account](account.md) |
+| `locallibrary account <TYPE> sign-in [--with PLUGIN] [--for PLUGIN] [--scope NAME]...` | Sign in to an account of a type (`google`) in the browser, or with the keys its service gives you (`archive`, read from stdin), through an account plugin, giving the plugin `--for` names access to it, see [Accounts](plugins.md#accounts) |
+| `locallibrary account <TYPE>:<NAME> [status\|sign-out]` | One of those accounts, or sign out of it (plugins keep their access, unused until it's signed in again) |
+| `locallibrary plugin access <PLUGIN> [--give ACCOUNT [--scope S] \| --default ACCOUNT \| --take-away ACCOUNT]` | A plugin's access to your accounts: give it access to one, make one its default for its type, or take its access away, see [Accounts](plugins.md#accounts) |
+| `locallibrary plugin [list\|info ID\|settings ID [KEY [VALUE \| --reset \| --secret]]\|roles [ROLE [PLUGIN.ANALYZER \| --reset]]\|checks [PLUGIN.CHECK [--on\|--off] [--blocking\|--no-blocking] [--reset]] [--timeout SECS]\|providers [--auto-pick SCORE \| --reset]]` | The plugins locallibrary has, what each may do and adds, their settings (`--secret` reads a secret one from stdin, kept in the keychain; `services.NAME on` turns a service on), which analyzer each role (a track's key, tempo, level) is read from, which of their checks run with `check` and `doctor` and which guards stop changes they find something about, and the providers `art fetch` and `track fetch` ask, with the score one's candidate is chosen for you at; the commands and operations they add are `locallibrary ID NAME` or where the plugin puts them (`--choose PARAM=VALUE` answers what one asks), see [Plugins](plugins.md#roles) |
 | `locallibrary bug [--title T] [-m TEXT] [--no-browser]` | Report a bug, with this version and system filled in: posted from your Atmosphere account to userinput.app, or on GitHub's bug report form, see [Reporting a bug](account.md#reporting-a-bug) |
 | `locallibrary completions SHELL [--static]` | Shell completion for bash, zsh, fish, elvish or PowerShell, see [Shell completion and man pages](install.md#shell-completion-and-man-pages) |
 | `locallibrary man [-o DIR]` | Man pages for every command (not in `--help`) |
@@ -275,7 +280,8 @@ and `actions` (see [Building a GUI](sidecar.md)); without `--json`, the actions 
 `sync` and `library push` accept `--dry-run`, `--verify` (compare audio by content hash rather than
 size + modification time), `--keep-extra` (don't delete audio and other files the source lacks;
 database files it lacks still go, and the drive still compares as holding the source's library),
-`--delete-first` (free space before copying when the target is nearly full) and `--eject` (eject
+`--delete-first` (free space before copying when the target is nearly full; the drive holds no
+library until the new databases are in) and `--eject` (eject
 the drives afterwards).
 
 ### Typical workflows

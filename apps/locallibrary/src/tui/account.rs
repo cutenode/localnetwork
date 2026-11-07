@@ -13,6 +13,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::text::{Line, Span};
 
 use super::app::{App, Level, Msg, typed_tail};
+use super::icons;
 use super::theme::{self, bold, dim, fg};
 
 /// News about the Atmosphere account, from the threads that sign in and out.
@@ -59,7 +60,12 @@ impl Account {
         (self.info, self.last_handle) = status.map(|s| (s.account, s.last_handle)).unwrap_or_default();
     }
 
-    /// Whether signing in or out is under way (the header spins).
+    /// Who's signed in, as their server reports them.
+    pub fn handle(&self) -> Option<&str> {
+        self.info.as_ref()?.handle.as_deref()
+    }
+
+    /// Whether signing in or out is under way (the status line spins).
     pub fn busy(&self) -> bool {
         matches!(self.sign_in, Some(SignIn::Starting(_) | SignIn::Waiting { .. } | SignIn::SigningOut))
     }
@@ -86,20 +92,25 @@ impl Account {
                     typed_tail(text, (width as usize).saturating_sub(31)).to_string(),
                     bold(theme::current().text),
                 ),
-                Span::styled("▏", fg(theme::current().accent)),
+                Span::styled(icons::CURSOR.get(), fg(theme::current().accent)),
                 key("enter"),
                 Span::styled("sign in", dim()),
                 key("esc"),
                 Span::styled("cancel", dim()),
             ]),
             (Some(SignIn::Starting(_)), _) => Line::from(vec![
-                Span::styled(" ⟳ Finding your account's server…", fg(theme::current().info)),
+                Span::styled(
+                    format!(" {} Finding your account's server…", icons::BUSY.get()),
+                    fg(theme::current().info),
+                ),
                 key("esc"),
                 Span::styled("stop", dim()),
             ]),
             (Some(SignIn::Waiting { server, url, opened, local_app, .. }), _) => {
-                let mut spans =
-                    vec![Span::styled(format!(" ⟳ Approve in your browser at {server}"), fg(theme::current().info))];
+                let mut spans = vec![Span::styled(
+                    format!(" {} Approve in your browser at {server}", icons::BUSY.get()),
+                    fg(theme::current().info),
+                )];
                 if *local_app {
                     spans.push(Span::styled(
                         " as a local development app (locallibrary's page isn't online yet)",
@@ -112,22 +123,20 @@ impl Account {
                 spans.extend([key("esc"), Span::styled("stop", dim())]);
                 Line::from(spans)
             }
-            (Some(SignIn::SigningOut), _) => Line::styled(" ⟳ Signing out…", fg(theme::current().info)),
+            (Some(SignIn::SigningOut), _) => {
+                Line::styled(format!(" {} Signing out…", icons::BUSY.get()), fg(theme::current().info))
+            }
             (None, Some(a)) => {
                 let again = if a.expired() {
                     Span::styled(" · the session has likely ended; L signs in again", fg(theme::current().warning))
                 } else {
-                    Span::styled(
-                        format!(
-                            " · sign in again by {} ({} days)",
-                            local_time(a.sign_in_again_by, "%Y-%m-%d"),
-                            a.days_left()
-                        ),
-                        dim(),
-                    )
+                    let by = local_time(a.sign_in_again_by, "%Y-%m-%d");
+                    let said = format!(" · sign in again by {by} ({} days)", a.days_left());
+                    // A warning in its last days.
+                    Span::styled(said, if a.due_soon() { fg(theme::current().warning) } else { dim() })
                 };
                 let mut spans = vec![
-                    Span::styled(" ● ", fg(theme::current().good)),
+                    Span::styled(icons::DOT.padded(), fg(theme::current().good)),
                     Span::styled("Atmosphere account ", dim()),
                     Span::styled(a.name(), bold(theme::current().text)),
                 ];
@@ -138,7 +147,7 @@ impl Account {
                 Line::from(spans)
             }
             (None, None) => Line::from(vec![
-                Span::styled(" ○ Not signed in", dim()),
+                Span::styled(format!(" {} Not signed in", icons::RING.get()), dim()),
                 key("L"),
                 Span::styled(
                     "sign in with your Atmosphere account (the one for Bluesky and other AT Protocol apps; alpha)",

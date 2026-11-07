@@ -4,7 +4,7 @@
 
 use rustc_hash::FxHashMap;
 
-use super::{Edit, ModelDb, Op, Resolver, apply_op, plan_edit};
+use super::{Edit, ModelDb, Op, Resolver, plan_edit};
 use crate::Result;
 use crate::model::Library;
 use crate::paths;
@@ -19,7 +19,7 @@ pub(super) struct TrackIndex {
 }
 
 impl TrackIndex {
-    fn of(lib: &Library) -> TrackIndex {
+    pub(super) fn of(lib: &Library) -> TrackIndex {
         let mut index = TrackIndex::default();
         for (i, t) in lib.tracks.iter().enumerate() {
             index.by_id.entry(t.id).or_default().push(i);
@@ -44,12 +44,35 @@ impl TrackIndex {
         around.dedup();
         around
     }
+
+    /// What a set-fields op naming the files `keys` changes: the id of the last track of each file
+    /// there is a track of (the others' keys are missing), and where every track with one of those
+    /// ids is, in library order.
+    pub(super) fn targets(&self, lib: &Library, keys: &[String]) -> (Vec<u32>, Vec<usize>, Vec<String>) {
+        let mut missing = Vec::new();
+        let ids: Vec<u32> = keys
+            .iter()
+            .filter_map(|k| {
+                let last = self.by_key.get(k).and_then(|at| at.last());
+                if last.is_none() {
+                    missing.push(k.clone());
+                }
+                last.map(|&i| lib.tracks[i].id)
+            })
+            .collect();
+        let mut at: Vec<usize> = ids.iter().flat_map(|id| self.by_id.get(id).into_iter().flatten().copied()).collect();
+        at.sort_unstable();
+        at.dedup();
+        (ids, at, missing)
+    }
 }
 
-/// The ids `edit` selects, when it changes only those tracks' fields and names them by id alone.
-fn fields_by_id(edit: &Edit) -> Option<&[u32]> {
+/// The ids and files `edit` selects, when it changes only those tracks' fields and names them by
+/// id and by file alone (as a replay's edits name them).
+fn fields_named(edit: &Edit) -> Option<(&[u32], Vec<String>)> {
     let Edit::EditTracks { tracks, .. } = edit else { return None };
-    (*tracks == TrackSelector { ids: tracks.ids.clone(), ..TrackSelector::default() }).then_some(&tracks.ids)
+    let named = TrackSelector { ids: tracks.ids.clone(), paths: tracks.paths.clone(), ..TrackSelector::default() };
+    (*tracks == named).then(|| (&tracks.ids[..], tracks.paths.iter().map(|p| paths::file_key(p)).collect()))
 }
 
 /// Run `f` on a model of only the tracks at `positions`, and put them back when it succeeds.
@@ -76,28 +99,10 @@ pub(super) fn plan_edit_indexed(
     edit: &Edit,
     warnings: &mut Vec<String>,
 ) -> Result<(Vec<Op>, String, Vec<Edit>)> {
-    let Some(ids) = fields_by_id(edit) else {
+    let Some((ids, keys)) = fields_named(edit) else {
         *index = None;
         return plan_edit(resolver, model, edit, warnings);
     };
-    let around = index.get_or_insert_with(|| TrackIndex::of(&model.lib)).around(&model.lib, ids, &[]);
+    let around = index.get_or_insert_with(|| TrackIndex::of(&model.lib)).around(&model.lib, ids, &keys);
     on_tracks(model, &around, |part| plan_edit(resolver, part, edit, warnings))
-}
-
-/// [`apply_op`] on a model, made on the tracks it names when it sets their fields (see
-/// [`plan_edit_indexed`]).
-pub(super) fn apply_op_indexed(
-    model: &mut ModelDb<'_>,
-    index: &mut Option<TrackIndex>,
-    op: &Op,
-    strict: bool,
-    label: &str,
-    warnings: &mut Vec<String>,
-) -> Result<()> {
-    let Op::SetFields { tracks, .. } = op else {
-        *index = None;
-        return apply_op(model, op, strict, label, warnings);
-    };
-    let around = index.get_or_insert_with(|| TrackIndex::of(&model.lib)).around(&model.lib, &[], tracks);
-    on_tracks(model, &around, |part| apply_op(part, op, strict, label, warnings))
 }

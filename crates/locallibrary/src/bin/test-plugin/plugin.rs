@@ -11,22 +11,40 @@ pub mod echo;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use loclib_plugin::{
     Analysis, AnalyzeAction, AnalyzeTrack, Blob, Candidate, Candidates, Choice, Context, EventNotify, ExportAction,
-    Exported, ExportedFile, Fetch, FetchAction, FieldValue, Findings, GetBlob, GetManifest, HasBlobs, Hooks, Host,
-    HostAction, HostNotify, ImportAnswer, LibraryPage, ListItem, Manifest, OpAnswer, OpPlan, PlanCheck, PlanOp,
-    ProvideCandidates, PublishSet, Published, PutBlob, PutManifest, ReadImport, ReadLibrary, RenderPanel, RpcError,
-    RunCheck, RunCommand, SourcePlaylist, SourceTrack, StartService, Suggested, View, WriteExport, params,
+    Exported, ExportedFile, Fetch, FetchAction, FieldValue, Findings, GetBlob, GetManifest, Got, GotManifest, HasBlobs,
+    Hooks, Host, HostAction, HostNotify, ImportAnswer, LibraryPage, ListItem, Manifest, Missing, OpAnswer, OpPlan,
+    PlanCheck, PlanOp, ProvideCandidates, PublishSet, Published, PutBlob, PutManifest, ReadImport, ReadLibrary,
+    RenderPanel, RpcError, RunCheck, RunCommand, SourcePlaylist, SourceTrack, StartService, Suggested, View,
+    WriteExport, params,
 };
 use loclib_progress::Phase;
 use serde_json::{Value, json};
 
 pub struct Test {
     pub wrong_fields: bool,
+}
+
+/// Each hook but a command's sends an empty part of a view first (`--partials`), which a host
+/// takes from any request.
+pub static PARTIALS: AtomicBool = AtomicBool::new(false);
+
+/// Whether its store destination answers what the host refuses: a stored file it wasn't asked
+/// about, and files that aren't in the scratch folder (its `misbehave` setting).
+fn misbehaves(context: &Context) -> bool {
+    context.settings.get("misbehave") == Some(&Value::Bool(true))
+}
+
+/// Sends an empty part of a view, with `--partials`.
+fn partial(host: &Host) {
+    if PARTIALS.load(Ordering::SeqCst) {
+        host.partial_rows(Vec::new());
+    }
 }
 
 /// How long it takes to stop once its host has closed its input, in milliseconds (`linger`).
@@ -59,51 +77,73 @@ impl Test {
         }
         if has("analyzers") {
             let test = test.clone();
-            hooks = hooks.on(move |req: AnalyzeTrack, host: &Host| test.analyze_track(req, host));
+            hooks = hooks.on(move |req: AnalyzeTrack, host: &Host| {
+                partial(host);
+                test.analyze_track(req, host)
+            });
         }
         if has("exporters") {
             let test = test.clone();
-            hooks = hooks.on(move |req: WriteExport, host: &Host| test.write_export(req, host));
+            hooks = hooks.on(move |req: WriteExport, host: &Host| {
+                partial(host);
+                test.write_export(req, host)
+            });
         }
         if has("importers") {
-            hooks = hooks.on(read_import);
+            hooks = hooks.on(|req: ReadImport, host: &Host| {
+                partial(host);
+                read_import(req, host)
+            });
         }
         if has("operations") {
             let test = test.clone();
-            hooks = hooks.on(move |req: PlanOp, host: &Host| test.plan_op(req, host));
+            hooks = hooks.on(move |req: PlanOp, host: &Host| {
+                partial(host);
+                test.plan_op(req, host)
+            });
         }
         if has("destinations") {
             // Echo's, each noting what it's asked (`blobs/put <hash>`) as a line of `asked` in
             // its folder before it answers (its log is read on a thread of the host's own, so a
             // line there can come after the answer), and publishing as the `answer` setting says
             // when it has one.
-            let said = |method: &str, what: &str| {
+            let said = |method: &str, what: &str, host: &Host| {
+                partial(host);
                 let mut asked = OpenOptions::new().create(true).append(true).open("asked").expect("its folder");
                 writeln!(asked, "{method} {what}").expect("its folder");
             };
             hooks = hooks
                 .on(move |req: HasBlobs, host: &Host| {
-                    said("blobs/has", &req.hashes.len().to_string());
+                    said("blobs/has", &req.hashes.len().to_string(), host);
+                    if misbehaves(&req.context) {
+                        return Ok(Missing { missing: vec!["0".repeat(64)] });
+                    }
                     echo::has_blobs(req, host)
                 })
                 .on(move |req: PutBlob, host: &Host| {
-                    said("blobs/put", &req.hash);
+                    said("blobs/put", &req.hash, host);
                     echo::put_blob(req, host)
                 })
                 .on(move |req: GetBlob, host: &Host| {
-                    said("blobs/get", &req.hash);
+                    said("blobs/get", &req.hash, host);
+                    if misbehaves(&req.context) {
+                        return Ok(Got { blob: Blob { blob: "none".into() } });
+                    }
                     echo::get_blob(req, host)
                 })
                 .on(move |req: PutManifest, host: &Host| {
-                    said("manifest/put", &req.name);
+                    said("manifest/put", &req.name, host);
                     echo::put_manifest(req, host)
                 })
                 .on(move |req: GetManifest, host: &Host| {
-                    said("manifest/get", &req.name);
+                    said("manifest/get", &req.name, host);
+                    if misbehaves(&req.context) {
+                        return Ok(GotManifest { blob: Some(Blob { blob: "none".into() }) });
+                    }
                     echo::get_manifest(req, host)
                 })
                 .on(move |req: PublishSet, host: &Host| {
-                    said("set/publish", &serde_json::to_string(&req).expect("a request is JSON"));
+                    said("set/publish", &serde_json::to_string(&req).expect("a request is JSON"), host);
                     if let Some(fetches) = req.context.settings.get("upload").and_then(Value::as_str) {
                         return upload(req.clone(), fetches, host);
                     }
@@ -116,24 +156,39 @@ impl Test {
                 });
         }
         if has("checks") {
-            hooks = hooks.on(|req: RunCheck, host: &Host| match req.check.as_str() {
-                "untitled" => echo::run_check(req, host),
-                _ => checked(&req.context, &[], host),
+            hooks = hooks.on(|req: RunCheck, host: &Host| {
+                partial(host);
+                match req.check.as_str() {
+                    "untitled" => echo::run_check(req, host),
+                    _ => checked(&req.context, &[], host),
+                }
             });
-            hooks = hooks.on(|req: PlanCheck, host: &Host| match req.check.as_str() {
-                "edits" => echo::plan_check(req, host),
-                _ => checked(&req.context, &req.edits, host),
+            hooks = hooks.on(|req: PlanCheck, host: &Host| {
+                partial(host);
+                match req.check.as_str() {
+                    "edits" => echo::plan_check(req, host),
+                    _ => checked(&req.context, &req.edits, host),
+                }
             });
         }
         if has("panels") {
             let test = test.clone();
-            hooks = hooks.on(move |req: RenderPanel, host: &Host| test.render_panel(req, host));
+            hooks = hooks.on(move |req: RenderPanel, host: &Host| {
+                partial(host);
+                test.render_panel(req, host)
+            });
         }
         if has("sources") {
-            hooks = hooks.on(|req: ReadLibrary, _: &Host| read_library(req));
+            hooks = hooks.on(|req: ReadLibrary, host: &Host| {
+                partial(host);
+                read_library(req)
+            });
         }
         if has("providers") {
-            hooks = hooks.on(move |req: ProvideCandidates, host: &Host| test.provide(req, host));
+            hooks = hooks.on(move |req: ProvideCandidates, host: &Host| {
+                partial(host);
+                test.provide(req, host)
+            });
         }
         if has("events") {
             hooks = hooks.on_event(heard);
@@ -151,7 +206,9 @@ impl Test {
         }
         if let Some(kind) = p["fail"].as_str() {
             let mut e = RpcError::failed(kind, p["message"].as_str().unwrap_or("it failed"));
-            e.data.as_mut().expect("a failure has data").fields = p["fields"].as_object().cloned().unwrap_or_default();
+            let data = e.data.as_mut().expect("a failure has data");
+            data.fields = p["fields"].as_object().cloned().unwrap_or_default();
+            data.reason = p["reason"].as_str().map(String::from);
             return Err(e);
         }
         if let Some(name) = p["env"].as_str() {
@@ -176,6 +233,19 @@ impl Test {
             let me = std::env::current_exe().map_err(|e| RpcError::failed("io", e.to_string()))?;
             let started = std::process::Command::new(me)
                 .args(["--orphan", &line.to_string()])
+                .stdin(std::process::Stdio::null())
+                .spawn();
+            started.map_err(|e| RpcError::failed("io", e.to_string()))?;
+        }
+        if p["late"].is_object() {
+            // Lines sent by a process it starts, which holds its output, once `after` is there:
+            // when its host may have let go of it.
+            let after = p["late"]["after"].as_str().unwrap_or_default();
+            let lines = p["late"]["lines"].as_array().into_iter().flatten().map(Value::to_string);
+            let me = std::env::current_exe().map_err(|e| RpcError::failed("io", e.to_string()))?;
+            let started = std::process::Command::new(me)
+                .args(["--late", after])
+                .args(lines)
                 .stdin(std::process::Stdio::null())
                 .spawn();
             started.map_err(|e| RpcError::failed("io", e.to_string()))?;
@@ -288,6 +358,7 @@ impl Test {
             return Ok(Exported { files: sizes.iter().enumerate().map(file).collect(), ..Exported::default() });
         }
         let extra = req.options["extra"].as_str().filter(|_| !req.dry_run).map(std::path::PathBuf::from);
+        let only_dry = req.options["only_dry"].as_str().filter(|_| req.dry_run).map(std::path::PathBuf::from);
         let playlists = req.source.playlists.clone();
         let mut exported = echo::write_export(req, host)?;
         if !playlists.is_empty() {
@@ -296,6 +367,9 @@ impl Test {
         if let Some(extra) = extra {
             std::fs::write(&extra, "more").map_err(|e| RpcError::failed("io", e.to_string()))?;
             exported.files.push(ExportedFile { path: extra, what: String::new(), bytes: 4 });
+        }
+        if let Some(only) = only_dry {
+            exported.files.push(ExportedFile { path: only, what: String::new(), bytes: 1 });
         }
         Ok(exported)
     }
@@ -475,7 +549,9 @@ fn serve_service(req: StartService, host: &Host) -> Result<(), RpcError> {
 /// file's `blobs` give are in the scratch folder; and the playlists a folder's `playlists.json`
 /// gives (`{"Sets/Friday": ["a.wav"]}`, files by their path in the folder). Its options: `also`,
 /// paths to give as tracks as they are; `per_page`, how many tracks a page has (playlists come
-/// on the last); `as_blob`, each page in a blob; `again`, every page says there's one after it.
+/// on the last); `as_blob`, each page in a blob; `again`, every page says there's one after it;
+/// `warnings`, what each page warns of; `page_blob`, a blob (that it doesn't write) holding more of
+/// each page.
 fn read_library(req: ReadLibrary) -> Result<LibraryPage, RpcError> {
     let io = |e: std::io::Error| RpcError::failed("io", e.to_string());
     let (mut tracks, mut playlists) = (Vec::new(), Vec::new());
@@ -522,8 +598,12 @@ fn read_library(req: ReadLibrary) -> Result<LibraryPage, RpcError> {
         tracks: tracks.drain(from.min(to)..to).collect(),
         playlists: if last { playlists } else { Vec::new() },
         next: (!last).then(|| to.to_string()),
+        warnings: params(req.options.get("warnings").cloned().unwrap_or(json!([])))?,
         ..LibraryPage::default()
     };
+    if let Some(blob) = req.options["page_blob"].as_str() {
+        return Ok(LibraryPage { blob: Some(blob.into()), ..page });
+    }
     if req.options["as_blob"] != true {
         return Ok(page);
     }

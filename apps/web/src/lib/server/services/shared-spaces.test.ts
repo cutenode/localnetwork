@@ -1,5 +1,7 @@
+import type { JsonObject } from '@atproto/lex-json';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
+import { memberSpacePolicy } from '../atproto/repo-client';
 import { FakeRootClient } from '../testing/fakes';
 import { createTestServices, ROOT } from '../testing/core';
 import { ForbiddenError, NotFoundError, UserError } from '../core';
@@ -22,6 +24,7 @@ describe('SharedSpaces', () => {
 	});
 	afterEach(async () => {
 		vi.restoreAllMocks();
+		vi.useRealTimers();
 		await t.audit.idle();
 		await t.db.destroy();
 	});
@@ -49,13 +52,9 @@ describe('SharedSpaces', () => {
 
 	it('starts a space only its people read and write, with its creator in it holding every capability of its kind', async () => {
 		const space = await t.sharedSpaces.create(await t.viewer(ADA), 'performer');
-		const config = t.net.spaces.get(space)!;
 
 		expect(space).toMatch(/^at:\/\/did:plc:root\/space\/computer\.localnetwork\.space\.performer\//);
-		expect([config.readPolicy.$type, config.writePolicy.$type]).toEqual([
-			'com.atproto.simplespace.defs#memberListPolicy',
-			'com.atproto.simplespace.defs#memberListPolicy'
-		]);
+		expect(t.net.spaces.get(space)?.policy).toEqual(memberSpacePolicy());
 		expect(access(space)).toEqual({ [ADA]: readWrite });
 		expect(person(space, ADA)).toMatchObject({ subject: ADA, role: 'member', hidden: false, via: 'created' });
 		expect(await t.sharedSpaces.get(space)).toMatchObject({ kind: 'performer', listed: false, createdBy: ADA });
@@ -270,6 +269,171 @@ describe('SharedSpaces', () => {
 		vi.spyOn(FakeRootClient.prototype, 'listSpaces').mockRejectedValueOnce(new Error('down'));
 		await t.sharedSpaces.reconcile();
 		expect(access(space)).toEqual({ [ADA]: readWrite, [BO]: readWrite });
+	});
+
+	it('lists every space for staff, newest first, with how many people each has and who started it', async () => {
+		await t.accounts.recordLogin({
+			did: ADA,
+			handle: 'ada.test',
+			pdsUrl: null,
+			grantedScope: 'atproto',
+			spacesCapable: true,
+			publicWrites: false
+		});
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(new Date('2026-10-01T00:00:00Z'));
+		const performer = await t.sharedSpaces.create(await t.viewer(ADA), 'performer');
+		vi.setSystemTime(new Date('2026-10-02T00:00:00Z'));
+		const space = await party();
+
+		expect(await t.sharedSpaces.list()).toEqual([
+			{
+				uri: space,
+				kind: 'party',
+				skey: space.split('/').at(-1),
+				listed: false,
+				people: 2,
+				createdBy: { did: ADA, handle: 'ada.test' },
+				createdAt: '2026-10-02T00:00:00.000Z'
+			},
+			expect.objectContaining({ uri: performer, kind: 'performer', people: 1 })
+		]);
+		// Audit summaries name people by handle when there is one.
+		await t.sharedSpaces.removePerson(await t.viewer(ADMIN), performer, ADA);
+		expect((await t.audit.list({ action: 'people.remove' }))[0].summary).toBe('Removed @ada.test');
+	});
+
+	it("keeps someone's capabilities when an update changes neither role nor capabilities", async () => {
+		const space = await party('door');
+
+		await t.sharedSpaces.updatePerson(await t.viewer(ADA), space, BO, {});
+		expect(person(space, BO)).toMatchObject({ role: 'door', capabilities: ['guests.checkin'] });
+		expect((await t.audit.list({ action: 'people.update' }))[0].changes).toBeNull();
+	});
+
+	it('lets staff leave a space nobody else can manage, noting it in their staff role', async () => {
+		const space = await t.sharedSpaces.create(await t.viewer(ADMIN), 'party');
+
+		await t.sharedSpaces.leave(await t.viewer(ADMIN), space);
+		expect(access(space)).toEqual({});
+		expect(await audited('people.leave')).toMatchObject([
+			{ actor: ADMIN, actorRole: 'admin', details: { unmanaged: true } }
+		]);
+	});
+
+	it('starts a listing status when the space has none, created by the staff member listing it', async () => {
+		const space = await party();
+		const key = `${space}|${ROOT}|${COLLECTION.listingStatus}|self`;
+		t.net.spaceRecords.delete(key);
+
+		await t.sharedSpaces.setListed(await t.viewer(ADMIN), space, true);
+		expect(t.net.spaceRecords.get(key)?.value).toMatchObject({ listed: true, createdBy: ADMIN, decidedBy: ADMIN });
+		expect(await t.sharedSpaces.get(space)).toMatchObject({ listed: true, createdBy: ADMIN });
+	});
+
+	it('goes on reconciling the other spaces when one of them cannot be read', async () => {
+		const spaces = [await party('door'), await party('door')];
+		const down = new Error('space host is down');
+		vi.spyOn(FakeRootClient.prototype, 'putMember').mockRejectedValueOnce(down).mockRejectedValueOnce(down);
+
+		for (const space of spaces) await t.sharedSpaces.updatePerson(await t.viewer(ADA), space, BO, { role: 'cohost' });
+		const reader = { read: true, write: false };
+		expect(spaces.map((space) => access(space)[BO])).toEqual([reader, reader]);
+
+		// The first space reconciled can't be read; the other is still brought in line.
+		vi.spyOn(FakeRootClient.prototype, 'listSpaceRecords').mockRejectedValueOnce(down);
+		await t.sharedSpaces.reconcile();
+		expect(spaces.map((space) => access(space)[BO])).toEqual(expect.arrayContaining([reader, readWrite]));
+	});
+
+	it("leaves out a person record in the root's repo that isn't keyed by who it names", async () => {
+		const space = await t.sharedSpaces.create(await t.viewer(ADA), 'party');
+		const at = new Date().toISOString();
+		const record = { subject: BO, role: 'host', capabilities: ['people.manage'], hidden: false, via: 'staff' };
+		await t.net.client(ROOT).putSpaceRecord({
+			space,
+			collection: COLLECTION.person,
+			rkey: CY,
+			record: { ...record, createdAt: at, updatedAt: at }
+		});
+
+		await t.sharedSpaces.syncMembers(space);
+		expect(access(space)).toEqual({ [ADA]: readWrite });
+		await expect(t.sharedSpaces.assertCan(await t.viewer(BO), space, 'people.manage')).rejects.toBeInstanceOf(
+			ForbiddenError
+		);
+	});
+
+	describe('index', () => {
+		const at = '2026-10-01T00:00:00.000Z';
+
+		const rows = async (space: string) => ({
+			people: (await t.sharedSpaces.people(space, await t.viewer(ADMIN))).map((view) => view.did),
+			invites: await t.db.selectFrom('spaceInvite').select(['did', 'message']).where('spaceUri', '=', space).execute(),
+			links: await t.db
+				.selectFrom('spaceInviteLink')
+				.select(['rkey', 'expiresAt'])
+				.where('spaceUri', '=', space)
+				.execute(),
+			requests: await t.db.selectFrom('spaceJoinRequest').select('did').where('spaceUri', '=', space).execute()
+		});
+
+		it("ignores records it can't read, and ones from spaces that aren't shared spaces", async () => {
+			const space = await party();
+			const before = await rows(space);
+			const warn = vi.spyOn(t.core.logger, 'warn');
+			const offer = { role: 'door', capabilities: ['guests.checkin'], createdAt: at };
+
+			const records: [string, JsonObject][] = [
+				[
+					COLLECTION.person,
+					{ subject: BO, role: 'door', capabilities: [], hidden: false, via: 'staff', createdAt: at }
+				],
+				[COLLECTION.invite, { ...offer, subject: BO, invitedBy: ADA }],
+				[COLLECTION.inviteLink, { ...offer, createdBy: ADA }],
+				[COLLECTION.joinRequest, { subject: BO, createdAt: at }],
+				[COLLECTION.listingStatus, { listed: true, createdBy: ADA, createdAt: at }],
+				['com.example.other', {}]
+			];
+
+			for (const [collection, value] of records) await t.sharedSpaces.index({ space, collection, rkey: CY, value });
+
+			expect(await rows(space)).toEqual(before);
+			expect(await t.sharedSpaces.get(space)).toMatchObject({ listed: false });
+			expect(warn).toHaveBeenCalledTimes(6);
+
+			for (const other of [t.spaces.staff, 'not a space'])
+				await t.sharedSpaces.index({ space: other, collection: COLLECTION.joinRequest, rkey: CY, value: {} });
+			expect(warn).toHaveBeenCalledTimes(6);
+		});
+
+		it('indexes invites, links and requests to join, and drops each when deleted', async () => {
+			const space = await party();
+			const offer = { role: 'door', capabilities: ['guests.checkin'], createdAt: at };
+
+			const changes = [
+				{ collection: COLLECTION.invite, rkey: CY, value: { ...offer, subject: CY, invitedBy: ADA } },
+				{ collection: COLLECTION.inviteLink, rkey: 'link', value: { ...offer, tokenHash: 'hash', createdBy: ADA } },
+				{ collection: COLLECTION.joinRequest, rkey: CY, value: { subject: CY, createdAt: at } }
+			];
+
+			for (const change of changes) await t.sharedSpaces.index({ space, ...change });
+			expect(await rows(space)).toEqual({
+				people: [ADA, BO],
+				invites: [{ did: CY, message: null }],
+				links: [{ rkey: 'link', expiresAt: null }],
+				requests: [{ did: CY }]
+			});
+
+			for (const { collection, rkey } of [...changes, { collection: 'com.example.other', rkey: CY }])
+				await t.sharedSpaces.unindex({ space, collection, rkey });
+			await t.sharedSpaces.unindex({ space, collection: COLLECTION.listingStatus, rkey: 'other' });
+			expect(await rows(space)).toEqual({ people: [ADA, BO], invites: [], links: [], requests: [] });
+			expect(await t.sharedSpaces.get(space)).not.toBeNull();
+
+			await t.sharedSpaces.unindex({ space, collection: COLLECTION.listingStatus, rkey: 'self' });
+			expect(await t.sharedSpaces.get(space)).toBeNull();
+		});
 	});
 
 	it('forgets a space that is gone', async () => {

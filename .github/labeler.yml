@@ -6,7 +6,17 @@ web:
 locallibrary:
   - changed-files:
       - any-glob-to-any-file:
-          ["apps/locallibrary/**", "crates/**", "plugins/**", "vendor/**", "fuzz/**", "Cargo.toml", "Cargo.lock"]
+          [
+            "apps/locallibrary/**",
+            "crates/**",
+            "plugins/**",
+            "vendor/**",
+            "fuzz/**",
+            "benchmarks/**",
+            "tools/budgets/**",
+            "Cargo.toml",
+            "Cargo.lock",
+          ]
 
 localtoolbox:
   - changed-files:
@@ -148,7 +158,7 @@ atstore:
   - changed-files:
       - any-glob-to-any-file:
           - "apps/locallibrary/src/tui/**"
-          - "apps/locallibrary/docs/player.md"
+          - "apps/locallibrary/docs/player{.md,/**}"
           - "apps/locallibrary/bombadil/**"
           - "crates/loclib-waveform/**"
 

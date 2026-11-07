@@ -1,5 +1,5 @@
-import pino from 'pino';
 import { describe, expect, it } from 'vitest';
+import { writtenLog } from '../testing/written-log';
 import { exchangeToken } from './exchange';
 
 const env = {
@@ -61,9 +61,9 @@ function services() {
 
 /** A logger writing into `lines`, to check what it says and never says. */
 function capture() {
-	const lines: string[] = [];
+	const { logger, lines } = writtenLog();
 
-	return { lines, log: pino({ level: 'debug' }, { write: (line: string) => lines.push(line) }) };
+	return { lines, log: logger };
 }
 
 /** What locallibrary posts: `text`, said to be JSON. */
@@ -102,8 +102,8 @@ describe('exchangeToken', () => {
 		expect(sent.map((s) => [s.method, Object.fromEntries(s.form)])).toEqual([
 			['POST', { ...code, client_id: 'sc-client', client_secret: 'sc-secret' }]
 		]);
-		expect(lines.join('\n')).toContain('"service":"soundcloud"');
-		expect(SECRETS.filter((secret) => lines.join('\n').includes(secret))).toEqual([]);
+		expect(JSON.stringify(lines)).toContain('"service":"soundcloud"');
+		expect(SECRETS.filter((secret) => JSON.stringify(lines).includes(secret))).toEqual([]);
 	});
 
 	it('refreshes, answering the new refresh token, and passes on what the service refuses with its status', async () => {
@@ -130,7 +130,7 @@ describe('exchangeToken', () => {
 		});
 
 		expect([wrong.status, await wrong.json()]).toEqual([401, { error: 'invalid_client' }]);
-		expect(SECRETS.filter((secret) => lines.join('\n').includes(secret))).toEqual([]);
+		expect(SECRETS.filter((secret) => JSON.stringify(lines).includes(secret))).toEqual([]);
 	});
 
 	it('asks Mixcloud with a GET and its query, filling in the token type, and never asks it to refresh', async () => {
@@ -199,7 +199,7 @@ describe('exchangeToken', () => {
 		}
 
 		expect(sent).toEqual([]);
-		expect(lines[0]).toContain('"env":["GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET"]');
+		expect(JSON.stringify(lines[0])).toContain('"env":["GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET"]');
 	});
 
 	it.each([
@@ -262,7 +262,7 @@ describe('exchangeToken', () => {
 		}
 
 		expect(sent).toEqual([]);
-		expect(lines.join('\n')).not.toContain(redirect);
+		expect(JSON.stringify(lines)).not.toContain(redirect);
 	});
 
 	it("refuses a refresh whose redirect_uri is somewhere else, and refreshes with locallibrary's", async () => {
@@ -304,7 +304,7 @@ describe('exchangeToken', () => {
 			502,
 			{ error: 'temporarily_unavailable', error_description: "Mixcloud isn't answering" }
 		]);
-		expect(lines.join('\n')).toContain('fetch failed: connect ECONNREFUSED');
+		expect(JSON.stringify(lines)).toContain('fetch failed: connect ECONNREFUSED');
 
 		const slow = async () => {
 			throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
@@ -313,7 +313,7 @@ describe('exchangeToken', () => {
 		const late = await exchangeToken('soundcloud', post(code), { log, env, fetch: slow });
 
 		expect(late.status).toBe(502);
-		expect(lines.join('\n')).toContain('"reason":"The operation was aborted due to timeout"');
+		expect(JSON.stringify(lines)).toContain('"reason":"The operation was aborted due to timeout"');
 
 		for (const body of ['<html>maintenance</html>', JSON.stringify({ a: 'b'.repeat(70_000) }), '["at-1"]', null]) {
 			const odd = async () => new Response(body, { status: body === null ? 502 : 200 });
@@ -325,6 +325,6 @@ describe('exchangeToken', () => {
 			]);
 		}
 
-		expect(SECRETS.filter((secret) => lines.join('\n').includes(secret))).toEqual([]);
+		expect(SECRETS.filter((secret) => JSON.stringify(lines).includes(secret))).toEqual([]);
 	});
 });

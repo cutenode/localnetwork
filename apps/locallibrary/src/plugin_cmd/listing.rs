@@ -1,7 +1,6 @@
 //! `plugin list`, `plugin info`, `plugin settings`, `plugin roles` and `plugin providers`
 //! (`plugin checks` is [`super::checks`]).
 
-use std::io::{BufRead, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -38,9 +37,11 @@ pub(super) fn list(all: &[Listed]) {
         for g in &p.capabilities {
             say!("  {} {}", dim("may"), g.means);
         }
+        if !p.accounts.is_empty() {
+            say!("  {} {} accounts", dim("asks for"), p.accounts.join(", "));
+        }
         let adds: Vec<String> = [
             named("account type", &p.account_types),
-            named("account", &p.accounts),
             named("command", &p.commands),
             named("destination", &p.destinations),
             (!p.events.is_empty()).then(|| format!("listens for {}", p.events.join(", "))),
@@ -92,11 +93,16 @@ pub(super) fn info(d: &Described) {
         section("Account type:", vec![(t.name.clone(), t.title.clone())]);
         section("Scopes:", t.scopes.iter().map(|(name, s)| (name.clone(), s.title.clone())).collect());
     }
-    let accounts = d.accounts.iter().map(|a| {
-        let signed = if a.signed_in { "signed in" } else { "not signed in" };
-        (a.account.clone(), format!("{}: {signed}", a.title))
+    // Each type it asks for, why, and the accounts of it it has access to.
+    let accounts = m.accounts.iter().map(|n| {
+        let names: Vec<&str> = d.accesses.iter().filter(|a| a.kind == n.name).map(|a| a.name.as_str()).collect();
+        let access = match names.is_empty() {
+            true => "no access".to_string(),
+            false => format!("access to {}", names.join(", ")),
+        };
+        (n.name.clone(), format!("{} ({}; {access})", n.why, n.scopes.join(", ")))
     });
-    section(&format!("Accounts (locallibrary plugin account {} ACCOUNT sign-in):", m.id), accounts.collect());
+    section(&format!("Accounts (locallibrary plugin access {}):", m.id), accounts.collect());
     // With the menus that offer it.
     let offered = |title: &str, places: &[Where]| {
         let places: Vec<&str> = places.iter().map(|w| w.name()).collect();
@@ -205,26 +211,6 @@ fn shown(s: &Setting, settings: &IndexMap<String, Value>, secrets: &Secrets) -> 
     }
 }
 
-/// A secret read from stdin: typed without being shown in a terminal, else its first line.
-fn read_secret(key: &str) -> Result<String> {
-    let secret = match std::io::stdin().is_terminal() {
-        true => {
-            eprint!("{key}: ");
-            console::Term::stderr().read_secure_line()?
-        }
-        false => {
-            let mut line = String::new();
-            std::io::stdin().lock().read_line(&mut line)?;
-            line
-        }
-    };
-    let secret = secret.trim_end_matches(['\r', '\n']);
-    if secret.is_empty() {
-        return Err(usage(format!("no {key} came on stdin")));
-    }
-    Ok(secret.into())
-}
-
 /// `plugin settings`: shows them (or one), or sets one or puts it back to its default.
 pub(super) fn settings(
     plugins: &Plugins,
@@ -248,7 +234,10 @@ pub(super) fn settings(
     // Not named `secret`: CodeQL would take it for the secret itself, and the key it prompts with for a logged secret.
     let keychained = setting.filter(|s| s.kind == SettingType::Secret);
     let value = match keychained {
-        Some(s) if change.secret => Some(read_secret(&s.key)?),
+        Some(s) if change.secret => match output::read_entry(&s.key, true)? {
+            v if v.is_empty() => return Err(usage(format!("no {} came on stdin", s.key))),
+            v => Some(v),
+        },
         None if change.secret => {
             return Err(usage(format!("{} isn't a secret: give its value", key.unwrap_or_default())));
         }

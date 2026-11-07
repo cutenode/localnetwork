@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 
+use loclib_plugin::a_or_an;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -1090,6 +1091,9 @@ pub fn provision_plan(
     req: &ProvisionRequest,
     ctx: &Ctx<'_>,
 ) -> Result<Planned<ProvisionPlan, ProvisionRequest>> {
+    // Before the format's plan, which looks at the machine's disks: a role that isn't one is
+    // refused for what it says, as `provision_steps` checks it first too.
+    let role = req.role.as_deref().map(Role::parse).transpose()?;
     let format = match req.format {
         true => Some(super::format_plan(
             store.root(),
@@ -1098,16 +1102,16 @@ pub fn provision_plan(
         )?),
         false => None,
     };
-    plan_provision(store, req, format)
+    plan_provision(store, req, role, format)
 }
 
-/// [`provision_plan`] with the format's plan, when formatting.
+/// [`provision_plan`] with the request's role, and the format's plan when formatting.
 pub(super) fn plan_provision(
     store: &Store,
     req: &ProvisionRequest,
+    role: Option<Role>,
     format: Option<Planned<FormatPlan, FormatRequest>>,
 ) -> Result<Planned<ProvisionPlan, ProvisionRequest>> {
-    let role = req.role.as_deref().map(Role::parse).transpose()?;
     let mut steps = Vec::new();
     let mut warnings = Vec::new();
     let mut touched = None;
@@ -1168,8 +1172,7 @@ pub(super) fn plan_provision(
         steps.push("write the My Settings profile".into());
     }
     if let Some(r) = role {
-        let article = if r == Role::Archive { "an" } else { "a" };
-        steps.push(format!("mark it as {article} {} drive", r.name()));
+        steps.push(format!("mark it as {} drive", a_or_an(r.name())));
     }
     if req.player_name.is_some() || req.player_colour.is_some() {
         steps.push("set the name and colour players show".into());

@@ -212,7 +212,7 @@ struct FieldArgs {
     /// The day it was played: 2026-10-03
     #[arg(long, value_name = "DAY")]
     date: Option<String>,
-    /// club, festival, radio, livestream, mix, or your own word
+    /// club, festival, radio, livestream, studio, or your own word
     #[arg(long)]
     kind: Option<String>,
     /// Where it was played: a club, a festival, a station
@@ -624,6 +624,7 @@ fn publish_to(
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
+    crate::account_cmd::access::ask(spec, store, out, ctx)?;
     let plan = crate::plugins::host()?.publish_plan(spec, set, hide, store, ctx)?;
     if !out.json {
         crate::output::summary(&plan.summary, &plan.warnings);

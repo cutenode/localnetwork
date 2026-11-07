@@ -97,6 +97,8 @@
 			"additionalProperties": false,
 			"properties": {
 				"theme": { "description": "A plugin's theme, `<plugin>.<name>`.", "type": "string" },
+				"color": { "description": "The colour tier.", "enum": ["truecolor", "256", "16"] },
+				"icons": { "description": "The icons.", "enum": ["nerd", "unicode", "ascii"] },
 				"sort": {
 					"type": "object",
 					"required": ["field"],
@@ -118,6 +120,18 @@
 				"quantize": { "type": "boolean" },
 				"single": { "description": "Stop after each track.", "type": "boolean" },
 				"auto_cue": { "description": "Start tracks at their first memory cue or beat.", "type": "boolean" }
+			}
+		},
+		"mix": {
+			"description": "What's set for identifying mixes.",
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"index_limit_mib": {
+					"description": "The largest fingerprint index kept for a drive between runs, in MiB (512 when it's not set): a bigger one is built again each run. 0 keeps none.",
+					"type": "integer",
+					"minimum": 0
+				}
 			}
 		},
 		"plugin_host": {

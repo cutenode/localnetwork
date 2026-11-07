@@ -1,9 +1,9 @@
 // Cross-file agreement: the manifest, the build, the tool registry and the
 // stylesheets must refer to each other correctly.
 //
-// The popup is compiled now, so a broken import is a build error rather than a
-// silent misfire — but the seams the compiler cannot see are still here: what
-// the manifest names and the build copies, what runs in the page as a classic
+// The popup is compiled, so a broken import is a build error rather than a
+// silent misfire. The seams the compiler cannot see are still here: what the
+// manifest names and the build copies, what runs in the page as a classic
 // script, the Tailwind variants shadcn-svelte's components rely on, and the
 // storage keys the exported state file is written under.
 import { describe, it, expect } from 'vitest';
@@ -56,7 +56,7 @@ describe('manifest.json', () => {
 			});
 
 		// The registry itself rather than the text of its modules: one module can
-		// export more than one site (toneden.js is ToneDen and FanLink), and a
+		// export more than one site (toneden.ts is ToneDen and FanLink), and a
 		// reading of its source that stopped at the first `hosts:` never saw the
 		// second.
 		expect(HOSTS.length).toBeGreaterThan(0);
@@ -70,7 +70,7 @@ describe('manifest.json', () => {
 		}
 
 		// Every site any module under sites/ exports is registered, so every host
-		// it claims is one the panel can actually match a link to.
+		// it claims is one the panel can match a link to.
 		const folder = resolve(ROOT, 'src/tools/third-party-downloads/sites');
 
 		for (const file of readdirSync(folder).filter((name) => name !== 'index.ts')) {
@@ -137,9 +137,9 @@ describe('the build', () => {
 	});
 
 	// A manifest at the repo root would invite Chrome to load the source folder,
-	// where the popup it names does not exist until the build has run — which is
-	// exactly the confusing half-failure ("the default_popup file doesn't
-	// exist") that moving it under src/ prevents.
+	// where the popup it names does not exist until the build has run. Keeping
+	// it under src/ prevents that half-failure ("the default_popup file doesn't
+	// exist").
 	it('keeps the repo root unloadable as an extension', () => {
 		expect(exists('manifest.json')).toBe(false);
 		expect(unbundled()['manifest.json']).toBe('src/manifest.json');
@@ -147,12 +147,14 @@ describe('the build', () => {
 
 	it('loads the shared classic scripts into the popup page', () => {
 		// downloaded-store.js and state-transfer.js define page globals, which
-		// only a classic script can do; the build injects them, and src/lib
-		// reaches them by name (see globals.js).
+		// only a classic script can do. The build injects the store, globals.ts
+		// adds the state file's script when the settings sheet asks for it, and
+		// src/lib reaches both by name there.
 		const classic = /const classicScripts = \[([^\]]+)\]/.exec(viteConfig)![1];
 		expect(classic).toContain('downloaded-store.js');
-		expect(classic).toContain('state-transfer.js');
+		expect(classic).not.toContain('state-transfer.js');
 		const globals = read('src/lib/globals.ts');
+		expect(globals).toContain("'./state-transfer.js'");
 		expect(globals).toContain('TbxDownloaded');
 		expect(globals).toContain('TbxState');
 		// A module import would give each its own copy, so there must not be one.
@@ -202,9 +204,9 @@ describe('the session queue', () => {
 
 	// A working list, not a library: session storage is what the browser throws
 	// away when it closes. The marks, which do last, stay in local storage. The
-	// place the popup was left in (view.svelte.js) is the only other thing kept
-	// per session, for the same reason — where someone is in a piece of work,
-	// not a setting.
+	// place the popup was left in (view.svelte.ts) and the Downloader's list
+	// (walked.svelte.ts) are the only other things kept per session, for the
+	// same reason: they are where someone is in a piece of work, not settings.
 	it('is kept in session storage, with the popup’s place and nothing else', () => {
 		const view = read('src/lib/view.svelte.ts');
 
@@ -216,11 +218,12 @@ describe('the session queue', () => {
 		expect(queue).toContain("const KEY = 'queue';");
 		expect(view).toContain("const KEY = 'view';");
 		expect(read('downloaded-store.ts')).toContain('chrome.storage.local');
-		// The exported state file carries the queue but does not reach for it:
-		// the marks and the details it reads out of local storage itself, while
-		// the queue comes from the store above and goes back into it (Panel.svelte
-		// hands `queue.entries` out and `doc.queue` back). That is what puts a
-		// queue this store could only keep in memory into the file too.
+		// The exported state file carries the queue but does not reach for it: the
+		// marks and the details it reads out of local storage itself, while the
+		// queue comes from the store above and goes back into it
+		// (StateTransfer.svelte hands `queue.entries` out and `doc.queue` back).
+		// That is what puts a queue this store could only keep in memory into the
+		// file too.
 		const transfer = read('state-transfer.ts');
 		expect(transfer).toContain('chrome.storage.local');
 		expect(transfer).not.toContain('chrome.storage.session');
@@ -229,7 +232,7 @@ describe('the session queue', () => {
 	// The content script paints a "Queued" pill from that same queue and offers
 	// the button that fills it, and a content script is an untrusted context:
 	// session storage is shut to one until a trusted context opens it, which is
-	// a thing only the popup can do. Both halves have to be here — the door
+	// a thing only the popup can do. Both halves have to be here: the door
 	// opened, and the key it is opened for agreeing with the key the queue is
 	// written under.
 	it('is opened to the content script by the popup, and used there under the same key', () => {
@@ -238,10 +241,10 @@ describe('the session queue', () => {
 		expect(content).toContain("const QUEUE_KEY = 'queue';");
 		expect(content).toContain('chrome.storage.session.get(QUEUE_KEY)');
 		expect(content).toContain('chrome.storage.session.set({ [QUEUE_KEY]: next })');
-		// Two files name that key — the store that owns it and the page that
-		// paints from it — and a rename in one would quietly leave the other
-		// reading an empty queue. The third place the queue turns up, the
-		// exported state file, names no key at all: it goes through the store.
+		// Two files name that key (the store that owns it and the page that
+		// paints from it), and a rename in one would leave the other reading
+		// an empty queue. The third place the queue turns up, the exported
+		// state file, names no key at all: it goes through the store.
 		expect(read('state-transfer.ts')).not.toContain('QUEUE_KEY');
 		// The queue button writes the queue back whole; nothing on the page wipes
 		// the area or opens it, which is the popup's alone to do.
@@ -256,9 +259,9 @@ describe('the session queue', () => {
 		expect(read('src/lib/prefs.svelte.ts')).not.toContain('chrome.storage');
 		const view = read('src/lib/view.svelte.ts');
 		// What the panels kept is in the session and only in the session. The one
-		// thing view.svelte.js does put in localStorage is which tool was open —
-		// a mirror it reads synchronously so the popup has a route to draw before
-		// the session answers — and that is written from `open`, nowhere else.
+		// thing view.svelte.ts does put in localStorage is which tool was open: a
+		// mirror it reads synchronously so the popup has a route to draw before
+		// the session answers. That is written from `open`, nowhere else.
 		expect(view).toContain("const HINT = 'view:open'");
 
 		for (const [, call] of view.matchAll(/localStorage\.\w+\(([^)]*)\)/g)) {
@@ -269,7 +272,7 @@ describe('the session queue', () => {
 		// same rule: a copy of what the session holds, read synchronously so the
 		// count in every header is there on the popup's first turn. It is written
 		// from `MIRROR` and from nothing else, and it is no more a pref than the
-		// route is — the session is still what settles both.
+		// route is: the session is still what settles both.
 		const queueStore = read('src/lib/queue.svelte.ts');
 		expect(queueStore).toContain("const MIRROR = 'queue:items'");
 
@@ -292,7 +295,7 @@ describe('the session queue', () => {
 
 	// It is not a tool and must not creep back into being one: the registry is
 	// what the menu lists, and the queue is reached from the header of every
-	// view instead. Both halves of that are checked — nothing under src/tools/
+	// view instead. Both halves of that are checked: nothing under src/tools/
 	// for it, and a button in the shell that opens the sheet.
 	it('is in the header of every view rather than in the tool menu', () => {
 		expect(read('src/lib/tools.ts')).not.toContain("id: 'session-queue'");
@@ -315,9 +318,9 @@ describe('the session queue', () => {
 
 // The one kind of value the popup keeps that is not the popup's own: a
 // setting the content script has to obey. It cannot live where the panels'
-// options live, because a content script cannot see the popup's localStorage
-// — so the two halves share a key in chrome.storage.local, and a default
-// neither can import from the other.
+// options live, because a content script cannot see the popup's
+// localStorage, so the two halves share a key in chrome.storage.local, and a
+// default neither can import from the other.
 describe('the settings', () => {
 	const store = read('src/lib/settings.svelte.ts');
 	const content = read('content.ts');
@@ -332,8 +335,8 @@ describe('the settings', () => {
 	});
 
 	it('have the same defaults on both sides of that key', () => {
-		// Every setting is a flag, written down twice — once for the popup and
-		// once for the page — and the two lists have to be the same list, in
+		// Every setting is a flag, written down twice (once for the popup and
+		// once for the page), and the two lists have to be the same list, in
 		// every name and every default. A setting added to one side only is a
 		// switch the other side never obeys.
 		const flags = (source: string, declaration: string) => {
@@ -353,10 +356,10 @@ describe('the settings', () => {
 
 	// The other kind of setting the sheet holds: the Downloader's, which stay in
 	// the popup's own localStorage because nothing outside the popup reads them.
-	// What matters here is that there is one of each — the sheet writes the
-	// address and the panel reads it, and two `textPref()` calls over the one key
-	// would be two copies of the value, leaving the panel to answer a gate with
-	// the empty one it read as it mounted.
+	// There has to be one of each: the sheet writes the address and the panel
+	// reads it, and two `textPref()` calls over the one key would be two copies
+	// of the value, leaving the panel to answer a gate with the empty one it read
+	// as it mounted.
 	it('let the Downloader’s be made once, where both the sheet and the panel read them', () => {
 		const shared = read('src/lib/downloader.svelte.ts');
 		expect(shared).toContain("textPref('pref:email')");
@@ -378,8 +381,8 @@ describe('the settings', () => {
 		expect(read('src/lib/components/SettingsSheet.svelte')).toContain('id="email"');
 	});
 
-	// The search badges are the same arrangement as the Downloader's options —
-	// thrown in the sheet, read by a panel under it — over a list that is data
+	// The search badges are the same arrangement as the Downloader's options
+	// (thrown in the sheet, read by a panel under it) over a list that is data
 	// rather than code. Neither the sheet nor the panel may name a site: adding
 	// one is an entry in the JSON file and nothing else, and a site written into
 	// a component is one that file cannot switch off.
@@ -414,7 +417,7 @@ describe('the settings', () => {
 
 	// Title case is the third of these arrangements, over a transform that is a
 	// file of its own: the switch made once, the words done in one place, and
-	// the opened row the only thing that draws them that way — the list itself,
+	// the opened row the only thing that draws them that way. The list itself,
 	// the clipboard's own copy of a title elsewhere and every export go on
 	// saying what SoundCloud said.
 	it('let the title casing be made once, over one transform', () => {
@@ -472,12 +475,12 @@ describe('stylesheets', () => {
 	});
 
 	// Our elements sit inside SoundCloud's, so the page can reach them without
-	// naming a class of ours — `.sound__coverArt .sc-artwork > button` is (0,2,1)
-	// and beats any single class. The queue button carries its *state* in CSS
-	// (a queued track's button is held up with no pointer on it, and that is the
+	// naming a class of ours: `.sound__coverArt .sc-artwork > button` is (0,2,1)
+	// and beats any single class. The queue button carries its *state* in CSS (a
+	// queued track's button is held up with no pointer on it, and that is the
 	// only thing on the artwork saying the track is queued), so a rule of ours
-	// that loses there does not merely look wrong, it hides the state. Every
-	// selector that reaches the button therefore names it at least twice.
+	// that loses there hides the state as well as looking wrong. Every selector
+	// that reaches the button therefore names it at least twice.
 	it('weights every queue-button rule above a rule that names no class of ours', () => {
 		const css = read('content.css');
 
@@ -566,15 +569,15 @@ describe('the exported state file', () => {
 		expect(JSON.parse(read('package.json')).scripts['validate:state']).toBe('node scripts/validate-state.mts');
 	});
 
-	// state-transfer.js writes the details cache that content.js owns; a rename
-	// on either side would quietly stop restoring the looked-up details.
+	// state-transfer.ts writes the details cache that content.ts owns; a rename
+	// on either side would stop restoring the looked-up details.
 	it('is written under the same storage keys the rest of the extension uses', () => {
 		// Each key is matched with or without a type annotation: the value is what has to agree.
 		expect(transfer).toMatch(/const DETAILS_KEY(?:: [^=\n]+)? = 'details'(?: as const)?;/);
 		expect(read('content.ts')).toContain("const DETAILS_KEY = 'details';");
 		expect(transfer).toContain('TbxDownloaded.KEY');
 		// The Manager's own list is named here for the same reason the details
-		// cache is — one word, on both sides of a file that has to restore it.
+		// cache is: one word, on both sides of a file that has to restore it.
 		expect(transfer).toMatch(/const LISTED_KEY(?:: [^=\n]+)? = 'listed'(?: as const)?;/);
 		expect(read('src/tools/manager/listed.svelte.ts')).toContain("export const LISTED_KEY = 'listed';");
 		// And the artists tool's list, for the same reason again.
@@ -588,8 +591,8 @@ describe('the exported state file', () => {
 	});
 
 	// Everything the file carries has to be a thing the extension really keeps,
-	// and every such thing has to be in the file — that is the whole promise of
-	// "export the state". The queue was the one part left out of it.
+	// and every such thing has to be in the file: that is what "export the
+	// state" promises.
 	it('carries every member the schema declares, and nothing else', () => {
 		expect(Object.keys(schema.properties)).toEqual([
 			'format',
@@ -609,7 +612,7 @@ describe('the exported state file', () => {
 	});
 
 	// The names in the schema's `prefs` are the localStorage keys the panels
-	// actually read, so an option cannot be exported under a name nothing sets.
+	// read, so an option cannot be exported under a name nothing sets.
 	it('carries the options the panels really keep', () => {
 		expect(Object.keys(schema.properties.prefs.properties).sort()).toEqual(
 			['background', 'hideDownloaded', 'sort'].sort()

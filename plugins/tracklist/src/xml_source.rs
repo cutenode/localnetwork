@@ -61,10 +61,10 @@ impl Stamp {
 
 /// The track a cursor's page starts at, and the file's stamp when its read began.
 fn from_cursor(c: &str) -> Option<(usize, Stamp)> {
-    let mut parts = c.split(':');
-    let i = parts.next()?.parse().ok()?;
-    let stamp = Stamp { len: parts.next()?.parse().ok()?, mtime_ns: parts.next()?.parse().ok()? };
-    parts.next().is_none().then_some((i, stamp))
+    let (i, rest) = c.split_once(':')?;
+    let (len, mtime_ns) = rest.split_once(':')?;
+    let stamp = Stamp { len: len.parse().ok()?, mtime_ns: mtime_ns.parse().ok()? };
+    Some((i.parse().ok()?, stamp))
 }
 
 /// A read under way: its file's collection, kept between pages so the file is read once, and

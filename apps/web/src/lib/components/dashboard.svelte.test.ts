@@ -100,6 +100,7 @@ describe('RequestList', () => {
 		updatedAt: '2026-10-01T00:00:00Z',
 		decision: null,
 		resultProjectSlug: null,
+		deletedAt: null,
 		...fields
 	});
 
@@ -131,7 +132,10 @@ describe('RequestList', () => {
 	it('says when there are none', async () => {
 		await render(RequestList, { requests: [] });
 
-		await expect.element(page.getByText('No requests yet.')).toBeInTheDocument();
+		await expect.element(page.getByText('No submissions yet')).toBeInTheDocument();
+		await expect
+			.element(page.getByRole('link', { name: 'List a project' }))
+			.toHaveAttribute('href', '/dashboard/projects/new');
 	});
 });
 

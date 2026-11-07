@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { IdentityResolver } from '#lib/server/atproto/identity.ts';
 import { silentLogger } from '#lib/server/logger.ts';
 import { type Loopback, rebindToLoopback } from '#lib/server/testing/rebind.ts';
+import { callRoute } from '#lib/testing/route-event.ts';
 import { GET } from './+server.ts';
 
 const DJ = 'did:plc:dj';
@@ -46,4 +47,17 @@ it("won't stream a recording from a PDS whose name points at loopback when it co
 
 	expect(response.status).toBe(502);
 	expect(loopback.connections()).toBe(0);
+});
+
+it("is a 404 for an address that isn't a DID and a blob CID, without looking for a recording", async () => {
+	const recordings = {
+		audio: async () => {
+			throw new Error('looked for a recording');
+		}
+	};
+
+	const app = { recordings };
+
+	await expect(callRoute(GET, { app, params: { did: 'dj.test', cid: CID } })).rejects.toMatchObject({ status: 404 });
+	await expect(callRoute(GET, { app, params: { did: DJ, cid: 'not-a-cid' } })).rejects.toMatchObject({ status: 404 });
 });

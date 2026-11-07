@@ -1,6 +1,6 @@
 import { ComAtprotoSpaceDefs } from '@atproto/api';
-import { type Cid, isLexMap, type LexMap, parseCid } from '@atproto/lex-data';
-import { type JsonObject, lexToJson } from '@atproto/lex-json';
+import { type Cid, isLexMap, isObject, type LexMap, parseCid } from '@atproto/lex-data';
+import { type JsonObject, type JsonValue, jsonToLex, lexToJson } from '@atproto/lex-json';
 import { isNsidString, isSpaceKeyString } from '@atproto/oauth-scopes';
 import {
 	COMMIT_MAC_TYPE,
@@ -20,6 +20,7 @@ import {
 	XrpcResponseError
 } from '../atproto/credentials';
 import type { IdentityResolver } from '../atproto/identity';
+import { isTooDeep, TOO_DEEP } from '../atproto/lexicons';
 import { parseSpaceUri, spaceRecordUri } from '../atproto/spaces';
 import { type Db, nowIso } from '../db';
 import type { Logger } from '../logger';
@@ -74,6 +75,23 @@ export type SyncStatus = {
 	repos: { did: string; rev: string; lastSyncedAt: string; lastError: string | null }[];
 };
 
+/**
+ * A listRepoOps page decoded from its JSON, with the indexes of the ops whose values are nested deeper than
+ * validateRecord allows. jsonToLex recurses, so those values are taken out before it decodes the rest.
+ */
+function readOpsPage(json: JsonValue) {
+	const tooDeep = new Set<number>();
+	const ops = isObject(json) && !Array.isArray(json) && Array.isArray(json.ops) ? json.ops : [];
+
+	for (const [index, op] of ops.entries()) {
+		if (!isObject(op) || Array.isArray(op) || !isTooDeep(op.value)) continue;
+		tooDeep.add(index);
+		delete op.value;
+	}
+
+	return { page: listRepoOpsOutput.parse(jsonToLex(json)), tooDeep };
+}
+
 // SAFETY: lexToJson only rewrites the CIDs and bytes inside a map, so a LexMap always comes back as a JSON object.
 const toJson = (record: LexMap) => lexToJson(record) as JsonObject;
 
@@ -92,13 +110,22 @@ function authoritySaysGone(error: XrpcResponseError): boolean {
 	);
 }
 
+/** Getting a credential fails for every repo in the space, so it ends the pass instead of counting against one repo. */
+const failsWholeSpace = (cause: unknown) =>
+	cause instanceof XrpcResponseError && cause.nsid === 'com.atproto.space.getSpaceCredential';
+
+/** How long a repo waits after its `attempts`th failure in a row: 1 minute, doubling up to an hour. */
+const retryDelayMs = (attempts: number) => Math.min(60_000 * 2 ** (attempts - 1), 3_600_000);
+
 /**
  * Keeps a local copy of every watched space: enumerates writers with
  * `listRepos` on the space host, pulls each repo's oplog with
  * `listRepoOps`, checks the result against the LtHash commit (authenticated
  * by a MAC keyed to the author's `#atproto_kem` key), and falls back to a
  * full verified STAR download (`getRepo`) when the incremental path cannot be
- * trusted.
+ * trusted. A repo that fails doesn't hold back the rest: the pass carries on,
+ * its cursor moves past the repo, and `syncRepoRetry` keeps it for a retry,
+ * since `listRepos` won't list it again until it next changes.
  */
 export class SpaceSyncer {
 	private readonly spaceLocks = new Map<string, Promise<void>>();
@@ -192,7 +219,11 @@ export class SpaceSyncer {
 		return task;
 	}
 
-	private async syncSpace(space: string): Promise<void> {
+	private syncSpace(space: string): Promise<void> {
+		return this.deps.logger.job('space-sync', () => this.pass(space), { space });
+	}
+
+	private async pass(space: string): Promise<void> {
 		const { db, logger } = this.deps;
 		const watch = await db.selectFrom('spaceWatch').selectAll().where('spaceUri', '=', space).executeTakeFirst();
 
@@ -204,6 +235,17 @@ export class SpaceSyncer {
 			await this.maybeRegister(space, watch.authorityDid, authority.pds, watch.registrationExpiresAt);
 			let cursor = watch.spaceRev ?? undefined;
 			let changed = 0;
+			const failures: unknown[] = [];
+
+			const settle = async (syncs: Promise<boolean>[]) => {
+				const results = await Promise.allSettled(syncs);
+
+				for (const result of results) {
+					if (result.status === 'fulfilled') changed += Number(result.value);
+					else if (failsWholeSpace(result.reason)) throw result.reason;
+					else failures.push(result.reason);
+				}
+			};
 
 			for (;;) {
 				const page = await this.deps.credentials.query({
@@ -215,25 +257,49 @@ export class SpaceSyncer {
 					schema: listReposOutput
 				});
 
-				if (page.repos.length === 0) break;
+				const last = page.repos.at(-1);
 
-				const results = await Promise.all(
-					page.repos.map((repo) => this.repoQueue.add(() => this.syncRepoIfBehind(space, repo)))
-				);
+				if (!last) break;
 
-				changed += results.filter(Boolean).length;
-				cursor = page.cursor ?? page.repos.at(-1)?.spaceRev ?? cursor;
+				await settle(page.repos.map((repo) => this.repoQueue.add(() => this.syncRepoIfBehind(space, repo))));
+				cursor = page.cursor ?? last.spaceRev;
 
 				if (!page.cursor) break;
 			}
 
+			const due = await db
+				.selectFrom('syncRepoRetry')
+				.select('repoDid')
+				.where('spaceUri', '=', space)
+				.where('nextAttemptAt', '<=', nowIso())
+				.execute();
+
+			await settle(
+				due.map(({ repoDid }) =>
+					this.repoQueue.add(async () => {
+						await this.syncRepo(space, repoDid);
+
+						return true;
+					})
+				)
+			);
+
+			// A repo waiting out its backoff still counts as failing, so the system page keeps showing it.
+			const waiting = await db
+				.selectFrom('syncRepoRetry')
+				.select('lastError')
+				.where('spaceUri', '=', space)
+				.executeTakeFirst();
+
 			await db
 				.updateTable('spaceWatch')
-				.set({ spaceRev: cursor ?? null, lastSyncedAt: nowIso(), lastError: null })
+				.set({ spaceRev: cursor ?? null, lastSyncedAt: nowIso(), lastError: waiting?.lastError ?? null })
 				.where('spaceUri', '=', space)
 				.execute();
 
-			if (changed > 0) logger.debug({ space, changed }, 'space synced');
+			if (changed > 0) logger.debug('space synced', { changed });
+
+			if (failures.length > 0) throw failures[0];
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			await db
@@ -243,15 +309,14 @@ export class SpaceSyncer {
 				.execute();
 
 			if (error instanceof XrpcResponseError && authoritySaysGone(error)) {
-				logger.warn({ space }, 'space is gone; dropping local copy');
+				logger.warn('space is gone; dropping local copy');
 				await this.dropSpace(space);
 
 				return;
 			}
 
-			if (watch.lastError === message.slice(0, 500))
-				logger.debug({ space, error: message }, 'space sync still failing');
-			else logger.warn({ err: error, space }, 'space sync failed');
+			if (watch.lastError === message.slice(0, 500)) logger.debug('space sync still failing', { error: message });
+			else logger.warn('space sync failed', { err: error });
 			throw error;
 		}
 	}
@@ -277,7 +342,7 @@ export class SpaceSyncer {
 				.where('spaceUri', '=', space)
 				.execute();
 		} catch (error) {
-			this.deps.logger.debug({ err: error, space }, 'could not register for write notifications; polling instead');
+			this.deps.logger.debug('could not register for write notifications; polling instead', { err: error, space });
 		}
 	}
 
@@ -290,6 +355,15 @@ export class SpaceSyncer {
 			.executeTakeFirst();
 
 		if (local && local.rev >= repo.repoRev) return false;
+
+		const retry = await this.deps.db
+			.selectFrom('syncRepoRetry')
+			.select('nextAttemptAt')
+			.where('spaceUri', '=', space)
+			.where('repoDid', '=', repo.did)
+			.executeTakeFirst();
+
+		if (retry && retry.nextAttemptAt > nowIso()) return false;
 		await this.syncRepo(space, repo.did);
 
 		return true;
@@ -316,14 +390,18 @@ export class SpaceSyncer {
 					} catch (error) {
 						// A full download would fail the same way: readVerified retries a MAC failure with a fresh KEM key.
 						if (isCredentialRejected(error) || isMacFailure(error)) throw error;
-						logger.info({ err: error, space, repoDid }, 'incremental sync failed; recovering full repo');
+						logger.info('incremental sync failed; recovering full repo', { err: error, space, repoDid });
 					}
 				}
 
 				await this.recover(space, repoDid, pds, kemKey);
 			});
+
+			await db.deleteFrom('syncRepoRetry').where('spaceUri', '=', space).where('repoDid', '=', repoDid).execute();
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
+
+			if (!failsWholeSpace(error)) await this.recordFailure(space, repoDid, message);
 
 			if (local) {
 				await db
@@ -336,6 +414,31 @@ export class SpaceSyncer {
 
 			throw error;
 		}
+	}
+
+	private async recordFailure(space: string, repoDid: string, message: string) {
+		const { db } = this.deps;
+
+		const previous = await db
+			.selectFrom('syncRepoRetry')
+			.select('attempts')
+			.where('spaceUri', '=', space)
+			.where('repoDid', '=', repoDid)
+			.executeTakeFirst();
+
+		const attempts = (previous?.attempts ?? 0) + 1;
+
+		const values = {
+			attempts,
+			nextAttemptAt: new Date(Date.now() + retryDelayMs(attempts)).toISOString(),
+			lastError: message.slice(0, 500)
+		};
+
+		await db
+			.insertInto('syncRepoRetry')
+			.values({ spaceUri: space, repoDid, ...values })
+			.onConflict((oc) => oc.columns(['spaceUri', 'repoDid']).doUpdateSet(values))
+			.execute();
 	}
 
 	private async incremental(
@@ -353,21 +456,26 @@ export class SpaceSyncer {
 
 		do {
 			// The host wants a MAC request on every page, and only MACs the pages that carry a commit.
-			const { body: page, macParams } = await this.deps.credentials.macQuery({
+			const { response, macParams } = await this.deps.credentials.macRequest({
 				space,
 				service: pds,
 				audience: repoDid,
 				nsid: 'com.atproto.space.listRepoOps',
 				params: { space, repo: repoDid, since: cursor ? undefined : since, cursor, limit: 500 },
-				schema: listRepoOpsOutput,
 				mac: { type: COMMIT_MAC_TYPE, kemKey }
 			});
 
-			for (const op of page.ops) {
+			const json: JsonValue = JSON.parse(await response.text());
+			const { page, tooDeep } = readOpsPage(json);
+
+			for (const [index, op] of page.ops.entries()) {
 				state.applyOp({ collection: op.collection, rkey: op.rkey, cid: asCid(op.cid), prev: asCid(op.prev) });
 				const uri = spaceRecordUri(space, repoDid, op.collection, op.rkey);
 
-				if (op.cid === null) {
+				// A record too deep to read is dropped from the local copy, like one deleted.
+				if (tooDeep.has(index)) this.deps.logger.warn(`dropping a synced record ${TOO_DEEP}`, { uri });
+
+				if (op.cid === null || tooDeep.has(index)) {
 					changes.push({ kind: 'delete', space, repoDid, collection: op.collection, rkey: op.rkey, uri });
 				} else if (op.value !== undefined) {
 					changes.push({
@@ -554,7 +662,7 @@ export class SpaceSyncer {
 			try {
 				await this.deps.onChange(change);
 			} catch (error) {
-				logger.warn({ err: error, uri: change.uri }, 'could not project synced record');
+				logger.warn('could not project synced record', { err: error, uri: change.uri });
 			}
 		}
 	}
@@ -581,6 +689,7 @@ export class SpaceSyncer {
 
 		await db.deleteFrom('spaceRecord').where('spaceUri', '=', space).execute();
 		await db.deleteFrom('syncedRepo').where('spaceUri', '=', space).execute();
+		await db.deleteFrom('syncRepoRetry').where('spaceUri', '=', space).execute();
 		await db.deleteFrom('spaceWatch').where('spaceUri', '=', space).execute();
 		await this.deps.onSpaceDropped(space);
 	}
@@ -599,7 +708,7 @@ export class SpaceSyncer {
 		}
 
 		await this.dropSpace(space);
-		this.deps.logger.info({ space }, 'space deleted; dropped local copy');
+		this.deps.logger.info('space deleted; dropped local copy', { space });
 	}
 
 	async status(): Promise<SyncStatus[]> {

@@ -208,7 +208,7 @@ fn wavs_decode_to_their_samples(tc: TestCase) {
 /// whether a chunk (an ID3 tag) follows them or the file ends with them. symphonia reads 8 bytes
 /// past the samples: noise from the chunk after them, and when none follows, a length that calls
 /// the file cut short wherever its samples end within 8 bytes of a whole number of 1152-frame
-/// packets (1151 or 1152 frames of 16-bit stereo).
+/// packets (1151 or 1152 frames of 16-bit stereo). Either way of treating damage stops there.
 #[hegel::test(test_cases = 40)]
 #[hegel::explicit_test_case(channels = 2u16, bits = 16u16, frames = 1151usize, tagged = false)]
 #[hegel::explicit_test_case(channels = 1u16, bits = 24u16, frames = 2304usize, tagged = false)]
@@ -259,6 +259,15 @@ fn aiffs_decode_to_their_frames(tc: TestCase) {
     let mut mono = 0;
     decode(&path, 44_100, &Ctx::silent(), &mut |s| mono += s.len()).unwrap();
     assert_eq!(mono, frames);
+    // Through the sink the other properties decode with, in either mode, as 16-bit samples.
+    for damaged in [Damaged::Skip, Damaged::Fail] {
+        let (result, heard) = native(&path, damaged, Sink::Takes);
+        assert_eq!(heard.samples.len(), samples.len());
+        if bits == 16 {
+            assert!(heard.samples.iter().zip(&samples).all(|(h, s)| i32::from(*h) == *s));
+        }
+        assert_eq!(result.unwrap().duration_secs, frames as f64 / 44_100.0);
+    }
 }
 
 /// A format is told by the file's last extension alone, in any case: not by the rest of its
@@ -506,4 +515,348 @@ fn the_weight_cache_is_bounded_and_changes_nothing(tc: TestCase) {
     let kept: usize = cached.phases.iter().map(Vec::len).sum();
     assert!(kept as u64 <= CACHED_WEIGHTS, "{from} Hz to {to} Hz keeps {kept} weights");
     assert!(a == b, "{from} Hz to {to} Hz");
+}
+
+/// What [`native`]'s sink does: take everything, or at its `n`th packet (from 1) stop the
+/// decode, fail it, or cancel it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Sink {
+    Takes,
+    Breaks(usize),
+    Fails(usize),
+    Cancels(usize),
+}
+
+/// What [`native`] heard: the samples, and each packet's rate and channels.
+#[derive(Debug, Default)]
+struct Heard {
+    samples: Vec<i16>,
+    formats: Vec<(u32, usize)>,
+}
+
+/// `path` decoded at its own rate as `i16`, in `damaged` mode, its packets handed to a sink that
+/// does as `sink` says. Every property below decodes through this one sink: coverage counts a
+/// generic function by its best instance, and each closure is one.
+fn native(path: &Path, damaged: Damaged, sink: Sink) -> (Result<SourceFormat>, Heard) {
+    let ctx = Ctx::silent();
+    let mut heard = Heard::default();
+    let result = decode_native(path, damaged, &ctx, |s: &[i16], rate, channels| -> Result<_> {
+        heard.samples.extend_from_slice(s);
+        heard.formats.push((rate, channels));
+        let n = heard.formats.len();
+        match sink {
+            Sink::Breaks(at) if at == n => return Ok(ControlFlow::Break(())),
+            Sink::Fails(at) if at == n => return Err(Error::Invalid(format!("enough at {n}"))),
+            Sink::Cancels(at) if at == n => ctx.cancel.cancel(),
+            _ => {}
+        }
+        Ok(ControlFlow::Continue(()))
+    });
+    (result, heard)
+}
+
+/// An ALAC track's frames decode to their samples at the rate its setup says, whichever mode,
+/// and a second track's are left out. A frame the decoder can't read (its header garbled, or cut
+/// short) is skipped, or fails the decode, by the mode. A setup saying 0 Hz or over [`MAX_RATE`]
+/// (its container saying 8 kHz) is refused at the first frame that decodes; with none, the decode
+/// is the container's 8 kHz. A sample table counting a sample the others don't place fails the
+/// decode there, after the frames it has.
+#[hegel::test(test_cases = 60)]
+// A frame cut short, listened past and copied.
+#[hegel::explicit_test_case(
+    rate = 8_000u32,
+    tracks = 1usize,
+    frames = 1usize,
+    damaged = Damaged::Skip,
+    packets = vec![(vec![(1i16, 2i16)], 2u8), (vec![(3, 4)], 0)],
+    overcount = false
+)]
+#[hegel::explicit_test_case(
+    rate = 8_000u32,
+    tracks = 1usize,
+    frames = 1usize,
+    damaged = Damaged::Fail,
+    packets = vec![(vec![(1i16, 2i16)], 2u8)],
+    overcount = false
+)]
+// Two tracks, a garbled frame listened past, then a frame at 0 Hz.
+#[hegel::explicit_test_case(
+    rate = 0u32,
+    tracks = 2usize,
+    frames = 1usize,
+    damaged = Damaged::Skip,
+    packets = vec![(vec![(1i16, 2i16)], 1u8), (vec![(3, 4)], 0)],
+    overcount = false
+)]
+// A sample the table counts but doesn't place, after one it does.
+#[hegel::explicit_test_case(
+    rate = 8_000u32,
+    tracks = 1usize,
+    frames = 1usize,
+    damaged = Damaged::Fail,
+    packets = vec![(vec![(1i16, 2i16)], 0u8)],
+    overcount = true
+)]
+fn prop_alac_frames_decode_at_the_rate_their_setup_says(tc: TestCase) {
+    use crate::test_util::{alac_frame, m4a_with_audio};
+
+    let rate = tc.draw(gs::sampled_from(vec![0, 8_000, 44_100, MAX_RATE + 1]));
+    let tracks = tc.draw(gs::integers::<usize>().min_value(1).max_value(2));
+    let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
+    let damaged = tc.draw(gs::sampled_from(vec![Damaged::Skip, Damaged::Fail]));
+    let sample = gs::tuples!(gs::integers::<i16>(), gs::integers::<i16>());
+    // Each frame intact (0), its header garbled (1) or cut short (2).
+    let damage = gs::sampled_from(vec![0, 0, 0, 1, 2]);
+    let packets: Vec<(Vec<(i16, i16)>, u8)> =
+        tc.draw(gs::vecs(gs::tuples!(gs::vecs(sample).min_size(frames).max_size(frames), damage)).max_size(4));
+    let overcount = tc.draw(gs::booleans());
+    let overcounted = overcount && !packets.is_empty();
+    let bytes: Vec<Vec<u8>> = packets
+        .iter()
+        .map(|(samples, damage)| {
+            let mut frame = alac_frame(samples);
+            match damage {
+                // The 12 bits after the element's tag, which are 0.
+                1 => frame[1] = 0xff,
+                // Inside the count of frames it holds.
+                2 => frame.truncate(4),
+                _ => {}
+            }
+            frame
+        })
+        .collect();
+    let mut file = m4a_with_audio(rate, tracks, &bytes, frames as u32);
+    if overcounted {
+        // `stts` counts one more sample than `stsz` sizes.
+        let count = file.windows(4).position(|w| w == b"stts").unwrap() + 12;
+        let n = u32::from_be_bytes(file[count..count + 4].try_into().unwrap());
+        file[count..count + 4].copy_from_slice(&(n + 1).to_be_bytes());
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.m4a");
+    std::fs::write(&path, file).unwrap();
+
+    let (result, heard) = native(&path, damaged, Sink::Takes);
+    assert!(heard.formats.iter().all(|f| *f == (rate, 2)), "{:?}", heard.formats);
+    let (mut want, mut refused) = (Vec::new(), None);
+    for (samples, damage) in &packets {
+        if *damage > 0 {
+            if damaged == Damaged::Fail {
+                refused = Some(if *damage == 1 { "unused header bits not 0" } else { "end of bitstream" });
+                break;
+            }
+            continue;
+        }
+        if rate == 0 || rate > MAX_RATE {
+            refused = Some("it decodes to 0 Hz, over 768 kHz or no channels");
+            break;
+        }
+        want.extend(samples.iter().flat_map(|&(l, r)| [l, r]));
+    }
+    if overcounted && refused.is_none() {
+        refused = Some("isomp4: missing");
+    }
+    match (result, refused) {
+        (Ok(format), None) => {
+            assert_eq!(heard.samples, want);
+            let decoded = want.len() / 2;
+            // With nothing decoded, the container's rate (its ALAC entry leaves the channels unsaid).
+            let (at, channels) = if decoded > 0 { (rate, 2) } else { (8_000, 0) };
+            assert_eq!((format.sample_rate, format.channels), (at, channels));
+            assert_eq!(format.duration_secs, decoded as f64 / f64::from(at));
+        }
+        (Err(Error::Parse { path: at, message }), Some(why)) => {
+            assert!(at == path && message.contains(why), "{message}");
+            assert_eq!(heard.samples, want, "what came before");
+        }
+        (result, refused) => panic!("{rate} Hz, {damaged:?}, {packets:?}: {result:?}, not {refused:?}"),
+    }
+}
+
+/// An ALAC setup no decoder takes (a version past 0, a bit depth over 32), a track of a codec
+/// none knows, a file that isn't there and a WAV saying 0 Hz (which panics the decoder) are that
+/// file's error, however it's decoded.
+#[hegel::test(test_cases = 20)]
+fn prop_files_no_decoder_takes_are_that_files_error(tc: TestCase) {
+    use crate::test_util::{m4a, mp4_empty_tables, wav_of};
+
+    let (field, value) = tc.draw(hegel::one_of!(
+        gs::integers::<u8>().min_value(1).map(|v| (4, v)),
+        gs::integers::<u8>().min_value(33).map(|v| (5, v)),
+        gs::sampled_from(vec![(0, 0), (1, 0), (2, 0)]),
+    ));
+    let mut bytes = m4a(8_000, &mp4_empty_tables(), &[]);
+    // The setup follows the inner `alac` atom's version and flags.
+    let cookie = bytes.windows(8).rposition(|w| w == b"alac\0\0\0\0").unwrap() + 8;
+    match field {
+        // The sample entry, of a codec no one knows.
+        0 => {
+            let entry = bytes.windows(4).position(|w| w == b"alac").unwrap();
+            bytes[entry..entry + 4].copy_from_slice(b"zzzz");
+        }
+        // Not there.
+        1 => {}
+        2 => bytes = wav_of(0, 16, (0..64).map(|i| i * 100)),
+        _ => bytes[cookie + field] = value,
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(if field == 2 { "x.wav" } else { "x.m4a" });
+    if field != 1 {
+        std::fs::write(&path, &bytes).unwrap();
+    }
+    let damaged = tc.draw(gs::sampled_from(vec![Damaged::Skip, Damaged::Fail]));
+    let results =
+        [native(&path, damaged, Sink::Takes).0, decode(&path, crate::fingerprint::RATE, &Ctx::silent(), &mut |_| {})];
+    for result in results {
+        match (field, result) {
+            (1, Err(Error::Io { path: at, .. })) => assert_eq!(at, path),
+            (_, Err(Error::Parse { path: at, message })) => {
+                let why = match field {
+                    0 => "no audio track",
+                    2 => CRASHED,
+                    _ => "alac",
+                };
+                assert!(at == path && message.contains(why), "{message}")
+            }
+            (_, result) => panic!("{field} at {value}: {result:?}"),
+        }
+    }
+}
+
+/// A folder that can't be opened, named as audio, is that path's I/O error however it's read.
+#[cfg(unix)]
+#[hegel::test(test_cases = 5)]
+fn prop_a_folder_that_cant_be_opened_is_its_io_error(tc: TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(tc.draw(gs::sampled_from(vec!["x.mp3", "x.m4a", "x"])));
+    std::fs::create_dir(&path).unwrap();
+    /// Opens the folder up again, failing assertions or not, so the temporary folder goes.
+    struct Reopen<'a>(&'a Path);
+    impl Drop for Reopen<'_> {
+        fn drop(&mut self) {
+            let _ = std::fs::set_permissions(self.0, std::fs::Permissions::from_mode(0o755));
+        }
+    }
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let _reopen = Reopen(&path);
+    let results = [
+        open(&path).map(drop),
+        native(&path, Damaged::Skip, Sink::Takes).0.map(drop),
+        decode(&path, crate::fingerprint::RATE, &Ctx::silent(), &mut |_| {}).map(drop),
+    ];
+    for result in results {
+        assert!(matches!(&result, Err(Error::Io { path: at, .. }) if *at == path), "{result:?}");
+    }
+}
+
+/// A sink stops a decode at the packet it says, with what it was handed so far: by breaking (the
+/// decode is then what it heard) or failing (its own error is the decode's). Cancelled at a
+/// packet, the decode stops at the next check (every 256 packets) with the packets before it
+/// handed on; cancelled after the last check, it decodes to the end.
+#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(frames = 300_000usize, at = 3usize, sink = Sink::Cancels(3), damaged = Damaged::Skip)]
+#[hegel::explicit_test_case(frames = 3_000usize, at = 2usize, sink = Sink::Fails(2), damaged = Damaged::Fail)]
+#[hegel::explicit_test_case(frames = 3_000usize, at = 2usize, sink = Sink::Breaks(2), damaged = Damaged::Fail)]
+fn prop_a_sink_or_cancelling_stops_a_decode_where_it_says(tc: TestCase) {
+    let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(260 * 1152));
+    let total = packets(frames);
+    let at = tc.draw(gs::integers::<usize>().min_value(1).max_value(total + 1));
+    let sink = tc.draw(gs::sampled_from(vec![Sink::Breaks(at), Sink::Fails(at), Sink::Cancels(at)]));
+    let damaged = tc.draw(gs::sampled_from(vec![Damaged::Skip, Damaged::Fail]));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.wav");
+    std::fs::write(&path, crate::test_util::wav_of(8_000, 16, (0..frames as i32).map(|i| i % 300))).unwrap();
+    let (result, heard) = native(&path, damaged, sink);
+    let handed = heard.formats.len();
+    let reached = at <= total;
+    match (sink, result) {
+        (Sink::Breaks(_), Ok(format)) => {
+            assert_eq!(handed, at.min(total));
+            assert_eq!(format.duration_secs, (heard.samples.len() / 2) as f64 / 8_000.0);
+        }
+        (Sink::Fails(_), Err(Error::Invalid(m))) => assert!(reached && m == format!("enough at {at}") && handed == at),
+        (Sink::Fails(_), Ok(_)) => assert!(!reached && handed == total),
+        (Sink::Cancels(_), Err(Error::Cancelled(_))) => {
+            let check = (at / 256 + 1) * 256;
+            assert!(check <= total && handed == check - 1, "cancelled at {at}, handed {handed} of {total}");
+        }
+        (Sink::Cancels(_), Ok(_)) => assert!((at / 256 + 1) * 256 > total && handed == total),
+        (sink, result) => panic!("{sink:?} of {total}: {result:?}"),
+    }
+}
+
+/// A FLAC of `blocks` (16-bit mono at 44.1 kHz, every block as long, 256 samples at most), each
+/// frame verbatim with its CRCs.
+fn flac(blocks: &[Vec<i16>]) -> Vec<u8> {
+    fn crc8(bytes: &[u8]) -> u8 {
+        bytes
+            .iter()
+            .fold(0u8, |crc, &b| (0..8).fold(crc ^ b, |c, _| if c & 0x80 != 0 { (c << 1) ^ 0x07 } else { c << 1 }))
+    }
+    fn crc16(bytes: &[u8]) -> u16 {
+        bytes.iter().fold(0u16, |crc, &b| {
+            (0..8).fold(crc ^ (u16::from(b) << 8), |c, _| if c & 0x8000 != 0 { (c << 1) ^ 0x8005 } else { c << 1 })
+        })
+    }
+    let size = blocks[0].len() as u64;
+    let total = size * blocks.len() as u64;
+    // The rate, channels less one, bits less one and total samples, packed into 64 bits.
+    let packed = (44_100u64 << 44) | (15 << 36) | total;
+    let mut out = b"fLaC\x80\0\0\x22".to_vec();
+    out.extend_from_slice(&(size as u16).to_be_bytes());
+    out.extend_from_slice(&(size as u16).to_be_bytes());
+    // Frame sizes unknown.
+    out.extend_from_slice(&[0; 6]);
+    out.extend_from_slice(&packed.to_be_bytes());
+    // No MD5.
+    out.extend_from_slice(&[0; 16]);
+    for (n, block) in blocks.iter().enumerate() {
+        // Fixed blocks; the block size in a byte after the header, 44.1 kHz; mono, 16 bits; frame n.
+        let mut frame = vec![0xff, 0xf8, 0x69, 0x08, n as u8, (size - 1) as u8];
+        frame.push(crc8(&frame));
+        // A verbatim subframe.
+        frame.push(0x02);
+        frame.extend(block.iter().flat_map(|s| s.to_be_bytes()));
+        let crc = crc16(&frame);
+        frame.extend_from_slice(&crc.to_be_bytes());
+        out.extend(frame);
+    }
+    out
+}
+
+/// A FLAC frame whose checksum fails is dropped by the reader before the decoder sees it: decoding
+/// to copy fails as a stretch of the file damaged (whether frames follow it or not), and
+/// decoding to listen leaves it out and hears the rest.
+#[hegel::test(test_cases = 40)]
+// The last frame dropped, and one with frames after it.
+#[hegel::explicit_test_case(size = 16usize, blocks = vec![vec![7i16; 16]; 2], broken = Some(1usize), damaged = Damaged::Fail)]
+#[hegel::explicit_test_case(size = 16usize, blocks = vec![vec![7i16; 16]; 2], broken = Some(0usize), damaged = Damaged::Fail)]
+fn prop_a_frame_the_reader_drops_fails_a_copy_but_not_a_listen(tc: TestCase) {
+    let size = tc.draw(gs::integers::<usize>().min_value(16).max_value(64));
+    let blocks: Vec<Vec<i16>> =
+        tc.draw(gs::vecs(gs::vecs(gs::integers::<i16>()).min_size(size).max_size(size)).min_size(1).max_size(5));
+    let broken = tc.draw(gs::optional(gs::integers::<usize>().max_value(blocks.len() - 1)));
+    let damaged = tc.draw(gs::sampled_from(vec![Damaged::Skip, Damaged::Fail]));
+    let mut bytes = flac(&blocks);
+    if let Some(k) = broken {
+        // A sample of frame k changed and its CRC-16 not: 42 bytes before the frames, each 7 of
+        // header, 1 of subframe header, 2 a sample and 2 of CRC.
+        bytes[42 + k * (10 + 2 * size) + 8] ^= 0x55;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.flac");
+    std::fs::write(&path, &bytes).unwrap();
+    let (result, heard) = native(&path, damaged, Sink::Takes);
+    let kept: Vec<i16> =
+        blocks.iter().enumerate().filter(|(i, _)| Some(*i) != broken).flat_map(|(_, b)| b.clone()).collect();
+    match (result, broken, damaged) {
+        (Ok(_), None, _) | (Ok(_), Some(_), Damaged::Skip) => assert_eq!(heard.samples, kept),
+        (Err(Error::Parse { path: at, message }), Some(k), Damaged::Fail) => {
+            assert!(at == path && message == "a stretch of it is damaged", "{message}");
+            assert_eq!(heard.samples, blocks[..k].concat());
+        }
+        (result, broken, damaged) => panic!("{broken:?} in {damaged:?}: {result:?}"),
+    }
 }

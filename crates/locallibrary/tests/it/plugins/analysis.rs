@@ -704,3 +704,312 @@ fn any_kept_analysis_is_planned_as_asked_and_left_out_as_said(tc: hegel::TestCas
         }
     }
 }
+
+/// How a drive can be one no edit is planned for: one not known here, one whose library can't be
+/// read, one whose journal of edits can't be read, and an archive drive.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum Unplannable {
+    Unknown,
+    Library,
+    Journal,
+    Archive,
+}
+
+impl Unplannable {
+    pub(super) const ALL: [Unplannable; 4] =
+        [Unplannable::Unknown, Unplannable::Library, Unplannable::Journal, Unplannable::Archive];
+
+    /// Makes `f`'s drive so (but for `Unknown`, which names another): the drive to name, and what
+    /// planning an edit on it fails with (its error's code).
+    pub(super) fn make(self, f: &Fixture) -> (&'static str, &'static str) {
+        match self {
+            Unplannable::Unknown => ("ELSEWHERE", "not_found"),
+            Unplannable::Library => {
+                std::fs::write(f.drive.join(paths::EXPORT_PDB), "damaged").unwrap();
+                ("USB", "parse")
+            }
+            Unplannable::Journal => {
+                std::fs::write(f.drive.join(paths::STATE_DIR).join("edits.json"), "damaged").unwrap();
+                ("USB", "parse")
+            }
+            Unplannable::Archive => {
+                let role = api::SetRole { drive: "USB".into(), role: Some("archive".into()) };
+                api::drive_role(&f.store, &role).unwrap();
+                ("USB", "conflict")
+            }
+        }
+    }
+}
+
+/// For any drive no edit is planned for, applying an analyzer's analysis to it fails saying why,
+/// whatever parts are asked for.
+#[hegel::test(test_cases = 1)]
+fn prop_applying_analysis_to_a_drive_nothing_is_planned_for_fails(tc: hegel::TestCase) {
+    for how in Unplannable::ALL {
+        prop_applying_analysis_to_a_drive_nothing_is_planned_for_fails_case(&tc, how);
+    }
+}
+
+/// [`prop_applying_analysis_to_a_drive_nothing_is_planned_for_fails`] for one `how`.
+#[hegel::test_helper]
+fn prop_applying_analysis_to_a_drive_nothing_is_planned_for_fails_case(tc: &hegel::TestCase, how: Unplannable) {
+    use hegel::generators as gs;
+    let parts: Vec<AnalysisPart> = tc.draw(gs::subsequences(AnalysisPart::ALL.to_vec()).min_size(1));
+    let f = Fixture::new(|dir| vec![spec(dir, &structured(), &[])], Options::default());
+    let (drive, code) = how.make(&f);
+    let req = ApplyAnalysis {
+        plugin: "echo".into(),
+        analyzer: "heard".into(),
+        drive: drive.into(),
+        parts,
+        tracks: None,
+        overwrite: tc.draw(gs::booleans()),
+    };
+    let e = f.plugins.plan_apply_analysis(&req, &f.store, &Ctx::silent()).unwrap_err();
+    assert_eq!(e.code(), code, "{how:?}: {e}");
+}
+
+/// What a run of the `heard` analyzer meets.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Meets {
+    /// A field it doesn't declare.
+    Undeclared,
+    /// A beat grid without beats.
+    NoBeats,
+    /// A waveform in a file that isn't in its scratch folder.
+    NoWaveform,
+    /// The store's columns can't be kept (a file where their folder goes).
+    NoColumns,
+    /// The store's beat grids can't be kept.
+    NoOverlay,
+    /// Run again over what it kept.
+    Again,
+    /// An analyzer the plugin doesn't have.
+    Unknown,
+    /// A drive not known here.
+    Elsewhere,
+    /// A drive whose library can't be read.
+    Unreadable,
+    /// A plugin that can't be started.
+    Unstarted,
+    /// An analyzer failing on an empty audio file, naming it.
+    Empty,
+}
+
+/// For any track the `heard` analyzer runs on, and what it meets: a field it doesn't declare
+/// or a waveform that isn't there fails the track (and only it), saying why; a grid without
+/// beats is no grid; a store that can't keep what it worked out, an analyzer or drive that isn't
+/// there, a library that can't be read or a plugin that can't start fail the run. Run again,
+/// it works the track out over what it kept. Its parts of a view, sent as any request's may be,
+/// change nothing.
+#[hegel::test(test_cases = 1)]
+fn prop_an_analyzer_run_fails_a_track_or_the_run_saying_why(tc: hegel::TestCase) {
+    for meets in [
+        Meets::Undeclared,
+        Meets::NoBeats,
+        Meets::NoWaveform,
+        Meets::NoColumns,
+        Meets::NoOverlay,
+        Meets::Again,
+        Meets::Unknown,
+        Meets::Elsewhere,
+        Meets::Unreadable,
+        Meets::Unstarted,
+        Meets::Empty,
+    ] {
+        prop_an_analyzer_run_fails_a_track_or_the_run_saying_why_case(&tc, meets);
+    }
+}
+
+/// [`prop_an_analyzer_run_fails_a_track_or_the_run_saying_why`] for one `meets`.
+#[hegel::test_helper]
+fn prop_an_analyzer_run_fails_a_track_or_the_run_saying_why_case(tc: &hegel::TestCase, meets: Meets) {
+    use hegel::generators as gs;
+    let f = Fixture::new(
+        |dir| {
+            let order = "\n[[contributes.analyzers]]\nname = \"order\"\ntitle = \"Order\"\nversion = \"1\"\nfields = { a = \"integer\", b = \"integer\" }\n";
+            let mut s = spec(dir, &format!("{}{order}", structured()), &["--partials"]);
+            if meets == Meets::Unstarted {
+                s.launch.program = dir.join("no-such-program");
+            }
+            vec![s]
+        },
+        Options::default(),
+    );
+    let answer = match meets {
+        Meets::Undeclared => json!({ "loudness": 1 }),
+        Meets::NoBeats => json!({ "grid": [] }),
+        Meets::NoWaveform => json!({ "wave": { "blob": "none.bands", "columns_per_sec": 75.0 } }),
+        Meets::NoOverlay => json!({ "grid": grid(8, 25) }),
+        _ => json!({ "tempo": tc.draw(gs::integers::<u8>().min_value(60)) }),
+    };
+    let t = f.hear_all(&[answer])[0].clone();
+    let cache = f.store.root().join("cache");
+    std::fs::create_dir_all(&cache).unwrap();
+    let (mut analyzer, mut drive) = ("heard", "USB");
+    match meets {
+        Meets::NoColumns => std::fs::write(cache.join("fields"), "").unwrap(),
+        Meets::NoOverlay => std::fs::write(cache.join("overlay"), "").unwrap(),
+        Meets::Unknown => analyzer = "nope",
+        Meets::Empty => {
+            analyzer = "order";
+            std::fs::write(f.audio(&t), "").unwrap();
+        }
+        Meets::Elsewhere => drive = "ELSEWHERE",
+        Meets::Unreadable => std::fs::write(f.drive.join(paths::EXPORT_PDB), "damaged").unwrap(),
+        _ => {}
+    }
+    let ids = [t.id];
+    let ran = match meets {
+        Meets::Again => {
+            f.plugins.analyze("echo", analyzer, drive, Some(&ids), &f.store, &Ctx::silent()).unwrap();
+            f.plugins.analyze_again("echo", analyzer, drive, &ids, &f.store, &Ctx::silent())
+        }
+        _ => f.plugins.analyze("echo", analyzer, drive, Some(&ids), &f.store, &Ctx::silent()),
+    };
+    match meets {
+        Meets::Empty => {
+            let ran = ran.unwrap();
+            assert_eq!(ran.failures[0].error, format!("{} is empty (the Echo plugin)", t.file_path));
+        }
+        Meets::Undeclared | Meets::NoWaveform => {
+            let ran = ran.unwrap();
+            assert_eq!((ran.analyzed, ran.failed), (0, 1));
+            let why = match meets {
+                Meets::Undeclared => "its field loudness isn't one heard declares",
+                _ => "its wave: its file \"none.bands\" isn't there",
+            };
+            assert!(ran.failures[0].error.contains(why), "{}", ran.failures[0].error);
+        }
+        Meets::NoBeats | Meets::Again => {
+            let ran = ran.unwrap();
+            assert_eq!((ran.analyzed, ran.failed), (1, 0));
+            let audio = f.audio(&t);
+            assert_eq!(OverlayStore::in_store(&f.store).get(&audio, &heard()).and_then(|o| o.beats), None);
+        }
+        Meets::Unknown | Meets::Elsewhere => assert_eq!(ran.unwrap_err().code(), "not_found"),
+        Meets::Unreadable => assert_eq!(ran.unwrap_err().code(), "parse"),
+        Meets::Unstarted => {
+            let e = failure(ran.unwrap_err());
+            assert!(e.starts_with("the Echo plugin failed: it couldn't be started: "), "{e}");
+        }
+        Meets::NoColumns | Meets::NoOverlay => assert_eq!(ran.unwrap_err().code(), "io", "{meets:?}"),
+    }
+}
+
+/// For any part asked of an analyzer that works out none (`size`) or isn't there, or of a track
+/// the drive doesn't have, nothing is planned, saying so; a waveform is written to a track whose
+/// files can take it (no colour waveforms), and never to one whose analysis files are gone; cancelled, planning stops; and a grid written once is, written again over itself, left
+/// out as the track has it already.
+#[hegel::test(test_cases = 1)]
+fn prop_applying_analysis_refuses_stops_or_leaves_out_what_it_has(tc: hegel::TestCase) {
+    for case in 0..=6 {
+        prop_applying_analysis_refuses_stops_or_leaves_out_what_it_has_case(&tc, case);
+    }
+}
+
+/// Whether `edit` writes a track's waveform.
+fn writes_a_waveform(edit: &Edit) -> bool {
+    matches!(edit, Edit::SetAnalysis { analysis, .. } if analysis.waveform.is_some())
+}
+
+/// [`prop_applying_analysis_refuses_stops_or_leaves_out_what_it_has`] for one `case`.
+#[hegel::test_helper]
+fn prop_applying_analysis_refuses_stops_or_leaves_out_what_it_has_case(tc: &hegel::TestCase, case: u8) {
+    use hegel::generators as gs;
+    let f = Fixture::new(|dir| vec![spec(dir, &structured(), &[])], Options::default());
+    let part = tc.draw(gs::sampled_from(AnalysisPart::ALL.to_vec()));
+    match case {
+        0 => {
+            for part in AnalysisPart::ALL {
+                let req = ApplyAnalysis {
+                    plugin: "echo".into(),
+                    analyzer: "size".into(),
+                    drive: "USB".into(),
+                    parts: vec![part],
+                    tracks: None,
+                    overwrite: false,
+                };
+                let e = f.plugins.plan_apply_analysis(&req, &f.store, &Ctx::silent()).unwrap_err();
+                assert_eq!(e.to_string(), format!("File size works out no {}", part.name()));
+            }
+        }
+        1 => {
+            let cancel = locallibrary::CancelToken::new();
+            cancel.cancel();
+            let req = ApplyAnalysis {
+                plugin: "echo".into(),
+                analyzer: "heard".into(),
+                drive: "USB".into(),
+                parts: vec![part],
+                tracks: None,
+                overwrite: false,
+            };
+            let ctx = Ctx::new(&locallibrary::progress::NoProgress, cancel);
+            assert!(matches!(f.plugins.plan_apply_analysis(&req, &f.store, &ctx), Err(Error::Cancelled)));
+        }
+        3 => {
+            let req = ApplyAnalysis {
+                plugin: "echo".into(),
+                analyzer: "heard".into(),
+                drive: "USB".into(),
+                parts: vec![part],
+                tracks: Some(vec![999_999]),
+                overwrite: false,
+            };
+            assert_eq!(f.plugins.plan_apply_analysis(&req, &f.store, &Ctx::silent()).unwrap_err().code(), "not_found");
+        }
+        6 => {
+            let t = f.hear_all(&[answer(64, 300)])[0].clone();
+            f.plugins.analyze("echo", "heard", "USB", Some(&[t.id]), &f.store, &Ctx::silent()).unwrap();
+            // Without rekordbox's colour waveforms (its .EXT and .2EX), which can't be worked out
+            // from one.
+            let dat = paths::to_fs(&f.drive, &paths::key(&t.analyze_path));
+            for ext in ["EXT", "2EX"] {
+                let _ = std::fs::remove_file(dat.with_extension(ext));
+            }
+            let planned = f.apply_analysis(&[AnalysisPart::Waveform], true).unwrap();
+            assert!(planned.plan.recorded.iter().any(writes_a_waveform), "{:?}", planned.warnings);
+        }
+        5 => {
+            let t = f.hear_all(&[answer(8, 300)])[0].clone();
+            f.plugins.analyze("echo", "heard", "USB", Some(&[t.id]), &f.store, &Ctx::silent()).unwrap();
+            let device = locallibrary::Device::open(&f.drive).unwrap();
+            let dat = paths::to_fs(&f.drive, &paths::key(&t.analyze_path));
+            for ext in ["DAT", "EXT", "2EX"] {
+                let _ = std::fs::remove_file(dat.with_extension(ext));
+            }
+            assert!(anlz::load(&device, &t).preview.is_none());
+            let req = ApplyAnalysis {
+                plugin: "echo".into(),
+                analyzer: "heard".into(),
+                drive: "USB".into(),
+                parts: vec![AnalysisPart::Waveform],
+                tracks: Some(vec![t.id]),
+                overwrite: false,
+            };
+            let planned = f.plugins.plan_apply_analysis(&req, &f.store, &Ctx::silent()).unwrap();
+            assert!(!planned.plan.recorded.iter().any(writes_a_waveform), "{:?}", planned.summary);
+            assert!(!planned.warnings.is_empty(), "{:?}", planned.summary);
+        }
+        4 => {
+            let req = ApplyAnalysis {
+                plugin: "echo".into(),
+                analyzer: "nope".into(),
+                drive: "USB".into(),
+                parts: vec![part],
+                tracks: None,
+                overwrite: false,
+            };
+            assert_eq!(f.plugins.plan_apply_analysis(&req, &f.store, &Ctx::silent()).unwrap_err().code(), "not_found");
+        }
+        _ => {
+            f.hear_all(&[json!({ "grid": grid(64, 25) })]);
+            f.plugins.analyze("echo", "heard", "USB", None, &f.store, &Ctx::silent()).unwrap();
+            let once = f.apply_analysis(&[AnalysisPart::Grid], true).unwrap();
+            assert!(!once.noop);
+            once.apply(None, &Ctx::silent()).unwrap();
+            assert!(f.apply_analysis(&[AnalysisPart::Grid], true).unwrap().noop, "as the track has it");
+        }
+    }
+}

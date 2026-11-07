@@ -1,3 +1,4 @@
+import { AtUri } from '@atproto/syntax';
 import { expect, type Page, type Route, test } from '@playwright/test';
 import headline from '../../src/lib/headline.json' with { type: 'json' };
 import { z } from 'zod';
@@ -31,11 +32,19 @@ function keepPdsCookies(page: Page) {
 test.beforeEach(({ page }) => keepPdsCookies(page));
 
 /**
+ * The page has hydrated. WebKit fires `load` without waiting for the app's module imports, so on the dev server a
+ * click can reach a form no script has taken over, and leaving the page cancels those imports, after which SvelteKit's
+ * fallback sends the browser back to it.
+ */
+const hydrated = (page: Page) => expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+
+/**
  * Signs out from the dashboard and waits for the redirect home: /logout records the audit entry and
  * revokes the OAuth session first, and a sign-in started before it finishes would find the old session.
  */
 async function signOut(page: Page) {
 	await page.goto('/dashboard');
+	await hydrated(page);
 	await page.getByRole('button', { name: 'Sign out' }).click();
 	await page.waitForURL((url) => url.pathname === '/');
 }
@@ -53,10 +62,11 @@ async function beforeHydration(page: Page, path: string, act: () => Promise<void
 	};
 
 	await page.route('**/*', holdScripts);
-	await page.goto(path);
+	// Not `load`: WebKit holds that for the scripts, which come after `act`.
+	await page.goto(path, { waitUntil: 'domcontentloaded' });
 	await act();
 	release();
-	await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+	await hydrated(page);
 	await page.unroute('**/*', holdScripts);
 }
 
@@ -73,7 +83,7 @@ test.describe('public pages', () => {
 		const menu = page.getByRole('button', { name: 'Menu' });
 
 		if (await menu.isVisible()) {
-			await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+			await hydrated(page);
 			await menu.click();
 		}
 
@@ -171,6 +181,7 @@ test.describe('public pages', () => {
 		await page.goto('/shows');
 		await expect(page.getByRole('heading', { name: 'Within 25 km of Berlin' })).toBeVisible();
 		await expectAccessible(page);
+		await hydrated(page);
 		await page.getByRole('link', { name: 'Forget this city' }).click();
 		await expect(page.getByRole('heading', { name: 'Everywhere' })).toBeVisible();
 	});
@@ -196,6 +207,7 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 
 		await page.goto('/charts');
+		await hydrated(page);
 		await page.getByRole('region', { name: 'Artists' }).getByRole('link', { name: 'Mira Okonkwo' }).click();
 		await expect(page).toHaveURL(/\/artists\/7d0b9c12-5e64-4f3a-8b21-c4e9a6f05d72$/);
 		await expect(page.getByRole('heading', { level: 1, name: 'Mira Okonkwo' })).toBeVisible();
@@ -212,6 +224,61 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 	});
 
+	test('each tool shows itself at work, a capture per hot cue, with its guides a step away', async ({ page }) => {
+		const loaded = (name: string | RegExp) =>
+			expect
+				.poll(() =>
+					page.getByRole('img', { name }).evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth)
+				)
+				.toBeGreaterThan(0);
+
+		await page.goto('/tools');
+		await hydrated(page);
+		// The deck opens on its first cue, and a capture loads once its cue is picked.
+		await loaded(/^locallibrary playing a track/);
+		await page.getByRole('tab', { name: 'A Marks' }).click();
+		await expect(page.getByRole('tabpanel').getByRole('heading', { name: 'Marks' })).toBeVisible();
+		await loaded(/^A SoundCloud playlist with localtoolbox's marks/);
+		await expectAccessible(page);
+		await page.getByRole('link', { name: 'locallibrary', exact: true }).click();
+		await expect(page).toHaveURL(/\/tools\/locallibrary$/);
+		await hydrated(page);
+
+		const panel = page.getByRole('tabpanel');
+		// A web font arriving after this would rewrap the text, and that isn't a cue moving the page.
+		await page.evaluate(() => document.fonts.ready.then(() => undefined));
+		const height = await panel.evaluate((element) => element.getBoundingClientRect().height);
+		await expect(page.getByRole('tab', { name: 'A Play' })).toHaveAttribute('aria-selected', 'true');
+		await page.getByRole('tab', { name: 'D Check' }).click();
+		await expect(panel.getByRole('heading', { name: 'Check' })).toBeVisible();
+		await loaded(/^locallibrary check on a drive/);
+		await page.keyboard.press('End');
+		await expect(page.getByRole('tab', { name: 'G Report' })).toBeFocused();
+		// Every cue's box is laid out from the start, so picking another moves nothing on the page.
+		expect(await panel.evaluate((element) => element.getBoundingClientRect().height)).toBe(height);
+		await expectAccessible(page);
+
+		const guides = page.getByRole('button', { name: /^Guides/ });
+
+		if (await guides.isVisible()) await guides.click();
+		await page
+			.getByRole('navigation', { name: 'Guides' })
+			.getByRole('link', { name: 'Installing locallibrary' })
+			.click();
+		await expect(page.getByRole('heading', { level: 1, name: 'Installing locallibrary' })).toBeVisible();
+		await expect(
+			page.getByRole('navigation', { name: 'More guides' }).getByRole('link', { name: /^Previous/ })
+		).toHaveAttribute('href', '/tools/locallibrary/docs/readme');
+		await expectAccessible(page);
+	});
+
+	test('the hot cues jump without moving when motion is reduced', async ({ page }) => {
+		await page.emulateMedia({ reducedMotion: 'reduce' });
+		await page.goto('/tools/localtoolbox');
+		await hydrated(page);
+		await expect(page.getByTestId('playhead')).toHaveCSS('transition-property', 'none');
+	});
+
 	test("a profile's sets link their artists to who played them", async ({ page }) => {
 		// The sets render with the page once the server has them cached (otherwise they stream in after it
 		// hydrates), and a tracklist opened before the page hydrates stays open.
@@ -225,6 +292,84 @@ test.describe('public pages', () => {
 		await expect(page).toHaveURL(/\/artists\/name\/Kestrel%20Unit$/);
 		await expect(page.getByRole('heading', { level: 1, name: 'Kestrel Unit' })).toBeVisible();
 		await expectAccessible(page);
+	});
+
+	test("link previews get every public page's title and address without running scripts", async ({ request }) => {
+		// What an unfurler reads: the HTML as served, before any script runs.
+		const head = async (path: string) => {
+			const response = await request.get(path);
+			expect(response.status(), path).toBe(200);
+			const html = (await response.text()).split('</head>')[0];
+
+			const property = (name: string) =>
+				html.match(new RegExp(`<meta (?:property|name)="${name}" content="([^"]*)"`))?.[1];
+
+			return {
+				titles: html.match(/<title>/g)?.length ?? 0,
+				canonical: html.match(/<link rel="canonical" href="([^"]*)"/)?.[1],
+				robots: response.headers()['x-robots-tag'],
+				jsonLd: [...html.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/gs)].map(([, json]) => json),
+				property
+			};
+		};
+
+		for (const path of [
+			'/',
+			'/about',
+			'/for-djs',
+			'/privacy',
+			'/match',
+			'/projects',
+			'/shows',
+			'/artists',
+			'/charts',
+			'/tools',
+			'/tools/locallibrary',
+			'/tools/locallibrary/docs/readme',
+			'/projects/neon-tide',
+			'/projects/neon-tide/press-kits',
+			'/@neon.test'
+		]) {
+			const page = await head(path);
+			expect(page.titles, path).toBe(1);
+			expect(page.property('og:title'), path).toBeTruthy();
+			expect(page.property('description'), path).toBeTruthy();
+			expect(page.property('og:url'), path).toBe(page.canonical);
+			expect(new URL(page.canonical ?? '').pathname, path).toBe(path);
+			expect(page.robots, path).toBeUndefined();
+		}
+
+		// A performer's picture is their card, drawn on the server, which crawlers fetch as a PNG.
+		const performer = await head('/projects/neon-tide');
+		const card = await request.get(new URL(performer.property('og:image') ?? '').pathname);
+		expect(card.status()).toBe(200);
+		expect(card.headers()['content-type']).toBe('image/png');
+		expect(performer.property('og:image:width')).toBe('1200');
+		expect(performer.property('twitter:card')).toBe('summary_large_image');
+
+		// Search engines read who a performer's page is about from its structured data, in the HTML as served.
+		expect(performer.jsonLd).toHaveLength(1);
+		expect(JSON.parse(performer.jsonLd[0] ?? '')).toMatchObject({
+			'@context': 'https://schema.org',
+			'@type': 'ProfilePage',
+			mainEntity: { '@type': 'MusicGroup', name: 'Neon Tide' }
+		});
+
+		// The artist's name reaches the head, not a placeholder written before the plays were counted. The demo sets
+		// reach the directory in a backfill after the app first syncs it, so this waits for them.
+		await expect(async () => {
+			expect((await head('/artists/7d0b9c12-5e64-4f3a-8b21-c4e9a6f05d72')).property('og:title')).toBe('Mira Okonkwo');
+		}).toPass({ timeout: 60_000 });
+
+		// The records behind a page, as at-tags, by DID so a handle change doesn't break them.
+		const record = new AtUri(performer.property('at:canonical') ?? '');
+		expect(record.host).toMatch(/^did:/);
+		expect(record.collection).toBe('computer.localnetwork.project');
+		expect((await head('/@neon.test')).property('at:canonical')).toMatch(
+			/^at:\/\/did:[^/]+\/computer\.localnetwork\.profile\/self$/
+		);
+
+		expect((await request.get('/login')).headers()['x-robots-tag']).toBe('noindex');
 	});
 
 	test('staff pages and the dashboard require sign-in', async ({ page, request }) => {
@@ -258,6 +403,30 @@ test.describe('public pages', () => {
 });
 
 test.describe('signed in', () => {
+	test('makes an account at a host and comes back signed in to follow', async ({ page }, testInfo) => {
+		// A handle of its own for each run and browser: the PDS takes 3 to 18 letters, numbers or hyphens.
+		const handle = `new${testInfo.project.name.slice(0, 6)}${Date.now().toString(36).slice(-5)}`;
+		await page.goto(`/login?next=${encodeURIComponent('/projects/neon-tide#follow')}`);
+		await expect(page.getByText('Sign in with your Atmosphere account to follow Neon Tide.')).toBeVisible();
+		await expectAccessible(page);
+		await hydrated(page);
+		await page.getByRole('link', { name: 'Make an account' }).click();
+		await expect(page.getByRole('heading', { name: 'Where should it live?' })).toBeVisible();
+		await expectAccessible(page);
+
+		// The dev network's own PDS comes first, and sign-up there is its OAuth page with prompt=create.
+		await page.getByRole('button', { name: /^This dev network/ }).click();
+		await page.locator('input[name="handle"]').fill(handle);
+		await page.getByRole('button', { name: 'Next' }).click();
+		await page.locator('input[type="email"]').fill(`${handle}@example.test`);
+		await page.locator('input[type="password"]').fill(`${handle}-pass`);
+		await page.getByRole('button', { name: 'Sign up' }).click();
+		await page.getByRole('button', { name: 'Authorize' }).click();
+
+		await page.waitForURL((url) => url.port === '5199' && url.pathname === '/projects/neon-tide');
+		await expect(page.getByRole('button', { name: /^Follow/ })).toBeVisible();
+	});
+
 	test('a DJ proposes a change and an admin approves it', async ({ page }, testInfo) => {
 		// Every project runs against the same network, so each proposes a tagline of its own: the same
 		// one again would be no change at all.
@@ -268,6 +437,19 @@ test.describe('signed in', () => {
 		await page.getByRole('button', { name: 'Send for review' }).click();
 		await expect(page.getByText('Submitted. A moderator will review it soon')).toBeVisible();
 		await expectAccessible(page);
+
+		// A revision that went through isn't offered back as unsent changes. A request page with a draft opens its
+		// editor with the draft in it, a frame after hydrating.
+		const note = `Moved to Fridays (${testInfo.project.name})`;
+		await page.getByRole('button', { name: 'Edit request' }).click();
+		await page.getByLabel('Note to moderators').fill(note);
+		await page.getByRole('button', { name: 'Save and resubmit' }).click();
+		await expect(page.getByText(note, { exact: true })).toBeVisible();
+		await page.reload();
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		await page.evaluate(() => new Promise(requestAnimationFrame));
+		await expect(page.getByText(/Your unsent changes from/)).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'Edit request' })).toBeVisible();
 		await signOut(page);
 
 		await signIn(page, 'ada.test', 'ada-pass', '/admin/requests');
@@ -275,12 +457,16 @@ test.describe('signed in', () => {
 		await page.getByRole('link', { name: /Changes: Saffron Social/ }).click();
 		await expect(page.getByText(tagline)).toBeVisible();
 		await expectAccessible(page);
+		await page.getByRole('radio', { name: 'Approve and publish' }).check();
 		await page.getByRole('button', { name: 'Submit decision' }).click();
 		await expect(page.getByText('Approved and published')).toBeVisible();
 
 		await page.goto('/admin/audit');
-		// The newest entry; earlier projects' approvals read the same.
-		await expect(page.getByText("Approved @neon.test's change request for Saffron Social").first()).toBeVisible();
+		// The newest entry; earlier projects' approvals read the same. A phone shows entries as cards, a desktop as rows.
+		await expect(
+			page.getByText("Approved @neon.test's change request for Saffron Social").filter({ visible: true }).first()
+		).toBeVisible();
+		await hydrated(page);
 		await page.getByRole('button', { name: 'Verify chain' }).click();
 		await expect(page.getByText(/entries verified/)).toBeVisible();
 		await expectAccessible(page);
@@ -304,6 +490,7 @@ test.describe('signed in', () => {
 		// neon.test manages Neon Tide alone, so its card gives way to their profile once they're listed.
 		await expect(page.getByText(/They also manage Neon Tide, a solo project/)).toBeVisible();
 		await expectAccessible(page);
+		await page.getByRole('radio', { name: 'Approve and list' }).check();
 		await page.getByRole('button', { name: 'Submit decision' }).click();
 		await expect(page.getByText('Approved and listed in Find DJs')).toBeVisible();
 
@@ -314,6 +501,7 @@ test.describe('signed in', () => {
 
 		// Staff's Manage link on the profile goes to the listing, which takes them out again for the next browser's run.
 		await page.goto('/@neon.test');
+		await hydrated(page);
 		await page.getByRole('link', { name: 'Manage' }).click();
 		await expect(page.getByText(/Listed in Find DJs since/)).toBeVisible();
 		await expectAccessible(page);
@@ -361,7 +549,8 @@ test.describe('signed in', () => {
 		await expectAccessible(page);
 		await page.getByRole('button', { name: 'Verify', exact: true }).click();
 		await expect(page.getByText('Verified @neon.test as “Neon”')).toBeVisible();
-		const row = page.getByRole('row', { name: /@neon\.test/ });
+		// A table on a desktop, a list of cards on a phone.
+		const row = page.getByRole('row').or(page.getByRole('listitem')).filter({ hasText: '@neon.test' });
 		await expect(row.getByText('Verified', { exact: true })).toBeVisible();
 		await expectAccessible(page);
 
@@ -370,6 +559,7 @@ test.describe('signed in', () => {
 
 		await page.goto('/admin/verifications');
 		page.once('dialog', (dialog) => dialog.accept());
+		await hydrated(page);
 		await row.getByRole('button', { name: 'Remove' }).click();
 		await expect(page.getByText('Verification removed')).toBeVisible();
 		await expect(row).toHaveCount(0);
@@ -380,6 +570,7 @@ test.describe('signed in', () => {
 		// The old list address, from links in emails, still lands on the list.
 		await page.goto('/projects/neon-tide/epk');
 		await expect(page).toHaveURL('/projects/neon-tide/press-kits');
+		await hydrated(page);
 		await page.getByRole('link', { name: /Clubs/ }).click();
 		await expect(page.getByRole('heading', { name: 'The rest of this press kit' })).toBeVisible();
 		await expect(page.getByText('bookings@neon-tide.test')).toHaveCount(0);
@@ -397,6 +588,7 @@ test.describe('signed in', () => {
 		const { did } = z.object({ did: z.string() }).parse(await resolved.json());
 		await page.goto(`/epk/${did}/${rkey}`);
 		await expect(page).toHaveURL(kit);
+		await hydrated(page);
 
 		// The public page only links to the form, which is on the dashboard.
 		await page.getByRole('link', { name: 'Ask for access' }).click();
@@ -408,6 +600,7 @@ test.describe('signed in', () => {
 		await expect(page.getByText(/You asked on/)).toBeVisible();
 		await page.goto(kit);
 		await expect(page.getByText(/You asked on/)).toBeVisible();
+		await hydrated(page);
 		await signOut(page);
 
 		await signIn(page, 'neon.test', 'neon-pass', access);
@@ -446,6 +639,7 @@ test.describe('signed in', () => {
 
 		// Each browser runs against the same network, so the fan unfollows again.
 		await page.goto('/projects/saffron-social');
+		await hydrated(page);
 		await page.getByRole('button', { name: /^Following \d/ }).click();
 		await expect(page.getByRole('button', { name: /^Follow \d/ })).toHaveAttribute('aria-pressed', 'false');
 	});
@@ -464,7 +658,7 @@ test.describe('signed in', () => {
 		await page.getByRole('button', { name: 'Announce show' }).click();
 		await expect(page.getByRole('alert')).toContainText("Pick the venue's city from the search");
 		// The failed save is a full page load, and hydrating the form resets its coordinates, so wait for that first.
-		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		await hydrated(page);
 		// The e2e network has no geocoder, so this stands in for picking Berlin from the city search.
 		await page.locator('input[name="latE6"]').evaluate((input: HTMLInputElement) => (input.value = '52520000'));
 		await page.locator('input[name="lngE6"]').evaluate((input: HTMLInputElement) => (input.value = '13405000'));
@@ -503,8 +697,10 @@ test.describe('signed in', () => {
 		// Once it's confirmed, the DJ can announce it, starting from the inquiry's details.
 		await signIn(page, 'neon.test', 'neon-pass', thread);
 		await expect(page.getByRole('link', { name: 'Announce this show' })).toHaveCount(0);
-		await page.getByLabel('Status').selectOption('confirmed');
-		await page.getByRole('button', { name: 'Update status' }).click();
+		await page.getByRole('button', { name: 'Change status' }).click();
+		// Confirming settles the booking, so it asks once more before it goes.
+		await page.getByRole('button', { name: 'Confirm booking' }).click();
+		await page.getByRole('button', { name: 'Confirm booking' }).click();
 		await page.getByRole('link', { name: 'Announce this show' }).click();
 		await expect(page.locator('#name')).toHaveValue('Basement Sessions');
 		await expect(page.locator('#date')).toHaveValue('2026-12-12');
@@ -528,9 +724,22 @@ test.describe('bug reports', () => {
 		expect(github.searchParams.get('steps')).toContain('/match');
 	});
 
-	test('signed in, someone approves posting once and reports a bug from their own account', async ({ page }) => {
+	test('signed in, someone approves posting once and reports a bug from their own account', async ({
+		page
+	}, testInfo) => {
+		// An account of its own for each run and browser: an approval stays with the account across sign-ins, and each
+		// browser runs against the same network.
+		const name = `bug${testInfo.project.name.slice(0, 6)}${Date.now().toString(36).slice(-5)}`;
+		const handle = `${name}.test`;
+		const secret = `${name}-pass`;
+
+		const made = await page.request.post('http://localhost:2683/xrpc/com.atproto.server.createAccount', {
+			data: { handle, email: `${name}@example.test`, password: secret }
+		});
+
+		expect(made.ok()).toBe(true);
 		// A fresh sign-in asks only for what the site needs, so posting has to be approved first.
-		await signIn(page, 'pat.test', 'pat-pass', '/match');
+		await signIn(page, handle, secret, '/match');
 		await page.getByRole('contentinfo').getByRole('link', { name: 'Report a bug' }).click();
 		await expect(page.getByRole('heading', { name: 'Approve posting first' })).toBeVisible();
 		await expectAccessible(page);
@@ -541,7 +750,7 @@ test.describe('bug reports', () => {
 		await expect(password.or(authorize).first()).toBeVisible();
 
 		if (await password.isVisible()) {
-			await password.fill('pat-pass');
+			await password.fill(secret);
 			await page.getByRole('button', { name: 'Sign in' }).click();
 		}
 
@@ -580,6 +789,7 @@ test.describe('keeps what people entered', () => {
 		await page.goto('/dashboard/projects/neon-tide/profile');
 		await expect(page).toHaveURL(request);
 		await page.waitForLoadState('networkidle');
+		await hydrated(page);
 		await page.getByRole('button', { name: 'Edit request' }).click();
 		const photo = page.locator('form img');
 		await expect(photo).toBeVisible();
@@ -680,6 +890,7 @@ test.describe('keeps what people entered', () => {
 		await signIn(page, 'pat.test', 'pat-pass');
 		await page.goto('/match?go=1&title=Rooftop%20Rave&date=2026-12-19&lat=52.52&lng=13.405&radius=50&genres=techno');
 		await page.waitForLoadState('networkidle');
+		await hydrated(page);
 		await page.locator('ol > li').filter({ hasText: 'Neon Tide' }).getByLabel('Lineup').check();
 		await page.getByRole('button', { name: 'Save show to planner' }).click();
 		await page.getByRole('link', { name: 'Inquire with Neon Tide' }).click();
@@ -687,7 +898,7 @@ test.describe('keeps what people entered', () => {
 		await expect(page.locator('#date')).toHaveValue('2026-12-19');
 		await expect(page.getByText('in your planner')).toBeVisible();
 
-		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		await hydrated(page);
 		await page.locator('#message').fill('Would you close our rooftop night?');
 		await page.reload();
 		await expect(page.locator('#message')).toHaveValue('Would you close our rooftop night?');
@@ -707,7 +918,7 @@ test.describe('keeps what people entered', () => {
 		await expect(page.locator('html')).not.toHaveAttribute('data-hydrated');
 		await page.getByRole('button', { name: 'Sign out' }).click();
 		await page.waitForURL((url) => url.pathname === '/');
-		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		await hydrated(page);
 		const drafts = () => Object.keys(localStorage).filter((key) => key.startsWith('ln:draft:'));
 		expect(await page.evaluate(drafts)).toEqual([]);
 		await signIn(page, 'pat.test', 'pat-pass', new URL(inquiry).pathname + new URL(inquiry).search);
@@ -718,7 +929,7 @@ test.describe('keeps what people entered', () => {
 		await expect(page.getByRole('heading', { name: 'Rooftop Rave' })).toBeVisible();
 		// Sent, the draft is gone.
 		await page.goto(inquiry);
-		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		await hydrated(page);
 		await expect(page.locator('#message')).toHaveValue('');
 	});
 

@@ -44,14 +44,15 @@ CLI's tests run them through the real one. Account plugins are the exception: ea
 `locallibrary-plugin.toml` alone in `plugins/accounts/<id>/`, outside the workspace, which
 `build.rs` includes and nothing runs, so adding one is adding its folder.
 
-**Toolchain:** `rust-toolchain.toml` pins the Rust that CI and release builds use (1.96.1, with
-clippy, rustfmt and llvm-tools), and rustup installs it the first time cargo runs in the checkout. A Rust that doesn't come from rustup (Homebrew's, say) ignores the
-file, and its clippy may disagree with CI's. The oldest Rust locallibrary supports (its MSRV) is
-`rust-version` in Cargo.toml, 1.91; check it with `cargo +1.91 check --workspace --locked`.
-Change either on purpose: bump the pin in a commit of its own, fixing what the newer clippy
-finds, and raise `rust-version` together with the msrv job in `locallibrary-ci.yml`.
+`rust-toolchain.toml` pins the Rust that CI and release builds use (1.96.1, with clippy, rustfmt
+and llvm-tools), and rustup installs it the first time cargo runs in the checkout. A Rust that
+doesn't come from rustup (Homebrew's, say) ignores the file, and its clippy may disagree with
+CI's. The oldest Rust locallibrary supports (its MSRV) is `rust-version` in Cargo.toml, 1.91;
+check it with `cargo +1.91 check --workspace --locked`. Change either on purpose: bump the pin in
+a commit of its own, fixing what the newer clippy finds, and raise `rust-version` together with
+the msrv job in `locallibrary-ci.yml`.
 
-**CI** (`.github/workflows/locallibrary-ci.yml`, which `ci.yml` calls) runs the quick checks on
+CI (`.github/workflows/locallibrary-ci.yml`, which `ci.yml` calls) runs the quick checks on
 pull requests and pushes to `main` that change the workspace (not when only Markdown changed), on
 Linux. macOS and Windows run in the merge queue, once for each group of pull requests about to
 merge, or on a pull request with the `all-os` label (add it, then re-run CI):
@@ -108,12 +109,6 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
   `rekordbox-pdb` with [cargo-mutants](https://mutants.rs) (settings in `.cargo/mutants.toml`), in
   shards. Missed mutants don't fail it: the run's summary lists them, and each shard's
   `mutants.out` artifact has their diffs. `cargo mutants -p loclib-progress` runs it locally;
-- the release CLI's timings with [hyperfine](https://github.com/sharkdp/hyperfine) against the
-  same branch a week earlier (`tools/cli-timings.sh NEW [OLD]` runs them locally), failing when a
-  command's fastest run is more than 25% (and 3 ms) slower. On `main`, each run's timings also go
-  to [Bencher](https://bencher.dev/perf/localnetwork), which charts them over time and raises an
-  alert when one is slower than its last 64 runs suggest (it needs the `BENCHER_API_KEY` secret,
-  a project key for the `localnetwork` project);
 - dist's release build of every target, unsigned and without a tag (see Releasing);
 - the fuzz targets, five minutes each (see Fuzzing);
 - the Hegel property tests on fresh inputs, 40 minutes a shard (see Property-based tests);
@@ -122,10 +117,11 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
 A weekly run with a failed job opens an issue (or comments on the open one) naming the jobs, and
 the next weekly run that passes closes it.
 
-The workspace has no benchmarks on `main` yet, so no workflow runs them: the `bnb/perf` branch
-adds them, and with them a workflow that runs them under [CodSpeed](https://codspeed.io)
-(`locallibrary-bench.yml`, which `git log --diff-filter=D -- .github/workflows/locallibrary-bench.yml`
-finds in the history).
+`.github/workflows/locallibrary-bench.yml` runs the benchmarks (see Benchmarks) under
+[CodSpeed](https://codspeed.io) weekly and on demand, not on pull requests: started by hand on a
+branch (Actions, locallibrary benchmarks, Run workflow), it reports each benchmark's change
+against `main`'s last run. A weekly run skips them when nothing they build from changed, and a
+failed one opens an issue as the scheduled suites do.
 
 Actions are pinned to commits, and Dependabot proposes updates to them and to `Cargo.lock` once a
 month.
@@ -163,7 +159,8 @@ rekordcrate (MPL-2.0), including a 3,886-track export database (see the README t
 tests also use the vendored rekordbox-pdb's exports (MIT, `vendor/rekordbox-pdb/tests/data/`).
 The tests cross-check what locallibrary writes against rekordcrate's independent parser. The
 OneLibrary fixtures (`onelibrary/`, rekordbox's schema with synthetic tracks) are made by the
-`sqlcipher` CLI (`make.sh`), so reading is checked against an independent SQLCipher. With
+`sqlcipher` CLI, so reading is checked against an independent SQLCipher. An ignored test remakes
+them: `cargo test -p locallibrary --test it remake_sqlcipher_fixtures -- --ignored`. With
 `sqlcipher` installed, the tests that merge, clean, convert or edit a OneLibrary database also
 have it check the result (`tests/support/sqlcipher.rs`); without it they skip that check, unless
 `LOCALLIBRARY_REQUIRE_SQLCIPHER=1` is set, as in CI, which makes them fail.
@@ -205,6 +202,27 @@ its nextest filter, so it packs them into filtersets of at most 96 KiB, each its
 Linux's 128 KiB cap on a single argument, and fails if one file's tests alone need more.
 `tools/hegel-coverage.sh --print-filter` prints those filtersets one per line, for other runs of the
 same tests; the scheduled workflow's `hegel` job passes each as a `--filterset`.
+
+## Benchmarks
+
+```bash
+cargo bench -p locallibrary --bench library -- --save-baseline before   # on the code before a change
+cargo bench -p locallibrary --bench library -- --baseline before        # after it: the change in each
+cargo bench -p loclib-mixid --features test-util --bench mixid -- matcher/find   # one group
+```
+
+Crates with work that grows with a library or a recording have
+[criterion](https://bheisler.github.io/criterion.rs/book/) benchmarks in their `benches/`:
+`locallibrary` (reading, querying, comparing, profiling, scanning, writing and converting libraries
+of 5k to 20k made-up tracks), `loclib-mixid` (fingerprinting, resampling, indexing and finding
+tracks in a mix), `loclib-model`, `loclib-tracklist` and `loclib-interop` (over
+`loclib_model::test_util::library`), `loclib-waveform` (a frame of each widget) and
+`loclib-analysis`. `loclib-mixid` and `loclib-model` need `--features test-util`. The first
+`library` run builds its drives under `target/`, which takes about a minute. Compare on a quiet
+machine and rerun anything close: a few percent is noise.
+
+CI holds what can be counted exactly (binary size, allocations, instructions) to the budgets in
+[`benchmarks/`](../../benchmarks/README.md), which only move down without saying why.
 
 ## Property-based tests
 
@@ -258,8 +276,8 @@ runaway allocation. `fuzz/` is a workspace of its own and needs nightly:
 
 ```bash
 rustup toolchain install nightly --component rust-src && cargo install cargo-fuzz --locked
-fuzz/run.sh anlz                                            # until it finds something; Ctrl-C stops it
-fuzz/run.sh pdb -max_total_time=300                         # libFuzzer options after the target
+cargo +nightly fuzz-anlz                                    # until it finds something; Ctrl-C stops it
+cargo +nightly fuzz-pdb -max_total_time=300                 # libFuzzer options after the target
 cargo +nightly fuzz run anlz fuzz/artifacts/anlz/crash-...  # replay a crash
 ```
 
@@ -274,23 +292,23 @@ input of any crash.
 
 [Bombadil](https://github.com/antithesishq/bombadil) drives the TUI in a terminal and the mix
 report in headless Chrome with random keys, clicks and resizes, checking properties over time
-(`bombadil/tui.ts`, `bombadil/report.ts`): the header and footer are always drawn, digits switch
-views, help opens and closes, a typed line keeps its cursor in view, edits finish, the report's
+(`bombadil/tui.ts`, `bombadil/report.ts`): the header and footer are always drawn, the deck stays on
+screen, `g` and a letter switches views, help opens and closes, a typed line keeps its cursor in view, edits finish, the report's
 counts agree and its player stays consistent. macOS and Linux only, with Node 22:
 
 ```bash
 cd bombadil && npm ci       # from this folder
-./tui.sh                    # 2 minutes; TIME_LIMIT=30m ./tui.sh for longer
-./report.sh                 # needs Chrome: npx -y playwright@1.63.0 install --only-shell chromium
+node tui.mjs                # 2 minutes; TIME_LIMIT=30m node tui.mjs for longer
+node report.mjs             # needs Chrome: npx -y playwright@1.63.0 install --only-shell chromium
 ```
 
-`tui.sh` runs the TUI on a throwaway copy of a fixture drive with `LOCALLIBRARY_VOLUMES` pointing
+`tui.mjs` runs the TUI on a throwaway copy of a fixture drive with `LOCALLIBRARY_VOLUMES` pointing
 at the folder that holds only that copy, an empty store, `open` stubbed out and a home and
 working folder of its own, so files it writes stay in the run's folder; it lets the run write
-edits to that copy and checks afterwards that the drive still reads. `report.sh` writes
+edits to that copy and checks afterwards that the drive still reads. `report.mjs` writes
 synthetic audio for a fixture drive's tracks, records a "set" from four of them
 (`make-mix.mjs`), has `locallibrary mix` identify it and explores the report it writes. Both
-print where the trace went; add Bombadil options after the script name (`./tui.sh --columns 80`).
+print where the trace went; add Bombadil options after the script name (`node tui.mjs --columns 80`).
 
 ## Releasing
 
@@ -324,14 +342,14 @@ over. Upgrading dist also takes the new version and its archives' checksums in
 Still to set up before the first release (the workflow runs without them, and says what it
 skipped):
 
-- **Third-party notices.** dist puts `LICENSE` in the archives and the Homebrew formula, but the
+- Third-party notices: dist puts `LICENSE` in the archives and the Homebrew formula, but the
   binary also holds code under other licences (the dependencies, and the vendored rekordbox-pdb
   with its `template.pdb`), whose notices have to ship with it: generate a notices file at
   release (with `cargo about`, say) and include it.
-- **The Homebrew tap.** Create the `cutenode/homebrew-tap` repository, and save a fine-grained
+- The Homebrew tap: create the `cutenode/homebrew-tap` repository, and save a fine-grained
   token that can write to its contents as the `HOMEBREW_TAP_TOKEN` secret. Until then the
   formula is only attached to the release.
-- **macOS signing and notarization**, with an Apple Developer Program membership. Without these
+- macOS signing and notarization, with an Apple Developer Program membership. Without these
   secrets the macOS binaries ship unsigned, and macOS refuses one downloaded with a browser
   until its quarantine flag is removed (the installers and Homebrew don't set it). Signing
   (dist runs `codesign` with the hardened runtime before archiving) needs:

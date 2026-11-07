@@ -1,9 +1,9 @@
 //! What the player remembers between runs (the drive and list it was showing, the view, sort,
-//! volume, visualiser and panels, its theme, quantize, the output, the crate, and the queue and
-//! where it was in it), in `tui.json` in the store, or beside the store's folder until there is one. Best
+//! volume, visualiser and panels, its theme, colours and icons, quantize, the output, the crate,
+//! and the queue and where it was in it), in `tui.json` in the store, or beside the store's folder until there is one. Best
 //! effort: a missing or unreadable file just means starting fresh, and nothing is ever written to
-//! a drive. Of it, the choices that are the user's preferences (the theme, the columns, the
-//! visualiser, playback modes) go in `settings export`; see `locallibrary::settings::transfer`.
+//! a drive. Of it, the choices that are the user's preferences (the theme, colours and icons,
+//! the columns, the visualiser, playback modes) go in `settings export`; see `locallibrary::settings::transfer`.
 
 use std::path::{Path, PathBuf};
 
@@ -43,6 +43,10 @@ pub struct Saved {
     pub field_columns: Vec<String>,
     /// The theme it draws in, a plugin's (`<plugin>.<name>`): the default without one.
     pub theme: Option<String>,
+    /// The colour tier asked for (`truecolor`, `256`, `16`): what the terminal says without one.
+    pub color: Option<String>,
+    /// The icons asked for (`nerd`, `unicode`, `ascii`): what suits the terminal without one.
+    pub icons: Option<String>,
     pub shuffle: bool,
     /// `off`, `all` or `one`.
     pub repeat: Option<String>,
@@ -111,10 +115,15 @@ pub fn save(store_root: &Path, saved: &Saved) {
     if saved.root.as_deref().is_some_and(|r| resolved(&dir).starts_with(resolved(r))) {
         return;
     }
+    // One that can't be read right now keeps what it holds: `load` gave the defaults for it.
+    let file = dir.join(FILE);
+    if std::fs::File::open(&file).is_err_and(|e| e.kind() != std::io::ErrorKind::NotFound) {
+        return;
+    }
     if let Ok(json) = serde_json::to_vec_pretty(saved)
         && std::fs::create_dir_all(&dir).is_ok()
     {
-        let _ = locallibrary::fsutil::write_atomic(&dir.join(FILE), &json);
+        let _ = locallibrary::fsutil::write_atomic(&file, &json);
     }
 }
 

@@ -10,6 +10,8 @@
 
 #[path = "../common/mod.rs"]
 mod common;
+#[path = "../support/mock_oauth.rs"]
+mod mock_oauth;
 #[cfg(feature = "account")]
 #[path = "../support/mock_pds.rs"]
 mod mock_pds;
@@ -49,6 +51,7 @@ mod plugins;
 mod profile;
 mod props_after_set;
 mod props_anlz;
+mod props_anlz_edges;
 mod props_anlz_phrases;
 mod props_anlz_write;
 mod props_api;
@@ -70,8 +73,10 @@ mod props_api_reports;
 mod props_api_resolve;
 mod props_api_set_job;
 mod props_api_set_reports;
+mod props_api_snapshots;
 mod props_api_store;
 mod props_api_sync;
+mod props_api_tui;
 mod props_api_undo;
 mod props_api_unembed;
 mod props_api_upgrade;
@@ -102,7 +107,12 @@ mod props_core2_space;
 mod props_core2_store;
 mod props_core2_tidy;
 mod props_core2_tree;
+mod props_cov_merge;
+mod props_cov_offsite;
+mod props_cov_store;
+mod props_cov_sync;
 mod props_cues;
+mod props_cues_edges;
 mod props_cues_more;
 mod props_demos;
 mod props_destinations;
@@ -127,6 +137,7 @@ mod props_fleet;
 mod props_fleet_more;
 mod props_format;
 mod props_harmony;
+mod props_hash;
 mod props_import;
 mod props_merge;
 mod props_merge_more;
@@ -152,6 +163,7 @@ mod props_push;
 mod props_query;
 mod props_recordings;
 mod props_relocate;
+mod props_retention;
 mod props_scrub;
 mod props_scrub_more;
 mod props_setpath;
