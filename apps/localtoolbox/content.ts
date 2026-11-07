@@ -1986,7 +1986,10 @@
 		},
 		{
 			rows: LIKED_TILE_SELECTOR,
-			art: '.playableTile__image .sc-artwork',
+			// The box around the artwork link, not the artwork inside it: in there
+			// the queue button would be a button inside a link, and the pill's
+			// word would become part of the link's name.
+			art: '.playableTile__artwork',
 			link: '.playableTile__mainHeading, .playableTile__artworkLink',
 			variant: 'large',
 			fields: (tile) => ({
@@ -2111,9 +2114,16 @@
 		pill.className = `${MARK_CLASS}__pill`;
 
 		if (kind === 'nodl') pill.textContent = 'nodl';
-		// A 32 px thumbnail has no room for the word: "downloaded" becomes the
-		// check it means.
-		else pill.textContent = variant === 'small' ? '✓' : 'downloaded';
+		else if (variant === 'large') pill.textContent = 'downloaded';
+		else {
+			// A 32 px thumbnail has no room for the word: "downloaded" becomes the
+			// check it means, and keeps the word for a screen reader, which would
+			// otherwise read out "check mark".
+			pill.textContent = '✓';
+			pill.setAttribute('role', 'img');
+			pill.setAttribute('aria-label', 'downloaded');
+		}
+
 		overlay.append(pill);
 
 		return overlay;
@@ -2159,14 +2169,28 @@
 	// is the stylesheet's (content.css), so it costs no listener here and no
 	// repaint, and the resting word stays the button's own text, which is what
 	// a reader of the DOM gets. 32 px thumbnails and the player bar's 30 px one
-	// have room for a sign and nothing else: there a queued track keeps the
-	// "+", and hovering turns it into the "−" that would take it out. "unqueue"
+	// have room for a sign and nothing else: there a queued track shows "✓",
+	// and hovering turns it into the "−" that would take it out. "unqueue"
 	// is the word the panel's own batch action uses for the same thing.
+	// A queued track's label starts with the word the large button shows. A
+	// screen reader gets the state from it, which the small "+" alone does not
+	// give, and voice control finds the button by the word on it.
+	// A thumbnail that is downloaded already carries the mark's "✓", so a
+	// queued one there keeps its button out of sight until hovered, where it
+	// shows the "−" straight away: one check per thumbnail, and the one that
+	// stays is the one that says the track is done.
 	const QUEUE_BUTTON_STATES = {
 		'large:no': { text: '+ queue', hover: '', label: 'add to the session queue' },
-		'large:yes': { text: 'queued', hover: 'unqueue', label: 'take out of the session queue' },
+		'large:yes': { text: 'queued', hover: 'unqueue', label: 'queued, take out of the session queue' },
 		'small:no': { text: '+', hover: '', label: 'add to the session queue' },
-		'small:yes': { text: '+', hover: '−', label: 'take out of the session queue' }
+		'small:yes': { text: '✓', hover: '−', label: 'queued, take out of the session queue' },
+		'small:downloaded': { text: '−', hover: '', label: 'queued, take out of the session queue' }
+	};
+
+	const queueStateOf = (permalink: string, variant: MarkerTarget['variant']): keyof typeof QUEUE_BUTTON_STATES => {
+		if (!queued.has(permalink)) return `${variant}:no`;
+
+		return variant === 'small' && downloaded[permalink] ? 'small:downloaded' : `${variant}:yes`;
 	};
 
 	// The details the queue should carry for a track: what has been looked up
@@ -2257,8 +2281,8 @@
 		const text = document.createElement('span');
 		text.className = `${QUEUE_BUTTON_CLASS}__text`;
 		button.append(text);
-		// The artwork is a play control, and in two of these layouts it sits
-		// inside a link to the track: queueing must set neither off. The capture
+		// The artwork is a play control, and on some layouts it sits inside a
+		// link to the track: queueing must set neither off. The capture
 		// listener further down is not among them: it watches SoundCloud's own
 		// download controls, which this is not.
 		button.addEventListener('click', (event) => {
@@ -2288,7 +2312,7 @@
 		// Which track the click will queue. Read at click time, because the row
 		// it was painted on can be recycled for another track before then.
 		button.dataset.permalink = permalink;
-		const state: keyof typeof QUEUE_BUTTON_STATES = `${target.variant}:${queued.has(permalink) ? 'yes' : 'no'}`;
+		const state = queueStateOf(permalink, target.variant);
 
 		if (button.dataset.state === state) return;
 		button.dataset.state = state;
@@ -2816,14 +2840,38 @@
 
 	const isWalked = (href: string) => WALKED_HOSTS.has(hostOf(href));
 
+	const STATUS_CLASS = 'tbx-status';
+
+	// Where a gate's outcome is said to a screen reader: one visually hidden
+	// live region per page, put there on the first walk. It is emptied before
+	// the walk starts, so that the outcome is a change even when it is the
+	// same words as last time, and a region that is already on the page by
+	// then is one a screen reader is listening to.
+	const statusRegion = () => {
+		let region = document.querySelector<HTMLElement>(`body > .${STATUS_CLASS}`);
+
+		if (!region) {
+			region = document.createElement('div');
+			region.className = STATUS_CLASS;
+			region.setAttribute('role', 'status');
+			document.body.append(region);
+		}
+
+		return region;
+	};
+
 	// A gate link, walked to its file by the background worker (background.ts)
 	// instead of opened. Saved, the track is marked the way the Downloader
 	// marks it; anything else and the worker has opened the gate in a tab,
 	// so the track is queued as any opened link is. `aria-busy` is the button
-	// saying it heard, and keeps a second click from walking it twice.
+	// saying it heard, and keeps a second click from walking it twice. The
+	// status region says how it ended, which nothing on the page shows.
 	const saveGate = async (button: HTMLElement, url: string, permalink: string, fields: Partial<RowFields>) => {
 		if (button.getAttribute('aria-busy') === 'true') return;
 		button.setAttribute('aria-busy', 'true');
+		const status = statusRegion();
+		status.textContent = '';
+		let outcome = 'opened the gate';
 
 		try {
 			const answer: SaveGateAnswer | undefined = await chrome.runtime.sendMessage({
@@ -2832,7 +2880,11 @@
 			} satisfies SaveGateRequest);
 
 			if (!answer?.saved) await enqueue(permalink, fields);
-			else if (answer.mark) mark(permalink);
+			else {
+				outcome = 'saved';
+
+				if (answer.mark) mark(permalink);
+			}
 		} catch (_e) {
 			// No worker to ask: the extension was reloaded under this page. The
 			// link opens, and the track is queued, as they would have been
@@ -2841,6 +2893,7 @@
 			await enqueue(permalink, fields);
 		} finally {
 			button.removeAttribute('aria-busy');
+			status.textContent = outcome;
 		}
 	};
 
