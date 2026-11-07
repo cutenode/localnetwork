@@ -376,10 +376,13 @@ export const placeOf = (profile?: ProfileEntry | null) => [profile?.city, profil
  * followers, how many links), or, when nothing is, why: nobody has asked, or
  * SoundCloud had no profile for the path.
  *
- * @param options `checking` while a lookup is asking about it
+ * @param options `checking` while a lookup is asking about it, `failed` when
+ *   the last lookup couldn't, whatever the row already holds
  */
-export function profileLine(entry: ArtistEntry, { checking = false } = {}) {
+export function profileLine(entry: ArtistEntry, { checking = false, failed = false } = {}) {
 	if (checking) return 'looking up…';
+
+	if (failed) return 'lookup failed';
 
 	if (isUnchecked(entry)) return 'not looked up';
 

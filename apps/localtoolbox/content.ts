@@ -3074,12 +3074,13 @@
 	};
 
 	// The panel's question: `profiles` for the paths that are public profiles,
-	// `failed` for the ones that are not (or could not be asked about), and
-	// `error` ('' | 'no-client-id' | 'unauthorized'). Progress goes out as it
-	// comes, an artist at a time, so the rows fill in rather than wait.
+	// `missing` for the ones SoundCloud says are not, `failed` for the ones that
+	// could not be asked about, and `error` ('' | 'no-client-id' | 'unauthorized').
+	// Progress goes out as it comes, an artist at a time, so the rows fill in
+	// rather than wait.
 	/** @param permalinks the panel's list, checked path by path. */
 	const collectArtistProfiles = async (permalinks: Json | undefined): Promise<ProfilesAnswer> => {
-		const result: ProfilesAnswer = { ok: true, profiles: [], failed: [], error: '' };
+		const result: ProfilesAnswer = { ok: true, profiles: [], missing: [], failed: [], error: '' };
 		const wanted = [...new Set(listOf(permalinks).filter(isArtistPath))];
 
 		if (wanted.length === 0) return result;
@@ -3095,13 +3096,14 @@
 		let unauthorized = false;
 		let done = 0;
 
-		const report = (profiles: ArtistProfile[], failed: string[]) => {
+		const report = (profiles: ArtistProfile[], missing: string[], failed: string[]) => {
 			chrome.runtime
 				.sendMessage({
 					type: 'ARTIST_PROFILES_PROGRESS',
 					done,
 					total: wanted.length,
 					profiles,
+					missing,
 					failed
 				} satisfies ProfilesProgress)
 				.catch(() => {});
@@ -3112,24 +3114,35 @@
 			API_CONCURRENCY,
 			async (permalink) => {
 				let profile = null;
+				let asked = true;
 
 				try {
 					profile = await fetchProfile(permalink, clientId);
 				} catch (e) {
 					// 401 means the client id is no longer accepted, which says nothing
-					// about this artist and stops the rest; anything else is this one.
+					// about this artist and stops the rest. A 404 is SoundCloud's answer
+					// that nobody is there; anything else leaves the question open.
 					if (e instanceof ApiError && e.status === 401) {
 						unauthorized = true;
 
 						return;
 					}
+
+					asked = e instanceof ApiError && e.status === 404;
 				}
 
 				done += 1;
 
-				if (profile) result.profiles.push(profile);
-				else result.failed.push(permalink);
-				report(profile ? [profile] : [], profile ? [] : [permalink]);
+				if (profile) {
+					result.profiles.push(profile);
+					report([profile], [], []);
+				} else if (asked) {
+					result.missing.push(permalink);
+					report([], [permalink], []);
+				} else {
+					result.failed.push(permalink);
+					report([], [], [permalink]);
+				}
 			},
 			() => !unauthorized
 		);
