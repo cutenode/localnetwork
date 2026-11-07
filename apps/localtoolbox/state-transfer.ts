@@ -1,7 +1,7 @@
-// Import and export of everything the extension holds, as one JSON file: the
-// Manager's own list of tracks, the ones marked as downloaded, the cached
-// download details, the artists tool's list, the session queue and the
-// panels' remembered options.
+// Import and export of what the extension holds that would hurt to lose, as
+// one JSON file: the Manager's own list of tracks, the ones marked as
+// downloaded, the cached download details, the artists tool's list, the
+// session queue and the three panel options in PREFS below.
 //
 // Why it exists: the list, the marks and the details cache live in the
 // extension's own storage, which goes away with the extension. Reinstalling it

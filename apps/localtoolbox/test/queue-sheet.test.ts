@@ -385,6 +385,35 @@ describe('handing the batch to another tool', () => {
 		// The tab is example.com, and nothing asked it for a page.
 		expect(text()).not.toMatch(/open a SoundCloud playlist, likes or track page/);
 	});
+
+	it('switches the text tool when that is the one open under the sheet', async () => {
+		await openApp({ session: queued() });
+		await click(button('playlist to text'));
+		expect(text()).toMatch(/open a SoundCloud playlist, likes or track page/);
+
+		await openQueue();
+		await click(sendButton('playlist to text'));
+		expect(queueSheet()).toBe(null);
+		expect(document.querySelector('textarea')!.value).toMatch(/One/);
+		expect(
+			buttons()
+				.find((b) => clean(b).startsWith('session queue'))!
+				.getAttribute('aria-pressed')
+		).toBe('true');
+	});
+
+	it('switches the Downloader when that is the one open under the sheet', async () => {
+		const gated = [track('Artist A', 'One', { details: { purchaseUrl: 'https://hypeddit.com/886rp1' } })];
+		await openApp({ session: queued(gated) });
+		await click(button('downloader'));
+		await settle();
+		expect(rows()).toEqual([]);
+
+		await openQueue();
+		await click(sendButton('downloader'));
+		await settle();
+		expect(rows().map((li) => clean(li))).toEqual([expect.stringMatching(/Artist A — One/)]);
+	});
 });
 
 describe('where the queue was scrolled to', () => {

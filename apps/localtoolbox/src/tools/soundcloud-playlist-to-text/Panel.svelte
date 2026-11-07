@@ -22,7 +22,7 @@
   import { flagPref, choicePref } from '$lib/prefs.svelte.ts';
   import { queue } from '$lib/queue.svelte.ts';
   import { count, pageSummary, readPage } from '$lib/soundcloud.ts';
-  import { PAGE, QUEUE, SOURCE_PREF, SOURCES } from '$lib/source.ts';
+  import { QUEUE, source } from '$lib/source.ts';
   import { toasts } from '$lib/toast.svelte.ts';
   import { FORMATS, FORMAT_VALUES, formatFor, processTracks, slugify } from './formats.ts';
   import type { PanelProps, TracksAnswer } from '$lib/types';
@@ -30,8 +30,6 @@
   let { tool, onback }: PanelProps = $props();
 
   const format = choicePref('pref:format', 'artist-title', FORMAT_VALUES);
-
-  const source = choicePref(SOURCE_PREF, PAGE, SOURCES);
 
   const splitTitle = flagPref('pref:split-title', false);
 
@@ -93,7 +91,7 @@
   }
 
   function save() {
-    // `title` is the playlist title, or "Your likes" / "Likes by <user>" on
+    // `title` is the playlist title, or "your likes" / "Likes by <user>" on
     // Likes pages; the queue is not a page and has no title of its own.
     const stem = fromQueue ? 'session-queue' : slugify(data!.title);
     const name = downloadText(output, `${stem}.${chosen.ext}`, chosen.mime);
@@ -103,7 +101,7 @@
 
 <PanelShell {tool} {onback} {meta}>
   <div class="flex flex-col gap-2.5">
-    <SourcePicker {source} queued={queue.count} />
+    <SourcePicker queued={queue.count} />
 
     {#if fromQueue && queue.count === 0}
       <StatusNote tone="info">

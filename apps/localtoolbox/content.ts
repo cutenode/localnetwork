@@ -2557,9 +2557,9 @@
 	// in each track's More menu, and the purchase link ("Buy", "Free Download",
 	// …) on Likes rows and track pages. Turned on (it is, by default; see
 	// src/lib/settings.svelte.ts), this puts the Manager panel's own button in
-	// their place, doing what that button does for the same track: the track
-	// goes into the session queue, and then the link opens or the file is
-	// downloaded.
+	// their place, doing what that button does for the same track: the link
+	// opens or the file is downloaded, and the track goes into the session
+	// queue.
 	//
 	// Why the queue: opening a download link proves nothing yet (the file has
 	// not been saved and the gate behind the link has not even been walked), so
