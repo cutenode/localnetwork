@@ -9,11 +9,11 @@
 //
 // Each of those is injected here against each panel that touches it. The bar
 // is the same everywhere: draw something a person can read, leave no promise
-// rejected on the floor, and — because a panel that cannot say why is as bad
-// as one that crashed — keep the page accessible while doing it. "Something a
+// rejected on the floor, and keep the page accessible while doing it, because
+// a panel that cannot say why is as bad as one that crashed. "Something a
 // person can read" is the words each panel has for what happened, not merely
 // some text: a panel's own header is more than twenty characters, so a length
-// was met by every panel whatever its body drew.
+// check would pass for every panel whatever its body drew.
 import { describe, it, expect, vi } from 'vitest';
 import { audit } from './helpers/a11y.ts';
 import {
@@ -59,7 +59,7 @@ const GATED = [gated(TRACKS[0], 'glue1'), gated(TRACKS[1], 'baby1')];
 
 const answer = (tracks: object[] = TRACKS) => extraction({ tracks, lookupFailed: 0, resumed: false, error: '' });
 
-// A rejection nobody handled fails the test it happened in — test/setup.js
+// A rejection nobody handled fails the test it happened in: test/setup.ts
 // watches every test for one. All that is needed here is to give it a chance
 // to arrive before the test ends, which is what `quiet()` does: rejections
 // are delivered a macrotask after the promise settles.
@@ -106,7 +106,7 @@ const NO_TAB = {
 // Everything an older (or newer) content script might leave out, and what each
 // panel makes of it: an answer it cannot read, a page with no tracks, or
 // tracks it draws. The downloader reads a page for its gate links rather than
-// its tracks, so tracks without one are nothing it knows — and it takes no
+// its tracks, so tracks without one are nothing it knows, and it takes no
 // answer at all for the page not being there.
 const OTHER_VERSIONS = [
 	{},
@@ -230,7 +230,7 @@ describe.each([
 
 // Not one of the tools above: the sheet is drawn by the shell over whichever
 // one is open, so it is put through the same failures against the whole popup.
-// The queue it lists is session storage, which is exactly the storage these
+// The queue it lists is session storage, which is the storage these
 // tests take away.
 describe('the queue sheet', () => {
 	/** Opens the popup and the sheet over it, and asserts both survived. */
@@ -280,7 +280,7 @@ describe('the queue sheet', () => {
 		expect(audit()).toEqual([]);
 	});
 
-	// What is an entry is listed, and what is not is left out — and a queue
+	// What is an entry is listed, and what is not is left out, and a queue
 	// with nothing left in it says so rather than drawing an empty sheet.
 	it('survives a queue left by a version that kept other fields', async () => {
 		const queues: [queued: Json, rows: number, says: string][] = [

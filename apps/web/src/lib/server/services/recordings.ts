@@ -116,10 +116,11 @@ export class RecordingService {
 
 			return preferred([recording, set && (await this.source(set)), ...own]);
 		} catch (error) {
-			this.logger.warn(
-				{ err: error, recording: mix.recording?.uri, set: mix.set?.uri },
-				"could not find a mix's linked recording"
-			);
+			this.logger.warn("could not find a mix's linked recording", {
+				err: error,
+				recording: mix.recording?.uri,
+				set: mix.set?.uri
+			});
 
 			return preferred(own);
 		}
@@ -181,7 +182,7 @@ export class RecordingService {
 		try {
 			return await this.managers.get(did, () => this.manages(did));
 		} catch (error) {
-			this.logger.warn({ err: error, did }, 'could not check whether an account manages a project');
+			this.logger.warn('could not check whether an account manages a project', { err: error, did });
 
 			return false;
 		}

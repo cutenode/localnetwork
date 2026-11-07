@@ -43,6 +43,24 @@ fn the_name_players_show_is_set_in_onelibrary() {
     assert!(line(&out, "rekordbox").ends_with("name \"MAIN\", colour 3 (OneLibrary 4), Studio set it up"), "{out}");
 }
 
+/// Regression: both stopped with `exportLibrary.db` damaged, exit statuses 4 and 5.
+#[test]
+fn a_drive_with_a_name_of_its_own_verifies_intact() {
+    let env = Env::new();
+    let main = env.drive("Main");
+    env.ok(&["--yes", "convert", path(&main), "--to", "onelibrary"]);
+    env.ok(&["pull", path(&main), "--library", "Test", "--new-library"]);
+    assert!(env.ok(&["drive", "verify", path(&main)]).contains("Main is intact"));
+
+    env.ok(&["--yes", "drive", "player", path(&main), "--name", "OTHER"]);
+    let out = env.ok(&["drive", "verify", path(&main)]);
+    assert!(out.contains("Main is intact") && !out.contains("damaged"), "{out}");
+
+    let spare = env.blank("Spare");
+    let out = env.ok(&["--yes", "provision", path(&spare), "--like", "Test", "--player-name", "SPARE"]);
+    assert!(out.contains("Spare is intact"), "{out}");
+}
+
 #[test]
 fn firmware_is_checked_against_the_models_rules_before_it_is_copied() {
     let env = Env::new();

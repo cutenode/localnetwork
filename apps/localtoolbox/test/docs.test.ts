@@ -2,11 +2,11 @@
 //
 // The README against the code it describes.
 //
-// This README is not a summary; it is the specification — how each gate site
-// works, what every option does, which permissions are asked for and why. That
-// makes it the one part of the repository that can be wrong without anything
-// failing, and the part most likely to be wrong, because it is the part a
-// change does not force anyone to open.
+// This README is the specification: how each gate site works, what every
+// option does, which permissions are asked for and why. That makes it the one
+// part of the repository that can be wrong without anything failing, and the
+// part most likely to be wrong, because it is the part a change does not force
+// anyone to open.
 //
 // So: every tool, option, format, size and site the code offers has to be
 // named in it, every file it points at has to be there, every command it
@@ -103,7 +103,7 @@ describe('what the README claims exists', () => {
 
 	// The registry rather than a list of its files: a site added there is one
 	// this fails on until it is written down, and one module can hold two
-	// sites (toneden.js is ToneDen and FanLink).
+	// sites (toneden.ts is ToneDen and FanLink).
 	it('names every gate site the Downloader walks, and its hosts', () => {
 		expect(SITES.length).toBeGreaterThan(5);
 
@@ -128,8 +128,8 @@ describe('what the README claims exists', () => {
 		const labels = [...sheet.matchAll(/<Label for="([^"]+)"[^>]*>\s*([^<]+?)\s*<\/Label>/g)];
 		expect(labels.length).toBeGreaterThanOrEqual(6);
 
-		// Each of the settings the content script obeys has one: the switch for a
-		// setting is the one whose id is its name — the same words, as a page
+		// Each of the settings the content script obeys has one. The switch for a
+		// setting is the one whose id is its name: the same words, as a page
 		// writes them.
 		const names = [
 			.../export const DEFAULTS(?:: [^=\n]+)? = \{([\s\S]*?)\};/

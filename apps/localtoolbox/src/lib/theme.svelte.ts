@@ -34,7 +34,7 @@ class Theme {
 
 			if (isMode(saved)) this.#mode = saved;
 		} catch (_e) {
-			// Storage unavailable — follow the browser.
+			// Storage unavailable: follow the browser.
 		}
 
 		const media = query();

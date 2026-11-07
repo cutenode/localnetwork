@@ -1,4 +1,4 @@
-// src/lib/selection.svelte.ts — the tracks ticked in a list, and the mode that
+// src/lib/selection.svelte.ts: the tracks ticked in a list, and the mode that
 // shows the tick boxes.
 //
 // A selection is kept for the browsing session (view.svelte.ts), so each test

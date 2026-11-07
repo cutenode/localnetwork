@@ -4,7 +4,7 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use loclib_model::analysis::{Beat, Cue, WaveColumn, WaveLayer, Waveform, WaveformStyle};
 use loclib_model::tokens::PLAYHEAD;
-use loclib_waveform::color::{gradient, mix, scale};
+use loclib_waveform::color::{better_ink, contrast, gradient, luminance, mix, scale};
 use loclib_waveform::{
     CueLane, Detail, Overview, Palette, PhraseStrip, Pixels, Rgb, Scope, Spectrum, bar_layout, cue_label, cue_letter,
     vinyl,
@@ -590,4 +590,60 @@ fn art_is_resampled_once_per_size(tc: TestCase) {
     let again = art.pixels(cols, rows);
     assert_eq!(again.as_ptr(), at, "resampled again");
     assert_eq!(again, copy.as_slice());
+}
+
+/// WCAG's numbers at the ends of the scale: black on white is 21:1, anything on itself 1:1.
+#[test]
+fn contrast_is_wcags() {
+    assert!((contrast([0; 3], [255; 3]) - 21.0).abs() < 0.01);
+    assert!((contrast([255; 3], [0; 3]) - 21.0).abs() < 0.01);
+    assert!((luminance([128, 128, 128]) - 0.2158).abs() < 0.001, "sRGB's mid grey");
+    assert!((contrast([0x76; 3], [255; 3]) - 4.54).abs() < 0.02, "the grey usually quoted for 4.5:1");
+}
+
+/// Any two colours: contrast doesn't care which is which, reaches from 1 to 21, and the ink picked
+/// reads at least as well as the one left.
+#[hegel::test(test_cases = 300)]
+fn the_better_ink_reads_at_least_as_well(tc: TestCase) {
+    let (a, b, paper) = (rgb(&tc), rgb(&tc), rgb(&tc));
+    assert_eq!(contrast(a, b), contrast(b, a));
+    assert!((1.0..=21.01).contains(&contrast(a, b)), "{a:?} {b:?}");
+    let ink = better_ink(a, b, paper);
+    assert!(ink == a || ink == b);
+    assert!(contrast(ink, paper) >= contrast(a, paper).min(contrast(b, paper)));
+    assert!(contrast(ink, paper) >= contrast(a, paper) && contrast(ink, paper) >= contrast(b, paper));
+    let palette = Palette { ink: a, fg: b, ..Palette::default() };
+    assert_eq!(palette.ink_on(paper), ink);
+}
+
+/// A colour fades towards the background: all of it at 1, none at 0, whichever background it is;
+/// on black it's what scaling it would be.
+#[hegel::test(test_cases = 300)]
+fn colours_fade_towards_the_background(tc: TestCase) {
+    let (c, background) = (rgb(&tc), rgb(&tc));
+    let p = Palette { background, ..Palette::default() };
+    assert_eq!(p.fade(c, 1.0), c);
+    assert_eq!(p.fade(c, 0.0), background);
+    let f = tc.draw(gs::floats::<f32>().min_value(0.0).max_value(1.0));
+    assert_eq!(Palette::default().fade(c, f), scale(c, f), "on black");
+}
+
+/// A cue's own colour goes through `marker`, what a palette makes of it for its background; a
+/// colour of the palette doesn't need to.
+#[test]
+fn a_cues_own_colour_is_the_palettes_to_keep_readable() {
+    let memory = Cue {
+        hot_cue: None,
+        start_ms: 0,
+        end_ms: None,
+        comment: String::new(),
+        color: None,
+        color_id: 0,
+        loop_beats: None,
+        active_loop: false,
+    };
+    let own = Cue { color: Some([1, 2, 3]), ..memory.clone() };
+    let p = Palette { marker: |_| [9, 9, 9], ..Palette::default() };
+    assert_eq!(p.cue_color(&own), [9, 9, 9]);
+    assert_eq!(p.cue_color(&memory), p.memory_cue);
 }

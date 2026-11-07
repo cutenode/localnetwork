@@ -37,7 +37,7 @@ export function serverHooks({
 		try {
 			await loadApp();
 		} catch (error) {
-			logger.error({ err: error }, 'Local Network could not start; requests will show the setup page');
+			logger.error('Local Network could not start; requests will show the setup page', { err: error });
 		}
 	};
 
@@ -47,7 +47,6 @@ export function serverHooks({
 
 		if (tool) return gzipped(event.request, tool);
 
-		const started = performance.now();
 		const requestId = event.request.headers.get('x-request-id')?.slice(0, 64) || randomUUID();
 		event.locals.requestId = requestId;
 
@@ -65,9 +64,20 @@ export function serverHooks({
 		}
 
 		event.locals.app = app;
-		const log = app.logger.child({ requestId });
+		const { pathname } = event.url;
+
+		return app.logger.request(
+			{ requestId, method: event.request.method, path: pathname },
+			(log) => serve(app, log, { event, resolve }),
+			{ quiet: pathname.startsWith('/_app/') || pathname === '/healthz' }
+		);
+	};
+
+	/** Answers a request the app can take, with `log` writing its line. */
+	const serve = async (app: App, log: Logger, { event, resolve }: Parameters<Handle>[0]) => {
 		event.locals.log = log;
 
+		const { requestId } = event.locals;
 		const isXrpc = event.url.pathname.startsWith('/xrpc/');
 
 		if (MUTATING.has(event.request.method) && !isXrpc && !app.limits.write.take(`ip:${clientIp(event)}`)) {
@@ -127,21 +137,7 @@ export function serverHooks({
 			response.headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains');
 		}
 
-		const ms = Math.round(performance.now() - started);
-		const level = response.status >= 500 ? 'error' : response.status >= 400 ? 'warn' : 'info';
-
-		if (!event.url.pathname.startsWith('/_app/') && event.url.pathname !== '/healthz') {
-			log[level](
-				{
-					method: event.request.method,
-					path: event.url.pathname,
-					status: response.status,
-					ms,
-					did: event.locals.viewer?.did
-				},
-				'request'
-			);
-		}
+		log.set({ did: event.locals.viewer?.did });
 
 		return response;
 	};
@@ -151,7 +147,7 @@ export function serverHooks({
 		const requestId = event.locals.requestId ?? randomUUID();
 
 		if (input.kind === 'unknown') {
-			(event.locals.log ?? logger).error({ err: input.error, path: event.url.pathname, requestId }, 'unhandled error');
+			(event.locals.log ?? logger).error('unhandled error', { err: input.error, path: event.url.pathname, requestId });
 
 			if (input.error instanceof HappyViewError) {
 				return {

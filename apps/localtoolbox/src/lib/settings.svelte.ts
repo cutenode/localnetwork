@@ -2,14 +2,14 @@
 //
 // A panel's options are the panel's own and live in the popup's localStorage
 // (prefs.svelte.ts): they say how that panel draws a list, and nothing outside
-// it ever asks. These are the other kind — settings that change what the
+// it ever asks. These are the other kind: settings that change what the
 // extension does somewhere the popup is not, which at present means what the
 // content script does to a SoundCloud page.
 //
 // So they cannot live where the prefs do. The popup's localStorage belongs to
 // the popup page; a content script cannot see it, and a setting it cannot see
 // is a setting it cannot obey. They live in chrome.storage.local instead,
-// beside the marks and the details cache — one object under one key, read by
+// beside the marks and the details cache, as one object under one key, read by
 // both sides and written only here.
 //
 // The defaults are duplicated in content.ts, which cannot import this file
@@ -94,7 +94,7 @@ class Settings {
 	// object goes back every time: it is a handful of flags, and reading first
 	// would let two windows racing each other lose one.
 	//
-	// `$state.snapshot` is not a nicety: what `$state` holds are proxies, and
+	// `$state.snapshot` is required: what `$state` holds are proxies, and
 	// the structured clone every storage write goes through refuses one.
 	async #set(name: keyof PageSettings, value: boolean) {
 		this.#values = { ...this.#values, [name]: value };

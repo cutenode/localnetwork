@@ -4,7 +4,7 @@
 // The panels are icon-heavy and dense: most of what a row offers is a button
 // with a picture in it, and most of what it says is said by colour. That works
 // only if each of those carries a name and a state a screen reader can read,
-// and nothing else in the suite would notice if one stopped doing so —
+// and nothing else in the suite would notice if one stopped doing so:
 // `byLabel('mark downloaded')` fails loudly, but a *new* button with no
 // label at all fails nowhere.
 import { describe, it, expect } from 'vitest';
@@ -138,7 +138,7 @@ const STATES: [id: string, states: State[]][] = [
 		'manager',
 		[
 			// The tool keeps a list of its own, so its opening state is a panel with
-			// nothing on it — which is a state a screen reader has to be able to read
+			// nothing on it, which is a state a screen reader has to be able to read
 			// its way out of, on any tab at all.
 			['no SoundCloud tab, and nothing on the list', () => panelChrome({ tab: null })],
 			[
@@ -186,7 +186,7 @@ const STATES: [id: string, states: State[]][] = [
 			],
 			[
 				// Two rows opened: one whose every field is known, one whose like and
-				// repost state nothing on the page said — the fields that read
+				// repost state nothing on the page said. The fields that read
 				// "unknown" are buttons that cannot be pressed, and a disabled button
 				// still has to be named.
 				'links of every kind, with rows opened',
@@ -342,8 +342,7 @@ describe('the queue sheet', () => {
 		clean();
 	});
 
-	// A sheet that can be tabbed out of behind is not a sheet: while it is up,
-	// the only controls a keyboard reaches are its own.
+	// While a sheet is up, the only controls a keyboard reaches are its own.
 	it('takes the keyboard away from the view it covers', async () => {
 		panelChrome({ session: { queue: TRACKS } });
 		await mountApp();
@@ -517,7 +516,8 @@ describe('where focus goes', () => {
 });
 
 describe('the audit itself', () => {
-	// A check that never fails is a check that is not running.
+	// An audit that never fails might not be running, so it is handed known
+	// mistakes.
 	it('catches the mistakes it is there to catch', () => {
 		document.body.innerHTML = `
       <button><svg></svg></button>
@@ -551,7 +551,7 @@ describe('the audit itself', () => {
 
 	// bits-ui marks a closed tooltip's or select's trigger data-state="closed",
 	// just as it marks the closed content the trigger opens. The content is
-	// skipped; the trigger — nearly always an icon-only button — is not.
+	// skipped; the trigger, nearly always an icon-only button, is not.
 	it('audits the trigger of a closed tooltip or select, and skips only what it opens', () => {
 		document.body.innerHTML = `
       <button class="tip" data-state="closed" data-tooltip-trigger><svg></svg></button>

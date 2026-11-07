@@ -5,13 +5,13 @@ import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import type { RequestEvent } from '@sveltejs/kit';
 import type { CaughtError, HandleServerError, ResolveOptions } from '@sveltejs/kit/hooks';
-import pino from 'pino';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SESSION_COOKIE, WebSessions } from '#lib/server/auth/session.ts';
 import { CRAWLER_HEAD } from '#lib/server/crawler-head.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { RateLimiter } from '#lib/server/rate-limit.ts';
 import { createTestServices } from '#lib/server/testing/core.ts';
+import { type WrittenLine, writtenLog } from '#lib/server/testing/written-log.ts';
 import type { Logger } from '#lib/server/logger.ts';
 import type { Viewer } from '#lib/types.ts';
 import { routeEvent, type RouteEventInit } from '#lib/testing/route-event.ts';
@@ -47,7 +47,7 @@ it("doesn't start the app under test", async () => {
 
 it('starts the app outside tests, and carries on when it fails to', async () => {
 	vi.stubEnv('NODE_ENV', 'production');
-	const logs: Logged[] = [];
+	const logs: WrittenLine[] = [];
 
 	const hooks = serverHooks({
 		app: async () => {
@@ -58,7 +58,10 @@ it('starts the app outside tests, and carries on when it fails to', async () => 
 
 	await expect(hooks.init()).resolves.toBeUndefined();
 	expect(logs).toEqual([
-		expect.objectContaining({ level: 'error', msg: 'Local Network could not start; requests will show the setup page' })
+		expect.objectContaining({
+			level: 'error',
+			message: 'Local Network could not start; requests will show the setup page'
+		})
 	]);
 });
 
@@ -238,6 +241,43 @@ it('logs failures by how bad they are, and leaves assets and health checks out',
 	]);
 });
 
+it('puts what services note during a request on its one line', async () => {
+	const s = await services();
+	const { handle } = hooksWith(async () => s.app);
+	const { event } = routeEvent({ url: '/dashboard/spaces' });
+
+	const resolve = async () => {
+		s.app.logger.child({ component: 'spaces' }).warn('could not read a space');
+
+		return new Response('ok');
+	};
+
+	// SAFETY: as above.
+	await handle({ event: event as never, resolve });
+
+	expect(s.logs).toEqual([
+		expect.objectContaining({
+			level: 'warn',
+			message: 'could not read a space',
+			path: '/dashboard/spaces',
+			status: 200,
+			notes: [{ level: 'warn', message: 'could not read a space', component: 'spaces' }]
+		})
+	]);
+});
+
+it('logs a request the write limit turns away', async () => {
+	const s = await services({ writes: 0 });
+	const { handle } = hooksWith(async () => s.app);
+
+	await handled(handle, {
+		url: '/report',
+		request: new Request('https://localnetwork.test/report', { method: 'POST' })
+	});
+
+	expect(s.logs.map(({ level, status }) => [level, status])).toEqual([['warn', 429]]);
+});
+
 it('makes up a request id when the request brings none, and cuts a long one short', async () => {
 	const s = await services();
 	const { handle } = hooksWith(async () => s.app);
@@ -302,7 +342,7 @@ it("preloads the scripts, styles and the two typefaces' Latin files, and nothing
 
 it("tells the visitor the directory is down when HappyView doesn't answer, and hides other errors", async () => {
 	const { handleError } = hooksWith(async () => ({}));
-	const logs: Logged[] = [];
+	const logs: WrittenLine[] = [];
 	const locals = { requestId: 'req-2', log: capturingLogger(logs) };
 
 	const directory = handleError(errorInput({ kind: 'unknown', error: new HappyViewError(502, 'bad gateway') }, locals));
@@ -314,14 +354,14 @@ it("tells the visitor the directory is down when HappyView doesn't answer, and h
 		requestId: 'req-2'
 	});
 	expect(unknown).toEqual({ status: 500, message: 'Something went wrong on our side.', requestId: 'req-2' });
-	expect(logs.map(({ level, path, requestId }) => [level, path, requestId])).toEqual([
+	expect(logs.flatMap(({ notes }) => notes!.map(({ level, path, requestId }) => [level, path, requestId]))).toEqual([
 		['error', '/broken', 'req-2'],
 		['error', '/broken', 'req-2']
 	]);
 });
 
 it("passes on the status and message of SvelteKit's own errors, with a request id even before the hook set one", async () => {
-	const logs: Logged[] = [];
+	const logs: WrittenLine[] = [];
 	const { handleError } = serverHooks({ app: async () => app({}), logger: capturingLogger(logs) });
 
 	const expected = handleError(errorInput({ kind: 'framework', error: { status: 404, message: 'Not Found' } }, {}));
@@ -331,7 +371,7 @@ it("passes on the status and message of SvelteKit's own errors, with a request i
 	expect(expected).toEqual({ status: 404, message: 'Not Found', requestId: expect.stringMatching(/^[0-9a-f-]{36}$/) });
 	expect(unknown).toMatchObject({ status: 500, requestId: expect.stringMatching(/^[0-9a-f-]{36}$/) });
 	// Before the hook gave the request the app's logger, the error goes to the hooks' own.
-	expect(logs.map(({ level, path }) => [level, path])).toEqual([['error', '/broken']]);
+	expect(logs.flatMap(({ notes }) => notes!.map(({ level, path }) => [level, path]))).toEqual([['error', '/broken']]);
 });
 
 // Helpers
@@ -342,17 +382,6 @@ const DJ = 'did:plc:dj';
 const STALE = 'did:plc:stale';
 
 type Hooks = ReturnType<typeof serverHooks>;
-
-/** A log line as pino writes it, with the fields these tests read. */
-type Logged = {
-	level: string;
-	msg: string;
-	path?: string;
-	requestId?: string;
-	method?: string;
-	status?: number;
-	did?: string;
-};
 
 /** The app as far as the hooks read it: each test gives only the parts its requests reach. */
 type HookApp = {
@@ -372,20 +401,16 @@ function hooksWith(load: () => Promise<HookApp>): Hooks {
 	return serverHooks({ app: async () => app(await load()), logger: capturingLogger([]) });
 }
 
-/** A pino logger whose lines land in `logs`, with their level by name. */
-function capturingLogger(logs: Logged[]) {
-	return pino(
-		{ level: 'info', formatters: { level: (level) => ({ level }) }, base: null, timestamp: false },
-		// SAFETY: pino writes each entry as one line of JSON, with the level as a name (the formatter above).
-		{ write: (line: string) => void logs.push(JSON.parse(line) as Logged) }
-	);
+/** A logger whose lines land in `logs`. */
+function capturingLogger(logs: WrittenLine[]) {
+	return writtenLog('info', logs).logger;
 }
 
 /** The app parts the hook reads: real sessions and viewers over test services, and a write limit of `writes`. */
 async function services(options: { writes?: number; publicUrl?: string } = {}) {
 	const t = await createTestServices();
 	const sessions = new WebSessions(t.db, 30);
-	const logs: Logged[] = [];
+	const logs: WrittenLine[] = [];
 
 	const parts = {
 		logger: capturingLogger(logs),

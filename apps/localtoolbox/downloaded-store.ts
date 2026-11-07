@@ -1,6 +1,7 @@
 // The set of tracks the user has downloaded, shared by the content script
 // (which paints the "Downloaded" markers and notices SoundCloud's own download
-// buttons) and the Manager panel (which marks tracks when a link is opened).
+// buttons) and the popup (where the Manager, the queue sheet and the Downloader
+// mark tracks).
 //
 // Lives in the extension's own storage (chrome.storage.local), which the
 // page's scripts cannot read, as a map of permalink path ("/user/track") to
@@ -49,7 +50,7 @@ const TbxDownloaded = (() => {
 	const set = (permalink: string, value: boolean) => setMany([permalink], value);
 
 	// Merges marks that came from somewhere else (an exported state file, see
-	// state-transfer.js) into the stored ones, keeping the times they carry
+	// state-transfer.ts) into the stored ones, keeping the times they carry
 	// rather than stamping them now. A track already marked keeps the earlier
 	// of the two times, so re-importing an old backup never makes a mark look
 	// newer than it is. Earlier as instants rather than as text: a file may
@@ -77,10 +78,9 @@ const TbxDownloaded = (() => {
 	};
 
 	// Puts these marks in place of every mark there is, for an import asked to
-	// *replace* what is here rather than add to it (state-transfer.js). Nothing
+	// *replace* what is here rather than add to it (state-transfer.ts). Nothing
 	// merges and nothing survives: a track marked here but not in the file comes
-	// out unmarked, which is the whole difference between the two imports.
-	// Returns how many marks there are afterwards.
+	// out unmarked. Returns how many marks there are afterwards.
 	const replaceAll = async (marks: DownloadedMarks) => {
 		const map = { ...marks };
 		await chrome.storage.local.set({ [KEY]: map });

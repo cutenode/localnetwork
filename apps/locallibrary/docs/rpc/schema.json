@@ -20881,7 +20881,7 @@
         "player": {
           "type": "object",
           "additionalProperties": true,
-          "description": "The player's preferences ([`PlayerPrefs`]): its theme, columns, sort, visualiser and\nplayback modes.",
+          "description": "The player's preferences ([`PlayerPrefs`]): its theme, colours, icons, columns, sort,\nvisualiser and playback modes.",
           "default": {}
         },
         "mix": {

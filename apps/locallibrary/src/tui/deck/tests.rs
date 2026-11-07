@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use locallibrary::anlz::{PhraseKind, TrackAnalysis};
 
-use super::super::app::PhraseSpan;
 use super::super::app::testing::*;
+use super::super::app::{DrivePane, Focus, PhraseSpan};
 use super::*;
 
 /// Where playback goes once the track is open.
@@ -15,11 +15,11 @@ fn target(app: &App) -> Option<u64> {
 fn pads_play_hot_cues_in_full_screen_or_when_turned_on() {
     let cues = vec![cue(Some(0), 1_000, None), cue(Some(3), 64_000, None), cue(None, 30_000, None)];
     let (mut app, _dir) = playing(TrackAnalysis { cues, ..Default::default() });
-    // Off: digits switch views as ever.
+    // Off: digits jump to panes.
     press(&mut app, "2");
-    assert_eq!(app.view, View::Drives);
-    press(&mut app, "1");
-    assert_eq!((app.view, target(&app)), (View::Library, None));
+    assert_eq!(app.focus, Focus::Playlists);
+    press(&mut app, "3");
+    assert_eq!((app.focus, target(&app)), (Focus::Tracks, None));
 
     // Full screen: 4 is hot cue D.
     press(&mut app, "f");
@@ -39,10 +39,12 @@ fn pads_play_hot_cues_in_full_screen_or_when_turned_on() {
     assert!(app.pads_on());
     press(&mut app, "4");
     assert_eq!((app.view, target(&app)), (View::Library, Some(64_000)));
-    press(&mut app, "'");
-    press(&mut app, "3");
-    assert_eq!(app.view, View::Snapshots);
-    assert!(!app.pads_on(), "only in the library");
+    // They stay on in every view, as the deck does.
+    press(&mut app, "gd4");
+    assert_eq!((app.view, app.drive_pane, target(&app)), (View::Drives, DrivePane::List, Some(64_000)));
+    press(&mut app, "'4");
+    assert_eq!((app.view, app.drive_pane), (View::Drives, DrivePane::History), "digits jump to panes again");
+    assert!(!app.pads_on());
 }
 
 #[test]

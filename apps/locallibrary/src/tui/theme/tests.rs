@@ -24,30 +24,7 @@ fn modes_from_the_environment() {
 }
 
 #[test]
-fn light_terminals_get_the_palette_turned_round() {
-    let luma = |c: [u8; 3]| c.iter().map(|v| *v as u32).sum::<u32>() / 3;
-    // Text goes dark, backgrounds light, faint stays faint against the page.
-    assert!(luma(for_light(current().text)) < 30);
-    assert!(luma(for_light(current().selection)) > 160);
-    assert!(luma(for_light(current().faint)) > luma(for_light(current().dim)));
-    // Accents stay themselves, dark enough to read on white.
-    for c in
-        [current().accent, current().info, current().warning, current().secondary, current().good, current().critical]
-    {
-        let l = for_light(c);
-        assert!(luma(l) < 110, "{c:?} -> {l:?}");
-        let top = |c: [u8; 3]| (0..3).max_by_key(|&i| c[i]).unwrap();
-        assert_eq!(top(l), top(c), "{c:?} -> {l:?} keeps its hue");
-    }
-    assert_eq!(for_light([128, 128, 128]).iter().collect::<rustc_hash::FxHashSet<_>>().len(), 1, "greys stay grey");
-    // Chips (light ink on the colour, turned round) stay readable, bright greens too.
-    let contrast = |a: [u8; 3], b: [u8; 3]| {
-        let (x, y) = (luminance(a), luminance(b));
-        (x.max(y) + 0.05) / (x.min(y) + 0.05)
-    };
-    for c in [current().hot_cue, current().warning, current().info, current().track_color(TrackColor::Yellow)] {
-        assert!(contrast(for_light(c), for_light([14, 14, 20])) >= 4.5, "{c:?} -> {:?}", for_light(c));
-    }
+fn without_colours_it_is_said_with_reverse_video_and_numbers() {
     set_test_mode(Some(Mode::Plain));
     assert_eq!(rgb3(current().accent), Color::Reset);
     assert!(selected().add_modifier.contains(Modifier::REVERSED));
@@ -75,29 +52,6 @@ fn every_colour_has_a_near_xterm_colour(tc: hegel::TestCase) {
     let dist = |x: [i32; 3]| x.iter().zip(c).map(|(a, b)| (a - b as i32).pow(2)).sum::<i32>();
     let nearest = |v: u8| *LEVELS.iter().min_by_key(|l| (*l - v as i32).abs()).unwrap();
     assert!(dist(rgb(i)) <= dist(c.map(nearest)), "{c:?} as {i}: {:?}", rgb(i));
-}
-
-/// On a light terminal any colour of the palette turns round: no brighter than it was dark
-/// (so light text goes dark), greys stay grey and a lighter grey goes no lighter, and a
-/// colour that's clearly one hue keeps it.
-#[hegel::test(test_cases = 300)]
-fn any_colour_turns_round_for_a_light_terminal(tc: hegel::TestCase) {
-    use hegel::generators as gs;
-    let c = [0; 3].map(|_| tc.draw(gs::integers::<u8>()));
-    let out = for_light(c);
-    assert!(luminance(out) <= (1.0 - luminance(c)).powi(3) + 1e-6, "{c:?} -> {out:?}");
-    let (a, b) = (tc.draw(gs::integers::<u8>()), tc.draw(gs::integers::<u8>()));
-    let (ga, gb) = (for_light([a; 3]), for_light([b; 3]));
-    assert!(ga[0] == ga[1] && ga[1] == ga[2], "grey {a} -> {ga:?}");
-    assert!(a > b || ga[0] >= gb[0], "grey {a} -> {ga:?}, {b} -> {gb:?}");
-    let mut sorted = c;
-    sorted.sort_unstable();
-    // Clearly one hue: its strongest channel leads the next by 96 (in u16, where 237 + 96
-    // doesn't saturate to 255 and let a yellow like [255, 237, 0] in).
-    if sorted[2] as u16 >= sorted[1] as u16 + 96 && out != [0; 3] {
-        let top = |c: [u8; 3]| (0..3).max_by_key(|&i| c[i]).unwrap();
-        assert_eq!(top(out), top(c), "{c:?} -> {out:?} keeps its hue");
-    }
 }
 
 /// The environment's say, in order. NO_COLOR set to anything means no colours, whatever
@@ -178,21 +132,81 @@ fn phrases_are_coloured_by_role_and_tracks_by_their_colour(tc: hegel::TestCase) 
     set_test_mode(None);
 }
 
-/// The player draws in the theme chosen, turned round on a light terminal as the default is, and
-/// in no colours without them; its waveforms take the theme's colours too.
+/// The player draws in the theme chosen, kept readable on a light terminal, and in no colours
+/// without them; its waveforms take the theme's colours too.
 #[test]
 fn a_theme_is_drawn_in_every_mode() {
     let mut t = Theme::DEFAULT;
     t.set("ui.accent", &[[10, 200, 90]]).unwrap();
-    t.set("waveform.spectrum", &[[1, 2, 3], [4, 5, 6]]).unwrap();
+    t.set("waveform.spectrum", &[[100, 200, 250], [200, 100, 250]]).unwrap();
     set_test_theme(Some(Box::leak(Box::new(t))));
     assert_eq!(key().fg, Some(exact([10, 200, 90])));
-    assert_eq!(palette().spectrum, [[1, 2, 3], [4, 5, 6]]);
+    assert_eq!(palette().spectrum, [[100, 200, 250], [200, 100, 250]]);
     set_test_mode(Some(Mode::Light));
-    assert_eq!(key().fg, Some(exact(for_light([10, 200, 90]))));
+    let light = current().accent;
+    assert_eq!(key().fg, Some(exact(light)));
+    assert!(light[1] > light[0] && light[1] > light[2], "still its green: {light:?}");
+    assert!(contrast(tier::drawn(light, tier()), fit::LIGHT_PAGE) >= 4.5, "and it reads: {light:?}");
     set_test_mode(Some(Mode::Plain));
     assert_eq!(key().fg, Some(Color::Reset));
     set_test_mode(None);
     set_test_theme(None);
     assert_eq!(key().fg, Some(exact(Theme::DEFAULT.accent)), "the default's again");
+}
+
+/// The mode the environment asks for as the player starts is the one drawn in.
+#[hegel::test(test_cases = 50)]
+fn prop_the_mode_the_environment_asks_for_is_drawn_in(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let var = |name: &str, value: &Option<&str>| match value {
+        // SAFETY: nextest runs each test in a process of its own, and nothing else in this one
+        // reads the environment now.
+        Some(v) => unsafe { std::env::set_var(name, v) },
+        // SAFETY: as above.
+        None => unsafe { std::env::remove_var(name) },
+    };
+    let no_color = tc.draw(gs::optional(gs::sampled_from(vec!["", "1"])));
+    let theme = tc.draw(gs::optional(gs::sampled_from(vec!["light", "dark", "auto"])));
+    let colorfgbg = tc.draw(gs::optional(gs::sampled_from(vec!["0;15", "15;0", "0;default;7"])));
+    var("NO_COLOR", &no_color);
+    var("LOCALLIBRARY_THEME", &theme);
+    var("COLORFGBG", &colorfgbg);
+    init();
+    let text = |v: Option<&str>| v.map(String::from);
+    assert_eq!(mode(), detect(text(no_color), text(theme), text(colorfgbg)));
+}
+
+/// Terminals that say they have 24-bit colour, or are known to, get it; others the nearest of the
+/// xterm 256. It's read once a process, so each terminal here is a process of its own.
+#[test]
+fn truecolor_is_what_the_terminal_has() {
+    const ALONE: &str = "LOCALLIBRARY_TEST_TRUECOLOR";
+    if let Some(want) = std::env::var_os(ALONE) {
+        assert_eq!(matches!(rgb(1, 2, 3), Color::Rgb(1, 2, 3)), want == "yes", "{:?}", rgb(1, 2, 3));
+        return;
+    }
+    let terminals = [
+        ("COLORTERM", "truecolor", "yes"),
+        ("COLORTERM", "24BIT", "yes"),
+        ("TERM_PROGRAM", "iTerm.app", "yes"),
+        ("TERM_PROGRAM", "ghostty", "yes"),
+        ("KITTY_WINDOW_ID", "1", "yes"),
+        ("WT_SESSION", "1", "yes"),
+        ("COLORTERM", "256color", "no"),
+        ("TERM_PROGRAM", "Apple_Terminal", "no"),
+    ];
+    for (var, value, want) in terminals {
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["tui::theme::tests::truecolor_is_what_the_terminal_has", "--exact", "--nocapture"])
+            .env_remove("COLORTERM")
+            .env_remove("TERM_PROGRAM")
+            .env_remove("KITTY_WINDOW_ID")
+            .env_remove("WT_SESSION")
+            .env(var, value)
+            .env(ALONE, want)
+            .output()
+            .unwrap();
+        let said = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success() && said.contains("1 passed"), "{var}={value}: {said}");
+    }
 }

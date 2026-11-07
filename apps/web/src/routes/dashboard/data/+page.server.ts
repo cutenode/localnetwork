@@ -8,7 +8,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const records = locals.app.heldRecords.list(viewer);
 
 	// Streamed, so the page shows while the directory names the projects. Caught here too, so a failure only fails the list.
-	records.catch((error) => locals.log.warn({ err: error }, 'could not list the records held for someone'));
+	records.catch((error) => locals.log.warn('could not list the records held for someone', { err: error }));
 
 	return { records };
 };

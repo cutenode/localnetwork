@@ -79,7 +79,7 @@ export class VerificationService {
 		if (dids.length === 0) return {};
 
 		const issued = await this.list().catch((error) => {
-			this.core.logger.warn({ err: error }, 'could not list verifications');
+			this.core.logger.warn('could not list verifications', { err: error });
 
 			return null;
 		});

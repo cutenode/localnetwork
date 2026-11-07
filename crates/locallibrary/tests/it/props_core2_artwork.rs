@@ -180,3 +180,95 @@ fn art_embedded_until_cancelled_is_taken_back_exactly(tc: TestCase) {
         assert!(files.iter().all(|f| fs::read(f).unwrap() == media::mp3()));
     }
 }
+
+/// Embeds kept by an earlier version (no content hashes) are taken back by size and mtime alone;
+/// a file missing when art goes in is reported and left out; folders without a backup are passed
+/// over; a backup whose copy of an untouched file went can't be taken back and stays; and one
+/// that doesn't read fails listing and taking back alike.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_embeds_are_taken_back_by_size_and_mtime_without_hashes(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let backups = store.root().join("embed-backups");
+    if tc.draw(gs::booleans()) {
+        fs::create_dir_all(backups.join("stray")).unwrap();
+    }
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+    let files: Vec<PathBuf> = (0..n).map(|i| dir.path().join(format!("{i}.mp3"))).collect();
+    for f in &files {
+        fs::write(f, media::mp3()).unwrap();
+    }
+    let missing = dir.path().join("missing.mp3");
+    let mut given = files.clone();
+    given.insert(tc.draw(gs::integers::<usize>().max_value(n)), missing.clone());
+    let art = Artwork::from_bytes(&media::png(24, 24, 9)).unwrap();
+    let r = artwork::embed_with_backup(&store, &given, &art, &dir.path().join("cover.png"), &Ctx::silent()).unwrap();
+    assert_eq!(r.embedded, files);
+    assert_eq!(r.failed.iter().map(|f| f.path.clone()).collect::<Vec<_>>(), [missing.display().to_string()]);
+    let id = r.backup.unwrap();
+    assert_eq!(artwork::embed_backups(&store).unwrap().iter().map(|b| &b.id).collect::<Vec<_>>(), [&id]);
+    assert!(matches!(artwork::restore_embedded(&store, Some("nope")), Err(Error::NotFound(_))));
+
+    // As an earlier version wrote it.
+    let json = backups.join(&id).join("backup.json");
+    let mut backup: serde_json::Value = serde_json::from_slice(&fs::read(&json).unwrap()).unwrap();
+    for f in backup["files"].as_array_mut().unwrap() {
+        f.as_object_mut().unwrap().remove("hash");
+    }
+    fs::write(&json, serde_json::to_vec(&backup).unwrap()).unwrap();
+    assert!(artwork::embed_backups(&store).unwrap()[0].files.iter().all(|f| f.hash.is_none()));
+
+    let grown = tc.draw(gs::integers::<usize>().max_value(n));
+    if let Some(f) = files.get(grown) {
+        let mut bytes = fs::read(f).unwrap();
+        bytes.extend_from_slice(b"grown");
+        fs::write(f, bytes).unwrap();
+    }
+    let lose_copy = tc.draw(gs::booleans());
+    if lose_copy {
+        fs::remove_dir_all(backups.join(&id)).unwrap();
+        fs::create_dir_all(backups.join(&id)).unwrap();
+        fs::write(&json, serde_json::to_vec(&backup).unwrap()).unwrap();
+    }
+    let by_id = tc.draw(gs::booleans());
+    let r = artwork::restore_embedded(&store, by_id.then_some(id.as_str()));
+    let untouched: Vec<PathBuf> =
+        files.iter().enumerate().filter(|(i, _)| *i != grown).map(|(_, f)| f.clone()).collect();
+    if lose_copy && !untouched.is_empty() {
+        assert!(r.is_err(), "{r:?}");
+        assert!(json.is_file());
+    } else {
+        let r = r.unwrap();
+        assert_eq!(r.restored, untouched);
+        assert!(untouched.iter().all(|f| fs::read(f).unwrap() == media::mp3()));
+        assert_eq!(r.skipped.len(), usize::from(grown < n));
+        assert_eq!(json.is_file(), grown < n);
+    }
+
+    fs::create_dir_all(backups.join("unreadable")).unwrap();
+    fs::write(backups.join("unreadable/backup.json"), b"{ not json").unwrap();
+    assert!(artwork::embed_backups(&store).is_err());
+    assert!(artwork::restore_embedded(&store, None).is_err());
+}
+
+/// However many embeds are made, the newest five are kept to take back, newest first, and the
+/// older ones' copies are gone from the store.
+#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_only_the_newest_five_embeds_are_kept(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let file = dir.path().join("a.mp3");
+    fs::write(&file, media::mp3()).unwrap();
+    let art = Artwork::from_bytes(&media::png(16, 16, 2)).unwrap();
+    let image = dir.path().join("cover.png");
+    let made: Vec<String> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(7)))
+        .map(|_| {
+            let files = [file.clone()];
+            artwork::embed_with_backup(&store, &files, &art, &image, &Ctx::silent()).unwrap().backup.unwrap()
+        })
+        .collect();
+    let kept: Vec<String> = artwork::embed_backups(&store).unwrap().into_iter().map(|b| b.id).collect();
+    assert_eq!(kept, made.iter().rev().take(5).cloned().collect::<Vec<_>>());
+    let folders = fs::read_dir(store.root().join("embed-backups")).unwrap().count();
+    assert_eq!(folders, kept.len());
+}

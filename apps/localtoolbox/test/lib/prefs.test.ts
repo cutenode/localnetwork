@@ -1,4 +1,4 @@
-// src/lib/prefs.svelte.ts — options remembered in the popup's localStorage.
+// src/lib/prefs.svelte.ts: options remembered in the popup's localStorage.
 import { describe, it, expect, vi } from 'vitest';
 import { persisted, flagPref, choicePref, reloadPrefs, textPref } from '../../src/lib/prefs.svelte.ts';
 
@@ -41,7 +41,7 @@ describe('persisted', () => {
 	});
 });
 
-// An import writes straight to localStorage, which no `$state` follows — and
+// An import writes straight to localStorage, which no `$state` follows, and
 // the panel whose options it just set is still on screen, under the settings
 // sheet the import was run from. One call puts every option back in front of
 // whoever is showing it.

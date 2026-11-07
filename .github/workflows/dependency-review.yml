@@ -126,6 +126,9 @@ jobs:
           # changed or handed to anyone. sharp itself is Apache-2.0.
           # brotli-decompressor declares "BSD-3-Clause/MIT", the old Cargo form of BSD-3-Clause OR MIT,
           # both allowed above, which the dependency graph can't parse and reports as a LicenseRef.
+          # elkjs (EPL-2.0 OR GPL-3.0-or-later) and robust-predicates (public domain and Unlicense,
+          # which the graph reports as a LicenseRef) come with mermaid, a root dev dependency that
+          # parses the READMEs' diagrams in tests. Neither ships with any tool.
           allow-dependencies-licenses: >-
             pkg:cargo/brotli-decompressor,
             pkg:githubactions/Swatinem/rust-cache,
@@ -142,5 +145,7 @@ jobs:
             pkg:npm/@img/sharp-win32-arm64,
             pkg:npm/@img/sharp-win32-ia32,
             pkg:npm/@img/sharp-win32-x64,
-            pkg:npm/@img/sharp-wasm32
+            pkg:npm/@img/sharp-wasm32,
+            pkg:npm/elkjs,
+            pkg:npm/robust-predicates
           comment-summary-in-pr: on-failure

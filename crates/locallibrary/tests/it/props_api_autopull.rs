@@ -226,3 +226,117 @@ fn a_drive_changed_while_watched_is_seen_and_saved(tc: TestCase) {
     assert!(after.iter().any(state), "the pull rewrote its state: {after:?}");
     assert_eq!(w.watcher.poll(), [], "nothing since");
 }
+
+/// A drive linked to Main by hand, an identity of its own that the store's registry lacks, with
+/// a new export: watched, it's saved on top of Main's newest snapshot while its lineage holds
+/// that snapshot; once its lineage is lost, it may have changed beside Main as much as after it,
+/// and it's left alone, saying so.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(lineage = true)]
+#[hegel::explicit_test_case(lineage = false)]
+fn prop_a_drive_the_registry_lacks_is_saved_by_its_lineage(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, main) = saved_copy(dir.path());
+    let volumes = main.parent().unwrap().to_path_buf();
+    let copy = dunce_canonicalize(&volumes).join("Copy");
+    saved_demo().1.write(&copy);
+    let lineage = tc.draw(gs::booleans());
+    let mut d = Device::open(&copy).unwrap();
+    let state = d.state_mut().unwrap();
+    state.id = uuid::Uuid::new_v4();
+    state.name = "Copy".into();
+    if !lineage {
+        state.lineage.clear();
+    }
+    d.save_state().unwrap();
+    assert!(!store.drives().unwrap().contains_key(&d.id().unwrap()), "not registered");
+    common::export_new_track(&copy, "Artist", "By hand");
+    let snapshots = store.snapshot_ids().unwrap().len();
+
+    let did = watch(store.root(), &volumes, true, false);
+    match lineage {
+        true => assert_eq!(told(&did, &copy), ["watch.pulled"]),
+        false => assert_eq!(
+            told(&did, &copy),
+            ["watch.skipped: both it and \"Main\" changed since they last matched: merge, or sync it by hand"]
+        ),
+    }
+    assert_eq!(store.snapshot_ids().unwrap().len(), snapshots + usize::from(lineage));
+}
+
+/// Main, saved and then exported to, watched while another operation holds the store: the
+/// watcher says it's waiting, with how long it will (and with no patience, gives up at once,
+/// failing as locked); with patience left, Main is looked at again later.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_held_store_is_waited_for_as_long_as_patience_lasts(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, main) = saved_copy(dir.path());
+    let volumes = main.parent().unwrap().to_path_buf();
+    let main = dunce_canonicalize(&main);
+    change(&tc, &main, "while held");
+    let patience = tc.draw(gs::sampled_from(vec![Duration::ZERO, Duration::from_secs(60)]));
+    let mut w = Watching::new(
+        VolumeWatcher::in_folders(vec![volumes]),
+        WatchOptions { pull: true, sync_set: false, settle: Duration::ZERO },
+    );
+    w.auto.patience = Some(patience);
+    let mut did = Vec::new();
+    let mut on = |x: Watched<'_>| {
+        if let Watched::Did(a) = x {
+            did.push(a.clone());
+        }
+    };
+    let held = store.lock().unwrap();
+    let looked = w.once(store.root(), &Ctx::silent(), &mut on);
+    drop(held);
+    let [WatchAction::Waiting { reason, .. }] = did.as_slice() else { panic!("{did:?}") };
+    assert!(reason.ends_with(&format!("; giving up after {}s", patience.as_secs())), "{reason}");
+    if patience.is_zero() {
+        assert!(matches!(looked, Err(locallibrary::Error::Locked(_))), "{looked:?}");
+        return;
+    }
+    looked.unwrap();
+    assert!(!w.auto.is_idle(), "looked at again later");
+}
+
+/// Main and Backup, clones of Main, plugged in together after rekordbox exported to Main and a
+/// player recorded a history list on Backup (or a second export went to Backup too): the export
+/// is saved first, whichever path comes first, and Backup, which players alone changed, is then
+/// saved beside it; two exports can't both be saved, and the second is left alone, saying so.
+#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_an_export_is_saved_before_a_drive_only_players_changed(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, main) = saved_copy(dir.path());
+    let volumes = main.parent().unwrap().to_path_buf();
+    let main = dunce_canonicalize(&main);
+    // Main's path comes first, or last.
+    let name = tc.draw(gs::sampled_from(vec!["Backup", "A Backup"]));
+    let backup = dunce_canonicalize(&volumes).join(name);
+    saved_demo().1.write(&backup);
+    own_identity(&store, &mut Device::open(&backup).unwrap(), name);
+    common::export_new_track(&main, "Artist", "at home");
+    let played = tc.draw(gs::booleans());
+    match played {
+        true => {
+            let ids: Vec<u32> = common::library(&backup).tracks.iter().map(|t| t.id).collect();
+            common::add_history(&backup, "HISTORY 001", &ids[..1]);
+        }
+        false => {
+            common::export_new_track(&backup, "Artist", "at the club");
+        }
+    }
+    let did = watch(store.root(), &volumes, true, false);
+    let (first, second) = match played {
+        true => (&main, &backup),
+        false if main < backup => (&main, &backup),
+        false => (&backup, &main),
+    };
+    assert_eq!(told(&did, first), ["watch.pulled"], "{did:?}");
+    match played {
+        true => assert_eq!(told(&did, second), ["watch.pulled beside"]),
+        false => assert_eq!(
+            told(&did, second),
+            ["watch.skipped: both it and \"Main\" changed since they last matched: merge, or sync it by hand"]
+        ),
+    }
+}

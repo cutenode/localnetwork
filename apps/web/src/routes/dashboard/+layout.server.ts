@@ -9,7 +9,7 @@ export const load: LayoutServerLoad = async ({ locals, url, params }) => {
 	// stay listed and readable where they are until then.
 	void locals.app.epks
 		.migrateLegacy(viewer)
-		.catch((error) => locals.log.warn({ err: error }, 'could not move legacy press kits'));
+		.catch((error) => locals.log.warn('could not move legacy press kits', { err: error }));
 
 	// Opening a booking thread reads what the inbox said about it. That happens here rather than in the thread's own
 	// load, which runs alongside this one, so the badge on the thread's page already leaves it out.

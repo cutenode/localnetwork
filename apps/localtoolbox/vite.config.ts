@@ -1,13 +1,12 @@
 // Build for the extension's UI.
 //
-// The extension used to ship exactly what it ran: classic scripts, one HTML
-// page per tool, no build step. The UI is now a Svelte app, so there is one,
-// but only for the extension's own pages: the popup, and the background
-// worker with the offscreen page it opens, all bundled into ES modules.
-// Everything that runs *in the page* (content.ts and the store it shares with
-// the panels) is still a classic script: it is written in TypeScript, and the
-// only compiling it gets is its types blanked out, so the content script keeps
-// loading the same two files the manifest has always named.
+// The UI is a Svelte app, so the extension's own pages have a build step: the
+// popup, and the background worker with the offscreen page it opens, all
+// bundled into ES modules. Everything that runs *in the page* (content.ts and
+// the store it shares with the panels) is a classic script: it is written in
+// TypeScript, and the only compiling it gets is its types blanked out, so the
+// content script keeps loading the same two files the manifest has always
+// named.
 //
 //   pnpm build           → dist/, the folder to load as an unpacked extension
 //   pnpm dev             → the same, rebuilt on every change
@@ -37,11 +36,10 @@ const root = resolve(here, 'src');
 const classicScripts = ['downloaded-store.js'];
 
 // What ships as written, because it does not run in the popup: the content
-// script's stylesheet, the icons, and the manifest — which lives under src/
+// script's stylesheet, the icons, and the manifest, which lives under src/
 // rather than at the repo root on purpose. It names files that only exist once
 // they are built (popup.html), so a manifest at the root would invite Chrome
-// to load the source folder and then refuse it; there is nothing loadable
-// there now.
+// to load the source folder and then refuse it.
 //
 // Keys are where a file lands in dist/, values where it comes from.
 const unbundled = {
@@ -52,7 +50,7 @@ const unbundled = {
 
 // The classic scripts: the content script and the two the popup reads. A classic
 // script has nothing to compile but its types, so ts-blank-space replaces each
-// annotation with spaces and leaves every line and column where it was — an
+// annotation with spaces and leaves every line and column where it was, so an
 // error on soundcloud.com points at the same place in the source, with no
 // sourcemap to ship. Keyed the same way as `unbundled`.
 const pageScripts = {
@@ -83,7 +81,7 @@ const shipUnbundled = (): Plugin => ({
 // both tags are same-origin reads of files inside the extension, and the
 // attribute turns them into CORS requests instead. It is the same attribute,
 // on the same kind of tag, that made the modulepreload links unusable (see
-// `modulePreload` below) — there is no reason to keep it on these two.
+// `modulePreload` below), so there is no reason to keep it on these two.
 const dropCrossorigin = (): Plugin => ({
 	name: 'toolbox-no-crossorigin',
 	transformIndexHtml: {
@@ -161,7 +159,7 @@ export default defineConfig(({ mode }) => ({
 		outDir: '../dist',
 		// A release starts from an empty folder; a watch does not. `pnpm dev`
 		// rebuilds on every keystroke, and this folder is loaded into Chrome as an
-		// unpacked extension while that happens — Chrome reads its files from disk
+		// unpacked extension while that happens. Chrome reads its files from disk
 		// on demand, so emptying it mid-session takes the extension out from under
 		// the browser. Clicking the icon in that window opens nothing at all until
 		// the files are back. Stale chunks accumulating across a watch costs

@@ -94,3 +94,6 @@ pub(crate) fn analysis_files(analyze_path: &str, tree: &FileTree) -> Vec<String>
         .map(|e| e.path.clone())
         .collect()
 }
+
+#[cfg(test)]
+mod tests;

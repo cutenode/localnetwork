@@ -210,3 +210,135 @@ fn parallel_keeps_order() {
     let out = parallel(&items, Phase::Scan, |i| (i.to_string(), 0), |i| i * 2, &Ctx::silent()).unwrap();
     assert_eq!(out, items.iter().map(|i| i * 2).collect::<Vec<_>>());
 }
+
+/// Audio in a codec there's no decoder for here (Opus in an MP4) has its format read from its
+/// headers, with no codec players list, and can't be opened for its health, whatever length and
+/// size the database gives: it isn't cut short.
+#[hegel::test(test_cases = 20)]
+fn prop_audio_without_a_decoder_is_read_but_unreadable(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let secs = tc.draw(gs::sampled_from(vec![0.0, 1.0, 30.0]));
+    let bytes = tc.draw(gs::sampled_from(vec![0u64, 1 << 20]));
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio/silence-opus.mp4");
+    let f = format(&path).unwrap();
+    assert_eq!((f.codec, f.sample_rate), (None, 48_000), "{f:?}");
+    assert!(matches!(health(&path, secs, bytes), Some(AudioProblem::Unreadable { .. })), "{secs} {bytes}");
+}
+
+/// AAC and ALAC in an M4A are told apart by their headers, which give their rate, channels and
+/// length too; a file of two tracks is read, and checked, by its first. Each is whole.
+#[hegel::test(test_cases = 10)]
+fn prop_m4a_codecs_are_told_apart_by_their_headers(tc: hegel::TestCase) {
+    let (name, codec, secs) = tc.draw(hegel::generators::sampled_from(vec![
+        ("silence.m4a", Codec::Aac, 20.0),
+        ("silence-alac.m4a", Codec::Alac, 1.0),
+        ("two-tracks.m4a", Codec::Alac, 2.0),
+    ]));
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio").join(name);
+    let f = format(&path).unwrap();
+    assert_eq!((f.codec, f.sample_rate), (Some(codec), 8_000), "{f:?}");
+    assert!((f.duration_secs.unwrap() - secs).abs() < 0.2, "{f:?}");
+    assert_eq!(health(&path, secs, 0), None, "{name}");
+}
+
+/// A file named without an extension that's cut short in its header is told from one that won't
+/// open for what's in it by its size alone, as one with an extension is.
+#[test]
+fn a_file_without_an_extension_cut_short_is_truncated() {
+    let dir = tempfile::tempdir().unwrap();
+    let whole = wav(8_000, 16, 30.0);
+    let cut = dir.path().join("cut");
+    std::fs::write(&cut, &whole[..30]).unwrap();
+    assert!(matches!(health(&cut, 30.0, whole.len() as u64), Some(AudioProblem::Truncated { .. })));
+}
+
+/// An MP4's length is where its top-level boxes say they end, their sizes in 32 or 64 bits, or the
+/// last running to the end of the file. Cut anywhere after its first header, its boxes run past
+/// the cut, unless the cut is where a box starts or inside a last box running to the end. A file whose first
+/// box isn't `ftyp`, holding a box smaller than a header, or whose boxes add up past what a
+/// 64-bit offset holds isn't one; nor is a cut too short to say (an empty file ends at 0).
+#[hegel::test(test_cases = 300)]
+fn prop_mp4_boxes_say_how_long_the_file_is(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
+    let mut file = Vec::new();
+    let (mut starts, mut last) = (Vec::new(), (0, false));
+    for i in 0..n {
+        let payload = tc.draw(gs::integers::<usize>().max_value(40));
+        let kind = if i == 0 { b"ftyp" } else { b"free" };
+        let to_end = i == n - 1 && tc.draw(gs::weighted_booleans(0.2));
+        last = (file.len(), to_end);
+        starts.push(file.len());
+        if !to_end && tc.draw(gs::booleans()) {
+            file.extend_from_slice(&1u32.to_be_bytes());
+            file.extend_from_slice(kind);
+            file.extend_from_slice(&(16 + payload as u64).to_be_bytes());
+        } else {
+            file.extend_from_slice(&(if to_end { 0 } else { 8 + payload as u32 }).to_be_bytes());
+            file.extend_from_slice(kind);
+        }
+        file.extend(std::iter::repeat_n(0, payload));
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a.m4a");
+    let len_of = |bytes: &[u8]| {
+        std::fs::write(&path, bytes).unwrap();
+        mp4_len(&path)
+    };
+    assert_eq!(len_of(&file), Some(file.len() as u64));
+
+    let keep = tc.draw(gs::integers::<usize>().max_value(file.len() - 1));
+    match len_of(&file[..keep]) {
+        None => assert!(0 < keep && keep < 8, "{keep}"),
+        Some(len) if keep == 0 => assert_eq!(len, 0, "an empty file ends where it starts"),
+        // Cut where a box starts, it's the boxes before.
+        Some(len) if starts.contains(&keep) || (last.1 && keep >= last.0 + 8) => assert_eq!(len, keep as u64),
+        Some(len) => assert!(keep >= 8 && len > keep as u64, "{keep}: {len}"),
+    }
+
+    let mut broken = file.clone();
+    match tc.draw(gs::sampled_from(vec!["not ftyp", "short box", "overflow"])) {
+        "not ftyp" => broken[4..8].copy_from_slice(b"moov"),
+        "short box" if !last.1 => {
+            broken.extend_from_slice(&tc.draw(gs::integers::<u32>().min_value(2).max_value(7)).to_be_bytes());
+            broken.extend_from_slice(b"free");
+        }
+        "overflow" if !last.1 => {
+            broken.extend_from_slice(&1u32.to_be_bytes());
+            broken.extend_from_slice(b"free");
+            broken.extend_from_slice(&u64::MAX.to_be_bytes());
+        }
+        _ => return,
+    }
+    assert_eq!(len_of(&broken), None);
+}
+
+/// A time stamp reads as seconds by the track's time base when it has one, else as frames at its
+/// sample rate, and as 0 with neither.
+#[hegel::test(test_cases = 300)]
+fn prop_time_stamps_read_as_seconds(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let ts = tc.draw(gs::integers::<u64>().max_value(1 << 40));
+    let rate = tc.draw(gs::integers::<u32>().max_value(192_000));
+    let base = tc.draw(gs::booleans()).then(|| TimeBase::new(1, rate.max(1)));
+    let want = match (base, rate) {
+        (None, 0) => 0.0,
+        _ => ts as f64 / f64::from(rate.max(1)),
+    };
+    let got = seconds(base, rate, ts);
+    assert!((got - want).abs() <= want * 1e-9 + 1e-9, "{got} {want}");
+}
+
+/// A panic in the work on any item goes on up from [`parallel`], as it was raised.
+#[hegel::test(test_cases = 20)]
+fn prop_a_panic_in_the_work_goes_on_up(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(40));
+    let bad = tc.draw(gs::integers::<u32>().max_value(n - 1));
+    let items: Vec<u32> = (0..n).collect();
+    let work = |&i: &u32| if i == bad { std::panic::panic_any(i) } else { i };
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        parallel(&items, Phase::Verify, |i| (i.to_string(), 0), work, &Ctx::silent())
+    }));
+    assert_eq!(ran.unwrap_err().downcast_ref::<u32>(), Some(&bad));
+}

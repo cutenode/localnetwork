@@ -452,7 +452,7 @@ export class ProjectService {
 		const indexed = await awaitIndexed(served, this.indexWaitMs);
 
 		if (!indexed)
-			this.core.logger.warn({ uri: ref.uri, cid: ref.cid }, 'the directory has not caught up with a project write yet');
+			this.core.logger.warn('the directory has not caught up with a project write yet', { uri: ref.uri, cid: ref.cid });
 
 		return indexed;
 	}
@@ -473,7 +473,7 @@ export class ProjectService {
 		const rkey = this.projectRkey(uri);
 
 		if (!rkey) {
-			this.core.logger.warn({ uri }, 'skipping a directory project the root account did not publish');
+			this.core.logger.warn('skipping a directory project the root account did not publish', { uri });
 
 			return null;
 		}
@@ -482,7 +482,7 @@ export class ProjectService {
 			assertProjectRecord(record);
 		} catch (error) {
 			if (!(error instanceof RecordValidationError)) throw error;
-			this.core.logger.warn({ err: error, uri }, 'skipping an invalid project record');
+			this.core.logger.warn('skipping an invalid project record', { err: error, uri });
 
 			return null;
 		}

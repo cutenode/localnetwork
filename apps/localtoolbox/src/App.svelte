@@ -1,9 +1,8 @@
 <!--
   The popup: the tool menu, and whichever tool is open on top of it.
 
-  The tools used to be a page each, which the popup window navigated between:
-  a reload — and a fresh round of lookups — every time one went back. They are
-  one app now: picking a tool swaps the view, going back is instant, and the
+  The tools are one app rather than a page each: picking a tool swaps the view,
+  going back is instant, with no reload or fresh round of lookups, and the
   marks read from storage once are shared by all of them.
 
   Two things here are not tools. The session queue is about the others rather
@@ -11,19 +10,19 @@
   one of them; both are reached from buttons in the header of every view and
   drawn by this component as a sheet over whichever tool is open (see
   QueueButton.svelte and QueueSheet.svelte, SettingsButton.svelte and
-  SettingsSheet.svelte). Only one sheet is ever up — $lib/view.svelte.ts sees
-  to that — so this draws whichever it is.
+  SettingsSheet.svelte). Only one sheet is ever up ($lib/view.svelte.ts sees
+  to that), so this draws whichever it is.
 
-  Which tool is open is not this component's own state but the session's (see
-  $lib/view.svelte.ts): the popup closes on every click that opens a tab, and
-  it comes back where it was rather than at the menu.
+  Which tool is open is the session's state (see $lib/view.svelte.ts), since
+  the popup closes on every click that opens a tab and has to come back where
+  it was rather than at the menu.
 
-  What is *drawn* for it, though, is this component's business, and the order
-  it does things in is the whole of how fast the popup feels:
+  What is *drawn* for it is this component's business, and the order it does
+  things in decides how fast the popup feels:
 
     1. The route is known synchronously (the localStorage mirror in
        view.svelte.ts), so the colour is painted and the header drawn on the
-       first turn — nothing is ever blank while a browser API is asked.
+       first turn, so nothing is ever blank while a browser API is asked.
     2. The tool's chunk and the page it will read are both started right
        then, at the same time, rather than one after the panel has mounted.
     3. A ghost of the panel's body stands in until the chunk has arrived and
@@ -57,12 +56,13 @@
   // usual zoomed in or on a short screen ($lib/frame-height.svelte.ts).
   frameHeight.start();
 
-  // Every panel shows the marks, and two of them make them; reading the map
-  // once here means going back to the menu and into another tool does not
-  // read it again. The session queue is read the same way, once, and shared:
-  // one tool fills it, two of them work from it, and the count in every
-  // header comes from it. None of the three is awaited — what they read is
-  // drawn when it arrives, and the popup is on screen long before then.
+  // The Manager, the Downloader and the queue sheet show the marks and make
+  // them; reading the map once here means going back to the menu and into
+  // another tool does not read it again. The session queue is read the same
+  // way, once, and shared: one tool fills it, two of them work from it, and
+  // the count in every header comes from it. None of the three is awaited:
+  // what they read is drawn when it arrives, and the popup is on screen long
+  // before then.
   downloaded.start();
 
   queue.start();
@@ -96,12 +96,12 @@
   }
 
   // Fetching the chunk, and starting the slow thing the panel will do first
-  // (see `warm` in $lib/tools.js). Both begin the moment the route is known,
+  // (see `warm` in $lib/tools.ts). Both begin the moment the route is known,
   // which with the synchronous mirror is before the first paint.
   $effect(() => {
     const opening = tool;
     // Cleared here rather than where it is set, so leaving a tool that would
-    // not open — the one thing there is to do about one — takes its message
+    // not open (the one thing there is to do about one) takes its message
     // with it. Nothing reads `failed` in this effect, so writing it starts
     // nothing off again.
     failed = '';
@@ -126,10 +126,10 @@
   // --- the queue sheet -------------------------------------------------------
 
   // The queue is reached from the header of every view rather than from the
-  // menu, so what draws it is here rather than in any one panel — and it is a
-  // chunk of its own, for the reason the panels are: it brings the component
-  // library with it, and the tool menu the popup boots into is deliberately
-  // free of that.
+  // menu, so what draws it is here rather than in any one panel. It is a chunk
+  // of its own, for the reason the panels are: it brings the component library
+  // with it, and the tool menu the popup boots into is deliberately free of
+  // that.
   //
   // Fetched before it is asked for, but only once there is a reason to: a
   // queue with something in it is one that will be opened, and a sheet left
@@ -182,9 +182,9 @@
 
   // `inert` as an attribute rather than as `inert={…}`: Svelte sets it as a
   // DOM property, which a browser reflects onto the element and jsdom does
-  // not — so the tests that check the view behind the sheet really is shut
+  // not, so the tests that check the view behind the sheet really is shut
   // away would be checking nothing. Toggling the attribute is what every
-  // reader of it, here and in the browser, actually looks at.
+  // reader of it, here and in the browser, looks at.
   $effect(() => {
     behind?.toggleAttribute('inert', covered);
   });
@@ -193,8 +193,8 @@
 
   const OUT = { duration: 150, easing: cubicOut };
 
-  // A view slides in when it is a navigation — the user picked a tool, or came
-  // back — and is simply there when it is the popup opening on what was left
+  // A view slides in when it is a navigation (the user picked a tool, or came
+  // back) and is just there when it is the popup opening on what was left
   // open. Both go through these two handlers, so setting the flag in them
   // covers every case; it is read as the transition is created, one flush
   // after the click, and never needs to be reactive.
@@ -262,7 +262,7 @@
 </script>
 
 <!-- Shut away from the keyboard and from screen readers while the sheet is
-     over it: a sheet that can be tabbed out of behind is not a sheet.
+     over it, so nobody can tab out of the sheet into the view behind it.
 
      And given a floor while it is: a browser-action popup is only as tall as
      its content, and the sheet is `fixed`, which is to say out of the flow and

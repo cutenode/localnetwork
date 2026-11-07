@@ -1,5 +1,7 @@
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { XRPCError } from '@atproto/api';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createTestServices } from '#lib/server/testing/core.ts';
+import { FakeRootClient } from '#lib/server/testing/fakes.ts';
 import { callRoute, loadRoute } from '#lib/testing/route-event.ts';
 import type { PageServerData } from './$types';
 import { actions, load } from './+page.server.ts';
@@ -15,6 +17,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+	vi.restoreAllMocks();
 	await t.audit.idle();
 	await t.db.destroy();
 });
@@ -93,6 +96,18 @@ it('grants a role by handle, and removes it again', async () => {
 
 	expect(revoked).toEqual({ success: 'Role removed' });
 	expect(await t.staff.roles(MOD)).toEqual([]);
+});
+
+it("shows who a removal that didn't reach the private spaces left there", async () => {
+	const viewer = await t.viewer(ADMIN);
+	await t.staff.grant(viewer, MOD, 'moderator');
+	vi.spyOn(FakeRootClient.prototype, 'removeMember').mockRejectedValue(new XRPCError(502, 'UpstreamFailure'));
+
+	await callRoute(actions.revoke, { app: app(), viewer, url: '/admin/staff?/revoke', form: { did: MOD } });
+
+	const data = await loadRoute<PageServerData>(load, { app: app(), viewer, url: '/admin/staff' });
+
+	expect(await data.strays).toEqual([{ did: MOD, handle: null, spaces: ['audit', 'moderation', 'staff', 'industry'] }]);
 });
 
 it('refuses a role that is neither admin nor moderator', async () => {

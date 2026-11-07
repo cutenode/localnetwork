@@ -1,7 +1,7 @@
-// Matching typed words against a track's text, for the search box the
-// Cover Art and Manager panels share (see FilterBar.svelte).
+// Matching typed words against a track's text, for the Manager's filter bar
+// (FilterBar.svelte) and the artists panel's search box.
 
-// Lower-case, without accents, single-spaced — so "Bicép" is found by "bicep"
+// Lower-case, without accents, single-spaced, so "Bicép" is found by "bicep"
 // and "  Glue " by "glue".
 export const normalize = (text: string | null | undefined) =>
 	String(text ?? '')
@@ -23,5 +23,5 @@ export const matches = (text: string, query: string) => {
 };
 
 // The "Hide downloaded" toggle is part of the exported state file, under this
-// key (state-transfer.js, and the schema in docs/).
+// key (state-transfer.ts, and the schema in docs/).
 export const HIDE_DOWNLOADED_PREF = 'pref:hide-downloaded';

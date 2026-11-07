@@ -509,7 +509,8 @@ impl<'a> Files<'a> {
             }
             Origin::Snapshot(i) => {
                 let h = self.snapshots[i].get(&key.to_lowercase())?;
-                Some((self.store?.object_path(h), Some(h.to_hex())))
+                let store = self.store.expect("Origin::Snapshot is only made from a store");
+                Some((store.object_path(h), Some(h.to_hex())))
             }
         }
     }
@@ -1369,7 +1370,7 @@ fn signature_section(recs: &[Rec], sets: &[SetData], top: usize) -> SignatureSec
 /// them, otherwise the first drive with settings files.
 fn style(sources: &Sources<'_>) -> Option<StyleSection> {
     let describe = |key: &str, value: &str| -> Option<StyleValue> {
-        let def = settings::find(key)?;
+        let def = settings::find(key).expect("every STYLE_SETTINGS key is a setting");
         let choice = def.choice(value)?;
         Some(StyleValue {
             key: key.to_string(),

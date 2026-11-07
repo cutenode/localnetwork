@@ -1,0 +1,192 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 432" width="720" height="432" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="14">
+<rect width="720" height="432" fill="#101014"/>
+<rect x="225" y="0" width="90" height="18" fill="#5cd6ff"/>
+<text x="9" y="14" fill="#ff5ca0" font-weight="bold">◉</text>
+<text x="36" y="14" fill="#9494a8">l</text>
+<text x="54 63 72 81 90 99 108" y="14" fill="#9494a8">Library</text>
+<text x="135" y="14" fill="#9494a8">p</text>
+<text x="153 162 171 180 189 198 207" y="14" fill="#9494a8">Prepare</text>
+<text x="234" y="14" fill="#0e0e14" font-weight="bold">d</text>
+<text x="252 261 270 279 288 297" y="14" fill="#0e0e14" font-weight="bold">Drives</text>
+<text x="324" y="14" fill="#9494a8">r</text>
+<text x="342 351 360 369 378 387 396 405 414 423" y="14" fill="#9494a8">Recordings</text>
+<text x="450" y="14" fill="#9494a8">u</text>
+<text x="468 477 486 495 504 513 522" y="14" fill="#9494a8">Publish</text>
+<text x="567 576 585 594" y="14" fill="#e2e2ec" font-weight="bold">DEMO</text>
+<text x="612" y="14" fill="#78788e">›</text>
+<text x="630 639 648" y="14" fill="#9494a8">All</text>
+<text x="666 675 684 693 702 711" y="14" fill="#9494a8">tracks</text>
+<text x="0" y="32" fill="#5cd6ff">╭</text>
+<text x="18" y="32" fill="#5cd6ff" font-weight="bold">▸</text>
+<text x="36" y="32" fill="#ff5ca0" font-weight="bold">1</text>
+<text x="54 63 72 81 90 99" y="32" fill="#5cd6ff" font-weight="bold">Drives</text>
+<text x="117 126 135 144 153 162 171 180 189 198 207 216 225 234 243 252 261 270 279 288 297 306 315" y="32" fill="#5cd6ff">──────────────────────╮</text>
+<text x="324" y="32" fill="#5c5c74">╭</text>
+<text x="342" y="32" fill="#78788e">2</text>
+<text x="360 369 378 387 396" y="32" fill="#9494a8" font-weight="bold">Drive</text>
+<text x="423" y="32" fill="#78788e">3</text>
+<text x="441 450 459 468 477 486 495 504 513" y="32" fill="#78788e" font-weight="bold">Snapshots</text>
+<text x="540" y="32" fill="#78788e">4</text>
+<text x="558 567 576 585 594 603 612" y="32" fill="#78788e" font-weight="bold">History</text>
+<text x="630 639 648 657 666 675 684 693 702 711" y="32" fill="#5c5c74">─────────╮</text>
+<rect x="9" y="36" width="306" height="18" fill="#28283e"/>
+<text x="0" y="50" fill="#5cd6ff">│</text>
+<text x="9" y="50" fill="#ff5ca0" font-weight="bold">▍</text>
+<text x="18" y="50" fill="#78de8c" font-weight="bold">●</text>
+<text x="36 45 54 63" y="50" fill="#e2e2ec" font-weight="bold">DEMO</text>
+<text x="306" y="50" fill="#9494a8" font-weight="bold">2</text>
+<text x="315" y="50" fill="#5cd6ff">│</text>
+<text x="324" y="50" fill="#5c5c74">│</text>
+<text x="342 351 360 369" y="50" fill="#ff5ca0" font-weight="bold">DEMO</text>
+<text x="711" y="50" fill="#5c5c74">│</text>
+<rect x="9" y="54" width="306" height="18" fill="#28283e"/>
+<text x="0" y="68" fill="#5cd6ff">│</text>
+<text x="36 45 54 63 72 81 90 99 108 117 126 135 144" y="68" fill="#78788e" font-weight="bold">/Volumes/DEMO</text>
+<text x="315" y="68" fill="#5cd6ff">│</text>
+<text x="324" y="68" fill="#5c5c74">│</text>
+<text x="342 351 360 369 378 387 396 405 414 423 432 441 450" y="68" fill="#78788e">/Volumes/DEMO</text>
+<text x="468" y="68" fill="#78788e">·</text>
+<text x="486 495" y="68" fill="#78788e">id</text>
+<text x="513 522 531 540 549 558 567 576" y="68" fill="#78788e">5eedcafe</text>
+<text x="711" y="68" fill="#5c5c74">│</text>
+<text x="0" y="86" fill="#5cd6ff">│</text>
+<text x="315" y="86" fill="#5cd6ff">│</text>
+<text x="324" y="86" fill="#5c5c74">│</text>
+<text x="711" y="86" fill="#5c5c74">│</text>
+<text x="0" y="104" fill="#5cd6ff">│</text>
+<text x="315" y="104" fill="#5cd6ff">│</text>
+<text x="324" y="104" fill="#5c5c74">│</text>
+<text x="342 351 360 369 378 387 396" y="104" fill="#5cd6ff" font-weight="bold">LIBRARY</text>
+<text x="711" y="104" fill="#5c5c74">│</text>
+<text x="0" y="122" fill="#5cd6ff">│</text>
+<text x="315" y="122" fill="#5cd6ff">│</text>
+<text x="324" y="122" fill="#5c5c74">│</text>
+<text x="360 369 378 387 396 405" y="122" fill="#9494a8">tracks</text>
+<text x="468" y="122" fill="#e2e2ec">2</text>
+<text x="495" y="122" fill="#e2e2ec">·</text>
+<text x="522" y="122" fill="#e2e2ec">1</text>
+<text x="540 549 558 567 576 585 594" y="122" fill="#e2e2ec">artists</text>
+<text x="711" y="122" fill="#5c5c74">│</text>
+<text x="0" y="140" fill="#5cd6ff">│</text>
+<text x="315" y="140" fill="#5cd6ff">│</text>
+<text x="324" y="140" fill="#5c5c74">│</text>
+<text x="360 369 378 387 396 405 414 423 432" y="140" fill="#9494a8">playlists</text>
+<text x="468" y="140" fill="#e2e2ec">0</text>
+<text x="486 495" y="140" fill="#e2e2ec">in</text>
+<text x="513" y="140" fill="#e2e2ec">0</text>
+<text x="531 540 549 558 567 576 585" y="140" fill="#e2e2ec">folders</text>
+<text x="711" y="140" fill="#5c5c74">│</text>
+<text x="0" y="158" fill="#5cd6ff">│</text>
+<text x="315" y="158" fill="#5cd6ff">│</text>
+<text x="324" y="158" fill="#5c5c74">│</text>
+<text x="360 369 378 387 396 405 414 423" y="158" fill="#9494a8">duration</text>
+<text x="468 477" y="158" fill="#e2e2ec">5m</text>
+<text x="495 504 513" y="158" fill="#e2e2ec">00s</text>
+<text x="711" y="158" fill="#5c5c74">│</text>
+<text x="0" y="176" fill="#5cd6ff">│</text>
+<text x="315" y="176" fill="#5cd6ff">│</text>
+<text x="324" y="176" fill="#5c5c74">│</text>
+<text x="360 369 378 387 396" y="176" fill="#9494a8">audio</text>
+<text x="468 477 486 495" y="176" fill="#e2e2ec">12.0</text>
+<text x="513 522" y="176" fill="#e2e2ec">MB</text>
+<text x="711" y="176" fill="#5c5c74">│</text>
+<text x="0" y="194" fill="#5cd6ff">│</text>
+<text x="315" y="194" fill="#5cd6ff">│</text>
+<text x="324" y="194" fill="#5c5c74">│</text>
+<text x="360 369" y="194" fill="#9494a8">no</text>
+<text x="387 396 405 414 423 432 441" y="194" fill="#9494a8">artwork</text>
+<text x="468" y="194" fill="#e2e2ec">2</text>
+<text x="486 495 504 513 522 531" y="194" fill="#e2e2ec">tracks</text>
+<text x="549 558 567 576 585 594 603 612 621 630 639 648 657" y="194" fill="#e2e2ec">(locallibrary</text>
+<text x="675 684 693" y="194" fill="#e2e2ec">art</text>
+<text x="711" y="194" fill="#5c5c74">│</text>
+<text x="0" y="212" fill="#5cd6ff">│</text>
+<text x="315" y="212" fill="#5cd6ff">│</text>
+<text x="324" y="212" fill="#5c5c74">│</text>
+<text x="342 351 360 369 378" y="212" fill="#e2e2ec">auto)</text>
+<text x="711" y="212" fill="#5c5c74">│</text>
+<text x="0" y="230" fill="#5cd6ff">│</text>
+<text x="315" y="230" fill="#5cd6ff">│</text>
+<text x="324" y="230" fill="#5c5c74">│</text>
+<text x="360 369 378 387 396 405 414 423" y="230" fill="#9494a8">exported</text>
+<text x="468 477 486 495 504 513 522 531 540 549" y="230" fill="#e2e2ec">2026-10-30</text>
+<text x="567 576 585 594 603" y="230" fill="#e2e2ec">21:30</text>
+<text x="630" y="230" fill="#e2e2ec">·</text>
+<text x="711" y="230" fill="#5c5c74">│</text>
+<text x="0" y="248" fill="#5cd6ff">│</text>
+<text x="315" y="248" fill="#5cd6ff">│</text>
+<text x="324" y="248" fill="#5c5c74">│</text>
+<text x="342 351 360 369 378 387 396 405 414 423" y="248" fill="#e2e2ec">export.pdb</text>
+<text x="441 450 459" y="248" fill="#e2e2ec">rev</text>
+<text x="477 486" y="248" fill="#e2e2ec">34</text>
+<text x="711" y="248" fill="#5c5c74">│</text>
+<text x="0" y="266" fill="#5cd6ff">│</text>
+<text x="315" y="266" fill="#5cd6ff">│</text>
+<text x="324" y="266" fill="#5c5c74">│</text>
+<text x="711" y="266" fill="#5c5c74">│</text>
+<text x="0" y="284" fill="#5cd6ff">│</text>
+<text x="315" y="284" fill="#5cd6ff">│</text>
+<text x="324" y="284" fill="#5c5c74">│</text>
+<text x="342 351 360 369 378" y="284" fill="#5cd6ff" font-weight="bold">SPACE</text>
+<text x="711" y="284" fill="#5c5c74">│</text>
+<text x="0" y="302" fill="#5cd6ff">│</text>
+<text x="315" y="302" fill="#5cd6ff">│</text>
+<text x="324" y="302" fill="#5c5c74">│</text>
+<text x="360" y="302" fill="#5cd6ff">█</text>
+<text x="369" y="302" fill="#60d0ff">█</text>
+<text x="378" y="302" fill="#64caff">█</text>
+<text x="387" y="302" fill="#68c4ff">█</text>
+<text x="396" y="302" fill="#6cbeff">█</text>
+<text x="405" y="302" fill="#6fb8ff">█</text>
+<text x="414" y="302" fill="#73b2ff">█</text>
+<text x="423" y="302" fill="#77acff">█</text>
+<text x="432" y="302" fill="#7ba6ff">█</text>
+<text x="441 450 459 468 477 486 495 504 513 522 531 540 549 558 567 576 585 594 603 612 621 630 639 648 657" y="302" fill="#78788e">░░░░░░░░░░░░░░░░░░░░░░░░░</text>
+<text x="711" y="302" fill="#5c5c74">│</text>
+<text x="0" y="320" fill="#5cd6ff">│</text>
+<text x="315" y="320" fill="#5cd6ff">│</text>
+<text x="324" y="320" fill="#5c5c74">│</text>
+<text x="360 369 378" y="320" fill="#9494a8">25%</text>
+<text x="396 405 414 423" y="320" fill="#9494a8">used</text>
+<text x="441" y="320" fill="#9494a8">·</text>
+<text x="459 468 477 486" y="320" fill="#9494a8">12.0</text>
+<text x="504 513" y="320" fill="#9494a8">GB</text>
+<text x="531 540 549 558" y="320" fill="#9494a8">free</text>
+<text x="576 585" y="320" fill="#9494a8">of</text>
+<text x="603 612 621 630" y="320" fill="#9494a8">16.0</text>
+<text x="648 657" y="320" fill="#9494a8">GB</text>
+<text x="711" y="320" fill="#5c5c74">│</text>
+<text x="0 9 18 27 36 45 54 63 72 81 90 99 108 117 126 135 144 153 162 171 180 189 198 207 216 225 234 243 252 261 270 279 288 297 306 315" y="338" fill="#5cd6ff">╰──────────────────────────────────╯</text>
+<text x="324 333 342 351 360 369 378 387 396 405 414 423 432 441 450 459 468 477 486 495 504 513 522 531 540 549 558 567 576 585 594 603 612 621 630 639 648 657 666 675 684 693 702 711" y="338" fill="#5c5c74">╰──────────────────────────────────────────╯</text>
+<text x="9" y="356" fill="#9494a8">■</text>
+<text x="27 36 45 54 63 72 81" y="356" fill="#e2e2ec" font-weight="bold">Nothing</text>
+<text x="99 108 117 126 135 144 153" y="356" fill="#e2e2ec" font-weight="bold">playing</text>
+<text x="180 189 198 207" y="356" fill="#9494a8">Pick</text>
+<text x="225" y="356" fill="#9494a8">a</text>
+<text x="243 252 261 270 279" y="356" fill="#9494a8">track</text>
+<text x="297 306 315" y="356" fill="#9494a8">and</text>
+<text x="333 342 351 360 369" y="356" fill="#9494a8">press</text>
+<text x="387 396 405 414 423 432" y="356" fill="#9494a8">enter.</text>
+<text x="693 702 711" y="356" fill="#9494a8">80%</text>
+<text x="0" y="392" fill="#ffffff">●</text>
+<text x="9 18 27 36 45 54 63 72 81 90 99 108 117 126 135 144 153 162 171 180 189 198 207 216 225 234 243 252 261 270 279 288 297 306 315 324 333 342 351 360 369 378 387 396 405 414 423 432 441 450 459 468 477 486 495 504 513 522 531 540 549 558 567 576 585 594 603 612 621 630 639 648 657 666 675 684 693 702 711" y="392" fill="#5c5c74">───────────────────────────────────────────────────────────────────────────────</text>
+<rect x="0" y="396" width="72" height="18" fill="#9494a8"/>
+<text x="9 18 27 36 45 54" y="410" fill="#0e0e14" font-weight="bold">BROWSE</text>
+<text x="558 567 576" y="410" fill="#9494a8">1/1</text>
+<text x="603 612 621 630" y="410" fill="#9494a8">12.0</text>
+<text x="648 657" y="410" fill="#9494a8">GB</text>
+<text x="675 684 693 702" y="410" fill="#9494a8">free</text>
+<text x="9 18 27 36 45" y="428" fill="#ff5ca0" font-weight="bold">enter</text>
+<text x="63 72 81 90 99 108" y="428" fill="#9494a8">browse</text>
+<text x="135" y="428" fill="#ff5ca0" font-weight="bold">e</text>
+<text x="153 162 171 180 189 198 207" y="428" fill="#9494a8">actions</text>
+<text x="234" y="428" fill="#ff5ca0" font-weight="bold">u</text>
+<text x="252 261 270 279" y="428" fill="#9494a8">undo</text>
+<text x="306" y="428" fill="#ff5ca0" font-weight="bold">R</text>
+<text x="324 333 342 351 360 369 378" y="428" fill="#9494a8">refresh</text>
+<text x="396 405 414 423 432 441" y="428" fill="#9494a8">status</text>
+<text x="468 477 486 495 504" y="428" fill="#ff5ca0" font-weight="bold">space</text>
+<text x="522 531 540 549 558" y="428" fill="#9494a8">pause</text>
+<text x="585" y="428" fill="#ff5ca0" font-weight="bold">:</text>
+<text x="603 612 621 630 639 648 657 666" y="428" fill="#9494a8">commands</text>
+</svg>

@@ -1,4 +1,4 @@
-// src/lib/motion.ts — the transitions' parameters, under reduced motion.
+// src/lib/motion.ts: the transitions' parameters, under reduced motion.
 import { describe, it, expect, vi } from 'vitest';
 import { motion } from '../../src/lib/motion.ts';
 

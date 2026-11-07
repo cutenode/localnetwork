@@ -214,6 +214,7 @@ impl App {
 
     /// Select a row of the Drives view: a drive's is the drive the view's actions work on.
     pub(super) fn select_drive_row(&mut self, row: DriveRow) {
+        self.drive_scroll = 0;
         match row {
             DriveRow::Drive(i) => {
                 self.drive_header = None;

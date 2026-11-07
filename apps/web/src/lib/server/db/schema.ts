@@ -253,7 +253,8 @@ export interface BookingEventTable {
 	uri: string;
 	spaceUri: string;
 	authorDid: string;
-	kind: 'inquiry' | 'message' | 'status';
+	/** `unapplied` is a status record the thread's rules haven't allowed, so far. */
+	kind: 'inquiry' | 'message' | 'status' | 'unapplied';
 	record: string;
 	createdAt: string;
 }

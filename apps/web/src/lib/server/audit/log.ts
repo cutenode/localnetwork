@@ -189,7 +189,7 @@ export class AuditLog {
 		const entry = await this.append(event);
 
 		const delivery = this.deliver(entry.id, options.actorClient ?? undefined).catch((error) => {
-			this.deps.logger.error({ err: error, id: entry.id }, 'audit delivery crashed');
+			this.deps.logger.error('audit delivery crashed', { err: error, id: entry.id });
 		});
 
 		this.inflight.add(delivery);
@@ -345,7 +345,7 @@ export class AuditLog {
 						rootError: errorMessage(error),
 						rootStatus: attempts >= this.deps.maxAttempts ? 'failed' : 'pending'
 					});
-					this.deps.logger.warn({ err: error, id, attempts }, 'root audit copy failed');
+					this.deps.logger.warn('root audit copy failed', { err: error, id, attempts });
 				}
 			}
 
@@ -363,7 +363,7 @@ export class AuditLog {
 						actorError: errorMessage(error),
 						actorStatus: attempts >= this.deps.maxAttempts ? 'failed' : 'pending'
 					});
-					this.deps.logger.warn({ err: error, id, attempts, actor: entry.actorDid }, 'actor audit copy failed');
+					this.deps.logger.warn('actor audit copy failed', { err: error, id, attempts, actor: entry.actorDid });
 				}
 			}
 
@@ -563,7 +563,7 @@ export class AuditLog {
 
 			if (!matches) {
 				// A copy that differs from the chained entry (edited after the fact) is flagged even if it was verified before.
-				this.deps.logger.warn({ id: entry.id, uri: input.uri }, 'audit copy does not match the local entry');
+				this.deps.logger.warn('audit copy does not match the local entry', { id: entry.id, uri: input.uri });
 				await db
 					.updateTable('auditEntry')
 					.set(

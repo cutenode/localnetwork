@@ -219,3 +219,43 @@ fn an_update_drive_is_judged_by_its_disk(tc: hegel::TestCase) {
         None => assert!(!known || model.filesystems.contains(&kind), "{p:?}"),
     }
 }
+
+/// A drive of a file system no model takes updates from (HFS+) is a problem naming what the
+/// model does take, an update bigger than the drive's free space is one too, and staging one
+/// anyway waits for nothing: while another run holds the drive, it's refused as locked.
+#[cfg(target_os = "macos")]
+#[hegel::test(test_cases = 12)]
+fn prop_an_update_names_what_its_model_takes_and_needs_room(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = fake_tools::FakeTools::new();
+    std::fs::create_dir(fake.dir().join("USB")).unwrap();
+    let mut d = Device::open(fake.dir().join("USB")).unwrap();
+    let model = tc.draw(gs::sampled_from(MODELS.to_vec()));
+    let file = fake.dir().join(format!("{}100.UPD", model.prefix));
+    let huge = tc.draw(gs::booleans());
+    // Sparse: as big as it says, without taking the room.
+    std::fs::File::create(&file).unwrap().set_len(if huge { 1 << 50 } else { 8 }).unwrap();
+    fake.volume_at(d.root(), "hfs", true);
+
+    let p = plan(&d, &file, false).unwrap();
+    let takes = match (model.filesystems.contains(&FsKind::Fat16), model.filesystems.contains(&FsKind::Exfat)) {
+        (_, true) => "FAT, FAT32 or exFAT",
+        (true, false) => "FAT or FAT32",
+        (false, false) => "FAT32",
+    };
+    let wrong = format!("the {} takes updates from {takes} drives, and this one is Hfsplus", model.model);
+    assert!(p.problems.contains(&wrong), "{:?}", p.problems);
+    let short = p.problems.iter().any(|m| m.starts_with("not enough free space"));
+    assert_eq!(short, huge, "{:?}", p.problems);
+
+    if huge {
+        // Never staged: a copy that got past the lock would fill the disk.
+        return;
+    }
+    let other = Device::open(d.root()).unwrap();
+    let held = other.lock().unwrap();
+    let staged = apply(&p, &mut d, true, &Ctx::silent());
+    drop(held);
+    assert!(matches!(staged, Err(Error::Locked(_))), "{staged:?}");
+    assert!(!d.root().join(&p.file_name).exists());
+}

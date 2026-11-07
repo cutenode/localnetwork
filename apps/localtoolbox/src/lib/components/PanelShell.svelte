@@ -3,8 +3,8 @@
   name and the line under it, and one scrolling body between the header and an
   optional footer.
 
-  A browser-action popup is sized by its content, so the frame — not the
-  panel — owns the height: the header and footer stay put and the body between
+  A browser-action popup is sized by its content, so the frame, not the
+  panel, owns the height: the header and footer stay put and the body between
   them scrolls, rather than the whole popup growing past what the screen will
   show.
 
@@ -12,12 +12,12 @@
   popup closes on every click that opens a tab, and a list forty tracks long
   would otherwise start again at the top each time.
 
-  It also carries the tooltip provider bits-ui wants above every tooltip.
-  That used to sit at the root of the app, which put the whole component
-  library in the chunk the popup boots from — and the tool menu, which is
-  what the popup boots *into*, has not got a tooltip on it. Every tooltip
-  inside a panel is inside this; the only ones that are not are the queue
-  sheet's, and it carries a provider of its own for the same reason.
+  It also carries the tooltip provider bits-ui wants above every tooltip. At
+  the root of the app it would put the whole component library in the chunk
+  the popup boots from, and the tool menu, which is what the popup boots
+  *into*, has not got a tooltip on it. Every tooltip inside a panel is inside
+  this; the only ones that are not are the queue sheet's, and Sheet.svelte
+  carries a provider of its own for the same reason.
 -->
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
@@ -38,7 +38,7 @@
     meta?: string;
     /** Buttons for the right of the header. */
     actions?: Snippet;
-    /** Shown between the header and the body — a progress bar, say. */
+    /** Shown between the header and the body: a progress bar, say. */
     banner?: Snippet;
     footer?: Snippet;
     children: Snippet;
@@ -56,7 +56,7 @@
 
   // --- where the list was ----------------------------------------------------
 
-  // `untrack`, because capturing the id is the point: a mounted panel belongs
+  // `untrack`, because capturing the id is deliberate: a mounted panel belongs
   // to one tool for its whole life (App.svelte builds a new one when the tool
   // changes), so the place is filed under the tool it was made for.
   const scrolled = remembered(untrack(() => tool.id), 'scroll', 0);
@@ -76,13 +76,13 @@
       starts one. */
   let done: (() => void) | undefined;
 
-  // The list is not there when the panel mounts — it arrives when the page has
-  // been read, or a lookup has come back — so the position is put back as the
+  // The list is not there when the panel mounts (it arrives when the page has
+  // been read, or a lookup has come back), so the position is put back as the
   // content appears, growing towards it. Three things end that: it holds, the
   // user scrolls somewhere else first, or the content turns out never to get
   // that long (a shorter page than the one it was left on), which is what the
-  // timeout is for. Without one, every later change to the list — a row
-  // finishing, a section opening — would drag it to the bottom again.
+  // timeout is for. Without one, every later change to the list (a row
+  // finishing, a section opening) would drag it to the bottom again.
   $effect(() => {
     if (!body || !restoring) return;
     const element = body;
@@ -109,8 +109,8 @@
   });
 
   // Scroll events are frame-bound, and everything one turn changes is written
-  // once (view.svelte.js), so following the position as it moves costs a small
-  // write per frame of actual scrolling. While a restore is still going, the
+  // once (view.svelte.ts), so following the position as it moves costs a small
+  // write per frame of scrolling. While a restore is still going, the
   // only position it does not record is the one the restore itself put there.
   function onscroll({ currentTarget }: { currentTarget: HTMLElement }) {
     if (restoring) {
@@ -150,7 +150,7 @@
 
       <div class="min-w-0 flex-1">
         <!-- The name is what gives way when the header runs out of room, and
-             it truncates rather than wrapping — so it says the whole of
+             it truncates rather than wrapping, so it says the whole of
              itself on hover, as the line under it does. -->
         <h1
           class="m-0 truncate text-label leading-tight font-semibold outline-none"

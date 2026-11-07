@@ -14,7 +14,9 @@ use std::os::unix::fs::PermissionsExt;
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
+use locallibrary::onelibrary::{self, OneLibrary};
 use locallibrary::paths::{self, FileClass};
+use locallibrary::player;
 use locallibrary::progress::Ctx;
 use locallibrary::scrub::{self, FileProblem, ReferenceKind, RepairSource, ScrubOptions};
 use locallibrary::store::Store;
@@ -94,6 +96,45 @@ fn a_scrub_after_the_drive_changed_checks_what_the_store_knows(tc: TestCase) {
     assert_eq!(paths_of(&again.damaged), paths_of(&r.damaged), "the damage isn't taken for the new normal");
 }
 
+/// However often `exportLibrary.db` is rewritten holding the same library (a name, a colour, a
+/// checkpoint), a scrub takes it as the state saved, and finds exactly the audio that rotted.
+#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+fn rewrites_of_the_same_library_are_not_damage(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let (root, _) = drawn::drive(&tc, dir.path(), "Main");
+    common::add_onelibrary(&root);
+    common::age(&root);
+    let mut main = Device::open_export(&root).unwrap();
+    main.adopt(Some("Main")).unwrap();
+    let saved = sync::pull(&store, &mut main, &PullOptions::default(), &Ctx::silent()).unwrap().snapshot.unwrap();
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
+        if tc.draw(gs::booleans()) {
+            let name = tc.draw(gs::sampled_from(vec!["MAIN A".to_string(), "BOOTH".to_string()]));
+            let colour = tc.draw(gs::integers::<i64>().min_value(0).max_value(8));
+            player::set(&mut main, Some(&name), Some(colour)).unwrap();
+        } else {
+            let again = OneLibrary::open(&main).unwrap().to_encrypted().unwrap();
+            onelibrary::write(&main, &again).unwrap();
+        }
+    }
+    let audio: Vec<String> = common::library_files(&root)
+        .into_iter()
+        .map(|(k, _)| k)
+        .filter(|k| paths::classify(k) == Some(FileClass::Audio))
+        .collect();
+    let rotted = tc.draw(gs::booleans()).then(|| tc.draw(gs::sampled_from(audio)));
+    if let Some(key) = &rotted {
+        common::rot(&paths::to_fs(&root, key));
+    }
+
+    let r = scrub::scrub(&main, Some(&store), &[], &ScrubOptions::default(), &Ctx::silent()).unwrap();
+    assert_eq!(r.snapshot, Some(saved.id));
+    let damaged: Vec<&str> = r.damaged.iter().map(|p| p.path.as_str()).collect();
+    assert_eq!(damaged, rotted.iter().map(String::as_str).collect::<Vec<_>>());
+    assert!(r.missing.is_empty(), "{:?}", r.missing);
+}
+
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
 fn repairs_that_cant_be_made_are_skipped_or_said(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -157,4 +198,123 @@ fn repairs_that_cant_be_made_are_skipped_or_said(tc: TestCase) {
         let by_content = p.class.is_library() && p.class != FileClass::Audio;
         assert_eq!(scrub::changes_fingerprint(p), by_content, "{p:?}");
     }
+}
+
+/// What stops a scrub or a repair before it writes: a cancel as it starts reading or once it
+/// reads the first file, a snapshot named that the store doesn't have, a sibling drive whose
+/// folders can't be listed, and another write holding the drive. The drive is left as it was.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(case = 0u8)]
+#[hegel::explicit_test_case(case = 1u8)]
+#[hegel::explicit_test_case(case = 2u8)]
+#[hegel::explicit_test_case(case = 3u8)]
+#[hegel::explicit_test_case(case = 4u8)]
+fn prop_a_scrub_or_repair_that_cant_go_ahead_stops_before_writing(tc: TestCase) {
+    use locallibrary::progress::Phase;
+    use locallibrary::{CancelToken, Error, Event, Progress};
+
+    /// Cancels at the first event `at` matches.
+    struct CancelAt(CancelToken, fn(&Event) -> bool);
+    impl Progress for CancelAt {
+        fn on_event(&self, e: &Event) {
+            if (self.1)(e) {
+                self.0.cancel();
+            }
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let root = common::bigger_drive(dir.path(), "Main");
+    common::age(&root);
+    let mut main = Device::open_export(&root).unwrap();
+    main.adopt(Some("Main")).unwrap();
+    sync::pull(&store, &mut main, &PullOptions::default(), &Ctx::silent()).unwrap();
+    let mut mirror = Device::open(common::blank(dir.path(), "Mirror")).unwrap();
+    sync::sync_drive_to_drive(&mut main, &mut mirror, &SyncOptions::default(), &Ctx::silent()).unwrap();
+    let audio = common::library_files(&root)
+        .into_iter()
+        .map(|(k, _)| k)
+        .find(|k| paths::classify(k) == Some(FileClass::Audio))
+        .unwrap();
+    common::rot(&paths::to_fs(&root, &audio));
+    let main = Device::open_export(&root).unwrap();
+    let found = scrub::scrub(&main, Some(&store), &[], &ScrubOptions::default(), &Ctx::silent()).unwrap();
+    assert_eq!(found.damaged.len(), 1, "{found:#?}");
+    let before = common::drive_files(&root);
+
+    let case = tc.draw(gs::integers::<u8>().max_value(4));
+    let (scrubbed, repaired) = match case {
+        0 | 1 => {
+            let at: fn(&Event) -> bool = match case {
+                0 => |e| matches!(e, Event::PhaseStart { phase: Phase::Verify, .. }),
+                _ => |e| matches!(e, Event::Item { phase: Phase::Verify, .. }),
+            };
+            let cancel = CancelAt(CancelToken::new(), at);
+            let ctx = Ctx::new(&cancel, cancel.0.clone());
+            (scrub::scrub(&main, Some(&store), &[], &ScrubOptions::default(), &ctx).map(|_| ()), None)
+        }
+        2 => {
+            let opts = ScrubOptions { snapshot: Some(locallibrary::hash::Hash::of(b"no such snapshot")) };
+            (scrub::scrub(&main, Some(&store), &[], &opts, &Ctx::silent()).map(|_| ()), None)
+        }
+        3 => {
+            let contents = mirror.root().join("Contents");
+            fs::set_permissions(&contents, fs::Permissions::from_mode(0o000)).unwrap();
+            let siblings = vec![Device::open(mirror.root()).unwrap()];
+            let s = scrub::scrub(&main, None, &siblings, &ScrubOptions::default(), &Ctx::silent()).map(|_| ());
+            let mut d = Device::open_export(&root).unwrap();
+            let r = scrub::repair(&mut d, None, &siblings, &found.damaged, &Ctx::silent()).map(|_| ());
+            fs::set_permissions(&contents, fs::Permissions::from_mode(0o755)).unwrap();
+            (s, Some(r))
+        }
+        _ => {
+            let mut d = Device::open_export(&root).unwrap();
+            let _other_write = Device::open(&root).unwrap().lock().unwrap();
+            (Ok(()), Some(scrub::repair(&mut d, Some(&store), &[], &found.damaged, &Ctx::silent()).map(|_| ())))
+        }
+    };
+    match case {
+        0 | 1 => assert!(matches!(scrubbed, Err(Error::Cancelled)), "{scrubbed:?}"),
+        2 => assert!(matches!(scrubbed, Err(Error::NotFound(_))), "{scrubbed:?}"),
+        3 => {
+            assert!(matches!(scrubbed, Err(Error::Io { .. })), "{scrubbed:?}");
+            assert!(matches!(repaired, Some(Err(Error::Io { .. }))), "{repaired:?}");
+        }
+        _ => assert!(matches!(repaired, Some(Err(Error::Locked(_)))), "{repaired:?}"),
+    }
+    assert_eq!(common::drive_files(&root), before, "the drive is left as it was");
+}
+
+/// A repair whose good copy, on a sibling drive, can't be read by the time it's made fails for
+/// that file, saying why, and leaves it damaged.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+fn prop_a_repair_from_a_copy_it_cant_read_says_why(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let (root, _) = drawn::drive(&tc, dir.path(), "Main");
+    common::age(&root);
+    let mut main = Device::open_export(&root).unwrap();
+    main.adopt(Some("Main")).unwrap();
+    let mut mirror = Device::open(common::blank(dir.path(), "Mirror")).unwrap();
+    sync::sync_drive_to_drive(&mut main, &mut mirror, &SyncOptions::default(), &Ctx::silent()).unwrap();
+    let siblings = vec![Device::open(mirror.root()).unwrap()];
+    assert!(scrub::scrub(&main, None, &siblings, &ScrubOptions::default(), &Ctx::silent()).unwrap().is_clean());
+    let audio: Vec<String> = common::library_files(&root)
+        .into_iter()
+        .map(|(k, _)| k)
+        .filter(|k| paths::classify(k) == Some(FileClass::Audio))
+        .collect();
+    let rotted = tc.draw(gs::sampled_from(audio));
+    common::rot(&paths::to_fs(&root, &rotted));
+    let r = scrub::scrub(&main, None, &siblings, &ScrubOptions::default(), &Ctx::silent()).unwrap();
+    let copy = paths::to_fs(mirror.root(), &rotted);
+    fs::set_permissions(&copy, fs::Permissions::from_mode(0o000)).unwrap();
+    let rep = scrub::repair(&mut main, None, &siblings, &r.damaged, &Ctx::silent()).unwrap();
+    fs::set_permissions(&copy, fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(rep.repaired.is_empty(), "{rep:?}");
+    let [failed] = rep.failed.as_slice() else { panic!("{rep:?}") };
+    assert!(failed.path.eq_ignore_ascii_case(&rotted), "{rep:?}");
+    assert!(failed.error.contains("ermission denied"), "{rep:?}");
+    let again = scrub::scrub(&main, None, &siblings, &ScrubOptions::default(), &Ctx::silent()).unwrap();
+    assert_eq!(again.damaged.len(), 1, "still damaged");
 }

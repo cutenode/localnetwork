@@ -242,7 +242,7 @@ impl SyncPlan {
 }
 
 /// `exportLibrary.db` or its WAL.
-fn is_library_plus(key: &str) -> bool {
+pub(crate) fn is_library_plus(key: &str) -> bool {
     key.eq_ignore_ascii_case(paths::LIBRARY_PLUS_DB) || key.eq_ignore_ascii_case(paths::LIBRARY_PLUS_WAL)
 }
 

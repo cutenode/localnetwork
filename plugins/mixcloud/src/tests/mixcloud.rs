@@ -290,12 +290,12 @@ impl Session {
         self.mixcloud.lock().unwrap().received.len()
     }
 
-    /// Closes the plugin's input: it stops. What Mixcloud was sent.
+    /// Closes the plugin's input: it stops. What Mixcloud was sent, read once all of it is
+    /// answered: what the plugin sent before a cancel reached it may still be on its way.
     pub(super) fn stop(self) -> Received {
-        let received = self.received();
         self.host.close();
         self.served.join().unwrap();
         self.answering.join().unwrap();
-        received
+        std::mem::take(&mut self.mixcloud.lock().unwrap().received)
     }
 }

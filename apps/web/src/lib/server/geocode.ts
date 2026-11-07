@@ -70,7 +70,7 @@ export class Geocoder {
 		try {
 			results = this.deps.provider === 'nominatim' ? await this.nominatim(q) : await this.openMeteo(q);
 		} catch (error) {
-			this.deps.logger.warn({ err: error, query: q }, 'geocoding failed');
+			this.deps.logger.warn('geocoding failed', { err: error, query: q });
 
 			return [];
 		}

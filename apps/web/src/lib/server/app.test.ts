@@ -5,7 +5,6 @@ import { P256Keypair } from '@atproto/crypto';
 import { cidForLex } from '@atproto/lex-cbor';
 import { jsonToLex } from '@atproto/lex-json';
 import { createSpaceToken } from '@atproto/space';
-import pino from 'pino';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { COLLECTION, DIRECTORY, VERIFICATION } from '#lib/nsid.ts';
 import { type App, createApp, getApp } from './app';
@@ -13,6 +12,8 @@ import { rootSpacePolicies } from './bootstrap';
 import { loadConfig } from './config';
 import { nowIso } from './db';
 import { type Logger, silentLogger } from './logger';
+import { MEBIBYTE, streamed } from './testing/streamed';
+import { writtenLog } from './testing/written-log';
 import { FakeHappyView } from './testing/happyview';
 import { fakeS3 } from './testing/s3';
 
@@ -130,10 +131,9 @@ function stubNetwork() {
 
 /** A warn-level logger that keeps what it writes. */
 function capture() {
-	const lines: { msg: string; task?: string; collection?: string }[] = [];
-	const logger: Logger = pino({ level: 'warn' }, { write: (line: string) => void lines.push(JSON.parse(line)) });
+	const { logger, notes } = writtenLog('warn');
 
-	return { logger, lines };
+	return { logger, notes };
 }
 
 let net: ReturnType<typeof stubNetwork>;
@@ -243,6 +243,8 @@ describe('createApp', () => {
 	});
 
 	it("fetches a public blob from the account's PDS, refusing failures and blobs over the limit", async () => {
+		const endless = streamed(64);
+
 		const stream = (bytes: number) =>
 			new ReadableStream({
 				start(controller) {
@@ -266,6 +268,8 @@ describe('createApp', () => {
 
 			if (cid === 'large') return new Response(stream(10));
 
+			if (cid === 'endless') return new Response(endless.body);
+
 			return new Response(null, { status: 404 });
 		});
 
@@ -276,6 +280,22 @@ describe('createApp', () => {
 		await expect(app.core.fetchBlob!(NEON, 'gone', 5)).rejects.toThrow('getBlob gone: HTTP 404');
 		await expect(app.core.fetchBlob!(NEON, 'declared-large', 5)).rejects.toThrow('blob declared-large is too large');
 		await expect(app.core.fetchBlob!(NEON, 'large', 5)).rejects.toThrow('blob large is too large');
+		await expect(app.core.fetchBlob!(NEON, 'endless', 5)).rejects.toThrow('Response too large');
+		expect(endless.made()).toBeLessThan(40 * MEBIBYTE);
+	});
+
+	it("stops reading a PDS's answer to the OAuth client past the cap", async () => {
+		const answer = streamed(64);
+
+		net.routes.set(
+			'GET /.well-known/oauth-protected-resource',
+			() => new Response(answer.body, { headers: { 'content-type': 'application/json' } })
+		);
+		const app = await start();
+
+		await expect(app.oauth.client.authorize('https://pds.test/')).rejects.toThrow('https://pds.test');
+		expect(answer.made()).toBeGreaterThan(30 * MEBIBYTE);
+		expect(answer.made()).toBeLessThan(40 * MEBIBYTE);
 	});
 
 	it('plays PDS recordings only for managers of an active project, as HappyView lists them', async () => {
@@ -412,14 +432,14 @@ describe('syncDirectory', () => {
 	it("logs the collections HappyView couldn't re-read, and still marks the sync done", async () => {
 		// The project search fails, so the managers to re-read can't be listed.
 		net.routes.set(SEARCH, () => new Response('down', { status: 500 }));
-		const { logger, lines } = capture();
+		const { logger, notes } = capture();
 		const app = await start({}, logger);
 
 		expect(app.directorySync?.error).toBeNull();
 
-		const failed = lines.filter((line) => line.msg === 'could not have HappyView re-read older records');
+		const failed = notes().filter((note) => note.message === 'could not have HappyView re-read older records');
 		expect(failed.map((line) => line.collection)).toContain(COLLECTION.djSet);
-		expect(lines.some((line) => line.msg === 'could not re-read shows')).toBe(true);
+		expect(notes().some((note) => note.message === 'could not re-read shows')).toBe(true);
 
 		const verification = await app.db
 			.selectFrom('kv')
@@ -449,7 +469,7 @@ describe('start', () => {
 	it('runs the sync on its interval, logs a round that fails, and skips rounds while one still runs', async () => {
 		let release = () => {};
 
-		const { logger, lines } = capture();
+		const { logger, notes } = capture();
 		const app = await start({}, logger);
 		app.start();
 
@@ -457,7 +477,7 @@ describe('start', () => {
 		await vi.advanceTimersByTimeAsync(1_000);
 		expect(getSpaces()).toBe(1);
 		await vi.waitFor(() =>
-			expect(lines).toContainEqual(expect.objectContaining({ msg: 'background task failed', task: 'sync' }))
+			expect(notes()).toContainEqual(expect.objectContaining({ message: 'background task failed', task: 'sync' }))
 		);
 
 		// Now it hangs: the next rounds wait for it.
@@ -536,13 +556,13 @@ describe('start', () => {
 	});
 
 	it("logs that it couldn't resume notification delivery when the outbox can't be read", async () => {
-		const { logger, lines } = capture();
+		const { logger, notes } = capture();
 		const app = await start(NO_KEY, logger);
 		await app.db.schema.dropTable('notificationDelivery').execute();
 
 		app.start();
 		await vi.waitFor(() =>
-			expect(lines).toContainEqual(expect.objectContaining({ msg: 'could not resume notification delivery' }))
+			expect(notes()).toContainEqual(expect.objectContaining({ message: 'could not resume notification delivery' }))
 		);
 	});
 

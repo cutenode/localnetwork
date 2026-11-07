@@ -1,7 +1,7 @@
-// Hypeddit — hypeddit.com
+// Hypeddit (hypeddit.com)
 //
-// A Hypeddit link is a "download gate": a slideshow of steps — follow the
-// artist on SoundCloud, hand over an email address, open Instagram — with the
+// A Hypeddit link is a "download gate": a slideshow of steps (follow the
+// artist on SoundCloud, hand over an email address, open Instagram) with the
 // download button at the end.
 //
 // What the gate actually checks
@@ -14,8 +14,8 @@
 // file. So unlocking most gates is: read the fields off the page, post them
 // back.
 //
-// Two steps have teeth, and both are teeth for the same reason — they are what
-// the artist is actually being paid in.
+// Two steps have teeth, for the same reason: they are what the artist is being
+// paid in.
 //
 // The email step. A gate that asks for an address will not unlock until that
 // address has been through /verifyEmailAddress, which checks it is real and
@@ -25,13 +25,13 @@
 // The Spotify step (`sp` in the step list). This one is not reported by the
 // page at all: the button sends the visitor through Spotify's own OAuth, and
 // Hypeddit's /spotify_callback then does the following and the library-saving
-// itself, with a token of its own. /gate/download/ul answers
-// {download_status: false, URL: ""} until that has happened, and there is no
-// field to say otherwise — claiming a shorter step list, passing
-// skip_gate_steps, or posting the artist ids the page carries all get the same
-// refusal, because the check is on the session and not on the post. So the
-// only way through it is through it: send a tab the same way the button would,
-// and let the follow really happen. See connectSpotify below.
+// itself, with a token of its own. /gate/download/ul answers {download_status:
+// false, URL: ""} until that has happened, and there is no field to say
+// otherwise: claiming a shorter step list, passing skip_gate_steps, or posting
+// the artist ids the page carries all get the same refusal, because the check
+// is on the session and not on the post. So the step has to be done for real:
+// send a tab the same way the button would, and let the follow happen. See
+// connectSpotify below.
 
 import { fallback, z } from '$lib/zod';
 import { documentOf } from '../parse.ts';
@@ -102,8 +102,8 @@ function csrfOf(html: string) {
 // The URL is inside an onclick, wrapped in the page's popup opener, and there
 // are several of them on a gate page: the step's own, and the ones in the nav
 // and footer that connect an *account* rather than answer this gate. They are
-// not interchangeable — each carries an encrypted `state` saying what the
-// callback is for — so this takes the one inside the step's own section, and
+// not interchangeable (each carries an encrypted `state` saying what the
+// callback is for), so this takes the one inside the step's own section, and
 // nothing at all if that section is not there.
 function spotifyConnectOf(html: string) {
 	const section = documentOf(html).getElementById('step_sp');
@@ -200,14 +200,13 @@ async function verifyEmail(gate: Gate, email: string, name: string) {
 // scopes for the follow and the library save and an encrypted `state` saying
 // which gate is asking; `details.connect` sends a tab out to it and says
 // whether the tab came back to Hypeddit, which is where Spotify leaves it once
-// the app has been allowed. Coming back is the whole of it — the follow is
+// the app has been allowed. Coming back is all it takes: the follow is
 // Hypeddit's to do, on its own token, from /spotify_callback.
 //
-// The first time is not silent: Spotify wants a login, or a yes to the app,
-// and a tab opened behind a popup is no place to ask for either. So a trip
-// that does not come back is not an error to explain away — it is the row
-// saying, once, that this has to be done by hand, after which every later gate
-// goes through without a word.
+// The first time is not silent: Spotify wants a login, or a yes to the app, and
+// a tab opened behind a popup is no place to ask for either. So a trip that
+// does not come back is the row saying, once, that this has to be done by hand,
+// after which every later gate goes through without a word.
 async function connectSpotify(gate: Gate, details: UnlockDetails) {
 	const refuse: () => never = () => {
 		throw new Error(
@@ -284,7 +283,7 @@ async function unlock(pageUrl: string, details: UnlockDetails): Promise<Unlocked
 
 	if (!answer.download_status || !answer.URL) {
 		// The refusal carries no reason, so the closest thing to one is the gate's
-		// own step list — and naming the steps a fetch cannot do saves a trip to
+		// own step list, and naming the steps a fetch cannot do saves a trip to
 		// the tab to find out the same thing.
 		const named = steps.map((step) => STEP_NAMES.get(step)).filter(Boolean);
 		throw new Error(

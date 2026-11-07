@@ -1,5 +1,5 @@
-// src/tools/artists/profiles.ts — who is behind a track, and where else to
-// find them: the pure logic under the artists panel.
+// src/tools/artists/profiles.ts, the pure logic under the artists panel:
+// who is behind a track, and where else to find them.
 import { describe, it, expect } from 'vitest';
 import {
 	artistPathOf,

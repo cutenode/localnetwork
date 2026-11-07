@@ -74,7 +74,7 @@ export class ManagerSpaces {
 		} catch (error) {
 			// Without the grants, the sync can't tell a grantee from a manager who left, so it leaves the press kits' spaces
 			// for next time.
-			this.core.logger.warn({ err: error, space: requests }, "could not read a project's press kit grants");
+			this.core.logger.warn("could not read a project's press kit grants", { err: error, space: requests });
 
 			return spaces;
 		}
@@ -89,7 +89,7 @@ export class ManagerSpaces {
 				spaces.push({ uri: space, joinable: true, write: false, others: others.map((grant) => grant.subject) });
 			} catch (error) {
 				// As above, for this press kit's space only.
-				this.core.logger.warn({ err: error, space }, "could not read a press kit's grants");
+				this.core.logger.warn("could not read a press kit's grants", { err: error, space });
 			}
 		}
 
@@ -140,18 +140,18 @@ export class ManagerSpaces {
 
 			if (fromOpening && fromAudit && fromOpening !== fromAudit) {
 				this.core.logger.warn(
-					{ space, opening: fromOpening, audit: fromAudit },
-					'skipping a booking thread whose opening record and audit entry name different projects'
+					'skipping a booking thread whose opening record and audit entry name different projects',
+					{ space, opening: fromOpening, audit: fromAudit }
 				);
 
 				return [];
 			}
 
 			if ((fromOpening ?? fromAudit) !== projectUri) {
-				this.core.logger.info(
-					{ space, project: projectUri },
-					'skipping a booking thread no root record ties to the project'
-				);
+				this.core.logger.info('skipping a booking thread no root record ties to the project', {
+					space,
+					project: projectUri
+				});
 
 				return [];
 			}

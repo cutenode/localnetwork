@@ -1,4 +1,4 @@
-// src/tools/artists/Panel.svelte — the artists tool: a kept list of the
+// src/tools/artists/Panel.svelte, the artists tool: a kept list of the
 // uploaders behind the tracks somebody has added, and their socials.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
@@ -209,7 +209,7 @@ describe('adding from the tab', () => {
 		const bar = document.querySelector('[role="progressbar"]')!;
 		expect(bar.getAttribute('aria-label')).toBe('looking up socials');
 		expect(bar.getAttribute('aria-valuetext')).toBe('1 of 2');
-		// Its own answer is in, so the row shows it — badge and all — while the
+		// Its own answer is in, so the row shows it, badge and all, while the
 		// other is still being asked about.
 		expect(rowText()).toEqual(['Bicep Belfast, GB · 1.2K followers · 1 link IG', 'Four Tet looking up…']);
 		expect(document.querySelectorAll('li [aria-label="looking up"]')).toHaveLength(1);

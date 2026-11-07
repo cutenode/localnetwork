@@ -105,7 +105,7 @@ export class NotificationChannels {
 		try {
 			return (await this.readEmail(did, await input.session(), optIn)) ? 'read' : 'limited';
 		} catch (error) {
-			this.deps.logger.warn({ err: error, did }, 'could not read the email address');
+			this.deps.logger.warn('could not read the email address', { err: error, did });
 
 			return 'skipped';
 		}
@@ -183,7 +183,7 @@ export class NotificationChannels {
 			})
 			.onConflict((oc) => oc.columns(['did', 'channel']).doUpdateSet(values))
 			.execute();
-		this.deps.logger.info({ did, status: values.status, pausedReason }, 'read the email address for the inbox');
+		this.deps.logger.info('read the email address for the inbox', { did, channelStatus: values.status, pausedReason });
 
 		if (token && address) await this.deps.sendConfirmation?.(address, token);
 
@@ -203,7 +203,7 @@ export class NotificationChannels {
 			limits.address.take(`confirm-addr:${addressKey}`) &&
 			limits.all.take('confirm');
 
-		if (!allowed) logger.warn({ did }, 'not sending an email confirmation');
+		if (!allowed) logger.warn('not sending an email confirmation', { did });
 
 		return allowed;
 	}
@@ -236,7 +236,7 @@ export class NotificationChannels {
 			.where('address', '=', row.address)
 			.where('confirmAddressHash', '=', hashAddress(row.address))
 			.execute();
-		this.deps.logger.info({ did: row.did }, 'confirmed an email address');
+		this.deps.logger.info('confirmed an email address', { did: row.did });
 
 		return 'confirmed';
 	}
@@ -293,7 +293,7 @@ export class NotificationChannels {
 			})
 			.onConflict((oc) => oc.columns(['did', 'channel']).doUpdateSet(values))
 			.execute();
-		this.deps.logger.info({ did, status: values.status }, 'set up Bluesky DMs for the inbox');
+		this.deps.logger.info('set up Bluesky DMs for the inbox', { did, channelStatus: values.status });
 	}
 
 	/** Stops sending by `channel` until something fixes `reason`. */
@@ -304,7 +304,7 @@ export class NotificationChannels {
 			.where('did', '=', did)
 			.where('channel', '=', channel)
 			.execute();
-		this.deps.logger.info({ did, channel, reason }, 'paused a notification channel');
+		this.deps.logger.info('paused a notification channel', { did, channel, reason });
 	}
 
 	/** Turns a channel off, forgetting its address. */
@@ -327,7 +327,7 @@ export class NotificationChannels {
 
 		if (!row) return false;
 		await this.disable(row.did, 'email');
-		this.deps.logger.info({ did: row.did }, 'turned email off from an unsubscribe link');
+		this.deps.logger.info('turned email off from an unsubscribe link', { did: row.did });
 
 		return true;
 	}

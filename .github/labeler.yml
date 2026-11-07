@@ -160,7 +160,7 @@ atstore:
   - changed-files:
       - any-glob-to-any-file:
           - "apps/locallibrary/src/tui/**"
-          - "apps/locallibrary/docs/player.md"
+          - "apps/locallibrary/docs/player{.md,/**}"
           - "apps/locallibrary/bombadil/**"
           - "crates/loclib-waveform/**"
 

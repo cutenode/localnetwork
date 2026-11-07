@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { StaffGrant, StaffMember, StaffRole, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
+import { listAllSpaceRecords } from '../atproto/repo-client';
+import { reconcileMembers } from './space-members';
 import { type Core, ForbiddenError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 
@@ -28,16 +30,31 @@ export const staffRoleRecord = z.object({
 
 type StaffRoleRecord = z.infer<typeof staffRoleRecord>;
 
+type StaffSpace = keyof Core['spaces'];
+
 /** Access each staff member gets in the root's private spaces. */
-const STAFF_ACCESS: { space: keyof Core['spaces']; read: boolean; write: boolean }[] = [
+const STAFF_ACCESS: { space: StaffSpace; read: boolean; write: boolean }[] = [
 	{ space: 'audit', read: true, write: true },
 	{ space: 'moderation', read: true, write: true },
 	{ space: 'staff', read: true, write: false },
 	{ space: 'industry', read: true, write: false }
 ];
 
+const spaceNames = (spaces: StaffSpace[]) =>
+	`the ${new Intl.ListFormat('en-GB', { type: 'conjunction' }).format(spaces)} space${spaces.length > 1 ? 's' : ''}`;
+
 export class StaffService {
+	private staffChanges: Promise<unknown> = Promise.resolve();
+
 	constructor(private readonly core: Core) {}
+
+	/** Runs one change to who's staff at a time, so a reconcile never acts on a list a grant or removal just changed. */
+	private oneAtATime<T>(change: () => Promise<T>): Promise<T> {
+		const run = this.staffChanges.then(change);
+		this.staffChanges = run.catch(() => undefined);
+
+		return run;
+	}
 
 	async roles(did: string): Promise<StaffRole[]> {
 		if (this.core.bootstrapAdmins.includes(did)) return ['admin'];
@@ -113,15 +130,18 @@ export class StaffService {
 		if (note) grant.note = note;
 		const record = validateRecord(COLLECTION.staffRole, grant);
 
-		const ref = await root.putSpaceRecord({
-			space: this.core.spaces.staff,
-			collection: COLLECTION.staffRole,
-			rkey: subject,
-			record
+		await this.oneAtATime(async () => {
+			const ref = await root.putSpaceRecord({
+				space: this.core.spaces.staff,
+				collection: COLLECTION.staffRole,
+				rkey: subject,
+				record
+			});
+
+			await this.indexRole(ref.uri, ref.cid, record);
+			await this.applyMembership(subject, true);
 		});
 
-		await this.indexRole(ref.uri, ref.cid, record);
-		await this.applyMembership(subject, true);
 		const account = await this.core.accounts.view(subject);
 		await this.core.audit.record({
 			actor: actor.did,
@@ -192,18 +212,30 @@ export class StaffService {
 
 		if (!previous) throw new UserError('That account is not staff');
 		const root = await this.core.root();
-		await root.deleteSpaceRecord({ space: this.core.spaces.staff, collection: COLLECTION.staffRole, rkey: subject });
-		await this.core.db.deleteFrom('staffRole').where('did', '=', subject).execute();
-		await this.applyMembership(subject, false);
+
+		// The role goes first, so the app stops trusting them whatever the spaces do. reconcileMembership finishes the rest.
+		const stillIn = await this.oneAtATime(async () => {
+			await root.deleteSpaceRecord({ space: this.core.spaces.staff, collection: COLLECTION.staffRole, rkey: subject });
+			await this.core.db.deleteFrom('staffRole').where('did', '=', subject).execute();
+
+			return this.applyMembership(subject, false);
+		});
+
 		const account = await this.core.accounts.view(subject);
+		const who = account.handle ? `@${account.handle}` : subject;
 		await this.core.audit.record({
 			actor: actor.did,
 			actorRole: 'admin',
 			action: 'role.revoke',
 			subject,
 			subjectKind: 'role',
-			summary: `Removed ${account.handle ? `@${account.handle}` : subject} from staff`,
-			changes: [{ field: 'role', before: previous.role }]
+			summary:
+				stillIn.length > 0
+					? `Removed ${who} from staff, but they can still read ${spaceNames(stillIn)}`
+					: `Removed ${who} from staff`,
+			changes: [{ field: 'role', before: previous.role }],
+			details: { stillIn },
+			outcome: stillIn.length > 0 ? 'failure' : 'success'
 		});
 	}
 
@@ -229,9 +261,13 @@ export class StaffService {
 		await this.core.db.deleteFrom('staffRole').where('uri', '=', uri).execute();
 	}
 
-	/** Adds or removes memberspace membership so staff can read the private spaces from any client. */
-	async applyMembership(did: string, isStaff: boolean): Promise<void> {
+	/**
+	 * Adds or removes memberspace membership so staff can read the private spaces from any client. Returns the spaces it
+	 * couldn't change.
+	 */
+	async applyMembership(did: string, isStaff: boolean): Promise<StaffSpace[]> {
 		const root = await this.core.root();
+		const failed = new Set(STAFF_ACCESS.map((access) => access.space));
 
 		for (const access of STAFF_ACCESS) {
 			const space = this.core.spaces[access.space];
@@ -239,16 +275,109 @@ export class StaffService {
 			try {
 				if (isStaff) await root.putMember({ space, did, read: access.read, write: access.write });
 				else await root.removeMember({ space, did });
+				failed.delete(access.space);
 			} catch (error) {
-				this.core.logger.warn({ err: error, space, did }, 'could not update space membership');
+				this.core.logger.warn('could not update space membership', { err: error, space, did });
 			}
+		}
+
+		return [...failed];
+	}
+
+	/**
+	 * Everyone who should be in the private spaces: anyone the app treats as staff, and anyone with a role in the root's
+	 * repo, which the index can lag or, after a lost database, not have at all. Null when the root's roles can't be read,
+	 * since nobody can then tell a former member from one the index hasn't heard of.
+	 */
+	private async expectedStaff(): Promise<Set<string> | null> {
+		const { core } = this;
+		const root = await core.root();
+
+		try {
+			const records = await listAllSpaceRecords(root, {
+				space: core.spaces.staff,
+				repo: root.did,
+				collection: COLLECTION.staffRole
+			});
+
+			const indexed = await core.db.selectFrom('staffRole').select('did').execute();
+
+			return new Set([
+				...core.bootstrapAdmins,
+				...indexed.map((row) => row.did),
+				...records.flatMap(({ value }) => staffRoleRecord.safeParse(value).data?.subject ?? [])
+			]);
+		} catch (error) {
+			core.logger.warn("could not read the root's staff roles", { err: error });
+
+			return null;
 		}
 	}
 
-	/** Makes space membership match the current staff list (run at startup). */
-	async reconcileMembership(): Promise<void> {
-		const staff = new Set([...this.core.bootstrapAdmins, ...(await this.list()).map((member) => member.did)]);
+	/**
+	 * Makes the private spaces' member lists match the staff: adds who's missing, corrects access, and removes everyone
+	 * else, which finishes any removal that failed. Each removal is audited here, so the log says when someone's access
+	 * really went.
+	 */
+	reconcileMembership(): Promise<void> {
+		return this.oneAtATime(async () => {
+			const staff = await this.expectedStaff();
 
-		for (const did of staff) await this.applyMembership(did, true);
+			if (!staff) return;
+			const left = new Map<string, StaffSpace[]>();
+
+			for (const { space, read, write } of STAFF_ACCESS) {
+				await reconcileMembers(this.core, {
+					uri: this.core.spaces[space],
+					wanted: new Map([...staff].map((did) => [did, { read, write }])),
+					others: [],
+					joinable: true,
+					onLeft: (did) => left.set(did, [...(left.get(did) ?? []), space])
+				});
+			}
+
+			for (const [did, spaces] of left) {
+				const { handle } = await this.core.accounts.view(did);
+				await this.core.audit.record({
+					actor: this.core.rootDid,
+					actorRole: 'system',
+					action: 'role.revoke',
+					subject: did,
+					subjectKind: 'role',
+					summary: `Took ${handle ? `@${handle}` : did} out of ${spaceNames(spaces)}`,
+					via: 'system',
+					details: { spaces }
+				});
+			}
+		});
+	}
+
+	/**
+	 * Who's in a private space without being staff, read from the spaces themselves: a removal that hasn't gone through
+	 * yet. Null when that can't be read right now.
+	 */
+	async strayMembers() {
+		const { core } = this;
+		const staff = await this.expectedStaff();
+
+		if (!staff) return null;
+		const root = await core.root();
+		const strays = new Map<string, StaffSpace[]>();
+
+		try {
+			for (const { space } of STAFF_ACCESS) {
+				for (const { did } of await root.listMembers(core.spaces[space])) {
+					if (did !== root.did && !staff.has(did)) strays.set(did, [...(strays.get(did) ?? []), space]);
+				}
+			}
+		} catch (error) {
+			core.logger.warn("could not read the private spaces' members", { err: error });
+
+			return null;
+		}
+
+		const accounts = await core.accounts.views([...strays.keys()]);
+
+		return [...strays].map(([did, spaces]) => ({ did, handle: accounts.get(did).handle, spaces }));
 	}
 }

@@ -335,9 +335,13 @@ pub fn track_table(list: &[&Track], columns: &[TrackColumn], format: TableFormat
             };
             let header: Vec<String> = columns.iter().enumerate().map(|(i, c)| cell(i, c.header())).collect();
             say!("{}", style(header.join("  ").trim_end()).dim().bold());
-            for row in &rows {
-                let line: Vec<String> = row.iter().enumerate().map(|(i, v)| cell(i, v)).collect();
-                say!("{}", line.join("  ").trim_end());
+            // Printed at once: stdout writes line by line, a system call for each of thousands.
+            let lines: Vec<String> = (rows.iter())
+                .map(|row| row.iter().enumerate().map(|(i, v)| cell(i, v)).collect::<Vec<_>>().join("  "))
+                .map(|line| line.trim_end().to_string())
+                .collect();
+            if !lines.is_empty() {
+                say!("{}", lines.join("\n"));
             }
             let shown = list.len();
             let count = match shown == total {
@@ -373,10 +377,9 @@ fn delimited<'a>(format: TableFormat, headers: impl Iterator<Item = &'a str>, ro
         }),
         _ => ("\t", |v| v.replace(['\t', '\n', '\r'], " ")),
     };
-    println!("{}", headers.collect::<Vec<_>>().join(separator));
-    for row in rows {
-        println!("{}", row.iter().map(|v| cell(v)).collect::<Vec<_>>().join(separator));
-    }
+    let header = headers.collect::<Vec<_>>().join(separator);
+    let lines = rows.iter().map(|row| row.iter().map(|v| cell(v)).collect::<Vec<_>>().join(separator));
+    println!("{}", std::iter::once(header).chain(lines).collect::<Vec<_>>().join("\n"));
 }
 
 pub fn track_details(d: &TrackDetails) {

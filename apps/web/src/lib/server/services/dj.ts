@@ -30,7 +30,7 @@ export class DjService {
 	private readonly cache = new Map<string, { at: number; value: DjActivity }>();
 
 	constructor(
-		private readonly repos: IndexedRepo,
+		private readonly repos: Pick<IndexedRepo, 'getRecords' | 'listRecords'>,
 		private readonly logger: Logger,
 		private readonly now: () => number = Date.now
 	) {}
@@ -95,7 +95,7 @@ export class DjService {
 
 		const parsed = djProfileSchema.safeParse(value);
 
-		if (!parsed.success) this.logger.debug({ did, issues: parsed.error.issues.length }, 'dj profile does not parse');
+		if (!parsed.success) this.logger.debug('dj profile does not parse', { did, issues: parsed.error.issues.length });
 
 		return parsed.success ? parsed.data : null;
 	}

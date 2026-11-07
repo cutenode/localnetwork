@@ -326,3 +326,10 @@ fn prop_without_a_current_folder_relative_paths_are_folded_as_they_are(tc: TestC
     assert_eq!(got, want, "{path:?}");
     assert_eq!(absolute_with(&Path::new("/").join(&path), unknown), Path::new("/").join(&want), "{path:?}");
 }
+
+/// A key is NFC with forward slashes and no leading slash, from ASCII and from anything else.
+#[test]
+fn keys_come_out_in_one_form() {
+    assert_eq!(key("\\\\Contents\\a b/c.mp3"), "Contents/a b/c.mp3");
+    assert_eq!(key("/Contents/Cafe\u{301}.mp3"), "Contents/Caf\u{E9}.mp3");
+}

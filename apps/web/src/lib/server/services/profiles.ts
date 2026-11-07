@@ -87,7 +87,7 @@ export class ProfileService {
 			assertProfileRecord(record);
 		} catch (error) {
 			if (!(error instanceof RecordValidationError)) throw error;
-			this.core.logger.warn({ err: error, uri }, 'skipping an invalid profile');
+			this.core.logger.warn('skipping an invalid profile', { err: error, uri });
 
 			return null;
 		}
@@ -130,7 +130,7 @@ export class ProfileService {
 
 			return { name: parsed.displayName?.slice(0, 64), bio: parsed.description, avatar };
 		} catch (error) {
-			this.core.logger.info({ err: error, did }, "couldn't read the account's Bluesky profile");
+			this.core.logger.info("couldn't read the account's Bluesky profile", { err: error, did });
 
 			return null;
 		}
