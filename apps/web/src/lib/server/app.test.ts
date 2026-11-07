@@ -12,6 +12,7 @@ import { rootSpacePolicies } from './bootstrap';
 import { loadConfig } from './config';
 import { nowIso } from './db';
 import { type Logger, silentLogger } from './logger';
+import { MEBIBYTE, streamed } from './testing/streamed';
 import { writtenLog } from './testing/written-log';
 import { FakeHappyView } from './testing/happyview';
 import { fakeS3 } from './testing/s3';
@@ -242,6 +243,8 @@ describe('createApp', () => {
 	});
 
 	it("fetches a public blob from the account's PDS, refusing failures and blobs over the limit", async () => {
+		const endless = streamed(64);
+
 		const stream = (bytes: number) =>
 			new ReadableStream({
 				start(controller) {
@@ -265,6 +268,8 @@ describe('createApp', () => {
 
 			if (cid === 'large') return new Response(stream(10));
 
+			if (cid === 'endless') return new Response(endless.body);
+
 			return new Response(null, { status: 404 });
 		});
 
@@ -275,6 +280,22 @@ describe('createApp', () => {
 		await expect(app.core.fetchBlob!(NEON, 'gone', 5)).rejects.toThrow('getBlob gone: HTTP 404');
 		await expect(app.core.fetchBlob!(NEON, 'declared-large', 5)).rejects.toThrow('blob declared-large is too large');
 		await expect(app.core.fetchBlob!(NEON, 'large', 5)).rejects.toThrow('blob large is too large');
+		await expect(app.core.fetchBlob!(NEON, 'endless', 5)).rejects.toThrow('Response too large');
+		expect(endless.made()).toBeLessThan(40 * MEBIBYTE);
+	});
+
+	it("stops reading a PDS's answer to the OAuth client past the cap", async () => {
+		const answer = streamed(64);
+
+		net.routes.set(
+			'GET /.well-known/oauth-protected-resource',
+			() => new Response(answer.body, { headers: { 'content-type': 'application/json' } })
+		);
+		const app = await start();
+
+		await expect(app.oauth.client.authorize('https://pds.test/')).rejects.toThrow('https://pds.test');
+		expect(answer.made()).toBeGreaterThan(30 * MEBIBYTE);
+		expect(answer.made()).toBeLessThan(40 * MEBIBYTE);
 	});
 
 	it('plays PDS recordings only for managers of an active project, as HappyView lists them', async () => {
