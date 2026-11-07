@@ -563,6 +563,7 @@ test/
   a11y.test.ts           every panel through the accessibility audit
   resilience.test.ts     every panel against a browser that says no
   scale.test.ts          five hundred rows: requests, writes, markers, rows
+  stepping-past-a-timeout.test.ts  a timed-out test can't reach the next one
   golden.test.ts         snapshots of every output the extension hands over
   build.test.ts          the real build, inspected as Chrome would load it
   docs.test.ts           this README against the code it describes
