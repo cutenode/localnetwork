@@ -1618,6 +1618,7 @@ fn run_sync(
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
+    locallibrary::op::allow_measuring(out.will_decide(dry_run));
     let preview = api::sync_plan(&req, ctx)?;
     let Some(plan) = &preview.plan.plan else {
         return Ok(out.nothing(&preview, "already in sync"));
@@ -1642,6 +1643,7 @@ fn run_sync(
             );
         }
         render::sync_plan(plan);
+        output::estimate(&preview.estimate);
     }
     if plan.is_noop() {
         return Ok(out.nothing(&preview, "nothing to copy"));

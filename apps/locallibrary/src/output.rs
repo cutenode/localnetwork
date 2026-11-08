@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
+use locallibrary::drive_speed::WriteEstimate;
 use locallibrary::op::Planned;
 use locallibrary::progress::{Event, Phase, Progress};
 use serde::Serialize;
@@ -157,6 +158,12 @@ impl Output {
             true => Answer::Yes,
             false => Answer::No,
         }
+    }
+
+    /// Whether the plan a command is about to make will be put to the user, or applied without
+    /// asking: only then is it worth writing to a drive to time it.
+    pub fn will_decide(&self, dry_run: bool) -> bool {
+        !dry_run && (self.yes || (!self.json && std::io::stdin().is_terminal()))
     }
 
     /// Whether to go ahead with a planned change: `None` to go ahead, otherwise what the command
@@ -668,6 +675,13 @@ impl Drawing {
     }
 }
 
+/// How long a write will take, as its plan says.
+pub fn estimate(estimate: &Option<WriteEstimate>) {
+    for line in estimate.iter().flat_map(WriteEstimate::lines) {
+        say!("  {}", dim(line));
+    }
+}
+
 fn phase_label(p: Phase) -> &'static str {
     match p {
         Phase::Scan => "Scanning",
@@ -683,6 +697,7 @@ fn phase_label(p: Phase) -> &'static str {
         Phase::Match => "Matching",
         Phase::Analyze => "Analysing",
         Phase::Upload => "Uploading",
+        Phase::Measure => "Measuring",
         _ => "Working",
     }
 }

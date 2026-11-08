@@ -3108,6 +3108,8 @@ export type PlanFields = {
    * those `left_alone`.
    */
   clones?: CloneTarget[];
+  /** How long writing it to its drive will take, for a write big enough to matter. */
+  estimate?: WriteEstimate | null;
   planned_at: string;
 };
 
@@ -3138,6 +3140,94 @@ export type CloneTarget = {
    */
   left_alone?: string | null;
 };
+
+/** How long a write to a drive will take. */
+export type WriteEstimate = {
+  work: Work;
+  /** The result it's worked out from. `None`: the drive hasn't been measured. */
+  speed: DriveSpeed | null;
+  /** Seconds it will take, or at least take when `best_case`. */
+  seconds?: number | null;
+  /**
+   * The write is longer than the rate has been seen to hold, so it could slow down past a cache
+   * region the test didn't reach.
+   */
+  best_case: boolean;
+  /** Which cost is the bigger. */
+  limit?: Limit | null;
+  /** Why the result may no longer hold. */
+  stale?: Stale | null;
+  /** The USB link the drive is on, in bits a second, when it's near or below the drive's rate. */
+  port_limit_bps?: number | null;
+  /** The drive was timed for this plan, with a short test whose files are gone. */
+  ran_test: boolean;
+};
+
+/** What a write asks of a drive. */
+export type Work = {
+  bytes: number;
+  files: number;
+  /** Folders to make: those the files go in that the drive doesn't have. */
+  folders: number;
+  /**
+   * What else the time depends on that isn't the drive (downloads, transcoding), as a line
+   * says it.
+   */
+  plus?: string | null;
+};
+
+/** What a drive costs to write to, as measured on it. */
+export type DriveSpeed = {
+  /** Bytes a second, once the drive has settled. */
+  bytes_per_sec: number;
+  /** Microseconds to make a small file. */
+  create_us: number;
+  /** Microseconds to make a folder. */
+  mkdir_us: number;
+  /**
+   * How many bytes the rate has been seen to hold for. `None`: it fell during the test and this
+   * is the rate past the drive's cache region, good for any size.
+   */
+  holds_for: number | null;
+  measured_at: string;
+  measured_by: MeasuredBy;
+  /** The USB link the drive was on then, in bits a second. */
+  link_bps?: number | null;
+  /** The drive's logged `bytes_written` then (see [`crate::fleet::DriveLog`]). */
+  logged_bytes?: number | null;
+};
+
+export type MeasuredBy =
+  /** A timed write of a scratch file. */
+  | "test"
+  /** A real write to the drive, whose rate replaced the test's. */
+  | "write";
+
+/** Which of a write's costs is the bigger. */
+export type Limit =
+  /** The drive's sustained rate: the bytes take longest. */
+  | "rate"
+  /** Making files and folders takes longest. */
+  | "files";
+
+/** Why a stored result may no longer hold. */
+export type Stale =
+  /** Measured this many days ago. */
+  | {
+    reason: "old";
+    days: number;
+  }
+  /** This many bytes written since, a capacity's worth or more. */
+  | {
+    reason: "worn";
+    bytes: number;
+  }
+  /** Measured on a link of `then` bits a second, and now on `now`. */
+  | {
+    reason: "moved";
+    then: number;
+    now: number;
+  };
 
 export type LibraryPage = {
   summary: LibrarySummary;
@@ -7583,6 +7673,16 @@ export type Hardware = {
   size: number;
 };
 
+export type DriveSpeedReport = {
+  drive: string;
+  /** The stored result. `None`: it hasn't been measured. */
+  speed: DriveSpeed | null;
+  /** Why that may no longer hold. */
+  stale?: Stale | null;
+  /** The USB link it's on now, in bits a second. */
+  link_bps?: number | null;
+};
+
 /** What an unadopted (or re-identified) drive matches. */
 export type Recognition = {
   /** Its library state is a stored snapshot. */
@@ -9403,7 +9503,9 @@ export type Phase =
   /** Decoding library tracks to estimate their tempo, key and loudness. */
   | "analyze"
   /** Sending files to a server (a set's recording, by a plugin's `net/fetch`). */
-  | "upload";
+  | "upload"
+  /** Timing writes to a drive, of scratch data that's removed after. */
+  | "measure";
 
 /** `{"event": "step"}`. */
 export type StepStarted = {
@@ -10218,6 +10320,10 @@ export interface Methods {
   "drive.retire": { params: RetireDrive & WriteOptions; result: DriveRecord };
   /** read method */
   "drive.log": { params: DriveRef; result: DriveRecord };
+  /** read method */
+  "drive.speed": { params: DriveRef; result: DriveSpeedReport };
+  /** immediate method; long running: sends `progress`, can be cancelled */
+  "drive.speed.measure": { params: DriveRef & WriteOptions; result: DriveSpeedReport };
   /** read method; long running: sends `progress`, can be cancelled */
   "drive.recognise": { params: DriveRef; result: Recognition };
   /** plan method; paired with `drive.adopt_as.apply`; can delete or overwrite something */

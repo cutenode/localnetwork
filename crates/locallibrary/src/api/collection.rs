@@ -6,9 +6,10 @@ use std::path::{Path, PathBuf};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::resolve_drive;
+use super::{resolve_drive, write_estimate};
 use crate::collection_export::{self, CollectionExportOptions, CollectionExportPlan, CollectionExportReport};
 use crate::device::Device;
+use crate::drive_speed::Work;
 use crate::masterdb::{self, CloudFolders, Collection, CollectionInfo, DriveDiff, TagCategory};
 use crate::model::Library;
 use crate::op::{Operation, Planned, Probe, Touched, bytes};
@@ -103,7 +104,7 @@ pub fn collection_export_plan(
     ctx: &Ctx<'_>,
 ) -> Result<Planned<CollectionExportPlan, CollectionExportOptions>> {
     let collection = open_collection(&req.collection)?;
-    let planned = export_planned("collection export", &req.drive, &req.options, |d| {
+    let planned = export_planned("collection export", &req.drive, &req.options, ctx, |d| {
         collection_export::plan(&collection, &CloudFolders::this_computer(), d, &req.options, ctx)
     })?;
     // rekordbox saving its collection in between makes the plan stale.
@@ -117,6 +118,7 @@ pub(crate) fn export_planned(
     operation: impl Into<std::borrow::Cow<'static, str>>,
     drive: &str,
     options: &CollectionExportOptions,
+    ctx: &Ctx<'_>,
     plan: impl FnOnce(&Device) -> Result<CollectionExportPlan>,
 ) -> Result<Planned<CollectionExportPlan, CollectionExportOptions>> {
     let made = make_folder(drive)?;
@@ -160,8 +162,11 @@ pub(crate) fn export_planned(
     }
     let destructive = !plan.deletes.is_empty() || plan.replaces_library;
     let warnings = plan.warnings.clone();
+    let work = Work::copying(d.root(), plan.copies.iter().map(|c| (c.path.as_str(), c.size)));
+    let estimate = write_estimate(&d, if plan.downloads > 0 { work.plus("downloads") } else { work }, ctx)?;
     Ok(Planned::new(operation, plan, options.clone())
         .summary(summary)
+        .estimated(estimate)
         .warnings(warnings)
         .destructive(destructive)
         .overwrite_archive(options.overwrite_archive)
