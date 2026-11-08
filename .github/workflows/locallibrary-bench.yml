@@ -103,11 +103,11 @@ jobs:
           tool: cargo-codspeed@6.0.0
       # Every feature, so benchmarks that need one (`test-util`) build too.
       - run: cargo codspeed build --workspace --all-features --locked -m simulation
-      # The packages with benchmarks, one folder each under target/codspeed/<mode>/. Tarred, as
-      # an artifact drops the executable bit.
+      # The packages with benchmarks, one folder each under target/codspeed/analysis/, where
+      # cargo-codspeed puts simulation builds. Tarred, as an artifact drops the executable bit.
       - id: built
         run: |
-          echo "packages=$(find target/codspeed/simulation -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | jq -Rnc "[inputs]")" >> "$GITHUB_OUTPUT"
+          echo "packages=$(find target/codspeed/analysis -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | jq -Rnc "[inputs]")" >> "$GITHUB_OUTPUT"
           tar -cf codspeed.tar target/codspeed
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
