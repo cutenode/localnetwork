@@ -51,3 +51,10 @@
 html:has([data-form-actions]) {
 	scroll-padding-bottom: 6rem;
 }
+
+/* Loading placeholders hold still for people who ask for less motion. */
+@media (prefers-reduced-motion: reduce) {
+	.animate-pulse {
+		animation: none;
+	}
+}
