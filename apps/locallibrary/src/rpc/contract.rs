@@ -19,10 +19,10 @@ use serde_json::Value;
 use serde_json::{Map, json};
 
 #[cfg(not(contract_from_docs))]
-use super::methods::{Method, Registry};
+use super::PROTOCOL;
 use super::methods::registry;
 #[cfg(not(contract_from_docs))]
-use super::PROTOCOL;
+use super::methods::{Method, Registry};
 use super::typescript;
 
 /// What the files `--emit-schema` writes are called.
