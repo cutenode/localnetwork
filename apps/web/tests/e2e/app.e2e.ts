@@ -559,8 +559,10 @@ test.describe('signed in', () => {
 		};
 
 		// What the root layout hands a page, since this flag gates nothing to look at. SvelteKit flattens it: values are indexes.
+		// The home page streams, so the reply is a line of JSON per chunk, and the layouts are all in the first.
 		const flagOn = async (get: typeof request.get) => {
-			const [{ data }] = pageData.parse(await (await get('/__data.json')).json()).nodes;
+			const [first] = (await (await get('/__data.json')).text()).split('\n');
+			const [{ data }] = pageData.parse(JSON.parse(first)).nodes;
 			const flags = data.map((value) => flagsAt.safeParse(value)).find(({ success }) => success)?.data;
 
 			return data[flags?.parityCanary ?? -1];
