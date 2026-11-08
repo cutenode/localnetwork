@@ -32,7 +32,8 @@
 	</div>
 
 	{#if data.created}<FormMessage form={{ success: "Published to the root account's repo." }} />{/if}
-	<FormMessage {form} />
+	<!-- A failed save echoes the form's values, and its message shows in the form's own action bar. -->
+	<FormMessage form={form?.values ? null : form} />
 
 	<div class="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
 		<div class="min-w-0">
@@ -43,7 +44,7 @@
 						<p><Handle account={pendingUpdate.requester} /> has changes waiting for review. Saving here first leaves their request out of date. <a class="link" href="/admin/requests/{pendingUpdate.rkey}">Review their changes</a></p>
 					</div>
 				{/if}
-				<ProjectForm action="?/update" values={form?.values ?? data.values} sets={data.sets} avatarUrl={project.avatarUrl} submitLabel="Save and publish" geocoder={data.geocoder} draft={draftKey(data.viewer, `admin:project:${project.uri}`)} />
+				<ProjectForm form={form?.values ? form : null} action="?/update" values={form?.values ?? data.values} sets={data.sets} avatarUrl={project.avatarUrl} submitLabel="Save and publish" geocoder={data.geocoder} draft={draftKey(data.viewer, `admin:project:${project.uri}`)} />
 			{:else}
 				<p class="notice notice-info">Moderators can hide or unhide projects. Only admins edit them directly.</p>
 			{/if}

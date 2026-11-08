@@ -47,6 +47,11 @@
 	min-width: 32rem;
 }
 
+/* A form's sticky action bar covers the bottom of the window, so focus and scrolling stop short of it. */
+html:has([data-form-actions]) {
+	scroll-padding-bottom: 6rem;
+}
+
 /* Loading placeholders hold still for people who ask for less motion. */
 @media (prefers-reduced-motion: reduce) {
 	.animate-pulse {

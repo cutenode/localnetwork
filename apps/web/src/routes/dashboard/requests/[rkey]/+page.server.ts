@@ -56,10 +56,14 @@ export const actions: Actions = {
 
 		const result = await act(
 			async () => {
-				if (request.kind === 'claim') {
+				const message = optionalText(form, 'message', 20_000) ?? '';
+
+				if (request.kind === 'list') {
+					await locals.app.requests.revise(viewer, request.uri, { message });
+				} else if (request.kind === 'claim') {
 					await locals.app.requests.revise(viewer, request.uri, {
 						claim: parseClaim(form),
-						message: optionalText(form, 'message', 20_000) ?? ''
+						message
 					});
 				} else {
 					let profile = parseProfile(form);
@@ -72,13 +76,13 @@ export const actions: Actions = {
 						details: parseDetails(form),
 						avatar: await parseAvatar(form),
 						tracklists: withFiles.tracklists,
-						message: optionalText(form, 'message', 20_000) ?? ''
+						message
 					});
 				}
 
 				return { revised: true };
 			},
-			request.kind === 'claim' ? stringValues(form) : formValues(form)
+			request.kind === 'claim' || request.kind === 'list' ? stringValues(form) : formValues(form)
 		);
 
 		if ('revised' in result) redirect(303, `/dashboard/requests/${params.rkey}`);

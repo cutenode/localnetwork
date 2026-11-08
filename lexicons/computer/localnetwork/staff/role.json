@@ -13,6 +13,12 @@
 					"subject": { "type": "string", "format": "did" },
 					"role": { "type": "string", "maxLength": 32, "knownValues": ["admin", "moderator"] },
 					"grantedBy": { "type": "string", "format": "did" },
+					"grants": {
+						"type": "array",
+						"maxLength": 8,
+						"description": "Extra powers a moderator holds. Admins have them all.",
+						"items": { "type": "string", "maxLength": 32, "knownValues": ["flags", "flagGroups"] }
+					},
 					"note": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },
 					"createdAt": { "type": "string", "format": "datetime" }
 				}

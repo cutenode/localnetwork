@@ -69,7 +69,7 @@ async function openToContentScripts() {
 		});
 	} catch (_e) {
 		// An older browser, or no session storage at all: the queue still works
-		// here, the page just paints no queued pills.
+		// here, the page just paints no queued buttons.
 	}
 }
 
@@ -347,7 +347,7 @@ class Queue {
 		try {
 			// The one thing that does have to wait for the door: a write made
 			// before the access level is set would land in an area the content
-			// script cannot read, and the page would paint no queued pills.
+			// script cannot read, and the page would paint no queued buttons.
 			await this.#opened;
 			await chrome.storage.session.set({ [KEY]: $state.snapshot(items) });
 		} catch (_e) {
