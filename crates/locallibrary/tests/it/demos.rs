@@ -227,6 +227,9 @@ fn a_clean_runs_on_a_drive_too_full_to_copy_the_samples() {
     let sample = paths::to_fs(&root, &paths::key(&file));
     let free = locallibrary::fsutil::available_space(&root).unwrap();
     let too_big = 2 * free + (1 << 30);
+    // NTFS allocates a file grown with `set_len` unless it's marked sparse first.
+    #[cfg(windows)]
+    assert!(std::process::Command::new("fsutil").args(["sparse", "setflag"]).arg(&sample).status().unwrap().success());
     fs::File::options().write(true).open(&sample).unwrap().set_len(too_big).unwrap();
 
     let plan = clean_plan(&root);
