@@ -234,8 +234,10 @@ fn write_fat32(letter: char, layout: &fat32::Layout, label: &str, ctx: &Ctx<'_>)
     use std::os::windows::io::AsRawHandle;
 
     let path = format!(r"\\.\{letter}:");
-    let mut f = when_ready(|| std::fs::OpenOptions::new().read(true).write(true).open(&path))
-        .map_err(|e| Error::Io { path: path.clone().into(), source: e })?;
+    let mut f = when_ready(std::time::Duration::from_millis(250), || {
+        std::fs::OpenOptions::new().read(true).write(true).open(&path)
+    })
+    .map_err(|e| Error::Io { path: path.clone().into(), source: e })?;
     // Explorer and indexers open new volumes briefly; retry the lock for a few seconds.
     let mut tries = 0;
     while let Err(e) = ffi::ioctl(f.as_raw_handle(), ffi::FSCTL_LOCK_VOLUME) {
@@ -258,11 +260,10 @@ fn write_fat32(letter: char, layout: &fat32::Layout, label: &str, ctx: &Ctx<'_>)
 }
 
 /// `open` once the volume it opens is ready: a volume Windows has just formatted and given a
-/// letter answers ERROR_NOT_READY for a moment before it can be opened. Waits up to 10 seconds.
-fn when_ready<T>(mut open: impl FnMut() -> std::io::Result<T>) -> std::io::Result<T> {
+/// letter answers ERROR_NOT_READY for a moment before it can be opened. Tries 41 times, `pause`
+/// apart.
+fn when_ready<T>(pause: std::time::Duration, mut open: impl FnMut() -> std::io::Result<T>) -> std::io::Result<T> {
     const ERROR_NOT_READY: i32 = 21;
-    // The tests don't wait.
-    let pause = std::time::Duration::from_millis(if cfg!(test) { 0 } else { 250 });
     let mut tries = 0;
     loop {
         match open() {

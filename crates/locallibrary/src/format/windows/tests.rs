@@ -542,19 +542,19 @@ fn prop_fat32_is_laid_out_over_the_partition_printed(tc: TestCase) {
 fn a_new_volume_is_opened_once_its_ready() {
     let not_ready = || std::io::Error::from_raw_os_error(21);
     let mut calls = 0;
-    let opened = when_ready(|| {
+    let opened = when_ready(std::time::Duration::ZERO, || {
         calls += 1;
         if calls < 3 { Err(not_ready()) } else { Ok(calls) }
     });
     assert_eq!(opened.unwrap(), 3);
     let mut calls = 0;
-    let denied = when_ready::<()>(|| {
+    let denied = when_ready::<()>(std::time::Duration::ZERO, || {
         calls += 1;
         Err(std::io::Error::from_raw_os_error(5))
     });
     assert_eq!((denied.unwrap_err().raw_os_error(), calls), (Some(5), 1));
     let mut calls = 0;
-    let never = when_ready::<()>(|| {
+    let never = when_ready::<()>(std::time::Duration::ZERO, || {
         calls += 1;
         Err(not_ready())
     });
