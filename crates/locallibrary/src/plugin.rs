@@ -205,7 +205,8 @@ pub struct Options {
     /// How the front end asks the user whether a plugin may use more of an account it has access
     /// to (`accounts/ensure`, see [`AskAccess`]): with none, the plugin is told how to give it.
     pub ask: Option<Arc<dyn AskAccess>>,
-    /// How many times in a row a service may stop or fail before it's left off.
+    /// How many times in a row a service that stopped or failed is started again before it's left
+    /// off: the failure after the last of them is the one that does it.
     pub restarts: u32,
     /// How long a service that stopped waits to be started again, the first time: twice that the
     /// next, and so on.

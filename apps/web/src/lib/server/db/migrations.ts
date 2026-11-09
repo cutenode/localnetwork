@@ -420,6 +420,40 @@ const migrations = {
 				)
 				.execute(db);
 		}
+	},
+	// Feature flags and their groups, from the staff space, and the grants that let a moderator manage them.
+	'012_feature_flags': {
+		async up(db) {
+			await sql.raw('ALTER TABLE staff_role ADD COLUMN grants TEXT').execute(db);
+			await sql
+				.raw(
+					`CREATE TABLE feature_flag (
+						key TEXT PRIMARY KEY,
+						everyone INTEGER NOT NULL,
+						percentage INTEGER NOT NULL,
+						group_rkeys TEXT NOT NULL,
+						dids TEXT NOT NULL,
+						uri TEXT NOT NULL,
+						updated_by TEXT NOT NULL,
+						updated_at TEXT NOT NULL
+					)`
+				)
+				.execute(db);
+			await sql
+				.raw(
+					`CREATE TABLE flag_group (
+						rkey TEXT PRIMARY KEY,
+						name TEXT NOT NULL,
+						description TEXT,
+						members TEXT NOT NULL,
+						uri TEXT NOT NULL,
+						created_at TEXT NOT NULL,
+						updated_by TEXT NOT NULL,
+						updated_at TEXT NOT NULL
+					)`
+				)
+				.execute(db);
+		}
 	}
 } satisfies Record<string, Migration>;
 

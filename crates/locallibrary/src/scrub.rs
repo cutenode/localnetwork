@@ -9,10 +9,12 @@
 //! 1. a stored snapshot of exactly this library state (found by fingerprint, or named), which
 //!    has a hash for every file, audio included;
 //! 2. the drive's hash cache, when the file's size and modification time are what they were
-//!    when locallibrary last hashed or wrote it (a changed file has a new mtime; a damaged one
-//!    doesn't);
+//!    when locallibrary wrote it or a scrub last read it (a changed file has a new mtime; a
+//!    damaged one doesn't);
 //! 3. any snapshot holding the same path with the same size and modification time, taken
-//!    clearly after the file's modification time (so it isn't a rewrite since).
+//!    clearly after the file's modification time (so it isn't a rewrite since);
+//! 4. the hash cache again, for a file it only knows from a scan reading it (every scan reads
+//!    the databases again, damage included). That can show a file changed, not that it's right.
 //!
 //! Players and rekordbox rewrite database and analysis files legitimately, but they also change
 //! the modification time, so such files have no reference and count as unverified.
@@ -211,8 +213,14 @@ impl<'a> References<'a> {
         {
             return Some(Expected { hash, size: f.size, mtime: f.mtime, kind: ReferenceKind::Snapshot });
         }
-        if let Some(hash) = self.index.lookup(e) {
-            return Some(Expected { hash, size: e.size, mtime: e.mtime, kind: ReferenceKind::Cache });
+        let cached = self.index.lookup(e).map(|hash| Expected {
+            hash,
+            size: e.size,
+            mtime: e.mtime,
+            kind: ReferenceKind::Cache,
+        });
+        if cached.is_some() && !self.index.is_baseline(e) {
+            return cached;
         }
         // Only files written clearly before the snapshot: a database rekordbox or a player saved
         // again moments after a pull would otherwise be taken for damage and "repaired" back.
@@ -226,7 +234,7 @@ impl<'a> References<'a> {
                 return Some(Expected { hash, size: f.size, mtime: f.mtime, kind: ReferenceKind::History });
             }
         }
-        None
+        cached
     }
 
     /// What a file that is gone should hold: the exact snapshot's copy, else the newest
@@ -417,6 +425,12 @@ pub fn scrub(
             (_, Some(err)) => report.unreadable.push(problem(None, Some(err))),
             (Some(h), None) => match expected {
                 Some(x) if x.hash != h => report.damaged.push(problem(Some(h), None)),
+                // Unchanged since a scan read it, which can't say it was right then. Now a scrub
+                // has read it, it's a reference for the next one, as any file a scrub reads.
+                Some(x) if x.kind == ReferenceKind::Cache && index.is_baseline(e) => {
+                    report.unverified += 1;
+                    index.record(e);
+                }
                 Some(_) => {
                     report.verified += 1;
                     index.record(e);

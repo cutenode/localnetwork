@@ -68,7 +68,7 @@ impl ProbeReport {
 }
 
 /// The pattern for the region at `offset`: the magic, the offset, then pseudo-random bytes.
-fn pattern(offset: u64, nonce: u64, buf: &mut [u8]) {
+pub(crate) fn pattern(offset: u64, nonce: u64, buf: &mut [u8]) {
     buf[..8].copy_from_slice(MAGIC);
     buf[8..16].copy_from_slice(&offset.to_le_bytes());
     buf[16..24].copy_from_slice(&nonce.to_le_bytes());

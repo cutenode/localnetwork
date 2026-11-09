@@ -301,6 +301,8 @@ pub struct VerifyReport {
     pub checked: usize,
     pub corrupt: Vec<String>,
     pub missing: Vec<String>,
+    /// Snapshots whose manifest no longer hashes to its id.
+    pub damaged_snapshots: Vec<Hash>,
 }
 
 #[derive(Debug, Clone)]
@@ -1074,12 +1076,16 @@ impl Store {
         Ok(Garbage { snapshots: orphans.into_keys().collect(), objects, pruned })
     }
 
-    /// Re-hash every object referenced by any snapshot.
+    /// Re-hash every object referenced by any snapshot, and check every snapshot's manifest.
     pub fn verify(&self, ctx: &Ctx<'_>) -> Result<VerifyReport> {
         let mut report = VerifyReport::default();
         let mut wanted: IndexMap<Hash, String> = IndexMap::new();
         for id in self.snapshot_ids()? {
-            for f in self.load_snapshot(&id)?.files {
+            let snapshot = self.load_snapshot(&id)?;
+            if snapshot.id != id || snapshot.compute_id() != id {
+                report.damaged_snapshots.push(id);
+            }
+            for f in snapshot.files {
                 if let Some(h) = f.hash {
                     wanted.entry(h).or_insert(f.path);
                 }

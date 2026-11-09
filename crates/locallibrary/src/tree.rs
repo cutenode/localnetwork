@@ -131,7 +131,7 @@ impl FileTree {
         for (key, hash) in hashed {
             let entry = self.entries.get_mut(&key).expect("key from entries");
             entry.hash = Some(hash?);
-            index.record(entry);
+            index.record_baseline(entry);
         }
         ctx.phase_end(Phase::Hash);
         Ok(())
@@ -311,6 +311,10 @@ struct IndexEntry {
     /// When the hash was recorded (unix seconds).
     #[serde(default)]
     at: i64,
+    /// The hash is only what a read found, with nothing to compare it with (see
+    /// [`HashIndex::record_baseline`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    baseline: bool,
 }
 
 impl IndexEntry {
@@ -354,12 +358,32 @@ impl HashIndex {
             .is_some_and(|i| i.size == e.size && fsutil::mtime_eq(i.mtime, e.mtime) && !i.settled())
     }
 
+    /// Whether the entry answering for `e` is a baseline: it can show a file changed since, and
+    /// can't show the file was right.
+    pub fn is_baseline(&self, e: &FileEntry) -> bool {
+        self.entries.get(&e.path).is_some_and(|i| i.baseline)
+    }
+
+    /// Note that the file holds `e.hash`: it was just written with that hash, saved in the store,
+    /// or read by a scrub.
     pub fn record(&mut self, e: &FileEntry) {
+        self.put(e, false);
+    }
+
+    /// Note that the file holds `e.hash` as a scan read it, with nothing to say that's what it
+    /// should hold. A file already damaged gets its damage recorded, so this only shows later
+    /// changes.
+    pub fn record_baseline(&mut self, e: &FileEntry) {
+        self.put(e, true);
+    }
+
+    fn put(&mut self, e: &FileEntry, baseline: bool) {
         let Some(hash) = e.hash else { return };
-        let fresh = IndexEntry { size: e.size, mtime: e.mtime, hash, at: chrono::Utc::now().timestamp() };
+        let fresh = IndexEntry { size: e.size, mtime: e.mtime, hash, at: chrono::Utc::now().timestamp(), baseline };
         let old = self.forgotten.remove(&e.path).or_else(|| self.entries.get(&e.path).copied());
         let entry = match old {
-            Some(old) if old.answers_as(&fresh) => old,
+            // A read can't take back what a write said, and a write settles what a read found.
+            Some(old) if old.answers_as(&fresh) && (baseline || !old.baseline) => old,
             _ => {
                 self.dirty = true;
                 fresh

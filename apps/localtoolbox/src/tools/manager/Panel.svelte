@@ -1494,7 +1494,7 @@
       <Button
         size="xs"
         variant="outline"
-        title="in settings: everything the extension has saved, out to a file and back."
+        title="in settings: your marks, lists, queue and a few options, out to a file and back."
         onclick={() => (view.settingsOpen = true)}
       >
         <Archive />

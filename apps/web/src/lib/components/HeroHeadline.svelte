@@ -6,9 +6,9 @@
 	 * readers read. The verb and the noun each swap to a random other word from headline.json on their
 	 * own random timer, about `interval` apart on average, sliding in from above or below at random.
 	 * "your" stays put: each slot keeps its longest word's size, so nothing around it moves. With
-	 * reduced motion it stays on the first pair.
+	 * reduced motion it stays on the first pair, and `paused` holds it still, like while someone types under it.
 	 */
-	let { interval = 2200 }: { interval?: number } = $props();
+	let { interval = 2200, paused = false }: { interval?: number; paused?: boolean } = $props();
 
 	// The verb hugs "your" from the left and the noun from the right. Too narrow for one line, the
 	// three stack centered instead, since a slot sized for its longest word would leave a short one
@@ -27,7 +27,7 @@
 	const shift = (by: number) => `translateY(${by * 0.3}em)`;
 
 	$effect(() => {
-		if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+		if (paused || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
 		const timers: ReturnType<typeof setTimeout>[] = [];
 		// Anywhere from 0.6 to 1.4 intervals, so the two slots drift apart instead of swapping together.

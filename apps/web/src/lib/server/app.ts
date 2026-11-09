@@ -52,6 +52,7 @@ import { type ListingSource, ListingWriter } from './services/listings';
 import { SharedSpaces } from './services/shared-spaces';
 import { SpaceJoins } from './services/space-joins';
 import { ShowService } from './services/shows';
+import { FlagService } from './services/flags';
 import { StaffService } from './services/staff';
 import { SupportService } from './services/supports';
 import { TracklistService } from './services/tracklists';
@@ -96,7 +97,7 @@ export async function createApp(options: CreateAppOptions) {
 
 	const accounts = new AccountService(db, logger.child({ component: 'accounts' }), identity);
 	const oauthLogger = logger.child({ component: 'oauth' });
-	const oauth = new OAuthService({ config, db, logger: oauthLogger, fetch: identity.serviceFetch });
+	const oauth = new OAuthService({ config, db, logger: oauthLogger, fetch: identity.serviceApiFetch });
 	const userClient = options.userClient ?? ((did: string) => oauth.repoClient(did));
 
 	const audit = new AuditLog({
@@ -204,7 +205,11 @@ export async function createApp(options: CreateAppOptions) {
 			const url = new URL('/xrpc/com.atproto.sync.getBlob', (await identity.resolve(did)).pds);
 			url.searchParams.set('did', did);
 			url.searchParams.set('cid', cid);
-			const response = await identity.serviceFetch(url, { redirect: 'error', signal: AbortSignal.timeout(15_000) });
+
+			const response = await identity.serviceApiFetch(url, {
+				redirect: 'error',
+				signal: AbortSignal.timeout(15_000)
+			});
 
 			if (!response.ok) throw new Error(`getBlob ${cid}: HTTP ${response.status}`);
 
@@ -223,6 +228,7 @@ export async function createApp(options: CreateAppOptions) {
 	const plyr = new PlyrClient(logger.child({ component: 'plyr' }));
 	const projects = new ProjectService(core, happyView, INDEX_WAIT_MS, backfills, plyr);
 	const staff = new StaffService(core);
+	const flags = new FlagService(core, staff);
 	const bookings = new BookingService(core, projects);
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);
@@ -255,6 +261,7 @@ export async function createApp(options: CreateAppOptions) {
 	const limits = {
 		login: new RateLimiter(10, 10 / 60),
 		write: new RateLimiter(30, 30 / 60),
+		flags: new RateLimiter(60, 1),
 		search: new RateLimiter(60, 2),
 		/** Profile addresses that name no account, each of which may have sent the app to resolve a stranger's name. */
 		profileMisses: new RateLimiter(30, 30 / 600),
@@ -280,7 +287,18 @@ export async function createApp(options: CreateAppOptions) {
 		logger: logger.child({ component: 'sync' }),
 		identity,
 		credentials,
-		onChange: createProjections({ core, audit, projects, requests, staff, bookings, epks, sharedSpaces, listings }),
+		onChange: createProjections({
+			core,
+			audit,
+			projects,
+			requests,
+			staff,
+			flags,
+			bookings,
+			epks,
+			sharedSpaces,
+			listings
+		}),
 		onSpaceDropped: async (space) => {
 			await bookings.forget(space);
 			await sharedSpaces.forget(space);
@@ -357,6 +375,7 @@ export async function createApp(options: CreateAppOptions) {
 		sets: projects.sets,
 		requests,
 		staff,
+		flags,
 		bookings,
 		planner,
 		projectAdmin,

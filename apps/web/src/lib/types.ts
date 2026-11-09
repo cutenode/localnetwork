@@ -1,3 +1,4 @@
+import type { FlagKey } from '#lib/flags/keys.generated.ts';
 /** View models shared between server and browser code. */
 
 import type { Capability, SpaceKind } from './capabilities.ts';
@@ -351,11 +352,40 @@ export type HeldRecordView = {
 
 export type StaffRole = 'admin' | 'moderator';
 
+/** What a moderator can be given on top of their role: changing flags, and managing the groups flags target. */
+export type StaffGrant = 'flags' | 'flagGroups';
+
+/** Every feature flag, on or off for whoever is looking. */
+export type Flags = Record<FlagKey, boolean>;
+
+export type FlagAccount = { did: string; handle: string | null };
+
+/** A feature flag as the staff console shows it. */
+export type FlagView = {
+	key: FlagKey;
+	description: string;
+	everyone: boolean;
+	percentage: number;
+	groups: { rkey: string; name: string }[];
+	accounts: FlagAccount[];
+	updatedAt: string | null;
+};
+
+/** A group feature flags can target, and the flags that do. */
+export type FlagGroupView = {
+	rkey: string;
+	name: string;
+	description: string | null;
+	members: FlagAccount[];
+	flags: FlagKey[];
+};
+
 /** A staff role. `bootstrap` ones come from `ADMIN_DIDS` and have no record. */
 export type StaffMember = {
 	did: string;
 	handle: string | null;
 	role: StaffRole;
+	grants: StaffGrant[];
 	grantedBy: string | null;
 	note: string | null;
 	createdAt: string | null;

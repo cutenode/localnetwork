@@ -1,0 +1,3 @@
+### Added
+
+- Plans that write a lot to a drive say how long it'll take, in the terminal and in the player's dialog: `about 7 min, mostly making files (drive writes ~151 MB/s, 12 ms a file)`. The time comes from the drive's measured write rate, file cost and folder cost, not the port, which is only mentioned when it may be what's holding the drive back. A drive is measured the first time it matters and when the result goes stale, with a test of about 20 seconds that the plan mentions and that removes what it writes (a dry run never tests, and saying no leaves a new drive as it was), and real writes of a gigabyte or more correct the rate. `drive speed <drive>` shows the result and `--measure` measures again.
