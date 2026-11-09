@@ -738,7 +738,7 @@ fn sync_step(
     let mut matching = Vec::new();
     let (mut copied, mut back_from_set) = (Vec::new(), false);
     for o in others {
-        let p = match sync_plan(&pair(source.root(), o.root()), ctx) {
+        let p = match op::without_measuring(|| sync_plan(&pair(source.root(), o.root()), ctx)) {
             Ok(p) => p,
             Err(Error::Cancelled) => return Err(Error::Cancelled),
             Err(e) => {

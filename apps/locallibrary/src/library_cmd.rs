@@ -174,6 +174,7 @@ pub fn push(a: PushArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_
         keep_extra: opts.keep_extra,
         delete_first: opts.delete_first,
     };
+    locallibrary::op::allow_measuring(out.will_decide(opts.dry_run));
     let preview = api::push_plan(&store, &req, ctx)?;
     if preview.noop {
         let message = format!("drive already matches snapshot {}", preview.snapshot.short_id);
@@ -187,6 +188,7 @@ pub fn push(a: PushArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_
             local_time(preview.snapshot.created, "%Y-%m-%d %H:%M")
         );
         render::sync_plan(&preview.plan.plan);
+        output::estimate(&preview.estimate);
     }
     if let Some(o) = out.decide(opts.dry_run, "Write this to the drive?") {
         return Ok(out.not_applied(&preview, o));

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { createTestServices } from '#lib/server/testing/core.ts';
-import { callRoute } from '#lib/testing/route-event.ts';
+import { callRoute, loadRoute } from '#lib/testing/route-event.ts';
+import type { PageServerData } from './$types';
 import { actions, load } from './+page.server.ts';
 
 const DJ = 'did:plc:dj';
@@ -16,8 +17,8 @@ afterEach(async () => {
 	await t.db.destroy();
 });
 
-/** The app with the geocoder off. */
-const app = () => ({ ...t, geocoder: { enabled: false } });
+/** The app with the geocoder off and the DJ's sets. */
+const app = () => ({ ...t, geocoder: { enabled: false }, sets: t.projects.sets });
 
 /** The new project form, filled in. */
 const form = { name: 'Neon Tide', kind: 'duo', genres: 'techno', city: 'Berlin', country: 'de' };
@@ -28,9 +29,14 @@ it('sends someone signed out to sign in, and opens the form for someone signed i
 		location: '/login?next=%2Fdashboard%2Fprojects%2Fnew'
 	});
 
-	expect(await callRoute(load, { app: app(), viewer: await t.viewer(DJ), url: '/dashboard/projects/new' })).toEqual({
-		geocoder: false
+	const data = await loadRoute<PageServerData>(load, {
+		app: app(),
+		viewer: await t.viewer(DJ),
+		url: '/dashboard/projects/new'
 	});
+
+	expect(data.geocoder).toBe(false);
+	expect(await data.sets).toEqual([]);
 });
 
 it('asks staff for the new project, and opens the request', async () => {

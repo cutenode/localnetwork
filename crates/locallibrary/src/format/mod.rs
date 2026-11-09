@@ -338,6 +338,11 @@ pub fn disk_at(root: &Path) -> Result<Disk> {
     os::by_mount(&root.canonicalize().unwrap_or_else(|_| root.to_path_buf()))
 }
 
+/// The speed `disk`'s USB link came up at, in bits a second, where the system says (macOS, Linux).
+pub fn link_speed(disk: &Disk) -> Option<u64> {
+    os::link_speed(disk)
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct FormatOptions {
     /// Default: FAT32, which every player reads.

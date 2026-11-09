@@ -4,7 +4,8 @@
 
 <div class="container-page flex flex-col gap-8 py-10 sm:gap-10 sm:py-14">
 	<SectionHeader level={1} eyebrow="How it works" title="Built on the AT Protocol" />
-	<div class="prose prose-site">
+	<!-- The measure the Tools guides use, about 70 characters a line, so the prose reads comfortably on a wide screen. -->
+	<div class="prose prose-site max-w-[38rem]">
 		<p>Local Network stores its data on the <a href="https://atproto.com">AT Protocol</a>, not in a private database. Public profiles are ordinary atproto records. Everything else sits in <a href="https://atproto.com/blog/atproto-spaces-alpha">atproto spaces</a>, the protocol's permissioned-data extension, and each space's read policy decides who can read it. The app keeps a local index for fast search, and it can rebuild that index from the network.</p>
 
 		<h2 id="projects">Projects</h2>

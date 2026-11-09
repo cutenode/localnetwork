@@ -1,5 +1,4 @@
 <script lang="ts">
-	import FormMessage from '#lib/components/FormMessage.svelte';
 	import ProjectForm from '#lib/components/ProjectForm.svelte';
 	import { draftKey } from '#lib/form-draft.svelte.ts';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
@@ -18,6 +17,5 @@
 			<p class="notice notice-info m-0">Your PDS doesn't support atproto spaces yet, so Local Network will file this request for you from its root account.</p>
 		{/if}
 	</div>
-	<FormMessage {form} />
-	<ProjectForm values={form?.values ?? {}} showMessage geocoder={data.geocoder} draft={draftKey(data.viewer, 'project:new')} />
+	<ProjectForm {form} values={form?.values ?? {}} sets={data.sets} showMessage geocoder={data.geocoder} draft={draftKey(data.viewer, 'project:new')} />
 </div>

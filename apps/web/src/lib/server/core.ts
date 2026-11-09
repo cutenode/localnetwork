@@ -46,6 +46,18 @@ export class UserError extends Error {
 	}
 }
 
+/** A UserError about one control: its `field` name, and which `row` when rows repeat that name. */
+export class FieldError extends UserError {
+	constructor(
+		message: string,
+		readonly field: string,
+		readonly row = 0
+	) {
+		super(message);
+		this.name = 'FieldError';
+	}
+}
+
 export class ForbiddenError extends UserError {
 	constructor(message = "You don't have permission to do that") {
 		super(message, 403);

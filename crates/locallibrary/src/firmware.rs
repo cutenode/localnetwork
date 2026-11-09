@@ -5,7 +5,7 @@
 //! an MBR drive with only one update file on it, while the CDJ-3000X also accepts exFAT. The
 //! mixers take FAT32 only, as the equipment table has it for their settings and firmware (see
 //! [`crate::equipment`]). [`plan`] checks the file name, the drive's partition scheme and file
-//! system, and other update files already there; [`apply`] copies the file (verified) to the root.
+//! system, and other update files already there; [`apply`] copies the file to the root.
 //! Firmware is never downloaded: get it from AlphaTheta's support site.
 //!
 //! The file goes in the drive's root, outside `PIONEER/` and `Contents/`, which is why this is

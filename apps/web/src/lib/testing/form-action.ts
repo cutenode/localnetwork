@@ -8,10 +8,12 @@ import { vi } from 'vitest';
  */
 export function stubFormAction() {
 	const sent: FormData[] = [];
+	const urls: string[] = [];
 	const waiting: (() => void)[] = [];
 
 	vi.stubGlobal('fetch', async (input: URL, init: RequestInit) => {
 		sent.push(await new Request(input, init).formData());
+		urls.push(String(input));
 
 		return new Promise<Response>((resolve) => {
 			waiting.push(() => resolve(Response.json({ type: 'error', error: { message: 'Down' } }, { status: 500 })));
@@ -20,6 +22,7 @@ export function stubFormAction() {
 
 	return {
 		sent,
+		urls,
 		answer: () => {
 			for (const resolve of waiting.splice(0)) resolve();
 		}

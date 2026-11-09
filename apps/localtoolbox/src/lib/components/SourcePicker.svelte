@@ -6,34 +6,20 @@
 <script lang="ts">
   import FileMusic from '@lucide/svelte/icons/file-music';
   import ListChecks from '@lucide/svelte/icons/list-checks';
-  import { PAGE, QUEUE } from '$lib/source.ts';
-  import type { Pref } from '$lib/prefs.svelte.ts';
+  import { PAGE, QUEUE, source } from '$lib/source.ts';
 
   interface Props {
-    /** A choicePref over SOURCES; see $lib/source.ts. */
-    source: Pref<string>;
     /** How many tracks the queue holds, shown on its button. */
     queued?: number;
-    /** Called after the source changes, for a panel that must re-read. */
-    onchange?: (value: string) => void;
   }
 
-  let {
-    source,
-    queued = 0,
-    onchange,
-  }: Props = $props();
+  let { queued = 0 }: Props = $props();
 
   const OPTIONS = [
     { value: PAGE, label: 'this page', icon: FileMusic },
     { value: QUEUE, label: 'session queue', icon: ListChecks },
   ];
 
-  function choose(value: string) {
-    if (source.value === value) return;
-    source.value = value;
-    onchange?.(value);
-  }
 </script>
 
 <div
@@ -49,7 +35,7 @@
       aria-pressed={on}
       class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-caption font-medium transition-colors
              {on ? 'bg-fg text-fg-inverse' : 'text-fg-muted hover:text-fg'}"
-      onclick={() => choose(option.value)}
+      onclick={() => (source.value = option.value)}
     >
       <Icon class="size-3.5 shrink-0" />
       <span class="truncate">{option.label}</span>
