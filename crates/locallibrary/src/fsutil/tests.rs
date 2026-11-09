@@ -188,6 +188,32 @@ fn a_drive_copy_that_fails_keeps_what_was_there_and_leaves_nothing_new() {
     assert_eq!(temp_files(dir.path()), Vec::<String>::new());
 }
 
+/// A partial new file is visible only on platforms where its recovery note can be made durable.
+/// Windows uses an ignored temp name, as every platform does when replacing an existing file.
+#[hegel::test(test_cases = 4)]
+#[hegel::explicit_test_case(existing = false)]
+#[hegel::explicit_test_case(existing = true)]
+fn a_drive_write_uses_a_recoverable_name(tc: hegel::TestCase) {
+    let existing = tc.draw(hegel::generators::booleans());
+    let dir = tempfile::tempdir().unwrap();
+    let dst = dir.path().join("a.mp3");
+    if existing {
+        fs::write(&dst, b"old").unwrap();
+    }
+    let (direct, mut file) = fresh_or_temp(&dst).unwrap();
+    file.write_all(b"partial").unwrap();
+    assert_eq!(direct, !cfg!(windows) && !existing);
+    if direct {
+        assert_eq!(file.path(), dst);
+    } else {
+        assert!(paths::is_ignored_name(file.path().file_name().unwrap().to_str().unwrap()));
+        assert_eq!(fs::read(&dst).ok(), existing.then(|| b"old".to_vec()));
+    }
+    drop(file);
+    assert_eq!(fs::read(&dst).ok(), existing.then(|| b"old".to_vec()));
+    assert!(temp_files(dir.path()).is_empty());
+}
+
 /// Files in `dir` that a writer's temp files left.
 fn temp_files(dir: &Path) -> Vec<String> {
     fs::read_dir(dir)

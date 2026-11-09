@@ -231,17 +231,21 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   playlists it syncs to the drive (`playlists3*.sync`) are never copied to another drive or into
   the store, never deleted, and don't count as a change to the library.
 - **Crash-safe ordering.** A file the drive already has is written to a temp file and renamed into
-  place; a new one, which no database names yet, is written under its own name, since a rename
-  costs FAT and exFAT as much as making the file. The write notes those on the drive first, so
-  the next write and `drive tidy` remove what it didn't finish. Audio, analysis and artwork are copied first and
-  flushed to the device, and only then given their source's modification time, so a copy whose data
-  never reached the drive can't pass for a finished one. The database files are then staged and swapped in back to back, and stale files are deleted
+  place. On macOS and Linux, a new one, which no database names yet, is written under its own
+  name, since a rename costs FAT and exFAT as much as making the file. The write notes those on
+  the drive first, with when its operation started, and flushes the note's folder before any new
+  file starts, so the next write and `drive tidy` remove what it didn't finish; a note an earlier
+  operation left behind is ignored. Windows keeps the temp-file route: a write cut off after its
+  rename is copied again by the next run, which goes by the file's unstamped time, but
+  `drive tidy` may not find it. Audio, analysis and artwork are copied first and flushed to the
+  device, and only then given their source's modification time, so a copy whose data never
+  reached the drive can't pass for a finished one. The database files are then staged and swapped in back to back, and stale files are deleted
   only after that. If a sync is interrupted (unplugged drive, Ctrl-C), the database on the drive
   still finds every file it references; a file the sync changed may already hold its new contents.
   (With `--delete-first` the old databases go first, so the drive holds no library until the new
   ones are in.) A
-  marker is left that `locallibrary drive info` reports, and re-running finishes the job: `diff
-  --summary` and `sync` take the interrupted drive as the older one, and the next sync copies again
+  marker is left that `locallibrary drive info` reports, and re-running finishes the job:
+  `diff --summary` and `sync` take the interrupted drive as the older one, and the next sync copies again
   any file changed since the interrupted one started, unless its content is known to match. `pack`
   works the same way. Until an interrupted operation is finished, nothing else changes the drive or
   reads a library from it (an edit, `pull`, `merge`, or a sync or pack from it): `drive info` and
@@ -385,8 +389,8 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   files change). The back-from-a-set rule stays conservative: playlist edits made on a CDJ-3000X
   count as a real change.
 - **Linux and Windows are experimental, untested on hardware** (see
-  [Platforms](install.md#platforms)), and `drive format`, `drive fsck`, `eject`, `drive rename
-  --label` and `--check-capacity` have never run there. `drive fsck` needs administrator rights on
+  [Platforms](install.md#platforms)), and `drive format`, `drive fsck`, `eject`,
+  `drive rename --label` and `--check-capacity` have never run there. `drive fsck` needs administrator rights on
   Linux and Windows. `--check-capacity` needs them on a real disk and isn't available on Windows.
   `eject` on Windows uses Explorer's Eject, which reports nothing: locallibrary waits for the drive
   to disappear.

@@ -13,6 +13,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -185,6 +186,7 @@ pub(crate) fn plan(
     let backs_up = |class: FileClass| matches!(class, FileClass::Analysis | FileClass::Artwork);
     // After a write cut off on the target, a file modified since it started may be torn.
     let cut_off = crate::sync::cut_off_since(target);
+    let unfinished: FxHashSet<String> = writing::unfinished(target).iter().map(|key| fold(key)).collect();
     // A file copied moments after its source was written may have missed a rewrite of it that
     // kept the size and mtime (see `fsutil::settled`): it's compared by content.
     let index = target.load_index();
@@ -200,7 +202,8 @@ pub(crate) fn plan(
     for (key, src) in wanted {
         match by_fold.get(&fold(key)) {
             Some(e)
-                if e.size == src.size
+                if !unfinished.contains(&fold(key))
+                    && e.size == src.size
                     && fsutil::mtime_eq(e.mtime, src.mtime)
                     && cut_off.is_none_or(|since| e.mtime < since)
                     && (!index.racy(e) || holds(e, src))
@@ -302,15 +305,56 @@ pub(crate) fn copy_each<I: Sync, T: Send>(
     (done, stopped)
 }
 
-/// Read the start of each of the online-only `files`, a few at a time and until `finished`:
-/// that's what brings one down, so they download side by side and ahead of the copy, not one by
-/// one as it reaches each.
-fn download_ahead(files: &[&Path], finished: &AtomicBool) {
-    workers::each(files.to_vec(), DOWNLOADS_AT_ONCE, |file| {
-        if !finished.load(Ordering::Relaxed) {
+type PendingDownloads = Mutex<std::vec::IntoIter<PathBuf>>;
+
+/// Read the start of each queued file, a few at a time and until `finished`: that's what brings
+/// one down, so they download side by side and ahead of the copy, not one by one as it reaches each.
+fn download_ahead(files: &PendingDownloads, finished: &AtomicBool) {
+    workers::each(vec![(); DOWNLOADS_AT_ONCE], DOWNLOADS_AT_ONCE, |()| {
+        while !finished.load(Ordering::Relaxed) {
+            let next = files.lock().unwrap_or_else(PoisonError::into_inner).next();
+            let Some(file) = next else { break };
             let _ = std::fs::File::open(file).and_then(|mut f| f.read(&mut [0; 1]));
         }
     });
+}
+
+/// Owns only source paths: a stopped copy can settle without joining a cloud read that the OS
+/// cannot cancel. Dropping this frees queued paths; at most four in-flight reads keep their own.
+struct Downloads {
+    finished: Arc<AtomicBool>,
+    pending: Arc<PendingDownloads>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Downloads {
+    fn start(files: Vec<PathBuf>) -> Self {
+        let has_files = !files.is_empty();
+        let finished = Arc::new(AtomicBool::new(false));
+        let pending = Arc::new(Mutex::new(files.into_iter()));
+        let stop = finished.clone();
+        let queue = pending.clone();
+        let worker = has_files.then(|| {
+            std::thread::spawn(move || {
+                // One blocked read can suppress later batches, even with spare slots. This bounds
+                // abandoned reads across retries; each copy can still read its own sources.
+                static ACTIVE: Mutex<()> = Mutex::new(());
+                let Ok(_active) = ACTIVE.try_lock() else { return };
+                download_ahead(&queue, &stop);
+            })
+        });
+        Self { finished, pending, worker }
+    }
+}
+
+impl Drop for Downloads {
+    fn drop(&mut self) {
+        self.finished.store(true, Ordering::Relaxed);
+        // Replacing the iterator releases both queued paths and the vector's allocation.
+        *self.pending.lock().unwrap_or_else(PoisonError::into_inner) = Vec::new().into_iter();
+        // A JoinHandle detaches when dropped. The worker never owns a destination or write state.
+        drop(self.worker.take());
+    }
 }
 
 /// How many online-only files [`download_ahead`] waits for at a time.
@@ -325,46 +369,53 @@ const DOWNLOAD_NOTICE: std::time::Duration = std::time::Duration::from_secs(10);
 /// (what was copied before an error too). The caller starts and ends the copy phase, so a writer
 /// can make files of its own in it.
 pub(crate) fn copy(target: &Device, planned: &Planned, ctx: &Ctx<'_>) -> Result<(usize, u64)> {
+    copy_with_downloads(target, planned, ctx, || {
+        let is_online = |p: &&PathBuf| std::fs::metadata(p).is_ok_and(|m| fsutil::is_online_only(&m));
+        let online = planned.sources.values().map(|s| &s.path).filter(is_online).cloned().collect();
+        Downloads::start(online)
+    })
+}
+
+fn copy_with_downloads(
+    target: &Device,
+    planned: &Planned,
+    ctx: &Ctx<'_>,
+    start_downloads: impl FnOnce() -> Downloads,
+) -> Result<(usize, u64)> {
     let copies: Vec<&FileCopy> = planned.copies.iter().collect();
     let source = |c: &FileCopy| planned.sources.get(&c.path).map(|s| (c.path.clone(), s.size, s.mtime));
     writing::note(target, copies.iter().filter_map(|c| source(c)))?;
-    let is_online = |p: &&Path| std::fs::metadata(p).is_ok_and(|m| fsutil::is_online_only(&m));
-    let online: Vec<&Path> = planned.sources.values().map(|s| s.path.as_path()).filter(is_online).collect();
-    let finished = AtomicBool::new(false);
-    let (written, stopped) = std::thread::scope(|s| {
-        s.spawn(|| download_ahead(&online, &finished));
-        let copied = copy_each(
-            &copies,
-            |c| c.size,
-            |&c| {
-                ctx.check()?;
-                let src = planned.sources.get(&c.path).ok_or_else(|| Error::NotFound(c.path.clone()))?;
-                let dst = target.checked_path(&c.path)?;
-                ctx.emit(Event::Item { phase: Phase::Copy, path: c.path.clone(), bytes: c.size });
-                let hash = match &src.audio_path {
-                    Some(audio) => {
-                        let bytes = analysis_bytes(&src.path, audio, src.shift_ms)?;
-                        fsutil::write_for_drive(&dst, &bytes)?;
-                        ctx.emit(Event::Bytes { phase: Phase::Copy, bytes: c.size });
-                        Hash::of(&bytes)
-                    }
-                    // An online-only file (Dropbox, Google Drive) downloads as it's read, which can
-                    // take minutes: past a few seconds, say which file it's waiting on.
-                    None if std::fs::metadata(&src.path).is_ok_and(|m| fsutil::is_online_only(&m)) => {
-                        let waiting = format!("waiting for {} to download from the cloud", src.path.display());
-                        fsutil::warn_if_slow(ctx, DOWNLOAD_NOTICE, waiting, || {
-                            fsutil::copy_for_drive(&src.path, &dst, src.hash, ctx)
-                        })?
-                    }
-                    None => fsutil::copy_for_drive(&src.path, &dst, src.hash, ctx)?,
-                };
-                let class = paths::classify(&c.path).unwrap_or(FileClass::Audio);
-                Ok((Copied { path: dst, key: c.path.clone(), class, hash, mtime: src.mtime }, c.size))
-            },
-        );
-        finished.store(true, Ordering::Relaxed);
-        copied
-    });
+    let downloads = start_downloads();
+    let (written, stopped) = copy_each(
+        &copies,
+        |c| c.size,
+        |&c| {
+            ctx.check()?;
+            let src = planned.sources.get(&c.path).ok_or_else(|| Error::NotFound(c.path.clone()))?;
+            let dst = target.checked_path(&c.path)?;
+            ctx.emit(Event::Item { phase: Phase::Copy, path: c.path.clone(), bytes: c.size });
+            let hash = match &src.audio_path {
+                Some(audio) => {
+                    let bytes = analysis_bytes(&src.path, audio, src.shift_ms)?;
+                    fsutil::write_for_drive(&dst, &bytes)?;
+                    ctx.emit(Event::Bytes { phase: Phase::Copy, bytes: c.size });
+                    Hash::of(&bytes)
+                }
+                // An online-only file (Dropbox, Google Drive) downloads as it's read, which can
+                // take minutes: past a few seconds, say which file it's waiting on.
+                None if std::fs::metadata(&src.path).is_ok_and(|m| fsutil::is_online_only(&m)) => {
+                    let waiting = format!("waiting for {} to download from the cloud", src.path.display());
+                    fsutil::warn_if_slow(ctx, DOWNLOAD_NOTICE, waiting, || {
+                        fsutil::copy_for_drive(&src.path, &dst, src.hash, ctx)
+                    })?
+                }
+                None => fsutil::copy_for_drive(&src.path, &dst, src.hash, ctx)?,
+            };
+            let class = paths::classify(&c.path).unwrap_or(FileClass::Audio);
+            Ok((Copied { path: dst, key: c.path.clone(), class, hash, mtime: src.mtime }, c.size))
+        },
+    );
+    drop(downloads);
     let bytes = written.iter().map(|(_, size)| size).sum();
     let written: Vec<Copied> = written.into_iter().map(|(copied, _)| copied).collect();
     let mut index = target.load_index();

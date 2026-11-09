@@ -298,8 +298,10 @@ fn a_whole_file_a_cut_off_write_left_is_copied_again_not_taken_as_it_is() {
     filetime::set_file_mtime(&file, old).unwrap();
     filetime::set_file_mtime(root.join("A").join(&key), old).unwrap();
     let meta = std::fs::metadata(&file).unwrap();
-    let noted = serde_json::json!([{ "key": key, "size": meta.len(), "mtime": 1_500_000_000 }]);
     b.begin(locallibrary::device::LineageOp::Sync, "sync", None).unwrap();
+    let started = b.state().unwrap().pending.as_ref().unwrap().started;
+    let files = [serde_json::json!({ "key": key, "size": meta.len(), "mtime": 1_500_000_000 })];
+    let noted = serde_json::json!({ "started": started, "files": files });
     std::fs::write(b.state_dir().join("writing.json"), noted.to_string()).unwrap();
 
     // Something else to copy, or the next sync has nothing to start.
