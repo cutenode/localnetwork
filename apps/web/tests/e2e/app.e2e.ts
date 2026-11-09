@@ -44,12 +44,18 @@ test.beforeEach(({ page }) => keepPdsCookies(page));
 const hydrated = (page: Page) => expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
 
 /**
- * Signs out from the dashboard and waits for the redirect home: /logout records the audit entry and
- * revokes the OAuth session first, and a sign-in started before it finishes would find the old session.
+ * Signs out from the header's account menu (the site menu on a phone) and waits for the redirect home: /logout
+ * records the audit entry and revokes the OAuth session first, and a sign-in started before it finishes would find
+ * the old session.
  */
 async function signOut(page: Page) {
 	await page.goto('/dashboard');
 	await hydrated(page);
+	await page
+		.getByRole('banner')
+		.getByRole('button', { name: /^(Account|Menu)\b/ })
+		.filter({ visible: true })
+		.click();
 	await page.getByRole('button', { name: 'Sign out' }).click();
 	await page.waitForURL((url) => url.pathname === '/');
 }
@@ -973,19 +979,12 @@ test.describe('keeps what people entered', () => {
 		await expect(page.getByRole('status').filter({ hasText: 'unsent changes' })).toBeVisible();
 		await expectAccessible(page);
 
-		// Signing out drops it, so the next person on this browser doesn't find it, even when Sign out is
-		// pressed before the dashboard's scripts have run.
+		// Signing out drops it, so the next person on this browser doesn't find it, even when the page's scripts
+		// never saw the sign-out: here it's posted from outside the page, as a form posts without scripts.
 		const inquiry = page.url();
 
-		const holdScripts = (route: Route) =>
-			route.request().resourceType() === 'script' ? route.abort() : route.fallback();
-
-		await page.route('**/*', holdScripts);
-		await page.goto('/dashboard');
-		await page.unroute('**/*', holdScripts);
-		await expect(page.locator('html')).not.toHaveAttribute('data-hydrated');
-		await page.getByRole('button', { name: 'Sign out' }).click();
-		await page.waitForURL((url) => url.pathname === '/');
+		expect((await page.request.post('/logout', { maxRedirects: 0 })).status()).toBe(303);
+		await page.goto('/');
 		await hydrated(page);
 		const drafts = () => Object.keys(localStorage).filter((key) => key.startsWith('ln:draft:'));
 		expect(await page.evaluate(drafts)).toEqual([]);
