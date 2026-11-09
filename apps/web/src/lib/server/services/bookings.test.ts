@@ -119,6 +119,26 @@ describe('BookingService', () => {
 		]);
 	});
 
+	it('opens a thread on the second read of an inquiry the directory failed on the first', async () => {
+		const space = await syncedSpace([PROMOTER, DJ]);
+		const project = await bookable();
+
+		const change = {
+			space,
+			uri: spaceRecordUri(space, PROMOTER, COLLECTION.bookingInquiry, TID.nextStr()),
+			repoDid: PROMOTER,
+			collection: COLLECTION.bookingInquiry,
+			value: { project: project.uri, message: 'Free?', createdAt: new Date().toISOString() }
+		};
+
+		vi.spyOn(t.projects, 'byUri').mockRejectedValueOnce(new Error('directory offline'));
+		await expect(t.bookings.indexEvent(change)).rejects.toThrow('directory offline');
+		expect(await t.bookings.threadsFor(PROMOTER)).toEqual([]);
+
+		await t.bookings.indexEvent(change);
+		expect(await t.bookings.threadsFor(PROMOTER)).toMatchObject([{ space, promoter: { did: PROMOTER } }]);
+	});
+
 	it("opens a thread it hears of only from sync, ignoring records from anyone outside it, for a project that's gone", async () => {
 		const space = await syncedSpace([PROMOTER, DJ]);
 		const createdAt = new Date().toISOString();
