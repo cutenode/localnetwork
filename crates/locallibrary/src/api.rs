@@ -25,6 +25,7 @@ use crate::compare::{self, Comparison, Relation, Side};
 use crate::convert;
 use crate::device::{self, Device, DeviceInfo};
 use crate::doctor::Databases;
+use crate::drive_speed::Work;
 use crate::edit::{self, Edit, EditOptions, EditPlan, EditReport};
 use crate::error::{Action, Reason};
 use crate::format::{self, DiskView, FormatOptions, FormatPlan, FormatReport};
@@ -644,6 +645,8 @@ pub fn sync_plan(req: &SyncRequest, ctx: &Ctx<'_>) -> Result<Planned<SyncPreview
         );
     }
     let (noop, destructive, warnings) = (plan.is_noop(), !plan.deletes.is_empty(), plan.warnings.clone());
+    let work = Work::copying(dst.root(), plan.copies.iter().map(|c| (c.path.as_str(), c.size)));
+    let estimate = write_estimate(&dst, work.read_elsewhere(), ctx)?;
     let preview = SyncPreview {
         comparison,
         source: Some(src.root().into()),
@@ -654,6 +657,7 @@ pub fn sync_plan(req: &SyncRequest, ctx: &Ctx<'_>) -> Result<Planned<SyncPreview
     Ok(Planned::new("sync", preview, pinned)
         .summary(summary)
         .warnings(warnings)
+        .estimated(estimate)
         .destructive(destructive)
         .noop(noop)
         .overwrite_archive(req.overwrite_archive)
@@ -888,7 +892,7 @@ pub(crate) fn many_planned(
     let mut previews = Vec::new();
     for t in &targets {
         let p = ctx.for_target(sync::target_label(t), |ctx| {
-            sync_plan(&req.pair(source.root(), t.root(), Direction::Auto), ctx)
+            op::without_measuring(|| sync_plan(&req.pair(source.root(), t.root(), Direction::Auto), ctx))
         })?;
         if p.source.as_deref().is_some_and(|s| s != source.root()) {
             return Err(Error::conflict(
@@ -1167,8 +1171,11 @@ pub fn push_plan(store: &Store, req: &PushRequest, ctx: &Ctx<'_>) -> Result<Plan
     let summary =
         sync_summary(&format!("snapshot {} ({} tracks)", info.short_id, info.summary.tracks), &d.name(), &plan);
     let (noop, destructive, warnings) = (plan.is_noop(), !plan.deletes.is_empty(), plan.warnings.clone());
+    let work = Work::copying(d.root(), plan.copies.iter().map(|c| (c.path.as_str(), c.size)));
+    let estimate = write_estimate(&d, work, ctx)?;
     Planned::new("push", PushPreview { snapshot: info, plan }, pinned)
         .summary(summary)
+        .estimated(estimate)
         .warnings(warnings)
         .destructive(destructive)
         .noop(noop)
@@ -2035,8 +2042,10 @@ pub fn format_apply(store_root: &Path, req: &FormatApply, ctx: &Ctx<'_>) -> Resu
     )
 }
 
+mod drive_speed;
 mod drives;
 mod editing;
+pub use drive_speed::*;
 pub use drives::*;
 pub use editing::*;
 mod cues;

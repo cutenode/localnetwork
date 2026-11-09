@@ -63,6 +63,10 @@ export const AUDIT_ACTIONS = [
 	'listing.list',
 	'listing.unlist',
 	'record.delete',
+	'flag.update',
+	'flagGroup.create',
+	'flagGroup.update',
+	'flagGroup.delete',
 	'system.bootstrap',
 	'system.space'
 ] as const;
@@ -81,7 +85,9 @@ export const SUBJECT_KINDS = [
 	'planner',
 	'space',
 	'epk',
-	'show'
+	'show',
+	'flag',
+	'flagGroup'
 ] as const;
 
 export type SubjectKind = (typeof SUBJECT_KINDS)[number];

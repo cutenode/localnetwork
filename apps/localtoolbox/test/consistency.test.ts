@@ -498,6 +498,33 @@ describe('stylesheets', () => {
 		expect(css).toContain(".tbx-queue.tbx-queue[data-state$=':yes']");
 	});
 
+	// The queue button is focused on cover art of any colour: a white ring alone
+	// vanishes into pale artwork, a dark one into dark artwork.
+	it('rings a focused queue button in white and dark both', () => {
+		const css = read('content.css').replace(/\/\*[\s\S]*?\*\//g, '');
+
+		// The rule of its own, not the one it shares with hovering, which shows it.
+		const rule =
+			[...css.matchAll(/(?:^|\})\s*\.tbx-queue\.tbx-queue:focus-visible \{([^}]*)\}/g)].find((m) =>
+				m[1].includes('outline')
+			)?.[1] ?? '';
+
+		expect(rule).toMatch(/outline: 2px solid #ffffff;/);
+		expect(rule).toMatch(/box-shadow:\s*0 0 0 5px #111111/);
+	});
+
+	// The status region is for a screen reader alone: on the page it would be
+	// stray words under SoundCloud's footer.
+	it('hides the gate walk’s status region from sight only', () => {
+		const css = read('content.css').replace(/\/\*[\s\S]*?\*\//g, '');
+		const rule = css.match(/\.tbx-status\.tbx-status \{([^}]*)\}/)?.[1] ?? '';
+
+		expect(rule).toMatch(/clip-path: inset\(50%\);/);
+		expect(rule).toMatch(/width: 1px;/);
+		// Hidden from sight, not from the accessibility tree.
+		expect(rule).not.toMatch(/display: none|visibility: hidden/);
+	});
+
 	it('style the button that stands in for SoundCloud’s own, and the hiding of it', () => {
 		const css = read('content.css');
 
@@ -505,6 +532,7 @@ describe('stylesheets', () => {
 			'.tbx-dl',
 			'.tbx-dl--soundcloud',
 			'.tbx-dl--external',
+			'.tbx-dl--v2',
 			'.tbx-dl__icon',
 			'.tbx-dl__text',
 			'.tbx-dl-replaced'

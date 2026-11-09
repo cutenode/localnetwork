@@ -1084,11 +1084,19 @@ describe('Local Network on a real atproto spaces network', () => {
 			roles: await net.app.staff.roles(net.user('milo').did)
 		};
 
+		const ada = await net.viewer('ada');
+		const group = await net.app.flags.createGroup(ada, { name: 'Beta', members: [net.user('lee').did] });
+		await net.app.flags.updateFlag(ada, 'parityCanary', { everyone: false, percentage: 0, groups: [group], dids: [] });
+		await net.settle();
+		const flagged = await net.app.flags.list();
+
 		for (const table of [
 			'auditEntry',
 			'auditCopy',
 			'request',
 			'staffRole',
+			'featureFlag',
+			'flagGroup',
 			'spaceRecord',
 			'syncedRepo',
 			'bookingEvent',
@@ -1108,7 +1116,10 @@ describe('Local Network on a real atproto spaces network', () => {
 
 		expect(await net.app.requests.counts()).toEqual(before.requests);
 		expect(await net.app.staff.roles(net.user('milo').did)).toEqual(before.roles);
-		expect((await net.app.audit.stats()).total).toBe(before.audit);
+		expect(await net.app.flags.list()).toEqual(flagged);
+		expect(await net.app.flags.evaluate(net.user('lee').did)).toEqual({ parityCanary: true });
+		expect(await net.app.flags.evaluate(net.user('pat').did)).toEqual({ parityCanary: false });
+		expect((await net.app.audit.stats()).total).toBeGreaterThanOrEqual(before.audit);
 		expect(await net.app.audit.verifyChain()).toMatchObject({ ok: true });
 		expect(await net.app.projects.bySlug('static-bloom')).toMatchObject({ revision: 3 });
 		expect(await net.app.projects.details(projectUri)).toMatchObject({ bookingEmail: 'bookings@staticbloom.test' });

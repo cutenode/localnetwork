@@ -72,7 +72,7 @@ vulnerability.ignore = true
 reason = "unmaintained (merged into zbus 6), no vulnerability; a proc-macro, Linux only, through keyring 4.2.0 and secret-service 5.2.0, both the latest and on zbus 5"
 
 # npm (pnpm-lock.yaml). Except for zod above, none of these ships: they're dev tooling, mostly
-# the atproto dev network (@atproto/dev-env) and Lighthouse CI.
+# the atproto dev network (@atproto/dev-env).
 
 # GHSA-qqmp-wf37-98f9 (database user name on spans). @atproto-labs/opentelemetry-node only starts
 # the SDK once an OTLP endpoint is set, and the dev network sets none.
@@ -141,20 +141,6 @@ reason = "dev only, under @atproto/dev-env's auto-instrumentations-node 0.77.0, 
 
 [[PackageOverrides]]
 ecosystem = "npm"
-name = "basic-ftp"
-version = "5.3.1"
-vulnerability.ignore = true
-reason = "dev only (Lighthouse CI); proxy-agent's get-uri 6 only uses it to fetch a PAC file from an ftp:// URL, which nothing here sets; the fix is in 6.2.1, outside get-uri's ^5"
-
-[[PackageOverrides]]
-ecosystem = "npm"
-name = "extract-zip"
-version = "2.0.1"
-vulnerability.ignore = true
-reason = "dev only; @puppeteer/browsers (under Lighthouse) unzips browsers it downloads, and Lighthouse CI here runs Playwright's Chromium (apps/web/lighthouserc.cjs); 2.0.1 is the latest"
-
-[[PackageOverrides]]
-ecosystem = "npm"
 name = "kysely"
 version = "0.23.5"
 vulnerability.ignore = true
@@ -180,10 +166,3 @@ name = "sharp"
 version = "0.33.5"
 vulnerability.ignore = true
 reason = "dev only; @atproto/bsky (^0.33.5) under @atproto/dev-env, and the dev network starts only a PLC and a PDS, never bsky; the fixes are in 0.35"
-
-[[PackageOverrides]]
-ecosystem = "npm"
-name = "uuid"
-version = "8.3.2"
-vulnerability.ignore = true
-reason = "dev only; @lhci/cli 0.15.1 (the latest, ^8.3.1) only calls uuid.v4() without a buffer, and the bug needs one passed to v3, v5 or v6"

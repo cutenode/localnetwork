@@ -1,4 +1,5 @@
 import { isValidLatLng } from '#lib/geo.ts';
+import { clientIp } from '#lib/server/http.ts';
 import { unlessOffline } from '#lib/server/happyview/offline.ts';
 import { pageMeta } from '#lib/server/meta.ts';
 import { FEE_TIERS, FORMATS, isOneOf, PROJECT_KINDS, SET_TYPES } from '#lib/taxonomy/options.ts';
@@ -15,11 +16,26 @@ const list = (url: URL, name: string) => [
 	)
 ];
 
-export const load: PageServerLoad = async ({ url, locals }) => {
-	const { performers, geocoder } = locals.app;
-	const lat = Number(url.searchParams.get('lat'));
-	const lng = Number(url.searchParams.get('lng'));
-	const hasNear = url.searchParams.get('lat') !== null && url.searchParams.get('lat') !== '' && isValidLatLng(lat, lng);
+export const load: PageServerLoad = async (event) => {
+	const { url, locals } = event;
+	const { performers, geocoder, limits } = locals.app;
+	let lat = Number(url.searchParams.get('lat'));
+	let lng = Number(url.searchParams.get('lng'));
+	let hasNear = url.searchParams.get('lat') !== null && url.searchParams.get('lat') !== '' && isValidLatLng(lat, lng);
+	const place = url.searchParams.get('place')?.trim().slice(0, 200) ?? '';
+
+	// A place typed without picking it from the list has no coordinates. Look it up once, under the same limit as the
+	// list's own lookups, so the distance filter still applies; when nothing is found the page says so instead.
+	if (!hasNear && place && geocoder.enabled && limits.search.take(`places:${clientIp(event)}`)) {
+		const [first] = await geocoder.search(place);
+
+		if (first) {
+			lat = first.latE6 / 1e6;
+			lng = first.lngE6 / 1e6;
+			hasNear = true;
+		}
+	}
+
 	const radiusKm = Math.min(2000, Math.max(5, Number(url.searchParams.get('radius')) || 50));
 	const sortParam = url.searchParams.get('sort');
 
@@ -30,7 +46,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 
 	const filters = {
 		q: url.searchParams.get('q')?.slice(0, 100) ?? '',
-		place: url.searchParams.get('place')?.slice(0, 200) ?? '',
+		place,
 		lat: hasNear ? String(lat) : '',
 		lng: hasNear ? String(lng) : '',
 		radiusKm,
@@ -45,6 +61,9 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		sort: sort ?? '',
 		unclaimed: url.searchParams.has('unclaimed')
 	};
+
+	/** Whether a place was typed that couldn't be found, so no distance filter applies. */
+	const placeMissed = !!place && !hasNear;
 
 	const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
 
@@ -71,6 +90,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	return {
 		result,
 		filters,
+		placeMissed,
 		geocoder: geocoder.enabled,
 		meta: pageMeta(locals.app.config.publicUrl, {
 			title: 'Find DJs',

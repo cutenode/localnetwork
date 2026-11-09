@@ -1,0 +1,19 @@
+/**
+ * Writes FlagKey from the repo's flags/catalog/, so a flag that's gone fails the type check wherever it's still used.
+ * It's generated, not checked in, so that adding a flag only adds a file. `pnpm install` and `pnpm check` run this.
+ */
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+
+const catalog = new URL('../../../flags/catalog/', import.meta.url);
+
+const target = new URL('../src/lib/flags/keys.generated.ts', import.meta.url);
+
+const keys = readdirSync(catalog)
+	.filter((file) => file.endsWith('.json'))
+	.map((file) => `'${file.slice(0, -'.json'.length)}'`)
+	.toSorted();
+
+// A fresh checkout doesn't have the folder: this file is all that's in it.
+mkdirSync(new URL('.', target), { recursive: true });
+
+writeFileSync(target, `export type FlagKey = ${keys.join(' | ') || 'never'};\n`);

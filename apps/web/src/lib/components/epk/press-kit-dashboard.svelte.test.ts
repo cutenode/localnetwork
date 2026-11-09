@@ -214,14 +214,31 @@ describe('EpkEditor', () => {
 		await expect.element(page.getByRole('button', { name: /Delete/ })).not.toBeInTheDocument();
 	});
 
+	it('saves a draft when Enter is pressed in a field, and leaves publishing to a click', async () => {
+		const action = stubFormAction();
+		await render(EpkEditor, {
+			...editor,
+			values: { ...editor.values, title: 'Clubs' },
+			draft: { status: 'current', updatedAt: '2026-10-22T18:30:00Z' },
+			others: [],
+			published: true
+		});
+
+		await page.getByRole('textbox', { name: 'Headline' }).click();
+		await userEvent.keyboard('{Enter}');
+
+		await expect.poll(() => action.urls.length).toBe(1);
+		expect(action.urls[0]).toContain('?/save');
+	});
+
 	it('asks before deleting a published press kit, and can keep it', async () => {
 		await render(EpkEditor, { ...editor, draft: null, others: [], published: true });
 
 		await userEvent.click(page.getByRole('button', { name: 'Delete…' }));
 		await expect.element(page.getByText("This deletes it and everyone's access.")).toBeVisible();
-		await expect
-			.element(page.getByRole('button', { name: 'Delete press kit' }))
-			.toHaveAttribute('formaction', '?/delete');
+		expect(
+			page.getByRole('button', { name: 'Delete press kit' }).element().closest('form')?.getAttribute('action')
+		).toBe('?/delete');
 
 		await userEvent.click(page.getByRole('button', { name: 'Keep it' }));
 		await expect.element(page.getByRole('button', { name: 'Delete press kit' })).not.toBeInTheDocument();

@@ -65,7 +65,7 @@
 						<li class="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-baseline gap-3 px-4 py-3">
 							<span class="font-mono text-label text-fg-subtle">{i + 1}</span>
 							<span class="flex min-w-0 flex-col">
-								<a class="font-semibold text-fg no-underline hover:underline" href={artistHref(artist)}>{artist.name}</a>
+								<a class="entity-link font-semibold text-fg" href={artistHref(artist)}>{artist.name}</a>
 								<span class="text-small text-fg-muted">from {pluralize(artist.djCount, 'DJ')}</span>
 							</span>
 							<span class="font-mono text-label whitespace-nowrap text-fg-soft">{pluralize(artist.supports, 'support')}</span>

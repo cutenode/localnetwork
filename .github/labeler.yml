@@ -106,7 +106,9 @@ atstore:
       - any-glob-to-any-file:
           - "apps/web/src/routes/admin/**"
           - "apps/web/src/routes/dashboard/requests/**"
-          - "apps/web/src/lib/server/services/{staff,project-admin,requests,diff}.*"
+          - "apps/web/src/lib/server/services/{staff,flags,project-admin,requests,diff}.*"
+          - "apps/web/src/lib/server/flags/**"
+          - "flags/**"
           - "apps/web/src/lib/server/audit/**"
           - "apps/web/src/lib/components/DiffTable.svelte"
           - "lexicons/computer/localnetwork/{audit,moderation,staff}/**"
