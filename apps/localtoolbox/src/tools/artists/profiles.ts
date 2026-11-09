@@ -65,12 +65,14 @@ export interface Fact {
  * @param permalink what is not a track's path, or is missing, is ''
  */
 export const artistPathOf = (permalink?: string | null) => {
+	// Stryker disable next-line StringLiteral: equivalent. Any stand-in without a leading slash fails the pattern just as '' does.
 	const match = /^\/([^/?#\s]+)\/[^/?#\s]+$/.exec(permalink ?? '');
 
 	return match ? `/${match[1]}` : '';
 };
 
 /** Whether a string is an artist's path: a slash, one segment, nothing else. */
+// Stryker disable next-line StringLiteral: equivalent. Any stand-in without a leading slash fails the pattern just as '' does.
 export const isArtistPath = (value?: string | null) => /^\/[^/?#\s]+$/.test(value ?? '');
 
 /** The profile page an artist's path opens. */
@@ -92,6 +94,7 @@ const words = (value?: string) => (value ?? '').trim();
 export function artistsOf(tracks: Track[]) {
 	const byPath: Map<string, Artist> = new Map();
 
+	// Stryker disable next-line ArrayDeclaration: equivalent. A string in place of the empty list has no permalink, so it is skipped like nothing at all.
 	for (const track of Array.isArray(tracks) ? tracks : []) {
 		const permalink = artistPathOf(track?.permalink);
 
@@ -214,6 +217,7 @@ const hostOf = (url: string) => {
  * @param filed SoundCloud's `network` for it
  * @returns an id in NETWORKS
  */
+// Stryker disable next-line StringLiteral: equivalent. A default that names no network falls through to 'personal' just as '' does.
 export function networkOf(url: string, filed = ''): NetworkId {
 	if (/^mailto:/i.test(url)) return 'email';
 	const host = hostOf(url);
@@ -291,16 +295,19 @@ const trimmed = (found: string) => found.replace(/[.,;:!?)\]]+$/, '');
 export function bioLinks(bio?: string) {
 	const text = words(bio);
 
+	// Stryker disable next-line ConditionalExpression: equivalent when false, since empty text matches nothing and the loops below return [] anyway; the `true` variant is caught by the bio tests, which this hides too.
 	if (!text) return [];
 	const links: Link[] = [];
 
 	for (const match of text.matchAll(BIO_URL)) {
 		const found = trimmed(match[0]);
 		const url = /^https?:\/\//i.test(found) ? found : `https://${found}`;
+		// Stryker disable next-line StringLiteral: equivalent for the network, since one that names no network falls through to the host or 'personal' just as '' does; the title and 'bio' literals here are pinned by the bio tests all the same.
 		links.push(linkOf(url, '', '', 'bio'));
 	}
 
 	for (const match of text.matchAll(BIO_EMAIL)) {
+		// Stryker disable next-line StringLiteral: equivalent for the network, since networkOf answers 'email' for any mailto: before it reads it; the title and 'bio' literals here are pinned by the bio tests all the same.
 		links.push(linkOf(`mailto:${match[0]}`, 'email', '', 'bio'));
 	}
 
@@ -365,6 +372,7 @@ export function shortCount(n?: number | null) {
 	const scaled: [number, string] = n! < 1000000 ? [n! / 1000, 'K'] : [n! / 1000000, 'M'];
 	const [value, unit] = scaled;
 
+	// Stryker disable next-line Regex,EqualityOperator: equivalent. toFixed(1) leaves one digit after the point, so a '.0' can only come at the end; and at exactly 10 both branches give '10' (the `>=` variant is still caught by the count tests, but this hides it too).
 	return `${value < 10 ? value.toFixed(1).replace(/\.0$/, '') : Math.round(value)}${unit}`;
 }
 
