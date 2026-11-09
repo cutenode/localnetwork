@@ -98,7 +98,7 @@
 	{#each groups as group, index (index)}
 		{@const headingId = `${id}-${place}-group-${index}`}
 		<!-- A group whose items turn out to be none leaves nothing behind, its label included. -->
-		<div class={['flex flex-col gap-1.5 empty:hidden', group.continues && '-mt-4.5']}>
+		<div class={['flex flex-col gap-1.5 empty:hidden', group.continues && '-mt-4']}>
 			{#await group.items}
 				{#if !group.continues}
 					{@render heading(group, headingId)}
@@ -145,7 +145,7 @@
 			{@const active = isCurrent(item)}
 			<a href={item.href} aria-current={active ? 'page' : undefined} class={['relative flex min-h-14 flex-col items-center justify-center gap-0.5 text-caption font-medium no-underline', active ? 'text-fg' : 'text-fg-muted']}>
 				{@render mark(item)}{item.label}
-				{#if item.badge}<span class="absolute top-1.5 left-[calc(50%+0.375rem)] rounded-full bg-fg px-1 font-mono text-[0.625rem] leading-snug font-semibold text-fg-inverse">{item.badge}</span>{:else if item.dot}<span class="absolute top-2 left-[calc(50%+0.375rem)] size-2 rounded-full bg-link"><span class="sr-only">Unread</span></span>{/if}
+				{#if item.badge}<span class="absolute top-1.5 left-[calc(50%+0.375rem)] rounded-full bg-fg px-1 font-mono text-[0.625rem] leading-tight font-semibold text-fg-inverse">{item.badge}</span>{:else if item.dot}<span class="absolute top-1.5 left-[calc(50%+0.375rem)] size-2 rounded-full bg-link"><span class="sr-only">Unread</span></span>{/if}
 			</a>
 		{/each}
 		<button type="button" aria-haspopup="dialog" aria-expanded={open} aria-label="{label} menu" onclick={() => (open = true)} class={['flex min-h-14 flex-col items-center justify-center gap-0.5 text-caption font-medium', onTab ? 'text-fg-muted' : 'text-fg']}>
@@ -154,7 +154,7 @@
 	</nav>
 	<!-- A click lands on the dialog itself only outside the panel, on the backdrop. -->
 	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-	<dialog bind:this={sheet} aria-label="{label} menu" onclose={() => (open = false)} onclick={(event) => event.target === sheet && (open = false)} class="m-0 mt-auto max-h-[85dvh] w-full max-w-none overflow-y-auto overscroll-contain rounded-t-2xl border-0 border-t border-line-strong bg-surface p-0 text-fg starting:translate-y-6 starting:opacity-0 motion-safe:transition-[translate,opacity] motion-safe:duration-200 motion-safe:ease-out backdrop:bg-canvas/70 lg:hidden">
+	<dialog bind:this={sheet} aria-label="{label} menu" onclose={() => (open = false)} onclick={(event) => event.target === sheet && (open = false)} class="m-0 mt-auto max-h-[85dvh] w-full max-w-none overflow-auto overscroll-contain rounded-t-xl border-0 border-t border-line-strong bg-surface p-0 text-fg starting:translate-y-6 transition-transform duration-200 ease-out motion-reduce:transition-none backdrop:bg-canvas/80 lg:hidden">
 		<div class="flex flex-col gap-5 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
 			<div class="flex justify-end">
 				<button type="button" aria-label="Close menu" onclick={() => (open = false)} class="grid size-11 place-items-center rounded-md text-fg-muted hover:bg-raised hover:text-fg"><X class="size-5" aria-hidden="true" /></button>
