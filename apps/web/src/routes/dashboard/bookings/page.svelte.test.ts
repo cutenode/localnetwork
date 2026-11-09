@@ -38,6 +38,9 @@ const data = (did: string, threads: BookingThreadView[], projects: ProjectView[]
 	viewer: viewer(did),
 	pendingRequests: 0,
 	unread: 0,
+	waiting: 0,
+	needs: [],
+	access: Promise.resolve([]),
 	sections: Promise.resolve(null),
 	projects: Promise.resolve(projects),
 	threads

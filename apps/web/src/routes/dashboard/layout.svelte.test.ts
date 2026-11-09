@@ -36,6 +36,9 @@ it("lists the sections and everything that is the viewer's own", async () => {
 			viewer: viewer(false),
 			pendingRequests: 0,
 			unread: 0,
+			waiting: 0,
+			needs: [],
+			access: Promise.resolve([]),
 			projects: Promise.resolve([neon]),
 			sections: Promise.resolve(null)
 		},
@@ -76,6 +79,9 @@ it('adds the staff console, with the requests waiting, for staff', async () => {
 			viewer: viewer(true),
 			pendingRequests: 4,
 			unread: 0,
+			waiting: 0,
+			needs: [],
+			access: Promise.resolve([]),
 			projects: Promise.resolve([]),
 			sections: Promise.resolve(null)
 		},
@@ -93,6 +99,9 @@ it('marks the inbox with a dot, not a count, while something is unread', async (
 			viewer: viewer(false),
 			pendingRequests: 0,
 			unread: 3,
+			waiting: 0,
+			needs: [],
+			access: Promise.resolve([]),
 			projects: Promise.resolve([]),
 			sections: Promise.resolve(null)
 		},
@@ -103,6 +112,34 @@ it('marks the inbox with a dot, not a count, while something is unread', async (
 	await expect.element(nav.getByRole('link', { name: 'Inbox Unread' })).toHaveAttribute('href', '/dashboard/inbox');
 });
 
+it('counts everything waiting on the viewer on Home, press kit asks once they arrive', async () => {
+	const row = (key: string) => ({
+		key,
+		scope: 'Neon Tide',
+		title: key,
+		detail: '',
+		href: '/dashboard',
+		action: 'Reply'
+	});
+
+	await render(Layout, {
+		params: {},
+		data: {
+			viewer: viewer(false),
+			pendingRequests: 0,
+			unread: 0,
+			waiting: 1,
+			needs: [row('a')],
+			access: Promise.resolve([row('b')]),
+			projects: Promise.resolve([]),
+			sections: Promise.resolve(null)
+		},
+		children
+	});
+
+	await expect.element(page.getByRole('link', { name: 'Home 2' }).first()).toHaveAttribute('href', '/dashboard');
+});
+
 it('still offers to list a project when the directory is offline', async () => {
 	await render(Layout, {
 		params: {},
@@ -110,6 +147,9 @@ it('still offers to list a project when the directory is offline', async () => {
 			viewer: viewer(false),
 			pendingRequests: 0,
 			unread: 0,
+			waiting: 0,
+			needs: [],
+			access: Promise.resolve([]),
 			projects: Promise.resolve(null),
 			sections: Promise.resolve(null)
 		},
@@ -132,6 +172,9 @@ it('shows a DJ their projects and a promoter their planner, by the sections thei
 				viewer: viewer(false),
 				pendingRequests: 0,
 				unread: 0,
+				waiting: 0,
+				needs: [],
+				access: Promise.resolve([]),
 				projects: Promise.resolve(projects),
 				sections: Promise.resolve(sections)
 			},
