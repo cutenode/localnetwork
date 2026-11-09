@@ -35,7 +35,11 @@ describe('MixList', () => {
 		await expect.element(page.getByTitle('Tidal Hours')).toBeInTheDocument();
 		await vi.waitFor(() => expect(refused).toContain('https://w.soundcloud.com'));
 
-		await page.getByRole('button', { name: 'Close the player for Tidal Hours' }).click();
+		// A close mark while it's open, not a pause: whether the platform's player plays is up to it.
+		const close = page.getByRole('button', { name: 'Close the player for Tidal Hours' });
+		expect(close.element().querySelector('.lucide-x')).not.toBeNull();
+		expect(close.element().querySelector('.lucide-pause')).toBeNull();
+		await close.click();
 		await expect.element(page.getByTitle('Tidal Hours')).not.toBeInTheDocument();
 		await expect
 			.element(page.getByRole('button', { name: 'Play Tidal Hours' }))

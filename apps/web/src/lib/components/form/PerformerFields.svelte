@@ -148,7 +148,7 @@
 		</div>
 		<div>
 			<label class="label" for="setMax">Longest set (min)</label>
-			<input id="setMax" class="input" type="number" name="setMax" min="15" max="720" bind:value={fields.setMax} />
+			<input id="setMax" class="input" type="number" name="setMax" min={fields.setMin || 15} max="720" bind:value={fields.setMax} />
 		</div>
 		<div>
 			<label class="label" for="capacityMin">Smallest room</label>
@@ -156,7 +156,7 @@
 		</div>
 		<div>
 			<label class="label" for="capacityMax">Biggest room</label>
-			<input id="capacityMax" class="input" type="number" name="capacityMax" min="0" bind:value={fields.capacityMax} />
+			<input id="capacityMax" class="input" type="number" name="capacityMax" min={fields.capacityMin || 0} bind:value={fields.capacityMax} />
 		</div>
 		<div>
 			<label class="label" for="activeSince">Playing since</label>
@@ -181,7 +181,7 @@
 				<div class="grid grid-cols-[5.5rem_1fr_1fr] gap-2 sm:grid-cols-[11rem_1fr_1fr] sm:pr-13">
 					<input class="input uppercase" name="feeCurrency" bind:value={fee.currency} maxlength="3" placeholder="USD" aria-label="Currency" />
 					<input class="input" type="number" min="0" name="feeMin" bind:value={fee.minAmount} placeholder="From" aria-label="From" />
-					<input class="input" type="number" min="0" name="feeMax" bind:value={fee.maxAmount} placeholder="Up to" aria-label="Up to" />
+					<input class="input" type="number" min={fee.minAmount || 0} name="feeMax" bind:value={fee.maxAmount} placeholder="Up to" aria-label="Up to" />
 				</div>
 			</div>
 		{/each}

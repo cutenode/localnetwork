@@ -23,6 +23,7 @@ describe('createProjections', () => {
 			projects: t.projects,
 			requests: t.requests,
 			staff: t.staff,
+			flags: t.flags,
 			bookings: t.bookings,
 			epks: t.epks,
 			sharedSpaces: t.sharedSpaces,
@@ -45,6 +46,52 @@ describe('createProjections', () => {
 			cid: 'bafyreiabc',
 			value: { $type: collection, ...value }
 		});
+
+	it('takes flags and groups from the root in the staff space, and nobody else', async () => {
+		const at = new Date().toISOString();
+
+		const flag = {
+			key: 'parityCanary',
+			everyone: true,
+			percentage: 0,
+			groups: [],
+			dids: [],
+			updatedBy: ROOT,
+			updatedAt: at
+		};
+
+		const group = { name: 'Beta', members: [ALICE], createdAt: at, updatedBy: ROOT, updatedAt: at };
+
+		await upsert(t.spaces.staff, ALICE, COLLECTION.staffFlag, 'parityCanary', flag);
+		await upsert(t.spaces.moderation, ROOT, COLLECTION.staffFlag, 'parityCanary', flag);
+		await upsert(t.spaces.staff, ALICE, COLLECTION.staffGroup, '3lzy2ji4nms2z', group);
+		await upsert(t.spaces.moderation, ROOT, COLLECTION.staffGroup, '3lzy2ji4nms2z', group);
+
+		expect(await t.flags.evaluate(null)).toEqual({ parityCanary: false });
+		expect(await t.flags.groups()).toEqual([]);
+
+		await upsert(t.spaces.staff, ROOT, COLLECTION.staffFlag, 'parityCanary', flag);
+		await upsert(t.spaces.staff, ROOT, COLLECTION.staffGroup, '3lzy2ji4nms2z', group);
+
+		expect(await t.flags.evaluate(null)).toEqual({ parityCanary: true });
+		expect((await t.flags.groups()).map(({ name }) => name)).toEqual(['Beta']);
+
+		for (const [repoDid, space] of [
+			[ALICE, t.spaces.staff],
+			[ROOT, t.spaces.moderation]
+		]) {
+			await project({
+				kind: 'delete',
+				space,
+				repoDid,
+				collection: COLLECTION.staffFlag,
+				rkey: 'parityCanary',
+				uri: `${t.spaces.staff}/${ROOT}/${COLLECTION.staffFlag}/parityCanary`
+			});
+		}
+
+		expect(await t.flags.evaluate(null)).toEqual({ parityCanary: true });
+	});
 
 	it('indexes valid records and enforces authority rules', async () => {
 		const now = new Date().toISOString();

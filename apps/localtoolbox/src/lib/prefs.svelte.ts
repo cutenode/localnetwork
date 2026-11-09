@@ -2,12 +2,12 @@
 //
 // The extension asks for no storage permission on the user's behalf to keep
 // these: they are the popup page's own, they never leave it, and losing them
-// costs a re-tick of a checkbox. The keys are the ones the exported state file
-// carries (see state-transfer.ts and the schema in docs/), so they are part of
-// the format and must not be renamed.
+// costs a re-tick of a checkbox. Three of the keys are carried by the exported
+// state file (PREFS in state-transfer.ts, and the schema in docs/), so those
+// are part of the format and must not be renamed.
 //
-// Values are written as "1"/"0" for a flag, which is what the export format
-// expects, and read leniently: an older install wrote "true"/"false".
+// Flags are written as "1"/"0", which is what the export format expects, and
+// read leniently: an older install wrote "true"/"false".
 
 /** An option: `.value` reads it and writes it through, so `bind:` works on it. */
 export interface Pref<T> {
@@ -59,7 +59,7 @@ export function reloadPrefs() {
  * `reload()` re-reads the stored value. `reloadPrefs()` above calls it on
  * every option after an import, which may have replaced them underneath.
  *
- * @param key the localStorage key, which the state file names too
+ * @param key the localStorage key
  * @param initial what it is while nothing (or nothing `parse` takes) is stored
  * @param options `parse` turns what is stored back into a value; without one, the stored string
  *   is taken as it is, which is only right for a string option

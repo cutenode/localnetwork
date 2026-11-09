@@ -71,6 +71,19 @@ const app = () => ({
 const mixPage = (n: string, viewer: Viewer | null = null, slug = project.slug) =>
 	loadRoute<PageServerData>(load, { app: app(), viewer, params: { slug, n }, url: `/projects/${slug}/mixes/${n}` });
 
+it("keeps a signed-in viewer's page out of shared caches", async () => {
+	const { loadData, headers } = routeEvent({
+		app: app(),
+		viewer: await f.t.viewer('did:plc:someone'),
+		params: { slug: project.slug, n: '1' },
+		url: `/projects/${project.slug}/mixes/1`
+	});
+
+	await loadData<PageServerData>(load);
+
+	expect(headers['cache-control']).toBe('private, max-age=300');
+});
+
 it("shows a mix's tracklist, its player and its page's head, cached for five minutes", async () => {
 	const { loadData, headers, locals } = routeEvent({
 		app: app(),

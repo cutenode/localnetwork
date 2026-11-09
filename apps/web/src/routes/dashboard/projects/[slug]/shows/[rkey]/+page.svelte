@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { ArrowLeft, Trash2 } from '@lucide/svelte';
+	import { ArrowLeft } from '@lucide/svelte';
+	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
-	import FormMessage from '#lib/components/FormMessage.svelte';
+	import DeleteRow from '#lib/components/form/DeleteRow.svelte';
+	import FormActions from '#lib/components/form/FormActions.svelte';
 	import ShowForm from '#lib/components/ShowForm.svelte';
 	import SignInAgain from '#lib/components/SignInAgain.svelte';
 	import { type ShowFormValues, showFormDefaults } from '#lib/shows.ts';
@@ -15,6 +17,8 @@
 	// After a failed save, the form shows what was typed instead of the saved show.
 	// SAFETY: the save action echoes `{ ...stringValues(form), cancelled }`, the form's text fields and its checkbox.
 	const values = $derived(form?.values ? ({ ...showFormDefaults, ...form.values } as ShowFormValues) : data.values);
+
+	let saving = $state(false);
 </script>
 
 <svelte:head><title>{data.isNew ? 'Announce a show' : 'Edit show'} · {project.profile.name}</title></svelte:head>
@@ -28,15 +32,29 @@
 	</header>
 	<!-- Its own form posts to sign-in, so it sits outside the show's form: forms can't nest. -->
 	{#if form?.reauth && form.error && data.viewer}<SignInAgain did={data.viewer.did} next={page.url.pathname + page.url.search} error={form.error} />{/if}
-	<form method="POST" action="?/save" class="flex flex-col gap-6">
-		{#if !form?.reauth}<FormMessage {form} />{/if}
+	{#if data.saved && !form}
+		<p role="status" class="notice notice-ok m-0">{data.saved === 'announced' ? 'Announced.' : 'Saved.'} <a class="link" href="/projects/{project.slug}">See it on {project.profile.name}'s page</a></p>
+	{/if}
+	<form
+		method="POST"
+		action="?/save"
+		class="flex flex-col gap-6"
+		use:enhance={() => {
+			saving = true;
+
+			return async ({ update }) => {
+				await update({ reset: false });
+				saving = false;
+			};
+		}}
+	>
 		<ShowForm {values} geocoder={data.geocoder} editing={!data.isNew} />
-		<div class="flex sm:justify-end"><button class="btn-primary w-full sm:w-auto">{data.isNew ? 'Announce show' : 'Save changes'}</button></div>
+		<FormActions {form} submitting={saving}>
+			<a href="/dashboard/projects/{project.slug}#shows" class="btn-ghost">Cancel</a>
+			<button class="btn-primary" disabled={saving}>{saving ? 'Saving…' : data.isNew ? 'Announce show' : 'Save changes'}</button>
+		</FormActions>
 	</form>
 	{#if !data.isNew}
-		<form method="POST" action="?/delete" class="flex flex-col gap-3 border-t border-line pt-6 sm:flex-row sm:items-center sm:justify-between">
-			<p class="m-0 text-small text-fg-muted">Deleting takes it off every listing. To tell people it's off, mark it cancelled instead.</p>
-			<button class="btn-danger shrink-0"><Trash2 class="size-4" />Delete show</button>
-		</form>
+		<DeleteRow action="?/delete" label="Delete show" note="Deleting takes it off every listing. To tell people it's off, mark it cancelled instead." warning="This takes it off every listing, and it can't be undone." />
 	{/if}
 </div>

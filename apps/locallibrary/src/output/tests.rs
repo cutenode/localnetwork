@@ -245,6 +245,7 @@ fn progress_bars_follow_their_events(tc: hegel::TestCase) {
         Phase::Match,
         Phase::Analyze,
         Phase::Upload,
+        Phase::Measure,
     ];
     let p = CliProgress { bar: Arc::default(), enabled: true };
     // (label, counts items, position, message), as the bar should have them.

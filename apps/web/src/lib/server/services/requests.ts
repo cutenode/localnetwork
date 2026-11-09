@@ -20,7 +20,7 @@ import type {
 } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
 import type { RepoClient } from '../atproto/repo-client';
-import { parseSpaceRecordUri } from '../atproto/spaces';
+import { parseSpaceRecordUri, spaceRecordUri } from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 import type { RequestRow } from '../db/schema';
@@ -311,7 +311,10 @@ export class RequestService {
 		return next;
 	}
 
-	/** Lets the requester revise a pending request or answer a "changes requested" decision. */
+	/**
+	 * Lets the requester revise a pending request or answer a "changes requested" decision. A listing request takes only
+	 * a new note, since staff review the profile it names as it is.
+	 */
 	async revise(
 		actor: Viewer,
 		uri: string,
@@ -325,8 +328,11 @@ export class RequestService {
 			throw new UserError('This request has already been decided');
 		const current = storedRecord(row);
 
-		// A listing request only names the profile, which its owner edits in their dashboard instead.
-		if (current.kind === 'list')
+		// A listing request only names the profile, which its owner edits in their dashboard instead. Sending it back
+		// to staff after that takes just a note.
+		const changesRecord = input.profile || input.details || input.claim || input.avatar || input.tracklists;
+
+		if (current.kind === 'list' && changesRecord)
 			throw new UserError('Edit your profile instead. Staff see it as it is when they review');
 		const client = row.repoDid === actor.did ? await this.core.userClient(actor.did) : null;
 
@@ -747,6 +753,32 @@ export class RequestService {
 			})
 			.onConflict((oc) => oc.column('uri').doUpdateSet(values))
 			.execute();
+
+		if (!existing) await this.applySyncedDecisions(input.uri);
+	}
+
+	/**
+	 * Applies the root's decisions on a request that sync brought before the request itself: a full download lists a
+	 * repo's records by path, decisions first, and repos sync in no set order.
+	 */
+	private async applySyncedDecisions(request: string): Promise<void> {
+		const { db, spaces, rootDid } = this.core;
+
+		const decisions = await db
+			.selectFrom('spaceRecord')
+			.select(['rkey', 'value'])
+			.where('spaceUri', '=', spaces.moderation)
+			.where('repoDid', '=', rootDid)
+			.where('collection', '=', COLLECTION.decision)
+			.where(sql<string>`json_extract(value, '$.request')`, '=', request)
+			.execute();
+
+		for (const { rkey, value } of decisions) {
+			await this.applyDecision({
+				uri: spaceRecordUri(spaces.moderation, rootDid, COLLECTION.decision, rkey),
+				value: parseJson<JsonObject>(value, {})
+			});
+		}
 	}
 
 	/** Applies a decision record (root-authored only) to its request. */

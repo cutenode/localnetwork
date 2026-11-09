@@ -15,7 +15,7 @@ import {
 	type Visibility
 } from '#lib/epk.ts';
 import type { ProjectMix } from '#lib/types.ts';
-import { UserError } from '../core';
+import { FieldError, UserError } from '../core';
 import { isWebUrl } from '#lib/web-url.ts';
 import { CID, text } from '../http';
 import { PHOTO_TYPES } from '../images';
@@ -151,7 +151,12 @@ function parseExtraMixes(form: FormData, strict: boolean): EpkFormValues['extraM
 
 		if (!title && !url) continue;
 
-		if (strict && (!title || !isWebUrl(url))) throw new UserError('Give each extra mix a name and a web address');
+		if (strict && (!title || !isWebUrl(url)))
+			throw new FieldError(
+				'Give each extra mix a name and a web address',
+				title ? 'extraMixUrl' : 'extraMixTitle',
+				index
+			);
 		mixes.push({
 			title: title.slice(0, 120),
 			url,
@@ -175,9 +180,14 @@ function parseQuotes(form: FormData, strict: boolean): EpkQuote[] {
 
 		if (!quote && !source) continue;
 
-		if (strict && (!quote || !source)) throw new UserError('Give each press quote its words and who said it');
+		if (strict && (!quote || !source))
+			throw new FieldError(
+				'Give each press quote its words and who said it',
+				quote ? 'quoteSource' : 'quoteText',
+				index
+			);
 
-		if (strict && url && !isWebUrl(url)) throw new UserError(`“${url}” isn't a web address`);
+		if (strict && url && !isWebUrl(url)) throw new FieldError(`“${url}” isn't a web address`, 'quoteUrl', index);
 
 		quotes.push(url ? { text: quote, source, url } : { text: quote, source });
 	}
@@ -211,7 +221,7 @@ export async function parseEpkForm(
 	if (cid && !CID.test(cid)) throw new UserError('Reload the press kit and try again');
 	const title = text(form, 'title', 100);
 
-	if (!title) throw new UserError('Give the press kit a name, like “Clubs” or “Festivals”');
+	if (!title) throw new FieldError('Give the press kit a name, like “Clubs” or “Festivals”', 'title');
 	const publicMixes: EpkMix[] = [];
 	const privateMixes: EpkMix[] = [];
 
@@ -262,7 +272,8 @@ export async function parseEpkForm(
 
 	const email = text(form, 'email', 320);
 
-	if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new UserError(`“${email}” isn't an email address`);
+	if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+		throw new FieldError(`“${email}” isn't an email address`, 'email');
 	const contact = { email, phone: text(form, 'phone', 64), note: text(form, 'contactNote', 500) };
 	const content: Omit<EpkContent, 'updatedAt' | 'mixes' | 'photos'> = {};
 	const longBio = text(form, 'longBio', 5000);
@@ -300,12 +311,13 @@ async function parseUploads(form: FormData): Promise<PhotoUpload[]> {
 	const uploads: PhotoUpload[] = [];
 
 	for (const file of files) {
-		if (!PHOTO_TYPES.has(file.type)) throw new UserError(`${file.name} isn't a PNG, JPEG or WebP image`);
+		if (!PHOTO_TYPES.has(file.type)) throw new FieldError(`${file.name} isn't a PNG, JPEG or WebP image`, 'newPhotos');
 
-		if (file.size > EPK_PHOTO_MAX_BYTES) throw new UserError(`${file.name} is over 5 MB`);
+		if (file.size > EPK_PHOTO_MAX_BYTES) throw new FieldError(`${file.name} is over 5 MB`, 'newPhotos');
 		const bytes = new Uint8Array(await file.arrayBuffer());
 
-		if (!sniffImage(bytes, file.type)) throw new UserError(`${file.name} isn't the image type it claims to be`);
+		if (!sniffImage(bytes, file.type))
+			throw new FieldError(`${file.name} isn't the image type it claims to be`, 'newPhotos');
 		uploads.push({ bytes, mimeType: file.type, aspectRatio: dimensions(bytes), visibility: place, credit });
 	}
 

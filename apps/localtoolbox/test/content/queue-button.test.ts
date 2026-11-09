@@ -14,6 +14,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { loadContentScript, disposeContentScripts } from '../helpers/load.ts';
 import { createChrome, type ChromeMock } from '../helpers/chrome.ts';
 import { flush } from '../helpers/flush.ts';
+import { accessibleName } from '../helpers/a11y.ts';
 import {
 	render,
 	playlistPage,
@@ -31,6 +32,8 @@ import type { KnownDetails } from '$lib/types';
 declare const chrome: ChromeMock;
 
 const NOW = new Date('2026-09-08T12:00:00Z').getTime();
+
+const ISO = '2026-09-08T12:00:00.000Z';
 
 beforeEach(() => {
 	vi.useFakeTimers();
@@ -56,7 +59,9 @@ const artOf = (permalink: string) =>
 	document
 		.querySelector(`a[href^="${permalink}"]`)!
 		.closest('.trackItem, .sound, .audibleTile')!
-		.querySelector('.sc-artwork')!;
+		// A tile's is the box around its artwork link (see content.ts), which
+		// comes before the artwork inside it.
+		.querySelector('.playableTile__artwork, .sc-artwork')!;
 
 const buttonIn = (art: Element | null) => art!.querySelector<HTMLElement>(':scope > .tbx-queue');
 
@@ -353,20 +358,25 @@ describe('what a click on it does', () => {
 
 		await clickQueue(buttonOf('/a/one'));
 		await clickQueue(buttonOf('/l/one'));
-		// A 32 px thumbnail has room for a sign: a "+", and the "−" hovering
-		// would make of it.
+		// A 32 px thumbnail has room for a sign: a "✓" once queued, so it no
+		// longer looks like the "+" that adds, and the "−" hovering would make
+		// of it.
 		expect(readButton(buttonOf('/a/one'))).toMatchObject({
-			text: '+',
+			text: '✓',
 			hover: '−',
-			label: 'take out of the session queue',
+			label: 'queued, take out of the session queue',
 			state: 'small:yes'
 		});
 		expect(readButton(buttonOf('/l/one'))).toMatchObject({
 			text: 'queued',
 			hover: 'unqueue',
-			label: 'take out of the session queue',
+			label: 'queued, take out of the session queue',
 			state: 'large:yes'
 		});
+		// Named by the word it shows, so voice control finds "queued", and a
+		// screen reader hears the state even where the button shows only "+".
+		expect(accessibleName(buttonOf('/l/one'))).toContain(buttonOf('/l/one').textContent);
+		expect(accessibleName(buttonOf('/a/one'))).toMatch(/^queued\b/);
 		// And nothing in the other corner: the button is the whole of what the
 		// page says about the queue.
 		expect(artOf('/a/one').querySelector('.tbx-mark')).toBe(null);
@@ -378,6 +388,33 @@ describe('what a click on it does', () => {
 			hover: undefined,
 			state: 'small:no'
 		});
+	});
+
+	it('leaves a downloaded thumbnail its one check, and keeps the unqueue under the pointer', async () => {
+		globalThis.chrome = createChrome({
+			session: {
+				queue: [{ permalink: '/a/one', title: 'One', artist: 'A', artworkUrl: '', details: null }]
+			}
+		});
+		render(playlistPage({ rows: [playlistRow({ href: '/a/one?in=c/sets/p' })] }), '/c/sets/p');
+		await loadContentScript();
+		expect(readButton(buttonOf('/a/one'))).toMatchObject({ text: '✓', state: 'small:yes' });
+
+		// Downloaded since it was queued: the mark's check says the track is
+		// done, and a second check beside it would only say the same thing.
+		await chrome.storage.local.set({ downloaded: { '/a/one': ISO } });
+		await vi.advanceTimersByTimeAsync(200);
+		expect(artOf('/a/one').querySelectorAll('.tbx-mark')).toHaveLength(1);
+		expect(readButton(buttonOf('/a/one'))).toMatchObject({
+			text: '−',
+			hover: undefined,
+			label: 'queued, take out of the session queue',
+			state: 'small:downloaded'
+		});
+
+		await clickQueue(buttonOf('/a/one'));
+		expect(queueIn()).toEqual([]);
+		expect(readButton(buttonOf('/a/one'))).toMatchObject({ text: '+', state: 'small:no' });
 	});
 
 	it('says queued for what was queued before the page loaded, and adds behind it', async () => {
@@ -431,7 +468,25 @@ describe('what a click on it does', () => {
 		expect(state()).toBe('large:yes');
 	});
 
-	it('neither plays the track nor follows the link it sits in', async () => {
+	// The tile's artwork is a link to the track. Ours go beside that link, not
+	// in it: a button inside a link is two controls in one, and anything in the
+	// link becomes part of its name.
+	it('puts nothing inside a tile’s artwork link', async () => {
+		globalThis.chrome = createChrome({ storage: { downloaded: { '/t/one': ISO } } });
+		render(ownLikesPage({ items: [likedTile({ href: '/t/one' })] }), '/you/likes');
+		const link = document.querySelector('a.playableTile__artworkLink')!;
+		const name = accessibleName(link);
+		await loadContentScript();
+
+		const box = document.querySelector('.playableTile__artwork')!;
+		expect(box.querySelector(':scope > .tbx-mark')).not.toBe(null);
+		expect(buttonIn(box)).not.toBe(null);
+		expect(link.querySelector('.tbx-mark, .tbx-queue')).toBe(null);
+		expect(document.querySelectorAll('a button, a [role="button"]')).toHaveLength(0);
+		expect(accessibleName(link)).toBe(name);
+	});
+
+	it('neither plays the track nor follows a link around it', async () => {
 		render(ownLikesPage({ items: [likedTile({ href: '/t/one' })] }), '/you/likes');
 		await loadContentScript();
 		const onTile = vi.fn<(event: Event) => void>();

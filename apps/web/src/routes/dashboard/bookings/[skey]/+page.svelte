@@ -37,6 +37,8 @@
 
 	let draft = $state('');
 
+	let sending = $state(false);
+
 	const role = $derived(thread.participants.find((p) => p.did === data.viewer?.did)?.role);
 
 	// The promoter can confirm an open inquiry only once a manager has written in the thread, as the server checks.
@@ -195,9 +197,11 @@
 			class="card flex items-end gap-2 p-2"
 			use:enhance={() => {
 				sent = 'message';
+				sending = true;
 
 				return async ({ update, result }) => {
 					await update();
+					sending = false;
 
 					if (result.type === 'success') draft = '';
 				};
@@ -205,7 +209,7 @@
 		>
 			<label class="sr-only" for="text">Message</label>
 			<textarea id="text" name="text" class="input max-h-60 min-h-11 flex-1 field-sizing-content resize-none border-transparent bg-transparent py-2.5" placeholder="Write a message…" bind:value={draft} required maxlength="2000"></textarea>
-			<button class="btn-primary px-3.5" aria-label="Send"><Send class="size-4" /><span class="max-sm:hidden">Send</span></button>
+			<button class="btn-primary px-3.5" aria-label="Send" disabled={sending}><Send class="size-4" /><span class="max-sm:hidden">Send</span></button>
 		</form>
 	</section>
 </div>
