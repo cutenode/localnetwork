@@ -890,8 +890,7 @@ fn my_tags_follow_removed_and_replaced_tracks() {
     );
     assert_eq!(links(), [ids[2]]);
     let by_track = tags::by_track(&Device::open_export(&root).unwrap()).unwrap();
-    let key = paths::file_key(&lib.track(ids[2]).unwrap().file_path);
-    assert_eq!(by_track[&key], ["Genre/Deep"]);
+    assert_eq!(by_track.of(lib.track(ids[2]).unwrap()), ["Genre/Deep"]);
 
     // `tag:` filters see them.
     let page = locallibrary::api::tracks_query(&locallibrary::api::TracksQuery {

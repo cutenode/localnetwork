@@ -27,7 +27,7 @@ pub enum MyTags {
     #[default]
     Unread,
     Reading,
-    Read(Arc<FxHashMap<String, Vec<String>>>),
+    Read(Arc<locallibrary::tags::TagsByTrack>),
     Failed(String),
 }
 
