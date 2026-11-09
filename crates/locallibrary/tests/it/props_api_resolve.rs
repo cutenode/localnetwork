@@ -17,6 +17,7 @@ use locallibrary::error::Reason;
 use locallibrary::fleet::{self, Role};
 use locallibrary::store::Store;
 use locallibrary::{Error, sync};
+use uuid::Uuid;
 
 /// Where a registered drive is now, against where the registry last saw it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -154,6 +155,46 @@ fn a_drive_is_found_where_it_was_last_seen_or_said_to_be_missing(tc: TestCase) {
             }
         }
     }
+    locallibrary::testing::volumes_on_this_thread(None);
+    locallibrary::testing::store_root_on_this_thread(None);
+}
+
+/// Drives the store knows, none of them plugged in, whose ids start alike: the first characters
+/// they share don't pick one. The refusal names each, and asks for the id.
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_prefix_unplugged_drives_share_names_them(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    common::isolate(dir.path(), Some(store.root()));
+    let names = tc
+        .draw(gs::vecs(gs::sampled_from(vec!["Lost stick", "Spare", "Old gig"])).min_size(2).max_size(3).unique(true));
+    // The first eight characters, shared; the rest drawn, each drive's its own.
+    let shared = tc.draw(gs::integers::<u32>());
+    let rest = tc.draw(
+        gs::vecs(gs::integers::<u128>().max_value((1 << 96) - 1))
+            .min_size(names.len())
+            .max_size(names.len())
+            .unique(true),
+    );
+    let mut ids = Vec::new();
+    for (name, rest) in names.iter().zip(rest) {
+        let seen_at = dir.path().join("elsewhere").join(name);
+        std::fs::create_dir_all(&seen_at).unwrap();
+        let mut d = Device::open(&seen_at).unwrap();
+        d.adopt(Some(name)).unwrap().id = Uuid::from_u128((u128::from(shared) << 96) | rest);
+        d.save_state().unwrap();
+        sync::register_drive(&store, &d, None).unwrap();
+        std::fs::remove_dir_all(&seen_at).unwrap();
+        ids.push(d.id().unwrap());
+    }
+    let shared = format!("{shared:08x}");
+    let spec = &shared[..tc.draw(gs::integers::<usize>().min_value(4).max_value(shared.len()))];
+    let e = api::resolve_drive(spec).unwrap_err();
+    assert_eq!(e.reason(), Some(Reason::ChooseDrive), "{e}");
+    for (name, id) in names.iter().zip(&ids) {
+        assert!(e.to_string().contains(&format!("the registered {name} ({id})")), "{e}");
+    }
+    assert!(e.to_string().ends_with(": give the id"), "{e}");
     locallibrary::testing::volumes_on_this_thread(None);
     locallibrary::testing::store_root_on_this_thread(None);
 }
