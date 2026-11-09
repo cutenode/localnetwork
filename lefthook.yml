@@ -2,6 +2,12 @@
 # app's folder and only see the files under it; the lexicons have one of their own, and ast-grep
 # one over the whole repo.
 rc: tools/lefthook-rc.sh
+# Every worktree shares one .git/hooks. Without this, the hooks run the lefthook of whichever
+# worktree ran `lefthook install` last, and skip their jobs without a word once that worktree is
+# gone and neither lefthook nor pnpm is on PATH. `pnpm exec` runs the committing worktree's own
+# lefthook (installing it first if that worktree hasn't been), and the hook fails when pnpm isn't
+# on PATH, which the jobs need anyway. tools/policy/apps.rego keeps this set.
+lefthook: pnpm exec lefthook
 
 # Each hook installs once before its jobs. pnpm checks the dependencies before every `pnpm exec` and `pnpm <script>`
 # and installs them when the lockfile has moved on (after a merge), so the parallel jobs would each start an install.
