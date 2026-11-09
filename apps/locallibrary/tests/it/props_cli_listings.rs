@@ -152,6 +152,129 @@ fn tags_and_cues_print_what_their_json_says(tc: TestCase) {
     }
 }
 
+/// Every kind of My Tags edit on drive A (a tag put on tracks, taken off, renamed, renamed to
+/// the name it has, deleted), in any order, on any tags and tracks, each tried as a dry run then
+/// applied: the plan printed is its JSON's, with the selected tracks that already have the tag
+/// (or don't) counted as its JSON counts them, and an edit with nothing to do says why. With a
+/// OneLibrary database beside the export, and rekordbox's export written again without the
+/// edits, `tags list` says where the two disagree, each difference as its JSON has it. A word
+/// that's neither a drive nor a command, but looks like one, is taken for a mistyped command.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn tag_edits_say_what_their_plan_counts(tc: TestCase) {
+    let fx = Env::from_template();
+    let onelibrary = tc.draw(gs::booleans());
+    let ext = fx.volumes.join("A/PIONEER/rekordbox/exportExt.pdb");
+    if onelibrary {
+        fx.ok(&["--yes", "convert", "A", "--to", "onelibrary"]);
+    }
+    let exported = std::fs::read(&ext).unwrap();
+    let tags = ["Genre/Deep", "Genre/Techno", "Situation/Warm-up"];
+    for kind in tc.draw(gs::permutations(vec!["add", "untag", "rename", "same name", "delete"])) {
+        let tag = tc.draw(gs::sampled_from(&tags[..]));
+        let tracks: Vec<&str> = match tc.draw(gs::booleans()) {
+            true => vec!["--track", tc.draw(gs::sampled_from(&["1", "2"][..]))],
+            false => vec!["--filter", "bpm:>=0"],
+        };
+        let to = match kind {
+            "same name" => tag.rsplit('/').next().unwrap(),
+            _ => tc.draw(gs::sampled_from(&["Dark", "Deep", "Peak"][..])),
+        };
+        let words: Vec<&str> = match kind {
+            "add" | "untag" => [&["tags", kind, "A", tag][..], &tracks].concat(),
+            "rename" | "same name" => vec!["tags", "rename", "A", tag, to],
+            _ => vec!["tags", "delete", "A", tag],
+        };
+        let dry = [&words[..], &["--dry-run"]].concat();
+        let (planned, printed) = (fx.run(&[&["--json"][..], &dry].concat()), fx.run(&dry));
+        let said = format!("{dry:?}\n{}\n{}\n{}", printed.out, printed.err, planned.out);
+        assert_eq!(planned.code, printed.code, "{said}");
+        if planned.code != 0 {
+            continue;
+        }
+        let v: Value = serde_json::from_str(&planned.out).unwrap();
+        let p = &v["plan"];
+        let unchanged = p["unchanged"].as_u64().unwrap();
+        let state = if p["action"] == "add" { "already have it" } else { "don't have it" };
+        match v["outcome"].as_str().unwrap() {
+            "dry_run" => {
+                plan_is_printed(p, &printed.out, &said);
+                let counted = format!("{unchanged} selected track(s) {state}");
+                assert_eq!(printed.out.contains(&counted), unchanged > 0, "{counted:?}: {said}");
+            }
+            outcome => {
+                assert_eq!(outcome, "nothing_to_do", "{said}");
+                let why = match p["action"].as_str().unwrap() {
+                    "add" => format!("the selected track(s) already have {}", p["tag"].as_str().unwrap()),
+                    "remove" => format!("none of the selected tracks has {}", p["tag"].as_str().unwrap()),
+                    _ => format!("it's already called {to}"),
+                };
+                assert!(printed.out.contains(&format!("nothing to change: {why}")), "{why:?}: {said}");
+            }
+        }
+        fx.ok(&[&["--yes"][..], &words].concat());
+    }
+    if onelibrary {
+        std::fs::write(&ext, &exported).unwrap();
+    }
+    let v = fx.json(&["tags", "list", "A"]);
+    let out = fx.ok(&["tags", "list", "A"]);
+    let differences = v["differences"].as_array().unwrap();
+    assert_eq!(out.contains(" disagree:\n"), !differences.is_empty(), "{out}\n{v}");
+    for d in differences {
+        has_line(&out, d.as_str().unwrap(), &format!("{out}\n{v}"));
+    }
+    let word = tc.draw(gs::sampled_from(&["lst", "renam", "delet"][..]));
+    let err = fx.fails(2, &["tags", word]);
+    assert!(err.contains(&format!("no drive or command {word:?}; did you mean `locallibrary tags ")), "{err}");
+}
+
+/// Cues set on drive A's tracks once some of its .EXT analysis files are gone (they hold the
+/// cues' names and colours): each plan printed, with something to change or nothing, warns of
+/// each warning its JSON has; with none gone there are none, and with every one gone every plan
+/// has one.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn cue_plans_print_their_warnings(tc: TestCase) {
+    let fx = Env::from_template();
+    let analysis = fx.volumes.join("A/PIONEER/USBANLZ");
+    let exts: Vec<std::path::PathBuf> = Env::files_in(&analysis)
+        .into_iter()
+        .map(|(p, _)| p)
+        .filter(|p| p.extension().is_some_and(|e| e == "EXT"))
+        .collect();
+    assert!(!exts.is_empty());
+    let gone = tc.draw(gs::subsequences(exts.clone()));
+    for p in &gone {
+        std::fs::remove_file(p).unwrap();
+    }
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
+        let track = tc.draw(gs::sampled_from(&["1", "2"][..]));
+        let hot = tc.draw(gs::sampled_from(&["A", "B"][..]));
+        let beat = tc.draw(gs::integers::<u32>().min_value(1).max_value(64)).to_string();
+        let words = ["cues", "set", "A", "--track", track, "--hot", hot, "--beat", &beat, "--name", "Drop"];
+        // A dry run, applied, then the same again: nothing to change.
+        for args in [
+            &[&words[..], &["--dry-run"]].concat(),
+            &[&["--yes"][..], &words].concat(),
+            &[&["--yes"][..], &words].concat(),
+        ] {
+            let (planned, printed) = (fx.run(&[&["--json"][..], args].concat()), fx.run(args));
+            let said = format!("{args:?}\n{}\n{}\n{}", printed.out, printed.err, planned.out);
+            assert_eq!((planned.code, printed.code), (0, 0), "{said}");
+            let v: Value = serde_json::from_str(&planned.out).unwrap();
+            let warnings = v["plan"]["warnings"].as_array().unwrap();
+            for w in warnings {
+                has_line(&printed.out, &format!("! {}", w.as_str().unwrap()), &said);
+            }
+            if gone.is_empty() {
+                assert!(warnings.is_empty(), "{said}");
+            }
+            if gone.len() == exts.len() {
+                assert!(!warnings.is_empty(), "{said}");
+            }
+        }
+    }
+}
+
 /// For any of the club drive's tracks (or one it doesn't have), `track show` prints each track
 /// its JSON details, under its id and name, and `track matches` prints a line for each track
 /// that mixes into it, with its key and how it relates.

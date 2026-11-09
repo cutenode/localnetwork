@@ -177,6 +177,77 @@ fn intelligent_playlists_hold_what_their_rules_match() {
     assert!(again.warnings.iter().any(|w| w.contains("Recent: its rules can't be read")), "{:?}", again.warnings);
 }
 
+/// Intelligent playlists on the title, with any of rekordbox's text operators: those a filter
+/// can say (contains, doesn't contain) get a smart rule saying it, and the plan counts the others,
+/// exported as the tracks they hold now, naming the first; either way each holds the tracks its
+/// condition matches.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(lists = vec![(10u8, "o"), (8u8, "never"), (2u8, "here")])]
+fn intelligent_playlists_get_a_rule_when_a_filter_can_say_it(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let operators = vec![1u8, 2, 8, 9, 10, 11];
+    let values = vec!["never", "one more time", "o", "here"];
+    let lists: Vec<(u8, &str)> =
+        tc.draw(gs::vecs(gs::tuples!(gs::sampled_from(operators), gs::sampled_from(values))).min_size(1).max_size(4));
+    // The collection's own intelligent playlist, Recent, as one a filter can say.
+    let recent = r#"<NODE Id="1" LogicalOperator="1" AutomaticUpdate="1"><CONDITION PropertyName="genre" Operator="8" ValueUnit="" ValueLeft="house" ValueRight=""/></NODE>"#;
+    let recent = format!("UPDATE djmdPlaylist SET SmartList = '{recent}' WHERE ID = '12';");
+    let sql: String = std::iter::once(recent)
+        .chain(lists.iter()
+        .enumerate()
+        .map(|(i, (operator, value))| {
+            let node = format!(
+                r#"<NODE Id="1" LogicalOperator="1" AutomaticUpdate="1"><CONDITION PropertyName="name" Operator="{operator}" ValueUnit="" ValueLeft="{value}" ValueRight=""/></NODE>"#
+            );
+            format!(
+                "INSERT INTO djmdPlaylist (ID, Seq, Name, Attribute, ParentID, SmartList) VALUES ('{}', {}, 'Smart {i}', 4, 'root', '{node}');",
+                30 + i,
+                10 + i
+            )
+        }))
+        .collect();
+    let pc = Computer::with(&sql);
+    let mut target = pc.folder("Export");
+    let (plan, _) = pc.export(&mut target, &CollectionExportOptions::default());
+    let lib = target.library().unwrap();
+    let sayable = |op: u8| matches!(op, 8 | 9);
+    for (i, (operator, value)) in lists.iter().enumerate() {
+        let path = format!("Smart {i}");
+        let rule = plan.smart.iter().find(|s| s.path == path).map(|s| s.filter.as_str());
+        let minus = if *operator == 9 { "-" } else { "" };
+        let want = sayable(*operator).then(|| format!(r#"{minus}title:"{value}""#));
+        assert_eq!(rule, want.as_deref(), "{path}: {:?}", plan.smart);
+        let matches = |title: &str| {
+            let title = title.to_lowercase();
+            match operator {
+                1 => title == *value,
+                2 => title != *value,
+                8 => title.contains(value),
+                9 => !title.contains(value),
+                10 => title.starts_with(value),
+                _ => title.ends_with(value),
+            }
+        };
+        let mut want: Vec<&str> = lib.tracks.iter().filter(|t| matches(&t.title)).map(|t| t.title.as_str()).collect();
+        let held = lib.find_playlist(&path).unwrap_or_else(|| panic!("{path} wasn't exported: {:?}", plan.warnings));
+        let mut got: Vec<&str> = held.track_ids.iter().map(|id| lib.track(*id).unwrap().title.as_str()).collect();
+        want.sort();
+        got.sort();
+        assert_eq!(got, want, "{path}: title {operator} {value}");
+    }
+    let plain: Vec<usize> = (0..lists.len()).filter(|i| !sayable(lists[*i].0)).collect();
+    let said =
+        plan.warnings.iter().find(|w| w.contains("intelligent playlist(s) are exported as the tracks they hold now"));
+    match plain.first() {
+        None => assert!(said.is_none(), "{said:?}"),
+        Some(first) => {
+            let said = said.unwrap_or_else(|| panic!("{:?}", plan.warnings));
+            assert!(said.starts_with(&format!("{} intelligent playlist(s)", plain.len())), "{said}");
+            assert!(said.contains(&format!("(e.g. Smart {first}: name ")), "{said}");
+        }
+    }
+}
+
 #[test]
 fn exporting_again_copies_only_what_changed() {
     let pc = Computer::new();

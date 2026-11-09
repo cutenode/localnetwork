@@ -727,6 +727,17 @@ fn every_command_has_help_and_usage_errors(tc: TestCase) {
     }
 }
 
+/// `--version` or `-V`, alone (answered before the command line is built) or after any global
+/// flags (read by clap), prints the same line: the name and this version.
+#[hegel::test(test_cases = 6)]
+fn the_version_is_the_same_however_its_asked(tc: TestCase) {
+    let fx = Env::new();
+    let mut args: Vec<&str> = tc.draw(gs::subsequences(vec!["--ascii", "--quiet", "--no-pager"]));
+    args.push(tc.draw(gs::sampled_from(vec!["--version", "-V"])));
+    let r = fx.run(&args);
+    assert_eq!((r.code, r.out.as_str()), (0, concat!("locallibrary ", env!("CARGO_PKG_VERSION"), "\n")), "{args:?}");
+}
+
 /// Commands that write a file on this computer: they write it where they're told, refuse to
 /// replace one that's there without being asked (keeping it as it was), and replace it when
 /// they are.

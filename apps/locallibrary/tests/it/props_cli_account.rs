@@ -120,9 +120,28 @@ fn the_account_says_what_its_session_allows(tc: TestCase) {
     let told = tc.draw(gs::booleans());
     pds.set_revocation(if told { 200 } else { 500 });
     let json = tc.draw(gs::booleans());
+    // Its secrets can't be removed (a folder where the file is): signing out says so.
+    let stuck = tc.draw(gs::weighted_booleans(0.3));
+    let secrets = fx.store.join("atmosphere-session.json");
+    if stuck {
+        std::fs::remove_file(&secrets).unwrap();
+        std::fs::create_dir(&secrets).unwrap();
+    }
     let r = fx.run(&[if json { "--json" } else { "--quiet" }, "account", "logout"]);
     let said = format!("{}\n{}", r.out, r.err);
     assert_eq!(r.code, 0, "{said}");
+    if stuck {
+        match json {
+            true => assert!(serde_json::from_str::<Value>(&r.out).unwrap()["report"]["left_behind"].is_string()),
+            false => assert!(
+                said.contains("its secrets are still on this computer (")
+                    && said.contains("`locallibrary account logout` tries again"),
+                "{said}"
+            ),
+        }
+        std::fs::remove_dir(&secrets).unwrap();
+        return;
+    }
     match json {
         true => {
             let v: Value = serde_json::from_str(&r.out).unwrap();
@@ -148,6 +167,8 @@ fn the_account_says_what_its_session_allows(tc: TestCase) {
     assert_eq!(fx.run(&["account", "status", "--check"]).code, 1);
     let again = fx.run(&["--json", "account", "logout"]);
     assert!(serde_json::from_str::<Value>(&again.out).unwrap()["report"]["account"].is_null(), "{}", again.out);
+    let again = fx.ok(&["account", "logout"]);
+    assert_eq!(again, "Not signed in to an Atmosphere account.\n");
 }
 
 /// The client metadata document for locallibrary's own client or one of the DJ's, with any extra
@@ -844,6 +865,7 @@ fn a_bug_report_is_posted_from_the_account_or_given_to_github(tc: TestCase) {
 /// gives GitHub's form instead. Only a post that went ahead reaches the server.
 #[cfg(unix)]
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(reports = false, title = "  The map is grey  ", lines = Vec::<&str>::new(), answer = true)]
 fn asked_in_a_terminal_bug_takes_what_was_typed(tc: TestCase) {
     let pds = MockPds::start();
     let space = space_on(&pds);
@@ -888,5 +910,51 @@ fn asked_in_a_terminal_bug_takes_what_was_typed(tc: TestCase) {
         assert_eq!(record["title"], "The map is grey", "{said}");
         let body = record["body"].as_str().unwrap();
         assert!(body.starts_with(&told) && body.contains("Version: locallibrary "), "{said}");
+    }
+}
+
+/// Any title and message, from an account allowed to post bug reports, with `--yes` (text or
+/// `--json`), the server taking the post or refusing it: posted, the report is the record the
+/// server got, the title as given and the message first, and it says where it is; refused, it
+/// says it couldn't post it and gives GitHub's form instead.
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_bug_report_allowed_to_post_holds_what_was_given(tc: TestCase) {
+    let pds = MockPds::start();
+    let space = space_on(&pds);
+    let fx = Env::new().with_directory(&pds.url);
+    sign_in(&fx.store, &pds.url, &["atproto", REPORTING], json!({}));
+    let title = format!("Sync{}stops", tc.draw(gs::text().alphabet("ab XY%&?é").max_size(20)));
+    let message = tc.draw(gs::optional(gs::text().alphabet("ab \n&%é").min_size(1).max_size(30)));
+    let message = message.map(|m| format!("It said{m}."));
+    let (refused, as_json) = (tc.draw(gs::weighted_booleans(0.3)), tc.draw(gs::booleans()));
+    if refused {
+        pds.set_writes(Writes::RefuseRecord);
+    }
+    let mut args: Vec<&str> = Vec::new();
+    args.extend(as_json.then_some("--json"));
+    args.extend(["--yes", "bug", "--no-browser", "--title", &title]);
+    args.extend(message.iter().flat_map(|m| ["-m", m.as_str()]));
+    let r = bug(&fx, Some(&space), &args, None);
+    let said = format!("{args:?}: exit {}\n{}\n{}", r.code, r.out, r.err);
+    assert_eq!(r.code, 0, "{said}");
+    let sent = pds.calls(CREATE);
+    assert!(!sent.is_empty(), "nothing was sent: {said}");
+    if refused {
+        assert!(format!("{}{}", r.out, r.err).contains("couldn't post it"), "{said}");
+        assert!(form_in(&r.out, as_json).contains("&title="), "{said}");
+        return;
+    }
+    let record = &sent.last().unwrap().json()["record"];
+    assert_eq!(record["title"], title.as_str(), "{said}");
+    let body = record["body"].as_str().unwrap();
+    assert!(body.starts_with(message.as_deref().unwrap_or("Version: locallibrary ")), "{said}");
+    let link = format!("https://userinput.app/d/{DID}/");
+    match as_json {
+        true => {
+            let v: Value = serde_json::from_str(&r.out).unwrap();
+            assert_eq!(v["outcome"], "applied", "{said}");
+            assert!(v["report"]["url"].as_str().unwrap().starts_with(&link), "{said}");
+        }
+        false => assert!(r.out.contains("posted your bug report") && r.out.contains(&link), "{said}"),
     }
 }

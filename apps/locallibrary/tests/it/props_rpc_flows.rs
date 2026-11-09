@@ -713,3 +713,68 @@ fn the_account_and_publishing_answer_over_the_sidecar(tc: TestCase) {
     drop(s.stdin.take());
     assert!(s.child.wait().unwrap().success());
 }
+
+/// The `serve` notifications sent so far for the request `id`, taken (the others kept).
+#[cfg(feature = "peers")]
+fn served(s: &mut Sidecar, id: &Value) -> Vec<Value> {
+    s.kept.extend(s.messages.try_iter());
+    let is_it = |m: &Value| m["method"] == "serve" && m["params"]["id"] == *id;
+    let (served, rest) = std::mem::take(&mut s.kept).into_iter().partition(is_it);
+    s.kept = rest;
+    served.into_iter().map(|m: Value| m["params"]["event"].clone()).collect()
+}
+
+/// A store served over the sidecar and fetched by another computer's sidecar, any number of
+/// times (a dry run or not; all its libraries, the one it has or one it hasn't): a dry run adds
+/// nothing, the library is added by the first fetch that isn't one and is up to date after, and
+/// one the store doesn't have is refused. Serving runs until it's cancelled or the sidecar shuts
+/// down cancelling what's running, then says how many computers fetched, each of which it said
+/// had connected.
+#[cfg(feature = "peers")]
+#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_store_served_over_the_sidecar_is_fetched_as_asked(tc: TestCase) {
+    let (laptop_fx, studio_fx) = (Env::from_template(), Env::new());
+    let (mut laptop, mut studio) = (Sidecar::start(&laptop_fx), Sidecar::start(&studio_fx));
+    let serving = json!(0);
+    let serve = json!({ "jsonrpc": "2.0", "id": serving, "method": "store.serve", "params": { "local_only": true } });
+    laptop.write(serve.to_string().as_bytes());
+    let ready = loop {
+        if let Some(e) = served(&mut laptop, &serving).pop() {
+            break e;
+        }
+        let m = laptop.messages.recv_timeout(Duration::from_secs(60)).expect("serving");
+        laptop.kept.push(m);
+    };
+    assert_eq!(ready["event"], "ready", "{ready}");
+    let (mut tries, mut fetched, mut has) = (0u64, 0u64, false);
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
+        let dry_run = tc.draw(gs::booleans());
+        let libraries: Vec<&str> = tc.draw(gs::sampled_from(vec![vec![], vec!["A"], vec!["Nope"]]));
+        let asked = json!({ "code": ready["code"], "local_only": true, "dry_run": dry_run, "libraries": libraries });
+        let v = studio.call("store.fetch", asked);
+        tries += 1;
+        if libraries == ["Nope"] {
+            assert!(v["error"].is_object(), "{v}");
+        } else {
+            fetched += 1;
+            let (r, outcome) = (&v["result"], if has { "up_to_date" } else { "added" });
+            let got = (&r["libraries"][0]["name"], &r["libraries"][0]["outcome"], &r["dry_run"]);
+            assert_eq!(got, (&json!("A"), &json!(outcome), &json!(dry_run)), "{v}");
+            has |= !dry_run;
+        }
+        let listed = studio.call("library.list", json!({}));
+        let names: Vec<&Value> = listed["result"].as_array().unwrap().iter().map(|l| &l["name"]).collect();
+        assert_eq!(names, if has { vec!["A"] } else { vec![] }, "{listed}");
+    }
+    match tc.draw(gs::booleans()) {
+        true => assert_eq!(laptop.call("shutdown", json!({ "cancel": true }))["result"], Value::Null),
+        false => assert_eq!(laptop.call("$/cancel", json!({ "id": serving }))["result"]["cancelled"], true),
+    }
+    let report = laptop.answer(&serving);
+    let peers = report["result"]["peers"].as_u64().unwrap_or_else(|| panic!("{report}"));
+    assert!((fetched..=tries).contains(&peers), "{fetched} of {tries} fetched: {report}");
+    let connected = served(&mut laptop, &serving).iter().filter(|e| e["event"] == "connected").count();
+    assert!((peers as usize..=tries as usize).contains(&connected), "{connected} connected: {report}");
+    drop((laptop.stdin.take(), studio.stdin.take()));
+    assert!(laptop.child.wait().unwrap().success() && studio.child.wait().unwrap().success());
+}

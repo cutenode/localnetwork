@@ -45,7 +45,8 @@ fn any_case(tc: &TestCase, word: &str) -> String {
 /// it's still there; otherwise it's known but not mounted, with when and where it was last seen,
 /// and what is mounted (only the drives locallibrary would use, the one found among them). A word
 /// no drive answers to says what is mounted too, or that nothing is. A drive named like a folder
-/// here is refused as ambiguous; the folder is meant by its path.
+/// here is refused as ambiguous; the folder is meant by its path. A folder here that no drive is
+/// named like is meant by its name alone.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_drive_is_found_where_it_was_last_seen_or_said_to_be_missing(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -138,6 +139,12 @@ fn a_drive_is_found_where_it_was_last_seen_or_said_to_be_missing(tc: TestCase) {
     let e = api::resolve_drive("Nobody").unwrap_err();
     assert!(e.to_string().contains("no mounted drive matches \"Nobody\""), "{e}");
     mounted(&e);
+    // A bare word no drive or library has, naming a folder here, is that folder.
+    let here = tc.draw(gs::sampled_from(vec!["src", "tests"]));
+    if !ours.iter().any(|(name, _)| name.eq_ignore_ascii_case(here)) {
+        let folder = api::resolve_drive(here).unwrap_or_else(|e| panic!("{here}: {e}"));
+        assert_eq!(folder.root(), dunce_canonicalize(Path::new(here)));
+    }
 
     for (name, root) in &ours {
         let here = Path::new(name).is_dir();
@@ -153,6 +160,18 @@ fn a_drive_is_found_where_it_was_last_seen_or_said_to_be_missing(tc: TestCase) {
                 assert_eq!(folder.root(), dunce_canonicalize(Path::new(name)));
             }
         }
+        // Asked only for a drive locallibrary knows (as a plugin is), a name is never a folder
+        // here, and a path is refused, whatever it points at.
+        assert_eq!(api::resolve_known_drive(name).unwrap().root(), dunce_canonicalize(root));
+        let as_path = tc.draw(gs::sampled_from(vec![
+            format!("./{name}"),
+            path(root),
+            format!("{}/Contents", path(root)),
+            format!("~/{name}"),
+        ]));
+        let e = api::resolve_known_drive(&as_path).unwrap_err();
+        assert!(matches!(e, Error::Invalid(_)), "{as_path}: {e}");
+        assert!(e.to_string().contains(&format!("{as_path:?} is a path: name a drive by its name")), "{e}");
     }
     locallibrary::testing::volumes_on_this_thread(None);
     locallibrary::testing::store_root_on_this_thread(None);
