@@ -477,6 +477,9 @@ pub fn plan(source: &Source<'_>, target: &Device, target_tree: &FileTree, opts: 
     // Database files last, OneLibrary's WAL after its database; deletes of database files (e.g.
     // exportLibrary.db disappearing) too.
     plan.copies.sort_by_key(|c| (c.class == FileClass::Database, c.path.clone()));
+    if let Source::Snapshot { store, snapshot } = source {
+        check_stored(store, snapshot, &plan.copies)?;
+    }
     if plan.copies.iter().any(|c| is_library_plus(&c.path)) {
         plan.warnings.extend(crate::player::no_name_note(target));
     }
@@ -505,6 +508,40 @@ pub fn plan(source: &Source<'_>, target: &Device, target_tree: &FileTree, opts: 
         }
     }
     Ok(plan)
+}
+
+/// Refuse a plan that copies a file the store has lost: found while copying, it would stop the
+/// push part way, the drive changed and marked as being written. Named by track where the
+/// snapshot's databases can still be read, otherwise by file.
+fn check_stored(store: &Store, snapshot: &Snapshot, copies: &[PlannedCopy]) -> Result<()> {
+    let mut missing = Vec::new();
+    for c in copies {
+        let h = c.hash.ok_or_else(|| Error::invalid(format!("{} has no hash", c.path)))?;
+        if !store.has_object(&h) {
+            missing.push(c.path.as_str());
+        }
+    }
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let library = crate::doctor::Databases::from_snapshot(store, snapshot).ok().map(|db| db.everything());
+    let mut names = indexmap::IndexSet::new();
+    for key in &missing {
+        let tracks = library.as_ref().map(|l| crate::scrub::affected(l, std::iter::once(*key)).0).unwrap_or_default();
+        if tracks.is_empty() {
+            names.insert(key.to_string());
+        }
+        names.extend(tracks.into_iter().map(|t| t.name));
+    }
+    let shown: Vec<&str> = names.iter().take(3).map(String::as_str).collect();
+    let more = if names.len() > 3 { format!(" and {} more", names.len() - 3) } else { String::new() };
+    Err(Error::NotFound(format!(
+        "{}{more} in the store: snapshot {} lists {} it no longer holds (see `store verify`)",
+        shown.join(", "),
+        snapshot.id.short(),
+        if missing.len() == 1 { "a file" } else { "files" },
+    ))
+    .with("paths", &missing))
 }
 
 /// How far back, before a run cut off on a drive started, its files are suspect: FAT's clock

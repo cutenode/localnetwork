@@ -27,13 +27,13 @@
 		<DateBlock date={item.set.date} />
 		<div class="flex min-w-0 flex-1 flex-col gap-1">
 			<p class="m-0">
-				{#each dj?.projects ?? [] as project, i (project.slug)}{#if i > 0},{' '}{/if}<a class="font-semibold text-fg no-underline hover:underline" href="/projects/{project.slug}">{project.name}</a>{/each}
+				{#each dj?.projects ?? [] as project, i (project.slug)}{#if i > 0},{' '}{/if}<a class="entity-link font-semibold text-fg" href="/projects/{project.slug}">{project.name}</a>{/each}
 				<span class="text-small text-fg-muted">{accountLabel(dj ?? { did: item.did, handle: null })}</span>
 			</p>
 			<p class="m-0 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-small text-fg-muted">
 				{setPlace(item.set) ?? item.set.title ?? 'Somewhere'}
 				{#if item.set.kind}<Tag variant="mono">{item.set.kind}</Tag>{/if}
-				{#if item.startSeconds !== undefined}<span class="font-mono text-label text-fg-subtle">{clock(item.startSeconds)} in<span class="sr-only">{' '}the set</span></span>{/if}
+				{#if item.startSeconds !== undefined}<span class="text-label text-fg-subtle">at <span class="font-mono">{clock(item.startSeconds)}</span></span>{/if}
 			</p>
 		</div>
 	</li>

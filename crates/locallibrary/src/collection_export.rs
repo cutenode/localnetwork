@@ -560,8 +560,7 @@ fn fill_smart(
     warnings: &mut Vec<String>,
 ) -> (FxHashMap<u32, Vec<u32>>, Vec<SmartPlaylist>) {
     let lib = &from.library;
-    let tags = crate::masterdb::tags_by_file(&from.tags, lib);
-    let none = Vec::new();
+    let tags = crate::masterdb::tags_by_track(&from.tags, lib);
     let (mut filled, mut rules, mut plain, mut left_out) = (FxHashMap::default(), Vec::new(), Vec::new(), Vec::new());
     for &id in from.smart_playlists.iter().filter(|id| keep.contains(id)) {
         let path = lib.playlist_path(id);
@@ -573,7 +572,7 @@ fn fill_smart(
             left_out.push(format!("{path}: {why}"));
             continue;
         }
-        let of = |t: &Track| tags.get(&paths::file_key(&t.file_path)).unwrap_or(&none);
+        let of = |t: &Track| tags.of(t);
         filled.insert(id, lib.tracks.iter().filter(|t| list.matches(t, of(t), today)).map(|t| t.id).collect());
         match list.filter() {
             Ok(filter) => rules.push(SmartPlaylist { path, filter, sort: None, limit: None, drives: Vec::new() }),

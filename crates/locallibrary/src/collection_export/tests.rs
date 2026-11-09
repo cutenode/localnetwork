@@ -1021,7 +1021,7 @@ fn prop_intelligent_playlists_export_what_their_rules_match(tc: hegel::TestCase)
     }
     let recent = planned.library.find_playlist("Recent");
     assert_eq!(recent.is_some(), kept && evaluable, "{xml}");
-    let tags = collection.tags_by_file();
+    let tags = collection.tags_by_track();
     let today = chrono::Local::now().date_naive();
     if let (Some(recent), Some(list)) = (recent, &list) {
         let held: Vec<&str> =
@@ -1031,7 +1031,7 @@ fn prop_intelligent_playlists_export_what_their_rules_match(tc: hegel::TestCase)
             .tracks
             .iter()
             .filter(|t| t.title != "Only Here")
-            .filter(|t| list.matches(t, tags.get(&paths::file_key(&t.file_path)).map_or(&[][..], Vec::as_slice), today))
+            .filter(|t| list.matches(t, tags.of(t), today))
             .map(|t| t.title.as_str())
             .collect();
         let mut held_sorted = held.clone();

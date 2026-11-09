@@ -1,7 +1,6 @@
 //! Work done off the UI thread: its messages, the workers that send them, and what each tick does
 //! with them.
 
-use rustc_hash::FxHashMap;
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
@@ -40,7 +39,7 @@ pub enum Msg {
     /// Which tracks' audio files are missing, for the library load with this generation.
     Missing(u64, Vec<bool>),
     /// The drive's My Tags, for the library load with this generation.
-    MyTags(u64, Result<FxHashMap<String, Vec<String>>, String>),
+    MyTags(u64, Result<locallibrary::tags::TagsByTrack, String>),
     /// What the analyzers worked out for the drive's tracks, for the library load with this
     /// generation.
     Fields(u64, Result<Box<TrackValues>, String>),

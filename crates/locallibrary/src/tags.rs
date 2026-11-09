@@ -30,7 +30,7 @@ use crate::device::{Device, LineageOp};
 use crate::edit::Replayed;
 use crate::error::IoContext;
 use crate::hash::Hash;
-use crate::model::{Library, TrackRef};
+use crate::model::{Library, Track, TrackRef};
 use crate::onelibrary::OneLibrary;
 use crate::onelibrary::open_plus;
 use crate::paths;
@@ -425,6 +425,22 @@ impl Db {
     fn file(&self) -> &'static str {
         self.source.file_name()
     }
+
+    /// Its links of tags to tracks, as `(tag id, track id)` in its own ids.
+    fn links(&self) -> Result<Vec<(i64, u32)>> {
+        Ok(match &self.handle {
+            Handle::Ext(bytes) => parse_ext(bytes.clone(), Path::new(paths::EXPORT_EXT_PDB))?
+                .tag_tracks
+                .iter()
+                .map(|l| (i64::from(l.tag_id), l.track_id))
+                .collect(),
+            Handle::Plus(one) => one
+                .my_tag_links()?
+                .into_iter()
+                .filter_map(|(tag, track)| Some((tag, u32::try_from(track).ok()?)))
+                .collect(),
+        })
+    }
 }
 
 /// Parse `exportExt.pdb` after the checks [`pdb::parse_database`] makes, converting panics on
@@ -627,6 +643,37 @@ fn differences(dbs: &[Db]) -> Vec<String> {
     out
 }
 
+/// The rows of the main library each tag is on, by `Category/Tag`. rekordbox can list one file
+/// twice, each row with tags of its own: a link counts for the row with its track id when that
+/// row is the same file, and for every row of the file otherwise (the other database, whose ids
+/// can differ from the main library's).
+fn tagged_rows(opened: &Opened) -> Result<FxHashMap<String, FxHashSet<u32>>> {
+    let rows = keys_by_id(&opened.primary);
+    let mut rows_by_key: FxHashMap<&str, Vec<u32>> = FxHashMap::default();
+    for (id, key) in &rows {
+        rows_by_key.entry(key).or_default().push(*id);
+    }
+    let mut out: FxHashMap<String, FxHashSet<u32>> = FxHashMap::default();
+    for db in &opened.dbs {
+        let names: FxHashMap<i64, String> = (db.tree.categories.iter())
+            .flat_map(|c| c.tags.iter().map(move |t| (t.id, format!("{}/{}", c.name, t.name))))
+            .collect();
+        for (tag, track) in db.links()? {
+            let (Some(name), Some(key)) = (names.get(&tag), db.keys.get(&track)) else { continue };
+            let Some(of_file) = rows_by_key.get(key.as_str()) else { continue };
+            let tagged = out.entry(name.clone()).or_default();
+            match of_file.contains(&track) {
+                true => tagged.insert(track),
+                false => {
+                    tagged.extend(of_file);
+                    true
+                }
+            };
+        }
+    }
+    Ok(out)
+}
+
 /// Display references for track keys: the main library's tracks, then any only another
 /// database lists.
 fn track_refs(opened: &Opened) -> FxHashMap<String, TrackRef> {
@@ -644,17 +691,32 @@ fn track_refs(opened: &Opened) -> FxHashMap<String, TrackRef> {
 pub fn read(device: &Device) -> Result<MyTags> {
     let opened = open(device)?;
     let refs = track_refs(&opened);
+    let tagged = tagged_rows(&opened)?;
+    let none = FxHashSet::default();
+    let mut rows_by_key: FxHashMap<String, Vec<&Track>> = FxHashMap::default();
+    for t in &opened.primary.tracks {
+        rows_by_key.entry(paths::file_key(&t.file_path)).or_default().push(t);
+    }
     let categories = merged(&opened.dbs)
         .into_iter()
         .map(|c| Category {
             tags: c
                 .tags
                 .into_iter()
-                .map(|t| TagInfo {
-                    path: format!("{}/{}", c.name, t.name),
-                    tracks: t.tracks.iter().filter_map(|k| refs.get(k).cloned()).collect(),
-                    name: t.name,
-                    sources: t.sources,
+                .map(|t| {
+                    let path = format!("{}/{}", c.name, t.name);
+                    let rows = tagged.get(&path).unwrap_or(&none);
+                    // Each row of the main library the tag is on; a track only the other database
+                    // lists by its file.
+                    let tracks = (t.tracks.iter())
+                        .flat_map(|k| match rows_by_key.get(k) {
+                            Some(of_file) => {
+                                of_file.iter().filter(|r| rows.contains(&r.id)).map(|r| TrackRef::from(*r)).collect()
+                            }
+                            None => refs.get(k).cloned().into_iter().collect::<Vec<_>>(),
+                        })
+                        .collect();
+                    TagInfo { path, tracks, name: t.name, sources: t.sources }
                 })
                 .collect(),
             name: c.name,
@@ -674,15 +736,42 @@ pub fn read(device: &Device) -> Result<MyTags> {
     })
 }
 
-/// Every tagged track's tags, as `Category/Tag` in display order, keyed by the track's file
-/// ([`paths::file_key`]). Tags from both databases.
-pub fn by_track(device: &Device) -> Result<FxHashMap<String, Vec<String>>> {
+/// A library's tagged tracks' My Tags, as `Category/Tag` in display order: a drive's from both
+/// its databases (see [`by_track`]), or a rekordbox collection's.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TagsByTrack {
+    /// By track id: for a drive, its library's ([`Device::library`]).
+    pub by_id: FxHashMap<u32, Vec<String>>,
+    /// By file ([`paths::file_key`]), for files only the other database lists: a combined
+    /// library's tracks of OneLibrary's own (see [`crate::convert::combined_library`]).
+    pub by_file: FxHashMap<String, Vec<String>>,
+}
+
+impl TagsByTrack {
+    /// `t`'s tags.
+    pub fn of(&self, t: &Track) -> &[String] {
+        (self.by_id.get(&t.id).or_else(|| self.by_file.get(&paths::file_key(&t.file_path)))).map_or(&[], Vec::as_slice)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_id.is_empty() && self.by_file.is_empty()
+    }
+}
+
+/// Every tagged track's tags (see [`TagsByTrack`]).
+pub fn by_track(device: &Device) -> Result<TagsByTrack> {
     let opened = open(device)?;
-    let mut out: FxHashMap<String, Vec<String>> = FxHashMap::default();
+    let tagged = tagged_rows(&opened)?;
+    let listed: FxHashSet<String> = opened.primary.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
+    let mut out = TagsByTrack::default();
     for c in merged(&opened.dbs) {
         for t in &c.tags {
-            for key in &t.tracks {
-                out.entry(key.clone()).or_default().push(format!("{}/{}", c.name, t.name));
+            let path = format!("{}/{}", c.name, t.name);
+            for id in tagged.get(&path).into_iter().flatten() {
+                out.by_id.entry(*id).or_default().push(path.clone());
+            }
+            for key in t.tracks.iter().filter(|k| !listed.contains(*k)) {
+                out.by_file.entry(key.clone()).or_default().push(path.clone());
             }
         }
     }

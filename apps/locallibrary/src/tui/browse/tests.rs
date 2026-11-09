@@ -462,17 +462,17 @@ fn the_other_categories_list_what_they_hold(tc: hegel::TestCase) {
     let ids = by_id(&lib);
 
     const TAGS: [&str; 3] = ["Genre/House", "Mood/Dark", "Genre/Acid"];
-    let mut tags: FxHashMap<String, Vec<String>> = FxHashMap::default();
+    let mut tags = locallibrary::tags::TagsByTrack::default();
     for t in &lib.tracks {
         let mine: Vec<String> = tc.draw(gs::subsequences(&TAGS[..])).iter().map(|s| s.to_string()).collect();
-        tags.insert(paths::file_key(&t.file_path), mine);
+        tags.by_id.insert(t.id, mine);
     }
     let read = tc.draw(gs::booleans());
     let g = groups(&lib, Category::MyTags, &ids, &Problems::default(), read.then_some(&tags), &[]);
     let want: Vec<(String, Vec<usize>)> = (TAGS.iter().copied().collect::<std::collections::BTreeSet<_>>().into_iter())
         .filter(|_| read)
         .map(|tag| {
-            let has = |t: &Track| tags[&paths::file_key(&t.file_path)].iter().any(|x| x == tag);
+            let has = |t: &Track| tags.of(t).iter().any(|x| x == tag);
             (tag.to_string(), (0..lib.tracks.len()).filter(|&i| has(&lib.tracks[i])).collect::<Vec<_>>())
         })
         .filter(|(_, v)| !v.is_empty())

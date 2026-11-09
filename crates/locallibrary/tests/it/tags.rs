@@ -207,10 +207,11 @@ fn edits_both_databases_and_can_be_undone() {
 
     apply(&mut d, add("Situation/Lounge", vec![demos[0]]));
     let by_track = tags::by_track(&d).unwrap();
-    let key = |q: &str| paths::file_key(&d.library().unwrap().search(q)[0].file_path);
-    assert_eq!(by_track[&key("Demo Track 1")], ["Genre/Techno", "Situation/Lounge"]);
-    assert_eq!(by_track[&key("Demo Track 2")], ["Genre/Techno"]);
-    assert_eq!(by_track[&key("NOISE")], ["Genre/Minimal"]);
+    let lib = d.library().unwrap();
+    let of = |q: &str| by_track.of(lib.search(q)[0]);
+    assert_eq!(of("Demo Track 1"), ["Genre/Techno", "Situation/Lounge"]);
+    assert_eq!(of("Demo Track 2"), ["Genre/Techno"]);
+    assert_eq!(of("NOISE"), ["Genre/Minimal"]);
 
     // Remove, rename, delete.
     apply(&mut d, Edit::Remove { tag: "Genre/Techno".into(), tracks: vec![demos[1]] });
@@ -817,4 +818,50 @@ fn a_onelibrary_category_id_past_u32_still_plans_what_applies() {
     let ext = ExtDatabase::from_file(&ext_path).unwrap();
     let venue = ext.categories().into_iter().find(|c| c.name == "Venue").expect("Venue in exportExt.pdb");
     assert!(!ids[..2].contains(&venue.id), "a free id: {}", venue.id);
+}
+
+/// rekordbox can list one file twice, each row with My Tags of its own: each row shows its own,
+/// in a track's details, to `tag:` filters and in the drive's list of tags.
+#[test]
+fn two_rows_of_one_file_keep_their_own_tags() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    let pdb_path = root.join(paths::EXPORT_PDB);
+    let first = pdb::read_library(&pdb_path).unwrap().track(1).unwrap().clone();
+    let mut ed = rekordbox_pdb::PdbEditor::from_file(&pdb_path).unwrap();
+    let second = ed.add_track(&rekordbox_pdb::NewTrack::new(first.title.clone(), first.file_path.clone())).unwrap();
+    ed.save(&pdb_path).unwrap();
+    let ext_path = root.join(paths::EXPORT_EXT_PDB);
+    let mut ext = ExtEditor::from_file(&ext_path).unwrap();
+    let (genre, category) = ext.categories().first().map(|(id, name)| (*id, name.to_string())).unwrap();
+    let tags: Vec<(u32, String)> = ext.tags(genre).into_iter().map(|(id, name)| (id, name.to_string())).collect();
+    let [(a, a_name), (b, b_name), ..] = &tags[..] else { panic!("two tags in {category}: {tags:?}") };
+    ext.link(*a, first.id).unwrap();
+    ext.link(*b, second).unwrap();
+    ext.save(&ext_path).unwrap();
+    let (a_path, b_path) = (format!("{category}/{a_name}"), format!("{category}/{b_name}"));
+
+    let library = || locallibrary::api::LibraryRef::from(root.display().to_string());
+    let tracks = locallibrary::api::TrackSelector { ids: vec![first.id, second], ..Default::default() };
+    let details =
+        locallibrary::api::track_details(&locallibrary::api::TrackDetailsRequest { library: library(), tracks })
+            .unwrap();
+    assert!(details[0].tags.contains(&a_path) && !details[0].tags.contains(&b_path), "{:?}", details[0].tags);
+    assert_eq!(details[1].tags, std::slice::from_ref(&b_path));
+
+    let page = locallibrary::api::tracks_query(&locallibrary::api::TracksQuery {
+        library: library(),
+        filter: Some(format!("tag:\"{b_path}\"")),
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(page.tracks.iter().map(|t| t.id).collect::<Vec<_>>(), [second]);
+
+    let read = tags::read(&Device::open_export(&root).unwrap()).unwrap();
+    let on = |path: &str| -> Vec<u32> {
+        let tag = read.categories.iter().flat_map(|c| &c.tags).find(|t| t.path == path).unwrap();
+        tag.tracks.iter().map(|t| t.id).collect()
+    };
+    assert_eq!(on(&b_path), [second]);
+    assert!(on(&a_path).contains(&first.id) && !on(&a_path).contains(&second), "{:?}", on(&a_path));
 }

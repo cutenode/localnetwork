@@ -31,9 +31,8 @@ fn browsing(tc: &TestCase) -> (App, tempfile::TempDir) {
     // The drive's My Tags read, or not yet.
     let l = app.loaded.as_mut().unwrap();
     if tc.draw(gs::booleans()) {
-        let tags =
-            l.library.tracks.iter().map(|t| (paths::file_key(&t.file_path), vec!["Genre/House".to_string()])).collect();
-        l.my_tags = MyTags::Read(Arc::new(tags));
+        let by_id = l.library.tracks.iter().map(|t| (t.id, vec!["Genre/House".to_string()])).collect();
+        l.my_tags = MyTags::Read(Arc::new(locallibrary::tags::TagsByTrack { by_id, ..Default::default() }));
     }
     (app, dir)
 }
@@ -463,8 +462,7 @@ fn background_results_land_where_they_belong(tc: TestCase) {
                 }
             }
             7 => {
-                let r =
-                    if tc.draw(gs::booleans()) { Ok(FxHashMap::default()) } else { Err("no tags here".to_string()) };
+                let r = if tc.draw(gs::booleans()) { Ok(Default::default()) } else { Err("no tags here".to_string()) };
                 let ok = r.is_ok();
                 app.handle_msg(Msg::MyTags(g, r));
                 let tags = &app.loaded.as_ref().unwrap().my_tags;
@@ -1362,11 +1360,12 @@ fn the_search_box_filters_as_the_library_does(tc: TestCase) {
     lib.tracks = any_tracks(&tc, 8);
     let (mut app, _dir) = app_with(lib);
     let l = app.loaded.as_mut().unwrap();
-    let tags: FxHashMap<String, Vec<String>> = tc
+    let by_id = tc
         .draw(gs::subsequences(&l.library.tracks[..]))
         .iter()
-        .map(|t| (paths::file_key(&t.file_path), vec!["Genre/House".to_string()]))
+        .map(|t| (t.id, vec!["Genre/House".to_string()]))
         .collect();
+    let tags = locallibrary::tags::TagsByTrack { by_id, ..Default::default() };
     l.my_tags = MyTags::Reading;
     // In a playlist, or all tracks.
     if tc.draw(gs::booleans()) {
@@ -1411,7 +1410,7 @@ fn searched_as_the_library_does(app: &mut App, query: &str, enter: bool) {
         MyTags::Read(t) => Some(t.clone()),
         _ => None,
     };
-    let none = FxHashMap::default();
+    let none = locallibrary::tags::TagsByTrack::default();
     let ctx = QueryContext::new(&lib).with_tags(read.as_deref().unwrap_or(&none));
     match Filter::parse(query).and_then(|f| f.check(&ctx).map(|()| f)) {
         Ok(f) => {

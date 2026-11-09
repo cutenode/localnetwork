@@ -1,5 +1,6 @@
 import { type Kysely, sql } from 'kysely';
 import { type Migration, type MigrationProvider, Migrator } from 'kysely/migration';
+import { COLLECTION } from '#lib/nsid.ts';
 import type { Database } from './schema';
 
 const statements = (...items: string[]) => items;
@@ -453,6 +454,36 @@ const migrations = {
 					)`
 				)
 				.execute(db);
+		}
+	},
+	// A synced record stored but not yet projected. Before this table a failed projection was lost, so the insert queues
+	// the stored records of the kinds that need the directory to project, when their table has no row for them.
+	'013_pending_projection': {
+		async up(db) {
+			await sql
+				.raw(
+					`CREATE TABLE pending_projection (
+						space_uri TEXT NOT NULL,
+						repo_did TEXT NOT NULL,
+						collection TEXT NOT NULL,
+						rkey TEXT NOT NULL,
+						attempts INTEGER NOT NULL,
+						next_attempt_at TEXT NOT NULL,
+						last_error TEXT,
+						PRIMARY KEY (space_uri, repo_did, collection, rkey)
+					)`
+				)
+				.execute(db);
+			await sql`
+				INSERT INTO pending_projection (space_uri, repo_did, collection, rkey, attempts, next_attempt_at)
+				SELECT space_uri, repo_did, collection, rkey, 0, ${new Date().toISOString()}
+				FROM (SELECT *, space_uri || '/' || repo_did || '/' || collection || '/' || rkey AS uri FROM space_record)
+				WHERE (
+					collection IN (${COLLECTION.bookingInquiry}, ${COLLECTION.bookingMessage}, ${COLLECTION.bookingStatus})
+					AND uri NOT IN (SELECT uri FROM booking_event)
+				) OR (collection = ${COLLECTION.epkRequest} AND uri NOT IN (SELECT uri FROM epk_request))
+				OR (collection = ${COLLECTION.epkGrant} AND uri NOT IN (SELECT uri FROM epk_grant))
+			`.execute(db);
 		}
 	}
 } satisfies Record<string, Migration>;
