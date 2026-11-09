@@ -90,6 +90,10 @@ repo := [
 		"tool": [{"changed-files": [{"any-glob-to-any-file": "apps/tool/**"}]}],
 		"docs": [{"changed-files": [{"all-globs-to-any-file": ["**/*.md", "!apps/**"]}, {"any-glob-to-any-file": "docs/**/*.txt"}]}],
 	}},
+	{"path": ".github/dependabot.yml", "contents": {"updates": [
+		{"package-ecosystem": "cargo", "directory": "/"},
+		{"package-ecosystem": "npm", "directories": ["/", "/apps/site"]},
+	]}},
 	{"path": ".github/ISSUE_TEMPLATE/site-bug.yml", "contents": {"labels": ["bug", "site"]}},
 	{"path": ".github/ISSUE_TEMPLATE/tool-bug.yml", "contents": {"labels": ["bug", "tool"]}},
 	{"path": ".github/ISSUE_TEMPLATE/feature_request.yml", "contents": {"body": [{"id": "tool", "attributes": {"options": ["site", "tool", "Something new"]}}]}},
@@ -102,7 +106,7 @@ repo := [
 	{"path": "lexicons/computer/localnetwork/dj/set.json", "contents": {"id": "computer.localnetwork.dj.set"}},
 	{"path": "lexicons/community/lexicon/location/address.json", "contents": {"id": "community.lexicon.location.address"}},
 	{"path": "/scratch/embedded-files.json", "contents": {"files": ["lexicons/computer/localnetwork/dj/set.json", "plugins/p/locallibrary-plugin.toml"]}},
-	{"path": "/scratch/tracked-files.json", "contents": {"files": ["apps/site/src/app.ts", "README.md", "crates/x/README.md", "docs/b.txt", "apps/tool/x.rs"]}},
+	{"path": "/scratch/tracked-files.json", "contents": {"files": ["apps/site/src/app.ts", "apps/site/package-lock.json", "README.md", "crates/x/README.md", "docs/b.txt", "apps/tool/x.rs"]}},
 ]
 
 # The repository with the file at `path` (or every item of a list file) replaced by `contents`.
