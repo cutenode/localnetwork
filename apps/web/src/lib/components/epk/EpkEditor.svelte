@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Trash2 } from '@lucide/svelte';
+	import type { ComponentProps } from 'svelte';
+	import DeleteRow from '#lib/components/form/DeleteRow.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import type { EpkConflictView, EpkDraftStatus, EpkFormValues } from '#lib/epk.ts';
 	import { formatDateTime } from '#lib/format.ts';
@@ -14,6 +15,7 @@
 	 * `conflicts`, to settle before publishing.
 	 */
 	let {
+		form,
 		values,
 		photoBase,
 		editHref,
@@ -22,6 +24,7 @@
 		published,
 		conflicts
 	}: {
+		form?: ComponentProps<typeof EpkForm>['form'];
 		values: EpkFormValues;
 		photoBase: string | null;
 		editHref: string;
@@ -33,8 +36,6 @@
 		published: boolean;
 		conflicts?: EpkConflictView[];
 	} = $props();
-
-	let confirming = $state(false);
 
 	const deleted = $derived(draft?.status === 'deleted');
 </script>
@@ -58,19 +59,17 @@
 
 	{#if conflicts?.length}<EpkConflicts {conflicts} />{/if}
 
-	<EpkForm {values} action={deleted ? '?/save' : '?/publish'} {photoBase} {editHref} submitLabel={deleted ? 'Save draft' : 'Publish'}>
-		{#snippet actions()}
-			{#if !deleted}<button class="btn-secondary" formaction="?/save">Save draft</button>{/if}
-			{#if draft}<button class="btn-ghost" formaction="?/discard" formnovalidate>Discard draft</button>{/if}
-			{#if published}
-				{#if confirming}
-					<span class="text-small text-fg-muted">This deletes it and everyone's access.</span>
-					<button class="btn-danger btn-sm" formaction="?/delete" formnovalidate><Trash2 class="size-4" />Delete press kit</button>
-					<button type="button" class="btn-ghost btn-sm" onclick={() => (confirming = false)}>Keep it</button>
-				{:else}
-					<button type="button" class="btn-ghost btn-sm ml-auto" onclick={() => (confirming = true)}><Trash2 class="size-4" />Delete…</button>
-				{/if}
-			{/if}
+	<EpkForm {form} {values} action={deleted ? '?/save' : '?/publish'} {photoBase} {editHref} submitLabel={deleted ? 'Save draft' : 'Publish'}>
+		{#snippet actions(saving)}
+			<!-- First, so pressing Enter in a field saves a draft: publishing takes a click on Publish. -->
+			{#if !deleted}<button class="btn-secondary" formaction="?/save" disabled={saving}>Save draft</button>{/if}
+		{/snippet}
+		{#snippet after(saving)}
+			{#if draft}<button class="btn-ghost order-first" formaction="?/discard" formnovalidate disabled={saving}>Discard draft</button>{/if}
 		{/snippet}
 	</EpkForm>
+
+	{#if published}
+		<DeleteRow action="?/delete" label="Delete press kit" note="Deleting takes it off the site and ends everyone's access." warning="This deletes it and everyone's access." />
+	{/if}
 </div>

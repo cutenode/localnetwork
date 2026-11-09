@@ -36,6 +36,8 @@ it('shows the newest projects and the directory totals, with the tool cards and 
 	expect(data.tools.map((tool) => tool.id)).toEqual(['locallibrary', 'localtoolbox']);
 	expect(Object.keys(data.tools[0]).sort()).toEqual(['id', 'kind', 'lines', 'name', 'tagline']);
 	expect(data.meta).toMatchObject({ url: 'https://localnetwork.computer/' });
+	expect(await data.shows).toEqual([]);
+	expect(await data.tracks).toEqual([]);
 });
 
 it('keeps only the top 14 genres and 8 cities', async () => {

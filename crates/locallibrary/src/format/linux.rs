@@ -27,6 +27,20 @@ fn lsblk(device: Option<&str>) -> Result<Value> {
     serde_json::from_str(&text).map_err(|e| Error::parse("lsblk output", e))
 }
 
+pub fn link_speed(disk: &Disk) -> Option<u64> {
+    let name = disk.id.trim_start_matches("/dev/");
+    usb_link_speed(Path::new("/sys/block"), name).filter(|_| disk.bus.as_deref() == Some("USB"))
+}
+
+/// The speed the USB device holding `name` came up at, in bits a second: the first `speed` file
+/// (in Mb/s) above the block device in sysfs. A USB device has one, what's between it and the
+/// disk doesn't.
+fn usb_link_speed(sys_block: &Path, name: &str) -> Option<u64> {
+    let device = sys_block.join(name).join("device").canonicalize().ok()?;
+    let speed = |dir: &Path| std::fs::read_to_string(dir.join("speed")).ok()?.trim().parse::<u64>().ok();
+    device.ancestors().find_map(speed).map(|mbps| mbps * 1_000_000)
+}
+
 pub fn list() -> Result<Vec<Disk>> {
     let all = lsblk(None)?;
     Ok(json::array(all.get("blockdevices")).into_iter().filter_map(parse_disk).collect())

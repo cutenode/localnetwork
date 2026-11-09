@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 
 #[test]
 fn every_method_is_described_once_with_its_schemas() {

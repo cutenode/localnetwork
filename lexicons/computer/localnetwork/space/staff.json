@@ -4,10 +4,14 @@
 	"defs": {
 		"main": {
 			"type": "space",
-			"description": "Admin and moderator role assignments.",
+			"description": "Staff roles, feature flags and flag groups.",
 			"key": "literal:main",
 			"name": "Local Network staff",
-			"collections": ["computer.localnetwork.staff.role"]
+			"collections": [
+				"computer.localnetwork.staff.role",
+				"computer.localnetwork.staff.flag",
+				"computer.localnetwork.staff.group"
+			]
 		}
 	}
 }

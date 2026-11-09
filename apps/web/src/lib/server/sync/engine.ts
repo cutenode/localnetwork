@@ -22,7 +22,7 @@ import {
 import type { IdentityResolver } from '../atproto/identity';
 import { isTooDeep, TOO_DEEP } from '../atproto/lexicons';
 import { parseSpaceUri, spaceRecordUri } from '../atproto/spaces';
-import { type Db, nowIso } from '../db';
+import { type Db, nowIso, parseJson } from '../db';
 import type { Logger } from '../logger';
 
 export type SyncedChange =
@@ -117,6 +117,13 @@ const failsWholeSpace = (cause: unknown) =>
 /** How long a repo waits after its `attempts`th failure in a row: 1 minute, doubling up to an hour. */
 const retryDelayMs = (attempts: number) => Math.min(60_000 * 2 ** (attempts - 1), 3_600_000);
 
+/** The retry columns after one more failure. */
+const nextRetry = (attempts: number, message: string) => ({
+	attempts: attempts + 1,
+	nextAttemptAt: new Date(Date.now() + retryDelayMs(attempts + 1)).toISOString(),
+	lastError: message.slice(0, 500)
+});
+
 /**
  * Keeps a local copy of every watched space: enumerates writers with
  * `listRepos` on the space host, pulls each repo's oplog with
@@ -125,7 +132,10 @@ const retryDelayMs = (attempts: number) => Math.min(60_000 * 2 ** (attempts - 1)
  * full verified STAR download (`getRepo`) when the incremental path cannot be
  * trusted. A repo that fails doesn't hold back the rest: the pass carries on,
  * its cursor moves past the repo, and `syncRepoRetry` keeps it for a retry,
- * since `listRepos` won't list it again until it next changes.
+ * since `listRepos` won't list it again until it next changes. A record is
+ * stored and queued for projection in one transaction, so one whose
+ * projection throws, or never runs, stays in `pendingProjection` for later
+ * passes once the repo's cursor has moved on.
  */
 export class SpaceSyncer {
 	private readonly spaceLocks = new Map<string, Promise<void>>();
@@ -284,11 +294,21 @@ export class SpaceSyncer {
 				)
 			);
 
-			// A repo waiting out its backoff still counts as failing, so the system page keeps showing it.
+			await this.retryProjections(space);
+
+			// A repo or record waiting out its backoff still counts as failing, so the system page keeps showing it.
 			const waiting = await db
 				.selectFrom('syncRepoRetry')
 				.select('lastError')
 				.where('spaceUri', '=', space)
+				.unionAll(
+					db
+						.selectFrom('pendingProjection')
+						.select('lastError')
+						.where('spaceUri', '=', space)
+						.where('lastError', 'is not', null)
+						.$narrowType<{ lastError: string }>()
+				)
 				.executeTakeFirst();
 
 			await db
@@ -426,13 +446,7 @@ export class SpaceSyncer {
 			.where('repoDid', '=', repoDid)
 			.executeTakeFirst();
 
-		const attempts = (previous?.attempts ?? 0) + 1;
-
-		const values = {
-			attempts,
-			nextAttemptAt: new Date(Date.now() + retryDelayMs(attempts)).toISOString(),
-			lastError: message.slice(0, 500)
-		};
+		const values = nextRetry(previous?.attempts ?? 0, message);
 
 		await db
 			.insertInto('syncRepoRetry')
@@ -608,10 +622,23 @@ export class SpaceSyncer {
 		state: RepoCommit,
 		changes: SyncedChange[]
 	) {
-		const { db, logger } = this.deps;
+		const { db } = this.deps;
 		const now = nowIso();
 		await db.transaction().execute(async (trx) => {
 			for (const change of changes) {
+				const pending = { attempts: 0, nextAttemptAt: now, lastError: null };
+				await trx
+					.insertInto('pendingProjection')
+					.values({
+						spaceUri: space,
+						repoDid,
+						collection: change.collection,
+						rkey: change.rkey,
+						...pending
+					})
+					.onConflict((oc) => oc.columns(['spaceUri', 'repoDid', 'collection', 'rkey']).doUpdateSet(pending))
+					.execute();
+
 				if (change.kind === 'delete') {
 					await trx
 						.deleteFrom('spaceRecord')
@@ -658,13 +685,75 @@ export class SpaceSyncer {
 				.execute();
 		});
 
-		for (const change of changes) {
+		await this.project(changes.map((change) => ({ change, attempts: 0 })));
+	}
+
+	/** Runs each change's projection, which clears it from `pendingProjection` or leaves it there to try again. */
+	private async project(pending: { change: SyncedChange; attempts: number }[]) {
+		const { db, logger } = this.deps;
+
+		for (const { change, attempts } of pending) {
+			const { space: spaceUri, repoDid, collection, rkey } = change;
+			const path = { spaceUri, repoDid, collection, rkey };
+
 			try {
 				await this.deps.onChange(change);
 			} catch (error) {
-				logger.warn('could not project synced record', { err: error, uri: change.uri });
+				const message = error instanceof Error ? error.message : String(error);
+				await db
+					.updateTable('pendingProjection')
+					.set(nextRetry(attempts, message))
+					.where((eb) => eb.and(path))
+					.execute();
+
+				if (attempts === 0) logger.warn('could not project synced record', { err: error, uri: change.uri });
+				else logger.debug('synced record still failing to project', { error: message, uri: change.uri });
+				continue;
 			}
+
+			await db
+				.deleteFrom('pendingProjection')
+				.where((eb) => eb.and(path))
+				.execute();
 		}
+	}
+
+	/** Projects what's due from earlier passes as the record stands now: gone from `spaceRecord` means deleted. */
+	private async retryProjections(space: string) {
+		const due = await this.deps.db
+			.selectFrom('pendingProjection as pending')
+			.leftJoin('spaceRecord as record', (join) =>
+				join
+					.onRef('record.spaceUri', '=', 'pending.spaceUri')
+					.onRef('record.repoDid', '=', 'pending.repoDid')
+					.onRef('record.collection', '=', 'pending.collection')
+					.onRef('record.rkey', '=', 'pending.rkey')
+			)
+			.select([
+				'pending.repoDid',
+				'pending.collection',
+				'pending.rkey',
+				'pending.attempts',
+				'record.cid',
+				'record.value'
+			])
+			.where('pending.spaceUri', '=', space)
+			.where('pending.nextAttemptAt', '<=', nowIso())
+			.execute();
+
+		await this.project(
+			due.map(({ repoDid, collection, rkey, attempts, cid, value }) => {
+				const path = { space, repoDid, collection, rkey, uri: spaceRecordUri(space, repoDid, collection, rkey) };
+
+				return {
+					attempts,
+					change:
+						cid === null
+							? { kind: 'delete', ...path }
+							: { kind: 'upsert', ...path, cid, value: parseJson<JsonObject>(value, {}) }
+				};
+			})
+		);
 	}
 
 	private async dropSpace(space: string) {
@@ -676,7 +765,14 @@ export class SpaceSyncer {
 			.where('spaceUri', '=', space)
 			.execute();
 
-		for (const record of records) {
+		// A delete that never got projected has no record left to find it by.
+		const pending = await db
+			.selectFrom('pendingProjection')
+			.select(['repoDid', 'collection', 'rkey'])
+			.where('spaceUri', '=', space)
+			.execute();
+
+		for (const record of [...records, ...pending]) {
 			await this.deps
 				.onChange({
 					kind: 'delete',
@@ -690,6 +786,7 @@ export class SpaceSyncer {
 		await db.deleteFrom('spaceRecord').where('spaceUri', '=', space).execute();
 		await db.deleteFrom('syncedRepo').where('spaceUri', '=', space).execute();
 		await db.deleteFrom('syncRepoRetry').where('spaceUri', '=', space).execute();
+		await db.deleteFrom('pendingProjection').where('spaceUri', '=', space).execute();
 		await db.deleteFrom('spaceWatch').where('spaceUri', '=', space).execute();
 		await this.deps.onSpaceDropped(space);
 	}

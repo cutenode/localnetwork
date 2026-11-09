@@ -1,11 +1,15 @@
 import { z } from 'zod';
 import { COLLECTION } from '#lib/nsid.ts';
-import type { StaffMember, StaffRole, Viewer } from '#lib/types.ts';
+import type { StaffGrant, StaffMember, StaffRole, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
 import { listAllSpaceRecords } from '../atproto/repo-client';
 import { reconcileMembers } from './space-members';
 import { type Core, ForbiddenError, UserError } from '../core';
-import { nowIso } from '../db';
+import { nowIso, parseJson } from '../db';
+
+const STAFF_GRANTS = ['flags', 'flagGroups'] as const satisfies readonly StaffGrant[];
+
+const isStaffGrant = (value: string): value is StaffGrant => STAFF_GRANTS.some((grant) => grant === value);
 
 /**
  * A computer.localnetwork.staff.role record. The lexicon leaves `role` open, so synced ones are
@@ -14,6 +18,11 @@ import { nowIso } from '../db';
 export const staffRoleRecord = z.object({
 	subject: z.string(),
 	role: z.enum(['admin', 'moderator'] as const satisfies readonly StaffRole[]),
+	// Open in the lexicon too: a grant this app doesn't know gives nothing.
+	grants: z
+		.array(z.string())
+		.transform((grants) => grants.filter(isStaffGrant))
+		.optional(),
 	grantedBy: z.string(),
 	note: z.string().optional(),
 	createdAt: z.string()
@@ -54,6 +63,21 @@ export class StaffService {
 		return row ? [row.role] : [];
 	}
 
+	/** What `did` can do beyond its role. Admins can do all of it, and only staff have any. */
+	async grants(did: string): Promise<StaffGrant[]> {
+		if (this.core.bootstrapAdmins.includes(did)) return [...STAFF_GRANTS];
+
+		const row = await this.core.db
+			.selectFrom('staffRole')
+			.select(['role', 'grants'])
+			.where('did', '=', did)
+			.executeTakeFirst();
+
+		if (row?.role === 'admin') return [...STAFF_GRANTS];
+
+		return parseJson<StaffGrant[]>(row?.grants, []);
+	}
+
 	async list(): Promise<StaffMember[]> {
 		const rows = await this.core.db.selectFrom('staffRole').selectAll().orderBy('createdAt').execute();
 		const dids = [...this.core.bootstrapAdmins, ...rows.map((row) => row.did)];
@@ -63,6 +87,7 @@ export class StaffService {
 			did,
 			handle: accounts.get(did).handle,
 			role: 'admin',
+			grants: [...STAFF_GRANTS],
 			grantedBy: null,
 			note: 'Configured in ADMIN_DIDS',
 			createdAt: null,
@@ -71,7 +96,12 @@ export class StaffService {
 
 		for (const row of rows) {
 			if (this.core.bootstrapAdmins.includes(row.did)) continue;
-			members.push({ ...row, handle: accounts.get(row.did).handle, bootstrap: false });
+			members.push({
+				...row,
+				grants: row.role === 'admin' ? [...STAFF_GRANTS] : parseJson<StaffGrant[]>(row.grants, []),
+				handle: accounts.get(row.did).handle,
+				bootstrap: false
+			});
 		}
 
 		return members;
@@ -92,6 +122,10 @@ export class StaffService {
 
 		const root = await this.core.root();
 		const grant: StaffRoleRecord = { subject, role, grantedBy: actor.did, createdAt: nowIso() };
+		const grants = parseJson<StaffGrant[]>(previous?.grants, []);
+
+		// Changing a moderator's note keeps what they were given. An admin has it all anyway.
+		if (role === 'moderator' && grants.length > 0) grant.grants = grants;
 
 		if (note) grant.note = note;
 		const record = validateRecord(COLLECTION.staffRole, grant);
@@ -118,6 +152,47 @@ export class StaffService {
 			summary: `Made ${account.handle ? `@${account.handle}` : subject} ${role === 'admin' ? 'an admin' : 'a moderator'}`,
 			changes: [{ field: 'role', before: previous?.role, after: role }],
 			details: { note }
+		});
+	}
+
+	/** Sets what a moderator can do beyond their role. */
+	async setGrants(actor: Viewer, subject: string, grants: StaffGrant[]): Promise<void> {
+		if (!actor.isAdmin) throw new ForbiddenError('Only admins can manage staff');
+
+		const row = await this.core.db.selectFrom('staffRole').selectAll().where('did', '=', subject).executeTakeFirst();
+
+		if (row?.role !== 'moderator') throw new UserError('Only moderators take grants');
+		const previous = parseJson<StaffGrant[]>(row.grants, []);
+
+		const value: StaffRoleRecord = {
+			subject,
+			role: row.role,
+			grants,
+			grantedBy: row.grantedBy ?? actor.did,
+			createdAt: row.createdAt
+		};
+
+		if (row.note) value.note = row.note;
+		const record = validateRecord(COLLECTION.staffRole, value);
+		const root = await this.core.root();
+
+		const ref = await root.putSpaceRecord({
+			space: this.core.spaces.staff,
+			collection: COLLECTION.staffRole,
+			rkey: subject,
+			record
+		});
+
+		await this.indexRole(ref.uri, ref.cid, record);
+		const account = await this.core.accounts.view(subject);
+		await this.core.audit.record({
+			actor: actor.did,
+			actorRole: 'admin',
+			action: 'role.grant',
+			subject,
+			subjectKind: 'role',
+			summary: `Changed what ${account.handle ? `@${account.handle}` : subject} can manage`,
+			changes: [{ field: 'grants', before: previous.join(', '), after: grants.join(', ') }]
 		});
 	}
 
@@ -167,6 +242,7 @@ export class StaffService {
 	async indexRole(uri: string, cid: string, record: StaffRoleRecord) {
 		const values = {
 			role: record.role,
+			grants: record.grants ? JSON.stringify(record.grants) : null,
 			grantedBy: record.grantedBy,
 			note: record.note ?? null,
 			uri,

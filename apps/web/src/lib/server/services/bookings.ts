@@ -41,12 +41,18 @@ export type BookingRecord = {
 };
 
 /**
- * A thread's last activity once a record dated `createdAt` joins it. Whoever writes a record picks its date, so a date
- * that hasn't come yet counts as now, and can't keep a thread at the top of everyone's list.
+ * When a record dated `createdAt` counts as written. Whoever writes a record picks its date, so a date that hasn't come
+ * yet counts as now, and can't keep a thread at the top of everyone's list or leave it waiting on a reply it has.
  */
-function activityAfter(lastActivityAt: string, createdAt: string): string {
+function seenAt(createdAt: string): string {
 	const now = nowIso();
-	const at = createdAt < now ? createdAt : now;
+
+	return createdAt < now ? createdAt : now;
+}
+
+/** A thread's last activity once a record dated `createdAt` joins it. */
+function activityAfter(lastActivityAt: string, createdAt: string): string {
+	const at = seenAt(createdAt);
 
 	return at > lastActivityAt ? at : lastActivityAt;
 }
@@ -485,7 +491,7 @@ export class BookingService {
 			return;
 		}
 
-		const { createdAt } = value;
+		const createdAt = seenAt(value.createdAt);
 		const { db } = this.core;
 
 		let thread = await db
@@ -523,7 +529,7 @@ export class BookingService {
 						showDate: value.show?.date ?? null,
 						createdAt,
 						updatedAt: createdAt,
-						lastActivityAt: activityAfter('', createdAt)
+						lastActivityAt: createdAt
 					})
 					.onConflict((oc) => oc.doNothing())
 					.execute();
@@ -692,9 +698,10 @@ export class BookingService {
 		value: BookingRecord;
 	}): Promise<void> {
 		const { kind, author, thread, value } = input;
+		const at = seenAt(value.createdAt);
 
 		// An old record is one a sync replays, so it saves the directory lookup below.
-		if (!isFresh(value.createdAt)) return;
+		if (!isFresh(at)) return;
 
 		try {
 			const participants = await this.core.db
@@ -720,7 +727,7 @@ export class BookingService {
 				key: input.uri,
 				subject: thread.spaceUri,
 				href: `/dashboard/bookings/${thread.skey}`,
-				at: value.createdAt
+				at
 			};
 
 			if (kind === 'status') {

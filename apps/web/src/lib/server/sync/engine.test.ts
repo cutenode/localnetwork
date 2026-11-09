@@ -643,6 +643,141 @@ describe('SpaceSyncer against a repo host', () => {
 		expect(dropped).toEqual([SPACE]);
 	});
 
+	describe('a record whose projection fails', () => {
+		const NOON = new Date('2026-11-04T12:00:00.000Z');
+		const pending = () => db.selectFrom('pendingProjection').selectAll().execute();
+
+		/** Syncs with a projection that fails while `broken` is set, stepping the clock with the returned `after`. */
+		const failing = async () => {
+			vi.useFakeTimers({ toFake: ['Date'], now: NOON });
+			onTestFinished(() => void vi.useRealTimers());
+			const seen: SyncedChange[] = [];
+			const state = { broken: true, seen };
+
+			const s = await syncer(async (change) => {
+				if (state.broken) throw new Error('directory offline');
+				state.seen.push(change);
+			});
+
+			return { s, state };
+		};
+
+		const after = (ms: number) => vi.setSystemTime(NOON.getTime() + ms);
+
+		it('is projected by a later pass, though its repo has nothing new', async () => {
+			const { s, state } = await failing();
+			await host.put(DJ, NOTE, 'a', note('one'));
+			await s.sync(SPACE);
+			expect((await repoRow())?.rev).toBeTruthy();
+			expect(await pending()).toMatchObject([{ rkey: 'a', attempts: 1, lastError: 'directory offline' }]);
+
+			state.broken = false;
+			after(60_000);
+			await s.sync(SPACE);
+			expect(state.seen).toMatchObject([{ kind: 'upsert', rkey: 'a', value: { text: 'one' } }]);
+			expect(await pending()).toEqual([]);
+		});
+
+		it('shows a failure that is not an Error as its text', async () => {
+			const s = await syncer(() => Promise.reject('connection reset'));
+			await host.put(DJ, NOTE, 'a', note('one'));
+			await s.sync(SPACE);
+			expect((await s.status())[0]?.lastError).toBe('connection reset');
+		});
+
+		it('waits out a backoff that doubles each time, and shows on the space until it clears', async () => {
+			const { s, state } = await failing();
+			await host.put(DJ, NOTE, 'a', note('one'));
+			await s.sync(SPACE);
+			expect((await s.status())[0]?.lastError).toBe('directory offline');
+
+			state.broken = false;
+			await s.sync(SPACE);
+			expect(state.seen).toEqual([]);
+
+			state.broken = true;
+			after(60_000);
+			await s.sync(SPACE);
+			expect(await pending()).toMatchObject([{ attempts: 2, nextAttemptAt: '2026-11-04T12:03:00.000Z' }]);
+
+			state.broken = false;
+			after(180_000);
+			await s.sync(SPACE);
+			expect(state.seen).toHaveLength(1);
+			expect((await s.status())[0]?.lastError).toBeNull();
+		});
+
+		it('projects the value the record has by then', async () => {
+			const { s, state } = await failing();
+			await host.put(DJ, NOTE, 'a', note('one'));
+			await s.sync(SPACE);
+
+			state.broken = false;
+			await host.put(DJ, NOTE, 'a', note('two'));
+			await s.sync(SPACE);
+			expect(state.seen).toMatchObject([{ kind: 'upsert', value: { text: 'two' } }]);
+			expect(await pending()).toEqual([]);
+		});
+
+		it('projects a delete that failed as a delete', async () => {
+			const { s, state } = await failing();
+			state.broken = false;
+			await host.put(DJ, NOTE, 'a', note('one'));
+			await s.sync(SPACE);
+			state.seen.length = 0;
+
+			state.broken = true;
+			await host.delete(DJ, NOTE, 'a');
+			await s.sync(SPACE);
+			expect(await records()).toEqual([]);
+
+			state.broken = false;
+			after(60_000);
+			await s.sync(SPACE);
+			expect(state.seen).toMatchObject([{ kind: 'delete', rkey: 'a' }]);
+		});
+
+		it('runs one that never ran because the server stopped after storing it', async () => {
+			const { s, state } = await failing();
+			state.broken = false;
+			await host.put(DJ, NOTE, 'a', note('one'));
+			await s.sync(SPACE);
+			const { cid, value } = await db.selectFrom('spaceRecord').selectAll().executeTakeFirstOrThrow();
+
+			await db
+				.insertInto('pendingProjection')
+				.values({
+					spaceUri: SPACE,
+					repoDid: DJ,
+					collection: NOTE,
+					rkey: 'a',
+					attempts: 0,
+					nextAttemptAt: nowIso(),
+					lastError: null
+				})
+				.execute();
+			state.seen.length = 0;
+			await s.sync(SPACE);
+			expect(state.seen).toMatchObject([{ kind: 'upsert', cid, value: JSON.parse(value) }]);
+		});
+
+		it('goes with its space, which still hears about a delete that never got projected', async () => {
+			const { s, state } = await failing();
+			state.broken = false;
+			await host.put(DJ, NOTE, 'a', note('one'));
+			await s.sync(SPACE);
+			state.seen.length = 0;
+			state.broken = true;
+			await host.delete(DJ, NOTE, 'a');
+			await s.sync(SPACE);
+
+			state.broken = false;
+			await s.onSpaceDeleted(SPACE);
+			expect(state.seen).toMatchObject([{ kind: 'delete', rkey: 'a' }]);
+			expect(await pending()).toEqual([]);
+		});
+	});
+
 	it('waits out a failing pass before purging', async () => {
 		const s = await syncer();
 		await host.put(DJ, NOTE, 'a', note('one'));

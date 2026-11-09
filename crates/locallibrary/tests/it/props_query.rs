@@ -680,17 +680,14 @@ fn is_and_has_match_what_they_name(tc: TestCase) {
 /// playlist below it.
 #[hegel::test(test_cases = 300)]
 fn tag_and_playlist_terms_match_what_they_name(tc: TestCase) {
-    use rustc_hash::FxHashMap;
     let lib = tc.draw(library());
     let paths = ["Genre/Deep", "Genre/Peak Time", "Mood/Deep"];
-    let tags: FxHashMap<String, Vec<String>> = lib
+    let by_id = lib
         .tracks
         .iter()
-        .map(|t| {
-            let mine: Vec<String> = tc.draw(gs::subsequences(&paths)).into_iter().map(str::to_string).collect();
-            (locallibrary::paths::file_key(&t.file_path), mine)
-        })
+        .map(|t| (t.id, tc.draw(gs::subsequences(&paths)).into_iter().map(str::to_string).collect()))
         .collect();
+    let tags = locallibrary::tags::TagsByTrack { by_id, ..Default::default() };
     let want = tc.draw(gs::sampled_from(vec!["deep", "Genre/Deep", "peak  time", "GENRE/PEAK TIME", "mood"]));
     let f = Filter::parse(&format!("tag:\"{want}\"")).unwrap();
     assert!(f.check(&QueryContext::new(&lib)).is_err(), "a tag: term without My Tags");
@@ -698,7 +695,7 @@ fn tag_and_playlist_terms_match_what_they_name(tc: TestCase) {
     f.check(&ctx).unwrap();
     let fold = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
     for t in &lib.tracks {
-        let mine = &tags[&locallibrary::paths::file_key(&t.file_path)];
+        let mine = tags.of(t);
         let hit = mine.iter().any(|p| fold(p) == fold(want) || fold(p.rsplit('/').next().unwrap()) == fold(want));
         assert_eq!(f.matches(t, &ctx), hit, "tag:{want} on {mine:?}");
     }

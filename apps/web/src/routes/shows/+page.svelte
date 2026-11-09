@@ -11,10 +11,11 @@
 
 	const viewer = $derived(data.viewer);
 
-	const tabs = [
-		{ label: 'Near you', href: '/shows', following: false },
+	// The first tab lists every show until a city is picked, so it's only "near" once one is.
+	const tabs = $derived([
+		{ label: place ? `Near ${place.place}` : 'All shows', href: '/shows', following: false },
 		{ label: 'Following', href: '/shows?view=following', following: true }
-	];
+	]);
 
 	const chip = (active: boolean) => ['chip min-h-9 px-3 transition-colors hover:border-fg-subtle', active && 'border-fg bg-fg font-semibold text-fg-inverse hover:border-fg'];
 
@@ -60,7 +61,14 @@
 	<SectionHeader level={1} eyebrow="Shows" title="Upcoming shows" align="split" lede="Where DJs on Local Network play next, near you or from the DJs you follow." />
 
 	<div class="grid items-start gap-6 lg:grid-cols-[18rem_minmax(0,1fr)] lg:gap-10">
-		<form method="GET" class="card flex flex-col gap-5 p-5 lg:sticky lg:top-20" data-sveltekit-reset="false">
+		<!-- Folded above the shows on a phone, always open beside them on a wide screen. -->
+		<details class="group card lg:sticky lg:top-20 lg:details-content:[content-visibility:visible]">
+			<summary class="flex min-h-12 cursor-pointer list-none items-center gap-2 px-5 font-semibold lg:hidden [&::-webkit-details-marker]:hidden">
+				<span class="min-w-0 truncate">{place ? place.place : 'Pick a city'}</span>
+				<span class="ml-auto text-small font-normal text-fg-muted group-open:hidden">Change</span>
+				<span class="ml-auto hidden text-small font-normal text-fg-muted group-open:inline">Hide</span>
+			</summary>
+		<form method="GET" class="flex flex-col gap-5 border-line p-5 max-lg:border-t" data-sveltekit-reset="false">
 			{#if data.following}<input type="hidden" name="view" value="following" />{/if}
 			<div>
 				<label class="label" for="near">City</label>
@@ -77,6 +85,7 @@
 			<button class="btn-primary">{data.following ? 'Sort by distance' : 'Find shows'}</button>
 			{#if place}<a class="self-start text-small text-fg-muted no-underline hover:text-fg" href="/shows?place={data.following ? '&view=following' : ''}">Forget this city</a>{/if}
 		</form>
+		</details>
 
 		<section aria-labelledby="results-title" class="flex min-w-0 flex-col gap-5">
 			<nav aria-label="Which shows" class="flex flex-wrap gap-2">

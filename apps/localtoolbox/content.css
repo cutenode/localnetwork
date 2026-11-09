@@ -152,9 +152,15 @@
 	background: oklch(0.72 0.16 162);
 }
 
+/* White on its own vanishes into pale artwork, and anything dark into dark
+   artwork, so the ring is both: white, with a dark band around it. The band is
+   a shadow spread past the outline, so it shows on either side of the white. */
 .tbx-queue.tbx-queue:focus-visible {
 	outline: 2px solid #ffffff;
 	outline-offset: 1px;
+	box-shadow:
+		0 0 0 5px #111111,
+		0 1px 3px rgba(0, 0, 0, 0.45);
 }
 
 /* Hovering a queued track's button is the offer to take it back out, so it
@@ -162,8 +168,11 @@
    as the word does, and going means the track would be leaving the queue. The
    script puts the hovered word in `data-hover` and the resting one in a span
    of its own, so the swap costs no listener and the button's own text is
-   always the word it is showing. */
-.tbx-queue.tbx-queue[data-state$=':yes']:hover {
+   always the word it is showing. A downloaded thumbnail's queued button
+   (`small:downloaded`) is out of sight at rest and already says "−", so it
+   takes the same white. */
+.tbx-queue.tbx-queue[data-state$=':yes']:hover,
+.tbx-queue.tbx-queue[data-state='small:downloaded']:hover {
 	background: #ffffff;
 	color: #111111;
 }
@@ -210,6 +219,21 @@
    element. */
 .tbx-dl-replaced {
 	display: none !important;
+}
+
+/* Where a gate walk's outcome is said (content.ts statusRegion): read out, never
+   seen. Doubled for the reason the button's rules are: the page styles `div`s
+   too, and this one sits in its body. */
+.tbx-status.tbx-status {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	border: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
 }
 
 /* Doubled class selectors, here and on the three variants below: this element

@@ -63,7 +63,8 @@ locallibrary drive format disk4 --check-capacity  # catch a fake-capacity stick 
   best reference there is: a stored snapshot of exactly this state, the drive's own hash records
   when the file's size and modification time haven't changed, or an older snapshot holding the same
   version of the file. A file a player or rekordbox rewrote has a new modification time and counts
-  as unverified, not damaged. `exportLibrary.db` and its WAL are compared by the library they hold,
+  as unverified, not damaged. So does a file only a scan (`check`, `status`) has read, since
+  nothing says it was right then; `drive verify` takes what it reads as the reference next time. `exportLibrary.db` and its WAL are compared by the library they hold,
   as its bytes change with the drive's name and colour, or when a player checkpoints it, and any
   damage stops it decrypting. Unreadable files are reported too, with the tracks and playlists
   affected. `--repair` checks each file again, copies a good copy with every byte verified (keeping
@@ -169,6 +170,45 @@ drive as a snapshot, so its history lists and cues stay in the store, copies the
 over it, and saves the result as the newest snapshot. Any other change still counts, and the sync
 refuses as before. On a drive with both databases it looks at both, since a CDJ-3000X writes
 only to OneLibrary: its playlist edits count as changes of the drive's own.
+
+### Speed
+
+```bash
+locallibrary drive speed REKORDBOX             # how fast it writes, as last measured
+locallibrary drive speed REKORDBOX --measure   # measure it now
+```
+
+A plan that writes more than 64 MB or 256 files to an external drive says how long it'll take:
+
+```text
+about 7 min, mostly making files (drive writes ~151 MB/s, 12 ms a file)
+```
+
+- **The sum:** bytes over the drive's sustained rate, plus files times what a file costs to make,
+  plus folders times what a folder costs. The port isn't in it: on the drives we've timed it was
+  never the limit, and most of an export went on making files.
+- **Measuring:** the first big write to a drive, and one after the result goes stale, times it for
+  about 20 seconds before showing the plan: up to 2 GB of scratch data (never more than the write
+  itself, or half the free space), then small files and folders. It's all in `.locallibrary/` and
+  removed after, and a test cut off leaves it for the next one to remove. The plan says it ran a
+  test. The result stays on the drive in `.locallibrary/speed.json`, unless the drive had no
+  `.locallibrary/` and you say no, which leaves it as it was (so the next plan tests it again). A
+  dry run, and `--json` without `--yes`, write nothing: they say what's known, or that the drive
+  hasn't been measured.
+- **Going stale:** a result counts as stale after 90 days, once the drive's capacity has been
+  written since (flash slows with wear: a card fell from 47 to 16 MB/s over 320 GB of rewrites), or
+  on a port of another speed. A write of a gigabyte or more from this computer corrects the rate
+  afterwards.
+- **"At least":** many sticks take the first gigabytes in a fast mode and then drop. A rate that
+  fell during the test is the rate past it. One that stayed flat only vouches for what the test
+  wrote, so a longer write gets "at least" until a real write has shown more.
+- **The port:** when the rate comes near what the port can carry (USB 2.0 tops out around 42 MB/s),
+  the plan says a faster port may help. macOS and Linux tell the link speed; Windows doesn't, so it
+  has no such hint.
+
+What it can't see: reading a slow source when packing or syncing from another drive, downloads and
+transcoding (the plan says when there are any), and the clones a write is copied onto afterwards.
+Every file is charged the same, though a file costs a little more to make in a very full folder.
 
 ## Formatting a drive
 

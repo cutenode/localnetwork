@@ -7,9 +7,10 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use uuid::Uuid;
 
-use super::{DriveRef, LibraryCache, LibraryRef, TagsByTrack, resolve_drive};
+use super::{DriveRef, LibraryCache, LibraryRef, TagsByTrack, resolve_drive, write_estimate};
 use crate::anlz::{self, Mood, TrackAnalysis};
 use crate::device::Device;
+use crate::drive_speed::Work;
 use crate::edit::{self, Edit, EditOptions, EditPlan, EditReport, journal::JournalEntry};
 use crate::error::{Action, Reason};
 use crate::fields::{Source, TrackValues};
@@ -739,7 +740,7 @@ pub fn track_details_cached(cache: &LibraryCache, req: &TrackDetailsRequest) -> 
                     .filter(|l| !l.is_folder && l.track_ids.contains(&t.id))
                     .map(|l| l.name.clone())
                     .collect(),
-                tags: tags.get(&crate::paths::file_key(&t.file_path)).cloned().unwrap_or_default(),
+                tags: tags.of(t).to_vec(),
                 copies: fingerprint(t)
                     .and_then(|k| recordings.get(&k))
                     .map_or_else(Vec::new, |v| v.iter().filter(|o| o.id != t.id).map(|o| TrackRef::from(*o)).collect()),
@@ -850,8 +851,12 @@ pub fn pack_plan(req: &PackRequest, ctx: &Ctx<'_>) -> Result<Planned<crate::pack
     let destructive = !plan.deletes.is_empty() || plan.replaces_library;
     let warnings = plan.warnings.clone();
     let overwrite_archive = options.overwrite_archive;
+    let work = Work::copying(dst.root(), plan.copies.iter().map(|c| (c.path.as_str(), c.size))).read_elsewhere();
+    let making_copies = plan.transcodes.iter().any(|t| !t.current);
+    let estimate = write_estimate(&dst, if making_copies { work.plus("transcoding") } else { work }, ctx)?;
     Planned::new("pack", plan, options)
         .summary(summary)
+        .estimated(estimate)
         .warnings(warnings)
         .destructive(destructive)
         .overwrite_archive(overwrite_archive)

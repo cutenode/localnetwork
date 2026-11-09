@@ -254,7 +254,7 @@ class Artists {
 	}
 
 	/**
-	 * Takes in what a lookup said: a profile per artist, or that there is
+	 * Takes in what a lookup said: a profile per artist, or that SoundCloud has
 	 * none (`{ permalink, unavailable: true }`). Answers for artists not on
 	 * the list are dropped: they may have been taken off while the lookup
 	 * ran. Each is stamped with the time it arrived.

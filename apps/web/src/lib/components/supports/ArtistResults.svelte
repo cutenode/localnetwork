@@ -39,7 +39,7 @@
 						{#each result as artist (artist.mbid ?? artist.name)}
 							<li class="flex items-baseline gap-3 px-4 py-3">
 								<span class="flex min-w-0 flex-1 items-baseline gap-2">
-									<a class="min-w-0 font-semibold text-fg no-underline hover:underline" href={artistHref(artist)}>{artist.name}</a>
+									<a class="entity-link min-w-0 font-semibold text-fg" href={artistHref(artist)}>{artist.name}</a>
 									{#if artist.mbid}<a class="inline-flex self-center text-fg-subtle hover:text-fg" href={musicBrainzUrl('artist', artist.mbid)} rel="noopener noreferrer" target="_blank" aria-label="{artist.name} on MusicBrainz"><ExternalLink class="size-3.5" /></a>{/if}
 								</span>
 								<span class="font-mono text-label whitespace-nowrap text-fg-soft">{pluralize(artist.supports, 'all-time support')} · {pluralize(artist.djCount, 'DJ')}</span>

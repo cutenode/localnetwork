@@ -183,6 +183,13 @@ beforeEach(() => {
 // --- what is here ------------------------------------------------------------
 
 describe('what there is to lose', () => {
+	it('names what the file holds, which is not everything the extension keeps', async () => {
+		await openApp();
+		expect(section()!.querySelector('p')!.textContent.trim()).toBe(
+			'your marks, lists, queue and a few options, out to one file and back.'
+		);
+	});
+
 	// An "export" button on its own says nothing about what would come out of
 	// it. The numbers are the argument for pressing it.
 	it('counts the marks, the lookups, the list, the artists and the queue', async () => {
@@ -418,9 +425,7 @@ describe('importing, which adds to what is here', () => {
 		expect(localStorage.getItem('pref:sort')).toBe('page');
 		expect(localStorage.getItem('pref:hide-downloaded')).toBe('1');
 
-		expect(note()).toBe(
-			'imported 1 new mark, 1 track of download details, 3 options. reload the tab to see the markers.'
-		);
+		expect(note()).toBe('imported 1 new mark, 1 track of download details, 3 options.');
 		// The drawer is put away, and the file is not left lying in it.
 		expect(pasteBox()).toBe(null);
 		expect(held()).toEqual({ marks: 2, 'looked up': 1, listed: 0, artists: 0, queued: 0 });
@@ -444,8 +449,7 @@ describe('importing, which adds to what is here', () => {
 		await click(importNow());
 
 		expect(note()).toBe(
-			'imported 0 new marks, 0 tracks of download details, 1 track onto the list, ' +
-				'1 track into the queue. reload the tab to see the markers.'
+			'imported 0 new marks, 0 tracks of download details, 1 track onto the list, ' + '1 track into the queue.'
 		);
 		expect(chrome.testStore().listed.map((one) => one.permalink)).toEqual(['/a/one', '/b/two']);
 		expect(chrome.testStore('session').queue.map((one) => one.permalink)).toEqual(['/a/one', '/c/three']);
@@ -460,10 +464,7 @@ describe('importing, which adds to what is here', () => {
 		await type(pasteBox(), JSON.stringify(file({ artists: [again, artistEntry('/b')] })));
 		await click(importNow());
 
-		expect(note()).toBe(
-			'imported 0 new marks, 0 tracks of download details, 1 artist onto the artists. ' +
-				'reload the tab to see the markers.'
-		);
+		expect(note()).toBe('imported 0 new marks, 0 tracks of download details, 1 artist onto the artists.');
 		expect(chrome.testStore().artists.map((one) => one.permalink)).toEqual(['/a', '/b']);
 		// The artist already here keeps where it first came from.
 		expect(chrome.testStore().artists[0].from).toBe('My Playlist');
@@ -488,7 +489,7 @@ describe('importing, which adds to what is here', () => {
 
 		expect(note()).toBe(
 			'imported 0 new marks, 0 tracks of download details. 1 track didn’t fit on the list. ' +
-				'1 artist didn’t fit on the artists. reload the tab to see the markers.'
+				'1 artist didn’t fit on the artists.'
 		);
 		expect(held()).toMatchObject({ listed: LISTED_MAX, artists: ARTISTS_MAX });
 	});
@@ -513,9 +514,7 @@ describe('importing, which adds to what is here', () => {
 		await openImport();
 		await type(pasteBox(), JSON.stringify(file({ prefs: { sort: 'page' } })));
 		await click(importNow());
-		expect(note()).toBe(
-			'imported 0 new marks, 0 tracks of download details, 1 option. reload the tab to see the markers.'
-		);
+		expect(note()).toBe('imported 0 new marks, 0 tracks of download details, 1 option.');
 	});
 
 	it('reports a write that fails, and leaves the box open to try again', async () => {
@@ -578,7 +577,7 @@ describe('importing, asked to replace', () => {
 
 		expect(note()).toBe(
 			'replaced everything with 1 mark, 1 track of download details, 1 track listed, ' +
-				'1 artist, 2 tracks queued, 3 options. reload the tab to see the markers.'
+				'1 artist, 2 tracks queued, 3 options.'
 		);
 		expect(held()).toEqual({ marks: 1, 'looked up': 1, listed: 1, artists: 1, queued: 2 });
 	});
@@ -597,7 +596,7 @@ describe('importing, asked to replace', () => {
 
 		expect(note()).toBe(
 			'replaced everything with 0 marks, 0 tracks of download details, 0 tracks listed, ' +
-				'0 artists, 0 tracks queued. reload the tab to see the markers.'
+				'0 artists, 0 tracks queued.'
 		);
 		expect(held()).toEqual({ marks: 0, 'looked up': 0, listed: 0, artists: 0, queued: 0 });
 	});

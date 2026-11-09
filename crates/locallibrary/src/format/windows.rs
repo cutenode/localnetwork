@@ -70,6 +70,11 @@ pub fn by_id(spec: &str) -> Result<Option<Disk>> {
     Ok(all_disks()?.into_iter().find(|d| d.id == format!("PhysicalDrive{n}")))
 }
 
+/// Windows doesn't say, so a plan goes by the drive alone.
+pub fn link_speed(_: &Disk) -> Option<u64> {
+    None
+}
+
 pub fn by_mount(path: &Path) -> Result<Disk> {
     let letter = root_letter(path)?;
     all_disks()?

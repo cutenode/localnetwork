@@ -620,8 +620,8 @@ its manifest says each server allows. A secret setting, or an account's token, g
 such a request names it (an account's token, only where its account type says it goes and a scope
 of the plugin's access covers), filled in by
 locallibrary, never on to another server a redirect leads to, and is left out of the plugin's log
-and of the errors it's told. What a server answers is passed on as it is, but for an account's
-token sent in the address, which comes back as the placeholder that named it, and a server
+and of the errors it's told. What a server answers is passed on as it is, but for a secret or an
+account's token sent in the address, which comes back as the placeholder that named it, and a server
 refusing an account's token, which locallibrary answers itself (see [Accounts](#accounts)). The
 files a plugin sends are those in its request's folder (see below) and a set's recording while it
 publishes the set, nothing else. A destination is given stored files to read, never the store's
