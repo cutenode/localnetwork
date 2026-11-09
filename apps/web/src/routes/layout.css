@@ -58,3 +58,11 @@ html:has([data-form-actions]) {
 		animation: none;
 	}
 }
+
+/*
+ * A link to a DJ, an artist or a track: the colour of the text around it, with a quiet underline that brightens on
+ * hover. `link` stays for links inside prose, which read as links first.
+ */
+@utility entity-link {
+	@apply underline decoration-line-strong underline-offset-4 hover:text-fg hover:decoration-fg-subtle;
+}

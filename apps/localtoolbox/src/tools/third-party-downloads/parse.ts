@@ -32,10 +32,12 @@ export function jsonAfter(text: string, marker: string): z.JSONType | null {
 
 	const start = text.indexOf('{', at + marker.length);
 
+	// Stryker disable next-line ConditionalExpression: equivalent when false, since a scan from -1 only ever slices '' or '}', which never parse, so it still ends in null; the `true` variant is caught by the jsonAfter tests, which this hides too.
 	if (start === -1) return null;
 
 	let depth = 0;
 
+	// Stryker disable next-line EqualityOperator: equivalent for `<=`, since one more pass reads past the end and changes nothing; `>=` is caught by the jsonAfter tests, which this hides too.
 	for (let i = start; i < text.length; i += 1) {
 		const char = text[i];
 
@@ -44,6 +46,7 @@ export function jsonAfter(text: string, marker: string): z.JSONType | null {
 			// counted.
 			i += 1;
 
+			// Stryker disable next-line EqualityOperator: equivalent for `<=`, since one more pass only moves past the end and the outer loop then stops with the same null; `>=` is caught by the jsonAfter tests, which this hides too.
 			while (i < text.length && text[i] !== '"') i += text[i] === '\\' ? 2 : 1;
 			continue;
 		}
@@ -54,8 +57,10 @@ export function jsonAfter(text: string, marker: string): z.JSONType | null {
 
 			if (depth === 0) {
 				try {
+					// Stryker disable BlockStatement: equivalent for the catch below. Scanning on past an object that will not parse only tries longer slices from the same brace, and none of those parse either, so it still ends in null.
 					return JSON.parse(text.slice(start, i + 1));
 				} catch (_e) {
+					// Stryker restore BlockStatement
 					return null;
 				}
 			}
@@ -108,7 +113,14 @@ export function formFields(form: HTMLFormElement) {
 		if (!isField || !element.name || element.disabled) continue;
 		const type = element.type.toLowerCase();
 
-		if (type === 'submit' || type === 'button' || type === 'reset' || type === 'image') continue;
+		if (
+			type === 'submit' ||
+			type === 'button' ||
+			type === 'reset' ||
+			// Stryker disable next-line ConditionalExpression,StringLiteral: equivalent. form.elements never lists an image input (the HTML spec leaves them out, and jsdom and Chrome both do), so this never matches.
+			type === 'image'
+		)
+			continue;
 
 		if (element instanceof HTMLInputElement && (type === 'checkbox' || type === 'radio') && !element.checked) continue;
 		fields[element.name] = element.value;

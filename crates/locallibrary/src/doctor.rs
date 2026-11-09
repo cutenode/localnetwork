@@ -1000,15 +1000,9 @@ fn find_orphans(device: &Device, ctx: &Ctx<'_>) -> Result<Vec<OrphanFile>> {
 pub fn plan_orphans(device: &Device, ctx: &Ctx<'_>) -> Result<OrphanPlan> {
     let files = find_orphans(device, ctx)?;
     let bytes = files.iter().map(|f| f.size).sum();
-    let cluster = fsutil::cluster_size(device.root());
-    let round = |n: u64| n.div_ceil(cluster) * cluster;
-    let size = |key| std::fs::metadata(device.path(key)).map(|m| m.len()).unwrap_or(0);
     let needed_bytes = match files.is_empty() {
         true => 0,
-        false => {
-            files.iter().map(|f| round(f.size)).sum::<u64>()
-                + paths::DATABASE_FILES.iter().map(|k| round(size(k))).sum::<u64>()
-        }
+        false => crate::backup::needed_bytes(device, files.iter().map(|f| f.path.as_str())),
     };
     let free_space = fsutil::available_space(device.root());
     let fits = free_space.is_none_or(|f| needed_bytes <= f);

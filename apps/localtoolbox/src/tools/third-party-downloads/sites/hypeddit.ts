@@ -236,6 +236,7 @@ async function unlock(pageUrl: string, details: UnlockDetails): Promise<Unlocked
 	// visits will not unlock without it.
 	await postToGate('/gate/ge', { vt: gate.gvt, uid: gate.uid }, gate.csrf);
 
+	// Stryker disable next-line ArrayDeclaration: equivalent. The list is only searched for known step codes, which an invented entry never is.
 	const steps = gate.steps ? gate.steps.split(',') : [];
 	const wantsEmail = steps.includes('email');
 

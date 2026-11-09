@@ -7,9 +7,11 @@
 # pins are also listed in dist-workspace.toml ([dist.github-action-commits]): update them there
 # too.
 #
-# Cargo (the workspace, and fuzz/ with a lockfile of its own) and npm: the lockfiles only, the
-# semver-compatible updates `cargo update` and `pnpm update` would make. Cargo.toml (and its `=`
-# pins) and package.json are changed by hand.
+# Cargo (the workspace, and fuzz/ with a lockfile of its own) and npm (the pnpm workspace, and
+# apps/locallibrary/bombadil with an npm lockfile of its own): the lockfiles only, the
+# semver-compatible updates `cargo update`, `pnpm update` and `npm update` would make. Cargo.toml
+# (and its `=` pins) and package.json are changed by hand. tools/policy/dependabot.rego checks that
+# every lockfile's folder is listed.
 #
 # Docker: the digest apps/web/Dockerfile pins its base image to. The tag names only Node's major
 # version, which follows .node-version and is changed by hand. Dependabot has no security updates
@@ -46,7 +48,7 @@ updates:
         applies-to: security-updates
         patterns: ["*"]
   - package-ecosystem: npm
-    directory: /
+    directories: ["/", "/apps/locallibrary/bombadil"]
     multi-ecosystem-group: dependencies
     patterns: ["*"]
     cooldown:

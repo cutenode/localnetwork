@@ -740,7 +740,7 @@ pub fn track_details_cached(cache: &LibraryCache, req: &TrackDetailsRequest) -> 
                     .filter(|l| !l.is_folder && l.track_ids.contains(&t.id))
                     .map(|l| l.name.clone())
                     .collect(),
-                tags: tags.get(&crate::paths::file_key(&t.file_path)).cloned().unwrap_or_default(),
+                tags: tags.of(t).to_vec(),
                 copies: fingerprint(t)
                     .and_then(|k| recordings.get(&k))
                     .map_or_else(Vec::new, |v| v.iter().filter(|o| o.id != t.id).map(|o| TrackRef::from(*o)).collect()),

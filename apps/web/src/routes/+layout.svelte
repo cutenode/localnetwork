@@ -4,7 +4,7 @@
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import favicon from '#lib/assets/favicon.svg';
-	import { clearSignedOutDrafts } from '#lib/form-draft.svelte.ts';
+	import { clearSignedOutDrafts } from '#lib/signed-out-drafts.ts';
 	import SocialMeta from '#lib/components/SocialMeta.svelte';
 	import { type NavLink, siteNav } from '#lib/nav.ts';
 	import SiteHeader from '#lib/ui/SiteHeader.svelte';

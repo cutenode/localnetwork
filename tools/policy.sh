@@ -17,7 +17,7 @@ files=()
 while IFS= read -r file; do files+=("$file"); done < <(list -- package.json pnpm-workspace.yaml Cargo.toml lefthook.yml \
   ':(glob)apps/*/package.json' ':(glob)apps/*/Cargo.toml' ':(glob)apps/*/Dockerfile' ':(glob)packages/*/package.json' \
   ':(glob)crates/*/Cargo.toml' ':(glob)plugins/*/Cargo.toml' ':(glob)vendor/*/Cargo.toml' \
-  ':(glob).github/workflows/*.yml' .github/labels.yml .github/labeler.yml ':(glob).github/ISSUE_TEMPLATE/*.yml' \
+  ':(glob).github/workflows/*.yml' .github/dependabot.yml .github/labels.yml .github/labeler.yml ':(glob).github/ISSUE_TEMPLATE/*.yml' \
   ':(glob).github/rulesets/*.json' ':(glob)lexicons/**/*.json')
 
 # Every file, for the policy that each one gets a label.
