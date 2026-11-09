@@ -24,12 +24,12 @@
 			"measures": "Bytes allocated filtering 2,000 tracks by artist, tempo and genre."
 		},
 		"compare.2k.allocations": {
-			"limit": 69034,
+			"limit": 51034,
 			"unit": "allocations",
 			"measures": "Allocations made comparing two 2,000-track libraries."
 		},
 		"compare.2k.bytes": {
-			"limit": 5690400,
+			"limit": 5589600,
 			"unit": "bytes",
 			"measures": "Bytes allocated comparing two 2,000-track libraries."
 		},
@@ -54,7 +54,7 @@
 			"measures": "Bytes allocated planning a sync of two 500-track drives."
 		},
 		"check.500.allocations": {
-			"limit": 210117,
+			"limit": 205609,
 			"unit": "allocations",
 			"measures": "Allocations made checking two 500-track drives."
 		},

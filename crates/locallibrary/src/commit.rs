@@ -195,6 +195,9 @@ pub(crate) struct Options<'a> {
     pub lineage: bool,
     /// The drive the content came from (merge).
     pub source: Option<Uuid>,
+    /// That drive's state, when the write took all of it in (merge): recorded before the new
+    /// state, so the drive counts as having been through it.
+    pub held: Option<LineageEntry>,
     /// Edits to add to the drive's journal, with what they did.
     pub journal: Option<(&'a [Edit], &'a [String])>,
     /// Files it writes in place of ones the databases name (artwork replaced in place), for the
@@ -214,6 +217,7 @@ impl Options<'_> {
             undoes: None,
             lineage: true,
             source: None,
+            held: None,
             journal: None,
             in_place: Vec::new(),
             unbacked: Vec::new(),
@@ -413,6 +417,10 @@ pub(crate) fn commit(device: &mut Device, changes: Changes<'_>, opts: Options<'_
         backup::seal(device, &id)?;
     }
     if opts.lineage {
+        // Stamped now, after the backup: putting that back drops it (see `backup::restore_with`).
+        if let Some(held) = opts.held {
+            device.state_mut()?.record(LineageEntry { at: Utc::now(), ..held });
+        }
         let library = device.library()?;
         let scanned = device.scan_fingerprinted(Some(&library), ctx)?;
         done.fingerprint = scanned.fingerprint;

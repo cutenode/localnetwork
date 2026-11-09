@@ -2931,6 +2931,11 @@ export type LineageOp =
   | "export"
   /** Damaged files rewritten from a known-good copy (see [`crate::scrub`]). */
   | "repair"
+  /**
+   * Another drive's state a merge took in whole, recorded before the merged state (see
+   * [`crate::merge`]).
+   */
+  | "merged_in"
   /** An operation from a newer version of locallibrary. */
   | "other";
 
@@ -4025,6 +4030,14 @@ export type MergePlan = {
   new_tracks: PlannedTrack[];
   /** Source tracks already in the target. */
   matched_tracks: number;
+  /** Those whose details, file or analysis differ: the target's stay as they are. */
+  differing_tracks: TrackChange[];
+  /**
+   * Whether the target holds everything the source has once merged (every track, its
+   * playlists and history), `differing_tracks` aside. Then the source's state goes into the
+   * target's lineage, so a `sync` afterwards copies the merged drive over the source.
+   */
+  takes_in_source: boolean;
   playlists: PlannedPlaylist[];
   artwork_files: number;
   copy_bytes: number;

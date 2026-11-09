@@ -488,6 +488,9 @@ pub fn restore_with(device: &mut Device, id: Option<&str>, force: bool, ctx: &Ct
     let remembers = device.state().is_some_and(|s| s.player.is_some()) && carried(device, &info)?.is_none();
     let shown = remembers.then(|| crate::player::db_identity(device.root())).flatten();
     commit::commit(device, changes, opts, ctx)?;
+    // A merge it takes back no longer holds the other drive's state it took in.
+    device.state_mut()?.lineage.retain(|e| e.op != LineageOp::MergedIn || e.at < info.created);
+    device.save_state()?;
     put_back_carried(device, &info, shown)?;
     Ok(info)
 }

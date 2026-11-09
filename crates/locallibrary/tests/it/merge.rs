@@ -1,3 +1,4 @@
+mod diverged;
 mod files;
 mod matching;
 mod playlist_trees;
