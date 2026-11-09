@@ -25,6 +25,7 @@ export interface Database {
 	spaceWatch: SpaceWatchTable;
 	syncedRepo: SyncedRepoTable;
 	syncRepoRetry: SyncRepoRetryTable;
+	pendingProjection: PendingProjectionTable;
 	spaceRecord: SpaceRecordTable;
 	bookingThread: BookingThreadTable;
 	bookingParticipant: BookingParticipantTable;
@@ -218,6 +219,16 @@ export interface SyncRepoRetryTable {
 	attempts: number;
 	nextAttemptAt: string;
 	lastError: string;
+}
+
+export interface PendingProjectionTable {
+	spaceUri: string;
+	repoDid: string;
+	collection: string;
+	rkey: string;
+	attempts: number;
+	nextAttemptAt: string;
+	lastError: string | null;
 }
 
 export interface SpaceRecordTable {

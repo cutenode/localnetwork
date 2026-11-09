@@ -93,10 +93,10 @@ flowchart TD
   List --> Ops["Each repo that's behind, 4 at a time<br/>across all spaces: listRepoOps since local rev"]
   List -- "never synced" --> Star["getRepo: verified STAR archive"]
   Ops -- "fails, not on a MAC<br/>or credential" --> Star
-  Ops --> Apply["Transaction: space_record, synced_repo"]
+  Ops --> Apply["Transaction: space_record, pending_projection,<br/>synced_repo"]
   Star --> Apply
-  Apply --> Project["Project each change.<br/>A failure is logged, not retried"]
-  Project --> Due["Repos whose retry is due,<br/>then save spaceRev"]
+  Apply --> Project["Project each change.<br/>A failure stays in pending_projection"]
+  Project --> Due["Repos and projections whose retry<br/>is due, then save spaceRev"]
 ```
 
 Source: [`src/lib/server/sync/engine.ts`](../../src/lib/server/sync/engine.ts)
