@@ -39,7 +39,6 @@
 use indexmap::IndexMap;
 use std::collections::BTreeSet;
 
-use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::{Path, PathBuf};
 
@@ -782,13 +781,12 @@ fn copy_one(
 /// its hash.
 pub(crate) fn settle(copied: &[Copied], index: &mut crate::tree::HashIndex) -> Result<()> {
     fsutil::flush(&copied.iter().map(|c| c.path.clone()).collect::<Vec<_>>())?;
-    let stamped: Vec<std::fs::Metadata> = copied
-        .par_iter()
-        .map(|c| {
-            fsutil::set_mtime(&c.path, c.mtime)?;
-            std::fs::metadata(&c.path).at(&c.path)
-        })
-        .collect::<Result<_>>()?;
+    let stamped: Vec<std::fs::Metadata> = crate::workers::map(copied.iter().collect(), |c| {
+        fsutil::set_mtime(&c.path, c.mtime)?;
+        std::fs::metadata(&c.path).at(&c.path)
+    })
+    .into_iter()
+    .collect::<Result<_>>()?;
     for (c, meta) in copied.iter().zip(&stamped) {
         record_as(index, &c.key, c.class, c.hash, meta);
     }

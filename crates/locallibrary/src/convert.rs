@@ -29,7 +29,6 @@
 //! MIT) with its rows removed, which keeps rekordbox's colours and browse columns. A new OneLibrary
 //! database starts from rekordbox's schema and default rows ([`OneLibrary::create`]).
 
-use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::{Path, PathBuf};
 
@@ -648,7 +647,8 @@ impl Builder<'_, '_> {
         let device = self.device;
         let mut rows: FxHashMap<u32, _> = match (&rebuilt, self.additions) {
             (None, None) => {
-                self.source.tracks.par_iter().map(|t| (t.id, cue_edit::rows_from_analysis(device, t))).collect()
+                let rows = |t: &Track| (t.id, cue_edit::rows_from_analysis(device, t));
+                crate::workers::map(self.source.tracks.iter().collect(), rows).into_iter().collect()
             }
             _ => FxHashMap::default(),
         };

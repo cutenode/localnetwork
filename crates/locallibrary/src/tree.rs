@@ -118,16 +118,13 @@ impl FileTree {
         ctx.phase_start(Phase::Hash, todo.len() as u64, bytes);
         // A drive's first scan reads an analysis file or two for each track, side by side: each
         // only waits on the drive.
-        let hashed: Vec<(String, Result<Hash>)> = todo
-            .into_par_iter()
-            .map(|key| {
-                let hash = ctx.check().map_err(Error::from).and_then(|()| {
-                    ctx.emit(Event::Item { phase: Phase::Hash, path: key.clone(), bytes: self.entries[&key].size });
-                    hash::hash_file(&self.fs_path(&key), ctx, Phase::Hash)
-                });
-                (key, hash)
-            })
-            .collect();
+        let hashed: Vec<(String, Result<Hash>)> = crate::workers::map(todo, |key| {
+            let hash = ctx.check().map_err(Error::from).and_then(|()| {
+                ctx.emit(Event::Item { phase: Phase::Hash, path: key.clone(), bytes: self.entries[&key].size });
+                hash::hash_file(&self.fs_path(&key), ctx, Phase::Hash)
+            });
+            (key, hash)
+        });
         for (key, hash) in hashed {
             let entry = self.entries.get_mut(&key).expect("key from entries");
             entry.hash = Some(hash?);

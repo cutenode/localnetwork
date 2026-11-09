@@ -33,7 +33,6 @@
 //! recorded, changes since the last export) is saved in the store first, as [`crate::pack`] does.
 
 use indexmap::IndexMap;
-use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -59,7 +58,7 @@ use crate::smart::SmartPlaylist;
 use crate::store::{SnapshotInfo, Store};
 use crate::sync::PullOptions;
 use crate::tags::DbTags;
-use crate::{Error, Result, backup, convert, edit, fsutil, hash, merge};
+use crate::{Error, Result, backup, convert, edit, fsutil, hash, merge, workers};
 
 const RECORD_FILE: &str = "collection.json";
 
@@ -496,21 +495,18 @@ fn hash_checked(written: &mut Planned, checked: &FxHashSet<String>, ctx: &Ctx<'_
     }
     ctx.phase_start(Phase::Hash, hashed.len() as u64, hashed.iter().map(|c| c.size).sum());
     let sources = &written.sources;
-    let hashes: Vec<Result<(String, Hash)>> = hashed
-        .into_par_iter()
-        .map(|c| {
-            let src = &sources[&c.path];
-            ctx.emit(Event::Item { phase: Phase::Hash, path: c.path.clone(), bytes: 0 });
-            let hash = hash::hash_file(&src.path, ctx, Phase::Hash)?;
-            // After the hash: a size that changed while the others were read counts too.
-            let now = std::fs::metadata(&src.path).at(&src.path)?.len();
-            if now != src.size {
-                let changed = format!("{} changed while the export was planned; plan it again", src.path.display());
-                return Err(Error::invalid(changed));
-            }
-            Ok((c.path.clone(), hash))
-        })
-        .collect();
+    let hashes: Vec<Result<(String, Hash)>> = workers::map(hashed, |c| {
+        let src = &sources[&c.path];
+        ctx.emit(Event::Item { phase: Phase::Hash, path: c.path.clone(), bytes: 0 });
+        let hash = hash::hash_file(&src.path, ctx, Phase::Hash)?;
+        // After the hash: a size that changed while the others were read counts too.
+        let now = std::fs::metadata(&src.path).at(&src.path)?.len();
+        if now != src.size {
+            let changed = format!("{} changed while the export was planned; plan it again", src.path.display());
+            return Err(Error::invalid(changed));
+        }
+        Ok((c.path.clone(), hash))
+    });
     ctx.phase_end(Phase::Hash);
     for hash in hashes {
         let (key, h) = hash?;
@@ -610,7 +606,7 @@ fn analysis_slots(from: &Collected<'_>, library: &Library) -> FxHashMap<PathBuf,
         files.map(|f| collection.share_file(&f)).collect::<Vec<_>>()
     };
     let paths: Vec<PathBuf> = library.tracks.iter().flat_map(share).collect();
-    paths.into_par_iter().map(|p| (library_write::path_slot(&p), p)).map(|(slot, p)| (p, slot)).collect()
+    workers::map(paths, |p| (library_write::path_slot(&p), p)).into_iter().map(|(slot, p)| (p, slot)).collect()
 }
 
 /// Where the exported library's files go on the target, and where they come from.
