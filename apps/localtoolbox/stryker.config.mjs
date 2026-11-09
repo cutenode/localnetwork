@@ -6,9 +6,14 @@ export default {
 	// The runner is named rather than found: Stryker looks for its plugins beside
 	// its own package, and pnpm installs the runner somewhere else.
 	plugins: ['@stryker-mutator/vitest-runner', './stryker-load-time.mjs'],
-	// Leaves two test files out (see that file). Stryker's own `testFiles` would
+	// Leaves three test files out (see that file). Stryker's own `testFiles` would
 	// too, but it also switches every mutant on only after the modules loaded.
 	vitest: { configFile: 'vitest.stryker.config.ts' },
+	// Each sandbox is a copy of this folder, so it has to sit as deep in the repo
+	// as this folder does for paths that reach out of it to resolve, like
+	// bug-report.test.ts reading the issue form. Inside this folder they missed,
+	// and that test file failed before any of its tests ran.
+	tempDirName: '../../.stryker-tmp',
 	// The files vitest.config.ts holds to full coverage. The components are left
 	// out for the reason they have a lower floor there: much of what they compile
 	// to is Svelte's bookkeeping, not ours.
