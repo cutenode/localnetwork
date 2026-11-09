@@ -173,9 +173,9 @@ pub(super) fn run(root: &Path, limit: u64, ctx: &Ctx<'_>) -> Result<Costs> {
     let written = make_items(
         start,
         |i| {
-            // As a copy makes one: a temp file, then a rename.
+            // As a copy makes one (see `fsutil::write_for_drive`).
             let path = files.join(file_name(i));
-            fsutil::write_deferred(&path, &SMALL_FILE)?;
+            fsutil::write_for_drive(&path, &SMALL_FILE)?;
             Ok(path)
         },
         ctx,
