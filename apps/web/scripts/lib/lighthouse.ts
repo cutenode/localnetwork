@@ -112,7 +112,8 @@ export const METRICS: Metric[] = [
 	{
 		id: 'dom',
 		label: 'DOM elements',
-		audit: 'dom-size',
+		// Lighthouse 13 replaced dom-size with this insight, which takes the count from Chrome's trace.
+		audit: 'dom-size-insight',
 		unit: 'count',
 		higherIsBetter: false,
 		tolerance: { absolute: 100, relative: 0.1 }
