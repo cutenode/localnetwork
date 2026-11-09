@@ -13796,6 +13796,11 @@
         },
         {
           "type": "string",
+          "const": "merged_in",
+          "description": "Another drive's state a merge took in whole, recorded before the merged state (see\n[`crate::merge`])."
+        },
+        {
+          "type": "string",
           "const": "other",
           "description": "An operation from a newer version of locallibrary."
         }
@@ -17058,6 +17063,17 @@
           "minimum": 0,
           "description": "Source tracks already in the target."
         },
+        "differing_tracks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrackChange"
+          },
+          "description": "Those whose details, file or analysis differ: the target's stay as they are."
+        },
+        "takes_in_source": {
+          "type": "boolean",
+          "description": "Whether the target holds everything the source has once merged (every track, its\nplaylists and history), `differing_tracks` aside. Then the source's state goes into the\ntarget's lineage, so a `sync` afterwards copies the merged drive over the source."
+        },
         "playlists": {
           "type": "array",
           "items": {
@@ -17123,6 +17139,8 @@
         "target",
         "new_tracks",
         "matched_tracks",
+        "differing_tracks",
+        "takes_in_source",
         "playlists",
         "artwork_files",
         "copy_bytes",

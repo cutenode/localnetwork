@@ -24,11 +24,18 @@
 //! Paths that are taken by a *different* file get a ` (2)` suffix, and the analysis file's
 //! embedded path is rewritten to match.
 //!
+//! A track already present keeps the target's details, analysis and file; the plan lists those
+//! that differ. When the merge leaves nothing of the source out, the source's state goes into the
+//! target's lineage, so the target counts as newer and `sync` copies it over the source, those
+//! differences included. Undoing the merge takes that back out.
+//!
 //! The target's database is backed up first (see [`crate::backup`]), so `locallibrary undo` takes back a
 //! merge.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::PathBuf;
+
+use chrono::Utc;
 
 use rekordbox_pdb::{NewTrack, PdbEditor};
 
@@ -38,11 +45,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::commit::{self, Changes, NewDatabases, NewFile, Options};
-use crate::device::{Device, LineageOp};
+use crate::device::{Device, LineageEntry, LineageOp, Scanned};
 use crate::error::IoContext;
 use crate::fsutil;
 use crate::hash::Hash;
-use crate::model::{self, Library, Playlist, Track};
+use crate::model::{self, FieldChange, Library, Playlist, Track, TrackChange};
 use crate::paths::{self, fold};
 use crate::pdb;
 use crate::progress::{Ctx, Phase, WarningLimiter};
@@ -123,6 +130,12 @@ pub struct MergePlan {
     pub new_tracks: Vec<PlannedTrack>,
     /// Source tracks already in the target.
     pub matched_tracks: usize,
+    /// Those whose details, file or analysis differ: the target's stay as they are.
+    pub differing_tracks: Vec<TrackChange>,
+    /// Whether the target holds everything the source has once merged (every track, its
+    /// playlists and history), `differing_tracks` aside. Then the source's state goes into the
+    /// target's lineage, so a `sync` afterwards copies the merged drive over the source.
+    pub takes_in_source: bool,
     pub playlists: Vec<PlannedPlaylist>,
     pub artwork_files: usize,
     pub copy_bytes: u64,
@@ -143,6 +156,9 @@ pub struct MergePlan {
     /// The target's databases when planned (see [`crate::commit::lock`]).
     #[serde(skip)]
     state: Option<Hash>,
+    /// The source's fingerprint when planned.
+    #[serde(skip)]
+    source_state: Option<Hash>,
     /// source track id -> existing target track id
     #[serde(skip)]
     matches: FxHashMap<u32, u32>,
@@ -216,7 +232,7 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
         )));
     }
     let dst_lib = target.library()?;
-    let src_tree = source.scan(Some(&src_lib), ctx)?;
+    let Scanned { tree: src_tree, fingerprint: source_state, .. } = source.scan_fingerprinted(Some(&src_lib), ctx)?;
     let dst_tree = target.scan(Some(&dst_lib), ctx)?;
 
     let selected = selected_playlists(&src_lib, opts)?;
@@ -259,6 +275,7 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
     let mut new_tracks = Vec::new();
     let mut unanalysed = Vec::new();
     let mut matches = FxHashMap::default();
+    let mut differing_tracks = Vec::new();
     let mut copy_bytes = 0u64;
     let mut needed = 0u64;
     let mut artwork_ids = FxHashSet::default();
@@ -274,16 +291,16 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
             warnings.push(format!("{}: unsafe file path {:?}; skipped", t.display_name(), t.file_path));
             continue;
         }
-        if let Some(d) = dst_by_path.get(&fold(&src_key))
-            && d.file_size == t.file_size
-        {
+        let matched = dst_by_path
+            .get(&fold(&src_key))
+            .filter(|d| d.file_size == t.file_size)
+            .or_else(|| dst_by_meta.get(&t.fingerprint_key()).filter(|_| opts.match_mode == MatchMode::Metadata));
+        if let Some(d) = matched {
             matches.insert(t.id, d.id);
-            continue;
-        }
-        if opts.match_mode == MatchMode::Metadata
-            && let Some(d) = dst_by_meta.get(&t.fingerprint_key())
-        {
-            matches.insert(t.id, d.id);
+            let fields = differences(t, d, &src_tree, &dst_tree);
+            if !fields.is_empty() {
+                differing_tracks.push(TrackChange { track: t.into(), fields });
+            }
             continue;
         }
         let Some(src_entry) = src_tree.resolve(&src_key) else {
@@ -367,6 +384,12 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
     }
     let new_ids: FxHashSet<u32> = new_tracks.iter().map(|t| t.source_id).collect();
     let history_ids = if opts.history { plan_history(&src_lib, &dst_lib, &matches, &new_ids) } else { Vec::new() };
+    // Nothing of the source's left out: no track skipped, no playlist or history list left behind.
+    let takes_in_source = source_state.is_some()
+        && wanted_tracks.is_none()
+        && opts.playlists != PlaylistMode::None
+        && new_tracks.len() + matches.len() == src_lib.tracks.len()
+        && (opts.history || plan_history(&src_lib, &dst_lib, &matches, &new_ids).is_empty());
     let history: Vec<String> = history_ids
         .iter()
         .filter_map(|id| src_lib.history.iter().find(|h| h.id == *id))
@@ -400,6 +423,8 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
         source: source.name(),
         target: target.root().to_path_buf(),
         matched_tracks: matches.len(),
+        differing_tracks,
+        takes_in_source,
         new_tracks,
         playlists,
         artwork_files: artwork_ids.len(),
@@ -416,7 +441,29 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
         folder_name,
         again,
         state: Some(crate::commit::database_state(target)),
+        source_state,
     })
+}
+
+/// What a sync after the merge would change on the source for a track the target already has
+/// (`d`, the source's `t`): its details, its file, and its analysis files (cues, beat grid).
+fn differences(t: &Track, d: &Track, src_tree: &FileTree, dst_tree: &FileTree) -> Vec<FieldChange> {
+    let mut fields = model::track_field_changes(t, d);
+    if paths::file_key(&t.file_path) != paths::file_key(&d.file_path) {
+        fields.push(FieldChange { field: "file".into(), old: t.file_path.clone(), new: d.file_path.clone() });
+    }
+    let analysis = |tree: &FileTree, t: &Track| -> Vec<Option<(u64, i64)>> {
+        let key = paths::key(&t.analyze_path);
+        let stem = key.rsplit_once('.').map_or(key.as_str(), |(s, _)| s);
+        ["DAT", "EXT", "2EX"]
+            .iter()
+            .map(|ext| tree.resolve(&format!("{stem}.{ext}")).map(|e| (e.size, e.mtime)))
+            .collect()
+    };
+    if analysis(src_tree, t) != analysis(dst_tree, d) {
+        fields.push(FieldChange { field: "analysis".into(), old: String::new(), new: String::new() });
+    }
+    fields
 }
 
 /// A drive's My Tags, in each of its databases (missing or unreadable ones are `None`).
@@ -782,7 +829,7 @@ pub fn apply(
     }
     let _lock = commit::lock(target, plan.state)?;
     let src_lib = source.library()?;
-    let src_tree = source.scan(Some(&src_lib), ctx)?;
+    let Scanned { tree: src_tree, fingerprint: source_state, .. } = source.scan_fingerprinted(Some(&src_lib), ctx)?;
     let mut report = MergeReport { tracks_matched: plan.matched_tracks, ..Default::default() };
     // The source's own OneLibrary rows carry every column; read them if it has a database.
     let src_plus = if source.has_library_plus() { source.library_plus().ok() } else { None };
@@ -982,6 +1029,17 @@ pub fn apply(
     let mut opts = Options::new(LineageOp::Merge, format!("merge from {}", plan.source))
         .backup(format!("before merging {}", plan.source));
     opts.source = source.id();
+    // All of the source as planned is in the merge: the target has been through its state.
+    if plan.takes_in_source && source_state == plan.source_state {
+        opts.held = source_state.map(|fingerprint| LineageEntry {
+            fingerprint,
+            at: Utc::now(),
+            op: LineageOp::MergedIn,
+            snapshot: None,
+            source: opts.source,
+            tracks: src_lib.tracks.len(),
+        });
+    }
     let done = commit::commit(target, changes, opts, ctx);
     warnings.into_inner().finish();
     let done = done?;

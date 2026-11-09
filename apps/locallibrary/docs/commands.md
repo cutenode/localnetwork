@@ -305,9 +305,13 @@ locallibrary library push /Volumes/NEW -l Home --snapshot 3f9a2c
 
 ```bash
 locallibrary diff REKORDBOX BACKUP --summary   # "both changed since they were last in sync (2026-09-30 21:04)"
-locallibrary merge BACKUP REKORDBOX            # keep both sets of new tracks
+locallibrary merge BACKUP REKORDBOX --history  # keep both sets of new tracks
 locallibrary sync Home                         # then make them identical again
 ```
+
+The merge plan lists tracks both drives have whose details differ: REKORDBOX's stay, and the
+sync copies them to BACKUP. A merge that leaves some of BACKUP out (`--only`, `--playlists none`,
+history lists without `--history`) leaves the drives diverged, and so does undoing it.
 
 **A new drive**
 

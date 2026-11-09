@@ -668,7 +668,8 @@ fn playlist_contents(lib: &Library) -> IndexMap<PlaylistKey<'_>, (String, Vec<St
     out
 }
 
-fn track_field_changes(a: &Track, b: &Track) -> Vec<FieldChange> {
+/// The details `b` holds differently from `a` (old: `a`'s, new: `b`'s).
+pub fn track_field_changes(a: &Track, b: &Track) -> Vec<FieldChange> {
     let mut out = Vec::new();
     let mut cmp = |field: &str, x: &str, y: &str| {
         if x != y {
