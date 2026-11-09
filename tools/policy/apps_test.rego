@@ -48,6 +48,16 @@ test_oxlint_range if {
 	"apps/site/package.json: pin oxlint to \"1.86.0\", as the root does" in apps.deny with input as fixtures.with_file("apps/site/package.json", broken)
 }
 
+test_lefthook_unset if {
+	broken := json.remove(fixtures.file("lefthook.yml"), ["lefthook"])
+	"lefthook.yml: set `lefthook: pnpm exec lefthook`, so every worktree's hooks run its own lefthook" in apps.deny with input as fixtures.with_file("lefthook.yml", broken)
+}
+
+test_lefthook_other_command if {
+	broken := object.union(fixtures.file("lefthook.yml"), {"lefthook": "/usr/local/bin/lefthook"})
+	"lefthook.yml: set `lefthook: pnpm exec lefthook`, so every worktree's hooks run its own lefthook" in apps.deny with input as fixtures.with_file("lefthook.yml", broken)
+}
+
 test_missing_hook if {
 	hooks := fixtures.file("lefthook.yml")
 	broken := object.union(hooks, {"pre-push": {"jobs": [{"root": "apps/site/", "run": "pnpm check"}]}})

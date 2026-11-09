@@ -58,6 +58,7 @@ repo := [
 	{"path": "plugins/p/Cargo.toml", "contents": {"package": object.union({"name": "locallibrary-plugin-p", "publish": false}, package_fields), "lints": {"workspace": true}}},
 	{"path": "vendor/pdb/Cargo.toml", "contents": {"package": {"name": "pdb", "edition": "2021", "rust-version": {"workspace": true}}, "lints": {"workspace": true}}},
 	{"path": "lefthook.yml", "contents": {
+		"lefthook": "pnpm exec lefthook",
 		"pre-commit": {"jobs": [{"root": "apps/site/", "run": "pnpm exec oxfmt {staged_files}"}, {"root": "apps/site/", "run": "pnpm exec oxlint {staged_files}"}]},
 		"pre-push": {"jobs": [{"root": "apps/site/", "run": "pnpm check"}, {"root": "apps/site/", "run": "pnpm test"}]},
 	}},

@@ -74,6 +74,17 @@ deny contains msg if {
 	msg := sprintf("lefthook.yml: add a %s job with root apps/%s/ that runs %s", [hook, app, tool])
 }
 
+# The hooks run the committing worktree's lefthook, not the path of the one that installed them last.
+deny contains msg if {
+	lib.file("lefthook.yml").lefthook != "pnpm exec lefthook"
+	msg := "lefthook.yml: set `lefthook: pnpm exec lefthook`, so every worktree's hooks run its own lefthook"
+}
+
+deny contains msg if {
+	not lib.file("lefthook.yml").lefthook
+	msg := "lefthook.yml: set `lefthook: pnpm exec lefthook`, so every worktree's hooks run its own lefthook"
+}
+
 hook_runs(hook, root_dir, tool) if {
 	some job in lib.file("lefthook.yml")[hook].jobs
 	job.root == root_dir
