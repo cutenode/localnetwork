@@ -106,7 +106,11 @@ fn any_setting_typed_is_taken_as_its_kind_says(tc: TestCase) {
             }
             let path = got.unwrap();
             let path = path.as_str().unwrap();
-            assert!(Path::new(path).is_absolute() && path.ends_with(&raw), "{raw:?}: {path}");
+            // Windows drops a name's trailing spaces and dots: "No " is the file "No" there, and
+            // that's the one a plugin would open with it.
+            let name = if cfg!(windows) { raw.trim_end_matches([' ', '.']) } else { raw.as_str() };
+            let named = Path::new(path).file_name().and_then(|n| n.to_str());
+            assert!(Path::new(path).is_absolute() && named == Some(name), "{raw:?}: {path}");
             return;
         }
         _ => (Some(json!(raw)), ""),
