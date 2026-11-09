@@ -156,9 +156,9 @@ pub struct MergePlan {
     /// The target's databases when planned (see [`crate::commit::lock`]).
     #[serde(skip)]
     state: Option<Hash>,
-    /// The source's fingerprint when planned.
+    /// The source's databases when planned (see [`databases_seen`]).
     #[serde(skip)]
-    source_state: Option<Hash>,
+    source_state: Hash,
     /// source track id -> existing target track id
     #[serde(skip)]
     matches: FxHashMap<u32, u32>,
@@ -232,7 +232,7 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
         )));
     }
     let dst_lib = target.library()?;
-    let Scanned { tree: src_tree, fingerprint: source_state, .. } = source.scan_fingerprinted(Some(&src_lib), ctx)?;
+    let src_tree = source.scan(Some(&src_lib), ctx)?;
     let dst_tree = target.scan(Some(&dst_lib), ctx)?;
 
     let selected = selected_playlists(&src_lib, opts)?;
@@ -276,6 +276,8 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
     let mut unanalysed = Vec::new();
     let mut matches = FxHashMap::default();
     let mut differing_tracks = Vec::new();
+    // Analysis file keys, written here one at a time (see `differences`).
+    let mut key = String::new();
     let mut copy_bytes = 0u64;
     let mut needed = 0u64;
     let mut artwork_ids = FxHashSet::default();
@@ -291,13 +293,12 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
             warnings.push(format!("{}: unsafe file path {:?}; skipped", t.display_name(), t.file_path));
             continue;
         }
-        let matched = dst_by_path
-            .get(&fold(&src_key))
-            .filter(|d| d.file_size == t.file_size)
-            .or_else(|| dst_by_meta.get(&t.fingerprint_key()).filter(|_| opts.match_mode == MatchMode::Metadata));
+        let matched = dst_by_path.get(&fold(&src_key)).filter(|d| d.file_size == t.file_size).or_else(|| {
+            (opts.match_mode == MatchMode::Metadata).then(|| dst_by_meta.get(&t.fingerprint_key())).flatten()
+        });
         if let Some(d) = matched {
             matches.insert(t.id, d.id);
-            let fields = differences(t, d, &src_tree, &dst_tree);
+            let fields = differences(t, d, &src_tree, &dst_tree, &mut key);
             if !fields.is_empty() {
                 differing_tracks.push(TrackChange { track: t.into(), fields });
             }
@@ -385,8 +386,7 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
     let new_ids: FxHashSet<u32> = new_tracks.iter().map(|t| t.source_id).collect();
     let history_ids = if opts.history { plan_history(&src_lib, &dst_lib, &matches, &new_ids) } else { Vec::new() };
     // Nothing of the source's left out: no track skipped, no playlist or history list left behind.
-    let takes_in_source = source_state.is_some()
-        && wanted_tracks.is_none()
+    let takes_in_source = wanted_tracks.is_none()
         && opts.playlists != PlaylistMode::None
         && new_tracks.len() + matches.len() == src_lib.tracks.len()
         && (opts.history || plan_history(&src_lib, &dst_lib, &matches, &new_ids).is_empty());
@@ -441,24 +441,45 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
         folder_name,
         again,
         state: Some(crate::commit::database_state(target)),
-        source_state,
+        source_state: databases_seen(&src_tree),
     })
 }
 
+/// A drive's database files as `tree` found them, by size and modification time: a merge takes in
+/// the source's state only if it's what was planned from.
+fn databases_seen(tree: &FileTree) -> Hash {
+    let mut seen = blake3::Hasher::new();
+    for key in paths::DATABASE_FILES {
+        let (size, mtime) = tree.resolve(key).map_or((0, 0), |e| (e.size, e.mtime));
+        seen.update(&size.to_le_bytes()).update(&mtime.to_le_bytes());
+    }
+    seen.finalize().into()
+}
+
 /// What a sync after the merge would change on the source for a track the target already has
-/// (`d`, the source's `t`): its details, its file, and its analysis files (cues, beat grid).
-fn differences(t: &Track, d: &Track, src_tree: &FileTree, dst_tree: &FileTree) -> Vec<FieldChange> {
+/// (`d`, the source's `t`): its details, its file, and its analysis files (cues, beat grid), by
+/// size. Their times differ between any two drives exported apart, and their content isn't read
+/// while planning, so a cue moved without changing a file's size isn't seen. Every matched track
+/// is compared, so one that's the same costs no allocation: `key` holds each analysis file's key
+/// in turn.
+fn differences(t: &Track, d: &Track, src_tree: &FileTree, dst_tree: &FileTree, key: &mut String) -> Vec<FieldChange> {
     let mut fields = model::track_field_changes(t, d);
-    if paths::file_key(&t.file_path) != paths::file_key(&d.file_path) {
+    if t.file_path != d.file_path && paths::file_key(&t.file_path) != paths::file_key(&d.file_path) {
         fields.push(FieldChange { field: "file".into(), old: t.file_path.clone(), new: d.file_path.clone() });
     }
-    let analysis = |tree: &FileTree, t: &Track| -> Vec<Option<(u64, i64)>> {
-        let key = paths::key(&t.analyze_path);
-        let stem = key.rsplit_once('.').map_or(key.as_str(), |(s, _)| s);
-        ["DAT", "EXT", "2EX"]
-            .iter()
-            .map(|ext| tree.resolve(&format!("{stem}.{ext}")).map(|e| (e.size, e.mtime)))
-            .collect()
+    // rekordbox names analysis files in plain ASCII (`/PIONEER/USBANLZ/P016/0000875E/ANLZ0000.DAT`),
+    // so the path less its leading slash is the key. Looked up by exact key: a file whose name
+    // differs in case on one drive counts as differing.
+    let mut analysis = |tree: &FileTree, t: &Track| -> [Option<u64>; 3] {
+        let path = t.analyze_path.trim_start_matches('/');
+        let stem = path.rsplit_once('.').map_or(path, |(s, _)| s);
+        ["DAT", "EXT", "2EX"].map(|ext| {
+            key.clear();
+            key.push_str(stem);
+            key.push('.');
+            key.push_str(ext);
+            tree.entries.get(key.as_str()).map(|e| e.size)
+        })
     };
     if analysis(src_tree, t) != analysis(dst_tree, d) {
         fields.push(FieldChange { field: "analysis".into(), old: String::new(), new: String::new() });
@@ -829,7 +850,7 @@ pub fn apply(
     }
     let _lock = commit::lock(target, plan.state)?;
     let src_lib = source.library()?;
-    let Scanned { tree: src_tree, fingerprint: source_state, .. } = source.scan_fingerprinted(Some(&src_lib), ctx)?;
+    let Scanned { tree: src_tree, fingerprint, .. } = source.scan_fingerprinted(Some(&src_lib), ctx)?;
     let mut report = MergeReport { tracks_matched: plan.matched_tracks, ..Default::default() };
     // The source's own OneLibrary rows carry every column; read them if it has a database.
     let src_plus = if source.has_library_plus() { source.library_plus().ok() } else { None };
@@ -1030,8 +1051,8 @@ pub fn apply(
         .backup(format!("before merging {}", plan.source));
     opts.source = source.id();
     // All of the source as planned is in the merge: the target has been through its state.
-    if plan.takes_in_source && source_state == plan.source_state {
-        opts.held = source_state.map(|fingerprint| LineageEntry {
+    if plan.takes_in_source && databases_seen(&src_tree) == plan.source_state {
+        opts.held = fingerprint.map(|fingerprint| LineageEntry {
             fingerprint,
             at: Utc::now(),
             op: LineageOp::MergedIn,

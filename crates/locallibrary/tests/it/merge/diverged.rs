@@ -33,10 +33,12 @@ fn relation(left: &Path, right: &Path) -> Relation {
 }
 
 /// Drives A and B, A synced onto B and then both changed: a new export each, and with `edited`,
-/// A's details for a track B has too.
+/// A's details and analysis (a beat grid of another size) for "Shared", a track B has too.
 fn diverged(dir: &Path, edited: bool) -> (PathBuf, PathBuf) {
     let a_root = common::bigger_drive(dir, "A");
     common::adopt(None, &a_root, "A");
+    // The fixture's own tracks keep their analysis in .PIONEER/, which no scan reads.
+    let shared = common::export_new_track(&a_root, "Both", "Shared");
     let b_root = common::blank(dir, "B");
     let mut a = Device::open_export(&a_root).unwrap();
     sync::sync_drive_to_drive(&mut a, &mut Device::open(&b_root).unwrap(), &SyncOptions::default(), &Ctx::silent())
@@ -45,8 +47,12 @@ fn diverged(dir: &Path, edited: bool) -> (PathBuf, PathBuf) {
     common::export_new_track(&b_root, "Only", "On B");
     if edited {
         let mut ed = rekordbox_pdb::PdbEditor::from_file(a_root.join(paths::EXPORT_PDB)).unwrap();
-        ed.set_track_strings(1, &[("comment", "edited on A")]).unwrap();
+        ed.set_track_strings(shared, &[("comment", "edited on A")]).unwrap();
         ed.save(a_root.join(paths::EXPORT_PDB)).unwrap();
+        let tracks = Device::open_export(&a_root).unwrap().library().unwrap().tracks;
+        let t = tracks.into_iter().find(|t| t.id == shared).unwrap();
+        let regridded = common::synthetic_anlz(&format!("{}.longer", t.file_path));
+        std::fs::write(paths::to_fs(&a_root, &paths::key(&t.analyze_path)), regridded).unwrap();
     }
     assert_eq!(relation(&b_root, &a_root), Relation::Diverged);
     (a_root, b_root)
@@ -73,9 +79,12 @@ fn a_merge_that_takes_in_the_source_lets_sync_go_ahead(tc: TestCase) {
         let whole = matches!(how, How::PlannedOnly | How::Whole | How::Undone);
         assert_eq!(plan.takes_in_source, whole, "{how:?}");
         if whole {
-            let named: Vec<&str> = plan.differing_tracks.iter().map(|t| t.track.name.as_str()).collect();
-            let track = lib.tracks.iter().find(|t| t.id == 1).unwrap().display_name();
-            assert_eq!(named, if edited { vec![track.as_str()] } else { vec![] });
+            let named: Vec<(&str, Vec<&str>)> = plan
+                .differing_tracks
+                .iter()
+                .map(|t| (t.track.name.as_str(), t.fields.iter().map(|f| f.field.as_str()).collect()))
+                .collect();
+            assert_eq!(named, if edited { vec![("Both - Shared", vec!["comment", "analysis"])] } else { vec![] });
         }
         if how != How::PlannedOnly {
             merge::apply(&plan, &a, &mut b, &opts, &Ctx::silent()).unwrap();
