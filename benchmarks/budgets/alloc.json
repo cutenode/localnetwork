@@ -54,7 +54,7 @@
 			"measures": "Bytes allocated planning a sync of two 500-track drives."
 		},
 		"check.500.allocations": {
-			"limit": 210117,
+			"limit": 205609,
 			"unit": "allocations",
 			"measures": "Allocations made checking two 500-track drives."
 		},
