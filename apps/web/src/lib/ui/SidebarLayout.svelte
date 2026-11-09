@@ -123,7 +123,7 @@
 	{/if}
 {/snippet}
 
-<div class={['container-page grid grid-cols-[minmax(0,1fr)] gap-6 py-6 sm:py-10 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-10', tabs && 'max-lg:pt-5']}>
+<div class={['container-page grid grid-cols-[minmax(0,1fr)] gap-6 py-6 sm:py-10 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-10']}>
 	<nav aria-label={label} class={tabs ? 'hidden lg:sticky lg:top-6 lg:block lg:self-start' : 'max-lg:border-b max-lg:border-line max-lg:pb-3 lg:sticky lg:top-6 lg:self-start'}>
 		{#if tabs}
 			<div class="flex flex-col gap-5">{@render sections('side')}</div>
@@ -140,12 +140,12 @@
 
 {#if tabs}
 	{@const onTab = tabs.some(isCurrent)}
-	<nav aria-label="{label} tabs" class="sidebar-tabs fixed inset-x-0 bottom-0 z-20 grid auto-cols-fr grid-flow-col border-t border-line bg-canvas pb-[env(safe-area-inset-bottom)] lg:hidden print:hidden">
+	<nav aria-label="{label} tabs" class="fixed inset-x-0 bottom-0 z-20 grid auto-cols-fr grid-flow-col border-t border-line bg-canvas pb-[env(safe-area-inset-bottom)] lg:hidden print:hidden">
 		{#each tabs as item (item.href)}
 			{@const active = isCurrent(item)}
 			<a href={item.href} aria-current={active ? 'page' : undefined} class={['relative flex min-h-14 flex-col items-center justify-center gap-0.5 text-caption font-medium no-underline', active ? 'text-fg' : 'text-fg-muted']}>
 				{@render mark(item)}{item.label}
-				{#if item.badge}<span class="absolute top-1.5 left-[calc(50%+0.25rem)] rounded-full bg-fg px-1 font-mono text-[0.625rem] leading-snug font-semibold text-fg-inverse">{item.badge}</span>{:else if item.dot}<span class="absolute top-2 left-[calc(50%+0.375rem)] size-2 rounded-full bg-link"><span class="sr-only">Unread</span></span>{/if}
+				{#if item.badge}<span class="absolute top-1.5 left-[calc(50%+0.375rem)] rounded-full bg-fg px-1 font-mono text-[0.625rem] leading-snug font-semibold text-fg-inverse">{item.badge}</span>{:else if item.dot}<span class="absolute top-2 left-[calc(50%+0.375rem)] size-2 rounded-full bg-link"><span class="sr-only">Unread</span></span>{/if}
 			</a>
 		{/each}
 		<button type="button" aria-haspopup="dialog" aria-expanded={open} aria-label="{label} menu" onclick={() => (open = true)} class={['flex min-h-14 flex-col items-center justify-center gap-0.5 text-caption font-medium', onTab ? 'text-fg-muted' : 'text-fg']}>
@@ -155,7 +155,7 @@
 	<!-- A click lands on the dialog itself only outside the panel, on the backdrop. -->
 	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
 	<dialog bind:this={sheet} aria-label="{label} menu" onclose={() => (open = false)} onclick={(event) => event.target === sheet && (open = false)} class="m-0 mt-auto max-h-[85dvh] w-full max-w-none overflow-y-auto overscroll-contain rounded-t-2xl border-0 border-t border-line-strong bg-surface p-0 text-fg starting:translate-y-6 starting:opacity-0 motion-safe:transition-[translate,opacity] motion-safe:duration-200 motion-safe:ease-out backdrop:bg-canvas/70 lg:hidden">
-		<div class="flex flex-col gap-5 px-3 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
+		<div class="flex flex-col gap-5 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
 			<div class="flex justify-end">
 				<button type="button" aria-label="Close menu" onclick={() => (open = false)} class="grid size-11 place-items-center rounded-md text-fg-muted hover:bg-raised hover:text-fg"><X class="size-5" aria-hidden="true" /></button>
 			</div>
@@ -164,11 +164,3 @@
 	</dialog>
 {/if}
 
-<style>
-	/* The tabs are fixed, so the site footer needs room to finish above them. */
-	@media (width < 64rem) {
-		:global(body:has(.sidebar-tabs)) {
-			padding-bottom: calc(3.5rem + env(safe-area-inset-bottom));
-		}
-	}
-</style>
