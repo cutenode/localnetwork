@@ -49,10 +49,12 @@ fn the_write_that_is_counted_writes_the_library() {
 }
 
 /// One traced call, as `strace -y` wrote it, split into its name, its arguments and what it
-/// returned: `write(5</drive/Contents/a.mp3>, "..."..., 4096) = 4096`.
+/// returned: `write(5</drive/Contents/a.mp3>, "..."..., 4096) = 4096`. strace pads a short call
+/// to line up what it returned: `fsync(4</drive>)        = 0`.
 fn call(line: &str) -> Option<(&str, &str, i64)> {
     let (name, rest) = line.split_once('(')?;
-    let (args, returned) = rest.rsplit_once(") = ")?;
+    let (args, returned) = rest.rsplit_once(") ")?;
+    let returned = returned.trim_start().strip_prefix("= ")?;
     let returned = returned.split_whitespace().next()?.split('<').next()?.parse().ok()?;
     Some((name, args, returned))
 }
@@ -129,6 +131,7 @@ write(5</drive/Contents/a.mp3>, "ab"..., 1048576) = 1048576
 write(5</drive/Contents/a.mp3>, "ab"..., 12) = 12
 write(7</elsewhere/a.mp3>, "ab"..., 99) = 99
 fsync(5</drive/Contents/a.mp3>) = 0
+fsync(8</drive>)                        = 0
 utimensat(AT_FDCWD</x>, "/drive/Contents/a.mp3", [UTIME_OMIT, {tv_sec=1}], 0) = 0
 "#;
     let mut counts = IndexMap::new();
@@ -140,7 +143,7 @@ utimensat(AT_FDCWD</x>, "/drive/Contents/a.mp3", [UTIME_OMIT, {tv_sec=1}], 0) = 
         ("writes", 2),
         ("bytes_written", 1_048_588),
         ("largest_write", 1_048_576),
-        ("flushes", 1),
+        ("flushes", 2),
         ("times_set", 1),
     ];
     assert_eq!(counts, want.into_iter().collect::<IndexMap<_, _>>());
