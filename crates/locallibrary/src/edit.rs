@@ -2658,7 +2658,7 @@ fn plan_with(
     // and each image artwork edits stage, with the two sizes made from it in each database (no
     // bigger than it; a staged waveform, which no database holds, is counted as one too).
     let staged = images.values().map(|b| round(b.len() as u64)).sum::<u64>() * (1 + 2 * databases.len() as u64);
-    let needed_bytes = files.values().map(|&n| round(n)).sum::<u64>() + 2 * db_bytes + staged;
+    let needed_bytes = backup::needed_bytes(device, files.keys().map(String::as_str)) + db_bytes + staged;
     let free_space = fsutil::available_space(device.root());
     let fits = free_space.is_none_or(|f| needed_bytes <= f);
     if !fits {

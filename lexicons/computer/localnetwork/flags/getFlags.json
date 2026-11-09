@@ -1,0 +1,40 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.flags.getFlags",
+	"defs": {
+		"main": {
+			"type": "query",
+			"description": "Every feature flag's public gates, and whether the caller is targeted by account or group. Inter-service auth is optional: without it, nothing is targeted. A flag is on for a caller when it's on for everyone, when it targets them, or when their DID falls inside the percentage. Group names and member lists aren't exposed.",
+			"output": {
+				"encoding": "application/json",
+				"schema": {
+					"type": "object",
+					"required": ["flags"],
+					"properties": {
+						"flags": {
+							"type": "array",
+							"items": { "type": "ref", "ref": "#flag" }
+						}
+					}
+				}
+			},
+			"errors": [
+				{ "name": "AuthenticationRequired", "description": "A token was sent and isn't valid." },
+				{ "name": "RateLimitExceeded" }
+			]
+		},
+		"flag": {
+			"type": "object",
+			"required": ["key", "everyone", "percentage", "targeted"],
+			"properties": {
+				"key": { "type": "string", "maxLength": 64 },
+				"everyone": { "type": "boolean" },
+				"percentage": { "type": "integer", "minimum": 0, "maximum": 100 },
+				"targeted": {
+					"type": "boolean",
+					"description": "The caller is one of the flag's accounts or in one of its groups."
+				}
+			}
+		}
+	}
+}

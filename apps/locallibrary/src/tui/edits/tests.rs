@@ -401,11 +401,13 @@ fn progress_is_told_and_cancelling_stops_only_before_writing() {
             })
             .collect::<Vec<_>>()
     };
-    for phase in [Phase::Scan, Phase::Hash, Phase::Copy, Phase::Verify, Phase::Format, Phase::Match] {
+    for phase in [Phase::Scan, Phase::Hash, Phase::Copy, Phase::Verify, Phase::Format, Phase::Measure, Phase::Match] {
         reporter.on_event(&start(phase));
     }
-    let names: Vec<String> = told().into_iter().map(|(d, _)| d).collect();
-    assert_eq!(names, ["scanning", "hashing", "copying", "verifying", "formatting", "working"]);
+    let told_so_far = told();
+    assert!(told_so_far.iter().all(|(_, committed)| !committed), "timing a drive can still be cancelled");
+    let names: Vec<String> = told_so_far.into_iter().map(|(d, _)| d).collect();
+    assert_eq!(names, ["scanning", "hashing", "copying", "verifying", "formatting", "timing the drive", "working"]);
     // A file is told as the phase and its name (unless one was told a moment ago); what
     // else happens isn't.
     reporter.on_event(&Event::Item { phase: Phase::Copy, path: "/Contents/a/1.mp3".into(), bytes: 0 });

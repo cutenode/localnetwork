@@ -60,18 +60,16 @@ overrides:
   'typed-rest-client>qs': ^6.16.1
   # sdk-node 0.219.0 (atproto dev network) pins propagator-jaeger 2.8.0; 2.9.0 has the fix.
   '@opentelemetry/sdk-node>@opentelemetry/propagator-jaeger': 2.9.0
-  # @lhci/cli and the external-editor under it (through inquirer) only call tmp.fileSync and
-  # tmp.tmpNameSync, which 0.2 keeps.
-  '@lhci/cli>tmp': ^0.2.6
-  'external-editor>tmp': ^0.2.6
+  # Every get-uri release (Lighthouse CI's proxy-agent, through pac-proxy-agent) takes basic-ftp
+  # ^5, which has GHSA-c475-qrg2-pj4r. get-uri only reads ftp: URLs, with new Client(), access,
+  # lastMod, list (each entry's name and modifiedAt), downloadTo and close, all the same in 6.
+  # 6.0.0's one breaking change refuses a PASV reply that names another host than the one
+  # connected to, which a PAC file fetched over FTP would only hit on an unusual server.
+  'get-uri>basic-ftp': ^6.2.6
   # Every satori release pins fflate 0.7.3, which has GHSA-px8p-9vwx-vf98 (an endless loop on a
   # malformed ZIP64 archive); 0.7.5 fixes it. Satori only calls inflateSync, to read fonts.
   'satori>fflate': ^0.7.5
-# Stryker's vitest runner 10.0.0 names tests the way Vitest 4 did, so on Vitest 5 it runs no tests
-# for a mutant and every mutant survives (stryker-mutator/stryker-js#6210). Drop the patch once a
-# release has the fix (#6214).
 patchedDependencies:
-  '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch
   # SvelteKit's client imports the root error page before it hydrates, but the server doesn't
   # preload it, so every page fetched it a round trip late (sveltejs/kit#17415). That round trip put
   # /projects/halflight's simulated LCP over Lighthouse's budget on a busy machine. Drop the patch

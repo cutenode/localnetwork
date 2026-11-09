@@ -1,0 +1,28 @@
+{
+	"$id": "flag.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"type": "object",
+	"properties": {
+		"$schema": {
+			"type": "string"
+		},
+		"key": {
+			"type": "string",
+			"maxLength": 64,
+			"pattern": "^[a-z][a-zA-Z0-9]*$",
+			"description": "What code asks for: camelCase, the same as the file name."
+		},
+		"description": {
+			"type": "string",
+			"minLength": 1,
+			"maxLength": 300,
+			"description": "What the flag gates, for the staff console."
+		}
+	},
+	"required": [
+		"key",
+		"description"
+	],
+	"additionalProperties": false,
+	"description": "A feature flag the website and locallibrary share. Who it is on for is set in the staff console."
+}

@@ -1,7 +1,11 @@
 import { requireViewer } from '#lib/server/http.ts';
+import type { Flags, Viewer } from '#lib/types.ts';
 import type { LayoutServerLoad } from './$types';
 
-export const load: LayoutServerLoad = async ({ locals, url }) => {
+/** `flags` is optional so a page rendered on its own, in a test or a story, reads every flag as off. */
+type RootData = { viewer: Viewer | null; pendingRequests: number; flags?: Flags };
+
+export const load: LayoutServerLoad = async ({ locals, url }): Promise<RootData> => {
 	// Send a session that has to sign in again to the login page before anything tries to write with it.
 	if (locals.reauth && url.pathname !== '/login') requireViewer(locals, url);
 	const viewer = locals.viewer;
@@ -9,5 +13,5 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 
 	if (viewer?.isStaff) pendingRequests = (await locals.app.requests.counts()).pending;
 
-	return { viewer, pendingRequests };
+	return { viewer, pendingRequests, flags: locals.flags };
 };

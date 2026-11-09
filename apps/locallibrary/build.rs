@@ -7,6 +7,18 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     built_in();
     stack();
+    contract_from_docs();
+}
+
+/// Sets `contract_from_docs` for a release build of the features `docs/rpc/` describes (the
+/// account and peers methods): it answers the contract kept there rather than building it (see
+/// `src/rpc/contract.rs`).
+fn contract_from_docs() {
+    println!("cargo:rustc-check-cfg=cfg(contract_from_docs)");
+    let on = |name: &str| std::env::var_os(name).is_some();
+    if !on("CARGO_CFG_DEBUG_ASSERTIONS") && on("CARGO_FEATURE_ACCOUNT") && on("CARGO_FEATURE_PEERS") {
+        println!("cargo:rustc-cfg=contract_from_docs");
+    }
 }
 
 /// Writes `built_in.rs` to `OUT_DIR`, the table `plugins.rs` includes, in alphabetical order of id

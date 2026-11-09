@@ -76,7 +76,7 @@
 						{#if isCancelled(record)}<span class="pill bg-raised text-critical">Cancelled</span>{:else if record.status === EVENT_STATUS.rescheduled}<span class="pill bg-raised text-fg-soft">New date</span>{/if}
 					</p>
 					{#if project !== show.project.uri}
-						<p class="m-0 text-small"><a class="link" href="/projects/{show.project.slug}">{show.project.profile.name}</a></p>
+						<p class="m-0 text-small"><a class="entity-link text-fg-soft" href="/projects/{show.project.slug}">{show.project.profile.name}</a></p>
 					{/if}
 					<p class="m-0 flex flex-wrap gap-x-1.5 text-small text-fg-muted">
 						<span class="font-mono">{showHours(record)}</span>

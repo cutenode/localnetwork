@@ -439,7 +439,7 @@ pub fn plan(device: &Device, opts: &ConvertOptions, _ctx: &Ctx<'_>) -> Result<Co
         (false, _) => 256 * 1024,
     };
     let database = base + (source.tracks.len() + entries) as u64 * 1024;
-    let backup: u64 = paths::DATABASE_FILES.iter().map(|k| round(size(k))).sum();
+    let backup = crate::backup::needed_bytes(device, []);
     let needed_bytes = round(database) + round(artwork_bytes) + artwork.len() as u64 * 2 * cluster + backup;
     let free_space = fsutil::available_space(device.root());
     let fits = free_space.is_none_or(|f| needed_bytes <= f);

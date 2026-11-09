@@ -193,11 +193,11 @@ fn a_secret_goes_only_where_a_request_names_it() {
     let got = server.got().pop().unwrap();
     assert_eq!(got.target, "/q?key=hunter+2%26&plain=1");
     assert_eq!((got.headers["x-token"].as_str(), got.body.as_str()), ("Bearer hunter 2&", "token=hunter 2&"));
-    // The server said it back: the plugin has it, but its log doesn't.
-    assert_eq!(answer["result"]["body"], "echoed Bearer hunter 2&");
+    // The server said it back, and it's in the query: the plugin is given the placeholder.
+    assert_eq!(answer["result"]["body"], "echoed Bearer {secret:token}");
     eventually("the plugin logged it", || f.logs.lock().unwrap().iter().any(|(_, l)| l.starts_with("fetched")));
     let logs = f.logs.lock().unwrap().clone();
-    assert!(logs.contains(&("echo".into(), "fetched echoed Bearer <secret>".into())), "{logs:?}");
+    assert!(logs.contains(&("echo".into(), "fetched echoed Bearer {secret:token}".into())), "{logs:?}");
 
     // Nor in an error naming the request.
     let e = f.fetch(json!({ "url": "http://127.0.0.1:1/?key={secret:token}" }));
@@ -1345,7 +1345,8 @@ fn prop_each_fetch_is_answered_as_its_rule_says_case(tc: &hegel::TestCase, askin
         }
         Asking::SecretUnset => assert!(message.starts_with("its secret token isn't set"), "{answer}"),
         Asking::Secret => {
-            assert_eq!(answer["result"]["body"], format!("{secret} t={secret}"));
+            // The server said it back, and it's in the query: the plugin is given the placeholder.
+            assert_eq!(answer["result"]["body"], "{secret:token} t={secret:token}");
             assert!(server.got()[0].target.ends_with(&format!("?key={secret}")));
         }
         Asking::SecretsUnreadable => assert_eq!(kind, "external", "{answer}"),

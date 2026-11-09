@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { Check, Circle } from '@lucide/svelte';
-	import type { Snippet } from 'svelte';
+	import { Check, Minus, Plus } from '@lucide/svelte';
+	import type { ComponentProps, Snippet } from 'svelte';
 	import { enhance } from '$app/forms';
+	import FormActions from '#lib/components/form/FormActions.svelte';
+	import RemoveRow from '#lib/components/form/RemoveRow.svelte';
 	import { type EpkFormValues, photoSize, pressChecks, type Visibility } from '#lib/epk.ts';
 	import { formFields } from '#lib/form-fields.svelte.ts';
 	import { control } from '#lib/ui/Field.svelte';
@@ -13,13 +15,17 @@
 	 * mixes and which photos show to everyone or only on request, and the private part itself.
 	 */
 	let {
+		form,
 		values,
 		action,
 		photoBase,
 		editHref,
 		submitLabel,
-		actions
+		actions,
+		after
 	}: {
+		/** What the last send came back with. */
+		form?: ComponentProps<typeof FormActions>['form'];
 		values: EpkFormValues;
 		action?: string;
 		/** Where saved photos are served from, for the thumbnails. */
@@ -27,7 +33,10 @@
 		/** The project's edit page, for adding mixes. */
 		editHref: string;
 		submitLabel: string;
-		actions?: Snippet;
+		/** Buttons before the main one, told whether the form is saving. The first of them is what Enter presses. */
+		actions?: Snippet<[boolean]>;
+		/** Buttons Enter must never press, like discarding. */
+		after?: Snippet<[boolean]>;
 	} = $props();
 
 	let saving = $state(false);
@@ -40,16 +49,20 @@
 
 	const emptyMix = (): EpkFormValues['extraMixes'][number] => ({ title: '', url: '', visibility: 'private' });
 
+	const emptyQuote = (): EpkFormValues['quotes'][number] => ({ text: '', source: '' });
+
 	const fields = $derived(
 		formFields({
 			...values,
-			// The extra mixes on file, then two empty rows to add more.
-			extraMixes: [...values.extraMixes, emptyMix(), emptyMix()],
-			quotes: Array.from({ length: 5 }, (_, index) => values.quotes[index] ?? { text: '', source: '' })
+			// What's on file, or an empty row to start from, which also works before the page hydrates.
+			extraMixes: values.extraMixes.length ? values.extraMixes : [emptyMix()],
+			quotes: values.quotes.length ? values.quotes : [emptyQuote()]
 		})
 	);
 
 	const checks = $derived(pressChecks(values.photos.filter((photo) => photo.visibility !== 'hidden')));
+
+	const checksDone = $derived(checks.filter((check) => check.done).length);
 
 	const SIZE_LABELS = { press: 'Press ready', web: 'Web size', small: 'Small' } as const;
 </script>
@@ -106,17 +119,19 @@
 			<legend class="mb-1 text-label font-medium text-fg-soft">Mixes only in this press kit</legend>
 			<p class="m-0 text-label text-fg-subtle">Like an unreleased promo. They aren't added to your profile.</p>
 			{#each fields.extraMixes as mix, index (index)}
-				<div class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-center">
+				<div class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] sm:items-center">
 					<input name="extraMixTitle" aria-label="Extra mix {index + 1} name" placeholder="Name" maxlength="120" bind:value={mix.title} class={control} />
 					<input name="extraMixUrl" type="url" aria-label="Extra mix {index + 1} address" placeholder="https://" bind:value={mix.url} class={control} />
 					<fieldset class="m-0 flex flex-wrap gap-1.5 border-0 p-0">
 						<legend class="sr-only">Who can play extra mix {index + 1}</legend>
-						{#each PLACES as place (place.value)}
-							<label class="chip-toggle"><input type="radio" class="sr-only" name="extraMixVisibility.{index}" value={place.value} bind:group={mix.visibility} />{place.value === 'hidden' ? 'Remove' : place.label}</label>
+						{#each PLACES.filter((place) => place.value !== 'hidden') as place (place.value)}
+							<label class="chip-toggle"><input type="radio" class="sr-only" name="extraMixVisibility.{index}" value={place.value} bind:group={mix.visibility} />{place.label}</label>
 						{/each}
 					</fieldset>
+					<RemoveRow label="Remove extra mix {index + 1}" onclick={() => fields.extraMixes.splice(index, 1)} />
 				</div>
 			{/each}
+			<button type="button" class="btn-ghost btn-sm self-start" onclick={() => fields.extraMixes.push(emptyMix())}><Plus class="size-4" />Add mix</button>
 		</fieldset>
 	</section>
 
@@ -125,13 +140,16 @@
 			<h2 id="epk-photos" class="m-0 text-emphasis font-semibold">Photos</h2>
 			<p class="m-0 text-small text-fg-muted">Press wants 3 to 5 recent photos from one shoot, credited, in every orientation so nothing gets cropped.</p>
 		</div>
-		<ul class="m-0 flex list-none flex-wrap gap-x-5 gap-y-1.5 p-0 text-label" aria-label="Press photo checklist">
-			{#each checks as check (check.label)}
-				<li class="inline-flex items-center gap-1.5 {check.done ? 'text-good' : 'text-fg-muted'}">
-					{#if check.done}<Check class="size-3.5" aria-hidden="true" />{:else}<Circle class="size-3.5" aria-hidden="true" />{/if}{check.label}
-				</li>
-			{/each}
-		</ul>
+		<div class="flex flex-col gap-1.5">
+			<p class="m-0 text-label font-medium text-fg-soft">{checksDone} of {checks.length} done</p>
+			<ul class="m-0 flex list-none flex-wrap gap-x-5 gap-y-1.5 p-0 text-label" aria-label="Press photo checklist">
+				{#each checks as check (check.label)}
+					<li class="inline-flex items-center gap-1.5 {check.done ? 'text-good' : 'text-fg-muted'}">
+						{#if check.done}<Check class="size-3.5" aria-hidden="true" />{:else}<Minus class="size-3.5" aria-hidden="true" />{/if}{check.label}
+					</li>
+				{/each}
+			</ul>
+		</div>
 		{#if values.photos.length}
 			<ul class="m-0 grid list-none gap-4 p-0 sm:grid-cols-2">
 				{#each fields.photos as photo, index (photo.cid)}
@@ -180,12 +198,14 @@
 		<fieldset class="m-0 flex min-w-0 flex-col gap-3 border-0 p-0">
 			<legend class="mb-1 text-label font-medium text-fg-soft">Press quotes</legend>
 			{#each fields.quotes as quote, index (index)}
-				<div class="grid gap-2 sm:grid-cols-[2fr_1fr_1fr]">
-					<input name="quoteText" aria-label="Quote {index + 1}" placeholder="What they said" maxlength="500" bind:value={quote.text} class={control} />
-					<input name="quoteSource" aria-label="Who said quote {index + 1}" placeholder="Who said it" maxlength="200" bind:value={quote.source} class={control} />
-					<input name="quoteUrl" type="url" aria-label="Link for quote {index + 1}" placeholder="https://" bind:value={quote.url} class={control} />
+				<div class="grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:grid-cols-[2fr_1fr_1fr_auto]">
+					<input name="quoteText" aria-label="Quote {index + 1}" placeholder="What they said" maxlength="500" bind:value={quote.text} class="{control} max-sm:col-start-1" />
+					<input name="quoteSource" aria-label="Who said quote {index + 1}" placeholder="Who said it" maxlength="200" bind:value={quote.source} class="{control} max-sm:col-start-1" />
+					<input name="quoteUrl" type="url" aria-label="Link for quote {index + 1}" placeholder="https://" bind:value={quote.url} class="{control} max-sm:col-start-1" />
+					<div class="max-sm:col-start-2 max-sm:row-start-1"><RemoveRow label="Remove quote {index + 1}" onclick={() => fields.quotes.splice(index, 1)} /></div>
 				</div>
 			{/each}
+			<button type="button" class="btn-ghost btn-sm self-start" onclick={() => fields.quotes.push(emptyQuote())}><Plus class="size-4" />Add quote</button>
 		</fieldset>
 		<div class="grid gap-4 sm:grid-cols-2">
 			<TextField id="email" name="email" type="email" label="Booking email" maxlength={320} value={values.email} />
@@ -198,8 +218,9 @@
 		</div>
 	</section>
 
-	<div class="flex flex-wrap items-center gap-3 border-t border-line pt-6">
+	<FormActions {form} submitting={saving}>
+		{@render actions?.(saving)}
 		<button class="btn-primary" disabled={saving}>{saving ? 'Saving…' : submitLabel}</button>
-		{@render actions?.()}
-	</div>
+		{@render after?.(saving)}
+	</FormActions>
 </form>

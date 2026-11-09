@@ -307,7 +307,9 @@ export interface DetailsAnswer extends TracksAnswer {
 export interface ProfilesAnswer {
 	ok: true;
 	profiles: ArtistProfile[];
-	/** The paths with no public profile behind them, or that could not be asked about. */
+	/** The paths SoundCloud says have no public profile behind them. */
+	missing: string[];
+	/** The paths that could not be asked about, which says nothing about them. */
 	failed: string[];
 	error: LookupError;
 }
@@ -386,6 +388,7 @@ export interface ProfilesProgress {
 	done: number;
 	total: number;
 	profiles: ArtistProfile[];
+	missing: string[];
 	failed: string[];
 }
 

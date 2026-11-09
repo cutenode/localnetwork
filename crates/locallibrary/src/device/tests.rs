@@ -126,6 +126,38 @@ fn adopt_persists_identity() {
     assert_eq!(d2.name(), "Backup A");
 }
 
+/// A `state.json` a newer locallibrary wrote is refused when the drive opens and when it's read
+/// again, and the file is left as it was, fields this version doesn't know included. One at this
+/// version or an older one opens.
+#[hegel::test(test_cases = 50)]
+fn a_newer_drive_state_is_refused_and_left_alone(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = Device::open(dir.path()).unwrap();
+    d.adopt(Some("Next")).unwrap();
+    let path = d.state_dir().join("state.json");
+    let format = tc.draw(gs::integers::<u32>().max_value(STATE_FORMAT + 3));
+    let mut json: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    json["format"] = format.into();
+    json["from_the_future"] = "kept".into();
+    let written = serde_json::to_vec_pretty(&json).unwrap();
+    std::fs::write(&path, &written).unwrap();
+
+    let opened = Device::open(dir.path());
+    let reloaded = d.reload_state();
+    if format > STATE_FORMAT {
+        for err in [opened.map(drop).unwrap_err(), reloaded.unwrap_err()] {
+            let message = err.to_string();
+            assert!(message.contains(&format!("is format {format}, newer than")), "{message}");
+            assert!(message.ends_with("update locallibrary"), "{message}");
+        }
+    } else {
+        assert_eq!(opened.unwrap().name(), "Next");
+        reloaded.unwrap();
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), written);
+}
+
 /// The lineage keeps each state once in a row and the newest `MAX_LINEAGE`, whether states are
 /// recorded one by one or taken over from a drive copied onto this one.
 #[hegel::test(test_cases = 100)]
