@@ -1742,7 +1742,12 @@
 		// the bulk source did not cover it (a filtered list, rows past a
 		// listing's reach). If none do, the rest are left alone: they are the
 		// same request, and it has been asked.
-		if (pending.length && bulk && pending.length === before && pending.length > PROBE) {
+		if (
+			bulk &&
+			pending.length === before &&
+			// Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent. A handful of rows or fewer are all in the probe, so the request is answered before it could hear the page is unseen.
+			pending.length > PROBE
+		) {
 			const probe = pending.slice(0, PROBE);
 			job.unauthorized = await resolveDetails(probe, job.clientId);
 
@@ -1759,6 +1764,7 @@
 			pending = unsettled();
 		}
 
+		// Stryker disable next-line ConditionalExpression: equivalent. Resolving nothing asks nothing and returns false, which job.unauthorized already is here.
 		if (pending.length) {
 			job.unauthorized = await resolveDetails(pending, job.clientId);
 		}
