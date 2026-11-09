@@ -292,6 +292,30 @@ fn whole(root: &Path) -> LibraryRef {
     LibraryRef { drive: path(root), combined: true }
 }
 
+/// A My Tag on a track only OneLibrary lists is on it in the whole library's details and in the
+/// drive's list of tags.
+#[test]
+fn onelibrary_only_tracks_have_their_my_tags() {
+    let dir = tempfile::tempdir().unwrap();
+    let (root, plus_id) = drive_with_a_onelibrary_only_track(dir.path());
+    let mut one = locallibrary::onelibrary::OneLibrary::open_root(&root).unwrap();
+    one.add_my_tag(9001, 0, "Venue", true).unwrap();
+    one.add_my_tag(9002, 9001, "Booth", false).unwrap();
+    one.link_my_tag(9002, &[plus_id]).unwrap();
+    std::fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+
+    let id = plus_id | locallibrary::convert::ONELIBRARY_ONLY;
+    let tracks = api::TrackSelector { ids: vec![id], ..Default::default() };
+    let details = api::track_details(&api::TrackDetailsRequest { library: whole(&root), tracks }).unwrap();
+    assert_eq!(details[0].tags, ["Venue/Booth"]);
+    let read = locallibrary::tags::read(&Device::open(&root).unwrap()).unwrap();
+    let booth = read.categories.iter().flat_map(|c| &c.tags).find(|t| t.path == "Venue/Booth").unwrap();
+    assert_eq!(
+        booth.tracks.iter().map(|t| t.file_path.as_str()).collect::<Vec<_>>(),
+        ["/Contents/Booth/Only Plus.mp3"]
+    );
+}
+
 /// OneLibrary's own tracks keep OneLibrary's id with the top bit set, the same on every read and
 /// after rekordbox exports again, so it never names an `export.pdb` track; reads without
 /// `combined` and edits refuse it, saying why.

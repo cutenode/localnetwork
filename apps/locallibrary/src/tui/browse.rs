@@ -6,6 +6,7 @@ use locallibrary::harmony::{self, Camelot};
 use locallibrary::model::{TrackColor, normalize};
 use locallibrary::query::{FieldName, SortField, SortKey, compare_values};
 use locallibrary::sets::Set;
+use locallibrary::tags::TagsByTrack;
 use locallibrary::{Library, Playlist, Track, paths};
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
@@ -216,14 +217,14 @@ fn collect(lib: &Library, none: &str, f: impl Fn(&Track) -> Option<(String, Stri
 }
 
 /// The values of `cat` on the drive with their tracks, in display order. `by_id` maps track ids
-/// to library indexes (for history lists); `tags` is each track's My Tags by its file key in lower
-/// case (none until they're read); `sets` are the store's (none until they're read).
+/// to library indexes (for history lists); `tags` are the drive's My Tags (none until they're
+/// read); `sets` are the store's (none until they're read).
 pub fn groups(
     lib: &Library,
     cat: Category,
     by_id: &FxHashMap<u32, usize>,
     problems: &Problems,
-    tags: Option<&FxHashMap<String, Vec<String>>>,
+    tags: Option<&TagsByTrack>,
     sets: &[Set],
 ) -> Vec<Group> {
     let text = |get: fn(&Track) -> &str, none: &str| {
@@ -286,7 +287,7 @@ pub fn groups(
             let Some(tags) = tags else { return Vec::new() };
             let mut by_tag: indexmap::IndexMap<&str, Vec<usize>> = Default::default();
             for (i, t) in lib.tracks.iter().enumerate() {
-                for tag in tags.get(&paths::file_key(&t.file_path)).into_iter().flatten() {
+                for tag in tags.of(t) {
                     by_tag.entry(tag).or_default().push(i);
                 }
             }

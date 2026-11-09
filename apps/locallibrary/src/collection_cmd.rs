@@ -133,7 +133,7 @@ pub fn run(args: CollectionArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx
             }
             if let Some(f) = &filter {
                 let f = Filter::parse(f)?;
-                let tags = f.uses_tags().then(|| c.tags_by_file());
+                let tags = f.uses_tags().then(|| c.tags_by_track());
                 let ctx = api::filter_context(lib, &f, tags.as_ref(), None)?;
                 tracks.retain(|t| f.matches(t, &ctx));
             }
