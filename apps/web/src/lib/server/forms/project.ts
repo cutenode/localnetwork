@@ -20,22 +20,23 @@ import type {
 	StrongRef
 } from '#lib/types.ts';
 import { parsePublicRecordUri } from '../atproto/spaces';
-import { UserError } from '../core';
+import { FieldError, UserError } from '../core';
 import { all, CID, currencyCode, limit, optionalInt, optionalText, text, wholeNumber } from '../http';
 import { AVATAR_TYPES } from '../images';
 
 const AVATAR_MAX_BYTES = 1_000_000;
 
-function toUrl(value: string, field: string): string {
+function toUrl(value: string, field: string, name: string, row: number): string {
 	let parsed: URL;
 
 	try {
 		parsed = new URL(value.includes('://') ? value : `https://${value}`);
 	} catch {
-		throw new UserError(`${field} is not a valid link`);
+		throw new FieldError(`${field} is not a valid link`, name, row);
 	}
 
-	if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new UserError(`${field} must be a web link`);
+	if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')
+		throw new FieldError(`${field} must be a web link`, name, row);
 
 	return parsed.toString();
 }
@@ -47,7 +48,7 @@ function linkRows(form: FormData, field: string, label: string): Map<string, num
 		const value = raw.trim();
 
 		if (!value) return;
-		const url = toUrl(value, label);
+		const url = toUrl(value, label, field, row);
 
 		if (!rows.has(url)) rows.set(url, row);
 	});
@@ -59,12 +60,12 @@ function linkRows(form: FormData, field: string, label: string): Map<string, num
  * A mix's set picker value: the set's URI and the CID of the version picked, space-separated (see
  * ProjectForm.svelte), or nothing. Whether the set exists and whose it is gets checked when root publishes.
  */
-function setRef(value: string): StrongRef | undefined {
+function setRef(value: string, row: number): StrongRef | undefined {
 	if (!value) return undefined;
 	const [uri = '', cid = ''] = value.split(' ');
 
 	if (parsePublicRecordUri(uri)?.collection !== COLLECTION.djSet || !CID.test(cid))
-		throw new UserError('Pick a set from the list');
+		throw new FieldError('Pick a set from the list', 'mixSet', row);
 
 	return { uri, cid };
 }
@@ -80,9 +81,10 @@ export function parseLocation(form: FormData, required: boolean, missing: string
 
 	if (!required && !city && !country && !region) return undefined;
 
-	if (!city) throw new UserError(missing);
+	if (!city) throw new FieldError(missing, 'city');
 
-	if (!/^[A-Z]{2}$/.test(country)) throw new UserError('Use a two-letter country code (like US, GB, or DE)');
+	if (!/^[A-Z]{2}$/.test(country))
+		throw new FieldError('Use a two-letter country code (like US, GB, or DE)', 'country');
 	const latE6 = optionalInt(form, 'latE6', -90_000_000, 90_000_000);
 	const lngE6 = optionalInt(form, 'lngE6', -180_000_000, 180_000_000);
 	const location: Location = { city, country };
@@ -105,7 +107,7 @@ export function parseLocation(form: FormData, required: boolean, missing: string
 export function parseBasics(form: FormData, unnamed: string): Omit<BasicsSection, 'location' | 'avatar'> {
 	const name = limit('Name', text(form, 'name', 640), 64);
 
-	if (!name) throw new UserError(unnamed);
+	if (!name) throw new FieldError(unnamed, 'name');
 	const basics: Omit<BasicsSection, 'location' | 'avatar'> = { name };
 	const bio = limit('Bio', optionalText(form, 'bio', 30_000), 3000);
 
@@ -147,7 +149,7 @@ export function parsePerformer(form: FormData): PerformerSection {
 	const mixes: ProjectMix[] = [...linkRows(form, 'mixUrl', 'A mix link')].map(([url, row]) => {
 		const durationMinutes = wholeNumber((mixDurations[row] ?? '').trim(), 'mixDuration', 1, 1440);
 		const year = wholeNumber((mixYears[row] ?? '').trim(), 'mixYear', 1950, 2100);
-		const set = setRef((mixSets[row] ?? '').trim());
+		const set = setRef((mixSets[row] ?? '').trim(), row);
 		const mix: ProjectMix = { title: limit('Mix title', (mixTitles[row] ?? '').trim() || 'Mix', 120)!, url };
 
 		if (durationMinutes !== undefined) mix.durationMinutes = durationMinutes;
@@ -166,20 +168,21 @@ export function parsePerformer(form: FormData): PerformerSection {
 
 	const highlights = [...new Set(lines)].map((line) => limit('Each highlight', line, 120)!);
 
-	if (highlights.length > 12) throw new UserError('Add up to 12 highlights');
+	if (highlights.length > 12) throw new FieldError('Add up to 12 highlights', 'highlights');
 
 	const setMin = optionalInt(form, 'setMin', 15, 720);
 	const setMax = optionalInt(form, 'setMax', 15, 720);
 
-	if (setMin && setMax && setMin > setMax) throw new UserError('Shortest set is longer than the longest set');
+	if (setMin && setMax && setMin > setMax)
+		throw new FieldError('Shortest set is longer than the longest set', 'setMax');
 	const capacityMin = optionalInt(form, 'capacityMin', 0, 1_000_000);
 	const capacityMax = optionalInt(form, 'capacityMax', 0, 1_000_000);
 
 	if (capacityMin !== undefined && capacityMax !== undefined && capacityMin > capacityMax) {
-		throw new UserError('Smallest room is bigger than the biggest room');
+		throw new FieldError('Smallest room is bigger than the biggest room', 'capacityMax');
 	}
 
-	const fees = feeRows(form).flatMap((row): ProjectFee[] => {
+	const fees = feeRows(form).flatMap((row, index): ProjectFee[] => {
 		const label = limit('A fee label', row.label || undefined, 64);
 		const currency = currencyCode(row.currency);
 		const minAmount = wholeNumber(row.minAmount, 'feeMin', 0, 10_000_000);
@@ -187,15 +190,15 @@ export function parsePerformer(form: FormData): PerformerSection {
 
 		if (!row.tier) {
 			if (label || currency || minAmount !== undefined || maxAmount !== undefined)
-				throw new UserError('Pick a fee tier for each fee, or clear its row');
+				throw new FieldError('Pick a fee tier for each fee, or clear its row', 'feeTier', index);
 
 			return [];
 		}
 
-		if (!isOneOf(FEE_TIERS, row.tier)) throw new UserError('Pick a fee tier');
+		if (!isOneOf(FEE_TIERS, row.tier)) throw new FieldError('Pick a fee tier', 'feeTier', index);
 
 		if (minAmount !== undefined && maxAmount !== undefined && minAmount > maxAmount)
-			throw new UserError('Minimum fee is above the maximum');
+			throw new FieldError('Minimum fee is above the maximum', 'feeMax', index);
 		const fee: ProjectFee = { tier: row.tier };
 
 		if (label) fee.label = label;
@@ -279,10 +282,10 @@ export function parsePromoter(form: FormData): PromoterSection {
 
 			if (!city && !country && !region) return [];
 
-			if (!city) throw new UserError('Name each city you book in, or clear its row');
+			if (!city) throw new FieldError('Name each city you book in, or clear its row', 'bookCity', row);
 
 			if (!/^[A-Z]{2}$/.test(country))
-				throw new UserError(`Use a two-letter country code for ${city} (like US, GB, or DE)`);
+				throw new FieldError(`Use a two-letter country code for ${city} (like US, GB, or DE)`, 'bookCountry', row);
 
 			return [region ? { city, region, country } : { city, country }];
 		}
@@ -309,7 +312,7 @@ export function parseProfile(form: FormData): ProjectProfile {
 	if (!isOneOf(PROJECT_KINDS, kind)) throw new UserError('Pick what kind of project this is');
 	const { genres = [], ...performer } = parsePerformer(form);
 
-	if (genres.length === 0) throw new UserError('Add at least one genre');
+	if (genres.length === 0) throw new FieldError('Add at least one genre', 'genres');
 	const location = parseLocation(form, true, 'Add the city the project is based in')!;
 
 	return { name, kind, genres, location, ...basics, ...performer };
@@ -320,7 +323,8 @@ export function parseDetails(form: FormData): ProjectDetails {
 	const email = optionalText(form, 'bookingEmail', 320);
 
 	if (email) {
-		if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new UserError('That booking email does not look right');
+		if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+			throw new FieldError('That booking email does not look right', 'bookingEmail');
 		details.bookingEmail = email;
 	}
 
@@ -345,12 +349,12 @@ export async function parseAvatar(form: FormData): Promise<{ bytes: Uint8Array; 
 
 	if (!(file instanceof File) || file.size === 0) return undefined;
 
-	if (!AVATAR_TYPES.has(file.type)) throw new UserError('Upload a PNG, JPEG, or WebP image');
+	if (!AVATAR_TYPES.has(file.type)) throw new FieldError('Upload a PNG, JPEG, or WebP image', 'avatar');
 
-	if (file.size > AVATAR_MAX_BYTES) throw new UserError('Images can be at most 1 MB');
+	if (file.size > AVATAR_MAX_BYTES) throw new FieldError('Images can be at most 1 MB', 'avatar');
 	const bytes = new Uint8Array(await file.arrayBuffer());
 
-	if (!sniffImage(bytes, file.type)) throw new UserError("That file isn't the image type it claims to be");
+	if (!sniffImage(bytes, file.type)) throw new FieldError("That file isn't the image type it claims to be", 'avatar');
 
 	return { bytes, mimeType: file.type };
 }
@@ -379,10 +383,14 @@ export async function withTracklists<T extends { mixes?: ProjectMix[] }>(
 
 		if (!(file instanceof File) || file.size === 0) continue;
 
-		if (!raw.trim()) throw new UserError('Add a link for the mix before attaching its tracklist');
+		if (!raw.trim()) throw new FieldError('Add a link for the mix before attaching its tracklist', 'mixUrl', row);
 
-		if (rows.get(toUrl(raw.trim(), 'A mix link')) !== row)
-			throw new UserError(`“${titles[row]?.trim() || 'Mix'}” is listed twice. Add its tracklist to the first one`);
+		if (rows.get(toUrl(raw.trim(), 'A mix link', 'mixUrl', row)) !== row)
+			throw new FieldError(
+				`“${titles[row]?.trim() || 'Mix'}” is listed twice. Add its tracklist to the first one`,
+				'mixUrl',
+				row
+			);
 	}
 
 	const known = new Map<string, BlobRefJson>();
@@ -400,10 +408,11 @@ export async function withTracklists<T extends { mixes?: ProjectMix[] }>(
 		const file = files[row];
 
 		if (file instanceof File && file.size > 0) {
-			if (file.size > MIX_REPORT_MAX_BYTES) throw new UserError(`The tracklist for “${mix.title}” is over 1 MB`);
+			if (file.size > MIX_REPORT_MAX_BYTES)
+				throw new FieldError(`The tracklist for “${mix.title}” is over 1 MB`, 'mixTracklist', row);
 			const result = parseMixReportText(new Uint8Array(await file.arrayBuffer()));
 
-			if (!result.ok) throw new UserError(`The tracklist for “${mix.title}”: ${result.error}`);
+			if (!result.ok) throw new FieldError(`The tracklist for “${mix.title}”: ${result.error}`, 'mixTracklist', row);
 			tracklists[index] = {
 				bytes: new TextEncoder().encode(JSON.stringify(result.report)),
 				mimeType: 'application/json'

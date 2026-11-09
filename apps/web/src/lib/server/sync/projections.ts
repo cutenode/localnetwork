@@ -7,6 +7,7 @@ import type { AuditLog } from '../audit/log';
 import type { Core } from '../core';
 import type { BookingRecord, BookingService } from '../services/bookings';
 import type { EpkService } from '../services/epk';
+import { type FlagService, flagGroupRecord, flagRecord } from '../services/flags';
 import type { ProjectService } from '../services/projects';
 import { isRequestKind, type RequestService } from '../services/requests';
 import type { ListingWriter } from '../services/listings';
@@ -36,12 +37,13 @@ export function createProjections(deps: {
 	projects: ProjectService;
 	requests: RequestService;
 	staff: StaffService;
+	flags: FlagService;
 	bookings: BookingService;
 	epks: EpkService;
 	sharedSpaces: SharedSpaces;
 	listings: ListingWriter;
 }): ChangeHandler {
-	const { core, audit, projects, requests, staff, bookings, epks, sharedSpaces, listings } = deps;
+	const { core, audit, projects, requests, staff, flags, bookings, epks, sharedSpaces, listings } = deps;
 	const { spaces, rootDid } = core;
 
 	return async (change) => {
@@ -54,6 +56,10 @@ export function createProjections(deps: {
 		if (change.kind === 'delete') {
 			if (change.collection === COLLECTION.staffRole && change.space === spaces.staff && fromRoot) {
 				await staff.removeRoleByUri(change.uri);
+			} else if (change.collection === COLLECTION.staffFlag && change.space === spaces.staff && fromRoot) {
+				await flags.removeFlagByUri(change.uri);
+			} else if (change.collection === COLLECTION.staffGroup && change.space === spaces.staff && fromRoot) {
+				await flags.removeGroupByUri(change.uri);
 			} else if (change.collection === COLLECTION.request && change.space === spaces.moderation) {
 				await core.db
 					.updateTable('request')
@@ -150,6 +156,24 @@ export function createProjections(deps: {
 				// The record no longer holds a role this app knows, so it grants nothing, including what it held before.
 				core.logger.warn('ignoring synced staff role this app does not know', { uri: change.uri, role: value.role });
 				await staff.removeRoleByUri(change.uri);
+
+				return;
+			}
+
+			case COLLECTION.staffFlag: {
+				if (change.space !== spaces.staff || !fromRoot) return;
+				const flag = flagRecord.safeParse(value);
+
+				if (flag.success) await flags.indexFlag(change.uri, flag.data);
+
+				return;
+			}
+
+			case COLLECTION.staffGroup: {
+				if (change.space !== spaces.staff || !fromRoot) return;
+				const group = flagGroupRecord.safeParse(value);
+
+				if (group.success) await flags.indexGroup(change.uri, group.data);
 
 				return;
 			}

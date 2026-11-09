@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ListMusic, Pause, Play } from '@lucide/svelte';
+	import { ListMusic, Play, X } from '@lucide/svelte';
 	import { embedUrl, mixPlatform } from '#lib/mix/links.ts';
 	import type { DjSetView, ProjectMix } from '#lib/types.ts';
 	import Button from '#lib/ui/Button.svelte';
@@ -40,7 +40,8 @@
 						class="grid size-10 shrink-0 cursor-pointer place-items-center rounded-full bg-fg text-fg-inverse transition-opacity hover:opacity-85"
 						onclick={() => (open = open === id ? null : id)}
 					>
-						{#if open === id}<Pause class="size-4 fill-current" />{:else}<Play class="ml-0.5 size-4 fill-current" />{/if}
+						<!-- A close mark, not a pause: the button opens and closes the platform's player, which plays and pauses itself. -->
+						{#if open === id}<X class="size-4" />{:else}<Play class="ml-0.5 size-4 fill-current" />{/if}
 					</button>
 				{/if}
 				<div class="min-w-0 flex-1">

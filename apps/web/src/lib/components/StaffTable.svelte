@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import Handle from '#lib/components/Handle.svelte';
+	import StaffGrants from '#lib/components/StaffGrants.svelte';
 	import { formatDate } from '#lib/format.ts';
 	import type { StaffMember } from '#lib/types.ts';
 	import ResponsiveTable from '#lib/ui/ResponsiveTable.svelte';
@@ -19,6 +20,10 @@
 	{#if member.bootstrap}<span class="font-mono text-label">ADMIN_DIDS</span>{:else}{formatDate(member.createdAt)}{/if}
 {/snippet}
 
+{#snippet grants(member: StaffMember)}
+	{#if member.role === 'moderator'}<StaffGrants {member} />{/if}
+{/snippet}
+
 {#snippet remove(member: StaffMember)}
 	{#if !member.bootstrap && member.did !== viewer}
 		<form method="POST" action="?/revoke" use:enhance={({ cancel }) => { if (!confirm('Remove this role?')) cancel(); }}>
@@ -32,13 +37,14 @@
 	{#snippet head()}<th>Account</th><th>Role</th><th>Granted</th><th><span class="sr-only">Actions</span></th>{/snippet}
 	{#snippet row(member)}
 		<td>{@render who(member)}</td>
-		<td class="capitalize">{member.role}</td>
+		<td><span class="capitalize">{member.role}</span>{@render grants(member)}</td>
 		<td class="whitespace-nowrap text-fg-muted">{@render granted(member)}</td>
 		<td class="text-right">{@render remove(member)}</td>
 	{/snippet}
 	{#snippet card(member)}
 		<div>{@render who(member)}</div>
 		<p class="text-label text-fg-muted"><span class="capitalize">{member.role}</span> · {member.bootstrap ? '' : 'granted '}{@render granted(member)}</p>
+		{@render grants(member)}
 		{@render remove(member)}
 	{/snippet}
 </ResponsiveTable>

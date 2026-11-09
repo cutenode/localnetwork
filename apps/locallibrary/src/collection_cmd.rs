@@ -152,6 +152,7 @@ pub fn run(args: CollectionArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx
         }
         CollectionCommand::Export { drive, playlists, all, replace, dry_run, from, grants, options } => {
             let export = CollectionExportOptions { playlists, all, replace, overwrite_archive: false };
+            locallibrary::op::allow_measuring(out.will_decide(dry_run));
             let plan = match from {
                 Some(_) if req.db.is_some() || req.key.is_some() => {
                     bail!("--db and --key are for rekordbox's collection, not --from")
@@ -253,6 +254,7 @@ fn write(
         for s in plan.summary.iter().filter(|s| s.starts_with("read the files") || s.starts_with("keep a smart rule")) {
             say!("  {}", dim(s));
         }
+        output::estimate(&plan.estimate);
         for w in &plan.warnings {
             warn(w);
         }

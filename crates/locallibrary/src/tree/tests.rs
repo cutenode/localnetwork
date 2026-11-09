@@ -161,7 +161,13 @@ fn the_hash_cache_is_written_only_when_its_answers_change(tc: hegel::TestCase) {
         if tc.draw(gs::booleans()) {
             let mut e = entry(path, 0, tc.draw(gs::integers::<usize>().max_value(3)), 0);
             let after = tc.draw(gs::sampled_from(vec![0, 1, 3, 100]));
-            let cached = IndexEntry { size: e.size, mtime: e.mtime, hash: e.hash.unwrap(), at: e.mtime + after };
+            let cached = IndexEntry {
+                size: e.size,
+                mtime: e.mtime,
+                hash: e.hash.unwrap(),
+                at: e.mtime + after,
+                baseline: false,
+            };
             index.entries.insert(e.path.clone(), cached);
             e.mtime = cached.mtime;
             model.insert(e.path.clone(), (e, cached.settled()));

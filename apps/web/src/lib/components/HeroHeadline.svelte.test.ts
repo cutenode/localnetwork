@@ -89,6 +89,20 @@ describe('HeroHeadline', () => {
 			.toBe(2);
 	});
 
+	it('holds still while paused, and moves again after', async () => {
+		const interval = 100;
+		const { rerender } = await render(HeroHeadline, { interval, paused: true });
+
+		await new Promise((resolve) => setTimeout(resolve, interval * 4));
+		expect(words(showing(verbs))).toBe(verbs[0]);
+		expect(words(showing(nouns))).toBe(nouns[0]);
+
+		await rerender({ interval, paused: false });
+		await expect
+			.poll(() => words(showing(verbs)) !== verbs[0] || words(showing(nouns)) !== nouns[0], { timeout: interval * 10 })
+			.toBe(true);
+	});
+
 	it('stays on the first pair with reduced motion', async () => {
 		await reducedMotion('reduce');
 		const interval = 100;

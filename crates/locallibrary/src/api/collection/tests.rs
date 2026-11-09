@@ -152,7 +152,7 @@ fn a_folder_under_a_file_cant_be_exported_into() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("file"), b"").unwrap();
     let spec = dir.path().join("file/USB").display().to_string();
-    let err = export_planned("collection export", &spec, &CollectionExportOptions::default(), |_| {
+    let err = export_planned("collection export", &spec, &CollectionExportOptions::default(), &Ctx::silent(), |_| {
         unreachable!("nothing is planned without the folder")
     })
     .unwrap_err();

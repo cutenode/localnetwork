@@ -1,7 +1,7 @@
 import { normalizeGenres } from '#lib/taxonomy/genres.ts';
 import { FEE_TIERS, isOneOf, SET_TYPES } from '#lib/taxonomy/options.ts';
 import type { Location, ShowDetails } from '#lib/types.ts';
-import { UserError } from '../core';
+import { FieldError, UserError } from '../core';
 import { limit, optionalCurrency, optionalInt, optionalText, text } from '../http';
 
 /**
@@ -30,7 +30,7 @@ function parseLocation(form: FormData): Location | undefined {
 	const country = text(form, 'country', 8).toUpperCase();
 
 	if (!/^[A-Z]{2}$/.test(country))
-		throw new UserError('Use a two-letter country code for the venue (like US, GB, or DE)');
+		throw new FieldError('Use a two-letter country code for the venue (like US, GB, or DE)', 'country');
 	const location: Location = { city, country };
 	const region = limit('Region', optionalText(form, 'region', 1000), 100);
 	const latE6 = optionalInt(form, 'latE6', -90_000_000, 90_000_000);
@@ -50,7 +50,7 @@ function parseLocation(form: FormData): Location | undefined {
 export function parseShow(form: FormData): ShowDetails {
 	const title = limit('Show name', text(form, 'title', 1200), 120);
 
-	if (!title) throw new UserError('Give the show a name');
+	if (!title) throw new FieldError('Give the show a name', 'title');
 	const date = text(form, 'date', 10);
 	const venue = limit('Venue', optionalText(form, 'venue', 1200), 120);
 	const location = parseLocation(form);
@@ -58,7 +58,7 @@ export function parseShow(form: FormData): ShowDetails {
 	const budget = optionalInt(form, 'budgetAmount', 0, 10_000_000);
 	const currency = optionalCurrency(form, 'currency');
 
-	if (budget !== undefined && !currency) throw new UserError('Add a currency for the budget');
+	if (budget !== undefined && !currency) throw new FieldError('Add a currency for the budget', 'currency');
 	const budgetTier = text(form, 'budgetTier', 32);
 	const setType = text(form, 'setType', 32);
 	const setMinutes = optionalInt(form, 'setMinutes', 15, 720);

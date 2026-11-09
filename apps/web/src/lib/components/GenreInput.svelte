@@ -46,7 +46,7 @@
 </script>
 
 {#if enhanced}
-	<div class="input flex h-auto flex-wrap items-center gap-1.5 py-1.5 focus-within:border-link">
+	<div class="input flex h-auto flex-wrap items-center gap-1.5 py-1.5 focus-within:border-link has-aria-invalid:border-critical">
 		{#each tags as tag (tag)}
 			<span class="chip gap-1 pr-1">
 				{tag}
