@@ -83,7 +83,8 @@
 	{@render children()}
 </main>
 
-<footer class="border-t border-line print:hidden">
+<!-- The dashboard's tabs are fixed to the bottom on a phone, so its footer finishes above them. -->
+<footer class={['border-t border-line print:hidden', page.url.pathname.startsWith('/dashboard') && 'max-lg:pb-[calc(3.5rem+env(safe-area-inset-bottom))]']}>
 	<div class="container-page flex flex-wrap items-center gap-x-6 gap-y-3 py-8 text-small">
 		<a class="menu-link" href="/about" aria-keyshortcuts={shortcut('A')}>How it works</a>
 		<a class="menu-link" href="/privacy" aria-keyshortcuts={shortcut('P')}>Privacy</a>

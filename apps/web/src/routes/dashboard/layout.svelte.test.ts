@@ -24,12 +24,12 @@ const neon = {
 } as ProjectView;
 
 const menu = async () => {
-	await page.getByRole('button', { name: /^Dashboard menu/ }).click();
+	await page.getByRole('button', { name: 'Dashboard menu' }).click();
 
-	return page.getByRole('navigation', { name: 'Dashboard' });
+	return page.getByRole('dialog', { name: 'Dashboard menu' });
 };
 
-it('lists the sections, each project the viewer manages, and the way back to the site', async () => {
+it("lists the sections and everything that is the viewer's own", async () => {
 	await render(Layout, {
 		params: {},
 		data: {
@@ -44,25 +44,29 @@ it('lists the sections, each project the viewer manages, and the way back to the
 	const nav = await menu();
 
 	for (const [name, href] of [
-		['Overview', '/dashboard'],
+		['Home', '/dashboard'],
 		['Inbox', '/dashboard/inbox'],
 		['Bookings', '/dashboard/bookings'],
 		['Planner', '/dashboard/planner'],
 		['Submissions', '/dashboard/requests'],
 		['Activity', '/dashboard/activity'],
-		['View site', '/']
+		['Your data', '/dashboard/data']
 	]) {
 		await expect.element(nav.getByRole('link', { name, exact: true })).toHaveAttribute('href', href);
 	}
 
-	const projects = nav.getByRole('list', { name: 'Projects' });
+	const yours = nav.getByRole('list', { name: 'Yours' });
 	await expect
-		.element(projects.getByRole('link', { name: 'Neon Tide' }))
+		.element(yours.getByRole('link', { name: 'You', exact: true }))
+		.toHaveAttribute('href', '/dashboard/profile');
+	await expect
+		.element(yours.getByRole('link', { name: 'Neon Tide' }))
 		.toHaveAttribute('href', '/dashboard/projects/neon-tide');
 	await expect
-		.element(projects.getByRole('link', { name: 'List a project' }))
+		.element(yours.getByRole('link', { name: 'List a project' }))
 		.toHaveAttribute('href', '/dashboard/projects/new');
 	await expect.element(nav.getByRole('link', { name: /Staff console/ })).not.toBeInTheDocument();
+	await expect.element(nav.getByRole('link', { name: 'View site' })).not.toBeInTheDocument();
 });
 
 it('adds the staff console, with the requests waiting, for staff', async () => {
@@ -82,7 +86,7 @@ it('adds the staff console, with the requests waiting, for staff', async () => {
 	await expect.element(nav.getByRole('link', { name: 'Staff console 4' })).toHaveAttribute('href', '/admin');
 });
 
-it('counts what is unread in the inbox', async () => {
+it('marks the inbox with a dot, not a count, while something is unread', async () => {
 	await render(Layout, {
 		params: {},
 		data: {
@@ -96,7 +100,7 @@ it('counts what is unread in the inbox', async () => {
 	});
 	const nav = await menu();
 
-	await expect.element(nav.getByRole('link', { name: 'Inbox 3' })).toHaveAttribute('href', '/dashboard/inbox');
+	await expect.element(nav.getByRole('link', { name: 'Inbox Unread' })).toHaveAttribute('href', '/dashboard/inbox');
 });
 
 it('still offers to list a project when the directory is offline', async () => {
@@ -113,9 +117,9 @@ it('still offers to list a project when the directory is offline', async () => {
 	});
 	const nav = await menu();
 
-	const projects = nav.getByRole('list', { name: 'Projects' });
-	await expect.element(projects.getByRole('link', { name: 'List a project' })).toBeInTheDocument();
-	expect(projects.getByRole('link').elements()).toHaveLength(1);
+	const yours = nav.getByRole('list', { name: 'Yours' });
+	await expect.element(yours.getByRole('link', { name: 'List a project' })).toBeInTheDocument();
+	expect(yours.getByRole('link').elements()).toHaveLength(2);
 });
 
 it('shows a DJ their projects and a promoter their planner, by the sections their profile has on', async () => {
@@ -138,12 +142,9 @@ it('shows a DJ their projects and a promoter their planner, by the sections thei
 	};
 
 	let nav = await open({ performer: false, promoter: true });
-	await expect
-		.element(nav.getByRole('link', { name: 'Profile', exact: true }))
-		.toHaveAttribute('href', '/dashboard/profile');
+	await expect.element(nav.getByRole('link', { name: 'You', exact: true })).toBeInTheDocument();
 	await expect.element(nav.getByRole('link', { name: 'Planner' })).toBeInTheDocument();
 	await expect.element(nav.getByRole('link', { name: 'List a project' })).not.toBeInTheDocument();
-	await expect.element(nav.getByText('Projects', { exact: true })).not.toBeInTheDocument();
 
 	nav = await open({ performer: true, promoter: false });
 	await expect.element(nav.getByRole('link', { name: 'List a project' })).toBeInTheDocument();
