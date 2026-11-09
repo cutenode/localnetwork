@@ -97,43 +97,6 @@ fn a_torn_file_with_its_sources_time_is_unfinished() {
     assert_eq!(unfinished(&d), ["Contents/a.mp3"]);
 }
 
-/// The published note and its directory must be durable before any direct write can start.
-/// Even an existing state directory may just have been made by lock/begin on this run.
-#[hegel::test(test_cases = 8)]
-#[hegel::explicit_test_case(existing = false, fail_at = 0usize)]
-#[hegel::explicit_test_case(existing = true, fail_at = 1usize)]
-#[hegel::explicit_test_case(existing = false, fail_at = 2usize)]
-fn noting_files_persists_both_directory_entries_or_returns_the_error(tc: hegel::TestCase) {
-    use crate::Error;
-    use hegel::generators as gs;
-    let existing = tc.draw(gs::booleans());
-    let fail_at = tc.draw(gs::integers::<usize>().max_value(2));
-    let dir = tempfile::tempdir().unwrap();
-    let d = Device::open(dir.path()).unwrap();
-    if existing {
-        std::fs::create_dir(d.state_dir()).unwrap();
-    }
-    let mut synced = Vec::new();
-    let result = note_with_sync(&d, [("Contents/a.mp3".to_string(), 4, TIME)].into_iter(), |path| {
-        let note: Note = fsutil::read_json(&file(&d)).unwrap();
-        let f = &note.files[0];
-        assert_eq!((f.key.as_str(), f.size, f.mtime), ("Contents/a.mp3", 4, TIME));
-        assert!(!d.path("Contents/a.mp3").exists());
-        synced.push(path.to_path_buf());
-        if synced.len() - 1 == fail_at {
-            return Err(Error::Io { path: path.to_path_buf(), source: std::io::ErrorKind::PermissionDenied.into() });
-        }
-        Ok(())
-    });
-    let expected = [d.state_dir(), d.root().to_path_buf()];
-    assert_eq!(synced, expected[..(fail_at + 1).min(2)]);
-    match fail_at {
-        0 | 1 => assert!(matches!(result, Err(Error::Io { path, source })
-            if path == expected[fail_at] && source.kind() == std::io::ErrorKind::PermissionDenied)),
-        _ => result.unwrap(),
-    }
-}
-
 /// A note whose removal never reached the disk outlives the write that made it. A later write,
 /// cut off in turn, keeps the file it finished replacing, whatever the stale note says about it.
 #[hegel::test(test_cases = 4)]
@@ -161,15 +124,12 @@ fn a_stale_note_leaves_a_later_writes_files(tc: hegel::TestCase) {
     assert_eq!(std::fs::read(d.path(key)).unwrap(), b"new audio");
 }
 
-/// The real copy path must propagate a directory-open error from the durability barrier, even
-/// when it can publish the note and create the audio. Only fixtures have their permissions changed.
+/// The note's folder is flushed before any new file is made: an error there stops the copy, with
+/// the note written and no audio. Only fixtures have their permissions changed.
 #[cfg(unix)]
-#[hegel::test(test_cases = 4)]
-#[hegel::explicit_test_case(parent = false)]
-#[hegel::explicit_test_case(parent = true)]
-fn a_note_directory_sync_error_prevents_the_first_copy(tc: hegel::TestCase) {
+#[test]
+fn a_note_directory_sync_error_prevents_the_first_copy() {
     use std::os::unix::fs::PermissionsExt;
-    let parent = tc.draw(hegel::generators::booleans());
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("drive");
     let src = dir.path().join("source");
@@ -181,7 +141,7 @@ fn a_note_directory_sync_error_prevents_the_first_copy(tc: hegel::TestCase) {
     let mut planned = crate::library_write::Planned::default();
     planned.copies.push(crate::library_write::FileCopy { path: "Contents/a.mp3".into(), size: 5 });
     planned.sources.insert("Contents/a.mp3".into(), crate::library_write::Source::file(src, 5, TIME));
-    let blocked = if parent { d.root().to_path_buf() } else { d.state_dir() };
+    let blocked = d.state_dir();
     let permissions = std::fs::metadata(&blocked).unwrap().permissions();
     // Write and traversal still work, but opening the directory to sync it does not.
     std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o300)).unwrap();

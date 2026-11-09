@@ -42,7 +42,16 @@ fn started(device: &Device) -> Option<DateTime<Utc>> {
 /// Note `files` (key, size, modification time), those not on `target` yet, before the first is
 /// written. A key that isn't safe stays out: the write refuses it.
 pub(crate) fn note(target: &Device, files: impl Iterator<Item = (String, u64, i64)>) -> Result<()> {
-    note_with_sync(target, files, sync_directory)
+    let is_new =
+        |(key, ..): &(String, u64, i64)| target.checked_path(key).is_ok_and(|p| std::fs::symlink_metadata(p).is_err());
+    let new: Vec<NewFile> = files.filter(is_new).map(|(key, size, mtime)| NewFile { key, size, mtime }).collect();
+    if new.is_empty() {
+        return forget(target);
+    }
+    fsutil::write_json_atomic(&file(target), &Note { started: started(target), files: new })?;
+    // The note's folder holds `state.json` too. If that folder's own entry in the drive's root
+    // were lost, the pending marker would go with it and the note wouldn't be read anyway.
+    sync_directory(&target.state_dir())
 }
 
 fn sync_directory(dir: &Path) -> Result<()> {
@@ -58,23 +67,6 @@ fn sync_directory(dir: &Path) -> Result<()> {
         let _ = dir;
         Ok(())
     }
-}
-
-fn note_with_sync(
-    target: &Device,
-    files: impl Iterator<Item = (String, u64, i64)>,
-    mut sync: impl FnMut(&Path) -> Result<()>,
-) -> Result<()> {
-    let is_new =
-        |(key, ..): &(String, u64, i64)| target.checked_path(key).is_ok_and(|p| std::fs::symlink_metadata(p).is_err());
-    let new: Vec<NewFile> = files.filter(is_new).map(|(key, size, mtime)| NewFile { key, size, mtime }).collect();
-    if new.is_empty() {
-        return forget(target);
-    }
-    fsutil::write_json_atomic(&file(target), &Note { started: started(target), files: new })?;
-    sync(&target.state_dir())?;
-    // lock/begin may have just created the state directory, even if it existed on entry here.
-    sync(target.root())
 }
 
 /// The write finished, or stopped having finished or removed each file.
