@@ -227,6 +227,9 @@
   /** The paths the running lookup covers, so their rows can say so. */
   let checkingIds: Set<string> = $state(new Set());
 
+  /** Who the last lookup of them couldn't ask about. Not stored: it's about that lookup, not the artist. */
+  let failedIds: Set<string> = $state(new Set());
+
   /** What the last add or lookup came to, when it is worth leaving on screen. */
   let note = $state<{ tone: 'bad' | 'info'; text: string } | null>(null);
 
@@ -240,26 +243,28 @@
 
       if (!lookingUp) return;
       progress = message;
-      take(answersIn(message));
+      take(message);
     });
   } catch (_e) {
     // No runtime to listen on: the lookup just finishes without a count.
   }
 
   /**
-   * A lookup's answers as the store takes them: profiles, and failures. `as const` keeps
-   * `unavailable: true` from widening to a boolean inside the map.
+   * Folds a lookup's answers into the list. A profile or SoundCloud saying there is none goes to
+   * the store. A lookup that failed says nothing about the artist, so what the row holds stays,
+   * and the row says so until it's asked again.
    * @param answer a progress message, or the lookup's whole answer
    */
-  const answersIn = ({ profiles, failed }: Pick<ProfilesAnswer, 'profiles' | 'failed'>) => [
-    ...(Array.isArray(profiles) ? profiles : []),
-    ...(Array.isArray(failed) ? failed : []).map((permalink) => ({ permalink, unavailable: true as const })),
-  ];
+  function take({ profiles, missing, failed }: Partial<Pick<ProfilesAnswer, 'profiles' | 'missing' | 'failed'>>) {
+    const answers: ProfileAnswer[] = [
+      ...(profiles ?? []),
+      ...(missing ?? []).map((permalink) => ({ permalink, unavailable: true as const })),
+    ];
 
-  function take(answers: ProfileAnswer[]) {
     artists.learn(answers);
-    const answered = new Set(answers.map((answer) => answer?.permalink));
+    const answered = new Set([...answers.map((answer) => answer.permalink), ...(failed ?? [])]);
     checkingIds = new Set([...checkingIds].filter((permalink) => !answered.has(permalink)));
+    failedIds = new Set([...failedIds, ...(failed ?? [])]);
   }
 
   const said = ({ added, refreshed }: { added: number; refreshed: number }, from: string) => {
@@ -286,6 +291,7 @@
     lookingUp = true;
     progress = null;
     checkingIds = new Set(permalinks);
+    failedIds = new Set([...failedIds].filter((permalink) => !checkingIds.has(permalink)));
     const result = await lookupProfiles(permalinks);
 
     if (result.status) {
@@ -293,7 +299,7 @@
     } else {
       // The whole answer, answers already streamed included: the same
       // profile twice is the same profile.
-      take(answersIn(result.data!));
+      take(result.data!);
       const why = LOOKUP_ERRORS[result.data!.error];
 
       // Said once it is over, through the toasts' live region: the bar above
@@ -673,6 +679,7 @@
             {@const name = nameOf(entry)}
             {@const links = linksOf(entry.profile)}
             {@const checking = checkingIds.has(entry.permalink)}
+            {@const failed = failedIds.has(entry.permalink)}
             {@const avatar = hasProfile(entry) ? entry.profile.avatarUrl : ''}
             <li
               data-permalink={entry.permalink}
@@ -703,12 +710,12 @@
                     {/if}
                   </p>
                   <p
-                    class="truncate text-caption {isUnavailable(entry)
+                    class="truncate text-caption {isUnavailable(entry) || failed
                       ? 'text-fg-subtle italic'
                       : 'text-fg-muted'}"
-                    title={profileLine(entry, { checking })}
+                    title={profileLine(entry, { checking, failed })}
                   >
-                    {profileLine(entry, { checking })}
+                    {profileLine(entry, { checking, failed })}
                   </p>
                 </div>
 

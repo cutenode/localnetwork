@@ -6,4 +6,4 @@
 	let { artists }: { artists: ArtistCredit[] } = $props();
 </script>
 
-{#each artists as artist, i (i)}{#if i > 0},{' '}{/if}<a class="text-fg-muted underline decoration-line-strong underline-offset-4 hover:text-fg hover:decoration-fg-subtle" href={artistHref(artist)}>{artist.name}</a>{/each}
+{#each artists as artist, i (i)}{#if i > 0},{' '}{/if}<a class="entity-link text-fg-muted" href={artistHref(artist)}>{artist.name}</a>{/each}

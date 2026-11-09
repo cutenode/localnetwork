@@ -112,6 +112,16 @@
 				<button class="btn-danger">Withdraw</button>
 			</form>
 		</div>
+		{#if request.kind === 'list' && request.status === 'changes_requested'}
+			<form method="POST" action="?/revise" class="card flex flex-col gap-4 p-5 sm:p-6">
+				<p class="m-0 text-small text-fg-soft">Once your profile has what staff asked for, send it back to them.</p>
+				<div>
+					<label class="label" for="message">Note</label>
+					<textarea id="message" name="message" class="input min-h-24 py-2.5">{values?.message ?? request.record.message ?? ''}</textarea>
+				</div>
+				<button class="btn-primary self-start">I've updated my profile</button>
+			</form>
+		{/if}
 		{#if editing}
 			{#if request.kind === 'claim'}
 				<form method="POST" action="?/revise" class="card flex flex-col gap-4 p-5 sm:p-6">

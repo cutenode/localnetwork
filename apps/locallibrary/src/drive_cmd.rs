@@ -10,6 +10,7 @@ use console::style;
 use locallibrary::Store;
 use locallibrary::api::{self, DriveRef};
 use locallibrary::compare::Relation;
+use locallibrary::drive_speed::MeasuredBy;
 use locallibrary::fleet::{DriveLog, KnownDrive, Role, Standing};
 use locallibrary::format::{FormatOptions, FormatPlan};
 use locallibrary::local_time;
@@ -85,6 +86,16 @@ unless --overwrite-archive (or --force for push) is given. `gig`, the old name f
     Log {
         #[arg(help = DRIVE_HELP)]
         drive: String,
+    },
+    /// How fast a drive writes, as last measured, which is what plans estimate their time from
+    #[command(after_help = "A plan measures a drive the first time it needs to, and when the result goes stale. \
+--measure writes a scratch file of up to 2 GB and small files, and removes them.")]
+    Speed {
+        #[arg(help = DRIVE_HELP)]
+        drive: String,
+        /// Measure it now
+        #[arg(long)]
+        measure: bool,
     },
     /// Which known drive or stored snapshot a drive matches (for a drive that lost its identity)
     Recognise {
@@ -573,6 +584,7 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
                 }
             }));
         }
+        DriveCommand::Speed { drive, measure } => return speed(drive, measure, out, ctx),
         DriveCommand::Forget { drive } => {
             let store = crate::diff_cmd::store_to_read(store_path)?;
             let req = DriveRef { drive };
@@ -1342,6 +1354,39 @@ pub fn known_drives(list: &[KnownDrive]) {
         if let Some(p) = k.log.problems.last() {
             warn(format!("  {}: {} ({})", k.name, p.detail, local_time(p.at, "%Y-%m-%d")));
         }
+    }
+}
+
+/// `drive speed`: what's stored, or with `measure`, a new result.
+fn speed(drive: String, measure: bool, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
+    let req = DriveRef { drive };
+    let report = if measure { api::drive_speed_measure(&req, ctx)? } else { api::drive_speed(&req)? };
+    out.emit(&report, render_speed);
+    Ok(ExitCode::SUCCESS)
+}
+
+fn render_speed(r: &api::DriveSpeedReport) {
+    let Some(s) = &r.speed else {
+        say!("{} hasn't been measured: `locallibrary drive speed {:?} --measure`", r.drive, r.drive);
+        return;
+    };
+    say!(
+        "{}: writes ~{:.0} MB/s, {:.0} ms a file, {:.0} ms a folder",
+        style(&r.drive).bold(),
+        s.bytes_per_sec as f64 / 1e6,
+        s.create_us as f64 / 1e3,
+        s.mkdir_us as f64 / 1e3
+    );
+    let how = match s.measured_by {
+        MeasuredBy::Test => "a timed write",
+        MeasuredBy::Write => "a real write",
+    };
+    say!("  {}", output::dim(format!("measured {} by {how}", local_time(s.measured_at, "%Y-%m-%d"))));
+    if let Some(held) = s.holds_for {
+        say!("  {}", output::dim(format!("held for {}: longer writes may run slower", bytes(held))));
+    }
+    if r.stale.is_some() {
+        say!("  {}", output::dim("may be out of date: the next big write measures it again"));
     }
 }
 

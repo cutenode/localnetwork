@@ -7,11 +7,11 @@ use crate::common;
 
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
-use locallibrary::Error;
 use locallibrary::device::Device;
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions, PushOptions};
+use locallibrary::{Error, paths};
 
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_push_writes_the_snapshot_and_never_loses_unsaved_work(tc: TestCase) {
@@ -70,4 +70,43 @@ fn a_push_writes_the_snapshot_and_never_loses_unsaved_work(tc: TestCase) {
         (changed, r) => panic!("changed: {changed}, push: {:?}", r.map(|_| ())),
     }
     assert_eq!(common::library_files(&backup_root), states.last().unwrap().1, "the latest, exactly");
+}
+
+/// A store that lost a file the push would copy refuses it while planning, naming the track the
+/// file belongs to (or the file, when no track uses it), and leaves the drive as it was.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_push_missing_a_stored_file_is_refused_before_the_drive_changes(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let main_root = common::bigger_drive(dir.path(), "Main");
+    let mut main = Device::open_export(&main_root).unwrap();
+    sync::pull(&store, &mut main, &PullOptions::default(), &Ctx::silent()).unwrap();
+    let backup_root = common::blank(dir.path(), "Backup");
+    let first = sync::resolve_push_snapshot(&store, &main, &PushOptions::default()).unwrap();
+    sync::push(&store, &first, &mut Device::open(&backup_root).unwrap(), &PushOptions::default(), &Ctx::silent())
+        .unwrap();
+
+    for n in 1..=tc.draw(gs::integers::<usize>().min_value(1).max_value(2)) {
+        common::export_new_track(&main_root, "New", &format!("Export {n}"));
+    }
+    let mut main = Device::open_export(&main_root).unwrap();
+    let pulled = sync::pull(&store, &mut main, &PullOptions::default(), &Ctx::silent()).unwrap().snapshot.unwrap();
+    let head = store.load_snapshot(&pulled.id).unwrap();
+    let mut backup = Device::open_export(&backup_root).unwrap();
+    let plan = sync::plan_push(&store, &head, &backup, &PushOptions::default(), &Ctx::silent()).unwrap();
+    let lost = &plan.copies[tc.draw(gs::integers::<usize>().max_value(plan.copies.len() - 1))];
+    std::fs::remove_file(store.object_path(&lost.hash.unwrap())).unwrap();
+    let named = main
+        .library()
+        .unwrap()
+        .tracks
+        .into_iter()
+        .find(|t| [&t.file_path, &t.analyze_path].iter().any(|p| paths::key(p) == lost.path))
+        .map_or(lost.path.clone(), |t| t.display_name());
+
+    let before = common::Before::take(&backup_root);
+    let err = sync::push(&store, &head, &mut backup, &PushOptions::default(), &Ctx::silent()).unwrap_err();
+    assert!(matches!(err.inner(), Error::NotFound(_)), "{err}");
+    assert!(err.to_string().contains(&named), "{err} names {named}");
+    before.untouched(&backup_root).unwrap();
 }

@@ -104,7 +104,7 @@ describe('asking staff to list a DJ in Find DJs', () => {
 		await expect(ask()).rejects.toThrow("You're already listed in Find DJs");
 	});
 
-	it("won't list a DJ whose profile no longer has the DJ section on, and can't be edited like a project request", async () => {
+	it("won't list a DJ whose profile no longer has the DJ section on", async () => {
 		await saveProfile({});
 		const request = await ask();
 		await saveProfile(undefined);
@@ -113,9 +113,28 @@ describe('asking staff to list a DJ in Find DJs', () => {
 			t.requests.decide({ actor: await t.viewer(MOD), uri: request.uri, outcome: 'approved' })
 		).rejects.toThrow('Their profile no longer has the DJ section on');
 		expect(await t.djListings.get(DJ)).toBeNull();
-		await expect(t.requests.revise(await t.viewer(DJ), request.uri, { message: 'again' })).rejects.toThrow(
-			'Edit your profile instead'
-		);
+	});
+
+	it('sends a request back to staff once the DJ has updated their profile, with only a new note', async () => {
+		await saveProfile({});
+		const request = await ask();
+
+		await t.requests.decide({
+			actor: await t.viewer(MOD),
+			uri: request.uri,
+			outcome: 'changesRequested',
+			reason: 'Add your genres'
+		});
+		await saveProfile({ genres: ['techno'] });
+
+		await expect(
+			t.requests.revise(await t.viewer(DJ), request.uri, { details: { rateNotes: 'Ask me' } })
+		).rejects.toThrow('Edit your profile instead');
+		const resent = await t.requests.revise(await t.viewer(DJ), request.uri, { message: 'Added them' });
+		expect(resent).toMatchObject({ status: 'pending', record: { kind: 'list', message: 'Added them' } });
+
+		await t.requests.decide({ actor: await t.viewer(MOD), uri: request.uri, outcome: 'approved' });
+		expect(await t.djListings.get(DJ)).toMatchObject({ request: request.uri });
 	});
 
 	it("won't take a request naming someone else's profile", async () => {

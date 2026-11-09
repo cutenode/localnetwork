@@ -31,6 +31,52 @@ impl Env {
     }
 }
 
+/// A drive's speed: not measured at first, measured on asking, kept, and in both outputs.
+#[test]
+fn drive_speed_measures_when_asked_and_remembers() {
+    let env = Env::new();
+    let root = demo_drive(&env.root, "SPEEDY");
+    let drive = path(&root);
+    let first = env.json(&["drive", "speed", drive]);
+    assert!(first["speed"].is_null(), "{first}");
+
+    let measured = env.json(&["drive", "speed", drive, "--measure"]);
+    assert!(measured["speed"]["bytes_per_sec"].as_u64().unwrap() > 0, "{measured}");
+    let again = env.json(&["drive", "speed", drive]);
+    assert_eq!(again["speed"], measured["speed"]);
+
+    let human = env.locallibrary().args(["drive", "speed", drive]).output().unwrap();
+    let said = String::from_utf8_lossy(&human.stdout);
+    assert!(said.contains("MB/s") && said.contains("a timed write"), "{said}");
+}
+
+/// A dry run, or a plan nobody will be asked about, writes nothing to the drive and says what it
+/// knows. One that goes ahead times the drive first, and says so.
+#[test]
+fn only_a_write_going_ahead_times_the_drive() {
+    let env = Env::new();
+    let a = demo_drive(&env.root, "A");
+    let b = env.root.join("B");
+    std::fs::create_dir(&b).unwrap();
+    let audio = std::fs::read_dir(a.join("Contents")).unwrap().next().unwrap().unwrap().path();
+    let track = walkdir::WalkDir::new(audio).into_iter().flatten().find(|e| e.file_type().is_file()).unwrap();
+    std::fs::File::options().write(true).open(track.path()).unwrap().set_len(70 << 20).unwrap();
+    let says =
+        |v: &Value, what: &str| v["summary"].as_array().unwrap().iter().any(|l| l.as_str().unwrap().contains(what));
+
+    for args in [vec!["--yes", "sync", path(&a), path(&b), "--dry-run"], vec!["sync", path(&a), path(&b)]] {
+        let v = env.json(&args);
+        assert!(says(&v["plan"], "hasn't been measured"), "{args:?}: {v}");
+        assert_eq!(std::fs::read_dir(&b).unwrap().count(), 0, "{args:?} wrote to the drive");
+    }
+
+    let v = env.json(&["--yes", "sync", path(&a), path(&b)]);
+    assert_eq!(v["applied"], true);
+    assert_eq!(v["plan"]["estimate"]["ran_test"], true, "{v}");
+    assert!(says(&v["plan"], "ran a short test"), "{v}");
+    assert!(b.join(".locallibrary/speed.json").is_file());
+}
+
 #[test]
 fn json_sync_requires_yes_and_then_applies() {
     let env = Env::new();

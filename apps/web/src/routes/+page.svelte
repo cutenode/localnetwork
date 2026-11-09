@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { LockKeyhole } from '@lucide/svelte';
 	import HeroHeadline from '#lib/components/HeroHeadline.svelte';
 	import NearInput from '#lib/components/NearInput.svelte';
 	import PerformerCard from '#lib/components/PerformerCard.svelte';
+	import ShowList from '#lib/components/ShowList.svelte';
 	import { projectSummary } from '#lib/performers.ts';
 	import { pluralize } from '#lib/format.ts';
 	import Button from '#lib/ui/Button.svelte';
@@ -13,26 +15,22 @@
 
 	let { data }: PageProps = $props();
 
-	const pillars = [
-		['Found by sound', 'A search for house finds deep house and afro house too.'],
-		['Matched by distance', 'Results sort by how far each DJ is from your venue.'],
-		['Booked in private', 'Every inquiry is its own members-only thread.'],
-		['Owned by the DJ', 'Profiles are records on the AT Protocol.']
-	];
+	// The headline holds still while someone types in the search under it.
+	let typing = $state(false);
 
+	/** What promoters get, and whether it needs an account. */
 	const perks = [
-		['/match', 'Match a show', 'Describe the night and get a shortlist, with the reasons each DJ made it.'],
-		['/dashboard/bookings', 'Private inquiries', 'Each booking is its own thread, shared only with the project’s managers.'],
-		['/dashboard/planner', 'Planner', 'Keep shortlists and build a lineup slot by slot, in a space only you can read.'],
-		['/about#spaces', 'Booking details', 'Email, phone, rate notes, rider and hospitality, for signed-in members.']
+		{ href: '/match', title: 'Match a show', body: 'Describe the night and get a shortlist, with the reasons each DJ made it.', signIn: false },
+		{ href: '/dashboard/bookings', title: 'Private inquiries', body: 'Each booking is its own thread, shared only with the people who answer for the DJ.', signIn: true },
+		{ href: '/dashboard/planner', title: 'Planner', body: 'Keep shortlists and build a lineup slot by slot, in a space only you can read.', signIn: true }
 	];
 </script>
 
 <section aria-labelledby="hero-title" class="border-b border-line bg-canvas bg-grid">
 	<div class="container-page flex flex-col items-center gap-8 py-14 sm:gap-10 sm:py-24">
-		{#snippet headline()}<HeroHeadline />{/snippet}
+		{#snippet headline()}<HeroHeadline paused={typing} />{/snippet}
 		<SectionHeader id="hero-title" level={1} size="display" align="center" title={headline} lede="Promoters find DJs by sound, distance and budget. DJs keep a profile they own, with their booking details kept private." />
-		<form action="/projects" method="GET" role="search" aria-label="Find DJs" class="grid w-full max-w-3xl items-end gap-3 rounded-2xl border border-line bg-surface p-4 sm:grid-cols-[1fr_1fr_auto] sm:p-5">
+		<form action="/projects" method="GET" role="search" aria-label="Find DJs" onfocusin={() => (typing = true)} onfocusout={(event) => (typing = event.currentTarget.contains(event.relatedTarget as Node | null))} class="grid w-full max-w-3xl items-end gap-3 rounded-2xl border border-line bg-surface p-4 sm:grid-cols-[1fr_1fr_auto] sm:p-5">
 			<div>
 				<label for="hero-q" class="label">Sound or name</label>
 				<input id="hero-q" name="q" class="input" placeholder="disco, jungle, a name" />
@@ -43,30 +41,65 @@
 			</div>
 			<button class="btn-primary">Find DJs</button>
 		</form>
-		<p class="m-0 text-small text-fg-muted">Play out yourself? <a class="link" href="/dashboard/projects/new">List your project</a></p>
+		<p class="m-0 text-small text-fg-muted">Play out yourself? <a class="link" href="/for-djs">Get listed</a></p>
 	</div>
 </section>
 
-<div class="border-b border-line bg-canvas">
-	<div class="container-page">
-		<ul class="m-0 grid list-none grid-cols-2 gap-px bg-line p-0 lg:grid-cols-4">
-			{#each pillars as [title, body] (title)}<li class="bg-canvas px-4 py-5 sm:px-6 sm:py-7"><p class="m-0 text-small font-semibold sm:text-body">{title}</p><p class="m-0 mt-1 text-label text-fg-muted sm:text-small">{body}</p></li>{/each}
-		</ul>
+<Section labelledby="soon-title">
+	<div class="grid gap-10 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-14">
+		<div class="flex flex-col gap-5">
+			<div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+				<h2 id="soon-title" class="m-0 text-heading font-semibold">Coming up</h2>
+				<a class="link text-small" href="/shows">All shows</a>
+			</div>
+			{#await data.shows}
+				<ShowList shows={undefined} rows={3} empty={{ title: '' }} />
+			{:then shows}
+				<ShowList shows={shows?.slice(0, 3) ?? null} retryHref="/" empty={{ title: 'No shows announced yet', body: 'DJs announce theirs from their dashboard.' }} />
+			{/await}
+		</div>
+		<div class="flex flex-col gap-5">
+			<div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+				<h2 id="played-title" class="m-0 text-heading font-semibold">Most played this month</h2>
+				<a class="link text-small" href="/charts">Charts</a>
+			</div>
+			<!-- Five rows from the start, so the list arriving doesn't move what's under it. -->
+			<ol aria-labelledby="played-title" class="m-0 flex min-h-[calc(5*3.25rem)] list-none flex-col p-0">
+				{#await data.tracks}
+					{#each { length: 5 }, row (row)}<li class="flex h-13 items-center border-b border-line last:border-b-0"><span class="h-4 w-2/3 animate-pulse rounded-md bg-raised"></span></li>{/each}
+				{:then tracks}
+					{#if !tracks?.length}
+						<li class="py-3 text-small text-fg-muted">{tracks ? 'Nothing played this month yet.' : "The charts aren't answering. Try again in a minute."}</li>
+					{:else}
+						{#each tracks as track, index (track.id)}
+							<li class="flex h-13 items-center gap-4 border-b border-line last:border-b-0">
+								<span class="w-4 font-mono text-caption text-fg-subtle tabular-nums" aria-hidden="true">{index + 1}</span>
+								<span class="flex min-w-0 flex-1 flex-col">
+									<span class="truncate text-small font-semibold">{track.title}</span>
+									{#if track.artist}<span class="truncate text-label text-fg-muted">{track.artist}</span>{/if}
+								</span>
+								<span class="font-mono text-caption whitespace-nowrap text-fg-muted tabular-nums">{pluralize(track.supports, 'DJ')}</span>
+							</li>
+						{/each}
+					{/if}
+				{/await}
+			</ol>
+		</div>
 	</div>
-</div>
+</Section>
 
 <Section labelledby="recent-title">
 	<div class="flex flex-col gap-8 sm:gap-12">
 		<div class="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
 			<div class="flex flex-col gap-3">
-				<SectionHeader id="recent-title" eyebrow="DJ profiles" tone="low" title="New on the directory" />
+				<SectionHeader id="recent-title" tone="low" title="New on the directory" />
 				{#if data.stats?.active}
 					<p class="m-0 text-lede text-fg-muted">
-						{pluralize(data.stats.active, 'project')} in {pluralize(data.stats.cities, 'city', 'cities')}{#if data.stats.unclaimed}, <a class="link" href="/projects?unclaimed=on">{data.stats.unclaimed} up for claiming</a>{/if}.
+						{pluralize(data.stats.active, 'DJ')} in {pluralize(data.stats.cities, 'city', 'cities')}{#if data.stats.unclaimed}, <a class="link" href="/projects?unclaimed=on">{data.stats.unclaimed} up for claiming</a>{/if}.
 					</p>
 				{/if}
 			</div>
-			{#if data.recent.length}<Button variant="secondary" href="/projects?sort=recent">See all projects</Button>{/if}
+			{#if data.recent.length}<Button variant="secondary" href="/projects?sort=recent">See all DJs</Button>{/if}
 		</div>
 		{#if !data.stats}
 			<Card tone="outline" padding="lg" radius="2xl">
@@ -76,10 +109,10 @@
 		{:else if data.recent.length === 0}
 			<Card tone="outline" padding="lg" radius="2xl" class="flex flex-col items-start gap-3">
 				<div>
-					<p class="m-0 font-semibold">No projects listed yet.</p>
-					<p class="m-0 mt-1 text-fg-muted">Be the first DJ on the map.</p>
+					<p class="m-0 font-semibold">No DJs listed yet.</p>
+					<p class="m-0 mt-1 text-fg-muted">Be the first on the map.</p>
 				</div>
-				<Button size="sm" href="/dashboard/projects/new">List your project</Button>
+				<Button size="sm" href="/for-djs">Get listed</Button>
 			</Card>
 		{:else}
 			<!-- A row to swipe on a phone, so the section stays about one screen tall. -->
@@ -95,7 +128,7 @@
 {#if data.genres.length || data.cities.length}
 	<Section tone="sunken" labelledby="browse-title">
 		<div class="flex flex-col gap-8 sm:gap-12">
-			<SectionHeader id="browse-title" eyebrow="Browse" tone="mid" title="Find DJs by sound or city" />
+			<SectionHeader id="browse-title" tone="mid" title="Find DJs by sound or city" />
 			<div class="grid gap-8 md:grid-cols-2 md:gap-12">
 				{#if data.genres.length}
 					<div class="flex flex-col gap-3">
@@ -124,10 +157,18 @@
 
 <Section labelledby="promoters-title">
 	<div class="flex flex-col gap-8 sm:gap-12">
-		<SectionHeader id="promoters-title" eyebrow="For promoters" tone="aqua" title="Describe the night. Get a shortlist with reasons." lede="The matcher scores every DJ on sound, distance, budget and room size, and tells you why each one made the list." />
+		<SectionHeader id="promoters-title" tone="aqua" title="Describe the night. Get a shortlist with reasons." lede="The matcher scores every DJ on sound, distance, budget and room size, and tells you why each one made the list." />
 		<ul class="m-0 grid list-none grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-4 p-0">
-			{#each perks as [href, title, body] (href)}
-				<li><Card {href} tone="outline" padding="lg" radius="2xl" class="flex h-full flex-col gap-2 max-sm:p-4"><span class="text-emphasis font-semibold">{title}</span><span class="text-fg-muted">{body}</span></Card></li>
+			{#each perks as perk (perk.href)}
+				<li>
+					<Card href={perk.href} tone="outline" padding="lg" radius="2xl" class="flex h-full flex-col gap-2 max-sm:p-4">
+						<span class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+							<span class="text-emphasis font-semibold">{perk.title}</span>
+							{#if perk.signIn && !data.viewer}<span class="inline-flex items-center gap-1 text-label text-fg-subtle"><LockKeyhole aria-hidden="true" class="size-3.5" />Sign in</span>{/if}
+						</span>
+						<span class="text-fg-muted">{perk.body}</span>
+					</Card>
+				</li>
 			{/each}
 		</ul>
 	</div>
@@ -135,7 +176,7 @@
 
 <Section tone="sunken" labelledby="tools-title">
 	<div class="flex flex-col gap-8 sm:gap-12">
-		<SectionHeader id="tools-title" eyebrow="Tools for DJs" tone="high" title="From the crate to the booth." />
+		<SectionHeader id="tools-title" tone="high" title="Tools for DJs, from the crate to the booth." />
 		<ul class="m-0 flex list-none flex-wrap gap-4 p-0">
 			{#each data.tools as tool (tool.id)}
 				<li class="flex min-w-0 flex-[1_1_26rem]">
@@ -155,7 +196,7 @@
 </Section>
 
 <Section tone="grid" labelledby="closing-title">
-	<SectionHeader id="closing-title" align="center" title="You play out? Put your project on the map." lede="List a solo act, a b2b duo or a whole crew. Already listed by an admin? Claim it. Every change is reviewed by a moderator.">
-		{#snippet actions()}<Button size="lg" href="/dashboard/projects/new">List your project</Button><Button size="lg" variant="secondary" href="/projects?unclaimed=on">Claim a project</Button><Button size="lg" variant="ghost" href="/for-djs">How it works for DJs</Button>{/snippet}
+	<SectionHeader id="closing-title" align="center" title="You play out? Get on the map." lede="List yourself, a b2b duo or a whole crew. Already listed by an admin? Claim it. A moderator reviews every change.">
+		{#snippet actions()}<Button size="lg" href="/dashboard/projects/new">Get listed</Button><Button size="lg" variant="secondary" href="/projects?unclaimed=on">Claim yours</Button><Button size="lg" variant="ghost" href="/for-djs">How it works for DJs</Button>{/snippet}
 	</SectionHeader>
 </Section>

@@ -1,12 +1,14 @@
 import { error } from '@sveltejs/kit';
 import { UserError } from '#lib/server/core.ts';
+import { cacheBriefly } from '#lib/server/http.ts';
 import { listed, mixMeta } from '#lib/server/meta.ts';
 import { projectRecords } from '#lib/server/meta-records.ts';
 import { mixRecording } from '#lib/server/structured-data.ts';
 import type { PageServerLoad } from './$types';
 
 /** A mix's tracklist (a locallibrary mix report), by the mix's position on the profile. */
-export const load: PageServerLoad = async ({ params, locals, setHeaders }) => {
+export const load: PageServerLoad = async (event) => {
+	const { params, locals } = event;
 	const { app, viewer } = locals;
 	const project = await app.projects.bySlug(params.slug);
 
@@ -23,7 +25,8 @@ export const load: PageServerLoad = async ({ params, locals, setHeaders }) => {
 	try {
 		const report = await app.tracklists.published(mix.tracklist);
 
-		if (project.status === 'active') setHeaders({ 'cache-control': 'public, max-age=300' });
+		// The layout's data is in the page, and a signed-in visitor's viewer and flags are theirs alone.
+		if (project.status === 'active') cacheBriefly(event, 300);
 
 		return {
 			project: { slug: project.slug, name: project.profile.name, avatarUrl: project.avatarUrl, status: project.status },

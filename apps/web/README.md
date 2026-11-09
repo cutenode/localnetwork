@@ -2,7 +2,7 @@
 
 Promoters find local DJs who fit their shows. DJs (called _projects_: a solo DJ, a b2b duo, a group, or a collective) get a profile built around what promoters book on: sound, distance, slot, room size, and budget. Fans follow DJs and see where they play next.
 
-All data lives on the AT Protocol. Public profiles are ordinary atproto records; everything else (requests, staff roles, the audit log, booking threads, personal planners) lives in [atproto spaces](https://atproto.com/blog/atproto-spaces-alpha), the protocol's permissioned-data extension, where each space's read policy decides who can read it. Published projects, the DJ stats, sets, press kits, shows and follows their managers and fans publish, and the few Bluesky and userinput.app records the site reads are indexed by [HappyView](https://happyview.dev), an AppView whose Lua scripts answer directory search and the show matcher and serve those records to the site. The app keeps its own SQLite index only for space data, and can rebuild it from the network. Every public record is read through HappyView, never straight from a PDS or Bluesky's AppView (see [Directory](#directory) for the few exceptions); writes go to the PDS.
+All data lives on the AT Protocol. Public profiles are ordinary atproto records; everything else (requests, staff roles, the audit log, booking threads, personal planners) lives in [atproto spaces](https://atproto.com/blog/atproto-spaces-alpha), the protocol's permissioned-data extension, where each space's read policy decides who can read it. Published projects, the DJ stats, sets, press kits, shows and follows their managers and fans publish, and the few Bluesky and userinput.app records the site reads are indexed by [HappyView](https://happyview.dev), an AppView whose Lua scripts answer directory search and the show matcher and serve those records to the site. The app keeps its own SQLite index for space data, which it can rebuild from the network, alongside what exists only there (sessions, notifications, press kit view receipts and the geocode cache). Every public record is read through HappyView, never straight from a PDS or Bluesky's AppView (see [Directory](#directory) for the few exceptions); writes go to the PDS.
 
 > Atproto spaces is an alpha (released 2026). This app is built against `@atproto/*@0.0.0-spaces-alpha-20261029171913` and the [0016 spaces proposal](https://github.com/bluesky-social/proposals/tree/main/0016-permissioned-data). Expect breaking changes upstream; all versions are pinned.
 
@@ -72,6 +72,12 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 - "Report a bug" in the footer opens `/report`. Signed in, it posts the report from the person's own account to Local Network's space on [userinput.app](https://userinput.app) (an `app.userinput.discussion` record in their repo, tagged `bug` and `web`, with the page they came from and their browser), then links to it there. Signed out (where the link reads "Report a bug on GitHub"), or without `USERINPUT_SPACE`, it opens GitHub's website bug form with the page and browser filled in, and so does a report that fails to post, with what they wrote.
 - Posting asks for one more OAuth scope, `repo:app.userinput.discussion?action=create`, the first time someone sends a report, not at sign-in: sessions from before it keep working, and the client metadata lists it so the PDS allows the request.
+
+### Flags
+
+A flag turns a feature on for some people before everyone. The flags themselves are files in [`flags/catalog/`](../../flags/README.md). Staff set who each is on for at `/admin/flags`: everyone, a percentage of accounts, [flag groups](../../GLOSSARY.md) at `/admin/flags/groups`, or single accounts. Admins manage all of it, and on the Staff page they can give a moderator either part: flags, or flag groups. Every change is in the audit log.
+
+What's set is kept as `staff.flag` and `staff.group` records in the staff space, indexed into SQLite and held in memory, so reading one on a request costs nothing. Pages read `data.flags?.key` and server code `locals.flags.key`, worked out once per request. A signed-out visitor only gets flags on for everyone. locallibrary can't read the staff space, so `computer.localnetwork.flags.getFlags` tells it the public gates and whether it's targeted ([ADR 0006](../../docs/adr/0006-locallibrary-asks-the-website-for-flags.md)).
 
 ### Staff
 
@@ -201,7 +207,7 @@ A mix whose link is a plyr.fm track (`https://plyr.fm/track/<id>`) also gets a `
 
 ### Sync
 
-The app is a space syncer. For each watched space it asks the space host (the authority's PDS) for a space credential, sending a delegation token from the root's PDS and a fresh P-256 key the credential is bound to, and signs every request with that key (RFC 9421). It enumerates writers with `listRepos`, pulls each repo's oplog with `listRepoOps`, and checks the result against the repo's LtHash commit, falling back to a full download (`getRepo`, a STAR archive) when needed. Commits and records aren't signed: the repo host MACs each response with a secret shared for that one request, derived from the author's `#atproto_kem` key. When a MAC fails, the app refetches the author's DID document once, in case the key rotated. Accounts whose DID document has no KEM key can't be synced, and the system page says so. A deleted space is dropped with everything derived from it, however often the authority says so, and a space recreated under the same URI syncs from scratch. A repo that fails doesn't hold back the others: the pass carries on through the space's later pages, and the repo is retried on its own, after a minute at first and at most an hour once it keeps failing. It registers for `notifyWrite` (verified with inter-service auth) and also polls. Records are validated against the lexicons, and authority rules are enforced: only root-authored decisions, roles, and details count, a press kit's grants count only from their space's authority (in a project's request space, only for a press kit of that project) and drafts only from the project's current managers, a booking thread's project comes from the root's opening record (or the root's audit copy of its creation) rather than the inquiry, booking records from non-participants are ignored, and a booking status record counts only when the thread's rules allow its author that move ([ADR 0008](../../docs/adr/0008-booking-status-follows-the-rules-not-record-dates.md)).
+The app is a space syncer. For each watched space it asks the space host (the authority's PDS) for a space credential, sending a delegation token from the root's PDS and a fresh P-256 key the credential is bound to, and signs every request with that key (RFC 9421). It enumerates writers with `listRepos`, pulls each repo's oplog with `listRepoOps`, and checks the result against the repo's LtHash commit, falling back to a full download (`getRepo`, a STAR archive) when needed. Commits and records aren't signed: the repo host MACs each response with a secret shared for that one request, derived from the author's `#atproto_kem` key. When a MAC fails, the app refetches the author's DID document once, in case the key rotated. Accounts whose DID document has no KEM key can't be synced, and the system page says so. A deleted space is dropped with everything derived from it, however often the authority says so, and a space recreated under the same URI syncs from scratch. A repo that fails doesn't hold back the others: the pass carries on through the space's later pages, and the repo is retried on its own, after a minute at first and at most an hour once it keeps failing. A record whose projection into the app's tables fails, such as an inquiry read while the directory is down, waits on the same schedule and shows on the system page until it goes through ([ADR 0009](../../docs/adr/0009-synced-records-queue-for-projection.md)). It registers for `notifyWrite` (verified with inter-service auth) and also polls. Records are validated against the lexicons, and authority rules are enforced: only root-authored decisions, roles, and details count, a press kit's grants count only from their space's authority (in a project's request space, only for a press kit of that project) and drafts only from the project's current managers, a booking thread's project comes from the root's opening record (or the root's audit copy of its creation) rather than the inquiry, booking records from non-participants are ignored, and a booking status record counts only when the thread's rules allow its author that move ([ADR 0008](../../docs/adr/0008-booking-status-follows-the-rules-not-record-dates.md)).
 
 ### Directory
 
@@ -413,6 +419,7 @@ src/lib/ui/                     The design system: theme tokens, components and 
 src/lib/server/atproto/         Identity, OAuth, root session, repo clients, space credentials, service auth
 src/lib/server/audit/           Hash-chained audit log with dual atproto delivery
 src/lib/server/backup/          Daily database backups to a bucket, and restoring them
+src/lib/server/flags/           The flag catalog, the rule that decides a flag, and the method locallibrary asks
 src/lib/server/happyview/       HappyView client, script bundling, and boot sync
 src/lib/server/services/        Projects, requests, staff, bookings, planner
 src/lib/server/sync/            Space syncer and record projections
@@ -665,6 +672,7 @@ erDiagram
   space_watch ||--o{ synced_repo : "space_uri"
   space_watch ||--o{ sync_repo_retry : "space_uri"
   space_watch ||--o{ space_record : "space_uri"
+  space_record ||--o| pending_projection : "same record"
   audit_entry {
     text id PK
     int seq
@@ -698,6 +706,12 @@ erDiagram
     text repo_did
     text collection
     text rkey
+  }
+  pending_projection {
+    text repo_did
+    text collection
+    text rkey
+    int attempts
   }
 ```
 

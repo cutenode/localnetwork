@@ -278,6 +278,11 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   in between (rekordbox exported again, another command wrote to the drive, a sync would now copy
   other files) nothing is written and it says to plan again (`stale_plan`). Archive and retired
   drives aren't written to without `--overwrite-archive`.
+- **Timing a drive is the one write before a plan's confirmed.** A plan of a big write times a drive
+  that has no recent result, with scratch data in `.locallibrary/` that's removed after, keeps the
+  result there, and says it did. A drive that had no `.locallibrary/` loses it again if you say no.
+  A dry run never does any of this (see [Speed](drives.md#speed) and
+  [the decision](adr/0002-a-plan-may-time-its-drive.md)).
 - **No silent overwrites.** `library push` refuses to overwrite a drive holding a library state the
   store has never seen (pull it first, or `--force`), `sync` refuses when it can't tell which side
   is newer (without lineage, holding more tracks isn't enough on its own, and a side with fewer
@@ -319,7 +324,7 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   read back exactly as planned. Database files are
   re-hashed on every scan; other files use a (size, mtime) hash cache that ignores entries
   recorded within FAT's 2-second timestamp window. `--verify` compares audio by content, and
-  `locallibrary store verify` re-hashes the store.
+  `locallibrary store verify` re-hashes the store, snapshots' manifests included.
 - Built for FAT32/exFAT/HFS+ drives: matching ignores letter case and Unicode normalisation,
   mtime comparisons allow FAT's 2-second granularity, and a cached hash index keeps rescans fast.
 

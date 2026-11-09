@@ -69,6 +69,7 @@ and typed table columns, see [views](#views)).
    `key`, filled in once the request is checked, left out of the plugin's log and the errors
    it's told, and never sent on to another server a redirect leads to: the headers it was filled
    into (and `Authorization`, `Cookie`) are dropped there, and a body with it isn't sent on.
+   One in a query value comes back as `{secret:<key>}` where the answer says the address back.
    `{account:<type>}` is the same for the access token of an account it has access to (see
    [accounts](#accounts)), as the whole value of the `Authorization` header or of the query
    parameter the account type names, and refused anywhere else in a request.

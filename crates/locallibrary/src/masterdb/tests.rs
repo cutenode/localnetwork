@@ -253,11 +253,9 @@ fn reads_tracks_playlists_cues_tags_and_history() {
 
     assert_eq!(c.tags.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["Genre", "Situation"]);
     assert_eq!(c.tags[1].tags[0].track_ids, [205356547, 84935471]);
-    let by_file = c.tags_by_file();
-    assert_eq!(
-        by_file["users/dj/music/daft punk/discovery/01 one more time.mp3"],
-        ["Genre/Deep".to_string(), "Situation/Peak".to_string()]
-    );
+    let by_track = c.tags_by_track();
+    let one_more_time = c.library.tracks.iter().find(|t| t.title == "One More Time").unwrap();
+    assert_eq!(by_track.of(one_more_time), ["Genre/Deep".to_string(), "Situation/Peak".to_string()]);
 
     let info = c.info();
     assert_eq!((info.summary.tracks, info.summary.playlists, info.summary.folders), (3, 2, 1));
@@ -820,7 +818,7 @@ fn a_drawn_collection_reads_back_as_written(tc: hegel::TestCase) {
     assert_eq!(c.tags.len(), 1);
     assert_eq!(c.tags[0].tags[0].track_ids, tag_want);
     assert_eq!(info.tagged_tracks, tag_want.len());
-    assert_eq!(c.tags_by_file().len(), tag_want.len());
+    assert_eq!(c.tags_by_track().by_id.len(), tag_want.len());
 
     // A drive with exactly the collection's tracks and playlists differs in nothing.
     let d = c.diff_drive(&c.library, "Main", None).unwrap();
@@ -1324,18 +1322,17 @@ fn keys_and_the_collection_default_to_rekordboxs(tc: hegel::TestCase) {
     }
 }
 
-/// My Tags by file name each track's tags as `Category/Tag`, in the categories' and tags' order,
-/// under its file's key whatever the path's case; a tag's tracks the library doesn't hold are
-/// left out.
+/// My Tags by track name each track's tags as `Category/Tag`, in the categories' and tags' order,
+/// whichever tracks share its file; a tag's tracks the library doesn't hold are left out.
 #[hegel::test(test_cases = 50)]
-fn prop_tags_by_file_name_each_tracks_tags(tc: hegel::TestCase) {
+fn prop_tags_by_track_name_each_tracks_tags(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let n = tc.draw(gs::integers::<u32>().max_value(4));
     let library = Library {
         tracks: (1..=n)
             .map(|id| Track {
                 id,
-                file_path: format!("/Music/{}{id}.mp3", tc.draw(gs::sampled_from(vec!["a", "A", "Ü"]))),
+                file_path: format!("/Music/{}.mp3", tc.draw(gs::sampled_from(vec!["a", "A", "Ü"]))),
                 ..Default::default()
             })
             .collect(),
@@ -1353,7 +1350,7 @@ fn prop_tags_by_file_name_each_tracks_tags(tc: hegel::TestCase) {
                 .collect(),
         })
         .collect();
-    let by_file = tags_by_file(&categories, &library);
+    let by_track = tags_by_track(&categories, &library);
     for t in &library.tracks {
         let want: Vec<String> = categories
             .iter()
@@ -1361,8 +1358,7 @@ fn prop_tags_by_file_name_each_tracks_tags(tc: hegel::TestCase) {
                 c.tags.iter().filter(|g| g.track_ids.contains(&t.id)).map(move |g| format!("{}/{}", c.name, g.name))
             })
             .collect();
-        let got = by_file.get(&paths::file_key(&t.file_path.to_uppercase())).cloned().unwrap_or_default();
-        assert_eq!(got, want, "{t:?}");
+        assert_eq!(by_track.of(t), want, "{t:?}");
     }
-    assert!(by_file.len() <= library.tracks.len(), "only the library's tracks: {by_file:?}");
+    assert!(by_track.by_id.len() <= library.tracks.len(), "only the library's tracks: {by_track:?}");
 }

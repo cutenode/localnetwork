@@ -62,6 +62,7 @@ use crate::import::{self, MatchKind, Matcher, Status};
 use crate::model::{Library, LibrarySummary, Playlist, Track, TrackColor, TrackRef, untangle};
 use crate::onelibrary::{self, cipher, wal};
 use crate::paths;
+use crate::tags::TagsByTrack;
 use crate::{Error, Result};
 pub use smartlist::SmartList;
 
@@ -674,17 +675,15 @@ impl Db<'_> {
     }
 }
 
-/// `categories`' My Tags as `Category/Tag` by lower-cased file key of `library`'s tracks (whose ids
-/// they name), the shape track filters (`tag:`) take.
-pub(crate) fn tags_by_file(categories: &[TagCategory], library: &Library) -> FxHashMap<String, Vec<String>> {
-    let files: FxHashMap<u32, String> = library.tracks.iter().map(|t| (t.id, paths::file_key(&t.file_path))).collect();
-    let mut out: FxHashMap<String, Vec<String>> = FxHashMap::default();
+/// `categories`' My Tags as `Category/Tag` for `library`'s tracks (whose ids they name), the shape
+/// track filters (`tag:`) take.
+pub(crate) fn tags_by_track(categories: &[TagCategory], library: &Library) -> TagsByTrack {
+    let ids: FxHashSet<u32> = library.tracks.iter().map(|t| t.id).collect();
+    let mut out = TagsByTrack::default();
     for c in categories {
         for tag in &c.tags {
-            for id in &tag.track_ids {
-                if let Some(f) = files.get(id) {
-                    out.entry(f.clone()).or_default().push(format!("{}/{}", c.name, tag.name));
-                }
+            for id in tag.track_ids.iter().filter(|id| ids.contains(id)) {
+                out.by_id.entry(*id).or_default().push(format!("{}/{}", c.name, tag.name));
             }
         }
     }
@@ -809,9 +808,9 @@ impl Collection {
             .find(|p| p.exists())
     }
 
-    /// My Tags as `Category/Tag` by lower-cased file key, the shape track filters (`tag:`) take.
-    pub fn tags_by_file(&self) -> FxHashMap<String, Vec<String>> {
-        tags_by_file(&self.tags, &self.library)
+    /// My Tags as `Category/Tag` for the collection's tracks, the shape track filters (`tag:`) take.
+    pub fn tags_by_track(&self) -> TagsByTrack {
+        tags_by_track(&self.tags, &self.library)
     }
 
     /// What `drive` (a drive's library) lacks against the collection, and what it has that the

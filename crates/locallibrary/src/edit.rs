@@ -2689,8 +2689,8 @@ fn plan_with(
     // database (no bigger than it; a staged waveform, which no database holds, is counted as one
     // too).
     let staged = images.values().map(|b| round(b.len() as u64)).sum::<u64>() * (1 + 2 * databases.len() as u64);
-    let backed_up = files.iter().filter(|(k, _)| !unbacked.contains(k)).map(|(_, &n)| round(n)).sum::<u64>();
-    let needed_bytes = backed_up + 2 * db_bytes + staged;
+    let backed_up = files.keys().filter(|k| !unbacked.contains(*k)).map(String::as_str);
+    let needed_bytes = backup::needed_bytes(device, backed_up) + db_bytes + staged;
     let free_space = fsutil::available_space(device.root());
     let fits = free_space.is_none_or(|f| needed_bytes <= f);
     if !fits {

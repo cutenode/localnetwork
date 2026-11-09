@@ -7,8 +7,20 @@ up and edited, and the plugins that add to them.
 
 **Plan**:
 What a command is going to change, worked out and shown before anything is written. It's applied
-only as shown: if the drive has moved on since, it's refused and worked out again.
+only as shown: if the drive has moved on since, it's refused and worked out again. Making one
+writes nothing to a drive, with one exception: a plan of a big write may time a new drive, or one
+whose drive speed has gone stale, and says so.
 _Avoid_: preview, dry run, diff
+
+**Drive speed**:
+What a drive costs to write to, measured on it: its sustained rate, what a file costs to make and
+what a folder costs to make. Kept on the drive.
+_Avoid_: benchmark, port speed
+
+**Write estimate**:
+How long a write to a drive will take, worked out from its drive speed and what the write asks of
+the drive. A best case when the write runs past what the rate was seen to hold for.
+_Avoid_: ETA, which is the time left once a write is under way
 
 **Clone**:
 A drive holding a copy of a library. Clones of one library stay alike through syncs.
