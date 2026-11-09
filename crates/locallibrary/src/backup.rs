@@ -4,8 +4,11 @@
 //! existing file the change overwrites or deletes (artwork images, analysis files, settings
 //! files, removed tracks' files), so restoring one undoes the change (`locallibrary undo`): files
 //! that were added stay on the drive but are no longer referenced, save those it wrote in place
-//! of files the drive didn't have (an image's medium copy), which go ([`BackupInfo::added`]). A
-//! backup also carries the drive's journal of edits (see [`crate::edit::journal`]) and the player
+//! of files the drive didn't have (an image's medium copy), which go ([`BackupInfo::added`]). The
+//! exception is the files of tracks rekordbox's next export puts back, as `clean` removes: a
+//! backup leaves them out, or every refresh would keep another copy of the demo samples, and
+//! putting it back brings those tracks back without them ([`BackupInfo::unbacked`]). A backup
+//! also carries the drive's journal of edits (see [`crate::edit::journal`]) and the player
 //! name and colour it remembers (`Carried`), and restoring one puts those back as they were:
 //! `edits replay` then makes again exactly the edits the restored library had, also after an undo
 //! is redone. Restoring a backup an earlier version took, which carries neither, takes the edits
@@ -26,7 +29,7 @@
 use indexmap::IndexMap;
 use std::collections::BTreeSet;
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
@@ -77,6 +80,11 @@ pub struct BackupInfo {
     /// medium copy rekordbox didn't leave): putting it back removes them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub added: Vec<String>,
+    /// Files its change deleted that it doesn't hold, as rekordbox's next export puts them back
+    /// (see [`crate::edit::Edit::DeleteUnbacked`]): putting it back leaves their tracks without
+    /// them until then.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unbacked: Vec<String>,
 }
 
 fn backups_dir(device: &Device) -> PathBuf {
@@ -151,12 +159,19 @@ fn put_back_carried(device: &mut Device, info: &BackupInfo, shown: Option<DbIden
 /// Copy the database files and `extra` (keys of files the coming change overwrites or deletes)
 /// into `.locallibrary/backups/<id>/`, with their modification times: a track put back must
 /// not look changed to the next sync. Those of `extra` not there are noted as added (see
-/// [`BackupInfo::added`]). `undoes`: the backup the change puts back, if it's an undo.
+/// [`BackupInfo::added`]). `unbacked`: files the change deletes that the backup leaves out (see
+/// [`BackupInfo::unbacked`]). `undoes`: the backup the change puts back, if it's an undo.
 ///
 /// Every older backup is kept: a write that fails before it changes anything takes its backup
 /// away again and must leave the others as they were. [`seal`] it once the change is made, and
 /// [`prune`] then.
-pub(crate) fn create(device: &Device, reason: &str, extra: &[String], undoes: Option<&str>) -> Result<BackupInfo> {
+pub(crate) fn create(
+    device: &Device,
+    reason: &str,
+    extra: &[String],
+    unbacked: &[String],
+    undoes: Option<&str>,
+) -> Result<BackupInfo> {
     let seq = list(device)?.iter().map(|b| b.seq).max().unwrap_or(0) + 1;
     let created = Utc::now();
     let mut id = created.format("%Y%m%dT%H%M%S%.3fZ").to_string();
@@ -195,6 +210,7 @@ pub(crate) fn create(device: &Device, reason: &str, extra: &[String], undoes: Op
         hashes,
         after: None,
         added,
+        unbacked: unbacked.to_vec(),
     };
     write_info(&dir, &info)?;
     Ok(info)
@@ -476,17 +492,32 @@ pub fn restore_with(device: &mut Device, id: Option<&str>, force: bool, ctx: &Ct
     Ok(info)
 }
 
-/// Tracks a backup's database lists whose audio is neither on the drive nor in the backup
-/// (restoring refuses them unless forced), by name.
-pub fn missing_audio(device: &Device, info: &BackupInfo) -> Result<Vec<String>> {
+/// Tracks a backup's database lists whose audio is neither on the drive nor in the backup, by
+/// name: those a change on this drive left out of its backup (`left_out`), or the others.
+fn audio_gone(device: &Device, info: &BackupInfo, left_out: bool) -> Result<Vec<String>> {
     let old = Device::open(dir(device, &info.id))?.library()?;
-    let saved: rustc_hash::FxHashSet<String> = info.files.iter().map(|f| f.to_lowercase()).collect();
+    let saved: FxHashSet<String> = info.files.iter().map(|f| f.to_lowercase()).collect();
+    let backups = list(device)?;
+    let unbacked: FxHashSet<String> = backups.iter().flat_map(|b| &b.unbacked).map(|f| f.to_lowercase()).collect();
     Ok(old
         .tracks
         .iter()
         .map(|t| (t, paths::key(&t.file_path)))
         .filter(|(_, k)| !saved.contains(&k.to_lowercase()))
+        .filter(|(_, k)| unbacked.contains(&k.to_lowercase()) == left_out)
         .filter(|(_, k)| !device.checked_path(k).is_ok_and(|p| p.exists()))
         .map(|(t, _)| t.display_name())
         .collect())
+}
+
+/// Tracks a backup's database lists whose audio is gone, and no backup left it out on purpose
+/// (restoring refuses them unless forced), by name.
+pub fn missing_audio(device: &Device, info: &BackupInfo) -> Result<Vec<String>> {
+    audio_gone(device, info, false)
+}
+
+/// Tracks a backup's database lists that come back without the audio a change left out of its
+/// backup (see [`BackupInfo::unbacked`]), by name. Restoring lets them through, saying so.
+pub fn unbacked_audio(device: &Device, info: &BackupInfo) -> Result<Vec<String>> {
+    audio_gone(device, info, true)
 }

@@ -56,7 +56,7 @@ plugins/coverart/           the coverart plugin: front covers and track details 
                             all, asked to), each album looked up on MusicBrainz and its cover fetched from
                             the Cover Art Archive, offered as candidates locallibrary plans the edits of
 plugins/demos/              the demos plugin: rekordbox's demo tracks on a drive, found by its check and
-                            removed by `clean` as one `delete_tracks` edit
+                            removed by `clean` as one `delete_unbacked` edit
 plugins/interop/            the interop plugin: exporters for Traktor, Serato, Engine DJ and rekordbox XML,
                             writing a drive's library with loclib-interop on this computer, and an importer
                             and a library source reading Traktor's collection.nml back
@@ -297,7 +297,9 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   packs: `locallibrary undo` puts back the backup of the last change the drive still holds, and run
   again, the one before (`drive restore --backup ID` puts back any). Backups include every file a
   change overwrote or deleted (artwork images, analysis files, settings files, removed tracks'
-  files), with their modification times. Each notes what its change left, and putting it back is
+  files), with their modification times; a `clean`'s hold only the databases, as rekordbox's next
+  export puts the demo samples back, so undoing one brings those tracks back without their files
+  and says so. Each notes what its change left, and putting it back is
   refused, unless `--force`, when the drive changed since: a rekordbox export, a sync or push, or
   history players recorded would be lost too. Only the drive a change was made on is backed up:
   copying it onto a library's other drives isn't, and an undo is copied onto them like any change.
