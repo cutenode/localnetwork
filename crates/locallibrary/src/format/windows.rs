@@ -231,13 +231,19 @@ pub fn format(disk: &Disk, t: &Target, ctx: &Ctx<'_>) -> Result<Option<PathBuf>>
 
 #[cfg(windows)]
 fn write_fat32(letter: char, layout: &fat32::Layout, label: &str, ctx: &Ctx<'_>) -> Result<()> {
+    use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::AsRawHandle;
 
     let path = format!(r"\\.\{letter}:");
-    let mut f = when_ready(std::time::Duration::from_millis(250), || {
-        std::fs::OpenOptions::new().read(true).write(true).open(&path)
-    })
-    .map_err(|e| Error::Io { path: path.clone().into(), source: e })?;
+    // FILE_FLAG_WRITE_THROUGH: each write reaches the disk before it returns. The volume can't be
+    // flushed once it's dismounted (that fails as "The device is not ready"), and writes to a
+    // volume handle skip the cache already, so this is all the flushing they need.
+    let mut f = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(0x8000_0000)
+        .open(&path)
+        .map_err(|e| Error::Io { path: path.clone().into(), source: e })?;
     // Explorer and indexers open new volumes briefly; retry the lock for a few seconds.
     let mut tries = 0;
     while let Err(e) = ffi::ioctl(f.as_raw_handle(), ffi::FSCTL_LOCK_VOLUME) {
@@ -254,26 +260,8 @@ fn write_fat32(letter: char, layout: &fat32::Layout, label: &str, ctx: &Ctx<'_>)
         .map_err(|e| Error::Io { path: path.clone().into(), source: e })?;
     let volume_id = u32::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..4].try_into().expect("4 bytes"));
     fat32::write(&mut f, 0, layout, label, volume_id, ctx)?;
-    f.sync_all().map_err(|e| Error::Io { path: path.into(), source: e })?;
     // Closing the handle unlocks the volume; Windows mounts it as FAT32 on the next access.
     Ok(())
-}
-
-/// `open` once the volume it opens is ready: a volume Windows has just formatted and given a
-/// letter answers ERROR_NOT_READY for a moment before it can be opened. Tries 41 times, `pause`
-/// apart.
-fn when_ready<T>(pause: std::time::Duration, mut open: impl FnMut() -> std::io::Result<T>) -> std::io::Result<T> {
-    const ERROR_NOT_READY: i32 = 21;
-    let mut tries = 0;
-    loop {
-        match open() {
-            Err(e) if e.raw_os_error() == Some(ERROR_NOT_READY) && tries < 40 => {
-                tries += 1;
-                std::thread::sleep(pause);
-            }
-            done => return done,
-        }
-    }
 }
 
 #[cfg(not(windows))]
