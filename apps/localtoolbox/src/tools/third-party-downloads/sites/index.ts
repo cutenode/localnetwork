@@ -106,11 +106,14 @@ export function siteFor(url: string): Site | null {
 		const parsed = new URL(url);
 
 		if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
+		// Stryker disable BlockStatement: equivalent for the catch below. Emptied, it leaves `host` undefined for a link that is not a URL, which no site claims, so the answer is still null.
 		host = parsed.hostname.replace(/^www\./, '').toLowerCase();
 	} catch (_e) {
+		// Stryker restore BlockStatement
 		return null;
 	}
 
+	// Stryker disable next-line ArrayDeclaration: equivalent. `host` is lowercased, so it can never equal Stryker's capitalised placeholder alias.
 	return SITES.find((site) => site.hosts.includes(host) || (site.aliases ?? []).includes(host)) ?? null;
 }
 
@@ -118,6 +121,7 @@ export const isGateUrl = (url: string) => siteFor(url) !== null;
 
 /** Links out of anything paste-shaped: a list, a chat log, prose. */
 export function extractGateUrls(text: string) {
+	// Stryker disable next-line ArrayDeclaration: equivalent. A placeholder in place of no matches is not a link any site claims, so the filter below drops it.
 	const found = text.match(/https?:\/\/[^\s<>"']+/gi) || [];
 
 	return (

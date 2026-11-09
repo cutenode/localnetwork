@@ -321,6 +321,16 @@ describe('Hypeddit', () => {
 			expect(connect).not.toHaveBeenCalled();
 		});
 
+		it('takes a gate whose step section is missing as having no connect, whatever else the page links', async () => {
+			// The nav's account Connect is still on the page; it is not this gate's.
+			net(
+				spotify({
+					'hypeddit.com/886rp1': () => res(page({ steps: 'sc,sp' }).replace('id="step_sp"', 'id="step_other"'))
+				})
+			);
+			expect(await message(hypeddit.unlock(GATE, details({ connect: async () => true })))).toMatch(/Spotify follow/);
+		});
+
 		it('leaves the gates without one alone', async () => {
 			net(routes());
 			const connect = vi.fn<Connect>(async () => true);
@@ -332,6 +342,13 @@ describe('Hypeddit', () => {
 			net(spotify());
 			expect(await message(hypeddit.unlock(GATE, details({ connect: async () => false })))).toMatch(
 				/Spotify follow.*press Connect/s
+			);
+		});
+
+		it('says one press is enough for every gate after it', async () => {
+			net(spotify());
+			expect(await message(hypeddit.unlock(GATE, details({ connect: async () => false })))).toMatch(
+				/press Connect once, and the rest of these unlock here\.$/
 			);
 		});
 
@@ -363,6 +380,126 @@ describe('Hypeddit', () => {
 		const download = calls.find((one) => one.url.includes('/gate/download/ul'));
 		expect(form(calls, '/gate/download/ul')!.file).toBe('a&b');
 		expect(download!.options.headers!['X-CSRF-TOKEN']).toBe('x');
+	});
+
+	it('decodes every entity a template escapes a field with', async () => {
+		const calls = net(
+			routes({ 'hypeddit.com/886rp1': () => res(page({ uid: 'a&amp;b&quot;c&#39;d&#039;e&lt;f&gt;g' })) })
+		);
+
+		await hypeddit.unlock(GATE, details());
+		expect(form(calls, '/gate/download/ul')!.file).toBe(`a&b"c'd'e<f>g`);
+	});
+
+	it('finds a field in a tag written in capitals', async () => {
+		const calls = net(
+			routes({
+				'hypeddit.com/886rp1': () =>
+					res(page().replace('<input id="current_download_file_listner"', '<INPUT ID="current_download_file_listner"'))
+			})
+		);
+
+		await hypeddit.unlock(GATE, details());
+		expect(form(calls, '/gate/download/ul')!.file).toBe('886rp1');
+	});
+
+	it('finds the token among other attributes, and sends an empty one from a page without it', async () => {
+		const token = (html: string) => {
+			const calls = net(routes({ 'hypeddit.com/886rp1': () => res(html) }));
+
+			return hypeddit
+				.unlock(GATE, details())
+				.then(() => calls.find((one) => one.url.includes('/gate/download/ul'))!.options.headers!['X-CSRF-TOKEN']);
+		};
+
+		expect(
+			await token(page().replace('<meta name="csrf-token"', '<meta data-turbo="false" name="csrf-token" data-keep="1"'))
+		).toBe('CSRF');
+		expect(await token(page().replace(/<meta[^>]*>/, ''))).toBe('');
+	});
+
+	it('takes a page without the nonce as no gate', async () => {
+		net(routes({ 'hypeddit.com/886rp1': () => res(page().replace(/<input name="wrndk"[^>]*>/, '')) }));
+		expect(await message(hypeddit.unlock(GATE, details()))).toMatch(/not a Hypeddit gate/);
+	});
+
+	it('asks for the page as a page, and posts the way the page’s own script does', async () => {
+		const calls = net(routes({ 'hypeddit.com/886rp1': () => res(page({ steps: 'email' })) }));
+		await hypeddit.unlock(GATE, details({ email: 'me@example.com', name: 'Me' }));
+
+		expect(calls[0].options.headers).toEqual({ Accept: 'text/html' });
+
+		// A form-encoded XHR is what the endpoints parse and answer in JSON; a
+		// string body sent without a type would arrive as plain text.
+		for (const one of calls.slice(1)) {
+			expect(one.options.headers).toEqual({
+				'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+				'X-Requested-With': 'XMLHttpRequest',
+				'X-CSRF-TOKEN': 'CSRF',
+				Accept: 'application/json, text/javascript, */*; q=0.01'
+			});
+		}
+
+		// Every field the page's own form has, the blank ones included.
+		expect(form(calls, '/verifyEmailAddress')).toEqual({
+			validateEmailAddress: 'me@example.com',
+			fan_gate_id: '1381436',
+			email_name: 'Me',
+			adcode: '',
+			hypesource: ''
+		});
+		expect(form(calls, '/gate/download/ul')).toEqual({
+			file: '886rp1',
+			download_visit: 'true',
+			profile_downloads: 'true',
+			time: expect.any(String),
+			sc_comment_text: '',
+			yt_comment_text: '',
+			page: 'nonsingle',
+			is_skippable: '0',
+			steps: 'email',
+			email: 'me@example.com',
+			download_action: 'DOWNLOAD',
+			wrndk: '1381436x5194282',
+			is_mobile: '',
+			external_id: '',
+			hypesource: '',
+			adcode: '',
+			gvf: '0'
+		});
+	});
+
+	it('stamps the post at a point inside the track, or inside three minutes of one with no length', async () => {
+		vi.spyOn(Math, 'random').mockReturnValue(0.5);
+
+		const time = async (duration: string) => {
+			const calls = net(routes({ 'hypeddit.com/886rp1': () => res(page({ duration })) }));
+			await hypeddit.unlock(GATE, details());
+
+			return form(calls, '/gate/download/ul')!.time;
+		};
+
+		expect(await time('1000')).toBe('500');
+		expect(await time('')).toBe('90000');
+		expect(await time('soon')).toBe('90000');
+	});
+
+	it('takes an answer with no file in it as a gate that stayed shut', async () => {
+		net(routes({ '/gate/download/ul': () => res({ download_status: true, URL: '' }) }));
+		expect(await message(hypeddit.unlock(GATE, details()))).toMatch(/wouldn’t unlock/);
+
+		net(routes({ '/gate/download/ul': () => res({ download_status: false, URL: signed() }) }));
+		expect(await message(hypeddit.unlock(GATE, details()))).toMatch(/wouldn’t unlock/);
+	});
+
+	it('names every step a refusal was probably about', async () => {
+		net(
+			routes({
+				'hypeddit.com/886rp1': () => res(page({ steps: 'dz,sc,ap' })),
+				'/gate/download/ul': () => res({ download_status: false, URL: '' })
+			})
+		);
+		expect(await message(hypeddit.unlock(GATE, details()))).toMatch(/wants Deezer and Apple Music\./);
 	});
 });
 
@@ -549,6 +686,35 @@ describe('Droploud', () => {
 			title: ''
 		});
 	});
+
+	it('asks for the page as a page, and posts JSON to the API', async () => {
+		const calls = net(routes());
+		await droploud.unlock(GATE, details());
+
+		expect(calls[0].options.headers).toEqual({ Accept: 'text/html' });
+
+		for (const one of calls.slice(1)) {
+			expect(one.options.method).toBe('POST');
+			expect(one.options.headers).toEqual({ 'Content-Type': 'application/json', Accept: 'application/json' });
+		}
+	});
+
+	it('says where the repost step has to be done', async () => {
+		net(
+			routes({
+				'/soundcloud/verify-repost': () => res({ gave_up: false }),
+				'/gate/abc/download': () => res({ error: 'Gate not completed' }, { ok: false, status: 403 })
+			})
+		);
+		expect(await message(droploud.unlock(GATE, details()))).toMatch(
+			/connected on the page itself\. open it in a tab\.$/
+		);
+	});
+
+	it('takes a download answer with no URL in it as a refusal', async () => {
+		net(routes({ '/gate/abc/download': () => res({ type: 'native' }) }));
+		expect(await message(droploud.unlock(GATE, details()))).toMatch(/answered 200 to the download/);
+	});
 });
 
 // --- ToneDen -----------------------------------------------------------------
@@ -676,7 +842,11 @@ describe('ToneDen', () => {
 				'/api/v1/attachments/6201383/download': () => res({ url: 'https://toneden.io/thanks' })
 			})
 		);
-		expect(await toneden.unlock(POST, details())).toMatchObject({ kind: 'link' });
+		expect(await toneden.unlock(POST, details())).toMatchObject({
+			kind: 'link',
+			url: 'https://toneden.io/thanks',
+			why: 'ToneDen answered with a page rather than a file.'
+		});
 	});
 
 	it('says a gate that is not a download has no file behind it', async () => {
@@ -771,7 +941,8 @@ describe('ToneDen', () => {
 			})
 		);
 		expect(await message(toneden.unlock(POST, details()))).toMatch(
-			/wants SoundCloud, and ToneDen doesn’t know this browser/
+			// Any character stands in for the dash.
+			/^this gate wants SoundCloud, and ToneDen doesn’t know this browser\. open the link, connect once, then run the row again . the session sticks, and later gates by the same route go straight through\.$/
 		);
 	});
 
@@ -810,7 +981,9 @@ describe('ToneDen', () => {
 				'/gateMetadata': () => res({ metadata: { is_gate_open: false }, viewer_id: null })
 			})
 		);
-		expect(await message(toneden.unlock(POST, details()))).toMatch(/only wants an email address/);
+		expect(await message(toneden.unlock(POST, details()))).toBe(
+			'this gate only wants an email address, given on ToneDen’s own page. open the link, leave one, then run the row again.'
+		);
 	});
 
 	it('keeps ToneDen’s own words for a gate that is open and still says no', async () => {
@@ -865,6 +1038,161 @@ describe('ToneDen', () => {
 
 		net(routes({ '/api/v1/posts?': () => res({}, { ok: false, status: 500 }) }));
 		expect(await message(toneden.unlock(POST, details()))).toMatch(/answered 500/);
+	});
+
+	it('takes only <artist>/post/<slug> for a post link', async () => {
+		for (const url of ['https://toneden.io/after-wes/post', 'https://toneden.io/after-wes/tracks/never-felt']) {
+			net(routes());
+			expect(await message(toneden.unlock(url, details()))).toMatch(/not a ToneDen post link/);
+		}
+	});
+
+	it('looks up a post whose slug runs over more than one segment', async () => {
+		// Only the full slug is stubbed: a lookup for any other path finds nothing.
+		net({
+			'/api/v1/attachments/6201383/download': () => res({ url: FILE }),
+			'link_path=never-felt%2Fextended': () => res({ post: post() })
+		});
+		expect((await toneden.unlock(`${POST}/extended`, details())).url).toBe(FILE);
+	});
+
+	it('asks the API for JSON, with the browser’s session', async () => {
+		const calls = net(routes());
+		await toneden.unlock(POST, details());
+		expect(calls.map((call) => call.options)).toEqual([
+			{ credentials: 'include', headers: { Accept: 'application/json' } },
+			{ credentials: 'include', headers: { Accept: 'application/json' } }
+		]);
+	});
+
+	it('quotes ToneDen without the whitespace around its sentence', async () => {
+		net(
+			routes({
+				'/api/v1/attachments/6201383/download': () =>
+					res({ message: '  This download has expired.\n' }, { ok: false, status: 400 }),
+				'/gateMetadata': () => res({ metadata: { is_gate_open: true } })
+			})
+		);
+		expect(await message(toneden.unlock(POST, details()))).toBe('ToneDen said: This download has expired.');
+	});
+
+	it('asks for the account to be connected however ToneDen says it does not know the browser', async () => {
+		// No gate lookup is stubbed, so the refusal's own reading is what the row shows.
+		for (const refusal of [
+			res({ message: 'Forbidden' }, { ok: false, status: 403 }),
+			res(
+				{ name: 'notAuthenticated', message: 'Please login to your account to continue.' },
+				{ ok: false, status: 400 }
+			)
+		]) {
+			net(routes({ '/api/v1/attachments/6201383/download': () => refusal }));
+			expect(await message(toneden.unlock(POST, details()))).toMatch(/connect the account once/);
+		}
+	});
+
+	it('reads a platform it has no name for with its hyphens as spaces', async () => {
+		net(
+			routes({
+				'/api/v1/posts?': () => res({ post: post({ platform: 'tidal-save' }) }),
+				'/api/v1/attachments/6201383/download': () => res({}, { ok: false, status: 400 }),
+				'/gateMetadata': () => res({ metadata: { is_gate_open: false }, viewer_id: 42 })
+			})
+		);
+		expect(await message(toneden.unlock(POST, details()))).toMatch(/wants tidal save\./);
+	});
+
+	it('names email like any other account when the gate wants more than an address', async () => {
+		net(
+			routes({
+				'/api/v1/posts?': () =>
+					res({ post: post({ platform: 'email', multi_action_enabled: true, platforms: ['email', 'spotify'] }) }),
+				'/api/v1/attachments/6201383/download': () => res({}, { ok: false, status: 400 }),
+				'/gateMetadata': () => res({ metadata: { is_gate_open: false }, viewer_id: 42 })
+			})
+		);
+		expect(await message(toneden.unlock(POST, details()))).toMatch(/wants email and Spotify\./);
+	});
+
+	it('follows a redirect gate to a plain http address too', async () => {
+		const url = 'http://www.dropbox.com/s/x/One.wav?dl=1';
+		net(routes({ '/api/v1/posts?': () => res({ post: post({ download_source: 'redirect', direct_url: url }) }) }));
+		expect(await toneden.unlock(POST, details())).toMatchObject({ kind: 'file', url });
+	});
+
+	it('falls through to the download when a redirect gate names something that is not a web address', async () => {
+		net(
+			routes({
+				'/api/v1/posts?': () =>
+					res({
+						post: post({
+							download_source: 'redirect',
+							direct_url: 'www.dropbox.com/s/x/One.wav?dl=1&from=https://toneden.io'
+						})
+					})
+			})
+		);
+		expect(await toneden.unlock(POST, details())).toMatchObject({ kind: 'file', url: FILE });
+	});
+
+	it('asks for the file of a gate that is not a redirect, whatever address the post carries', async () => {
+		net(
+			routes({
+				'/api/v1/posts?': () => res({ post: post({ direct_url: 'https://www.beatport.com/release/never-felt/1' }) })
+			})
+		);
+		expect(await toneden.unlock(POST, details())).toMatchObject({ kind: 'file', url: FILE });
+	});
+
+	it('takes a file name from the post, but never an address', async () => {
+		const filename = async (display: string) => {
+			net(routes({ '/api/v1/posts?': () => res({ post: post({ download_display_url: display }) }) }));
+			const answer = await toneden.unlock(POST, details());
+
+			return 'filename' in answer ? answer.filename : undefined;
+		};
+
+		expect(await filename('http://files.toneden.test/neverfelt.wav')).toBe('');
+		expect(await filename('https://files.toneden.test/neverfelt.wav')).toBe('');
+		// A name with an address inside it is still a name.
+		expect(await filename('neverfelt (https://afterwes.test edit).wav')).toBe(
+			'neverfelt (https://afterwes.test edit).wav'
+		);
+	});
+
+	// Stryker switches a mutant on only once this file's imports have run, so
+	// what the module builds as it loads (its schemas, serviceName, titleOf) is
+	// checked here against a copy imported after that.
+	describe('what the module builds as it loads', () => {
+		async function fresh() {
+			vi.resetModules();
+
+			return (await import('../../src/tools/third-party-downloads/sites/toneden.ts')).toneden;
+		}
+
+		it('takes the file from the download answer and names it after the post', async () => {
+			const site = await fresh();
+			net(routes({ '/api/v1/posts?': () => res({ post: post({ author: undefined }) }) }));
+			expect(await site.unlock(POST, details())).toEqual({
+				kind: 'file',
+				url: FILE,
+				title: 'never felt',
+				filename: 'neverfelt.wav'
+			});
+		});
+
+		it('names the account a closed gate wants, for a browser ToneDen knows', async () => {
+			const site = await fresh();
+			net(
+				routes({
+					'/api/v1/posts?': () => res({ post: post({ platform: 'soundcloud' }) }),
+					'/api/v1/attachments/6201383/download': () => res({}, { ok: false, status: 400 }),
+					'/gateMetadata': () => res({ metadata: { is_gate_open: false }, viewer_id: 42 })
+				})
+			);
+			expect(await message(site.unlock(POST, details()))).toMatch(
+				/signed in to hasn’t been through this gate: it wants SoundCloud\./
+			);
+		});
 	});
 });
 
@@ -1075,6 +1403,67 @@ describe('FanLink', () => {
 			why: 'a smart link, not a gate: there’s no file behind it.'
 		});
 	});
+
+	it('passes over a service with no address, rather than naming it', async () => {
+		net({
+			'fanlink.tv/': () => res(page(link({ services: [{ service_name: 'bandcamp' }], target_url: '' })))
+		});
+		expect(await fanlink.unlock(LINK, details())).toMatchObject({
+			url: LINK,
+			why: 'a smart link, not a gate: there’s no file behind it.'
+		});
+	});
+
+	it('asks for the page as HTML, with the browser’s session', async () => {
+		const calls = net({ 'fanlink.tv/': () => res(page(link())) });
+		await fanlink.unlock(LINK, details());
+		expect(calls[0].options).toEqual({ credentials: 'include', headers: { Accept: 'text/html' } });
+	});
+
+	it('finds the global past other JSON on the page, however it is spaced', async () => {
+		// Structured data in the head comes before the app's own state.
+		const head = '<script type="application/ld+json">{"@type":"MusicRecording","name":"Nonstop"}</script>';
+
+		for (const global of ['window.preloadLink = ', 'window.preloadLink=']) {
+			net({ 'fanlink.tv/': () => res(`${head}<script>${global}${JSON.stringify(link())};</script>`) });
+			expect((await fanlink.unlock(LINK, details())).url).toBe('https://nikp.bandcamp.com/track/nonstop');
+		}
+	});
+
+	it('reads a link without an id as no link at all', async () => {
+		net({ 'fanlink.tv/': () => res(page(link({ id: 0 }))) });
+		expect(await message(fanlink.unlock(LINK, details()))).toMatch(/not a ToneDen FanLink/);
+	});
+
+	it('trims the title and author before putting them together', () => {
+		expect(fanLinkTitle({ id: 1, author: ' H V D E S\n', title: '  Bring Me To Life ' })).toBe(
+			fanLinkTitle({ id: 1, author: 'H V D E S', title: 'Bring Me To Life' })
+		);
+		expect(fanLinkTitle({ id: 1, author: 'H V D E S', title: '   ' })).toBe('H V D E S');
+	});
+
+	it('offers a destination that only looks like a ToneDen gate, rather than looking it up', async () => {
+		// Nothing on toneden.io is stubbed, so a lookup would fail the unlock.
+		for (const target of [
+			'https://www.toneden.io/hvdesmusic',
+			'https://hvdes.test/blog/post/bring-me-to-life',
+			'https://toneden.www.io/hvdesmusic/post/bring-me-to-life'
+		]) {
+			net({ 'fanlink.tv/': () => res(page(link({ services: [], target_url: target }))) });
+			expect((await fanlink.unlock(LINK, details())).url).toBe(target);
+		}
+	});
+
+	it('takes a destination over plain http, but not an app URI with an address inside it', async () => {
+		net({ 'fanlink.tv/': () => res(page(link({ services: [], target_url: 'http://open.spotify.com/track/1' }))) });
+		expect((await fanlink.unlock(LINK, details())).url).toBe('http://open.spotify.com/track/1');
+
+		net({
+			'fanlink.tv/': () =>
+				res(page(link({ services: [], target_url: 'spotify:track:1?referrer=https://fanlink.tv/NPxBC-Nonstop' })))
+		});
+		expect((await fanlink.unlock(LINK, details())).url).toBe(LINK);
+	});
 });
 
 // --- Pump Your Sound ---------------------------------------------------------
@@ -1129,7 +1518,10 @@ describe('Pump Your Sound', () => {
 			'pumpyoursound.com': (options) =>
 				options.method === 'POST' ? res('<p>follow first</p>', { url: GATE }) : res(page())
 		});
-		expect(await message(pumpyoursound.unlock(GATE, details()))).toMatch(/handed back nothing/);
+		const said = await message(pumpyoursound.unlock(GATE, details()));
+		expect(said).toMatch(/handed back nothing/);
+		// And, to end on, where to go instead.
+		expect(said).toMatch(/open the gate and try there\.$/);
 	});
 
 	it('presses a Download button the page did not name', async () => {
@@ -1195,6 +1587,95 @@ describe('Pump Your Sound', () => {
 				options.method === 'POST' ? res('', { url: FILE }) : res(page().replace(/<h1[^>]*>.*<\/h1>/, ''))
 		});
 		expect(await pumpyoursound.unlock(GATE, details())).toMatchObject({ title: '' });
+	});
+
+	it('trims the title the page sets out on lines of its own', async () => {
+		net({
+			'pumpyoursound.com': (options) =>
+				options.method === 'POST'
+					? res('', { url: FILE })
+					: res(page().replace('>LOVE ME NOW<', '>\n      LOVE ME NOW\n    <'))
+		});
+		expect(await pumpyoursound.unlock(GATE, details())).toMatchObject({ title: 'LOVE ME NOW' });
+	});
+
+	it('asks for the page and posts the form with the visitor’s cookies, as the browser would', async () => {
+		// The steps beside the button are walked in a tab, and their cookies are
+		// what the server checks the form against.
+		const calls = net({
+			'pumpyoursound.com': (options) => (options.method === 'POST' ? res('', { url: FILE }) : res(page()))
+		});
+
+		await pumpyoursound.unlock(GATE, details());
+		expect(calls[0].options).toEqual({ credentials: 'include', headers: { Accept: 'text/html' } });
+		expect(calls[1].options).toEqual({
+			method: 'POST',
+			credentials: 'include',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+			body: expect.any(String)
+		});
+	});
+
+	it('presses only a button, not another control whose type reads submit', async () => {
+		const calls = net({
+			'pumpyoursound.com': (options) =>
+				options.method === 'POST'
+					? res('', { url: FILE })
+					: res(
+							page().replace(
+								'<input type="submit"',
+								'<object name="player" type="submit"></object><input type="submit"'
+							)
+						)
+		});
+
+		await pumpyoursound.unlock(GATE, details());
+		expect(form(calls, 'pumpyoursound.com')).toEqual({
+			fangate_comment: 'Really amazing track!',
+			_do: 'freeDownloadForm-submit',
+			send: 'Download'
+		});
+	});
+
+	it('reads the answer when the form posts to an address that looks like a file and stays there', async () => {
+		// Nothing redirected, so what came back is the page again, whatever its address says.
+		const action = 'https://pumpyoursound.com/downloads/love-me-now.zip';
+		net({
+			'pumpyoursound.com': (options) =>
+				options.method === 'POST'
+					? res(`<a href="${FILE}">Your download</a>`, { url: action })
+					: res(page().replace(`action="${ACTION}"`, `action="${action}"`))
+		});
+		expect(await pumpyoursound.unlock(GATE, details())).toMatchObject({ kind: 'file', url: FILE });
+	});
+
+	it('lets go of the file it lands on rather than reading it', async () => {
+		// The download fetches the file afresh, so there is no reason to pull it down twice.
+		let cancelled = false;
+
+		const bytes = new ReadableStream({
+			cancel: () => {
+				cancelled = true;
+			}
+		});
+
+		// Real responses, so the body is a real stream. The form lands on the file.
+		const serve = (body: ReadableStream | null) => {
+			const landed = Object.defineProperty(new Response(body), 'url', { value: FILE });
+
+			vi.stubGlobal(
+				'fetch',
+				vi.fn<typeof fetch>(async (_url, init) => (init?.method === 'POST' ? landed : new Response(page())))
+			);
+		};
+
+		serve(bytes);
+		expect(await pumpyoursound.unlock(GATE, details())).toMatchObject({ kind: 'file', url: FILE });
+		expect(cancelled).toBe(true);
+
+		// An answer with no body at all has nothing to let go of.
+		serve(null);
+		expect(await pumpyoursound.unlock(GATE, details())).toMatchObject({ kind: 'file', url: FILE });
 	});
 });
 
@@ -1493,6 +1974,118 @@ describe('Laylo', () => {
 			'signed me@example.com up — confirm it in the mail Laylo sends, and the artist sends the link out.'
 		);
 	});
+
+	it('reads both URLs off a page however its fetches are spaced', async () => {
+		// Line breaks inside the calls, and no spaces at all around the `+`, as a minifier leaves it.
+		const calls = net({
+			'//laylo.com/': () =>
+				res(
+					'<script>fetch(\n  "https://drops.elsewhere.test/hairitage/9PWcf.json");' +
+						'fetch(\n  "https://users.elsewhere.test"+"/users/"+e+".json")</script>'
+				),
+			'drops.elsewhere.test': () => res(drop()),
+			'users.elsewhere.test': () => res(artist()),
+			'events.laylo.com': () => taken()
+		});
+
+		expect((await laylo.unlock(DROP, ME)).kind).toBe('signup');
+		expect(calls[1].url).toBe('https://drops.elsewhere.test/hairitage/9PWcf.json');
+		expect(calls[2].url).toBe('https://users.elsewhere.test/users/abc123.json');
+	});
+
+	it('works the drop out from a link with slashes left on the end', async () => {
+		const calls = net({
+			'//laylo.com/': () => res('<html></html>'),
+			d21i0hc4hl3bvt: () => res(drop()),
+			d3oyaxbt9vo0fg: () => res(artist()),
+			'events.laylo.com': () => taken()
+		});
+
+		await laylo.unlock(`${DROP}//`, ME);
+		expect(calls[1].url).toBe(JSON_URL);
+	});
+
+	it('asks for the page, the drop, the artist and the signup the way the page itself does', async () => {
+		const calls = net({ ...offering(), 'events.laylo.com': () => taken() });
+
+		await laylo.unlock(DROP, ME);
+		expect(calls[0].options).toEqual({ headers: { Accept: 'text/html' } });
+		expect(calls[1].options).toEqual({ headers: { Accept: 'application/json' } });
+		expect(calls[2].options).toEqual({ headers: { Accept: 'application/json' } });
+		expect(calls[3].options).toMatchObject({ method: 'POST', headers: { 'Content-Type': 'application/json' } });
+	});
+
+	it('makes up a fresh fingerprint for every signup', async () => {
+		// Loaded afresh, so the maker is built inside the test, where a mutation
+		// run can reach it.
+		vi.resetModules();
+		const { default: fresh } = await import('../../src/tools/third-party-downloads/sites/laylo.ts');
+		const calls = net({ ...offering(), 'events.laylo.com': () => taken() });
+
+		await fresh.unlock(DROP, ME);
+		await fresh.unlock(DROP, ME);
+		const [one, two] = calls.filter((call) => call.url === SIGNUP).map((call) => JSON.parse(call.body).payload);
+		expect(one.fingerprintId).toMatch(/^[0-9a-f]{32}$/);
+		expect(two.fingerprintId).toMatch(/^[0-9a-f]{32}$/);
+		expect(one.fingerprintId).not.toBe(two.fingerprintId);
+	});
+
+	it('passes the drop’s end date on with the signup, or null for a drop with none', async () => {
+		const calls = net({ ...offering({ endDate: '2026-12-01T00:00:00.000Z' }), 'events.laylo.com': () => taken() });
+
+		await laylo.unlock(DROP, ME);
+		expect(sent(calls, SIGNUP).payload.dropDate).toBe('2026-12-01T00:00:00.000Z');
+
+		const none = net({ ...offering({ endDate: undefined }), 'events.laylo.com': () => taken() });
+
+		await laylo.unlock(DROP, ME);
+		expect(sent(none, SIGNUP).payload.dropDate).toBe(null);
+	});
+
+	it('signs up with the address alone when settings holds no name', async () => {
+		const calls = net({ ...offering(), 'events.laylo.com': () => taken() });
+
+		await laylo.unlock(DROP, details({ email: 'me@example.com' }));
+		expect(sent(calls, SIGNUP).payload).not.toHaveProperty('name');
+		expect(sent(calls, SIGNUP).payload).not.toHaveProperty('firstName');
+	});
+
+	it('names every question a drop asks that settings cannot answer', async () => {
+		net(
+			offering({
+				additionalRSVPInputs: [
+					{ fieldName: 'birthday', required: true },
+					{ fieldName: 'city', required: true }
+				]
+			})
+		);
+		expect(why(await laylo.unlock(DROP, ME))).toMatch(/asks for birthday and city as well/);
+	});
+
+	it('ends a notify-me row on what to do about it', async () => {
+		net(offering({ rsvpOptions: { sms: 0, email: -1 } }));
+		expect(why(await laylo.unlock(DROP, ME))).toMatch(/open it and sign up if you want it\.$/);
+	});
+
+	it('keeps the network error underneath a failure to reach Laylo', async () => {
+		const refused = new TypeError('Failed to fetch');
+
+		net({
+			'//laylo.com/': () => res(page('https://elsewhere.test/a.json')),
+			'elsewhere.test': () => {
+				throw refused;
+			}
+		});
+		await expect(laylo.unlock(DROP, ME)).rejects.toHaveProperty('cause', refused);
+
+		net({
+			...offering(),
+			'events.laylo.com': () => {
+				throw refused;
+			}
+		});
+		await expect(laylo.unlock(DROP, ME)).rejects.toHaveProperty('cause', refused);
+	});
 });
 
 // --- Feature.fm --------------------------------------------------------------
@@ -1583,6 +2176,39 @@ describe('Feature.fm', () => {
 	it('carries on without a title', async () => {
 		net({ 'ffm.to': () => res(button('spotify', 'https://s.test/1')) });
 		expect((await featurefm.unlock(LINK, details())).title).toBe('');
+	});
+
+	it('reads the title from a meta tag with other attributes around it', async () => {
+		net({
+			'ffm.to': () =>
+				res(
+					`<meta data-rh="true" property="og:title" itemprop="name" content="1111 - SOS">` +
+						button('spotify', 'https://s.test/1')
+				)
+		});
+		expect((await featurefm.unlock(LINK, details())).title).toBe('1111 - SOS');
+	});
+
+	it('keeps a destination over plain http, and skips one that is not a web address', async () => {
+		net({
+			'ffm.to': () =>
+				res(
+					page(
+						// A share button: an address inside it, but not one to open.
+						button('email', 'mailto:?body=https://ffm.to/1111-sos'),
+						button('beatport', 'http://www.beatport.com/release/sos/1')
+					)
+				)
+		});
+		const answer = await featurefm.unlock(LINK, details());
+		expect(answer.url).toBe('http://www.beatport.com/release/sos/1');
+		expect(why(answer)).toMatch(/it points at beatport\.$/);
+	});
+
+	it('asks for the page as HTML', async () => {
+		const calls = net({ 'ffm.to': () => res(page(button('spotify', 'https://s.test/1'))) });
+		await featurefm.unlock(LINK, details());
+		expect(calls[0].options).toEqual({ headers: { Accept: 'text/html' } });
 	});
 });
 

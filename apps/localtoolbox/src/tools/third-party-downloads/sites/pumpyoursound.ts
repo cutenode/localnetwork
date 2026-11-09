@@ -86,6 +86,7 @@ async function unlock(pageUrl: string, _details: UnlockDetails): Promise<Unlocke
 	if (answer.url !== gate.action && looksLikeFile(answer.url)) {
 		// Not waited on, and a refusal is let go: a body that has already failed
 		// rejects the cancel, and there is nothing left of it to stop.
+		// Stryker disable next-line OptionalChaining: equivalent for the `?.` before the call, since a real Response body is null or a ReadableStream, which always has cancel; the `body?.` variant is caught by the Pump Your Sound tests, which this hides too.
 		void Promise.allSettled([answer.body?.cancel?.()]);
 
 		return { kind: 'file', url: answer.url, title: gate.title };

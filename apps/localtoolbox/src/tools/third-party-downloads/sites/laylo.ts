@@ -176,6 +176,7 @@ function unanswerable(drop: Drop, details: UnlockDetails) {
 		return 'this drop confirms signups by text, so it only takes a phone number.';
 	}
 
+	// Stryker disable next-line ArrayDeclaration: equivalent. A string in place of no inputs has no `required`, so the filter drops it.
 	const required = (drop.additionalRSVPInputs || []).filter((input) => input.required);
 	const beyond = required.filter((input) => input.fieldName !== 'name');
 

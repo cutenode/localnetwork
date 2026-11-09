@@ -23,8 +23,8 @@ export default {
 	// was cut off and counted as killed without anything having failed.
 	timeoutMS: 30000,
 	reporters: ['html', 'clear-text', 'progress'],
-	// Just under the score the suite reached when this was set up (91.5%), so
-	// the run fails on a real drop rather than on a mutant or two. Raise it as
-	// survivors are killed.
-	thresholds: { break: 91 }
+	// Just under the score the suite last reached (95.39%), so the run fails on
+	// a real drop rather than on a mutant or two. Raise it as survivors are
+	// killed.
+	thresholds: { break: 95 }
 };
