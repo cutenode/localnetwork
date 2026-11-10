@@ -540,6 +540,38 @@ fn a_token_in_the_query_stays_out_of_errors_logs_and_other_origins() {
     assert!(!m.leaked(&answers), "a token is out where it may not be");
 }
 
+/// For any secret sent in the query, alone or among other text (with letters a URL spells
+/// otherwise among its own, always a `%`, which leaves the secret inside how a URL spells it): it comes back in what the server answers as the placeholder
+/// that named it, as it is and as a URL spells it, which asks for it again. The plugin never has it.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_secret_in_the_query_comes_back_as_its_placeholder(tc: TestCase) {
+    let secret = tc.draw(gs::from_regex("[q-z]{3}%[q-z]{0,3}([ &+/=%?#][q-z]{0,3}){0,2}").fullmatch(true));
+    let written = tc.draw(gs::sampled_from(vec!["{secret:token}", "a-{secret:token}-b"]));
+    let paging = Server::new(|base, got| {
+        let next = format!("{base}{}", got.target.replace("page=1", "page=2"));
+        let headers = vec![("Link", format!("<{next}>; rel=\"next\""))];
+        let query = got.target.split_once('?').map(|(_, q)| q).unwrap_or_default();
+        let key = form_urlencoded::parse(query.as_bytes()).find(|(k, _)| k == "key").map(|(_, v)| v.into_owned());
+        Reply { status: 200, headers, body: json!({ "next": next, "key": key }).to_string().into_bytes() }
+    });
+    let f = super::net::fixture(&super::net::talking(100.0), &[], Options::default());
+    f.plugins.set_setting("echo", &f.store, "token", Some(json!(secret))).unwrap();
+
+    let first = f.fetch(json!({ "url": format!("{}/p?page=1&key={written}", paging.url) }));
+    let next = first["result"]["headers"]["link"].as_str().unwrap_or_default().to_string();
+    let body: Value = serde_json::from_str(first["result"]["body"].as_str().unwrap_or_default()).unwrap();
+    assert_eq!(body["key"], written, "{first}");
+    let next = next.trim_start_matches('<').split_once('>').map(|(u, _)| u.to_string()).unwrap_or_default();
+    assert_eq!(body["next"], next);
+    let second = f.fetch(json!({ "url": next }));
+    assert_eq!(second["result"]["status"], 200, "the link given back doesn't ask again: {second}");
+    let sent =
+        form_urlencoded::byte_serialize(written.replace("{secret:token}", &secret).as_bytes()).collect::<String>();
+    assert!(paging.got().iter().all(|g| g.target.ends_with(&format!("&key={sent}"))), "a page went without the secret");
+    let answers = [first, second].map(|a| a.to_string()).concat();
+    assert!(!answers.contains(&secret), "the plugin has the secret: {answers}");
+}
+
 /// For anyone signing in, an account type naming the port the browser comes back to is signed in
 /// there, and a sign-in still waiting on it gives way to a new one, while one waiting for the keys
 /// of another type keeps waiting; another program holding the port is said.

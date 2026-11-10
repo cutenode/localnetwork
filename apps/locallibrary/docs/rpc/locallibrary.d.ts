@@ -630,6 +630,16 @@ export type Edit =
     keep_files?: boolean;
   }
   /**
+   * Delete tracks as `delete_tracks` does, leaving their files out of the backup: for tracks
+   * rekordbox's next export puts back, whose copies would only fill the drive. Undoing brings
+   * the tracks back without their files, until that export. Only a plugin with the
+   * `library:delete-unbacked` capability can ask for it: `edit.plan` refuses it.
+   */
+  | {
+    op: "delete_unbacked";
+    tracks: TrackSelector;
+  }
+  /**
    * Replace one copy of a recording with another: playlist and history entries (and My Tags)
    * move to `keep`, then `duplicate` is deleted unless `keep_duplicate`.
    */
@@ -2921,6 +2931,11 @@ export type LineageOp =
   | "export"
   /** Damaged files rewritten from a known-good copy (see [`crate::scrub`]). */
   | "repair"
+  /**
+   * Another drive's state a merge took in whole, recorded before the merged state (see
+   * [`crate::merge`]).
+   */
+  | "merged_in"
   /** An operation from a newer version of locallibrary. */
   | "other";
 
@@ -3108,6 +3123,8 @@ export type PlanFields = {
    * those `left_alone`.
    */
   clones?: CloneTarget[];
+  /** How long writing it to its drive will take, for a write big enough to matter. */
+  estimate?: WriteEstimate | null;
   planned_at: string;
 };
 
@@ -3138,6 +3155,94 @@ export type CloneTarget = {
    */
   left_alone?: string | null;
 };
+
+/** How long a write to a drive will take. */
+export type WriteEstimate = {
+  work: Work;
+  /** The result it's worked out from. `None`: the drive hasn't been measured. */
+  speed: DriveSpeed | null;
+  /** Seconds it will take, or at least take when `best_case`. */
+  seconds?: number | null;
+  /**
+   * The write is longer than the rate has been seen to hold, so it could slow down past a cache
+   * region the test didn't reach.
+   */
+  best_case: boolean;
+  /** Which cost is the bigger. */
+  limit?: Limit | null;
+  /** Why the result may no longer hold. */
+  stale?: Stale | null;
+  /** The USB link the drive is on, in bits a second, when it's near or below the drive's rate. */
+  port_limit_bps?: number | null;
+  /** The drive was timed for this plan, with a short test whose files are gone. */
+  ran_test: boolean;
+};
+
+/** What a write asks of a drive. */
+export type Work = {
+  bytes: number;
+  files: number;
+  /** Folders to make: those the files go in that the drive doesn't have. */
+  folders: number;
+  /**
+   * What else the time depends on that isn't the drive (downloads, transcoding), as a line
+   * says it.
+   */
+  plus?: string | null;
+};
+
+/** What a drive costs to write to, as measured on it. */
+export type DriveSpeed = {
+  /** Bytes a second, once the drive has settled. */
+  bytes_per_sec: number;
+  /** Microseconds to make a small file. */
+  create_us: number;
+  /** Microseconds to make a folder. */
+  mkdir_us: number;
+  /**
+   * How many bytes the rate has been seen to hold for. `None`: it fell during the test and this
+   * is the rate past the drive's cache region, good for any size.
+   */
+  holds_for: number | null;
+  measured_at: string;
+  measured_by: MeasuredBy;
+  /** The USB link the drive was on then, in bits a second. */
+  link_bps?: number | null;
+  /** The drive's logged `bytes_written` then (see [`crate::fleet::DriveLog`]). */
+  logged_bytes?: number | null;
+};
+
+export type MeasuredBy =
+  /** A timed write of a scratch file. */
+  | "test"
+  /** A real write to the drive, whose rate replaced the test's. */
+  | "write";
+
+/** Which of a write's costs is the bigger. */
+export type Limit =
+  /** The drive's sustained rate: the bytes take longest. */
+  | "rate"
+  /** Making files and folders takes longest. */
+  | "files";
+
+/** Why a stored result may no longer hold. */
+export type Stale =
+  /** Measured this many days ago. */
+  | {
+    reason: "old";
+    days: number;
+  }
+  /** This many bytes written since, a capacity's worth or more. */
+  | {
+    reason: "worn";
+    bytes: number;
+  }
+  /** Measured on a link of `then` bits a second, and now on `now`. */
+  | {
+    reason: "moved";
+    then: number;
+    now: number;
+  };
 
 export type LibraryPage = {
   summary: LibrarySummary;
@@ -3498,12 +3603,20 @@ export type BackupInfo = {
    * medium copy rekordbox didn't leave): putting it back removes them.
    */
   added?: string[];
+  /**
+   * Files its change deleted that it doesn't hold, as rekordbox's next export puts them back
+   * (see [`crate::edit::Edit::DeleteUnbacked`]): putting it back leaves their tracks without
+   * them until then.
+   */
+  unbacked?: string[];
 };
 
 export type RestorePreview = {
   backup: BackupInfo;
   /** From the drive as it is to the drive restored. */
   diff: PlaylistDiff;
+  /** Tracks that come back without the audio their change left out of its backup. */
+  unbacked_audio: string[];
   /**
    * Tracks in the backup whose audio is neither on the drive nor in the backup: restoring
    * refuses them unless forced.
@@ -3566,6 +3679,11 @@ export type UndoPlan = {
   history_lists: string[];
   /** Recorded edits taken off the journal: `edits replay` won't make them again. */
   journal: JournalEntry[];
+  /**
+   * Tracks that come back without the audio their change left out of its backup, which
+   * rekordbox's next export puts back.
+   */
+  unbacked_audio: string[];
   /**
    * Tracks the backup lists whose audio is neither on the drive nor in the backup: putting it
    * back is refused unless forced.
@@ -3645,6 +3763,12 @@ export type UndoableBackup = {
    * medium copy rekordbox didn't leave): putting it back removes them.
    */
   added?: string[];
+  /**
+   * Files its change deleted that it doesn't hold, as rekordbox's next export puts them back
+   * (see [`crate::edit::Edit::DeleteUnbacked`]): putting it back leaves their tracks without
+   * them until then.
+   */
+  unbacked?: string[];
   /** Recorded edits putting it back takes off the journal. */
   journal: number;
   /** It's the one `undo` puts back. */
@@ -3906,6 +4030,14 @@ export type MergePlan = {
   new_tracks: PlannedTrack[];
   /** Source tracks already in the target. */
   matched_tracks: number;
+  /** Those whose details, file or analysis differ: the target's stay as they are. */
+  differing_tracks: TrackChange[];
+  /**
+   * Whether the target holds everything the source has once merged (every track, its
+   * playlists and history), `differing_tracks` aside. Then the source's state goes into the
+   * target's lineage, so a `sync` afterwards copies the merged drive over the source.
+   */
+  takes_in_source: boolean;
   playlists: PlannedPlaylist[];
   artwork_files: number;
   copy_bytes: number;
@@ -4075,6 +4207,8 @@ export type VerifyReport = {
   checked: number;
   corrupt: string[];
   missing: string[];
+  /** Snapshots whose manifest no longer hashes to its id. */
+  damaged_snapshots: Hash[];
 };
 
 export type PruneReport = {
@@ -4255,6 +4389,8 @@ export type EditPlan = {
   history_removed: number;
   /** Files to delete (removed tracks' audio, analysis and artwork), as drive keys. */
   files: string[];
+  /** Those of `files` the backup leaves out (see [`Edit::DeleteUnbacked`]). */
+  unbacked?: string[];
   bytes: number;
   /** `export.pdb` and/or `exportLibrary.db`. */
   databases: string[];
@@ -4615,6 +4751,16 @@ export type EditOutput =
     op: "delete_tracks";
     tracks: TrackSelector;
     keep_files: boolean;
+  }
+  /**
+   * Delete tracks as `delete_tracks` does, leaving their files out of the backup: for tracks
+   * rekordbox's next export puts back, whose copies would only fill the drive. Undoing brings
+   * the tracks back without their files, until that export. Only a plugin with the
+   * `library:delete-unbacked` capability can ask for it: `edit.plan` refuses it.
+   */
+  | {
+    op: "delete_unbacked";
+    tracks: TrackSelector;
   }
   /**
    * Replace one copy of a recording with another: playlist and history entries (and My Tags)
@@ -7581,6 +7727,16 @@ export type Hardware = {
   size: number;
 };
 
+export type DriveSpeedReport = {
+  drive: string;
+  /** The stored result. `None`: it hasn't been measured. */
+  speed: DriveSpeed | null;
+  /** Why that may no longer hold. */
+  stale?: Stale | null;
+  /** The USB link it's on now, in bits a second. */
+  link_bps?: number | null;
+};
+
 /** What an unadopted (or re-identified) drive matches. */
 export type Recognition = {
   /** Its library state is a stored snapshot. */
@@ -9401,7 +9557,9 @@ export type Phase =
   /** Decoding library tracks to estimate their tempo, key and loudness. */
   | "analyze"
   /** Sending files to a server (a set's recording, by a plugin's `net/fetch`). */
-  | "upload";
+  | "upload"
+  /** Timing writes to a drive, of scratch data that's removed after. */
+  | "measure";
 
 /** `{"event": "step"}`. */
 export type StepStarted = {
@@ -10216,6 +10374,10 @@ export interface Methods {
   "drive.retire": { params: RetireDrive & WriteOptions; result: DriveRecord };
   /** read method */
   "drive.log": { params: DriveRef; result: DriveRecord };
+  /** read method */
+  "drive.speed": { params: DriveRef; result: DriveSpeedReport };
+  /** immediate method; long running: sends `progress`, can be cancelled */
+  "drive.speed.measure": { params: DriveRef & WriteOptions; result: DriveSpeedReport };
   /** read method; long running: sends `progress`, can be cancelled */
   "drive.recognise": { params: DriveRef; result: Recognition };
   /** plan method; paired with `drive.adopt_as.apply`; can delete or overwrite something */

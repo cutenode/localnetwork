@@ -1,6 +1,5 @@
 //! Playlist diffs between drives and snapshots, and what a restore would change.
 
-use rustc_hash::FxHashSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -9,7 +8,6 @@ use crate::backup::{self, BackupInfo};
 use crate::device::Device;
 use crate::diff::{self, PlaylistDiff};
 use crate::doctor::Databases;
-use crate::paths;
 use crate::store::{Snapshot, Store};
 use crate::{Error, Result};
 
@@ -103,6 +101,8 @@ pub struct RestorePreview {
     pub backup: BackupInfo,
     /// From the drive as it is to the drive restored.
     pub diff: PlaylistDiff,
+    /// Tracks that come back without the audio their change left out of its backup.
+    pub unbacked_audio: Vec<String>,
     /// Tracks in the backup whose audio is neither on the drive nor in the backup: restoring
     /// refuses them unless forced.
     pub missing_audio: Vec<String>,
@@ -117,19 +117,10 @@ pub fn restore_preview(req: &RestoreBackup) -> Result<RestorePreview> {
         None => backups.into_iter().next().ok_or_else(|| Error::NotFound("no backups on this drive".into()))?,
     };
     let backed_up = Device::open(backup::dir(&d, &info.id))?;
-    let restored = backed_up.library()?;
-    let saved: FxHashSet<String> = info.files.iter().map(|f| f.to_lowercase()).collect();
-    let missing_audio = restored
-        .tracks
-        .iter()
-        .filter(|t| {
-            let key = paths::key(&t.file_path);
-            !saved.contains(&key.to_lowercase()) && !d.checked_path(&key).is_ok_and(|p| p.exists())
-        })
-        .map(|t| t.display_name())
-        .collect();
+    let missing_audio = backup::missing_audio(&d, &info)?;
+    let unbacked_audio = backup::unbacked_audio(&d, &info)?;
     let diff = to_backup(&d, &backed_up, &format!("backup {}", info.id));
-    Ok(RestorePreview { backup: info, diff, missing_audio })
+    Ok(RestorePreview { backup: info, diff, unbacked_audio, missing_audio })
 }
 
 /// How `d` would differ with the backup `backed_up` put back (a database that can't be read

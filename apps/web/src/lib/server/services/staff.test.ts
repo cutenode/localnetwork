@@ -5,6 +5,7 @@ import { spaceRecordUri } from '../atproto/spaces';
 import { ForbiddenError } from '../core';
 import { FakeRootClient } from '../testing/fakes';
 import { createTestServices } from '../testing/core';
+import { staffRoleRecord } from './staff';
 
 const ADMIN = 'did:plc:admin';
 
@@ -44,6 +45,78 @@ describe('StaffService', () => {
 		});
 
 	const members = (space: string) => [...(t.net.spaces.get(space)?.members.keys() ?? [])];
+
+	it('gives admins every grant and moderators only theirs', async () => {
+		const admin = await t.viewer(ADMIN);
+
+		expect(await t.staff.grants(ADMIN)).toEqual(['flags', 'flagGroups']);
+		expect(await t.staff.grants(DJ)).toEqual([]);
+		await t.staff.grant(admin, MOD, 'moderator');
+		expect(await t.staff.grants(MOD)).toEqual([]);
+
+		await t.staff.setGrants(admin, MOD, ['flags']);
+		await t.audit.idle();
+
+		expect(await t.staff.grants(MOD)).toEqual(['flags']);
+		expect((await t.staff.list()).find((member) => member.did === MOD)?.grants).toEqual(['flags']);
+		expect(JSON.parse((await t.audit.list({ action: 'role.grant' }))[0].changes ?? '')).toEqual([
+			{ field: 'grants', before: '', after: 'flags' }
+		]);
+
+		await t.staff.grant(admin, MOD, 'admin');
+		expect(await t.staff.grants(MOD)).toEqual(['flags', 'flagGroups']);
+	});
+
+	it("keeps a moderator's grants when their role is granted again", async () => {
+		const admin = await t.viewer(ADMIN);
+		await t.staff.grant(admin, MOD, 'moderator');
+		await t.staff.setGrants(admin, MOD, ['flagGroups']);
+		await t.staff.grant(admin, MOD, 'moderator', 'Weekends');
+
+		expect(await t.staff.grants(MOD)).toEqual(['flagGroups']);
+	});
+
+	it("keeps a moderator's note, and who granted their role, when their grants change", async () => {
+		const admin = await t.viewer(ADMIN);
+		await t.staff.grant(admin, MOD, 'moderator', 'Weekends');
+		await t.staff.setGrants(admin, MOD, ['flags']);
+
+		expect((await t.staff.list()).find((member) => member.did === MOD)).toMatchObject({
+			note: 'Weekends',
+			grantedBy: ADMIN,
+			grants: ['flags']
+		});
+	});
+
+	it('names the admin setting grants on a role that says nobody granted it', async () => {
+		const admin = await t.viewer(ADMIN);
+		await t.staff.grant(admin, MOD, 'moderator');
+		await t.db.updateTable('staffRole').set({ grantedBy: null }).where('did', '=', MOD).execute();
+		await t.staff.setGrants(admin, MOD, ['flags']);
+
+		expect((await t.staff.list()).find((member) => member.did === MOD)?.grantedBy).toBe(ADMIN);
+	});
+
+	it('only lets admins set grants, and only on moderators', async () => {
+		const admin = await t.viewer(ADMIN);
+		await t.staff.grant(admin, MOD, 'moderator');
+
+		await expect(t.staff.setGrants(await t.viewer(MOD), MOD, ['flags'])).rejects.toBeInstanceOf(ForbiddenError);
+		await expect(t.staff.setGrants(admin, DJ, ['flags'])).rejects.toThrow('Only moderators take grants');
+		expect(await t.staff.grants(MOD)).toEqual([]);
+	});
+
+	it("drops a grant it doesn't know from a synced role", () => {
+		const parsed = staffRoleRecord.parse({
+			subject: MOD,
+			role: 'moderator',
+			grants: ['flags', 'someday'],
+			grantedBy: ADMIN,
+			createdAt: '2026-10-01T00:00:00.000Z'
+		});
+
+		expect(parsed.grants).toEqual(['flags']);
+	});
 
 	it('names staff by handle in the audit log, with the note a grant came with', async () => {
 		const admin = await t.viewer(ADMIN);

@@ -11,7 +11,6 @@ import {
 	parseMacHeader,
 	parseSpaceToken,
 	RECORD_MAC_TYPE,
-	RepoVerificationError,
 	SpaceMacError,
 	verifyRecord,
 	WANT_MAC_HEADER
@@ -49,9 +48,12 @@ export function isCredentialRejected(cause: unknown): boolean {
 	return cause instanceof XrpcResponseError && (cause.status === 401 || CREDENTIAL_REJECTED.has(cause.error));
 }
 
-/** Whether a response's MAC didn't verify. `verifyRepoStar` reports a commit that fails its MAC as a RepoVerificationError. */
+/**
+ * Whether a response's MAC didn't verify. Not a RepoVerificationError: that also covers an archive that doesn't
+ * parse, which a fresh KEM key can't fix.
+ */
 export function isMacFailure(cause: unknown): boolean {
-	return cause instanceof SpaceMacError || cause instanceof RepoVerificationError;
+	return cause instanceof SpaceMacError;
 }
 
 type RequestInput = {

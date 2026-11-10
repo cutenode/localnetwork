@@ -807,6 +807,14 @@ fn errors_say_why_and_what_would_resolve_them() {
     assert!(data(&v)["fields"]["path"].as_str().is_some_and(|p| p.starts_with("edits[0]")), "{v}");
     assert!(v["error"]["message"].as_str().unwrap().contains("edits[0]"), "{v}");
 
+    // An edit no backup can undo is only for plugins allowed to ask for it, planned or applied.
+    let unbacked = json!({ "op": "delete_unbacked", "tracks": { "ids": [1] } });
+    for method in ["edit.plan", "edit.apply"] {
+        let v = s.call(1, method, json!({ "drive": a, "edits": [unbacked] }));
+        let message = v["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.contains("only for plugins with the library:delete-unbacked capability"), "{method}: {v}");
+    }
+
     // A library the store doesn't have: start it, by sending the same request with one more
     // parameter.
     let v = s.call(2, "pull", json!({ "drive": a, "library": "Main" }));

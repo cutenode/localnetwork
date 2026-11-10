@@ -159,6 +159,7 @@ async function api(path: string) {
 
 	// Read the body either way: a refusal carries the reason, and the reason is
 	// what a row shows.
+	// Stryker disable next-line ArrowFunction: equivalent. every schema the body goes through falls back the same way for undefined as for null.
 	const body: z.JSONType | null = await response.json().catch(() => null);
 
 	if (!response.ok) throw refused(response.status, body, path);
@@ -313,6 +314,7 @@ const titleOf = (post: Post) =>
 // A gate the artist pointed somewhere else. The destination is in the post, so
 // there is nothing to unlock.
 function redirected(post: Post): Unlocked | null {
+	// Stryker disable next-line StringLiteral: equivalent. any other fallback fails the web-address test below just as '' does.
 	const url = post.direct_url || post.download_display_url || '';
 
 	if (!url || !/^https?:/i.test(url)) return null;
@@ -425,7 +427,7 @@ export function fanLinkTitle(link: FanLink) {
 const isPostLink = (url: string) => {
 	try {
 		return new URL(url).hostname.replace(/^www\./, '') === 'toneden.io' && postPathOf(url) !== null;
-	} catch (_e) {
+	} catch (_e) /* Stryker disable next-line BlockStatement: equivalent. an empty catch returns undefined, which the only caller reads as false. */ {
 		return false;
 	}
 };
@@ -456,14 +458,17 @@ async function unlockFanLink(rawUrl: string): Promise<Unlocked> {
 	// gate wearing a smart link's clothes: no services at all, and a destination
 	// that is a ToneDen post. Following that is the difference between offering a
 	// page to open and finishing the job.
+	// Stryker disable next-line StringLiteral: equivalent for the target_url fallback, since any stand-in fails the pattern as '' does; the trailing '' is still pinned by "falls back to where the link itself points, and then to the page", but this hides it too.
 	const target = /^https?:/i.test(link.target_url || '') ? link.target_url! : '';
 
 	if (isPostLink(target)) return { title, ...(await unlockPost(await lookupPost(target))) };
 
+	// Stryker disable next-line ArrayDeclaration: equivalent. a filler entry in the fallback has no url, so the filter drops it.
 	const services = (link.services || []).filter((service) => service.url);
 
 	const best =
 		services.find((service) => looksLikeFile(service.url!)) ??
+		// Stryker disable next-line StringLiteral: equivalent. any other fallback names no shop either.
 		services.find((service) => /bandcamp|beatport|itunes/i.test(service.service_name || ''));
 
 	// `target_url` is not always a web address: a "music" link can carry a

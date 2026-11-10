@@ -100,7 +100,7 @@
 					{#if space.lastError}<p class="text-small text-critical">{space.lastError}</p>{/if}
 					<ul class="flex flex-col gap-1 text-label">
 						{#each space.repos as repo (repo.did)}
-							<li class="font-mono break-all text-fg-subtle">{shortDid(repo.did)} @ {repo.rev}{#if repo.lastError}<span class="text-critical"> · {repo.lastError}</span>{/if}</li>
+							<li class="font-mono break-all text-fg-subtle">{shortDid(repo.did)}{repo.rev ? ` @ ${repo.rev}` : ' · never synced'}{#if repo.lastError}<span class="text-critical">{` · ${repo.lastError}`}</span>{/if}</li>
 						{:else}
 							<li class="text-fg-subtle">No writers yet.</li>
 						{/each}

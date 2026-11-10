@@ -1215,8 +1215,9 @@ fn exports_hold_the_list_shown(tc: TestCase) {
 fn tags_on(root: &Path) -> std::collections::BTreeSet<(String, String)> {
     let drive = locallibrary::api::DriveRef { drive: root.display().to_string() };
     let by = locallibrary::api::tags_by_track(&drive).unwrap();
+    let lib = locallibrary::Device::open(root).unwrap().library().unwrap();
     let name = |p: &str| p.rsplit('/').next().unwrap_or(p).to_lowercase();
-    by.iter().flat_map(|(p, tags)| tags.iter().map(move |t| (name(p), t.clone()))).collect()
+    lib.tracks.iter().flat_map(|t| by.of(t).iter().map(|tag| (name(&t.file_path), tag.clone()))).collect()
 }
 
 /// Giving the selected (or marked) tracks a new My Tag or one the drive has, and taking one off,

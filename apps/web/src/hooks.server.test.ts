@@ -17,6 +17,7 @@ import type { Viewer } from '#lib/types.ts';
 import { routeEvent, type RouteEventInit } from '#lib/testing/route-event.ts';
 import type { App as ServerApp } from '#lib/server/app.ts';
 import { init, serverHooks } from './hooks.server';
+import type { FlagService } from '#lib/server/services/flags.ts';
 
 let dir: string;
 
@@ -387,6 +388,7 @@ type HookApp = {
 	logger?: Logger;
 	sessions?: WebSessions;
 	limits?: { write: RateLimiter };
+	flags?: Pick<FlagService, 'evaluate'>;
 	viewer?: (did: string) => Promise<Viewer | null>;
 	config?: { publicUrl: string };
 };
@@ -414,6 +416,7 @@ async function services(options: { writes?: number; publicUrl?: string } = {}) {
 		logger: capturingLogger(logs),
 		sessions,
 		limits: { write: new RateLimiter(options.writes ?? 30, 0) },
+		flags: t.flags,
 		viewer: async (did: string) => (did === STALE ? null : t.viewer(did)),
 		config: { publicUrl: options.publicUrl ?? 'http://127.0.0.1:5173' }
 	};

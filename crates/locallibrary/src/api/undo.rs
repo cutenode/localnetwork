@@ -65,6 +65,9 @@ pub struct UndoPlan {
     pub history_lists: Vec<String>,
     /// Recorded edits taken off the journal: `edits replay` won't make them again.
     pub journal: Vec<JournalEntry>,
+    /// Tracks that come back without the audio their change left out of its backup, which
+    /// rekordbox's next export puts back.
+    pub unbacked_audio: Vec<String>,
     /// Tracks the backup lists whose audio is neither on the drive nor in the backup: putting it
     /// back is refused unless forced.
     pub missing_audio: Vec<String>,
@@ -109,6 +112,7 @@ pub fn undo_plan(req: &UndoRequest) -> Result<Planned<UndoPlan, bool>> {
     let info = backup::choose(&d, req.backup.as_deref(), req.force)?;
     let dir = backup::dir(&d, &info.id);
     let missing_audio = backup::missing_audio(&d, &info)?;
+    let unbacked_audio = backup::unbacked_audio(&d, &info)?;
     if !missing_audio.is_empty() && !req.force {
         return Err(Error::conflict(
             Reason::MissingAudio,
@@ -176,6 +180,13 @@ pub fn undo_plan(req: &UndoRequest) -> Result<Planned<UndoPlan, bool>> {
             history_lists.join(", ")
         ));
     }
+    if !unbacked_audio.is_empty() {
+        warnings.push(format!(
+            "{} track(s) come back without their audio until rekordbox's next export (e.g. {}): it isn't in any backup",
+            unbacked_audio.len(),
+            unbacked_audio[0]
+        ));
+    }
     if !missing_audio.is_empty() {
         warnings.push(format!(
             "{} track(s) in the backup have no audio on the drive (e.g. {})",
@@ -193,6 +204,7 @@ pub fn undo_plan(req: &UndoRequest) -> Result<Planned<UndoPlan, bool>> {
         diff,
         history_lists,
         journal,
+        unbacked_audio,
         missing_audio,
     };
     Planned::new("undo", plan, req.force)

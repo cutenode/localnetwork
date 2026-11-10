@@ -1901,12 +1901,12 @@ fn the_my_tags_column_lists_each_tracks_tags(tc: hegel::TestCase) {
     let names = ["Genre/Deep", "Vibe/Moody", "Peak", "Situation/Warm Up"];
     let l = app.loaded.as_mut().unwrap();
     let tracks = l.library.tracks.clone();
-    let mut tags = rustc_hash::FxHashMap::default();
+    let mut tags = locallibrary::tags::TagsByTrack::default();
     let mut want = Vec::new();
     for t in &tracks {
         let mine: Vec<String> = tc.draw(gs::subsequences(&names[..])).iter().map(|n| n.to_string()).collect();
         want.push(mine.iter().map(|n| n.rsplit('/').next().unwrap().to_string()).collect::<Vec<_>>());
-        tags.insert(locallibrary::paths::file_key(&t.file_path), mine);
+        tags.by_id.insert(t.id, mine);
     }
     l.my_tags = super::super::app::MyTags::Read(Arc::new(tags));
     let s = screen(&mut app, 200, 30);

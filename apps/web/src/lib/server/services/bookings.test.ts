@@ -2,7 +2,7 @@ import { XRPCError } from '@atproto/api';
 import { TID } from '@atproto/common-web';
 import fc from 'fast-check';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { bookingActions, type BookingRole } from '#lib/bookings.ts';
+import { bookingActions, bookingGroup, type BookingRole } from '#lib/bookings.ts';
 import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
 import type { ProjectProfile } from '#lib/types.ts';
 import { memberSpacePolicy } from '../atproto/repo-client';
@@ -39,6 +39,7 @@ describe('BookingService', () => {
 	});
 	afterEach(async () => {
 		vi.restoreAllMocks();
+		vi.useRealTimers();
 		await t.audit.idle();
 		await t.db.destroy();
 	});
@@ -118,6 +119,26 @@ describe('BookingService', () => {
 		]);
 	});
 
+	it('opens a thread on the second read of an inquiry the directory failed on the first', async () => {
+		const space = await syncedSpace([PROMOTER, DJ]);
+		const project = await bookable();
+
+		const change = {
+			space,
+			uri: spaceRecordUri(space, PROMOTER, COLLECTION.bookingInquiry, TID.nextStr()),
+			repoDid: PROMOTER,
+			collection: COLLECTION.bookingInquiry,
+			value: { project: project.uri, message: 'Free?', createdAt: new Date().toISOString() }
+		};
+
+		vi.spyOn(t.projects, 'byUri').mockRejectedValueOnce(new Error('directory offline'));
+		await expect(t.bookings.indexEvent(change)).rejects.toThrow('directory offline');
+		expect(await t.bookings.threadsFor(PROMOTER)).toEqual([]);
+
+		await t.bookings.indexEvent(change);
+		expect(await t.bookings.threadsFor(PROMOTER)).toMatchObject([{ space, promoter: { did: PROMOTER } }]);
+	});
+
 	it("opens a thread it hears of only from sync, ignoring records from anyone outside it, for a project that's gone", async () => {
 		const space = await syncedSpace([PROMOTER, DJ]);
 		const createdAt = new Date().toISOString();
@@ -172,6 +193,15 @@ describe('BookingService', () => {
 		expect((await t.bookings.threadsFor(PROMOTER)).map((thread) => thread.space)).toEqual([space]);
 	});
 
+	it('lists threads without their project while the directory is down', async () => {
+		await open();
+		vi.spyOn(t.directory, 'query').mockRejectedValue(new HappyViewError(503, 'down'));
+
+		const [thread] = await t.bookings.threadsFor(PROMOTER);
+
+		expect(thread.project).toBeNull();
+	});
+
 	it("still tells the promoter the act wrote when the directory can't name the act", async () => {
 		const space = await open();
 		vi.spyOn(t.directory, 'query').mockRejectedValue(new HappyViewError(503, 'down'));
@@ -179,6 +209,20 @@ describe('BookingService', () => {
 		await t.bookings.message({ actor: await t.viewer(DJ), space, text: 'Yes' });
 
 		expect(await titles(PROMOTER)).toEqual(['The DJ sent a message']);
+	});
+
+	it('takes a reply as the last word over a message dated ahead of it', async () => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime('2026-11-08T12:00:00.000Z');
+		const space = await open();
+		await synced(space, DJ, COLLECTION.bookingMessage, { text: 'See you', createdAt: '2027-11-08T12:00:00.000Z' });
+		vi.setSystemTime('2026-11-08T12:01:00.000Z');
+
+		await t.bookings.message({ actor: await t.viewer(PROMOTER), space, text: 'Great' });
+
+		const { thread, events } = await t.bookings.thread(await t.viewer(PROMOTER), space);
+		expect(bookingGroup(thread, PROMOTER)).toBe('active');
+		expect(events.map((event) => event.text)).toEqual(['Free?', 'See you', 'Great']);
 	});
 
 	it('keeps a synced status record that names no status without changing the thread or telling anyone', async () => {

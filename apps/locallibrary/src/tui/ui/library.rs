@@ -666,10 +666,8 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
                     Col::Album => Cell::from(Span::styled(tr.album.as_str(), dim())),
                     Col::Genre => Cell::from(Span::styled(tr.genre.as_str(), dim())),
                     Col::Tags => {
-                        let key = locallibrary::paths::file_key(&tr.file_path);
-                        let tags = my_tags.as_ref().and_then(|t| t.get(&key));
-                        let names: Vec<&str> =
-                            tags.into_iter().flatten().map(|t| t.rsplit('/').next().unwrap_or(t)).collect();
+                        let tags = my_tags.as_ref().map_or(&[][..], |t| t.of(tr));
+                        let names: Vec<&str> = tags.iter().map(|t| t.rsplit('/').next().unwrap_or(t)).collect();
                         Cell::from(Span::styled(names.join(", "), fg(theme::current().secondary)))
                     }
                     Col::Rating => Cell::from(Span::styled(rating(tr.rating), fg(theme::current().warning))),
