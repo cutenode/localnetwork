@@ -51,6 +51,22 @@ node --experimental-strip-types --input-type=module \
   -e 'const { default: railway } = await import(process.argv[1]); process.stdout.write(JSON.stringify(railway()));' \
   "$PWD/.railway/railway.ts" > "$scratch/railway-project.json"
 
+# The package managers' supply-chain settings stay at @lavamoat/harden's strict level: pnpm's for
+# the workspace, npm's for Bombadil's own project. All but the script runners (p_runner, n_runner),
+# whose script shell doesn't run under Windows' cmd.exe, which the Windows CI jobs use. `harden
+# check` only takes a whole level, so this reads its report (and fails on an empty one).
+harden() { # package manager, folder
+  local report unmet root=$PWD
+  report=$(cd "$2" && "$root/node_modules/.bin/harden" check -p "$1" -l strict --json) || true
+  unmet=$(jq -nr 'input.checks[] | select((.id | test("^[pn]_runner$") | not) and .satisfied != 1) | .id' <<< "$report")
+  if [ -n "$unmet" ]; then
+    echo "$2: weaker than \`harden defaults -p $1 -l strict\` sets it (all but the runner):" $unmet
+    exit 1
+  fi
+}
+harden pnpm .
+harden npm apps/locallibrary/bombadil
+
 run() {
   docker run --rm -v "$PWD:/repo:ro" -v "$scratch:/scratch:ro" -w /repo "$@"
 }
