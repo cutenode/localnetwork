@@ -156,6 +156,7 @@ impl Slot {
             Edit::Cues { .. } => Capability::CuesPlan,
             Edit::SetArtwork { .. } => Capability::ArtworkPlan,
             Edit::SetAnalysis { .. } => Capability::AnalysisPlan,
+            Edit::DeleteUnbacked { .. } => Capability::LibraryDeleteUnbacked,
             _ => Capability::LibraryPlan,
         };
         if !self.manifest.capabilities.contains(&needs) {

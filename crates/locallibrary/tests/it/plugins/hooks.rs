@@ -52,6 +52,11 @@ fn an_operations_edits_need_their_capabilities() {
     // However it gives the image (`blobs.rs` has what a plugin with it may give).
     let e = given(art(json!({ "path": "/tmp/cover.jpg" }))).unwrap_err();
     assert_eq!(e, "the Echo plugin failed: its edit 0 needs the artwork:plan capability, which it doesn't have");
+    let unbacked = json!({ "op": "delete_unbacked", "tracks": { "ids": [1] } });
+    assert_eq!(
+        given(unbacked).unwrap_err(),
+        "the Echo plugin failed: its edit 0 needs the library:delete-unbacked capability, which it doesn't have"
+    );
     let e = given(json!({ "op": "explode" })).unwrap_err();
     assert!(e.starts_with("the Echo plugin failed: its edit 0 isn't one: "), "{e}");
     f.plan(json!({ "name": "Doomed" })).unwrap().apply(None, &Ctx::silent()).unwrap();

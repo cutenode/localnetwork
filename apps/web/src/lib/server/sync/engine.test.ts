@@ -325,6 +325,15 @@ describe('SpaceSyncer against a repo host', () => {
 			]);
 		});
 
+		it('reports it with the space, though it never synced', async () => {
+			const s = await failOnce();
+
+			expect((await s.status())[0].repos).toEqual([
+				{ did: DJ, rev: expect.any(String), lastSyncedAt: expect.any(String), lastError: null },
+				{ did: BAD, rev: null, lastSyncedAt: null, lastError: 'UpstreamFailure' }
+			]);
+		});
+
 		it('retries it after its backoff, though listRepos no longer lists it', async () => {
 			const s = await failOnce();
 			host.repoErrors.clear();
@@ -620,6 +629,111 @@ describe('SpaceSyncer against a repo host', () => {
 			'Empty repo response'
 		);
 	});
+
+	/** Has the host's getRepo archive rewritten by `edit`, keeping its MAC header. */
+	const editArchive = (edit: (archive: Buffer) => Buffer) =>
+		tamper(['getRepo'], async (response) => {
+			const archive = edit(Buffer.from(await response.arrayBuffer()));
+
+			return new Response(new Uint8Array(archive), { headers: response.headers });
+		});
+
+	it('reads a repo archive framed with control bytes, as the alpha host has sent since Nov 5', async () => {
+		const s = await syncer();
+		await host.put(DJ, NOTE, 'a', note('one'));
+		const served: Buffer[] = [];
+		editArchive((archive) => (served.push(archive), archive));
+
+		await s.sync(SPACE);
+		expect(await records()).toEqual([['a', 'one']]);
+		// Each record follows a 0x01 byte, and a 0x00 byte ends the archive.
+		const path = Buffer.from(`${NOTE}/a`);
+		expect(served[0].includes(Buffer.concat([Buffer.from([1, path.length]), path]))).toBe(true);
+		expect(served[0].at(-1)).toBe(0);
+	});
+
+	describe('a repo archive that does not read', () => {
+		const PATH = `${NOTE}/a`;
+
+		it.each([
+			['is cut off before its end byte', (archive: Buffer) => archive.subarray(0, -1), 'unexpected end of archive'],
+			[
+				'has a record path that is not one',
+				(archive: Buffer) => archive.fill('&', archive.indexOf(PATH), archive.indexOf(PATH) + 1),
+				`invalid NSID in record path: &${PATH.slice(1)}`
+			]
+		])("fails the repo when it %s, with the reader's error, and keeps the KEM key", async (_, edit, message) => {
+			const s = await syncer();
+			await host.put(DJ, NOTE, 'a', note('one'));
+			editArchive(edit);
+
+			await expect(s.sync(SPACE)).rejects.toThrow(message);
+			expect(host.identity.refreshed).toEqual([]);
+			expect(calls('getRepo')).toHaveLength(1);
+			expect(await db.selectFrom('syncRepoRetry').select('lastError').execute()).toEqual([{ lastError: message }]);
+		});
+	});
+
+	it('refreshes the KEM key once when a full download fails its MAC', async () => {
+		const s = await syncer();
+		await host.put(DJ, NOTE, 'a', note('one'));
+		host.forgeMacs = true;
+
+		await expect(s.sync(SPACE)).rejects.toThrow('Commit does not match its MAC');
+		expect(host.identity.refreshed).toEqual([DJ]);
+		expect(calls('getRepo')).toHaveLength(2);
+		expect(await records()).toEqual([]);
+	});
+
+	it.each(['RepoTakendown', 'RepoSuspended', 'RepoDeactivated'])(
+		'skips a writer whose repo host answers %s, without failing the pass or downloading the repo',
+		async (error) => {
+			const WRITER = 'did:plc:writer';
+			const s = await syncer();
+			await host.put(DJ, NOTE, 'a', note('one'));
+			await host.put(WRITER, NOTE, 'b', note('two'));
+			await s.sync(SPACE);
+			const downloads = calls('getRepo').length;
+
+			host.repoErrors.set(WRITER, error);
+			await host.put(WRITER, NOTE, 'c', note('three'));
+			await host.put(DJ, NOTE, 'd', note('four'));
+			await s.sync(SPACE);
+
+			expect(calls('getRepo')).toHaveLength(downloads);
+			expect(await records()).toEqual([
+				['a', 'one'],
+				['b', 'two'],
+				['d', 'four']
+			]);
+			expect(await db.selectFrom('syncRepoRetry').select(['repoDid', 'lastError']).execute()).toEqual([
+				{ repoDid: WRITER, lastError: error }
+			]);
+			const status = (await s.status())[0];
+			expect(status.lastError).toBe(error);
+			expect(status.repos.find((repo) => repo.did === WRITER)?.lastError).toBe(error);
+		}
+	);
+
+	it.each(['RepoTakendown', 'RepoDeactivated'])(
+		'keeps a space whose authority answers %s, since that only suspends it',
+		async (error) => {
+			await host.put(DJ, NOTE, 'a', note('one'));
+			await (await syncer()).sync(SPACE);
+
+			host.overrides.set('com.atproto.space.listRepos', () => Response.json({ error }, { status: 400 }));
+			await expect((await syncer()).sync(SPACE)).rejects.toThrow(error);
+			host.overrides.clear();
+			host.credentialError = error;
+			// A new syncer has no credential cached, so it asks the authority for one.
+			await expect((await syncer()).sync(SPACE)).rejects.toThrow(error);
+
+			expect(dropped).toEqual([]);
+			expect(await records()).toEqual([['a', 'one']]);
+			expect(await db.selectFrom('syncRepoRetry').selectAll().execute()).toEqual([]);
+			expect(await db.selectFrom('spaceWatch').select('lastError').execute()).toEqual([{ lastError: error }]);
+		}
+	);
 
 	it('keeps a failure that is not an Error as its text on the repo', async () => {
 		const s = await syncer();

@@ -148,3 +148,34 @@ describe('System page health', () => {
 		expect(cards.map((card) => card.textContent)).toEqual(['staff / mainFailed', 'audit / main']);
 	});
 });
+
+describe('System page repos', () => {
+	it('lists a repo that never synced with why, next to one that did', async () => {
+		await render(Page, {
+			params: {},
+			data: {
+				...base,
+				sync: [
+					{
+						...space('staff', 'RepoDeactivated'),
+						repos: [
+							{ did: 'did:plc:dj', rev: '3mzlqyh5lt22d', lastSyncedAt: '2026-10-01T00:00:00Z', lastError: null },
+							{ did: 'did:plc:gone', rev: null, lastSyncedAt: null, lastError: 'RepoDeactivated' }
+						]
+					}
+				]
+			},
+			form: null
+		});
+
+		const repos = page
+			.getByRole('listitem')
+			.filter({ hasText: /^did:plc:/ })
+			.elements();
+
+		expect(repos.map((repo) => repo.textContent)).toEqual([
+			'did:plc:dj @ 3mzlqyh5lt22d',
+			'did:plc:gone · never synced · RepoDeactivated'
+		]);
+	});
+});

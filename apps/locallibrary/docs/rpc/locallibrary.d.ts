@@ -630,6 +630,16 @@ export type Edit =
     keep_files?: boolean;
   }
   /**
+   * Delete tracks as `delete_tracks` does, leaving their files out of the backup: for tracks
+   * rekordbox's next export puts back, whose copies would only fill the drive. Undoing brings
+   * the tracks back without their files, until that export. Only a plugin with the
+   * `library:delete-unbacked` capability can ask for it: `edit.plan` refuses it.
+   */
+  | {
+    op: "delete_unbacked";
+    tracks: TrackSelector;
+  }
+  /**
    * Replace one copy of a recording with another: playlist and history entries (and My Tags)
    * move to `keep`, then `duplicate` is deleted unless `keep_duplicate`.
    */
@@ -2921,6 +2931,11 @@ export type LineageOp =
   | "export"
   /** Damaged files rewritten from a known-good copy (see [`crate::scrub`]). */
   | "repair"
+  /**
+   * Another drive's state a merge took in whole, recorded before the merged state (see
+   * [`crate::merge`]).
+   */
+  | "merged_in"
   /** An operation from a newer version of locallibrary. */
   | "other";
 
@@ -3588,12 +3603,20 @@ export type BackupInfo = {
    * medium copy rekordbox didn't leave): putting it back removes them.
    */
   added?: string[];
+  /**
+   * Files its change deleted that it doesn't hold, as rekordbox's next export puts them back
+   * (see [`crate::edit::Edit::DeleteUnbacked`]): putting it back leaves their tracks without
+   * them until then.
+   */
+  unbacked?: string[];
 };
 
 export type RestorePreview = {
   backup: BackupInfo;
   /** From the drive as it is to the drive restored. */
   diff: PlaylistDiff;
+  /** Tracks that come back without the audio their change left out of its backup. */
+  unbacked_audio: string[];
   /**
    * Tracks in the backup whose audio is neither on the drive nor in the backup: restoring
    * refuses them unless forced.
@@ -3656,6 +3679,11 @@ export type UndoPlan = {
   history_lists: string[];
   /** Recorded edits taken off the journal: `edits replay` won't make them again. */
   journal: JournalEntry[];
+  /**
+   * Tracks that come back without the audio their change left out of its backup, which
+   * rekordbox's next export puts back.
+   */
+  unbacked_audio: string[];
   /**
    * Tracks the backup lists whose audio is neither on the drive nor in the backup: putting it
    * back is refused unless forced.
@@ -3735,6 +3763,12 @@ export type UndoableBackup = {
    * medium copy rekordbox didn't leave): putting it back removes them.
    */
   added?: string[];
+  /**
+   * Files its change deleted that it doesn't hold, as rekordbox's next export puts them back
+   * (see [`crate::edit::Edit::DeleteUnbacked`]): putting it back leaves their tracks without
+   * them until then.
+   */
+  unbacked?: string[];
   /** Recorded edits putting it back takes off the journal. */
   journal: number;
   /** It's the one `undo` puts back. */
@@ -3996,6 +4030,14 @@ export type MergePlan = {
   new_tracks: PlannedTrack[];
   /** Source tracks already in the target. */
   matched_tracks: number;
+  /** Those whose details, file or analysis differ: the target's stay as they are. */
+  differing_tracks: TrackChange[];
+  /**
+   * Whether the target holds everything the source has once merged (every track, its
+   * playlists and history), `differing_tracks` aside. Then the source's state goes into the
+   * target's lineage, so a `sync` afterwards copies the merged drive over the source.
+   */
+  takes_in_source: boolean;
   playlists: PlannedPlaylist[];
   artwork_files: number;
   copy_bytes: number;
@@ -4347,6 +4389,8 @@ export type EditPlan = {
   history_removed: number;
   /** Files to delete (removed tracks' audio, analysis and artwork), as drive keys. */
   files: string[];
+  /** Those of `files` the backup leaves out (see [`Edit::DeleteUnbacked`]). */
+  unbacked?: string[];
   bytes: number;
   /** `export.pdb` and/or `exportLibrary.db`. */
   databases: string[];
@@ -4707,6 +4751,16 @@ export type EditOutput =
     op: "delete_tracks";
     tracks: TrackSelector;
     keep_files: boolean;
+  }
+  /**
+   * Delete tracks as `delete_tracks` does, leaving their files out of the backup: for tracks
+   * rekordbox's next export puts back, whose copies would only fill the drive. Undoing brings
+   * the tracks back without their files, until that export. Only a plugin with the
+   * `library:delete-unbacked` capability can ask for it: `edit.plan` refuses it.
+   */
+  | {
+    op: "delete_unbacked";
+    tracks: TrackSelector;
   }
   /**
    * Replace one copy of a recording with another: playlist and history entries (and My Tags)

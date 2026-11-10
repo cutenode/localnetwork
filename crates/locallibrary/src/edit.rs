@@ -169,6 +169,13 @@ pub enum Edit {
         #[serde(default)]
         keep_files: bool,
     },
+    /// Delete tracks as `delete_tracks` does, leaving their files out of the backup: for tracks
+    /// rekordbox's next export puts back, whose copies would only fill the drive. Undoing brings
+    /// the tracks back without their files, until that export. Only a plugin with the
+    /// `library:delete-unbacked` capability can ask for it: `edit.plan` refuses it.
+    DeleteUnbacked {
+        tracks: TrackSelector,
+    },
     /// Replace one copy of a recording with another: playlist and history entries (and My Tags)
     /// move to `keep`, then `duplicate` is deleted unless `keep_duplicate`.
     ReplaceTrack {
@@ -1926,7 +1933,7 @@ impl<'a> Resolver<'a> {
                     canonical,
                 )
             }
-            Edit::DeleteTracks { tracks, keep_files } => {
+            Edit::DeleteTracks { tracks, .. } | Edit::DeleteUnbacked { tracks } => {
                 let (elsewhere, here): (Vec<String>, Vec<String>) =
                     tracks.paths.iter().cloned().partition(|p| self.elsewhere.contains(&paths::file_key(p)));
                 // Replaying, the tracks already gone are gone.
@@ -1939,11 +1946,18 @@ impl<'a> Resolver<'a> {
                 let desc = format!(
                     "delete {} track(s){}",
                     ids.len() + elsewhere.len(),
-                    if *keep_files { " (their files stay on the drive)" } else { "" }
+                    match edit {
+                        Edit::DeleteTracks { keep_files: true, .. } => " (their files stay on the drive)",
+                        Edit::DeleteUnbacked { .. } => " (rekordbox's next export brings their files back, undo can't)",
+                        _ => "",
+                    }
                 );
-                let canonical = Edit::DeleteTracks {
-                    tracks: TrackSelector::paths(Self::device_paths(lib, &ids).into_iter().chain(elsewhere.clone())),
-                    keep_files: *keep_files,
+                let deleted = TrackSelector::paths(Self::device_paths(lib, &ids).into_iter().chain(elsewhere.clone()));
+                let canonical = match edit {
+                    Edit::DeleteTracks { keep_files, .. } => {
+                        Edit::DeleteTracks { tracks: deleted, keep_files: *keep_files }
+                    }
+                    _ => Edit::DeleteUnbacked { tracks: deleted },
                 };
                 let elsewhere = elsewhere.iter().map(|p| paths::file_key(p)).collect();
                 (vec![Op::DeleteTracks { tracks: Self::keys(lib, &ids), elsewhere }], desc, canonical)
@@ -2253,6 +2267,9 @@ pub struct EditPlan {
     pub history_removed: usize,
     /// Files to delete (removed tracks' audio, analysis and artwork), as drive keys.
     pub files: Vec<String>,
+    /// Those of `files` the backup leaves out (see [`Edit::DeleteUnbacked`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unbacked: Vec<String>,
     pub bytes: u64,
     /// `export.pdb` and/or `exportLibrary.db`.
     pub databases: Vec<String>,
@@ -2405,6 +2422,7 @@ impl Edit {
             | Edit::SetTracks { tracks, .. }
             | Edit::EditTracks { tracks, .. }
             | Edit::DeleteTracks { tracks, .. }
+            | Edit::DeleteUnbacked { tracks }
             | Edit::SetArtwork { tracks, .. } => vec![tracks],
             Edit::RemoveTracks { tracks, .. } => tracks.iter().collect(),
             Edit::PlanSet { start, .. } => start.iter().collect(),
@@ -2500,6 +2518,8 @@ fn plan_with(
     let mut recorded = Vec::new();
     // Tracks deleted by an edit that keeps their files (the others' files go).
     let mut kept: FxHashSet<String> = FxHashSet::default();
+    // Tracks deleted by an edit leaving their files out of the backup.
+    let mut unbacked: FxHashSet<String> = FxHashSet::default();
     let mut index = None;
     for edit in &rest {
         ctx.check()?;
@@ -2508,10 +2528,15 @@ fn plan_with(
         match resolved {
             Ok((edit_ops, desc, canonical)) => {
                 warnings.extend(notes);
-                if let Edit::DeleteTracks { keep_files: true, .. } = edit {
+                let noted = match edit {
+                    Edit::DeleteTracks { keep_files: true, .. } => Some(&mut kept),
+                    Edit::DeleteUnbacked { .. } => Some(&mut unbacked),
+                    _ => None,
+                };
+                if let Some(noted) = noted {
                     for op in &edit_ops {
                         if let Op::DeleteTracks { tracks, elsewhere } = op {
-                            kept.extend(tracks.iter().chain(elsewhere).cloned());
+                            noted.extend(tracks.iter().chain(elsewhere).cloned());
                         }
                     }
                 }
@@ -2631,6 +2656,11 @@ fn plan_with(
             ));
         }
     }
+    // All or none: edits deleting other tracks too keep the backup whole, as before.
+    let unbacked: Vec<String> = match doomed.iter().all(|k| unbacked.contains(k) || kept.contains(k)) {
+        true => files.keys().cloned().collect(),
+        false => Vec::new(),
+    };
     let playlist_ops =
         ops.iter().any(|op| !matches!(op, Op::SetFields { .. } | Op::SetPath { .. } | Op::DeleteHistory { .. }));
     if playlist_ops {
@@ -2654,11 +2684,13 @@ fn plan_with(
     let size = |key| std::fs::metadata(device.path(key)).map(|m| m.len()).unwrap_or(0);
     let db_bytes: u64 = paths::DATABASE_FILES.iter().map(|k| round(size(k))).sum();
     let bytes: u64 = files.values().sum();
-    // Backup of the databases and deleted files, plus each new database staged next to the old,
-    // and each image artwork edits stage, with the two sizes made from it in each database (no
-    // bigger than it; a staged waveform, which no database holds, is counted as one too).
+    // Backup of the databases and the deleted files it holds, plus each new database staged next
+    // to the old, and each image artwork edits stage, with the two sizes made from it in each
+    // database (no bigger than it; a staged waveform, which no database holds, is counted as one
+    // too).
     let staged = images.values().map(|b| round(b.len() as u64)).sum::<u64>() * (1 + 2 * databases.len() as u64);
-    let needed_bytes = backup::needed_bytes(device, files.keys().map(String::as_str)) + db_bytes + staged;
+    let backed_up = files.keys().filter(|k| !unbacked.contains(*k)).map(String::as_str);
+    let needed_bytes = backup::needed_bytes(device, backed_up) + db_bytes + staged;
     let free_space = fsutil::available_space(device.root());
     let fits = free_space.is_none_or(|f| needed_bytes <= f);
     if !fits {
@@ -2680,6 +2712,7 @@ fn plan_with(
         tracks_removed,
         history_removed,
         files: files.keys().cloned().collect(),
+        unbacked,
         bytes,
         databases,
         needed_bytes,
@@ -2934,11 +2967,12 @@ struct Steps {
 
 /// A plan with steps (see [`Steps`]): one backup first (the databases, the analysis files cue
 /// edits may rewrite, the images artwork edits may replace and the files removed tracks leave),
-/// so `restore` undoes all of it; then each step, planned as it's made; then the others, planned
-/// again. The backup notes what the plan left, all of it made or not, as each step is made.
+/// so `restore` undoes all of it, save the files the plan leaves out; then each step, planned as
+/// it's made; then the others, planned again. The backup notes what the plan left, all of it made
+/// or not, as each step is made.
 fn replay(plan: &EditPlan, steps: &Steps, device: &mut Device, ctx: &Ctx<'_>) -> Result<EditReport> {
     let library = device.library()?;
-    let mut extra = plan.files.clone();
+    let mut extra: Vec<String> = plan.files.iter().filter(|f| !plan.unbacked.contains(f)).cloned().collect();
     for step in &steps.steps {
         // The analysis files the step rewrites (a cue edit's, and a pointed track's), and the
         // images an artwork edit replaces in place.
@@ -2958,7 +2992,7 @@ fn replay(plan: &EditPlan, steps: &Steps, device: &mut Device, ctx: &Ctx<'_>) ->
     extra.dedup();
     // A plan of new edits (a replace carrying cues) is an edit like any other to undo.
     let label = if steps.opts.no_journal { "before replaying edits" } else { "before editing" };
-    let backup = backup::create(device, label, &extra, None)?;
+    let backup = backup::create(device, label, &extra, &plan.unbacked, None)?;
     // Sealed as each step is made, from the start: a replay cut off part way can be undone
     // without forcing it, as what it left is known.
     if let Err(e) = backup::seal(device, &backup.id) {
@@ -3061,7 +3095,7 @@ fn replay_steps(
     let done = steps.steps.len();
     let mut again = crate::edit::plan(device, &steps.rest, &steps.opts, ctx)
         .map_err(|e| stopped(e, done, device.swaps() != start))?;
-    if again.files.iter().any(|f| !extra.contains(f) && !written.contains(f)) {
+    if again.files.iter().any(|f| !extra.contains(f) && !written.contains(f) && !again.unbacked.contains(f)) {
         let changed = Error::conflict(Reason::Changed, "the drive changed while replaying");
         return Err(stopped(changed, done, device.swaps() != start));
     }
@@ -3208,6 +3242,7 @@ fn apply_locked(
     if backup {
         opts = opts.backup("before editing");
     }
+    opts.unbacked = plan.unbacked.clone();
     opts.journal = plan.journal.then_some((&plan.recorded, &plan.changes));
     let done = crate::commit::commit(device, changes, opts, ctx)?;
     for w in &warnings {
@@ -3439,9 +3474,10 @@ pub mod journal {
     /// and its entries can hold edits older builds don't know (`set_entries`,
     /// `delete_history_lists`, `my_tag`, `cues`); 3 adds `set_artwork`, and track details 2 would
     /// drop (`album_artist`, `bpm`, `isrc`, `release_date`); 4 adds `set_analysis` and cue edits
-    /// setting several (`set_many`). Each is written only when an entry uses what it adds. A
-    /// journal of a later version is refused rather than misread or overwritten.
-    pub const VERSION: u32 = 4;
+    /// setting several (`set_many`); 5 adds `delete_unbacked`. Each is written only when an entry
+    /// uses what it adds. A journal of a later version is refused rather than misread or
+    /// overwritten.
+    pub const VERSION: u32 = 5;
 
     #[derive(Serialize)]
     struct Versioned<'a> {
@@ -3488,11 +3524,13 @@ pub mod journal {
         staged(entries).into_iter().try_for_each(|(kind, keep)| kind.prune(device, &keep))
     }
 
-    /// The version `entries` need: 4 once one holds an analysis edit or a cue edit setting
-    /// several, 3 once one holds an artwork edit or a track detail 3 added, else 2, so a build
-    /// that reads an older one keeps editing a drive whose edits use nothing newer.
+    /// The version `entries` need: 5 once one leaves files out of a backup, 4 once one holds an
+    /// analysis edit or a cue edit setting several, 3 once one holds an artwork edit or a track
+    /// detail 3 added, else 2, so a build that reads an older one keeps editing a drive whose
+    /// edits use nothing newer.
     fn version(entries: &[JournalEntry]) -> u32 {
         let needs = |e: &Edit| match e {
+            Edit::DeleteUnbacked { .. } => 5,
             Edit::SetAnalysis { .. } | Edit::Cues { change: crate::cue_edit::CueChange::SetMany(_), .. } => 4,
             Edit::SetArtwork { .. } => 3,
             Edit::EditTracks { fields, .. }

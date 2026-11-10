@@ -109,6 +109,9 @@ pub enum LineageOp {
     Export,
     /// Damaged files rewritten from a known-good copy (see [`crate::scrub`]).
     Repair,
+    /// Another drive's state a merge took in whole, recorded before the merged state (see
+    /// [`crate::merge`]).
+    MergedIn,
     /// An operation from a newer version of locallibrary.
     #[serde(other)]
     Other,
@@ -144,7 +147,7 @@ impl PendingOp {
             LineageOp::Artwork => Some("art"),
             LineageOp::Restore => Some("undo"),
             LineageOp::Repair => Some("drive verify --repair"),
-            LineageOp::Edit | LineageOp::Observed | LineageOp::Other => None,
+            LineageOp::Edit | LineageOp::Observed | LineageOp::MergedIn | LineageOp::Other => None,
         };
         let what = command.map_or("a locallibrary operation".into(), |c| format!("a `locallibrary {c}`"));
         let about = if self.description.is_empty() { String::new() } else { format!(" ({})", self.description) };

@@ -18,7 +18,7 @@
 	<div class="flex items-start gap-3">
 		<span class="grid size-10 shrink-0 place-items-center rounded-lg bg-raised text-fg-muted"><UserRound class="size-5" aria-hidden="true" /></span>
 		<div class="flex min-w-0 flex-col gap-1">
-			<h2 id="setup" class="m-0 text-emphasis font-semibold">Set up your profile</h2>
+			<h2 id="setup" class="m-0 text-emphasis font-semibold">Start with your name</h2>
 			<p class="m-0 text-small text-fg-muted">Your page on Local Network. Start from your Bluesky profile and add the rest later.</p>
 		</div>
 	</div>

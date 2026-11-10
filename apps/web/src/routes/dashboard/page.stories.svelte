@@ -1,104 +1,118 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
-	import type { BookingThreadView, PlannerShowView, ProjectView, Viewer } from '#lib/types.ts';
+	import type { NeedsRow, NightRow } from '#lib/home.ts';
+	import type { ProjectView, Viewer } from '#lib/types.ts';
 	import Page from './+page.svelte';
 
-	/** The dashboard overview: a promoter's leads with their threads and planner, a DJ's with their projects. */
+	/** Home: what needs the viewer and their next night, whatever they take part in. Each section arrives on its own. */
 	const { Story } = defineMeta({
-		title: 'Patterns/Dashboard overview',
+		title: 'Patterns/Dashboard home',
 		parameters: { sveltekit_experimental: { state: { page: { url: new URL('https://localnetwork.computer/dashboard') } } } }
 	});
 
-	const viewer = (did: string, handle: string): Viewer => ({ did, handle, roles: [], isAdmin: false, isStaff: false, spacesCapable: true });
+	const viewer = (spacesCapable = true): Viewer => ({ did: 'did:plc:neon', handle: 'neon.test', roles: [], isAdmin: false, isStaff: false, spacesCapable });
 
-	const neon: ProjectView = {
-		uri: 'at://did:plc:root/computer.localnetwork.project/2',
-		rkey: '2',
-		cid: 'c',
-		slug: 'neon-tide',
-		profile: { name: 'Neon Tide', kind: 'solo', genres: ['techno'], location: { city: 'Berlin', country: 'DE' } },
-		managers: ['did:plc:neon'],
-		status: 'active',
-		revision: 1,
-		createdBy: 'did:plc:a',
-		createdAt: '2026-01-01T00:00:00Z',
-		updatedAt: '2026-01-01T00:00:00Z',
-		avatarUrl: null
-	};
+	const need = (key: string, scope: string, title: string, detail: string, action = 'Reply'): NeedsRow => ({ key, scope, title, detail, href: '/dashboard/bookings/3k1', action });
 
-	const thread = (skey: string, title: string, status: string, lastAuthor: string): BookingThreadView => ({
-		space: `at://did:plc:root/computer.localnetwork.space.booking/${skey}`,
-		skey,
-		status,
-		title,
-		showDate: null,
-		project: { uri: neon.uri, slug: 'neon-tide', name: 'Neon Tide' },
-		promoter: { did: 'did:plc:pat', handle: 'pat.test' },
-		participants: [
-			{ did: 'did:plc:pat', handle: 'pat.test', role: 'promoter' },
-			{ did: 'did:plc:neon', handle: 'neon.test', role: 'manager' }
-		],
-		lastAuthor,
-		lastActivityAt: '2026-10-30T20:00:00Z',
-		createdAt: '2026-10-28T20:00:00Z'
-	});
+	const needs = [
+		need('1', 'Neon Tide', 'Reply to Rooftop Rave', 'Sat 14 Nov · New inquiry from @pat.test · 2 hours ago'),
+		need('2', 'Saffron Social', 'Reply to Walkthrough Night', 'No date yet · From @jonas.test · 3 hours ago'),
+		need('3', 'Second Act', 'Update your request for Second Act', 'Staff asked for changes · yesterday', 'Update')
+	];
 
-	const threads = [thread('3k1', 'Closing Night', 'negotiating', 'did:plc:neon'), thread('3k2', 'Rooftop Rave', 'open', 'did:plc:pat')];
+	const access = [need('4', 'Neon Tide', 'Let @lena.test see Clubs?', 'Asked yesterday', 'Review')];
 
-	const show: PlannerShowView = {
-		rkey: 's1',
-		details: { title: 'Winter Social', venue: 'Kantine', date: '2026-12-12T22:00:00.000Z' },
-		lineup: [{ project: neon.uri }],
-		createdAt: '2026-10-01T00:00:00Z'
-	};
+	const night = (key: string, date: string, title: string, detail: string, overrides: Partial<NightRow> = {}): NightRow => ({ key, date, title, detail, href: '/dashboard/planner', tentative: false, ...overrides });
 
-	const base = { pendingRequests: 0, unread: 0, sections: Promise.resolve(null), requests: [], threads: [], waiting: 0, firstRun: null };
+	const nights = [
+		night('a', '2026-11-07', 'Friday Social', 'You play 01:00 as Neon Tide · Tiefgarage', { when: 'Tomorrow' }),
+		night('b', '2026-11-14', 'Rooftop Rave', 'Booking for Neon Tide · not confirmed', { tentative: true }),
+		night('c', '2026-12-12', 'Winter Social', 'Planned · Halle 4 · 3 DJs', { tentative: true })
+	];
 
-	const promoter = { ...base, viewer: viewer('did:plc:pat', 'pat.test'), projects: Promise.resolve([]), books: Promise.resolve(true) };
-
-	const planner = { available: true as const, saves: [{ rkey: 'a', project: neon.uri, createdAt: '' }], shows: [show], projects: { [neon.uri]: neon } };
-
-	const dj = { ...base, viewer: viewer('did:plc:neon', 'neon.test'), books: Promise.resolve(false), planner: Promise.resolve(null) };
+	// SAFETY: the page only asks whether there are any.
+	const act = { slug: 'neon-tide' } as ProjectView;
 
 	const loading = new Promise<never>(() => {});
+
+	const base = {
+		viewer: viewer(),
+		pendingRequests: 0,
+		unread: 0,
+		sections: Promise.resolve(null),
+		projects: Promise.resolve([act]),
+		waiting: needs.length,
+		needs,
+		access: Promise.resolve(access),
+		firstRun: null,
+		summary: { others: '3 bookings are waiting on promoters and 1 request is with staff. Nothing needed from you.', hasBookings: true },
+		nights: { nights, more: 0, failed: false }
+	};
+
+	const quiet = { ...base, waiting: 0, needs: [], access: Promise.resolve([]) };
+
+	const fresh = { ...quiet, summary: { others: null, hasBookings: false }, projects: Promise.resolve([]), nights: { nights: [], more: 0, failed: false } };
 
 	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
-<Story name="Promoter" asChild>
-	<Page params={{}} form={null} data={{ ...promoter, threads, waiting: 1, planner: Promise.resolve(planner) }} />
+<Story name="Busy" asChild>
+	<Page params={{}} form={null} data={base} />
 </Story>
 
-<Story name="Promoter on a phone" asChild globals={phone}>
-	<Page params={{}} form={null} data={{ ...promoter, threads, waiting: 1, planner: Promise.resolve(planner) }} />
+<Story name="Busy on a phone" asChild globals={phone}>
+	<Page params={{}} form={null} data={base} />
 </Story>
 
-<!-- A promoter's first visit: nothing planned, saved or sent yet, each with its next step. -->
-<Story name="Promoter, empty" asChild>
-	<Page params={{}} form={null} data={{ ...promoter, planner: Promise.resolve({ available: true as const, saves: [], shows: [], projects: {} }), firstRun: { name: 'Pat', hasAvatar: false } }} />
+<Story name="More than a page holds" asChild>
+	<Page params={{}} form={null} data={{ ...base, waiting: 6, needs: [...needs, ...needs.map((row) => ({ ...row, key: `${row.key}-again` }))], nights: { nights, more: 4, failed: false } }} />
 </Story>
 
-<Story name="Promoter, planner didn't load" asChild>
-	<Page params={{}} form={null} data={{ ...promoter, threads, planner: Promise.resolve({ available: false as const, saves: [], shows: [], projects: {}, problem: 'Your PDS did not respond' }) }} />
+<!-- Nothing waits on them, so Needs you is gone and the line still says what's next. -->
+<Story name="Quiet" asChild>
+	<Page params={{}} form={null} data={quiet} />
+</Story>
+
+<Story name="Quiet on a phone" asChild globals={phone}>
+	<Page params={{}} form={null} data={quiet} />
+</Story>
+
+<Story name="Nothing here yet" asChild>
+	<Page params={{}} form={null} data={fresh} />
+</Story>
+
+<Story name="First visit" asChild>
+	<Page params={{}} form={null} data={{ ...fresh, firstRun: { name: 'Pat', hasAvatar: true } }} />
+</Story>
+
+<Story name="First visit on a phone" asChild globals={phone}>
+	<Page params={{}} form={null} data={{ ...fresh, firstRun: { name: 'Pat', hasAvatar: true } }} />
+</Story>
+
+<Story name="New account with a booking waiting" asChild>
+	<Page params={{}} form={null} data={{ ...base, firstRun: { name: 'Pat', hasAvatar: false } }} />
+</Story>
+
+<Story name="Nights loading" asChild>
+	<Page params={{}} form={null} data={{ ...base, nights: loading }} />
 </Story>
 
 <Story name="Loading" asChild>
-	<Page params={{}} form={null} data={{ ...promoter, projects: loading, books: loading, planner: loading }} />
+	<Page params={{}} form={null} data={{ ...base, needs: loading, access: loading, projects: loading, firstRun: loading, summary: loading, nights: loading }} />
 </Story>
 
-<Story name="DJ" asChild>
-	<Page params={{}} form={null} data={{ ...dj, projects: Promise.resolve([neon]), threads: threads.toReversed(), waiting: 1 }} />
+<Story name="Loading on a phone" asChild globals={phone}>
+	<Page params={{}} form={null} data={{ ...base, needs: loading, access: loading, projects: loading, firstRun: loading, summary: loading, nights: loading }} />
 </Story>
 
-<Story name="DJ on a phone" asChild globals={phone}>
-	<Page params={{}} form={null} data={{ ...dj, projects: Promise.resolve([neon]), threads: threads.toReversed(), waiting: 1 }} />
+<Story name="Some nights didn't load" asChild>
+	<Page params={{}} form={null} data={{ ...base, nights: { nights: nights.slice(1), more: 0, failed: true } }} />
 </Story>
 
-<!-- A DJ profile that hasn't listed or claimed a project yet. -->
-<Story name="DJ, no projects" asChild>
-	<Page params={{}} form={null} data={{ ...dj, projects: Promise.resolve([]) }} />
+<Story name="No nights loaded" asChild>
+	<Page params={{}} form={null} data={{ ...base, nights: { nights: [], more: 0, failed: true } }} />
 </Story>
 
-<Story name="Directory offline" asChild>
-	<Page params={{}} form={null} data={{ ...dj, projects: Promise.resolve(null) }} />
+<Story name="Server without private data" asChild>
+	<Page params={{}} form={null} data={{ ...base, viewer: viewer(false) }} />
 </Story>

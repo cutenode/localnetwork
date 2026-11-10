@@ -7572,6 +7572,23 @@
           "properties": {
             "op": {
               "type": "string",
+              "const": "delete_unbacked"
+            },
+            "tracks": {
+              "$ref": "#/$defs/TrackSelector"
+            }
+          },
+          "required": [
+            "op",
+            "tracks"
+          ],
+          "description": "Delete tracks as `delete_tracks` does, leaving their files out of the backup: for tracks\nrekordbox's next export puts back, whose copies would only fill the drive. Undoing brings\nthe tracks back without their files, until that export. Only a plugin with the\n`library:delete-unbacked` capability can ask for it: `edit.plan` refuses it."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
               "const": "replace_track"
             },
             "duplicate": {
@@ -13829,6 +13846,11 @@
         },
         {
           "type": "string",
+          "const": "merged_in",
+          "description": "Another drive's state a merge took in whole, recorded before the merged state (see\n[`crate::merge`])."
+        },
+        {
+          "type": "string",
           "const": "other",
           "description": "An operation from a newer version of locallibrary."
         }
@@ -15972,6 +15994,13 @@
             "type": "string"
           },
           "description": "Files its change was to write in place that weren't there when it was taken (an image's\nmedium copy rekordbox didn't leave): putting it back removes them."
+        },
+        "unbacked": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Files its change deleted that it doesn't hold, as rekordbox's next export puts them back\n(see [`crate::edit::Edit::DeleteUnbacked`]): putting it back leaves their tracks without\nthem until then."
         }
       },
       "required": [
@@ -15993,6 +16022,13 @@
           "$ref": "#/$defs/PlaylistDiff",
           "description": "From the drive as it is to the drive restored."
         },
+        "unbacked_audio": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Tracks that come back without the audio their change left out of its backup."
+        },
         "missing_audio": {
           "type": "array",
           "items": {
@@ -16004,6 +16040,7 @@
       "required": [
         "backup",
         "diff",
+        "unbacked_audio",
         "missing_audio"
       ]
     },
@@ -16202,6 +16239,13 @@
           },
           "description": "Recorded edits taken off the journal: `edits replay` won't make them again."
         },
+        "unbacked_audio": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Tracks that come back without the audio their change left out of its backup, which\nrekordbox's next export puts back."
+        },
         "missing_audio": {
           "type": "array",
           "items": {
@@ -16218,6 +16262,7 @@
         "diff",
         "history_lists",
         "journal",
+        "unbacked_audio",
         "missing_audio"
       ],
       "description": "What putting a backup back would change."
@@ -16421,6 +16466,13 @@
             "type": "string"
           },
           "description": "Files its change was to write in place that weren't there when it was taken (an image's\nmedium copy rekordbox didn't leave): putting it back removes them."
+        },
+        "unbacked": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Files its change deleted that it doesn't hold, as rekordbox's next export puts them back\n(see [`crate::edit::Edit::DeleteUnbacked`]): putting it back leaves their tracks without\nthem until then."
         },
         "journal": {
           "type": "integer",
@@ -17372,6 +17424,17 @@
           "minimum": 0,
           "description": "Source tracks already in the target."
         },
+        "differing_tracks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrackChange"
+          },
+          "description": "Those whose details, file or analysis differ: the target's stay as they are."
+        },
+        "takes_in_source": {
+          "type": "boolean",
+          "description": "Whether the target holds everything the source has once merged (every track, its\nplaylists and history), `differing_tracks` aside. Then the source's state goes into the\ntarget's lineage, so a `sync` afterwards copies the merged drive over the source."
+        },
         "playlists": {
           "type": "array",
           "items": {
@@ -17437,6 +17500,8 @@
         "target",
         "new_tracks",
         "matched_tracks",
+        "differing_tracks",
+        "takes_in_source",
         "playlists",
         "artwork_files",
         "copy_bytes",
@@ -18618,6 +18683,13 @@
             "type": "string"
           },
           "description": "Files to delete (removed tracks' audio, analysis and artwork), as drive keys."
+        },
+        "unbacked": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Those of `files` the backup leaves out (see [`Edit::DeleteUnbacked`])."
         },
         "bytes": {
           "type": "integer",
@@ -19809,6 +19881,23 @@
             "keep_files"
           ],
           "description": "Delete tracks with their playlist and history entries, and (unless `keep_files`) their\naudio, analysis and artwork files when no other track uses them. A track goes with every\nrow of its audio file, in each database; a path may name one only the drive's other\ndatabase lists (OneLibrary, drifted from `export.pdb`), which is deleted there."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "delete_unbacked"
+            },
+            "tracks": {
+              "$ref": "#/$defs/TrackSelector"
+            }
+          },
+          "required": [
+            "op",
+            "tracks"
+          ],
+          "description": "Delete tracks as `delete_tracks` does, leaving their files out of the backup: for tracks\nrekordbox's next export puts back, whose copies would only fill the drive. Undoing brings\nthe tracks back without their files, until that export. Only a plugin with the\n`library:delete-unbacked` capability can ask for it: `edit.plan` refuses it."
         },
         {
           "type": "object",
@@ -32148,6 +32237,7 @@
             "collection:read",
             "library:plan",
             "library:delete",
+            "library:delete-unbacked",
             "tags:plan",
             "cues:plan",
             "artwork:plan",
