@@ -284,13 +284,25 @@ pub struct App {
     flash: Option<([u8; 3], Instant)>,
     /// `g` was pressed at this time and waits for what follows (see `keymap`).
     pub chord: Option<Instant>,
-    /// The deck strip's waveform, kept between frames.
-    pub strip: super::ui::StripWave,
+    /// The terminal says it draws sixels.
+    pub sixel: bool,
+    /// What's been read of cover art.
+    pub covers: super::art::Covers,
+    /// What's been played since the player started, by file path: dimmed in the library.
+    pub played_tracks: FxHashSet<String>,
+    /// How long the play with this id has been heard for.
+    heard: (u64, Duration),
+    pub transitions: super::transitions::Transitions,
+    /// What's kept of the playing track's waveforms between frames.
+    pub waves: super::ui::DeckWaves,
     /// Keeps the terminal's late answers out of the keys.
     late_answers: LateAnswers,
     last_pos_ms: f64,
-    pub fullscreen: bool,
-    /// Full screen: the pick among the tracks that mix into the playing one, to play next.
+    /// The Library view shows the deck in place of its panes.
+    pub deck_layout: bool,
+    /// Browse is open over the Deck layout: the panes are back until a track's loaded.
+    pub browsing: bool,
+    /// The Deck layout: the pick among the tracks that mix into the playing one, to play next.
     pub next_pick: ListState,
     pub help: bool,
     pub help_scroll: u16,
@@ -369,6 +381,7 @@ impl App {
         let saved = state::load(&store_root);
         let mut app = App::blank(store_root, None);
         app.offline = false;
+        app.transitions.enabled = true;
         app.outputs = Outputs::from_env();
         app.apply_saved(&saved, drive.is_none());
         // Who's signed in, for the status line: a small file.
@@ -483,10 +496,16 @@ impl App {
             deck_secs: 8.0,
             flash: None,
             chord: None,
-            strip: Default::default(),
+            sixel: false,
+            covers: Default::default(),
+            played_tracks: FxHashSet::default(),
+            heard: (0, Duration::ZERO),
+            transitions: Default::default(),
+            waves: Default::default(),
             late_answers: LateAnswers::default(),
             last_pos_ms: 0.0,
-            fullscreen: false,
+            deck_layout: false,
+            browsing: false,
             next_pick: ListState::default(),
             help: false,
             help_scroll: 0,

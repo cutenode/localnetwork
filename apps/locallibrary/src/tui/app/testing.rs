@@ -195,6 +195,7 @@ pub fn playing(analysis: TrackAnalysis) -> (App, TempDir) {
         drive: "TEST".into(),
         root,
         analysis,
+        waves: Default::default(),
         from_plugins: None,
         art: None,
         duration: Duration::from_secs(300),
@@ -206,6 +207,22 @@ pub fn playing(analysis: TrackAnalysis) -> (App, TempDir) {
         advancing: false,
         track,
     });
+    (app, dir)
+}
+
+/// An image of one colour, as a file holds it.
+pub fn png(colour: [u8; 3]) -> Vec<u8> {
+    let mut png = Vec::new();
+    image::RgbImage::from_pixel(8, 8, image::Rgb(colour))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    png
+}
+
+/// [`playing`], with cover art.
+pub fn on_deck_art() -> (App, TempDir) {
+    let (mut app, dir) = playing(TrackAnalysis::default());
+    app.now.as_mut().unwrap().art = loclib_waveform::Art::decode(&png([200, 40, 90]));
     (app, dir)
 }
 

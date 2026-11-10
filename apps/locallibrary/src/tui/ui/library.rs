@@ -6,8 +6,8 @@ use locallibrary::{DeviceInfo, Track};
 use loclib_plugin::{FieldDisplay, FieldFormat};
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Margin, Rect};
-use ratatui::style::Modifier;
-use ratatui::text::{Line, Span};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{
     Cell, HighlightSpacing, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState,
     Table, TableState, Wrap,
@@ -17,10 +17,13 @@ use crate::output::{bytes, clock};
 use crate::tui::app::{App, Focus};
 use crate::tui::browse::{NodeId, sort_label, stars};
 use crate::tui::icons;
-use crate::tui::keys::Camelot;
+use crate::tui::keys::{Camelot, Notation, Relation};
 use crate::tui::theme::{self, bold, dim, faint, fg, text};
 
 use super::*;
+
+/// From this wide, the tracks have room for how far they are from the master's tempo.
+const ROOM_FOR_GAP: u16 = 70;
 
 /// The rows of panes one above the other: `open` has the room, and the rest a title row each.
 pub(super) fn accordion<T: PartialEq>(panes: &[T], open: T) -> Vec<Constraint> {
@@ -301,6 +304,8 @@ pub(super) enum Col {
     Added,
     Plays,
     Bpm,
+    /// How far from the playing track's tempo.
+    BpmGap,
     Key,
     Time,
     /// A plugin's field (`sound.bpm`).
@@ -314,7 +319,7 @@ impl Col {
             Col::Artist => SortField::Artist,
             Col::Album => SortField::Album,
             Col::Genre => SortField::Genre,
-            Col::Tags => return None,
+            Col::Tags | Col::BpmGap => return None,
             Col::Rating => SortField::Rating,
             Col::Added => SortField::Added,
             Col::Plays => SortField::Plays,
@@ -326,7 +331,10 @@ impl Col {
     }
 
     pub(super) fn name(self) -> &'static str {
-        self.field().map_or("My Tags", sort_label)
+        match self {
+            Col::BpmGap => "ΔBPM",
+            _ => self.field().map_or("My Tags", sort_label),
+        }
     }
 
     pub(super) fn of(f: SortField) -> Option<Col> {
@@ -358,7 +366,7 @@ impl Col {
             Col::Tags => Constraint::Fill(2),
             Col::Rating => Constraint::Length(7),
             Col::Added => Constraint::Length(10),
-            Col::Plays | Col::Bpm => Constraint::Length(6),
+            Col::Plays | Col::Bpm | Col::BpmGap => Constraint::Length(6),
             Col::Key => Constraint::Length(4),
             Col::Time => Constraint::Length(6),
             // Room for its name (or as wide as its analyzer says), and the sort's arrow.
@@ -440,6 +448,17 @@ pub(super) fn with_fields(mut cols: Vec<Col>, fields: &[FieldName]) -> Vec<Col> 
     cols
 }
 
+/// `cols` with the distance from `master`'s tempo beside the tempo, where there's room for it.
+pub(super) fn with_gap(mut cols: Vec<Col>, master: Option<f64>, width: u16) -> Vec<Col> {
+    if master.is_some()
+        && width >= ROOM_FOR_GAP
+        && let Some(at) = cols.iter().position(|c| *c == Col::Bpm)
+    {
+        cols.insert(at + 1, Col::BpmGap);
+    }
+    cols
+}
+
 /// The key the track list's keys are matched against, and whose file it is: the playing track's,
 /// or with nothing playing (or no key to go on), the selected track's.
 fn mix_from(app: &App) -> Option<(Camelot, String)> {
@@ -453,12 +472,26 @@ fn mix_from(app: &App) -> Option<(Camelot, String)> {
     Some((Camelot::parse(&t.key)?, t.file_path.clone()))
 }
 
-/// Whether `t` mixes with `from`'s key on the Camelot wheel (same key, ±1 or relative), other
-/// than `from`'s own track.
-fn mixes_with(from: &Option<(Camelot, String)>, t: &Track) -> bool {
-    from.as_ref().is_some_and(|(key, path)| {
-        *path != t.file_path && Camelot::parse(&t.key).is_some_and(|k| key.relation(k).is_some())
-    })
+/// `t`'s key in `notation`, or as rekordbox stored it when it isn't one.
+fn written(key: Option<Camelot>, t: &Track, notation: Notation) -> String {
+    key.map_or_else(|| t.key.clone(), |k| notation.write(k))
+}
+
+/// How `t` in the key `k` mixes with `from`'s key on the Camelot wheel (same key, ±1 or relative),
+/// other than `from`'s own track.
+fn mixes_with(from: &Option<(Camelot, String)>, t: &Track, k: Option<Camelot>) -> Option<Relation> {
+    from.as_ref().filter(|(_, path)| *path != t.file_path).and_then(|(key, _)| key.relation(k?))
+}
+
+/// A number on the right of its column. `Line::styled` would copy it: it splits text into lines.
+fn number(s: String, style: Style) -> Cell<'static> {
+    Cell::from(Line::from(Span::raw(s)).style(style).right_aligned())
+}
+
+/// A cell with nothing in it. `Cell::new("")` allocates a line for it, and `Cell::default()` spans no
+/// columns, so the cells after it would move left.
+fn empty() -> Cell<'static> {
+    Cell::from(Text::default())
 }
 
 fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
@@ -529,6 +562,9 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
 
     let cols = columns(area.width, app.sort, app.show_ratings, app.show_tags_column);
     let cols = with_fields(cols, &app.field_columns);
+    // Against the master: the player has one deck, so it's the track playing.
+    let master = app.now.as_ref().map(|n| n.bpm_at(app.position_ms())).filter(|bpm| *bpm > 0.0);
+    let cols = with_gap(cols, master, area.width);
     let values = l.values().cloned();
     let my_tags = match &l.my_tags {
         crate::tui::app::MyTags::Read(t) => Some(t.clone()),
@@ -539,10 +575,12 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
     let eq = ["▁", "▃", "▅", "▇", "▅", "▃"];
     let paused = !app.is_playing();
 
-    // Three narrow columns first: playing or marked, colour, problems.
-    let mut widths = vec![Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)];
+    // Narrow columns first: playing or marked, colour, the cover's colours, problems.
+    let chips = app.shows_art();
+    let chip_w = Constraint::Length(u16::from(chips));
+    let mut widths = vec![Constraint::Length(1), Constraint::Length(1), chip_w, Constraint::Length(1)];
     widths.extend(cols.iter().map(|c| c.width()));
-    let header: Vec<Cell> = ["", "", ""]
+    let header: Vec<Cell> = ["", "", "", ""]
         .into_iter()
         .map(Cell::from)
         .chain(cols.iter().map(|c| {
@@ -564,7 +602,7 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
     let inner = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(2), height };
     let cells = Rect { x: inner.x + 1, width: inner.width.saturating_sub(1), ..inner };
     let rects = Layout::horizontal(widths.clone()).flex(Flex::Start).spacing(1).split(cells);
-    app.areas.columns = cols.iter().zip(rects.iter().skip(3)).filter_map(|(c, r)| Some((c.field()?, *r))).collect();
+    app.areas.columns = cols.iter().zip(rects.iter().skip(4)).filter_map(|(c, r)| Some((c.field()?, *r))).collect();
 
     // Build only the rows on screen: libraries run to tens of thousands of tracks, redrawn at 60 fps.
     let page = area.height.saturating_sub(3) as usize;
@@ -574,12 +612,13 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
     *app.track_state.offset_mut() = offset;
     let window = &app.visible[offset..(offset + page).min(len)];
     let mix_bg = theme::behind(theme::current().mixes);
-    // Where nothing can go behind them, keys that mix are marked and underlined.
-    let (mix_mark, mix_style) = if theme::flat() {
-        (icons::MIX.get(), bold(theme::current().good).add_modifier(Modifier::UNDERLINED))
-    } else {
-        (" ", bold(theme::current().good))
-    };
+    // Keys that mix have the way they mix beside them. Where nothing can go behind them, they're
+    // underlined too.
+    let mix_style = if theme::flat() { Modifier::UNDERLINED } else { Modifier::empty() };
+    let (notation, key_palette) = (app.deck.notation, app.deck.key_palette);
+    let root = l.root();
+    app.covers.new_frame();
+    let (covers, played) = (&mut app.covers, &app.played_tracks);
 
     let rows: Vec<Row> = window
         .iter()
@@ -600,6 +639,10 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
                 Span::raw(" ")
             };
             let color = tr.color.map_or(Span::raw(" "), theme::colour_dot);
+            let chip = (tr.artwork_id.zip(tr.artwork_path.as_deref()))
+                .filter(|_| chips)
+                .and_then(|(id, path)| covers.chip(root, id, path))
+                .map_or_else(empty, |[main, second]| Cell::from(Span::styled("▌", fg(main).bg(theme::rgb3(second)))));
             let problem = if l.problems.is_missing(i) {
                 Span::styled(icons::CROSS.get(), bold(theme::current().critical))
             } else if l.problems.has_copies(i) {
@@ -608,16 +651,20 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
                 Span::raw(" ")
             };
             let title_style = if is_playing { bold(theme::current().accent) } else { text() };
-            let mut cells = vec![Cell::from(indicator), Cell::from(color), Cell::from(problem)];
+            let key = Camelot::parse(&tr.key);
+            let narrow = [Cell::from(indicator), Cell::from(color), chip, Cell::from(problem)];
+            // Sized once: pushed a column at a time, it would grow twice a row.
+            let mut cells = Vec::with_capacity(narrow.len() + cols.len());
+            cells.extend(narrow);
             for c in &cols {
                 cells.push(match c {
-                    Col::Title => Cell::from(Span::styled(tr.title.clone(), title_style)),
+                    Col::Title => Cell::from(Span::styled(tr.title.as_str(), title_style)),
                     Col::Artist => Cell::from(Span::styled(
-                        tr.artist.clone(),
+                        tr.artist.as_str(),
                         fg(theme::mix(theme::current().text, theme::current().dim, 0.4)),
                     )),
-                    Col::Album => Cell::from(Span::styled(tr.album.clone(), dim())),
-                    Col::Genre => Cell::from(Span::styled(tr.genre.clone(), dim())),
+                    Col::Album => Cell::from(Span::styled(tr.album.as_str(), dim())),
+                    Col::Genre => Cell::from(Span::styled(tr.genre.as_str(), dim())),
                     Col::Tags => {
                         let tags = my_tags.as_ref().map_or(&[][..], |t| t.of(tr));
                         let names: Vec<&str> = tags.iter().map(|t| t.rsplit('/').next().unwrap_or(t)).collect();
@@ -625,16 +672,33 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
                     }
                     Col::Rating => Cell::from(Span::styled(rating(tr.rating), fg(theme::current().warning))),
                     Col::Added => Cell::from(Span::styled(tr.date_added.chars().take(10).collect::<String>(), dim())),
-                    Col::Plays => Cell::from(Line::styled(tr.play_count.to_string(), dim()).right_aligned()),
+                    Col::Plays => number(tr.play_count.to_string(), dim()),
                     Col::Bpm => {
                         let bpm = if tr.bpm > 0.0 { format!("{:>6.1}", tr.bpm) } else { String::new() };
-                        Cell::from(Line::styled(bpm, fg(theme::current().warning)).right_aligned())
+                        number(bpm, fg(theme::current().warning))
                     }
-                    Col::Key if mixes_with(&mix, tr) => {
-                        Cell::from(Span::styled(format!("{mix_mark}{}", tr.key), mix_style)).style(mix_bg)
+                    Col::BpmGap => {
+                        let gap = master.filter(|_| tr.bpm > 0.0 && !is_playing).map(|m| tr.bpm - m);
+                        gap.map_or_else(empty, |g| Cell::from(Span::styled(format!("{g:>+6.1}"), dim())))
                     }
-                    Col::Key => Cell::from(Span::styled(format!(" {}", tr.key), fg(theme::current().info))),
-                    Col::Time => Cell::from(Line::styled(clock(tr.duration_secs as f64), dim()).right_aligned()),
+                    Col::Key => {
+                        let own = key.and_then(|k| key_palette.colour(k)).filter(|_| !theme::flat());
+                        let name = own.map_or(fg(theme::current().info), theme::chip);
+                        let shown = |style| Span::styled(written(key, tr, notation), style);
+                        match mixes_with(&mix, tr, key) {
+                            Some(r) => Cell::from(Line::from(vec![
+                                Span::styled(relation_mark(r), bold(key_relation_color(r))),
+                                shown(own.map_or(bold(theme::current().good), theme::chip).add_modifier(mix_style)),
+                            ]))
+                            .style(mix_bg),
+                            // No mark's room left blank, by the column's own margin.
+                            None if own.is_none() => {
+                                Cell::from(Span::styled(format!(" {}", written(key, tr, notation)), name))
+                            }
+                            None => Cell::from(Line::from(vec![Span::raw(" "), shown(name)])),
+                        }
+                    }
+                    Col::Time => number(clock(tr.duration_secs as f64), dim()),
                     Col::Field(name) => {
                         let value = values.as_ref().and_then(|v| v.get(tr.id, name.as_str()));
                         Cell::from(value.map(|v| field_cell(v, field_hint(*name))).unwrap_or_default())
@@ -642,7 +706,11 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
                 });
             }
             let row = Row::new(cells);
-            if marked { row.style(theme::behind(theme::current().marked)) } else { row }
+            match (marked, played.contains(&tr.file_path) && !is_playing) {
+                (true, _) => row.style(theme::behind(theme::current().marked)),
+                (false, true) => row.style(Modifier::DIM),
+                (false, false) => row,
+            }
         })
         .collect();
 

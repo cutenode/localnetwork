@@ -160,6 +160,40 @@ _Avoid_: tag list, cart, queue
 The player that plays one loaded track.
 _Avoid_: channel, turntable
 
+**Library layout**:
+The Library view with its panes and the deck strip.
+_Avoid_: list mode
+
+**Deck layout**:
+The Library view with the deck on the whole screen.
+_Avoid_: full screen
+
+**Browse overlay**:
+The Library view's panes opened over the Deck layout until a track's loaded, as a CDJ's BROWSE
+button does. Not the Browse node at the top of the tree.
+_Avoid_: library popup
+
+**Master**:
+The deck tempo and key differences are measured against: the player has one deck, so the track
+playing.
+_Avoid_: sync source
+
+**Overview**:
+The whole track's waveform, still, with a playhead that moves.
+_Avoid_: preview, in the player (it's the name of the analysis tag's data)
+
+**Zoomed view**:
+The waveform scrolling past a playhead fixed in the middle.
+_Avoid_: detail view, scrolling view
+
+**Band mode**:
+How a waveform is coloured, as rekordbox's players offer it: BLUE, RGB or 3Band.
+_Avoid_: waveform style, colour scheme
+
+**Chip**:
+A track row's mark in its cover's two main colours.
+_Avoid_: swatch
+
 **Pads**:
 The deck's hot cue pads.
 _Avoid_: hot cue buttons, performance pads

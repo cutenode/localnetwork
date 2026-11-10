@@ -315,6 +315,38 @@ fn prop_a_website_that_cant_be_asked_leaves_a_note(tc: hegel::TestCase) {
     assert!(AccountFile::load(dir.path()).unwrap().indexed.is_empty());
 }
 
+/// Asking the directory to read the account again ends in a note for the plan, saying why, when
+/// the account's server can't be reached for a token, or the website's answer stops before the
+/// length it said, cut anywhere in its body; nothing is remembered as read.
+#[hegel::test(test_cases = 8)]
+fn a_server_that_answers_nothing_or_too_little_leaves_a_note(tc: hegel::TestCase) {
+    static PDS: OnceLock<String> = OnceLock::new();
+    let pds =
+        PDS.get_or_init(|| crate::atmosphere::tests::serving(|_, _| (200, String::new(), json!({ "token": "a.b.c" }))));
+    let dead = format!("http://127.0.0.1:{}", TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port());
+    let pds_answers = tc.draw(gs::booleans());
+    let body = br#"{"indexed": true}"#;
+    let cut = tc.draw(gs::integers::<usize>().max_value(body.len() - 1));
+    let mut cut_short = format!("HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len());
+    cut_short.push_str(std::str::from_utf8(&body[..cut]).unwrap());
+    let (website, _) = server(vec![cut_short.into_bytes()]);
+    at(&website);
+    let dir = tempfile::tempdir().unwrap();
+    crate::store::Store::open_or_init(dir.path()).unwrap();
+    let scopes = crate::atmosphere::tests::mock_pds::granted(&crate::atmosphere::publish_scopes()).join(" ");
+    crate::atmosphere::tests::save_session(dir.path(), "did:plc:abc", if pds_answers { pds } else { &dead }, &scopes);
+    let info = crate::atmosphere::status(dir.path()).unwrap().unwrap();
+    let note = request_index(dir.path(), &info).unwrap().unwrap();
+    let why = match pds_answers {
+        true => "error decoding response body",
+        false => "(the account's server: ",
+    };
+    assert!(note.starts_with("Local Network's directory couldn't be asked to read this account's earlier records ("));
+    assert!(note.contains(why), "{why}: {note}");
+    assert!(!note.chars().any(char::is_control), "{note:?}");
+    assert!(AccountFile::load(dir.path()).unwrap().indexed.is_empty());
+}
+
 /// A website goes by the did:web of its host, with its port when it isn't the scheme's own.
 #[hegel::test(test_cases = 100)]
 fn prop_a_website_goes_by_its_hosts_did_web(tc: hegel::TestCase) {

@@ -87,3 +87,45 @@ fn a_set_record_reads_as_its_details_and_tracks() {
     assert_eq!(set_track(&json!({ "startSeconds": 0, "unidentified": true })), "0:00  ID - ID");
     assert_eq!(set_track(&json!({ "title": "Dubplate" })), "Dubplate");
 }
+
+/// Whatever a lookup of a set's MusicBrainz IDs did, its notes say how many tracks it found IDs
+/// for and how many it couldn't look up (their drive not plugged in), each only when there are
+/// some, in that order.
+#[hegel::test(test_cases = 100)]
+fn a_lookup_says_what_it_found_and_what_it_couldnt_reach(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let n = || gs::integers::<usize>().max_value(1200);
+    let looked =
+        api::SetLookup { asked: tc.draw(n()), found: tc.draw(n()), failed: tc.draw(n()), unmounted: tc.draw(n()) };
+    let tracks = |n: usize| format!("{} track{}", crate::output::thousands(n), if n == 1 { "" } else { "s" });
+    let mut want = Vec::new();
+    if looked.found > 0 {
+        want.push(format!("found MusicBrainz IDs for {}", tracks(looked.found)));
+    }
+    if looked.unmounted > 0 {
+        want.push(format!("plug in the drive to look up MusicBrainz IDs for {}", tracks(looked.unmounted)));
+    }
+    assert_eq!(lookup_notes(&looked), want, "{looked:?}");
+}
+
+/// A count in a profile record reads as the number, or a floor as the number and a plus, the
+/// number winning when there are both; with neither it's a question mark.
+#[hegel::test(test_cases = 100)]
+fn a_count_reads_as_its_number_or_floor(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let count = tc.draw(gs::optional(gs::integers::<i64>().min_value(0).max_value(100_000)));
+    let at_least = tc.draw(gs::optional(gs::integers::<i64>().min_value(0).max_value(100_000)));
+    let mut v = json!({});
+    if let Some(n) = count {
+        v["count"] = json!(n);
+    }
+    if let Some(n) = at_least {
+        v["atLeast"] = json!(n);
+    }
+    let want = match (count, at_least) {
+        (Some(n), _) => n.to_string(),
+        (None, Some(n)) => format!("{n}+"),
+        (None, None) => "?".to_string(),
+    };
+    assert_eq!(super::count(&v), want, "{v}");
+}

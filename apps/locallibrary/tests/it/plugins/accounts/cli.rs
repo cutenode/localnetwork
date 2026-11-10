@@ -212,6 +212,60 @@ fn a_keys_account_is_signed_in_from_stdin_listed_and_never_shown() {
     }
 }
 
+/// For any keys and any account name piped on stdin, a line each, all of them or the first few:
+/// signing in with keys for echo keeps the account, echo given access, only when every line is
+/// there and each key is at least 8 printable ASCII characters without spaces once trimmed;
+/// otherwise it fails saying why and keeps nothing. The service is sent nothing, and no key is
+/// printed.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(
+    access_key = "ak-0123".to_string(),
+    access_space = 2u8,
+    secret_key = "sk-98765432".to_string(),
+    secret_space = 2u8,
+    name = "me".to_string(),
+    given = 3usize
+)]
+fn keys_piped_sign_in_only_when_each_will_do(tc: TestCase) {
+    let m = Mock::keyed();
+    // Around the shortest a key may be, with a space inside it or at its ends or not.
+    let spaced = |k: String, space: u8| match space {
+        0 => format!("{} {}", &k[..2], &k[2..]),
+        1 => format!(" {k} "),
+        _ => k,
+    };
+    let key = || gs::text().alphabet("ak-019").min_size(5).max_size(11);
+    let space = || gs::integers::<u8>().max_value(3);
+    let access_key = tc.draw(key());
+    let access_space = tc.draw(space());
+    let secret_key = tc.draw(key());
+    let secret_space = tc.draw(space());
+    let (access, secret) = (spaced(access_key, access_space), spaced(secret_key, secret_space));
+    let name = tc.draw(gs::text().alphabet("mexyz").min_size(1).max_size(6));
+    let given = tc.draw(gs::integers::<usize>().max_value(3));
+    let lines = [&access, &secret, &name];
+    let input: String = lines[..given].iter().map(|l| format!("{l}\n")).collect();
+    let (code, out, err) = m.piped(&["account", "mock", "sign-in", "--for", "echo"], &input);
+    let said = format!("{input:?}: exit {code}\n{out}{err}");
+    let fits = |k: &str| k.trim().len() >= 8 && k.trim().bytes().all(|b| b.is_ascii_graphic());
+    let signs_in = given == 3 && fits(&access) && fits(&secret);
+    assert!(err.contains(&format!("Get the Mock account's Access key and Secret key at\n  {}/keys\n", m.server.url)));
+    match signs_in {
+        true => {
+            assert_eq!(code, 0, "{said}");
+            assert_eq!(out, format!("✓ Signed in to the Mock account {name}\n  echo has access to it, its default\n"));
+        }
+        false => assert!(code == 1 && out.is_empty() && err.contains("\nerror: "), "{said}"),
+    }
+    let (_, listed, _) = m.run(&["--json", "account"]);
+    let accounts = serde_json::from_str::<Value>(&listed).unwrap()["accounts"].as_array().unwrap().len();
+    assert_eq!(accounts, usize::from(signs_in), "{said}\n{listed}");
+    assert!(m.server.got().is_empty(), "the service was sent something: {:?}", m.server.got());
+    for k in [&access, &secret].into_iter().map(|k| k.trim()).filter(|k| k.len() >= 8) {
+        assert!(!out.contains(k) && !err.contains(k) && !listed.contains(k), "{k:?} was printed: {said}");
+    }
+}
+
 /// A step of [`an_account_reads_back_the_same_wherever_its_asked`], naming people by their place
 /// in [`PEOPLE`].
 #[derive(Debug, Clone, Copy)]
@@ -226,34 +280,42 @@ enum Step {
     Default(usize),
     /// `plugin access echo --take-away SUBJECT`.
     TakeAway(usize),
+    /// `plugin access echo --give SUBJECT --scope write`, or naming it by its name.
+    Give(usize),
 }
 
 /// For any steps signing in (on the command line or in the sidecar), out, making an account echo's
-/// default and taking its access away: `account --json` lists the accounts and accesses the
+/// default, giving echo access to one for `write` too and taking its access away: `account --json` lists the accounts and accesses the
 /// sidecar's `accounts.list` does, which are those the model keeps, `account` shows each and
-/// `plugin info echo` has echo's accesses; a step about what isn't there fails `not_found`; and
-/// nothing printed or answered holds a token.
+/// `plugin info echo` has echo's accesses; a step about what isn't there fails `not_found`, and
+/// one naming no account is refused; and nothing printed or answered holds a token.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn an_account_reads_back_the_same_wherever_its_asked(tc: TestCase) {
     let m = Mock::new();
     let mut s = Rpc::start(m.command());
     let mut model = Model::default();
     let mut said = String::new();
+    // An account to sign out of or show is named, its type alone isn't enough.
+    let action = tc.draw(gs::sampled_from(vec!["status", "sign-out"]));
+    let (code, _, err) = m.run(&["account", "mock", action]);
+    assert!(code == 2 && err.contains("name an account: mock:NAME (`locallibrary account` lists them)"), "{err}");
     let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(5));
     for i in 0..n {
         let person = tc.draw(gs::integers::<usize>().max_value(1));
-        let step = match tc.draw(gs::integers::<u8>().max_value(5)) {
+        let step = match tc.draw(gs::integers::<u8>().max_value(6)) {
             0 | 1 => Step::SignIn { who: person, for_echo: tc.draw(gs::booleans()) },
             2 => Step::SidecarSignIn(person),
             3 => Step::SignOut(person),
             4 => Step::Default(person),
-            _ => Step::TakeAway(person),
+            5 => Step::TakeAway(person),
+            _ => Step::Give(person),
         };
         let (Step::SignIn { who: p, .. }
         | Step::SidecarSignIn(p)
         | Step::SignOut(p)
         | Step::Default(p)
-        | Step::TakeAway(p)) = step;
+        | Step::TakeAway(p)
+        | Step::Give(p)) = step;
         let subject = PEOPLE[p];
         let id = i as i64 * 10;
         let named = format!("mock:{subject}");
@@ -283,6 +345,20 @@ fn an_account_reads_back_the_same_wherever_its_asked(tc: TestCase) {
             Step::TakeAway(_) => {
                 let r = m.run(&["plugin", "access", "echo", "--take-away", subject]);
                 assert_eq!(r.0 == 0, model.taken_away(subject), "step {i}: {step:?} {}", r.2);
+                r
+            }
+            Step::Give(_) => {
+                // By its subject, or by the name it's shown as.
+                let named = match tc.draw(gs::booleans()) {
+                    true => format!("{subject}@mock.example"),
+                    false => subject.to_string(),
+                };
+                let r = m.run(&["plugin", "access", "echo", "--give", &named, "--scope", "write"]);
+                assert_eq!(r.0 == 0, model.given(subject), "step {i}: {step:?} {}", r.2);
+                if r.0 == 0 {
+                    let gave = format!("✓ Gave echo access to the Mock account {subject}@mock.example: read, write\n");
+                    assert_eq!(r.1, gave, "step {i}: {step:?}");
+                }
                 r
             }
         };
@@ -315,6 +391,9 @@ fn an_account_reads_back_the_same_wherever_its_asked(tc: TestCase) {
         assert!(described.contains(&format!("    mock  Tests (read; {access})\n")), "step {i}: {described}");
         said.push_str(&format!("{listed}{answered}{shown}{info}{described}"));
     }
+    // Last, echo given access to the first person by the name it's shown as.
+    let (code, _, err) = m.run(&["plugin", "access", "echo", "--give", "a@mock.example", "--scope", "write"]);
+    assert_eq!(code == 0, model.given("a"), "by name: {err}");
     assert!(!m.leaked(&said), "a token was printed or answered");
 }
 
@@ -474,6 +553,99 @@ fn a_destination_warns_of_an_account_signing_itself_out_soon() {
     assert_eq!(code, 0, "{err}");
     assert!(err.contains("? Sign in again now? [y/N]"), "{err}");
     assert!(out.contains(warned) && out.contains("✓ Signed in to the Mock account a@mock.example\n"), "{out}");
+}
+
+/// What keeps echo from using the mock account it has access to, in
+/// [`a_destination_asks_once_about_what_keeps_its_account_from_use`].
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy)]
+enum Keeping {
+    SignedOut,
+    /// Echo's access to it lacks `read`.
+    Ungiven,
+    /// The service's grant lacks `read`.
+    Ungranted,
+    /// Its tokens run out within the hour, and nothing refreshes them.
+    Expiring,
+    /// It signs itself out within two days, its refresh token running out.
+    SigningOutSoon,
+}
+
+/// For a mock account signed in to for echo (as either person) that echo can't use, any way
+/// [`Keeping`] has, or that signs itself out soon: in a terminal, echo's destination asks about it
+/// once, saying what's wrong. Answered yes, it's resolved (signed in to again, or echo given
+/// access) and the destination is used; answered no, the destination is refused, unless the
+/// account only signs itself out soon. Nothing printed holds a token.
+#[cfg(unix)]
+#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(subject = "a", keeping = Keeping::SignedOut, yes = true)]
+#[hegel::explicit_test_case(subject = "a", keeping = Keeping::SignedOut, yes = false)]
+#[hegel::explicit_test_case(subject = "a", keeping = Keeping::Ungiven, yes = true)]
+#[hegel::explicit_test_case(subject = "a", keeping = Keeping::Ungiven, yes = false)]
+#[hegel::explicit_test_case(subject = "a", keeping = Keeping::Ungranted, yes = true)]
+#[hegel::explicit_test_case(subject = "a", keeping = Keeping::Ungranted, yes = false)]
+#[hegel::explicit_test_case(subject = "a", keeping = Keeping::Expiring, yes = true)]
+#[hegel::explicit_test_case(subject = "a", keeping = Keeping::Expiring, yes = false)]
+#[hegel::explicit_test_case(subject = "a", keeping = Keeping::SigningOutSoon, yes = true)]
+#[hegel::explicit_test_case(subject = "a", keeping = Keeping::SigningOutSoon, yes = false)]
+fn a_destination_asks_once_about_what_keeps_its_account_from_use(tc: TestCase) {
+    let m = Mock::new();
+    let subject = tc.draw(gs::sampled_from(PEOPLE.to_vec()));
+    let keeping = tc.draw(gs::sampled_from(vec![
+        Keeping::SignedOut,
+        Keeping::Ungiven,
+        Keeping::Ungranted,
+        Keeping::Expiring,
+        Keeping::SigningOutSoon,
+    ]));
+    let yes = tc.draw(gs::booleans());
+    {
+        let mut s = m.state.lock().unwrap();
+        match keeping {
+            Keeping::Expiring => (s.refreshless, s.expires_in) = (true, Some(600)),
+            Keeping::SigningOutSoon => s.refresh_expires_in = Some(129_600),
+            _ => {}
+        }
+    }
+    assert_eq!(m.sign_in(subject, &["--for", "echo"]).0, 0);
+    // Signed in to again, it's one echo can use.
+    {
+        let mut s = m.state.lock().unwrap();
+        (s.refreshless, s.expires_in, s.refresh_expires_in) = (false, Some(3600), None);
+    }
+    let without = |pointer: &str| {
+        let file = m.env.store.join("accounts.json");
+        let mut kept: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        *kept.pointer_mut(pointer).unwrap() = json!([]);
+        std::fs::write(&file, kept.to_string()).unwrap();
+    };
+    match keeping {
+        Keeping::SignedOut => assert_eq!(m.run(&["account", &format!("mock:{subject}"), "sign-out"]).0, 0),
+        Keeping::Ungiven => without("/accesses/0/scopes"),
+        Keeping::Ungranted => without("/accounts/0/scopes"),
+        Keeping::Expiring | Keeping::SigningOutSoon => {}
+    }
+    let account = format!("Mock account {subject}@mock.example");
+    let question = match keeping {
+        Keeping::SignedOut => format!("? The {account}, which Echo uses, is signed out. Sign in again? [y/N]"),
+        Keeping::Ungiven => format!("? Echo needs to read with the {account}. Give it access? [y/N]"),
+        Keeping::Ungranted => format!("? The {account} doesn't allow Echo to read. Sign in again? [y/N]"),
+        Keeping::Expiring => format!("? The {account} won't stay signed in long enough for Echo. Sign in again? [y/N]"),
+        Keeping::SigningOutSoon => "? Sign in again now? [y/N]".to_string(),
+    };
+    // Declined, an account that won't stay signed in is offered signing in again a second
+    // time, as one signing itself out soon: the answer is typed for that too.
+    let (code, out, err) = m.typed(&COPY, if yes { "y\n" } else { "n\nn\n" }, subject);
+    let said = format!("{keeping:?} as {subject}, yes {yes}: exit {code}\n{out}{err}");
+    assert_eq!(err.matches(&question).count(), 1, "{said}");
+    let used = yes || matches!(keeping, Keeping::SigningOutSoon);
+    assert_eq!(code, if used { 0 } else { 1 }, "{said}");
+    let resolved = match keeping {
+        Keeping::Ungiven => format!("✓ Echo has access to the {account}\n"),
+        _ => format!("✓ Signed in to the {account}\n"),
+    };
+    assert_eq!(out.contains(&resolved), yes, "{said}");
+    assert!(!m.leaked(&said), "a token was printed: {said}");
 }
 
 /// Where [`a_plugin_wanting_more_of_an_account_asks_only_in_a_terminal`] runs echo's `ensure`.

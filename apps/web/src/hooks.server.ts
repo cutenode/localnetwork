@@ -4,6 +4,7 @@ import { type App, getApp } from '#lib/server/app.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { SESSION_COOKIE } from '#lib/server/auth/session.ts';
 import { gzipped } from '#lib/server/compress.ts';
+import { PREVIEW_COOKIE } from '#lib/server/flags/preview.ts';
 import { CRAWLER_HEAD, withCrawlerHead } from '#lib/server/crawler-head.ts';
 import { clientIp, guardArea, isUnlisted } from '#lib/server/http.ts';
 import { createLogger, type Logger } from '#lib/server/logger.ts';
@@ -100,7 +101,20 @@ export function serverHooks({
 			}
 		}
 
-		if (!isXrpc) event.locals.flags = await app.flags.evaluate(event.locals.viewer?.did ?? null);
+		if (!isXrpc) {
+			const { viewer } = event.locals;
+			event.locals.flags = await app.flags.evaluate(viewer?.did ?? null);
+			const cookie = event.cookies.get(PREVIEW_COOKIE);
+			const preview = cookie && viewer ? await app.flags.preview(viewer, cookie, token) : null;
+
+			if (preview) {
+				event.locals.flags = { ...event.locals.flags, ...preview };
+				event.locals.flagPreview = preview;
+			} else if (cookie) {
+				// Expired, someone else's, or its staff member lost the grant: it can't come back, so it goes.
+				event.cookies.delete(PREVIEW_COOKIE, { path: '/' });
+			}
+		}
 
 		guardArea(event.locals, event.url, event.route.id);
 

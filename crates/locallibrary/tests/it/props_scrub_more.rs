@@ -27,6 +27,11 @@ fn a_scrub_after_the_drive_changed_checks_what_the_store_knows(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let (root, _) = drawn::drive(&tc, dir.path(), "Main");
+    // On OneLibrary too, at times: its database is then rewritten holding the same library.
+    let on_onelibrary = tc.draw(gs::booleans());
+    if on_onelibrary {
+        common::add_onelibrary(&root);
+    }
     common::age(&root);
     let mut main = Device::open_export(&root).unwrap();
     main.adopt(Some("Main")).unwrap();
@@ -47,6 +52,11 @@ fn a_scrub_after_the_drive_changed_checks_what_the_store_knows(tc: TestCase) {
         .filter(|k| pulled.contains_key(k) && paths::classify(k).is_some_and(|c| c.is_library()))
         .map(|k| k.to_lowercase())
         .collect();
+    // Its bytes differ from the snapshot's, its library doesn't: never damage.
+    if on_onelibrary {
+        let again = OneLibrary::open(&main).unwrap().to_encrypted().unwrap();
+        onelibrary::write(&main, &again).unwrap();
+    }
     let rotted = tc.draw(gs::sampled_from(audio.clone()));
     common::rot(&paths::to_fs(&root, &rotted));
     let gone = audio.iter().find(|k| **k != rotted).filter(|_| tc.draw(gs::booleans())).cloned();
@@ -317,4 +327,100 @@ fn prop_a_repair_from_a_copy_it_cant_read_says_why(tc: TestCase) {
     assert!(failed.error.contains("ermission denied"), "{rep:?}");
     let again = scrub::scrub(&main, None, &siblings, &ScrubOptions::default(), &Ctx::silent()).unwrap();
     assert_eq!(again.damaged.len(), 1, "still damaged");
+}
+
+/// A OneLibrary drive (named since, at times) that lost a library file after its pull matches no
+/// snapshot, but the one it last held still says what belongs: the file is missing by that
+/// snapshot, and audio that rotted is damaged by the hash cached for it or, with the cache
+/// forgotten, by that snapshot. Repairing it all from the store makes the drive the snapshot's
+/// again, clean, its name kept.
+#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_drive_that_lost_a_file_is_checked_against_the_snapshot_it_held(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    common::add_onelibrary(&root);
+    common::age(&root);
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let mut main = Device::open(&root).unwrap();
+    let saved = sync::pull(&store, &mut main, &PullOptions::default(), &Ctx::silent()).unwrap().snapshot.unwrap();
+    let name = tc.draw(gs::optional(gs::sampled_from(vec!["OTHER", "BOOTH"])));
+    if let Some(name) = name {
+        player::set(&mut main, Some(name), None).unwrap();
+    }
+    let files: Vec<String> = common::library_files(&root)
+        .into_iter()
+        .map(|(k, _)| k)
+        .filter(|k| matches!(paths::classify(k), Some(FileClass::Audio | FileClass::Analysis)))
+        .collect();
+    let gone = tc.draw(gs::sampled_from(files.clone()));
+    let audio: Vec<String> =
+        files.into_iter().filter(|k| *k != gone && paths::classify(k) == Some(FileClass::Audio)).collect();
+    let rotted = tc.draw(gs::optional(gs::sampled_from(audio)));
+    let forgotten = tc.draw(gs::booleans());
+    fs::remove_file(paths::to_fs(&root, &gone)).unwrap();
+    if let Some(key) = &rotted {
+        common::rot(&paths::to_fs(&root, key));
+    }
+    if forgotten {
+        fs::remove_file(main.state_dir().join("index.json")).unwrap();
+    }
+
+    let main = Device::open(&root).unwrap();
+    let r = scrub::scrub(&main, Some(&store), &[], &ScrubOptions::default(), &Ctx::silent()).unwrap();
+    assert_eq!(r.snapshot, None, "{r:#?}");
+    let missing: Vec<(String, Option<ReferenceKind>)> =
+        r.missing.iter().map(|m| (m.path.to_lowercase(), m.reference)).collect();
+    assert_eq!(missing, [(gone.to_lowercase(), Some(ReferenceKind::History))], "{r:#?}");
+    let by = if forgotten { ReferenceKind::History } else { ReferenceKind::Cache };
+    let damaged: Vec<(String, Option<ReferenceKind>)> =
+        r.damaged.iter().map(|p| (p.path.to_lowercase(), p.reference)).collect();
+    let want: Vec<(String, Option<ReferenceKind>)> = rotted.iter().map(|k| (k.to_lowercase(), Some(by))).collect();
+    assert_eq!(damaged, want, "{r:#?}");
+    assert!(r.problems().all(|p| p.repair == Some(RepairSource::Store)), "{r:#?}");
+
+    let problems: Vec<FileProblem> = r.problems().cloned().collect();
+    let mut main = main;
+    let done = scrub::repair(&mut main, Some(&store), &[], &problems, &Ctx::silent()).unwrap();
+    assert_eq!(done.repaired.len(), problems.len(), "{done:?}");
+    let again = scrub::scrub(&main, Some(&store), &[], &ScrubOptions::default(), &Ctx::silent()).unwrap();
+    assert!(again.is_clean(), "{again:#?}");
+    assert_eq!(again.snapshot, Some(saved.id));
+    let kept = player::read(&main).onelibrary.and_then(|o| o.name);
+    if let Some(name) = name {
+        assert_eq!(kept.as_deref(), Some(name));
+    }
+}
+
+/// A named OneLibrary drive, pulled, whose `exportLibrary.db` rotted after a scrub with no store
+/// cached its hash: that scrub finds the database damaged, a repair rewrites it from the store's
+/// copy with the drive's name, and it's clean again.
+#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_onelibrary_repaired_from_the_store_keeps_its_name(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    common::add_onelibrary(&root);
+    let mut main = Device::open(&root).unwrap();
+    main.adopt(Some("Main")).unwrap();
+    let name = tc.draw(gs::sampled_from(vec!["MAIN A", "BOOTH", "OTHER"]));
+    player::set(&mut main, Some(name), None).unwrap();
+    common::age(&root);
+    let mut main = Device::open(&root).unwrap();
+    sync::pull(&store, &mut main, &PullOptions::default(), &Ctx::silent()).unwrap();
+    let main = Device::open(&root).unwrap();
+    assert!(scrub::scrub(&main, None, &[], &ScrubOptions::default(), &Ctx::silent()).unwrap().is_clean());
+    common::rot(&paths::to_fs(&root, paths::LIBRARY_PLUS_DB));
+
+    let r = scrub::scrub(&main, None, &[], &ScrubOptions::default(), &Ctx::silent()).unwrap();
+    let damaged: Vec<&str> = r.damaged.iter().map(|p| p.path.as_str()).collect();
+    assert_eq!(damaged, [paths::LIBRARY_PLUS_DB], "{r:#?}");
+    let problems: Vec<FileProblem> =
+        r.problems().map(|p| FileProblem { repair: Some(RepairSource::Store), ..p.clone() }).collect();
+    let mut main = main;
+    let done = scrub::repair(&mut main, Some(&store), &[], &problems, &Ctx::silent()).unwrap();
+    assert!(done.failed.is_empty() && done.repaired.len() == 1, "{done:?}");
+    let main = Device::open(&root).unwrap();
+    assert_eq!(player::read(&main).onelibrary.and_then(|o| o.name).as_deref(), Some(name));
+    let again = scrub::scrub(&main, Some(&store), &[], &ScrubOptions::default(), &Ctx::silent()).unwrap();
+    assert!(again.is_clean(), "{again:#?}");
 }

@@ -3,6 +3,7 @@
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{PoisonError, RwLock};
 
 use filetime::FileTime;
@@ -173,7 +174,8 @@ pub fn unless_damaged<T: Default>(read: Result<T>) -> Result<T> {
 /// while a deferred flush finds most data already written back. Copies that a later run judges
 /// by size and modification time pass no `mtime` either, and [`set_mtime`] after the flush: a
 /// file renamed into place can reach the disk before its data does (a pulled plug leaves it
-/// torn), and it must not look like a finished copy until the data is there.
+/// torn), and it must not look like a finished copy until the data is there. A write to a drive
+/// goes through [`copy_for_drive`] instead.
 pub fn copy_file(
     src: &Path,
     dst: &Path,
@@ -182,15 +184,7 @@ pub fn copy_file(
     durable: bool,
     ctx: &Ctx<'_>,
 ) -> Result<Hash> {
-    let dir = dst.parent().ok_or_else(|| Error::invalid(format!("{} has no parent", dst.display())))?;
-    fs::create_dir_all(dir).at(dir)?;
-    let mut tmp = temp_for(dir, dst, "")?;
-    let (hash, _) = hash::copy_hashing(src, tmp.as_file_mut(), dst, ctx, Phase::Copy)?;
-    if let Some(expected) = expected
-        && expected != hash
-    {
-        return Err(Error::Corrupt { path: src.to_path_buf(), expected: expected.to_hex(), actual: hash.to_hex() });
-    }
+    let (tmp, hash) = copy_checked(src, temp_beside(dst)?, dst, expected, ctx)?;
     if durable {
         tmp.as_file().sync_all().at(tmp.path())?;
     }
@@ -199,6 +193,144 @@ pub fn copy_file(
     }
     replace(tmp.into_temp_path(), dst)?;
     Ok(hash)
+}
+
+/// A temp file beside `dst`, in a folder made for it if need be.
+fn temp_beside(dst: &Path) -> Result<tempfile::NamedTempFile> {
+    let dir = dst.parent().ok_or_else(|| Error::invalid(format!("{} has no parent", dst.display())))?;
+    fs::create_dir_all(dir).at(dir)?;
+    temp_for(dir, dst, "")
+}
+
+/// `dst` made and open, when nothing's there, in a folder made for it if need be: writing a new
+/// file under its own name spares FAT and exFAT the rename, which costs them as much as making
+/// the file. It's removed if it's dropped, so one that fails leaves nothing. `None` when it can't
+/// be made: the temp file that's used instead finds out why.
+#[cfg(not(windows))]
+fn new_file(dst: &Path) -> Option<tempfile::NamedTempFile> {
+    let open = || File::options().read(true).write(true).create_new(true).open(dst);
+    let file = match open() {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir_all(dst.parent()?).ok()?;
+            open()
+        }
+        file => file,
+    };
+    Some(tempfile::NamedTempFile::from_parts(file.ok()?, tempfile::TempPath::try_from_path(dst).ok()?))
+}
+
+/// `tmp` holding `src`, and what it hashes to, refused when that isn't `expected`.
+fn copy_checked(
+    src: &Path,
+    tmp: tempfile::NamedTempFile,
+    dst: &Path,
+    expected: Option<Hash>,
+    ctx: &Ctx<'_>,
+) -> Result<(tempfile::NamedTempFile, Hash)> {
+    let (tmp, hash) = copy_into(src, tmp, dst, ctx)?;
+    if let Some(expected) = expected
+        && expected != hash
+    {
+        return Err(Error::Corrupt { path: src.to_path_buf(), expected: expected.to_hex(), actual: hash.to_hex() });
+    }
+    Ok((tmp, hash))
+}
+
+/// `tmp` holding `src` (a write there is said of `dst`), and what it hashes to: a clone when they
+/// share a volume that has clones (see [`reflink_or_copy`]), read once for the hash.
+pub(crate) fn copy_into(
+    src: &Path,
+    tmp: tempfile::NamedTempFile,
+    dst: &Path,
+    ctx: &Ctx<'_>,
+) -> Result<(tempfile::NamedTempFile, Hash)> {
+    let mut tmp = match reflink_of(src, tmp) {
+        Ok(cloned) => {
+            let (hash, _) = hash::copy_hashing(cloned.path(), &mut std::io::sink(), dst, ctx, Phase::Copy)?;
+            return Ok((cloned, hash));
+        }
+        Err(tmp) => tmp,
+    };
+    let (hash, _) = hash::copy_hashing(src, tmp.as_file_mut(), dst, ctx, Phase::Copy)?;
+    Ok((tmp, hash))
+}
+
+/// What `testing::no_reflinks` sets.
+pub(crate) static NO_REFLINKS: AtomicBool = AtomicBool::new(false);
+
+/// Whether a copy from `src` to `dst` might be a clone: they share a volume.
+fn may_reflink(src: &Path, dst: &Path) -> bool {
+    !NO_REFLINKS.load(Ordering::Relaxed) && same_volume(src, dst)
+}
+
+/// `tmp` as a clone of `src` when they share a volume, else `tmp` as it was. Volumes are compared
+/// first: on Linux a failed clone makes and removes a file, which adds up on a FAT drive.
+fn reflink_of(
+    src: &Path,
+    tmp: tempfile::NamedTempFile,
+) -> std::result::Result<tempfile::NamedTempFile, tempfile::NamedTempFile> {
+    match tmp.path().parent().is_some_and(|dir| may_reflink(src, dir)) {
+        true => loclib_model::reflink::reflink_into(src, tmp),
+        false => Err(tmp),
+    }
+}
+
+/// `tmp` holding `src`: a clone where that works (its blocks shared with `src` until either is
+/// written, so a tag rewrite of the copy costs what it changes), else a byte copy. A link would
+/// let a write to the copy reach `src`; a clone can't. FAT and exFAT drives have no clones, so
+/// they get bytes.
+pub(crate) fn reflink_or_copy(src: &Path, tmp: tempfile::NamedTempFile) -> Result<tempfile::NamedTempFile> {
+    reflink_of(src, tmp).or_else(|tmp| {
+        fs::copy(src, tmp.path()).at(src)?;
+        Ok(tmp)
+    })
+}
+
+/// [`copy_file`] for a write to a drive, without an fsync, whose files aren't finished until
+/// [`flush`] and then [`set_mtime`] say so: on platforms that can persist the recovery note's
+/// directory, a new file is written under its own name (see `fresh_or_temp`). A file already
+/// there goes through a temp file, since the library in use may need it. A run cut off leaves a
+/// new file part written with a time after it began. The next run writes it again, as it does a
+/// temp file renamed before its data reached the disk (see
+/// `sync::cut_off_since`). Nothing a reader must find whole goes this way.
+pub fn copy_for_drive(src: &Path, dst: &Path, expected: Option<Hash>, ctx: &Ctx<'_>) -> Result<Hash> {
+    // A copy on `src`'s own volume may be cloned, and goes through a temp file: the clone is made
+    // beside what it fills, under a name that has to be one scans pass over.
+    let (new, tmp) = match may_reflink(src, dst) {
+        true => (false, temp_beside(dst)?),
+        false => fresh_or_temp(dst)?,
+    };
+    let (tmp, hash) = copy_checked(src, tmp, dst, expected, ctx)?;
+    land(new, tmp, dst)?;
+    Ok(hash)
+}
+
+/// [`copy_for_drive`], of `bytes`.
+pub fn write_for_drive(dst: &Path, bytes: &[u8]) -> Result<()> {
+    let (new, mut tmp) = fresh_or_temp(dst)?;
+    tmp.write_all(bytes).at(dst)?;
+    land(new, tmp, dst)
+}
+
+/// What a file for a drive is written through: `dst` when it's new (`true`), else a temp file.
+/// Windows has no directory-sync barrier here for the recovery note, so it keeps the temp-file
+/// route. Temp names identify unfinished writes only before rename; landed files need retry repair.
+fn fresh_or_temp(dst: &Path) -> Result<(bool, tempfile::NamedTempFile)> {
+    #[cfg(not(windows))]
+    if let Some(file) = new_file(dst) {
+        return Ok((true, file));
+    }
+    Ok((false, temp_beside(dst)?))
+}
+
+/// `tmp` kept as `dst`: already there when it's `new`, else renamed over it.
+fn land(new: bool, tmp: tempfile::NamedTempFile, dst: &Path) -> Result<()> {
+    match new {
+        true => {
+            tmp.into_temp_path().keep().map(|_| ()).map_err(|e| Error::Io { path: dst.to_path_buf(), source: e.error })
+        }
+        false => replace(tmp.into_temp_path(), dst),
+    }
 }
 
 /// Copy `src` into a durable temp file next to `dst` (mtime stamped, hash verified) without
@@ -210,15 +342,7 @@ pub fn stage_copy(
     expected: Option<Hash>,
     ctx: &Ctx<'_>,
 ) -> Result<(tempfile::NamedTempFile, Hash)> {
-    let dir = dst.parent().ok_or_else(|| Error::invalid(format!("{} has no parent", dst.display())))?;
-    fs::create_dir_all(dir).at(dir)?;
-    let mut tmp = temp_for(dir, dst, "")?;
-    let (hash, _) = hash::copy_hashing(src, tmp.as_file_mut(), dst, ctx, Phase::Copy)?;
-    if let Some(expected) = expected
-        && expected != hash
-    {
-        return Err(Error::Corrupt { path: src.to_path_buf(), expected: expected.to_hex(), actual: hash.to_hex() });
-    }
+    let (tmp, hash) = copy_checked(src, temp_beside(dst)?, dst, expected, ctx)?;
     tmp.as_file().sync_all().at(tmp.path())?;
     if let Some(secs) = mtime {
         filetime::set_file_handle_times(tmp.as_file(), None, Some(FileTime::from_unix_time(secs, 0))).at(tmp.path())?;

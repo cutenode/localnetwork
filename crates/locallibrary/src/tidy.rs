@@ -7,9 +7,10 @@
 //! * `.Spotlight-V100` and `.fseventsd`: Spotlight's index and the file system event log.
 //! * With `empty_trash`, `.Trashes` and `$RECYCLE.BIN`: files deleted in Finder or Explorer still
 //!   use space until the trash is emptied with the drive plugged in. This deletes them for good.
-//! * `.locallibrary-tmp-*`: what a locallibrary write that was cut off (a pulled plug, a crash)
-//!   was writing, up to a whole audio file each. Every scan ignores them. A write that takes over
-//!   the cut-off one's marker removes them too (see [`crate::device::Device::begin`]).
+//! * `.locallibrary-tmp-*`, and the new files a write noted (`writing.rs`) that it never
+//!   finished: what a locallibrary write that was cut off (a pulled plug, a crash) was writing, up
+//!   to a whole audio file each. A write that takes over the cut-off one's marker removes them too
+//!   (see [`crate::device::Device::begin`]).
 //!
 //! `System Volume Information` is left alone (Windows recreates it) and so is locallibrary's own
 //! folder. Unlike every other operation, this touches files outside `PIONEER/` and `Contents/`,
@@ -60,7 +61,7 @@ impl TidyKind {
             TidyKind::Spotlight => "Spotlight index",
             TidyKind::FsEvents => "file system event log",
             TidyKind::Trash => "files in the trash",
-            TidyKind::TempFiles => "files a cut-off write left (.locallibrary-tmp-*)",
+            TidyKind::TempFiles => "files a cut-off write left",
         }
     }
 
@@ -178,6 +179,11 @@ pub fn plan(device: &Device, opts: &TidyOptions, ctx: &Ctx<'_>) -> Result<TidyPl
             plan.items.push(TidyItem { path: rel, kind, is_dir: false, files: 1, bytes });
         }
     }
+    for key in crate::writing::unfinished(device) {
+        let bytes = device.path(&key).metadata().map(|m| m.len()).unwrap_or(0);
+        plan.bytes += bytes;
+        plan.items.push(TidyItem { path: key, kind: TidyKind::TempFiles, is_dir: false, files: 1, bytes });
+    }
     ctx.phase_end(Phase::Scan);
     plan.items.sort_by(|a, b| (a.kind, &a.path).cmp(&(b.kind, &b.path)));
     Ok(plan)
@@ -205,6 +211,7 @@ pub fn apply(plan: &TidyPlan, device: &Device, ctx: &Ctx<'_>) -> Result<TidyRepo
     let _lock = device.lock()?;
     let root = device.root();
     let mut report = TidyReport { removed: 0, bytes: 0, failed: Vec::new() };
+    let unfinished = crate::writing::unfinished(device);
     ctx.phase_start(Phase::Delete, plan.items.len() as u64, 0);
     for item in &plan.items {
         ctx.check()?;
@@ -218,7 +225,7 @@ pub fn apply(plan: &TidyPlan, device: &Device, ctx: &Ctx<'_>) -> Result<TidyRepo
         let still = if item.is_dir {
             path.is_dir() && dir_kind(&name) == Some(item.kind)
         } else {
-            path.is_file() && file_kind(&path, &name) == Some(item.kind)
+            path.is_file() && (file_kind(&path, &name) == Some(item.kind) || unfinished.contains(&item.path))
         };
         if !still {
             continue;

@@ -106,6 +106,114 @@ fn written_files_get_the_usual_permissions() {
     assert_eq!(mode(&new), 0o640, "a file replaced keeps its permissions");
 }
 
+/// A copy on `src`'s volume (a clone where the volume has them) is its own file: a tag written
+/// into it stays out of `src`, in place or by rewriting it.
+#[test]
+fn a_copy_beside_its_source_is_written_apart_from_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let (src, dst) = (dir.path().join("a.mp3"), dir.path().join("Contents/a.mp3"));
+    let audio = vec![7u8; 300_000];
+    fs::write(&src, &audio).unwrap();
+    let copied = copy_file(&src, &dst, Some(1_600_000_000), None, false, &Ctx::silent()).unwrap();
+    assert_eq!(copied, Hash::of(&audio), "the hash of what was written");
+    assert_eq!(fs::read(&dst).unwrap(), audio);
+    assert_eq!(mtime_secs(&fs::metadata(&dst).unwrap()), 1_600_000_000);
+
+    let mut opened = File::options().write(true).open(&dst).unwrap();
+    opened.write_all(b"ID3 tag").unwrap();
+    drop(opened);
+    assert_eq!(fs::read(&src).unwrap(), audio, "a write to the copy reached its source");
+
+    let tmp = temp_for(dir.path(), &dst, "").unwrap();
+    let tagged = reflink_or_copy(&src, tmp).unwrap();
+    assert_eq!(fs::read(tagged.path()).unwrap(), audio);
+    assert_eq!(tagged.as_file().metadata().unwrap().len(), audio.len() as u64, "its open file is the copy");
+}
+
+/// A run cut off between making a clone and putting it in place leaves it where scans pass over
+/// it: a copy on its source's volume is never made under a name of its own.
+#[test]
+fn a_drive_copy_beside_its_source_is_made_under_a_name_scans_pass_over() {
+    let dir = tempfile::tempdir().unwrap();
+    let (src, dst) = (dir.path().join("a.mp3"), dir.path().join("Contents/b.mp3"));
+    fs::write(&src, vec![7; 300_000]).unwrap();
+    let saw = std::sync::Mutex::new(Vec::new());
+    let contents = dir.path().join("Contents");
+    let look = |_: &crate::progress::Event| {
+        let names = fs::read_dir(&contents).into_iter().flatten().flatten();
+        saw.lock().unwrap().extend(names.map(|e| e.file_name().to_string_lossy().into_owned()));
+    };
+    copy_for_drive(&src, &dst, None, &Ctx::new(&look, Default::default())).unwrap();
+    let saw = saw.into_inner().unwrap();
+    assert!(!saw.is_empty());
+    assert!(saw.iter().all(|n| paths::is_ignored_name(n)), "{saw:?}");
+}
+
+/// [`copy_file`] onto another volume, where nothing can be cloned, copies bytes. Linux's
+/// `/dev/shm` is such a volume; elsewhere the test has none to use.
+#[test]
+fn a_copy_to_another_volume_is_made_of_bytes() {
+    let Ok(other) = tempfile::tempdir_in("/dev/shm") else { return };
+    let dir = tempfile::tempdir().unwrap();
+    assert!(!same_volume(dir.path(), other.path()));
+    let (src, dst) = (dir.path().join("a.mp3"), other.path().join("a.mp3"));
+    fs::write(&src, b"the audio").unwrap();
+    let copied = copy_file(&src, &dst, None, None, false, &Ctx::silent()).unwrap();
+    assert_eq!((copied, fs::read(&dst).unwrap()), (Hash::of(b"the audio"), b"the audio".to_vec()));
+    assert_eq!(
+        reflink_or_copy(&src, temp_for(other.path(), &dst, "").unwrap()).map(|t| fs::read(t.path()).unwrap()).unwrap(),
+        b"the audio"
+    );
+}
+
+/// What a write for a drive replaces is there until the new file is whole: a copy that fails
+/// leaves it as it was, and a file that's new is removed again.
+#[test]
+fn a_drive_copy_that_fails_keeps_what_was_there_and_leaves_nothing_new() {
+    let dir = tempfile::tempdir().unwrap();
+    let (src, there, new) = (dir.path().join("a.mp3"), dir.path().join("there.mp3"), dir.path().join("sub/new.mp3"));
+    fs::write(&src, b"the audio").unwrap();
+    fs::write(&there, b"the old audio").unwrap();
+    let wrong = Some(Hash::of(b"something else"));
+    assert!(matches!(copy_for_drive(&src, &there, wrong, &Ctx::silent()), Err(Error::Corrupt { .. })));
+    assert_eq!(fs::read(&there).unwrap(), b"the old audio");
+    assert!(matches!(copy_for_drive(&src, &new, wrong, &Ctx::silent()), Err(Error::Corrupt { .. })));
+    assert!(!new.exists());
+    assert_eq!(temp_files(dir.path()), Vec::<String>::new());
+
+    assert_eq!(copy_for_drive(&src, &there, None, &Ctx::silent()).unwrap(), Hash::of(b"the audio"));
+    assert_eq!(fs::read(&there).unwrap(), b"the audio");
+    write_for_drive(&there, b"newer").unwrap();
+    assert_eq!(fs::read(&there).unwrap(), b"newer");
+    assert_eq!(temp_files(dir.path()), Vec::<String>::new());
+}
+
+/// A partial new file is visible only on platforms where its recovery note can be made durable.
+/// Windows uses an ignored temp name, as every platform does when replacing an existing file.
+#[hegel::test(test_cases = 4)]
+#[hegel::explicit_test_case(existing = false)]
+#[hegel::explicit_test_case(existing = true)]
+fn a_drive_write_uses_a_recoverable_name(tc: hegel::TestCase) {
+    let existing = tc.draw(hegel::generators::booleans());
+    let dir = tempfile::tempdir().unwrap();
+    let dst = dir.path().join("a.mp3");
+    if existing {
+        fs::write(&dst, b"old").unwrap();
+    }
+    let (direct, mut file) = fresh_or_temp(&dst).unwrap();
+    file.write_all(b"partial").unwrap();
+    assert_eq!(direct, !cfg!(windows) && !existing);
+    if direct {
+        assert_eq!(file.path(), dst);
+    } else {
+        assert!(paths::is_ignored_name(file.path().file_name().unwrap().to_str().unwrap()));
+        assert_eq!(fs::read(&dst).ok(), existing.then(|| b"old".to_vec()));
+    }
+    drop(file);
+    assert_eq!(fs::read(&dst).ok(), existing.then(|| b"old".to_vec()));
+    assert!(temp_files(dir.path()).is_empty());
+}
+
 /// Files in `dir` that a writer's temp files left.
 fn temp_files(dir: &Path) -> Vec<String> {
     fs::read_dir(dir)
@@ -143,14 +251,14 @@ fn temp_files(dir: &Path) -> Vec<String> {
 fn a_write_lands_whole_or_not_at_all(tc: hegel::TestCase) {
     use hegel::generators as gs;
     // write_atomic, write_private, write_deferred, write_output, stage_bytes, copy_file,
-    // stage_copy, write_json_atomic.
-    let writer = tc.draw(gs::integers::<u8>().max_value(7));
+    // stage_copy, write_json_atomic, copy_for_drive, write_for_drive.
+    let writer = tc.draw(gs::integers::<u8>().max_value(9));
     // None, the place is a folder, its folder is a file, no folder at all, the source is gone
     // (copies), the copy isn't the expected one (copies).
     let obstacle = tc.draw(gs::integers::<u8>().max_value(5));
     let durable = tc.draw(gs::booleans());
     let mtime = tc.draw(gs::optional(gs::integers::<i64>().min_value(1_000_000_000).max_value(1_900_000_000)));
-    let copies = matches!(writer, 5 | 6);
+    let copies = matches!(writer, 5 | 6 | 8);
     let bytes: &[u8] = if writer == 7 { b"[\n  1,\n  2\n]\n" } else { b"the new bytes" };
     let dir = tempfile::tempdir().unwrap();
     let src = dir.path().join("src.bin");
@@ -189,7 +297,12 @@ fn a_write_lands_whole_or_not_at_all(tc: hegel::TestCase) {
             assert_eq!(h, Hash::of(bytes));
             Some(t)
         }),
-        _ => write_json_atomic(&dst, &[1, 2]).map(|()| None),
+        7 => write_json_atomic(&dst, &[1, 2]).map(|()| None),
+        8 => copy_for_drive(&src, &dst, expected, &ctx).map(|h| {
+            assert_eq!(h, Hash::of(bytes));
+            None
+        }),
+        _ => write_for_drive(&dst, bytes).map(|()| None),
     };
     // Staging writes only next to the place: a folder there stops the persisting instead.
     let staged_only = matches!(writer, 4 | 6);
@@ -207,7 +320,7 @@ fn a_write_lands_whole_or_not_at_all(tc: hegel::TestCase) {
                 tmp.persist(&dst).unwrap();
             }
             assert_eq!(fs::read(&dst).unwrap(), bytes);
-            if let (true, Some(secs)) = (copies, mtime) {
+            if let (true, Some(secs)) = (matches!(writer, 5 | 6), mtime) {
                 assert_eq!(mtime_secs(&fs::metadata(&dst).unwrap()), secs);
             }
         }
