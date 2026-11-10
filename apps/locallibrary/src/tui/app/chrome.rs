@@ -89,6 +89,8 @@ impl App {
             || !self.analyzer.is_idle()
             || self.is_playing()
             || self.flash().is_some()
+            || self.covers.busy()
+            || self.transitions.active()
             || self.chord.is_some_and(|at| at.elapsed() < CHORD_HINT)
     }
 }

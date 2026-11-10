@@ -190,7 +190,7 @@ fn ascii_leaves_no_other_glyph_on_any_screen() {
     };
     let (mut app, _dir) = playing(analysis);
     all_ascii(&mut app, "playing");
-    app.fullscreen = true;
+    app.deck_layout = true;
     all_ascii(&mut app, "the deck");
     set_test_set(None);
 }

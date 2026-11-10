@@ -120,7 +120,7 @@ impl App {
                     self.show_drive_pane(pane);
                 } else if self.areas.overview.contains(p) {
                     self.seek_click(m.column);
-                } else if self.fullscreen && self.areas.matches.contains(p) {
+                } else if self.deck_showing() && self.areas.matches.contains(p) {
                     let i = self.next_pick.offset() + (m.row - self.areas.matches.y) as usize;
                     if i < self.list_len() {
                         self.next_pick.select(Some(i));

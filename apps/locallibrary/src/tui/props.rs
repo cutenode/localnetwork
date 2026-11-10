@@ -326,7 +326,7 @@ fn state(app: &mut App) {
 /// Esc, as often as it takes, puts away whatever's open (a dialog, a typed line, the help, full
 /// screen) once the background is done; then q quits.
 fn back_out(app: &mut App) {
-    let out = |a: &App| !a.input_taken() && !a.fullscreen;
+    let out = |a: &App| !a.input_taken() && !a.deck_layout;
     settle(app);
     // A quit asked for while the drive was written happens once the write is done: the walk
     // ended there.
@@ -481,7 +481,7 @@ struct Toggles {
     repeat: u8,
     /// Spectrum, mirror, scope, deck.
     vis: u8,
-    fullscreen: bool,
+    deck_layout: bool,
     quantize: bool,
     single: bool,
     auto_cue: bool,
@@ -509,7 +509,7 @@ impl Toggles {
                 Vis::Scope => 2,
                 Vis::Deck => 3,
             },
-            fullscreen: app.fullscreen,
+            deck_layout: app.deck_layout,
             quantize: app.deck.quantize,
             single: app.deck.single,
             auto_cue: app.deck.auto_cue,
@@ -537,7 +537,7 @@ impl Toggles {
             "s" => self.shuffle = !self.shuffle,
             "r" => self.repeat = (self.repeat + 1) % 3,
             "v" => self.vis = (self.vis + 1) % 4,
-            "f" => self.fullscreen = !self.fullscreen,
+            "f" => self.deck_layout = !self.deck_layout,
             "Q" => self.quantize = !self.quantize,
             "S" => self.single = !self.single,
             "A" => self.auto_cue = !self.auto_cue,
@@ -910,7 +910,7 @@ fn playing_keeps_the_queue_whole(tc: TestCase) {
                     _ if !free => {}
                     "x" => assert!(app.now.is_none(), "x stops"),
                     // In the library (not full screen, where it queues the pick) n is the next.
-                    "n" if !app.fullscreen && playing => {
+                    "n" if !app.deck_layout && playing => {
                         let want = if pos + 1 < len {
                             Some(pos + 1)
                         } else {

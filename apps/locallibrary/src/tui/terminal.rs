@@ -37,6 +37,8 @@ pub struct Answers {
     pub colours: Option<Colours>,
     /// It didn't finish answering in time, so the rest may yet come.
     pub late: bool,
+    /// It lists sixel graphics in what it says it is.
+    pub sixel: bool,
 }
 
 /// Whether the terminal's replies say 24-bit colour: a capability found, or the colour read back.
@@ -68,6 +70,15 @@ fn finished(reply: &[u8]) -> bool {
         let params = reply[at + 3..].iter().skip_while(|b| b.is_ascii_digit() || **b == b';');
         params.into_iter().next() == Some(&b'c')
     })
+}
+
+/// Whether DA1's answer (`ESC [ ? 62 ; 4 ; ... c`) has attribute 4: sixel graphics.
+#[cfg(unix)]
+fn says_sixel(reply: &[u8]) -> bool {
+    reply
+        .split(|b| *b == 0x1b)
+        .filter_map(|part| part.strip_prefix(b"[?")?.strip_suffix(b"c"))
+        .any(|attributes| attributes.split(|b| *b == b';').skip(1).any(|a| a == b"4"))
 }
 
 /// Asks, and reads the replies until DA1's answer or `deadline`: the replies, and whether it came.
@@ -109,19 +120,19 @@ fn readable(fd: std::os::fd::RawFd, wait: Duration) -> std::io::Result<bool> {
     }
 }
 
-/// Whether the terminal says it draws 24-bit colour, and whether it answered in time. Going wrong
-/// partway (a signal in select, a terminal closing) counts as not in time: its answers may be on
-/// their way.
+/// Whether the terminal says it draws 24-bit colour, whether it lists sixels, and whether it
+/// answered in time. Going wrong partway (a signal in select, a terminal closing) counts as not in
+/// time: its answers may be on their way.
 #[cfg(unix)]
-fn ask_truecolor(deadline: Instant) -> (bool, bool) {
+fn ask_terminal(deadline: Instant) -> (bool, bool, bool) {
     let asked = terminal_trx::terminal().and_then(|mut tty| ask(&mut tty.lock().enable_raw_mode()?, deadline));
-    asked.map_or((false, false), |(reply, done)| (says_truecolor(&reply), done))
+    asked.map_or((false, false, false), |(reply, done)| (says_truecolor(&reply), says_sixel(&reply), done))
 }
 
 /// Windows Terminal says so in the environment.
 #[cfg(not(unix))]
-fn ask_truecolor(_: Instant) -> (bool, bool) {
-    (false, true)
+fn ask_terminal(_: Instant) -> (bool, bool, bool) {
+    (false, false, true)
 }
 
 /// The terminal's colours, and whether it answered in time.
@@ -147,12 +158,12 @@ pub fn probe(on_terminal: bool, tier_forced: bool) -> Answers {
         return Answers::default();
     }
     let deadline = Instant::now() + TIMEOUT;
-    let (truecolor, in_time) = if tier_forced { (false, true) } else { ask_truecolor(deadline) };
+    let (truecolor, sixel, in_time) = if tier_forced { (false, false, true) } else { ask_terminal(deadline) };
     if !in_time {
-        return Answers { truecolor, colours: None, late: true };
+        return Answers { truecolor, colours: None, late: true, sixel };
     }
     let (colours, in_time) = ask_colours(deadline);
-    Answers { truecolor, colours, late: !in_time }
+    Answers { truecolor, colours, late: !in_time, sixel }
 }
 
 /// Answers that come after the player stopped waiting. The terminal's still sends them, into what

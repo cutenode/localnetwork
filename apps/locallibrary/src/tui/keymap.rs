@@ -8,6 +8,8 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use unicode_width::UnicodeWidthStr;
 
 use super::app::{App, DrivePane, Focus, View};
+use super::deck::BandMode;
+use super::keys::{KeyPalette, Notation};
 
 /// Where a binding applies. The keys of the most specific scope win: a key bound in the crate
 /// panel means that there, and what it means elsewhere everywhere else.
@@ -27,10 +29,10 @@ pub enum Scope {
     Details,
     /// The crate panel.
     Crate,
-    /// The digit row plays hot cues (the library in full screen, or with the pads on).
+    /// The digit row plays hot cues (the Deck layout, or with the pads on).
     Pads,
-    /// The library in full screen (footer hints only).
-    FullScreen,
+    /// The Deck layout.
+    Deck,
     /// What follows `g`.
     Goto,
     Prepare,
@@ -121,7 +123,22 @@ pub enum Act {
     LoopSize(bool),
     // Visuals
     Visualiser,
-    FullScreen,
+    /// The Library view's other layout.
+    DeckLayout,
+    /// Browse, over the Deck layout.
+    Browse,
+    /// The next way of colouring waveforms.
+    NextBands,
+    /// How waveforms are coloured (`None`: as the drive says).
+    Bands(Option<BandMode>),
+    KeyNotation(Notation),
+    KeyPalette(KeyPalette),
+    /// Seconds before a track's end the deck warns of it (0: not at all).
+    EndWarning(u16),
+    /// Cover art on or off.
+    Art(bool),
+    /// Forget what's been played this session.
+    ResetPlayed,
     /// Zoom in (true) or out.
     Zoom(bool),
     // Moving about
@@ -369,7 +386,7 @@ pub static KEYMAP: &[Binding] = &[
     tip(S::Tracks, "i", "info", 4),
     tip(S::Tracks, "t", "crate", 3),
     tip(S::Tracks, "T", "My Tag", 3),
-    tip(S::Tracks, "f", "full screen", 2),
+    tip(S::Tracks, "f", "deck", 2),
     tip(S::Tracks, "tab", "focus", 5),
     tip(S::Tree, "enter", "open", 9),
     tip(S::Tree, "e", "edit", 7),
@@ -402,6 +419,7 @@ pub static KEYMAP: &[Binding] = &[
     note(S::Library, "", "or filter: bpm:120-128 key:8A~ rating:>=4 -genre:house tag:Deep", G::Browsing),
     note(S::Library, "", "in the box: enter keeps it, esc clears it, ctrl-u empties it, ctrl-w deletes a word, tab searches the whole drive or the list shown", G::Browsing),
     note(S::Library, "Browse", "at the top of the tree: by artist, album, genre, key, BPM, rating, colour, date added, My Tags, sets, history, problems", G::Browsing),
+    key(S::Library, &[K::Ch('U')], "U", A::ResetPlayed, "forget what's been played", "bring back the tracks dimmed as played since starting", G::Browsing),
     key(S::Library, &[K::Ch('b')], "b  B", A::Sort, "sort by the next column", "sort by the next column / the other way (or click a header)", G::Browsing),
     key(S::Library, &[K::Ch('B')], "", A::SortReverse, "sort the other way", "", G::Browsing),
     key(S::Library, &[K::Ch('*')], "*", A::Ratings, "show or hide the rating column", "show / hide the rating column", G::Browsing),
@@ -491,19 +509,21 @@ pub static KEYMAP: &[Binding] = &[
     // -----------------------------------------------------------------------------------------
     // Full screen (hints: the keys are the deck's)
     // -----------------------------------------------------------------------------------------
-    tip(S::FullScreen, "1-8", "hot cue", 9),
-    tip(S::FullScreen, ", .", "beat", 8),
-    tip(S::FullScreen, "< >", "bar", 6),
-    tip(S::FullScreen, "Q", "quantize", 5),
-    tip(S::FullScreen, "l", "loop", 7),
-    tip(S::FullScreen, "c C", "cue", 6),
-    tip(S::FullScreen, "N P", "phrase", 5),
-    tip(S::FullScreen, "space", "pause", 8),
-    tip(S::FullScreen, "n p", "track", 4),
-    tip(S::FullScreen, "↑↓ enter", "play next", 7),
-    tip(S::FullScreen, "S", "autoplay", 5),
-    tip(S::FullScreen, "f", "back", 7),
-    key(S::Pads, &[K::Digits('1', '8')], "1 … 8", A::HotCue, "", "in full screen, or with the pads on: hot cue A … H (jumps there and plays)", G::Deck),
+    tip(S::Deck, "1-8", "hot cue", 9),
+    tip(S::Deck, ", .", "beat", 8),
+    tip(S::Deck, "< >", "bar", 6),
+    tip(S::Deck, "Q", "quantize", 5),
+    tip(S::Deck, "l", "loop", 7),
+    tip(S::Deck, "c C", "cue", 6),
+    tip(S::Deck, "N P", "phrase", 5),
+    tip(S::Deck, "space", "pause", 8),
+    tip(S::Deck, "n p", "track", 4),
+    tip(S::Deck, "↑↓ enter", "play next", 7),
+    tip(S::Deck, "S", "autoplay", 5),
+    key(S::Deck, &[K::Ch('b')], "b", A::Browse, "", "browse the library over the deck; loading a track or esc comes back", G::Visuals).hint("browse", 9),
+    key(S::Deck, &[K::Ch('w')], "w", A::NextBands, "", "the waveform's colours: BLUE, RGB, 3Band, as the drive says", G::Visuals).hint("colours", 3),
+    tip(S::Deck, "f", "library", 7),
+    key(S::Pads, &[K::Digits('1', '8')], "1 … 8", A::HotCue, "", "in the Deck layout, or with the pads on: hot cue A … H (jumps there and plays)", G::Deck),
     tip(S::Pads, "1-8", "hot cue", 9),
     // -----------------------------------------------------------------------------------------
     // After g
@@ -548,10 +568,10 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[K::Ch('S')], "S", A::Single, "autoplay on or off (single play)", "autoplay off (single play): stop after each track, the next one ready for space; again to play on", G::Deck),
     key(S::Global, &[K::Ch('A')], "A", A::AutoCue, "auto cue on or off", "auto cue: tracks start at their first memory cue, else their first beat", G::Deck),
     key(S::Global, &[K::Ch('d')], "d", A::Outputs, "the output to play through", "the output: the system's default, or another (headphones, an interface), remembered", G::Deck),
-    key(S::Global, &[K::Ch('v')], "v", A::Visualiser, "the next visualiser", "spectrum · mirror · scope · deck", G::Visuals),
-    key(S::Global, &[K::Ch('[')], "[  ]", A::Zoom(false), "zoom the deck out", "zoom the deck and cue lane out / in", G::Visuals),
+    key(S::Global, &[K::Ch('v')], "v", A::Visualiser, "the next visualiser", "spectrum · mirror · scope · none, in the Deck layout where there's room", G::Visuals),
+    key(S::Global, &[K::Ch('[')], "[  ]", A::Zoom(false), "zoom the deck out", "zoom the deck's waveform out / in", G::Visuals),
     key(S::Global, &[K::Ch(']')], "", A::Zoom(true), "zoom the deck in", "", G::Visuals),
-    key(S::Global, &[K::Ch('f')], "f", A::FullScreen, "full screen", "full screen: every visualiser at once", G::Visuals),
+    key(S::Global, &[K::Ch('f')], "f", A::DeckLayout, "switch between the Library and Deck layouts", "the Library layout or the Deck layout, where the deck takes the screen", G::Visuals),
     key(S::Global, &[K::Code(C::Up), K::Ch('k')], "↑ ↓  j k", A::Move(-1), "", "move", G::Moving),
     key(S::Global, &[K::Code(C::Down), K::Ch('j')], "", A::Move(1), "", "", G::Moving),
     key(S::Global, &[K::Code(C::PageUp)], "pgup  pgdn", A::Page(-1), "", "a page up / down", G::Moving),
@@ -591,6 +611,9 @@ pub fn scopes(app: &App) -> Vec<Scope> {
     let mut v = Vec::new();
     if app.replay_offer.is_some() {
         v.push(Scope::Replay);
+    }
+    if app.deck_showing() {
+        v.push(Scope::Deck);
     }
     if app.view == View::Library {
         v.push(match app.focus {
@@ -643,7 +666,7 @@ pub fn lookup(scopes: &[Scope], key: &KeyEvent) -> Option<&'static Binding> {
 /// The footer's hints now: the view's own first, then those for everywhere, as many as fit in
 /// `width` columns (the least important go first).
 pub fn hints(app: &App, width: usize) -> Vec<(String, &'static str)> {
-    let scopes = if app.view == View::Library && app.fullscreen { vec![Scope::FullScreen] } else { scopes(app) };
+    let scopes = if app.deck_showing() { vec![Scope::Deck] } else { scopes(app) };
     let mut out: Vec<(String, &'static str, u8)> = Vec::new();
     let pick = |b: &Binding, out: &mut Vec<(String, &'static str, u8)>| {
         let Some((label, prio)) = b.hint else { return };

@@ -6,7 +6,9 @@ Prepare, Drives, Recordings and Publish. `g` and a letter goes to one (`g l`, `g
 `g u`; pause after `g` and it lists them). Panes have numbers in their titles, and a digit jumps to
 that pane; the pane with focus has `▸` in its title as well as its border. The deck strip stays
 under every view, with what's playing, its waveform, tempo, key, time left, hot cues and loop.
-Dialogs open above it, and `esc` closes one thing at a time.
+Dialogs open above it, and `esc` closes one thing at a time. The Library view has two layouts, and
+`f` switches between them: the track table with the strip, and the Deck layout, where the deck
+takes the screen.
 
 Above the view a context line says which drive and list you're in, what's searched for and how much
 is marked. Under 30 rows the header carries it. Under the deck a status line says what keys do now,
@@ -19,8 +21,12 @@ needs.
 - **Library**: mounted drives (hot-plugged ones appear on their own, and an unplugged one is
   marked), the playlist tree with folders, and the track list with BPM, key and rekordbox's track
   colours (`*` adds the ratings, `#` the [My Tags](editing.md#my-tags)). Keys that mix with the
-  playing track, or with nothing playing the selected one, show green: the same key, ±1 or relative
-  on the Camelot wheel. **Browse**, at the top of the tree, groups the drive like a CDJ's top menu:
+  playing track, or with nothing playing the selected one, show green with how they mix beside
+  them: `=` the same key, `±` a step round the Camelot wheel, `↔` its relative. With a track
+  playing, ΔBPM says how far each track's tempo is from it: the player has one deck, so the track
+  playing is the master. Tracks heard for 30 seconds this session are dimmed, and `U` brings them
+  back. Each row has its cover's two main colours, read as the row comes on screen. **Browse**, at
+  the top of the tree, groups the drive like a CDJ's top menu:
   by artist, album, genre, key, BPM (5-BPM bands), rating, colour, month added, My Tag, the sets in
   the store (newest first, each with its tracks on this drive in the order played, and a count of
   the rest), the history lists players recorded, and problems.
@@ -121,10 +127,47 @@ needs.
   plays through the default and says so. An output that goes away mid-track (headphones
   unplugged) is let go of, and the track waits where it was: `space` plays on through whatever
   output there is then.
-- **Hot cue pads**: in full screen the number keys `1` to `8` play hot cues A to H the way a
+- **The Deck layout** (`f`): the track's waveforms and numbers on the whole screen, as on a CDJ's
+  display. `b` opens Browse over it, as a CDJ's BROWSE button does: the panes and the strip, until a
+  track's loaded or `esc`. The layout's kept between runs.
+  - The zoomed waveform scrolls past a playhead fixed in the middle, under a beat ruler with stronger
+    bar starts and bar numbers. `[` and `]` zoom it, from 1.5 to 60 seconds across.
+  - The overview stays still while its playhead moves, in eighths of a cell, the played part dimmed.
+    Click it to seek. Phrases run under it with rekordbox's labels, as colour alone where a label
+    wouldn't fit whole.
+  - Hot cues are lettered in their own colours, in a row over each waveform, with a second row where
+    two would share a cell or sit side by side, and loops are a tint.
+  - The tempo and time left are large, with the key a block beside them. Under 78 columns the time
+    left is a small line by the tempo. Under the waveforms a line has the time gone and the track's
+    length, how many bars and beats it is to the next cue and phrase, as bars.beats, and how the
+    deck's set, on two rows under 78 columns. Near the end of a track the time left turns red and
+    blinks, and END shows; with `LOCALLIBRARY_REDUCED_MOTION` it doesn't blink.
+  - `w` goes round rekordbox's waveform colours: BLUE, RGB, 3Band, and as the drive's My Settings
+    say. A drive with no `DEVSETTING.DAT` gets 3Band, and a track with no waveform of that kind (older
+    analysis has only blue) the nearest it has. The mode drawn is named in the line under the
+    waveforms.
+  - From 34 rows, what mixes into the track (compatible key on the Camelot wheel, tempo within 6% or
+    half/double time), the playlists it's in and a summary of its analysis are under the waveforms.
+    A track with no detail waveform gets a line saying so, and these take its rows at any height.
+    `↑` `↓` pick one of those tracks and `enter` (or a double-click) queues it to play next, marked
+    *next* in the list.
+  - With 9 rows or more for the top of the screen and room to spare, `v` picks what's beside the
+    tempo: a log-frequency spectrum with peak caps, a mirrored spectrum, an oscilloscope, or nothing.
+- **What the deck looks like** (`:`, all kept between runs and in `settings export`):
+  - Keys are written in Camelot (`8A`), Open Key (`1m`) or as notes (`Am`), everywhere the player
+    writes one.
+  - Key colours come from the theme, a colour wheel, or a palette made for protanopia, deuteranopia
+    or tritanopia (Mixxx's). The marks beside keys that mix say the same without colour.
+  - The warning before a track ends is at 15, 30 (unless you change it), 45 or 60 seconds, or off.
+  - Cover art can be turned off.
+- **Cover art**: the terminal's own graphics where it has them (kitty, iTerm2 or sixel), in half
+  blocks everywhere else, and a record for a track with none. There's no art with 16 colours or
+  ASCII icons, or inside tmux beyond half blocks. `LOCALLIBRARY_ART` names the graphics to use
+  (`kitty`, `iterm2`, `sixel`, `halfblocks`) when what's worked out is wrong.
+- **Hot cue pads**: in the Deck layout the number keys `1` to `8` play hot cues A to H the way a
   CDJ's pads do: the track jumps to the cue and plays (from pause too: a terminal can't tell when
-  a key is let go, so there's no previewing while it's held). `'` turns the pads on in the
-  library as well, until it's pressed again (digits jump to panes only while they're off).
+  a key is let go, so there's no previewing while it's held). `'` turns the pads on in every view,
+  until it's pressed again (digits jump to panes only while they're off).
   Each hot cue shows its key while the pads are on.
 - **Beat jumps and quantize**: `,` and `.` jump a beat back or forward along the track's beat
   grid, `<` and `>` a bar, `{` and `}` eight bars (a phrase); the arrows still seek by time.
@@ -139,27 +182,13 @@ needs.
   sample: the first time round it's kept in memory and then replayed from there, so going round
   doesn't read the drive. The player shows `LOOP` with its length in beats, and a loop made in the
   player is drawn like a saved one.
-- **Visualisers** (`v`): a log-frequency spectrum with peak caps, a mirrored spectrum, an
-  oscilloscope, and *deck*, rekordbox's scrolling colour waveform with beat ticks. The whole-track
-  overview waveform is in the deck strip; click it to seek. `v` picks what a small full screen
-  shows. `f` goes full screen and shows every
-  visualiser at once: the deck across the top, spectrum and scope side by side, the mirrored
-  spectrum beside the track details, and the cue lane along the bottom. Wide terminals also get a
-  details column: tracks on the drive that **mix into** the playing one (compatible key on the
-  Camelot wheel, tempo within 6% or half/double time), the playlists it's in, and a summary of its
-  analysis. `↑` `↓` pick one of those tracks and `enter` (or a double-click) queues it to play
-  next, marked *next* in the list.
 - **Phrases**: rekordbox's phrase analysis (Intro, Up, Down, Chorus, Verse, Bridge, Outro) shows
   as the current phrase and bar in the player, with a countdown to the next one, and as a strip
-  under the full-screen overview. `N` and `P` jump to the next and previous phrase. Keys show in
-  both Camelot and note names, whichever rekordbox stored.
-- **Cues** everywhere: under the spectrum and scope, a lane of the 32 seconds around the playhead
-  (by default) shows hot cues as lettered chips, memory cues as diamonds and loops as bars, with
-  their names and loop lengths in beats (`[` `]` zoom it). Memory cues and loops take the colours
-  they were given in rekordbox, and loop lengths are the ones rekordbox stored (½ beat, 4 beats),
-  not worked out from the tempo. The deck draws cue lines through the waveform and shades loops. The
-  visualiser flashes in a cue's colour as the playhead crosses it, and the player shows the next cue
-  with a countdown.
+  under the Deck layout's overview. `N` and `P` jump to the next and previous phrase.
+- **Cues**: memory cues and loops take the colours they were given in rekordbox, and loop lengths
+  are the ones rekordbox stored (½ beat, 4 beats), not worked out from the tempo. The visualiser
+  flashes in a cue's colour as the playhead crosses it, and the player shows the next cue with a
+  countdown.
 - **Changing the drive** (opt-in): `e`, or right-click, opens actions for the marked or selected
   tracks, the playlist shown and the crate: set the rating or colour, give them a My Tag, add them
   to a playlist (picked in the tree), remove them from the playlist, create, rename or delete a
@@ -285,6 +314,7 @@ Browsing:
 |  | or filter: bpm:120-128 key:8A~ rating:>=4 -genre:house tag:Deep |
 |  | in the box: enter keeps it, esc clears it, ctrl-u empties it, ctrl-w deletes a word, tab searches the whole drive or the list shown |
 | `Browse` | at the top of the tree: by artist, album, genre, key, BPM, rating, colour, date added, My Tags, sets, history, problems |
+| `U` | bring back the tracks dimmed as played since starting |
 | `b  B` | sort by the next column / the other way (or click a header) |
 | `*` | show / hide the rating column |
 | `#` | show / hide the My Tags column |
@@ -401,7 +431,7 @@ Deck:
 
 | Keys | |
 | --- | --- |
-| `1 … 8` | in full screen, or with the pads on: hot cue A … H (jumps there and plays) |
+| `1 … 8` | in the Deck layout, or with the pads on: hot cue A … H (jumps there and plays) |
 | `'` | pads on / off: the digit row plays hot cues instead of jumping to panes |
 | `,  .` | beat jump: one beat back / forward |
 | `<  >` | one bar (4 beats) back / forward |
@@ -418,9 +448,9 @@ Visuals:
 
 | Keys | |
 | --- | --- |
-| `v` | spectrum · mirror · scope · deck |
-| `[  ]` | zoom the deck and cue lane out / in |
-| `f` | full screen: every visualiser at once |
+| `v` | spectrum · mirror · scope · none, in the Deck layout where there's room |
+| `[  ]` | zoom the deck's waveform out / in |
+| `f` | the Library layout or the Deck layout, where the deck takes the screen |
 
 Moving about:
 
