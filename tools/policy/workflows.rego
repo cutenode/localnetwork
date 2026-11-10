@@ -8,6 +8,10 @@ import data.lib
 # pull request adds, which isn't a required check.
 ungated := {".github/workflows/dependency-review.yml"}
 
+# Gated workflows that check the pull request itself rather than its files, so they have nothing
+# to filter and no changes job: pr-issue.yml reads the description, branch and labels.
+unfiltered := {".github/workflows/pr-issue.yml"}
+
 # Jobs that never hold up the passed check: `report` posts coverage on the pull request, so a
 # comment that can't post never holds up a merge, and `semver` only reports breaking changes in the
 # loclib-* crates, which aren't published yet. In a gated workflow they stay out of passed's needs;
@@ -45,6 +49,7 @@ needs(job) := lib.strings(object.get(job, "needs", []))
 
 deny contains msg if {
 	some path, wf in gated
+	not path in unfiltered
 	not wf.jobs.changes
 	msg := sprintf("%s: add a `changes` job that runs dorny/paths-filter, which the other jobs need (see localtoolbox-ci.yml)", [path])
 }

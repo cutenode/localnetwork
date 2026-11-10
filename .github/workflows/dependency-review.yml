@@ -129,6 +129,11 @@ jobs:
           # elkjs (EPL-2.0 OR GPL-3.0-or-later) and robust-predicates (public domain and Unlicense,
           # which the graph reports as a LicenseRef) come with mermaid, a root dev dependency that
           # parses the READMEs' diagrams in tests. Neither ships with any tool.
+          # argparse (PSF-2.0) and sentry (FSL-1.1-Apache-2.0) come with Lighthouse CI, a dev dependency
+          # of the website. argparse is only used by js-yaml's command-line tool, not the library
+          # Lighthouse CI reads its config with. sentry is only used by @sentry/node's bundler plugins,
+          # and Lighthouse loads @sentry/node only with error reporting on, which it turns off without
+          # a terminal, as Lighthouse CI runs it. Neither ships with any tool.
           allow-dependencies-licenses: >-
             pkg:cargo/brotli-decompressor,
             pkg:githubactions/Swatinem/rust-cache,
@@ -146,6 +151,8 @@ jobs:
             pkg:npm/@img/sharp-win32-ia32,
             pkg:npm/@img/sharp-win32-x64,
             pkg:npm/@img/sharp-wasm32,
+            pkg:npm/argparse,
             pkg:npm/elkjs,
-            pkg:npm/robust-predicates
+            pkg:npm/robust-predicates,
+            pkg:npm/sentry
           comment-summary-in-pr: on-failure

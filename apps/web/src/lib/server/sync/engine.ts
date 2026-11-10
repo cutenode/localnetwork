@@ -6,10 +6,11 @@ import {
 	COMMIT_MAC_TYPE,
 	type Commit,
 	type RecordPathParts,
+	readRepoStar,
 	RepoCommit,
 	SpaceMacError,
-	verifyCommit,
-	verifyRepoStarFull
+	type VerifiedRecord,
+	verifyCommit
 } from '@atproto/space';
 import PQueue from 'p-queue';
 import { z } from 'zod';
@@ -72,7 +73,8 @@ export type SyncStatus = {
 	lastSyncedAt: string | null;
 	lastError: string | null;
 	registrationExpiresAt: string | null;
-	repos: { did: string; rev: string; lastSyncedAt: string; lastError: string | null }[];
+	/** A repo that has failed since before it ever synced has no rev or sync time. */
+	repos: { did: string; rev: string | null; lastSyncedAt: string | null; lastError: string | null }[];
 };
 
 /**
@@ -113,6 +115,17 @@ function authoritySaysGone(error: XrpcResponseError): boolean {
 /** Getting a credential fails for every repo in the space, so it ends the pass instead of counting against one repo. */
 const failsWholeSpace = (cause: unknown) =>
 	cause instanceof XrpcResponseError && cause.nsid === 'com.atproto.space.getSpaceCredential';
+
+const REPO_UNAVAILABLE = new Set(['RepoTakendown', 'RepoSuspended', 'RepoDeactivated']);
+
+/**
+ * Whether a writer's repo host won't serve the repo because the account is taken down, suspended, or
+ * deactivated. A full download fails the same way, and the pass carries on without it: the repo waits out its
+ * backoff, so it's picked up again once the account is back. The same errors from getSpaceCredential mean the
+ * authority's account is, which suspends the whole space.
+ */
+const isRepoUnavailable = (cause: unknown) =>
+	cause instanceof XrpcResponseError && REPO_UNAVAILABLE.has(cause.error) && !failsWholeSpace(cause);
 
 /** How long a repo waits after its `attempts`th failure in a row: 1 minute, doubling up to an hour. */
 const retryDelayMs = (attempts: number) => Math.min(60_000 * 2 ** (attempts - 1), 3_600_000);
@@ -253,7 +266,7 @@ export class SpaceSyncer {
 				for (const result of results) {
 					if (result.status === 'fulfilled') changed += Number(result.value);
 					else if (failsWholeSpace(result.reason)) throw result.reason;
-					else failures.push(result.reason);
+					else if (!isRepoUnavailable(result.reason)) failures.push(result.reason);
 				}
 			};
 
@@ -409,7 +422,7 @@ export class SpaceSyncer {
 						return;
 					} catch (error) {
 						// A full download would fail the same way: readVerified retries a MAC failure with a fresh KEM key.
-						if (isCredentialRejected(error) || isMacFailure(error)) throw error;
+						if (isCredentialRejected(error) || isMacFailure(error) || isRepoUnavailable(error)) throw error;
 						logger.info('incremental sync failed; recovering full repo', { err: error, space, repoDid });
 					}
 				}
@@ -422,6 +435,9 @@ export class SpaceSyncer {
 			const message = error instanceof Error ? error.message : String(error);
 
 			if (!failsWholeSpace(error)) await this.recordFailure(space, repoDid, message);
+
+			if (isRepoUnavailable(error))
+				logger.info('skipping a repo its host will not serve', { err: error, space, repoDid });
 
 			if (local) {
 				await db
@@ -566,8 +582,21 @@ export class SpaceSyncer {
 
 		if (!response.body) throw new Error('Empty repo response');
 
-		// A STAR archive: the commit (checked against the MAC), then every record, which must fold into its data.
-		const verified = await verifyRepoStarFull(response.body, { space, repo: repoDid, ...macParams() });
+		// A STAR archive: the commit, then every record, which must fold into its data. verifyRepoStar would check the
+		// commit too, but reports a MAC that doesn't verify as the same RepoVerificationError as an archive that
+		// doesn't parse, and only the first is worth refreshing the KEM key for.
+		const archive = await readRepoStar(response.body);
+		const records: VerifiedRecord[] = [];
+
+		try {
+			if (!verifyCommit(archive.commit, { space, repo: repoDid, ...macParams() })) {
+				throw new SpaceMacError('Commit does not match its MAC');
+			}
+
+			for await (const record of archive.records) records.push(record);
+		} finally {
+			await archive[Symbol.asyncDispose]();
+		}
 
 		const existing = await this.deps.db
 			.selectFrom('spaceRecord')
@@ -580,7 +609,7 @@ export class SpaceSyncer {
 		const changes: SyncedChange[] = [];
 		const known = new Map(existing.map((row) => [`${row.collection}/${row.rkey}`, row.cid]));
 
-		for (const record of verified.records) {
+		for (const record of records) {
 			const path = `${record.collection}/${record.rkey}`;
 			present.add(path);
 			const cid = record.cid.toString();
@@ -611,7 +640,7 @@ export class SpaceSyncer {
 			}
 		}
 
-		await this.apply(space, repoDid, pds, verified.commit, RepoCommit.fromRecords(verified.records), changes);
+		await this.apply(space, repoDid, pds, archive.commit, RepoCommit.fromRecords(records), changes);
 	}
 
 	private async apply(
@@ -811,10 +840,22 @@ export class SpaceSyncer {
 	async status(): Promise<SyncStatus[]> {
 		const watches = await this.deps.db.selectFrom('spaceWatch').selectAll().orderBy('createdAt').execute();
 
-		const repos = await this.deps.db
+		const synced = await this.deps.db
 			.selectFrom('syncedRepo')
 			.select(['spaceUri', 'repoDid', 'rev', 'lastSyncedAt', 'lastError'])
 			.execute();
+
+		// A repo that never synced has no syncedRepo row, only its retry, which is all that shows why.
+		const unsynced = await this.deps.db
+			.selectFrom('syncRepoRetry as retry')
+			.leftJoin('syncedRepo as synced', (join) =>
+				join.onRef('synced.spaceUri', '=', 'retry.spaceUri').onRef('synced.repoDid', '=', 'retry.repoDid')
+			)
+			.where('synced.repoDid', 'is', null)
+			.select(['retry.spaceUri', 'retry.repoDid', 'retry.lastError'])
+			.execute();
+
+		const repos = [...synced, ...unsynced.map((repo) => ({ ...repo, rev: null, lastSyncedAt: null }))];
 
 		return watches.map((watch) => ({
 			space: watch.spaceUri,
@@ -825,6 +866,7 @@ export class SpaceSyncer {
 			lastError: watch.lastError,
 			registrationExpiresAt: watch.registrationExpiresAt,
 			repos: repos
+				.values()
 				.filter((repo) => repo.spaceUri === watch.spaceUri)
 				.map((repo) => ({
 					did: repo.repoDid,
@@ -832,6 +874,7 @@ export class SpaceSyncer {
 					lastSyncedAt: repo.lastSyncedAt,
 					lastError: repo.lastError
 				}))
+				.toArray()
 		}));
 	}
 }

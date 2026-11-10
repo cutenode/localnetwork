@@ -5,11 +5,12 @@
 //!
 //! A track is one when its artist and title are an entry of [`DEMO_TRACKS`] (ignoring case and
 //! spacing), in either of the drive's databases (the library read `combined`). Removing them is
-//! one `delete_tracks` edit naming their audio files, which locallibrary plans, confirms and
+//! one `delete_unbacked` edit naming their audio files, which locallibrary plans, confirms and
 //! applies: every row of those files goes from both databases with its playlist and history
 //! entries, and so do the audio, analysis files and artwork no other track uses, and the artists,
-//! albums, genres, labels and keys only they used. A demo track sharing its file with another
-//! track stays, as deleting the file's rows would delete that track too.
+//! albums, genres, labels and keys only they used. The backup holds only the databases, as the
+//! next export puts the files back and each refresh removes them again. A demo track sharing its
+//! file with another track stays, as deleting the file's rows would delete that track too.
 
 use std::io::{Read, Write};
 
@@ -90,7 +91,7 @@ fn plan_op(req: PlanOp, host: &Host) -> Result<OpPlan, RpcError> {
     };
     let edits = match paths.is_empty() {
         true => Vec::new(),
-        false => vec![json!({ "op": "delete_tracks", "tracks": { "paths": paths } })],
+        false => vec![json!({ "op": "delete_unbacked", "tracks": { "paths": paths } })],
     };
     Ok(OpPlan { summary, warnings, edits, inputs: Vec::new() })
 }

@@ -6,12 +6,14 @@ use crate::common;
 use std::fs;
 use std::path::Path;
 
-use locallibrary::api::{self, LibraryCache, LibraryRequest};
+use locallibrary::api::{self, DriveRef, LibraryCache, LibraryRequest, UndoRequest};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, Edit, EditOptions, EditPlan};
 use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
-use locallibrary::{backup, paths};
+use locallibrary::query::TrackSelector;
+use locallibrary::tags::TagChange;
+use locallibrary::{Error, backup, paths};
 use loclib_plugin::{Incoming, OpPlan, PROTOCOL_VERSION, Peer, RpcError, method};
 use rekordbox_pdb::{Database, NewTrack, PdbEditor};
 use serde_json::{Value, json};
@@ -98,9 +100,9 @@ fn export(root: &Path, artist: &str, title: &str, album: Option<&str>, file: &st
 
 /// The demo tracks go from both databases with their entries, files and the album and genre
 /// only they used (entries renumbered without gaps); the DJ's track by rekordbox, its artist and
-/// its files stay; undoing brings them all back.
+/// its files stay; undoing brings the tracks back, without the files the backup left out.
 #[test]
-fn demo_tracks_go_from_both_databases_and_come_back_on_undo() {
+fn demo_tracks_go_from_both_databases_and_come_back_on_undo_without_their_files() {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
     let album = Some("GROOVE CIRCUIT FACTORY SAMPLES");
@@ -166,9 +168,184 @@ fn demo_tracks_go_from_both_databases_and_come_back_on_undo() {
     for lib in [common::library(&root), common::plus_library(&root)] {
         assert_eq!(lib.tracks.len(), 16);
         for t in &lib.tracks {
-            assert!(d.path(&paths::key(&t.file_path)).is_file(), "{} restored", t.file_path);
+            let sample = t.file_path.starts_with(SAMPLES);
+            assert_eq!(d.path(&paths::key(&t.file_path)).is_file(), !sample, "{}", t.file_path);
         }
     }
+}
+
+/// A drive holding one demo sample, in the demo export's playlists' company.
+fn drive_with_sample(dir: &Path) -> std::path::PathBuf {
+    let root = common::bigger_drive(dir, "Main");
+    export(&root, "rekordbox", "House 1", None, &format!("{SAMPLES}/House1.wav"), 1);
+    root
+}
+
+/// Every file below `dir`.
+fn files_below(dir: &Path) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut left = vec![dir.to_path_buf()];
+    while let Some(d) = left.pop() {
+        for e in fs::read_dir(d).unwrap().map(Result::unwrap) {
+            match e.file_type().unwrap().is_dir() {
+                true => left.push(e.path()),
+                false => found.push(e.path().display().to_string()),
+            }
+        }
+    }
+    found
+}
+
+/// A clean's backup holds the databases: it names the files it left out, and none of them is
+/// anywhere in it. The plan says what undo can't do before anything is deleted.
+#[test]
+fn a_clean_backs_up_only_the_databases() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = drive_with_sample(dir.path());
+    let (plan, report) = clean(&root);
+    assert_eq!(plan.files.len(), 3, "audio, .DAT and .EXT: {:?}", plan.files);
+    assert_eq!(plan.unbacked, plan.files);
+    assert_eq!(plan.changes, ["delete 1 track(s) (rekordbox's next export brings their files back, undo can't)"]);
+
+    let d = Device::open_export(&root).unwrap();
+    let b = backup::list(&d).unwrap().remove(0);
+    assert_eq!(Some(&b.id), report.backup.as_ref());
+    assert_eq!(b.audio, 0);
+    assert!(b.files.iter().all(|f| paths::DATABASE_FILES.contains(&f.as_str())), "{:?}", b.files);
+    assert_eq!(b.unbacked, plan.files);
+    let held = files_below(&backup::dir(&d, &b.id));
+    assert!(!held.iter().any(|f| f.contains("GROOVE") || f.contains("P0AA")), "{held:?}");
+}
+
+/// A sample too big for the drive to copy doesn't stop a clean: its plan counts only the
+/// databases. The same tracks deleted the usual way are backed up, so that plan doesn't fit.
+#[test]
+fn a_clean_runs_on_a_drive_too_full_to_copy_the_samples() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = drive_with_sample(dir.path());
+    let file = format!("{SAMPLES}/House1.wav");
+    let sample = paths::to_fs(&root, &paths::key(&file));
+    let free = locallibrary::fsutil::available_space(&root).unwrap();
+    let too_big = 2 * free + (1 << 30);
+    // NTFS allocates a file grown with `set_len` unless it's marked sparse first.
+    #[cfg(windows)]
+    assert!(std::process::Command::new("fsutil").args(["sparse", "setflag"]).arg(&sample).status().unwrap().success());
+    fs::File::options().write(true).open(&sample).unwrap().set_len(too_big).unwrap();
+
+    let plan = clean_plan(&root);
+    assert!(plan.fits && plan.needed_bytes < too_big, "needs {} of {too_big}", plan.needed_bytes);
+
+    let mut d = Device::open_export(&root).unwrap();
+    let plain = Edit::DeleteTracks { tracks: TrackSelector::paths([file]), keep_files: false };
+    let usual = edit::plan(&d, &[plain], &EditOptions::default(), &Ctx::silent()).unwrap();
+    assert!(!usual.fits && usual.needed_bytes > too_big, "needs {}", usual.needed_bytes);
+    let refused = edit::apply(&usual, &mut d, &Ctx::silent()).unwrap_err();
+    assert!(matches!(refused, Error::NoSpace { .. }), "{refused}");
+
+    // Small again: a copy of the sparse sample, were one to creep back, would fill the real disk.
+    fs::File::options().write(true).open(&sample).unwrap().set_len(11).unwrap();
+    edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+    assert!(!sample.exists());
+}
+
+/// Undoing a clean needs no force: the plan names the tracks that come back without their audio,
+/// and stepping back past it to an older backup does too. Nothing brings the files back, and a
+/// clean takes the tracks away again.
+#[test]
+fn undoing_a_clean_says_what_it_cant_restore() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = drive_with_sample(dir.path());
+    common::apply(&root, &[Edit::CreatePlaylist { path: "Before".into(), folder: false }]);
+    let (plan, _) = clean(&root);
+    let name = "rekordbox - House 1";
+    let undo = || UndoRequest { drive: Some(common::path(&root)), backup: None, force: false };
+
+    let planned = api::undo_plan(&undo()).unwrap();
+    assert_eq!(planned.plan.unbacked_audio, [name]);
+    assert!(planned.plan.missing_audio.is_empty(), "{:?}", planned.plan.missing_audio);
+    let warned = format!(
+        "1 track(s) come back without their audio until rekordbox's next export (e.g. {name}): it isn't in any backup"
+    );
+    assert_eq!(planned.warnings, [warned]);
+    let backup = Some(planned.plan.backup.id.clone());
+    let preview =
+        api::restore_preview(&api::RestoreBackup { drive: common::path(&root), backup, force: false }).unwrap();
+    assert_eq!((preview.unbacked_audio.as_slice(), preview.missing_audio.len()), ([name.to_string()].as_slice(), 0));
+    planned.apply(None, &Ctx::silent()).unwrap();
+    assert!(plan.files.iter().all(|f| !paths::to_fs(&root, f).exists()), "{:?}", plan.files);
+
+    // The backup before the clean lists the track too.
+    let older = api::undo_plan(&undo()).unwrap();
+    assert_eq!(
+        (older.plan.unbacked_audio.as_slice(), older.plan.missing_audio.len()),
+        ([name.to_string()].as_slice(), 0)
+    );
+    older.apply(None, &Ctx::silent()).unwrap();
+    assert!(common::library(&root).find_playlist("Before").is_none());
+
+    let again = clean_plan(&root);
+    assert_eq!((again.tracks_removed.len(), again.files.len()), (1, 0), "{:?}", again.files);
+    edit::apply(&again, &mut Device::open_export(&root).unwrap(), &Ctx::silent()).unwrap();
+    assert!(!common::library(&root).tracks.iter().any(|t| t.file_path.starts_with(SAMPLES)));
+}
+
+/// `edit.plan` and `edit.apply` take no `delete_unbacked`, whatever the drive: nothing changes.
+#[test]
+fn edit_plan_refuses_delete_unbacked() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = drive_with_sample(dir.path());
+    let file = format!("{SAMPLES}/House1.wav");
+    let tracks = TrackSelector::paths([file.clone()]);
+    let req = api::EditRequest {
+        drive: common::path(&root),
+        edits: vec![Edit::DeleteUnbacked { tracks }],
+        options: EditOptions::default(),
+    };
+    let before = common::Before::take(&root);
+    let said = "delete_unbacked is only for plugins with the library:delete-unbacked capability";
+    let planned = api::edit_plan(&req, &Ctx::silent()).map(drop).unwrap_err();
+    assert!(planned.to_string().contains(said), "{planned}");
+    let applied = api::edit_apply(&req, &Ctx::silent()).map(drop).unwrap_err();
+    assert!(applied.to_string().contains(said), "{applied}");
+    before.untouched(&root).unwrap();
+    assert!(paths::to_fs(&root, &paths::key(&file)).exists());
+}
+
+/// A clean is recorded as it was made, so replaying it after an export leaves the audio out of
+/// that backup too, also when a My Tag edit makes the plan one of steps.
+#[test]
+fn replaying_a_clean_leaves_the_audio_out_of_its_backup_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = drive_with_sample(dir.path());
+    let file = format!("{SAMPLES}/House1.wav");
+    let (_, report) = clean(&root);
+    let d = Device::open_export(&root).unwrap();
+    let recorded = edit::journal::list(&d).unwrap();
+    let one = recorded.iter().find(|e| e.backup == report.backup).unwrap();
+    assert!(matches!(one.edits.as_slice(), [Edit::DeleteUnbacked { .. }]), "{:?}", one.edits);
+    let stored: Value = serde_json::from_slice(&fs::read(d.state_dir().join("edits.json")).unwrap()).unwrap();
+    assert_eq!(stored["version"], 5);
+
+    export(&root, "rekordbox", "House 1", None, &file, 1);
+    let replay = api::edits_replay_apply(&DriveRef { drive: common::path(&root) }, &Ctx::silent()).unwrap();
+    assert!(replay.backup.is_some());
+    let d = Device::open_export(&root).unwrap();
+    let b = backup::list(&d).unwrap().remove(0);
+    assert_eq!((b.id.as_str(), b.audio, b.unbacked.len()), (replay.backup.as_deref().unwrap(), 0, 3));
+    assert!(!paths::to_fs(&root, &paths::key(&file)).exists());
+
+    export(&root, "rekordbox", "House 1", None, &file, 1);
+    common::add_onelibrary(&root);
+    let keeper = d.library().unwrap().tracks[0].file_path.clone();
+    let tag = Edit::MyTag(TagChange::Add { tag: "Genre/Deep".into(), tracks: vec![keeper] });
+    let delete = Edit::DeleteUnbacked { tracks: TrackSelector::paths([file.clone()]) };
+    let mut d = Device::open_export(&root).unwrap();
+    let plan = edit::plan(&d, &[tag, delete], &EditOptions::default(), &Ctx::silent()).unwrap();
+    assert_eq!(plan.unbacked.len(), 3, "{:?}", plan.unbacked);
+    let report = edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+    let b = backup::list(&d).unwrap().remove(0);
+    assert_eq!((Some(&b.id), b.audio, &b.unbacked), (report.backup.as_ref(), 0, &plan.unbacked));
+    assert!(!paths::to_fs(&root, &paths::key(&file)).exists());
 }
 
 /// A demo track only OneLibrary lists (rekordbox exported it there alone) goes from it, with its
@@ -188,7 +365,7 @@ fn a_demo_track_only_onelibrary_lists_goes_too() {
 
     let (plan, _) = clean(&root);
     assert_eq!(plan.tracks_removed.iter().map(|t| t.file_path.as_str()).collect::<Vec<_>>(), [file.as_str()]);
-    assert_eq!(plan.changes, ["delete 1 track(s)"]);
+    assert_eq!(plan.changes, ["delete 1 track(s) (rekordbox's next export brings their files back, undo can't)"]);
     assert!(plan.files.iter().any(|f| *f == paths::key(&file)), "{:?}", plan.files);
     assert!(plan.onelibrary_changes);
     assert_eq!(common::plus_library(&root).tracks.len(), 12);

@@ -919,11 +919,16 @@ fn backups(drive: Option<String>, out: Output) -> Result<ExitCode> {
     Ok(outcome.exit())
 }
 
-/// What a backup holds, in a few words: `12 file(s), 4 audio` (audio may be a track's only copy).
+/// What a backup holds, in a few words: `12 file(s), 4 audio` (audio may be a track's only copy),
+/// and how many files its change deleted that it can't put back.
 pub fn backup_files(b: &locallibrary::backup::BackupInfo) -> String {
-    match b.audio {
+    let held = match b.audio {
         0 => format!("{} file(s)", b.files.len()),
         n => format!("{} file(s), {n} audio", b.files.len()),
+    };
+    match b.unbacked.len() {
+        0 => held,
+        n => format!("{held}, {n} deleted not kept"),
     }
 }
 

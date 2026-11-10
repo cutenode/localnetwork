@@ -172,7 +172,7 @@ impl OneLibrary {
     /// A track's cue rows, oldest first.
     pub fn cue_rows(&self, content_id: u32) -> Result<Vec<CueRow>> {
         let mut stmt = self.conn.prepare("SELECT * FROM cue WHERE content_id = ?1 ORDER BY cue_id")?;
-        let names: Vec<String> = stmt.column_names().into_iter().map(String::from).collect();
+        let names: Vec<String> = stmt.column_names().map(String::from).collect();
         let mut rows = stmt.query([content_id])?;
         let mut out = Vec::new();
         while let Some(r) = rows.next()? {

@@ -462,7 +462,7 @@ pub fn apply(
     let _lock = crate::commit::lock(target, None)?;
     if target.has_export() {
         let reason = format!("before packing from {}", plan.source);
-        report.backup = Some(backup::create(target, &reason, &plan.written.backed_up, None)?.id);
+        report.backup = Some(backup::create(target, &reason, &plan.written.backed_up, &[], None)?.id);
     }
     target.begin(LineageOp::Pack, format!("pack from {}", plan.source), report.backup.clone())?;
     let identity = crate::player::stash(target, plan.databases.plus.is_some())?;
