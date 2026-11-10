@@ -6,8 +6,8 @@ use locallibrary::{DeviceInfo, Track};
 use loclib_plugin::{FieldDisplay, FieldFormat};
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Margin, Rect};
-use ratatui::style::Modifier;
-use ratatui::text::{Line, Span};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{
     Cell, HighlightSpacing, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState,
     Table, TableState, Wrap,
@@ -483,6 +483,17 @@ fn mixes_with(from: &Option<(Camelot, String)>, t: &Track, k: Option<Camelot>) -
     from.as_ref().filter(|(_, path)| *path != t.file_path).and_then(|(key, _)| key.relation(k?))
 }
 
+/// A number on the right of its column. `Line::styled` would copy it: it splits text into lines.
+fn number(s: String, style: Style) -> Cell<'static> {
+    Cell::from(Line::from(Span::raw(s)).style(style).right_aligned())
+}
+
+/// A cell with nothing in it. `Cell::new("")` allocates a line for it, and `Cell::default()` spans no
+/// columns, so the cells after it would move left.
+fn empty() -> Cell<'static> {
+    Cell::from(Text::default())
+}
+
 fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focus == Focus::Tracks;
     let (heading, count) = match &app.loaded {
@@ -605,7 +616,7 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
     // underlined too.
     let mix_style = if theme::flat() { Modifier::UNDERLINED } else { Modifier::empty() };
     let (notation, key_palette) = (app.deck.notation, app.deck.key_palette);
-    let root = l.root().to_path_buf();
+    let root = l.root();
     app.covers.new_frame();
     let (covers, played) = (&mut app.covers, &app.played_tracks);
 
@@ -630,11 +641,8 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
             let color = tr.color.map_or(Span::raw(" "), theme::colour_dot);
             let chip = (tr.artwork_id.zip(tr.artwork_path.as_deref()))
                 .filter(|_| chips)
-                .and_then(|(id, path)| covers.chip(&root, id, path))
-                .map_or_else(
-                    || Cell::new(""),
-                    |[main, second]| Cell::from(Span::styled("▌", fg(main).bg(theme::rgb3(second)))),
-                );
+                .and_then(|(id, path)| covers.chip(root, id, path))
+                .map_or_else(empty, |[main, second]| Cell::from(Span::styled("▌", fg(main).bg(theme::rgb3(second)))));
             let problem = if l.problems.is_missing(i) {
                 Span::styled(icons::CROSS.get(), bold(theme::current().critical))
             } else if l.problems.has_copies(i) {
@@ -644,16 +652,19 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
             };
             let title_style = if is_playing { bold(theme::current().accent) } else { text() };
             let key = Camelot::parse(&tr.key);
-            let mut cells = vec![Cell::from(indicator), Cell::from(color), chip, Cell::from(problem)];
+            let narrow = [Cell::from(indicator), Cell::from(color), chip, Cell::from(problem)];
+            // Sized once: pushed a column at a time, it would grow twice a row.
+            let mut cells = Vec::with_capacity(narrow.len() + cols.len());
+            cells.extend(narrow);
             for c in &cols {
                 cells.push(match c {
-                    Col::Title => Cell::from(Span::styled(tr.title.clone(), title_style)),
+                    Col::Title => Cell::from(Span::styled(tr.title.as_str(), title_style)),
                     Col::Artist => Cell::from(Span::styled(
-                        tr.artist.clone(),
+                        tr.artist.as_str(),
                         fg(theme::mix(theme::current().text, theme::current().dim, 0.4)),
                     )),
-                    Col::Album => Cell::from(Span::styled(tr.album.clone(), dim())),
-                    Col::Genre => Cell::from(Span::styled(tr.genre.clone(), dim())),
+                    Col::Album => Cell::from(Span::styled(tr.album.as_str(), dim())),
+                    Col::Genre => Cell::from(Span::styled(tr.genre.as_str(), dim())),
                     Col::Tags => {
                         let key = locallibrary::paths::file_key(&tr.file_path);
                         let tags = my_tags.as_ref().and_then(|t| t.get(&key));
@@ -663,14 +674,14 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
                     }
                     Col::Rating => Cell::from(Span::styled(rating(tr.rating), fg(theme::current().warning))),
                     Col::Added => Cell::from(Span::styled(tr.date_added.chars().take(10).collect::<String>(), dim())),
-                    Col::Plays => Cell::from(Line::styled(tr.play_count.to_string(), dim()).right_aligned()),
+                    Col::Plays => number(tr.play_count.to_string(), dim()),
                     Col::Bpm => {
                         let bpm = if tr.bpm > 0.0 { format!("{:>6.1}", tr.bpm) } else { String::new() };
-                        Cell::from(Line::styled(bpm, fg(theme::current().warning)).right_aligned())
+                        number(bpm, fg(theme::current().warning))
                     }
                     Col::BpmGap => {
                         let gap = master.filter(|_| tr.bpm > 0.0 && !is_playing).map(|m| tr.bpm - m);
-                        gap.map_or_else(|| Cell::new(""), |g| Cell::from(Span::styled(format!("{g:>+6.1}"), dim())))
+                        gap.map_or_else(empty, |g| Cell::from(Span::styled(format!("{g:>+6.1}"), dim())))
                     }
                     Col::Key => {
                         let own = key.and_then(|k| key_palette.colour(k)).filter(|_| !theme::flat());
@@ -689,7 +700,7 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
                             None => Cell::from(Line::from(vec![Span::raw(" "), shown(name)])),
                         }
                     }
-                    Col::Time => Cell::from(Line::styled(clock(tr.duration_secs as f64), dim()).right_aligned()),
+                    Col::Time => number(clock(tr.duration_secs as f64), dim()),
                     Col::Field(name) => {
                         let value = values.as_ref().and_then(|v| v.get(tr.id, name.as_str()));
                         Cell::from(value.map(|v| field_cell(v, field_hint(*name))).unwrap_or_default())
