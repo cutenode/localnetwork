@@ -1,0 +1,40 @@
+{
+	"$schema": "https://unpkg.com/knip@6/schema.json",
+	"ignoreExportsUsedInFile": true,
+	// Vendored from upstream byte for byte (tools/oxlint/anti-slop/UPSTREAM.md).
+	"ignoreIssues": { "tools/oxlint/anti-slop/**": ["exports"] },
+	"workspaces": {
+		".": {
+			// The workflows set their folder with `defaults.run.working-directory`, which knip's GitHub
+			// Actions plugin doesn't read, so it looks for apps/web's binaries in the root package.
+			"ignoreBinaries": ["playwright", "tsx"],
+			// tools/policy.sh runs it from node_modules/.bin, and knip doesn't read shell scripts.
+			"ignoreDependencies": ["@lavamoat/harden"],
+			// locallibrary's RPC types for sidecar clients, written by `locallibrary rpc --emit-schema`.
+			"ignore": ["apps/locallibrary/docs/rpc/locallibrary.d.ts"]
+		},
+		"apps/web": {
+			// Vite's `#lexicon-files` alias (vite.config.ts); package.json's imports point Node elsewhere.
+			"entry": ["src/lib/server/atproto/lexicon-files.ts"],
+			// src/lib/server/og/render.ts resolves their font files by path at runtime.
+			"ignoreDependencies": ["@fontsource/instrument-sans", "@fontsource/jetbrains-mono"]
+		},
+		"apps/localtoolbox": {
+			// content.css ships as written (vite.config.ts), vitest.config.ts passes svelte.config.ts by
+			// path, and stryker.config.mjs names vitest.stryker.config.ts.
+			"entry": ["content.css", "svelte.config.ts", "vitest.stryker.config.ts"],
+			// shadcn-svelte's generated components keep their whole API.
+			"ignoreIssues": { "src/lib/components/ui/**": ["exports", "types"] }
+		},
+		"apps/locallibrary/bombadil": {
+			// tui.mjs and report.mjs start these by path: Bombadil's specifications and two helpers.
+			"entry": ["tui.ts", "report.ts", "make-mix.mjs", "serve.mjs"]
+		},
+		"packages/atstore": {
+			// src/render.ts resolves the font files by a computed name.
+			"ignoreDependencies": ["@fontsource-variable/instrument-sans", "@fontsource-variable/jetbrains-mono"],
+			// macOS's own tools, which src/sticks.ts runs.
+			"ignoreBinaries": ["hdiutil", "plutil"]
+		}
+	}
+}

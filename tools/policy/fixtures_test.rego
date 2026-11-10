@@ -37,8 +37,8 @@ repo := [
 		"devDependencies": {"oxlint": "1.86.0"},
 		"scripts": {
 			"dev": "vite dev", "build": "vite build", "check": "svelte-check", "lint": "oxlint", "format": "oxfmt",
-			"format:check": "oxfmt --check", "knip": "knip", "test": "vitest run", "test:coverage": "vitest run --coverage",
-			"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm knip && pnpm test:coverage",
+			"format:check": "oxfmt --check", "test": "vitest run", "test:coverage": "vitest run --coverage",
+			"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm test:coverage",
 		},
 	}},
 	{"path": "apps/site/Dockerfile", "contents": []},

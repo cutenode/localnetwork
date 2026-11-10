@@ -31,7 +31,7 @@ jobs:
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm check
-      - run: pnpm knip
+      - run: pnpm -w knip
       # The suite runs the real build too (test/build.test.ts) and checks what lands in dist/.
       - run: pnpm test:coverage
       # The same suite in a random order, then every test twice over, as `pnpm verify` runs it: a
