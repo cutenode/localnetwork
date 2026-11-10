@@ -1,9 +1,8 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
-	import Badge from './Badge.svelte';
 	import Tag from './Tag.svelte';
 
-	const { Story } = defineMeta({ title: 'Primitives/Tag and badge', component: Tag, tags: ['autodocs'] });
+	const { Story } = defineMeta({ title: 'Primitives/Tag', component: Tag, tags: ['autodocs'] });
 </script>
 
 <script lang="ts">
@@ -26,8 +25,4 @@
 
 <Story name="Mono" asChild>
 	<div class="flex flex-wrap gap-1.5"><Tag variant="mono">club</Tag><Tag variant="mono">radio</Tag><Tag variant="mono">livestream</Tag></div>
-</Story>
-
-<Story name="Badge" asChild>
-	<Badge label="New" href="/mixes">Mixes now show every track and transition</Badge>
 </Story>
