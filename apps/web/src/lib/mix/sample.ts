@@ -85,6 +85,7 @@ export const sampleReport: MixReport = {
 /**
  * The sample with the pitch fader ridden through its second track, a 124 BPM track: +0% from
  * 5:00, a line only searched at (+12%, outside the ride) from 6:00, then +8% from 7:00.
+ * @internal
  */
 export const riddenReport: MixReport = {
 	...sampleReport,

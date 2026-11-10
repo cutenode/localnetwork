@@ -3,6 +3,10 @@
 	"ignoreExportsUsedInFile": true,
 	// Vendored from upstream byte for byte (tools/oxlint/anti-slop/UPSTREAM.md).
 	"ignoreIssues": { "tools/oxlint/anti-slop/**": ["exports"] },
+	// A pattern ending in ! is production code, which `knip --production` checks; one wrapped in !…!
+	// leaves that code out of the production run only. Each `project` lists the extensions knip's
+	// default would, since setting it replaces the default. An export only tests, stories or scripts
+	// use is tagged @internal, which the production run skips.
 	"workspaces": {
 		".": {
 			// The workflows set their folder with `defaults.run.working-directory`, which knip's GitHub
@@ -11,24 +15,53 @@
 			// tools/policy.sh runs it from node_modules/.bin, and knip doesn't read shell scripts.
 			"ignoreDependencies": ["@lavamoat/harden"],
 			// locallibrary's RPC types for sidecar clients, written by `locallibrary rpc --emit-schema`.
-			"ignore": ["apps/locallibrary/docs/rpc/locallibrary.d.ts"]
+			"ignore": ["apps/locallibrary/docs/rpc/locallibrary.d.ts"],
+			// The repo's own tooling: nothing here ships.
+			"project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}"]
 		},
 		"apps/web": {
 			// Vite's `#lexicon-files` alias (vite.config.ts); package.json's imports point Node elsewhere.
-			"entry": ["src/lib/server/atproto/lexicon-files.ts"],
+			// The Docker image ships scripts/db-backup.ts, for restores. The default run calls that entry
+			// redundant (package.json's db: scripts reach it), but the production run only reads `start`.
+			"entry": ["src/lib/server/atproto/lexicon-files.ts!", "scripts/db-backup.ts!"],
+			"project": [
+				"**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts,mdx,svelte,css}!",
+				"!{scripts,tests,.storybook}/**!",
+				"!lighthouserc.cjs!",
+				// Test and story helpers.
+				"!src/lib/{testing,server/testing}/**!",
+				"!src/**/*fixtures.ts!",
+				"!src/lib/components/form/FormActionsHarness.svelte!",
+				"!src/lib/og/cards/CardPreview.svelte!"
+			],
 			// src/lib/server/og/render.ts resolves their font files by path at runtime.
 			"ignoreDependencies": ["@fontsource/instrument-sans", "@fontsource/jetbrains-mono"]
 		},
 		"apps/localtoolbox": {
-			// content.css ships as written (vite.config.ts), vitest.config.ts passes svelte.config.ts by
-			// path, and stryker.config.mjs names vitest.stryker.config.ts.
-			"entry": ["content.css", "svelte.config.ts", "vitest.stryker.config.ts"],
+			// The content script and the popup's classic scripts, and content.css, which ships as written
+			// (vite.config.ts). vitest.config.ts passes svelte.config.ts by path, and stryker.config.mjs
+			// names vitest.stryker.config.ts.
+			"entry": [
+				"content.ts!",
+				"downloaded-store.ts!",
+				"state-transfer.ts!",
+				"content.css!",
+				"svelte.config.ts",
+				"vitest.stryker.config.ts"
+			],
+			"project": [
+				"**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts,svelte,css}!",
+				"!{test,scripts}/**!",
+				"!stryker-load-time.mjs!"
+			],
 			// shadcn-svelte's generated components keep their whole API.
 			"ignoreIssues": { "src/lib/components/ui/**": ["exports", "types"] }
 		},
 		"apps/locallibrary/bombadil": {
 			// tui.mjs and report.mjs start these by path: Bombadil's specifications and two helpers.
-			"entry": ["tui.ts", "report.ts", "make-mix.mjs", "serve.mjs"]
+			"entry": ["tui.ts", "report.ts", "make-mix.mjs", "serve.mjs"],
+			// Test tooling: nothing here ships.
+			"project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}"]
 		},
 		"packages/atstore": {
 			// src/render.ts resolves the font files by a computed name.
