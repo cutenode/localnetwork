@@ -18,9 +18,9 @@ Check a flag on the website with `locals.flags.newPlanner` on the server or `dat
 
 ```text
 bucket(key, did) = the first 4 bytes of sha256(key + did), big-endian, mod 100
-on = everyone || targeted || (did is known && bucket(key, did) < percentage)
+on = enabled && (everyone || targeted || (did is known && bucket(key, did) < percentage))
 ```
 
-`targeted` means the account is one of the flag's accounts or in one of its groups. Only the website can know that, since those lists are private; it says so through `computer.localnetwork.flags.getFlags`, for clients that can't read them. Raising a percentage only adds accounts. Signed-out visitors have no DID, so they only get flags on for everyone.
+`enabled` is false once someone turns the flag off for everyone, which keeps the other gates for when it's back on. A record that doesn't say is enabled. `targeted` means the account is one of the flag's accounts or in one of its groups. Only the website can know that, since those lists are private; it says so through `computer.localnetwork.flags.getFlags`, for clients that can't read them. Raising a percentage only adds accounts. Signed-out visitors have no DID, so they only get flags on for everyone.
 
-`vectors.json` holds computed answers. The website's tests run them, and anything else that decides a flag has to give the same answers. If a case has to change, the rule changed, and accounts will move in or out of every rollout.
+`vectors.json` holds computed answers. The website's tests run them, and anything else that decides a flag has to give the same answers. A case without `enabled` is enabled. If a case has to change, the rule changed, and accounts will move in or out of every rollout.

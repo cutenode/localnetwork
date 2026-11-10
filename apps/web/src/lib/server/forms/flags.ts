@@ -41,6 +41,7 @@ async function accounts(form: FormData, name: string, identity: Resolver): Promi
 
 export async function flagInput(form: FormData, identity: Resolver): Promise<FlagInput> {
 	return {
+		enabled: form.get('off') !== 'on',
 		everyone: form.get('everyone') === 'on',
 		percentage: wholeNumber(text(form, 'percentage', 8), 'Percentage', 0, 100) ?? 0,
 		groups: all(form, 'groups', 100),

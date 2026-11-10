@@ -14,7 +14,7 @@ const OTHER = 'did:plc:other';
 
 const FLAG = 'parityCanary';
 
-const off = { everyone: false, percentage: 0, groups: [], dids: [] };
+const off = { enabled: true, everyone: false, percentage: 0, groups: [], dids: [] };
 
 describe('FlagService', () => {
 	let t: Awaited<ReturnType<typeof createTestServices>>;
@@ -42,7 +42,9 @@ describe('FlagService', () => {
 	it('starts every flag off, for everyone', async () => {
 		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: false });
 		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: false });
-		expect(await t.flags.answers(DJ)).toEqual([{ key: FLAG, everyone: false, percentage: 0, targeted: false }]);
+		expect(await t.flags.answers(DJ)).toEqual([
+			{ key: FLAG, enabled: true, everyone: false, percentage: 0, targeted: false }
+		]);
 	});
 
 	it('reads the index again after failing to', async () => {
@@ -91,9 +93,58 @@ describe('FlagService', () => {
 	it('tells a caller its own targeting and never who else', async () => {
 		await t.flags.updateFlag(await t.viewer(ADMIN), FLAG, { ...off, percentage: 25, dids: [DJ] });
 
-		expect(await t.flags.answers(DJ)).toEqual([{ key: FLAG, everyone: false, percentage: 25, targeted: true }]);
-		expect(await t.flags.answers(OTHER)).toEqual([{ key: FLAG, everyone: false, percentage: 25, targeted: false }]);
-		expect(await t.flags.answers(null)).toEqual([{ key: FLAG, everyone: false, percentage: 25, targeted: false }]);
+		expect(await t.flags.answers(DJ)).toEqual([
+			{ key: FLAG, enabled: true, everyone: false, percentage: 25, targeted: true }
+		]);
+		expect(await t.flags.answers(OTHER)).toEqual([
+			{ key: FLAG, enabled: true, everyone: false, percentage: 25, targeted: false }
+		]);
+		expect(await t.flags.answers(null)).toEqual([
+			{ key: FLAG, enabled: true, everyone: false, percentage: 25, targeted: false }
+		]);
+	});
+
+	it('turns a flag off for everyone and keeps who it was for', async () => {
+		const admin = await t.viewer(ADMIN);
+		const rkey = await t.flags.createGroup(admin, { name: 'Beta', members: [OTHER] });
+		const targeting = { everyone: true, percentage: 30, groups: [rkey], dids: [DJ] };
+		await t.flags.updateFlag(admin, FLAG, { ...targeting, enabled: true });
+		await t.flags.updateFlag(admin, FLAG, { ...targeting, enabled: false });
+		await t.audit.idle();
+
+		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: false });
+		expect(await t.flags.evaluate(OTHER)).toEqual({ [FLAG]: false });
+		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: false });
+		expect(await t.flags.answers(DJ)).toEqual([
+			{ key: FLAG, enabled: false, everyone: true, percentage: 30, targeted: true }
+		]);
+		expect(stored(COLLECTION.staffFlag, FLAG)?.value).toMatchObject({ enabled: false, ...targeting });
+		expect(await t.flags.flag(FLAG)).toMatchObject({ enabled: false, everyone: true, percentage: 30 });
+		const [entry] = await t.audit.list({ action: 'flag.update' });
+
+		expect(entry).toMatchObject({ summary: `Turned ${FLAG} off for everyone` });
+		expect(JSON.parse(entry.changes ?? '')).toEqual([{ field: 'enabled', before: 'true', after: 'false' }]);
+
+		await t.flags.updateFlag(admin, FLAG, { ...targeting, enabled: true });
+		await t.audit.idle();
+
+		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: true });
+		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: true });
+		expect((await t.audit.list({ action: 'flag.update' }))[0]).toMatchObject({ summary: `Turned ${FLAG} back on` });
+	});
+
+	it('reads a synced record that does not say whether it is enabled as enabled', async () => {
+		const uri = spaceRecordUri(t.spaces.staff, t.core.rootDid, COLLECTION.staffFlag, FLAG);
+		const record = { key: FLAG, everyone: true, percentage: 0, groups: [], dids: [], updatedBy: ADMIN };
+
+		await t.flags.indexFlag(uri, { ...record, updatedAt: '2026-11-01T00:00:00.000Z' });
+
+		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: true });
+
+		await t.flags.indexFlag(uri, { ...record, enabled: false, updatedAt: '2026-11-02T00:00:00.000Z' });
+
+		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: false });
+		expect(await t.flags.flag(FLAG)).toMatchObject({ enabled: false, everyone: true });
 	});
 
 	it('writes to the staff space and logs what changed', async () => {

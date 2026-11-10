@@ -21,7 +21,7 @@ The separate area where staff moderate and run the site. Only staff can see it. 
 _Avoid_: admin dashboard, admin panel
 
 **Flag**:
-A switch that turns a feature on for some people before everyone. Staff set who it's on for in the staff console. Flags are for rolling something out, not for keeping anyone out.
+A switch that turns a feature on for some people before everyone. Staff set who it's on for in the staff console. Flags are for rolling something out, not for keeping anyone out. Turning one off for everyone keeps who it was on for, ready for when it's back on.
 _Avoid_: feature toggle, experiment, setting
 
 **Flag group**:

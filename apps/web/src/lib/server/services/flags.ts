@@ -15,6 +15,7 @@ import type { StaffService } from './staff';
 
 export const flagRecord = z.object({
 	key: z.string(),
+	enabled: z.boolean().optional(),
 	everyone: z.boolean(),
 	percentage: z.number().int().min(0).max(100),
 	groups: z.array(z.string()),
@@ -39,12 +40,12 @@ type FlagGroupRecord = z.infer<typeof flagGroupRecord>;
 /** What getFlags tells a caller about a flag. */
 export type FlagAnswer = FlagGates & { key: FlagKey };
 
-export type FlagInput = Pick<FlagRecord, 'everyone' | 'percentage' | 'groups' | 'dids'>;
+export type FlagInput = Pick<FlagRecord, 'everyone' | 'percentage' | 'groups' | 'dids'> & { enabled: boolean };
 
 export type FlagGroupInput = Pick<FlagGroupRecord, 'name' | 'description' | 'members'>;
 
 type Loaded = {
-	flags: Map<string, Pick<FlagRecord, 'everyone' | 'percentage' | 'groups' | 'dids' | 'updatedAt'>>;
+	flags: Map<string, FlagInput & Pick<FlagRecord, 'updatedAt'>>;
 	groups: Map<string, Omit<FlagGroupRecord, 'members'> & { members: Set<string> }>;
 };
 
@@ -53,6 +54,7 @@ const list = (items: string[]) => items.toSorted().join(', ');
 /** The audit changes between two flags' gates. Empty when saving changes nothing. */
 function flagChanges(before: FlagInput, after: FlagInput): AuditChange[] {
 	const fields = [
+		['enabled', String(before.enabled), String(after.enabled)],
 		['everyone', String(before.everyone), String(after.everyone)],
 		['percentage', String(before.percentage), String(after.percentage)],
 		['groups', list(before.groups), list(after.groups)],
@@ -99,6 +101,7 @@ export class FlagService {
 				flags.map((row) => [
 					row.key,
 					{
+						enabled: row.enabled === 1,
 						everyone: row.everyone === 1,
 						percentage: row.percentage,
 						groups: parseJson<string[]>(row.groupRkeys, []),
@@ -133,7 +136,13 @@ export class FlagService {
 			const targeted =
 				!!did && !!flag && (flag.dids.includes(did) || flag.groups.some((rkey) => groups.get(rkey)?.members.has(did)));
 
-			return { key, everyone: flag?.everyone ?? false, percentage: flag?.percentage ?? 0, targeted };
+			return {
+				key,
+				enabled: flag?.enabled ?? true,
+				everyone: flag?.everyone ?? false,
+				percentage: flag?.percentage ?? 0,
+				targeted
+			};
 		});
 	}
 
@@ -155,6 +164,7 @@ export class FlagService {
 			return {
 				key,
 				description,
+				enabled: flag?.enabled ?? true,
 				everyone: flag?.everyone ?? false,
 				percentage: flag?.percentage ?? 0,
 				groups: (flag?.groups ?? []).map((rkey) => ({ rkey, name: groups.get(rkey)?.name ?? rkey })),
@@ -209,7 +219,8 @@ export class FlagService {
 		const { flags, groups } = await this.load();
 
 		if (input.groups.some((rkey) => !groups.has(rkey))) throw new UserError('That group no longer exists');
-		const changes = flagChanges(flags.get(key) ?? { everyone: false, percentage: 0, groups: [], dids: [] }, input);
+		const before = flags.get(key) ?? { enabled: true, everyone: false, percentage: 0, groups: [], dids: [] };
+		const changes = flagChanges(before, input);
 
 		if (changes.length === 0) return;
 		const root = await this.core.root();
@@ -228,7 +239,12 @@ export class FlagService {
 			action: 'flag.update',
 			subject: key,
 			subjectKind: 'flag',
-			summary: `Changed who ${key} is on for`,
+			summary:
+				before.enabled === input.enabled
+					? `Changed who ${key} is on for`
+					: input.enabled
+						? `Turned ${key} back on`
+						: `Turned ${key} off for everyone`,
 			changes
 		});
 	}
@@ -318,6 +334,7 @@ export class FlagService {
 
 	async indexFlag(uri: string, record: FlagRecord): Promise<void> {
 		const values = {
+			enabled: record.enabled === false ? 0 : 1,
 			everyone: record.everyone ? 1 : 0,
 			percentage: record.percentage,
 			groupRkeys: JSON.stringify(record.groups),

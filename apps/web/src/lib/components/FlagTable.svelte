@@ -8,17 +8,27 @@
 
 	const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-	function onFor({ everyone, percentage, groups, accounts }: FlagView): string {
+	/** Who the flag's gates take in, whether or not it's turned off. Empty when none do. */
+	function gates({ everyone, percentage, groups, accounts }: FlagView): string {
 		if (everyone) return 'Everyone';
-		const gates = [percentage > 0 && `${percentage}%`, groups.length > 0 && count(groups.length, 'group', 'groups'), accounts.length > 0 && count(accounts.length, 'account', 'accounts')];
+		const parts = [percentage > 0 && `${percentage}%`, groups.length > 0 && count(groups.length, 'group', 'groups'), accounts.length > 0 && count(accounts.length, 'account', 'accounts')];
 
-		return gates.filter(Boolean).join(' · ') || 'Off';
+		return parts.filter(Boolean).join(' · ');
 	}
 </script>
 
 {#snippet who(flag: FlagView)}
 	<a class="link font-mono text-small" href="/admin/flags/{flag.key}">{flag.key}</a>
 	<p class="mt-1 text-label text-fg-muted">{flag.description}</p>
+{/snippet}
+
+{#snippet onFor(flag: FlagView)}
+	{#if flag.enabled}
+		{gates(flag) || 'Off'}
+	{:else}
+		<span class="font-medium text-critical">Off for everyone</span>
+		{#if gates(flag)}<span class="block text-label text-fg-muted">Kept: {gates(flag)}</span>{/if}
+	{/if}
 {/snippet}
 
 {#if flags.length === 0}
@@ -28,12 +38,12 @@
 		{#snippet head()}<th>Flag</th><th>On for</th><th>Changed</th>{/snippet}
 		{#snippet row(flag)}
 			<td>{@render who(flag)}</td>
-			<td class="whitespace-nowrap">{onFor(flag)}</td>
+			<td class="whitespace-nowrap">{@render onFor(flag)}</td>
 			<td class="whitespace-nowrap text-fg-muted">{flag.updatedAt ? formatDate(flag.updatedAt) : 'Never'}</td>
 		{/snippet}
 		{#snippet card(flag)}
 			<div>{@render who(flag)}</div>
-			<p class="text-label text-fg-muted">{onFor(flag)}</p>
+			<p class="text-label text-fg-muted">{@render onFor(flag)}</p>
 		{/snippet}
 	</ResponsiveTable>
 {/if}

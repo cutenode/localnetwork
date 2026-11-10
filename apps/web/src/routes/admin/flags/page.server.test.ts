@@ -105,6 +105,26 @@ it('saves who a flag is on for, resolving handles to DIDs', async () => {
 	});
 });
 
+it('turns a flag off for everyone and keeps who it was for', async () => {
+	const viewer = await t.viewer(ADMIN);
+
+	const save = (form: Record<string, string>) =>
+		callRoute(flagActions.save, { app: app(), viewer, url: `/admin/flags/${FLAG}`, params: { key: FLAG }, form });
+
+	await save({ percentage: '30', accounts: 'milo.test' });
+	await save({ off: 'on', percentage: '30', accounts: 'milo.test' });
+
+	expect(await t.flags.flag(FLAG)).toMatchObject({
+		enabled: false,
+		percentage: 30,
+		accounts: [{ did: 'did:plc:milo' }]
+	});
+
+	await save({ percentage: '30', accounts: 'milo.test' });
+
+	expect(await t.flags.flag(FLAG)).toMatchObject({ enabled: true, percentage: 30 });
+});
+
 it('says which account it could not find, and saves nothing', async () => {
 	const viewer = await t.viewer(ADMIN);
 
@@ -231,7 +251,7 @@ it('asks a group for a name', async () => {
 it('shows the reason a group in use stays', async () => {
 	const viewer = await t.viewer(ADMIN);
 	const rkey = await t.flags.createGroup(viewer, { name: 'Beta', members: [] });
-	await t.flags.updateFlag(viewer, FLAG, { everyone: false, percentage: 0, groups: [rkey], dids: [] });
+	await t.flags.updateFlag(viewer, FLAG, { enabled: true, everyone: false, percentage: 0, groups: [rkey], dids: [] });
 
 	const result = await callRoute(groupActions.delete, {
 		app: app(),

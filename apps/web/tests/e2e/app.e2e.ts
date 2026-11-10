@@ -585,6 +585,21 @@ test.describe('signed in', () => {
 		expect(await flagOn((url) => ada.request.get(url))).toBe(false);
 		expect(await flagOn((url) => request.get(url))).toBe(false);
 
+		// Off for everyone keeps who it was for, and turning it back on gives them it again.
+		await ada.goto('/admin/flags/parityCanary');
+		await expect(ada.locator('html')).toHaveAttribute('data-hydrated', '');
+		await ada.getByRole('switch', { name: 'Off for everyone' }).check();
+		await ada.getByRole('button', { name: 'Save' }).click();
+		await expect(ada.getByText('Flag saved')).toBeVisible();
+		expect(await flagOn((url) => milo.request.get(url))).toBe(false);
+		await expect(ada.getByLabel('Accounts', { exact: true })).toHaveValue('milo.test');
+		await expectAccessible(ada);
+
+		await ada.getByRole('switch', { name: 'Off for everyone' }).uncheck();
+		await ada.getByRole('button', { name: 'Save' }).click();
+		await expect(ada.getByText('Flag saved')).toBeVisible();
+		expect(await flagOn((url) => milo.request.get(url))).toBe(true);
+
 		await ada.goto('/admin/flags/parityCanary');
 		// Before hydrating, Svelte can't tell a textarea someone emptied from one it hasn't filled yet, and fills it.
 		await expect(ada.locator('html')).toHaveAttribute('data-hydrated', '');

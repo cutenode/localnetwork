@@ -364,6 +364,8 @@ export type FlagAccount = { did: string; handle: string | null };
 export type FlagView = {
 	key: FlagKey;
 	description: string;
+	/** False when it's turned off for everyone. The gates below are kept for when it's back on. */
+	enabled: boolean;
 	everyone: boolean;
 	percentage: number;
 	groups: { rkey: string; name: string }[];
