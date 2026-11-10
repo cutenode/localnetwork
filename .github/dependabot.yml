@@ -54,7 +54,14 @@ updates:
     cooldown:
       default-days: 7
     versioning-strategy: lockfile-only
+    # pnpm-workspace.yaml names these at exact versions (allowBuilds, trustPolicyExclude), which
+    # Dependabot can't update, so a bump of any of them comes on its own to fix by hand.
     groups:
+      pnpm-pinned-security:
+        applies-to: security-updates
+        patterns: ["@lavamoat/harden", "@yarnpkg/libzip", "@ast-grep/cli", "better-sqlite3", "chokidar", "chromium-bidi", "lefthook"]
+      pnpm-pinned:
+        patterns: ["@lavamoat/harden", "@yarnpkg/libzip", "@ast-grep/cli", "better-sqlite3", "chokidar", "chromium-bidi", "lefthook"]
       npm-security:
         applies-to: security-updates
         patterns: ["*"]
