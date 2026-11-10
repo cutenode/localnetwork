@@ -110,7 +110,7 @@ impl Drop for Sidecar {
 struct Model {
     /// Plans kept, by id: their operation.
     plans: FxHashMap<String, &'static str>,
-    /// Plans applied (or used up): applying them again is stale.
+    /// Plans applied: applying them again is stale.
     used: Vec<String>,
     /// The kinds of event subscribed to (empty: all), when subscribed.
     subscribed: Option<Vec<String>>,
@@ -283,13 +283,13 @@ fn the_sidecar_keeps_plans_subscriptions_and_watches_as_modelled(tc: TestCase) {
                             "{said}"
                         );
                     }
-                    Some(_) => {
-                        // Applied, or refused as stale since the drive changed under it.
-                        let kind = &v["error"]["data"]["kind"];
-                        assert!(v["error"].is_null() || kind == "stale_plan", "{said}");
+                    // Applied, which uses it up, or refused as stale since the drive changed under
+                    // it, which keeps it to be sent again (docs/sidecar.md).
+                    Some(_) if v["error"].is_null() => {
                         m.plans.remove(&id);
                         m.used.push(id);
                     }
+                    Some(_) => assert_eq!(v["error"]["data"]["kind"], "stale_plan", "{said}"),
                     None => assert_eq!(v["error"]["data"]["kind"], "stale_plan", "{said}"),
                 }
             }
