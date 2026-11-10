@@ -64,6 +64,37 @@ fn choose_takes_json_or_text() {
     assert!(given(&["nothing".into()]).unwrap_err().to_string().contains("--choose takes PARAM=VALUE"));
 }
 
+/// For any `--choose PARAM=VALUE`s, each param's value is the last given for it, as JSON when it
+/// reads as JSON and else as the text it is, the params in the order first given; one without
+/// `=` is refused, naming it.
+#[hegel::test(test_cases = 100)]
+fn any_choose_given_is_its_last_value_as_json_or_text(tc: TestCase) {
+    let raws = vec!["42", "-1.5", "null", "true", "[1, \"a\"]", "{\"x\": 2}", "Peak Time", "two", "", "a=b"];
+    let pairs: Vec<(&str, Option<&str>)> = (0..tc.draw(gs::integers::<usize>().max_value(5)))
+        .map(|_| {
+            let param = tc.draw(gs::sampled_from(vec!["3", "name", " t ", "x"]));
+            let value = tc.draw(gs::sampled_from(raws.clone()));
+            (param, (!tc.draw(gs::weighted_booleans(0.1))).then_some(value))
+        })
+        .collect();
+    let typed: Vec<String> =
+        pairs.iter().map(|(p, r)| r.map_or_else(|| p.trim().to_string(), |r| format!("{p}={r}"))).collect();
+    match pairs.iter().find(|(_, r)| r.is_none()) {
+        Some((p, _)) => {
+            let e = given(&typed).unwrap_err().to_string();
+            assert_eq!(e, format!("--choose takes PARAM=VALUE, not {:?}", p.trim()), "{typed:?}");
+        }
+        None => {
+            let mut want: IndexMap<String, Value> = IndexMap::new();
+            for (p, r) in &pairs {
+                let r = r.unwrap();
+                want.insert(p.trim().to_string(), serde_json::from_str(r).unwrap_or_else(|_| json!(r)));
+            }
+            assert_eq!(given(&typed).unwrap(), want, "{typed:?}");
+        }
+    }
+}
+
 /// Unanswered, a question says how to answer it: its param and each value, with what it is.
 #[test]
 fn an_unanswered_question_says_how_to_answer_it() {
@@ -100,27 +131,73 @@ fn any_answer_typed_is_items_named(tc: TestCase) {
     }
 }
 
-/// Any questions asked together, answered a line each (each answer after any lines that aren't
-/// one): the answers are each question's items named, in the questions' order.
+/// Any questions asked together (each taking one item or any), answered a line each (each answer
+/// after any lines that aren't one): the answers are each question's items named, in the
+/// questions' order. Input that ends before the last is answered fails, naming the question it
+/// was on.
 #[hegel::test(test_cases = 50)]
 fn any_questions_together_are_answered_each_in_turn(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(5));
     let questions: Vec<Choice> = (0..n)
         .map(|i| Choice {
+            title: format!("Which {i}?"),
             param: format!("p{i}"),
-            ..choice(false, tc.draw(gs::integers::<usize>().min_value(1).max_value(4)))
+            ..choice(tc.draw(gs::booleans()), tc.draw(gs::integers::<usize>().min_value(1).max_value(4)))
         })
         .collect();
     let c = Choice { more: questions[1..].to_vec(), ..questions[0].clone() };
+    // The question the input ends on, if it does.
+    let ends = tc.draw(gs::optional(gs::integers::<usize>().max_value(n - 1)));
     let mut typed = String::new();
     let mut foreseen = Vec::new();
-    for q in &questions {
+    for (i, q) in questions.iter().enumerate() {
         for _ in 0..tc.draw(gs::integers::<usize>().max_value(2)) {
             typed.push_str(&format!("{}\n", q.items.len() + 1));
         }
-        let pick = tc.draw(gs::integers::<usize>().min_value(1).max_value(q.items.len()));
-        typed.push_str(&format!("{pick}\n"));
-        foreseen.push(vec![q.items[pick - 1].value.clone()]);
+        if ends == Some(i) {
+            break;
+        }
+        let picks: Vec<usize> = match q.multi {
+            true => tc.draw(gs::vecs(gs::integers::<usize>().min_value(1).max_value(q.items.len())).max_size(3)),
+            false => vec![tc.draw(gs::integers::<usize>().min_value(1).max_value(q.items.len()))],
+        };
+        let line: Vec<String> = picks.iter().map(usize::to_string).collect();
+        typed.push_str(&format!("{}\n", line.join(", ")));
+        foreseen.push(picks.iter().map(|p| q.items[p - 1].value.clone()).collect::<Vec<_>>());
     }
-    assert_eq!(answers(&c, &mut typed.as_bytes()).unwrap(), foreseen, "{typed:?}");
+    match ends {
+        Some(i) => {
+            let e = answers(&c, &mut typed.as_bytes()).unwrap_err();
+            assert_eq!(e.to_string(), format!("Which {i}?: no answer"), "{typed:?}");
+        }
+        None => assert_eq!(answers(&c, &mut typed.as_bytes()).unwrap(), foreseen, "{typed:?}"),
+    }
+}
+
+/// Any questions left unanswered say how to answer each: its param, whether it takes one value or
+/// a JSON list, and each value with its label (and detail), in order.
+#[hegel::test(test_cases = 50)]
+fn any_unanswered_questions_say_how_to_answer_each(tc: TestCase) {
+    let questions: Vec<Choice> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)))
+        .map(|i| Choice {
+            param: format!("p{i}"),
+            ..choice(tc.draw(gs::booleans()), tc.draw(gs::integers::<usize>().min_value(1).max_value(12)))
+        })
+        .collect();
+    let said = unanswered(&questions.iter().collect::<Vec<_>>());
+    let mut lines = said.lines();
+    for q in &questions {
+        let takes = if q.multi { "a JSON list of any of" } else { "one of" };
+        assert_eq!(
+            lines.next(),
+            Some(format!("Which?: answer with --choose {}=VALUE, VALUE {takes}:", q.param).as_str())
+        );
+        let width = q.items.iter().map(|i| i.value.to_string().len()).max().unwrap();
+        for item in &q.items {
+            let detail = item.detail.as_deref().map(|d| format!(" ({d})")).unwrap_or_default();
+            let value = format!("{:<width$}", item.value.to_string());
+            assert_eq!(lines.next(), Some(format!("  {value}  {}{detail}", item.label).as_str()), "{said}");
+        }
+    }
+    assert_eq!(lines.next(), None, "{said}");
 }

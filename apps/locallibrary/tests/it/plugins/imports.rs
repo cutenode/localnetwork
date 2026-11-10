@@ -144,8 +144,8 @@ fn importing(provides: &[&str]) -> String {
 /// For any file an importer reads (tracks on the drive or not, with keys, cues and My Tags, and
 /// sessions), found by its extension or else named with `--format`, answered inline or in a file
 /// (`--option`): a dry run says in text what `--json` plans (what it found, the edits, the
-/// sessions kept, what's left out) and writes nothing, nor does a run not confirmed; confirmed,
-/// it's made, and the same file again has no edits left. What the importer's manifest doesn't say
+/// sessions kept, what's left out) and writes nothing, nor does a run not confirmed; confirmed (or
+/// applied by the sidecar in one go), it's made, and the same file again has no edits left. What the importer's manifest doesn't say
 /// it provides, and an option it doesn't take, are refused.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn a_file_is_imported_as_its_plan_says(tc: hegel::TestCase) {
@@ -199,7 +199,8 @@ fn a_file_is_imported_as_its_plan_says(tc: hegel::TestCase) {
         assert!(env.fails(2, &args).contains("say what reads it: --format FORMAT"));
         args.extend(["--format", "given"]);
     }
-    if tc.draw(gs::booleans()) {
+    let in_a_file = tc.draw(gs::booleans());
+    if in_a_file {
         args.extend(["--option", "blob=answer.json"]);
     }
     if tc.draw(gs::weighted_booleans(0.25)) {
@@ -255,9 +256,23 @@ fn a_file_is_imported_as_its_plan_says(tc: hegel::TestCase) {
     env.exits(3, &args);
     assert_eq!(Env::files_in(&env.volumes), before, "nor does a run not confirmed");
     assert!(!env.store.join("sets.json").exists());
-    let applied = env.ok(&[&["--yes"][..], &args].concat());
-    assert_eq!(applied.contains("change(s) written"), !changes.is_empty(), "{applied}");
-    assert_eq!(applied.contains(&format!("kept {} session(s)", logs.len())), !logs.is_empty(), "{applied}");
+    match tc.draw(gs::booleans()) {
+        true => {
+            let applied = env.ok(&[&["--yes"][..], &args].concat());
+            assert_eq!(applied.contains("change(s) written"), !changes.is_empty(), "{applied}");
+            assert_eq!(applied.contains(&format!("kept {} session(s)", logs.len())), !logs.is_empty(), "{applied}");
+        }
+        // Or by the sidecar, planned and applied in one go.
+        false => {
+            let mut s = Rpc::start(env.command());
+            let options = if in_a_file { json!({ "blob": "answer.json" }) } else { Value::Null };
+            let drive = path(&env.volumes.join("USB")).to_string();
+            let import = json!({ "plugin": "echo", "importer": "given", "file": path(&file), "drive": drive, "options": options });
+            let applied = s.call(1, "plugins.import.apply", import);
+            let sessions = applied["result"]["sessions"].as_array().map(Vec::len);
+            assert_eq!(sessions, Some(logs.len()), "{applied}");
+        }
+    }
     let again = env.json(&dry);
     assert_eq!(again["plan"]["edits"]["changes"], json!([]), "what it planned is there");
     let ids = |plan: &Value| plan["sessions"].as_array().unwrap().iter().map(|s| s["id"].clone()).collect::<Vec<_>>();

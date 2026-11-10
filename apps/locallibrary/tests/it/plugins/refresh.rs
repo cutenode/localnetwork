@@ -39,6 +39,77 @@ fn refresh_then_runs_a_plugins_operation() {
     assert!(e.contains(r#"--then "echo.playlist name='Late" has a quote it doesn't close"#), "{e}");
 }
 
+/// A `--then` of [`refresh_then_plans_each_operation_or_names_the_first_it_cant_read`].
+#[derive(Debug, Clone)]
+enum Then {
+    /// `echo.playlist name='NAME'`.
+    Playlist(String),
+    /// An operation of a plugin that isn't there.
+    Missing,
+    /// Words that aren't PLUGIN.OPERATION and its params.
+    NoOperation(&'static str),
+    Unclosed,
+    UnknownOption,
+}
+
+/// For any `--then`s, each an operation, one of a plugin that isn't there, or one that can't be
+/// read (no PLUGIN.OPERATION, a quote left open, an option it doesn't have): a refresh's dry run
+/// fails as a usage error naming the first that can't be read; with none, it fails not finding
+/// the plugin that isn't there; else its plan makes each playlist, in the order given.
+#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn refresh_then_plans_each_operation_or_names_the_first_it_cant_read(tc: hegel::TestCase) {
+    use hegel::Generator;
+    use hegel::generators as gs;
+    let env = env();
+    let playlist = || gs::text().alphabet("abZ").min_size(1).max_size(8).map(Then::Playlist);
+    let then = || {
+        hegel::one_of!(
+            playlist(),
+            playlist(),
+            gs::just(Then::Missing),
+            gs::sampled_from(vec!["", "  ", "playlist name=x"]).map(Then::NoOperation),
+            gs::just(Then::Unclosed),
+            gs::just(Then::UnknownOption),
+        )
+    };
+    let thens: Vec<Then> = tc.draw(gs::vecs(then()).min_size(1).max_size(3));
+    let words: Vec<String> = thens
+        .iter()
+        .map(|t| match t {
+            Then::Playlist(name) => format!("echo.playlist name='{name}'"),
+            Then::Missing => "nope.playlist".into(),
+            Then::NoOperation(w) => w.to_string(),
+            Then::Unclosed => "echo.playlist name='Late".into(),
+            Then::UnknownOption => "echo.playlist colour=red".into(),
+        })
+        .collect();
+    let mut args = vec!["refresh", "USB", "--dry-run"];
+    args.extend(words.iter().flat_map(|w| ["--then", w.as_str()]));
+    let r = env.run(&args);
+    let said = format!("{thens:?}: exit {}\n{}{}", r.code, r.out, r.err);
+    let unread = thens.iter().zip(&words).find(|(t, _)| !matches!(t, Then::Playlist(_) | Then::Missing));
+    if let Some((t, w)) = unread {
+        let why = match t {
+            Then::Unclosed => format!("--then {w:?} has a quote it doesn't close"),
+            Then::UnknownOption => "this echo.playlist operation has no option \"colour\"".into(),
+            _ => format!("--then takes 'PLUGIN.OPERATION KEY=VALUE...', not {w:?}"),
+        };
+        assert!(r.code == 2 && r.err.contains(&why), "{why}: {said}");
+        return;
+    }
+    if thens.iter().any(|t| matches!(t, Then::Missing)) {
+        assert!(r.code == 1 && r.err.contains("not found: plugin \"nope\""), "{said}");
+        return;
+    }
+    assert_eq!(r.code, 0, "{said}");
+    let mut at = r.out.find("Run the plugins' operations\n").unwrap_or_else(|| panic!("{said}"));
+    for t in &thens {
+        let Then::Playlist(name) = t else { unreachable!() };
+        let made = format!("   • make the playlist {name}\n");
+        at += r.out[at..].find(&made).unwrap_or_else(|| panic!("{made:?} in order: {said}")) + made.len();
+    }
+}
+
 /// The sidecar's `refresh.plan` takes `operations`; one that can't be planned is refused, the
 /// error naming it.
 #[test]

@@ -192,6 +192,35 @@ fn the_store_says_what_it_holds() {
     assert!(r.out.contains("! corrupt: ") && r.out.contains("! missing: "), "{}", r.out);
 }
 
+/// For any change planned (a dry run, or not confirmed) in a copy `store copy` made or in the
+/// store it copied: in the copy, the plan says once that the next copy to it refuses unless
+/// forced; in the store copied, it never does.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_change_planned_in_a_copy_says_its_a_copy(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let env = Env::new();
+    env.pulled("Main");
+    let copy = env.outside("copy");
+    env.ok(&["--yes", "store", "copy", path(&copy)]);
+    let in_copy = tc.draw(gs::booleans());
+    // Each with whether it takes `--dry-run`.
+    let (change, dry) = tc.draw(gs::sampled_from(vec![
+        (vec!["players", "set", "cdj-3000"], true),
+        (vec!["players", "set", "xdj-az", "--library", "Main"], true),
+        (vec!["settings", "set", "quantize=off"], false),
+    ]));
+    let mut args: Vec<&str> = if in_copy { vec!["--store", path(&copy)] } else { vec![] };
+    args.extend(&change);
+    if dry && tc.draw(gs::booleans()) {
+        args.push("--dry-run");
+    }
+    let r = env.run(&args);
+    let said = format!("{args:?}: exit {}\n{}{}", r.code, r.out, r.err);
+    assert!([0, 3].contains(&r.code), "{said}");
+    let warned = format!("{} is a copy of the store at ", copy.display());
+    assert_eq!(said.matches(&warned).count(), usize::from(in_copy), "{said}");
+}
+
 /// Regression: commands that only look something up in the store made an empty one first, then
 /// failed or found nothing to do. On a fresh home none is left behind.
 #[test]

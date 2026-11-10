@@ -191,11 +191,13 @@ fn plugin_checks_lists_and_changes_them() {
     assert!(items.iter().any(|i| i["check"] == "echo.found" && i["message"] == "said over RPC"), "{report}");
 }
 
-/// For any changes `plugin checks` is asked for, one after another (a check run or not, blocking
-/// or not, put back as it is by default, or the time a check has), it lists every check and that
-/// time as changed so far, in JSON and in words. Only a guard can block, a check put back can't be
-/// changed in the same breath, and only a time from a millisecond to an hour is taken: a change
-/// refused changes nothing.
+/// For any changes `plugin checks` (or the sidecar's `plugins.checks.set`) is asked for, one after
+/// another, the first to a check (a check run or not, blocking or not, put back as it is by
+/// default, or the time a check has), it lists every check and that time as changed so far, in
+/// JSON and in words, and one check alone when it's named and nothing else is asked. Only a guard
+/// can block, a check put back can't be changed in the same breath on the command line (the
+/// sidecar puts it back first), only a time from a millisecond to an hour is taken, and a check
+/// is named as PLUGIN.CHECK: a change refused changes nothing.
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn plugin_checks_lists_every_change_made(tc: TestCase) {
     let env = env();
@@ -203,40 +205,103 @@ fn plugin_checks_lists_every_change_made(tc: TestCase) {
     let checks = [("untitled", false, true), ("edits", true, false), ("found", false, true), ("guard", true, true)];
     let mut settings: Vec<(bool, bool)> = checks.iter().map(|&(_, _, on)| (on, false)).collect();
     let mut timeout = 10.0;
-    for _ in 0..tc.draw(gs::integers::<usize>().max_value(4)) {
-        let mut args: Vec<String> = ["--yes", "plugin", "checks"].map(String::from).into();
-        let refused = if tc.draw(gs::booleans()) {
-            let i = tc.draw(gs::integers::<usize>().max_value(3));
-            let (name, guard, default_on) = checks[i];
-            let on = tc.draw(gs::optional(gs::booleans()));
-            let blocking = tc.draw(gs::optional(gs::booleans()));
-            let reset = tc.draw(gs::booleans());
-            args.push(format!("echo.{name}"));
-            args.extend(on.map(|on| if on { "--on" } else { "--off" }.to_string()));
-            args.extend(blocking.map(|b| if b { "--blocking" } else { "--no-blocking" }.to_string()));
-            args.extend(reset.then(|| "--reset".to_string()));
-            // --reset puts both back, so it takes neither.
-            let refused = blocking == Some(true) && !guard || reset && (on.is_some() || blocking.is_some());
-            if !refused {
-                let (was_on, was_blocking) = if reset { (default_on, false) } else { settings[i] };
-                settings[i] = (on.unwrap_or(was_on), guard && blocking.unwrap_or(was_blocking));
-            }
-            refused
-        } else {
-            // Quarter seconds, which a duration keeps exactly.
-            let secs = tc.draw(gs::optional(gs::integers::<u32>().max_value(16_000))).map(|q| f64::from(q) / 4.0);
-            match secs {
-                Some(secs) => args.extend(["--timeout".to_string(), secs.to_string()]),
-                None => args.push("--reset".to_string()),
-            }
-            let refused = secs.is_some_and(|s| !(0.001..=3600.0).contains(&s));
-            if !refused {
-                timeout = secs.unwrap_or(10.0);
-            }
-            refused
+    for step in 0..tc.draw(gs::integers::<usize>().min_value(2).max_value(4)) {
+        // The command line first, then the sidecar, then anything.
+        let what = match step {
+            0 | 1 => step as u8,
+            _ => tc.draw(gs::integers::<u8>().max_value(3)),
         };
-        let r = env.run(&args.iter().map(String::as_str).collect::<Vec<_>>());
-        assert_eq!(r.code != 0, refused, "{args:?}\n{}", r.err);
+        match what {
+            // A check changed on the command line, or by the sidecar.
+            0 | 1 => {
+                // The first, a guard's both, so what's said of each is.
+                let i = match step {
+                    0 => tc.draw(gs::sampled_from(vec![1, 3])),
+                    _ => tc.draw(gs::integers::<usize>().max_value(3)),
+                };
+                let (name, guard, default_on) = checks[i];
+                let both = |tc: &TestCase| match step {
+                    0 => Some(tc.draw(gs::booleans())),
+                    _ => tc.draw(gs::optional(gs::booleans())),
+                };
+                let (mut on, mut blocking) = (both(&tc), both(&tc));
+                let reset = step > 1 && tc.draw(gs::booleans());
+                // The sidecar's first change turns the check on or off, whichever it isn't, and
+                // isn't refused.
+                if step == 1 {
+                    on = Some(!settings[i].0);
+                    blocking = blocking.filter(|_| guard);
+                }
+                let refused = match what {
+                    0 => {
+                        let named = format!("echo.{name}");
+                        let mut args = vec!["--yes", "plugin", "checks", &named];
+                        args.extend(on.map(|on| if on { "--on" } else { "--off" }));
+                        args.extend(blocking.map(|b| if b { "--blocking" } else { "--no-blocking" }));
+                        args.extend(reset.then_some("--reset"));
+                        // --reset puts both back, so it takes neither.
+                        let refused = blocking == Some(true) && !guard || reset && (on.is_some() || blocking.is_some());
+                        let r = env.run(&args);
+                        assert_eq!(r.code != 0, refused, "{args:?}\n{}", r.err);
+                        if !refused && !reset && (on.is_some() || blocking.is_some()) {
+                            let mut said: Vec<&str> = Vec::new();
+                            said.extend(on.map(|on| if on { "run it" } else { "don't run it" }));
+                            said.extend(blocking.map(|b| match b {
+                                true => "stop changes it finds something about",
+                                false => "only warn about changes",
+                            }));
+                            let said = format!("{named}: {}", said.join(", "));
+                            assert!(r.out.contains(&said), "{said}:\n{}", r.out);
+                        }
+                        refused
+                    }
+                    _ => {
+                        let mut s = Rpc::start(env.command());
+                        let change =
+                            json!({ "plugin": "echo", "check": name, "on": on, "blocking": blocking, "reset": reset });
+                        let answer = s.call(1, "plugins.checks.set", change.clone());
+                        let refused = blocking == Some(true) && !guard;
+                        assert_eq!(answer.get("error").is_some(), refused, "{change}: {answer}");
+                        refused
+                    }
+                };
+                if !refused {
+                    let (was_on, was_blocking) = if reset { (default_on, false) } else { settings[i] };
+                    settings[i] = (on.unwrap_or(was_on), guard && blocking.unwrap_or(was_blocking));
+                }
+            }
+            // The time a check has.
+            2 => {
+                // Quarter seconds, which a duration keeps exactly.
+                let secs = tc.draw(gs::optional(gs::integers::<u32>().max_value(16_000))).map(|q| f64::from(q) / 4.0);
+                let given = secs.map(|s| s.to_string());
+                let mut args = vec!["--yes", "plugin", "checks"];
+                match &given {
+                    Some(secs) => args.extend(["--timeout", secs]),
+                    None => args.push("--reset"),
+                }
+                let refused = secs.is_some_and(|s| !(0.001..=3600.0).contains(&s));
+                let r = env.run(&args);
+                assert_eq!(r.code != 0, refused, "{args:?}\n{}", r.err);
+                if !refused {
+                    timeout = secs.unwrap_or(10.0);
+                }
+            }
+            // A check named some other way.
+            _ => {
+                let name = tc.draw(gs::sampled_from(&["echo", "found", "echo-found"][..]));
+                let said = env.fails(2, &["--yes", "plugin", "checks", name, "--on"]);
+                let says =
+                    format!("name a check as PLUGIN.CHECK (`locallibrary plugin checks` lists them), not {name:?}");
+                assert!(said.contains(&says), "{said}");
+            }
+        }
+        // Named alone, a check is listed by itself.
+        let i = tc.draw(gs::integers::<usize>().max_value(3));
+        let one = env.json(&["plugin", "checks", &format!("echo.{}", checks[i].0)]);
+        let listed: Vec<(bool, bool)> =
+            one["checks"].as_array().unwrap().iter().map(|c| (c["on"] == true, c["blocking"] == true)).collect();
+        assert_eq!(listed, [settings[i]], "{one}");
 
         let listed = env.json(&["plugin", "checks"]);
         // The echo plugin's, not the demos plugin's.
@@ -244,7 +309,7 @@ fn plugin_checks_lists_every_change_made(tc: TestCase) {
             .filter(|c| c["plugin"] == "echo")
             .map(|c| (c["on"].as_bool().unwrap(), c["blocking"].as_bool().unwrap()))
             .collect();
-        assert_eq!((listed_settings, &listed["timeout"]), (settings.clone(), &json!(timeout)), "{args:?}");
+        assert_eq!((listed_settings, &listed["timeout"]), (settings.clone(), &json!(timeout)));
         let shown = env.ok(&["plugin", "checks"]);
         for (&(name, ..), &(on, blocking)) in checks.iter().zip(&settings) {
             let state = format!("{}{}", if on { "on" } else { "off" }, if blocking { ", blocking" } else { "" });
@@ -256,14 +321,41 @@ fn plugin_checks_lists_every_change_made(tc: TestCase) {
 }
 
 /// Whatever a plugin's check finds, `check` counts its problems and warnings with locallibrary's
-/// own, and exits 4 exactly when there's a problem among them all.
+/// own, and exits 4 exactly when there's a problem among them all. A finding's fix is said as the
+/// command line that runs its plugin's operation, its params (any) quoted for the shell.
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn check_exits_on_a_plugins_problems_as_on_its_own(tc: TestCase) {
     let env = env();
-    let levels: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(vec!["info", "warning", "problem"])).max_size(4));
-    let findings: Vec<Value> =
-        levels.iter().enumerate().map(|(i, l)| json!({ "level": l, "message": format!("finding {i}") })).collect();
+    let levels: Vec<&str> =
+        tc.draw(gs::vecs(gs::sampled_from(vec!["info", "warning", "problem"])).min_size(1).max_size(4));
+    let mut fixes = Vec::new();
+    let findings: Vec<Value> = (levels.iter().enumerate())
+        .map(|(i, l)| {
+            let mut finding = json!({ "level": l, "message": format!("finding {i}") });
+            // The first always has a fix with a name.
+            let name = gs::text().alphabet("ab '").max_size(6);
+            let fix = match i {
+                0 => Some(Some(tc.draw(name))),
+                _ => tc.draw(gs::optional(gs::optional(name))),
+            };
+            if let Some(name) = fix {
+                // A name given always has a quote, which the shell needs escaped.
+                let params = name.map_or_else(|| json!({}), |n| json!({ "name": format!("{n}'s") }));
+                let quoted = match params.as_object().unwrap().is_empty() {
+                    true => String::new(),
+                    false => format!(" --params '{}'", params.to_string().replace('\'', r"'\''")),
+                };
+                fixes.push(format!("fix with `locallibrary echo playlist \"USB\"{quoted}`"));
+                finding["fix"] = json!({ "operation": "playlist", "params": params });
+            }
+            finding
+        })
+        .collect();
     find(&env, json!({ "findings": findings }));
+    let shown = env.run(&["check", "USB"]).out;
+    for fix in &fixes {
+        assert!(shown.contains(fix.as_str()), "{fix}: {shown}");
+    }
     let r = env.run(&["--json", "check", "USB"]);
     let v: Value = serde_json::from_str(&r.out).unwrap();
     let items = v["items"].as_array().unwrap();
