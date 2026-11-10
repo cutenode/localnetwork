@@ -1,3 +1,4 @@
+use hegel::generators as gs;
 use ratatui::style::Color;
 
 use super::super::app::View;
@@ -105,5 +106,63 @@ fn the_player_goes_idle_after_a_fade() {
     assert!(!app.animating(), "over");
     screen(&mut app, 120, 40);
     assert!(!app.animating(), "and it stays over");
+    theme::set_test_tier(None);
+}
+
+/// For any run of frames: a fade starts only when what's shown changes, in 24-bit colour without
+/// less motion asked for, and runs its length from the last change. It only ever changes colours
+/// in its own area, never a symbol, and leaves the cells as they were drawn once it's over.
+#[hegel::test(test_cases = 100)]
+fn prop_a_fade_follows_a_change_for_its_length(tc: hegel::TestCase) {
+    let tier = tc.draw(gs::sampled_from(vec![Tier::Truecolor, Tier::Colors256, Tier::Colors16]));
+    let (enabled, less_motion) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
+    let fades = enabled && !less_motion && tier == Tier::Truecolor;
+    theme::set_test_tier(Some(tier));
+    theme::set_test_reduced_motion(less_motion);
+    let page = Rect { width: AREA.width + 4, height: AREA.height + 2, ..AREA };
+    let lit = || {
+        let mut buf = Buffer::empty(page);
+        for (i, cell) in buf.content.iter_mut().enumerate() {
+            cell.set_symbol(if i % 3 == 0 { "█" } else { "a" }).set_fg(Color::Rgb(250, 240, 230));
+        }
+        buf
+    };
+    let mut t = Transitions { enabled, ..Default::default() };
+    let (mut was, mut ran): (Option<Shown>, Option<u32>) = (None, None);
+    let steps = tc.draw(gs::integers::<usize>().min_value(1).max_value(12));
+    for _ in 0..steps {
+        if tc.draw(gs::booleans()) {
+            let shown = Shown {
+                deck: tc.draw(gs::booleans()),
+                details: tc.draw(gs::booleans()),
+                crate_panel: false,
+                help: tc.draw(gs::booleans()),
+                track: tc.draw(gs::optional(gs::integers::<u64>().max_value(2))),
+            };
+            t.follow(shown, AREA);
+            if fades && was.is_some_and(|w| w != shown) {
+                ran = Some(0);
+            }
+            was = Some(shown);
+        } else {
+            let ms = tc.draw(gs::integers::<u32>().max_value(120));
+            let mut buf = lit();
+            t.step(Duration::from_millis(ms.into()), &mut buf);
+            ran = ran.map(|r| r + ms).filter(|&r| r < FADE_MS);
+            let (fresh, outside) = (lit(), |x, y| !AREA.contains(ratatui::layout::Position::new(x, y)));
+            for (i, (cell, before)) in buf.content.iter().zip(&fresh.content).enumerate() {
+                let (x, y) = buf.pos_of(i);
+                assert_eq!(cell.symbol(), before.symbol(), "({x}, {y})");
+                assert!(!outside(x, y) || cell == before, "({x}, {y}) is outside the fade");
+            }
+            if ran.is_none() {
+                let mut after = lit();
+                t.draw(&mut after);
+                assert_eq!(after, fresh, "nothing's touched once it's over");
+            }
+        }
+        assert_eq!(t.active(), ran.is_some(), "{tier:?}, enabled {enabled}, less motion {less_motion}");
+    }
+    theme::set_test_reduced_motion(false);
     theme::set_test_tier(None);
 }

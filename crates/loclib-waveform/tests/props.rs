@@ -670,3 +670,25 @@ fn a_cues_own_colour_is_the_palettes_to_keep_readable() {
     assert_eq!(p.cue_color(&own), [9, 9, 9]);
     assert_eq!(p.cue_color(&memory), p.memory_cue);
 }
+
+/// A cover of any size in two colours far enough apart: its main colour is the one most of it is,
+/// and the second the other one, or the same again where it's all one colour.
+#[cfg(feature = "image")]
+#[hegel::test(test_cases = 200)]
+fn prop_a_covers_main_colours_are_what_most_of_it_is(tc: TestCase) {
+    use loclib_waveform::Art;
+    let (most, rest) = (rgb(&tc), rgb(&tc));
+    let bin = |c: Rgb| c.map(|v| v >> 5);
+    tc.assume(bin(most) != bin(rest));
+    // Under 64 pixels a side every pixel is counted, so the counts are exact.
+    let w = tc.draw(gs::integers::<u32>().min_value(1).max_value(63));
+    let h = tc.draw(gs::integers::<u32>().min_value(1).max_value(63));
+    let rows = tc.draw(gs::integers::<u32>().min_value(h / 2 + 1).max_value(h));
+    let cover = image::RgbImage::from_fn(w, h, |_, y| image::Rgb(if y < rows { most } else { rest }));
+    let mut png = Vec::new();
+    cover.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+    let art = Art::decode(&png).unwrap();
+    assert_eq!(art.image().dimensions(), (w, h));
+    let second = if rows == h { most } else { rest };
+    assert_eq!(art.main_colours(), [most, second], "{w}x{h}, {rows} rows of the first");
+}
