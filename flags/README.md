@@ -33,3 +33,5 @@ on = enabled && (everyone || targeted || (did is known && bucket(key, did) < per
 
 - In development and tests, `FLAG_OVERRIDES=newPlanner=on,parityCanary=off` forces flags on or off for every request to that server. The website won't start with it set in production.
 - Staff with the flags grant can turn a flag on or off for their own browser from its page at `/admin/flags`, for an hour. A banner says so on every page until it's cleared, and nobody else sees a difference.
+
+[ADR 0010](../docs/adr/0010-flags-turn-off-and-preview-without-touching-targeting.md) covers turning a flag off and the overrides, and [Feature flag platforms](../docs/research/feature-flag-platforms.md) compares the design with hosted flag platforms.
