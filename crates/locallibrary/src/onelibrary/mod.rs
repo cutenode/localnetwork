@@ -167,7 +167,7 @@ fn property_page(plain: &[u8]) -> Result<Option<(u32, Vec<u8>)>> {
         return Ok(None);
     }
     let mut stmt = conn.prepare("SELECT * FROM property ORDER BY rowid")?;
-    let names: Vec<String> = stmt.column_names().iter().map(|n| n.to_string()).collect();
+    let names: Vec<String> = stmt.column_names().map(String::from).collect();
     let mut canonical = Vec::new();
     let mut rows = stmt.query([])?;
     while let Some(row) = rows.next()? {
@@ -952,7 +952,7 @@ impl OneLibrary {
     /// A track row with its references resolved, ready for [`OneLibrary::add_track`] elsewhere.
     pub fn export_track(&self, id: u32) -> Result<Option<ContentRecord>> {
         let mut stmt = self.conn.prepare("SELECT * FROM content WHERE content_id = ?1")?;
-        let names: Vec<String> = stmt.column_names().into_iter().map(String::from).collect();
+        let names: Vec<String> = stmt.column_names().map(String::from).collect();
         let Some(values) = stmt
             .query_row([id], |r| (0..names.len()).map(|i| r.get::<_, Value>(i)).collect::<rusqlite::Result<Vec<_>>>())
             .optional()?
@@ -992,7 +992,7 @@ impl OneLibrary {
         };
         let mut cues = Vec::new();
         let mut cue_stmt = self.conn.prepare("SELECT * FROM cue WHERE content_id = ?1 ORDER BY cue_id")?;
-        let cue_names: Vec<String> = cue_stmt.column_names().into_iter().map(String::from).collect();
+        let cue_names: Vec<String> = cue_stmt.column_names().map(String::from).collect();
         let mut rows = cue_stmt.query([id])?;
         while let Some(r) = rows.next()? {
             let mut cue = Vec::new();

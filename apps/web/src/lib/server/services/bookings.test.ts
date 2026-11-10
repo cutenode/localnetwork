@@ -193,6 +193,15 @@ describe('BookingService', () => {
 		expect((await t.bookings.threadsFor(PROMOTER)).map((thread) => thread.space)).toEqual([space]);
 	});
 
+	it('lists threads without their project while the directory is down', async () => {
+		await open();
+		vi.spyOn(t.directory, 'query').mockRejectedValue(new HappyViewError(503, 'down'));
+
+		const [thread] = await t.bookings.threadsFor(PROMOTER);
+
+		expect(thread.project).toBeNull();
+	});
+
 	it("still tells the promoter the act wrote when the directory can't name the act", async () => {
 		const space = await open();
 		vi.spyOn(t.directory, 'query').mockRejectedValue(new HappyViewError(503, 'down'));

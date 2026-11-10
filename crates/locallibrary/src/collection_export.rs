@@ -857,7 +857,7 @@ pub fn apply(
     let _lock = crate::commit::lock(target, None)?;
     if target.has_export() {
         let reason = format!("before exporting {}", plan.what());
-        report.backup = Some(backup::create(target, &reason, &plan.written.backed_up, None)?.id);
+        report.backup = Some(backup::create(target, &reason, &plan.written.backed_up, &[], None)?.id);
     }
     target.begin(LineageOp::Export, format!("export {}", plan.what()), report.backup.clone())?;
     let identity = crate::player::stash(target, true)?;

@@ -1,7 +1,8 @@
 //! The demos plugin's `clean` on drawn drives, in one database or both: exactly the demo tracks
 //! go (however their names are spaced or cased, OneLibrary's own too), with their entries and
 //! their files; a demo track sharing its file with another track stays, and so does every other
-//! track, entry and file; cleaning again does nothing, and undoing gives the drive back.
+//! track, entry and file; cleaning again does nothing, and undoing gives the drive back but for
+//! those files, which no backup holds.
 
 use crate::{common, demos, drawn};
 
@@ -10,9 +11,12 @@ use std::fs;
 
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
+use locallibrary::api;
 use locallibrary::device::Device;
+use locallibrary::edit::{Edit, EditOptions};
 use locallibrary::progress::Ctx;
-use locallibrary::{Library, backup, edit, paths, pdb};
+use locallibrary::query::TrackSelector;
+use locallibrary::{Library, backup, edit, fsutil, paths, pdb};
 use rekordbox_pdb::{NewTrack, PdbEditor};
 
 /// Each playlist's entries as file keys, by path.
@@ -159,10 +163,70 @@ fn cleaning_removes_exactly_the_demo_tracks(tc: TestCase) {
         assert_eq!(files(&one), files(&after), "OneLibrary loses the same tracks, and its own");
     }
 
-    // Again: nothing to clean. Undone: the drive as it was.
+    // Again: nothing to clean. Undone: the drive as it was, but for the files no backup holds.
     assert!(demos::clean_plan(&root).is_noop());
     if let Some(id) = report.backup {
-        backup::restore(&mut d, Some(&id), false).unwrap();
-        assert!(common::changed_files(&files_before, &common::drive_files(&root)).is_empty());
+        // Undoing says which tracks come back without their audio, and needs no force for them.
+        let backup = Some(id.clone());
+        let drive = common::path(&root);
+        let undoing = api::UndoRequest { drive: Some(drive.clone()), backup: backup.clone(), force: false };
+        let undo = api::undo_plan(&undoing).unwrap();
+        let preview = api::restore_preview(&api::RestoreBackup { drive, backup, force: false }).unwrap();
+        assert_eq!(undo.plan.unbacked_audio.len(), sample_ids.len());
+        assert_eq!(undo.warnings.iter().any(|w| w.contains("without their audio")), !sample_ids.is_empty());
+        assert_eq!(preview.unbacked_audio, undo.plan.unbacked_audio);
+        assert!(undo.plan.missing_audio.is_empty() && preview.missing_audio.is_empty());
+        let info = backup::restore(&mut d, Some(&id), false).unwrap();
+        assert_eq!(info.audio, 0);
+        assert_eq!(info.unbacked, plan.files);
+        let changed = common::changed_files(&files_before, &common::drive_files(&root));
+        assert_eq!(changed.iter().map(|f| f.to_lowercase()).collect::<BTreeSet<String>>(), planned);
+    }
+}
+
+/// Edits deleting tracks, some leaving their files out of the backup: the backup leaves those
+/// files out only when nothing else is deleted with them, the space a plan asks for counts just
+/// what it holds, and what it left out it says.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_backup_leaves_out_only_what_nothing_else_deleted_needs(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let (root, lib) = drawn::drive(&tc, dir.path(), "A");
+    let files: Vec<String> =
+        lib.tracks.iter().map(|t| t.file_path.clone()).collect::<BTreeSet<_>>().into_iter().collect();
+    let plain = tc.draw(gs::integers::<usize>().max_value(2));
+    let unbacked = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+    let keep_files = tc.draw(gs::booleans());
+    let (others, chosen) = files[..plain + unbacked].split_at(plain);
+    let delete = Edit::DeleteUnbacked { tracks: TrackSelector::paths(chosen.to_vec()) };
+    // Only a plugin can ask for it: the sidecar's way in refuses it, whatever else comes with it.
+    let drive = common::path(&root);
+    let request = api::EditRequest { drive, edits: vec![delete.clone()], options: EditOptions::default() };
+    assert!(api::edit_plan(&request, &Ctx::silent()).is_err());
+    let other = Edit::DeleteTracks { tracks: TrackSelector::paths(others.to_vec()), keep_files };
+    let edits = match (plain, tc.draw(gs::booleans())) {
+        (0, _) => vec![delete],
+        (_, true) => vec![delete, other],
+        (_, false) => vec![other, delete],
+    };
+
+    let mut d = Device::open_export(&root).unwrap();
+    let plan = edit::plan(&d, &edits, &EditOptions::default(), &Ctx::silent()).unwrap();
+    assert!(!plan.files.is_empty());
+    let left_out = plain == 0 || keep_files;
+    assert_eq!(plan.unbacked, if left_out { plan.files.clone() } else { Vec::new() });
+
+    let cluster = fsutil::cluster_size(&root);
+    let size = |key: &str| fs::metadata(paths::to_fs(&root, key)).map_or(0, |m| m.len().div_ceil(cluster) * cluster);
+    let databases: u64 = paths::DATABASE_FILES.iter().map(|k| size(k)).sum();
+    let backed_up: u64 = plan.files.iter().filter(|_| !left_out).map(|k| size(k)).sum();
+    assert_eq!(plan.needed_bytes, backed_up + 2 * databases);
+
+    let report = edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+    let b = backup::list(&d).unwrap().remove(0);
+    assert_eq!(Some(&b.id), report.backup.as_ref());
+    assert_eq!(b.unbacked, plan.unbacked);
+    for f in &plan.files {
+        assert_eq!(b.files.contains(f), !left_out, "{f}");
+        assert_eq!(paths::to_fs(&backup::dir(&d, &b.id), f).exists(), !left_out, "{f}");
     }
 }

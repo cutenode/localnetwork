@@ -447,13 +447,20 @@ rekordbox's collection ships with demo samples ("rekordbox - House 1", "Techno 1
 and they end up on drives, often once per export (`House1.wav`, `House1-1.wav`, `House1-2.wav`...).
 `clean` is the demos plugin's (see [Plugins](plugins.md)): it deletes every track on its list,
 from `export.pdb` and OneLibrary's `exportLibrary.db` (one only OneLibrary lists too), as an edit
-(`delete_tracks`) along with its playlist and history entries, audio, analysis files and artwork,
+(`delete_unbacked`) along with its playlist and history entries, audio, analysis files and artwork,
 plus artists, albums, genres, labels, keys and artwork rows nothing else uses. Files another track
 (in either database) still points at are kept, and a demo track sharing its audio file with
 another track stays, as deleting the file's rows would delete that track too. The list lives in
 [the plugin](../../../plugins/demos/src/lib.rs) (`DEMO_TRACKS`), whose check lists them in `check`
 and `doctor`. The next export brings them back unless they're removed from the rekordbox collection
 too; `refresh` removes them first.
+
+A clean's backup holds only the databases: every export brings the samples back, so keeping a copy
+after each `refresh` would only fill the drive, and a drive too full to copy them can still be
+cleaned. `locallibrary undo` can't restore those files. It brings the tracks and their playlist
+entries back without them, says which, and they stay that way until rekordbox's next export or
+another `clean`. `drive backups` counts the files a backup left out. `edits replay` leaves them
+out too, but a clean an earlier version recorded is replayed as it was made, files backed up.
 
 ## Convert
 

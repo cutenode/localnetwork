@@ -1,7 +1,7 @@
 import { XRPCError } from '@atproto/api';
 import { TID } from '@atproto/common-web';
 import { sql } from 'kysely';
-import { bookingActions, type BookingRole } from '#lib/bookings.ts';
+import { bookingActions, bookingGroup, type BookingRole } from '#lib/bookings.ts';
 import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
 import { BOOKING_STATUSES, isOneOf, labelFor } from '#lib/taxonomy/options.ts';
 import type { BookingEventView, BookingThreadView, ShowDetails, Viewer } from '#lib/types.ts';
@@ -11,6 +11,7 @@ import { bookingSpace, parseSpaceRecordUri, parseSpaceUri } from '../atproto/spa
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 import type { BookingThreadRow } from '../db/schema';
+import { unlessOffline } from '../happyview/offline';
 import { isFresh } from '../notifications/notifier';
 import { spaceWriter } from './own-repo';
 import type { ProjectService } from './projects';
@@ -757,6 +758,27 @@ export class BookingService {
 		return this.toViews(rows);
 	}
 
+	/** How many of `did`'s threads wait on them. It reads only the site's index, so it answers without the directory. */
+	async waitingOn(did: string): Promise<number> {
+		const rows = await this.core.db
+			.selectFrom('bookingThread')
+			.innerJoin('bookingParticipant', 'bookingParticipant.spaceUri', 'bookingThread.spaceUri')
+			.selectAll('bookingThread')
+			.where('bookingParticipant.did', '=', did)
+			.execute();
+
+		if (rows.length === 0) return 0;
+		const { participants, lastAuthors } = await this.parties(rows);
+
+		return rows.filter(
+			({ spaceUri, status }) =>
+				bookingGroup(
+					{ status, lastAuthor: lastAuthors.get(spaceUri) ?? null, participants: participants.get(spaceUri) ?? [] },
+					did
+				) === 'reply'
+		).length;
+	}
+
 	async thread(viewer: Viewer, space: string): Promise<{ thread: BookingThreadView; events: BookingEventView[] }> {
 		const row = await this.requireParticipant(viewer, space);
 		const [thread] = await this.toViews([row]);
@@ -792,18 +814,15 @@ export class BookingService {
 		};
 	}
 
-	private async toViews(rows: BookingThreadRow[]): Promise<BookingThreadView[]> {
-		if (rows.length === 0) return [];
+	/** Who's in each thread and who wrote in it last, keyed by space. */
+	private async parties(rows: BookingThreadRow[]) {
 		const spaces = rows.map((row) => row.spaceUri);
 
-		const participants = await this.core.db
+		const members = await this.core.db
 			.selectFrom('bookingParticipant')
 			.selectAll()
 			.where('spaceUri', 'in', spaces)
 			.execute();
-
-		const accounts = await this.core.accounts.views(participants.map((p) => p.did));
-		const projects = await this.projects.byUris(rows.map((row) => row.projectUri));
 
 		// Newest first, so the first one seen for each thread is its last author. The root only opens threads.
 		const latest = await this.core.db
@@ -819,8 +838,22 @@ export class BookingService {
 
 		for (const event of latest) if (!lastAuthors.has(event.spaceUri)) lastAuthors.set(event.spaceUri, event.authorDid);
 
+		return { members, lastAuthors, participants: Map.groupBy(members, (member) => member.spaceUri) };
+	}
+
+	private async toViews(rows: BookingThreadRow[]): Promise<BookingThreadView[]> {
+		if (rows.length === 0) return [];
+		const { members: participants, lastAuthors } = await this.parties(rows);
+
+		const accounts = await this.core.accounts.views(participants.map((p) => p.did));
+
+		// Project names are all the directory adds, so a thread stays readable without one while it's down.
+		const projects = await unlessOffline(this.core.logger, () =>
+			this.projects.byUris(rows.map((row) => row.projectUri))
+		);
+
 		return rows.map((row) => {
-			const project = projects.get(row.projectUri);
+			const project = projects?.get(row.projectUri);
 
 			return {
 				space: row.spaceUri,

@@ -31,7 +31,9 @@ are:
   Traktor](other-software.md#from-traktor).
 - **demos**: `locallibrary clean LIBRARY` removes rekordbox's demo tracks and their files (see
   [Editing](editing.md#clean)), and its check lists them in `check` and `doctor`, with `clean` as
-  the fix. `refresh` runs it first.
+  the fix. `refresh` runs it first. Its `delete_unbacked` edit leaves the files out of the backup,
+  which only plugins locallibrary ship can ask for (`library:delete-unbacked`), and `edit.plan`
+  refuses.
 - **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
   fetch`, and track details on MusicBrainz for `locallibrary track fetch` (see
   [Providers](#providers)).

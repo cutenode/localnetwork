@@ -1,10 +1,9 @@
 // src/tools/third-party-downloads/sites/index.ts: the registry, and matching
 // a link to the site that claims it.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
 	CLAIMED,
 	extractGateUrls,
-	HOSTS,
 	isGateUrl,
 	labelOfUrl,
 	SITES,
@@ -28,8 +27,13 @@ describe('the registry', () => {
 		expect(new Set(CLAIMED).size).toBe(CLAIMED.length);
 	});
 
-	it('covers the seven sites the tool is for', () => {
-		expect(HOSTS).toEqual([
+	it('covers the seven sites the tool is for', async () => {
+		// Loaded afresh, so the lists are built inside the test, where a mutation
+		// run can reach the code that builds them.
+		vi.resetModules();
+		const fresh = await import('../../src/tools/third-party-downloads/sites/index.ts');
+
+		expect(fresh.HOSTS).toEqual([
 			'hypeddit.com',
 			'toneden.io',
 			'droploud.com',
@@ -39,7 +43,7 @@ describe('the registry', () => {
 			'fanlink.tv'
 		]);
 		// fanlink.to is claimed but never fetched: it is rewritten to fanlink.tv.
-		expect(CLAIMED).toEqual([...HOSTS, 'fanlink.to']);
+		expect(fresh.CLAIMED).toEqual([...fresh.HOSTS, 'fanlink.to']);
 	});
 });
 
@@ -49,6 +53,10 @@ describe('unwrapGate', () => {
 		expect(unwrapGate('https://gate.sc?token=t')).toBe('https://gate.sc?token=t');
 		expect(unwrapGate('https://laylo.com/a/b')).toBe('https://laylo.com/a/b');
 		expect(unwrapGate('not a url')).toBe('not a url');
+		// A `url` parameter on any other site is that site's business.
+		expect(unwrapGate('https://hypeddit.com/x?url=https%3A%2F%2Fdroploud.com%2Fy')).toBe(
+			'https://hypeddit.com/x?url=https%3A%2F%2Fdroploud.com%2Fy'
+		);
 	});
 });
 
@@ -66,6 +74,8 @@ describe('siteFor', () => {
 		expect(siteFor('https://bandcamp.com/x')).toBe(null);
 		// A subdomain is somebody else's site, not the one it sits under.
 		expect(siteFor('https://kannibalen.fanlink.tv/x')).toBe(null);
+		// Only a leading www. is dropped: one further in is part of somebody else's name.
+		expect(siteFor('https://hypeddit.www.com/x')).toBe(null);
 		expect(siteFor('ftp://hypeddit.com/x')).toBe(null);
 		expect(siteFor('not a url')).toBe(null);
 		expect(isGateUrl('https://hypeddit.com/x')).toBe(true);
@@ -89,6 +99,10 @@ describe('extractGateUrls', () => {
 		]);
 	});
 
+	it('takes plain http links too', () => {
+		expect(extractGateUrls('old one: http://hypeddit.com/886rp1')).toEqual(['http://hypeddit.com/886rp1']);
+	});
+
 	it('is empty for text with nothing in it', () => {
 		expect(extractGateUrls('no links at all')).toEqual([]);
 	});
@@ -98,6 +112,7 @@ describe('labelOfUrl', () => {
 	it('uses the last path segment as a stand-in title', () => {
 		expect(labelOfUrl('https://hypeddit.com/artist/track-name')).toBe('track-name');
 		expect(labelOfUrl('https://laylo.com/artist/slug/')).toBe('slug');
+		expect(labelOfUrl('https://laylo.com/artist/slug//')).toBe('slug');
 		expect(labelOfUrl('https://hypeddit.com/')).toBe('https://hypeddit.com/');
 		expect(labelOfUrl('nonsense')).toBe('nonsense');
 	});

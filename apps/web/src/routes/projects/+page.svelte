@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { SlidersHorizontal } from '@lucide/svelte';
+	import { SlidersHorizontal, X } from '@lucide/svelte';
 	import { browser } from '$app/env';
 	import { page } from '$app/state';
 	import EmptyState from '#lib/components/EmptyState.svelte';
@@ -8,6 +8,7 @@
 	import NearInput from '#lib/components/NearInput.svelte';
 	import Pagination from '#lib/components/Pagination.svelte';
 	import PerformerCard from '#lib/components/PerformerCard.svelte';
+	import { activeFilters, emptyHint } from '#lib/directory-filters.ts';
 	import { formFields } from '#lib/form-fields.svelte.ts';
 	import { pluralize } from '#lib/format.ts';
 	import { djSummary, projectSummary } from '#lib/performers.ts';
@@ -27,6 +28,9 @@
 		[f.q, f.lat, f.country, f.unclaimed].filter(Boolean).length +
 			[f.genres, f.kinds, f.formats, f.setTypes, f.feeTiers].reduce((sum, list) => sum + list.length, 0)
 	);
+
+	/** The filters that are on, shown over the results with a way to drop each, since a phone folds the form away. */
+	const removable = $derived(activeFilters(f, page.url.searchParams));
 
 	/** "More filters" is open while one of them is on. */
 	let moreFiltersOpen = $derived(f.kinds.length > 0 || f.formats.length > 0 || !!f.country || f.unclaimed);
@@ -128,12 +132,24 @@
 			{:else}
 				<div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
 					<h2 id="results-title" class="m-0 text-body font-semibold">
-						{pluralize(data.result.total, 'DJ')}{#if f.place}<span class="font-normal text-fg-muted"> within {f.radiusKm} km of {f.place}</span>{/if}
+						{pluralize(data.result.total, 'DJ')}{#if f.place && f.lat}{' '}<span class="font-normal text-fg-muted">within {f.radiusKm} km of {f.place}</span>{/if}
 					</h2>
 					{#if active && data.result.items.length}<a href="/projects" class="text-small text-fg-muted no-underline hover:text-fg">Clear filters</a>{/if}
 				</div>
+				{#if data.placeMissed}
+					<p class="notice m-0">
+						{#if data.geocoder}Couldn't find “{f.place}”, so these aren't sorted by distance. Pick a place from the list under Near.{:else}Distance search is off right now, so these aren't sorted by distance.{/if}
+					</p>
+				{/if}
+				{#if removable.length}
+					<ul class="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Filters on">
+						{#each removable as filter (filter.label)}
+							<li><a href={filter.href} class="chip gap-1 pr-1.5 no-underline" aria-label="Remove {filter.label}">{filter.label}<X aria-hidden="true" class="size-3.5 text-fg-subtle" /></a></li>
+						{/each}
+					</ul>
+				{/if}
 				{#if data.result.items.length === 0}
-					<EmptyState title="No DJs match those filters" body="Try a wider radius, fewer genres or another slot.">
+					<EmptyState title={active ? 'No DJs match those filters' : 'No DJs found'} body={emptyHint(f)}>
 						<Button variant="secondary" href="/projects">Clear filters</Button>
 					</EmptyState>
 				{:else}
