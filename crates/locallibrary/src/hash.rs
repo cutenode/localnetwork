@@ -13,6 +13,8 @@ use crate::progress::{Ctx, Event, Phase};
 use crate::{Error, Result};
 
 const BUF_SIZE: usize = 1 << 20;
+/// Buffers read ahead of the writes in [`copy_reading_ahead`].
+const READ_AHEAD: usize = 4;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Hash([u8; 32]);
@@ -119,7 +121,9 @@ pub fn hash_file(path: &Path, ctx: &Ctx<'_>, phase: Phase) -> Result<Hash> {
     Ok(hasher.finalize().into())
 }
 
-/// Stream `src` into `dst` while hashing it. Returns the hash and number of bytes copied.
+/// Stream `src` into `dst` while hashing it. Returns the hash and number of bytes copied. A file
+/// bigger than a buffer is read and hashed on a thread of its own, so a drive that's busy writing
+/// never waits for the next buffer.
 pub fn copy_hashing(
     src: &Path,
     dst: &mut impl Write,
@@ -128,6 +132,9 @@ pub fn copy_hashing(
     phase: Phase,
 ) -> Result<(Hash, u64)> {
     let mut file = File::open(src).at(src)?;
+    if file.metadata().at(src)?.len() > BUF_SIZE as u64 {
+        return copy_reading_ahead(file, src, dst, dst_path, ctx, phase);
+    }
     let mut hasher = blake3::Hasher::new();
     let mut buf = buffer_for(&file);
     let mut total = 0u64;
@@ -143,6 +150,51 @@ pub fn copy_hashing(
         ctx.emit(Event::Bytes { phase, bytes: n as u64 });
     }
     Ok((hasher.finalize().into(), total))
+}
+
+/// [`copy_hashing`] with `file` read and hashed ahead of the writes, at most [`READ_AHEAD`]
+/// buffers. A failed write or a cancel drops the channel, which stops the reader.
+fn copy_reading_ahead(
+    mut file: File,
+    src: &Path,
+    dst: &mut impl Write,
+    dst_path: &Path,
+    ctx: &Ctx<'_>,
+    phase: Phase,
+) -> Result<(Hash, u64)> {
+    let (full, filled) = std::sync::mpsc::sync_channel(READ_AHEAD);
+    let (empty, spare) = std::sync::mpsc::channel::<Vec<u8>>();
+    std::thread::scope(|s| {
+        let reader = s.spawn(move || {
+            let mut hasher = blake3::Hasher::new();
+            let mut buf = vec![0u8; BUF_SIZE];
+            loop {
+                match file.read(&mut buf) {
+                    Ok(0) => return Some(hasher.finalize()),
+                    Ok(n) => {
+                        hasher.update(&buf[..n]);
+                        let next = spare.try_recv().unwrap_or_else(|_| vec![0u8; BUF_SIZE]);
+                        full.send(Ok((std::mem::replace(&mut buf, next), n))).ok()?;
+                    }
+                    Err(e) => {
+                        let _ = full.send(Err(e));
+                        return None;
+                    }
+                }
+            }
+        });
+        let mut total = 0u64;
+        for read in filled {
+            let (buf, n): (Vec<u8>, usize) = read.at(src)?;
+            ctx.check()?;
+            dst.write_all(&buf[..n]).at(dst_path)?;
+            total += n as u64;
+            ctx.emit(Event::Bytes { phase, bytes: n as u64 });
+            let _ = empty.send(buf);
+        }
+        let hash = reader.join().expect("the reader doesn't panic").expect("it ended by finishing the file");
+        Ok((hash.into(), total))
+    })
 }
 
 #[cfg(test)]
