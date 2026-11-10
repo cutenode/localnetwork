@@ -64,6 +64,7 @@ export const AUDIT_ACTIONS = [
 	'listing.unlist',
 	'record.delete',
 	'flag.update',
+	'flag.preview',
 	'flagGroup.create',
 	'flagGroup.update',
 	'flagGroup.delete',

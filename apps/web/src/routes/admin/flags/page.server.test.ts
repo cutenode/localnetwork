@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { createTestServices } from '#lib/server/testing/core.ts';
-import { callRoute, loadRoute } from '#lib/testing/route-event.ts';
+import { newToken } from '#lib/server/auth/session.ts';
+import { openPreview, PREVIEW_COOKIE } from '#lib/server/flags/preview.ts';
+import type { FlagPreview } from '#lib/types.ts';
+import { callRoute, loadRoute, routeEvent } from '#lib/testing/route-event.ts';
 import type { PageServerData as ListData } from './$types';
-import { load as loadList } from './+page.server.ts';
+import { actions as listActions, load as loadList } from './+page.server.ts';
 import { actions as flagActions, load as loadFlag } from './[key]/+page.server.ts';
 import { actions as groupsActions, load as loadGroups } from './groups/+page.server.ts';
 import { actions as groupActions, load as loadGroup } from './groups/[rkey]/+page.server.ts';
@@ -27,6 +30,7 @@ afterEach(async () => {
 /** The app with an identity resolver that knows handles as `<name>.test`. */
 const app = () => ({
 	...t,
+	config: { publicUrl: 'https://localnetwork.test' },
 	identity: {
 		resolveIdentifier: async (identifier: string) => {
 			if (identifier.startsWith('did:')) return identifier;
@@ -261,4 +265,88 @@ it('shows the reason a group in use stays', async () => {
 	});
 
 	expect(result).toMatchObject({ status: 400, data: { error: `Take it off ${FLAG} first` } });
+});
+
+it("previews a flag in the staff member's own browser, and clears it", async () => {
+	const viewer = await t.viewer(ADMIN);
+	const sessionToken = newToken();
+
+	// The server hook has already read the cookie into flagPreview, as it does for every request.
+	const preview = async (state: string, flagPreview?: FlagPreview) => {
+		const { call, cookies } = routeEvent({
+			app: app(),
+			viewer,
+			sessionToken,
+			url: `/admin/flags/${FLAG}`,
+			params: { key: FLAG },
+			form: { state },
+			flagPreview
+		});
+
+		return { result: await call(flagActions.preview), cookies };
+	};
+
+	const on = await preview('on');
+
+	expect(on.result).toEqual({ success: `${FLAG} is on in this browser only` });
+	expect(openPreview(on.cookies.get(PREVIEW_COOKIE), sessionToken, ADMIN)).toEqual({ [FLAG]: true });
+	expect(on.cookies.options.get(PREVIEW_COOKIE)).toMatchObject({
+		path: '/',
+		httpOnly: true,
+		sameSite: 'lax',
+		secure: true,
+		maxAge: 3600
+	});
+	expect(await t.flags.evaluate(ADMIN)).toEqual({ [FLAG]: false });
+
+	const off = await preview('off', { [FLAG]: true });
+
+	expect(openPreview(off.cookies.get(PREVIEW_COOKIE), sessionToken, ADMIN)).toEqual({ [FLAG]: false });
+
+	const cleared = await preview('clear', { [FLAG]: false });
+
+	expect(cleared.result).toEqual({ success: `${FLAG} is back to what everyone else sees` });
+	expect(cleared.cookies.deleted).toContain(PREVIEW_COOKIE);
+
+	const all = routeEvent({
+		app: app(),
+		viewer,
+		sessionToken,
+		url: '/admin/flags',
+		form: {},
+		flagPreview: { [FLAG]: true }
+	});
+
+	await all.call(listActions.clearPreview);
+	await t.audit.idle();
+
+	expect(all.cookies.deleted).toContain(PREVIEW_COOKIE);
+
+	// Clearing when nothing's previewed still drops a cookie the hook couldn't read, and logs nothing.
+	const nothing = routeEvent({ app: app(), viewer, sessionToken, url: '/admin/flags', form: {} });
+	await nothing.call(listActions.clearPreview);
+
+	expect(nothing.cookies.deleted).toContain(PREVIEW_COOKIE);
+	expect((await t.audit.list({ action: 'flag.preview' })).map((entry) => entry.summary)).toEqual([
+		`Stopped previewing ${FLAG}`,
+		`Stopped previewing ${FLAG}`,
+		`Previewed ${FLAG} off in their own browser`,
+		`Previewed ${FLAG} on in their own browser`
+	]);
+});
+
+it('refuses a preview to staff without the flags grant, and a state it does not know', async () => {
+	const viewer = await moderator('flagGroups');
+	const init = { app: app(), viewer, url: `/admin/flags/${FLAG}`, params: { key: FLAG }, sessionToken: newToken() };
+
+	await expect(callRoute(flagActions.preview, { ...init, form: { state: 'on' } })).rejects.toMatchObject({
+		status: 403
+	});
+	await expect(callRoute(listActions.clearPreview, { ...init, form: {} })).rejects.toMatchObject({ status: 403 });
+
+	const admin = await t.viewer(ADMIN);
+
+	expect(await callRoute(flagActions.preview, { ...init, viewer: admin, form: { state: 'maybe' } })).toMatchObject({
+		status: 400
+	});
 });

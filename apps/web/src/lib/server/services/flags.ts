@@ -2,7 +2,7 @@ import { TID } from '@atproto/common-web';
 import { z } from 'zod';
 import type { FlagKey } from '#lib/flags/keys.generated.ts';
 import { COLLECTION } from '#lib/nsid.ts';
-import type { FlagGroupView, Flags, FlagView, StaffGrant, Viewer } from '#lib/types.ts';
+import type { FlagGroupView, FlagPreview, Flags, FlagView, StaffGrant, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
 import { rkeyOf } from '../atproto/spaces';
 import type { AuditChange, AuditEvent } from '../audit/log';
@@ -10,6 +10,7 @@ import { type Core, ForbiddenError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 import { FLAGS } from '../flags/catalog';
 import { type FlagGates, isOn } from '../flags/evaluate';
+import { openPreview } from '../flags/preview';
 import { actorRole } from './requests';
 import type { StaffService } from './staff';
 
@@ -260,6 +261,35 @@ export class FlagService {
 						? `Turned ${key} back on`
 						: `Turned ${key} off for everyone`,
 			changes
+		});
+	}
+
+	/** What a preview cookie turns on or off for `viewer`, while they still hold the flags grant. */
+	async preview(
+		viewer: Viewer,
+		cookie: string | undefined,
+		sessionToken: string | undefined
+	): Promise<FlagPreview | null> {
+		const preview = openPreview(cookie, sessionToken, viewer.did);
+
+		if (!preview || !(await this.staff.grants(viewer.did)).includes('flags')) return null;
+
+		return preview;
+	}
+
+	/**
+	 * Logs `actor` previewing `key` on or off in their own browser, or stopping with null. The route sets the cookie;
+	 * nothing changes for anyone else.
+	 */
+	async recordPreview(actor: Viewer, key: string, on: boolean | null): Promise<void> {
+		await this.requireGrant(actor, 'flags');
+
+		if (!inCatalog(key)) throw new UserError('There is no flag with that key', 404);
+		await this.audit(actor, {
+			action: 'flag.preview',
+			subject: key,
+			subjectKind: 'flag',
+			summary: on === null ? `Stopped previewing ${key}` : `Previewed ${key} ${on ? 'on' : 'off'} in their own browser`
 		});
 	}
 

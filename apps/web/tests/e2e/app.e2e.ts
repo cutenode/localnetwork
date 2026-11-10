@@ -595,6 +595,17 @@ test.describe('signed in', () => {
 		await expect(ada.getByLabel('Accounts', { exact: true })).toHaveValue('milo.test');
 		await expectAccessible(ada);
 
+		// A preview changes what this browser sees and no one else's, until it's cleared.
+		await ada.getByRole('button', { name: 'On for me' }).click();
+		await expect(ada.getByRole('status').filter({ hasText: 'Previewing parityCanary on' })).toBeVisible();
+		expect(await flagOn((url) => ada.request.get(url))).toBe(true);
+		expect(await flagOn((url) => milo.request.get(url))).toBe(false);
+		expect(await flagOn((url) => request.get(url))).toBe(false);
+		await expectAccessible(ada);
+		await ada.getByRole('button', { name: 'Clear' }).click();
+		await expect(ada.getByRole('status').filter({ hasText: 'Previewing' })).toBeHidden();
+		expect(await flagOn((url) => ada.request.get(url))).toBe(false);
+
 		await ada.getByRole('switch', { name: 'Off for everyone' }).uncheck();
 		await ada.getByRole('button', { name: 'Save' }).click();
 		await expect(ada.getByText('Flag saved')).toBeVisible();

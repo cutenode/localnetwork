@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
 import { spaceRecordUri } from '../atproto/spaces';
+import { newToken } from '../auth/session';
 import { ForbiddenError, UserError } from '../core';
+import { PREVIEW_MS, sealPreview } from '../flags/preview';
 import { createTestServices } from '../testing/core';
 import { FlagService } from './flags';
 
@@ -362,6 +364,38 @@ describe('FlagService', () => {
 
 		expect(Object.keys(await t.flags.evaluate(null))).toEqual([FLAG]);
 		expect((await t.flags.list()).map((flag) => flag.key)).toEqual([FLAG]);
+	});
+
+	describe('previewing a flag in your own browser', () => {
+		const token = newToken();
+
+		const cookie = (did: string) =>
+			sealPreview({ did, flags: { [FLAG]: true }, expiresAt: Date.now() + PREVIEW_MS }, token);
+
+		it('applies to staff holding the flags grant, and stops when the grant goes', async () => {
+			const mod = await moderator('flags');
+
+			expect(await t.flags.preview(mod, cookie(MOD), token)).toEqual({ [FLAG]: true });
+
+			await t.staff.setGrants(await t.viewer(ADMIN), MOD, ['flagGroups']);
+
+			expect(await t.flags.preview(await t.viewer(MOD), cookie(MOD), token)).toBeNull();
+			expect(await t.flags.preview(await t.viewer(DJ), cookie(DJ), token)).toBeNull();
+		});
+
+		it('logs each preview, and refuses anyone without the grant or a flag not in the catalog', async () => {
+			const admin = await t.viewer(ADMIN);
+			await t.flags.recordPreview(admin, FLAG, true);
+			await t.flags.recordPreview(admin, FLAG, null);
+			await t.audit.idle();
+
+			expect((await t.audit.list({ action: 'flag.preview' })).map((entry) => entry.summary)).toEqual([
+				`Stopped previewing ${FLAG}`,
+				`Previewed ${FLAG} on in their own browser`
+			]);
+			await expect(t.flags.recordPreview(await t.viewer(DJ), FLAG, true)).rejects.toBeInstanceOf(ForbiddenError);
+			await expect(t.flags.recordPreview(admin, 'noSuchFlag', true)).rejects.toBeInstanceOf(UserError);
+		});
 	});
 
 	describe('who may change them', () => {

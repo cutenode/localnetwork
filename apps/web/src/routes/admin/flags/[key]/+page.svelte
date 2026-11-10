@@ -10,6 +10,9 @@
 
 	const flag = $derived(data.flag);
 
+	/** What this browser sees for the flag instead of what's saved, if anything. */
+	const previewing = $derived(data.flagPreview?.[flag.key]);
+
 	const fields = $derived(
 		formFields({
 			off: !flag.enabled,
@@ -64,4 +67,15 @@
 		</div>
 		<button class="btn-primary self-start">Save</button>
 	</form>
+	<section class="card flex max-w-2xl flex-col gap-3 p-5" aria-labelledby="preview-title">
+		<div>
+			<h2 id="preview-title" class="font-medium">Preview in this browser</h2>
+			<p class="hint">Only you see it, here, for an hour. Everyone else gets what's saved above.</p>
+		</div>
+		<form method="POST" action="?/preview" class="flex flex-wrap gap-2" use:enhance>
+			<button name="state" value="on" class="btn-secondary btn-sm aria-pressed:border-fg aria-pressed:bg-fg aria-pressed:text-fg-inverse" aria-pressed={previewing === true}>On for me</button>
+			<button name="state" value="off" class="btn-secondary btn-sm aria-pressed:border-fg aria-pressed:bg-fg aria-pressed:text-fg-inverse" aria-pressed={previewing === false}>Off for me</button>
+			{#if previewing !== undefined}<button name="state" value="clear" class="btn-ghost btn-sm">Stop previewing</button>{/if}
+		</form>
+	</section>
 </div>

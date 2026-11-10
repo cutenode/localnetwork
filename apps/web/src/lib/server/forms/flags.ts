@@ -1,7 +1,8 @@
-import { error } from '@sveltejs/kit';
+import { type Cookies, error } from '@sveltejs/kit';
 import type { StaffGrant, Viewer } from '#lib/types.ts';
 import { IdentityError } from '../atproto/identity';
 import { UserError } from '../core';
+import { PREVIEW_COOKIE, PREVIEW_MS, sealPreview } from '../flags/preview';
 import { all, requireStaff, text, wholeNumber } from '../http';
 import type { FlagGroupInput, FlagInput } from '../services/flags';
 
@@ -17,6 +18,29 @@ export async function requireGrant(locals: StaffLocals, url: URL, grant: StaffGr
 		error(403, 'An admin can give you access to this page');
 
 	return viewer;
+}
+
+type PreviewLocals = { sessionToken?: string; app: { config: { publicUrl: string } } };
+
+/** Saves what `viewer` previews in this browser, for the next hour, or drops the cookie once nothing's left in it. */
+export function writePreview(cookies: Cookies, locals: PreviewLocals, viewer: Viewer, flags: Record<string, boolean>) {
+	if (Object.keys(flags).length === 0 || !locals.sessionToken) {
+		cookies.delete(PREVIEW_COOKIE, { path: '/' });
+
+		return;
+	}
+
+	cookies.set(
+		PREVIEW_COOKIE,
+		sealPreview({ did: viewer.did, flags, expiresAt: Date.now() + PREVIEW_MS }, locals.sessionToken),
+		{
+			path: '/',
+			httpOnly: true,
+			sameSite: 'lax',
+			secure: locals.app.config.publicUrl.startsWith('https:'),
+			maxAge: PREVIEW_MS / 1000
+		}
+	);
 }
 
 /** The accounts in a field holding a handle or DID on each line, as DIDs, each once. */

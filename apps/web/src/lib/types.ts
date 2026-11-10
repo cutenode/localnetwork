@@ -358,6 +358,9 @@ export type StaffGrant = 'flags' | 'flagGroups';
 /** Every feature flag, on or off for whoever is looking. */
 export type Flags = Record<FlagKey, boolean>;
 
+/** Flags a staff member sees on or off in one browser, instead of what everyone else sees. */
+export type FlagPreview = Partial<Flags>;
+
 export type FlagAccount = { did: string; handle: string | null };
 
 /** A feature flag as the staff console shows it. */

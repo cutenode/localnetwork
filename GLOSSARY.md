@@ -28,6 +28,10 @@ _Avoid_: feature toggle, experiment, setting
 A named list of accounts a flag can be turned on for. It has nothing to do with an act, and the people in it don't know they're in it.
 _Avoid_: segment, cohort, group (on its own)
 
+**Flag preview**:
+A staff member seeing a flag on or off in their own browser for an hour, with nothing changing for anyone else.
+_Avoid_: override, test mode
+
 **Rollout**:
 The share of signed-in accounts a flag is on for. An account stays in as the share grows, and has the same chance of being in on every flag. Signed-out visitors are never counted.
 _Avoid_: percentage (in copy), canary, staged release
