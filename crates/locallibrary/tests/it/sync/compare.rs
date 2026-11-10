@@ -239,6 +239,13 @@ fn a_sync_cut_off_before_its_flush_is_finished_by_the_next_run() {
             && path.starts_with("Contents/")
             && copied.fetch_add(1, Ordering::SeqCst) == 2
         {
+            // Small files go side by side: the two before this one may still be landing.
+            let landed =
+                || common::library_files(&root.join("B")).iter().filter(|(k, _)| k.contains("New Artist")).count();
+            let give_up = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            while landed() < 2 && std::time::Instant::now() < give_up {
+                std::thread::yield_now();
+            }
             image(&root.join("B"), &root.join("image"));
         }
     };
@@ -249,7 +256,7 @@ fn a_sync_cut_off_before_its_flush_is_finished_by_the_next_run() {
         .filter(|(k, _)| k.contains("New Artist"))
         .map(|(k, _)| k)
         .collect();
-    assert_eq!(torn.len(), 2, "two new tracks were copied when the plug was pulled");
+    assert!(torn.len() >= 2, "two new tracks were copied when the plug was pulled: {torn:?}");
     for key in &torn {
         let p = root.join("image").join(key);
         let meta = std::fs::metadata(&p).unwrap();
@@ -267,6 +274,42 @@ fn a_sync_cut_off_before_its_flush_is_finished_by_the_next_run() {
     sync::sync_drive_to_drive(&mut a, &mut b, &SyncOptions::default(), &Ctx::silent()).unwrap();
     assert_eq!(common::library_files(a.root()), common::library_files(b.root()));
     assert_eq!(compare::compare_devices(&a, &b, &Ctx::silent()).unwrap().relation, Relation::Identical);
+}
+
+/// A file a cut-off write noted and never stamped goes when the next write starts, so a plan
+/// mustn't take it as it is because its content matches: that would leave the drive without it.
+#[test]
+fn a_whole_file_a_cut_off_write_left_is_copied_again_not_taken_as_it_is() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = locallibrary::device::dunce_canonicalize(dir.path());
+    let mut a = Device::open_export(common::bigger_drive(&root, "A")).unwrap();
+    std::fs::create_dir(root.join("B")).unwrap();
+    let mut b = Device::open(root.join("B")).unwrap();
+    sync::sync_drive_to_drive(&mut a, &mut b, &SyncOptions::default(), &Ctx::silent()).unwrap();
+    common::export_new_track(a.root(), "New Artist", "Track");
+    let mut a = Device::open_export(a.root()).unwrap();
+    sync::sync_drive_to_drive(&mut a, &mut b, &SyncOptions::default(), &Ctx::silent()).unwrap();
+
+    // The plug was pulled once every byte was down, before its time was set.
+    let (key, _) = common::library_files(&root.join("B")).into_iter().find(|(k, _)| k.contains("New Artist")).unwrap();
+    let file = root.join("B").join(&key);
+    // From before the run: only the note says it isn't finished.
+    let old = filetime::FileTime::from_unix_time(1_500_000_100, 0);
+    filetime::set_file_mtime(&file, old).unwrap();
+    filetime::set_file_mtime(root.join("A").join(&key), old).unwrap();
+    let meta = std::fs::metadata(&file).unwrap();
+    b.begin(locallibrary::device::LineageOp::Sync, "sync", None).unwrap();
+    let started = b.state().unwrap().pending.as_ref().unwrap().started;
+    let files = [serde_json::json!({ "key": key, "size": meta.len(), "mtime": 1_500_000_000 })];
+    let noted = serde_json::json!({ "started": started, "files": files });
+    std::fs::write(b.state_dir().join("writing.json"), noted.to_string()).unwrap();
+
+    // Something else to copy, or the next sync has nothing to start.
+    common::export_new_track(a.root(), "Other Artist", "Track");
+    let mut a = Device::open_export(a.root()).unwrap();
+    sync::sync_drive_to_drive(&mut a, &mut b, &SyncOptions::default(), &Ctx::silent()).unwrap();
+    assert!(file.is_file(), "{key} is gone");
+    assert_eq!(common::library_files(a.root()), common::library_files(b.root()));
 }
 
 /// Regression: a track whose audio rekordbox left outside `Contents/` was copied over whatever the

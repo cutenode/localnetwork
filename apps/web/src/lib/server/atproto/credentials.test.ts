@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { silentLogger } from '../logger';
 import { type Loopback, rebindToLoopback } from '../testing/rebind';
+import { MEBIBYTE, streamed } from '../testing/streamed';
 import { FakeSpaceHost } from '../testing/space-host';
 import { SpaceCredentialManager } from './credentials';
 import { IdentityResolver } from './identity';
@@ -45,6 +46,58 @@ describe('SpaceCredentialManager', () => {
 		expect(ask.headers.get('signature')).toBeNull();
 		expect(use.headers.get('authorization')).toMatch(/^Atproto-Space-Credential /);
 		expect(use.headers.get('signature-input')).toContain('tag="atproto-space-credential"');
+	});
+
+	describe('with a host that sends more than any answer holds', () => {
+		it.each([
+			[
+				'a query',
+				'com.atproto.space.listRepos',
+				'Response too large',
+				() => credentials.query({ space: SPACE, service: host.url, ...listRepos, schema: z.unknown() })
+			],
+			[
+				'a procedure',
+				NOTE,
+				'expected true',
+				() =>
+					credentials.procedure({
+						space: SPACE,
+						service: host.url,
+						audience: 'did:plc:root',
+						nsid: NOTE,
+						body: {},
+						schema: z.object({ ok: z.literal(true) })
+					})
+			],
+			[
+				'a credential',
+				'com.atproto.space.getSpaceCredential',
+				'No credential returned',
+				() => credentials.request({ space: SPACE, service: host.url, ...listRepos })
+			]
+		])('stops reading %s at the cap', async (_name, nsid, failure, call) => {
+			const answer = streamed(64);
+
+			host.overrides.set(nsid, () => new Response(answer.body));
+
+			await expect(call()).rejects.toThrow(failure);
+			expect(answer.made()).toBeLessThan(40 * MEBIBYTE);
+		});
+
+		it('still reads a repo export of any size', async () => {
+			host.overrides.set('com.atproto.space.getRepo', () => new Response(streamed(33).body));
+
+			const response = await credentials.request({
+				space: SPACE,
+				service: host.url,
+				audience: DJ,
+				nsid: 'com.atproto.space.getRepo',
+				params: { space: SPACE, repo: DJ }
+			});
+
+			expect((await response.arrayBuffer()).byteLength).toBe(33 * MEBIBYTE);
+		});
 	});
 
 	it('gets a fresh credential and tries once more when the host revoked the one it had', async () => {

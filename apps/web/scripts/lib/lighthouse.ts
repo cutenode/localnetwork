@@ -112,7 +112,8 @@ export const METRICS: Metric[] = [
 	{
 		id: 'dom',
 		label: 'DOM elements',
-		audit: 'dom-size',
+		// Lighthouse 13 replaced dom-size with this insight, which takes the count from Chrome's trace.
+		audit: 'dom-size-insight',
 		unit: 'count',
 		higherIsBetter: false,
 		tolerance: { absolute: 100, relative: 0.1 }
@@ -363,7 +364,17 @@ const changeRows = (changes: Change[]) => [
 	)
 ];
 
-const TABLE_METRICS = ['performance', 'accessibility', 'best-practices', 'seo', 'lcp', 'tbt', 'cls', 'ttfb', 'bytes'];
+const TABLE_METRICS = new Set([
+	'performance',
+	'accessibility',
+	'best-practices',
+	'seo',
+	'lcp',
+	'tbt',
+	'cls',
+	'ttfb',
+	'bytes'
+]);
 
 /** The comparison as Markdown, for the run's summary or the terminal. `trend` is how many past runs the sparklines show. */
 export function renderMarkdown(comparison: Comparison, history: HistoryEntry[], trend = 12) {
@@ -417,7 +428,7 @@ export function renderMarkdown(comparison: Comparison, history: HistoryEntry[], 
 	if (baselineRuns && added.length)
 		lines.push(`New pages, with no history yet: ${added.map((key) => `\`${key}\``).join(', ')}`, '');
 
-	const metrics = METRICS.filter((metric) => TABLE_METRICS.includes(metric.id));
+	const metrics = METRICS.filter((metric) => TABLE_METRICS.has(metric.id));
 
 	const past = history.slice(-trend);
 

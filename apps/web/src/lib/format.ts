@@ -83,6 +83,12 @@ export function formatShowDate(iso: string | null | undefined, withTime = false)
 	return formatDate(iso, options);
 }
 
+/** A night the way lists lead with it, like "Sat 14 Nov", from a show date, which is in UTC. */
+export const nightLabel = (iso: string): string =>
+	new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })
+		.format(new Date(iso))
+		.replace(',', '');
+
 /** A profile's fee levels, reading a record written before `fees` as one level. */
 export function feeLevels(profile: Pick<ProjectProfile, 'fees' | 'fee'>): ProjectFee[] {
 	return profile.fees ?? (profile.fee ? [profile.fee] : []);

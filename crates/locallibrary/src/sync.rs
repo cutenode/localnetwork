@@ -6,8 +6,10 @@
 //!
 //! Carrying it out orders writes so a drive is never left unusable:
 //!
-//! 1. new/changed audio, analysis and artwork files are copied (temp file + rename each), then
-//!    flushed to the device together, and only then given their source's modification time;
+//! 1. new/changed audio, analysis and artwork files are copied (a file the drive has already
+//!    through a temp file and a rename; a new one, which no database names yet, under its own
+//!    name), then flushed to the device together, and only then given their source's modification
+//!    time;
 //! 2. the database files (`export.pdb`, `exportExt.pdb`, `exportLibrary.db` and its WAL) are
 //!    staged, then swapped in back to back;
 //! 3. only then are files the new database no longer references deleted: database files the
@@ -360,6 +362,8 @@ pub fn plan(source: &Source<'_>, target: &Device, target_tree: &FileTree, opts: 
     // The DJ's own files where the source keeps audio outside PIONEER/ and Contents/.
     let mut in_the_way = Vec::new();
     let cut_off = cut_off_since(target);
+    // What a cut-off write left goes when the next one starts, whatever it holds.
+    let unfinished: FxHashSet<String> = crate::writing::unfinished(target).iter().map(|k| fold(k)).collect();
     // Files copied onto the target moments after their source was written (see
     // `fsutil::settled`): their size and mtime don't say they're still the same, so they're
     // compared by content.
@@ -379,14 +383,16 @@ pub fn plan(source: &Source<'_>, target: &Device, target_tree: &FileTree, opts: 
         let (reason, replaced) = match target_by_fold.get(&f) {
             Some(t) => {
                 let suspect = cut_off.is_some_and(|since| t.mtime >= since);
-                let same = match !suspect && index.racy(t) {
-                    true => same_by_content(source, e, &target_tree.fs_path(&t.path), t.size)?,
-                    false => same_content(e, t, opts, suspect)?,
-                };
+                let same = !unfinished.contains(&f)
+                    && match !suspect && index.racy(t) {
+                        true => same_by_content(source, e, &target_tree.fs_path(&t.path), t.size)?,
+                        false => same_content(e, t, opts, suspect)?,
+                    };
                 ((!same).then_some(CopyReason::Changed), Some((t.path.clone(), t.size)))
             }
             None => match outside_file(source, target, &index, e, cut_off)? {
                 Outside::Free => (Some(CopyReason::New), None),
+                Outside::Same if unfinished.contains(&f) => (Some(CopyReason::Changed), Some((e.path.clone(), e.size))),
                 Outside::Same => (None, None),
                 Outside::Ours(size) => (Some(CopyReason::Changed), Some((e.path.clone(), size))),
                 Outside::Theirs => {
@@ -471,6 +477,9 @@ pub fn plan(source: &Source<'_>, target: &Device, target_tree: &FileTree, opts: 
     // Database files last, OneLibrary's WAL after its database; deletes of database files (e.g.
     // exportLibrary.db disappearing) too.
     plan.copies.sort_by_key(|c| (c.class == FileClass::Database, c.path.clone()));
+    if let Source::Snapshot { store, snapshot } = source {
+        check_stored(store, snapshot, &plan.copies)?;
+    }
     if plan.copies.iter().any(|c| is_library_plus(&c.path)) {
         plan.warnings.extend(crate::player::no_name_note(target));
     }
@@ -499,6 +508,40 @@ pub fn plan(source: &Source<'_>, target: &Device, target_tree: &FileTree, opts: 
         }
     }
     Ok(plan)
+}
+
+/// Refuse a plan that copies a file the store has lost: found while copying, it would stop the
+/// push part way, the drive changed and marked as being written. Named by track where the
+/// snapshot's databases can still be read, otherwise by file.
+fn check_stored(store: &Store, snapshot: &Snapshot, copies: &[PlannedCopy]) -> Result<()> {
+    let mut missing = Vec::new();
+    for c in copies {
+        let h = c.hash.ok_or_else(|| Error::invalid(format!("{} has no hash", c.path)))?;
+        if !store.has_object(&h) {
+            missing.push(c.path.as_str());
+        }
+    }
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let library = crate::doctor::Databases::from_snapshot(store, snapshot).ok().map(|db| db.everything());
+    let mut names = indexmap::IndexSet::new();
+    for key in &missing {
+        let tracks = library.as_ref().map(|l| crate::scrub::affected(l, std::iter::once(*key)).0).unwrap_or_default();
+        if tracks.is_empty() {
+            names.insert(key.to_string());
+        }
+        names.extend(tracks.into_iter().map(|t| t.name));
+    }
+    let shown: Vec<&str> = names.iter().take(3).map(String::as_str).collect();
+    let more = if names.len() > 3 { format!(" and {} more", names.len() - 3) } else { String::new() };
+    Err(Error::NotFound(format!(
+        "{}{more} in the store: snapshot {} lists {} it no longer holds (see `store verify`)",
+        shown.join(", "),
+        snapshot.id.short(),
+        if missing.len() == 1 { "a file" } else { "files" },
+    ))
+    .with("paths", &missing))
 }
 
 /// How far back, before a run cut off on a drive started, its files are suspect: FAT's clock
@@ -648,23 +691,19 @@ fn apply(
     //    not pass for a finished one (see `cut_off_since`). A run stopped part way (Ctrl-C, an
     //    error) still flushes and stamps what it copied, so the next one doesn't copy it again.
     ctx.phase_start(Phase::Copy, plan.copies.len() as u64, plan.copy_bytes);
-    let mut written = Vec::new();
-    let mut stopped = None;
-    for c in &file_copies {
-        match copy_one(c, &by_key, source, target, ctx) {
-            Ok(copied) => {
-                written.push(copied);
-                report.copied += 1;
-                report.copied_bytes += c.size;
-            }
-            Err(e) => {
-                stopped = Some(e);
-                break;
-            }
-        }
-    }
+    let noted = |c: &&PlannedCopy| (c.target_key.clone().unwrap_or_else(|| c.path.clone()), c.size, c.mtime);
+    crate::writing::note(target, file_copies.iter().map(noted))?;
+    let (written, stopped) = crate::library_write::copy_each(
+        &file_copies,
+        |c| c.size,
+        |c| Ok((copy_one(c, &by_key, source, target, ctx)?, c.size)),
+    );
+    report.copied += written.len();
+    report.copied_bytes += written.iter().map(|(_, size)| size).sum::<u64>();
+    let written: Vec<Copied> = written.into_iter().map(|(copied, _)| copied).collect();
     // Barrier: everything the new database references is on disk before it's replaced.
     settle(&written, &mut index)?;
+    crate::writing::forget(target)?;
     if let Some(e) = stopped {
         target.save_index(&index)?;
         return Err(e);
@@ -738,12 +777,12 @@ fn take_off_databases(
 }
 
 /// A file copied onto the target, its data not yet flushed nor its modification time set.
-struct Copied {
-    path: PathBuf,
-    key: String,
-    class: FileClass,
-    hash: Hash,
-    mtime: i64,
+pub(crate) struct Copied {
+    pub(crate) path: PathBuf,
+    pub(crate) key: String,
+    pub(crate) class: FileClass,
+    pub(crate) hash: Hash,
+    pub(crate) mtime: i64,
 }
 
 fn copy_one(
@@ -771,17 +810,22 @@ fn copy_one(
         .with("paths", [key]));
     }
     ctx.emit(Event::Item { phase: Phase::Copy, path: c.path.clone(), bytes: c.size });
-    let hash = fsutil::copy_file(&source.fs_path(src_entry)?, &path, None, c.hash, false, ctx)?;
+    let hash = fsutil::copy_for_drive(&source.fs_path(src_entry)?, &path, c.hash, ctx)?;
     Ok(Copied { path, key: key.to_string(), class: c.class, hash, mtime: c.mtime })
 }
 
 /// Flush copied files to the device, then give each its source's modification time and record
 /// its hash.
-fn settle(copied: &[Copied], index: &mut crate::tree::HashIndex) -> Result<()> {
+pub(crate) fn settle(copied: &[Copied], index: &mut crate::tree::HashIndex) -> Result<()> {
     fsutil::flush(&copied.iter().map(|c| c.path.clone()).collect::<Vec<_>>())?;
-    for c in copied {
+    let stamped: Vec<std::fs::Metadata> = crate::workers::map(copied.iter().collect(), |c| {
         fsutil::set_mtime(&c.path, c.mtime)?;
-        record(index, &c.path, &c.key, c.class, c.hash)?;
+        std::fs::metadata(&c.path).at(&c.path)
+    })
+    .into_iter()
+    .collect::<Result<_>>()?;
+    for (c, meta) in copied.iter().zip(&stamped) {
+        record_as(index, &c.key, c.class, c.hash, meta);
     }
     Ok(())
 }
@@ -795,14 +839,19 @@ pub(crate) fn record(
     hash: Hash,
 ) -> Result<()> {
     let meta = std::fs::metadata(path).at(path)?;
+    record_as(index, key, class, hash, &meta);
+    Ok(())
+}
+
+/// Note in `index` that the file `key`, now as `meta` says, holds `hash`.
+fn record_as(index: &mut crate::tree::HashIndex, key: &str, class: FileClass, hash: Hash, meta: &std::fs::Metadata) {
     index.record(&FileEntry {
         path: key.to_string(),
         size: meta.len(),
-        mtime: fsutil::mtime_secs(&meta),
+        mtime: fsutil::mtime_secs(meta),
         class,
         hash: Some(hash),
     });
-    Ok(())
 }
 
 fn delete_files(

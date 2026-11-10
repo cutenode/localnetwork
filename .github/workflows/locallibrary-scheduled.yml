@@ -175,8 +175,10 @@ jobs:
       - run: npm run typecheck
         working-directory: apps/locallibrary/bombadil
       # Chrome's headless shell: full Chrome has stalled Bombadil while the report plays audio.
+      # From Bombadil's folder: the root's .npmrc keeps npm offline.
       - id: chrome
         run: npx -y playwright@1.63.0 install --with-deps --only-shell chromium
+        working-directory: apps/locallibrary/bombadil
       # Ubuntu's AppArmor policy keeps programs without a profile of their own, such as the
       # headless shell, from creating the user namespaces Chrome's sandbox runs in. Lifted here
       # rather than running Chrome without its sandbox.

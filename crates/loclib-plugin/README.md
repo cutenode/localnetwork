@@ -69,6 +69,7 @@ and typed table columns, see [views](#views)).
    `key`, filled in once the request is checked, left out of the plugin's log and the errors
    it's told, and never sent on to another server a redirect leads to: the headers it was filled
    into (and `Authorization`, `Cookie`) are dropped there, and a body with it isn't sent on.
+   One in a query value comes back as `{secret:<key>}` where the answer says the address back.
    `{account:<type>}` is the same for the access token of an account it has access to (see
    [accounts](#accounts)), as the whole value of the `Authorization` header or of the query
    parameter the account type names, and refused anywhere else in a request.
@@ -143,7 +144,8 @@ assert!(manifest.validate(false).is_err());
 
 - `capabilities`: `library:read`, `analysis:read`, `artwork:read`, `drive:info`, `health:read`,
   `store:read`, `settings:read`, `plays:read`, `sets:read`, `account:status`,
-  `collection:read`, `library:plan`, `library:delete`, `tags:plan`, `cues:plan`,
+  `collection:read`, `library:plan`, `library:delete`, `library:delete-unbacked` (plugins
+  locallibrary ships only), `tags:plan`, `cues:plan`,
   `artwork:plan`, `analysis:plan`, `events:drives`, `events:jobs`, `events:plans`, `fs:read`, and `net:<host>`, or `net:*.<domain>` for any host below the domain: what
   `net/fetch` may reach (shown to the user; a native plugin can't be held to it otherwise). Any
   other is refused, and each is granted once.

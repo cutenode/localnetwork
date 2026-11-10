@@ -112,7 +112,9 @@ such as `REKORDBOX`) or its mount path. `locallibrary --help` lists every comman
 
 - Every command that changes a library on a drive shows its plan first and asks, but for `watch`,
   which you opt into. If the drive changed in between (rekordbox exported again, say), it writes
-  nothing and asks you to plan again.
+  nothing and asks you to plan again. A dry run writes nothing. Otherwise the one thing written
+  before you say yes is a short test of a drive's speed, in its `.locallibrary/`, which the plan
+  mentions and which is removed after ([Speed](docs/drives.md#speed)).
 - Edits, merges and other changes to a library made in place are backed up first, and `locallibrary undo` takes
   the last one back. A `sync` or `library push` isn't backed up: it replaces the library, and `undo`
   refuses after it.

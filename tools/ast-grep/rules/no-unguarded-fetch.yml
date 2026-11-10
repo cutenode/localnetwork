@@ -1,7 +1,7 @@
 # A PDS or space host comes from a DID document, which anyone can publish, so the app only
-# requests one through IdentityResolver's guarded fetches (`identity.fetch`, and
-# `identity.serviceFetch` for repo exports and blobs). Those refuse private and loopback
-# addresses as they connect, and follow no redirects. Checking a host first and then calling
+# requests one through IdentityResolver's guarded fetches (`identity.fetch`, `identity.serviceApiFetch`
+# for answers it reads whole, and `identity.serviceFetch` for repo exports and recordings). Those
+# refuse private and loopback addresses as they connect, and follow no redirects. Checking a host first and then calling
 # the plain fetch leaves a gap: DNS can answer differently the second time, and a redirect
 # goes wherever it points.
 #
@@ -15,7 +15,7 @@ id: no-unguarded-fetch
 language: TypeScript
 severity: error
 message: This fetches a host from a DID document with the plain fetch.
-note: Use `identity.fetch` or `identity.serviceFetch` (apps/web/src/lib/server/atproto/identity.ts) with `redirect` set to 'error'. A host that's ours (the root's own PDS) can carry an `ast-grep-ignore` comment saying so.
+note: Use `identity.fetch`, `identity.serviceApiFetch` or `identity.serviceFetch` (apps/web/src/lib/server/atproto/identity.ts) with `redirect` set to 'error'. A host that's ours (the root's own PDS) can carry an `ast-grep-ignore` comment saying so.
 files:
   - "apps/web/src/**"
 ignores:

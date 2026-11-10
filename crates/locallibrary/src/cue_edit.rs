@@ -18,6 +18,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::anlz::{self, Beat, CueFile, CuePoint, DEFAULT_HOT_CUE_RGB, HOT_CUE_PALETTE};
+use crate::backup;
 use crate::commit::{Changes, NewDatabases, NewFile, Options};
 use crate::device::{Device, LineageOp};
 use crate::edit::Replayed;
@@ -838,17 +839,28 @@ pub(crate) fn add_rows_from_analysis(
     device: &Device,
     t: &Track,
 ) -> Result<Option<usize>> {
+    add_rows(one, id, rows_from_analysis(device, t))
+}
+
+/// The rows the analysis files of `t` on `device` give it: none if it has none, `None` if they
+/// can't be read. Only reads the drive, so tracks can go at once (see [`add_rows`]).
+pub(crate) fn rows_from_analysis(device: &Device, t: &Track) -> Option<Vec<CueRow>> {
     let dat = paths::key(&t.analyze_path);
     let readable = paths::is_safe_key(&dat) && paths::classify(&dat) == Some(FileClass::Analysis);
     if t.analyze_path.is_empty() || !readable || !device.checked_path(&dat).is_ok_and(|p| p.is_file()) {
-        return Ok(Some(0));
+        return Some(Vec::new());
     }
-    let Ok(loaded) = load(device, t) else { return Ok(None) };
-    let rows: Vec<CueRow> = loaded.cues.iter().map(|c| row_for(c, CueRow::default())).collect();
-    if rows.is_empty() {
-        return Ok(Some(0));
+    let loaded = load(device, t).ok()?;
+    Some(loaded.cues.iter().map(|c| row_for(c, CueRow::default())).collect())
+}
+
+/// Add the `rows` of [`rows_from_analysis`] to the track `id`: how many went in, `None` if they
+/// couldn't be read.
+pub(crate) fn add_rows(one: &mut OneLibrary, id: u32, rows: Option<Vec<CueRow>>) -> Result<Option<usize>> {
+    match rows {
+        Some(rows) if !rows.is_empty() => Ok(Some(one.replace_cues(id, &rows)?.added)),
+        rows => Ok(rows.map(|_| 0)),
     }
-    Ok(Some(one.replace_cues(id, &rows)?.added))
 }
 
 /// `c` as a row of the `cue` table, starting from `row` (its current row, a copied one, or none).
@@ -1006,21 +1018,21 @@ pub fn plan(device: &Device, track_ids: &[u32], edit: &CueEdit, ctx: &Ctx<'_>) -
         });
     }
 
-    // The backup copies the databases and the analysis files; each file is staged before it
-    // replaces the old one.
+    // The backup copies the databases and the analysis files; each analysis file, and OneLibrary's
+    // database when it changes, is staged before it replaces the old one.
     let cluster = fsutil::cluster_size(device.root());
     let round = |n: u64| n.div_ceil(cluster) * cluster;
     let size = |key: &str| std::fs::metadata(device.path(key)).map(|m| m.len()).unwrap_or(0);
     let needed_bytes = match tracks.is_empty() {
         true => 0,
         false => {
-            let databases: u64 = paths::DATABASE_FILES.iter().map(|k| round(size(k))).sum();
-            let analysis: u64 = tracks.iter().flat_map(|t| &t.files).map(|k| 2 * round(size(k))).sum();
+            let analysis = || tracks.iter().flat_map(|t| &t.files).map(String::as_str);
+            let staged: u64 = analysis().map(|k| round(size(k))).sum();
             let staged_plus = match tracks.iter().any(|t| t.onelibrary) {
                 true => round(size(paths::LIBRARY_PLUS_DB) + size(paths::LIBRARY_PLUS_WAL)),
                 false => 0,
             };
-            databases + analysis + staged_plus
+            backup::needed_bytes(device, analysis()) + staged + staged_plus
         }
     };
     let free_space = fsutil::available_space(device.root());

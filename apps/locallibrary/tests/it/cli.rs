@@ -31,6 +31,52 @@ impl Env {
     }
 }
 
+/// A drive's speed: not measured at first, measured on asking, kept, and in both outputs.
+#[test]
+fn drive_speed_measures_when_asked_and_remembers() {
+    let env = Env::new();
+    let root = demo_drive(&env.root, "SPEEDY");
+    let drive = path(&root);
+    let first = env.json(&["drive", "speed", drive]);
+    assert!(first["speed"].is_null(), "{first}");
+
+    let measured = env.json(&["drive", "speed", drive, "--measure"]);
+    assert!(measured["speed"]["bytes_per_sec"].as_u64().unwrap() > 0, "{measured}");
+    let again = env.json(&["drive", "speed", drive]);
+    assert_eq!(again["speed"], measured["speed"]);
+
+    let human = env.locallibrary().args(["drive", "speed", drive]).output().unwrap();
+    let said = String::from_utf8_lossy(&human.stdout);
+    assert!(said.contains("MB/s") && said.contains("a timed write"), "{said}");
+}
+
+/// A dry run, or a plan nobody will be asked about, writes nothing to the drive and says what it
+/// knows. One that goes ahead times the drive first, and says so.
+#[test]
+fn only_a_write_going_ahead_times_the_drive() {
+    let env = Env::new();
+    let a = demo_drive(&env.root, "A");
+    let b = env.root.join("B");
+    std::fs::create_dir(&b).unwrap();
+    let audio = std::fs::read_dir(a.join("Contents")).unwrap().next().unwrap().unwrap().path();
+    let track = walkdir::WalkDir::new(audio).into_iter().flatten().find(|e| e.file_type().is_file()).unwrap();
+    std::fs::File::options().write(true).open(track.path()).unwrap().set_len(70 << 20).unwrap();
+    let says =
+        |v: &Value, what: &str| v["summary"].as_array().unwrap().iter().any(|l| l.as_str().unwrap().contains(what));
+
+    for args in [vec!["--yes", "sync", path(&a), path(&b), "--dry-run"], vec!["sync", path(&a), path(&b)]] {
+        let v = env.json(&args);
+        assert!(says(&v["plan"], "hasn't been measured"), "{args:?}: {v}");
+        assert_eq!(std::fs::read_dir(&b).unwrap().count(), 0, "{args:?} wrote to the drive");
+    }
+
+    let v = env.json(&["--yes", "sync", path(&a), path(&b)]);
+    assert_eq!(v["applied"], true);
+    assert_eq!(v["plan"]["estimate"]["ran_test"], true, "{v}");
+    assert!(says(&v["plan"], "ran a short test"), "{v}");
+    assert!(b.join(".locallibrary/speed.json").is_file());
+}
+
 #[test]
 fn json_sync_requires_yes_and_then_applies() {
     let env = Env::new();
@@ -294,21 +340,118 @@ fn sync_many_updates_every_older_drive() {
     }
 }
 
-#[test]
-fn clean_shows_a_plan_then_removes_demo_samples() {
-    let env = Env::new();
-    let a = demo_drive(&env.root, "A");
+/// rekordbox exports its demo sample to the drive at `root`, with `audio`'s size: returns its file.
+fn export_demo_sample(root: &Path, audio: u64) -> PathBuf {
     let file = "/Contents/rekordbox/GROOVE CIRCUIT FACTORY SAMPLES/House1.wav";
-    let mut ed = rekordbox_pdb::PdbEditor::from_file(a.join("PIONEER/rekordbox/export.pdb")).unwrap();
+    let mut ed = rekordbox_pdb::PdbEditor::from_file(root.join("PIONEER/rekordbox/export.pdb")).unwrap();
     ed.add_track(&rekordbox_pdb::NewTrack {
         artist: Some("rekordbox".into()),
         ..rekordbox_pdb::NewTrack::new("House 1", file)
     })
     .unwrap();
-    ed.save(a.join("PIONEER/rekordbox/export.pdb")).unwrap();
-    let audio = a.join(file.trim_start_matches('/'));
-    std::fs::create_dir_all(audio.parent().unwrap()).unwrap();
-    std::fs::write(&audio, "demo sample").unwrap();
+    ed.save(root.join("PIONEER/rekordbox/export.pdb")).unwrap();
+    let sample = root.join(file.trim_start_matches('/'));
+    std::fs::create_dir_all(sample.parent().unwrap()).unwrap();
+    std::fs::File::create(&sample).unwrap().set_len(audio).unwrap();
+    sample
+}
+
+/// A size the drive at `root` has no room to copy (a sparse file takes none of it).
+#[cfg(unix)]
+fn too_big_to_copy(root: &Path) -> u64 {
+    2 * locallibrary::fsutil::available_space(root).unwrap() + (1 << 30)
+}
+
+/// `--json` output of `args`, unable to write a file past about 100 MB: a copy of a sparse sample
+/// fails there instead of filling the disk the tests run on.
+#[cfg(unix)]
+fn json_with_writes_capped(env: &Env, args: &[&str]) -> Value {
+    let inner = env.locallibrary();
+    let mut capped = Command::new("sh");
+    capped.args(["-c", "ulimit -f 200000 && exec \"$@\"", "sh"]).arg(inner.get_program()).arg("--json").args(args);
+    for (key, value) in inner.get_envs() {
+        match value {
+            Some(value) => capped.env(key, value),
+            None => capped.env_remove(key),
+        };
+    }
+    let out = capped.output().unwrap();
+    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| panic!("{args:?}: {e}: {out:?}"))
+}
+
+/// Each refresh after an export removes the demo sample, and however many there have been, no
+/// backup on the drive holds its audio.
+#[test]
+fn a_refresh_leaves_no_demo_audio_in_a_backup() {
+    let env = Env::new();
+    let a = demo_drive(&env.root, "A");
+    for _ in 0..2 {
+        let audio = export_demo_sample(&a, 11);
+        let v = env.json(&["--yes", "refresh", path(&a), "--skip", "pull"]);
+        assert_eq!(v["applied"], true, "{v}");
+        assert!(!audio.exists());
+    }
+    let backups = env.json(&["drive", "backups", path(&a)]);
+    let backups = backups.as_array().unwrap();
+    assert!(backups.len() >= 2, "{backups:?}");
+    assert!(backups.iter().all(|b| b["audio"] == 0), "{backups:?}");
+    let wavs = crate::support::Env::files_in(&a).into_iter().filter(|(p, _)| p.extension().is_some_and(|e| e == "wav"));
+    assert_eq!(wavs.count(), 0);
+}
+
+/// A sample the drive has no room to copy stops neither `clean` nor `refresh`, nor does a clean
+/// an earlier version recorded (which backed files up), left on the journal to replay.
+#[cfg(unix)]
+#[test]
+fn clean_and_refresh_run_on_a_drive_too_full_to_copy_the_demo_samples() {
+    let env = Env::new();
+    let a = demo_drive(&env.root, "A");
+    let audio = export_demo_sample(&a, too_big_to_copy(&a));
+    let v = json_with_writes_capped(&env, &["--yes", "clean", path(&a)]);
+    assert_eq!(v["applied"], true, "{v}");
+    assert!(!audio.exists());
+
+    let journal = a.join(".locallibrary/edits.json");
+    let recorded = std::fs::read_to_string(&journal).unwrap();
+    std::fs::write(&journal, recorded.replace("delete_unbacked", "delete_tracks")).unwrap();
+    let audio = export_demo_sample(&a, too_big_to_copy(&a));
+    let v = json_with_writes_capped(&env, &["--yes", "refresh", path(&a), "--skip", "pull"]);
+    assert_eq!(v["applied"], true, "{v}");
+    assert!(!audio.exists());
+}
+
+/// `clean` says up front what undoing it can't do, `drive backups` and `undo --list` say it of
+/// the backup, and `undo` says which tracks come back without their audio. It's still undone.
+#[test]
+fn undoing_a_clean_says_what_it_cant_restore() {
+    let env = Env::new();
+    let a = demo_drive(&env.root, "A");
+    let audio = export_demo_sample(&a, 11);
+    // What it prints, on either stream.
+    let says = |args: &[&str]| {
+        let out = env.locallibrary().args(args).output().unwrap();
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        String::from_utf8_lossy(&[out.stdout, out.stderr].concat()).into_owned()
+    };
+    let plan = says(&["clean", path(&a), "--dry-run"]);
+    assert!(plan.contains("delete 1 track(s) (rekordbox's next export brings their files back, undo can't)"), "{plan}");
+    says(&["--yes", "clean", path(&a)]);
+
+    let listed = says(&["drive", "backups", path(&a)]);
+    assert!(listed.contains("file(s), 1 deleted not kept"), "{listed}");
+    let undoing = says(&["undo", path(&a), "--dry-run"]);
+    let said = "1 track(s) come back without their audio until rekordbox's next export (e.g. rekordbox - House 1)";
+    assert!(undoing.contains(said), "{undoing}");
+    says(&["--yes", "undo", path(&a)]);
+    assert_eq!(env.json(&["info", path(&a)])["summary"]["tracks"], 3);
+    assert!(!audio.exists());
+}
+
+#[test]
+fn clean_shows_a_plan_then_removes_demo_samples() {
+    let env = Env::new();
+    let a = demo_drive(&env.root, "A");
+    let audio = export_demo_sample(&a, 11);
 
     // The demos plugin's operation.
     let v = env.json(&["clean", path(&a)]);

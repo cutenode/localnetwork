@@ -2,7 +2,6 @@
 //! in the store and for ejecting drives, so they can be shown and confirmed like every other
 //! operation, and a drive's My Tags by track, to show them beside its tracks.
 
-use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 
 use schemars::JsonSchema;
@@ -228,8 +227,8 @@ impl Operation for EjectPlan {
 // My Tags
 // ---------------------------------------------------------------------------------------------
 
-/// Each tagged track's My Tags (`Category/Tag`, in display order) by the track's file key in
-/// lower case, from both databases (see [`crate::tags::by_track`]).
-pub fn tags_by_track(req: &DriveRef) -> Result<FxHashMap<String, Vec<String>>> {
+/// Each tagged track's My Tags (`Category/Tag`, in display order) by its id in the drive's
+/// library, from both databases (see [`crate::tags::by_track`]).
+pub fn tags_by_track(req: &DriveRef) -> Result<crate::tags::TagsByTrack> {
     crate::tags::by_track(&resolve_drive(&req.drive)?)
 }

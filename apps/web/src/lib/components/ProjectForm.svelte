@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+	import type { ComponentProps, Snippet } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { PROJECT_KINDS } from '#lib/taxonomy/options.ts';
 	import { FormDraft } from '#lib/form-draft.svelte.ts';
@@ -8,11 +8,13 @@
 	import type { DjSetView, ProjectFormValues } from '#lib/types.ts';
 	import DraftNotice from './DraftNotice.svelte';
 	import BasicsFields from './form/BasicsFields.svelte';
+	import FormActions from './form/FormActions.svelte';
 	import FormSection from './form/FormSection.svelte';
 	import PerformerFields from './form/PerformerFields.svelte';
 
 	/** A project's profile: the basics and performer fields every profile has, its kind, and its private booking details. */
 	let {
+		form,
 		values = {},
 		action = '',
 		submitLabel = 'Submit for review',
@@ -25,6 +27,8 @@
 		children,
 		footer
 	}: {
+		/** What the last send came back with. */
+		form?: ComponentProps<typeof FormActions>['form'];
 		values?: ProjectFormValues;
 		action?: string;
 		submitLabel?: string;
@@ -125,8 +129,8 @@
 		{/if}
 	{/key}
 
-	<div class="flex flex-wrap items-center justify-end gap-3">
+	<FormActions {form} {submitting} kept={!!draft}>
 		{#if footer}{@render footer()}{/if}
 		<button class="btn-primary" disabled={submitting}>{submitting ? 'Saving…' : submitLabel}</button>
-	</div>
+	</FormActions>
 </form>

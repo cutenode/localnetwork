@@ -1514,10 +1514,10 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
                 }
                 StoreCommand::Verify => {
                     let r = existing()?.verify(&ctx)?;
-                    let bad = !r.corrupt.is_empty() || !r.missing.is_empty();
+                    let bad = !r.corrupt.is_empty() || !r.missing.is_empty() || !r.damaged_snapshots.is_empty();
                     let outcome = if bad { Outcome::Problems } else { Outcome::Applied };
                     return Ok(out.report(&r, outcome, |r| {
-                        if r.corrupt.is_empty() && r.missing.is_empty() {
+                        if !bad {
                             output::ok(format!("{} objects verified", r.checked));
                         } else {
                             for c in &r.corrupt {
@@ -1525,6 +1525,9 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
                             }
                             for m in &r.missing {
                                 output::warn(format!("missing: {m}"));
+                            }
+                            for s in &r.damaged_snapshots {
+                                output::warn(format!("damaged snapshot: {}", s.short()));
                             }
                         }
                     }));
@@ -1643,6 +1646,7 @@ fn run_sync(
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
+    locallibrary::op::allow_measuring(out.will_decide(dry_run));
     let preview = api::sync_plan(&req, ctx)?;
     let Some(plan) = &preview.plan.plan else {
         return Ok(out.nothing(&preview, "already in sync"));
@@ -1667,6 +1671,7 @@ fn run_sync(
             );
         }
         render::sync_plan(plan);
+        output::estimate(&preview.estimate);
     }
     if plan.is_noop() {
         return Ok(out.nothing(&preview, "nothing to copy"));

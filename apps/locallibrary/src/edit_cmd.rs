@@ -1029,6 +1029,7 @@ pub fn pack(
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
+    locallibrary::op::allow_measuring(out.will_decide(dry_run));
     let plan = api::pack_plan(&req, ctx)?;
     if !out.json {
         say!(

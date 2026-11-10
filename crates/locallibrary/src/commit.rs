@@ -183,10 +183,10 @@ pub(crate) struct Options<'a> {
     pub op: LineageOp,
     /// For the pending marker an interrupted write leaves.
     pub description: String,
-    /// Back up first (the databases and every file overwritten or removed), giving this reason.
-    /// `None` when there's nothing to undo (a repair writes back good copies of the same state;
-    /// copies of firmware or recordings would only fill the drive) or the caller has made one (a
-    /// replay backs up once for all its steps).
+    /// Back up first (the databases and every file overwritten or removed but `unbacked`), giving
+    /// this reason. `None` when there's nothing to undo (a repair writes back good copies of the
+    /// same state; copies of firmware or recordings would only fill the drive) or the caller has
+    /// made one (a replay backs up once for all its steps).
     pub backup: Option<String>,
     /// The backup this write puts back, when it's an undo (see [`backup::BackupInfo::undoes`]).
     pub undoes: Option<String>,
@@ -195,11 +195,17 @@ pub(crate) struct Options<'a> {
     pub lineage: bool,
     /// The drive the content came from (merge).
     pub source: Option<Uuid>,
+    /// That drive's state, when the write took all of it in (merge): recorded before the new
+    /// state, so the drive counts as having been through it.
+    pub held: Option<LineageEntry>,
     /// Edits to add to the drive's journal, with what they did.
     pub journal: Option<(&'a [Edit], &'a [String])>,
     /// Files it writes in place of ones the databases name (artwork replaced in place), for the
     /// backup: kept like those overwritten, or noted as added when they aren't there.
     pub in_place: Vec<String>,
+    /// Of the files it removes, those the backup leaves out (see
+    /// [`backup::BackupInfo::unbacked`]).
+    pub unbacked: Vec<String>,
 }
 
 impl Options<'_> {
@@ -211,8 +217,10 @@ impl Options<'_> {
             undoes: None,
             lineage: true,
             source: None,
+            held: None,
             journal: None,
             in_place: Vec::new(),
+            unbacked: Vec::new(),
         }
     }
 
@@ -409,6 +417,10 @@ pub(crate) fn commit(device: &mut Device, changes: Changes<'_>, opts: Options<'_
         backup::seal(device, &id)?;
     }
     if opts.lineage {
+        // Stamped now, after the backup: putting that back drops it (see `backup::restore_with`).
+        if let Some(held) = opts.held {
+            device.state_mut()?.record(LineageEntry { at: Utc::now(), ..held });
+        }
         let library = device.library()?;
         let scanned = device.scan_fingerprinted(Some(&library), ctx)?;
         done.fingerprint = scanned.fingerprint;
@@ -458,8 +470,8 @@ fn prepare(
     if let Some(reason) = &opts.backup {
         let mut extra: Vec<String> =
             files.iter().zip(&targets).filter(|(_, p)| p.is_file()).map(|(f, _)| f.key.clone()).collect();
-        extra.extend(deletes.iter().chain(&opts.in_place).cloned());
-        let info = backup::create(device, reason, &extra, opts.undoes.as_deref())?;
+        extra.extend(deletes.iter().filter(|k| !opts.unbacked.contains(k)).chain(&opts.in_place).cloned());
+        let info = backup::create(device, reason, &extra, &opts.unbacked, opts.undoes.as_deref())?;
         undo.backup = Some(backup::dir(device, &info.id));
         done.backup = Some(info.id);
     }

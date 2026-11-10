@@ -64,6 +64,9 @@
 				"required_status_checks": [
 					{
 						"context": "CI passed"
+					},
+					{
+						"context": "PR issue passed"
 					}
 				]
 			}

@@ -111,8 +111,9 @@ its drives.
 | `locallibrary drive format <drive> [--fs fat32\|exfat\|hfs+] [--check-capacity]` | Erase a drive and format it for players (experimental on Linux and Windows, see [Platforms](install.md#platforms)), see [Formatting a drive](drives.md#formatting-a-drive) |
 | `locallibrary drive verify [<drive>] [--from PLUGIN:DESTINATION] [--repair]` / `drive fsck <drive> [--repair]` | Re-read every file against a known-good copy (`--from`: also a plugin's copy of the store) and rewrite damaged ones; the OS's file-system check (`fsck`: experimental on Linux and Windows), see [Health](drives.md#health) |
 | `locallibrary drive space [<drive>]` / `drive tidy <drive>` / `drive recordings [<drive>]` | What's using a drive and when it fills; remove OS clutter; copy off set recordings, see [Space](drives.md#space) |
+| `locallibrary drive speed <drive> [--measure]` | How fast a drive writes, which plans estimate their time from, see [Speed](drives.md#speed) |
 | `locallibrary drive firmware <drive> [file.UPD] [--remove]` | Stage a player or mixer firmware update, see [Setting up and handing over](drives.md#setting-up-and-handing-over) |
-| `locallibrary drive backups [<drive>]` / `drive restore <library> \| <drive>` | The backups taken before every change to a library made in place; put any of them back (`--backup ID`; `--dry-run` shows what would change; refuses a backup whose audio has since been removed, unless `--force`). `--playlist P` brings back one playlist or folder from a snapshot or backup, see [Bringing back a playlist](editing.md#bringing-back-a-playlist) |
+| `locallibrary drive backups [<drive>]` / `drive restore <library> \| <drive>` | The backups taken before every change to a library made in place; put any of them back (`--backup ID`; `--dry-run` shows what would change; refuses a backup whose audio has since been removed, unless `--force`; a `clean`'s backup doesn't hold the demo samples, so those tracks come back without audio, and it says so). `--playlist P` brings back one playlist or folder from a snapshot or backup, see [Bringing back a playlist](editing.md#bringing-back-a-playlist) |
 | `locallibrary provision <target>` | Set up a new drive in one step, see [Setting up and handing over](drives.md#setting-up-and-handing-over) |
 | `locallibrary doctor [<library>] [--hash-audio] [--by-sound] [--audio] [--analyze] [--only SECTION,...]` | Health report: duplicates with a suggested keeper (`--by-sound`: also the same recording in another file or encoding), missing or cut-short files, orphaned files, tracks in no playlist, database drift, files over 4 GB, how players read the drive, what plugins' checks find (`--audio`: audio files cut short or that don't decode; `--analyze`: tempos and keys an analysis of the audio disagrees with, and tracks too loud, clipped or far from the library's level); `--fix-orphans` deletes orphans after a backup; `--fix-tempo` doubles or halves the beat grids of tempos that are half or double |
 | `locallibrary analysis bench [<library> \| <drive>] [--keys PATH] [--tempos DIR] [--audio DIR]` | Score rekordbox's stored keys and tempos, and the analysis `doctor --analyze` runs, against the GiantSteps datasets (`--keys`, `--tempos` or both), see [Checking the analysis](drives.md#checking-the-analysis) |
@@ -161,7 +162,7 @@ its drives.
 | `locallibrary merge <source> <target>` | Add the source's missing tracks and playlists to the target library (`--history`: and its history playlists) |
 | `locallibrary pack <library> <drive> --playlist P` | A drive for a set holding only some playlists, with `--transcode` as copies its players play, see [Drives for a set](editing.md#drives-for-a-set) |
 | `locallibrary convert <library> --to onelibrary\|device-library` | Build OneLibrary from `export.pdb` or the reverse; one the drive has gains what it lacks (`--replace` rebuilds it), see [Convert](editing.md#convert) |
-| `locallibrary clean <library>` | Remove rekordbox's bundled demo tracks (which pile up with every export) with their files, analysis and playlist entries: the demos plugin's, see [Clean](editing.md#clean) |
+| `locallibrary clean <library>` | Remove rekordbox's bundled demo tracks (which pile up with every export) with their files, analysis and playlist entries: the demos plugin's, see [Clean](editing.md#clean). `undo` brings back the tracks, not their files, which the next export does |
 | `locallibrary settings [<drive>] ...` | The settings profile, or a drive's settings; `settings export [FILE]` and `settings import FILE` take everything set here (the player's preferences and plugins' settings included) to another computer, see [Settings](settings.md) |
 
 **Plays and players**
@@ -306,9 +307,13 @@ locallibrary library push /Volumes/NEW -l Home --snapshot 3f9a2c
 
 ```bash
 locallibrary diff REKORDBOX BACKUP --summary   # "both changed since they were last in sync (2026-09-30 21:04)"
-locallibrary merge BACKUP REKORDBOX            # keep both sets of new tracks
+locallibrary merge BACKUP REKORDBOX --history  # keep both sets of new tracks
 locallibrary sync Home                         # then make them identical again
 ```
+
+The merge plan lists tracks both drives have whose details differ: REKORDBOX's stay, and the
+sync copies them to BACKUP. A merge that leaves some of BACKUP out (`--only`, `--playlists none`,
+history lists without `--history`) leaves the drives diverged, and so does undoing it.
 
 **A new drive**
 

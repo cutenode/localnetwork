@@ -177,7 +177,9 @@ fn history_lists_of_both_databases_are_selected_by_file() {
 #[test]
 fn tags_filter_uses_the_tag_map() {
     let lib = lib();
-    let tags = FxHashMap::from_iter([("contents/b.mp3".to_string(), vec!["Genre/Deep".to_string()])]);
+    // A file only the other database lists, as a combined library has.
+    let by_file = FxHashMap::from_iter([("contents/b.mp3".to_string(), vec!["Genre/Deep".to_string()])]);
+    let tags = crate::tags::TagsByTrack { by_file, ..Default::default() };
     let ctx = QueryContext::new(&lib).with_tags(&tags);
     let f = Filter::parse("tag:deep").unwrap();
     assert!(f.uses_tags());

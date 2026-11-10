@@ -91,6 +91,7 @@ describe('Removing someone', () => {
 		did: 'did:plc:harbour',
 		handle: 'harbour.test',
 		role: 'moderator',
+		grants: [],
 		grantedBy: 'did:plc:ada',
 		note: null,
 		createdAt: '2026-10-12T10:00:00Z',

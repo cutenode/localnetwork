@@ -1,6 +1,23 @@
 use super::*;
 use crate::paths::FileClass;
 
+/// An object imported from a file on the store's own volume (a clone, where the volume has them)
+/// stays as it was when that file is edited in place, as a tag editor does.
+#[test]
+fn an_object_keeps_its_bytes_when_the_file_it_came_from_is_edited() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let src = dir.path().join("a.mp3");
+    fs::write(&src, b"the audio").unwrap();
+    let (hash, new) = store.import_file(&src, None, &Ctx::silent()).unwrap();
+    assert!(new);
+    assert_eq!(hash, Hash::of(b"the audio"));
+    let mut opened = fs::File::options().write(true).open(&src).unwrap();
+    std::io::Write::write_all(&mut opened, b"TAG").unwrap();
+    drop(opened);
+    assert_eq!(fs::read(store.object_path(&hash)).unwrap(), b"the audio");
+}
+
 #[test]
 fn init_import_snapshot_history_gc() {
     let dir = tempfile::tempdir().unwrap();
@@ -441,4 +458,37 @@ fn prop_the_default_store_is_where_the_environment_says(tc: hegel::TestCase) {
     unsafe { std::env::remove_var("LOCALLIBRARY_STORE") };
     assert_eq!(set, root);
     assert_ne!(Store::default_root(), root);
+}
+
+#[test]
+fn verify_finds_a_snapshot_that_changed() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("s")).unwrap();
+    let lib = store.create_library("Main").unwrap();
+    let h = store.import_bytes(b"db").unwrap();
+    let entry =
+        FileEntry { path: "PIONEER/x.pdb".into(), size: 2, mtime: 0, class: FileClass::Database, hash: Some(h) };
+    let snapshot = |fp: &[u8]| Snapshot {
+        id: Hash::of(b""),
+        library_id: lib.id,
+        parents: vec![],
+        created: Utc::now(),
+        message: None,
+        source: None,
+        fingerprint: Hash::of(fp),
+        summary: Default::default(),
+        lineage: vec![],
+        files: vec![entry.clone()],
+    };
+    let edited = store.save_snapshot(snapshot(b"one")).unwrap();
+    let intact = store.save_snapshot(snapshot(b"two")).unwrap();
+    assert!(store.verify(&Ctx::silent()).unwrap().damaged_snapshots.is_empty());
+
+    let path = store.snapshot_path(&edited.id);
+    let text = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(&path, text.replace("PIONEER/x.pdb", "PIONEER/y.pdb")).unwrap();
+
+    let found = store.verify(&Ctx::silent()).unwrap().damaged_snapshots;
+    assert_eq!(found, [edited.id]);
+    assert!(!found.contains(&intact.id));
 }

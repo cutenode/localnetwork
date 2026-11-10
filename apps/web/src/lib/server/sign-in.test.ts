@@ -76,21 +76,29 @@ describe('accountHosts', () => {
 });
 
 describe('CAN', () => {
-	it('explains every collection, space and upload the app may ask for', () => {
+	const resources = () => {
 		const scopes = [
 			...DECLARED_SCOPES.split(' '),
 			...new IncludeScope(PERMISSIONS).toScopes(permissionSetFor('did:plc:root'))
 		];
 
-		const resources = scopes.flatMap((scope) =>
+		return scopes.flatMap((scope) =>
 			scope === 'atproto' || scope.startsWith('include:')
 				? []
 				: [scope.match(/^(?:repo|space):([^?]+)/)?.[1] ?? scope.split('?')[0]]
 		);
+	};
 
+	it('explains every collection, space and upload the app may ask for', () => {
 		const covered = new Set(CAN.flatMap((line) => line.covers));
 
-		expect(resources.length).toBeGreaterThan(5);
-		expect(resources.filter((resource) => !covered.has(resource))).toEqual([]);
+		expect(resources().length).toBeGreaterThan(5);
+		expect(resources().filter((resource) => !covered.has(resource))).toEqual([]);
+	});
+
+	it('promises nothing the app never asks for', () => {
+		const asked = new Set(resources());
+
+		expect(CAN.flatMap((line) => line.covers).filter((resource) => !asked.has(resource))).toEqual([]);
 	});
 });

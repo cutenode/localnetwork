@@ -1,4 +1,4 @@
-import { UserError } from '../core';
+import { FieldError, UserError } from '../core';
 import { isWebUrl } from '#lib/web-url.ts';
 import { CID, limit, optionalInt, optionalText, text } from '../http';
 import type { ShowEdit, ShowInput, Venue } from '../services/shows';
@@ -9,14 +9,14 @@ const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/;
 export function parseAnnouncement(form: FormData): ShowInput {
 	const name = limit('Show name', text(form, 'name', 1200), 120);
 
-	if (!name) throw new UserError('Give the show a name');
+	if (!name) throw new FieldError('Give the show a name', 'name');
 	const date = text(form, 'date', 10);
 	const start = text(form, 'start', 5);
 	const end = text(form, 'end', 5);
 
-	if (!date || !CLOCK.test(start)) throw new UserError('Pick a date and start time');
+	if (!date || !CLOCK.test(start)) throw new FieldError('Pick a date and start time', date ? 'start' : 'date');
 
-	if (end && !CLOCK.test(end)) throw new UserError('Pick a valid end time');
+	if (end && !CLOCK.test(end)) throw new FieldError('Pick a valid end time', 'end');
 	const city = limit('City', text(form, 'city', 1000), 100);
 	const country = text(form, 'country', 100).toUpperCase();
 	const latE6 = optionalInt(form, 'latE6', -90_000_000, 90_000_000);
@@ -24,14 +24,15 @@ export function parseAnnouncement(form: FormData): ShowInput {
 
 	// The coordinates find the venue's clock, and so the time the show starts everywhere else.
 	if (!city || !/^[A-Z]{2}$/.test(country) || latE6 === undefined || lngE6 === undefined)
-		throw new UserError("Pick the venue's city from the search");
+		throw new FieldError("Pick the venue's city from the search", 'city');
 	const location: Venue = { city, country, latE6, lngE6 };
 	const region = limit('Region', optionalText(form, 'region', 1000), 100);
 
 	if (region) location.region = region;
 	const tickets = optionalText(form, 'tickets', 2000);
 
-	if (tickets && !isWebUrl(tickets)) throw new UserError('Use a full web address for tickets, starting with https://');
+	if (tickets && !isWebUrl(tickets))
+		throw new FieldError('Use a full web address for tickets, starting with https://', 'tickets');
 
 	const input: ShowInput = { name, date, start, location, cancelled: form.get('cancelled') === 'on' };
 	const venue = limit('Venue', optionalText(form, 'venue', 1200), 120);

@@ -1,7 +1,8 @@
 //! Benchmarks of the library operations whose cost grows with the size of a drive's library:
 //! reading it, filtering, sorting and exporting its tracks, comparing two libraries, summarising
 //! its play history, planning a merge, a sync, a pack and a check of drives, converting between
-//! the two databases, and planning and applying an edit for each track.
+//! the two databases, planning and applying an edit for each track, and writing a library to a
+//! blank drive.
 //!
 //! The libraries are made up: see [`synthetic`].
 //!
@@ -263,5 +264,30 @@ fn edits(c: &mut Criterion) {
     g.finish();
 }
 
-criterion_group!(benches, read, query, compare, play_history, drives, pull, write_pdb, convert, edits);
+/// Writing one folder's 20 playlists of a 10,000-track drive to a blank one, as `pack` does: the
+/// plan, the copies, the databases built on the target and the scan that records them. A
+/// temporary folder has no USB drive's latency, so this keeps the work per file honest and leaves
+/// the wait for the drive to the counts in `tests/export_counters.rs` and to real drives.
+fn export_library(c: &mut Criterion) {
+    let a = drive("A", 0, 10_000);
+    let ctx = Ctx::silent();
+    let opts = PackOptions { playlists: vec!["Folder 0".into()], ..Default::default() };
+    let mut g = c.benchmark_group("export");
+    g.sample_size(10);
+    g.bench_function("pack_apply/10k", |bench| {
+        bench.iter_batched(
+            || {
+                let dir = tempfile::tempdir().unwrap();
+                let target = Device::open(dir.path()).unwrap();
+                let plan = pack::plan(&a, &target, &opts, &ctx).unwrap();
+                (dir, target, plan)
+            },
+            |(_dir, mut target, plan)| pack::apply(&plan, &a, &mut target, None, &ctx).unwrap(),
+            BatchSize::PerIteration,
+        )
+    });
+    g.finish();
+}
+
+criterion_group!(benches, read, query, compare, play_history, drives, pull, write_pdb, convert, edits, export_library);
 criterion_main!(benches);

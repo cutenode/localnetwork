@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import EpkEditor from '#lib/components/epk/EpkEditor.svelte';
-	import FormMessage from '#lib/components/FormMessage.svelte';
 	import SignInAgain from '#lib/components/SignInAgain.svelte';
 	import type { PageProps } from './$types';
 
@@ -18,6 +17,6 @@
 		<h1 class="m-0 text-title font-semibold">New press kit</h1>
 		<p class="m-0 max-w-[60ch] text-fg-muted">Make one for each kind of booking. Save a draft for the other managers to see, or publish it now.</p>
 	</div>
-	{#if form?.reauth && form.error && data.viewer}<SignInAgain did={data.viewer.did} next={page.url.pathname + page.url.search} error={form.error} />{:else}<FormMessage {form} />{/if}
-	<EpkEditor {values} photoBase={null} editHref="/dashboard/projects/{data.project.slug}/profile" draft={null} others={[]} published={false} />
+	{#if form?.reauth && form.error && data.viewer}<SignInAgain did={data.viewer.did} next={page.url.pathname + page.url.search} error={form.error} />{/if}
+	<EpkEditor {form} {values} photoBase={null} editHref="/dashboard/projects/{data.project.slug}/profile" draft={null} others={[]} published={false} />
 </div>

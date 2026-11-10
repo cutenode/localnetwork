@@ -3,6 +3,7 @@ import { BSKY_PROFILE } from '#lib/nsid.ts';
 import { HappyViewClient } from '#lib/server/happyview/client.ts';
 import { IndexedRepo } from '#lib/server/happyview/indexed.ts';
 import { silentLogger } from '#lib/server/logger.ts';
+import { BookingService } from '#lib/server/services/bookings.ts';
 import { ProfileService } from '#lib/server/services/profiles.ts';
 import { ProjectService } from '#lib/server/services/projects.ts';
 import { DJ, NO_SPACES, pressKitServices, PROMOTER } from '#lib/server/testing/press-kits.ts';
@@ -28,7 +29,7 @@ async function overview(did: string, { app = f.t, as = {} }: { app?: object; as?
 	const viewer = { ...(await f.t.viewer(did)), ...as };
 	const parent = await loadRoute<LayoutServerData>(layout, { app, viewer, url: '/dashboard' });
 
-	return loadRoute<PageServerData>(load, { app, viewer, url: '/dashboard', parent });
+	return { ...parent, ...(await loadRoute<PageServerData>(load, { app, viewer, url: '/dashboard', parent })) };
 }
 
 /** The promoter asks Neon Tide about `title`. Returns the thread's space. */
@@ -44,7 +45,7 @@ const inquire = async (title: string) =>
 const performerProfile = async (did: string) =>
 	f.t.profiles.save(await f.t.viewer(did), { basics: { name: 'Neon' }, performer: {}, avatar: 'keep', swap: null });
 
-it("puts the booking threads waiting on the viewer first, and doesn't lead a DJ's overview with the planner", async () => {
+it('counts what waits on the viewer, and says what is with others', async () => {
 	await performerProfile(DJ);
 	const answered = await inquire('Answered Night');
 	await inquire('Waiting Night');
@@ -52,36 +53,32 @@ it("puts the booking threads waiting on the viewer first, and doesn't lead a DJ'
 
 	const data = await overview(DJ);
 
-	expect(data.threads.map((thread) => thread.title)).toEqual(['Waiting Night', 'Answered Night']);
-	expect(data.waiting).toBe(1);
-	expect(data.firstRun).toBeNull();
-	expect(await data.books).toBe(false);
-	expect(await data.planner).toBeNull();
+	expect((await data.needs).map((row) => row.title)).toEqual(['Reply to Waiting Night']);
+	expect(await data.summary).toEqual({
+		others: '1 booking is waiting on a promoter. Nothing needed from you.',
+		hasBookings: true
+	});
+	expect(await data.firstRun).toBeNull();
 });
 
-it('shows the five newest threads and requests', async () => {
-	for (let i = 1; i <= 6; i++) await inquire(`Night ${i}`);
-
+it("says which requests are with staff, and which nights are next from the account's planner", async () => {
 	const promoter = await f.t.viewer(PROMOTER);
-
-	// Five new projects, as many as can wait for review at once, and a claim.
-	for (let i = 1; i <= 5; i++)
-		await f.t.requests.submit({ actor: promoter, kind: 'create', profile: { ...f.project.profile, name: `Act ${i}` } });
-	await f.t.requests.submit({
-		actor: promoter,
-		kind: 'claim',
-		projectUri: f.project.uri,
-		claim: { relationship: 'manager', evidence: 'I book them' }
+	await f.t.requests.submit({ actor: promoter, kind: 'create', profile: { ...f.project.profile, name: 'New Act' } });
+	await f.t.planner.saveShow(promoter, {
+		details: { title: 'Winter Social', date: '2099-12-12T22:00:00.000Z' },
+		lineup: []
 	});
 
 	const data = await overview(PROMOTER);
 
-	expect(data.threads.map((thread) => thread.title)).toEqual(['Night 6', 'Night 5', 'Night 4', 'Night 3', 'Night 2']);
-	expect(data.waiting).toBe(0);
-	expect(data.requests).toHaveLength(5);
+	expect(await data.summary).toEqual({
+		others: '1 request is with staff. Nothing needed from you.',
+		hasBookings: false
+	});
+	expect((await data.nights).nights.map((night) => night.title)).toEqual(['Winter Social']);
 });
 
-it("offers someone without a profile one filled in from Bluesky, and leads a booker's overview with their planner", async () => {
+it('offers someone without a profile one filled in from Bluesky', async () => {
 	const promoter = f.t.net.client(PROMOTER);
 	const avatar = await promoter.uploadBlob(new TextEncoder().encode('avatar'), 'image/png');
 	await promoter.putRecord({
@@ -89,34 +86,23 @@ it("offers someone without a profile one filled in from Bluesky, and leads a boo
 		rkey: 'self',
 		record: { $type: BSKY_PROFILE, displayName: 'Rooftop Collective', avatar }
 	});
-	await f.t.planner.save(await f.t.viewer(PROMOTER), f.project.uri);
 
-	const data = await overview(PROMOTER);
-
-	expect(data.firstRun).toEqual({ name: 'Rooftop Collective', hasAvatar: true });
-	expect(await data.books).toBe(true);
-	expect(await data.planner).toMatchObject({ available: true, saves: [{ project: f.project.uri }] });
+	expect(await (await overview(PROMOTER)).firstRun).toEqual({ name: 'Rooftop Collective', hasAvatar: true });
 });
 
 it('names a first profile after the handle, or leaves it blank, without a Bluesky profile to read', async () => {
-	expect((await overview(NO_SPACES, { as: { handle: 'nospaces.test' } })).firstRun).toEqual({
+	expect(await (await overview(NO_SPACES, { as: { handle: 'nospaces.test' } })).firstRun).toEqual({
 		name: 'nospaces.test',
 		hasAvatar: false
 	});
 
 	const data = await overview(NO_SPACES);
 
-	expect(data.firstRun).toEqual({ name: '', hasAvatar: false });
-	expect(await data.planner).toMatchObject({ available: false });
+	expect(await data.firstRun).toEqual({ name: '', hasAvatar: false });
+	expect((await data.nights).nights).toEqual([]);
 });
 
-it("doesn't lead a performer's overview with the planner, even without projects", async () => {
-	await performerProfile(PROMOTER);
-
-	expect(await (await overview(PROMOTER)).books).toBe(false);
-});
-
-it("asks nobody to set up a profile, or plan shows, while the directory can't say what they have", async () => {
+it("asks nobody to set up a profile while the directory can't say what they have, and says nights are missing", async () => {
 	const down = new HappyViewClient({
 		url: 'http://happyview.test',
 		fetch: async () => new Response(null, { status: 503 })
@@ -130,9 +116,33 @@ it("asks nobody to set up a profile, or plan shows, while the directory can't sa
 
 	const data = await overview(PROMOTER, { app });
 
-	expect(data.firstRun).toBeNull();
-	expect(await data.books).toBe(false);
-	expect(await data.planner).toBeNull();
+	expect(await data.firstRun).toBeNull();
+	expect((await data.nights).failed).toBe(true);
+});
+
+it('streams what a slow directory holds up, and keeps booking threads while it is down', async () => {
+	await inquire('Warehouse Night');
+
+	let answer = (_response: Response) => {};
+
+	const slow = new HappyViewClient({
+		url: 'http://happyview.test',
+		fetch: () => new Promise((resolve) => (answer = resolve))
+	});
+
+	const app = {
+		...f.t,
+		bookings: new BookingService(f.t.core, new ProjectService(f.t.core, slow)),
+		projects: new ProjectService(f.t.core, slow),
+		profiles: new ProfileService(f.t.core, new IndexedRepo(slow, silentLogger, 0))
+	};
+
+	const data = await overview(DJ, { app });
+
+	expect(data.needs).toBeInstanceOf(Promise);
+	expect(data.nights).toBeInstanceOf(Promise);
+
+	answer(new Response(null, { status: 503 }));
 });
 
 it('sends someone signed out to sign in', async () => {

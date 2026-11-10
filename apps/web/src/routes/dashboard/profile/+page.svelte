@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
 	import { ExternalLink } from '@lucide/svelte';
+	import FormActions from '#lib/components/form/FormActions.svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import BasicsFields from '#lib/components/form/BasicsFields.svelte';
 	import FormSection from '#lib/components/form/FormSection.svelte';
@@ -42,7 +43,8 @@
 		<FormMessage form={{ success: 'Saved. Your profile shows the changes now.' }} />
 	{:else if page.url.searchParams.has('created') && !form}
 		<FormMessage form={{ success: 'Your profile is up. Add more here whenever you like.' }} />
-	{:else}
+	{:else if !form?.values}
+		<!-- A failed save echoes the form's values, and its message shows in the form's own action bar. -->
 		<FormMessage {form} />
 	{/if}
 
@@ -111,8 +113,8 @@
 		{#if performer}<PerformerFields {values} sets={data.sets} />{/if}
 		{#if promoter}<PromoterFields {values} />{/if}
 
-		<div class="flex flex-wrap items-center justify-end gap-3">
+		<FormActions form={form?.values ? form : null} {submitting}>
 			<button class="btn-primary" disabled={submitting}>{submitting ? 'Saving…' : 'Save profile'}</button>
-		</div>
+		</FormActions>
 	</form>
 </div>

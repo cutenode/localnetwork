@@ -71,7 +71,7 @@ export type BookingGroup = (typeof BOOKING_GROUPS)[number]['value'];
 
 /** Where a thread sits for `viewer`: a live one waits on them when someone on the other side wrote in it last. */
 export function bookingGroup(
-	thread: Pick<BookingThreadView, 'status' | 'lastAuthor' | 'participants'>,
+	thread: Pick<BookingThreadView, 'status' | 'lastAuthor'> & { participants: { did: string; role: string }[] },
 	viewer: string
 ): BookingGroup {
 	if (thread.status === 'confirmed') return 'confirmed';

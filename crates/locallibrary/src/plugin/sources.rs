@@ -122,7 +122,7 @@ impl Plugins {
         let source = format!("{}:{}", req.plugin, req.source);
         let mut read = ReadLibrary { source: req.source.clone(), options, roots: roots.clone(), cursor: None, context };
         let operation = format!("{}.source.{}", req.plugin, req.source);
-        let mut planned = api::export_planned(operation, &req.drive, &req.export, |d| {
+        let mut planned = api::export_planned(operation, &req.drive, &req.export, ctx, |d| {
             let drive = without_verbatim_prefix(d.root().canonicalize().unwrap_or_else(|_| d.root().to_path_buf()));
             if let Some(root) = roots.iter().find(|r| r.starts_with(&drive)) {
                 return Err(Error::invalid(format!(

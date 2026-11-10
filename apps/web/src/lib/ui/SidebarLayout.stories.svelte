@@ -1,6 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
-	import { Activity, CalendarPlus, ClipboardCheck, ClipboardList, Disc3, Globe, History, LayoutDashboard, NotebookPen, Plus, ScrollText, ShieldCheck } from '@lucide/svelte';
+	import { Activity, CalendarPlus, ClipboardCheck, ClipboardList, Disc3, Globe, History, House, Inbox, LayoutDashboard, NotebookPen, Plus, ScrollText, ShieldCheck } from '@lucide/svelte';
 	import SidebarLayout, { type SidebarGroup } from './SidebarLayout.svelte';
 
 	const { Story } = defineMeta({ title: 'Primitives/Sidebar layout', component: SidebarLayout, tags: ['autodocs'], parameters: { layout: 'fullscreen' } });
@@ -42,6 +42,20 @@
 		}
 	];
 
+	const main = [
+		{ href: '/dashboard', label: 'Home', icon: House, exact: true },
+		{ href: '/dashboard/inbox', label: 'Inbox', icon: Inbox, dot: true },
+		{ href: '/dashboard/bookings', label: 'Bookings', icon: CalendarPlus }
+	];
+
+	const yours = (items: SidebarGroup['items']): SidebarGroup[] => [{ items: main }, { continues: true, items: [{ href: '/dashboard/planner', label: 'Planner', icon: NotebookPen }] }, { label: 'Yours', items }];
+
+	const own = [
+		{ href: '/dashboard/profile', label: 'You', monogram: 'neon.test' },
+		{ href: '/dashboard/projects/neon-tide', label: 'Neon Tide', monogram: 'Neon Tide' },
+		{ href: '/dashboard/projects/new', label: 'List a project', icon: Plus, exact: true }
+	];
+
 	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
@@ -71,4 +85,20 @@
 
 <Story name="Phone, menu open" asChild globals={phone}>
 	<SidebarLayout label="Dashboard" title="Dashboard" groups={dashboard(listed)} {footer} current="/dashboard/bookings" open>{@render content()}</SidebarLayout>
+</Story>
+
+<Story name="With tabs" asChild>
+	<SidebarLayout label="Dashboard" groups={yours(own)} tabs={main} current="/dashboard">{@render content()}</SidebarLayout>
+</Story>
+
+<Story name="With tabs, yours loading" asChild>
+	<SidebarLayout label="Dashboard" groups={yours(new Promise(() => {}))} tabs={main} current="/dashboard">{@render content()}</SidebarLayout>
+</Story>
+
+<Story name="Phone, tabs" asChild globals={phone}>
+	<SidebarLayout label="Dashboard" groups={yours(own)} tabs={main} current="/dashboard/bookings">{@render content()}</SidebarLayout>
+</Story>
+
+<Story name="Phone, tabs, sheet open" asChild globals={phone}>
+	<SidebarLayout label="Dashboard" groups={yours(own)} tabs={main} current="/dashboard/projects/neon-tide" open>{@render content()}</SidebarLayout>
 </Story>

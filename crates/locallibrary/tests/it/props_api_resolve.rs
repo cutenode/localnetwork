@@ -17,6 +17,7 @@ use locallibrary::error::Reason;
 use locallibrary::fleet::{self, Role};
 use locallibrary::store::Store;
 use locallibrary::{Error, sync};
+use uuid::Uuid;
 
 /// Where a registered drive is now, against where the registry last saw it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -30,6 +31,20 @@ enum Place {
     Outside,
     /// Another drive is where it was last seen.
     Replaced,
+}
+
+/// How many of `id`'s first characters (4 or more, as a lookup takes) start no other of `all`.
+fn unique_prefix(id: &str, all: &[String]) -> usize {
+    (4..id.len()).find(|&n| all.iter().filter(|o| o.starts_with(&id[..n])).count() == 1).unwrap_or(id.len())
+}
+
+/// Identities for `n` drives, drawn rather than random, so a case replays with the same ones and
+/// ids that start alike come up as often as any.
+fn ids(tc: &TestCase, n: usize) -> Vec<Uuid> {
+    tc.draw(gs::vecs(gs::integers::<u128>()).min_size(n).max_size(n).unique(true))
+        .into_iter()
+        .map(Uuid::from_u128)
+        .collect()
 }
 
 /// `word` with each letter's case drawn.
@@ -61,6 +76,12 @@ fn a_drive_is_found_where_it_was_last_seen_or_said_to_be_missing(tc: TestCase) {
     // One drive named like a folder in the working directory (the crate's), and maybe others.
     let mut names = vec![tc.draw(gs::sampled_from(vec!["src", "tests"]))];
     names.extend(tc.draw(gs::vecs(gs::sampled_from(vec!["Main", "Club"])).max_size(2).unique(true)));
+    // Ours, the four the store knows, and the pretender.
+    let mut id = ids(&tc, names.len() + 5).into_iter();
+    let mut adopt = |d: &mut Device, name: &str| {
+        d.adopt(Some(name)).unwrap().id = id.next().unwrap();
+        d.save_state().unwrap();
+    };
     let mut ours: Vec<(String, PathBuf)> = Vec::new();
     for name in &names {
         let root = volumes.join(format!("{name} volume"));
@@ -68,7 +89,7 @@ fn a_drive_is_found_where_it_was_last_seen_or_said_to_be_missing(tc: TestCase) {
             true => bare_export(&root),
             false => std::fs::create_dir(&root).unwrap(),
         }
-        Device::open(&root).unwrap().adopt(Some(name)).unwrap();
+        adopt(&mut Device::open(&root).unwrap(), name);
         ours.push((name.to_string(), root));
     }
     // A blank volume, which isn't one of ours.
@@ -89,7 +110,7 @@ fn a_drive_is_found_where_it_was_last_seen_or_said_to_be_missing(tc: TestCase) {
         std::fs::create_dir_all(&seen_at).unwrap();
         let seen_at = dunce_canonicalize(&seen_at);
         let mut d = Device::open(&seen_at).unwrap();
-        d.adopt(Some(name)).unwrap();
+        adopt(&mut d, name);
         sync::register_drive(&store, &d, None).unwrap();
         match place {
             Place::Nested | Place::Outside => {}
@@ -97,7 +118,7 @@ fn a_drive_is_found_where_it_was_last_seen_or_said_to_be_missing(tc: TestCase) {
             Place::Replaced => {
                 std::fs::remove_dir_all(&seen_at).unwrap();
                 std::fs::create_dir(&seen_at).unwrap();
-                Device::open(&seen_at).unwrap().adopt(Some("Pretender")).unwrap();
+                adopt(&mut Device::open(&seen_at).unwrap(), "Pretender");
             }
         }
         known.push((place, name, seen_at, d.id().unwrap()));
@@ -115,12 +136,19 @@ fn a_drive_is_found_where_it_was_last_seen_or_said_to_be_missing(tc: TestCase) {
         }
         assert!(!said.contains("BLANK") && !said.contains("Pretender"), "{said}");
     };
+    // A prefix several drives share is another question (`a_prefix_unplugged_drives_share_names_them`).
+    let all: Vec<String> = ours
+        .iter()
+        .map(|(_, root)| Device::open(root).unwrap().id().unwrap().to_string())
+        .chain(known.iter().map(|k| k.3.to_string()))
+        .collect();
     for (place, name, seen_at, id) in &known {
         let spec = match tc.draw(gs::booleans()) {
             true => any_case(&tc, name),
             false => {
                 let id = id.to_string();
-                id[..tc.draw(gs::integers::<usize>().min_value(4).max_value(id.len()))].to_string()
+                let shortest = unique_prefix(&id, &all);
+                id[..tc.draw(gs::integers::<usize>().min_value(shortest).max_value(id.len()))].to_string()
             }
         };
         match (place, api::resolve_drive(&spec)) {
@@ -154,6 +182,46 @@ fn a_drive_is_found_where_it_was_last_seen_or_said_to_be_missing(tc: TestCase) {
             }
         }
     }
+    locallibrary::testing::volumes_on_this_thread(None);
+    locallibrary::testing::store_root_on_this_thread(None);
+}
+
+/// Drives the store knows, none of them plugged in, whose ids start alike: the first characters
+/// they share don't pick one. The refusal names each, and asks for the id.
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_prefix_unplugged_drives_share_names_them(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    common::isolate(dir.path(), Some(store.root()));
+    let names = tc
+        .draw(gs::vecs(gs::sampled_from(vec!["Lost stick", "Spare", "Old gig"])).min_size(2).max_size(3).unique(true));
+    // The first eight characters, shared; the rest drawn, each drive's its own.
+    let shared = tc.draw(gs::integers::<u32>());
+    let rest = tc.draw(
+        gs::vecs(gs::integers::<u128>().max_value((1 << 96) - 1))
+            .min_size(names.len())
+            .max_size(names.len())
+            .unique(true),
+    );
+    let mut ids = Vec::new();
+    for (name, rest) in names.iter().zip(rest) {
+        let seen_at = dir.path().join("elsewhere").join(name);
+        std::fs::create_dir_all(&seen_at).unwrap();
+        let mut d = Device::open(&seen_at).unwrap();
+        d.adopt(Some(name)).unwrap().id = Uuid::from_u128((u128::from(shared) << 96) | rest);
+        d.save_state().unwrap();
+        sync::register_drive(&store, &d, None).unwrap();
+        std::fs::remove_dir_all(&seen_at).unwrap();
+        ids.push(d.id().unwrap());
+    }
+    let shared = format!("{shared:08x}");
+    let spec = &shared[..tc.draw(gs::integers::<usize>().min_value(4).max_value(shared.len()))];
+    let e = api::resolve_drive(spec).unwrap_err();
+    assert_eq!(e.reason(), Some(Reason::ChooseDrive), "{e}");
+    for (name, id) in names.iter().zip(&ids) {
+        assert!(e.to_string().contains(&format!("the registered {name} ({id})")), "{e}");
+    }
+    assert!(e.to_string().ends_with(": give the id"), "{e}");
     locallibrary::testing::volumes_on_this_thread(None);
     locallibrary::testing::store_root_on_this_thread(None);
 }
