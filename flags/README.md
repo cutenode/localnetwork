@@ -2,13 +2,17 @@
 
 The website's feature flags, kept here so locallibrary can use the same ones. Each one is a file in `catalog/`, named for its key, which `flag.schema.json` checks. To add a flag, add a file. To remove one, delete its file, and the website stops compiling wherever it's still used.
 
+Every flag has a `type`. `release` and `experiment` flags are meant to go, so they need a `removeBy` date (`YYYY-MM-DD`): once it passes, the website's tests fail until the flag is deleted or the date moves. `ops` and `permission` flags stay, and can't have one.
+
 Who a flag is on for lives in the staff space and is set at `/admin/flags`, not here. Every flag starts off.
 
 ```jsonc
 {
 	"$schema": "../flag.schema.json",
 	"key": "newPlanner",
-	"description": "What the flag gates, for the staff console."
+	"description": "What the flag gates, for the staff console.",
+	"type": "release",
+	"removeBy": "2027-03-01"
 }
 ```
 
