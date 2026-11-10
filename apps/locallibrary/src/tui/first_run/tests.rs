@@ -139,7 +139,8 @@ fn a_typed_folder_opens() {
     press(&mut app, "\n");
     assert!(app.modal.is_none());
     wait(&mut app, |a| a.loaded.is_some());
-    assert_eq!(app.loaded.as_ref().unwrap().root(), root.canonicalize().unwrap());
+    let real = locallibrary::device::without_verbatim_prefix(root.canonicalize().unwrap());
+    assert_eq!(app.loaded.as_ref().unwrap().root(), real);
 }
 
 /// A saved Deck layout stays up through the first read, with no flash of the panes, and with
