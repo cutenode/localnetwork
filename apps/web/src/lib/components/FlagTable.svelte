@@ -18,7 +18,10 @@
 </script>
 
 {#snippet who(flag: FlagView)}
-	<a class="link font-mono text-small" href="/admin/flags/{flag.key}">{flag.key}</a>
+	<span class="flex flex-wrap items-center gap-2">
+		<a class="link font-mono text-small" href="/admin/flags/{flag.key}">{flag.key}</a>
+		{#if flag.readyToRemove}<span class="pill bg-warning/10 text-warning">Ready to remove</span>{/if}
+	</span>
 	<p class="mt-1 text-label text-fg-muted">{flag.description}</p>
 {/snippet}
 

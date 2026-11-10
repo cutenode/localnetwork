@@ -4,7 +4,7 @@ The website's feature flags, kept here so locallibrary can use the same ones. Ea
 
 Every flag has a `type`. `release` and `experiment` flags are meant to go, so they need a `removeBy` date (`YYYY-MM-DD`): once it passes, the website's tests fail until the flag is deleted or the date moves. `ops` and `permission` flags stay, and can't have one.
 
-Who a flag is on for lives in the staff space and is set at `/admin/flags`, not here. Every flag starts off.
+Who a flag is on for lives in the staff space and is set at `/admin/flags`, not here. Every flag starts off. The list there marks a flag "Ready to remove" once it's been on for everyone, or every account, for 30 days.
 
 ```jsonc
 {

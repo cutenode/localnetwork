@@ -75,7 +75,7 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 ### Flags
 
-A flag turns a feature on for some people before everyone. The flags themselves are files in [`flags/catalog/`](../../flags/README.md). Staff set who each is on for at `/admin/flags`: everyone, a percentage of accounts, [flag groups](../../GLOSSARY.md) at `/admin/flags/groups`, or single accounts. "Off for everyone" turns a flag off and keeps all of that for when it's back on. Admins manage all of it, and on the Staff page they can give a moderator either part: flags, or flag groups. Every change is in the audit log.
+A flag turns a feature on for some people before everyone. The flags themselves are files in [`flags/catalog/`](../../flags/README.md). Staff set who each is on for at `/admin/flags`: everyone, a percentage of accounts, [flag groups](../../GLOSSARY.md) at `/admin/flags/groups`, or single accounts. "Off for everyone" turns a flag off and keeps all of that for when it's back on. Admins manage all of it, and on the Staff page they can give a moderator either part: flags, or flag groups. Every change is in the audit log. The list marks a flag "Ready to remove" once it's been on for everyone, or every account, for 30 days.
 
 To see a flag without changing it for anyone, staff with the flags grant can turn it on or off for their own browser from its page. The preview is a cookie signed with their session, lasts an hour, shows a banner on every page until it's cleared, and is audited. In development and tests, `FLAG_OVERRIDES=key=on,other=off` forces flags for every request instead; the app won't start with it in production.
 

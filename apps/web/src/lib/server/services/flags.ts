@@ -54,6 +54,9 @@ const list = (items: string[]) => items.toSorted().join(', ');
 
 const inCatalog = (key: string) => FLAGS.some((flag) => flag.key === key);
 
+/** How long a flag has to be fully on, untouched, before the console says to remove it. PostHog uses the same. */
+const READY_TO_REMOVE_MS = 30 * 86_400_000;
+
 /** The audit changes between two flags' gates. Empty when saving changes nothing. */
 function flagChanges(before: FlagInput, after: FlagInput): AuditChange[] {
 	const fields = [
@@ -172,9 +175,11 @@ export class FlagService {
 	async list(): Promise<FlagView[]> {
 		const { flags, groups } = await this.load();
 		const accounts = await this.core.accounts.views([...flags.values()].flatMap((flag) => flag.dids));
+		const settled = new Date(Date.now() - READY_TO_REMOVE_MS).toISOString();
 
 		return FLAGS.map(({ key, description }) => {
 			const flag = flags.get(key);
+			const fullyOn = !!flag?.enabled && (flag.everyone || flag.percentage === 100);
 
 			return {
 				key,
@@ -184,7 +189,8 @@ export class FlagService {
 				percentage: flag?.percentage ?? 0,
 				groups: (flag?.groups ?? []).map((rkey) => ({ rkey, name: groups.get(rkey)?.name ?? rkey })),
 				accounts: (flag?.dids ?? []).map((did) => ({ did, handle: accounts.get(did).handle })),
-				updatedAt: flag?.updatedAt ?? null
+				updatedAt: flag?.updatedAt ?? null,
+				readyToRemove: fullyOn && flag.updatedAt <= settled
 			};
 		});
 	}

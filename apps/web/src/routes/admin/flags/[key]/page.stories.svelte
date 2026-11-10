@@ -18,7 +18,8 @@
 		percentage: 25,
 		groups: [{ rkey: '3lzy2ji4nms2z', name: 'Beta DJs' }],
 		accounts: [{ did: 'did:plc:milo', handle: 'milo.test' }],
-		updatedAt: '2026-11-02T10:00:00Z'
+		updatedAt: '2026-11-02T10:00:00Z',
+		readyToRemove: false
 	};
 
 	const groups: FlagGroupView[] = [{ rkey: '3lzy2ji4nms2z', name: 'Beta DJs', description: null, members: [{ did: 'did:plc:milo', handle: 'milo.test' }], flags: ['parityCanary'] }];

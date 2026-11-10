@@ -239,6 +239,34 @@ describe('FlagService', () => {
 		expect(await t.flags.group('nope')).toBeNull();
 	});
 
+	it('says a flag is ready to remove once it has been on for everyone or every account for 30 days', async () => {
+		const uri = spaceRecordUri(t.spaces.staff, t.core.rootDid, COLLECTION.staffFlag, FLAG);
+		const dids: string[] = [];
+		const record = { key: FLAG, everyone: false, percentage: 0, groups: [], dids, updatedBy: ADMIN };
+
+		const ready = async (gates: Partial<typeof record & { enabled: boolean }>, updatedAt: string) => {
+			await t.flags.indexFlag(uri, { ...record, ...gates, updatedAt });
+
+			return (await t.flags.flag(FLAG))?.readyToRemove;
+		};
+
+		vi.useFakeTimers({ now: new Date('2026-12-01T12:00:00.000Z'), toFake: ['Date'] });
+
+		try {
+			expect(await ready({ everyone: true }, '2026-11-01T12:00:00.000Z')).toBe(true);
+			expect(await ready({ percentage: 100 }, '2026-11-01T12:00:00.000Z')).toBe(true);
+			expect(await ready({ everyone: true }, '2026-11-01T12:00:00.001Z')).toBe(false);
+			expect(await ready({ percentage: 99, dids: [DJ] }, '2026-01-01T00:00:00.000Z')).toBe(false);
+			expect(await ready({ everyone: true, enabled: false }, '2026-01-01T00:00:00.000Z')).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+
+		await t.flags.removeFlagByUri(uri);
+
+		expect((await t.flags.flag(FLAG))?.readyToRemove).toBe(false);
+	});
+
 	it('shows a group that has gone by its key, so a flag still naming it can be fixed', async () => {
 		const at = '2026-11-01T00:00:00.000Z';
 		const uri = spaceRecordUri(t.spaces.staff, t.core.rootDid, COLLECTION.staffFlag, FLAG);

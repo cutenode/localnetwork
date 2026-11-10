@@ -374,6 +374,8 @@ export type FlagView = {
 	groups: { rkey: string; name: string }[];
 	accounts: FlagAccount[];
 	updatedAt: string | null;
+	/** On for everyone, or every account, and unchanged for 30 days: time to take it out of the code. */
+	readyToRemove: boolean;
 };
 
 /** A group feature flags can target, and the flags that do. */

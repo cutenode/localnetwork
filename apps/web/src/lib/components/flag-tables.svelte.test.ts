@@ -21,6 +21,7 @@ const flag = (gates: Partial<FlagView>): FlagView => ({
 	groups: [],
 	accounts: [],
 	updatedAt: null,
+	readyToRemove: false,
 	...gates
 });
 
@@ -71,6 +72,16 @@ describe('FlagTable', () => {
 
 		await expect.element(page.getByText('Off for everyone', { exact: true }).first()).toBeInTheDocument();
 		await expect.element(page.getByText('Kept:', { exact: false })).not.toBeInTheDocument();
+	});
+
+	it('marks a flag that is ready to come out of the code', async () => {
+		const { rerender } = await render(FlagTable, { flags: [flag({ everyone: true, readyToRemove: true })] });
+
+		await expect.element(page.getByText('Ready to remove').first()).toBeInTheDocument();
+
+		await rerender({ flags: [flag({ everyone: true })] });
+
+		await expect.element(page.getByText('Ready to remove')).not.toBeInTheDocument();
 	});
 
 	it('links each flag to its page, and says so when there are none', async () => {
