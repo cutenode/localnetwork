@@ -56,7 +56,7 @@ plugins/coverart/           the coverart plugin: front covers and track details 
                             all, asked to), each album looked up on MusicBrainz and its cover fetched from
                             the Cover Art Archive, offered as candidates locallibrary plans the edits of
 plugins/demos/              the demos plugin: rekordbox's demo tracks on a drive, found by its check and
-                            removed by `clean` as one `delete_tracks` edit
+                            removed by `clean` as one `delete_unbacked` edit
 plugins/interop/            the interop plugin: exporters for Traktor, Serato, Engine DJ and rekordbox XML,
                             writing a drive's library with loclib-interop on this computer, and an importer
                             and a library source reading Traktor's collection.nml back
@@ -278,6 +278,11 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   in between (rekordbox exported again, another command wrote to the drive, a sync would now copy
   other files) nothing is written and it says to plan again (`stale_plan`). Archive and retired
   drives aren't written to without `--overwrite-archive`.
+- **Timing a drive is the one write before a plan's confirmed.** A plan of a big write times a drive
+  that has no recent result, with scratch data in `.locallibrary/` that's removed after, keeps the
+  result there, and says it did. A drive that had no `.locallibrary/` loses it again if you say no.
+  A dry run never does any of this (see [Speed](drives.md#speed) and
+  [the decision](adr/0002-a-plan-may-time-its-drive.md)).
 - **No silent overwrites.** `library push` refuses to overwrite a drive holding a library state the
   store has never seen (pull it first, or `--force`), `sync` refuses when it can't tell which side
   is newer (without lineage, holding more tracks isn't enough on its own, and a side with fewer
@@ -292,7 +297,9 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   packs: `locallibrary undo` puts back the backup of the last change the drive still holds, and run
   again, the one before (`drive restore --backup ID` puts back any). Backups include every file a
   change overwrote or deleted (artwork images, analysis files, settings files, removed tracks'
-  files), with their modification times. Each notes what its change left, and putting it back is
+  files), with their modification times; a `clean`'s hold only the databases, as rekordbox's next
+  export puts the demo samples back, so undoing one brings those tracks back without their files
+  and says so. Each notes what its change left, and putting it back is
   refused, unless `--force`, when the drive changed since: a rekordbox export, a sync or push, or
   history players recorded would be lost too. Only the drive a change was made on is backed up:
   copying it onto a library's other drives isn't, and an undo is copied onto them like any change.
@@ -317,7 +324,7 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   read back exactly as planned. Database files are
   re-hashed on every scan; other files use a (size, mtime) hash cache that ignores entries
   recorded within FAT's 2-second timestamp window. `--verify` compares audio by content, and
-  `locallibrary store verify` re-hashes the store.
+  `locallibrary store verify` re-hashes the store, snapshots' manifests included.
 - Built for FAT32/exFAT/HFS+ drives: matching ignores letter case and Unicode normalisation,
   mtime comparisons allow FAT's 2-second granularity, and a cached hash index keeps rescans fast.
 

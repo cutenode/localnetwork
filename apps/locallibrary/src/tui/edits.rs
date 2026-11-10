@@ -499,6 +499,7 @@ fn phase_name(p: Phase) -> &'static str {
         Phase::Format => "formatting",
         Phase::Analyze => "analyzing",
         Phase::Upload => "uploading",
+        Phase::Measure => "timing the drive",
         // Mix identification's phases (edits don't run them), and any newer.
         _ => "working",
     }
@@ -1158,6 +1159,8 @@ impl App {
         let failed_root = root.clone();
         let job = move || {
             locallibrary::op::allow_archive_writes(archive);
+            // The dialog shows the plan next.
+            locallibrary::op::allow_measuring(true);
             let reporter = Reporter::new(tx, id, cancel.clone(), cancel.clone());
             let ctx = Ctx::new(&reporter, cancel);
             let result = make(&ctx);

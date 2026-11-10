@@ -1,7 +1,7 @@
-// Import and export of everything the extension holds, as one JSON file: the
-// Manager's own list of tracks, the ones marked as downloaded, the cached
-// download details, the artists tool's list, the session queue and the
-// panels' remembered options.
+// Import and export of what the extension holds that would hurt to lose, as
+// one JSON file: the Manager's own list of tracks, the ones marked as
+// downloaded, the cached download details, the artists tool's list, the
+// session queue and the three panel options in PREFS below.
 //
 // Why it exists: the list, the marks and the details cache live in the
 // extension's own storage, which goes away with the extension. Reinstalling it
@@ -159,7 +159,11 @@ const TbxState = (() => {
 		const [year, month, day] = parts.slice(1).map(Number);
 		const date = new Date(Date.UTC(year, month - 1, day));
 
-		return date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+		return (
+			date.getUTCMonth() === month - 1 &&
+			// Stryker disable next-line ConditionalExpression: equivalent. A day the month lacks rolls the month over too (at most 99 days, never a whole year), so the month check alone refuses every time this one does.
+			date.getUTCDate() === day
+		);
 	};
 
 	class StateError extends Error {}
@@ -229,7 +233,12 @@ const TbxState = (() => {
 	// expire from.
 	const checkPartialDetails = (entry: JsonObject, where: string) =>
 		checkMembers(entry, where, {
-			partial: { required: true, check: (v) => v === true, expected: 'true' },
+			partial: {
+				// Stryker disable next-line BooleanLiteral: equivalent. Only an entry that has “partial” is checked as partial details.
+				required: true,
+				check: (v) => v === true,
+				expected: 'true'
+			},
 			id: { check: (v) => v === null, expected: 'null' },
 			permalink: { required: true, check: isPermalink, expected: 'a permalink path' },
 			downloadable: { required: true, check: (v) => v === null, expected: 'null' },
@@ -249,7 +258,12 @@ const TbxState = (() => {
 	// The schema's `unavailableDetails`: a remembered lookup failure.
 	const checkUnavailableDetails = (entry: JsonObject, where: string) =>
 		checkMembers(entry, where, {
-			unavailable: { required: true, check: (v) => v === true, expected: 'true' },
+			unavailable: {
+				// Stryker disable next-line BooleanLiteral: equivalent. Only an entry that has “unavailable” is checked as a failure.
+				required: true,
+				check: (v) => v === true,
+				expected: 'true'
+			},
 			at: { required: true, check: isTimestamp, expected: 'a time in milliseconds' }
 		});
 
@@ -659,6 +673,7 @@ const TbxState = (() => {
 		} else {
 			const entries = Object.entries(doc.details);
 
+			// Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent. With no entries the loop below counts none and nothing is written; the check only saves a storage read.
 			if (entries.length > 0) {
 				const held: Stored = await chrome.storage.local.get(DETAILS_KEY);
 				const stored = held[DETAILS_KEY] || {};

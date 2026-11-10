@@ -1,4 +1,5 @@
 import { tick, untrack } from 'svelte';
+import { DRAFT_PREFIX } from './signed-out-drafts.ts';
 
 /**
  * Unsent forms kept in this browser, so a reload or a trip to another page doesn't lose what was typed.
@@ -11,11 +12,9 @@ type StoredDraft<T> = {
 	values: T;
 };
 
-const PREFIX = 'ln:draft:';
-
 /** The storage key of `form`'s draft for the signed-in account, so each account on a browser keeps its own. */
 export const draftKey = (viewer: { did: string } | null | undefined, form: string) =>
-	viewer ? `${PREFIX}${viewer.did}:${form}` : undefined;
+	viewer ? `${DRAFT_PREFIX}${viewer.did}:${form}` : undefined;
 
 function stored<T>(key: string): StoredDraft<T> | null {
 	try {
@@ -36,29 +35,6 @@ function write(key: string, draft: StoredDraft<unknown> | null) {
 	} catch {
 		// Blocked or full storage: the form still works, it just isn't kept.
 	}
-}
-
-/**
- * Names the accounts that signed out in this browser since it last ran the app's scripts, set by the sign-out
- * response itself so it doesn't matter whether the page signed out from had loaded them.
- */
-export const SIGNED_OUT_COOKIE = 'ln_signed_out';
-
-/** Drops every draft kept in this browser by the accounts that signed out in it, then the cookie naming them. */
-export function clearSignedOutDrafts() {
-	const value = document.cookie.match(new RegExp(`(?:^|; )${SIGNED_OUT_COOKIE}=([^;]*)`))?.[1];
-
-	if (!value) return;
-	const dids = decodeURIComponent(value).split(' ');
-
-	try {
-		for (const key of Object.keys(localStorage))
-			if (dids.some((did) => key.startsWith(`${PREFIX}${did}:`))) localStorage.removeItem(key);
-	} catch {
-		// Blocked storage holds no drafts.
-	}
-
-	document.cookie = `${SIGNED_OUT_COOKIE}=; Max-Age=0; Path=/`;
 }
 
 /** Whether a draft is waiting under `key`. */

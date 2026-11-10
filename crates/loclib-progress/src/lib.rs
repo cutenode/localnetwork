@@ -33,6 +33,8 @@ pub enum Phase {
     Analyze,
     /// Sending files to a server (a set's recording, by a plugin's `net/fetch`).
     Upload,
+    /// Timing writes to a drive, of scratch data that's removed after.
+    Measure,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

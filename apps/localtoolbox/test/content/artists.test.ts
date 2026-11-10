@@ -84,7 +84,7 @@ describe('before asking', () => {
 
 		for (const permalinks of [undefined, [], 'nope', ['/a/b', 7, null, 'bicep', '']]) {
 			// @ts-expect-error -- what an older or broken panel might send: no list, a string, non-paths
-			expect(await profilesFor(permalinks)).toEqual({ ok: true, profiles: [], failed: [], error: '' });
+			expect(await profilesFor(permalinks)).toEqual({ ok: true, profiles: [], missing: [], failed: [], error: '' });
 		}
 
 		expect(fn).not.toHaveBeenCalled();
@@ -94,7 +94,13 @@ describe('before asking', () => {
 		render('<p>nothing</p>', '/stream');
 		const { fn } = mockFetch();
 		await loadContentScript();
-		expect(await profilesFor(['/bicep'])).toEqual({ ok: true, profiles: [], failed: [], error: 'no-client-id' });
+		expect(await profilesFor(['/bicep'])).toEqual({
+			ok: true,
+			profiles: [],
+			missing: [],
+			failed: [],
+			error: 'no-client-id'
+		});
 		expect(fn).not.toHaveBeenCalled();
 	});
 });
@@ -118,6 +124,7 @@ describe('one artist', () => {
 		expect(response).toEqual({
 			ok: true,
 			error: '',
+			missing: [],
 			failed: [],
 			profiles: [
 				{
@@ -245,7 +252,7 @@ describe('one artist', () => {
 		await loadContentScript();
 		const response = await profilesFor(['/a-track', '/no-id', '/nobody']);
 		expect(response.profiles).toEqual([]);
-		expect(response.failed.sort()).toEqual(['/a-track', '/no-id', '/nobody']);
+		expect(response.missing.sort()).toEqual(['/a-track', '/no-id', '/nobody']);
 		expect(response.error).toBe('');
 	});
 });
@@ -290,7 +297,7 @@ describe('several artists', () => {
 		expect(progress.every((message) => message.failed.length === 0)).toBe(true);
 	});
 
-	it('reports a failure as one too', async () => {
+	it('reports a path SoundCloud has nobody behind as one too', async () => {
 		page();
 		api({});
 		await loadContentScript();
@@ -301,7 +308,31 @@ describe('several artists', () => {
 			done: 1,
 			total: 1,
 			profiles: [],
-			failed: ['/nobody']
+			missing: ['/nobody'],
+			failed: []
+		});
+	});
+
+	it('tells a request that failed from an answer that there is nobody', async () => {
+		page();
+		mockFetch(() => jsonResponse({ error: 'unavailable' }, 503));
+		await loadContentScript();
+		chrome.runtime.sendMessage.mockClear();
+
+		expect(await profilesFor(['/bicep'])).toEqual({
+			ok: true,
+			profiles: [],
+			missing: [],
+			failed: ['/bicep'],
+			error: ''
+		});
+		expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
+			type: 'ARTIST_PROFILES_PROGRESS',
+			done: 1,
+			total: 1,
+			profiles: [],
+			missing: [],
+			failed: ['/bicep']
 		});
 	});
 
@@ -339,7 +370,7 @@ describe('when SoundCloud rejects the client id', () => {
 		const { fn } = mockFetch(() => jsonResponse({ error: 'unauthorized' }, 401));
 		await loadContentScript();
 		const response = await profilesFor(['/a', '/b', '/c', '/d', '/e', '/f', '/g', '/h']);
-		expect(response).toEqual({ ok: true, profiles: [], failed: [], error: 'unauthorized' });
+		expect(response).toEqual({ ok: true, profiles: [], missing: [], failed: [], error: 'unauthorized' });
 		// The four in the air, and not the rest.
 		expect(fn.mock.calls.length).toBeLessThanOrEqual(4);
 	});
@@ -351,7 +382,7 @@ describe('when SoundCloud rejects the client id', () => {
 		);
 		await loadContentScript();
 		const response = await profilesFor(['/bicep']);
-		expect(response).toEqual({ ok: true, profiles: [], failed: [], error: 'unauthorized' });
+		expect(response).toEqual({ ok: true, profiles: [], missing: [], failed: [], error: 'unauthorized' });
 	});
 
 	it('backs off and retries a 429 before giving up', async () => {

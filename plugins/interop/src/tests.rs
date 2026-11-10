@@ -323,7 +323,7 @@ fn engine_rows(db: &Path) -> Vec<Vec<(String, rusqlite::types::Value)>> {
     let mut out = Vec::new();
     for table in ["Information", "Track", "Playlist", "PlaylistEntity", "AlbumArt", "PerformanceData"] {
         let mut stmt = db.prepare(&format!("SELECT * FROM {table} ORDER BY rowid")).unwrap();
-        let names: Vec<String> = stmt.column_names().into_iter().map(String::from).collect();
+        let names: Vec<String> = stmt.column_names().map(String::from).collect();
         let rows = stmt
             .query_map([], |r| {
                 Ok((0..names.len())

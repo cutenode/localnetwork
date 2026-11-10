@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { SIGNED_OUT_COOKIE } from '#lib/form-draft.svelte.ts';
+import { SIGNED_OUT_COOKIE } from '#lib/signed-out-drafts.ts';
 import { SESSION_COOKIE, WebSessions } from '#lib/server/auth/session.ts';
 import { createTestServices } from '#lib/server/testing/core.ts';
 import { callRoute, routeEvent } from '#lib/testing/route-event.ts';

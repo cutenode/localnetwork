@@ -11,7 +11,7 @@
 // Svelte runtime is imported from that same fresh graph, so the component and
 // the `mount` that mounts it are always the same copy of Svelte.
 import type * as Svelte from 'svelte';
-import { vi } from 'vitest';
+import { expect, vi } from 'vitest';
 import { createChrome, type AnswerFields, type ChromeMock, type PageReply, type Seed, type TabStub } from './chrome.ts';
 import { flush, until } from './flush.ts';
 
@@ -55,6 +55,14 @@ let mounted: {
 const takeDownPrevious = () => unmountPanel();
 
 /**
+ * Stops a mount whose test has ended. A test that timed out keeps running, and
+ * a mount it was part way through would land in the next test's document.
+ */
+const mountingFor = (test: string | undefined) => {
+	if (expect.getState().currentTestName !== test) throw new Error('this mount outlived its test');
+};
+
+/**
  * Mounts one tool's panel and waits for it to have drawn something.
  *
  * @param id the tool's id, which is also its folder under src/tools
@@ -62,6 +70,7 @@ const takeDownPrevious = () => unmountPanel();
  *   standing in for the shell around it
  */
 export async function mountPanel(id: string) {
+	const test = expect.getState().currentTestName;
 	takeDownPrevious();
 	vi.resetModules();
 	// The classic scripts the popup page loads before the bundle.
@@ -89,6 +98,7 @@ export async function mountPanel(id: string) {
 	// mount below is synchronous.
 	const Panel = (await loadPanel(id))!;
 	const onback = vi.fn<() => void>();
+	mountingFor(test);
 	const target = document.createElement('div');
 	document.body.append(target);
 
@@ -135,6 +145,7 @@ export async function reopenPanel(id: string) {
  * the shell to notice.
  */
 export async function mountApp({ chunks = true }: { chunks?: boolean | 'broken' } = {}) {
+	const test = expect.getState().currentTestName;
 	takeDownPrevious();
 	vi.resetModules();
 	// @ts-expect-error -- a classic script, run for the global it defines
@@ -154,6 +165,7 @@ export async function mountApp({ chunks = true }: { chunks?: boolean | 'broken' 
 		await Promise.all([...TOOLS.map((tool) => loadPanel(tool.id)), loadQueueSheet(), loadSettingsSheet()]);
 	}
 
+	mountingFor(test);
 	const target = document.createElement('div');
 	document.body.append(target);
 	const component = mount(App, { target, intro: true });
@@ -170,6 +182,20 @@ export async function settle() {
 	mounted?.flushSync();
 	await flush();
 	mounted?.flushSync();
+}
+
+/**
+ * Steps the fake clock 60ms at a time, which is three of jsdom's frames, settling after each.
+ *
+ * Give it the test's own `signal`. A test that timed out keeps running, and `vi`'s clock is shared
+ * with whichever test comes next, so a loop that outlives its test would step that one's clock.
+ */
+export async function stepFrames(steps: number, signal: AbortSignal) {
+	for (let i = 0; i < steps; i++) {
+		signal.throwIfAborted();
+		await vi.advanceTimersByTimeAsync(60);
+		await settle();
+	}
 }
 
 /**

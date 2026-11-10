@@ -235,7 +235,12 @@ mod os {
         format!(r"\\.\PhysicalDrive{}", n.trim())
     }
 
+    /// Windows keeps an attached image's file open, so one that's gone isn't attached. Asked about
+    /// a file that's gone, `Get-DiskImage` fails even with `SilentlyContinue`.
     pub fn attached(file: &Path) -> Option<String> {
+        if !file.exists() {
+            return None;
+        }
         let path = quote(&file.to_string_lossy());
         let n = powershell(&format!(
             "$i = Get-DiskImage -ImagePath {path} -ErrorAction SilentlyContinue\nif ($i.Attached) {{ $i.Number }}"

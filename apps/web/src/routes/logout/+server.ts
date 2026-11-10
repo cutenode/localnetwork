@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { SIGNED_OUT_COOKIE } from '#lib/form-draft.svelte.ts';
+import { SIGNED_OUT_COOKIE } from '#lib/signed-out-drafts.ts';
 import { SESSION_COOKIE } from '#lib/server/auth/session.ts';
 import type { RequestHandler } from './$types';
 

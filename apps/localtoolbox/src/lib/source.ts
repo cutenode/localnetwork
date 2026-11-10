@@ -5,6 +5,12 @@
 // value rather than one per tool: picking a batch out on a page and then
 // working through it is a mode. The queue sheet switches the tool it sends a
 // batch to into it, and the tool stays there until the page is chosen again.
+//
+// One object, made here, because the sheet can be over the very tool it sends
+// to: two `persisted()` objects over one key would be two copies of the value
+// (the same reasoning as downloader.svelte.ts).
+
+import { choicePref } from './prefs.svelte.ts';
 
 export const PAGE = 'page';
 
@@ -12,4 +18,6 @@ export const QUEUE = 'queue';
 
 export const SOURCE_PREF = 'pref:source';
 
-export const SOURCES = [PAGE, QUEUE];
+const SOURCES = [PAGE, QUEUE];
+
+export const source = choicePref(SOURCE_PREF, PAGE, SOURCES);

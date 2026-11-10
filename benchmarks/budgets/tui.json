@@ -4,7 +4,7 @@
 	"tolerance_percent": 1,
 	"metrics": {
 		"library.allocations": {
-			"limit": 1717,
+			"limit": 1360,
 			"unit": "allocations",
 			"measures": "Allocations of one frame of the Library view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
@@ -14,12 +14,12 @@
 			"measures": "Bytes allocated by one frame of the Library view at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"deck.allocations": {
-			"limit": 756,
+			"limit": 755,
 			"unit": "allocations",
 			"measures": "Allocations of one frame of the Deck layout at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"deck.bytes": {
-			"limit": 77624,
+			"limit": 61512,
 			"unit": "bytes",
 			"measures": "Bytes allocated by one frame of the Deck layout at 160x45, with the 3,886-track fixture open and a track playing."
 		},

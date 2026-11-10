@@ -25,6 +25,7 @@ import { type ListingSource, ListingWriter } from '../services/listings';
 import { SharedSpaces } from '../services/shared-spaces';
 import { SpaceJoins } from '../services/space-joins';
 import { ShowService } from '../services/shows';
+import { FlagService } from '../services/flags';
 import { StaffService } from '../services/staff';
 import { SupportService } from '../services/supports';
 import { TracklistService } from '../services/tracklists';
@@ -104,6 +105,7 @@ export async function createTestServices(
 
 	const projects = new ProjectService(core, directory);
 	const staff = new StaffService(core);
+	const flags = new FlagService(core, staff);
 	const bookings = new BookingService(core, projects);
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);
@@ -166,6 +168,7 @@ export async function createTestServices(
 		projects,
 		requests,
 		staff,
+		flags,
 		bookings,
 		planner,
 		projectAdmin,

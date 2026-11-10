@@ -104,3 +104,29 @@ fn scrub_finds_exactly_the_damage_and_repair_undoes_it(tc: TestCase) {
     assert!(rep.repaired.is_empty());
     assert_eq!(rep.skipped.len(), problems.len());
 }
+
+/// However many scans run between the damage and the scrub, it's found: a scan records what it
+/// reads, and that never stands in for what the store says the file held.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn damage_is_found_however_many_scans_saw_it(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let (root, _) = drawn::drive(&tc, dir.path(), "Main");
+    common::age(&root);
+    let mut main = Device::open_export(&root).unwrap();
+    main.adopt(Some("Main")).unwrap();
+    sync::pull(&store, &mut main, &PullOptions::default(), &Ctx::silent()).unwrap();
+
+    let rottable: Vec<String> = common::library_files(&root)
+        .into_iter()
+        .map(|(k, _)| k)
+        .filter(|k| matches!(paths::classify(k), Some(FileClass::Audio | FileClass::Analysis | FileClass::Database)))
+        .collect();
+    let (rotted, _) = drawn::damage(&tc, &root, &rottable, &[]);
+    for _ in 0..tc.draw(gs::integers::<u8>().min_value(0).max_value(2)) {
+        main.scan_fingerprinted(None, &Ctx::silent()).unwrap();
+    }
+
+    let r = scrub_with(&main, Some(&store), &[]);
+    assert_eq!(folded(r.damaged.iter().map(|p| p.path.as_str())), folded(rotted.iter().map(String::as_str)), "{r:#?}");
+}

@@ -45,9 +45,11 @@ fn a_write_cut_short_at_its_swap_can_be_taken_back(tc: TestCase) {
         err.starts_with("the plan stopped after 0 of its edits: ") && err.ends_with("Undoing takes back what it made"),
         "{err}"
     );
-    let by_track = tags::by_track(&Device::open_export(&root).unwrap()).unwrap();
+    let d = Device::open_export(&root).unwrap();
+    let (by_track, lib) = (tags::by_track(&d).unwrap(), d.library().unwrap());
     for t in &tracks {
-        let has = by_track.get(&paths::file_key(t)).is_some_and(|tags| tags.contains(&tag));
+        let mut rows = lib.tracks.iter().filter(|r| paths::file_key(&r.file_path) == paths::file_key(t));
+        let has = rows.any(|r| by_track.of(r).contains(&tag));
         assert!(has, "{t} lacks {tag}: {by_track:?}");
     }
     let backups = backup::list(&Device::open_export(&root).unwrap()).unwrap();

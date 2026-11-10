@@ -11,5 +11,13 @@
   "devDependencies": {
     "@antithesishq/bombadil": "0.7.8",
     "typescript": "^5.9.0"
-  }
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "npm",
+      "version": ">=11.17.0",
+      "onFail": "error"
+    }
+  },
+  "allowScripts": {}
 }

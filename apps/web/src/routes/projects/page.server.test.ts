@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
+import type { Place } from '#lib/places.ts';
 import { HappyViewClient } from '#lib/server/happyview/client.ts';
+import { RateLimiter } from '#lib/server/rate-limit.ts';
 import { PerformerSearch } from '#lib/server/services/performers.ts';
 import { ADMIN, pressKitServices } from '#lib/server/testing/press-kits.ts';
 import { loadRoute } from '#lib/testing/route-event.ts';
@@ -113,6 +115,53 @@ it('ignores a place without valid coordinates, a country that is no ISO code, an
 
 	expect(outOfRange.filters).toMatchObject({ lat: '', lng: '', radiusKm: 5, country: '', sort: '' });
 	expect(blank.filters).toMatchObject({ lat: '', lng: '', sort: 'name' });
+});
+
+/** The app with a geocoder that knows `places`, recording what it was asked, under a limit of `limit` lookups. */
+function geocoding(places: Record<string, Place[]>, limit = 10) {
+	const asked: string[] = [];
+	const geocoder = { enabled: true, search: async (query: string) => (asked.push(query), places[query] ?? []) };
+
+	return { asked, app: { ...app(), geocoder, limits: { search: new RateLimiter(limit, 0) } } };
+}
+
+const berlin: Place = { label: 'Berlin, Germany', city: 'Berlin', country: 'DE', latE6: 52_520_000, lngE6: 13_405_000 };
+
+it('looks a typed place up once, so the distance filter applies', async () => {
+	const { asked, app: geocoded } = geocoding({ Berlin: [berlin] });
+
+	const data = await loadRoute<PageServerData>(load, { app: geocoded, url: '/projects?place=Berlin&radius=25' });
+
+	expect(asked).toEqual(['Berlin']);
+	expect(data.filters).toMatchObject({ place: 'Berlin', lat: '52.52', lng: '13.405', radiusKm: 25 });
+	expect(data.placeMissed).toBe(false);
+	// Lisbon is far outside 25 km of Berlin.
+	expect(found(data.result)).not.toContain('Kiln');
+});
+
+it("says when a typed place can't be found, and filters by nothing but the rest", async () => {
+	const { app: geocoded } = geocoding({});
+
+	const data = await loadRoute<PageServerData>(load, { app: geocoded, url: '/projects?place=Atlantis' });
+
+	expect(data.placeMissed).toBe(true);
+	expect(data.filters.lat).toBe('');
+	expect(found(data.result)?.sort()).toEqual(['Kiln', 'Neon Tide']);
+});
+
+it('looks nothing up when the place came with coordinates, or past the limit', async () => {
+	const { asked, app: geocoded } = geocoding({ Berlin: [berlin] }, 0);
+
+	const picked = await loadRoute<PageServerData>(load, {
+		app: geocoded,
+		url: '/projects?place=Berlin&lat=52.52&lng=13.4'
+	});
+
+	const limited = await loadRoute<PageServerData>(load, { app: geocoded, url: '/projects?place=Berlin' });
+
+	expect(asked).toEqual([]);
+	expect(picked.placeMissed).toBe(false);
+	expect(limited.placeMissed).toBe(true);
 });
 
 it('renders the filters with no results while the directory is offline', async () => {

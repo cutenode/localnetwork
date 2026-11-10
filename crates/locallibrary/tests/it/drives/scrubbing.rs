@@ -391,3 +391,82 @@ fn a_repair_keeps_the_drives_name() {
         assert!(scrub(&d, Some(&store), &opts).damaged.is_empty());
     }
 }
+
+/// A drive with a database, written well before it's pulled into a new store.
+fn pulled_aged(dir: &Path) -> (Store, Device) {
+    let root = common::demo_drive(dir, "Main");
+    common::age(&root);
+    let store = Store::open_or_init(dir.join("store")).unwrap();
+    let mut d = Device::open(root).unwrap();
+    sync::pull(&store, &mut d, &PullOptions::default(), &Ctx::silent()).unwrap();
+    (store, d)
+}
+
+/// Regression: every scan reads the databases again and records what it finds, so a `check`
+/// between the damage and `drive verify` made the damage the hash the scrub compared with.
+#[test]
+fn damage_a_scan_has_read_is_still_damage() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, d) = pulled_aged(dir.path());
+    rot(&d.path(paths::EXPORT_PDB));
+    d.scan_fingerprinted(None, &Ctx::silent()).unwrap();
+
+    let r = scrub(&d, Some(&store), &ScrubOptions::default());
+    let damaged: Vec<&str> = r.damaged.iter().map(|p| p.path.as_str()).collect();
+    assert_eq!(damaged, [paths::EXPORT_PDB]);
+    assert_eq!(r.damaged[0].reference, Some(ReferenceKind::History));
+}
+
+/// Without a store, nothing says what a file should hold, however often a scan has read it.
+#[test]
+fn a_scan_doesnt_vouch_for_a_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    common::age(&root);
+    let mut d = Device::open(root).unwrap();
+    d.adopt(None).unwrap();
+    d.scan_fingerprinted(None, &Ctx::silent()).unwrap();
+    d.scan_fingerprinted(None, &Ctx::silent()).unwrap();
+
+    let r = scrub(&d, None, &ScrubOptions::default());
+    assert!(r.is_clean(), "{r:?}");
+    assert_eq!(r.verified, 0, "{r:?}");
+}
+
+/// A scrub takes what it reads as the next scrub's reference, and a change after that is found.
+#[test]
+fn a_scrub_is_the_next_scrubs_reference() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    common::age(&root);
+    let mut d = Device::open(root).unwrap();
+    d.adopt(None).unwrap();
+    let dat = analysis_key(&d);
+
+    let opts = ScrubOptions::default();
+    let first = scrub(&d, None, &opts);
+    assert_eq!((first.verified, first.unverified), (0, first.files));
+    let second = scrub(&d, None, &opts);
+    assert_eq!((second.verified, second.unverified), (second.files, 0));
+
+    rot(&d.path(&dat));
+    let third = scrub(&d, None, &opts);
+    let damaged: Vec<&str> = third.damaged.iter().map(|p| p.path.as_str()).collect();
+    assert_eq!(damaged, [dat.as_str()]);
+}
+
+/// A write knows what it wrote, so a store isn't needed to verify what it left.
+#[test]
+fn a_file_locallibrary_wrote_is_verified_without_a_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_store, mut main) = pulled_aged(dir.path());
+    let mut backup = Device::open(common::blank(dir.path(), "Backup")).unwrap();
+    sync::sync_drive_to_drive(&mut main, &mut backup, &SyncOptions::default(), &Ctx::silent()).unwrap();
+    let dat = analysis_key(&backup);
+
+    let r = scrub(&backup, None, &ScrubOptions::default());
+    assert!(r.is_clean() && r.verified > 0, "{r:?}");
+    rot(&backup.path(&dat));
+    let r = scrub(&backup, None, &ScrubOptions::default());
+    assert_eq!(r.damaged.len(), 1, "{r:?}");
+}

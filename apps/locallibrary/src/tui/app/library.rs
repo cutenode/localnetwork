@@ -1,7 +1,7 @@
 //! The Library view's state: the tracks shown, searching and sorting, a track's details, marks and
 //! the crate.
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -68,7 +68,7 @@ impl App {
                 }
                 let lib = l.library.clone();
                 // My Tags as `tracks --filter` reads them; until they're in, `tag:` matches nothing.
-                let none = FxHashMap::default();
+                let none = locallibrary::tags::TagsByTrack::default();
                 let my_tags = match &l.my_tags {
                     MyTags::Read(t) => Some(t.clone()),
                     _ if !tags => None,

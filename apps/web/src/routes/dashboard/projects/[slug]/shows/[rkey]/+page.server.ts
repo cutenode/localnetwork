@@ -30,7 +30,14 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
 
 	if (!values) error(404, 'Show not found');
 
-	return { isNew, values, geocoder: locals.app.geocoder.enabled };
+	const saved = url.searchParams.get('saved');
+
+	return {
+		isNew,
+		values,
+		geocoder: locals.app.geocoder.enabled,
+		saved: saved === 'announced' || saved === 'updated' ? saved : null
+	};
 };
 
 export const actions: Actions = {
@@ -40,19 +47,22 @@ export const actions: Actions = {
 
 		const result = await act(
 			async () => {
-				await locals.app.shows.save(
+				const isNew = params.rkey === 'new';
+
+				const { uri } = await locals.app.shows.save(
 					viewer,
 					project,
 					parseAnnouncement(form),
-					params.rkey === 'new' ? undefined : parseEdit(form, params.rkey)
+					isNew ? undefined : parseEdit(form, params.rkey)
 				);
 
-				return { saved: true };
+				return { saved: isNew ? 'announced' : 'updated', rkey: uri.split('/').at(-1) };
 			},
 			{ ...stringValues(form), cancelled: form.get('cancelled') === 'on' }
 		);
 
-		if ('saved' in result) redirect(303, `/dashboard/projects/${project.slug}#shows`);
+		if ('saved' in result)
+			redirect(303, `/dashboard/projects/${project.slug}/shows/${result.rkey}?saved=${result.saved}`);
 
 		return result;
 	},

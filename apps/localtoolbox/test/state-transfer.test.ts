@@ -226,6 +226,14 @@ describe('parse', () => {
 				});
 			}
 		});
+
+		// The pattern takes any two digits for the month, and Date rolls a month
+		// the year does not have into the next year as quietly as it rolls a day.
+		it('refuses a month the year does not have', () => {
+			for (const at of ['2026-13-01T12:00:00Z', '2026-00-01T12:00:00Z']) {
+				expect(refusal(state, withMarks({ '/bicep/glue': at })), at).toMatch(/is not a time/);
+			}
+		});
 	});
 
 	describe('details', () => {
@@ -300,9 +308,19 @@ describe('parse', () => {
 			expect(refusal(state, withDetails({ '/a/b': noPermalink }))).toMatch(/“permalink” is missing/);
 		});
 
+		it('names each field a known entry is missing', () => {
+			for (const field of ['downloadable', 'hasDownloadsLeft', 'purchaseUrl', 'purchaseTitle', 'at']) {
+				const entry = knownDetails({ permalink: '/a/b', [field]: undefined });
+				expect(refusal(state, withDetails({ '/a/b': entry }))).toBe(`details /a/b: “${field}” is missing`);
+			}
+		});
+
 		it('checks a failure entry too', () => {
 			expect(refusal(state, withDetails({ '/a/b': { unavailable: false, at: AT } }))).toMatch(
 				/“unavailable” must be true/
+			);
+			expect(refusal(state, withDetails({ '/a/b': { unavailable: true, at: 'now' } }))).toMatch(
+				/“at” must be a time in milliseconds/
 			);
 			expect(refusal(state, withDetails({ '/a/b': { unavailable: true } }))).toMatch(/“at” is missing/);
 			expect(refusal(state, withDetails({ '/a/b': { unavailable: true, at: AT, id: 1 } }))).toMatch(
@@ -342,6 +360,14 @@ describe('parse', () => {
 			expect(refusal(state, withQueue([queueEntry({ artist: null })]))).toMatch(/“artist” must be a string/);
 			expect(refusal(state, withQueue([queueEntry({ artworkUrl: [] })]))).toMatch(/“artworkUrl” must be a string/);
 			expect(refusal(state, withQueue([queueEntry({ extra: true })]))).toMatch(/“extra” is not part of this format/);
+		});
+
+		it('says what each of the page’s own facts must be', () => {
+			expect(refusal(state, withQueue([queueEntry({ genre: 7 })]))).toMatch(/“genre” must be a string or null/);
+			expect(refusal(state, withQueue([queueEntry({ liked: 'yes' })]))).toMatch(/“liked” must be true, false or null/);
+			expect(refusal(state, withQueue([queueEntry({ reposted: 1 })]))).toMatch(
+				/“reposted” must be true, false or null/
+			);
 		});
 
 		it('accepts the details a track was queued with, of either kind, or none', () => {
@@ -385,6 +411,20 @@ describe('parse', () => {
 			);
 		});
 
+		it('names each field partial details are missing, and what each must be', () => {
+			for (const field of ['permalink', 'downloadable', 'hasDownloadsLeft', 'purchaseUrl', 'purchaseTitle']) {
+				const details = partialDetails({ [field]: undefined });
+				expect(refusal(state, withQueue([queueEntry({ details })]))).toBe(`queue #1 details: “${field}” is missing`);
+			}
+
+			const refused = (extra: Overrides) => refusal(state, withQueue([queueEntry({ details: partialDetails(extra) })]));
+			expect(refused({ permalink: 'bicep/glue' })).toMatch(/“permalink” must be a permalink path/);
+			expect(refused({ purchaseUrl: 7 })).toMatch(/“purchaseUrl” must be a string/);
+			expect(refused({ purchaseTitle: null })).toMatch(/“purchaseTitle” must be a string/);
+			// A Likes row renders no genre, so partial details know of none.
+			expect(refused({ genre: 'Techno' })).toMatch(/“genre” must be null/);
+		});
+
 		// The cover is the one unknown the row does answer: it was read off the
 		// same row the entry was, so '' is all there is to say and a URL there
 		// would be a claim the row never made.
@@ -425,6 +465,27 @@ describe('parse', () => {
 		it('refuses a remembered lookup failure in place of a track’s details', () => {
 			expect(refusal(state, withQueue([queueEntry({ details: { unavailable: true, at: AT } })]))).toMatch(
 				/queue #1 details: a remembered lookup failure is not what a track is queued with/
+			);
+		});
+	});
+
+	describe('listed', () => {
+		const withListed = (listed: FieldValue) => file({ listed });
+
+		it('names the entry it refuses by its place on the list', () => {
+			expect(refusal(state, withListed({}))).toMatch(/“listed” must be an array/);
+			expect(refusal(state, withListed([listedEntry(), { title: 'no permalink' }]))).toMatch(
+				/listed #2: “permalink” is missing/
+			);
+		});
+
+		it('says what each of the list’s own fields must be', () => {
+			expect(refusal(state, withListed([listedEntry({ domPurchaseTitle: 7 })]))).toMatch(
+				/listed #1: “domPurchaseTitle” must be a string/
+			);
+			expect(refusal(state, withListed([listedEntry({ from: null })]))).toMatch(/listed #1: “from” must be a string/);
+			expect(refusal(state, withListed([listedEntry({ at: 'now' })]))).toMatch(
+				/listed #1: “at” must be a time in milliseconds/
 			);
 		});
 	});
@@ -791,6 +852,14 @@ describe('parse, on the artists', () => {
 		expect(refusal(state, profile({ links: [{ url: 'x', extra: 1 }] }))).toMatch(/“extra” is not part of this format/);
 		expect(refusal(state, profile({ links: [{ url: 'x', title: 1 }] }))).toMatch(/“title” must be a string/);
 		expect(refusal(state, profile({ extra: true }))).toMatch(/“extra” is not part of this format/);
+	});
+
+	it('says what each field of a profile must be', () => {
+		expect(refusal(state, profile({ followers: 'many' }))).toMatch(/“followers” must be a whole number or null/);
+		expect(refusal(state, profile({ trackCount: 1.5 }))).toMatch(/“trackCount” must be a whole number or null/);
+		expect(refusal(state, profile({ at: 'now' }))).toMatch(/profile: “at” must be a time in milliseconds/);
+		expect(refusal(state, profile({ links: [{ url: 'x', network: 1 }] }))).toMatch(/“network” must be a string/);
+		expect(refusal(state, profile({ links: [{ url: 1 }] }))).toMatch(/“url” must be a string/);
 	});
 
 	it('refuses a remembered failure that carries more than the failure', () => {

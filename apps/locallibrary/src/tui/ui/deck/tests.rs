@@ -410,6 +410,59 @@ fn prop_a_match_symbol_shows_exactly_when_harmony_says(tc: hegel::TestCase) {
     }
 }
 
+/// For any keys, notation, key palette and tracks heard: each row writes its key in the notation
+/// asked for, the rows heard (other than the one playing) are dim and only they are, and the deck
+/// writes the master's key the same way, with its note.
+#[hegel::test(test_cases = 40)]
+fn prop_the_table_writes_keys_as_asked_and_dims_what_was_heard(tc: hegel::TestCase) {
+    let camelot = |tc: &hegel::TestCase| Camelot {
+        number: tc.draw(gs::integers::<u8>().min_value(1).max_value(12)),
+        major: tc.draw(gs::booleans()),
+    };
+    let mut lib = library();
+    // Its own title, so its row is found by it.
+    lib.tracks[3].title = "Second Copy".into();
+    let keys: Vec<Camelot> = lib.tracks.iter().map(|_| camelot(&tc)).collect();
+    for (t, k) in lib.tracks.iter_mut().zip(&keys) {
+        t.key = k.code();
+    }
+    let heard: Vec<bool> = lib.tracks.iter().map(|_| tc.draw(gs::booleans())).collect();
+    let (mut app, _dir) = app_with(lib);
+    app.deck.notation = tc.draw(gs::sampled_from(Notation::ALL.to_vec()));
+    app.deck.key_palette = tc.draw(gs::sampled_from(KeyPalette::ALL.to_vec()));
+    let l = app.loaded.as_ref().unwrap();
+    let tracks = l.library.tracks.clone();
+    let root = l.root().to_path_buf();
+    app.now = playing(TrackAnalysis::default()).0.now.take().map(|n| crate::tui::app::NowPlaying {
+        key: Some(keys[0]),
+        track: tracks[0].clone(),
+        root,
+        ..n
+    });
+    for (t, _) in tracks.iter().zip(&heard).filter(|(_, h)| **h) {
+        app.played_tracks.insert(t.file_path.clone());
+    }
+    let w = tc.draw(gs::integers::<u16>().min_value(100).max_value(200));
+    let buf = drawn(&mut app, w, 40);
+    let text = |y: u16| (0..w).map(|x| buf[(x, y)].symbol()).collect::<String>();
+    for ((t, k), &was_heard) in tracks.iter().zip(&keys).zip(&heard) {
+        let y = (0..40)
+            .find(|&y| text(y).contains(&format!(" {} ", t.title)))
+            .unwrap_or_else(|| panic!("{}: no row", t.title));
+        let written = app.deck.notation.write(*k);
+        assert!(text(y).contains(&format!("{written} ")), "{:?} {k:?} as {written}: {}", app.deck.notation, text(y));
+        let dim = (0..w).any(|x| buf[(x, y)].modifier.contains(Modifier::DIM));
+        assert_eq!(dim, was_heard && t.file_path != tracks[0].file_path, "{}", text(y));
+    }
+    app.deck_layout = true;
+    let s = screen(&mut app, w, 40);
+    let master = match app.deck.notation {
+        Notation::Musical => keys[0].note(),
+        n => format!("{} {}", n.write(keys[0]), keys[0].note()),
+    };
+    assert!(s.contains(&master), "{master}\n{s}");
+}
+
 /// Beside the tempo, how far each track is from the master's, with a sign, when something's playing
 /// and for the tracks that have a tempo.
 #[test]
@@ -661,4 +714,108 @@ fn no_detail_waveform_gives_the_panels_its_rows() {
         let (note, panels) = (row("no detail waveform"), row("mixes into"));
         assert!(note < h as usize / 3 && panels <= h as usize / 2, "{w}x{h}: note {note}, panels {panels}\n{s}");
     }
+}
+
+/// In either font, every row of any text in large digits is as wide as the rest: each character
+/// takes its glyph's width and a column after it, so nothing beside them moves. With ASCII asked
+/// for, it's all ASCII.
+#[hegel::test(test_cases = 100)]
+fn prop_the_large_digits_rows_line_up(tc: hegel::TestCase) {
+    let ascii = tc.draw(gs::booleans());
+    let text = tc.draw(gs::text().alphabet("0123456789.:-x").max_size(9));
+    icons::set_test_set(ascii.then_some(icons::IconSet::Ascii));
+    let rows = [0, 1, 2].map(|row| big_row(&text, row));
+    let glyphs: Vec<[&str; 3]> = text.chars().map(big_glyph).collect();
+    icons::set_test_set(None);
+    let wide: usize = glyphs.iter().map(|g| g[0].chars().count() + 1).sum();
+    for (row, shown) in rows.iter().enumerate() {
+        assert_eq!(shown.chars().count(), wide, "{text:?} row {row}: {shown:?}");
+        assert!(!ascii || shown.is_ascii(), "{shown:?}");
+    }
+    for g in glyphs {
+        assert!(g.iter().all(|r| r.chars().count() == g[0].chars().count()), "{g:?}");
+    }
+}
+
+/// Any key reads back from how each notation writes it, Open Key's from 1 to 12, and a key
+/// palette gives the twelve numbers twelve colours, the same for a key's minor and major.
+#[hegel::test(test_cases = 100)]
+fn prop_keys_read_back_and_keep_their_colours(tc: hegel::TestCase) {
+    let camelot = |tc: &hegel::TestCase| Camelot {
+        number: tc.draw(gs::integers::<u8>().min_value(1).max_value(12)),
+        major: tc.draw(gs::booleans()),
+    };
+    let (k, other) = (camelot(&tc), camelot(&tc));
+    let notation = tc.draw(gs::sampled_from(Notation::ALL.to_vec()));
+    let palette = tc.draw(gs::sampled_from(KeyPalette::ALL.to_vec()));
+    assert_eq!(Notation::parse(notation.name()), Some(notation));
+    assert_eq!(KeyPalette::parse(palette.name()), Some(palette));
+    let written = notation.write(k);
+    assert_eq!(Camelot::parse(&written), Some(k), "{notation:?} wrote {written}");
+    if notation == Notation::OpenKey {
+        let (number, mode) = written.split_at(written.len() - 1);
+        assert!(number.parse::<u8>().is_ok_and(|n| (1..=12).contains(&n)) && ["d", "m"].contains(&mode), "{written}");
+    }
+    let (ours, theirs) = (palette.colour(k), palette.colour(other));
+    match palette {
+        KeyPalette::Theme => assert_eq!((ours, theirs), (None, None)),
+        _ => assert_eq!(ours == theirs, k.number == other.number, "{palette:?}: {k:?} {other:?}"),
+    }
+}
+
+/// A band mode reads back by its name, and the waveforms drawn are the mode asked for whenever the
+/// track has it, or else one it has; with none of them, the analysis's own.
+#[hegel::test(test_cases = 60)]
+fn prop_the_waveforms_drawn_are_ones_the_track_has(tc: hegel::TestCase) {
+    let mode = tc.draw(gs::sampled_from(BandMode::ALL.to_vec()));
+    assert_eq!(BandMode::parse(mode.name()), Some(mode));
+    let has = [0, 1, 2].map(|_| tc.draw(gs::booleans()));
+    let all = kinds();
+    let (mut app, _dir) = on_deck();
+    let now = app.now.as_mut().unwrap();
+    now.waves.kinds = TrackWaves {
+        blue_preview: all.blue_preview.filter(|_| has[0]),
+        blue_detail: all.blue_detail.filter(|_| has[0]),
+        rgb_preview: all.rgb_preview.filter(|_| has[1]),
+        rgb_detail: all.rgb_detail.filter(|_| has[1]),
+        band_preview: all.band_preview.filter(|_| has[2]),
+        band_detail: all.band_detail.filter(|_| has[2]),
+    };
+    let had = |m: BandMode| has[BandMode::ALL.iter().position(|b| *b == m).unwrap()];
+    for (what, got) in [("overview", now.overview_wave(mode)), ("zoom", now.zoom_wave(mode))] {
+        let drawn = got.map(|(_, m)| m).unwrap_or_else(|| panic!("{what}: the analysis has one"));
+        match drawn {
+            Some(m) => assert!(had(m) && (m == mode || !had(mode)), "{what}: {m:?} for {mode:?} with {has:?}"),
+            None => assert_eq!(has, [false; 3], "{what}"),
+        }
+    }
+}
+
+/// With nothing playing, the deck at any size says so, and where it can carry on a track it says
+/// with what and from where, as much of it as fits and never another word.
+#[hegel::test(test_cases = 40)]
+fn prop_an_empty_deck_says_what_comes_next(tc: hegel::TestCase) {
+    let w = tc.draw(gs::integers::<u16>().min_value(60).max_value(200));
+    let h = tc.draw(gs::integers::<u16>().min_value(20).max_value(ROOMY - 1));
+    let resume = tc.draw(gs::optional(gs::integers::<u64>().max_value(600)));
+    let (mut app, _dir) = app_with(library());
+    app.deck_layout = true;
+    let lib = app.loaded.as_ref().unwrap().library.clone();
+    let n = lib.tracks.len();
+    app.queue =
+        crate::tui::app::Queue { library: lib, items: (0..n).collect(), order: (0..n).collect(), ..Default::default() };
+    app.resume = resume.map(Duration::from_secs);
+    let s = screen(&mut app, w, h);
+    assert!(s.contains("Nothing playing"), "{w}x{h}\n{s}");
+    let said = match resume {
+        Some(at) => format!(
+            "space carries on with {} from {}",
+            app.queue.track(0).display_name(),
+            crate::output::clock(at as f64)
+        ),
+        None => "Pick a track and press enter.".into(),
+    };
+    let row = s.lines().find_map(|l| l.find(&said[..5]).map(|at| &l[at..])).unwrap_or_else(|| panic!("{said}\n{s}"));
+    let shown = row.split("  ").next().unwrap_or_default().trim_end();
+    assert!(shown.len() >= 5 && said.starts_with(shown), "{shown:?} of {said:?}\n{s}");
 }

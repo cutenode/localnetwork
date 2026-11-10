@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use hegel::generators as gs;
+
 use super::super::app::View;
 use super::super::app::testing::{app_with, blank, job, last_message, library, press};
 use super::super::state::Saved;
@@ -105,4 +107,56 @@ fn errors_outlast_info_and_the_log_keeps_them() {
     press(&mut app, "\u{1b}");
     assert!(app.held.is_none());
     assert!(app.log.iter().any(|(m, l, _)| m == "it went wrong" && *l == Level::Error));
+}
+
+/// Whatever's chosen, in any order, from the palette, with `w` going round the waveforms' colours
+/// and the played tracks forgotten between: each says what it did, the last of each kind is what
+/// the deck has, and that comes back from what's saved.
+#[hegel::test(test_cases = 30)]
+fn prop_the_last_choice_of_each_kind_holds(tc: hegel::TestCase) {
+    // The hint setting has a test of its own, and isn't part of the deck's choices.
+    let choices: Vec<_> = items().into_iter().filter(|(act, _)| !matches!(act, Act::Hints(_))).collect();
+    let (mut app, _dir) = blank(View::Library);
+    let mut want = chosen(&app);
+    let steps = tc.draw(gs::integers::<usize>().min_value(1).max_value(8));
+    for _ in 0..steps {
+        let said = match tc.draw(gs::integers::<usize>().max_value(choices.len() + 1)) {
+            i if i < choices.len() => {
+                let (act, item) = &choices[i];
+                press(&mut app, ":");
+                press(&mut app, &item.label);
+                press(&mut app, "\n");
+                match *act {
+                    Act::Bands(mode) => want.0 = mode,
+                    Act::KeyNotation(n) => want.1 = n,
+                    Act::KeyPalette(k) => want.2 = k,
+                    Act::EndWarning(secs) => want.3 = secs,
+                    Act::Art(on) => want.4 = on,
+                    other => panic!("{other:?}"),
+                }
+                item.label.clone()
+            }
+            i if i == choices.len() => {
+                app.perform(Act::NextBands, None);
+                want.0 = match want.0 {
+                    None => Some(BandMode::Blue),
+                    Some(BandMode::Blue) => Some(BandMode::Rgb),
+                    Some(BandMode::Rgb) => Some(BandMode::ThreeBand),
+                    Some(BandMode::ThreeBand) => None,
+                };
+                bands_label(want.0)
+            }
+            _ => {
+                app.played_tracks.insert("/Contents/a.mp3".into());
+                app.perform(Act::ResetPlayed, None);
+                assert!(app.played_tracks.is_empty(), "forgotten");
+                "nothing counts as played now".into()
+            }
+        };
+        assert_eq!(chosen(&app), want, "after {said}");
+        assert_eq!(last_message(&app), said);
+    }
+    let (mut fresh, _dir) = blank(View::Library);
+    fresh.apply_saved(&app.saved_state(), false);
+    assert_eq!(chosen(&fresh), want, "back from what's saved");
 }
