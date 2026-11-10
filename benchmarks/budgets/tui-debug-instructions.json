@@ -9,7 +9,7 @@
 			"measures": "Instructions of one frame of the Library view at 160x45 in the debug profile, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"deck": {
-			"limit": 44202256,
+			"limit": 33231494,
 			"unit": "instructions",
 			"measures": "Instructions of one frame of the Deck layout at 160x45 in the debug profile, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
