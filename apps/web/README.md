@@ -75,7 +75,9 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 ### Flags
 
-A flag turns a feature on for some people before everyone. The flags themselves are files in [`flags/catalog/`](../../flags/README.md). Staff set who each is on for at `/admin/flags`: everyone, a percentage of accounts, [flag groups](../../GLOSSARY.md) at `/admin/flags/groups`, or single accounts. Admins manage all of it, and on the Staff page they can give a moderator either part: flags, or flag groups. Every change is in the audit log.
+A flag turns a feature on for some people before everyone. The flags themselves are files in [`flags/catalog/`](../../flags/README.md). Staff set who each is on for at `/admin/flags`: everyone, a percentage of accounts, [flag groups](../../GLOSSARY.md) at `/admin/flags/groups`, or single accounts. "Off for everyone" turns a flag off and keeps all of that for when it's back on. Admins manage all of it, and on the Staff page they can give a moderator either part: flags, or flag groups. Every change is in the audit log. The list marks a flag "Ready to remove" once it's been on for everyone, or every account, for 30 days.
+
+To see a flag without changing it for anyone, staff with the flags grant can turn it on or off for their own browser from its page. The preview is a cookie signed with their session, lasts an hour, shows a banner on every page until it's cleared, and is audited. In development and tests, `FLAG_OVERRIDES=key=on,other=off` forces flags for every request instead; the app won't start with it in production ([ADR 0010](../../docs/adr/0010-flags-turn-off-and-preview-without-touching-targeting.md)).
 
 What's set is kept as `staff.flag` and `staff.group` records in the staff space, indexed into SQLite and held in memory, so reading one on a request costs nothing. Pages read `data.flags?.key` and server code `locals.flags.key`, worked out once per request. A signed-out visitor only gets flags on for everyone. locallibrary can't read the staff space, so `computer.localnetwork.flags.getFlags` tells it the public gates and whether it's targeted ([ADR 0006](../../docs/adr/0006-locallibrary-asks-the-website-for-flags.md)).
 
@@ -419,7 +421,7 @@ src/lib/ui/                     The design system: theme tokens, components and 
 src/lib/server/atproto/         Identity, OAuth, root session, repo clients, space credentials, service auth
 src/lib/server/audit/           Hash-chained audit log with dual atproto delivery
 src/lib/server/backup/          Daily database backups to a bucket, and restoring them
-src/lib/server/flags/           The flag catalog, the rule that decides a flag, and the method locallibrary asks
+src/lib/server/flags/           The flag catalog, the rule that decides a flag, staff previews, and the method locallibrary asks
 src/lib/server/happyview/       HappyView client, script bundling, and boot sync
 src/lib/server/services/        Projects, requests, staff, bookings, planner
 src/lib/server/sync/            Space syncer and record projections

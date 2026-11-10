@@ -8,6 +8,7 @@ import type { CaughtError, HandleServerError, ResolveOptions } from '@sveltejs/k
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SESSION_COOKIE, WebSessions } from '#lib/server/auth/session.ts';
 import { CRAWLER_HEAD } from '#lib/server/crawler-head.ts';
+import { PREVIEW_COOKIE, PREVIEW_MS, sealPreview } from '#lib/server/flags/preview.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { RateLimiter } from '#lib/server/rate-limit.ts';
 import { createTestServices } from '#lib/server/testing/core.ts';
@@ -151,6 +152,44 @@ it('keeps a stale grant signed out with its cookie, so the login page can say wh
 	expect(locals.viewer).toBeNull();
 	expect(locals.reauth).toBe(true);
 	expect(cookies.get(SESSION_COOKIE)).toBe(token);
+});
+
+it("applies a staff member's flag preview to their own requests only", async () => {
+	const s = await services({ admins: [ADMIN] });
+	const { handle } = hooksWith(async () => s.app);
+	const adminToken = await s.sessions.create(ADMIN, null);
+	const djToken = await s.sessions.create(DJ, null);
+
+	const preview = (did: string, token: string) =>
+		sealPreview({ did, flags: { parityCanary: true }, expiresAt: Date.now() + PREVIEW_MS }, token);
+
+	const admin = await handledWithLocals(handle, {
+		url: '/',
+		cookies: { [SESSION_COOKIE]: adminToken, [PREVIEW_COOKIE]: preview(ADMIN, adminToken) }
+	});
+
+	expect(admin.locals.flags).toEqual({ parityCanary: true });
+	expect(admin.locals.flagPreview).toEqual({ parityCanary: true });
+
+	// The admin's cookie, copied into someone else's browser, and one they signed for themselves.
+	for (const cookie of [preview(ADMIN, adminToken), preview(DJ, djToken)]) {
+		const dj = await handledWithLocals(handle, {
+			url: '/',
+			cookies: { [SESSION_COOKIE]: djToken, [PREVIEW_COOKIE]: cookie }
+		});
+
+		expect(dj.locals.flags).toEqual({ parityCanary: false });
+		expect(dj.locals.flagPreview).toBeUndefined();
+		expect(dj.cookies.deleted).toContain(PREVIEW_COOKIE);
+	}
+
+	const signedOut = await handledWithLocals(handle, {
+		url: '/',
+		cookies: { [PREVIEW_COOKIE]: preview(ADMIN, adminToken) }
+	});
+
+	expect(signedOut.locals.flags).toEqual({ parityCanary: false });
+	expect(signedOut.cookies.deleted).toContain(PREVIEW_COOKIE);
 });
 
 it('drops a session cookie that names no session', async () => {
@@ -378,6 +417,8 @@ it("passes on the status and message of SvelteKit's own errors, with a request i
 
 const DJ = 'did:plc:dj';
 
+const ADMIN = 'did:plc:admin';
+
 /** An account whose OAuth grant lacks scopes the app now asks for, so the app has no viewer for it. */
 const STALE = 'did:plc:stale';
 
@@ -388,7 +429,7 @@ type HookApp = {
 	logger?: Logger;
 	sessions?: WebSessions;
 	limits?: { write: RateLimiter };
-	flags?: Pick<FlagService, 'evaluate'>;
+	flags?: Pick<FlagService, 'evaluate' | 'preview'>;
 	viewer?: (did: string) => Promise<Viewer | null>;
 	config?: { publicUrl: string };
 };
@@ -407,8 +448,8 @@ function capturingLogger(logs: WrittenLine[]) {
 }
 
 /** The app parts the hook reads: real sessions and viewers over test services, and a write limit of `writes`. */
-async function services(options: { writes?: number; publicUrl?: string } = {}) {
-	const t = await createTestServices();
+async function services(options: { writes?: number; publicUrl?: string; admins?: string[] } = {}) {
+	const t = await createTestServices({ admins: options.admins });
 	const sessions = new WebSessions(t.db, 30);
 	const logs: WrittenLine[] = [];
 

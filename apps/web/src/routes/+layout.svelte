@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import favicon from '#lib/assets/favicon.svg';
 	import { clearSignedOutDrafts } from '#lib/signed-out-drafts.ts';
+	import FlagPreviewBanner from '#lib/components/FlagPreviewBanner.svelte';
 	import SocialMeta from '#lib/components/SocialMeta.svelte';
 	import { type NavLink, siteNav } from '#lib/nav.ts';
 	import SiteHeader from '#lib/ui/SiteHeader.svelte';
@@ -80,6 +81,9 @@
 />
 
 <main id="main" class="min-h-[60vh]">
+	{#if data.flagPreview && Object.keys(data.flagPreview).length > 0}
+		<div class="container-page pt-4"><FlagPreviewBanner preview={data.flagPreview} /></div>
+	{/if}
 	{@render children()}
 </main>
 
