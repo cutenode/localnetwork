@@ -229,7 +229,7 @@ jobs:
       # for a frame's instructions.
       - uses: ./.github/actions/apt-packages
         with:
-          packages: libasound2-dev valgrind
+          packages: libasound2-dev strace valgrind
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -242,7 +242,7 @@ jobs:
       - run: echo "LOCALLIBRARY_BUDGETS_OUT=$PWD/target/budgets" >> "$GITHUB_ENV"
       - run: |
           mkdir "$RUNNER_TEMP/tests"
-          cargo nextest run --archive-file tests.tar.zst --extract-to "$RUNNER_TEMP/tests" -E 'binary(counters) | test(/tui::frames::tests::/)'
+          cargo nextest run --archive-file tests.tar.zst --extract-to "$RUNNER_TEMP/tests" -E 'binary(counters) | binary(export_counters) | test(/tui::frames::tests::/)'
       # A frame's instructions from the archive's debug test binary, so a pure CPU slowdown shows on
       # the pull request and doesn't wait for the weekly release-profile run. Unoptimised and built
       # for coverage, these only compare one build's frame with another's.

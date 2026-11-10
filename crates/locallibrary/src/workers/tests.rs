@@ -28,3 +28,25 @@ fn each_item_runs_once_in_order_and_within_the_bound(tc: hegel::TestCase) {
     }
     assert!(most.load(Ordering::SeqCst) <= workers.max(1), "{} at once", most.load(Ordering::SeqCst));
 }
+
+/// A map gives each item's result in its place, and a panic in any item is the caller's.
+#[hegel::test(test_cases = 50)]
+fn a_map_keeps_the_order_and_raises_a_panic(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let items: Vec<u32> = tc.draw(gs::vecs(gs::integers::<u32>().max_value(20)).max_size(12));
+    let mapped = std::panic::catch_unwind(|| {
+        map(items.clone(), |i| {
+            if i == 13 {
+                std::panic::panic_any("unlucky");
+            }
+            i * 2
+        })
+    });
+    match mapped {
+        Ok(v) => {
+            assert!(!items.contains(&13), "the panic was lost");
+            assert_eq!(v, items.iter().map(|i| i * 2).collect::<Vec<_>>());
+        }
+        Err(p) => assert!(items.contains(&13) && p.downcast_ref::<&str>() == Some(&"unlucky")),
+    }
+}

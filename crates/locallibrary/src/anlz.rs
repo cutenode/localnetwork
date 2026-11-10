@@ -132,6 +132,33 @@ pub fn rewrite_path(bytes: &[u8], new_path: &str) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+/// What [`rewrite_path`] needs of an analysis file to say how long its result is, for any path:
+/// a plan that sizes thousands of files reads each once, with the path each gets still to come.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PathSlot {
+    /// The file's length without its path.
+    rest: usize,
+    /// Whether it holds a path to rewrite. One that doesn't is copied as it is.
+    holds_path: bool,
+}
+
+impl PathSlot {
+    /// The slot in `bytes`, or why [`rewrite_path`] would refuse them.
+    pub(crate) fn of(bytes: &[u8]) -> Result<PathSlot> {
+        let secs = sections(bytes)?;
+        let path = find(&secs, b"PPTH");
+        Ok(PathSlot { rest: bytes.len() - path.map_or(0, |s| s.total_len), holds_path: path.is_some() })
+    }
+
+    /// How long [`rewrite_path`] makes the file with `new_path` in it.
+    pub(crate) fn len_with(&self, new_path: &str) -> usize {
+        match self.holds_path {
+            true => self.rest + 16 + 2 * (new_path.encode_utf16().count() + 1),
+            false => self.rest,
+        }
+    }
+}
+
 pub fn beat_grid(bytes: &[u8]) -> Result<Vec<Beat>> {
     let secs = sections(bytes)?;
     let Some(s) = find(&secs, b"PQTZ") else { return Ok(Vec::new()) };

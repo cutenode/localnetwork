@@ -17,8 +17,9 @@
 //! (`PIONEER/Artwork/00001/a1.jpg`, with its `_m` copy), shared by both databases.
 //!
 //! Tracks Cloud Library Sync keeps in Dropbox or Google Drive are read from the service's folder
-//! (see [`crate::masterdb::CloudFolders`]). An online-only file is downloaded as it's read; the
-//! plan says how many there are, and how big. Analysis or artwork that hasn't finished syncing is
+//! (see [`crate::masterdb::CloudFolders`]). An online-only file downloads when it's read, a few
+//! at a time ahead of the copy; the plan says how many there are, and how big. Analysis or artwork
+//! that hasn't finished syncing is
 //! copied as it is, with a warning, and a track whose audio isn't on this computer is left out.
 //!
 //! Writing goes through [`crate::library_write`], as [`crate::pack`] does: only files that
@@ -41,7 +42,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::analysis_edit::{self, NewAnalysis};
-use crate::anlz::{Bands, Beat, CuePoint};
+use crate::anlz::{Bands, Beat, CuePoint, PathSlot};
 use crate::artwork::{image_key, medium_variant};
 use crate::device::{Device, LineageEntry, LineageOp};
 use crate::error::IoContext;
@@ -57,7 +58,7 @@ use crate::smart::SmartPlaylist;
 use crate::store::{SnapshotInfo, Store};
 use crate::sync::PullOptions;
 use crate::tags::DbTags;
-use crate::{Error, Result, backup, convert, edit, fsutil, hash, merge};
+use crate::{Error, Result, backup, convert, edit, fsutil, hash, merge, workers};
 
 const RECORD_FILE: &str = "collection.json";
 
@@ -331,7 +332,8 @@ pub(crate) fn plan_from(
         .map(|r| r.smart.iter().filter(|p| !smart.iter().any(|s| &s.path == *p)).cloned().collect())
         .unwrap_or_default();
     // Each track's analysis files are read to write its path into them, which takes a while.
-    let mut layout = Layout { artwork: previous.map(|r| r.artwork).unwrap_or_default(), ..Default::default() };
+    let slots = analysis_slots(from, &chosen);
+    let mut layout = Layout { artwork: previous.map(|r| r.artwork).unwrap_or_default(), slots, ..Default::default() };
     layout.used_keys = layout.artwork.values().map(|k| k.to_lowercase()).collect();
     ctx.phase_start(Phase::Scan, chosen.tracks.len() as u64, 0);
     for t in &chosen.tracks {
@@ -492,19 +494,22 @@ fn hash_checked(written: &mut Planned, checked: &FxHashSet<String>, ctx: &Ctx<'_
         return Ok(());
     }
     ctx.phase_start(Phase::Hash, hashed.len() as u64, hashed.iter().map(|c| c.size).sum());
-    let mut hashes = Vec::new();
-    for c in hashed {
-        let src = &written.sources[&c.path];
+    let sources = &written.sources;
+    let hashes: Vec<Result<(String, Hash)>> = workers::map(hashed, |c| {
+        let src = &sources[&c.path];
         ctx.emit(Event::Item { phase: Phase::Hash, path: c.path.clone(), bytes: 0 });
+        let hash = hash::hash_file(&src.path, ctx, Phase::Hash)?;
+        // After the hash: a size that changed while the others were read counts too.
         let now = std::fs::metadata(&src.path).at(&src.path)?.len();
         if now != src.size {
             let changed = format!("{} changed while the export was planned; plan it again", src.path.display());
             return Err(Error::invalid(changed));
         }
-        hashes.push((c.path.clone(), hash::hash_file(&src.path, ctx, Phase::Hash)?));
-    }
+        Ok((c.path.clone(), hash))
+    });
     ctx.phase_end(Phase::Hash);
-    for (key, h) in hashes {
+    for hash in hashes {
+        let (key, h) = hash?;
         written.sources.get_mut(&key).expect("one of its copies").hash = Some(h);
     }
     Ok(())
@@ -590,6 +595,19 @@ fn fill_smart(
     (filled, rules)
 }
 
+/// Every analysis file of rekordbox's that `library`'s tracks name, read at once: planning waits
+/// on reading these and little else.
+fn analysis_slots(from: &Collected<'_>, library: &Library) -> FxHashMap<PathBuf, Option<PathSlot>> {
+    let Files::Rekordbox { collection, .. } = &from.files else { return FxHashMap::default() };
+    let share = |t: &Track| {
+        let stem = t.analyze_path.rsplit_once('.').filter(|_| !t.analyze_path.is_empty()).map(|(stem, _)| stem);
+        let files = stem.into_iter().flat_map(|stem| ANALYSIS_EXTENSIONS.map(|ext| format!("{stem}.{ext}")));
+        files.map(|f| collection.share_file(&f)).collect::<Vec<_>>()
+    };
+    let paths: Vec<PathBuf> = library.tracks.iter().flat_map(share).collect();
+    workers::map(paths, |p| (library_write::path_slot(&p), p)).into_iter().map(|(slot, p)| (p, slot)).collect()
+}
+
 /// Where the exported library's files go on the target, and where they come from.
 #[derive(Default)]
 struct Layout {
@@ -614,6 +632,9 @@ struct Layout {
     checked: FxHashSet<String>,
     /// The analysis files made, until they're copied.
     made: Option<tempfile::TempDir>,
+    /// What each of rekordbox's analysis files needs to be sized, `None` for one that can't be
+    /// read (see [`analysis_slots`]).
+    slots: FxHashMap<PathBuf, Option<PathSlot>>,
 }
 
 impl Layout {
@@ -681,12 +702,14 @@ impl Layout {
             for ext in ANALYSIS_EXTENSIONS {
                 let share = format!("{stem}.{ext}");
                 syncing |= collection.still_syncing(&share);
-                let Ok(meta) = std::fs::metadata(collection.share_file(&share)) else { continue };
+                let path = collection.share_file(&share);
+                let Ok(meta) = std::fs::metadata(&path) else { continue };
                 let to = format!("{dir}/ANLZ0000.{ext}");
-                let Ok(source) = Source::analysis(collection.share_file(&share), mtime(&meta), &device_path, 0) else {
+                let Some(slot) = self.slots.get(&path).copied().flatten() else {
                     unreadable = true;
                     continue;
                 };
+                let source = Source::analysed(path, mtime(&meta), &device_path, slot);
                 self.taken.insert(to.to_lowercase());
                 self.files.insert(to.clone(), source);
                 if ext == "DAT" {
