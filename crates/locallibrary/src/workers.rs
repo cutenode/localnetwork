@@ -34,5 +34,15 @@ pub(crate) fn each<T: Send, R: Send>(
     done.into_inner().unwrap_or_else(PoisonError::into_inner).into_iter().map(|r| r.expect("every item ran")).collect()
 }
 
+/// [`each`] on a thread per core, a panic in `work` raised again here: a parallel map. Rayon's
+/// would do the same for more code: five of its maps made the release binary 33 KB bigger than
+/// five of these (aarch64-apple-darwin, 2026-11-08).
+pub(crate) fn map<T: Send, R: Send>(items: Vec<T>, work: impl Fn(T) -> R + Sync) -> Vec<R> {
+    each(items, per_core(), work)
+        .into_iter()
+        .map(|r| r.unwrap_or_else(|panic| std::panic::resume_unwind(panic)))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests;

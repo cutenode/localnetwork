@@ -1,11 +1,11 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::TimeDelta;
 use hegel::TestCase;
 use hegel::generators as gs;
 
 use super::estimate::{duration, link_name};
-use super::probe::{settle, timed_write};
+use super::probe::{more, settle, timed_write};
 use super::*;
 use crate::progress::{CancelToken, Event, Progress};
 
@@ -256,6 +256,18 @@ fn a_test_stops_when_its_time_is_up() {
     let rate = timed_write(32 << 20, &mut chunk, &mut slow, &Ctx::silent()).unwrap();
     // 15 s at 2 s a chunk.
     assert_eq!(rate.holds_for, Some(8 << 20));
+}
+
+/// A test makes its small files and folders up to its count, and past its minimum only while its
+/// time lasts: a slow drive stops early, with enough made to tell their cost.
+#[test]
+fn a_test_makes_items_within_its_count_and_time() {
+    let now = Instant::now();
+    let late = now - probe::ITEM_BUDGET - Duration::from_millis(1);
+    assert!(more(now, probe::ITEMS - 1));
+    assert!(!more(now, probe::ITEMS));
+    assert!(more(late, probe::MIN_ITEMS - 1));
+    assert!(!more(late, probe::MIN_ITEMS));
 }
 
 #[test]

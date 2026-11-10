@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use crate::error::IoContext;
 use crate::format::capacity;
 use crate::progress::{Ctx, Event, Phase};
-use crate::{Error, Result, fsutil};
+use crate::{Error, Result, fsutil, library_write};
 
 /// The most a test writes, and how long it writes for: a stick at 150 MB/s and a card at 16 both
 /// get several chunks.
@@ -22,9 +22,9 @@ const CHUNK: usize = 32 << 20;
 
 /// Small files and folders timed, and how long each kind gets: at least [`MIN_ITEMS`], for a drive
 /// so slow the budget runs out first.
-const ITEMS: usize = 128;
-const MIN_ITEMS: usize = 16;
-const ITEM_BUDGET: Duration = Duration::from_secs(3);
+pub(super) const ITEMS: usize = 128;
+pub(super) const MIN_ITEMS: usize = 16;
+pub(super) const ITEM_BUDGET: Duration = Duration::from_secs(3);
 
 /// As big as a typical analysis file.
 const SMALL_FILE: [u8; 4096] = [0x4c; 4096];
@@ -103,11 +103,17 @@ pub(super) fn timed_write(
 /// before [`MIN_ITEMS`].
 fn make_items(start: Instant, make: impl Fn(usize) -> Result<PathBuf>, ctx: &Ctx<'_>) -> Result<Vec<PathBuf>> {
     let mut made = Vec::with_capacity(ITEMS);
-    while made.len() < ITEMS && (made.len() < MIN_ITEMS || start.elapsed() < ITEM_BUDGET) {
+    while more(start, made.len()) {
         ctx.check()?;
         made.push(make(made.len())?);
     }
     Ok(made)
+}
+
+/// Whether a test that started at `start` and has made `made` items makes another: up to
+/// [`ITEMS`], and past [`MIN_ITEMS`] only within [`ITEM_BUDGET`].
+pub(super) fn more(start: Instant, made: usize) -> bool {
+    made < ITEMS && (made < MIN_ITEMS || start.elapsed() < ITEM_BUDGET)
 }
 
 /// The microseconds each of `items` took since `start`.
@@ -170,16 +176,26 @@ pub(super) fn run(root: &Path, limit: u64, ctx: &Ctx<'_>) -> Result<Costs> {
     let files = scratch.0.join("files");
     std::fs::create_dir(&files).at(&files)?;
     let start = Instant::now();
-    let written = make_items(
-        start,
-        |i| {
-            // As a copy makes one: a temp file, then a rename.
+    let items: Vec<usize> = (0..ITEMS).collect();
+    // As a copy makes them: under their own names, several at a time. Past the budget the rest
+    // are left unmade, as `make_items` leaves them, and the time is shared by those made.
+    let (made, failed) = library_write::copy_each(
+        &items,
+        |_| SMALL_FILE.len() as u64,
+        |&i| {
+            ctx.check()?;
+            if !more(start, i) {
+                return Ok(None);
+            }
             let path = files.join(file_name(i));
-            fsutil::write_deferred(&path, &SMALL_FILE)?;
-            Ok(path)
+            fsutil::write_for_drive(&path, &SMALL_FILE)?;
+            Ok(Some(path))
         },
-        ctx,
-    )?;
+    );
+    if let Some(e) = failed {
+        return Err(e);
+    }
+    let written: Vec<PathBuf> = made.into_iter().flatten().collect();
     fsutil::flush(&written)?;
     let create_us = each_us(start, written.len());
     let folders = scratch.0.join("folders");

@@ -5,13 +5,15 @@
 //! uses removed. Each writer backs up, records and reports around these steps itself.
 //!
 //! Files are flushed before they get their source's modification time, which tells the next run
-//! they're complete (see [`fsutil::copy_file`]); a run stopped part way still does both for what it
-//! copied, so running it again copies only the rest.
+//! they're complete (see [`fsutil::copy_for_drive`]); a run stopped part way still does both for
+//! what it copied, so running it again copies only the rest.
 
 use indexmap::IndexMap;
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::io::Write;
+use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -23,8 +25,9 @@ use crate::error::IoContext;
 use crate::hash::Hash;
 use crate::paths::{self, FileClass, fold};
 use crate::progress::{Ctx, Event, Phase};
+use crate::sync::{Copied, settle};
 use crate::tree::FileTree;
-use crate::{Error, Result, backup, fsutil};
+use crate::{Error, Result, backup, fsutil, workers, writing};
 
 /// A file a write copies or removes.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -63,8 +66,22 @@ impl Source {
     /// its size on the drive is worked out from its contents.
     pub(crate) fn analysis(path: PathBuf, mtime: i64, audio_path: &str, shift_ms: i32) -> Result<Source> {
         let size = analysis_bytes(&path, audio_path, shift_ms)?.len() as u64;
-        Ok(Source { path, size, mtime, audio_path: Some(audio_path.to_string()), shift_ms, force: false, hash: None })
+        Ok(Source::analysis_of(path, size, mtime, audio_path, shift_ms))
     }
+
+    /// [`Source::analysis`] with its times as they are, of a file already read for its `slot`.
+    pub(crate) fn analysed(path: PathBuf, mtime: i64, audio_path: &str, slot: anlz::PathSlot) -> Source {
+        Source::analysis_of(path, slot.len_with(audio_path) as u64, mtime, audio_path, 0)
+    }
+
+    fn analysis_of(path: PathBuf, size: u64, mtime: i64, audio_path: &str, shift_ms: i32) -> Source {
+        Source { path, size, mtime, audio_path: Some(audio_path.to_string()), shift_ms, force: false, hash: None }
+    }
+}
+
+/// What [`Source::analysed`] takes of the analysis file at `path`: `None` if it can't be read.
+pub(crate) fn path_slot(path: &Path) -> Option<anlz::PathSlot> {
+    anlz::PathSlot::of(&std::fs::read(path).ok()?).ok()
 }
 
 fn analysis_bytes(path: &Path, audio_path: &str, shift_ms: i32) -> Result<Vec<u8>> {
@@ -78,16 +95,6 @@ fn analysis_bytes(path: &Path, audio_path: &str, shift_ms: i32) -> Result<Vec<u8
         Error::Parse { message, .. } => Error::parse(path, message),
         e => e,
     })
-}
-
-/// Write `bytes` to `dst` through a temp file beside it, without an fsync ([`fsutil::flush`]
-/// follows, as for copies).
-fn write_unsynced(dst: &Path, bytes: &[u8]) -> Result<()> {
-    let dir = dst.parent().ok_or_else(|| Error::invalid(format!("{} has no parent", dst.display())))?;
-    std::fs::create_dir_all(dir).at(dir)?;
-    let mut tmp = fsutil::temp_for(dir, dst, "")?;
-    tmp.write_all(bytes).at(tmp.path())?;
-    fsutil::replace(tmp.into_temp_path(), dst)
 }
 
 /// The new databases. Without `pdb` or `plus`, the drive's is removed; without `ext`, the drive's
@@ -179,6 +186,7 @@ pub(crate) fn plan(
     let backs_up = |class: FileClass| matches!(class, FileClass::Analysis | FileClass::Artwork);
     // After a write cut off on the target, a file modified since it started may be torn.
     let cut_off = crate::sync::cut_off_since(target);
+    let unfinished: FxHashSet<String> = writing::unfinished(target).iter().map(|key| fold(key)).collect();
     // A file copied moments after its source was written may have missed a rewrite of it that
     // kept the size and mtime (see `fsutil::settled`): it's compared by content.
     let index = target.load_index();
@@ -194,7 +202,8 @@ pub(crate) fn plan(
     for (key, src) in wanted {
         match by_fold.get(&fold(key)) {
             Some(e)
-                if e.size == src.size
+                if !unfinished.contains(&fold(key))
+                    && e.size == src.size
                     && fsutil::mtime_eq(e.mtime, src.mtime)
                     && cut_off.is_none_or(|since| e.mtime < since)
                     && (!index.racy(e) || holds(e, src))
@@ -251,6 +260,106 @@ pub(crate) fn plan(
     out
 }
 
+/// Files up to this size (analysis files, artwork) are written at once by [`copy_each`].
+const SMALL_FILE: u64 = 1 << 20;
+
+/// How many small files [`copy_each`] writes at a time. A file's own creation is most of what it
+/// costs a FAT or exFAT drive, and they take several at once: a third to a half less time per
+/// file on a USB stick and an SD card, with no more to gain past this.
+const SMALL_FILE_WRITERS: usize = 8;
+
+/// `copy` of each of `items` (`size` being what it writes): the small ones several at a time, then
+/// the others one by one, so a drive that's being written nothing else keeps each audio file in
+/// one piece for the player to read. Stops at the first error, finishing what comes before it:
+/// what it copied, and the error.
+pub(crate) fn copy_each<I: Sync, T: Send>(
+    items: &[I],
+    size: impl Fn(&I) -> u64,
+    copy: impl Fn(&I) -> Result<T> + Sync,
+) -> (Vec<T>, Option<Error>) {
+    let (small, large): (Vec<&I>, Vec<&I>) = items.iter().partition(|i| size(i) <= SMALL_FILE);
+    // Where in the run the first failure is. Copies after it don't start, and those before it all
+    // finish, whichever thread had them: a run stopped part way keeps everything up to there.
+    let failed_at = AtomicUsize::new(usize::MAX);
+    let copy_one = |(n, item): (usize, &I)| {
+        (n < failed_at.load(Ordering::Relaxed)).then(|| {
+            copy(item).inspect_err(|_| {
+                failed_at.fetch_min(n, Ordering::Relaxed);
+            })
+        })
+    };
+    let large_from = small.len();
+    let copied = workers::each(small.into_iter().enumerate().collect(), SMALL_FILE_WRITERS, copy_one);
+    let mut copied: Vec<_> =
+        copied.into_iter().map(|c| c.unwrap_or_else(|panic| std::panic::resume_unwind(panic))).collect();
+    copied.extend(large.into_iter().enumerate().map(|(n, item)| copy_one((large_from + n, item))));
+    let (mut done, mut stopped) = (Vec::with_capacity(items.len()), None);
+    for outcome in copied.into_iter().flatten() {
+        match outcome {
+            Ok(c) => done.push(c),
+            Err(e) => {
+                stopped.get_or_insert(e);
+            }
+        }
+    }
+    (done, stopped)
+}
+
+type PendingDownloads = Mutex<std::vec::IntoIter<PathBuf>>;
+
+/// Read the start of each queued file, a few at a time and until `finished`: that's what brings
+/// one down, so they download side by side and ahead of the copy, not one by one as it reaches each.
+fn download_ahead(files: &PendingDownloads, finished: &AtomicBool) {
+    workers::each(vec![(); DOWNLOADS_AT_ONCE], DOWNLOADS_AT_ONCE, |()| {
+        while !finished.load(Ordering::Relaxed) {
+            let next = files.lock().unwrap_or_else(PoisonError::into_inner).next();
+            let Some(file) = next else { break };
+            let _ = std::fs::File::open(file).and_then(|mut f| f.read(&mut [0; 1]));
+        }
+    });
+}
+
+/// Owns only source paths: a stopped copy can settle without joining a cloud read that the OS
+/// cannot cancel. Dropping this frees queued paths; at most four in-flight reads keep their own.
+struct Downloads {
+    finished: Arc<AtomicBool>,
+    pending: Arc<PendingDownloads>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Downloads {
+    fn start(files: Vec<PathBuf>) -> Self {
+        let has_files = !files.is_empty();
+        let finished = Arc::new(AtomicBool::new(false));
+        let pending = Arc::new(Mutex::new(files.into_iter()));
+        let stop = finished.clone();
+        let queue = pending.clone();
+        let worker = has_files.then(|| {
+            std::thread::spawn(move || {
+                // One blocked read can suppress later batches, even with spare slots. This bounds
+                // abandoned reads across retries; each copy can still read its own sources.
+                static ACTIVE: Mutex<()> = Mutex::new(());
+                let Ok(_active) = ACTIVE.try_lock() else { return };
+                download_ahead(&queue, &stop);
+            })
+        });
+        Self { finished, pending, worker }
+    }
+}
+
+impl Drop for Downloads {
+    fn drop(&mut self) {
+        self.finished.store(true, Ordering::Relaxed);
+        // Replacing the iterator releases both queued paths and the vector's allocation.
+        *self.pending.lock().unwrap_or_else(PoisonError::into_inner) = Vec::new().into_iter();
+        // A JoinHandle detaches when dropped. The worker never owns a destination or write state.
+        drop(self.worker.take());
+    }
+}
+
+/// How many online-only files [`download_ahead`] waits for at a time.
+const DOWNLOADS_AT_ONCE: usize = 4;
+
 /// How long reading an online-only file may take before [`copy`] says it's waiting for it.
 const DOWNLOAD_NOTICE: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -260,11 +369,27 @@ const DOWNLOAD_NOTICE: std::time::Duration = std::time::Duration::from_secs(10);
 /// (what was copied before an error too). The caller starts and ends the copy phase, so a writer
 /// can make files of its own in it.
 pub(crate) fn copy(target: &Device, planned: &Planned, ctx: &Ctx<'_>) -> Result<(usize, u64)> {
-    let mut written: Vec<(PathBuf, i64, &FileCopy, Hash)> = Vec::new();
-    let mut bytes = 0;
-    let mut stopped = None;
-    for c in &planned.copies {
-        let copied = (|| -> Result<(PathBuf, i64, &FileCopy, Hash)> {
+    copy_with_downloads(target, planned, ctx, || {
+        let is_online = |p: &&PathBuf| std::fs::metadata(p).is_ok_and(|m| fsutil::is_online_only(&m));
+        let online = planned.sources.values().map(|s| &s.path).filter(is_online).cloned().collect();
+        Downloads::start(online)
+    })
+}
+
+fn copy_with_downloads(
+    target: &Device,
+    planned: &Planned,
+    ctx: &Ctx<'_>,
+    start_downloads: impl FnOnce() -> Downloads,
+) -> Result<(usize, u64)> {
+    let copies: Vec<&FileCopy> = planned.copies.iter().collect();
+    let source = |c: &FileCopy| planned.sources.get(&c.path).map(|s| (c.path.clone(), s.size, s.mtime));
+    writing::note(target, copies.iter().filter_map(|c| source(c)))?;
+    let downloads = start_downloads();
+    let (written, stopped) = copy_each(
+        &copies,
+        |c| c.size,
+        |&c| {
             ctx.check()?;
             let src = planned.sources.get(&c.path).ok_or_else(|| Error::NotFound(c.path.clone()))?;
             let dst = target.checked_path(&c.path)?;
@@ -272,7 +397,8 @@ pub(crate) fn copy(target: &Device, planned: &Planned, ctx: &Ctx<'_>) -> Result<
             let hash = match &src.audio_path {
                 Some(audio) => {
                     let bytes = analysis_bytes(&src.path, audio, src.shift_ms)?;
-                    write_unsynced(&dst, &bytes)?;
+                    fsutil::write_for_drive(&dst, &bytes)?;
+                    ctx.emit(Event::Bytes { phase: Phase::Copy, bytes: c.size });
                     Hash::of(&bytes)
                 }
                 // An online-only file (Dropbox, Google Drive) downloads as it's read, which can
@@ -280,31 +406,21 @@ pub(crate) fn copy(target: &Device, planned: &Planned, ctx: &Ctx<'_>) -> Result<
                 None if std::fs::metadata(&src.path).is_ok_and(|m| fsutil::is_online_only(&m)) => {
                     let waiting = format!("waiting for {} to download from the cloud", src.path.display());
                     fsutil::warn_if_slow(ctx, DOWNLOAD_NOTICE, waiting, || {
-                        fsutil::copy_file(&src.path, &dst, None, src.hash, false, ctx)
+                        fsutil::copy_for_drive(&src.path, &dst, src.hash, ctx)
                     })?
                 }
-                None => fsutil::copy_file(&src.path, &dst, None, src.hash, false, ctx)?,
+                None => fsutil::copy_for_drive(&src.path, &dst, src.hash, ctx)?,
             };
-            Ok((dst, src.mtime, c, hash))
-        })();
-        match copied {
-            Ok(w) => {
-                written.push(w);
-                bytes += c.size;
-            }
-            Err(e) => {
-                stopped = Some(e);
-                break;
-            }
-        }
-    }
-    fsutil::flush(&written.iter().map(|(p, ..)| p.clone()).collect::<Vec<_>>())?;
+            let class = paths::classify(&c.path).unwrap_or(FileClass::Audio);
+            Ok((Copied { path: dst, key: c.path.clone(), class, hash, mtime: src.mtime }, c.size))
+        },
+    );
+    drop(downloads);
+    let bytes = written.iter().map(|(_, size)| size).sum();
+    let written: Vec<Copied> = written.into_iter().map(|(copied, _)| copied).collect();
     let mut index = target.load_index();
-    for (path, mtime, c, hash) in &written {
-        fsutil::set_mtime(path, *mtime)?;
-        let class = paths::classify(&c.path).unwrap_or(FileClass::Audio);
-        crate::sync::record(&mut index, path, &c.path, class, *hash)?;
-    }
+    settle(&written, &mut index)?;
+    writing::forget(target)?;
     target.save_index(&index)?;
     if let Some(e) = stopped {
         return Err(e);
