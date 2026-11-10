@@ -34,7 +34,7 @@
 					"type": ["number", "null"],
 					"minimum": 0
 				},
-				"unit": { "enum": ["bytes", "allocations", "instructions", "packages", "files"] },
+				"unit": { "enum": ["bytes", "allocations", "instructions", "packages", "files", "calls"] },
 				"measures": { "description": "What the number counts, in a sentence.", "type": "string", "minLength": 1 }
 			}
 		}

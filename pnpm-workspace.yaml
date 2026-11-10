@@ -4,14 +4,19 @@ packages:
   - packages/*
 linkWorkspacePackages: false
 engineStrict: true
+# Install scripts run only for these versions, so a bump has to approve its script again.
+# better-sqlite3 fetches or builds the native addon @atproto/pds (the dev network) loads, lefthook
+# installs the git hooks, and ast-grep links its platform package's binary in place of a JS shim
+# that warns on every run. The others work without theirs: esbuild runs its platform package's
+# binary, sharp uses its prebuilt @img package, and core-js and protobufjs only print.
 allowBuilds:
-  better-sqlite3: true
-  protobufjs: false
-  sharp: true
+  '@ast-grep/cli@0.51.0': true
+  better-sqlite3@12.11.1: true
+  lefthook@2.2.2: true
   core-js: false
-  esbuild: true
-  lefthook: true
-  '@ast-grep/cli': true
+  esbuild: false
+  protobufjs: false
+  sharp: false
 # Atproto Spaces alpha: pin every @atproto package to the same alpha build.
 overrides:
   '@atproto/api': 0.0.0-spaces-alpha-20261105160032
@@ -81,3 +86,20 @@ patchedDependencies:
 auditConfig:
   ignoreGhsas:
     - GHSA-mrhx-c7xc-m3w5
+# Avoid installing packages published in last 3 days (in minutes).
+minimumReleaseAge: 4320
+# Disable exotic subdeps in older pnpm versions.
+blockExoticSubdeps: true
+# Fail if trusted publishing or provenance is gone from a package that used to have it.
+trustPolicy: no-downgrade
+# Versions whose own maintainers published them by hand after earlier releases had provenance.
+# Each is pinned, so the next release is checked again. chokidar 4.0.2 on (paulmillr; 4.0.1 had
+# provenance, 5.x has trusted publishing, svelte-check takes ^4). lefthook 2.2.2 (mrexox; 2.2.1 came
+# from GitHub Actions). chromium-bidi, which puppeteer-core pins exactly (chrome-devtools-npm; the
+# last release with provenance was 17.0.2). @yarnpkg/libzip 3.2.2, which @lavamoat/harden's
+# @yarnpkg/core takes at ^3.2.2 (arcanis; 3.2.0 and 3.2.1 came from yarnbot with provenance).
+trustPolicyExclude:
+  - '@yarnpkg/libzip@3.2.2'
+  - chokidar@4.0.3
+  - chromium-bidi@157.0.8090-0
+  - lefthook@2.2.2

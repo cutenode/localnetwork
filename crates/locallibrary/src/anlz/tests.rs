@@ -33,6 +33,27 @@ pub(crate) fn synthetic(path: &str) -> Vec<u8> {
     f
 }
 
+/// A file's [`PathSlot`] says how long [`rewrite_path`] makes it, whatever the path (or with no
+/// `PPTH` to rewrite, and bytes past the file's declared end), and refuses what it refuses.
+#[hegel::test(test_cases = 100)]
+fn a_path_slot_sizes_the_rewritten_file(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let old = tc.draw(gs::text().max_size(100).exclude_characters("\0"));
+    let new = tc.draw(gs::text().max_size(200).exclude_characters("\0"));
+    let trailing = tc.draw(gs::integers::<usize>().max_value(9));
+    let mut f = synthetic(&old);
+    if tc.draw(gs::booleans()) {
+        let ppth = 0x1c..0x1c + be_u32(&f, 0x1c + 8).unwrap() as usize;
+        f.drain(ppth);
+        let len = f.len() as u32;
+        f[8..12].copy_from_slice(&len.to_be_bytes());
+    }
+    f.extend(vec![0; trailing]);
+    assert_eq!(PathSlot::of(&f).unwrap().len_with(&new), rewrite_path(&f, &new).unwrap().len());
+    let cut = tc.draw(gs::integers::<usize>().max_value(f.len()));
+    assert_eq!(PathSlot::of(&f[..cut]).is_ok(), rewrite_path(&f[..cut], &new).is_ok());
+}
+
 #[test]
 fn read_and_rewrite_path() {
     let f = synthetic("/Contents/a.mp3");

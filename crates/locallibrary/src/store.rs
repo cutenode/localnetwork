@@ -471,9 +471,10 @@ impl Store {
         self.writing(|| {
             let tmp_dir = self.root.join("objects").join("tmp");
             fs::create_dir_all(&tmp_dir).at(&tmp_dir)?;
-            let mut tmp = fsutil::temp_in(tempfile::Builder::new().prefix("import-"), &tmp_dir)?;
+            let tmp = fsutil::temp_in(tempfile::Builder::new().prefix("import-"), &tmp_dir)?;
             let tmp_path = tmp.path().to_path_buf();
-            let (h, size) = hash::copy_hashing(src, tmp.as_file_mut(), &tmp_path, ctx, Phase::Copy)?;
+            let (tmp, h) = fsutil::copy_into(src, tmp, &tmp_path, ctx)?;
+            let size = tmp.as_file().metadata().at(&tmp_path)?.len();
             let dst = self.object_path(&h);
             if self.holds(&h, size) {
                 return Ok((h, false));

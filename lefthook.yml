@@ -44,8 +44,9 @@ pre-commit:
       glob: '*.{ts,mts,cts,rs,svelte}'
       run: pnpm exec ast-grep scan {staged_files}
 
+# The jobs run one at a time. Side by side, the web and localtoolbox suites starve each other's
+# browser tests of CPU on a busy machine until they time out, and the push fails.
 pre-push:
-  parallel: true
   setup:
     - run: pnpm install --frozen-lockfile
   jobs:

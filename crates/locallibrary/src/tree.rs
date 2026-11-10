@@ -116,13 +116,18 @@ impl FileTree {
         }
         let bytes: u64 = todo.iter().map(|k| self.entries[k].size).sum();
         ctx.phase_start(Phase::Hash, todo.len() as u64, bytes);
-        for key in todo {
-            ctx.check()?;
-            let path = self.fs_path(&key);
+        // A drive's first scan reads an analysis file or two for each track, side by side: each
+        // only waits on the drive.
+        let hashed: Vec<(String, Result<Hash>)> = crate::workers::map(todo, |key| {
+            let hash = ctx.check().map_err(Error::from).and_then(|()| {
+                ctx.emit(Event::Item { phase: Phase::Hash, path: key.clone(), bytes: self.entries[&key].size });
+                hash::hash_file(&self.fs_path(&key), ctx, Phase::Hash)
+            });
+            (key, hash)
+        });
+        for (key, hash) in hashed {
             let entry = self.entries.get_mut(&key).expect("key from entries");
-            ctx.emit(Event::Item { phase: Phase::Hash, path: key.clone(), bytes: entry.size });
-            let h = hash::hash_file(&path, ctx, Phase::Hash)?;
-            entry.hash = Some(h);
+            entry.hash = Some(hash?);
             index.record_baseline(entry);
         }
         ctx.phase_end(Phase::Hash);
