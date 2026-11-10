@@ -136,6 +136,33 @@ fn tab_offers_what_the_listings_list(tc: TestCase) {
     assert!(tab.contains(&("Clubland".into(), "library".into())), "{tab:?}");
 }
 
+/// Drives plugged in, some adopted into a store (or no store at all) and some of those unplugged
+/// again: where a drive goes, Tab offers each mounted drive by its name (described by its path)
+/// and by its path (described by its name), and each drive the store knows that isn't mounted as
+/// not mounted, and nothing else.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn tab_offers_the_drives_mounted_and_known(tc: TestCase) {
+    let fx = Env::new();
+    let names = tc.draw(gs::subsequences(vec!["A", "B", "Ünïcödé"]));
+    let mut want = BTreeSet::new();
+    for name in &names {
+        let root = fx.demo(name);
+        if tc.draw(gs::booleans()) {
+            fx.ok(&["--yes", "drive", "adopt", name, "--name", name]);
+            if tc.draw(gs::booleans()) {
+                std::fs::rename(&root, fx.outside(name)).unwrap();
+                want.insert((name.to_string(), "not mounted".to_string()));
+                continue;
+            }
+        }
+        want.insert((name.to_string(), path(&root).to_string()));
+        want.insert((path(&root).to_string(), name.to_string()));
+    }
+    let tab: BTreeSet<(String, String)> =
+        offered(&fx, &["drive", "info"]).into_iter().filter(|(v, _)| !v.starts_with('-')).collect();
+    assert_eq!(tab, want);
+}
+
 /// The man pages: the top-level page printed is the one `--json` holds, and written to a folder,
 /// there's a page for every command, the top-level one among them; a folder they can't be written
 /// to is an error that names it.

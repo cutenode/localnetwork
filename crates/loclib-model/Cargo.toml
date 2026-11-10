@@ -18,6 +18,7 @@ schemars = { optional = true, version = "1.2", default-features = false, feature
 serde.workspace = true
 unicode-normalization.workspace = true
 hegeltest = { workspace = true, optional = true }
+tempfile.workspace = true
 
 [features]
 schemars = ["dep:schemars"]
@@ -39,3 +40,6 @@ workspace = true
 name = "model"
 harness = false
 required-features = ["test-util"]
+
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+reflink-copy = "0.1.32"

@@ -121,6 +121,21 @@ pub struct PlayerPrefs {
     /// Auto cue: start tracks at their first memory cue or beat.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_cue: Option<bool>,
+    /// How keys are written: `camelot`, `open-key` or `musical`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notation: Option<String>,
+    /// The colours keys come in: `theme`, `wheel`, `protanopia`, `deuteranopia` or `tritanopia`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_palette: Option<String>,
+    /// How waveforms are coloured: `blue`, `rgb` or `3band`. Without one, as the drive says.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bands: Option<String>,
+    /// Seconds before a track's end the deck warns of it; 0 for not at all.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_warning: Option<u16>,
+    /// Cover art.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub art: Option<bool>,
 }
 
 /// The file the player reads what it remembers from: the store's, else the one beside it (see

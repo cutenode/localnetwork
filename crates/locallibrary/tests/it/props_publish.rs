@@ -1783,3 +1783,56 @@ fn a_track_is_read_back_from_the_drive_it_was_analysed_on(tc: TestCase) {
     }
     locallibrary::testing::roles_on_this_thread(None);
 }
+
+/// A set with more tracks than a set record holds can't be published, saying how many it has;
+/// one within that whose record is over what a data server not updated since May 2026 takes (its
+/// tracks' names long) is planned with a note saying how big it is, and a smaller one without.
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_set_too_big_for_a_record_says_so(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    let store = Store::open_or_init(&root).unwrap();
+    let (s, _, _) = set(&tc, false);
+    let limit = publish::SET_TRACK_LIMIT;
+    let sizes = [
+        (tc.draw(gs::integers::<usize>().min_value(limit + 1).max_value(520)), 8),
+        (
+            tc.draw(gs::integers::<usize>().min_value(400).max_value(limit)),
+            // Within the 300 graphemes an artist or a title may have.
+            tc.draw(gs::integers::<usize>().min_value(200).max_value(300)),
+        ),
+        (tc.draw(gs::integers::<usize>().max_value(20)), tc.draw(gs::integers::<usize>().min_value(1).max_value(100))),
+    ];
+    let sets: Vec<Set> = sizes
+        .iter()
+        .enumerate()
+        .map(|(k, (n, len))| Set {
+            id: format!("{}{k}", &s.id[..12]),
+            tracks: (0..*n)
+                .map(|i| SetEntry::added(&format!("{} - {i:0>len$}", "x".repeat(*len), len = *len)))
+                .collect(),
+            ..s.clone()
+        })
+        .collect();
+    let mut book = SetBook::load(&store).unwrap();
+    book.sets.extend(sets.clone());
+    book.save(&store).unwrap();
+    for (set, (n, len)) in sets.iter().zip(sizes) {
+        let planned = api::set_publish_plan(&root, &SetPublishRequest { set: set.id.clone(), hide: Vec::new() });
+        if n > limit {
+            let e = planned.unwrap_err();
+            let want = format!("the set has {n} tracks, more than a set record holds ({limit})");
+            assert!(e.to_string().contains(&want), "{e}");
+            continue;
+        }
+        let plan = planned.unwrap();
+        let size = serde_json::to_vec(&plan.record).unwrap().len();
+        let note = format!(
+            "the record is {} KB: a data server not updated since May 2026 refuses one over 150 KB",
+            size / 1024
+        );
+        let big = size > publish::OLDER_PDS_REQUEST_BYTES;
+        assert_eq!(big, len >= 200, "{n} tracks of {len}: {size} bytes");
+        assert_eq!(plan.notes.contains(&note), big, "{n} tracks of {len}: {size} bytes, {:?}", plan.notes);
+    }
+}

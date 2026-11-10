@@ -1268,6 +1268,7 @@ fn tracks_open_in_the_background() {
         drive: "TEST".into(),
         root,
         analysis: TrackAnalysis::default(),
+        waves: Default::default(),
         from_plugins: None,
         art: None,
         duration: Duration::from_secs(300),
@@ -1396,7 +1397,7 @@ fn full_screen_queues_a_match_to_play_next() {
     let info =
         TrackInfo { matches: Some(Matches { library, root, items: vec![mix(2), mix(1)] }), ..Default::default() };
     app.handle_msg(Msg::TrackInfo(id, Box::new(info)));
-    app.fullscreen = true;
+    app.deck_layout = true;
     assert_eq!(app.next_pick.selected(), Some(0));
     press(&mut app, "j\n");
     assert_eq!(last_message(&app), "next: DJ - Track 2");
@@ -2327,9 +2328,9 @@ fn playback_modes_and_bounds() {
     press(&mut app, &"[".repeat(20));
     assert_eq!(app.deck_secs, 60.0);
     press(&mut app, "f");
-    assert!(app.fullscreen);
+    assert!(app.deck_layout);
     press(&mut app, "\u{1b}");
-    assert!(!app.fullscreen, "esc leaves full screen");
+    assert!(!app.deck_layout, "esc leaves full screen");
 }
 
 /// `o` goes to the playing track: selected in the library, showing all tracks when the list
@@ -3123,6 +3124,18 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
     let (mut app, _dir) = playing(analysis.clone());
     let now = app.now.as_mut().unwrap();
     now.phrases = phrase_spans(&analysis, now.duration);
+    // Any of the waveforms a drive can have, or none.
+    if tc.draw(gs::booleans()) {
+        let columns = tc.draw(gs::integers::<usize>().max_value(2_000));
+        let bands = locallibrary::anlz::Bands(vec![[200, 90, 40]; columns]);
+        now.waves.kinds.band_preview = Some(bands.clone());
+        now.waves.kinds.band_detail = Some((bands, 150.0));
+        now.waves.gains = (tc.draw(gs::sampled_from(&[1.0f32, 3.0][..])), 1.0);
+    }
+    if tc.draw(gs::booleans()) {
+        now.waves.kinds.blue_detail = Some(wave(3_000));
+        now.waves.kinds.rgb_preview = Some(wave(400));
+    }
     // Only those that start on the grid and end after they start are drawn.
     let placed: Vec<&Phrase> = (analysis.structure.iter().flat_map(|s| &s.phrases))
         .filter(|p| p.start_beat > 0 && (p.start_beat as usize) <= n as usize && p.end_beat > p.start_beat)
@@ -3136,7 +3149,7 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
     let end = now.duration - Duration::from_millis(250);
     const KEYS: &[&str] = &[
         "1", "2", "3", "4", "5", "6", "7", "8", "c", "C", "N", "P", ",", ".", "<", ">", "{", "}", "l", "(", ")", "Q",
-        "v", "f", "[", "]", "'",
+        "v", "f", "[", "]", "'", "b", "w",
     ];
     press(&mut app, "'");
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(12)) {
@@ -3167,6 +3180,8 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
         if w >= 100 && h >= 30 && app.view == View::Library {
             assert!(s.contains("Around the World") && s.contains("BPM"), "the deck at {w}x{h}:\n{s}");
         }
+        // In Browse, the sort it starts with would hide nothing; a frame's fine either way.
+        app.browsing = false;
     }
 }
 
@@ -3212,7 +3227,7 @@ fn a_plugins_analysis_fills_in_what_the_drive_lacks() {
 
     let (mut app, _played) = playing(info.analysis);
     app.now.as_mut().unwrap().from_plugins = info.from_plugins;
-    app.fullscreen = true;
+    app.deck_layout = true;
     let s = crate::tui::ui::screen(&mut app, 160, 45);
     assert!(s.contains(said), "{s}");
 }
@@ -3246,6 +3261,7 @@ fn the_mixes_into_panel_shows_each_matchs_own_key() {
             drive: "LARGE".into(),
             root: dir.path().to_path_buf(),
             analysis: TrackAnalysis::default(),
+            waves: Default::default(),
             from_plugins: None,
             art: None,
             duration: Duration::from_secs(300),
@@ -3258,7 +3274,7 @@ fn the_mixes_into_panel_shows_each_matchs_own_key() {
             track: track.clone(),
         });
         app.handle_msg(Msg::TrackInfo(id, Box::new(info)));
-        app.fullscreen = true;
+        app.deck_layout = true;
         let s = super::super::ui::screen(&mut app, 200, 60);
         let m = app.now.as_ref().unwrap().matches.as_ref().expect("the drive's library is open");
         for x in m.items.iter().take(8) {
@@ -3501,7 +3517,7 @@ fn prop_a_click_under_the_matches_picks_nothing(tc: hegel::TestCase) {
     let mix = Mix { index: 1, key: Camelot::parse("8A").unwrap(), relation: Relation::Same, tempo_gap: 0.0 };
     app.now.as_mut().unwrap().matches = Some(Matches { library, root, items: vec![mix] });
     app.reset_next_pick();
-    app.fullscreen = true;
+    app.deck_layout = true;
     super::super::ui::screen(&mut app, 160, 45);
     let r = app.areas.matches;
     assert!(r.height > 2, "{r:?}");
@@ -3623,7 +3639,7 @@ fn prop_a_match_from_a_newer_read_queues_the_same_track(tc: hegel::TestCase) {
     let matches = Matches { library: Arc::new(newer), root: app.queue.root.clone(), items: vec![mix] };
     let playing = app.now.as_ref().unwrap().id;
     app.handle_msg(Msg::TrackInfo(playing, Box::new(TrackInfo { matches: Some(matches), ..Default::default() })));
-    app.fullscreen = true;
+    app.deck_layout = true;
     press(&mut app, "\n");
     let queued: Vec<u32> = app.queue.order.iter().map(|&i| app.queue.track(i).id).collect();
     if id == 99 {
@@ -3694,4 +3710,31 @@ fn prop_a_click_in_the_sidebar_selects_that_drive(tc: hegel::TestCase) {
     let k = tc.draw(gs::integers::<u16>().max_value(1));
     mouse(&mut app, LEFT, (r.x + 2, r.y + 1 + k));
     assert_eq!((app.focus, app.drive_state.selected()), (Focus::Drives, Some(k as usize)));
+}
+
+/// A track's playlists come with the folders above them, and a playlist's own name keeps its
+/// slashes.
+#[test]
+fn a_tracks_playlists_keep_their_names_whole() {
+    let list = |id, parent, name: &str, is_folder, track_ids| locallibrary::Playlist {
+        id,
+        parent_id: parent,
+        name: name.into(),
+        is_folder,
+        sort_order: id,
+        track_ids,
+    };
+    let track = Track { id: 51, file_path: "/Contents/upstart.mp3".into(), ..Default::default() };
+    let playlists = vec![
+        list(1, None, "current set 2021 reduced", true, vec![]),
+        list(2, Some(1), "CLOSING (END) SMALL", true, vec![]),
+        list(7, Some(2), "1.2 BEATDOWN/acid", false, vec![51]),
+        list(8, Some(2), "elsewhere", false, vec![50]),
+        list(20, Some(1), "acid 1", false, vec![51]),
+    ];
+    let lib = Library { tracks: vec![track.clone()], playlists, ..Default::default() };
+    assert_eq!(
+        loaded::playlists_of(&lib, &track),
+        ["current set 2021 reduced › CLOSING (END) SMALL › 1.2 BEATDOWN/acid", "current set 2021 reduced › acid 1"]
+    );
 }

@@ -14,12 +14,12 @@
 			"measures": "Instructions `drive ls` runs on the 3,886-track fixture, under cachegrind."
 		},
 		"tracks_filter": {
-			"limit": 82277673,
+			"limit": 82276100,
 			"unit": "instructions",
 			"measures": "Instructions `tracks --filter` runs on the 3,886-track fixture, under cachegrind."
 		},
 		"tracks_search": {
-			"limit": 103587296,
+			"limit": 103580675,
 			"unit": "instructions",
 			"measures": "Instructions `tracks --search` runs on the 3,886-track fixture, under cachegrind."
 		},
@@ -29,12 +29,12 @@
 			"measures": "Instructions `tracks --sort` runs on the 3,886-track fixture, under cachegrind."
 		},
 		"diff": {
-			"limit": 167011904,
+			"limit": 145249848,
 			"unit": "instructions",
 			"measures": "Instructions `diff` runs on the 3,886-track fixture, under cachegrind."
 		},
 		"check": {
-			"limit": 1454641153,
+			"limit": 1432952961,
 			"unit": "instructions",
 			"measures": "Instructions `check` runs on the 3,886-track fixture, under cachegrind."
 		},

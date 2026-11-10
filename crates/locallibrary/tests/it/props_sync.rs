@@ -34,6 +34,7 @@ use locallibrary::progress::{CancelToken, Ctx, Event, Phase, Progress};
 use locallibrary::query::TrackSelector;
 use locallibrary::store::{Snapshot, Store};
 use locallibrary::sync::{self, PullOptions, PushOptions, SyncOptions};
+use locallibrary::tidy::{self, TidyKind, TidyOptions};
 use locallibrary::{Error, Library, backup, plays};
 use rekordbox_pdb::{NewTrack, PdbEditor};
 
@@ -250,6 +251,21 @@ impl Image {
         }
         fs::remove_dir_all(drive).unwrap();
         fs::rename(&self.dir, drive).unwrap();
+    }
+}
+
+/// `drive tidy` on a drive the plug was pulled from: of what the cut-off run made, nothing stays
+/// that isn't what the finished run left (`finished`), so nothing looks like a finished track.
+fn tidied_after_the_plug(drive: &Path, before: &Files, finished: &Folded) {
+    let d = Device::open(drive).unwrap();
+    let mut plan = tidy::plan(&d, &TidyOptions::default(), &Ctx::silent()).unwrap();
+    plan.items.retain(|i| i.kind == TidyKind::TempFiles);
+    tidy::apply(&plan, &d, &Ctx::silent()).unwrap();
+    let before = fold(before.clone());
+    for (key, bytes) in fold(common::library_files(drive)) {
+        if !before.contains_key(&key) && !key.starts_with("pioneer/rekordbox/") {
+            assert_eq!(finished.get(&key), Some(&bytes), "{key} is left half written");
+        }
     }
 }
 
@@ -488,6 +504,9 @@ impl Copies {
                 tc.event("unplugged");
                 // Also with `--delete-first`: the old library comes off the drive before its files.
                 assert_consistent(&self.drives[t]);
+                if tc.draw(gs::booleans()) {
+                    tidied_after_the_plug(&self.drives[t], &before, &finished);
+                }
                 self.user_files_intact();
                 if !self.interrupted(tc, t) {
                     return;
@@ -780,6 +799,7 @@ fn copies_never_overwrite_the_djs_own_files(tc: TestCase) {
 /// finishes the job, torn files included, and compare sends it the right way meanwhile.
 #[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
 fn an_unplugged_copy_is_finished_by_the_next_run(tc: TestCase) {
+    locallibrary::testing::no_reflinks();
     run_copies(tc, Config { unplug: true, ..Config::default() });
 }
 
@@ -1025,6 +1045,9 @@ fn run_packs(tc: TestCase, cfg: PackConfig) {
                 image.unplug(&club, &before);
                 tc.event("unplugged");
                 assert_consistent(&club);
+                if tc.draw(gs::booleans()) {
+                    tidied_after_the_plug(&club, &before, &finished);
+                }
                 run(&Ctx::silent()).unwrap();
                 // OneLibrary is encrypted afresh each time: compare its content, by fingerprint.
                 let plain = |f: Folded| -> Folded {
@@ -1126,6 +1149,7 @@ fn packing_again_keeps_what_players_recorded(tc: TestCase) {
 /// A pack cut off as by a pulled plug ends, once run again, where an uninterrupted one does.
 #[hegel::test(test_cases = 25, suppress_health_check = [HealthCheck::TooSlow])]
 fn an_unplugged_pack_is_finished_by_the_next_run(tc: TestCase) {
+    locallibrary::testing::no_reflinks();
     run_packs(tc, PackConfig { unplug: true, ..PackConfig::default() });
 }
 

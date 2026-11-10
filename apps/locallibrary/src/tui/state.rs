@@ -3,7 +3,7 @@
 //! and the queue and where it was in it), in `tui.json` in the store, or beside the store's folder until there is one. Best
 //! effort: a missing or unreadable file just means starting fresh, and nothing is ever written to
 //! a drive. Of it, the choices that are the user's preferences (the theme, colours and icons,
-//! the columns, the visualiser, playback modes) go in `settings export`; see `locallibrary::settings::transfer`.
+//! the columns, the visualiser, playback modes, how keys and waveforms look) go in `settings export`; see `locallibrary::settings::transfer`.
 
 use std::path::{Path, PathBuf};
 
@@ -58,6 +58,18 @@ pub struct Saved {
     pub single: bool,
     /// Auto cue: start tracks at their first memory cue or beat.
     pub auto_cue: bool,
+    /// The Library view shows the deck.
+    pub deck_layout: bool,
+    /// How keys are written (`camelot`, `open-key`, `musical`).
+    pub notation: Option<String>,
+    /// The colours keys come in.
+    pub key_palette: Option<String>,
+    /// How waveforms are coloured (`blue`, `rgb`, `3band`): as the drive says without one.
+    pub bands: Option<String>,
+    /// Seconds before a track's end the deck warns of it, 0 for not at all.
+    pub end_warning: Option<u16>,
+    /// Cover art (on unless turned off).
+    pub art: Option<bool>,
     /// Recorded sets opened in the Mixes view, newest first.
     pub mixes: Vec<PathBuf>,
     /// Folders of recorded sets opened in the Mixes view, newest first.

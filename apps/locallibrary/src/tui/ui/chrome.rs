@@ -204,7 +204,7 @@ fn mode(app: &App) -> &'static str {
         "TYPING"
     } else if app.picking.is_some() {
         "PICK"
-    } else if app.fullscreen && app.view == View::Library {
+    } else if app.deck_showing() {
         "DECK"
     } else if app.deck.pads {
         "PADS"

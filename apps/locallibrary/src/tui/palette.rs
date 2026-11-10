@@ -206,6 +206,7 @@ impl App {
         let acts = commands(self.view)
             .into_iter()
             .chain(super::looks::items())
+            .chain(super::choices::items())
             .chain(self.plugin_items(self.action_drive().as_deref(), &super::plugins::EVERYWHERE));
         let fields = (self.view == View::Library).then(|| self.field_items()).into_iter().flatten();
         let fixes = super::plugins::checks::items(self);

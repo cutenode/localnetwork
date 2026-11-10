@@ -227,7 +227,8 @@ fn changes_go_ahead_only_when_confirmed(tc: hegel::TestCase) {
 /// Any sequence of progress events keeps the bar a model says: each phase's bar from its start
 /// to its end (or the next phase's start), named for the phase, counting the items it was told
 /// it has (or the bytes, when it has a size; a spinner when it has neither) and showing the
-/// latest item's file name; warnings change nothing.
+/// latest item's file name; warnings, and questions asked with the bar out of the way, change
+/// nothing.
 #[hegel::test(test_cases = 200)]
 fn progress_bars_follow_their_events(tc: hegel::TestCase) {
     use hegel::generators as gs;
@@ -287,6 +288,12 @@ fn progress_bars_follow_their_events(tc: hegel::TestCase) {
             _ => Event::Warning { message: "skipped one".into() },
         };
         p.on_event(&event);
+        // A question asked meanwhile, with the bar out of the way, answers as it would without
+        // one and leaves the bar as it was.
+        if tc.draw(gs::booleans()) {
+            let answer = tc.draw(gs::integers::<u8>());
+            assert_eq!(p.drawing().suspend(|| answer), answer);
+        }
         let bar = p.bar.lock().unwrap().as_ref().map(|(b, counts)| (b.prefix(), *counts, b.position(), b.message()));
         let want = model.as_ref().map(|(l, c, n, m)| (l.to_string(), *c, *n, m.clone()));
         assert_eq!(bar, want, "after {event:?}");

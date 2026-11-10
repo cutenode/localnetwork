@@ -133,7 +133,7 @@ fn plain_and_light_terminals() {
     let y = row_of(&buf, "Never Grow Old");
     assert!((0..buf.area.width).any(|x| buf[(x, y)].modifier.contains(Modifier::REVERSED)), "the selection");
     let around = line(&buf, row_of(&buf, "Around the World"));
-    assert!(around.contains("⇄8A"), "keys that mix are marked: {around}");
+    assert!(around.contains("=8A"), "keys that mix are marked: {around}");
     assert!(around.contains("6"), "track colours by number: {around}");
 
     theme::set_test_mode(Some(theme::Mode::Light));
@@ -187,6 +187,7 @@ fn draws_every_pane_and_dialog_at_any_size() {
         drive: "TEST".into(),
         root: l.root().to_path_buf(),
         analysis: Default::default(),
+        waves: Default::default(),
         from_plugins: None,
         art: None,
         duration: std::time::Duration::from_secs(300),
@@ -198,7 +199,7 @@ fn draws_every_pane_and_dialog_at_any_size() {
         advancing: false,
         track,
     });
-    app.fullscreen = true;
+    app.deck_layout = true;
     for (w, h) in [(80, 24), (160, 45), (30, 10)] {
         let s = screen(&mut app, w, h);
         if w == 160 {
@@ -208,7 +209,7 @@ fn draws_every_pane_and_dialog_at_any_size() {
             println!("{s}");
         }
     }
-    app.fullscreen = false;
+    app.deck_layout = false;
     if std::env::var_os("SHOW_SCREENS").is_some() {
         for (w, h) in [(80, 24), (160, 45)] {
             app.focus = Focus::Tracks;
@@ -640,19 +641,20 @@ fn playing_in_full() -> (App, tempfile::TempDir) {
 #[test]
 fn the_full_screen_player_says_all_it_knows_of_the_track() {
     let (mut app, _dir) = playing_in_full();
-    app.fullscreen = true;
+    app.deck_layout = true;
     let s = screen(&mut app, 160, 45);
     for said in [
         "INTRO",
-        "phrase next Chorus in 0:02  ·  high mood",
+        "high mood",
+        "phrase  Chorus  1.0 bars",
         "Delsin · 2016",
         "24-bit · 9.0 MB · TEST",
         "played 3×",
         "“a warm-up favourite”",
         "composer Michael Hall · ISRC GBXYZ1600001",
-        "next B 0:30",
+        "cue  B  15.0 bars",
         "600 beats · 150 bars · 120.0–121.0 BPM",
-        "2 hot cues (1 loops) · 1 memory",
+        "2 hot cues (1 loop) · 1 memory",
         "2 phrases ▮▮",
         "open this drive to see suggestions",
         "+ 3 more",
@@ -668,7 +670,7 @@ fn the_full_screen_player_says_all_it_knows_of_the_track() {
 #[test]
 fn the_hot_cue_last_passed_is_underlined() {
     let (mut app, _dir) = playing_in_full();
-    app.fullscreen = true;
+    app.deck_layout = true;
     // Which of hot cues A (at 0:10) and B (at 1:00) are underlined, `secs` in.
     let mut underlined = |secs| {
         app.resume = Some(std::time::Duration::from_secs(secs));
@@ -678,7 +680,7 @@ fn the_hot_cue_last_passed_is_underlined() {
         let rows: Vec<Vec<&str>> =
             (0..buf.area.height).map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect()).collect();
         // The cues' line: the chips A and B (each after its pad's key), then the memory cue's.
-        let y = rows.iter().position(|row| row.concat().contains("◆1  next")).unwrap_or_else(|| {
+        let y = rows.iter().position(|row| row.concat().contains("◆1")).unwrap_or_else(|| {
             panic!("no hot cues' line in\n{}", rows.iter().map(|r| r.concat() + "\n").collect::<String>())
         });
         let x = |letter| rows[y].iter().position(|s| *s == letter).unwrap() as u16;
@@ -696,11 +698,11 @@ fn the_hot_cue_last_passed_is_underlined() {
 #[test]
 fn every_visualiser_draws_in_a_small_full_screen() {
     let (mut app, _dir) = blank(View::Library);
-    (app.vis, app.fullscreen) = (Vis::Deck, true);
+    (app.vis, app.deck_layout) = (Vis::Deck, true);
     assert!(screen(&mut app, 80, 20).contains("deck: play a track"));
 
     let (mut app, _dir) = playing_in_full();
-    (app.repeat, app.deck.auto_cue, app.fullscreen) = (Repeat::One, true, true);
+    (app.repeat, app.deck.auto_cue, app.deck_layout) = (Repeat::One, true, true);
     for vis in [Vis::Bars, Vis::Mirror, Vis::Scope, Vis::Deck] {
         app.vis = vis;
         let s = screen(&mut app, 80, 20);

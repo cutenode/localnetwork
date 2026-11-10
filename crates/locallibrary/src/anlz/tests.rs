@@ -33,6 +33,27 @@ pub(crate) fn synthetic(path: &str) -> Vec<u8> {
     f
 }
 
+/// A file's [`PathSlot`] says how long [`rewrite_path`] makes it, whatever the path (or with no
+/// `PPTH` to rewrite, and bytes past the file's declared end), and refuses what it refuses.
+#[hegel::test(test_cases = 100)]
+fn a_path_slot_sizes_the_rewritten_file(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let old = tc.draw(gs::text().max_size(100).exclude_characters("\0"));
+    let new = tc.draw(gs::text().max_size(200).exclude_characters("\0"));
+    let trailing = tc.draw(gs::integers::<usize>().max_value(9));
+    let mut f = synthetic(&old);
+    if tc.draw(gs::booleans()) {
+        let ppth = 0x1c..0x1c + be_u32(&f, 0x1c + 8).unwrap() as usize;
+        f.drain(ppth);
+        let len = f.len() as u32;
+        f[8..12].copy_from_slice(&len.to_be_bytes());
+    }
+    f.extend(vec![0; trailing]);
+    assert_eq!(PathSlot::of(&f).unwrap().len_with(&new), rewrite_path(&f, &new).unwrap().len());
+    let cut = tc.draw(gs::integers::<usize>().max_value(f.len()));
+    assert_eq!(PathSlot::of(&f[..cut]).is_ok(), rewrite_path(&f[..cut], &new).is_ok());
+}
+
 #[test]
 fn read_and_rewrite_path() {
     let f = synthetic("/Contents/a.mp3");
@@ -326,4 +347,33 @@ fn rejects_garbage() {
     let mut f = synthetic("/x");
     f[8..12].copy_from_slice(&9999u32.to_be_bytes());
     assert!(read_path(&f).is_err());
+}
+
+/// Every kind of waveform a track has comes back, whichever the player shows first: the demo
+/// export has all three, in `.DAT`, `.EXT` and `.2EX`.
+#[test]
+fn a_tracks_waveforms_of_every_kind_are_read() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rekordcrate/demo_tracks");
+    let device = Device::open_export(&root).unwrap();
+    let track = device.library().unwrap().tracks.remove(0);
+    let w = load_waves(&device, &track);
+    let preview = w.blue_preview.as_ref().unwrap();
+    assert_eq!((preview.style, preview.columns_per_sec), (WaveformStyle::Blue, None));
+    assert_eq!(w.blue_detail.as_ref().unwrap().style, WaveformStyle::Blue);
+    let colour = w.rgb_detail.as_ref().unwrap();
+    assert_eq!((colour.style, colour.columns_per_sec), (WaveformStyle::Rgb, Some(150.0)));
+    assert_eq!(w.rgb_preview.as_ref().unwrap().style, WaveformStyle::Rgb);
+    let (bands, rate) = w.band_detail.as_ref().unwrap();
+    assert_eq!(*rate, 150.0);
+    assert_eq!(bands.0.len(), colour.columns.len(), "the same track, column for column");
+    assert!(!w.band_preview.as_ref().unwrap().0.is_empty());
+    // What `load` picks for a player is among them.
+    let a = load(&device, &track);
+    assert_eq!(a.detail.as_ref(), w.rgb_detail.as_ref());
+    assert_eq!(a.preview.as_ref(), w.rgb_preview.as_ref());
+
+    let none = Track { analyze_path: String::new(), ..track.clone() };
+    assert_eq!(load_waves(&device, &none), TrackWaves::default());
+    let gone = Track { analyze_path: "/PIONEER/USBANLZ/nothing/ANLZ0000.DAT".into(), ..track };
+    assert_eq!(load_waves(&device, &gone), TrackWaves::default());
 }
