@@ -236,12 +236,17 @@ pub fn format(disk: &Disk, t: &Target, ctx: &Ctx<'_>) -> Result<Option<PathBuf>>
 
 #[cfg(windows)]
 fn write_fat32(letter: char, layout: &fat32::Layout, label: &str, ctx: &Ctx<'_>) -> Result<()> {
+    use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::AsRawHandle;
 
     let path = format!(r"\\.\{letter}:");
+    // FILE_FLAG_WRITE_THROUGH: each write reaches the disk before it returns. The volume can't be
+    // flushed once it's dismounted (that fails as "The device is not ready"), and writes to a
+    // volume handle skip the cache already, so this is all the flushing they need.
     let mut f = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
+        .custom_flags(0x8000_0000)
         .open(&path)
         .map_err(|e| Error::Io { path: path.clone().into(), source: e })?;
     // Explorer and indexers open new volumes briefly; retry the lock for a few seconds.
@@ -260,7 +265,6 @@ fn write_fat32(letter: char, layout: &fat32::Layout, label: &str, ctx: &Ctx<'_>)
         .map_err(|e| Error::Io { path: path.clone().into(), source: e })?;
     let volume_id = u32::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..4].try_into().expect("4 bytes"));
     fat32::write(&mut f, 0, layout, label, volume_id, ctx)?;
-    f.sync_all().map_err(|e| Error::Io { path: path.into(), source: e })?;
     // Closing the handle unlocks the volume; Windows mounts it as FAT32 on the next access.
     Ok(())
 }
