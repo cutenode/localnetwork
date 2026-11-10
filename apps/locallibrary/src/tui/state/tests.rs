@@ -141,6 +141,7 @@ fn preferences_of(saved: &Saved) -> Saved {
         mix_folders: _,
         crate_list: _,
         queue: _,
+        intro_seen: _,
         // The user's preferences.
         sort,
         search_all,
@@ -161,6 +162,8 @@ fn preferences_of(saved: &Saved) -> Saved {
         bands,
         end_warning,
         art,
+        hints,
+        recent_commands,
     } = saved.clone();
     Saved {
         sort,
@@ -182,6 +185,8 @@ fn preferences_of(saved: &Saved) -> Saved {
         bands,
         end_warning,
         art,
+        hints,
+        recent_commands,
         ..Default::default()
     }
 }
@@ -225,6 +230,9 @@ fn its_preferences_go_to_another_store_and_where_it_was_stays(tc: hegel::TestCas
         key_palette: maybe("tritanopia"),
         bands: maybe("rgb"),
         end_warning: tc.draw(gs::optional(gs::integers::<u16>().max_value(60))),
+        hints: maybe("compact"),
+        recent_commands: on().then(|| "shuffle on or off".to_string()).into_iter().collect(),
+        intro_seen: Some("0.1.0".into()),
         art: tc.draw(gs::optional(gs::booleans())),
         mixes: vec!["/m/a.wav".into()],
         mix_folders: vec!["/m".into()],
@@ -241,7 +249,7 @@ fn its_preferences_go_to_another_store_and_where_it_was_stays(tc: hegel::TestCas
     let (all, kept) = (serde_json::to_value(&saved).unwrap(), serde_json::to_value(preferences_of(&saved)).unwrap());
     let session: Vec<&String> =
         all.as_object().unwrap().keys().filter(|k| all[k.as_str()] != kept[k.as_str()]).collect();
-    assert_eq!(session.len(), 12, "{session:?}");
+    assert_eq!(session.len(), 13, "{session:?}");
     assert!(session.iter().all(|k| !doc.player.contains_key(k.as_str())), "{:?}", doc.player);
     let file = dir.path().join("settings.json");
     std::fs::write(&file, serde_json::to_vec(&doc).unwrap()).unwrap();

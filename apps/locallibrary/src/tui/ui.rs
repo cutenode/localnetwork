@@ -59,7 +59,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     a.columns.clear();
     (a.drives, a.playlists, a.tracks, a.details, a.matches, a.crate_panel, a.crate_rows, a.menu, a.overview) =
         Default::default();
-    (a.drive_list, a.drive_side, a.history, a.played, a.prepare) = Default::default();
+    (a.drive_list, a.drive_side, a.history, a.played, a.prepare, a.steps) = Default::default();
     if shell.density == Density::DeckOnly {
         draw_strip(f, app, shell.strip);
         draw_too_small(f, shell.body);
@@ -89,6 +89,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Some(Modal::Pick(_)) => draw_picker(f, app, over),
         Some(Modal::Report(_)) => draw_report(f, app, over),
         Some(Modal::Form(_)) => draw_form(f, app, over),
+        Some(Modal::Jobs(_)) => super::jobs::draw(f, app, over),
         Some(Modal::Prompt(_)) | None => {}
     }
     if app.deck.outputs.is_some() {

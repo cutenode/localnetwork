@@ -261,6 +261,12 @@ pub fn opened(app: &mut App) {
     wait(app, |a| a.now.as_ref().is_some_and(|n| !n.opening && !n.loading));
 }
 
+/// The first read of the drives under way, as it is when the player starts.
+pub fn reading_drives(app: &mut App) {
+    app.listed = false;
+    app.drives_in_flight = true;
+}
+
 /// A job as the player runs one: planning, or writing (and whether it's too late to stop).
 pub fn job(writing: bool, committed: bool) -> Job {
     Job {
@@ -270,6 +276,7 @@ pub fn job(writing: bool, committed: bool) -> Job {
         cancel: Default::default(),
         writing,
         committed,
+        too_late: "writing the drive: too late to stop",
         started: Instant::now(),
         touched: Vec::new(),
         after: None,

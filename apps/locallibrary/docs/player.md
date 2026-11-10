@@ -10,6 +10,11 @@ Dialogs open above it, and `esc` closes one thing at a time. The Library view ha
 `f` switches between them: the track table with the strip, and the Deck layout, where the deck
 takes the screen.
 
+With no drive open, the library says what to do: plug one in (it opens as soon as it's here), or
+take a next step, at most three of open a folder, browse snapshots and sign in. The first library
+each version opens names `enter`, `e`, `:` and `?` in the footer until a key or a click. Nothing says
+there's no drive until the first read of the drives has answered.
+
 Above the view a context line says which drive and list you're in, what's searched for and how much
 is marked. Under 30 rows the header carries it. Under the deck a status line says what keys do now,
 the latest job or message, where the selection is, the space left on the drive and who's signed in.
@@ -44,10 +49,23 @@ needs.
 - **Crate** (`t`): a CDJ's TAG LIST, called the crate here so it isn't taken for My Tags. Collect
   tracks while browsing (`a` adds the marked or selected ones; `m` marks), reorder them, play the
   crate, save it to the drive as a playlist, or pack it onto another drive for a set.
-- **Commands** (`:`): every action by name, with its key; type a few of its letters (in order:
-  `fsp` finds "fill the smart playlists") and enter. It also has the commands with no key of their
-  own: pull, check, set prep, sync, pack, restore, replay, export, smart, smart apply, smart new
-  and eject.
+- **Commands** (`:`): every action by name, with its key, or `Prepare` where it has none here (the
+  word it goes by there finds it too: `restore`, `pull`); type
+  a few of its letters (in order: `fsp` finds "fill the smart playlists") and enter. The ones run
+  lately come first, kept between runs, and what can't run now stays in the list, greyed, with the
+  reason. Plugins' commands and what they suggest are in it too.
+- **Actions** (`e`): what can be done to the selection, the likeliest first, and enter runs it. In
+  the library that's the marked or selected tracks, the playlist selected or the crate; in the Drives
+  view the selected drive; elsewhere what enter does there, then the pane's own keys.
+- **Help** (`?`): the keys that mean something here, the pane with focus first. Type to narrow it to
+  rows with those words, or to the key itself; enter runs the row selected, and `esc` closes it.
+- **Jobs** (`&`): what's running, with a cancel for each that can still stop. A write can stop until
+  its databases are being written, and from then on it says it can't. A read of a drive just
+  finishes, and says so. The status line shows the latest job's progress, and `esc` cancels it.
+- **Hints**: "full hints", "compact hints" and "no hints" in the palette set how much the footer
+  says. It's kept between runs, and `settings export` carries it with the palette's recent commands.
+  Errors and a job's progress show whatever it's set to. An error stays until `esc`, and the messages
+  (`!`) keep it after that.
 - **Plugins' commands and operations** are in the palette by title, with the plugin's name beside
   them, and where the plugin offers them: at the end of a drive's `e` menu in the Drives view, and
   of the actions menu (`e`) for those that work on tracks or a playlist. One that takes params
@@ -314,6 +332,7 @@ Browsing:
 |  | or filter: bpm:120-128 key:8A~ rating:>=4 -genre:house tag:Deep |
 |  | in the box: enter keeps it, esc clears it, ctrl-u empties it, ctrl-w deletes a word, tab searches the whole drive or the list shown |
 | `Browse` | at the top of the tree: by artist, album, genre, key, BPM, rating, colour, date added, My Tags, sets, history, problems |
+| `O` | open a folder holding a rekordbox export, by its path |
 | `U` | bring back the tracks dimmed as played since starting |
 | `b  B` | sort by the next column / the other way (or click a header) |
 | `*` | show / hide the rating column |
@@ -332,15 +351,15 @@ Marks and the crate:
 | `enter` | in the crate: play from there |
 | `shift ↑↓ K J` | move a track up / down the crate |
 | `del` | in the crate: take the track out |
-| `w` | write the crate to the drive as a playlist (asks first) |
+| `w` | write the crate to the drive as a playlist |
 | `X` | clear the crate (the drive isn't touched) |
 
 Changing the drive:
 
 | Keys | |
 | --- | --- |
-|  | Every change shows what it will do and asks first; the drive is backed up before it's written. |
-| `e` | actions for the marked or selected tracks, the playlist shown and the crate: rating, colour, add to a playlist, remove, new / rename / delete a playlist or folder, sort a playlist on the drive, plugins' operations |
+|  | The drive is backed up before a change is written. A change u can take back is made at once and says so; any other shows what it will do and asks first. |
+| `e` | actions for the marked or selected tracks, the playlist shown and the crate, the likeliest first (enter runs it): rating, colour, add to a playlist, remove, new / rename / delete a playlist or folder, sort a playlist on the drive, plugins' operations |
 | `right-click` | the same, for what's under the pointer |
 | `T` | give the marked (or selected) tracks a My Tag, or take one off (asks first) |
 | `y` | after rekordbox exported over edits made here: replay them (it says so over the status line; esc puts it away) |
@@ -353,6 +372,12 @@ Prepare:
 | Keys | |
 | --- | --- |
 | `enter` | run the job selected, on the drive open in the library |
+| `e` | the same jobs by their keys |
+| `V` | check the drive against the player models remembered for it (results in a panel) |
+| `W` | save the drive in the store, a snapshot of its library (shows what that adds first) |
+| `Y` | copy the newest drive of the library over the others plugged in (when none is newest, says why) |
+| `K` | the marked playlists, the playlist shown or the crate, from the open drive onto another |
+| `E` | unmount the drive and power it off (playing from it stops first) |
 
 ## Keys in Drives
 
@@ -362,6 +387,11 @@ Drives:
 | --- | --- |
 | `enter` | open the drive in the library (a library: its newest clone) |
 | `e` | what can be done to the selected drive: save a snapshot, check, sync, pack, bring back a playlist, replay edits, undo, eject, plugins' commands; to a library's clones: sync, check, eject (each shows its plan and asks first) |
+| `V` | check the drive against the player models remembered for it (results in a panel) |
+| `W` | save the drive in the store, a snapshot of its library (shows what that adds first) |
+| `Y` | copy the newest drive of the library over the others plugged in (when none is newest, says why) |
+| `K` | the marked playlists, the playlist shown or the crate, from the open drive onto another |
+| `E` | unmount the drive and power it off (playing from it stops first) |
 
 Snapshots:
 
@@ -369,12 +399,14 @@ Snapshots:
 | --- | --- |
 |  | every library in the store, its snapshots newest first (locallibrary pull adds one) |
 | `enter` | bring back a playlist from the selected snapshot onto the drive open in the library |
+| `e` | actions for the selected snapshot |
 
 History:
 
 | Keys | |
 | --- | --- |
 | `enter` | open the list players recorded in the library |
+| `e` | actions for the selected list |
 
 ## Keys in Recordings
 
@@ -384,6 +416,7 @@ Recordings:
 | --- | --- |
 |  | A recorded set, and which of the open drive's tracks it plays (like locallibrary mix). |
 | `enter` | on a recording: find its tracks; on a track: play the set from there |
+| `e` | actions for the selection |
 | `space` | play the set, or pause it |
 | `n  p` | while the set plays: its next / previous track |
 | `O` | open a recording by path, or a folder of them (subfolders too) to keep listed |
@@ -400,6 +433,7 @@ Publish:
 
 | Keys | |
 | --- | --- |
+| `e` | these actions, for the section selected |
 | `i` | put the section in the document, or take it out |
 | `tab  enter` | move between sections and their lists (esc goes back) |
 | `m` | pin a track first among signature tracks |
@@ -475,9 +509,10 @@ The player:
 | `g r` | Recordings |
 | `g u` | Publish |
 | `R  F5` | read again: the drive, the drives' status, the snapshots, the profile, the recordings |
-| `:` | commands: every action by name (type a few of its letters), the commands with no key, and plugins' commands |
-| `?` | this help |
+| `:` | commands: every action by name (type a few of its letters), the ones used lately first, plugins' commands and suggestions |
+| `?` | this help: type to narrow it, enter runs the row selected |
 | `!` | messages: everything the status line said since starting |
+| `&` | jobs: what's running, with a cancel for each that can still stop |
 |  | found a bug? locallibrary bug, in a terminal, reports it |
 | `q` | quit (a write to the drive finishes first) |
 
@@ -503,6 +538,8 @@ Commands (type : and a few letters):
 | `smart new` | a rule-based playlist from the search box's filter and the list's sort |
 | `export` | write the playlist, set, session or all tracks shown to a file on this computer |
 | `eject` | unmount the drive and power it off (playing from it stops first) |
+| `g d 3` | the snapshots in the store, in the Drives view |
+| `g u L` | sign in to your Atmosphere account, in the Publish view |
 
 [//]: # (End of the key tables.)
 

@@ -33,20 +33,21 @@
 <text x="108 117 126 135 144" y="68" fill="#e2e2ec" font-weight="bold">drive</text>
 <text x="162 171 180" y="68" fill="#e2e2ec" font-weight="bold">for</text>
 <text x="198 207 216 225 234 243 252 261" y="68" fill="#e2e2ec" font-weight="bold">problems</text>
-<text x="423 432 441 450 459" y="68" fill="#9494a8" font-weight="bold">check</text>
-<text x="477 486 495" y="68" fill="#9494a8" font-weight="bold">the</text>
-<text x="513 522 531 540 549" y="68" fill="#9494a8" font-weight="bold">drive</text>
-<text x="567 576 585 594 603 612 621" y="68" fill="#9494a8" font-weight="bold">against</text>
-<text x="639 648 657" y="68" fill="#9494a8" font-weight="bold">the</text>
-<text x="675 684 693 702 711 720" y="68" fill="#9494a8" font-weight="bold">player</text>
-<text x="738 747 756 765 774 783" y="68" fill="#9494a8" font-weight="bold">models</text>
-<text x="801 810 819 828 837 846 855 864 873 882" y="68" fill="#9494a8" font-weight="bold">remembered</text>
-<text x="900 909 918" y="68" fill="#9494a8" font-weight="bold">for</text>
-<text x="936 945" y="68" fill="#9494a8" font-weight="bold">it</text>
-<text x="963 972 981 990 999 1008 1017 1026" y="68" fill="#9494a8" font-weight="bold">(results</text>
-<text x="1044 1053" y="68" fill="#9494a8" font-weight="bold">in</text>
-<text x="1071" y="68" fill="#9494a8" font-weight="bold">a</text>
-<text x="1089 1098 1107 1116 1125 1134" y="68" fill="#9494a8" font-weight="bold">panel)</text>
+<text x="423" y="68" fill="#ff5ca0" font-weight="bold">V</text>
+<text x="450 459 468 477 486" y="68" fill="#9494a8" font-weight="bold">check</text>
+<text x="504 513 522" y="68" fill="#9494a8" font-weight="bold">the</text>
+<text x="540 549 558 567 576" y="68" fill="#9494a8" font-weight="bold">drive</text>
+<text x="594 603 612 621 630 639 648" y="68" fill="#9494a8" font-weight="bold">against</text>
+<text x="666 675 684" y="68" fill="#9494a8" font-weight="bold">the</text>
+<text x="702 711 720 729 738 747" y="68" fill="#9494a8" font-weight="bold">player</text>
+<text x="765 774 783 792 801 810" y="68" fill="#9494a8" font-weight="bold">models</text>
+<text x="828 837 846 855 864 873 882 891 900 909" y="68" fill="#9494a8" font-weight="bold">remembered</text>
+<text x="927 936 945" y="68" fill="#9494a8" font-weight="bold">for</text>
+<text x="963 972" y="68" fill="#9494a8" font-weight="bold">it</text>
+<text x="990 999 1008 1017 1026 1035 1044 1053" y="68" fill="#9494a8" font-weight="bold">(results</text>
+<text x="1071 1080" y="68" fill="#9494a8" font-weight="bold">in</text>
+<text x="1098" y="68" fill="#9494a8" font-weight="bold">a</text>
+<text x="1116 1125 1134 1143 1152 1161" y="68" fill="#9494a8" font-weight="bold">panel)</text>
 <text x="1431" y="68" fill="#5cd6ff">│</text>
 <text x="0" y="86" fill="#5cd6ff">│</text>
 <text x="18 27 36 45 54" y="86" fill="#e2e2ec">check</text>
@@ -54,45 +55,46 @@
 <text x="108 117 126" y="86" fill="#e2e2ec">the</text>
 <text x="144 153 162 171 180 189 198 207 216" y="86" fill="#e2e2ec">library's</text>
 <text x="234 243 252 261 270 279" y="86" fill="#e2e2ec">drives</text>
-<text x="423 432 441 450 459" y="86" fill="#9494a8">check</text>
-<text x="477 486 495" y="86" fill="#9494a8">the</text>
-<text x="513 522 531 540 549" y="86" fill="#9494a8">drive</text>
-<text x="567 576 585" y="86" fill="#9494a8">and</text>
-<text x="603 612 621" y="86" fill="#9494a8">the</text>
-<text x="639 648 657 666 675" y="86" fill="#9494a8">other</text>
-<text x="693 702 711 720 729 738 747" y="86" fill="#9494a8">mounted</text>
-<text x="765 774 783 792 801 810" y="86" fill="#9494a8">drives</text>
-<text x="828 837" y="86" fill="#9494a8">of</text>
-<text x="855 864 873" y="86" fill="#9494a8">its</text>
-<text x="891 900 909 918 927 936 945" y="86" fill="#9494a8">library</text>
-<text x="963 972 981 990 999 1008 1017 1026 1035" y="86" fill="#9494a8">together,</text>
-<text x="1053 1062 1071" y="86" fill="#9494a8">for</text>
-<text x="1089" y="86" fill="#9494a8">a</text>
-<text x="1107 1116 1125" y="86" fill="#9494a8">set</text>
+<text x="450 459 468 477 486" y="86" fill="#9494a8">check</text>
+<text x="504 513 522" y="86" fill="#9494a8">the</text>
+<text x="540 549 558 567 576" y="86" fill="#9494a8">drive</text>
+<text x="594 603 612" y="86" fill="#9494a8">and</text>
+<text x="630 639 648" y="86" fill="#9494a8">the</text>
+<text x="666 675 684 693 702" y="86" fill="#9494a8">other</text>
+<text x="720 729 738 747 756 765 774" y="86" fill="#9494a8">mounted</text>
+<text x="792 801 810 819 828 837" y="86" fill="#9494a8">drives</text>
+<text x="855 864" y="86" fill="#9494a8">of</text>
+<text x="882 891 900" y="86" fill="#9494a8">its</text>
+<text x="918 927 936 945 954 963 972" y="86" fill="#9494a8">library</text>
+<text x="990 999 1008 1017 1026 1035 1044 1053 1062" y="86" fill="#9494a8">together,</text>
+<text x="1080 1089 1098" y="86" fill="#9494a8">for</text>
+<text x="1116" y="86" fill="#9494a8">a</text>
+<text x="1134 1143 1152" y="86" fill="#9494a8">set</text>
 <text x="1431" y="86" fill="#5cd6ff">│</text>
 <text x="0" y="104" fill="#5cd6ff">│</text>
 <text x="18 27 36 45" y="104" fill="#e2e2ec">sync</text>
 <text x="63 72 81" y="104" fill="#e2e2ec">the</text>
 <text x="99 108 117 126 135 144 153 162 171" y="104" fill="#e2e2ec">library's</text>
 <text x="189 198 207 216 225 234" y="104" fill="#e2e2ec">drives</text>
-<text x="423 432 441 450" y="104" fill="#9494a8">copy</text>
-<text x="468 477 486" y="104" fill="#9494a8">the</text>
-<text x="504 513 522 531 540 549" y="104" fill="#9494a8">newest</text>
-<text x="567 576 585 594 603" y="104" fill="#9494a8">drive</text>
-<text x="621 630" y="104" fill="#9494a8">of</text>
-<text x="648 657 666" y="104" fill="#9494a8">the</text>
-<text x="684 693 702 711 720 729 738" y="104" fill="#9494a8">library</text>
-<text x="756 765 774 783" y="104" fill="#9494a8">over</text>
-<text x="801 810 819" y="104" fill="#9494a8">the</text>
-<text x="837 846 855 864 873 882" y="104" fill="#9494a8">others</text>
-<text x="900 909 918 927 936 945 954" y="104" fill="#9494a8">plugged</text>
-<text x="972 981" y="104" fill="#9494a8">in</text>
-<text x="999 1008 1017 1026 1035" y="104" fill="#9494a8">(when</text>
-<text x="1053 1062 1071 1080" y="104" fill="#9494a8">none</text>
-<text x="1098 1107" y="104" fill="#9494a8">is</text>
-<text x="1125 1134 1143 1152 1161 1170 1179" y="104" fill="#9494a8">newest,</text>
-<text x="1197 1206 1215 1224" y="104" fill="#9494a8">says</text>
-<text x="1242 1251 1260 1269" y="104" fill="#9494a8">why)</text>
+<text x="423" y="104" fill="#ff5ca0" font-weight="bold">Y</text>
+<text x="450 459 468 477" y="104" fill="#9494a8">copy</text>
+<text x="495 504 513" y="104" fill="#9494a8">the</text>
+<text x="531 540 549 558 567 576" y="104" fill="#9494a8">newest</text>
+<text x="594 603 612 621 630" y="104" fill="#9494a8">drive</text>
+<text x="648 657" y="104" fill="#9494a8">of</text>
+<text x="675 684 693" y="104" fill="#9494a8">the</text>
+<text x="711 720 729 738 747 756 765" y="104" fill="#9494a8">library</text>
+<text x="783 792 801 810" y="104" fill="#9494a8">over</text>
+<text x="828 837 846" y="104" fill="#9494a8">the</text>
+<text x="864 873 882 891 900 909" y="104" fill="#9494a8">others</text>
+<text x="927 936 945 954 963 972 981" y="104" fill="#9494a8">plugged</text>
+<text x="999 1008" y="104" fill="#9494a8">in</text>
+<text x="1026 1035 1044 1053 1062" y="104" fill="#9494a8">(when</text>
+<text x="1080 1089 1098 1107" y="104" fill="#9494a8">none</text>
+<text x="1125 1134" y="104" fill="#9494a8">is</text>
+<text x="1152 1161 1170 1179 1188 1197 1206" y="104" fill="#9494a8">newest,</text>
+<text x="1224 1233 1242 1251" y="104" fill="#9494a8">says</text>
+<text x="1269 1278 1287 1296" y="104" fill="#9494a8">why)</text>
 <text x="1431" y="104" fill="#5cd6ff">│</text>
 <text x="0" y="122" fill="#5cd6ff">│</text>
 <text x="18 27 36 45" y="122" fill="#e2e2ec">pack</text>
@@ -100,21 +102,22 @@
 <text x="153 162 171" y="122" fill="#e2e2ec">for</text>
 <text x="189" y="122" fill="#e2e2ec">a</text>
 <text x="207 216 225 234" y="122" fill="#e2e2ec">set…</text>
-<text x="423 432 441" y="122" fill="#9494a8">the</text>
-<text x="459 468 477 486 495 504" y="122" fill="#9494a8">marked</text>
-<text x="522 531 540 549 558 567 576 585 594 603" y="122" fill="#9494a8">playlists,</text>
-<text x="621 630 639" y="122" fill="#9494a8">the</text>
-<text x="657 666 675 684 693 702 711 720" y="122" fill="#9494a8">playlist</text>
-<text x="738 747 756 765 774" y="122" fill="#9494a8">shown</text>
-<text x="792 801" y="122" fill="#9494a8">or</text>
-<text x="819 828 837" y="122" fill="#9494a8">the</text>
-<text x="855 864 873 882 891 900" y="122" fill="#9494a8">crate,</text>
-<text x="918 927 936 945" y="122" fill="#9494a8">from</text>
-<text x="963 972 981" y="122" fill="#9494a8">the</text>
-<text x="999 1008 1017 1026" y="122" fill="#9494a8">open</text>
-<text x="1044 1053 1062 1071 1080" y="122" fill="#9494a8">drive</text>
-<text x="1098 1107 1116 1125" y="122" fill="#9494a8">onto</text>
-<text x="1143 1152 1161 1170 1179 1188 1197" y="122" fill="#9494a8">another</text>
+<text x="423" y="122" fill="#ff5ca0" font-weight="bold">K</text>
+<text x="450 459 468" y="122" fill="#9494a8">the</text>
+<text x="486 495 504 513 522 531" y="122" fill="#9494a8">marked</text>
+<text x="549 558 567 576 585 594 603 612 621 630" y="122" fill="#9494a8">playlists,</text>
+<text x="648 657 666" y="122" fill="#9494a8">the</text>
+<text x="684 693 702 711 720 729 738 747" y="122" fill="#9494a8">playlist</text>
+<text x="765 774 783 792 801" y="122" fill="#9494a8">shown</text>
+<text x="819 828" y="122" fill="#9494a8">or</text>
+<text x="846 855 864" y="122" fill="#9494a8">the</text>
+<text x="882 891 900 909 918 927" y="122" fill="#9494a8">crate,</text>
+<text x="945 954 963 972" y="122" fill="#9494a8">from</text>
+<text x="990 999 1008" y="122" fill="#9494a8">the</text>
+<text x="1026 1035 1044 1053" y="122" fill="#9494a8">open</text>
+<text x="1071 1080 1089 1098 1107" y="122" fill="#9494a8">drive</text>
+<text x="1125 1134 1143 1152" y="122" fill="#9494a8">onto</text>
+<text x="1170 1179 1188 1197 1206 1215 1224" y="122" fill="#9494a8">another</text>
 <text x="1431" y="122" fill="#5cd6ff">│</text>
 <text x="0" y="140" fill="#5cd6ff">│</text>
 <text x="18 27 36 45" y="140" fill="#e2e2ec">save</text>
@@ -123,81 +126,186 @@
 <text x="162 171" y="140" fill="#e2e2ec">of</text>
 <text x="189 198 207" y="140" fill="#e2e2ec">the</text>
 <text x="225 234 243 252 261" y="140" fill="#e2e2ec">drive</text>
-<text x="423 432 441 450" y="140" fill="#9494a8">save</text>
-<text x="468 477 486" y="140" fill="#9494a8">the</text>
-<text x="504 513 522 531 540" y="140" fill="#9494a8">drive</text>
-<text x="558 567" y="140" fill="#9494a8">in</text>
-<text x="585 594 603" y="140" fill="#9494a8">the</text>
-<text x="621 630 639 648 657 666" y="140" fill="#9494a8">store,</text>
-<text x="684" y="140" fill="#9494a8">a</text>
-<text x="702 711 720 729 738 747 756 765" y="140" fill="#9494a8">snapshot</text>
-<text x="783 792" y="140" fill="#9494a8">of</text>
-<text x="810 819 828" y="140" fill="#9494a8">its</text>
-<text x="846 855 864 873 882 891 900" y="140" fill="#9494a8">library</text>
-<text x="918 927 936 945 954 963" y="140" fill="#9494a8">(shows</text>
-<text x="981 990 999 1008" y="140" fill="#9494a8">what</text>
-<text x="1026 1035 1044 1053" y="140" fill="#9494a8">that</text>
-<text x="1071 1080 1089 1098" y="140" fill="#9494a8">adds</text>
-<text x="1116 1125 1134 1143 1152 1161" y="140" fill="#9494a8">first)</text>
+<text x="423" y="140" fill="#ff5ca0" font-weight="bold">W</text>
+<text x="450 459 468 477" y="140" fill="#9494a8">save</text>
+<text x="495 504 513" y="140" fill="#9494a8">the</text>
+<text x="531 540 549 558 567" y="140" fill="#9494a8">drive</text>
+<text x="585 594" y="140" fill="#9494a8">in</text>
+<text x="612 621 630" y="140" fill="#9494a8">the</text>
+<text x="648 657 666 675 684 693" y="140" fill="#9494a8">store,</text>
+<text x="711" y="140" fill="#9494a8">a</text>
+<text x="729 738 747 756 765 774 783 792" y="140" fill="#9494a8">snapshot</text>
+<text x="810 819" y="140" fill="#9494a8">of</text>
+<text x="837 846 855" y="140" fill="#9494a8">its</text>
+<text x="873 882 891 900 909 918 927" y="140" fill="#9494a8">library</text>
+<text x="945 954 963 972 981 990" y="140" fill="#9494a8">(shows</text>
+<text x="1008 1017 1026 1035" y="140" fill="#9494a8">what</text>
+<text x="1053 1062 1071 1080" y="140" fill="#9494a8">that</text>
+<text x="1098 1107 1116 1125" y="140" fill="#9494a8">adds</text>
+<text x="1143 1152 1161 1170 1179 1188" y="140" fill="#9494a8">first)</text>
 <text x="1431" y="140" fill="#5cd6ff">│</text>
 <text x="0" y="158" fill="#5cd6ff">│</text>
-<text x="18 27 36 45" y="158" fill="#e2e2ec">fill</text>
-<text x="63 72 81" y="158" fill="#e2e2ec">the</text>
-<text x="99 108 117 126 135" y="158" fill="#e2e2ec">smart</text>
-<text x="153 162 171 180 189 198 207 216 225" y="158" fill="#e2e2ec">playlists</text>
-<text x="243 252" y="158" fill="#e2e2ec">on</text>
-<text x="270 279 288" y="158" fill="#e2e2ec">the</text>
-<text x="306 315 324 333 342" y="158" fill="#e2e2ec">drive</text>
-<text x="423 432 441 450" y="158" fill="#9494a8">fill</text>
-<text x="468 477 486" y="158" fill="#9494a8">the</text>
-<text x="504 513 522 531 540 549 558 567 576 585" y="158" fill="#9494a8">rule-based</text>
-<text x="603 612 621 630 639 648 657 666 675" y="158" fill="#9494a8">playlists</text>
-<text x="693 702" y="158" fill="#9494a8">on</text>
-<text x="720 729 738" y="158" fill="#9494a8">the</text>
-<text x="756 765 774 783 792" y="158" fill="#9494a8">drive</text>
-<text x="810 819 828 837" y="158" fill="#9494a8">from</text>
-<text x="855 864 873" y="158" fill="#9494a8">its</text>
-<text x="891 900 909" y="158" fill="#9494a8">own</text>
-<text x="927 936 945 954 963 972 981" y="158" fill="#9494a8">library</text>
-<text x="999 1008 1017 1026 1035 1044" y="158" fill="#9494a8">(shows</text>
-<text x="1062 1071 1080 1089" y="158" fill="#9494a8">what</text>
-<text x="1107 1116 1125 1134 1143 1152 1161" y="158" fill="#9494a8">changes</text>
-<text x="1179 1188 1197 1206 1215 1224" y="158" fill="#9494a8">first)</text>
+<text x="18 27 36 45 54" y="158" fill="#e2e2ec">bring</text>
+<text x="72 81 90 99" y="158" fill="#e2e2ec">back</text>
+<text x="117" y="158" fill="#e2e2ec">a</text>
+<text x="135 144 153 162 171 180 189 198" y="158" fill="#e2e2ec">playlist</text>
+<text x="216 225 234 243" y="158" fill="#e2e2ec">from</text>
+<text x="261" y="158" fill="#e2e2ec">a</text>
+<text x="279 288 297 306 315 324 333 342 351" y="158" fill="#e2e2ec">snapshot…</text>
+<text x="450" y="158" fill="#9494a8">a</text>
+<text x="468 477 486 495 504 513 522 531" y="158" fill="#9494a8">playlist</text>
+<text x="549 558" y="158" fill="#9494a8">or</text>
+<text x="576 585 594 603 612 621" y="158" fill="#9494a8">folder</text>
+<text x="639 648" y="158" fill="#9494a8">as</text>
+<text x="666" y="158" fill="#9494a8">a</text>
+<text x="684 693 702 711 720 729 738 747" y="158" fill="#9494a8">snapshot</text>
+<text x="765 774" y="158" fill="#9494a8">in</text>
+<text x="792 801 810" y="158" fill="#9494a8">the</text>
+<text x="828 837 846 855 864" y="158" fill="#9494a8">store</text>
+<text x="882 891 900" y="158" fill="#9494a8">had</text>
+<text x="918 927 936" y="158" fill="#9494a8">it,</text>
+<text x="954 963 972 981" y="158" fill="#9494a8">onto</text>
+<text x="999 1008 1017" y="158" fill="#9494a8">the</text>
+<text x="1035 1044 1053 1062 1071" y="158" fill="#9494a8">drive</text>
 <text x="1431" y="158" fill="#5cd6ff">│</text>
 <text x="0" y="176" fill="#5cd6ff">│</text>
-<text x="18 27 36 45 54 63 72 81" y="176" fill="#e2e2ec">refresh:</text>
-<text x="99 108 117 126" y="176" fill="#e2e2ec">read</text>
-<text x="144 153 162" y="176" fill="#e2e2ec">the</text>
-<text x="180 189 198 207 216" y="176" fill="#e2e2ec">drive</text>
-<text x="234 243 252" y="176" fill="#e2e2ec">and</text>
-<text x="270 279 288" y="176" fill="#e2e2ec">the</text>
-<text x="306 315 324 333" y="176" fill="#e2e2ec">view</text>
-<text x="351 360 369 378 387" y="176" fill="#e2e2ec">again</text>
-<text x="423 432 441 450" y="176" fill="#9494a8">read</text>
-<text x="468 477 486 495 504 513" y="176" fill="#9494a8">again:</text>
-<text x="531 540 549" y="176" fill="#9494a8">the</text>
-<text x="567 576 585 594 603 612" y="176" fill="#9494a8">drive,</text>
-<text x="630 639 648" y="176" fill="#9494a8">the</text>
-<text x="666 675 684 693 702 711 720" y="176" fill="#9494a8">drives'</text>
-<text x="738 747 756 765 774 783 792" y="176" fill="#9494a8">status,</text>
-<text x="810 819 828" y="176" fill="#9494a8">the</text>
-<text x="846 855 864 873 882 891 900 909 918 927" y="176" fill="#9494a8">snapshots,</text>
-<text x="945 954 963" y="176" fill="#9494a8">the</text>
-<text x="981 990 999 1008 1017 1026 1035 1044" y="176" fill="#9494a8">profile,</text>
-<text x="1062 1071 1080" y="176" fill="#9494a8">the</text>
-<text x="1098 1107 1116 1125 1134 1143 1152 1161 1170 1179" y="176" fill="#9494a8">recordings</text>
+<text x="18 27 36 45 54 63" y="176" fill="#e2e2ec">replay</text>
+<text x="81 90 99 108 117" y="176" fill="#e2e2ec">edits</text>
+<text x="135 144 153 162 171 180 189 198 207" y="176" fill="#e2e2ec">rekordbox</text>
+<text x="225 234 243 252 261 270 279 288 297" y="176" fill="#e2e2ec">overwrote</text>
+<text x="450 459 468 477 486 495" y="176" fill="#9494a8">replay</text>
+<text x="513 522 531 540 549" y="176" fill="#9494a8">edits</text>
+<text x="567 576 585 594 603 612 621 630 639" y="176" fill="#9494a8">rekordbox</text>
+<text x="657 666 675 684 693 702 711 720 729" y="176" fill="#9494a8">overwrote</text>
+<text x="747 756 765 774 783 792" y="176" fill="#9494a8">(while</text>
+<text x="810 819" y="176" fill="#9494a8">it</text>
+<text x="837 846 855 864" y="176" fill="#9494a8">says</text>
+<text x="882 891 900" y="176" fill="#9494a8">so)</text>
 <text x="1431" y="176" fill="#5cd6ff">│</text>
 <text x="0" y="194" fill="#5cd6ff">│</text>
+<text x="18 27 36 45 54" y="194" fill="#e2e2ec">smart</text>
+<text x="72 81 90 99 108 117 126 135 144 153" y="194" fill="#e2e2ec">playlists:</text>
+<text x="171 180 189" y="194" fill="#e2e2ec">the</text>
+<text x="207 216 225 234 243" y="194" fill="#e2e2ec">rules</text>
+<text x="450 459 468" y="194" fill="#9494a8">the</text>
+<text x="486 495 504 513 522 531 540 549 558 567" y="194" fill="#9494a8">rule-based</text>
+<text x="585 594 603 612 621 630 639 648 657" y="194" fill="#9494a8">playlists</text>
+<text x="675 684 693 702" y="194" fill="#9494a8">kept</text>
+<text x="720 729" y="194" fill="#9494a8">in</text>
+<text x="747 756 765" y="194" fill="#9494a8">the</text>
+<text x="783 792 801 810 819" y="194" fill="#9494a8">store</text>
 <text x="1431" y="194" fill="#5cd6ff">│</text>
 <text x="0" y="212" fill="#5cd6ff">│</text>
+<text x="18 27 36 45" y="212" fill="#e2e2ec">fill</text>
+<text x="63 72 81" y="212" fill="#e2e2ec">the</text>
+<text x="99 108 117 126 135" y="212" fill="#e2e2ec">smart</text>
+<text x="153 162 171 180 189 198 207 216 225" y="212" fill="#e2e2ec">playlists</text>
+<text x="243 252" y="212" fill="#e2e2ec">on</text>
+<text x="270 279 288" y="212" fill="#e2e2ec">the</text>
+<text x="306 315 324 333 342" y="212" fill="#e2e2ec">drive</text>
+<text x="450 459 468 477" y="212" fill="#9494a8">fill</text>
+<text x="495 504 513" y="212" fill="#9494a8">the</text>
+<text x="531 540 549 558 567 576 585 594 603 612" y="212" fill="#9494a8">rule-based</text>
+<text x="630 639 648 657 666 675 684 693 702" y="212" fill="#9494a8">playlists</text>
+<text x="720 729" y="212" fill="#9494a8">on</text>
+<text x="747 756 765" y="212" fill="#9494a8">the</text>
+<text x="783 792 801 810 819" y="212" fill="#9494a8">drive</text>
+<text x="837 846 855 864" y="212" fill="#9494a8">from</text>
+<text x="882 891 900" y="212" fill="#9494a8">its</text>
+<text x="918 927 936" y="212" fill="#9494a8">own</text>
+<text x="954 963 972 981 990 999 1008" y="212" fill="#9494a8">library</text>
+<text x="1026 1035 1044 1053 1062 1071" y="212" fill="#9494a8">(shows</text>
+<text x="1089 1098 1107 1116" y="212" fill="#9494a8">what</text>
+<text x="1134 1143 1152 1161 1170 1179 1188" y="212" fill="#9494a8">changes</text>
+<text x="1206 1215 1224 1233 1242 1251" y="212" fill="#9494a8">first)</text>
 <text x="1431" y="212" fill="#5cd6ff">│</text>
 <text x="0" y="230" fill="#5cd6ff">│</text>
+<text x="18 27 36 45 54" y="230" fill="#78788e">smart</text>
+<text x="72 81 90 99 108 117 126 135" y="230" fill="#78788e">playlist</text>
+<text x="153 162 171 180" y="230" fill="#78788e">from</text>
+<text x="198 207 216" y="230" fill="#78788e">the</text>
+<text x="234 243 252 261 270 279" y="230" fill="#78788e">search</text>
+<text x="450 459 468 477 486 495" y="230" fill="#78788e">search</text>
+<text x="513 522 531 540 549" y="230" fill="#78788e">first</text>
+<text x="567 576 585" y="230" fill="#78788e">(/)</text>
+<text x="603" y="230" fill="#78788e">·</text>
+<text x="621" y="230" fill="#78788e">a</text>
+<text x="639 648 657 666 675 684 693 702 711 720" y="230" fill="#78788e">rule-based</text>
+<text x="738 747 756 765 774 783 792 801" y="230" fill="#78788e">playlist</text>
+<text x="819 828 837 846" y="230" fill="#78788e">from</text>
+<text x="864 873 882" y="230" fill="#78788e">the</text>
+<text x="900 909 918 927 936 945" y="230" fill="#78788e">search</text>
+<text x="963 972 981 990 999" y="230" fill="#78788e">box's</text>
+<text x="1017 1026 1035 1044 1053 1062" y="230" fill="#78788e">filter</text>
+<text x="1080 1089 1098" y="230" fill="#78788e">and</text>
+<text x="1116 1125 1134" y="230" fill="#78788e">the</text>
+<text x="1152 1161 1170 1179 1188 1197" y="230" fill="#78788e">list's</text>
+<text x="1215 1224 1233 1242" y="230" fill="#78788e">sort</text>
 <text x="1431" y="230" fill="#5cd6ff">│</text>
 <text x="0" y="248" fill="#5cd6ff">│</text>
+<text x="18 27 36 45 54 63" y="248" fill="#e2e2ec">export</text>
+<text x="81 90 99" y="248" fill="#e2e2ec">the</text>
+<text x="117 126 135 144" y="248" fill="#e2e2ec">list</text>
+<text x="162 171 180 189 198" y="248" fill="#e2e2ec">shown</text>
+<text x="216 225 234 243 252 261" y="248" fill="#e2e2ec">(M3U8,</text>
+<text x="279 288 297 306" y="248" fill="#e2e2ec">CSV,</text>
+<text x="324 333 342 351 360" y="248" fill="#e2e2ec">text)</text>
+<text x="450 459 468 477 486" y="248" fill="#9494a8">write</text>
+<text x="504 513 522" y="248" fill="#9494a8">the</text>
+<text x="540 549 558 567 576 585 594 603 612" y="248" fill="#9494a8">playlist,</text>
+<text x="630 639 648 657" y="248" fill="#9494a8">set,</text>
+<text x="675 684 693 702 711 720 729" y="248" fill="#9494a8">session</text>
+<text x="747 756" y="248" fill="#9494a8">or</text>
+<text x="774 783 792" y="248" fill="#9494a8">all</text>
+<text x="810 819 828 837 846 855" y="248" fill="#9494a8">tracks</text>
+<text x="873 882 891 900 909" y="248" fill="#9494a8">shown</text>
+<text x="927 936" y="248" fill="#9494a8">to</text>
+<text x="954" y="248" fill="#9494a8">a</text>
+<text x="972 981 990 999" y="248" fill="#9494a8">file</text>
+<text x="1017 1026" y="248" fill="#9494a8">on</text>
+<text x="1044 1053 1062 1071" y="248" fill="#9494a8">this</text>
+<text x="1089 1098 1107 1116 1125 1134 1143 1152" y="248" fill="#9494a8">computer</text>
 <text x="1431" y="248" fill="#5cd6ff">│</text>
 <text x="0" y="266" fill="#5cd6ff">│</text>
+<text x="18 27 36 45 54" y="266" fill="#e2e2ec">eject</text>
+<text x="72 81 90" y="266" fill="#e2e2ec">the</text>
+<text x="108 117 126 135 144" y="266" fill="#e2e2ec">drive</text>
+<text x="423" y="266" fill="#ff5ca0" font-weight="bold">E</text>
+<text x="450 459 468 477 486 495 504" y="266" fill="#9494a8">unmount</text>
+<text x="522 531 540" y="266" fill="#9494a8">the</text>
+<text x="558 567 576 585 594" y="266" fill="#9494a8">drive</text>
+<text x="612 621 630" y="266" fill="#9494a8">and</text>
+<text x="648 657 666 675 684" y="266" fill="#9494a8">power</text>
+<text x="702 711" y="266" fill="#9494a8">it</text>
+<text x="729 738 747" y="266" fill="#9494a8">off</text>
+<text x="765 774 783 792 801 810 819 828" y="266" fill="#9494a8">(playing</text>
+<text x="846 855 864 873" y="266" fill="#9494a8">from</text>
+<text x="891 900" y="266" fill="#9494a8">it</text>
+<text x="918 927 936 945 954" y="266" fill="#9494a8">stops</text>
+<text x="972 981 990 999 1008 1017" y="266" fill="#9494a8">first)</text>
 <text x="1431" y="266" fill="#5cd6ff">│</text>
 <text x="0" y="284" fill="#5cd6ff">│</text>
+<text x="18 27 36 45 54 63 72 81" y="284" fill="#e2e2ec">refresh:</text>
+<text x="99 108 117 126" y="284" fill="#e2e2ec">read</text>
+<text x="144 153 162" y="284" fill="#e2e2ec">the</text>
+<text x="180 189 198 207 216" y="284" fill="#e2e2ec">drive</text>
+<text x="234 243 252" y="284" fill="#e2e2ec">and</text>
+<text x="270 279 288" y="284" fill="#e2e2ec">the</text>
+<text x="306 315 324 333" y="284" fill="#e2e2ec">view</text>
+<text x="351 360 369 378 387" y="284" fill="#e2e2ec">again</text>
+<text x="450 459 468 477" y="284" fill="#9494a8">read</text>
+<text x="495 504 513 522 531 540" y="284" fill="#9494a8">again:</text>
+<text x="558 567 576" y="284" fill="#9494a8">the</text>
+<text x="594 603 612 621 630 639" y="284" fill="#9494a8">drive,</text>
+<text x="657 666 675" y="284" fill="#9494a8">the</text>
+<text x="693 702 711 720 729 738 747" y="284" fill="#9494a8">drives'</text>
+<text x="765 774 783 792 801 810 819" y="284" fill="#9494a8">status,</text>
+<text x="837 846 855" y="284" fill="#9494a8">the</text>
+<text x="873 882 891 900 909 918 927 936 945 954" y="284" fill="#9494a8">snapshots,</text>
+<text x="972 981 990" y="284" fill="#9494a8">the</text>
+<text x="1008 1017 1026 1035 1044 1053 1062 1071" y="284" fill="#9494a8">profile,</text>
+<text x="1089 1098 1107" y="284" fill="#9494a8">the</text>
+<text x="1125 1134 1143 1152 1161 1170 1179 1188 1197 1206" y="284" fill="#9494a8">recordings</text>
 <text x="1431" y="284" fill="#5cd6ff">│</text>
 <text x="0" y="302" fill="#5cd6ff">│</text>
 <text x="1431" y="302" fill="#5cd6ff">│</text>
@@ -258,17 +366,29 @@
 <text x="9 18 27 36 45 54 63 72 81 90 99 108 117 126 135 144 153 162 171 180 189 198 207 216 225 234 243 252 261 270 279 288 297 306 315 324 333 342 351 360 369 378 387 396 405 414 423 432 441 450 459 468 477 486 495 504 513 522 531 540 549 558 567 576 585 594 603 612 621 630 639 648 657 666 675 684 693 702 711 720 729 738 747 756 765 774 783 792 801 810 819 828 837 846 855 864 873 882 891 900 909 918 927 936 945 954 963 972 981 990 999 1008 1017 1026 1035 1044 1053 1062 1071 1080 1089 1098 1107 1116 1125 1134 1143 1152 1161 1170 1179 1188 1197 1206 1215 1224 1233 1242 1251 1260 1269 1278 1287 1296 1305 1314 1323 1332 1341 1350 1359 1368 1377 1386 1395 1404 1413 1422 1431" y="770" fill="#5c5c74">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</text>
 <rect x="0" y="774" width="72" height="18" fill="#9494a8"/>
 <text x="9 18 27 36 45 54" y="788" fill="#0e0e14" font-weight="bold">BROWSE</text>
-<text x="1404 1413 1422" y="788" fill="#9494a8">1/7</text>
-<text x="9 18 27 36 45" y="806" fill="#ff5ca0" font-weight="bold">enter</text>
-<text x="63 72 81" y="806" fill="#9494a8">run</text>
-<text x="108 117" y="806" fill="#ff5ca0" font-weight="bold">↑↓</text>
-<text x="135 144 153 162 171 180" y="806" fill="#9494a8">select</text>
-<text x="207 216 225 234 243" y="806" fill="#ff5ca0" font-weight="bold">space</text>
-<text x="261 270 279 288 297" y="806" fill="#9494a8">pause</text>
-<text x="324" y="806" fill="#ff5ca0" font-weight="bold">:</text>
-<text x="342 351 360 369 378 387 396 405" y="806" fill="#9494a8">commands</text>
-<text x="432" y="806" fill="#ff5ca0" font-weight="bold">?</text>
-<text x="450 459 468 477" y="806" fill="#9494a8">help</text>
-<text x="504" y="806" fill="#ff5ca0" font-weight="bold">q</text>
-<text x="522 531 540 549" y="806" fill="#9494a8">quit</text>
+<text x="1395 1404 1413 1422" y="788" fill="#9494a8">1/13</text>
+<text x="9" y="806" fill="#ff5ca0" font-weight="bold">e</text>
+<text x="27 36 45 54 63 72 81" y="806" fill="#9494a8">actions</text>
+<text x="108 117 126 135 144" y="806" fill="#ff5ca0" font-weight="bold">enter</text>
+<text x="162 171 180" y="806" fill="#9494a8">run</text>
+<text x="207 216" y="806" fill="#ff5ca0" font-weight="bold">↑↓</text>
+<text x="234 243 252 261 270 279" y="806" fill="#9494a8">select</text>
+<text x="306" y="806" fill="#ff5ca0" font-weight="bold">V</text>
+<text x="324 333 342 351 360" y="806" fill="#9494a8">check</text>
+<text x="387" y="806" fill="#ff5ca0" font-weight="bold">W</text>
+<text x="405 414 423 432 441 450 459 468" y="806" fill="#9494a8">snapshot</text>
+<text x="495" y="806" fill="#ff5ca0" font-weight="bold">Y</text>
+<text x="513 522 531 540" y="806" fill="#9494a8">sync</text>
+<text x="567" y="806" fill="#ff5ca0" font-weight="bold">K</text>
+<text x="585 594 603 612" y="806" fill="#9494a8">pack</text>
+<text x="639" y="806" fill="#ff5ca0" font-weight="bold">E</text>
+<text x="657 666 675 684 693" y="806" fill="#9494a8">eject</text>
+<text x="720 729 738 747 756" y="806" fill="#ff5ca0" font-weight="bold">space</text>
+<text x="774 783 792 801 810" y="806" fill="#9494a8">pause</text>
+<text x="837" y="806" fill="#ff5ca0" font-weight="bold">:</text>
+<text x="855 864 873 882 891 900 909 918" y="806" fill="#9494a8">commands</text>
+<text x="945" y="806" fill="#ff5ca0" font-weight="bold">?</text>
+<text x="963 972 981 990" y="806" fill="#9494a8">help</text>
+<text x="1017" y="806" fill="#ff5ca0" font-weight="bold">q</text>
+<text x="1035 1044 1053 1062" y="806" fill="#9494a8">quit</text>
 </svg>

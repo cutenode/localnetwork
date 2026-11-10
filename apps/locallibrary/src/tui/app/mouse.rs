@@ -45,6 +45,8 @@ pub struct Areas {
     pub played: Rect,
     /// The Prepare view's list.
     pub prepare: Rect,
+    /// The empty state's next steps.
+    pub steps: Rect,
 }
 
 /// A row clicked: its view, its pane (none for the full-screen player's matches) and its index.
@@ -53,11 +55,14 @@ pub(super) type ClickedRow = (View, Option<Focus>, usize);
 impl App {
     pub fn on_mouse(&mut self, m: MouseEvent) {
         self.follow_queue(); // as for a key
+        if matches!(m.kind, MouseEventKind::Down(_)) {
+            self.intro = false;
+        }
         let p = Position::new(m.column, m.row);
         if self.help {
             match m.kind {
-                MouseEventKind::ScrollUp => self.help_scroll = self.help_scroll.saturating_sub(3),
-                MouseEventKind::ScrollDown => self.help_scroll = self.help_scroll.saturating_add(3),
+                MouseEventKind::ScrollUp => self.help_row = self.help_row.saturating_sub(3),
+                MouseEventKind::ScrollDown => self.help_row = self.help_row.saturating_add(3),
                 MouseEventKind::Down(_) => self.help = false,
                 _ => {}
             }
@@ -120,6 +125,9 @@ impl App {
                     self.show_drive_pane(pane);
                 } else if self.areas.overview.contains(p) {
                     self.seek_click(m.column);
+                } else if self.areas.steps.contains(p) {
+                    self.steps.select(Some((m.row - self.areas.steps.y) as usize));
+                    self.take_step();
                 } else if self.deck_showing() && self.areas.matches.contains(p) {
                     let i = self.next_pick.offset() + (m.row - self.areas.matches.y) as usize;
                     if i < self.list_len() {
@@ -171,6 +179,10 @@ impl App {
             return;
         }
         match self.modal.take() {
+            Some(Modal::Jobs(list)) if self.areas.menu.contains(Position::new(m.column, m.row)) => {
+                self.modal = Some(Modal::Jobs(list));
+            }
+            Some(Modal::Jobs(_)) => {}
             Some(Modal::Menu(menu)) => {
                 let r = self.areas.menu;
                 if !r.contains(Position::new(m.column, m.row)) {

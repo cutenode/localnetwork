@@ -276,6 +276,8 @@ fn idle(app: &App) -> Vec<Span<'static>> {
             Span::styled("space", theme::key()),
             Span::styled(format!(" carries on with {} from {}", t.display_name(), clock(at.as_secs_f64())), dim()),
         ]),
+        // The empty state says what comes first.
+        None if app.empty() => {}
         None => spans.push(Span::styled("Pick a track and press enter.", dim())),
     }
     spans

@@ -194,6 +194,26 @@ _Avoid_: waveform style, colour scheme
 A track row's mark in its cover's two main colours.
 _Avoid_: swatch
 
+**Palette**:
+The list of every command by name, opened with `:`.
+_Avoid_: launcher, command menu
+
+**Actions**:
+What can be done to the selection, opened with `e`.
+_Avoid_: context menu, edit menu
+
+**Job**:
+Something the player runs in the background: a plan, a write, a check, a read.
+_Avoid_: task, background process
+
+**Hints**:
+The keys the footer names, as much of them as the hint setting says: full, compact or off.
+_Avoid_: tips, shortcuts bar
+
+**Empty state**:
+What the library shows with no drive open: how to get one, and at most three next steps.
+_Avoid_: welcome screen, onboarding
+
 **Pads**:
 The deck's hot cue pads.
 _Avoid_: hot cue buttons, performance pads
