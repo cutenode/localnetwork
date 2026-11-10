@@ -77,6 +77,8 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 A flag turns a feature on for some people before everyone. The flags themselves are files in [`flags/catalog/`](../../flags/README.md). Staff set who each is on for at `/admin/flags`: everyone, a percentage of accounts, [flag groups](../../GLOSSARY.md) at `/admin/flags/groups`, or single accounts. "Off for everyone" turns a flag off and keeps all of that for when it's back on. Admins manage all of it, and on the Staff page they can give a moderator either part: flags, or flag groups. Every change is in the audit log.
 
+In development and tests, `FLAG_OVERRIDES=key=on,other=off` forces flags on or off for every request to that server. The app won't start with it in production.
+
 What's set is kept as `staff.flag` and `staff.group` records in the staff space, indexed into SQLite and held in memory, so reading one on a request costs nothing. Pages read `data.flags?.key` and server code `locals.flags.key`, worked out once per request. A signed-out visitor only gets flags on for everyone. locallibrary can't read the staff space, so `computer.localnetwork.flags.getFlags` tells it the public gates and whether it's targeted ([ADR 0006](../../docs/adr/0006-locallibrary-asks-the-website-for-flags.md)).
 
 ### Staff

@@ -3,6 +3,7 @@ import { COLLECTION } from '#lib/nsid.ts';
 import { spaceRecordUri } from '../atproto/spaces';
 import { ForbiddenError, UserError } from '../core';
 import { createTestServices } from '../testing/core';
+import { FlagService } from './flags';
 
 const ADMIN = 'did:plc:admin';
 
@@ -45,6 +46,29 @@ describe('FlagService', () => {
 		expect(await t.flags.answers(DJ)).toEqual([
 			{ key: FLAG, enabled: true, everyone: false, percentage: 0, targeted: false }
 		]);
+	});
+
+	it('lets an override set a flag on this server, whatever its record says', async () => {
+		await t.flags.updateFlag(await t.viewer(ADMIN), FLAG, { ...off, enabled: true, everyone: true });
+
+		const forcedOff = new FlagService(t.core, t.staff, { [FLAG]: false });
+		const forcedOn = new FlagService(t.core, t.staff, { [FLAG]: true });
+
+		expect(await forcedOff.evaluate(DJ)).toEqual({ [FLAG]: false });
+		expect(await forcedOff.answers(null)).toEqual([
+			{ key: FLAG, enabled: false, everyone: true, percentage: 0, targeted: false }
+		]);
+
+		await t.flags.updateFlag(await t.viewer(ADMIN), FLAG, { ...off, enabled: false });
+
+		expect(await forcedOn.evaluate(null)).toEqual({ [FLAG]: true });
+		expect(await forcedOn.flag(FLAG)).toMatchObject({ enabled: false });
+	});
+
+	it('refuses an override for a flag that is not in the catalog', () => {
+		expect(() => new FlagService(t.core, t.staff, { noSuchFlag: true })).toThrow(
+			'FLAG_OVERRIDES names noSuchFlag, which is not in flags/catalog'
+		);
 	});
 
 	it('reads the index again after failing to', async () => {

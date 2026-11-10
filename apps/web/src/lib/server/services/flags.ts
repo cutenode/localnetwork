@@ -51,6 +51,8 @@ type Loaded = {
 
 const list = (items: string[]) => items.toSorted().join(', ');
 
+const inCatalog = (key: string) => FLAGS.some((flag) => flag.key === key);
+
 /** The audit changes between two flags' gates. Empty when saving changes nothing. */
 function flagChanges(before: FlagInput, after: FlagInput): AuditChange[] {
 	const fields = [
@@ -76,10 +78,16 @@ function flagChanges(before: FlagInput, after: FlagInput): AuditChange[] {
 export class FlagService {
 	private loaded: Promise<Loaded> | null = null;
 
+	/** `overrides` forces flags on (true) or off for every caller, from FLAG_OVERRIDES in development and tests. */
 	constructor(
 		private readonly core: Core,
-		private readonly staff: Pick<StaffService, 'grants'>
-	) {}
+		private readonly staff: Pick<StaffService, 'grants'>,
+		private readonly overrides: Record<string, boolean> = {}
+	) {
+		for (const key of Object.keys(overrides)) {
+			if (!inCatalog(key)) throw new Error(`FLAG_OVERRIDES names ${key}, which is not in flags/catalog`);
+		}
+	}
 
 	private load(): Promise<Loaded> {
 		this.loaded ??= this.read().catch((cause: unknown) => {
@@ -136,13 +144,19 @@ export class FlagService {
 			const targeted =
 				!!did && !!flag && (flag.dids.includes(did) || flag.groups.some((rkey) => groups.get(rkey)?.members.has(did)));
 
-			return {
+			const answer = {
 				key,
 				enabled: flag?.enabled ?? true,
 				everyone: flag?.everyone ?? false,
 				percentage: flag?.percentage ?? 0,
 				targeted
 			};
+
+			const override = this.overrides[key];
+
+			if (override === undefined) return answer;
+
+			return override ? { ...answer, enabled: true, everyone: true } : { ...answer, enabled: false };
 		});
 	}
 
@@ -212,7 +226,7 @@ export class FlagService {
 	async updateFlag(actor: Viewer, key: string, input: FlagInput): Promise<void> {
 		await this.requireGrant(actor, 'flags');
 
-		if (!FLAGS.some((flag) => flag.key === key)) throw new UserError('There is no flag with that key', 404);
+		if (!inCatalog(key)) throw new UserError('There is no flag with that key', 404);
 
 		if (!Number.isInteger(input.percentage) || input.percentage < 0 || input.percentage > 100)
 			throw new UserError('Enter a percentage from 0 to 100');
