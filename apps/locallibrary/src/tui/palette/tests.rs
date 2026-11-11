@@ -343,6 +343,20 @@ fn recent_is_an_edge_with_something_typed() {
     assert_eq!(shown_labels(&p), ["sync the sets", "sync the drives"]);
 }
 
+/// A label typed out in full is the one chosen, even with a longer one holding it used lately.
+#[test]
+fn a_label_typed_in_full_outranks_a_recent_one() {
+    let items = vec![Item::new("cover art", ""), Item::new("no cover art", "")];
+    let mut p = Picker::new("Commands", items, Then::Act(vec![Act::Art(true), Act::Art(false)]));
+    p.rank(&["no cover art".to_string()]);
+    p.query = "cover art".into();
+    p.filter();
+    assert_eq!(shown_labels(&p), ["cover art", "no cover art"]);
+    p.query = "cover".into();
+    p.filter();
+    assert_eq!(shown_labels(&p), ["no cover art", "cover art"], "a part typed still leans to the recent one");
+}
+
 /// They're kept between runs, in what's saved and what `settings export` takes.
 #[test]
 fn recent_commands_outlive_a_run() {
