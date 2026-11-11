@@ -104,7 +104,7 @@ jobs:
       - if: inputs.commands
         uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-nextest
+          tool: cargo-nextest@0.9.148
       - if: inputs.commands
         run: cargo nextest run -p locallibrary-cli --no-default-features --locked -E 'test(commands_come_with_the_features_built_in)'
       # The TUI's audio output goes through ALSA on Linux.
@@ -186,7 +186,7 @@ jobs:
           packages: libasound2-dev
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-nextest,cargo-llvm-cov
+          tool: cargo-nextest@0.9.148,cargo-llvm-cov@0.9.1
       - run: cargo llvm-cov nextest-archive --workspace --locked --archive-file tests.tar.zst
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -223,7 +223,7 @@ jobs:
           packages: libasound2-dev sqlcipher
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-nextest,cargo-llvm-cov
+          tool: cargo-nextest@0.9.148,cargo-llvm-cov@0.9.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: tests
@@ -274,7 +274,7 @@ jobs:
           node-version-file: .node-version
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-nextest
+          tool: cargo-nextest@0.9.148
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: tests
@@ -364,7 +364,7 @@ jobs:
           packages: libasound2-dev sqlcipher ripgrep
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-nextest,cargo-llvm-cov
+          tool: cargo-nextest@0.9.148,cargo-llvm-cov@0.9.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: tests
@@ -404,7 +404,7 @@ jobs:
           packages: libasound2-dev
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-nextest,cargo-llvm-cov
+          tool: cargo-nextest@0.9.148,cargo-llvm-cov@0.9.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: tests
@@ -540,7 +540,7 @@ jobs:
         run: echo LOCALLIBRARY_TEST_NOT_ELEVATED=1 >> "$GITHUB_ENV"
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-nextest
+          tool: cargo-nextest@0.9.148
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --doc --workspace --locked
       # Every failure, where the first would hide the rest of a run this long.
@@ -591,7 +591,7 @@ jobs:
       - run: rustup toolchain install
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-deny
+          tool: cargo-deny@0.20.2
       - run: cargo deny --locked check advisories bans licenses sources
 
   # Breaking changes to the public API of the loclib-* libraries, against the branch a pull request
@@ -614,7 +614,7 @@ jobs:
       # builds each crate, and its baseline, in a target directory of its own anyway.
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-semver-checks
+          tool: cargo-semver-checks@0.51.0
       - name: Check the loclib-* crates against the base branch
         run: |
           base=$(git rev-parse HEAD^1)

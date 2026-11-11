@@ -94,7 +94,7 @@ jobs:
       - run: rustup toolchain install
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-deny
+          tool: cargo-deny@0.20.2
       - run: cargo deny --locked check advisories
       # The fuzz targets' own lockfile, which Dependabot also bumps, against the same deny.toml.
       - run: cargo deny --manifest-path fuzz/Cargo.toml --config deny.toml --locked check advisories
@@ -119,7 +119,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-nextest
+          tool: cargo-nextest@0.9.148
       - run: cargo nextest run -p locallibrary --no-default-features --locked --no-fail-fast
       - run: cargo nextest run -p locallibrary-cli --no-default-features --locked --no-fail-fast
       - run: cargo nextest run -p locallibrary-cli --no-default-features --features account --locked --no-fail-fast
@@ -140,7 +140,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-hack
+          tool: cargo-hack@0.6.45
       - uses: ./.github/actions/apt-packages
         with:
           packages: libasound2-dev
@@ -207,7 +207,7 @@ jobs:
       - if: ${{ !cancelled() && needs.changes.outputs.format == 'true' }}
         uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-nextest
+          tool: cargo-nextest@0.9.148
       - if: ${{ !cancelled() && needs.changes.outputs.format == 'true' && runner.os == 'Linux' }}
         uses: ./.github/actions/apt-packages
         with:
@@ -244,7 +244,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-nextest
+          tool: cargo-nextest@0.9.148
       - run: cargo nextest run -p locallibrary --lib --locked --no-fail-fast -E 'test(/^format::disk_image::/)'
 
   # Mutation testing with cargo-mutants (settings in .cargo/mutants.toml): it makes small changes
@@ -277,7 +277,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-nextest,cargo-mutants
+          tool: cargo-nextest@0.9.148,cargo-mutants@27.1.0
       # Every workspace package but the library and the CLI (the crates below them, the plugins and
       # rekordbox-pdb), whose tests are quick enough to run once per mutant, so a new crate or plugin
       # is in without an edit here. `--in-place` mutates this checkout rather than a copy of it. A
@@ -415,7 +415,7 @@ jobs:
       - run: echo LOCALLIBRARY_REQUIRE_SQLCIPHER=1 >> "$GITHUB_ENV"
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-nextest
+          tool: cargo-nextest@0.9.148
       # As the fuzz corpus is: each run saves under its own key and the next restores the newest.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
