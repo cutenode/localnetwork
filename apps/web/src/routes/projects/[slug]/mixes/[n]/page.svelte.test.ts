@@ -8,6 +8,9 @@ import { PAGE_META } from '#lib/testing/page-meta.ts';
 
 const set = { uri: 'at://did:plc:neon/computer.localnetwork.dj.set/3kset', cid: 'bafylinked' };
 
+/** The set's page, by the DJ's DID, which sends a visitor on to their handle. */
+const SET_PAGE = '/@did:plc:neon/sets/3kset';
+
 const view: DjSetView = { ...set, title: 'Closing', date: '2026-09-01', venue: 'Tresor', trackCount: 24 };
 
 const show = (sets?: Promise<Map<string, DjSetView> | null>, status: ProjectStatus = 'active') =>
@@ -29,15 +32,15 @@ const show = (sets?: Promise<Map<string, DjSetView> | null>, status: ProjectStat
 
 it('shows the set the mix was recorded at, with the report', async () => {
 	await show(Promise.resolve(new Map([[set.uri, { ...view, cid: 'bafyedited' }]])));
-	await expect.element(page.getByRole('link', { name: 'Closing' })).toHaveAttribute('href', set.uri);
+	await expect.element(page.getByRole('link', { name: 'Closing' })).toHaveAttribute('href', SET_PAGE);
 	await expect.element(page.getByText(/Changed since it was linked/)).toBeInTheDocument();
 	// The page is titled with the profile's name for the mix, not the one in the exported report.
 	await expect.element(page.getByRole('heading', { level: 1, name: 'Tidal Hours' })).toBeInTheDocument();
 });
 
-it('falls back to the link when the directory is down', async () => {
+it("still links the set's page when the directory is down", async () => {
 	await show(Promise.resolve(null));
-	await expect.element(page.getByRole('link', { name: 'linked set' })).toHaveAttribute('href', set.uri);
+	await expect.element(page.getByRole('link', { name: 'linked set' })).toHaveAttribute('href', SET_PAGE);
 });
 
 it("tells managers and staff when visitors can't see the mix yet", async () => {

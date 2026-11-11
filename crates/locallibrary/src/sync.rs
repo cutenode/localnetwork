@@ -1322,12 +1322,23 @@ fn pull_into(
     ctx.phase_start(Phase::Copy, keys.len() as u64, total);
     let mut report_import = (0usize, 0u64, 0usize);
     let mut imported = Vec::new();
+    // Only a pull with audio the store doesn't hold reads the collection.
+    let mut twins = None;
     for key in &keys {
         ctx.check()?;
         let path = tree.fs_path(key);
         let e = tree.entries.get_mut(key).expect("key from tree");
         ctx.emit(Event::Item { phase: Phase::Copy, path: key.clone(), bytes: e.size });
-        let (h, new) = store.import_file(&path, e.hash, ctx)?;
+        let twin = match e.class == FileClass::Audio && !e.hash.is_some_and(|h| store.holds(&h, e.size)) {
+            true => twins.get_or_insert_with(|| crate::twins::Twins::of_collection(store)).of(&path, e, ctx)?,
+            false => None,
+        };
+        // A file changed since it was read for the twins is imported as what it is now, and the
+        // drive's file after it.
+        let (h, new) = match twin.map(|file| store.import_file(file, e.hash, ctx)).transpose()? {
+            Some((h, new)) if Some(h) == e.hash => (h, new),
+            _ => store.import_file(&path, e.hash, ctx)?,
+        };
         e.hash = Some(h);
         index.record(e);
         if new {

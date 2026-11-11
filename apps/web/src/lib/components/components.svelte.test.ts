@@ -19,6 +19,8 @@ import StatusPill from './StatusPill.svelte';
 
 const SET_URI = 'at://did:plc:neon/computer.localnetwork.dj.set/3kset';
 
+const SET_PAGE = '/@did:plc:neon/sets/3kset';
+
 const linkedMix = { title: 'Tidal Hours', url: 'https://mixes.test/tidal', set: { uri: SET_URI, cid: 'bafylinked' } };
 
 const closing: DjSetView = {
@@ -206,9 +208,10 @@ describe('MixList', () => {
 describe('MixList linked sets', () => {
 	const show = (sets: Promise<Map<string, DjSetView> | null>) => render(MixList, { mixes: [linkedMix], sets });
 
-	it('shows the set by its at:// URI, with when and where it was played', async () => {
+	// By the DJ's DID, which the set's page sends on to their handle: the at:// URI is no address a browser opens.
+	it("links the set's page, with when and where it was played", async () => {
 		await show(Promise.resolve(new Map([[SET_URI, closing]])));
-		await expect.element(page.getByRole('link', { name: 'Closing' })).toHaveAttribute('href', SET_URI);
+		await expect.element(page.getByRole('link', { name: 'Closing' })).toHaveAttribute('href', SET_PAGE);
 		await expect.element(page.getByText(/Sep 1, 2026 · Tresor, Berlin · 24 tracks/)).toBeInTheDocument();
 		await expect.element(page.getByText('Changed since it was linked')).not.toBeInTheDocument();
 	});
@@ -223,12 +226,12 @@ describe('MixList linked sets', () => {
 		await expect.element(page.getByText('Loading the set')).toBeInTheDocument();
 	});
 
-	it('says when the set is gone, and falls back to the link when the directory is down', async () => {
+	it("says when the set is gone, and still links the set's page when the directory is down", async () => {
 		await show(Promise.resolve(new Map()));
 		await expect.element(page.getByText('Linked set no longer published')).toBeInTheDocument();
 
 		await show(Promise.resolve(null));
-		await expect.element(page.getByRole('link', { name: 'linked set' })).toHaveAttribute('href', SET_URI);
+		await expect.element(page.getByRole('link', { name: 'linked set' })).toHaveAttribute('href', SET_PAGE);
 	});
 });
 

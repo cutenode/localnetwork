@@ -1,0 +1,98 @@
+# typos (crate-ci/typos) config. Lockfiles are skipped by typos' own `lock` type.
+# The default `en` locale takes British and American spellings alike.
+
+[files]
+extend-exclude = [
+    # Vendored crate, kept as upstream wrote it
+    "vendor/",
+    # anti-slop rules copied byte for byte from upstream (tools/oxlint/anti-slop/UPSTREAM.md)
+    "tools/oxlint/anti-slop/index.ts",
+    "tools/oxlint/anti-slop/rules/",
+    "tools/oxlint/anti-slop/shared/",
+    # Test fixtures: real exports and recorded API responses
+    "**/fixtures/**",
+    "!crates/locallibrary/tests/fixtures/README.md",
+    # Generated: vitest snapshots, the RPC docs emitted from Rust, screenshot captures
+    "*.snap",
+    "apps/locallibrary/docs/rpc/",
+    "apps/locallibrary/docs/player/*.svg",
+    "apps/web/src/lib/tools/captures/",
+]
+
+[default]
+extend-ignore-re = [
+    # Misspellings tests feed in on purpose (fuzzy matching, did-you-mean, prefix search)
+    '''\\?["'/](arround|histroy|shwo|Mian|Hom|puls|Porcelian|One More Tme|Noth|delet)\b''',
+    # A word cut by an escaped non-ASCII letter, like Caf\u{e9} for Café
+    '''[A-Za-z]+(\\u\{[0-9A-Fa-f]+\}|\\u[0-9A-Fa-f]{4}|\\x[89A-Fa-f][0-9A-Fa-f]|%[C-Fc-f][0-9A-Fa-f])''',
+    # Heading slugs drop the apostrophe (#saving-drives-as-theyre-plugged-in)
+    '''(#|id=")[0-9a-z]+(-[0-9a-z]+)+''',
+    # Ordinal fractions (255ths, `1/to`ths)
+    '''[0-9`]ths\b''',
+    # Overmono's song title
+    '''\bSo U Kno\b''',
+    # Spotify IDs and the test key's base64url coordinates
+    '''spotify:[a-z]+:[0-9A-Za-z]{22}''',
+    '''"[xyd]": "[0-9A-Za-z_-]{43}"''',
+]
+
+[default.extend-identifiers]
+# Boolean AND as a verb (clauses ANDed together)
+ANDed = "ANDed"
+# Engine DJ's own schema (crates/loclib-interop/src/engine.sql)
+Heirarchy = "Heirarchy"
+isPerfomanceDataOfPackedTrackChanged = "isPerfomanceDataOfPackedTrackChanged"
+# rekordbox's column names (OneLibrary and master.db)
+isComplation = "isComplation"
+Commnt = "Commnt"
+# The element id Hypeddit's download page uses
+current_download_file_listner = "current_download_file_listner"
+# Plural of the acronym, which typos splits as PN + Gs
+PNGs = "PNGs"
+
+[type.rust.extend-words]
+# The terminal UI crate, and ratatui-image
+ratatui = "ratatui"
+# A column cut to its width in the TUI's tests ("CLOS" for CLOSING), and keys pressed ("ueN")
+clos = "clos"
+ue = "ue"
+# MP4's track box
+trak = "trak"
+# SanDisk's drive model
+cruzer = "cruzer"
+# b-to-a beside ab, and rekordbox's rbDevLibBaInfo files
+ba = "ba"
+
+[type.rust.extend-identifiers]
+# The case-sensitivity test name beside Foo
+FoO = "FoO"
+# Short test names: a partition number, a plugin name
+pn = "pn"
+# Plural of the "from" values
+froms = "froms"
+# Plural of SQL's SELECT, split like PNGs
+SELECTs = "SELECTs"
+
+[type.sh.extend-identifiers]
+# jq regex class in tools/policy.sh
+pn = "pn"
+
+[type.ts.extend-words]
+# The media element's seeked event
+seeked = "seeked"
+
+[type.ts.extend-identifiers]
+# mis-keyed, a test-local name
+misKeyed = "misKeyed"
+
+[type.svelte.extend-words]
+# A person's name in a story fixture
+ned = "ned"
+
+[type.md.extend-words]
+# The terminal UI crate
+ratatui = "ratatui"
+
+[type.md.extend-identifiers]
+# A Mermaid node id
+PN = "PN"

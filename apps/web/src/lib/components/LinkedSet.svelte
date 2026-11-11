@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { formatShowDate, pluralize } from '#lib/format.ts';
+	import { formatShowDate, pluralize, setHref } from '#lib/format.ts';
 	import type { DjSetView, StrongRef } from '#lib/types.ts';
 
 	/** A mix's linked set, looked up in `sets` (the linked sets the directory has, by URI, or null when it couldn't say). */
@@ -14,13 +14,13 @@
 		{#if set}
 			{@const place = [set.title && set.venue, set.location?.locality].filter(Boolean).join(', ')}
 			{@const details = [formatShowDate(set.date), place, pluralize(set.trackCount, 'track')].filter(Boolean).join(' · ')}
-			Set: <a class="link" href={set.uri}>{set.title ?? set.venue ?? 'Untitled set'}</a> · {details}
+			Set: <a class="link" href={setHref(set.uri)}>{set.title ?? set.venue ?? 'Untitled set'}</a> · {details}
 			{#if set.cid !== linked.cid}<span class="text-warning">· Changed since it was linked</span>{/if}
 		{:else if found}
 			Linked set no longer published
 		{:else}
-			<!-- The directory couldn't say, so the link is all there is to show. -->
-			Set: <a class="link" href={linked.uri}>linked set</a>
+			<!-- The directory couldn't say, so a link to the set's page is all there is to show. -->
+			Set: <a class="link" href={setHref(linked.uri)}>linked set</a>
 		{/if}
 	{/await}
 </p>
