@@ -72,6 +72,7 @@ jobs:
       repo_checks_policy: ${{ steps.scope.outputs.repo_checks_policy }}
       repo_checks_lexicons: ${{ steps.scope.outputs.repo_checks_lexicons }}
       repo_checks_ruleset: ${{ steps.scope.outputs.repo_checks_ruleset }}
+      repo_checks_diagrams: ${{ steps.scope.outputs.repo_checks_diagrams }}
       codeql: ${{ steps.scope.outputs.codeql }}
       codeql_unchanged: ${{ steps.scope.outputs.codeql_unchanged }}
       codeql_base: ${{ steps.scope.outputs.codeql_base }}
@@ -435,7 +436,8 @@ jobs:
           for name in locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny \
             locallibrary_dist locallibrary_other_os locallibrary_semver locallibrary_commands web_verify \
             web_integration web_e2e web_lighthouse web_docker localtoolbox atstore mix_report \
-            npm_advisories workflow_lint repo_checks_policy repo_checks_lexicons repo_checks_ruleset; do
+            npm_advisories workflow_lint repo_checks_policy repo_checks_lexicons repo_checks_ruleset \
+            repo_checks_diagrams; do
             out[$name]=false
           done
           if [ "$linux" = true ] && [ "$EVENT" = pull_request ]; then
@@ -457,6 +459,8 @@ jobs:
             set_if workflow_lint changed workflow_lint
             if changed repo_checks || changed repo_checks_files; then out[repo_checks_policy]=true; fi
             set_if repo_checks_lexicons changed repo_checks_lexicons
+            # Any file can be a diagram's source.
+            out[repo_checks_diagrams]=true
           fi
           # A push to main: what main's runs keep for pull requests. The sizes and coverage the
           # reports compare with change only with the code (web_integration's paths), and the Rust
@@ -478,7 +482,7 @@ jobs:
           set_if locallibrary any locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny \
             locallibrary_dist locallibrary_other_os locallibrary_semver
           set_if web any web_verify web_integration web_e2e web_lighthouse web_docker
-          set_if repo_checks any repo_checks_policy repo_checks_lexicons repo_checks_ruleset
+          set_if repo_checks any repo_checks_policy repo_checks_lexicons repo_checks_ruleset repo_checks_diagrams
 
           # CodeQL, every language, on every event but a draft's and a pull request's into another
           # branch than main. The code scanning rule holds a pull request or a merge queue group until
@@ -601,11 +605,16 @@ jobs:
   repo-checks:
     needs: changes
     if: needs.changes.outputs.repo_checks == 'true'
+    permissions:
+      contents: read
+      # The pull request's body, for the diagrams job.
+      pull-requests: read
     uses: ./.github/workflows/repo-checks.yml
     with:
       policy: ${{ needs.changes.outputs.repo_checks_policy == 'true' }}
       lexicons: ${{ needs.changes.outputs.repo_checks_lexicons == 'true' }}
       ruleset: ${{ needs.changes.outputs.repo_checks_ruleset == 'true' }}
+      diagrams: ${{ needs.changes.outputs.repo_checks_diagrams == 'true' }}
 
   codeql:
     needs: changes
