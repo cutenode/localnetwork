@@ -4452,6 +4452,7 @@ dependencies = [
 name = "loclib-plugin"
 version = "0.1.0"
 dependencies = [
+ "codspeed-criterion-compat",
  "hegeltest",
  "indexmap",
  "jsonschema",

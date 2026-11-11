@@ -34,8 +34,14 @@ url = "2.5"
 test-util = ["dep:tempfile"]
 
 [dev-dependencies]
+criterion.workspace = true
 hegeltest.workspace = true
+loclib-model = { workspace = true, features = ["test-util"] }
 tempfile.workspace = true
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "protocol"
+harness = false
