@@ -47,6 +47,12 @@ pre-commit:
         - 'vitest.config.ts'
         - 'apps/locallibrary/bombadil/*.{ts,mjs}'
       run: pnpm exec oxlint {staged_files}
+    # Skipped without ShellCheck (`brew install shellcheck`); CI runs it on every script (repo-checks.yml).
+    - name: shellcheck
+      glob: '*.sh'
+      skip:
+        - run: '! command -v shellcheck > /dev/null'
+      run: shellcheck {staged_files}
     - name: lint web
       root: apps/web/
       glob: '*.{ts,js,svelte}'

@@ -61,6 +61,12 @@ jobs:
       - run: pnpm format:tools --check
       - run: pnpm lint:tools
       - run: pnpm check:tools
+      # Every shell script, which actionlint's ShellCheck pass doesn't see: only the workflows' own
+      # `run:` blocks. A pinned image, as tools/policy.sh runs its tools.
+      - name: ShellCheck
+        run: |
+          git ls-files -z '*.sh' | xargs -0 docker run --rm -v "$PWD:/mnt:ro" -w /mnt \
+            koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
 
   # Weekly too: `breaking` compares with the published lexicons, which change outside the repo.
   # Scheduled and manual runs have no inputs. (An empty input compares equal to false, so
