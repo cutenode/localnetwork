@@ -110,15 +110,20 @@ impl Picker {
 
     /// Narrow the list to what's typed, in the label or the detail (so a command's name finds it),
     /// best matches first, with the edge a command used lately has (ties go to the later one, then
-    /// keep the list's order).
+    /// keep the list's order). A label typed out in full comes first whatever was used lately, so
+    /// "cover art" isn't "no cover art" just because that ran last.
     pub fn filter(&mut self) {
         let recency = |i: usize| self.recency.get(i).copied().unwrap_or(0);
-        let mut scored: Vec<(i32, usize)> = (self.items.iter().enumerate())
+        let typed = self.query.trim().to_lowercase();
+        let mut scored: Vec<(bool, i32, usize)> = (self.items.iter().enumerate())
             .filter_map(|(i, it)| fuzzy(&self.query, &it.label).max(fuzzy(&self.query, &it.detail)).map(|s| (s, i)))
-            .map(|(s, i)| (if recency(i) > 0 { s + RECENT_EDGE } else { s }, i))
+            .map(|(s, i)| {
+                let named = !typed.is_empty() && self.items[i].label.to_lowercase() == typed;
+                (named, if recency(i) > 0 { s + RECENT_EDGE } else { s }, i)
+            })
             .collect();
-        scored.sort_by_key(|&(s, i)| (Reverse(s), Reverse(recency(i)), i));
-        self.shown = scored.into_iter().map(|(_, i)| i).collect();
+        scored.sort_by_key(|&(named, s, i)| (Reverse(named), Reverse(s), Reverse(recency(i)), i));
+        self.shown = scored.into_iter().map(|(_, _, i)| i).collect();
         self.state = ListState::default();
         self.state.select(self.first_available());
     }
