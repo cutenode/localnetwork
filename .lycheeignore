@@ -1,5 +1,0 @@
-# Links lychee skips (repo-checks.yml offline, repo-scheduled.yml online), one regex each.
-
-# Discussions are off on the repository for now, so this 404s; CONTRIBUTING.md and the issue
-# template's contact link still point at it.
-^https://github\.com/cutenode/localnetwork/discussions$
