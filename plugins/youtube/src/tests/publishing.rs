@@ -888,7 +888,7 @@ fn prop_a_dry_run_says_what_would_go(tc: TestCase) {
     let shown = if picture.is_some() { "cover.jpg" } else { "a black frame" };
     let mut what = format!(
         "set.m4a ({}) would go to YouTube as the unlisted video \"Closing set\", {shown} over the audio",
-        video::clock(seconds)
+        loclib_plugin::clock(seconds)
     );
     match (tracklist.len(), d.chapters) {
         (0, _) => {}

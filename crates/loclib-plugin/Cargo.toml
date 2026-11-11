@@ -11,6 +11,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+httpdate = "1.0.3"
 indexmap.workspace = true
 jsonschema.workspace = true
 loclib-model = { workspace = true, features = ["schemars"] }
