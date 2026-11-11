@@ -3904,13 +3904,6 @@ packages:
     resolution: {integrity: sha512-IINJV4TQAvI1+upIy3YaDtlFcLsWQ5Uw6Nos7CNwiJtpRFw98L1XOn38467Pw54pcYuDi8HGnc2CNbkZBEZq6Q==}
     engines: {node: '>=18.0.0'}
 
-  '@smithy/core@3.35.1':
-    resolution: {integrity: sha512-i4YPS4B6ts7bjn7UwLnGjiZdprOvHvgGobFZsYK3GIY3E5hIqtj0rReU69BcTpGp+fvtraSNXeG1l+jtJvF55w==}
-    engines: {node: '>=18.0.0'}
-    deprecated: |-
-      Deprecated due to a bug in custom logger data redaction. Upgrade to the latest version. If you used a custom logger with this
-        version, review your logs and rotate any credentials or other secrets. See https://github.com/aws/aws-sdk-js-v3/issues/8393.
-
   '@smithy/core@3.37.0':
     resolution: {integrity: sha512-97imTcCyiPd8k0e9+ts/Sp0W65Dn9Ti357J7M09Ov4tI8Q1JDJVFSoAJtjEVKqfHEr3Pdo2jfolqKCaaiszH0g==}
     engines: {node: '>=18.0.0'}
@@ -6689,9 +6682,6 @@ packages:
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
-  magic-string@1.4.2:
-    resolution: {integrity: sha512-vG+rjFRj1PqdIBozIxAGMjPlOhaVe+GXpbttY/iSK7rGcJRMlwNJO7dcUwmUqkymsFLJiNGI06t4D7Fr7yRC9g==}
-
   magic-string@1.4.3:
     resolution: {integrity: sha512-z12OxmaPGE0F4xlpGdjuAUckipLpQlTAuAmyGhNoD7ODpYUzvDfvtxUbjM/jwznyP178oju/KDdyi220wNJ0RQ==}
 
@@ -7949,9 +7939,6 @@ packages:
   tlds@1.261.0:
     resolution: {integrity: sha512-QXqwfEl9ddlGBaRFXIvNKK6OhipSiLXuRuLJX5DErz0o0Q0rYxulWLdFryTkV5PkdZct5iMInwYEGe/eR++1AA==}
     hasBin: true
-
-  tldts-core@7.4.18:
-    resolution: {integrity: sha512-KI2PKvCmvQI/xD6ypPqkU0i7oxNXR/O58RLRaHR4svsgVUQ2JE/XC8BtMbG6PSehD27I8sZJRcC1ASnCy6lp3g==}
 
   tldts-core@7.4.20:
     resolution: {integrity: sha512-C630TWXZCZmLq0F2bW4QqwnaaxCQ/svpAqvJwnC4JvgEM5ohhBnGsEzTLSOXcN+xjz+kEaHS5uoWIw2klnqd0A==}
@@ -11958,11 +11945,6 @@ snapshots:
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
-  '@smithy/core@3.35.1':
-    dependencies:
-      '@smithy/types': 4.19.0
-      tslib: 2.8.1
-
   '@smithy/core@3.37.0':
     dependencies:
       '@smithy/types': 4.19.0
@@ -11970,13 +11952,13 @@ snapshots:
 
   '@smithy/credential-provider-imds@4.5.2':
     dependencies:
-      '@smithy/core': 3.35.1
+      '@smithy/core': 3.37.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
   '@smithy/fetch-http-handler@5.8.0':
     dependencies:
-      '@smithy/core': 3.35.1
+      '@smithy/core': 3.37.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
@@ -11993,7 +11975,7 @@ snapshots:
 
   '@smithy/signature-v4@5.7.4':
     dependencies:
-      '@smithy/core': 3.35.1
+      '@smithy/core': 3.37.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
@@ -12088,7 +12070,7 @@ snapshots:
       '@storybook/builder-vite': 10.6.2(storybook@10.6.2(@types/react@19.3.0)(prettier@3.9.9)(react@19.3.0))(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
       '@storybook/svelte': 10.6.2(storybook@10.6.2(@types/react@19.3.0)(prettier@3.9.9)(react@19.3.0))(svelte@5.57.2(@typescript-eslint/types@8.72.1))
       '@sveltejs/vite-plugin-svelte': 7.3.1(svelte@5.57.2(@typescript-eslint/types@8.72.1))(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
-      magic-string: 1.4.2
+      magic-string: 1.4.3
       storybook: 10.6.2(@types/react@19.3.0)(prettier@3.9.9)(react@19.3.0)
       svelte: 5.57.2(@typescript-eslint/types@8.72.1)
       svelte2tsx: 0.7.61(svelte@5.57.2(@typescript-eslint/types@8.72.1))(typescript@5.9.3)
@@ -12232,7 +12214,7 @@ snapshots:
   '@sveltejs/vite-plugin-svelte@7.3.1(svelte@5.57.2(@typescript-eslint/types@8.72.1))(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))':
     dependencies:
       deepmerge: 4.3.1
-      magic-string: 1.4.2
+      magic-string: 1.4.3
       obug: 2.2.1
       svelte: 5.57.2(@typescript-eslint/types@8.72.1)
       vite: 8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
@@ -14866,10 +14848,6 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  magic-string@1.4.2:
-    dependencies:
-      '@jridgewell/sourcemap-codec': 1.6.0
-
   magic-string@1.4.3:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
@@ -16346,8 +16324,6 @@ snapshots:
 
   tlds@1.261.0: {}
 
-  tldts-core@7.4.18: {}
-
   tldts-core@7.4.20: {}
 
   tldts-icann@7.4.19:
@@ -16356,7 +16332,7 @@ snapshots:
 
   tldts@7.4.18:
     dependencies:
-      tldts-core: 7.4.18
+      tldts-core: 7.4.20
 
   to-regex-range@5.0.1:
     dependencies:
