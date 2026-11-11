@@ -201,6 +201,28 @@ describe('FlagService', () => {
 		expect(await t.audit.list({ action: 'flag.update' })).toHaveLength(1);
 	});
 
+	it('writes nothing when saving a group changes nothing', async () => {
+		const admin = await t.viewer(ADMIN);
+		const rkey = await t.flags.createGroup(admin, { name: 'Beta', description: 'Early', members: [DJ, OTHER] });
+		const before = stored(COLLECTION.staffGroup, rkey)?.cid;
+		await t.flags.updateGroup(admin, rkey, { name: 'Beta', description: 'Early', members: [OTHER, DJ] });
+		await t.audit.idle();
+
+		expect(stored(COLLECTION.staffGroup, rkey)?.cid).toBe(before);
+		expect(await t.audit.list({ action: 'flagGroup.update' })).toEqual([]);
+	});
+
+	it('audits only the group fields that changed', async () => {
+		const admin = await t.viewer(ADMIN);
+		const rkey = await t.flags.createGroup(admin, { name: 'Beta', description: 'Early', members: [DJ] });
+		await t.flags.updateGroup(admin, rkey, { name: 'Beta', description: 'Testers', members: [DJ] });
+		await t.audit.idle();
+		const [entry] = await t.audit.list({ action: 'flagGroup.update' });
+
+		expect(stored(COLLECTION.staffGroup, rkey)?.value).toMatchObject({ description: 'Testers' });
+		expect(JSON.parse(entry.changes ?? '')).toEqual([{ field: 'description', before: 'Early', after: 'Testers' }]);
+	});
+
 	it('refuses an unknown flag, a bad percentage and a group that is gone', async () => {
 		const admin = await t.viewer(ADMIN);
 
