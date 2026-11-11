@@ -238,3 +238,19 @@ test_codeql_filter_with_both if {
 		not contains(msg, "codeql_rust")
 	}
 }
+
+install(tools) := {"true": ["workflow_dispatch"], "jobs": {"lint": {"steps": [
+	{"uses": "taiki-e/install-action@0000000000000000000000000000000000000000", "with": {"tool": tools}},
+]}}}
+
+test_install_without_version if {
+	repo := fixtures.with_file(".github/workflows/tools.yml", install("cargo-deny@0.20.2, zizmor"))
+	".github/workflows/tools.yml: job \"lint\" installs zizmor with no exact version; name one, as zizmor@1.2.3" in workflows.deny with input as repo
+}
+
+test_install_with_versions if {
+	denied := workflows.deny with input as fixtures.with_file(".github/workflows/tools.yml", install("cargo-nextest@0.9.148,cargo-llvm-cov@0.9.1"))
+	every msg in denied {
+		not contains(msg, "tools.yml")
+	}
+}

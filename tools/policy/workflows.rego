@@ -285,3 +285,16 @@ deny contains msg if {
 	not filtered(name, path)
 	msg := sprintf("%s: add it to the %s paths filter; CodeQL's results change with it", [path, name])
 }
+
+# Each tool taiki-e/install-action installs names its exact version, so a run installs what the
+# last one did, and a new version comes in as a change to the workflow.
+deny contains msg if {
+	some path in lib.paths(".github/workflows/*.yml")
+	some id, job in lib.file(path).jobs
+	some step in object.get(job, "steps", [])
+	startswith(object.get(step, "uses", ""), "taiki-e/install-action@")
+	some entry in split(step["with"].tool, ",")
+	tool := trim_space(entry)
+	not regex.match(`@[0-9]+\.[0-9]+\.[0-9]+$`, tool)
+	msg := sprintf("%s: job %q installs %s with no exact version; name one, as %s@1.2.3", [path, id, tool, tool])
+}
