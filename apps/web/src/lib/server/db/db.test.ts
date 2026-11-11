@@ -2,7 +2,7 @@ import { sql } from 'kysely';
 import { afterEach, describe, expect, it } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
 import { type Db, nowIso, openDatabase, parseJson } from './index';
-import { migrateToLatest } from './migrations';
+import { migrations } from './migrations';
 
 describe('database', () => {
 	let db: Db | undefined;
@@ -54,9 +54,9 @@ describe('database', () => {
 			})
 			.execute();
 
+		// Run on its own, as the migrator can't run it again once later migrations have.
 		await sql`DROP TABLE pending_projection`.execute(db);
-		await sql`DELETE FROM kysely_migration WHERE name = '013_pending_projection'`.execute(db);
-		await migrateToLatest(db);
+		await migrations['013_pending_projection'].up(db);
 
 		const queued = await db.selectFrom('pendingProjection').selectAll().orderBy('collection').execute();
 		expect(queued.map(({ collection, rkey }) => [collection, rkey])).toEqual([

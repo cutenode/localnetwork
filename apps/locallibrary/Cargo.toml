@@ -35,6 +35,31 @@ path = "src/unit.rs"
 dist = true
 formula = "locallibrary"
 
+# What cargo-shear can't see used. The plugins are linked through the table build.rs writes
+# (src/plugins.rs includes it from OUT_DIR). The test plugin comes in by #[path] from
+# crates/locallibrary/src/bin/test-plugin and uses loclib-progress, and the tests compile
+# crates/locallibrary/tests/support/ the same way (tests/it/main.rs), which uses jacquard-oauth,
+# oauth2 and tokio. crossterm comes in only to turn on its use-dev-tty feature for ratatui's copy.
+[package.metadata.cargo-shear]
+ignored = [
+    "locallibrary-plugin-archive",
+    "locallibrary-plugin-coverart",
+    "locallibrary-plugin-demos",
+    "locallibrary-plugin-interop",
+    "locallibrary-plugin-mixcloud",
+    "locallibrary-plugin-musicbrainz",
+    "locallibrary-plugin-plyr",
+    "locallibrary-plugin-sound",
+    "locallibrary-plugin-soundcloud",
+    "locallibrary-plugin-tracklist",
+    "locallibrary-plugin-youtube",
+    "loclib-progress",
+    "jacquard-oauth",
+    "oauth2",
+    "tokio",
+    "crossterm",
+]
+
 [features]
 default = ["account", "tui", "playback", "peers"]
 # The Atmosphere account: `account`, publishing (`profile publish`, `sets publish`, `settings
@@ -46,7 +71,7 @@ account = ["locallibrary/account"]
 # `store serve` and `store fetch`: copying snapshots between computers over the network.
 peers = ["locallibrary/peers"]
 # The interactive player (`locallibrary tui`, and `locallibrary` on its own in a terminal).
-tui = ["dep:ratatui", "dep:rodio", "dep:rustfft", "dep:loclib-waveform", "dep:crossterm", "dep:terminal-colorsaurus", "dep:terminal-trx"]
+tui = ["dep:ratatui", "dep:rodio", "dep:rustfft", "dep:loclib-waveform", "dep:crossterm", "dep:terminal-colorsaurus", "dep:terminal-trx", "dep:ratatui-image", "dep:image", "dep:tachyonfx"]
 # The player's audio output: cpal, and ALSA on Linux. Without it the player browses, edits and
 # shows waveforms, but there's no output to play through.
 playback = ["tui", "rodio/playback"]
@@ -112,6 +137,12 @@ locallibrary-plugin-mixcloud = { version = "0.1.0", path = "../../plugins/mixclo
 locallibrary-plugin-soundcloud = { version = "0.1.0", path = "../../plugins/soundcloud" }
 # The player asks the terminal for its real colours (OSC 10 and 11) as it starts.
 terminal-colorsaurus = { version = "1.0.3", optional = true }
+# Cover art in the graphics a terminal has. Pinned: its API changes between versions. No default
+# features, so it doesn't need libchafa.
+ratatui-image = { version = "=11.1.0", default-features = false, optional = true }
+image = { workspace = true, optional = true }
+# The short fades of panels and tracks.
+tachyonfx = { version = "0.25", default-features = false, features = ["std"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
 # Only for `use-dev-tty`: the player's input read with poll(2) rather than mio (ratatui brings the

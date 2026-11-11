@@ -431,16 +431,45 @@ fn prep_runs_the_steps_its_plan_says(tc: TestCase) {
     assert_eq!(libraries.as_array().map(Vec::len), Some(1), "{libraries}");
 }
 
+/// `secs` of 16-bit mono WAV at 22.05 kHz: a short click on every beat at `bpm`.
+fn clicks(bpm: f64, secs: f64) -> Vec<u8> {
+    let rate = 22_050u32;
+    let samples: Vec<i16> = (0..(secs * f64::from(rate)) as u32)
+        .map(|i| {
+            let beat = f64::from(rate) * 60.0 / bpm;
+            let into = f64::from(i) % beat;
+            if into < 200.0 { ((into * 0.7).sin() * 20_000.0 * (1.0 - into / 200.0)) as i16 } else { 0 }
+        })
+        .collect();
+    let data = (samples.len() * 2) as u32;
+    let mut wav = Vec::with_capacity(44 + data as usize);
+    wav.extend(b"RIFF");
+    wav.extend((36 + data).to_le_bytes());
+    wav.extend(b"WAVEfmt ");
+    wav.extend(16u32.to_le_bytes());
+    wav.extend(1u16.to_le_bytes());
+    wav.extend(1u16.to_le_bytes());
+    wav.extend(rate.to_le_bytes());
+    wav.extend((rate * 2).to_le_bytes());
+    wav.extend(2u16.to_le_bytes());
+    wav.extend(16u16.to_le_bytes());
+    wav.extend(b"data");
+    wav.extend(data.to_le_bytes());
+    wav.extend(samples.iter().flat_map(|s| s.to_le_bytes()));
+    wav
+}
+
 /// Scored against tempo annotations, rekordbox's stored tempos earn Accuracy1 for exactly the
 /// tracks annotated with their own tempo, and every annotated track is counted; with no
-/// annotations at all, there's nothing to score.
-#[hegel::test(test_cases = 10)]
+/// annotations at all, there's nothing to score. The analysis scored beside it has a tempo for
+/// each annotated track whose audio it could read, and fails on the others, which have none.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn stored_tempos_score_for_the_tracks_annotated_with_them(tc: TestCase) {
     let s = Sidecar::new();
     let a = s.demo("A");
     let tempos = s.dir.path().join("tempo");
     std::fs::create_dir(&tempos).unwrap();
-    let (mut annotated, mut right) = (0, 0);
+    let (mut annotated, mut right, mut unreadable) = (0, 0, 0);
     for t in &library(&a).tracks {
         let id = Path::new(&t.file_path).file_stem().unwrap().to_string_lossy().to_string();
         let Some(right_tempo) = tc.draw(gs::optional(gs::booleans())) else { continue };
@@ -448,6 +477,13 @@ fn stored_tempos_score_for_the_tracks_annotated_with_them(tc: TestCase) {
         std::fs::write(tempos.join(format!("{id}.LOFI.bpm")), format!("{bpm}")).unwrap();
         annotated += 1;
         right += usize::from(right_tempo);
+        // Audio the analysis can read (clicks at the track's tempo), or the drive's placeholder.
+        match tc.draw(gs::booleans()) {
+            true => {
+                std::fs::write(Path::new(&a).join(t.file_path.trim_start_matches('/')), clicks(t.bpm, 12.0)).unwrap()
+            }
+            false => unreadable += 1,
+        }
     }
     let got = s.call("analysis.bench", json!({ "drive": a, "tempos": tempos }));
     if annotated == 0 {
@@ -458,6 +494,10 @@ fn stored_tempos_score_for_the_tracks_annotated_with_them(tc: TestCase) {
     let scored = &report["tempos"]["rekordbox"];
     assert_eq!(scored["tracks"], annotated, "{report}");
     assert_eq!(scored["score"].as_f64(), Some(right as f64 / annotated as f64), "{report}");
+    assert_eq!(report["failed"].as_array().map(Vec::len), Some(unreadable), "{report}");
+    let analysed = &report["tempos"]["stratum-dsp"];
+    assert_eq!(analysed["tracks"], annotated, "{report}");
+    assert_eq!(analysed["counts"]["missing"].as_u64().unwrap_or(0), unreadable as u64, "{report}");
 }
 
 /// A mix that isn't there is not found, however it's asked to be identified.
@@ -525,5 +565,125 @@ fn repairing_what_verify_found_puts_the_library_back(tc: TestCase) {
     assert_eq!(again["damaged"], json!([]), "{again}");
     for (path, bytes) in &library_files {
         assert_eq!(&std::fs::read(path).unwrap(), bytes, "{}", relative(path));
+    }
+}
+
+/// Drive A with a playlist, Friday, pulled into the store, then changes and reads of every
+/// kind in any order, each change applied by a plan or straight from the request:
+///
+/// - pruned to the newest snapshot, the store loses as many as its plan said it would;
+/// - the drive's journal of edits replayed onto it a second time changes nothing more;
+/// - a hot cue set on a track is listed on it;
+/// - Friday deleted comes back from the store;
+/// - doctor, on any of its sections, reports on the drive;
+/// - a blank drive provisioned like A, and A's tracks relocated, are planned;
+/// - a drive without backups has none to restore, and a playlist that isn't there can't be
+///   exported;
+/// - B merged into A, A synced with its clones, upgraded for its players, given the settings it
+///   exported and a set that isn't there, each applied straight from the request, is refused or
+///   not as its plan was.
+#[hegel::test(test_cases = 6)]
+fn changes_of_every_kind_do_what_they_say(tc: TestCase) {
+    let s = Sidecar::new();
+    let (a, b) = (s.demo("A"), s.demo("B"));
+    let friday = json!({ "op": "add_tracks", "playlist": "Friday", "tracks": { "ids": [1] } });
+    s.ok("edit.apply", json!({ "drive": a, "edits": [{ "op": "create_playlist", "path": "Friday" }, friday] }));
+    s.ok("pull.apply", json!({ "drive": a, "library": "Main", "new_library": true }));
+    let snapshots = || s.ok("store.history", json!({ "library": "Main" })).as_array().unwrap().len();
+    let kinds = vec![
+        "prune",
+        "replay",
+        "cues",
+        "restore",
+        "doctor",
+        "provision",
+        "relocate",
+        "no backups",
+        "no playlist",
+        "alike",
+    ];
+    for (n, kind) in tc.draw(gs::permutations(kinds)).into_iter().enumerate() {
+        match kind {
+            "prune" => {
+                for i in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(2)) {
+                    let edit = json!({ "op": "create_playlist", "path": format!("Pulled {n}.{i}") });
+                    s.ok("edit.apply", json!({ "drive": a, "edits": [edit] }));
+                    s.ok("pull.apply", json!({ "drive": a, "library": "Main" }));
+                }
+                let before = snapshots();
+                let planned = s.ok("store.prune.plan", json!({ "keep_last": 1 }))["removed_snapshots"].clone();
+                let report = plan_or_request(&tc, &s, "store.prune", json!({ "keep_last": 1 })).unwrap();
+                let removed = report["removed_snapshots"].as_u64().unwrap() as usize;
+                assert!(removed < before, "{report}");
+                assert_eq!(report["removed_snapshots"], planned, "{report}");
+                assert_eq!(snapshots(), before - removed, "{report}");
+            }
+            "replay" => {
+                plan_or_request(&tc, &s, "edits.replay", json!({ "drive": a })).unwrap();
+                let once = contents(&a);
+                plan_or_request(&tc, &s, "edits.replay", json!({ "drive": a })).unwrap();
+                assert_eq!(contents(&a), once);
+            }
+            "cues" => {
+                let hot = tc.draw(gs::sampled_from(vec!["A", "B", "C"]));
+                let ms = tc.draw(gs::integers::<u32>().max_value(60_000));
+                let set = json!({ "op": "set", "hot_cue": hot, "at": { "ms": ms } });
+                plan_or_request(&tc, &s, "cues", json!({ "drive": a, "ids": [1], "edit": set })).unwrap();
+                let listed = s.ok("cues.list", json!({ "drive": a, "ids": [1] }));
+                let cues = listed[0]["cues"].as_array().unwrap();
+                assert!(cues.iter().any(|c| c["hot_cue"] == hot), "{hot} at {ms}: {listed}");
+            }
+            "restore" => {
+                s.ok("edit.apply", json!({ "drive": a, "edits": [{ "op": "delete_playlist", "playlist": "Friday" }] }));
+                assert!(!playlists(&a).contains(&"Friday".to_string()));
+                plan_or_request(&tc, &s, "playlist.restore", json!({ "drive": a, "playlist": "Friday" })).unwrap();
+                assert!(playlists(&a).contains(&"Friday".to_string()), "{:?}", playlists(&a));
+            }
+            "doctor" => {
+                let only = tc.draw(gs::subsequences(vec!["missing", "orphans", "drift", "large_files"]));
+                let report = s.ok("doctor", json!({ "drive": a, "only": only }));
+                assert!(report["drive"].is_object() || report["drive"].is_string(), "{only:?}: {report}");
+            }
+            "provision" => {
+                let target = s.dir.path().join(format!("Blank {n}"));
+                std::fs::create_dir(&target).unwrap();
+                let plan = s.ok("provision.plan", json!({ "target": target, "like": a }));
+                assert_eq!(plan["operation"], "provision", "{plan}");
+                assert!(!target.join("PIONEER").exists(), "planning wrote to the drive");
+            }
+            "relocate" => {
+                let plan = s.ok("relocate.plan", json!({ "drive": a }));
+                assert_eq!(plan["operation"], "relocate", "{plan}");
+            }
+            "no backups" => {
+                let e = s.call("drive.restore.preview", json!({ "drive": b })).err().map(|e| (e.kind, e.message));
+                assert_eq!(e, Some(("not_found", "not found: no backups on this drive".into())));
+            }
+            "alike" => {
+                let settings = s.dir.path().join(format!("settings {n}.json"));
+                std::fs::write(&settings, s.ok("settings.export", json!({})).to_string()).unwrap();
+                let asked = [
+                    ("merge", json!({ "source": b, "target": a })),
+                    ("sync.many", json!({ "drives": [a] })),
+                    ("upgrade", json!({ "drive": a })),
+                    ("settings.import_file", json!({ "file": settings })),
+                    ("sets.playlist", json!({ "set": "Nope", "drive": a })),
+                ];
+                for i in tc.draw(gs::permutations((0..asked.len()).collect::<Vec<_>>())) {
+                    let (op, params) = &asked[i];
+                    let kind = |r: Result<Value, RpcError>| r.err().map(|e| e.kind);
+                    let planned = kind(s.call(&format!("{op}.plan"), params.clone()));
+                    let applied = kind(s.call(&format!("{op}.apply"), params.clone()));
+                    assert_eq!(applied, planned, "{op} {params}");
+                }
+            }
+            _ => {
+                let output = s.dir.path().join("out.m3u8");
+                let asked = json!({ "drive": a, "playlist": "Nope", "output": output });
+                let e = s.call("export", asked).err().map(|e| (e.kind, e.message));
+                assert_eq!(e, Some(("not_found", "not found: playlist \"Nope\"".into())));
+                assert!(!output.exists());
+            }
+        }
     }
 }

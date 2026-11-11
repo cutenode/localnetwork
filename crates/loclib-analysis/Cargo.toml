@@ -20,7 +20,6 @@ loclib-progress.workspace = true
 schemars = { version = "1.2", default-features = false, features = ["derive", "indexmap2", "std"], optional = true }
 serde.workspace = true
 stratum-dsp = "1"
-symphonia.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

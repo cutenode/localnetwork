@@ -11,10 +11,28 @@ const percentage = fc.integer({ min: 0, max: 100 });
 
 describe('the rule locallibrary shares', () => {
 	it.each(vectors.cases)('$key for $did at $percentage%', (vector) => {
-		const { key, did, everyone, targeted, percentage, bucket: expected, on } = vector;
+		// A case without `enabled` is a flag whose record doesn't say, which is on.
+		const { key, did, enabled = true, everyone, targeted, percentage, bucket: expected, on } = vector;
 
 		expect(did === null ? null : bucket(key, did)).toBe(expected);
-		expect(isOn({ everyone, targeted, percentage }, key, did)).toBe(on);
+		expect(isOn({ enabled, everyone, targeted, percentage }, key, did)).toBe(on);
+	});
+});
+
+describe('turning a flag off', () => {
+	it('is off for everyone, whatever its gates say', () => {
+		fc.assert(
+			fc.property(
+				key,
+				fc.option(did),
+				fc.boolean(),
+				fc.boolean(),
+				percentage,
+				(flag, account, everyone, targeted, share) => {
+					expect(isOn({ enabled: false, everyone, targeted, percentage: share }, flag, account)).toBe(false);
+				}
+			)
+		);
 	});
 });
 
@@ -23,7 +41,7 @@ describe('rollouts', () => {
 		fc.assert(
 			fc.property(key, did, percentage, percentage, (flag, account, a, b) => {
 				const [low, high] = a < b ? [a, b] : [b, a];
-				const gates = { everyone: false, targeted: false };
+				const gates = { enabled: true, everyone: false, targeted: false };
 
 				const stays =
 					!isOn({ ...gates, percentage: low }, flag, account) || isOn({ ...gates, percentage: high }, flag, account);
@@ -36,7 +54,7 @@ describe('rollouts', () => {
 	it('takes in every account at 100 and none at 0', () => {
 		fc.assert(
 			fc.property(key, did, (flag, account) => {
-				const gates = { everyone: false, targeted: false };
+				const gates = { enabled: true, everyone: false, targeted: false };
 
 				expect(isOn({ ...gates, percentage: 100 }, flag, account)).toBe(true);
 				expect(isOn({ ...gates, percentage: 0 }, flag, account)).toBe(false);
@@ -47,7 +65,7 @@ describe('rollouts', () => {
 	it('never counts a signed-out visitor', () => {
 		fc.assert(
 			fc.property(key, percentage, (flag, share) => {
-				expect(isOn({ everyone: false, targeted: false, percentage: share }, flag, null)).toBe(false);
+				expect(isOn({ enabled: true, everyone: false, targeted: false, percentage: share }, flag, null)).toBe(false);
 			})
 		);
 	});

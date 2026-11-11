@@ -156,7 +156,7 @@ fn adts(frames: usize) -> Vec<u8> {
 
 /// What a recording is read as: AAC alone, or in an M4A file, goes up as it is when it's AAC
 /// (`audio/aac`, `audio/mp4`), and an M4A file of another codec says which and doesn't. A file that
-/// isn't there, or can't be opened or read, says so.
+/// isn't there, or can't be opened or read, says so; one that isn't audio says what to attach.
 #[hegel::test(test_cases = 20)]
 #[hegel::explicit_test_case(kind = 0u8, frames = 50usize)]
 #[hegel::explicit_test_case(kind = 1u8, frames = 50usize)]
@@ -164,16 +164,18 @@ fn adts(frames: usize) -> Vec<u8> {
 fn prop_a_recording_is_read_as_what_it_holds(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let fixture = |name: &str| Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio").join(name);
-    let kind = tc.draw(gs::integers::<u8>().max_value(5));
+    let kind = tc.draw(gs::integers::<u8>().max_value(6));
     let frames = tc.draw(gs::integers::<usize>().min_value(50).max_value(400));
-    let path =
-        dir.path().join(["set.aac", "set.m4a", "alac.m4a", "gone.wav", "folder.wav", "locked.mp3"][kind as usize]);
+    let names = ["set.aac", "set.m4a", "alac.m4a", "gone.wav", "folder.wav", "locked.mp3", "notes.txt"];
+    let path = dir.path().join(names[kind as usize]);
     match kind {
         0 => std::fs::write(&path, adts(frames)).unwrap(),
         1 => std::fs::copy(fixture("silence.m4a"), &path).map(|_| ()).unwrap(),
         2 => std::fs::copy(fixture("silence-alac.m4a"), &path).map(|_| ()).unwrap(),
         3 => {}
         4 => std::fs::create_dir(&path).unwrap(),
+        // Opens, but holds nothing a reader knows.
+        6 => std::fs::write(&path, "x".repeat(frames)).unwrap(),
         _ => {
             std::fs::write(&path, mp3(40)).unwrap();
             #[cfg(unix)]
@@ -197,6 +199,13 @@ fn prop_a_recording_is_read_as_what_it_holds(tc: TestCase) {
         3 => assert_eq!(read.unwrap_err().code(), "io"),
         // A folder opens on Unix, and fails when it's read; on Windows it doesn't open.
         4 => assert_eq!(read.unwrap_err().code(), if cfg!(unix) { "io" } else { "invalid" }),
+        6 => {
+            let e = read.unwrap_err();
+            let said = e.to_string();
+            assert_eq!(e.code(), "invalid", "{said}");
+            assert!(said.contains("notes.txt can't be uploaded: it isn't audio locallibrary can read ("), "{said}");
+            assert!(said.ends_with("(`sets edit SET --recording FILE`)"), "{said}");
+        }
         _ => {
             // Root can read it anyway.
             if let Err(e) = read {

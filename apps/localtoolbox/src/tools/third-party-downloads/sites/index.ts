@@ -73,10 +73,10 @@ export type Unlocked =
 
 export const SITES: Site[] = [hypeddit, toneden, droploud, pumpyoursound, laylo, featurefm, fanlink];
 
-/** Every hostname a site fetches: what `host_permissions` covers. */
+/** Every hostname a site fetches: what `host_permissions` covers. @internal */
 export const HOSTS = SITES.flatMap((site) => site.hosts);
 
-/** Every hostname a link can arrive on, fetched or rewritten. */
+/** Every hostname a link can arrive on, fetched or rewritten. @internal */
 export const CLAIMED = SITES.flatMap((site) => [...site.hosts, ...(site.aliases ?? [])]);
 
 // SoundCloud wraps outbound links in its gate.sc redirector

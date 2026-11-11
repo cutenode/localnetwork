@@ -278,7 +278,7 @@ impl MixTab {
         }
     }
 
-    fn cancel(&mut self) {
+    pub(in crate::tui) fn cancel(&mut self) {
         if let Some(l) = self.loading.take() {
             l.cancel.cancel();
             // Whatever the cancelled run sends back is for an older generation.

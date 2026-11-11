@@ -20,8 +20,8 @@ use uuid::Uuid;
 use super::app::{App, Focus, Level, View};
 use super::browse::{Category, NodeId};
 use super::edits::{Modal, Prompt, PromptFor};
-use super::keymap::{self, Act};
-use super::palette::{Item, Picker, Then};
+use super::keymap::{self, Act, Scope};
+use super::palette::{Item, Picker, Then, key_name};
 
 /// What happens once a confirmed change has been made: the next step of something that takes
 /// two (saving the crate as a playlist, then packing it).
@@ -352,19 +352,20 @@ impl App {
         let no_export = (!export).then(|| "no rekordbox export on it".to_string());
         // `u` undoes on the drive changed last this run, which may be another.
         let undo_key = if self.undo_drive().as_ref() == Some(&root) { "u" } else { "" };
-        let item = |act: Act, key: &str, why: &Option<String>| {
-            (act, Item { label: keymap::name(act).into(), detail: key.into(), unavailable: why.clone() })
+        let item = |act: Act, why: &Option<String>| {
+            let key = keymap::key_in(Scope::Drives, act).map_or(String::new(), key_name);
+            (act, Item { label: keymap::name(act).into(), detail: key, unavailable: why.clone() })
         };
         let items = vec![
-            item(Act::Pull, "", &no_export),
-            item(Act::Check, "", &no_export),
-            item(Act::SetPrep, "", &no_export),
-            item(Act::SyncGroup, "", &no_export),
-            item(Act::Pack, "", &None),
-            item(Act::RestorePlaylist, "", &no_export),
-            item(Act::Replay, "", &no_export),
-            item(Act::Undo, undo_key, &None),
-            item(Act::Eject, "", &None),
+            item(Act::Pull, &no_export),
+            item(Act::Check, &no_export),
+            item(Act::SetPrep, &no_export),
+            item(Act::SyncGroup, &no_export),
+            item(Act::Pack, &None),
+            item(Act::RestorePlaylist, &no_export),
+            item(Act::Replay, &no_export),
+            (Act::Undo, Item::new(keymap::name(Act::Undo), undo_key)),
+            item(Act::Eject, &None),
         ];
         let (acts, items): (Vec<Act>, Vec<Item>) =
             items.into_iter().chain(self.plugin_items(Some(&root), &[Where::Drive])).unzip();

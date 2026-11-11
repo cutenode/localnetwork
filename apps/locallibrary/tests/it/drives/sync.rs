@@ -67,6 +67,36 @@ fn syncing_shows_the_plan_then_what_it_copied() {
 
 /// Merging another drive in, converting between the databases and cleaning out demo samples:
 /// each shows its plan, does it, and says how to undo it.
+/// For any My Tags on the demo drive's tracks (each tag on any of its two tracks): merging it
+/// into another library plans My Tags for the tracks that have one and creating each tag in
+/// exportExt.pdb, and nothing about My Tags when none is set.
+#[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_merge_plans_the_my_tags_its_source_has(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let env = Env::new();
+    env.demo("A");
+    let tags: Vec<&str> = tc.draw(gs::subsequences(vec!["Genre/Deep", "Situation/Warmup", "Genre/Peak"]));
+    let mut tagged = std::collections::BTreeSet::new();
+    for tag in &tags {
+        let tracks: Vec<&str> = tc.draw(gs::subsequences(vec!["1", "2"]).min_size(1));
+        let mut args = vec!["--yes", "tags", "add", "A", tag];
+        for t in &tracks {
+            args.extend(["--track", t]);
+        }
+        env.ok(&args);
+        tagged.extend(tracks);
+    }
+    let other = env.demo("Other");
+    std::fs::copy(club_export(), other.join(PDB)).unwrap();
+    let plan = env.ok(&["merge", "A", "Other", "--dry-run"]);
+    let said = format!("{tags:?} on {tagged:?}: {plan}");
+    assert_eq!(plan.contains(&format!("  My Tags for {} track(s)\n", tagged.len())), !tagged.is_empty(), "{said}");
+    for tag in &tags {
+        assert!(plan.contains(&format!("  create My Tag {tag} in exportExt.pdb\n")), "{said}");
+    }
+    assert_eq!(plan.matches("  create My Tag ").count(), tags.len(), "{said}");
+}
+
 #[test]
 fn merge_convert_and_clean_show_their_plan_and_how_to_undo() {
     let env = Env::new();

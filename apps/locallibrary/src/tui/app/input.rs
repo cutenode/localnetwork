@@ -101,6 +101,7 @@ impl App {
         if self.late_answers.swallows(&key, Instant::now()) {
             return;
         }
+        self.intro = false;
         let key = capital(key);
         // The player may have gone on to the next track since the last tick: keys act on the one
         // playing (a seek asked of the one that ended would be lost).
@@ -119,13 +120,7 @@ impl App {
             return;
         }
         if self.help {
-            match key.code {
-                KeyCode::Up | KeyCode::Char('k') => self.help_scroll = self.help_scroll.saturating_sub(1),
-                KeyCode::Down | KeyCode::Char('j') => self.help_scroll = self.help_scroll.saturating_add(1),
-                KeyCode::PageUp => self.help_scroll = self.help_scroll.saturating_sub(10),
-                KeyCode::PageDown | KeyCode::Char(' ') => self.help_scroll = self.help_scroll.saturating_add(10),
-                _ => self.help = false,
-            }
+            self.on_help_key(key);
             return;
         }
         if self.show_log {
@@ -198,6 +193,32 @@ impl App {
         }
     }
 
+    /// Keys while the help is open: typing narrows it, the arrows move, enter runs the row selected
+    /// and esc closes it (`?` too, with nothing typed).
+    fn on_help_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Up => self.help_row = self.help_row.saturating_sub(1),
+            KeyCode::Down => self.help_row = self.help_row.saturating_add(1),
+            KeyCode::PageUp => self.help_row = self.help_row.saturating_sub(10),
+            KeyCode::PageDown => self.help_row = self.help_row.saturating_add(10),
+            KeyCode::Esc => self.help = false,
+            KeyCode::Char('?') if self.help_query.is_empty() => self.help = false,
+            KeyCode::Enter => {
+                let rows = keymap::help_rows(self, &self.help_query);
+                let chosen = rows.get(self.help_row).map(|r| r.binding.act).filter(|a| keymap::runs(*a));
+                if let Some(act) = chosen {
+                    self.help = false;
+                    self.perform(act, None);
+                }
+            }
+            _ => {
+                if edit_line(&mut self.help_query, key) {
+                    self.help_row = 0;
+                }
+            }
+        }
+    }
+
     /// Picking a playlist stays in the library: `g` then only reaches the first row.
     fn picking_view(&self, key: &KeyEvent) -> bool {
         self.picking.is_some() && key.code != KeyCode::Char('g')
@@ -218,9 +239,16 @@ impl App {
             Act::Quit => self.request_quit(),
             Act::Help => {
                 self.help = true;
-                self.help_scroll = 0;
+                self.help_row = 0;
+                self.help_query.clear();
             }
             Act::Palette => self.open_palette(),
+            Act::Jobs => self.open_jobs(),
+            Act::PaneActions => self.open_actions(),
+            Act::OpenFolder => self.open_folder(),
+            Act::Snapshots => self.browse_snapshots(),
+            Act::SignIn => self.sign_in(),
+            Act::Hints(hints) => self.use_hints(hints),
             Act::Messages => {
                 self.show_log = true;
                 self.log_scroll = 0;
@@ -293,7 +321,18 @@ impl App {
             Act::Loop => deck::toggle_loop(self),
             Act::LoopSize(double) => deck::resize_loop(self, if double { 2.0 } else { 0.5 }),
             Act::Visualiser => self.vis = self.vis.next(),
-            Act::FullScreen => self.fullscreen = !self.fullscreen,
+            Act::DeckLayout => {
+                self.deck_layout = !self.deck_layout;
+                self.browsing = false;
+            }
+            Act::Browse => self.browsing = true,
+            Act::NextBands => self.next_bands(),
+            Act::Bands(mode) => self.use_bands(mode),
+            Act::KeyNotation(n) => self.use_notation(n),
+            Act::KeyPalette(k) => self.use_key_palette(k),
+            Act::EndWarning(secs) => self.use_end_warning(secs),
+            Act::Art(on) => self.use_art(on),
+            Act::ResetPlayed => self.reset_played(),
             Act::Zoom(true) => self.deck_secs = (self.deck_secs / 1.5).max(1.5),
             Act::Zoom(false) => self.deck_secs = (self.deck_secs * 1.5).min(60.0),
             Act::Move(dir) if in_profile => profile::move_by(self, dir as isize),
@@ -303,7 +342,7 @@ impl App {
             Act::Page(dir) if in_mixes => mix::move_by(self, 10 * dir as isize),
             Act::Page(dir) => {
                 let page = match self.focus {
-                    Focus::Tracks if self.view == View::Library && !self.fullscreen => {
+                    Focus::Tracks if self.view == View::Library && !self.deck_showing() => {
                         self.areas.tracks.height.saturating_sub(3).max(1) as isize
                     }
                     _ => 10,
@@ -313,6 +352,7 @@ impl App {
             Act::End(dir) if in_profile => profile::move_by(self, 10_000 * dir as isize),
             Act::End(dir) if in_mixes => mix::move_by(self, 100_000 * dir as isize),
             Act::End(dir) => self.move_selection(if dir < 0 { isize::MIN / 2 } else { isize::MAX / 2 }),
+            Act::Activate if self.empty() && self.focus == Focus::Tracks => self.take_step(),
             Act::Activate if in_profile => profile::switch_pane(self),
             Act::Activate if in_mixes => mix::enter(self),
             Act::Activate => self.activate(),
@@ -454,8 +494,9 @@ impl App {
         if self.quit_after_write {
             self.quit_after_write = false;
             self.toast("staying: not quitting after the write", Level::Info);
-        } else if self.fullscreen {
-            self.fullscreen = false;
+        } else if self.view == View::Library && self.deck_layout {
+            // Browse closes first; then back to the Library layout.
+            self.deck_layout = std::mem::take(&mut self.browsing);
         } else if self.job.is_some() {
             self.cancel_job();
         } else if self.dismiss_errors() {
@@ -518,7 +559,7 @@ impl App {
         self.refresh_visible();
     }
 
-    pub(super) fn set_view(&mut self, v: View) {
+    pub(in crate::tui) fn set_view(&mut self, v: View) {
         // The search box is the library's: keys typed in another view aren't for it.
         if self.searching && v != View::Library {
             self.close_search();
@@ -532,7 +573,6 @@ impl App {
             self.profile.account.stop_typing();
         }
         self.view = v;
-        self.fullscreen = false;
         match v {
             View::Drives => {
                 if self.status.is_none() {
@@ -547,8 +587,12 @@ impl App {
 
     pub(super) fn activate(&mut self) {
         match (self.view, self.focus) {
-            (View::Library, _) if self.fullscreen => self.play_next(),
-            (View::Library, Focus::Tracks) => self.play_selected(),
+            (View::Library, _) if self.deck_showing() => self.play_next(),
+            (View::Library, Focus::Tracks) => {
+                self.play_selected();
+                // As a CDJ does: a track loaded, the deck's back.
+                self.browsing = false;
+            }
             (View::Library, Focus::Playlists) => self.open_playlist(),
             (View::Library, Focus::Details) => self.play_match(),
             (View::Library, Focus::Crate) => self.play_crate(),
@@ -601,9 +645,10 @@ impl App {
 
     pub(super) fn list_len(&self) -> usize {
         match (self.view, self.focus) {
-            (View::Library, _) if self.fullscreen => {
+            (View::Library, _) if self.deck_showing() => {
                 self.now.as_ref().and_then(|n| n.matches.as_ref()).map_or(0, |m| m.items.len())
             }
+            (View::Library, Focus::Tracks) if self.empty() => self.next_steps().len(),
             (View::Library, Focus::Tracks) => self.visible.len(),
             (View::Library, Focus::Playlists) => self.loaded.as_ref().map_or(0, |l| l.tree.len()),
             (View::Library, Focus::Details) => {
@@ -629,7 +674,8 @@ impl App {
     pub(in crate::tui) fn list_selection(&mut self) -> (&mut Option<usize>, usize) {
         let len = self.list_len();
         let sel = match (self.view, self.focus) {
-            (View::Library, _) if self.fullscreen => self.next_pick.selected_mut(),
+            (View::Library, _) if self.deck_showing() => self.next_pick.selected_mut(),
+            (View::Library, Focus::Tracks) if self.empty() => self.steps.selected_mut(),
             (View::Library, Focus::Tracks) => self.track_state.selected_mut(),
             (View::Library, Focus::Playlists) => self.playlist_state.selected_mut(),
             (View::Library, Focus::Details) => self.details_state.selected_mut(),

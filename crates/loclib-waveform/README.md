@@ -8,7 +8,9 @@ rekordbox's analysis with them.
 | Widget | What it draws |
 | --- | --- |
 | `Overview` | the whole track: cue markers above a two-layer waveform, the played part dimmed, and the playhead (a plain progress rail without a waveform) |
+| `WaveOverview` | `Overview` of any `Wave`, with a second row of cue markers where they collide |
 | `Detail` | a scrolling, mirrored waveform centred on the playhead, with beat ticks, cue lines, loop washes and cue names |
+| `ZoomRing` | what `Detail` draws from a `Zoom`, keeping columns between frames so one costs the same at any zoom or track length, with a ruler and bar numbers |
 | `CueLane` | the stretch of track around the playhead as one rail: hot cues as lettered chips, memory cues as diamonds, loops as bars, names underneath |
 | `PhraseStrip` | phrases across the whole track, each a block of its colour with its name |
 | `Spectrum` | bars with peak caps, coloured by height, optionally mirrored with the bass in the middle |
@@ -16,8 +18,14 @@ rekordbox's analysis with them.
 | `Pixels` | an image in half blocks, two pixels a cell |
 
 `vinyl` makes the pixels of a spinning record for tracks without artwork, and `Art` decodes
-cover art and resamples it to a cell size. `cue_label` and `cue_letter` give a cue's on-screen
+cover art, resamples it to a cell size and finds its two main colours. `cue_label` and `cue_letter` give a cue's on-screen
 name and hot cue letter, and `bar_layout` how many spectrum bands fit a width.
+
+A `Wave` is what a waveform's drawn from: a `Waveform`'s two layers, or a `Bands`' three (`band_gain`
+turns a quiet master up to the height). A column's boundaries fall on eighths of a cell, a cell
+showing the two colours either side of one. `playhead_cells` draws a playhead a cell wide that moves
+in eighths, and `place_markers` lays out cue markers in rows so no two share a cell and no two hot
+cue letters touch.
 
 The track data is loclib-model's `analysis` types (`Waveform`, `Beat`, `Cue`), which locallibrary
 reads from rekordbox's ANLZ files.
@@ -65,7 +73,8 @@ loclib-model `Theme`'s colours (its waveform gradients, cue and track colours, p
 background or a terminal of fewer colours, give it your own `paint`, `marker` (a cue's or a
 waveform's own colour as it reads on the background) and `background` (what colours fade towards),
 and `plain: true` for NO_COLOR, where coloured cells show in reverse video and pictures are left
-out. `color::{mix, scale, gradient}` is the colour arithmetic the widgets shade with, and
+out. `flat: true` is for colours that can't be trusted to shade: what's played takes the dim
+attribute, nothing's tinted, and hot cues' letters are in reverse video. `color::{mix, scale, gradient}` is the colour arithmetic the widgets shade with, and
 `color::{luminance, contrast}` WCAG's.
 
 ## Features
