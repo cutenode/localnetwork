@@ -24,7 +24,9 @@ local function managed(dids)
 		table.insert(byDid[row.did], { slug = row.slug, name = row.name })
 	end
 	local out = {}
-	for i, did in ipairs(dids) do out[i] = { did = did, projects = toarray(byDid[did] or {}) } end
+	for i, did in ipairs(dids) do
+		out[i] = { did = did, projects = toarray(byDid[did] or {}) }
+	end
 	return toarray(out)
 end
 
@@ -84,14 +86,17 @@ function handle()
 	end
 
 	local setsByUri = {}
-	for _, row in ipairs(db.raw(
-		'SELECT uri, cid, ' .. SET_FIELDS .. ' FROM happyview_records WHERE uri IN (' .. marks(#uris) .. ')',
-		uris
-	)) do
+	for _, row in
+		ipairs(
+			db.raw('SELECT uri, cid, ' .. SET_FIELDS .. ' FROM happyview_records WHERE uri IN (' .. marks(#uris) .. ')', uris)
+		)
+	do
 		setsByUri[row.uri] = setView(row.record, row.uri, row.cid)
 	end
 	for i, track in ipairs(tracks) do
-		for _, play in ipairs(track.plays) do play.set, play.uri = setsByUri[play.uri], nil end
+		for _, play in ipairs(track.plays) do
+			play.set, play.uri = setsByUri[play.uri], nil
+		end
 		tracks[i] = { track = track.track, plays = toarray(track.plays) }
 	end
 
@@ -100,7 +105,7 @@ function handle()
 		id = first.artistId,
 		name = first.name,
 		supports = first.artistSupports,
-		djCount = first.djCount
+		djCount = first.djCount,
 	})
 	return { artist = artist, tracks = toarray(tracks), djs = managed(dids) }
 end

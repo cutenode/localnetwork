@@ -72,6 +72,7 @@ export const lexicons = new Lexicons(structuredClone(DOCS));
 /**
  * Publishes every lexicon in the agent's own repo, with the agent as the permission set's root (`schemaRecord`). The
  * dev network and the integration tests publish this way, each with its own root.
+ * @internal
  */
 export async function publishLexicons(agent: Agent): Promise<void> {
 	for (const doc of LEXICON_DOCS)

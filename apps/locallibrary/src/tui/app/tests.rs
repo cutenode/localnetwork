@@ -2974,7 +2974,7 @@ fn the_log_keeps_the_last_messages() {
 /// On a big library the search box narrows the list once typing pauses (at the next tick
 /// after then), not on every key.
 #[test]
-fn a_big_librarys_search_waits_for_typing_to_pause() {
+fn a_big_library_search_waits_for_typing_to_pause() {
     let dir = tempfile::tempdir().unwrap();
     let mut app = App::with_library(dir.path(), big_library(TYPE_AHEAD as u32 + 1));
     press(&mut app, "/title 4999");
@@ -3208,7 +3208,7 @@ fn a_plugins_analysis_fills_in_what_the_drive_lacks() {
 /// library has it (LOC-13: every match was said to show 4A). On rekordcrate's 3,886-track
 /// export, playing tracks in each of the keys it has.
 #[test]
-fn the_mixes_into_panel_shows_each_matchs_own_key() {
+fn the_mixes_into_panel_shows_each_match_with_its_own_key() {
     let dir = tempfile::tempdir().unwrap();
     let pdb = dir.path().join(paths::EXPORT_PDB);
     std::fs::create_dir_all(pdb.parent().unwrap()).unwrap();
@@ -3261,6 +3261,28 @@ fn the_mixes_into_panel_shows_each_matchs_own_key() {
         }
     }
     assert!(shown.len() > 12, "keys shown: {shown:?}");
+}
+
+/// The few rows the "mixes into" panel has room for show the other keys that mix in too, where
+/// same-key tracks alone would fill them and every row would read as the playing track's key
+/// (LOC-13).
+#[test]
+fn the_mixes_into_panel_shows_more_than_the_playing_key() {
+    let at = |id, key: &str, title: &str| Track { key: key.into(), bpm: 128.0, ..track(id, "DJ", title) };
+    let mut tracks = vec![at(1, "8B", "Playing")];
+    tracks.extend((2..9).map(|id| at(id, "8B", &format!("Same {id}"))));
+    tracks.extend([at(9, "7B", "Neighbour"), at(10, "8A", "Relative")]);
+    let lib = Library { tracks, ..Default::default() };
+    let (mut app, _dir) = playing_in(lib, TrackAnalysis::default());
+    let l = app.loaded.as_ref().unwrap();
+    let (root, lib) = (l.root().to_path_buf(), l.library.clone());
+    let info = track_info(&root, &lib.tracks[0], Some(lib.clone()), &root.join("store"));
+    app.handle_msg(Msg::TrackInfo(1, Box::new(info)));
+    app.deck_layout = true;
+    let s = super::super::ui::screen(&mut app, 120, 40);
+    for row in ["8B  128.0 Same 2", "7B  128.0 Neighbour", "8A  128.0 Relative"] {
+        assert!(s.contains(row), "{row}:\n{s}");
+    }
 }
 
 /// The player as `tui::run` makes it, with nothing to hear and the drives in [`plugins_once`] the

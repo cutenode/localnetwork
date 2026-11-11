@@ -1444,7 +1444,7 @@ fn searched_as_the_library_does(app: &mut App, query: &str, enter: bool) {
 /// On a big library, the search box waits for typing to pause before narrowing the list (enter
 /// doesn't wait), then shows what it would have at once.
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_big_librarys_search_waits_for_a_pause(tc: TestCase) {
+fn a_big_library_search_waits_for_a_pause(tc: TestCase) {
     let n = TYPE_AHEAD as u32 + 1;
     let tracks = (1..=n).map(|id| track(id, &format!("Artist {}", id % 50), &format!("Title {id}"))).collect();
     let (mut app, _dir) = app_with(Library { tracks, ..Default::default() });
@@ -2383,5 +2383,37 @@ fn plugins_fields_of_every_kind_show_and_sort(tc: TestCase) {
             let wrong = if descending { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater };
             assert_ne!(ord, wrong, "{pair:?}, descending {descending}");
         }
+    }
+}
+
+/// For any library and any track in it, the matches found are the tracks that mix into it,
+/// closest tempo first within each way of mixing in, and those ways take turns: the first rows
+/// hold one of each there is, so the few rows the panel has never show only the playing track's
+/// key while others mix in too (LOC-13).
+#[hegel::test(test_cases = 200)]
+fn prop_the_ways_of_mixing_in_take_turns(tc: TestCase) {
+    use crate::tui::keys::Relation;
+    let mut tracks = any_tracks(&tc, 14);
+    for t in &mut tracks {
+        t.key = tc.draw(strings_from(&["8B", "C", "7B", "9B", "8A", "10B", "3A", ""]));
+        t.bpm = tc.draw(gs::sampled_from(&[0.0, 121.0, 128.0, 129.0][..]));
+    }
+    let lib = Arc::new(Library { tracks, ..Default::default() });
+    let Some(playing) = lib.tracks.first().cloned() else { return };
+    let limit = tc.draw(gs::integers::<usize>().min_value(1).max_value(16));
+    let found = Matches::find(lib.clone(), PathBuf::new(), &playing, limit);
+    let all = locallibrary::api::matches_in(&lib, &playing, usize::MAX);
+    assert_eq!(found.items.len(), all.len().min(limit));
+    let ways: Vec<Relation> = found.items.iter().map(|m| m.relation).collect();
+    let mut kinds: Vec<Relation> = all.iter().map(|s| s.relation).collect();
+    kinds.dedup();
+    // One of each, in the order the suggestions rank them.
+    let first = &ways[..kinds.len().min(ways.len())];
+    assert_eq!(first, &kinds[..first.len()], "{ways:?}");
+    for way in kinds {
+        let mine: Vec<u32> = (found.items.iter()).filter(|m| m.relation == way).map(|m| found.track(m).id).collect();
+        let theirs: Vec<u32> =
+            (all.iter()).filter(|s| s.relation == way).map(|s| s.track.id).take(mine.len()).collect();
+        assert_eq!(mine, theirs, "{way:?}");
     }
 }
