@@ -167,6 +167,9 @@ needs.
   - From 34 rows, what mixes into the track (compatible key on the Camelot wheel, tempo within 6% or
     half/double time), the playlists it's in and a summary of its analysis are under the waveforms.
     A track with no detail waveform gets a line saying so, and these take its rows at any height.
+    The matches take turns by how they mix in (same key, ±1, relative, energy boost), closest tempo
+    first, so the first rows show each kind there is. `locallibrary track matches` lists the same
+    tracks best first instead: every same-key track, then the rest.
     `↑` `↓` pick one of those tracks and `enter` (or a double-click) queues it to play next, marked
     *next* in the list.
   - With 9 rows or more for the top of the screen and room to spare, `v` picks what's beside the

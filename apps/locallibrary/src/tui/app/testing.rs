@@ -186,7 +186,12 @@ pub fn blank(view: View) -> (App, TempDir) {
 /// [`app_with`] the test library, its first track playing with `analysis` (its audio still
 /// opening, so a jump shows as where playback will start), and no audio device.
 pub fn playing(analysis: TrackAnalysis) -> (App, TempDir) {
-    let (mut app, dir) = app_with(library());
+    playing_in(library(), analysis)
+}
+
+/// [`playing`], with `lib` in place of the test library.
+pub fn playing_in(lib: Library, analysis: TrackAnalysis) -> (App, TempDir) {
+    let (mut app, dir) = app_with(lib);
     let l = app.loaded.as_ref().unwrap();
     let (track, root) = (l.library.tracks[0].clone(), l.root().to_path_buf());
     app.now = Some(NowPlaying {
