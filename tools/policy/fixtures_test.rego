@@ -59,8 +59,14 @@ repo := [
 	{"path": "vendor/pdb/Cargo.toml", "contents": {"package": {"name": "pdb", "edition": "2021", "rust-version": {"workspace": true}}, "lints": {"workspace": true}}},
 	{"path": "lefthook.yml", "contents": {
 		"lefthook": "pnpm exec lefthook",
-		"pre-commit": {"jobs": [{"root": "apps/site/", "run": "pnpm exec oxfmt {staged_files}"}, {"root": "apps/site/", "run": "pnpm exec oxlint {staged_files}"}]},
-		"pre-push": {"jobs": [{"root": "apps/site/", "run": "pnpm check"}, {"root": "apps/site/", "run": "pnpm test"}]},
+		"pre-commit": {"jobs": [
+			{"root": "apps/site/", "run": "pnpm exec oxfmt {staged_files}"}, {"root": "apps/site/", "run": "pnpm exec oxlint {staged_files}"},
+			{"root": "packages/kit/", "run": "pnpm exec oxfmt {staged_files}"}, {"root": "packages/kit/", "run": "pnpm exec oxlint {staged_files}"},
+		]},
+		"pre-push": {"jobs": [
+			{"root": "apps/site/", "run": "pnpm check"}, {"root": "apps/site/", "run": "pnpm test"},
+			{"root": "packages/kit/", "run": "pnpm check"}, {"root": "packages/kit/", "run": "pnpm test"},
+		]},
 	}},
 	{"path": ".github/workflows/site-ci.yml", "contents": {
 		"true": {"pull_request": null, "push": {"branches": ["main"]}},

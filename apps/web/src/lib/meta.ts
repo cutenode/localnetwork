@@ -25,7 +25,7 @@ export type PageMeta = {
 	description: string;
 	/** The page's canonical address, absolute. */
 	url: string;
-	type: 'website' | 'profile' | 'music.song';
+	type: 'website' | 'profile' | 'music.song' | 'music.playlist';
 	image?: PageImage;
 	/** Keeps search engines from listing a page only its managers and staff can see. */
 	noindex?: boolean;

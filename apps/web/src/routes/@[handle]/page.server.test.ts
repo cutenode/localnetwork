@@ -76,6 +76,46 @@ it("shows a person's profile at their handle, with structured data for search en
 	expect(locals).toMatchObject({ crawlerHead: expect.stringContaining('application/ld+json') });
 });
 
+it("streams the sets a profile's mixes link, and asks for none when no mix links one", async () => {
+	const set = {
+		uri: `at://${MARA}/${COLLECTION.djSet}/3kset`,
+		cid: 'bafyreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy'
+	};
+
+	await t.net.client(MARA).putRecord({
+		collection: COLLECTION.profile,
+		rkey: 'self',
+		record: {
+			$type: COLLECTION.profile,
+			basics: { name: 'Mara Lind', location: { city: 'Leipzig', country: 'DE' } },
+			performer: {
+				mixes: [
+					{ title: 'Warehouse', url: 'https://mixes.test/warehouse', set },
+					{ title: 'Unlinked', url: 'https://mixes.test/unlinked' }
+				]
+			},
+			createdAt: '2026-10-30T00:00:00.000Z',
+			updatedAt: '2026-10-30T00:00:00.000Z'
+		}
+	});
+
+	const linked = await routeEvent({
+		app: app(),
+		params: { handle: 'mara.test' },
+		url: '/@mara.test'
+	}).loadData<PageServerData>(load);
+
+	const unlinked = await routeEvent({
+		app: app(),
+		params: { handle: 'oskar.test' },
+		url: '/@oskar.test'
+	}).loadData<PageServerData>(load);
+
+	// The directory serves only sets by accounts that manage a project, which Mara doesn't, so it has none to give.
+	expect(await linked.sets).toEqual(new Map());
+	expect(unlinked.sets).toBeUndefined();
+});
+
 it('shows an account without a profile by its handle, without structured data', async () => {
 	const { loadData, locals } = routeEvent({ app: app(), params: { handle: 'oskar.test' }, url: '/@oskar.test' });
 	const data = await loadData<PageServerData>(load);
