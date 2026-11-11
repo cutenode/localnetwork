@@ -24,6 +24,10 @@ on:
         description: Whether Bombadil's npm project changed (ci.yml's repo_checks_bombadil paths).
         type: boolean
         required: true
+      text:
+        description: Whether anything changed, Markdown included, for the spelling and link checks.
+        type: boolean
+        required: true
   schedule:
     - cron: "11 5 * * 1"
   workflow_dispatch:
@@ -125,3 +129,21 @@ jobs:
           node-version-file: .node-version
       - run: npm ci
       - run: npm run typecheck
+
+  # Spelling (typos, with the repository's words in _typos.toml) over every file, and the links in
+  # the Markdown, offline: relative paths and their #anchors. The links to other sites are checked
+  # weekly (repo-scheduled.yml). Runs on Markdown-only pull requests too, which skip the policy job.
+  text:
+    if: github.event_name == 'workflow_dispatch' || inputs.text
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: crate-ci/typos@7f9d0819ca1c008ade73f4b41fa9d258d48f605b # v1.51.1
+      # The action pins lychee 0.24.2.
+      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: --offline --include-fragments --no-progress './**/*.md'
+          jobSummary: false

@@ -53,6 +53,11 @@ pre-commit:
       skip:
         - run: '! command -v shellcheck > /dev/null'
       run: shellcheck {staged_files}
+    # Skipped without typos (`brew install typos-cli`); CI runs it on every file (repo-checks.yml).
+    - name: typos
+      skip:
+        - run: '! command -v typos > /dev/null'
+      run: typos --force-exclude {staged_files}
     - name: lint web
       root: apps/web/
       glob: '*.{ts,js,svelte}'

@@ -50,9 +50,10 @@ pnpm exec ast-grep test --skip-snapshot-tests && pnpm exec ast-grep scan
 pnpm test:tools
 pnpm format:tools --check && pnpm lint:tools && pnpm check:tools
 git ls-files -z "*.sh" | xargs -0 shellcheck
+typos
 ```
 
-The last line formats, lints and type-checks what no app's own scripts reach: `tools/`, `.railway/`, Bombadil's specs, the flags, budgets and tokens, and the generated RPC types in `apps/locallibrary/docs/rpc/`. The root's `pnpm format:check`, `pnpm lint` and `pnpm check` run them along with every app's.
+The `*:tools` scripts format, lint and type-check what no app's own scripts reach: `tools/`, `.railway/`, Bombadil's specs, the flags, budgets and tokens, and the generated RPC types in `apps/locallibrary/docs/rpc/`. The root's `pnpm format:check`, `pnpm lint` and `pnpm check` run them along with every app's. [typos](https://github.com/crate-ci/typos) checks spelling, with the repository's own words in `_typos.toml`, and CI also checks every link in the Markdown with [lychee](https://lychee.cli.rs): relative ones and their anchors on each pull request, the rest weekly. A link that can't work yet goes in `.lycheeignore` with why.
 
 ast-grep's rules (`sgconfig.yml`, in `tools/ast-grep/rules/` with their cases in `tools/ast-grep/tests/`) include `no-direct-pds-read`, which fails a record read that skips HappyView, in TypeScript, Svelte or Rust. Its exceptions are in the rule. clippy (`clippy.toml`) bans jacquard's typed requests for the same reads.
 
