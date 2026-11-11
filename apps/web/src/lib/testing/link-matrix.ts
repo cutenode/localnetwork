@@ -12,12 +12,12 @@ export type MatrixRow = { pageType: string; linksTo: string; onMain: string };
 export type ExpectedLink = { name: string | RegExp; href: string; within?: string; reveal?: string };
 
 /**
- * One page type's checks: `render` shows the page with data where every row's When holds, and `links` are the links
- * it must have, keyed by the Links to text of the rows marked `on main`.
+ * One page type's checks: `render` shows the page for a row (its Links to text) with data where the row's When holds,
+ * and `links` are the links it must have, keyed by the Links to text of the rows marked `on main`.
  */
 export type LinkChecks = {
 	pageType: string;
-	render: () => Promise<{ container: HTMLElement }>;
+	render: (row: string) => Promise<{ container: HTMLElement }>;
 	links: Record<string, ExpectedLink[]>;
 };
 
