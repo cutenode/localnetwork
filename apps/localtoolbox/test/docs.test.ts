@@ -263,5 +263,6 @@ describe('what the package says about itself', () => {
 		expect(read('content.ts')).not.toMatch(/^\s*import\s/m);
 		expect(read('downloaded-store.ts')).not.toMatch(/^\s*import\s/m);
 		expect(read('state-transfer.ts')).not.toMatch(/^\s*import\s/m);
+		expect(read('theme-prepaint.ts')).not.toMatch(/^\s*import\s/m);
 	});
 });

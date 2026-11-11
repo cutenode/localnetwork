@@ -152,6 +152,7 @@ describe('the build', () => {
 		// src/lib reaches both by name there.
 		const classic = /const classicScripts = \[([^\]]+)\]/.exec(viteConfig)![1];
 		expect(classic).toContain('downloaded-store.js');
+		expect(classic).toContain('theme-prepaint.js');
 		expect(classic).not.toContain('state-transfer.js');
 		const globals = read('src/lib/globals.ts');
 		expect(globals).toContain("'./state-transfer.js'");
