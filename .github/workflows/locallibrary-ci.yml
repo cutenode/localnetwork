@@ -236,7 +236,7 @@ jobs:
       # Copy-on-write clones (loclib-model's reflink, which the interop plugin's tagged copies use)
       # only happen on APFS, Btrfs or XFS, and the runner's disk is ext4, where the tests above take
       # the byte-copy fallback. Those tests again with their temp files on an XFS loop device, which
-      # clones, so the clone path counts toward coverage too. --no-clean keeps the shard's profiles.
+      # clones, so the clone path counts toward coverage too. --no-report keeps the shard's profiles.
       - if: matrix.shard == 1
         uses: ./.github/actions/apt-packages
         with:
@@ -250,7 +250,7 @@ jobs:
           sudo mkdir -p /mnt/xfs
           sudo mount -o loop "$RUNNER_TEMP/xfs.img" /mnt/xfs
           sudo chown "$(id -u):$(id -g)" /mnt/xfs
-          TMPDIR=/mnt/xfs cargo coverage --archive-file tests.tar.zst --no-clean --no-report \
+          TMPDIR=/mnt/xfs cargo coverage --archive-file tests.tar.zst --no-report \
             -E 'test(/^reflink::tests::/) | package(locallibrary-plugin-interop)'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
