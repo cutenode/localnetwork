@@ -9,9 +9,7 @@
 			// Actions plugin doesn't read, so it looks for apps/web's binaries in the root package.
 			"ignoreBinaries": ["playwright", "tsx"],
 			// tools/policy.sh runs it from node_modules/.bin, and knip doesn't read shell scripts.
-			"ignoreDependencies": ["@lavamoat/harden"],
-			// locallibrary's RPC types for sidecar clients, written by `locallibrary rpc --emit-schema`.
-			"ignore": ["apps/locallibrary/docs/rpc/locallibrary.d.ts"]
+			"ignoreDependencies": ["@lavamoat/harden"]
 		},
 		"apps/web": {
 			// Vite's `#lexicon-files` alias (vite.config.ts); package.json's imports point Node elsewhere.
