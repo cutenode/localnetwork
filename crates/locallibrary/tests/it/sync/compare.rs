@@ -204,17 +204,21 @@ fn verify_mode_catches_same_size_same_mtime_corruption() {
 
 /// Copy a drive as it stands, modification times included. The sync's other writers are still at
 /// work, so a temp file can be renamed away mid-walk: one gone before it's opened isn't imaged, and
-/// one that's open is read, time and all, from the same handle.
+/// one that's open is read, time and all, from the same handle. One that can't be read isn't
+/// imaged either: on Windows that's the drive's lock file, which the sync holds locked.
 fn image(from: &std::path::Path, to: &std::path::Path) {
+    use std::io::Read;
     for e in walkdir::WalkDir::new(from).into_iter().flatten() {
         let dst = to.join(e.path().strip_prefix(from).unwrap());
+        let mut bytes = Vec::new();
         if e.file_type().is_dir() {
             std::fs::create_dir_all(&dst).unwrap();
         } else if e.file_type().is_file()
             && let Ok(mut src) = std::fs::File::open(e.path())
+            && src.read_to_end(&mut bytes).is_ok()
         {
+            std::fs::write(&dst, &bytes).unwrap();
             let meta = src.metadata().unwrap();
-            std::io::copy(&mut src, &mut std::fs::File::create(&dst).unwrap()).unwrap();
             filetime::set_file_mtime(&dst, filetime::FileTime::from_last_modification_time(&meta)).unwrap();
         }
     }
