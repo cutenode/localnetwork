@@ -2,7 +2,8 @@ name: Repo scheduled
 
 # The repository-wide checks that ask other sites, weekly and by hand rather than on every pull
 # request: the links in the Markdown to other sites (repo-checks.yml checks the relative ones on
-# each pull request).
+# each pull request), and zizmor's online audits of the workflows (workflow-lint.yml runs the
+# offline ones), which look up each pinned action's tags and advisories through the GitHub API.
 on:
   schedule:
     - cron: "37 5 * * 1"
@@ -38,10 +39,24 @@ jobs:
             --cache --max-cache-age 7d --cache-exclude-status 400..
             './**/*.md'
 
+  zizmor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: zizmor@1.31.1
+      - run: zizmor --format github --config .github/zizmor.yml .github
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   # Weekly runs only: a failed job opens an issue, or comments on the open one, and the next run
   # that passes closes it (scheduled-issue.yml).
   report:
-    needs: [links]
+    needs: [links, zizmor]
     if: ${{ !cancelled() && github.event_name == 'schedule' }}
     permissions:
       actions: read
@@ -50,4 +65,5 @@ jobs:
     with:
       label: tooling
       details: >-
-        The links job's log lists each broken link with the file and line it's on.
+        The links job's log lists each broken link with the file and line it's on, and the zizmor
+        job's annotations each finding in the workflow it's in.
