@@ -579,8 +579,8 @@ fn rekordbox_xml_is_what_loclib_interop_writes() {
         assert!(!output.exists(), "a dry run writes nothing");
         let done = session.export("rekordbox", &output, json!({}), false).unwrap();
         assert_eq!(done, planned);
-        let export =
-            expected(&drive, &[]).build(&drive.root, false, |s| rekordbox::build(s, &output, &Ctx::silent()).unwrap());
+        let export = expected(&drive, &[])
+            .build(&drive.root, false, |s| rekordbox::build(s, &crate::LOCALLIBRARY, &output, &Ctx::silent()).unwrap());
         assert_eq!((export.tracks, export.playlists, export.folders, export.beat_grids, export.cues), (4, 3, 1, 3, 5));
         let Content::Bytes(xml) = &export.files[0].content else { panic!("the XML is written out") };
         assert_eq!(&std::fs::read(&output).unwrap(), xml);
@@ -1000,7 +1000,7 @@ fn is_built(want: &Expected, asked: &Asked, drive: &Drive, output: &Path, done: 
             serato::build(s, output, Some(&copies), &Ctx::silent()).unwrap()
         }
         Software::Serato => serato::build::<Error>(s, output, None, &Ctx::silent()).unwrap(),
-        Software::Rekordbox => rekordbox::build(s, output, &Ctx::silent()).unwrap(),
+        Software::Rekordbox => rekordbox::build(s, &crate::LOCALLIBRARY, output, &Ctx::silent()).unwrap(),
         _ => {
             let style = if on_drive { PathStyle::Drive } else { PathStyle::Relative };
             engine::build(s, &out, style, &Ctx::silent()).unwrap()

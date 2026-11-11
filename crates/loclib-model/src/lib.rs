@@ -8,6 +8,7 @@ pub mod model;
 pub mod paths;
 pub mod reflink;
 #[cfg(any(test, feature = "test-util"))]
+#[doc(hidden)]
 pub mod test_util;
 pub mod theme;
 pub mod tokens;
