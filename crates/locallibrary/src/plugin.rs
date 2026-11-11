@@ -42,6 +42,7 @@ mod apply;
 mod blobs;
 mod callbacks;
 mod checks;
+mod collection;
 mod commands;
 mod destinations;
 mod events;

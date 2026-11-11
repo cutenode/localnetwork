@@ -512,6 +512,9 @@ fn means(c: &Capability) -> String {
         Capability::SetsRead => "read your sets",
         Capability::AccountStatus => "see whether you're signed in to your Atmosphere account",
         Capability::CollectionRead => "read rekordbox's collection on this computer",
+        Capability::CollectionFiles => {
+            "read your rekordbox library's files here, including its rekordbox and Dropbox sign-in tokens"
+        }
         Capability::LibraryPlan => "plan changes to playlists and tracks, which you confirm",
         Capability::LibraryDeleteUnbacked => {
             "remove tracks rekordbox's next export puts back, without backing up their files"

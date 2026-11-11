@@ -1,6 +1,7 @@
 //! The host's reads of a drive, typed: [`Host::drive`] calls them with their params and reads
 //! their results, the RPC sidecar's (see `apps/locallibrary/docs/rpc`), a page or a batch at a
-//! time as the host bounds them.
+//! time as the host bounds them. rekordbox's files on this computer have reads of their own
+//! ([`Host::collection`]).
 
 use loclib_model::analysis::TrackAnalysis;
 use loclib_model::model::LibrarySummary;
@@ -10,6 +11,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::{Host, RpcError};
+
+mod collection;
+
+pub use collection::{
+    CollectionCopy, CollectionLocations, CollectionReads, CollectionStatus, CollectionTrack, CollectionTracks,
+};
 
 /// The most tracks the host takes by id at once (`tracks.get`), which it holds a plugin to.
 pub const MAX_IDS: usize = 1000;

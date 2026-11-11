@@ -335,3 +335,78 @@ fn prop_every_read_gets_what_the_host_has_or_its_error(tc: hegel::TestCase) {
         assert_eq!(params.get("combined") == Some(&json!(true)), combines, "{method} {params}");
     }
 }
+
+/// A track row as `collection.tracks` answers it.
+fn row(id: usize) -> CollectionTrack {
+    CollectionTrack { id: id.to_string(), path: format!("/Music/{id}.mp3"), ..CollectionTrack::default() }
+}
+
+/// rekordbox's files: each read asks for what it reads (a copy into its file, the tracks of
+/// the copy named or of rekordbox's own) and gets what the host has.
+#[test]
+fn each_collection_read_asks_for_what_it_reads() {
+    let locations = CollectionLocations {
+        data: Some("/Users/me/Library/Pioneer/rekordbox".into()),
+        master_db: Some("/Users/me/Library/Pioneer/rekordbox/master.db".into()),
+        master_db_exists: true,
+        share: Some("/Users/me/Library/Pioneer/rekordbox/share".into()),
+        settings: None,
+    };
+    let status = CollectionStatus { running: true, version: Some("7.2.14.0323".into()) };
+    let copied = CollectionCopy { bytes: 8192, db_id: Some("1234".into()), db_version: None, credentials_removed: 0 };
+    // Named by its artist and album, as a backup's music folders are; a host older than them
+    // leaves them out (`row`), which reads as none.
+    let named = CollectionTrack { artist: Some("Daft Punk".into()), album: Some("Discovery".into()), ..row(1) };
+    let tracks = CollectionTracks { db_id: Some("1234".into()), total: 2, tracks: vec![named, row(2)] };
+    let answers = json!({
+        "collection.locations": locations,
+        "collection.status": status,
+        "collection.copy": copied,
+        "collection.tracks": tracks,
+    });
+    let read = |host: &Host| {
+        let c = host.collection();
+        let into = std::path::Path::new("/scratch/master.db");
+        Ok((c.locations()?, c.status()?, c.copy(into, true)?, c.tracks(Some(into))?, c.tracks(None)?))
+    };
+    let (read, calls) = reading(read, move |method, _| Ok(answers[method].clone()));
+    type Read = (CollectionLocations, CollectionStatus, CollectionCopy, CollectionTracks, CollectionTracks);
+    let read: Read = serde_json::from_value(read.unwrap()).unwrap();
+    assert_eq!(read, (locations, status, copied, tracks.clone(), tracks));
+    let asked = [
+        ("collection.locations", json!({})),
+        ("collection.status", json!({})),
+        ("collection.copy", json!({ "into": "/scratch/master.db", "with_credentials": true })),
+        ("collection.tracks", json!({ "db": "/scratch/master.db", "offset": 0 })),
+        ("collection.tracks", json!({ "offset": 0 })),
+    ]
+    .map(|(m, p)| (m.to_string(), p));
+    assert_eq!(calls, asked);
+}
+
+/// However many track rows there are and whatever page size the host chooses, the tracks read
+/// every row once, in order, each page asked for from where the last ended; and they stop at an
+/// empty page, though the total said more were coming (the library changed meanwhile).
+#[hegel::test(test_cases = 30)]
+fn prop_collection_tracks_read_every_row_once(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let n = tc.draw(gs::integers::<usize>().max_value(40));
+    let size = tc.draw(gs::integers::<usize>().min_value(1).max_value(12));
+    let said = n + tc.draw(gs::integers::<usize>().max_value(2));
+    let answer = move |_: &str, params: &Value| {
+        let offset = params["offset"].as_u64().unwrap() as usize;
+        let tracks: Vec<CollectionTrack> = (offset..n.min(offset + size)).map(row).collect();
+        Ok(json!(CollectionTracks { db_id: Some("7".into()), total: said, tracks }))
+    };
+    let (read, calls) = reading(|host| host.collection().tracks(None), answer);
+    let read: CollectionTracks = serde_json::from_value(read.unwrap()).unwrap();
+    assert_eq!(read.tracks, (0..n).map(row).collect::<Vec<_>>());
+    assert_eq!((read.total, read.db_id.as_deref()), (n, Some("7")));
+    let offsets: Vec<usize> = calls.iter().map(|(_, p)| p["offset"].as_u64().unwrap() as usize).collect();
+    let mut expected: Vec<usize> = (0..n).step_by(size).collect();
+    // The empty page that ends it, when the total said more or there were none.
+    if said > n || n == 0 {
+        expected.push(n);
+    }
+    assert_eq!(offsets, expected);
+}

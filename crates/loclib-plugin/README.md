@@ -53,12 +53,40 @@ and typed table columns, see [views](#views)).
    methods (`tracks.query`, `playlists.tree`, `drive.info`...), with their params and results
    (see `apps/locallibrary/docs/rpc`). Its manifest's capabilities say which it may call (one
    they don't grant fails with kind `denied`); writes never can be, nor reads of files on the
-   computer. Each read takes only some of its params from a plugin: drives by id or name (never
-   a path), no files, servers or secrets, and pages of at most 500, and what it answers says
+   computer but rekordbox's (see below). Each read takes only some of its params from a plugin:
+   drives by id or name (never a path), no files but in the request's scratch folder, no
+   servers or secrets, and pages of at most 500, and what it answers says
    nothing of where things are on the computer: no `root` (where a drive is mounted), nor where
    the store's copies, a set's or a mix's recording or rekordbox's collection are, and any other path said
    from its drive, `<store>` or `~`, as errors are. A plugin has a few calls under way at once (more fail with
    kind `busy`).
+   With `collection:files`, a plugin reads rekordbox's own files on the computer, to back them
+   up (`Host::collection`). The host answers these reads itself and never writes to rekordbox's
+   folders. `collection.locations` and `collection.tracks` answer paths as they are, not said
+   from `~` or `<store>`: where the files are is what they're for. `master.db` is where
+   `LOCALLIBRARY_MASTERDB` says, else where rekordbox's settings say it moved its library, else
+   rekordbox's own folder:
+
+   | Read | Params | Answer |
+   | --- | --- | --- |
+   | `collection.locations` | none | `{data, master_db, master_db_exists, share, settings}`: absolute paths |
+   | `collection.status` | none | `{running, version}`: whether rekordbox is running, and its version |
+   | `collection.copy` | `into`, `with_credentials?` | `{bytes, db_id, db_version, credentials_removed}` |
+   | `collection.tracks` | `db?`, `offset`, `limit` | `{db_id, total, tracks: [{id, uuid, path, analysis_path, image_path, deleted, artist?, album?}]}` |
+
+   `collection.copy` writes a copy of `master.db` as of one moment, rebuilt and still
+   encrypted as rekordbox's own backup writes it, to `into`: a new file in the request's
+   scratch folder (absolute), as far as the folder has room. The copy leaves out the cloud
+   agent's sign-in (`agentRegistry`'s `agentCredentials` row) unless `with_credentials` is true. `collection.tracks`
+   lists every track row, deleted ones too, in pages of at most 500: `path` is the audio file
+   on this computer (`OrgFolderPath` for a Cloud Library Sync track), and `analysis_path` and
+   `image_path` are in `share`, as stored. `artist` and `album` are the names rekordbox has for
+   them (`djmdArtist`, `djmdAlbum`), left out when it has none: its backup names its music
+   folders after them. `db` names a copy in the scratch folder (one it copied,
+   or a backup's `master.db`) to read instead of rekordbox's own, which can change between
+   pages while rekordbox runs. A file outside the scratch folder, or a link, fails with kind
+   `invalid`. `version` is the installed app's on macOS (`7.2.14.0323`), else the one rekordbox's
+   agent last recorded (`7.2.14`).
    With `net`, a plugin goes online through the host: `net/fetch {url, method, headers, body?,
    body_blob?, body_range?, multipart?, into_blob?}` -> `{status, headers, body? | blob?}`. The
    host sends it only to a host the manifest's `net:` capabilities grant, at a public https
@@ -144,7 +172,8 @@ assert!(manifest.validate(false).is_err());
 
 - `capabilities`: `library:read`, `analysis:read`, `artwork:read`, `drive:info`, `health:read`,
   `store:read`, `settings:read`, `plays:read`, `sets:read`, `account:status`,
-  `collection:read`, `library:plan`, `library:delete`, `library:delete-unbacked` (plugins
+  `collection:read`, `collection:files` (rekordbox's own files, sign-in tokens included, see
+  above), `library:plan`, `library:delete`, `library:delete-unbacked` (plugins
   locallibrary ships only), `tags:plan`, `cues:plan`,
   `artwork:plan`, `analysis:plan`, `events:drives`, `events:jobs`, `events:plans`, `fs:read`, and `net:<host>`, or `net:*.<domain>` for any host below the domain: what
   `net/fetch` may reach (shown to the user; a native plugin can't be held to it otherwise). Any

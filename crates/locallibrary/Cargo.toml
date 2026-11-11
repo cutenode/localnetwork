@@ -110,6 +110,8 @@ oauth2 = { version = "5.0.0", default-features = false }
 futures-util = { version = "0.3.34", default-features = false }
 rayon = "1.12.0"
 memchr = "2.8.3"
+# Whether rekordbox is running, and where its app is (`collection.status`).
+sysinfo = { version = "0.38.4", default-features = false, features = ["system"] }
 
 [dev-dependencies]
 hegeltest = { workspace = true, features = ["chrono"] }
@@ -140,6 +142,10 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 [target."cfg(unix)".dependencies]
 # Whether this process runs as root: plugins are never started from one.
 libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# rekordbox's version, from its app's Info.plist.
+plist = "1.10.1"
 
 [lints]
 workspace = true

@@ -232,6 +232,9 @@ pub enum Capability {
     SetsRead,
     AccountStatus,
     CollectionRead,
+    /// Read rekordbox's own files on this computer, to back them up: where they are, whether
+    /// rekordbox is running, a copy of `master.db` and what its tracks' files are.
+    CollectionFiles,
     LibraryPlan,
     LibraryDelete,
     /// Delete tracks whose files the backup leaves out (`delete_unbacked`), for tracks rekordbox's
@@ -261,7 +264,7 @@ pub enum Capability {
 
 impl Capability {
     /// Every capability but `net:<host>`.
-    pub const NAMED: [Capability; 22] = [
+    pub const NAMED: [Capability; 23] = [
         Capability::LibraryRead,
         Capability::AnalysisRead,
         Capability::ArtworkRead,
@@ -273,6 +276,7 @@ impl Capability {
         Capability::SetsRead,
         Capability::AccountStatus,
         Capability::CollectionRead,
+        Capability::CollectionFiles,
         Capability::LibraryPlan,
         Capability::LibraryDelete,
         Capability::LibraryDeleteUnbacked,
@@ -300,6 +304,7 @@ impl Capability {
             Capability::SetsRead => "sets:read",
             Capability::AccountStatus => "account:status",
             Capability::CollectionRead => "collection:read",
+            Capability::CollectionFiles => "collection:files",
             Capability::LibraryPlan => "library:plan",
             Capability::LibraryDelete => "library:delete",
             Capability::LibraryDeleteUnbacked => "library:delete-unbacked",
