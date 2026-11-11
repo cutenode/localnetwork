@@ -41,7 +41,8 @@ async function canonicalAccount(
 
 /**
  * What a person's public profile page loads: their profile, the DJ stats and sets they publish (streamed, unless
- * they're fresh in the cache), and the active projects they manage, streamed too. Every account has a profile page:
+ * they're fresh in the cache), and the active projects they manage, streamed too. A link that opens one of the page's
+ * tabs (`?tab=`) gets both with the page instead, so the tab it names works without scripts. Every account has a profile page:
  * one without a profile record shows its Bluesky display name when the directory keeps it, else its handle, and never
  * asks its PDS. Each address that names no account counts against `ip`, since resolving it may have meant asking a
  * host the visitor chose; past the limit, the page answers 429 without resolving anything.
@@ -66,15 +67,19 @@ export async function loadProfilePage(locals: App.Locals, param: string, search:
 	const profile = await app.profiles.get(account.did);
 	const displayName = profile ? null : await app.profiles.blueskyName(account.did);
 	const linked = (profile?.record.performer?.mixes ?? []).flatMap((mix) => mix.set ?? []);
+	const opensTab = new URLSearchParams(search).has('tab');
+	const dj = app.dj.fresh([account]) ?? app.dj.activity([account]);
+
+	const playsIn = unlessOffline(locals.log, async () =>
+		(await app.projects.managedBy(account.did)).filter((project) => project.status === 'active')
+	);
 
 	return {
 		profile,
 		name: profile?.record.basics.name ?? displayName ?? accountLabel(account),
 		account,
-		dj: app.dj.fresh([account]) ?? app.dj.activity([account]),
+		dj: opensTab ? await dj : dj,
 		sets: linked.length ? app.sets.linked(linked) : undefined,
-		playsIn: unlessOffline(locals.log, async () =>
-			(await app.projects.managedBy(account.did)).filter((project) => project.status === 'active')
-		)
+		playsIn: opensTab ? await playsIn : playsIn
 	};
 }

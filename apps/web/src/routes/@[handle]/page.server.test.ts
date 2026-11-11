@@ -84,6 +84,18 @@ it('shows an account without a profile by its handle, without structured data', 
 	expect(locals).toMatchObject({ crawlerHead: expect.not.stringContaining('application/ld+json') });
 });
 
+it('streams what the tabs show, except to a link that opens a tab, which gets it with the page', async () => {
+	const loadAt = (url: string) =>
+		routeEvent({ app: app(), params: { handle: 'mara.test' }, url }).loadData<PageServerData>(load);
+
+	const streamed = await loadAt('/@mara.test');
+	const linked = await loadAt('/@mara.test?tab=plays-in');
+
+	expect(streamed.playsIn).toBeInstanceOf(Promise);
+	expect(streamed.dj).toBeInstanceOf(Promise);
+	expect(linked).toMatchObject({ playsIn: [], dj: [] });
+});
+
 it('sends a DID or a handle written another way to the canonical address, keeping the query', async () => {
 	await expect(
 		callRoute(load, { app: app(), params: { handle: MARA }, url: `/@${MARA}?tab=sets` })
