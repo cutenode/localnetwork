@@ -41,6 +41,7 @@ flowchart LR
   Poll --> P2["directory-sync: retry a failed sync,<br/>else script re-reads"]
   Quick["15 s"] --> Q1["audit-retry: 25 due entries"]
   Quick --> Q2["notification-delivery, also<br/>woken when an item comes due"]
+  Five["5 minutes"] --> F1["staff-spaces"]
   Hour["1 hour"] --> H1["oauth-state-cleanup"]
   Hour --> H2["manager-spaces"]
   Hour --> H3["shared-spaces"]
@@ -138,17 +139,17 @@ Which query answers which page. All of them are Lua scripts on HappyView, and `g
 ```mermaid
 flowchart LR
   Pages["Pages and services"]
-  Pages -- "home, staff overview" --> Q1["getStats"]
-  Pages -- "home, dashboard sidebar,<br/>staff's performers" --> Q10["searchProjects"]
+  Pages -- "home, /for-djs, staff overview" --> Q1["getStats"]
+  Pages -- "home, /for-djs, dashboard sidebar,<br/>staff's performers" --> Q10["searchProjects"]
   Pages -- "/projects" --> Q2["searchPerformers"]
   Pages -- "/match" --> Q3["matchProjects"]
   Pages -- "performer pages, dashboard" --> Q4["getProject, getProjects"]
-  Pages -- "/shows, performer pages" --> Q5["listShows"]
+  Pages -- "home, /shows, performer pages" --> Q5["listShows"]
   Pages -- "waiting on a show write" --> Q11["getShows"]
   Pages -- "mixes, the set picker" --> Q6["getSets, listSets"]
   Pages -- "Follow button" --> Q7["getFollowStatus"]
-  Pages -- "/charts, /artists" --> Q8["getCharts, getArtist,<br/>searchArtists"]
+  Pages -- "home, /charts, /artists" --> Q8["getCharts, getArtist,<br/>searchArtists"]
   Pages -- "stats, press kits, profiles,<br/>verifications, bug report space" --> Q9["getRecords, listRecords"]
 ```
 
-Source: [`src/lib/server/happyview/client.ts`](../../src/lib/server/happyview/client.ts), [`src/lib/server/happyview/indexed.ts`](../../src/lib/server/happyview/indexed.ts), [`src/lib/server/services/projects.ts`](../../src/lib/server/services/projects.ts), [`src/lib/server/services/performers.ts`](../../src/lib/server/services/performers.ts), [`src/lib/server/services/shows.ts`](../../src/lib/server/services/shows.ts), [`src/lib/server/services/supports.ts`](../../src/lib/server/services/supports.ts)
+Source: [`src/lib/server/happyview/client.ts`](../../src/lib/server/happyview/client.ts), [`src/lib/server/happyview/indexed.ts`](../../src/lib/server/happyview/indexed.ts), [`src/lib/server/services/projects.ts`](../../src/lib/server/services/projects.ts), [`src/lib/server/services/performers.ts`](../../src/lib/server/services/performers.ts), [`src/lib/server/services/shows.ts`](../../src/lib/server/services/shows.ts), [`src/lib/server/services/supports.ts`](../../src/lib/server/services/supports.ts), [`src/routes/+page.server.ts`](../../src/routes/+page.server.ts), [`src/routes/for-djs/+page.server.ts`](../../src/routes/for-djs/+page.server.ts)

@@ -94,13 +94,14 @@ flowchart LR
   Console -- "/admin/projects" --> T2["Performer records in the root's repo,<br/>booking details in the industry space"]
   Console -- "/admin/listings/[did]" --> T3["Deletes listing.profile"]
   Console -- "/admin/spaces" --> T4["People records,<br/>list and unlist"]
-  Console -- "/admin/staff" --> T5["staff.role, and membership<br/>of the four root spaces"]
+  Console -- "/admin/staff" --> T5["staff.role with a moderator's grants,<br/>and membership of the four root spaces"]
+  Console -- "/admin/flags" --> T9["staff.flag and staff.group<br/>in the staff space, a preview cookie"]
   Console -- "/admin/verifications" --> T6["app.bsky.graph.verification<br/>in the root's repo"]
   Console -- "/admin/system" --> T7["Bootstrap, resync,<br/>retry audit delivery"]
   Console -- "/admin/audit" --> T8["Read only: filter, verify<br/>the chain, export JSONL"]
 ```
 
-Source: [`src/routes/admin/+layout.server.ts`](../../src/routes/admin/+layout.server.ts), [`src/lib/server/services/staff.ts`](../../src/lib/server/services/staff.ts), [`src/lib/server/services/verifications.ts`](../../src/lib/server/services/verifications.ts), [`src/lib/server/services/project-admin.ts`](../../src/lib/server/services/project-admin.ts), [`src/lib/server/services/requests.ts`](../../src/lib/server/services/requests.ts)
+Source: [`src/routes/admin/+layout.server.ts`](../../src/routes/admin/+layout.server.ts), [`src/lib/server/services/staff.ts`](../../src/lib/server/services/staff.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`src/lib/server/services/verifications.ts`](../../src/lib/server/services/verifications.ts), [`src/lib/server/services/project-admin.ts`](../../src/lib/server/services/project-admin.ts), [`src/lib/server/services/requests.ts`](../../src/lib/server/services/requests.ts)
 
 ## Bluesky verifications
 
