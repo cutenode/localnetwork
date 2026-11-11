@@ -100,3 +100,9 @@ pre-push:
       skip:
         - run: '! (command -v x86_64-w64-mingw32-gcc && rustup target list --installed | grep -q x86_64-pc-windows-gnu) > /dev/null'
       run: cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-gnu -- -D warnings
+
+# Conventional Commits (commitlint.config.js), as CI checks each pull request's commits.
+commit-msg:
+  jobs:
+    - name: commitlint
+      run: pnpm exec commitlint --edit {1}

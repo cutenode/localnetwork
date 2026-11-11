@@ -76,6 +76,7 @@ CodeQL (`codeql.yml`, which `ci.yml` calls) scans the workflows, the TypeScript 
 - Link the issue it's for, as in [Issues and planning](#issues-and-planning), or add the `no-issue` label. The PR issue check fails otherwise.
 - For UI changes, add before and after screenshots at phone and wide widths.
 - Pull requests merge with a merge commit. Squash and rebase merges are off.
+- Write each commit's subject as a [Conventional Commit](https://www.conventionalcommits.org), `type(scope): summary`. CI checks every commit a pull request adds with commitlint (`commitlint.config.js`), and the `commit-msg` hook checks yours as you commit.
 
 Labels are added automatically from the files a pull request changes ([labeler.yml](labeler.yml)): one for each tool (`web`, `locallibrary`, `localtoolbox`, `lexicons`), one for each area inside a tool (`web: epk`, `locallibrary: player`), and `tests`, `documentation`, `dependencies`, `github_actions` and `tooling`. [CODEOWNERS](CODEOWNERS) requests a review from whoever owns the tools it changes.
 

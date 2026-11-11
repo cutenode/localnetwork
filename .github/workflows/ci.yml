@@ -75,6 +75,7 @@ jobs:
       repo_checks_ruleset: ${{ steps.scope.outputs.repo_checks_ruleset }}
       repo_checks_bombadil: ${{ steps.scope.outputs.repo_checks_bombadil }}
       repo_checks_text: ${{ steps.scope.outputs.repo_checks_text }}
+      repo_checks_commits: ${{ steps.scope.outputs.repo_checks_commits }}
       dependency_review: ${{ steps.scope.outputs.dependency_review }}
       codeql: ${{ steps.scope.outputs.codeql }}
       codeql_unchanged: ${{ steps.scope.outputs.codeql_unchanged }}
@@ -457,7 +458,7 @@ jobs:
             locallibrary_dist locallibrary_other_os locallibrary_semver locallibrary_commands web_verify \
             web_integration web_e2e web_lighthouse web_docker localtoolbox atstore mix_report \
             npm_advisories workflow_lint repo_checks_policy repo_checks_lexicons repo_checks_ruleset \
-            repo_checks_bombadil repo_checks_text dependency_review; do
+            repo_checks_bombadil repo_checks_text repo_checks_commits dependency_review; do
             out[$name]=false
           done
           if [ "$linux" = true ] && [ "$EVENT" = pull_request ]; then
@@ -481,8 +482,10 @@ jobs:
             set_if repo_checks_lexicons changed repo_checks_lexicons
             set_if repo_checks_bombadil changed repo_checks_bombadil
             set_if dependency_review changed dependency_review
-            # Spelling and the Markdown's links: every pull request changes some text.
+            # Spelling and the Markdown's links (every pull request changes some text), and the
+            # commit messages.
             out[repo_checks_text]=true
+            out[repo_checks_commits]=true
           fi
           # A merge queue group: the quick static checks again on the commit that goes on main, so
           # two pull requests that each passed alone can't break it together. The Rust ones are in
@@ -517,7 +520,7 @@ jobs:
             locallibrary_dist locallibrary_other_os locallibrary_semver
           set_if web any web_verify web_integration web_e2e web_lighthouse web_docker
           set_if repo_checks any repo_checks_policy repo_checks_lexicons repo_checks_ruleset repo_checks_bombadil \
-            repo_checks_text
+            repo_checks_text repo_checks_commits
 
           # CodeQL, every language, on every event but a draft's and a pull request's into another
           # branch than main. The code scanning rule holds a pull request or a merge queue group until
@@ -647,6 +650,7 @@ jobs:
       ruleset: ${{ needs.changes.outputs.repo_checks_ruleset == 'true' }}
       bombadil: ${{ needs.changes.outputs.repo_checks_bombadil == 'true' }}
       text: ${{ needs.changes.outputs.repo_checks_text == 'true' }}
+      commits: ${{ needs.changes.outputs.repo_checks_commits == 'true' }}
 
   dependency-review:
     needs: changes
