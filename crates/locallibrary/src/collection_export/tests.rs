@@ -878,32 +878,42 @@ fn an_export_stopped_part_way_finishes_when_run_again() {
 
 /// A pull of a drive holding what the collection does stores no second copy: the audio's object is
 /// a clone of the collection's file, on a volume with clones, and the object keeps its bytes when
-/// that file is edited.
-#[test]
-fn a_pull_clones_the_collections_audio_into_the_store() {
+/// that file is edited. A drive's file of the same size with other bytes is stored as it is.
+#[hegel::test(test_cases = 4)]
+#[hegel::explicit_test_case(same = true)]
+#[hegel::explicit_test_case(same = false)]
+fn a_pull_clones_the_collections_audio_into_the_store(tc: hegel::TestCase) {
+    let same = tc.draw(hegel::generators::booleans());
     let pc = Computer::new();
     let mut target = pc.folder("Export");
     pc.export(&mut target, &CollectionExportOptions::default());
     // A real drive holds bytes of its own, where this folder would hold clones.
     let on_drive = target.path("Contents/Daft Punk/Discovery/One More Time.mp3");
-    let (bytes, meta) = (std::fs::read(&on_drive).unwrap(), std::fs::metadata(&on_drive).unwrap());
+    let (mut bytes, meta) = (std::fs::read(&on_drive).unwrap(), std::fs::metadata(&on_drive).unwrap());
+    if !same {
+        bytes[0] ^= 0x20;
+    }
     std::fs::remove_file(&on_drive).unwrap();
-    std::fs::write(&on_drive, bytes).unwrap();
+    std::fs::write(&on_drive, &bytes).unwrap();
     fsutil::set_mtime(&on_drive, fsutil::mtime_secs(&meta)).unwrap();
     let store = Store::open_or_init(pc.dir.path().join("store")).unwrap();
-    // SAFETY: nextest runs each test in a process of its own.
+    // SAFETY: nextest runs each test in a process of its own, and Hegel runs its cases in turn.
     unsafe { std::env::set_var(masterdb::PATH_ENV, pc.dir.path().join("rekordbox/master.db")) };
     let pulled = crate::sync::pull(&store, &mut target, &PullOptions::default(), &Ctx::silent()).unwrap();
     unsafe { std::env::remove_var(masterdb::PATH_ENV) };
     assert!(pulled.imported_files > 0);
 
-    let hash = Hash::of(b"one more time");
-    assert_eq!(std::fs::read(store.object_path(&hash)).unwrap(), b"one more time");
+    let hash = Hash::of(&bytes);
+    assert_eq!(std::fs::read(store.object_path(&hash)).unwrap(), bytes);
     let music = pc.dir.path().join("Music/One More Time.mp3");
     #[cfg(target_os = "macos")]
-    assert_eq!(volume_blocks(&store.object_path(&hash)), volume_blocks(&music), "a copy, not a clone");
+    assert_eq!(
+        volume_blocks(&store.object_path(&hash)) == volume_blocks(&music),
+        same,
+        "a clone of the collection's file only when it holds the drive's bytes"
+    );
     std::fs::write(&music, b"ONE MORE TIME").unwrap();
-    assert_eq!(std::fs::read(store.object_path(&hash)).unwrap(), b"one more time");
+    assert_eq!(std::fs::read(store.object_path(&hash)).unwrap(), bytes);
 }
 
 /// A test's pull never opens the collection of the computer it runs on. Here that collection, at
