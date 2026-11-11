@@ -7,8 +7,9 @@ name: CI
 #
 # Pull requests run on Linux. locallibrary's macOS and Windows jobs, which the plan's 5 macOS
 # runners can't keep up with on every push, run once for each merge queue group instead, or on a
-# pull request with the `all-os` label. A group runs nothing else but CodeQL: its pull requests
-# passed on Linux. A push to main runs only what main's runs keep for pull requests to use: the
+# pull request with the `all-os` label. A group also runs CodeQL and the quick static checks
+# (formatting, lint, types, unit tests, the repo's policies), on the commit that goes on main; its
+# pull requests passed the rest on Linux. A push to main runs only what main's runs keep for pull requests to use: the
 # web app's and localtoolbox's coverage and sizes to compare with, the Rust and Docker caches when
 # what they're keyed on changed, CodeQL's analysis, and the ruleset check when the ruleset changed.
 # Its commit is the merge queue group's, which already passed.
@@ -72,6 +73,8 @@ jobs:
       repo_checks_policy: ${{ steps.scope.outputs.repo_checks_policy }}
       repo_checks_lexicons: ${{ steps.scope.outputs.repo_checks_lexicons }}
       repo_checks_ruleset: ${{ steps.scope.outputs.repo_checks_ruleset }}
+      repo_checks_bombadil: ${{ steps.scope.outputs.repo_checks_bombadil }}
+      dependency_review: ${{ steps.scope.outputs.dependency_review }}
       codeql: ${{ steps.scope.outputs.codeql }}
       codeql_unchanged: ${{ steps.scope.outputs.codeql_unchanged }}
       codeql_base: ${{ steps.scope.outputs.codeql_base }}
@@ -100,15 +103,17 @@ jobs:
             # This workflow wires up every tool's, so a change to it runs them all on Linux.
             ci:
               - '.github/workflows/ci.yml'
-            # The Rust workspace. Changes to Markdown alone skip it (the crates' READMEs, which are
-            # their crate docs and doctests, run locallibrary_readmes' jobs), and so do the files
-            # only the weekly run (bombadil) or atstore (the icon) reads. Of the shared tokens and
-            # lexicons, only what the Rust code reads.
+            # The Rust workspace, and the fuzz targets' workspace built on it. Changes to Markdown
+            # alone skip it (the crates' READMEs, which are their crate docs and doctests, run
+            # locallibrary_readmes' jobs), and so do the files only Bombadil (the bombadil filter)
+            # or atstore (the icon) reads. Of the shared tokens and lexicons, only what the Rust code
+            # reads.
             locallibrary:
               - 'apps/locallibrary/**'
               - 'crates/**'
               - 'plugins/**'
               - 'vendor/**'
+              - 'fuzz/**'
               - 'packages/tokens/colors.json'
               - 'packages/tokens/colors.schema.json'
               - 'packages/tokens/mix.json'
@@ -379,6 +384,23 @@ jobs:
               - '.github/rulesets/**'
               - 'tools/ruleset.sh'
               - '.github/workflows/repo-checks.yml'
+            # Bombadil's own npm project, which repo-checks installs and type-checks. Its specs run
+            # weekly (locallibrary-scheduled.yml).
+            repo_checks_bombadil:
+              - 'apps/locallibrary/bombadil/**'
+              - '.node-version'
+              - '.github/workflows/repo-checks.yml'
+            # What the dependency graph reads: the lockfiles and manifests, and the workflows, which
+            # only count as manifests in .github/workflows/, plus the action that submits
+            # pnpm-lock.yaml's packages to it.
+            dependency_review:
+              - 'pnpm-lock.yaml'
+              - '**/package-lock.json'
+              - '**/package.json'
+              - '**/Cargo.lock'
+              - '**/Cargo.toml'
+              - '.github/workflows/**'
+              - '.github/actions/npm-snapshot/**'
             # What CodeQL extracts for each language without a build, its config, and the
             # workflow that pins its version: a language none of them changed for has the same
             # results as the commit this one is diffed against.
@@ -433,7 +455,8 @@ jobs:
           for name in locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny \
             locallibrary_dist locallibrary_other_os locallibrary_semver locallibrary_commands web_verify \
             web_integration web_e2e web_lighthouse web_docker localtoolbox atstore mix_report \
-            npm_advisories workflow_lint repo_checks_policy repo_checks_lexicons repo_checks_ruleset; do
+            npm_advisories workflow_lint repo_checks_policy repo_checks_lexicons repo_checks_ruleset \
+            repo_checks_bombadil dependency_review; do
             out[$name]=false
           done
           if [ "$linux" = true ] && [ "$EVENT" = pull_request ]; then
@@ -455,6 +478,19 @@ jobs:
             set_if workflow_lint changed workflow_lint
             if changed repo_checks || changed repo_checks_files; then out[repo_checks_policy]=true; fi
             set_if repo_checks_lexicons changed repo_checks_lexicons
+            set_if repo_checks_bombadil changed repo_checks_bombadil
+            set_if dependency_review changed dependency_review
+          fi
+          # A merge queue group: the quick static checks again on the commit that goes on main, so
+          # two pull requests that each passed alone can't break it together. The Rust ones are in
+          # other-os below. Integration, e2e, Lighthouse and Docker stay on pull requests.
+          if [ "$EVENT" = merge_group ]; then
+            set_if web_verify changed web
+            set_if localtoolbox changed localtoolbox
+            set_if atstore changed atstore
+            set_if workflow_lint changed workflow_lint
+            if changed repo_checks || changed repo_checks_files; then out[repo_checks_policy]=true; fi
+            set_if repo_checks_bombadil changed repo_checks_bombadil
           fi
           # A push to main: what main's runs keep for pull requests. The sizes and coverage the
           # reports compare with change only with the code (web_integration's paths), and the Rust
@@ -476,7 +512,7 @@ jobs:
           set_if locallibrary any locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny \
             locallibrary_dist locallibrary_other_os locallibrary_semver
           set_if web any web_verify web_integration web_e2e web_lighthouse web_docker
-          set_if repo_checks any repo_checks_policy repo_checks_lexicons repo_checks_ruleset
+          set_if repo_checks any repo_checks_policy repo_checks_lexicons repo_checks_ruleset repo_checks_bombadil
 
           # CodeQL, every language, on every event but a draft's and a pull request's into another
           # branch than main. The code scanning rule holds a pull request or a merge queue group until
@@ -604,6 +640,16 @@ jobs:
       policy: ${{ needs.changes.outputs.repo_checks_policy == 'true' }}
       lexicons: ${{ needs.changes.outputs.repo_checks_lexicons == 'true' }}
       ruleset: ${{ needs.changes.outputs.repo_checks_ruleset == 'true' }}
+      bombadil: ${{ needs.changes.outputs.repo_checks_bombadil == 'true' }}
+
+  dependency-review:
+    needs: changes
+    if: needs.changes.outputs.dependency_review == 'true'
+    permissions:
+      # Submitting the lockfile's packages to the dependency graph, and the summary comment.
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/dependency-review.yml
 
   codeql:
     needs: changes
@@ -634,9 +680,10 @@ jobs:
       || (needs.changes.outputs.npm_advisories == 'true' && needs.npm-advisories.result == 'skipped')
       || (needs.changes.outputs.workflow_lint == 'true' && needs.workflow-lint.result == 'skipped')
       || (needs.changes.outputs.repo_checks == 'true' && needs.repo-checks.result == 'skipped')
+      || (needs.changes.outputs.dependency_review == 'true' && needs.dependency-review.result == 'skipped')
       || (needs.changes.outputs.codeql == 'true' && needs.codeql.result == 'skipped')
       || needs.changes.outputs.draft == 'true')
-    needs: [changes, locallibrary, web, localtoolbox, atstore, mix-report, npm-advisories, workflow-lint, repo-checks, codeql]
+    needs: [changes, locallibrary, web, localtoolbox, atstore, mix-report, npm-advisories, workflow-lint, repo-checks, dependency-review, codeql]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

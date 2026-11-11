@@ -96,6 +96,8 @@ jobs:
         with:
           tool: cargo-deny
       - run: cargo deny --locked check advisories
+      # The fuzz targets' own lockfile, which Dependabot also bumps, against the same deny.toml.
+      - run: cargo deny --manifest-path fuzz/Cargo.toml --config deny.toml --locked check advisories
 
   # The builds without the default features (`account`, `tui`, `playback`): a headless sidecar
   # with and without the account. No ALSA headers, which shows the builds without `playback` don't

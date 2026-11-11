@@ -16,12 +16,6 @@ test_gated_workflows if {
 	gated == {".github/workflows/site-ci.yml", ".github/workflows/rust.yml", ".github/workflows/deps.yml", ".github/workflows/lint.yml"}
 }
 
-test_ungated_workflow_is_skipped if {
-	broken := json.remove(ci, ["jobs/passed"])
-	repo := fixtures.with_file(".github/workflows/dependency-review.yml", broken)
-	count(workflows.deny) == 0 with input as repo
-}
-
 test_no_changes_job if {
 	broken := json.remove(ci, ["jobs/changes", "jobs/verify/needs", "jobs/passed/needs"])
 	".github/workflows/site-ci.yml: add a `changes` job that runs dorny/paths-filter, which the other jobs need (see localtoolbox-ci.yml)" in workflows.deny with input as with_ci(broken)

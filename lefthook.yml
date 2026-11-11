@@ -61,7 +61,7 @@ pre-push:
     - name: tests localtoolbox
       root: apps/localtoolbox/
       run: pnpm test
-    # Nothing else here compiles what's behind cfg(windows), so a slip there would wait for CI's Windows job. Skipped
+    # Nothing else here compiles what's behind cfg(windows); CI runs the same command (locallibrary-ci.yml's clippy-windows). Skipped
     # without the target and a MinGW compiler, which the crates that build C need: `rustup target add
     # x86_64-pc-windows-gnu`, `brew install mingw-w64`.
     - name: clippy for Windows

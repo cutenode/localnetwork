@@ -20,6 +20,10 @@ on:
         description: Whether a push to main changed the ruleset file, so it's checked against GitHub's copy.
         type: boolean
         required: true
+      bombadil:
+        description: Whether Bombadil's npm project changed (ci.yml's repo_checks_bombadil paths).
+        type: boolean
+        required: true
   schedule:
     - cron: "11 5 * * 1"
   workflow_dispatch:
@@ -88,3 +92,23 @@ jobs:
       - run: tools/ruleset.sh check
         env:
           GH_TOKEN: ${{ github.token }}
+
+  # Bombadil's own npm project (apps/locallibrary/bombadil): `npm ci` fails when package.json and
+  # package-lock.json disagree, and tsc checks the specs. The specs themselves need the TUI built,
+  # so they run weekly in locallibrary-scheduled.yml.
+  bombadil:
+    if: inputs.bombadil
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/locallibrary/bombadil
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: npm ci
+      - run: npm run typecheck

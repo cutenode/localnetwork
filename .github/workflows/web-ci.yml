@@ -66,6 +66,11 @@ jobs:
       - run: pnpm exec playwright install chromium
       - run: pnpm test
       - run: pnpm test:storybook
+      # The static Storybook, which also loads what the stories' tests skip: the manager config
+      # (.storybook/manager.ts) and the MDX docs pages. The step names its folder, which knip's
+      # GitHub Actions plugin reads where it skips the job's default.
+      - run: pnpm build-storybook
+        working-directory: apps/web
       - run: pnpm test:build
       # What the browser downloads, for the report job; main's runs keep theirs for pull requests
       # to compare with. adapter-node writes a brotli copy beside each file (precompress), which is

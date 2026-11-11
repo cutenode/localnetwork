@@ -78,6 +78,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - if: inputs.linux || inputs.cache
         run: cargo fmt --all --check
+      # The fuzz targets are a workspace of their own (fuzz/Cargo.toml), which `--all` and
+      # `--workspace` leave out. Only a fuzzing run needs nightly; clippy builds them on stable.
+      - if: inputs.linux || inputs.cache
+        run: cargo fmt --manifest-path fuzz/Cargo.toml --check
       # The headless sidecar (no default features: no `account`, `tui` or `playback`) builds and
       # passes clippy without ALSA's headers, so this runs before they're installed. Its tests and
       # benches too: what only the default features use is dead code here.
@@ -102,6 +106,8 @@ jobs:
           packages: libasound2-dev
       - if: inputs.linux || inputs.cache
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - if: inputs.linux || inputs.cache
+        run: cargo clippy --manifest-path fuzz/Cargo.toml --all-targets --locked -- -D warnings
       # nextest doesn't run doctests.
       - if: inputs.linux || inputs.docs || inputs.cache
         run: cargo test --doc --workspace --locked
@@ -124,6 +130,31 @@ jobs:
             echo "::error::dist would release $(jq -c '[.releases[]?.app_name]' "$RUNNER_TEMP/plan-dist-manifest.json"), not only locallibrary-cli. Set dist = false under [package.metadata.dist] in the new package's Cargo.toml."
             exit 1
           fi
+
+  # What's behind cfg(windows), on a pull request rather than first in the merge queue's Windows
+  # job: clippy for the GNU target, cross-compiled on Linux with MinGW for the crates that build C.
+  # The pre-push hook runs the same command (lefthook.yml). macOS has no such cross check, so it
+  # waits for other-os.
+  clippy-windows:
+    name: clippy (Windows, cross)
+    if: inputs.linux || inputs.cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - run: rustup target add x86_64-pc-windows-gnu
+      # Its own cache: the key has the host's target in it, not the one built for.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: clippy-windows
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+      - run: cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-gnu -- -D warnings
 
   # Build, then test in 3 shards, then coverage, with the Hegel coverage beside the shards. The
   # build job compiles the tests once, instrumented for coverage, into a nextest archive that the

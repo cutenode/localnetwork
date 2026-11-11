@@ -4,10 +4,6 @@ package workflows
 
 import data.lib
 
-# Pull request workflows with no passed check: dependency review is GitHub's own check of what a
-# pull request adds, which isn't a required check.
-ungated := {".github/workflows/dependency-review.yml"}
-
 # Gated workflows that check the pull request itself rather than its files, so they have nothing
 # to filter and no changes job: pr-issue.yml reads the description, branch and labels.
 unfiltered := {".github/workflows/pr-issue.yml"}
@@ -24,7 +20,6 @@ triggers(wf) := wf["true"]
 # Workflows that run on pull requests and have to report a "... passed" check.
 gated[path] := wf if {
 	some path in lib.paths(".github/workflows/*.yml")
-	not path in ungated
 	wf := lib.file(path)
 	runs_on(triggers(wf), "pull_request")
 }
