@@ -54,6 +54,7 @@ jobs:
       locallibrary_docs: ${{ steps.scope.outputs.locallibrary_docs }}
       locallibrary_cache: ${{ steps.scope.outputs.locallibrary_cache }}
       locallibrary_deny: ${{ steps.scope.outputs.locallibrary_deny }}
+      locallibrary_release: ${{ steps.scope.outputs.locallibrary_release }}
       locallibrary_dist: ${{ steps.scope.outputs.locallibrary_dist }}
       locallibrary_other_os: ${{ steps.scope.outputs.locallibrary_other_os }}
       locallibrary_semver: ${{ steps.scope.outputs.locallibrary_semver }}
@@ -145,6 +146,23 @@ jobs:
               - '!apps/locallibrary/assets/icon.svg'
             locallibrary_readmes:
               - 'crates/*/README.md'
+            # What moves the release binary's size and a frame's instructions (release-budgets):
+            # the manifests and lockfile, and the Rust that ships. Test files are left out, the
+            # frame test's own included: the weekly locallibrary-bench.yml run measures those.
+            locallibrary_release:
+              - 'Cargo.lock'
+              - '**/Cargo.toml'
+              - 'rust-toolchain.toml'
+              - 'apps/locallibrary/src/**'
+              - 'crates/*/src/**'
+              - 'plugins/*/src/**'
+              - 'vendor/*/src/**'
+              - 'benchmarks/budgets/**'
+              - '.github/actions/release-budgets/**'
+              - '.github/workflows/locallibrary-ci.yml'
+              - '!**/{tests,testing,test_util,screens,props}.rs'
+              - '!**/tests/**'
+              - '!**/*.md'
             # What cargo-deny reads.
             locallibrary_deny:
               - 'Cargo.lock'
@@ -457,7 +475,7 @@ jobs:
 
           declare -A out=()
           set_if() { if "${@:2}"; then out[$1]=true; else out[$1]=false; fi; }
-          for name in locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny \
+          for name in locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny locallibrary_release \
             locallibrary_dist locallibrary_other_os locallibrary_semver locallibrary_commands web_verify \
             web_integration web_e2e web_lighthouse web_docker localtoolbox atstore mix_report \
             npm_advisories workflow_lint repo_checks_policy repo_checks_lexicons repo_checks_ruleset \
@@ -468,6 +486,7 @@ jobs:
             set_if locallibrary_linux changed locallibrary
             set_if locallibrary_docs changed locallibrary_readmes
             set_if locallibrary_deny changed locallibrary_deny
+            set_if locallibrary_release changed locallibrary_release
             set_if locallibrary_dist changed locallibrary_dist
             set_if locallibrary_semver changed locallibrary_semver
             set_if locallibrary_commands changed locallibrary_commands
@@ -519,7 +538,7 @@ jobs:
           if [ "$other_os" = true ]; then set_if locallibrary_other_os matched locallibrary; fi
 
           any() { local name; for name; do [ "${out[$name]}" = true ] && return 0; done; return 1; }
-          set_if locallibrary any locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny \
+          set_if locallibrary any locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny locallibrary_release \
             locallibrary_dist locallibrary_other_os locallibrary_semver
           set_if web any web_verify web_integration web_e2e web_lighthouse web_docker
           set_if repo_checks any repo_checks_policy repo_checks_lexicons repo_checks_ruleset repo_checks_bombadil \
@@ -592,6 +611,7 @@ jobs:
       docs: ${{ needs.changes.outputs.locallibrary_docs == 'true' }}
       cache: ${{ needs.changes.outputs.locallibrary_cache == 'true' }}
       deny: ${{ needs.changes.outputs.locallibrary_deny == 'true' }}
+      release: ${{ needs.changes.outputs.locallibrary_release == 'true' }}
       dist: ${{ needs.changes.outputs.locallibrary_dist == 'true' }}
       other-os: ${{ needs.changes.outputs.locallibrary_other_os == 'true' }}
       semver: ${{ needs.changes.outputs.locallibrary_semver == 'true' }}

@@ -25,6 +25,10 @@ on:
         description: Whether what cargo-deny reads changed (locallibrary_deny).
         type: boolean
         required: true
+      release:
+        description: Whether a pull request changed what the release budgets measure (locallibrary_release).
+        type: boolean
+        required: true
       dist:
         description: Whether a pull request changed what `dist plan` reads (locallibrary_dist).
         type: boolean
@@ -328,11 +332,11 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # What only a release build can tell, against benchmarks/budgets/: when a manifest or the
-  # lockfile changed, since a dependency is what moves these most. Everything else that does is
+  # What only a release build can tell, against benchmarks/budgets/: when a manifest, the lockfile
+  # or the Rust that ships changed (ci.yml's locallibrary_release paths). Changes to tests alone are
   # caught by locallibrary-bench.yml's weekly run of the same.
   release-budgets:
-    if: inputs.deny
+    if: inputs.release
     runs-on: ubuntu-latest
     # Two release builds: dist's for the CLI and the release profile's for the frame test.
     timeout-minutes: 60

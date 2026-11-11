@@ -71,6 +71,7 @@ jobs:
       docs: false
       cache: false
       deny: false
+      release: false
       dist: false
       other-os: true
       semver: false
