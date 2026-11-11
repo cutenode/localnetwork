@@ -563,6 +563,33 @@ fn a_shifted_q_sent_as_its_code_quantizes_rather_than_quits() {
     assert!(app.quit);
 }
 
+/// The deck's and the library's capitals, typed while a track plays, do the same sent either
+/// way: as the capital, or as a terminal reporting keys by their codes sends them, the lowercase
+/// letter with shift. Sent that way, `Q` once quit the player (LOC-11). Capitals that start work
+/// in the background (`R`, `T`, `O`) are left out, as it ends when it ends.
+#[hegel::test(test_cases = 50)]
+fn prop_a_shifted_letter_sent_as_its_code_is_its_capital(tc: hegel::TestCase) {
+    use super::super::ui::screen;
+    use hegel::generators as gs;
+    use ratatui::crossterm::event::KeyModifiers;
+    let typed: Vec<char> = "QSACNPGMBUXJKZ".chars().collect();
+    let letters: Vec<char> = tc.draw(gs::vecs(gs::sampled_from(&typed[..])).max_size(6));
+    let (mut capitals, a) = playing(TrackAnalysis::default());
+    let (mut codes, b) = playing(TrackAnalysis::default());
+    // Each drive is a temporary folder of its own name.
+    let shown = |app: &mut App, dir: &tempfile::TempDir| {
+        screen(app, 120, 40).replace(dir.path().file_name().unwrap().to_str().unwrap(), "DRIVE")
+    };
+    for c in letters {
+        capitals.on_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::SHIFT));
+        codes.on_key(KeyEvent::new(KeyCode::Char(c.to_ascii_lowercase()), KeyModifiers::SHIFT));
+        assert!(!codes.quit, "{c} quit");
+        let (by_code, by_capital) = (shown(&mut codes, &b), shown(&mut capitals, &a));
+        let differ: Vec<_> = by_code.lines().zip(by_capital.lines()).filter(|(x, y)| x != y).collect();
+        assert!(differ.is_empty(), "after {c}: {differ:#?}");
+    }
+}
+
 /// A beat grid as a damaged export can hold one: empty or one beat, out of order, beats at the
 /// same time or at the end of time, a tempo of 0 or barely more, beat numbers past 4.
 #[hegel::test_helper]

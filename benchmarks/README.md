@@ -12,7 +12,7 @@ never gated on; `cargo bench` and CodSpeed still track time and instructions wee
 | `export` | what writing a library to a blank drive asks of the filesystem: files and folders made, renames, flushes, writes and their size | `crates/locallibrary/tests/export_counters.rs`, in the same job, under `strace` | the same |
 | `tui` | allocations and bytes of a frame of the player, for the Library view, the Deck layout, the Drives view and the Prepare view | `apps/locallibrary/src/tui/frames/tests.rs`, in the same job | the same |
 | `deps` | packages linked into the default CLI on Linux | `cargo tree`, in the same job | the same |
-| `size-x86_64-unknown-linux-gnu` | release binary and archive | `.github/actions/release-budgets` | weekly, by hand, and pull requests that change a manifest or the lockfile |
+| `size-x86_64-unknown-linux-gnu` | release binary and archive | `.github/actions/release-budgets` | weekly, by hand, and pull requests that change a manifest, the lockfile or the Rust that ships |
 | `cli` | instructions of everyday commands on the 3,886-track fixture | the same | the same |
 | `tui-instructions` | instructions of a frame of the player, for the same views | the same, running the `tui` test | the same |
 | `tui-debug-instructions` | instructions of a frame of the player for the same views in the debug profile, which catch a regression and aren't what a user's frame costs. Waiting for the fixture's workers polls a clock, so these move by about 0.02% between runs of the same code | `.github/actions/release-budgets/frame-instructions.sh`, on the `unit` test binary of the archive the `budgets` job runs | every pull request that runs the Linux jobs |

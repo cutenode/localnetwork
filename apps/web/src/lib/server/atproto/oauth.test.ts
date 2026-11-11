@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { type AddressInfo, createServer as createNetServer, type Socket } from 'node:net';
 import { IncludeScope, ScopePermissions, ScopePermissionsTransition, SpacePermission } from '@atproto/oauth-scopes';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CALENDAR_EVENT, CALENDAR_RSVP, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
+import { CALENDAR_EVENT, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
 import { loadConfig } from '../config';
 import { nowIso, openDatabase } from '../db';
 import { silentLogger } from '../logger';
@@ -26,6 +26,9 @@ import {
 	SCOPES,
 	type SignedInAccount
 } from './oauth';
+
+/** The lexicon-community RSVP a guest answers an event with, which nothing here writes yet. */
+const CALENDAR_RSVP = 'community.lexicon.calendar.rsvp';
 
 /** A fetch for services whose client never reaches the network. */
 const offline: typeof globalThis.fetch = async (input) => {

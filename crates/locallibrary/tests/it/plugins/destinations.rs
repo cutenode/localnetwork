@@ -69,7 +69,7 @@ fn objects(store: &Store) -> Vec<String> {
 }
 
 #[test]
-fn a_copy_at_a_destination_goes_in_a_folder_copys_order_and_comes_back_whole() {
+fn a_copy_at_a_destination_goes_in_folder_copy_order_and_comes_back_whole() {
     let f = Fixture::echo();
     let head = f.pulled();
     f.store.add_label(&head, "gig").unwrap();

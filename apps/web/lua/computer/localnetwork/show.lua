@@ -49,11 +49,11 @@ local function view(value)
 			region = text(place.region),
 			country = place.country,
 			latE6 = place.latE6,
-			lngE6 = place.lngE6
+			lngE6 = place.lngE6,
 		},
 		status = text(value.status),
 		tickets = webLink(value.tickets),
-		createdAt = value.createdAt
+		createdAt = value.createdAt,
 	}
 end
 
