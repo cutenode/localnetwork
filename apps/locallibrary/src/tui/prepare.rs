@@ -1,4 +1,5 @@
-//! The Prepare view: the jobs that get a drive ready for a set, each what the palette runs.
+//! The Prepare view: the jobs that get a drive ready for a set, each what the palette runs. Those
+//! with no key elsewhere live here, and a row that can't run now says why.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -8,14 +9,36 @@ use unicode_width::UnicodeWidthStr;
 
 use super::app::App;
 use super::icons;
-use super::keymap::{self, Act};
+use super::keymap::{self, Act, Scope};
+use super::palette::key_name;
 use super::theme::{self, dim, faint, fg, text};
 use super::ui::{Scrolled, block, clip, pane_title};
 
-const JOBS: [Act; 7] = [Act::Check, Act::SetPrep, Act::SyncGroup, Act::Pack, Act::Pull, Act::SmartApply, Act::Refresh];
+const JOBS: [Act; 13] = [
+    Act::Check,
+    Act::SetPrep,
+    Act::SyncGroup,
+    Act::Pack,
+    Act::Pull,
+    Act::RestorePlaylist,
+    Act::Replay,
+    Act::SmartList,
+    Act::SmartApply,
+    Act::SmartNew,
+    Act::ExportList,
+    Act::Eject,
+    Act::Refresh,
+];
 
 /// The gap between a job's name and what it does.
 const GAP: usize = 3;
+/// Room for a job's key.
+const KEY: usize = 3;
+
+/// Whether this view is where `act` lives.
+pub fn holds(act: Act) -> bool {
+    JOBS.contains(&act)
+}
 
 pub fn len() -> usize {
     JOBS.len()
@@ -41,11 +64,21 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
         .iter()
         .map(|&act| {
             let name = format!("{:<name_w$}", keymap::name(act));
-            let about = clip(keymap::about(act), width.saturating_sub(name_w + GAP));
+            let key = keymap::key_in(Scope::Prepare, act).map_or(String::new(), key_name);
+            let room = width.saturating_sub(name_w + GAP + KEY);
+            let why = app.unavailable(act);
+            let (name, about) = match &why {
+                Some(why) => {
+                    let said = format!("{why} · {}", keymap::about(act));
+                    (Span::styled(name, faint()), Span::styled(clip(&said, room), faint()))
+                }
+                None => (Span::styled(name, text()), Span::styled(clip(keymap::about(act), room), dim())),
+            };
             ListItem::new(Line::from(vec![
-                Span::styled(name, text()),
+                name,
                 Span::raw(" ".repeat(GAP)),
-                Span::styled(about, dim()),
+                Span::styled(format!("{key:<KEY$}"), theme::key()),
+                about,
             ]))
         })
         .collect();

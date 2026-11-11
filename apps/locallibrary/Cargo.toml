@@ -71,7 +71,7 @@ account = ["locallibrary/account"]
 # `store serve` and `store fetch`: copying snapshots between computers over the network.
 peers = ["locallibrary/peers"]
 # The interactive player (`locallibrary tui`, and `locallibrary` on its own in a terminal).
-tui = ["dep:ratatui", "dep:rodio", "dep:rustfft", "dep:loclib-waveform", "dep:crossterm", "dep:terminal-colorsaurus", "dep:terminal-trx"]
+tui = ["dep:ratatui", "dep:rodio", "dep:rustfft", "dep:loclib-waveform", "dep:crossterm", "dep:terminal-colorsaurus", "dep:terminal-trx", "dep:ratatui-image", "dep:image", "dep:tachyonfx"]
 # The player's audio output: cpal, and ALSA on Linux. Without it the player browses, edits and
 # shows waveforms, but there's no output to play through.
 playback = ["tui", "rodio/playback"]
@@ -137,6 +137,12 @@ locallibrary-plugin-mixcloud = { version = "0.1.0", path = "../../plugins/mixclo
 locallibrary-plugin-soundcloud = { version = "0.1.0", path = "../../plugins/soundcloud" }
 # The player asks the terminal for its real colours (OSC 10 and 11) as it starts.
 terminal-colorsaurus = { version = "1.0.3", optional = true }
+# Cover art in the graphics a terminal has. Pinned: its API changes between versions. No default
+# features, so it doesn't need libchafa.
+ratatui-image = { version = "=11.1.0", default-features = false, optional = true }
+image = { workspace = true, optional = true }
+# The short fades of panels and tracks.
+tachyonfx = { version = "0.25", default-features = false, features = ["std"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
 # Only for `use-dev-tty`: the player's input read with poll(2) rather than mio (ratatui brings the

@@ -195,6 +195,7 @@ pub fn playing(analysis: TrackAnalysis) -> (App, TempDir) {
         drive: "TEST".into(),
         root,
         analysis,
+        waves: Default::default(),
         from_plugins: None,
         art: None,
         duration: Duration::from_secs(300),
@@ -206,6 +207,22 @@ pub fn playing(analysis: TrackAnalysis) -> (App, TempDir) {
         advancing: false,
         track,
     });
+    (app, dir)
+}
+
+/// An image of one colour, as a file holds it.
+pub fn png(colour: [u8; 3]) -> Vec<u8> {
+    let mut png = Vec::new();
+    image::RgbImage::from_pixel(8, 8, image::Rgb(colour))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    png
+}
+
+/// [`playing`], with cover art.
+pub fn on_deck_art() -> (App, TempDir) {
+    let (mut app, dir) = playing(TrackAnalysis::default());
+    app.now.as_mut().unwrap().art = loclib_waveform::Art::decode(&png([200, 40, 90]));
     (app, dir)
 }
 
@@ -244,6 +261,12 @@ pub fn opened(app: &mut App) {
     wait(app, |a| a.now.as_ref().is_some_and(|n| !n.opening && !n.loading));
 }
 
+/// The first read of the drives under way, as it is when the player starts.
+pub fn reading_drives(app: &mut App) {
+    app.listed = false;
+    app.drives_in_flight = true;
+}
+
 /// A job as the player runs one: planning, or writing (and whether it's too late to stop).
 pub fn job(writing: bool, committed: bool) -> Job {
     Job {
@@ -253,6 +276,7 @@ pub fn job(writing: bool, committed: bool) -> Job {
         cancel: Default::default(),
         writing,
         committed,
+        too_late: "writing the drive: too late to stop",
         started: Instant::now(),
         touched: Vec::new(),
         after: None,

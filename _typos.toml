@@ -15,13 +15,14 @@ extend-exclude = [
     # Generated: vitest snapshots, the RPC docs emitted from Rust, screenshot captures
     "*.snap",
     "apps/locallibrary/docs/rpc/",
+    "apps/locallibrary/docs/player/*.svg",
     "apps/web/src/lib/tools/captures/",
 ]
 
 [default]
 extend-ignore-re = [
     # Misspellings tests feed in on purpose (fuzzy matching, did-you-mean, prefix search)
-    '''\\?["'/](arround|histroy|shwo|Mian|Hom|puls|Porcelian|One More Tme|Noth)\b''',
+    '''\\?["'/](arround|histroy|shwo|Mian|Hom|puls|Porcelian|One More Tme|Noth|delet)\b''',
     # A word cut by an escaped non-ASCII letter, like Caf\u{e9} for Café
     '''[A-Za-z]+(\\u\{[0-9A-Fa-f]+\}|\\u[0-9A-Fa-f]{4}|\\x[89A-Fa-f][0-9A-Fa-f]|%[C-Fc-f][0-9A-Fa-f])''',
     # Heading slugs drop the apostrophe (#saving-drives-as-theyre-plugged-in)
@@ -36,6 +37,8 @@ extend-ignore-re = [
 ]
 
 [default.extend-identifiers]
+# Boolean AND as a verb (clauses ANDed together)
+ANDed = "ANDed"
 # Engine DJ's own schema (crates/loclib-interop/src/engine.sql)
 Heirarchy = "Heirarchy"
 isPerfomanceDataOfPackedTrackChanged = "isPerfomanceDataOfPackedTrackChanged"
@@ -48,6 +51,11 @@ current_download_file_listner = "current_download_file_listner"
 PNGs = "PNGs"
 
 [type.rust.extend-words]
+# The terminal UI crate, and ratatui-image
+ratatui = "ratatui"
+# A column cut to its width in the TUI's tests ("CLOS" for CLOSING), and keys pressed ("ueN")
+clos = "clos"
+ue = "ue"
 # MP4's track box
 trak = "trak"
 # SanDisk's drive model

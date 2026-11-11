@@ -43,6 +43,21 @@ describe('loadConfig', () => {
 		});
 	});
 
+	it('reads flag overrides in development and refuses to start with them in production', () => {
+		expect(loadConfig(base).flagOverrides).toEqual({});
+		expect(loadConfig({ ...base, FLAG_OVERRIDES: 'parityCanary=on, newPlanner=off,' }).flagOverrides).toEqual({
+			parityCanary: true,
+			newPlanner: false
+		});
+		expect(() => loadConfig({ ...base, FLAG_OVERRIDES: 'parityCanary=yes' })).toThrow(
+			'FLAG_OVERRIDES: "parityCanary=yes" is not key=on or key=off'
+		);
+		expect(() => loadConfig({ ...base, NODE_ENV: 'production', FLAG_OVERRIDES: 'parityCanary=on' })).toThrow(
+			'FLAG_OVERRIDES: only for development and tests'
+		);
+		expect(loadConfig({ ...base, NODE_ENV: 'production', FLAG_OVERRIDES: '' }).flagOverrides).toEqual({});
+	});
+
 	it('logs email in development, and sends it in production only through Resend with a key', () => {
 		const production = { ...base, NODE_ENV: 'production', PUBLIC_URL: 'https://ln.example' };
 

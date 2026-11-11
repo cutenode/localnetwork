@@ -314,10 +314,22 @@ impl Model {
         if !self.kept(subject) {
             self.kept.push(subject);
         }
-        if for_echo && !self.has_access(subject) {
+        if for_echo {
+            self.given(subject);
+        }
+    }
+
+    /// Echo given access to `subject`, its default when it's its first: whether it could be (it's
+    /// kept, or echo has access to it already).
+    pub(super) fn given(&mut self, subject: &'static str) -> bool {
+        if !self.has_access(subject) && !self.kept(subject) {
+            return false;
+        }
+        if !self.has_access(subject) {
             let first = self.accesses.is_empty();
             self.accesses.push((subject, first));
         }
+        true
     }
 
     /// `subject` signed out of: whether it was kept.

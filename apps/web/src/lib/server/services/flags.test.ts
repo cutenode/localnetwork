@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
 import { spaceRecordUri } from '../atproto/spaces';
+import { newToken } from '../auth/session';
 import { ForbiddenError, UserError } from '../core';
+import { PREVIEW_MS, sealPreview } from '../flags/preview';
 import { createTestServices } from '../testing/core';
+import { FlagService } from './flags';
 
 const ADMIN = 'did:plc:admin';
 
@@ -14,7 +17,7 @@ const OTHER = 'did:plc:other';
 
 const FLAG = 'parityCanary';
 
-const off = { everyone: false, percentage: 0, groups: [], dids: [] };
+const off = { enabled: true, everyone: false, percentage: 0, groups: [], dids: [] };
 
 describe('FlagService', () => {
 	let t: Awaited<ReturnType<typeof createTestServices>>;
@@ -42,7 +45,32 @@ describe('FlagService', () => {
 	it('starts every flag off, for everyone', async () => {
 		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: false });
 		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: false });
-		expect(await t.flags.answers(DJ)).toEqual([{ key: FLAG, everyone: false, percentage: 0, targeted: false }]);
+		expect(await t.flags.answers(DJ)).toEqual([
+			{ key: FLAG, enabled: true, everyone: false, percentage: 0, targeted: false }
+		]);
+	});
+
+	it('lets an override set a flag on this server, whatever its record says', async () => {
+		await t.flags.updateFlag(await t.viewer(ADMIN), FLAG, { ...off, enabled: true, everyone: true });
+
+		const forcedOff = new FlagService(t.core, t.staff, { [FLAG]: false });
+		const forcedOn = new FlagService(t.core, t.staff, { [FLAG]: true });
+
+		expect(await forcedOff.evaluate(DJ)).toEqual({ [FLAG]: false });
+		expect(await forcedOff.answers(null)).toEqual([
+			{ key: FLAG, enabled: false, everyone: true, percentage: 0, targeted: false }
+		]);
+
+		await t.flags.updateFlag(await t.viewer(ADMIN), FLAG, { ...off, enabled: false });
+
+		expect(await forcedOn.evaluate(null)).toEqual({ [FLAG]: true });
+		expect(await forcedOn.flag(FLAG)).toMatchObject({ enabled: false });
+	});
+
+	it('refuses an override for a flag that is not in the catalog', () => {
+		expect(() => new FlagService(t.core, t.staff, { noSuchFlag: true })).toThrow(
+			'FLAG_OVERRIDES names noSuchFlag, which is not in flags/catalog'
+		);
 	});
 
 	it('reads the index again after failing to', async () => {
@@ -91,9 +119,58 @@ describe('FlagService', () => {
 	it('tells a caller its own targeting and never who else', async () => {
 		await t.flags.updateFlag(await t.viewer(ADMIN), FLAG, { ...off, percentage: 25, dids: [DJ] });
 
-		expect(await t.flags.answers(DJ)).toEqual([{ key: FLAG, everyone: false, percentage: 25, targeted: true }]);
-		expect(await t.flags.answers(OTHER)).toEqual([{ key: FLAG, everyone: false, percentage: 25, targeted: false }]);
-		expect(await t.flags.answers(null)).toEqual([{ key: FLAG, everyone: false, percentage: 25, targeted: false }]);
+		expect(await t.flags.answers(DJ)).toEqual([
+			{ key: FLAG, enabled: true, everyone: false, percentage: 25, targeted: true }
+		]);
+		expect(await t.flags.answers(OTHER)).toEqual([
+			{ key: FLAG, enabled: true, everyone: false, percentage: 25, targeted: false }
+		]);
+		expect(await t.flags.answers(null)).toEqual([
+			{ key: FLAG, enabled: true, everyone: false, percentage: 25, targeted: false }
+		]);
+	});
+
+	it('turns a flag off for everyone and keeps who it was for', async () => {
+		const admin = await t.viewer(ADMIN);
+		const rkey = await t.flags.createGroup(admin, { name: 'Beta', members: [OTHER] });
+		const targeting = { everyone: true, percentage: 30, groups: [rkey], dids: [DJ] };
+		await t.flags.updateFlag(admin, FLAG, { ...targeting, enabled: true });
+		await t.flags.updateFlag(admin, FLAG, { ...targeting, enabled: false });
+		await t.audit.idle();
+
+		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: false });
+		expect(await t.flags.evaluate(OTHER)).toEqual({ [FLAG]: false });
+		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: false });
+		expect(await t.flags.answers(DJ)).toEqual([
+			{ key: FLAG, enabled: false, everyone: true, percentage: 30, targeted: true }
+		]);
+		expect(stored(COLLECTION.staffFlag, FLAG)?.value).toMatchObject({ enabled: false, ...targeting });
+		expect(await t.flags.flag(FLAG)).toMatchObject({ enabled: false, everyone: true, percentage: 30 });
+		const [entry] = await t.audit.list({ action: 'flag.update' });
+
+		expect(entry).toMatchObject({ summary: `Turned ${FLAG} off for everyone` });
+		expect(JSON.parse(entry.changes ?? '')).toEqual([{ field: 'enabled', before: 'true', after: 'false' }]);
+
+		await t.flags.updateFlag(admin, FLAG, { ...targeting, enabled: true });
+		await t.audit.idle();
+
+		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: true });
+		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: true });
+		expect((await t.audit.list({ action: 'flag.update' }))[0]).toMatchObject({ summary: `Turned ${FLAG} back on` });
+	});
+
+	it('reads a synced record that does not say whether it is enabled as enabled', async () => {
+		const uri = spaceRecordUri(t.spaces.staff, t.core.rootDid, COLLECTION.staffFlag, FLAG);
+		const record = { key: FLAG, everyone: true, percentage: 0, groups: [], dids: [], updatedBy: ADMIN };
+
+		await t.flags.indexFlag(uri, { ...record, updatedAt: '2026-11-01T00:00:00.000Z' });
+
+		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: true });
+
+		await t.flags.indexFlag(uri, { ...record, enabled: false, updatedAt: '2026-11-02T00:00:00.000Z' });
+
+		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: false });
+		expect(await t.flags.flag(FLAG)).toMatchObject({ enabled: false, everyone: true });
 	});
 
 	it('writes to the staff space and logs what changed', async () => {
@@ -160,6 +237,34 @@ describe('FlagService', () => {
 		});
 		expect(await t.flags.flag('noSuchFlag')).toBeNull();
 		expect(await t.flags.group('nope')).toBeNull();
+	});
+
+	it('says a flag is ready to remove once it has been on for everyone or every account for 30 days', async () => {
+		const uri = spaceRecordUri(t.spaces.staff, t.core.rootDid, COLLECTION.staffFlag, FLAG);
+		const dids: string[] = [];
+		const record = { key: FLAG, everyone: false, percentage: 0, groups: [], dids, updatedBy: ADMIN };
+
+		const ready = async (gates: Partial<typeof record & { enabled: boolean }>, updatedAt: string) => {
+			await t.flags.indexFlag(uri, { ...record, ...gates, updatedAt });
+
+			return (await t.flags.flag(FLAG))?.readyToRemove;
+		};
+
+		vi.useFakeTimers({ now: new Date('2026-12-01T12:00:00.000Z'), toFake: ['Date'] });
+
+		try {
+			expect(await ready({ everyone: true }, '2026-11-01T12:00:00.000Z')).toBe(true);
+			expect(await ready({ percentage: 100 }, '2026-11-01T12:00:00.000Z')).toBe(true);
+			expect(await ready({ everyone: true }, '2026-11-01T12:00:00.001Z')).toBe(false);
+			expect(await ready({ percentage: 99, dids: [DJ] }, '2026-01-01T00:00:00.000Z')).toBe(false);
+			expect(await ready({ everyone: true, enabled: false }, '2026-01-01T00:00:00.000Z')).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+
+		await t.flags.removeFlagByUri(uri);
+
+		expect((await t.flags.flag(FLAG))?.readyToRemove).toBe(false);
 	});
 
 	it('shows a group that has gone by its key, so a flag still naming it can be fixed', async () => {
@@ -287,6 +392,38 @@ describe('FlagService', () => {
 
 		expect(Object.keys(await t.flags.evaluate(null))).toEqual([FLAG]);
 		expect((await t.flags.list()).map((flag) => flag.key)).toEqual([FLAG]);
+	});
+
+	describe('previewing a flag in your own browser', () => {
+		const token = newToken();
+
+		const cookie = (did: string) =>
+			sealPreview({ did, flags: { [FLAG]: true }, expiresAt: Date.now() + PREVIEW_MS }, token);
+
+		it('applies to staff holding the flags grant, and stops when the grant goes', async () => {
+			const mod = await moderator('flags');
+
+			expect(await t.flags.preview(mod, cookie(MOD), token)).toEqual({ [FLAG]: true });
+
+			await t.staff.setGrants(await t.viewer(ADMIN), MOD, ['flagGroups']);
+
+			expect(await t.flags.preview(await t.viewer(MOD), cookie(MOD), token)).toBeNull();
+			expect(await t.flags.preview(await t.viewer(DJ), cookie(DJ), token)).toBeNull();
+		});
+
+		it('logs each preview, and refuses anyone without the grant or a flag not in the catalog', async () => {
+			const admin = await t.viewer(ADMIN);
+			await t.flags.recordPreview(admin, FLAG, true);
+			await t.flags.recordPreview(admin, FLAG, null);
+			await t.audit.idle();
+
+			expect((await t.audit.list({ action: 'flag.preview' })).map((entry) => entry.summary)).toEqual([
+				`Stopped previewing ${FLAG}`,
+				`Previewed ${FLAG} on in their own browser`
+			]);
+			await expect(t.flags.recordPreview(await t.viewer(DJ), FLAG, true)).rejects.toBeInstanceOf(ForbiddenError);
+			await expect(t.flags.recordPreview(admin, 'noSuchFlag', true)).rejects.toBeInstanceOf(UserError);
+		});
 	});
 
 	describe('who may change them', () => {

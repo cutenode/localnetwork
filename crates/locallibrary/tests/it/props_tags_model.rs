@@ -272,3 +272,45 @@ fn tag_edits_on_a_drive_match_the_model(tc: TestCase) {
         assert_eq!(fs::read(root.join(paths::EXPORT_EXT_PDB)).ok(), ext_before);
     }
 }
+
+/// On a drive with exportExt.pdb but no export.pdb for its tags to point into, My Tags are
+/// OneLibrary's alone: every read says exportExt.pdb is left alone, edits match the model with
+/// OneLibrary's limits, and exportExt.pdb keeps its bytes whatever is edited.
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+fn exportext_without_export_pdb_is_left_alone_whatever_is_edited(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    common::add_onelibrary(&root);
+    if tc.draw(gs::booleans()) {
+        mirror(&root);
+    }
+    fs::remove_file(root.join(paths::EXPORT_PDB)).unwrap();
+    let ext_before = fs::read(root.join(paths::EXPORT_EXT_PDB)).unwrap();
+    let mut d = Device::open_export(&root).unwrap();
+    let files: Vec<(u32, String)> = d.library().unwrap().tracks.iter().map(|t| (t.id, t.file_path.clone())).collect();
+    let ids: Vec<u32> = files.iter().map(|(id, _)| *id).collect();
+    let left_alone = |d: &Device| {
+        let read = tags::read(d).unwrap();
+        assert_eq!(read.sources, [tags::Source::OneLibrary]);
+        let warning =
+            "exportExt.pdb is left alone: its tags point at export.pdb's tracks, and the drive has no export.pdb";
+        assert!(read.warnings.iter().any(|w| w == warning), "{:?}", read.warnings);
+    };
+    left_alone(&d);
+    let mut model = read(&d);
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(5)) {
+        let edit = draw_edit(&tc, &model, &ids);
+        let want = after(&model, &edit, &files, false);
+        match tags::plan(&d, &edit) {
+            Ok(plan) => {
+                assert!(want.is_ok(), "{edit:?} was planned");
+                tags::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+                model = want.unwrap();
+            }
+            Err(e) => assert!(want.is_err(), "{edit:?} was refused: {e}"),
+        }
+        left_alone(&d);
+        assert_eq!(read(&d), model, "after {edit:?}");
+        assert_eq!(fs::read(root.join(paths::EXPORT_EXT_PDB)).unwrap(), ext_before, "after {edit:?}");
+    }
+}

@@ -1,5 +1,5 @@
 {
-	"$comment": "Computed answers both the website and locallibrary test themselves against. Add cases freely; changing one means the rule changed, and every account can move.",
+	"$comment": "Computed answers both the website and locallibrary test themselves against. A case without `enabled` is a record that doesn't say, which counts as true. Add cases freely; changing one means the rule changed, and every account can move.",
 	"cases": [
 		{
 			"key": "parityCanary",
@@ -610,6 +610,136 @@
 			"everyone": false,
 			"targeted": false,
 			"percentage": 0,
+			"bucket": null,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"enabled": false,
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": 48,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": null,
+			"enabled": false,
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": null,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"enabled": false,
+			"everyone": false,
+			"targeted": true,
+			"percentage": 0,
+			"bucket": 48,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"enabled": false,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 100,
+			"bucket": 48,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:ewvi7nxzyoun6zhxrhs64oiz",
+			"enabled": false,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 24,
+			"bucket": 23,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"enabled": false,
+			"everyone": true,
+			"targeted": true,
+			"percentage": 100,
+			"bucket": 48,
+			"on": false
+		},
+		{
+			"key": "newPlanner",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"enabled": false,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 100,
+			"bucket": 9,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"enabled": true,
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": 48,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": null,
+			"enabled": true,
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": null,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"enabled": true,
+			"everyone": false,
+			"targeted": true,
+			"percentage": 0,
+			"bucket": 48,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:ewvi7nxzyoun6zhxrhs64oiz",
+			"enabled": true,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 23,
+			"bucket": 23,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:ewvi7nxzyoun6zhxrhs64oiz",
+			"enabled": true,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 24,
+			"bucket": 23,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": null,
+			"enabled": true,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 100,
 			"bucket": null,
 			"on": false
 		}

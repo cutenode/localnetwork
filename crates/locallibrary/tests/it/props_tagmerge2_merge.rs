@@ -89,6 +89,14 @@ fn names_and_depths_the_target_cant_hold_are_refused_when_planning(tc: TestCase)
             plan.warnings.iter().any(|w| w.ends_with("its details are too long for the target's export.pdb; skipped"));
         assert_eq!(too_long, n == 1, "{:?}", plan.warnings);
     }
+    // A merge folder named past what a row holds, offering to name another.
+    let src = onelibrary_source(dir.path(), "Folder", &["Set".to_string()], &[], "");
+    let opts = MergeOptions { folder_name: Some(past(4024)), ..Default::default() };
+    let err = merge::plan(&src, &dst, &opts, &Ctx::silent()).unwrap_err();
+    assert!(err.to_string().contains("merge folder's name is too long"), "{err}");
+    assert!(err.to_string().ends_with("; choose another folder name"), "{err}");
+    let offered: Vec<String> = err.detail().actions.iter().map(|a| a.label.clone()).collect();
+    assert_eq!(offered, ["Choose another folder name"], "{err}");
     before.untouched(&main).unwrap();
 }
 

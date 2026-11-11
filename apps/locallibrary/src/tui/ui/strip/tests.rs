@@ -9,6 +9,7 @@ use crate::tui::app::testing::*;
 use crate::tui::app::{App, View};
 use crate::tui::deck::Loop;
 use crate::tui::ui::{draw, screen};
+use loclib_waveform::Overview;
 
 use super::*;
 
@@ -19,6 +20,18 @@ fn deck(app: &mut App) -> Vec<Vec<Cell>> {
     let buf = terminal.backend().buffer();
     let r = app.areas.overview;
     (r.y..r.bottom()).map(|y| (r.x..r.right()).map(|x| buf[(x, y)].clone()).collect()).collect()
+}
+
+/// Beside a table the hot cues are letters in their colours: chips are for the Deck layout.
+#[test]
+fn the_strip_keeps_its_cues_quiet() {
+    let cues = vec![cue(Some(0), 40_000, None)];
+    let (mut app, _dir) = playing(TrackAnalysis { preview: Some(wave(400)), cues, ..Default::default() });
+    let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    terminal.draw(|f| draw(f, &mut app)).unwrap();
+    let (buf, line) = (terminal.backend().buffer(), app.areas.overview.y - 1);
+    let letter = (0..120).rev().find(|x| buf[(*x, line)].symbol() == "A").unwrap();
+    assert_eq!(buf[(letter, line)].bg, Color::Reset);
 }
 
 /// Only what the playhead crossed changes between frames, and the frames' waveform is what the

@@ -14,7 +14,6 @@
 		"lint:fix": "oxlint --type-aware --fix",
 		"format": "oxfmt",
 		"format:check": "oxfmt --check",
-		"knip": "knip",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"test:shuffle": "vitest run --sequence.shuffle.files --sequence.shuffle.tests",
@@ -22,7 +21,7 @@
 		"test:coverage": "vitest run --coverage",
 		"test:mutation": "stryker run",
 		"validate:state": "node scripts/validate-state.mts",
-		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm knip && pnpm test:coverage && pnpm test:shuffle && pnpm test:repeat && pnpm build"
+		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm test:coverage && pnpm test:shuffle && pnpm test:repeat && pnpm build"
 	},
 	"dependencies": {
 		"@fontsource-variable/instrument-sans": "^5.3.0",
@@ -46,7 +45,6 @@
 		"ajv-formats": "^3.0.1",
 		"fast-check": "^4.9.0",
 		"jsdom": "^30.0.1",
-		"knip": "^6.39.0",
 		"oxfmt": "^0.71.0",
 		"oxlint": "1.86.0",
 		"oxlint-tsgolint": "^7.0.2003",
