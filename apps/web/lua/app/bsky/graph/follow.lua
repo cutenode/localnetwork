@@ -9,7 +9,7 @@ local EPK = 'computer.localnetwork.epk'
 local PROJECT = 'computer.localnetwork.project'
 
 local READER = 'SELECT 1 AS found FROM happyview_records kit'
-	.. ' JOIN happyview_records project ON project.uri = json_extract(kit.record, \'$.project\')'
+	.. " JOIN happyview_records project ON project.uri = json_extract(kit.record, '$.project')"
 	.. ' WHERE kit.collection = ?'
 	.. " AND json_extract(kit.record, '$.access.following') IS NOT json_extract(kit.record, '$.access.anyone')"
 	.. ' AND project.collection = ? AND project.did = ?'

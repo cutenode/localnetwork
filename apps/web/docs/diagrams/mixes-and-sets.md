@@ -6,6 +6,7 @@ Tracklists, sets, recordings, stats and artist pages. The rest are listed in the
 - [Linking a set to a mix](#linking-a-set-to-a-mix)
 - [DJ stats on a page](#dj-stats-on-a-page)
 - [Sets and recordings](#sets-and-recordings)
+- [A set's page](#a-sets-page)
 - [Charts and artist pages](#charts-and-artist-pages)
 
 ## Mix tracklist flow
@@ -44,10 +45,11 @@ flowchart TD
   Pinned --> Page["The page looks it up with getSets"]
   Page -- "another CID" --> Changed["Says the set changed"]
   Page -- "gone" --> Gone["Says it's gone"]
-  Page -- "HappyView down" --> Links["Shows the mix's own link"]
+  Page --> SetLink["Set: links the set's page,<br/>/@[did]/sets/[rkey], sent on to the handle"]
+  Page -- "HappyView down" --> Links["Still links the set's page"]
 ```
 
-Source: [`src/lib/server/services/sets.ts`](../../src/lib/server/services/sets.ts), [`src/lib/server/services/projects.ts`](../../src/lib/server/services/projects.ts), [`src/routes/dashboard/projects/[slug]/profile/+page.server.ts`](../../src/routes/dashboard/projects/[slug]/profile/+page.server.ts), [`src/routes/projects/[slug]/+page.server.ts`](../../src/routes/projects/[slug]/+page.server.ts)
+Source: [`src/lib/server/services/sets.ts`](../../src/lib/server/services/sets.ts), [`src/lib/components/LinkedSet.svelte`](../../src/lib/components/LinkedSet.svelte), [`src/lib/format.ts`](../../src/lib/format.ts), [`src/lib/server/services/projects.ts`](../../src/lib/server/services/projects.ts), [`src/routes/dashboard/projects/[slug]/profile/+page.server.ts`](../../src/routes/dashboard/projects/[slug]/profile/+page.server.ts), [`src/routes/projects/[slug]/+page.server.ts`](../../src/routes/projects/[slug]/+page.server.ts)
 
 ## DJ stats on a page
 
@@ -83,6 +85,25 @@ flowchart TD
 ```
 
 Source: [`src/lib/server/services/recordings.ts`](../../src/lib/server/services/recordings.ts), [`src/lib/server/media/audio.ts`](../../src/lib/server/media/audio.ts), [`src/routes/media/audio/[did]/[cid]/+server.ts`](../../src/routes/media/audio/[did]/[cid]/+server.ts), [`src/routes/sets/[did]/[rkey]/player.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/player.json/+server.ts), [`src/lib/server/plyr.ts`](../../src/lib/server/plyr.ts)
+
+## A set's page
+
+What `/@[handle]/sets/[rkey]` waits for and what it streams in after. The address goes through the same account lookup as a profile.
+
+```mermaid
+flowchart TD
+  Visit["/@[handle]/sets/[rkey]"] --> Account{"Names an account?"}
+  Account -- "no" --> Miss["404, counted against<br/>the visitor's lookups"]
+  Account -- "a DID, or another spelling<br/>of the handle" --> Redirect["302 to /@[handle]/sets/[rkey]"]
+  Account -- "yes" --> Set["recordings.set: the dj.set from HappyView"]
+  Set -- "none, or it won't parse" --> Gone["404"]
+  Set --> Render["Rendered: name, date, place,<br/>player and tracklist"]
+  Render -.-> Event["Streamed: the event's name,<br/>when HappyView keeps that event"]
+  Render -.-> Mixes["Streamed: mixes on the DJ's active<br/>performers (managedBy) that link the set"]
+  Mixes --> Report["Each links its tracklist page,<br/>else its listen link"]
+```
+
+Source: [`src/routes/@[handle]/sets/[rkey]/+page.server.ts`](../../src/routes/@[handle]/sets/[rkey]/+page.server.ts), [`src/lib/server/profile-page.ts`](../../src/lib/server/profile-page.ts), [`src/lib/server/services/recordings.ts`](../../src/lib/server/services/recordings.ts), [`src/lib/server/services/shows.ts`](../../src/lib/server/services/shows.ts)
 
 ## Charts and artist pages
 

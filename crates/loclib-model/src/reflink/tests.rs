@@ -94,3 +94,27 @@ fn on_apfs_a_clone_shares_the_sources_blocks() {
     let tmp = reflink_into(&src, temp_beside(&src)).unwrap_or_else(|_| panic!("APFS clones"));
     assert_eq!(first_block(tmp.as_file()), first_block(&std::fs::File::open(&src).unwrap()));
 }
+
+/// A clone that can't take the temp file's place (a folder stands at its path) is removed, and the
+/// temp file comes back for the byte copy. Where nothing clones, the clone fails first, with the
+/// same result.
+#[test]
+fn a_clone_that_cant_be_put_in_place_is_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("a.mp3");
+    std::fs::write(&src, b"the audio").unwrap();
+    let tmp = temp_beside(&src);
+    let path = tmp.path().to_path_buf();
+    std::fs::remove_file(&path).unwrap();
+    std::fs::create_dir(&path).unwrap();
+    std::fs::write(path.join("in the way"), b"").unwrap();
+
+    let back = reflink_into(&src, tmp).expect_err("a folder is in the way");
+    assert_eq!(back.path(), path);
+    let mut left: Vec<_> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
+    left.sort();
+    let mut expected = vec![std::ffi::OsString::from("a.mp3"), path.file_name().unwrap().to_owned()];
+    expected.sort();
+    assert_eq!(left, expected, "the clone was left beside it");
+    std::fs::remove_dir_all(&path).unwrap();
+}

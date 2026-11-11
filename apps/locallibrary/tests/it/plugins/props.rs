@@ -695,6 +695,38 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
     assert!(r.err.contains("not found: plugin \"plug-z\""), "{}", r.err);
 }
 
+/// For a plugin granted any capabilities (every one, in any order, but up to three left out),
+/// `plugin list` and `plugin info` say each in words of its own, in the manifest's order; and
+/// `plugin serve` for an id that's no plugin's is refused, writing nothing on stdout.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn each_capability_is_said_in_words_of_its_own(tc: TestCase) {
+    let left_out: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(&CAPABILITIES[..])).max_size(3).unique(true));
+    let mut granted: Vec<&str> = CAPABILITIES.into_iter().filter(|c| !left_out.contains(c)).collect();
+    for i in (1..granted.len()).rev() {
+        granted.swap(i, tc.draw(gs::integers::<usize>().max_value(i)));
+    }
+    let m = json!({ "id": "plug-a", "name": "P", "version": "0.1.0", "protocol": "^0.2", "capabilities": granted });
+    let env = env_with(&[m]);
+    let info = env.json(&["plugin", "info", "plug-a"]);
+    let said: Vec<(&str, &str)> = (info["capabilities"].as_array().unwrap().iter())
+        .map(|g| (g["capability"].as_str().unwrap(), g["means"].as_str().unwrap()))
+        .collect();
+    assert_eq!(said.iter().map(|(c, _)| *c).collect::<Vec<_>>(), granted);
+    let mut means: Vec<&str> = said.iter().map(|(_, m)| *m).collect();
+    means.sort_unstable();
+    means.dedup();
+    assert_eq!(means.len(), granted.len(), "{said:?}");
+    let (text, list) = (env.ok(&["plugin", "info", "plug-a"]), env.ok(&["plugin", "list"]));
+    for (_, means) in &said {
+        assert!(text.contains(means) && list.contains(&format!("may {means}")), "{means}:\n{text}\n{list}");
+    }
+
+    let id = tc.draw(gs::sampled_from(&["plug-b", "nope", "echo"][..]));
+    let r = env.run(&["plugin", "serve", id]);
+    assert_eq!((r.code, r.out.as_str()), (1, ""), "{}", r.err);
+    assert!(r.err.contains(&format!("not found: plugin {id:?}")), "{}", r.err);
+}
+
 /// The settings for the player's key of each of manifest `m`'s commands and operations, as
 /// `plugin settings` lists them after its own: text, with no default.
 fn player_keys(m: &Value) -> Vec<Value> {
@@ -1189,6 +1221,61 @@ fn views_read_in_text_as_in_json(tc: TestCase) {
     assert_eq!(env.ok(&args), view_text(&v), "{v}");
 }
 
+/// A table's rows or a list's items a plugin's command sends in parts before its answer are drawn
+/// as they come, a row's cells two spaces apart and an item by its label, and the answer draws
+/// none of them again; with no part sent, the answer is drawn whole. `--json` gives the answer
+/// as it was answered. A debug build told it doesn't run elevated starts the plugin as it would
+/// anyway.
+#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+fn views_sent_in_parts_draw_as_they_come(tc: TestCase) {
+    let env = views_env();
+    let text = |tc: &TestCase| tc.draw(gs::text().alphabet("abc XYZé.-").max_size(12));
+    let n = tc.draw(gs::integers::<usize>().max_value(4));
+    let table = tc.draw(gs::booleans());
+    let (params, answer, parts) = match table {
+        true => {
+            let rows: Vec<Value> = (0..n)
+                .map(|_| match tc.draw(gs::integers::<u8>().max_value(3)) {
+                    0 => json!(text(&tc)),
+                    1 => json!(tc.draw(gs::integers::<i64>().min_value(-999).max_value(999))),
+                    2 => json!(tc.draw(gs::booleans())),
+                    _ => Value::Null,
+                })
+                .collect();
+            let parts: Vec<String> = rows.iter().map(|r| cell(r).trim_end().to_string()).collect();
+            let rows_of: Vec<Value> = rows.iter().map(|r| json!([r])).collect();
+            let answer = json!({ "kind": "table", "columns": ["Row"], "rows": rows_of });
+            (json!({ "partial": rows }), answer, parts)
+        }
+        false => {
+            let labels: Vec<String> = (0..n).map(|_| text(&tc)).collect();
+            let items: Vec<Value> = labels.iter().map(|l| json!({ "label": l })).collect();
+            (json!({ "partial_items": labels }), json!({ "kind": "list", "items": items }), labels)
+        }
+    };
+    let json = tc.draw(gs::booleans());
+    let not_elevated = tc.draw(gs::booleans());
+    let mut c = env.command();
+    if not_elevated {
+        c.env("LOCALLIBRARY_TEST_NOT_ELEVATED", "1");
+    }
+    if json {
+        c.arg("--json");
+    }
+    let out = c.args(["views", "echo", "--params", &params.to_string()]).output().unwrap();
+    let (stdout, stderr) = (String::from_utf8(out.stdout).unwrap(), String::from_utf8_lossy(&out.stderr));
+    assert_eq!(out.status.code(), Some(0), "{params}\n{stdout}\n{stderr}");
+    if json {
+        assert_eq!(unschema(serde_json::from_str(&stdout).unwrap()), answer, "{params}");
+        return;
+    }
+    let want = match parts.is_empty() {
+        true => view_text(&answer),
+        false => parts.iter().map(|p| format!("{p}\n")).collect(),
+    };
+    assert_eq!(stdout, want, "{params}");
+}
+
 /// A view that isn't one is the plugin's mistake.
 #[test]
 fn a_view_that_isnt_one_is_the_plugins_mistake() {
@@ -1214,12 +1301,17 @@ fn audio_of(n: usize) -> String {
 /// changes to the tracks' audio (emptied, rewritten, removed): each analysis works out what
 /// it hasn't already for a file as it is now, fails on a file that's gone (and `order` on an
 /// empty one), and says so in text as in `--json`, exiting as some or all failing does; and
-/// `track` shows what was worked out for each file as it is now, in text as in `--json`. An
-/// analyzer or plugin `analyze` hasn't got is refused.
+/// `track` shows what was worked out for each file as it is now, in text (in a unit, when its
+/// analyzer gives one) as in `--json`. An analyzer or plugin `analyze` hasn't got is refused.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
 fn analyzers_work_out_each_file_once(tc: TestCase) {
     let id = "meter";
-    let size = json!({ "name": "size", "title": "File size", "version": "1", "fields": { "bytes": "integer" } });
+    let mut size = json!({ "name": "size", "title": "File size", "version": "1", "fields": { "bytes": "integer" } });
+    // Shown in bytes, or as it is.
+    let unit = tc.draw(gs::sampled_from(vec![None, Some("B"), Some("bytes")]));
+    if let Some(unit) = unit {
+        size["display"] = json!({ "bytes": { "unit": unit } });
+    }
     let fields = json!({ "a": "integer", "b": "integer" });
     let order = json!({ "name": "order", "title": "Order", "version": "1", "fields": fields });
     let analyzers = match tc.draw(gs::booleans()) {
@@ -1251,11 +1343,25 @@ fn analyzers_work_out_each_file_once(tc: TestCase) {
     let mut written = 0;
     let mut emptied = vec![false; tracks.len()];
 
-    for _ in 0..tc.draw(gs::integers::<usize>().min_value(2).max_value(7)) {
-        match tc.draw(gs::integers::<u8>().max_value(7)) {
+    let steps = tc.draw(gs::integers::<usize>().min_value(2).max_value(7));
+    for step in 0..steps {
+        // An analysis first and a track shown last, whatever comes between.
+        let what = match step {
+            0 => 0,
+            _ if step == steps - 1 => 7,
+            _ => tc.draw(gs::integers::<u8>().max_value(7)),
+        };
+        match what {
             0..=2 => {
-                let only = tc.draw(gs::optional(gs::sampled_from(names.clone())));
-                let chosen: Vec<usize> = tc.draw(gs::subsequences((0..tracks.len()).collect::<Vec<_>>()));
+                // The first of every analyzer, of every track.
+                let only = match step {
+                    0 => None,
+                    _ => tc.draw(gs::optional(gs::sampled_from(names.clone()))),
+                };
+                let chosen: Vec<usize> = match step {
+                    0 => Vec::new(),
+                    _ => tc.draw(gs::subsequences((0..tracks.len()).collect::<Vec<_>>())),
+                };
                 let mut args: Vec<String> = vec!["analyze".into(), "USB".into()];
                 match (&only, tc.draw(gs::booleans())) {
                     (Some(a), true) => args.extend(["--analyzer".into(), a.clone()]),
@@ -1400,6 +1506,10 @@ fn analyzers_work_out_each_file_once(tc: TestCase) {
                 let text = env.ok(&["track", "USB", "--track", &track]);
                 for values in fields.values() {
                     for (name, v) in values.as_object().unwrap() {
+                        let v = match unit {
+                            Some(unit) if name == "bytes" => format!("{v} {unit}"),
+                            _ => v.to_string(),
+                        };
                         let line = format!("  {:<11} {v}\n", format!("{id}.{name}"));
                         assert!(text.contains(&line), "{line:?} in:\n{text}");
                     }

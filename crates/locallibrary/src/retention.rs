@@ -176,6 +176,7 @@ pub fn plan(store: &Store, opts: &PruneOptions, ctx: &Ctx<'_>) -> Result<PruneRe
         let garbage = store.garbage(&doomed)?;
         report.removed_objects = garbage.objects.len();
         report.freed_bytes = garbage.objects.iter().map(|(_, size)| size).sum();
+        report.warnings.extend(crate::view::breaking(store, &doomed)?);
     }
     Ok(report)
 }

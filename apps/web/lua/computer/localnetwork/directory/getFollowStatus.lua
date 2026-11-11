@@ -16,7 +16,9 @@ function handle()
 			'SELECT uri FROM happyview_records WHERE collection = ? AND did = ?' .. SUBJECT .. ' ORDER BY uri LIMIT 100',
 			{ FOLLOW, actor, project }
 		)
-		for i, row in ipairs(rows) do follows[i] = row.uri end
+		for i, row in ipairs(rows) do
+			follows[i] = row.uri
+		end
 	end
 	return { followers = count.followers, follows = toarray(follows) }
 end

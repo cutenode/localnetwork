@@ -2,7 +2,6 @@ import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
 	bookingSpace,
-	isSpaceType,
 	parsePublicRecordUri,
 	parseSpaceRecordUri,
 	parseSpaceUri,
@@ -41,6 +40,26 @@ describe('space URIs', () => {
 		expect(parsePublicRecordUri(`at://${ROOT}/space/x`)).toBeNull();
 	});
 
+	it('refuses `.` and `..` as record and space keys, which atproto never allows', () => {
+		const space = rootSpaces(ROOT).moderation;
+
+		for (const key of ['.', '..']) {
+			expect(parsePublicRecordUri(publicRecordUri(ROOT, 'computer.localnetwork.dj.set', key))).toBeNull();
+			expect(parseSpaceUri(`at://${ROOT}/space/computer.localnetwork.space.audit/${key}`)).toBeNull();
+			expect(
+				parseSpaceRecordUri(spaceRecordUri(space, 'did:plc:alice', 'computer.localnetwork.moderation.request', key))
+			).toBeNull();
+			expect(
+				parseSpaceRecordUri(`at://${ROOT}/space/computer.localnetwork.space.audit/${key}/did:plc:alice/a.b.c/3abc`)
+			).toBeNull();
+		}
+
+		// Dots inside a key are fine.
+		expect(parsePublicRecordUri(publicRecordUri(ROOT, 'computer.localnetwork.dj.set', '...'))).toMatchObject({
+			rkey: '...'
+		});
+	});
+
 	it("takes a record URI's rkey", () => {
 		expect(rkeyOf(publicRecordUri(ROOT, 'app.bsky.graph.verification', '3kverify'))).toBe('3kverify');
 		expect(rkeyOf('self')).toBe('self');
@@ -61,8 +80,6 @@ describe('space URIs', () => {
 		expect(Object.keys(rootSpaces(ROOT))).toEqual(['audit', 'moderation', 'staff', 'industry']);
 		expect(bookingSpace(ROOT, 'tid1')).toBe(`at://${ROOT}/space/computer.localnetwork.space.booking/tid1`);
 		expect(plannerSpace('did:plc:pat')).toBe('at://did:plc:pat/space/computer.localnetwork.space.planner/self');
-		expect(isSpaceType('computer.localnetwork.space.booking')).toBe(true);
-		expect(isSpaceType('app.bsky.feed.post')).toBe(false);
 	});
 
 	it("names performers', parties' and venues' spaces, and tells their kind from the type", () => {

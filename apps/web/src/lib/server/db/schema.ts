@@ -126,6 +126,8 @@ export interface StaffRoleTable {
 
 export interface FeatureFlagTable {
 	key: string;
+	/** 0 when it's turned off for everyone, with its gates kept. */
+	enabled: number;
 	everyone: number;
 	percentage: number;
 	/** Record keys of its groups, as a JSON array. */

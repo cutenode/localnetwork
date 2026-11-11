@@ -535,6 +535,193 @@ fn a_word_picks_the_one_played_track_it_names(tc: TestCase) {
     }
 }
 
+/// The same run of the club drive's tracks played in two or three sessions (and maybe one of
+/// others), some pinned (and one never played), one not to be named, and artists not to be named
+/// then named again: the signature section printed has a star line for each pin, saying in how many
+/// sessions it was played or that it wasn't, a line for each other track played in two or more
+/// (marked when it's not to be named), the moves played again and again, and the tracks opened and
+/// closed with, as the JSON says.
+#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+fn the_signature_section_says_what_its_json_does(tc: TestCase) {
+    let fx = Env::from_template();
+    let club = fx.volumes.join("Club");
+    let ids: Vec<u32> = (1..=12).collect();
+    let run: Vec<u32> = tc
+        .draw(gs::permutations(ids.clone()))
+        .into_iter()
+        .take(tc.draw(gs::integers::<usize>().min_value(2).max_value(6)))
+        .collect();
+    let again = tc.draw(gs::integers::<usize>().min_value(2).max_value(3));
+    for i in 1..=again {
+        play(&club, &format!("HISTORY {i:03}"), &run);
+    }
+    if tc.draw(gs::booleans()) {
+        let other: Vec<u32> = tc.draw(gs::subsequences(ids.clone()));
+        play(&club, &format!("HISTORY {:03}", again + 1), &other);
+    }
+    let drive = path(&club).to_string();
+    let words = ["profile", drive.as_str(), "-s", "signature", "--min-tracks", "1", "--no-analysis"];
+    let played: Vec<String> = fx.json(&words)["report"]["signature"]["played"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["name"].as_str().unwrap().to_string())
+        .collect();
+    // One not named; pins among the rest, and one never played.
+    let hidden = tc.draw(gs::sampled_from(&played[..])).clone();
+    fx.ok(&["--yes", "profile", "hide", &hidden, "--exact"]);
+    let mut pins: Vec<String> = tc.draw(gs::subsequences(played.clone()));
+    pins.retain(|p| *p != hidden);
+    if tc.draw(gs::booleans()) {
+        pins.push("Somebody - Never Played".into());
+    }
+    for p in &pins {
+        fx.ok(&["--yes", "profile", "pin", p, "--exact"]);
+    }
+    // Artists not named, then one named again by its whole name.
+    let artists: Vec<&str> = tc.draw(gs::subsequences(vec!["Floorplan", "ID", "Bootleg", "Ünïcödé"]).min_size(1));
+    for a in &artists {
+        fx.ok(&["--yes", "profile", "hide", a, "--artist"]);
+    }
+    let named = tc.draw(gs::sampled_from(&artists[..]));
+    let r = fx.run(&["--yes", "--json", "profile", "unhide", named, "--artist"]);
+    assert_eq!(r.code, 0, "{named:?} among {artists:?}: {}\n{}", r.out, r.err);
+    let hidden_artists = fx.json(&["profile", "prefs"])["hidden_artists"].clone();
+    let left: Vec<&str> = artists.iter().copied().filter(|a| norm(a) != norm(named)).collect();
+    assert_eq!(hidden_artists, serde_json::json!(left), "{named:?} among {artists:?}");
+
+    let v = fx.json(&words);
+    let out = fx.ok(&words);
+    let said = format!("{run:?} x{again}, hidden {hidden:?}, pins {pins:?}\n{out}\n{v}");
+    let r = &v["report"];
+    let unit = if r["basis"] == "sessions" { "session" } else { "set" };
+    let of_sets = plural(r["sets"]["count"].as_u64().unwrap(), unit);
+    let s = &r["signature"];
+    let played = s["played"].as_array().unwrap();
+    for pin in &pins {
+        let when = match played.iter().find(|t| norm(t["name"].as_str().unwrap()) == norm(pin)) {
+            Some(t) => format!("{}/{of_sets}", t["sets"]),
+            None => format!("not in these {unit}s"),
+        };
+        assert!(out.contains(&format!("  ★ {pin}  {when}\n")), "{pin:?} {when:?}: {said}");
+    }
+    let tracks = s["tracks"].as_array().unwrap();
+    assert!(!tracks.is_empty(), "{said}");
+    for t in tracks.iter().filter(|t| !pins.iter().any(|p| norm(p) == norm(t["name"].as_str().unwrap()))) {
+        let name = t["name"].as_str().unwrap();
+        let line = format!("{:>3}/{of_sets}  {name}", t["sets"].as_u64().unwrap());
+        let artist_hidden = left.iter().any(|a| norm(a) == norm(t["artist"].as_str().unwrap()));
+        let expected = match name == hidden || artist_hidden {
+            true => format!("    {line}  hidden\n"),
+            false => format!("    {line}\n"),
+        };
+        assert!(out.contains(&expected), "{expected:?}: {said}");
+    }
+    let moves = s["transitions"].as_array().unwrap();
+    assert_eq!(out.contains("  moves played again and again\n"), !moves.is_empty(), "{said}");
+    for m in moves {
+        let line = format!(
+            "    {:>3}×  {} → {}\n",
+            m["sets"].as_u64().unwrap(),
+            m["from"].as_str().unwrap(),
+            m["to"].as_str().unwrap()
+        );
+        assert!(out.contains(&line), "{line:?}: {said}");
+    }
+    for (label, key, count) in [("openers", "openers", "opened"), ("closers", "closers", "closed")] {
+        let list = s[key].as_array().unwrap();
+        let names: Vec<String> =
+            list.iter().take(3).map(|t| format!("{} ({}×)", t["name"].as_str().unwrap(), t[count])).collect();
+        assert_eq!(out.contains(&format!("  {label}: {}\n", names.join(" · "))), !list.is_empty(), "{label}: {said}");
+    }
+}
+
+/// Sessions long enough to have a shape (6 to 12 of the club drive's tracks, two to four of them):
+/// the summary prints each trait the JSON finds with why, and the session shape its opening and
+/// closing tempo, how many sessions it's averaged over, how the sessions run, and the range of
+/// its curve when it has one.
+#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+fn the_summary_and_shape_say_what_the_json_does(tc: TestCase) {
+    let fx = Env::from_template();
+    let club = fx.volumes.join("Club");
+    let ids: Vec<u32> = (1..=12).collect();
+    for i in 1..=tc.draw(gs::integers::<usize>().min_value(2).max_value(4)) {
+        let n = tc.draw(gs::integers::<usize>().min_value(6).max_value(12));
+        let tracks: Vec<u32> = tc.draw(gs::permutations(ids.clone())).into_iter().take(n).collect();
+        play(&club, &format!("HISTORY {i:03}"), &tracks);
+    }
+    let words = ["profile", path(&club), "-s", "summary,arc", "--no-analysis"];
+    let v = fx.json(&words);
+    let out = fx.ok(&words);
+    let said = format!("{out}\n{v}");
+    let r = &v["report"];
+    for t in r["summary"]["tags"].as_array().unwrap() {
+        let line = format!("  ✓ {}  {}\n", t["label"].as_str().unwrap(), t["why"].as_str().unwrap());
+        assert!(out.contains(&line), "{line:?}: {said}");
+    }
+    let a = &r["arc"];
+    let sets = a["sets"].as_u64().unwrap();
+    assert!(sets > 0, "{said}");
+    let bpm = |k: &str| a[k].as_f64().unwrap_or(0.0);
+    let line = format!(
+        "  opening {:.1} → closing {:.1} BPM, averaged over {}\n",
+        bpm("opening_bpm"),
+        bpm("closing_bpm"),
+        plural(sets, "session")
+    );
+    assert!(out.contains(&line), "{line:?}: {said}");
+    let pct = |k: &str| format!("{:.0}%", a[k].as_f64().unwrap() * 100.0);
+    let runs = format!("  builds {} · steady {} · winds down {}\n", pct("builds"), pct("steady"), pct("winds_down"));
+    assert!(out.contains(&runs), "{runs:?}: {said}");
+    let curve: Vec<f64> = a["curve"].as_array().unwrap().iter().filter_map(Value::as_f64).collect();
+    if let (Some(lo), Some(hi)) = (curve.iter().copied().reduce(f64::min), curve.iter().copied().reduce(f64::max)) {
+        let range = format!("BPM against each session's median: {lo:+.1} to {hi:+.1}\n");
+        assert!(out.lines().any(|l| l.starts_with("  start ") && out.contains(&range)), "{range:?}: {said}");
+    }
+}
+
+/// Pins, aliases and a headline made, then some taken back by name: each taken back says so
+/// (the pin by its whole name, the alias it forgot), and `profile prefs` prints what's left, with
+/// the headline when there is one.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn choices_taken_back_say_so(tc: TestCase) {
+    let fx = Env::from_template();
+    let pins: Vec<&str> =
+        tc.draw(gs::subsequences(vec!["Floorplan - Never Grow Old", "Bootleg", "Ünïcödé"]).min_size(1));
+    for p in &pins {
+        fx.ok(&["--yes", "profile", "pin", p, "--exact"]);
+    }
+    let aliases: Vec<&str> = tc.draw(gs::subsequences(vec!["electronic", "dnb"]).min_size(1));
+    for a in &aliases {
+        fx.ok(&["--yes", "profile", "alias", a, "Electronica"]);
+    }
+    let headline = tc.draw(gs::optional(gs::sampled_from(&["Techno warm-ups", "Ünïcödé 日本"][..])));
+    if let Some(h) = headline {
+        fx.ok(&["--yes", "profile", "headline", h]);
+    }
+    let unpinned = tc.draw(gs::sampled_from(&pins[..]));
+    // By its whole name, in any case.
+    let query = if tc.draw(gs::booleans()) { unpinned.to_lowercase() } else { unpinned.to_string() };
+    let out = fx.ok(&["--yes", "profile", "unpin", &query]);
+    assert_eq!(out, format!("✓ unpinned {unpinned}\n"));
+    let forgot = tc.draw(gs::sampled_from(&aliases[..]));
+    let out = fx.ok(&["--yes", "profile", "alias", forgot]);
+    assert_eq!(out, format!("✓ forgot the alias for {forgot:?}\n"));
+
+    let prefs = fx.ok(&["profile", "prefs"]);
+    for p in pins.iter().filter(|p| **p != unpinned) {
+        assert!(prefs.contains(&format!("    {p}\n")), "{p}: {prefs}");
+    }
+    assert!(!prefs.contains(&format!("    {unpinned}\n")), "{prefs}");
+    for a in &aliases {
+        assert_eq!(prefs.contains(&format!("{a} → Electronica")), *a != forgot, "{a}: {prefs}");
+    }
+    match headline {
+        Some(h) => assert!(prefs.contains(&format!("  headline: {h}\n")), "{prefs}"),
+        None => assert!(!prefs.contains("headline: "), "{prefs}"),
+    }
+}
+
 /// Sessions of the club drive's tracks a player recorded, of any length, maybe archived by a pull
 /// and maybe declared as sets: `profile --sets` prints a row for each set (or session) its JSON
 /// lists, and nothing else, each saying the day it was played or archived ("on a drive" while

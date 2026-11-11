@@ -5,7 +5,9 @@ use std::hint::black_box;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use loclib_model::analysis::{Beat, Cue, WaveColumn, WaveLayer, Waveform, WaveformStyle};
-use loclib_waveform::{CueLane, Detail, Overview, Palette, PhraseStrip, Pixels, Scope, Spectrum, bar_layout, vinyl};
+use loclib_waveform::{
+    CueLane, Detail, Overview, Palette, PhraseStrip, Pixels, Scope, Spectrum, Wave, Zoom, ZoomRing, bar_layout, vinyl,
+};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::Widget;
@@ -99,6 +101,33 @@ fn bench(c: &mut Criterion) {
         cues: &cues,
         palette,
     });
+    // A frame at 60 fps of the zoomed view scrolling, as a player draws it: what it costs shouldn't
+    // change with the zoom or the length of the track.
+    let long = wave((SECS * 150.0 * 10.0) as usize, Some(150.0));
+    for (name, wave, visible_secs) in
+        [("zoom_ring", &detail, 8.0), ("zoom_ring_wide", &detail, 60.0), ("zoom_ring_long_track", &long, 8.0)]
+    {
+        let area = Rect::new(0, 0, 200, 20);
+        let (mut buf, mut ring, mut at) = (Buffer::empty(area), ZoomRing::default(), position_secs);
+        c.bench_function(name, |b| {
+            b.iter(|| {
+                at = (at + 1.0 / 60.0) % SECS;
+                buf.reset();
+                let zoom = Zoom {
+                    wave: Wave::Layers(wave),
+                    position_secs: at,
+                    visible_secs,
+                    beats: &beats,
+                    cues: &cues,
+                    cue_rows: 2,
+                    bar_numbers: true,
+                    palette,
+                };
+                ring.draw(&zoom, black_box(area), &mut buf);
+                black_box(&buf);
+            })
+        });
+    }
     draw(c, "cue_lane", Rect::new(0, 0, 200, 2), || CueLane {
         cues: &cues,
         position_secs,

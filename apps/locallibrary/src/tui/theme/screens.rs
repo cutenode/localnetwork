@@ -90,7 +90,7 @@ fn every_view_stays_in_its_tiers_colours() {
 fn a_playing_track_stays_in_its_tiers_colours() {
     let (mut app, _dir) = playing_app();
     check(&mut app, "playing");
-    app.fullscreen = true;
+    app.deck_layout = true;
     check(&mut app, "the deck");
 }
 
@@ -128,7 +128,7 @@ fn prop_any_tier_mode_and_background_draw_in_range(tc: hegel::TestCase) {
     let channel = || tc.draw(gs::arrays::<_, _, 3>(gs::integers::<u8>()));
     let said = tc.draw(gs::booleans()).then(|| Colours { background: channel(), foreground: channel() });
     let (mut app, _dir) = playing_app();
-    app.fullscreen = tc.draw(gs::booleans());
+    app.deck_layout = tc.draw(gs::booleans());
     set_test_tier(Some(tier));
     set_test_mode(Some(mode));
     set_test_terminal(said);

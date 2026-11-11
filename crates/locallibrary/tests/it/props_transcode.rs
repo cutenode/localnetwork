@@ -383,3 +383,154 @@ fn prop_masters_are_copied_only_when_their_audio_can_be_told(tc: TestCase) {
         assert_eq!(row.bitrate, expected, "{t:?}");
     }
 }
+
+/// Players that play WAV and AIFF at 48 kHz but not AIFF at 192 kHz.
+fn not_playing_hi_res_aiff() -> Vec<&'static str> {
+    MODELS
+        .iter()
+        .filter(|m| !m.is_mixer() && m.plays(Codec::Aiff, 192_000, 24).result.is_err())
+        .filter(|m| [Codec::Wav, Codec::Aiff].iter().all(|c| m.plays(*c, 48_000, 24).result.is_ok()))
+        .map(|m| m.name)
+        .collect()
+}
+
+/// `T0.aiff` at 192 kHz, beside `T0.wav`, for players that don't play it: a WAV copy would take
+/// the other master's file, so it's left as it is saying so, while an AIFF copy takes its own
+/// master's path.
+#[hegel::test(test_cases = 4)]
+fn a_copy_never_takes_another_masters_file(tc: TestCase) {
+    let chosen: Vec<String> = tc
+        .draw(gs::vecs(gs::sampled_from(not_playing_hi_res_aiff())).min_size(1).max_size(2).unique(true))
+        .into_iter()
+        .map(String::from)
+        .collect();
+    let container = tc.draw(gs::sampled_from(vec![Container::Wav, Container::Aiff]));
+    let dir = tempfile::tempdir().unwrap();
+    let src = Device::open_export(source().write(&dir.path().join("Main"))).unwrap();
+    fs::create_dir(dir.path().join("Club")).unwrap();
+    let club = Device::open(dir.path().join("Club")).unwrap();
+    let p = plan(&src, &club, &options("Set", &chosen, container, false));
+    let i = MASTERS.len() - 1;
+    let from = master_path(i);
+    let made = p.transcodes.iter().find(|t| t.from == from);
+    let left = p.unplayable.iter().find(|u| u.track.file_path == format!("/{from}")).map(|u| u.why.as_str());
+    match container {
+        Container::Wav => {
+            assert!(made.is_none(), "{made:?}");
+            assert_eq!(left, Some("its copy's name, Contents/Set/T0.wav, is another track's file"), "{chosen:?}");
+        }
+        _ => {
+            let t = made.unwrap_or_else(|| panic!("{chosen:?}: {left:?}"));
+            assert_eq!((t.to.as_str(), left), ("Contents/Set/T0.aiff", None));
+        }
+    }
+}
+
+/// A 96 kHz WAV master for a CDJ-2000NXS or CDJ-1500X (neither plays it), whose database says it
+/// lasts `hours`: with audio that can't be read, that length is all there is to go by, and a copy
+/// it makes 4 GiB or more is refused for WAV and AIFF, never for FLAC. With real audio, the copy
+/// is planned whatever the database says, and a FLAC one is recorded at its average bit rate.
+#[hegel::test(test_cases = 8)]
+#[hegel::explicit_test_case(hours = 1u16, real = true, player = "CDJ-1500X", container = Container::Flac)]
+#[hegel::explicit_test_case(hours = 8u16, real = false, player = "CDJ-2000NXS", container = Container::Aiff)]
+fn a_copy_too_big_for_its_container_is_refused_when_planned(tc: TestCase) {
+    let hours = tc.draw(gs::sampled_from(vec![1u16, 2, 3, 5, 6, 8]));
+    let real = tc.draw(gs::booleans());
+    let player = tc.draw(gs::sampled_from(vec!["CDJ-2000NXS", "CDJ-1500X"]));
+    let container = tc.draw(gs::sampled_from(Container::ALL.to_vec()));
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "Main");
+    let track = NewTrack {
+        duration: hours * 3600,
+        sample_rate: 96_000,
+        sample_depth: 24,
+        ..NewTrack::new("Long", "/Contents/Long/Long.wav")
+    };
+    let audio = if real { media::wav_of(96_000, 24, 2, 0.05) } else { b"not audio".to_vec() };
+    let id = common::add_track(&root, track, &audio);
+    let set = Edit::SetTracks {
+        playlist: "Long".into(),
+        tracks: TrackSelector { ids: vec![id], ..Default::default() },
+        sort: None,
+        limit: None,
+        create: true,
+    };
+    let mut src = Device::open_export(&root).unwrap();
+    let edited = edit::plan(&src, &[set], &EditOptions::default(), &Ctx::silent()).unwrap();
+    edit::apply(&edited, &mut src, &Ctx::silent()).unwrap();
+    fs::create_dir(dir.path().join("Club")).unwrap();
+    let mut club = Device::open(dir.path().join("Club")).unwrap();
+    let p = plan(&src, &club, &options("Long", &[player.to_string()], container, false));
+    let made = p.transcodes.first();
+    let left = p.unplayable.first().map(|u| u.why.clone());
+    let said = format!("{hours} h, {player}, {container:?}, real {real}: {made:?} {left:?}");
+    match (made, &left) {
+        (Some(t), None) => {
+            let flac = t.recipe.starts_with("flac-");
+            assert!(real || hours < 5 || flac, "{said}");
+            // Only real audio decodes.
+            if flac && real {
+                pack::apply(&p, &src, &mut club, None, &Ctx::silent()).unwrap();
+                let file = club.root().join(&t.to);
+                let size = fs::metadata(&file).unwrap().len() as f64;
+                let secs = locallibrary::probe::format(&file).unwrap().duration_secs.unwrap();
+                let library =
+                    locallibrary::pdb::read_library(&club.root().join(locallibrary::paths::EXPORT_PDB)).unwrap();
+                let row = library.tracks.iter().find(|r| r.file_path == format!("/{}", t.to)).unwrap();
+                assert_eq!(row.bitrate, (size * 8.0 / secs / 1000.0).round() as u32, "{said}");
+            }
+        }
+        (None, Some(why)) => {
+            assert!(!real && hours >= 5, "{said}");
+            let named =
+                ["AIFF", "WAV"].iter().any(|c| *why == format!("it's too long for {c}, which holds 4 GiB at most"));
+            assert!(named, "{said}");
+        }
+        _ => panic!("{said}"),
+    }
+}
+
+/// Players that leave a master in "Wavs" unplayed and play some lossless copy of it.
+fn needing_copies_of_wavs() -> Vec<&'static str> {
+    let wavs = MASTERS.iter().filter(|m| m.0 == "wav" && m.1 > 48_000);
+    MODELS
+        .iter()
+        .filter(|m| wavs.clone().any(|w| !not_playing(&[m], Codec::Wav, w.1, w.2).is_empty()))
+        .filter(|m| some_copy_plays(&[m]))
+        .map(|m| m.name)
+        .collect()
+}
+
+/// Copies a pack made for any player that needs them are kept by every pack after it that wants
+/// them still (none is written again, and each stays as it was), however many; a pack that makes
+/// none forgets the record of them.
+#[hegel::test(test_cases = 4)]
+fn copies_are_kept_until_a_pack_wants_none(tc: TestCase) {
+    let player = tc.draw(gs::sampled_from(needing_copies_of_wavs())).to_string();
+    let container = tc.draw(gs::sampled_from(Container::ALL.to_vec()));
+    let dir = tempfile::tempdir().unwrap();
+    let src = Device::open_export(source().write(&dir.path().join("Main"))).unwrap();
+    fs::create_dir(dir.path().join("Club")).unwrap();
+    let mut club = Device::open(dir.path().join("Club")).unwrap();
+    let first = plan(&src, &club, &options("Wavs", std::slice::from_ref(&player), container, false));
+    assert!(!first.transcodes.is_empty(), "{player}: {:?}", first.unplayable);
+    assert_eq!(pack::apply(&first, &src, &mut club, None, &Ctx::silent()).unwrap().transcoded, first.transcodes.len());
+    let record = club.state_dir().join("transcodes.json");
+    let made_at = |to: &str| fs::metadata(dir.path().join("Club").join(to)).unwrap().modified().unwrap();
+    let times: Vec<_> = first.transcodes.iter().map(|t| made_at(&t.to)).collect();
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(2)) {
+        club = Device::open(dir.path().join("Club")).unwrap();
+        let again = plan(&src, &club, &PackOptions::default());
+        assert_eq!(again.transcodes.len(), first.transcodes.len());
+        assert!(again.transcodes.iter().all(|t| t.current) && again.transcode_bytes == 0, "{:?}", again.transcodes);
+        assert_eq!(pack::apply(&again, &src, &mut club, None, &Ctx::silent()).unwrap().transcoded, 0);
+        assert_eq!(first.transcodes.iter().map(|t| made_at(&t.to)).collect::<Vec<_>>(), times, "kept, not written");
+        assert!(record.is_file());
+    }
+    club = Device::open(dir.path().join("Club")).unwrap();
+    let plain = PackOptions { playlists: vec!["Wavs".into()], ..Default::default() };
+    let none = plan(&src, &club, &plain);
+    assert!(none.transcodes.is_empty(), "{:?}", none.transcodes);
+    pack::apply(&none, &src, &mut club, None, &Ctx::silent()).unwrap();
+    assert!(!record.exists(), "a pack that makes no copies keeps no record of them");
+}

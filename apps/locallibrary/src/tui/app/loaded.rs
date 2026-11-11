@@ -5,16 +5,20 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use locallibrary::anlz::TrackAnalysis;
+use locallibrary::anlz::{self, TrackAnalysis};
 use locallibrary::api;
 use locallibrary::fields::{OverlayStore, TrackValues};
 use locallibrary::query::SortField;
 use locallibrary::sets::Set;
+use locallibrary::settings::{self, DriveSettings, SettingValue, SettingsFile, SettingsLocation};
 use locallibrary::{Device, Library, Store, Track, artwork, paths};
-use loclib_waveform::Art;
+use loclib_waveform::{Art, band_gain};
 
 use crate::tui::browse::{self, Category, Group, Node, NodeId, Problems, SavedNode};
+use crate::tui::deck::BandMode;
 use crate::tui::keys::{Camelot, Relation};
+
+use super::DriveWaves;
 
 /// Numbers each library load, so results worked out in the background for one (a file check,
 /// a track's matches) aren't applied to another.
@@ -277,7 +281,9 @@ impl Loaded {
 }
 
 /// Tracks that mix into one track (from `harmony::suggestions`), as indexes into the library they
-/// were found in, which they keep.
+/// were found in, which they keep. Each way of mixing in takes its turn, closest tempo first:
+/// same-key tracks come first in the suggestions, and in a big library they would fill the few
+/// rows the panel has, every one in the playing track's key (LOC-13).
 pub struct Matches {
     pub library: Arc<Library>,
     pub root: PathBuf,
@@ -293,9 +299,18 @@ pub struct Mix {
 
 impl Matches {
     pub(in crate::tui) fn find(library: Arc<Library>, root: PathBuf, track: &Track, limit: usize) -> Matches {
-        let items = api::matches_in(&library, track, limit)
+        let mut turns = [0usize; 4];
+        let mut ranked: Vec<_> = api::matches_in(&library, track, usize::MAX)
             .into_iter()
-            .filter_map(|s| {
+            .map(|s| {
+                let turn = &mut turns[s.relation as usize];
+                *turn += 1;
+                (*turn, s)
+            })
+            .collect();
+        ranked.sort_by_key(|(turn, s)| (*turn, s.relation));
+        let items = (ranked.into_iter().take(limit))
+            .filter_map(|(_, s)| {
                 let index = library.tracks.iter().position(|t| t.id == s.track.id)?;
                 Some(Mix { index, key: s.key, relation: s.relation, tempo_gap: s.tempo_gap })
             })
@@ -308,14 +323,15 @@ impl Matches {
     }
 }
 
-/// Playlists holding a track (any entry for its file), by path, sorted.
+/// Playlists holding a track (any entry for its file), by path (`Sets › Friday`), sorted. Joined
+/// from the names, since a name can hold the `/` of a path.
 pub(super) fn playlists_of(lib: &Library, track: &Track) -> Vec<String> {
     let ids: Vec<u32> = lib.tracks.iter().filter(|t| t.file_path == track.file_path).map(|t| t.id).collect();
     let mut v: Vec<String> = lib
         .playlists
         .iter()
         .filter(|p| !p.is_folder && p.track_ids.iter().any(|id| ids.contains(id)))
-        .map(|p| lib.playlist_path(p.id).replace('/', " › "))
+        .map(|p| lib.playlist_names(p.id).join(" › "))
         .collect();
     v.sort();
     v
@@ -335,6 +351,7 @@ pub struct Details {
 #[derive(Default)]
 pub struct TrackInfo {
     pub(in crate::tui) analysis: TrackAnalysis,
+    pub(in crate::tui) waves: DriveWaves,
     /// What of the analysis is a plugin's, not the drive's: a line to show.
     pub(in crate::tui) from_plugins: Option<String>,
     pub(in crate::tui) art: Option<Art>,
@@ -356,7 +373,24 @@ pub(super) fn track_info(root: &Path, track: &Track, library: Option<Arc<Library
         .and_then(|b| Art::decode(&b));
     let playlists = library.as_deref().map(|lib| playlists_of(lib, track)).unwrap_or_default();
     let matches = library.map(|lib| Matches::find(lib, root.to_path_buf(), track, 40));
-    TrackInfo { analysis, from_plugins, art, matches, playlists }
+    let kinds = device.as_ref().map(|d| anlz::load_waves(d, track)).unwrap_or_default();
+    let gains = (
+        kinds.band_preview.as_ref().map_or(1.0, band_gain),
+        kinds.band_detail.as_ref().map_or(1.0, |(bands, _)| band_gain(bands)),
+    );
+    let waves = DriveWaves { kinds, bands: drive_bands(root), gains };
+    TrackInfo { analysis, waves, from_plugins, art, matches, playlists }
+}
+
+/// How the drive's My Settings colour waveforms. Only `DEVSETTING.DAT` says, and rekordbox writes
+/// it on export, so a drive without one has no opinion.
+pub(in crate::tui) fn drive_bands(root: &Path) -> Option<BandMode> {
+    let file = SettingsFile::DevSetting;
+    let blob = settings::read_blob(file, &DriveSettings(root).settings_path(file)).ok()?;
+    match blob.get(settings::find("waveform_color")?) {
+        SettingValue::Known(name) => BandMode::parse(&name),
+        SettingValue::Unknown(_) => None,
+    }
 }
 
 /// Sort ranks and Browse's groups, worked out in the background once a library is shown, so

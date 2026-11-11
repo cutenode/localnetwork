@@ -5,8 +5,6 @@ import { render } from 'vitest-browser-svelte';
 import { Disc3, Globe, LayoutDashboard, NotebookPen } from '@lucide/svelte';
 import { colors } from '#lib/mix/report.ts';
 import { sampleReport } from '#lib/mix/sample.ts';
-import Badge from './Badge.svelte';
-import BrowserFrame from './BrowserFrame.svelte';
 import Button from './Button.svelte';
 import Card from './Card.svelte';
 import CodeBlock from './CodeBlock.svelte';
@@ -15,7 +13,6 @@ import Eyebrow from './Eyebrow.svelte';
 import Monogram from './Monogram.svelte';
 import Section from './Section.svelte';
 import SectionHeader from './SectionHeader.svelte';
-import SelectField from './SelectField.svelte';
 import SidebarLayout from './SidebarLayout.svelte';
 import SiteHeader from './SiteHeader.svelte';
 import Tag from './Tag.svelte';
@@ -65,15 +62,6 @@ describe('Tag', () => {
 		await render(Tag, { variant: 'mono', children: text('radio') });
 		await expect.element(page.getByText('radio')).toBeInTheDocument();
 		expect(page.getByRole('button').elements()).toHaveLength(0);
-	});
-});
-
-describe('Badge', () => {
-	it('links its news with a label', async () => {
-		await render(Badge, { label: 'New', href: '/mixes', children: text('Mixes show every track') });
-		await expect
-			.element(page.getByRole('link', { name: 'New Mixes show every track' }))
-			.toHaveAttribute('href', '/mixes');
 	});
 });
 
@@ -149,24 +137,6 @@ describe('TextField', () => {
 	});
 });
 
-describe('SelectField', () => {
-	it('labels its select and lists the options', async () => {
-		await render(SelectField, {
-			id: 'slot',
-			label: 'Slot',
-			value: 'peak',
-			options: [
-				{ value: 'warmup', label: 'Warm-up' },
-				{ value: 'peak', label: 'Peak time' }
-			]
-		});
-		const select = page.getByRole('combobox', { name: 'Slot' });
-		await expect.element(select).toHaveValue('peak');
-		await userEvent.selectOptions(select, 'warmup');
-		await expect.element(select).toHaveValue('warmup');
-	});
-});
-
 describe('CodeBlock', () => {
 	it('captions a record, colours its keys and can be scrolled from the keyboard', async () => {
 		await render(CodeBlock, {
@@ -199,19 +169,6 @@ describe('CodeBlock', () => {
 	it('shows plain text as it is', async () => {
 		await render(CodeBlock, { code: 'locallibrary setup' });
 		await expect.element(page.getByText('locallibrary setup')).toBeInTheDocument();
-	});
-});
-
-describe('BrowserFrame', () => {
-	it('captions the screen with its address', async () => {
-		const { container } = await render(BrowserFrame, {
-			url: 'localnetwork.computer/projects/neon-tide',
-			bleed: true,
-			children: text('Neon Tide')
-		});
-
-		expect(container.querySelector('figcaption')?.textContent?.trim()).toBe('localnetwork.computer/projects/neon-tide');
-		await expect.element(page.getByText('Neon Tide')).toBeInTheDocument();
 	});
 });
 

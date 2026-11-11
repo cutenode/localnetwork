@@ -127,7 +127,7 @@ fn a_cli_place_is_one_or_two_names() {
 
 /// `x-cli` is checked wherever params or options are, so the CLI can rely on it.
 #[test]
-fn a_propertys_cli_hints_are_checked() {
+fn property_cli_hints_are_checked() {
     let hinted = |hints: &str| {
         problem(&format!(
             "[[contributes.commands]]\nname = \"c\"\ntitle = \"C\"\nmode = \"headless\"\n\
@@ -1254,7 +1254,7 @@ fn a_theme_sets_colours_by_their_names() {
 
 /// How an analyzer's fields are shown: hints for its own fields, in a format that fits each.
 #[test]
-fn an_analyzers_fields_say_how_theyre_shown() {
+fn an_analyzers_fields_say_how_they_are_shown() {
     let analyzer = |display: &str| {
         format!(
             "[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nversion = \"1\"\nfields = {{ lufs = \"number\", camelot = \"string\", runs = \"integer\" }}\n{display}"

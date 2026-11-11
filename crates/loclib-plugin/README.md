@@ -272,7 +272,7 @@ assert!(!upload.covers("POST", &Url::parse("https://www.googleapis.com.evil.exam
   and the website adds its client id and secret for the service, sends the request on the way the
   service takes it and answers what the service answered. `client_id` is then Local Network's
   client at the service. The services it knows are in
-  [`apps/web/src/lib/server/token-exchange/services.json`](../../apps/web/src/lib/server/token-exchange/services.json);
+  [`apps/web/src/lib/server/token-exchange/services.json`](https://github.com/cutenode/localnetwork/blob/main/apps/web/src/lib/server/token-exchange/services.json);
   one it doesn't know, or isn't set up for yet, fails the sign-in with what the website said.
 - `one_account` and `another_account` are authorize params for signing in again as one account
   the host knows (`login_hint = "{subject}"`, the only placeholder) and for adding another

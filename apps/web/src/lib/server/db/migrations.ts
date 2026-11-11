@@ -348,7 +348,7 @@ const epkViews = statements(
 	`CREATE INDEX epk_view_created ON epk_view (created_at)`
 );
 
-const migrations = {
+export const migrations = {
 	'001_init': {
 		async up(db) {
 			for (const statement of init) await sql.raw(statement).execute(db);
@@ -484,6 +484,12 @@ const migrations = {
 				) OR (collection = ${COLLECTION.epkRequest} AND uri NOT IN (SELECT uri FROM epk_request))
 				OR (collection = ${COLLECTION.epkGrant} AND uri NOT IN (SELECT uri FROM epk_grant))
 			`.execute(db);
+		}
+	},
+	// Flags gained an off switch that keeps their gates. Records from before it don't say, and are on.
+	'014_feature_flag_enabled': {
+		async up(db) {
+			await sql.raw('ALTER TABLE feature_flag ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1').execute(db);
 		}
 	}
 } satisfies Record<string, Migration>;

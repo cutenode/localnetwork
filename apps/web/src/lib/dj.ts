@@ -29,6 +29,10 @@ export function setPlace(set: Pick<DjSet, 'venue' | 'location'>): string | null 
 	return parts.length ? [...new Set(parts)].join(', ') : null;
 }
 
+/** What a set goes by: its title, else where it was played. */
+export const setName = (set: Pick<DjSet, 'title' | 'venue' | 'location'>): string =>
+	set.title ?? setPlace(set) ?? 'Untitled set';
+
 /** A track's BPM from the record's hundredths, to one decimal when it isn't whole. */
 export function trackBpm(bpmCentis: number | undefined): string | null {
 	if (bpmCentis === undefined) return null;
