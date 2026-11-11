@@ -12,11 +12,9 @@ repository.workspace = true
 
 [dependencies]
 loclib-audio.workspace = true
-loclib-model.workspace = true
 loclib-progress.workspace = true
 rustc-hash.workspace = true
 rustfft.workspace = true
-thiserror.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
