@@ -30,6 +30,23 @@ pre-commit:
       glob: 'lexicons/computer/**/*.json'
       run: pnpm exec oxfmt {staged_files}
       stage_fixed: true
+    # The root's own files that no app's jobs see (the root's format:tools and lint:tools).
+    - name: format tools
+      glob:
+        - 'tools/**.{ts,mts,js,mjs,json,yml}'
+        - '.railway/*.ts'
+        - 'vitest.config.ts'
+        - '{flags,benchmarks,packages/tokens}/**.{json,css}'
+        - 'apps/locallibrary/bombadil/*.{ts,mjs,json}'
+      run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
+      stage_fixed: true
+    - name: lint tools
+      glob:
+        - 'tools/**.{ts,mts,js,mjs}'
+        - '.railway/*.ts'
+        - 'vitest.config.ts'
+        - 'apps/locallibrary/bombadil/*.{ts,mjs}'
+      run: pnpm exec oxlint {staged_files}
     - name: lint web
       root: apps/web/
       glob: '*.{ts,js,svelte}'

@@ -9,7 +9,7 @@ on:
   workflow_call:
     inputs:
       policy:
-        description: Whether to run the policies and ast-grep (ci.yml's repo_checks paths).
+        description: Whether to run the policies, ast-grep and the root's own checks (ci.yml's repo_checks paths).
         type: boolean
         required: true
       lexicons:
@@ -54,6 +54,13 @@ jobs:
       - run: pnpm exec ast-grep scan
       - name: Tools tests
         run: pnpm test:tools
+      # The root's own TypeScript and config (tools/, .railway/, Bombadil's specs, the shared flags,
+      # budgets and tokens), which no app's format, lint or type check reaches. Bombadil's packages
+      # give the type-aware lint its types.
+      - run: npm ci --prefix apps/locallibrary/bombadil
+      - run: pnpm format:tools --check
+      - run: pnpm lint:tools
+      - run: pnpm check:tools
 
   # Weekly too: `breaking` compares with the published lexicons, which change outside the repo.
   # Scheduled and manual runs have no inputs. (An empty input compares equal to false, so

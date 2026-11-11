@@ -3,7 +3,7 @@
 # plugin registered where it has to be. The policies are Rego in tools/policy/, run by conftest
 # over the files below; OPA checks their format and runs their tests (*_test.rego), which have to
 # cover every line. Both run from pinned images, so this needs Docker, as CI's repo-checks.yml does,
-# and Node with the workspace root's dev dependencies, to type-check and read .railway/railway.ts.
+# and Node with the workspace root's dev dependencies, to read .railway/railway.ts.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -43,10 +43,8 @@ git grep --untracked -I -o -E 'include_(str|bytes)!\(\s*"[^"]+"' -- ':(glob)**/*
 # Cargo.lock under a name conftest parses as TOML, for the policy that the dev profile keeps its
 # entries for the crates still in it.
 cp Cargo.lock "$scratch/Cargo.lock.toml"
-# .railway/railway.ts type-checks against the railway SDK, so a field it doesn't take fails here
-# rather than surprising `railway config apply`. Then the project as the SDK evaluates it, for the
-# railway policy.
-pnpm exec tsc --noEmit --strict --module nodenext --target esnext .railway/railway.ts
+# The project as the railway SDK evaluates .railway/railway.ts, for the railway policy. The root's
+# `pnpm check:tools` type-checks the file against the SDK.
 node --experimental-strip-types --input-type=module \
   -e 'const { default: railway } = await import(process.argv[1]); process.stdout.write(JSON.stringify(railway()));' \
   "$PWD/.railway/railway.ts" > "$scratch/railway-project.json"
