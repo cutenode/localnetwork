@@ -15,11 +15,11 @@ timeout_multiplier = 2.0
 sharding = "round-robin"
 
 exclude_globs = [
-  # Generated from packages/tokens/colors.json; its test compares it with the JSON, so a mutant
-  # here says nothing about the tests.
-  "crates/loclib-model/src/tokens.rs",
-  # Helpers for tests and benchmarks, built into the crates under their `test-util` feature.
-  "**/test_util.rs",
+    # Generated from packages/tokens/colors.json; its test compares it with the JSON, so a mutant
+    # here says nothing about the tests.
+    "crates/loclib-model/src/tokens.rs",
+    # Helpers for tests and benchmarks, built into the crates under their `test-util` feature.
+    "**/test_util.rs",
 ]
 
 # Mutants that loop forever, so each one waits out the whole timeout (253 s a mutant in the
@@ -28,6 +28,6 @@ exclude_globs = [
 # is, step it back, or past the end, where no char boundary stops it. Without its `Eof` arm,
 # Traktor's reader asks for the next event forever.
 exclude_re = [
-  "loclib-model/src/model\\.rs:.*: replace (< with <=|\\+= with [*-]=) in split_ci$",
-  "loclib-interop/src/traktor/read\\.rs:.*: delete match arm Event::Eof in read$",
+    "loclib-model/src/model\\.rs:.*: replace (< with <=|\\+= with [*-]=) in split_ci$",
+    "loclib-interop/src/traktor/read\\.rs:.*: delete match arm Event::Eof in read$",
 ]
