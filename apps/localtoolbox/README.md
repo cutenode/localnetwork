@@ -2953,7 +2953,7 @@ flowchart TD
   Copy --> Dist
 ```
 
-Source: [`vite.config.ts`](vite.config.ts), [`package.json`](package.json), [`src/main.ts`](src/main.ts), [`src/app.css`](src/app.css)
+Source: [`vite.config.ts`](vite.config.ts), [`package.json`](package.json), [`src/main.ts`](src/main.ts), [`src/app.css`](src/app.css), [`theme-prepaint.ts`](theme-prepaint.ts)
 
 ### The three build commands
 
@@ -3000,7 +3000,7 @@ flowchart TD
   SettingsSheet -->|"loaded beside it"| Transfer
 ```
 
-Source: [`src/App.svelte`](src/App.svelte), [`src/lib/tools.ts`](src/lib/tools.ts), [`src/lib/queue-sheet.ts`](src/lib/queue-sheet.ts), [`src/lib/settings-sheet.ts`](src/lib/settings-sheet.ts), [`src/lib/globals.ts`](src/lib/globals.ts)
+Source: [`src/App.svelte`](src/App.svelte), [`src/lib/tools.ts`](src/lib/tools.ts), [`src/lib/queue-sheet.ts`](src/lib/queue-sheet.ts), [`src/lib/settings-sheet.ts`](src/lib/settings-sheet.ts), [`src/lib/globals.ts`](src/lib/globals.ts), [`theme-prepaint.ts`](theme-prepaint.ts), [`vite.config.ts`](vite.config.ts)
 
 ### Declaring a tool in the registry
 
