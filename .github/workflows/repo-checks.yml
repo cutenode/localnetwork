@@ -75,6 +75,11 @@ jobs:
         run: |
           git ls-files -z '*.sh' | xargs -0 docker run --rm -v "$PWD:/mnt:ro" -w /mnt \
             koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
+      # Every TOML file's format (taplo.toml).
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: taplo@0.10.0
+      - run: taplo fmt --check
 
   # Weekly too: `breaking` compares with the published lexicons, which change outside the repo.
   # Scheduled and manual runs have no inputs. (An empty input compares equal to false, so

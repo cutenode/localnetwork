@@ -73,6 +73,13 @@ pre-commit:
         - run: '! (command -v stylua && command -v selene) > /dev/null'
       run: stylua {staged_files} && selene {staged_files}
       stage_fixed: true
+    # Skipped without taplo (`brew install taplo`); CI checks every TOML file (repo-checks.yml).
+    - name: taplo
+      glob: '*.toml'
+      skip:
+        - run: '! command -v taplo > /dev/null'
+      run: taplo fmt {staged_files}
+      stage_fixed: true
     - name: lint web
       root: apps/web/
       glob: '*.{ts,js,svelte}'

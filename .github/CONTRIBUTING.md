@@ -49,6 +49,7 @@ pnpm test:tools
 pnpm format:tools --check && pnpm lint:tools && pnpm check:tools
 git ls-files -z "*.sh" | xargs -0 shellcheck
 typos
+taplo fmt --check
 ```
 
 The `*:tools` scripts format, lint and type-check what no app's own scripts reach: `tools/`, `.railway/`, Bombadil's specs, the flags, budgets and tokens, and the generated RPC types in `apps/locallibrary/docs/rpc/`. The root's `pnpm format:check`, `pnpm lint` and `pnpm check` run them along with every app's. [typos](https://github.com/crate-ci/typos) checks spelling, with the repository's own words in `_typos.toml`, and CI also checks every link in the Markdown with [lychee](https://lychee.cli.rs): relative ones and their anchors on each pull request, the rest weekly. A link that can't work yet goes in `.lycheeignore` with why.
