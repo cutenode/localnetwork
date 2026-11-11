@@ -58,6 +58,14 @@ pre-commit:
       skip:
         - run: '! command -v typos > /dev/null'
       run: typos --force-exclude {staged_files}
+    # HappyView's Lua scripts; skipped without StyLua and selene (`brew install stylua selene`).
+    - name: lua
+      root: apps/web/lua/
+      glob: '*.lua'
+      skip:
+        - run: '! (command -v stylua && command -v selene) > /dev/null'
+      run: stylua {staged_files} && selene {staged_files}
+      stage_fixed: true
     - name: lint web
       root: apps/web/
       glob: '*.{ts,js,svelte}'

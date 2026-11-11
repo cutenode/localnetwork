@@ -54,6 +54,29 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # HappyView's Lua scripts: StyLua's format and selene's lint, with their configs and
+      # HappyView's globals (happyview.yml) in lua/. Neither has an action or a package of its own
+      # that pnpm can install, so these are their official release builds, checked by SHA-256.
+      - name: Install StyLua and selene
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          gh release download v2.6.0 -R JohnnyMorganz/StyLua -p stylua-linux-x86_64.zip
+          gh release download 0.32.0 -R Kampfkarren/selene -p selene-0.32.0-linux.zip
+          sha256sum -c - <<'SUMS'
+          a485f72bbfa22e4642e77a84b5edc2611a5cab7477b34e2e709dd8f78e919895  stylua-linux-x86_64.zip
+          d3773393578580074386e69337d35b7acddfbaa9fc38964c07fa3e28436ade9b  selene-0.32.0-linux.zip
+          SUMS
+          mkdir lua-tools
+          unzip -q -d lua-tools stylua-linux-x86_64.zip
+          unzip -q -d lua-tools selene-0.32.0-linux.zip
+          chmod +x lua-tools/stylua lua-tools/selene
+          echo "$RUNNER_TEMP/lua-tools" >> "$GITHUB_PATH"
+      - run: stylua --check lua
+      # selene reads selene.toml and the std it names from the folder it runs in.
+      - run: selene .
+        working-directory: apps/web/lua
       - run: pnpm format:check
       - name: Lexicon formatting
         working-directory: .
