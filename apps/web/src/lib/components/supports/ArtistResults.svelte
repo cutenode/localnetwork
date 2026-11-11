@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { ExternalLink } from '@lucide/svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import { pluralize } from '#lib/format.ts';
-	import { artistHref, musicBrainzUrl } from '#lib/supports.ts';
+	import { artistHref } from '#lib/supports.ts';
 	import type { SupportedArtist } from '#lib/types.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import GhostRows from './GhostRows.svelte';
+	import MusicBrainzLink from './MusicBrainzLink.svelte';
 
 	/**
 	 * Artists matching a search `q`, or the most supported ones without one, as they stream in. `artists` is null when
@@ -38,9 +38,9 @@
 					<ul class="card m-0 flex list-none flex-col divide-y divide-line p-0">
 						{#each result as artist (artist.mbid ?? artist.name)}
 							<li class="flex items-baseline gap-3 px-4 py-3">
-								<span class="flex min-w-0 flex-1 items-baseline gap-2">
+								<span class="flex min-w-0 flex-1 items-baseline gap-1">
 									<a class="entity-link min-w-0 font-semibold text-fg" href={artistHref(artist)}>{artist.name}</a>
-									{#if artist.mbid}<a class="inline-flex self-center text-fg-subtle hover:text-fg" href={musicBrainzUrl('artist', artist.mbid)} rel="noopener noreferrer" target="_blank" aria-label="{artist.name} on MusicBrainz"><ExternalLink class="size-3.5" /></a>{/if}
+									{#if artist.mbid}<MusicBrainzLink kind="artist" mbid={artist.mbid} name={artist.name} />{/if}
 								</span>
 								<span class="font-mono text-label whitespace-nowrap text-fg-soft">{pluralize(artist.supports, 'all-time support')} · {pluralize(artist.djCount, 'DJ')}</span>
 							</li>

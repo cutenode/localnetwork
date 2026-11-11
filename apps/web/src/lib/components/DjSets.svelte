@@ -3,12 +3,13 @@
 	import { type DjSet, setPlace, trackBpm } from '#lib/dj.ts';
 	import { clock } from '#lib/mix/report.ts';
 	import { type PlayerSource, type PlayerTrack, playable } from '#lib/mix/source.ts';
-	import { musicBrainzUrl, trackArtists } from '#lib/supports.ts';
+	import { trackArtists } from '#lib/supports.ts';
 	import { labelFor, SET_KINDS } from '#lib/taxonomy/options.ts';
 	import DateBlock from '#lib/ui/DateBlock.svelte';
 	import Tag from '#lib/ui/Tag.svelte';
 	import SetPlayer from './mix/SetPlayer.svelte';
 	import ArtistLinks from './supports/ArtistLinks.svelte';
+	import MusicBrainzLink from './supports/MusicBrainzLink.svelte';
 	import { webHref } from '#lib/web-url.ts';
 
 	/**
@@ -121,7 +122,7 @@
 								{/if}
 								<span class="min-w-0"
 									><span class="font-semibold"
-										>{trackTitle(track)}{#if track.recordingMbId && !track.unidentified}{' '}<a class="inline-flex text-fg-subtle hover:text-fg" href={musicBrainzUrl('recording', track.recordingMbId)} rel="noopener noreferrer" target="_blank" aria-label="{track.title ?? 'Track'} on MusicBrainz"><ExternalLink class="size-3" /></a>{/if}</span
+										>{trackTitle(track)}{#if track.recordingMbId && !track.unidentified}{' '}<MusicBrainzLink kind="recording" mbid={track.recordingMbId} name={track.title ?? 'Track'} size={12} />{/if}</span
 									>{#if artists.length}{' '}<ArtistLinks {artists} />{/if}</span
 								>
 								<span class="font-mono text-caption text-fg-muted max-sm:hidden">{trackBpm(track.bpmCentis) ?? ''}</span>
