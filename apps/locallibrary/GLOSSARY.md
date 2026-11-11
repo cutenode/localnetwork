@@ -127,6 +127,11 @@ _Avoid_: stick, device, volume, USB
 A saved copy of a drive's library in the store.
 _Avoid_: backup, version, commit
 
+**View**:
+A temporary, read-only folder of links into the store, laid out as one snapshot's drive tree, with
+nothing copied.
+_Avoid_: mount, browse folder, checkout
+
 **Backup**:
 What a change to a drive keeps on that drive so `undo` can put it back: the databases and the files
 the change replaces or deletes.

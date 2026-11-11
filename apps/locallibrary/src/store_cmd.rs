@@ -1,7 +1,8 @@
-//! `pull` and the store's upkeep: `store label|unlabel|prune|copy|copies|restore|serve|fetch|index-limit`.
+//! `pull` and the store's upkeep:
+//! `store label|unlabel|prune|copy|copies|browse|views|unbrowse|restore|serve|fetch|index-limit`.
 
 use std::io::IsTerminal;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Result;
@@ -12,6 +13,7 @@ use locallibrary::catalog::{FetchReport, LibraryOutcome};
 use locallibrary::local_time;
 use locallibrary::mix::prefs::{DEFAULT_INDEX_LIMIT_MIB, MixPrefs};
 use locallibrary::progress::Ctx;
+use locallibrary::view;
 use serde::Serialize;
 
 use crate::output::{self, Outcome, Output};
@@ -352,6 +354,110 @@ pub fn fetch(
 ) -> Result<ExitCode> {
     let r = locallibrary::peers::fetch(store, &code.parse()?, opts, ctx)?;
     Ok(fetched(&r, "the other computer", "on both computers", out))
+}
+
+/// `store browse`: a view of the snapshot, there until Ctrl-C (or until another `store unbrowse`
+/// removes it) unless `keep`.
+pub fn browse(
+    store: &Store,
+    snapshot: &str,
+    to: Option<&Path>,
+    keep: bool,
+    out: Output,
+    ctx: &Ctx<'_>,
+) -> Result<ExitCode> {
+    let id = store.resolve_snapshot(snapshot)?;
+    views_open(store)?;
+    let opened = view::open(store, &id, to)?;
+    let show = |o: &view::Opened, until: &str| {
+        output::ok(format!(
+            "view of snapshot {}: {} file(s), {}, nothing copied",
+            o.view.snapshot.short(),
+            o.files,
+            output::bytes(o.bytes)
+        ));
+        say!("  {}", style(o.view.path.display()).bold());
+        for path in &o.missing {
+            output::warn(format!("{path} isn't in the store, so its link is broken (see `store verify`)"));
+        }
+        for path in &o.skipped {
+            output::warn(format!("{path} was left out: an unsafe path, or one differing from another only in case"));
+        }
+        let pruned = match o.symlinks {
+            0 => "pruning this snapshot leaves its space in use until the view is removed",
+            _ => "they break if this snapshot is pruned",
+        };
+        output::hint(format!("Read-only links into the store: {pruned}. {until}"));
+    };
+    if keep {
+        return Ok(out.done(&opened, |o| show(o, "Remove it with `locallibrary store unbrowse`.")));
+    }
+    match out.json {
+        true => say!("{}", output::with_schema(serde_json::to_value(&opened).expect("serialisable"))),
+        false => show(&opened, "It's removed on Ctrl-C."),
+    }
+    while ctx.check().is_ok() && view::is_open(store, &opened.view.path)? {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let closed = match view::is_open(store, &opened.view.path)? {
+        true => view::close(store, &opened.view.path)?,
+        false => view::Closed { path: opened.view.path, left: 0 },
+    };
+    Ok(out.done(&closed, say_closed))
+}
+
+/// `store views`.
+pub fn views(store: &Option<PathBuf>, out: Output) -> Result<ExitCode> {
+    let views = crate::diff_cmd::read_or_empty(store, view::list)?;
+    out.emit(&views, |views| {
+        if views.is_empty() {
+            say!("No views open. Make one with `locallibrary store browse <snapshot>`.");
+        }
+        for v in views {
+            let when = local_time(v.view.created, "%Y-%m-%d %H:%M");
+            say!("{}", style(v.view.path.display()).bold());
+            say!("  {}", output::dim(format!("snapshot {}, opened {when}", v.view.snapshot.short())));
+            if v.broken > 0 {
+                output::warn(format!("{} broken link(s): the store no longer has their files", v.broken));
+            }
+        }
+    });
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `store unbrowse`.
+pub fn unbrowse(store: &Store, path: Option<PathBuf>, out: Output) -> Result<ExitCode> {
+    let paths = match path {
+        Some(path) => vec![path],
+        None => view::list(store)?.into_iter().map(|v| v.view.path).collect(),
+    };
+    let closed = paths.iter().map(|p| view::close(store, p)).collect::<locallibrary::Result<Vec<_>>>()?;
+    Ok(out.done(&closed, |closed| {
+        if closed.is_empty() {
+            say!("No views open.");
+        }
+        closed.iter().for_each(say_closed);
+    }))
+}
+
+fn say_closed(c: &view::Closed) {
+    match c.left {
+        0 => output::ok(format!("removed the view at {}", c.path.display())),
+        n => output::warn(format!("left {n} file(s) in {} that aren't links", c.path.display())),
+    }
+}
+
+/// Warn of views still open: `store browse` removes its own, so one here is in use, kept or left
+/// by a crash.
+pub fn views_open(store: &Store) -> Result<()> {
+    for v in view::list(store)? {
+        output::warn(format!(
+            "a view of snapshot {} is open at {}; `locallibrary store unbrowse` removes it",
+            v.view.snapshot.short(),
+            v.view.path.display()
+        ));
+    }
+    Ok(())
 }
 
 /// `store restore --from PLUGIN:DESTINATION`.
