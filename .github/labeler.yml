@@ -304,7 +304,7 @@ tooling:
           - ".github/*"
           - ".github/{rulesets,projects}/**"
           - ".github/ISSUE_TEMPLATE/**"
-          - "{.cargo,.config,.railway,tools,patches}/**"
+          - "{.cargo,.config,.railway,.regal,tools,patches}/**"
           - "{package.json,pnpm-workspace.yaml,.npmrc,lefthook.yml,sgconfig.yml,.node-version}"
           - "{rust-toolchain,rustfmt,clippy,deny,dist-workspace,osv-scanner}.toml"
           - "{.oxlintrc.json,.oxfmtrc.json,tsconfig.json,commitlint.config.js,_typos.toml,.lycheeignore,.editorconfig,.gitattributes,.gitignore,.dockerignore}"

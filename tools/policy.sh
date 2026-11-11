@@ -2,13 +2,15 @@
 # Checks the repository against the conventions in .github/NEW_PROJECT.md: every app, crate and
 # plugin registered where it has to be. The policies are Rego in tools/policy/, run by conftest
 # over the files below; OPA checks their format and runs their tests (*_test.rego), which have to
-# cover every line. Both run from pinned images, so this needs Docker, as CI's repo-checks.yml does,
-# and Node with the workspace root's dev dependencies, to read .railway/railway.ts.
+# cover every line, and Regal lints them. They run from pinned images, so this needs Docker, as
+# CI's repo-checks.yml does, and Node with the workspace root's dev dependencies, to read
+# .railway/railway.ts.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 conftest=openpolicyagent/conftest:v0.71.1@sha256:0e77cdf7c1fcde035f3c579e4aaa6664ee2a8be5777eaa9af9f520cdd02280c0
 opa=openpolicyagent/opa:1.21.2@sha256:7459fa69661242c8983d6e4116779550cbb17608f1110ddcd4e9e24da4dcb0e5
+regal=ghcr.io/open-policy-agent/regal:0.43.0@sha256:29460f0ec1340d37f6c0c74bcbd88dd232fd8382c7a2337f0684415bd4c46da1
 
 # Tracked files and new ones not yet added (but not ignored ones), so a new app is checked too.
 list() { git ls-files --cached --others --exclude-standard "$@"; }
@@ -71,6 +73,8 @@ run() {
 }
 
 run "$opa" fmt --list --fail tools/policy
+# Regal, OPA's linter, with its exceptions in .regal/config.yaml.
+run "$regal" lint tools/policy
 run "$opa" check --strict tools/policy
 run "$opa" test tools/policy
 uncovered=$(run "$opa" test --coverage tools/policy |
