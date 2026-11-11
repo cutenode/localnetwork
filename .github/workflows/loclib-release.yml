@@ -1,0 +1,47 @@
+name: loclib release
+
+# Publishes the loclib crates to crates.io with trusted publishing, so no crates.io token is stored
+# anywhere: crates.io trusts this file, run in the crates-io environment, to publish each crate,
+# and release-plz trades the job's OIDC token for a token that lasts minutes. On a push to main
+# that changes a loclib crate's Cargo.toml, `release-plz release` publishes each crate whose
+# version crates.io doesn't have yet, dependencies first, and tags it `<crate>-v<version>`.
+#
+# Versions and changelogs change in ordinary pull requests (`release-plz update`, see "Releasing
+# crates" in apps/locallibrary/CONTRIBUTING.md). crates.io can't take a crate's first version
+# this way: tools/crates-io.sh publishes new crates and sets up their trusted publisher.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/loclib-*/Cargo.toml'
+  workflow_dispatch:
+
+permissions: {}
+
+# One release at a time, and never cancelled halfway through publishing.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: crates-io
+    permissions:
+      # The tags.
+      contents: write
+      # The OIDC token crates.io trades for a publish token.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # release-plz reads the tags to find each crate's last release.
+          fetch-depth: 0
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: release-plz/action@1fb72a9583c3601c197b3bd6fc6ce50d58e28ef3 # v0.5.148
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

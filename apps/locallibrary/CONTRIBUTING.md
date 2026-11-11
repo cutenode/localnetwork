@@ -327,8 +327,9 @@ repository root, `.github/workflows/locallibrary-release.yml`) when a version ta
    Unreleased in `CHANGELOG.md`, and delete those files. Then rename "Unreleased" to the version
    and date (`## [0.2.0] - 2026-11-02`) and start a new "Unreleased" above it. The GitHub Release
    takes its notes from that section.
-2. Bump `version` in `[workspace.package]` in the root `Cargo.toml`, run `cargo check` so
-   `Cargo.lock` follows, and commit.
+2. Bump `version` in `[workspace.package]` in the root `Cargo.toml` (the CLI's and the plugins'
+   version; the loclib crates have their own, see below), run `cargo check` so `Cargo.lock`
+   follows, and commit.
 3. Tag the commit with the CLI package's name and push the tag:
    `git tag locallibrary-cli-v0.2.0 && git push origin locallibrary-cli-v0.2.0`. Only tags that
    start with `locallibrary` release it (`tag-namespace` in `dist-workspace.toml`), so the
@@ -375,3 +376,27 @@ skipped):
   has run yet: check the first signed release's log for Apple's verdict.
 - Windows binaries aren't signed (SmartScreen warns about them); dist can sign them through
   Azure Artifact Signing if that's ever wanted.
+
+## Releasing crates
+
+The loclib crates go to crates.io, each with its own version, through
+[release-plz](https://release-plz.dev) (`release-plz.toml`) and
+`.github/workflows/loclib-release.yml`. The workflow publishes with crates.io's trusted
+publishing, so no crates.io token is stored anywhere.
+
+1. `release-plz update` (`cargo install release-plz`) bumps the version of each crate that
+   changed since its last release, from the conventional commits that touched it, and writes
+   them into the crate's `CHANGELOG.md`. While a crate is 0.x a breaking change moves the minor
+   version and anything else the patch; from 1.0 a `feat` moves the minor and a breaking change
+   the major. Open a pull request with what it changed.
+2. When it merges, the workflow publishes each crate whose version crates.io doesn't have yet,
+   dependencies first, and tags it `<crate>-v<version>`.
+
+crates.io takes a crate's first version only from a token, and only then lets it trust a
+workflow. So for a new crate, or for all of them the first time, run `tools/crates-io.sh` to see
+what's missing and `tools/crates-io.sh setup` to fix it. It sets up the `crates-io` environment
+(deploys from `main` only), publishes the crates crates.io doesn't have, has every crate trust
+the workflow, and turns on "require trusted publishing" so a token can't publish them again.
+Make the token it asks for at <https://crates.io/settings/tokens/new>: limited to `loclib-*`,
+with the scopes `publish-new` and `trusted-publishing`, expiring soon; delete it afterwards. The
+environment needs `gh` signed in as a repository admin.

@@ -1,0 +1,10 @@
+# release-plz (https://release-plz.dev): versions, changelogs and crates.io releases of the
+# loclib crates. Only packages Cargo can publish take part, so the CLI, its plugins, loclib-testkit
+# and the vendored rekordbox-pdb (all `publish = false`) are left alone. The CLI ships with dist.
+#
+# Each crate has its own version. `release-plz update` bumps the crates that changed and writes
+# their CHANGELOG.md from the conventional commits that touched them, in an ordinary pull request;
+# once it merges, .github/workflows/loclib-release.yml publishes and tags each new version.
+[workspace]
+# The tags are the record. A GitHub Release for every crate would bury the CLI's.
+git_release_enable = false
