@@ -15,7 +15,7 @@
 		"format:tools": "oxfmt tools .railway vitest.config.ts commitlint.config.js flags benchmarks packages/tokens apps/locallibrary/bombadil '!**/*.md'",
 		"lexicons:format": "oxfmt lexicons/computer",
 		"test": "pnpm -r test",
-		"knip": "knip",
+		"knip": "knip && knip --production",
 		"verify": "pnpm lexicons:format --check && pnpm format:tools --check && pnpm lint:tools && pnpm check:tools && pnpm knip && pnpm -r verify",
 		"atstore": "pnpm --filter atstore assets",
 		"test:tools": "vitest run --coverage"

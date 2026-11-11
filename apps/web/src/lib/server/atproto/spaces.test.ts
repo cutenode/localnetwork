@@ -2,7 +2,6 @@ import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
 	bookingSpace,
-	isSpaceType,
 	parsePublicRecordUri,
 	parseSpaceRecordUri,
 	parseSpaceUri,
@@ -61,8 +60,6 @@ describe('space URIs', () => {
 		expect(Object.keys(rootSpaces(ROOT))).toEqual(['audit', 'moderation', 'staff', 'industry']);
 		expect(bookingSpace(ROOT, 'tid1')).toBe(`at://${ROOT}/space/computer.localnetwork.space.booking/tid1`);
 		expect(plannerSpace('did:plc:pat')).toBe('at://did:plc:pat/space/computer.localnetwork.space.planner/self');
-		expect(isSpaceType('computer.localnetwork.space.booking')).toBe(true);
-		expect(isSpaceType('app.bsky.feed.post')).toBe(false);
 	});
 
 	it("names performers', parties' and venues' spaces, and tells their kind from the type", () => {

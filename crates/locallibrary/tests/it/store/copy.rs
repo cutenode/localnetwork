@@ -270,6 +270,7 @@ fn a_damaged_file_leaves_its_snapshot_out() {
     common::export_new_track(&a, "New", "Track");
     let second = pull(&store, &a);
     let pdb = store.load_snapshot(&second).unwrap().files.into_iter().find(|f| f.path == paths::EXPORT_PDB).unwrap();
+    std::fs::remove_file(store.object_path(&pdb.hash.unwrap())).unwrap();
     std::fs::write(store.object_path(&pdb.hash.unwrap()), b"damaged").unwrap();
 
     let r = copy(&store, &dest, &CopyOptions { mirror: true, ..Default::default() }).unwrap();

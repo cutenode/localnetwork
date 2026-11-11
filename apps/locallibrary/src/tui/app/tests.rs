@@ -3263,6 +3263,28 @@ fn the_mixes_into_panel_shows_each_match_with_its_own_key() {
     assert!(shown.len() > 12, "keys shown: {shown:?}");
 }
 
+/// The few rows the "mixes into" panel has room for show the other keys that mix in too, where
+/// same-key tracks alone would fill them and every row would read as the playing track's key
+/// (LOC-13).
+#[test]
+fn the_mixes_into_panel_shows_more_than_the_playing_key() {
+    let at = |id, key: &str, title: &str| Track { key: key.into(), bpm: 128.0, ..track(id, "DJ", title) };
+    let mut tracks = vec![at(1, "8B", "Playing")];
+    tracks.extend((2..9).map(|id| at(id, "8B", &format!("Same {id}"))));
+    tracks.extend([at(9, "7B", "Neighbour"), at(10, "8A", "Relative")]);
+    let lib = Library { tracks, ..Default::default() };
+    let (mut app, _dir) = playing_in(lib, TrackAnalysis::default());
+    let l = app.loaded.as_ref().unwrap();
+    let (root, lib) = (l.root().to_path_buf(), l.library.clone());
+    let info = track_info(&root, &lib.tracks[0], Some(lib.clone()), &root.join("store"));
+    app.handle_msg(Msg::TrackInfo(1, Box::new(info)));
+    app.deck_layout = true;
+    let s = super::super::ui::screen(&mut app, 120, 40);
+    for row in ["8B  128.0 Same 2", "7B  128.0 Neighbour", "8A  128.0 Relative"] {
+        assert!(s.contains(row), "{row}:\n{s}");
+    }
+}
+
 /// The player as `tui::run` makes it, with nothing to hear and the drives in [`plugins_once`] the
 /// only ones mounted.
 fn started(store: PathBuf, drive: Option<String>) -> App {

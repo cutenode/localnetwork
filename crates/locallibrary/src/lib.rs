@@ -132,6 +132,7 @@ mod timeline;
 mod track_files;
 pub mod tree;
 pub mod upgrade;
+pub mod view;
 pub mod watch;
 mod workers;
 mod writing;

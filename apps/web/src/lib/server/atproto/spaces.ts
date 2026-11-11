@@ -120,7 +120,3 @@ export function sharedSpace(rootDid: string, kind: SpaceKind, skey: string): str
 export function sharedSpaceKind(type: string): SpaceKind | null {
 	return SPACE_KINDS.find((kind) => SHARED_SPACE_TYPES[kind] === type) ?? null;
 }
-
-export function isSpaceType(value: string): value is SpaceType {
-	return Object.values<string>(SPACE_TYPE).includes(value);
-}
