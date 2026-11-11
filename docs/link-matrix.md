@@ -2,6 +2,8 @@
 
 Which public pages each kind of public page links to, whenever the data for the link exists. [ADR 0012](adr/0012-pages-follow-what-people-look-at-and-link-to-each-other.md) explains why, and the [glossary](../GLOSSARY.md) defines the page types. Each page type gets a test that fails when a page leaves out a link its table asks for and the data is there.
 
+The tests check every row marked `on main`. Each page type's checks are a module in [apps/web/src/lib/testing/link-matrix/](../apps/web/src/lib/testing/link-matrix/), and [link-matrix.svelte.test.ts](../apps/web/src/routes/link-matrix.svelte.test.ts) fails when a row marked `on main` has no check, or a check names a row that isn't. So a change that adds a missing link marks its row `on main` and adds its check, and a new page type adds a module.
+
 The status column says where main stands, read at [`fe5cadef`](https://github.com/cutenode/localnetwork/tree/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598), and the source links are pinned there:
 
 - **on main**: the link exists.
@@ -135,14 +137,14 @@ A mix is a set's page with the player. On main the closest page is a mix's track
 
 ## Press kit
 
-| Links to                         | When                   | On main  | Source                                                                                                                                                                                                                                    |
-| -------------------------------- | ---------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Its performer                    | always                 | on main  | [routes/projects/\[slug\]/press-kits/\[rkey\]/+page.svelte:56](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/projects/%5Bslug%5D/press-kits/%5Brkey%5D/%2Bpage.svelte#L56)   |
-| Its mixes                        | it has mixes           | on main  | [lib/components/epk/EpkMixes.svelte:27](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/components/epk/EpkMixes.svelte#L27)                                                       |
-| Sets                             | the performer has sets | new page |                                                                                                                                                                                                                                           |
-| Events on the performer's lineup | it has credits         | new page |                                                                                                                                                                                                                                           |
-| Artists in its sets              | it shows sets          | on main  | [lib/components/supports/ArtistLinks.svelte:9](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/components/supports/ArtistLinks.svelte#L9)                                         |
-| Send an inquiry                  | always                 | on main  | [routes/projects/\[slug\]/press-kits/\[rkey\]/+page.svelte:156](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/projects/%5Bslug%5D/press-kits/%5Brkey%5D/%2Bpage.svelte#L156) |
+| Links to                         | When                   | On main  | Source                                                                                                                                                                                                                                                                                                       |
+| -------------------------------- | ---------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Its performer                    | always                 | missing  | the back link goes to the act's press kits, not the act [routes/projects/\[slug\]/press-kits/\[rkey\]/+page.svelte:56](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/projects/%5Bslug%5D/press-kits/%5Brkey%5D/%2Bpage.svelte#L56)              |
+| Its mixes                        | it has mixes           | on main  | [lib/components/epk/EpkMixes.svelte:27](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/components/epk/EpkMixes.svelte#L27)                                                                                                                          |
+| Sets                             | the performer has sets | new page |                                                                                                                                                                                                                                                                                                              |
+| Events on the performer's lineup | it has credits         | new page |                                                                                                                                                                                                                                                                                                              |
+| Artists in its sets              | it shows sets          | on main  | [lib/components/supports/ArtistLinks.svelte:9](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/components/supports/ArtistLinks.svelte#L9)                                                                                                            |
+| Send an inquiry                  | its act has managers   | missing  | only when the press kit has no contact details, to visitors let in [routes/projects/\[slug\]/press-kits/\[rkey\]/+page.svelte:156](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/projects/%5Bslug%5D/press-kits/%5Brkey%5D/%2Bpage.svelte#L156) |
 
 ## Artist
 
@@ -249,7 +251,6 @@ flowchart LR
     act --> kit
     act --> mix
     act --> artist
-    kit --> act
     kit --> mix
     kit --> artist
     mix -->|"back link"| act
@@ -260,6 +261,7 @@ flowchart LR
     act -.->|"members"| profile
     profile -.->|"mixes"| mix
     profile -.->|"press kits"| kit
+    kit -.->|"performer"| act
     mix -.->|"artists"| artist
     mix -.->|"members"| profile
     artist -.->|"listed DJs"| profile
