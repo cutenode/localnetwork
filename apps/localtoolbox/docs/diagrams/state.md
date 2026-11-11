@@ -210,7 +210,7 @@ sequenceDiagram
   participant S as TbxState
   participant B as storage.local
   participant L as localStorage
-  T->>O: queue, listed, artists
+  T->>O: queue, listed, artists, search sites
   O-->>T: plain lists
   T->>S: snapshot
   S->>B: marks, details
@@ -231,8 +231,8 @@ flowchart TD
   Refused["says what is wrong,<br/>writes nothing"]
   Holds["says what the file holds,<br/>Import is pressed"]
   Switch{"replace switch"}
-  Add["Adds<br/>marks: merged, the earlier time kept<br/>details: only newer ones<br/>listed, artists: appended, the better answer kept,<br/>past the cap refused and counted<br/>queue: appended, a held track left alone<br/>the three options: only where unset"]
-  Replace["Replaces<br/>marks and details: the file's<br/>listed, artists: the file's, past the cap<br/>refused and counted<br/>queue: the file's<br/>the three options: the file's, or back to default"]
+  Add["Adds<br/>marks: merged, the earlier time kept<br/>details: only newer ones<br/>listed, artists: appended, the better answer kept,<br/>past the cap refused and counted<br/>queue: appended, a held track left alone<br/>the three options: only where unset<br/>search sites: added unless already a badge"]
+  Replace["Replaces<br/>marks and details: the file's<br/>listed, artists: the file's, past the cap<br/>refused and counted<br/>queue: the file's<br/>the three options: the file's, or back to default<br/>search sites: the file's"]
   Reload["panels re-read their options"]
 
   Parse -->|refused| Refused

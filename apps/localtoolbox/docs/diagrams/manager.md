@@ -161,4 +161,4 @@ flowchart TD
   Url --> Tab
 ```
 
-Source: [`src/lib/search-sites.json`](../../src/lib/search-sites.json), [`src/lib/search-sites.ts`](../../src/lib/search-sites.ts), [`src/lib/search-sites.svelte.ts`](../../src/lib/search-sites.svelte.ts), [`src/tools/manager/Panel.svelte`](../../src/tools/manager/Panel.svelte)
+Source: [`src/lib/search-sites.json`](../../src/lib/search-sites.json), [`src/lib/search-sites.ts`](../../src/lib/search-sites.ts), [`src/lib/search-sites.svelte.ts`](../../src/lib/search-sites.svelte.ts), [`src/lib/components/SearchSiteForm.svelte`](../../src/lib/components/SearchSiteForm.svelte), [`src/tools/manager/Panel.svelte`](../../src/tools/manager/Panel.svelte)
