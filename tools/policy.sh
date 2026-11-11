@@ -27,6 +27,7 @@ list | jq -R -s '{files: split("\n")[:-1]}' > "$scratch/tracked-files.json"
 # The files the Rust code embeds from outside its own crate, for the policy that the locallibrary
 # paths filter in ci.yml has them: the paths in include_str! and include_bytes!, from the file
 # they're in.
+# shellcheck disable=SC2016 # Node's program, with its own template literals.
 git grep --untracked -I -o -E 'include_(str|bytes)!\(\s*"[^"]+"' -- ':(glob)**/*.rs' |
   node --input-type=module -e '
     import { posix } from "node:path";
@@ -58,7 +59,7 @@ harden() { # package manager, folder
   report=$(cd "$2" && "$root/node_modules/.bin/harden" check -p "$1" -l strict --json) || true
   unmet=$(jq -nr 'input.checks[] | select((.id | test("^[pn]_runner$") | not) and .satisfied != 1) | .id' <<< "$report")
   if [ -n "$unmet" ]; then
-    echo "$2: weaker than \`harden defaults -p $1 -l strict\` sets it (all but the runner):" $unmet
+    echo "$2: weaker than \`harden defaults -p $1 -l strict\` sets it (all but the runner): ${unmet//$'\n'/ }"
     exit 1
   fi
 }
