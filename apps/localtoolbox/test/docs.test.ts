@@ -78,7 +78,7 @@ describe('what the README claims exists', () => {
 		// is checked against it rather than against any code: a site added there
 		// is one nobody has to remember to write down, because this fails until
 		// it is.
-		for (const site of JSON.parse(read('src/lib/search-sites.json'))) {
+		for (const site of JSON.parse(read('src/lib/search-sites.json')).sites) {
 			expect(PROSE, site.name).toContain(site.name);
 			expect(README, site.url).toContain(site.url);
 			// A cell of its own; the formatter pads a table's columns to one width.

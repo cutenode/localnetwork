@@ -9,7 +9,9 @@
 // require the same verdict from each.
 import { describe, it, expect, beforeEach } from 'vitest';
 import { loadState, type StateTransfer } from './helpers/load.ts';
-import { createValidator, readSchema, explain } from '../scripts/validate-state.mts';
+import { readFileSync } from 'node:fs';
+import { createValidator, readSchema, explain, SITES_SCHEMA_PATH } from '../scripts/validate-state.mts';
+import { VARIABLE_NAMES } from '../src/lib/search-sites.ts';
 import {
 	artistEntry,
 	artistProfile,
@@ -18,10 +20,13 @@ import {
 	listedEntry,
 	partialDetails,
 	queueEntry,
+	searchSite,
 	type FieldValue
 } from './helpers/state-fixtures.ts';
 
 const schema = readSchema();
+
+const sitesSchema = JSON.parse(readFileSync(SITES_SCHEMA_PATH, 'utf8'));
 
 const validate = createValidator(schema);
 
@@ -77,6 +82,14 @@ describe('the schema and the extension agree on the format', () => {
 		expect(state.PREFS.find((p) => p.name === 'sort')).toMatchObject({
 			values: schema.properties.prefs.properties.sort.enum
 		});
+	});
+
+	// The variables a search address may carry are search-sites.ts's, and the
+	// schema names them in its own expressions.
+	it('on which variables a search address may carry', () => {
+		const url = JSON.stringify(sitesSchema.$defs.site.properties.url);
+		expect(url).toContain(`(?:${VARIABLE_NAMES.join('|')})`);
+		expect(schema.properties.searchSites.items.$ref).toBe(`${sitesSchema.$id}#/$defs/site`);
 	});
 
 	it('on what a permalink path looks like', () => {
@@ -202,7 +215,24 @@ const VALID = {
 	'a mark timed in lower case, with a space for the T': file({
 		downloaded: { '/a/b': '2026-09-08 12:00:00.5z' }
 	}),
-	'an exportedAt on a leap day': file({ exportedAt: '2024-02-29T12:00:00.000Z' })
+	'an exportedAt on a leap day': file({ exportedAt: '2024-02-29T12:00:00.000Z' }),
+	'no search sites at all, as every file written before they could be added': (() => {
+		const { searchSites: _drop, ...rest } = file();
+
+		return rest;
+	})(),
+	'a search site with nothing but what it needs': file({
+		searchSites: [{ id: 'a', name: 'A', badge: 'A', url: 'https://a.test/?q={artist}' }]
+	}),
+	'a search site using every variable, and braces that are not one': file({
+		searchSites: [searchSite({ url: 'https://a.test/{title}/{artist}?q={query}&x={a b}' })]
+	}),
+	'a search site with short colours, shipped off': file({
+		searchSites: [searchSite({ background: '#fff', color: '#000a', on: false })]
+	}),
+	'a search site whose badge is three characters, one an emoji': file({
+		searchSites: [searchSite({ badge: 'a🎵b' })]
+	})
 };
 
 // Documents both must refuse, and why.
@@ -403,7 +433,23 @@ const INVALID = {
 	'an option this tool does not have': file({ prefs: { theme: 'dark' } }),
 	'a non-boolean background': file({ prefs: { background: 'yes' } }),
 	'a non-boolean hideDownloaded': file({ prefs: { hideDownloaded: 1 } }),
-	'a sort order that does not exist': file({ prefs: { sort: 'sideways' } })
+	'a sort order that does not exist': file({ prefs: { sort: 'sideways' } }),
+	'search sites that are not a list': file({ searchSites: {} }),
+	'a search site that is not an object': file({ searchSites: ['https://a.test/?q={artist}'] }),
+	'a search site with no id': file({ searchSites: [searchSite({ id: undefined })] }),
+	'a search site with a blank name': file({ searchSites: [searchSite({ name: '  ' })] }),
+	'a search site whose badge is four characters': file({ searchSites: [searchSite({ badge: 'JUNO' })] }),
+	'a search site that is not https': file({ searchSites: [searchSite({ url: 'http://a.test/?q={artist}' })] }),
+	'a search site with no variable in it': file({ searchSites: [searchSite({ url: 'https://a.test/search' })] }),
+	'a search site naming a variable that does not exist': file({
+		searchSites: [searchSite({ url: 'https://a.test/?q={artist}&t={titel}' })]
+	}),
+	'a search site whose colour is a word': file({ searchSites: [searchSite({ background: 'orange' })] }),
+	'a search site whose colour smuggles a declaration in': file({
+		searchSites: [searchSite({ color: '#fff;position:fixed' })]
+	}),
+	'a search site switched on with a string': file({ searchSites: [searchSite({ on: 'yes' })] }),
+	'a search site with a member of its own invention': file({ searchSites: [searchSite({ logo: 'x.png' })] })
 };
 
 describe('what the schema accepts, the importer accepts', () => {

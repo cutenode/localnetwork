@@ -66,7 +66,7 @@ The extension origin's own `localStorage`. The popup and the offscreen page shar
 flowchart LR
   Popup["Popup"]
   Offscreen["Offscreen page"]
-  File["In the state file<br/>pref:background, pref:sort, pref:hide-downloaded"]
+  File["In the state file<br/>pref:background, pref:sort, pref:hide-downloaded,<br/>pref:search-sites"]
   Stay["On this install only<br/>pref:format, pref:source, pref:split-title, pref:dedupe,<br/>pref:artists-sort, pref:hide-queued, pref:theme,<br/>pref:title-case, pref:search:id"]
   Gate["For gates, on this install only<br/>pref:email, pref:name, pref:mark"]
   Mirror["Mirrors, corrected by the session<br/>view:open, queue:items"]
