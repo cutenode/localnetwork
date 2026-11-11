@@ -23,7 +23,10 @@ crates/loclib-mysettings/   My Settings files (MYSETTING.DAT and the rest): ever
 crates/loclib-tracklist/    reading outside tracklists (M3U, CSV, rekordbox text and XML, plain text) and
                             matching them to a library: by path, ISRC, artist and title, then fuzzily;
                             and rekordbox XML collections with their tags, keys, beat grids and cues
-crates/loclib-mixid/        which known tracks a recorded mix plays: decoding and resampling, landmark
+crates/loclib-audio/        decoding through symphonia without trusting a file's headers (an MP4's sample
+                            tables checked first, a decoder's panic caught), and resampling as it streams
+crates/loclib-testkit/      test helpers the crates share (synthetic audio and audio files), never published
+crates/loclib-mixid/        which known tracks a recorded mix plays: landmark
                             fingerprints, the hash index and its print format, the matcher, and how
                             two tracks line up, refined to a fraction of a sample from their audio
                             (doctor's duplicates by sound, cues carried or moved by the offset)

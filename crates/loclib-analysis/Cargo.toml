@@ -14,6 +14,7 @@ repository.workspace = true
 biquad = "0.6.0"
 ebur128 = "0.1"
 indexmap.workspace = true
+loclib-audio.workspace = true
 loclib-mixid.workspace = true
 loclib-model.workspace = true
 loclib-progress.workspace = true
@@ -26,8 +27,8 @@ thiserror.workspace = true
 [dev-dependencies]
 criterion.workspace = true
 hegeltest.workspace = true
-loclib-mixid = { workspace = true, features = ["test-util"] }
 loclib-model = { workspace = true, features = ["test-util"] }
+loclib-testkit.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 

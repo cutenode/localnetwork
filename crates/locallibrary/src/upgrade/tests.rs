@@ -4,8 +4,8 @@ use std::fs;
 
 use hegel::generators as gs;
 use loclib_mixid::matcher::Alignment;
-use loclib_mixid::test_util::{resample, synth, wav_of};
 use loclib_model::test_util::track;
+use loclib_testkit::audio::{resample, synth, wav_of};
 
 use crate::equipment::MODELS;
 
@@ -202,7 +202,7 @@ fn an_upgrade_or_the_first_reason_it_isnt_one(tc: hegel::TestCase) {
 /// average.
 #[hegel::test(test_cases = 10)]
 fn prop_an_m4a_is_lossless_by_its_header(tc: hegel::TestCase) {
-    use loclib_mixid::test_util::{m4a, mp4_empty_tables, wav};
+    use loclib_testkit::audio::{m4a, mp4_empty_tables, wav};
     let aac = fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio/silence.m4a")).unwrap();
     let files: [(&str, Vec<u8>, bool); 4] = [
         ("Song.wav", wav(44_100, 16, 0.5), true),

@@ -12,8 +12,8 @@ repository.workspace = true
 
 [dependencies]
 flacenc = { version = "0.5", default-features = false }
+loclib-audio.workspace = true
 loclib-equipment.workspace = true
-loclib-mixid.workspace = true
 loclib-progress.workspace = true
 lofty.workspace = true
 rubato = { version = "5", default-features = false }
@@ -24,7 +24,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 hegeltest.workspace = true
-loclib-mixid = { workspace = true, features = ["test-util"] }
+loclib-testkit.workspace = true
 tempfile.workspace = true
 
 [features]
