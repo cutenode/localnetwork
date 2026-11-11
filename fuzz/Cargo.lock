@@ -2236,7 +2236,6 @@ dependencies = [
  "ring",
  "rusqlite",
  "rustc-hash",
- "rustfft",
  "same-file",
  "schemars",
  "serde",
@@ -2287,7 +2286,6 @@ dependencies = [
  "schemars",
  "serde",
  "stratum-dsp",
- "symphonia",
  "thiserror 2.0.21",
 ]
 
@@ -2391,7 +2389,6 @@ dependencies = [
  "rubato",
  "schemars",
  "serde",
- "symphonia",
  "thiserror 2.0.21",
 ]
 

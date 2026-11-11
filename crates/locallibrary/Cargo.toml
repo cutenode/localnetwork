@@ -71,7 +71,6 @@ reqwest = { workspace = true, features = ["blocking", "multipart", "stream"] }
 lofty.workspace = true
 percent-encoding.workspace = true
 rusqlite.workspace = true
-rustfft.workspace = true
 same-file.workspace = true
 schemars.workspace = true
 serde.workspace = true
