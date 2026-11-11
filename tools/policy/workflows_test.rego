@@ -12,7 +12,7 @@ test_fixture_passes if {
 }
 
 test_gated_workflows if {
-	gated := {path | some path, _ in workflows.gated} with input as fixtures.repo
+	gated := object.keys(workflows.gated) with input as fixtures.repo
 	gated == {".github/workflows/site-ci.yml", ".github/workflows/rust.yml", ".github/workflows/deps.yml", ".github/workflows/lint.yml"}
 }
 
@@ -176,7 +176,7 @@ e2e := fixtures.file(".github/workflows/site-e2e.yml")
 with_e2e(contents) := fixtures.with_file(".github/workflows/site-e2e.yml", contents)
 
 test_called_workflows if {
-	called := {path | some path, _ in workflows.called} with input as fixtures.repo
+	called := object.keys(workflows.called) with input as fixtures.repo
 	called == {".github/workflows/site-e2e.yml"}
 }
 
