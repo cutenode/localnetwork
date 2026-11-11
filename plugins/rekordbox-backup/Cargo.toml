@@ -1,0 +1,30 @@
+[package]
+name = "locallibrary-plugin-rekordbox-backup"
+description = "Backs up rekordbox's library on this computer as rekordbox's own Backup Library does, written as a third-party locallibrary plugin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+chrono.workspace = true
+directories.workspace = true
+fs4.workspace = true
+loclib-model.workspace = true
+loclib-plugin.workspace = true
+loclib-progress.workspace = true
+quick-xml = "0.42"
+rustc-hash.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+zip = { version = "9.5.0", default-features = false, features = ["deflate"] }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+hegeltest.workspace = true
+loclib-plugin = { workspace = true, features = ["test-util"] }

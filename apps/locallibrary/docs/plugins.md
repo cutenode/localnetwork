@@ -48,6 +48,15 @@ are:
   MusicBrainz IDs from, and the default for `identity` too (see [Roles](#roles)), and each track
   is looked up once: a track without an ISRC, or one MusicBrainz doesn't know, is kept as having
   none, while MusicBrainz being busy or refusing the lookup is a warning, tried again next time.
+- **rekordbox-backup**: backs up rekordbox's library on this computer as rekordbox's own File >
+  Library > Backup Library does (`locallibrary collection backup`, planned first), into your
+  Documents folder unless its `destination` setting says otherwise, with the music copied into
+  `rekordbox_bak/` beside it when `music` is on. `locallibrary collection backups` lists the
+  backups there and `locallibrary collection verify` checks one. Its `schedule` service makes one
+  every `every_days` while the player, the sidecar or `watch` runs. It doesn't restore: rekordbox's
+  File > Library > Restore Library does. It's written as a plugin from outside locallibrary
+  would be, with the SDK alone (see its
+  [README](../../../plugins/rekordbox-backup/README.md)).
 - **plyr**: a set destination, `track`: `locallibrary sets publish SET --to plyr:track` uploads
   the set's recording to [plyr.fm](https://plyr.fm) as a track of yours, titled after the set
   (else its venue and date), with its tracklist as the description (`05:30 Artist - Title` lines,

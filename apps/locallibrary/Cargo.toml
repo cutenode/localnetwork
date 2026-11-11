@@ -112,6 +112,7 @@ locallibrary-plugin-mixcloud = { version = "0.1.0", path = "../../plugins/mixclo
 locallibrary-plugin-soundcloud = { version = "0.1.0", path = "../../plugins/soundcloud" }
 # The player asks the terminal for its real colours (OSC 10 and 11) as it starts.
 terminal-colorsaurus = { version = "1.0.3", optional = true }
+locallibrary-plugin-rekordbox-backup = { version = "0.1.0", path = "../../plugins/rekordbox-backup" }
 
 [target.'cfg(unix)'.dependencies]
 # Only for `use-dev-tty`: the player's input read with poll(2) rather than mio (ratatui brings the

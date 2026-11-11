@@ -66,6 +66,9 @@ plugins/musicbrainz/        the musicbrainz plugin: the `ids` analyzer, a track'
                             and artist IDs, looked up by its ISRC and kept where they fit the track
 plugins/plyr/               the plyr plugin: the `track` set destination, a set's recording uploaded to plyr.fm
                             in parts as a track, its tracklist the description, the track's page its link
+plugins/rekordbox-backup/   the rekordbox-backup plugin: backups of rekordbox's library on this computer as
+                            rekordbox's Backup Library writes them, listed and checked, made every few
+                            days by its service; built on the SDK alone, as a third party's would be
 plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
                             loudness measured with loclib-analysis, as doctor's `--analyze` measures them,
                             and its three-band waveform

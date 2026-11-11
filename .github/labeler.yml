@@ -175,6 +175,7 @@ atstore:
   - changed-files:
       - any-glob-to-any-file:
           - "crates/{locallibrary,loclib-model,loclib-progress,loclib-mysettings,loclib-equipment}/**"
+          - "plugins/rekordbox-backup/**"
           - "vendor/**"
           - "fuzz/**"
 

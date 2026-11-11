@@ -61,7 +61,11 @@ fn a_planned_command_is_shown_asked_about_then_run() {
 fn a_command_about_the_collection_is_listed_with_it() {
     let env = keeping();
     let help = env.ok(&["collection", "--help"]);
-    assert!(help.contains("Plugins' commands about the collection:\n  locallibrary echo keep  Keep a copy"), "{help}");
+    // Lined up with the other plugins' (the rekordbox-backup plugin's `collection backup`).
+    let (_, listed) = help.split_once("Plugins' commands about the collection:\n").unwrap_or_else(|| panic!("{help}"));
+    let words = |line: &str| line.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(listed.lines().any(|l| words(l) == "locallibrary echo keep Keep a copy"), "{help}");
+    assert!(listed.lines().any(|l| words(l).starts_with("locallibrary collection backup Back up")), "{help}");
     let r = env.run(&["echo", "keep", "USB", "--dry-run"]);
     assert_eq!(r.code, 2, "no drive to give: {}", r.err);
 }
