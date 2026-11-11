@@ -9,13 +9,17 @@ use std::time::{Duration, Instant};
 use hegel::TestCase;
 use hegel::generators as gs;
 
-use loclib_plugin::{Cancel, Manifest, Published, PublishedSet, method};
+use loclib_plugin::{Cancel, Manifest, Published, PublishedSet, TracklistEntry, method};
 use loclib_progress::{Event, Phase};
 use serde_json::json;
 
-use super::{entry, set};
+use super::set;
 use crate::*;
 use youtube::{YouTube, start};
+
+fn entry(artist: Option<&str>, title: Option<&str>, start: Option<u32>) -> TracklistEntry {
+    TracklistEntry { artist: artist.map(Into::into), title: title.map(Into::into), start_seconds: start }
+}
 
 /// Served as a real one is, it says it's its manifest, publishing sets through fetches with an
 /// account.

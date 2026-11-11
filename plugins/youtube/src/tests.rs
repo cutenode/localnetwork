@@ -22,10 +22,6 @@ fn set() -> PublishedSet {
     }
 }
 
-fn entry(artist: Option<&str>, title: Option<&str>, start: Option<u32>) -> TracklistEntry {
-    TracklistEntry { artist: artist.map(Into::into), title: title.map(Into::into), start_seconds: start }
-}
-
 /// It reaches YouTube's API alone, publishes sets at one destination, asks for a Google account
 /// to upload with and nothing else, naming it where the Google account plugin puts its token
 /// (after `Bearer`), and keeps who can watch and the picture as settings.
