@@ -1,12 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { Ajv2020 } from 'ajv/dist/2020.js';
 import { type Budget, type Measured, loosened, problems, ratcheted, run, undeclared } from './budgets.ts';
-
-const repo = resolve(import.meta.dirname, '../..');
 
 const budget = (limit: number | null, tolerance_percent = 1): Budget => ({
 	$schema: '../budget.schema.json',
@@ -163,13 +160,4 @@ describe('the commands', () => {
 			expect(run(args).ok).toBe(false);
 		}
 	);
-});
-
-describe('the budgets in benchmarks/budgets', () => {
-	const validate = new Ajv2020().compile(JSON.parse(readFileSync(join(repo, 'benchmarks/budget.schema.json'), 'utf8')));
-
-	it.each(readdirSync(join(repo, 'benchmarks/budgets')))('%s follows the schema', (file) => {
-		const parsed: unknown = JSON.parse(readFileSync(join(repo, 'benchmarks/budgets', file), 'utf8'));
-		expect(validate(parsed), JSON.stringify(validate.errors)).toBe(true);
-	});
 });

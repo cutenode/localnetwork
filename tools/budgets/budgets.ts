@@ -21,7 +21,7 @@ const BUDGETS = 'benchmarks/budgets';
 
 const budgetPath = (area: string) => join(BUDGETS, `${area}.json`);
 
-// SAFETY: the budget files follow benchmarks/budget.schema.json (budgets.test.ts checks them), and
+// SAFETY: the budget files follow benchmarks/budget.schema.json (tools/schemas/schemas.test.ts checks them), and
 // the measured ones are what the CI jobs write, `{ "<metric>": <number> }`.
 const readJson = <T>(path: string) => JSON.parse(readFileSync(path, 'utf8')) as T;
 
@@ -133,7 +133,7 @@ function raises(base: string, bodyFile: string): string[] {
 
 	const raised = areasAt(base).flatMap((path) => {
 		const file = path.slice(BUDGETS.length + 1);
-		// SAFETY: the base's budget files passed budgets.test.ts's schema check when they merged.
+		// SAFETY: the base's budget files passed the schema check in tools/schemas/schemas.test.ts when they merged.
 		const before = JSON.parse(execFileSync('git', ['show', `${base}:${path}`], { encoding: 'utf8' })) as Budget;
 		const after = here.has(file) ? readJson<Budget>(join(BUDGETS, file)) : undefined;
 
