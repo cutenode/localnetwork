@@ -419,6 +419,12 @@ jobs:
       - run: >-
           cargo coverage --no-clean --archive-file tests.tar.zst -E "none()" --no-tests=pass
           --json --summary-only --output-path target/coverage.json
+      # Each crate against its own floor (tools/coverage/floors.json), which the workspace-wide
+      # thresholds above can hide a small crate's drop behind.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: node tools/coverage/cli.ts check target/coverage.json
       # Into target/hegel/, from the hegel job; missing when it stopped early, and the summary leaves its row out.
       - if: ${{ !cancelled() }}
         continue-on-error: true

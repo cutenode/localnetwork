@@ -133,6 +133,7 @@ jobs:
               - '.config/nextest.toml'
               - 'tools/hegel-coverage.sh'
               - 'tools/budgets/**'
+              - 'tools/coverage/**'
               - 'benchmarks/**'
               - '.github/workflows/locallibrary-ci.yml'
               - '.github/actions/pr-comment/**'
