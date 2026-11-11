@@ -5,6 +5,7 @@ import { newToken } from '../auth/session';
 import { ForbiddenError, UserError } from '../core';
 import { PREVIEW_MS, sealPreview } from '../flags/preview';
 import { createTestServices } from '../testing/core';
+import { answersWith, flagsOff } from '#lib/testing/flags.ts';
 import { FlagService } from './flags';
 
 const ADMIN = 'did:plc:admin';
@@ -43,11 +44,11 @@ describe('FlagService', () => {
 	};
 
 	it('starts every flag off, for everyone', async () => {
-		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: false });
-		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: false });
-		expect(await t.flags.answers(DJ)).toEqual([
-			{ key: FLAG, enabled: true, everyone: false, percentage: 0, targeted: false }
-		]);
+		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: false });
+		expect(await t.flags.evaluate(DJ)).toEqual({ ...flagsOff, [FLAG]: false });
+		expect(await t.flags.answers(DJ)).toEqual(
+			answersWith(FLAG, { enabled: true, everyone: false, percentage: 0, targeted: false })
+		);
 	});
 
 	it('lets an override set a flag on this server, whatever its record says', async () => {
@@ -56,14 +57,14 @@ describe('FlagService', () => {
 		const forcedOff = new FlagService(t.core, t.staff, { [FLAG]: false });
 		const forcedOn = new FlagService(t.core, t.staff, { [FLAG]: true });
 
-		expect(await forcedOff.evaluate(DJ)).toEqual({ [FLAG]: false });
-		expect(await forcedOff.answers(null)).toEqual([
-			{ key: FLAG, enabled: false, everyone: true, percentage: 0, targeted: false }
-		]);
+		expect(await forcedOff.evaluate(DJ)).toEqual({ ...flagsOff, [FLAG]: false });
+		expect(await forcedOff.answers(null)).toEqual(
+			answersWith(FLAG, { enabled: false, everyone: true, percentage: 0, targeted: false })
+		);
 
 		await t.flags.updateFlag(await t.viewer(ADMIN), FLAG, { ...off, enabled: false });
 
-		expect(await forcedOn.evaluate(null)).toEqual({ [FLAG]: true });
+		expect(await forcedOn.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: true });
 		expect(await forcedOn.flag(FLAG)).toMatchObject({ enabled: false });
 	});
 
@@ -79,15 +80,15 @@ describe('FlagService', () => {
 		});
 
 		await expect(t.flags.evaluate(null)).rejects.toThrow('the disk went away');
-		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: false });
+		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: false });
 	});
 
 	it('turns a flag on for one account and no one else', async () => {
 		await t.flags.updateFlag(await t.viewer(ADMIN), FLAG, { ...off, dids: [DJ] });
 
-		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: true });
-		expect(await t.flags.evaluate(OTHER)).toEqual({ [FLAG]: false });
-		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: false });
+		expect(await t.flags.evaluate(DJ)).toEqual({ ...flagsOff, [FLAG]: true });
+		expect(await t.flags.evaluate(OTHER)).toEqual({ ...flagsOff, [FLAG]: false });
+		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: false });
 	});
 
 	it('turns a flag on for a group, and follows its members', async () => {
@@ -95,39 +96,39 @@ describe('FlagService', () => {
 		const rkey = await t.flags.createGroup(admin, { name: 'Beta', members: [DJ] });
 		await t.flags.updateFlag(admin, FLAG, { ...off, groups: [rkey] });
 
-		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: true });
-		expect(await t.flags.evaluate(OTHER)).toEqual({ [FLAG]: false });
+		expect(await t.flags.evaluate(DJ)).toEqual({ ...flagsOff, [FLAG]: true });
+		expect(await t.flags.evaluate(OTHER)).toEqual({ ...flagsOff, [FLAG]: false });
 
 		await t.flags.updateGroup(admin, rkey, { name: 'Beta', members: [OTHER] });
 
-		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: false });
-		expect(await t.flags.evaluate(OTHER)).toEqual({ [FLAG]: true });
+		expect(await t.flags.evaluate(DJ)).toEqual({ ...flagsOff, [FLAG]: false });
+		expect(await t.flags.evaluate(OTHER)).toEqual({ ...flagsOff, [FLAG]: true });
 	});
 
 	it('shows signed-out visitors only what is on for everyone', async () => {
 		const admin = await t.viewer(ADMIN);
 		await t.flags.updateFlag(admin, FLAG, { ...off, percentage: 100, dids: [DJ] });
 
-		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: true });
-		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: false });
+		expect(await t.flags.evaluate(DJ)).toEqual({ ...flagsOff, [FLAG]: true });
+		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: false });
 
 		await t.flags.updateFlag(admin, FLAG, { ...off, everyone: true });
 
-		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: true });
+		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: true });
 	});
 
 	it('tells a caller its own targeting and never who else', async () => {
 		await t.flags.updateFlag(await t.viewer(ADMIN), FLAG, { ...off, percentage: 25, dids: [DJ] });
 
-		expect(await t.flags.answers(DJ)).toEqual([
-			{ key: FLAG, enabled: true, everyone: false, percentage: 25, targeted: true }
-		]);
-		expect(await t.flags.answers(OTHER)).toEqual([
-			{ key: FLAG, enabled: true, everyone: false, percentage: 25, targeted: false }
-		]);
-		expect(await t.flags.answers(null)).toEqual([
-			{ key: FLAG, enabled: true, everyone: false, percentage: 25, targeted: false }
-		]);
+		expect(await t.flags.answers(DJ)).toEqual(
+			answersWith(FLAG, { enabled: true, everyone: false, percentage: 25, targeted: true })
+		);
+		expect(await t.flags.answers(OTHER)).toEqual(
+			answersWith(FLAG, { enabled: true, everyone: false, percentage: 25, targeted: false })
+		);
+		expect(await t.flags.answers(null)).toEqual(
+			answersWith(FLAG, { enabled: true, everyone: false, percentage: 25, targeted: false })
+		);
 	});
 
 	it('turns a flag off for everyone and keeps who it was for', async () => {
@@ -138,12 +139,12 @@ describe('FlagService', () => {
 		await t.flags.updateFlag(admin, FLAG, { ...targeting, enabled: false });
 		await t.audit.idle();
 
-		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: false });
-		expect(await t.flags.evaluate(OTHER)).toEqual({ [FLAG]: false });
-		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: false });
-		expect(await t.flags.answers(DJ)).toEqual([
-			{ key: FLAG, enabled: false, everyone: true, percentage: 30, targeted: true }
-		]);
+		expect(await t.flags.evaluate(DJ)).toEqual({ ...flagsOff, [FLAG]: false });
+		expect(await t.flags.evaluate(OTHER)).toEqual({ ...flagsOff, [FLAG]: false });
+		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: false });
+		expect(await t.flags.answers(DJ)).toEqual(
+			answersWith(FLAG, { enabled: false, everyone: true, percentage: 30, targeted: true })
+		);
 		expect(stored(COLLECTION.staffFlag, FLAG)?.value).toMatchObject({ enabled: false, ...targeting });
 		expect(await t.flags.flag(FLAG)).toMatchObject({ enabled: false, everyone: true, percentage: 30 });
 		const [entry] = await t.audit.list({ action: 'flag.update' });
@@ -154,8 +155,8 @@ describe('FlagService', () => {
 		await t.flags.updateFlag(admin, FLAG, { ...targeting, enabled: true });
 		await t.audit.idle();
 
-		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: true });
-		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: true });
+		expect(await t.flags.evaluate(DJ)).toEqual({ ...flagsOff, [FLAG]: true });
+		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: true });
 		expect((await t.audit.list({ action: 'flag.update' }))[0]).toMatchObject({ summary: `Turned ${FLAG} back on` });
 	});
 
@@ -165,11 +166,11 @@ describe('FlagService', () => {
 
 		await t.flags.indexFlag(uri, { ...record, updatedAt: '2026-11-01T00:00:00.000Z' });
 
-		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: true });
+		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: true });
 
 		await t.flags.indexFlag(uri, { ...record, enabled: false, updatedAt: '2026-11-02T00:00:00.000Z' });
 
-		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: false });
+		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: false });
 		expect(await t.flags.flag(FLAG)).toMatchObject({ enabled: false, everyone: true });
 	});
 
@@ -282,7 +283,7 @@ describe('FlagService', () => {
 		});
 
 		expect(await t.flags.flag(FLAG)).toMatchObject({ groups: [{ rkey: 'gone', name: 'gone' }] });
-		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: false });
+		expect(await t.flags.evaluate(DJ)).toEqual({ ...flagsOff, [FLAG]: false });
 	});
 
 	it('lists groups by name', async () => {
@@ -312,7 +313,7 @@ describe('FlagService', () => {
 
 		expect(stored(COLLECTION.staffFlag, FLAG)?.cid).toBe(before);
 		expect(await t.flags.flag(FLAG)).toMatchObject({ groups: [{ rkey, name: 'Early' }] });
-		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: true });
+		expect(await t.flags.evaluate(DJ)).toEqual({ ...flagsOff, [FLAG]: true });
 	});
 
 	it("won't delete a group a flag uses, then does once it's free", async () => {
@@ -321,7 +322,7 @@ describe('FlagService', () => {
 		await t.flags.updateFlag(admin, FLAG, { ...off, groups: [rkey] });
 
 		await expect(t.flags.deleteGroup(admin, rkey)).rejects.toThrow(`Take it off ${FLAG} first`);
-		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: true });
+		expect(await t.flags.evaluate(DJ)).toEqual({ ...flagsOff, [FLAG]: true });
 
 		await t.flags.updateFlag(admin, FLAG, off);
 		await t.flags.deleteGroup(admin, rkey);
@@ -353,11 +354,11 @@ describe('FlagService', () => {
 			updatedAt: at
 		});
 
-		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: true });
+		expect(await t.flags.evaluate(DJ)).toEqual({ ...flagsOff, [FLAG]: true });
 
 		await t.flags.removeGroupByUri(groupUri);
 
-		expect(await t.flags.evaluate(DJ)).toEqual({ [FLAG]: false });
+		expect(await t.flags.evaluate(DJ)).toEqual({ ...flagsOff, [FLAG]: false });
 
 		await t.flags.indexFlag(flagUri, {
 			key: FLAG,
@@ -369,11 +370,11 @@ describe('FlagService', () => {
 			updatedAt: at
 		});
 
-		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: true });
+		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: true });
 
 		await t.flags.removeFlagByUri(flagUri);
 
-		expect(await t.flags.evaluate(null)).toEqual({ [FLAG]: false });
+		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, [FLAG]: false });
 	});
 
 	it('ignores a record for a flag that has left the catalog', async () => {
@@ -390,8 +391,8 @@ describe('FlagService', () => {
 			updatedAt: at
 		});
 
-		expect(Object.keys(await t.flags.evaluate(null))).toEqual([FLAG]);
-		expect((await t.flags.list()).map((flag) => flag.key)).toEqual([FLAG]);
+		expect(Object.keys(await t.flags.evaluate(null))).toEqual(Object.keys(flagsOff));
+		expect((await t.flags.list()).map((flag) => flag.key)).toEqual(Object.keys(flagsOff));
 	});
 
 	describe('previewing a flag in your own browser', () => {

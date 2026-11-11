@@ -6,6 +6,7 @@ import { grantKey } from '../services/epk';
 import { createTestServices, ROOT } from '../testing/core';
 import { DJ, pressKitServices } from '../testing/press-kits';
 import { createProjections } from './projections';
+import { flagsOff } from '#lib/testing/flags.ts';
 
 const ALICE = 'did:plc:alice';
 
@@ -67,13 +68,13 @@ describe('createProjections', () => {
 		await upsert(t.spaces.staff, ALICE, COLLECTION.staffGroup, '3lzy2ji4nms2z', group);
 		await upsert(t.spaces.moderation, ROOT, COLLECTION.staffGroup, '3lzy2ji4nms2z', group);
 
-		expect(await t.flags.evaluate(null)).toEqual({ parityCanary: false });
+		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, parityCanary: false });
 		expect(await t.flags.groups()).toEqual([]);
 
 		await upsert(t.spaces.staff, ROOT, COLLECTION.staffFlag, 'parityCanary', flag);
 		await upsert(t.spaces.staff, ROOT, COLLECTION.staffGroup, '3lzy2ji4nms2z', group);
 
-		expect(await t.flags.evaluate(null)).toEqual({ parityCanary: true });
+		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, parityCanary: true });
 		expect((await t.flags.groups()).map(({ name }) => name)).toEqual(['Beta']);
 
 		for (const [repoDid, space] of [
@@ -90,7 +91,7 @@ describe('createProjections', () => {
 			});
 		}
 
-		expect(await t.flags.evaluate(null)).toEqual({ parityCanary: true });
+		expect(await t.flags.evaluate(null)).toEqual({ ...flagsOff, parityCanary: true });
 	});
 
 	it('indexes valid records and enforces authority rules', async () => {
