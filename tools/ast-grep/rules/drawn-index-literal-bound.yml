@@ -14,5 +14,5 @@ constraints:
       stopBy: end
       kind: call_expression
       all:
-        - has: { field: function, has: { field: field, regex: "^max_value$" } }
+        - has: { field: function, has: { field: field, regex: '^max_value$' } }
         - has: { field: arguments, has: { kind: integer_literal } }
