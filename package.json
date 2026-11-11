@@ -12,7 +12,7 @@
 		"format:check": "pnpm lexicons:format --check && pnpm -r format:check",
 		"lexicons:format": "oxfmt lexicons/computer",
 		"test": "pnpm -r test",
-		"knip": "knip",
+		"knip": "knip && knip --production",
 		"verify": "pnpm lexicons:format --check && pnpm knip && pnpm -r verify",
 		"atstore": "pnpm --filter atstore assets",
 		"test:tools": "vitest run --coverage"
