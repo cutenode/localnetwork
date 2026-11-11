@@ -1438,7 +1438,7 @@ fn searched_as_the_library_does(app: &mut App, query: &str, enter: bool) {
 /// On a big library, the search box waits for typing to pause before narrowing the list (enter
 /// doesn't wait), then shows what it would have at once.
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_big_librarys_search_waits_for_a_pause(tc: TestCase) {
+fn a_big_library_search_waits_for_a_pause(tc: TestCase) {
     let n = TYPE_AHEAD as u32 + 1;
     let tracks = (1..=n).map(|id| track(id, &format!("Artist {}", id % 50), &format!("Title {id}"))).collect();
     let (mut app, _dir) = app_with(Library { tracks, ..Default::default() });

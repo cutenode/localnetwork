@@ -331,7 +331,7 @@ fn keys_serialise_as_their_code(tc: hegel::TestCase) {
         (p, d) => panic!("{text:?}: parse {p:?}, deserialise {d:?}"),
     }
     assert_eq!(key_order(&text), Camelot::parse(&text).map_or(u8::MAX, Camelot::order));
-    // Wheel order sorts by number, minor before major, all below where unparseable text sorts.
+    // Wheel order sorts by number, minor before major, all below where unparsable text sorts.
     let other = tc.draw(keys());
     assert_eq!(k.order().cmp(&other.order()), (k.number, k.major).cmp(&(other.number, other.major)));
     assert_eq!(key_order(&k.note()), k.order());

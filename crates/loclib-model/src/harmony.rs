@@ -159,7 +159,7 @@ impl TryFrom<String> for Camelot {
     }
 }
 
-/// Sort position of a key text (unparseable keys last).
+/// Sort position of a key text (unparsable keys last).
 pub fn key_order(key: &str) -> u8 {
     Camelot::parse(key).map_or(u8::MAX, Camelot::order)
 }

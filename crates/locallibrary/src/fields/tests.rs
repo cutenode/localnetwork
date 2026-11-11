@@ -119,7 +119,7 @@ fn bad_fields_are_refused() {
 /// by each track's audio file on the drive: a track whose file has none, or isn't there, has
 /// none; with no store, or no analyzer, no track has any, and the fields are still declared.
 #[test]
-fn a_librarys_values_are_named_by_plugin_and_field() {
+fn library_values_are_named_by_plugin_and_field() {
     let dir = tempfile::tempdir().unwrap();
     let st = Store::open_or_init(dir.path().join("store")).unwrap();
     let store = FieldStore::in_store(&st);
