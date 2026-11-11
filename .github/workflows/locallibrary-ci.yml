@@ -82,6 +82,14 @@ jobs:
       # `--workspace` leave out. Only a fuzzing run needs nightly; clippy builds them on stable.
       - if: inputs.linux || inputs.cache
         run: cargo fmt --manifest-path fuzz/Cargo.toml --check
+      # Dependencies no code uses, from the manifests and sources alone (no build). Its exceptions
+      # are each crate's [package.metadata.cargo-shear].
+      - if: inputs.linux || inputs.cache
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-shear@1.14.0
+      - if: inputs.linux || inputs.cache
+        run: cargo shear
       # The headless sidecar (no default features: no `account`, `tui` or `playback`) builds and
       # passes clippy without ALSA's headers, so this runs before they're installed. Its tests and
       # benches too: what only the default features use is dead code here.
