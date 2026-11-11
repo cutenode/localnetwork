@@ -145,7 +145,7 @@ jobs:
   # waits for other-os.
   clippy-windows:
     name: clippy (Windows, cross)
-    if: inputs.linux || inputs.cache
+    if: inputs.linux
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -154,11 +154,9 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install
       - run: rustup target add x86_64-pc-windows-gnu
-      # Its own cache: the key has the host's target in it, not the one built for.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          shared-key: clippy-windows
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # No rust-cache: a cache of its own would take about 1.5 GB of the repository's 10 GB, and
+      # GitHub evicts the least recently used caches past that. A cold build runs beside the
+      # longer test and coverage jobs.
       - uses: ./.github/actions/apt-packages
         with:
           packages: gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
