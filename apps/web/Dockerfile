@@ -22,6 +22,8 @@ COPY packages/tokens packages/tokens/
 # apps/web, and the tools' READMEs and docs for their pages (.dockerignore sends only those).
 COPY apps apps/
 RUN pnpm --filter localnetwork build
+# Its own step, so a failure's log is its own; the build stage's layers never ship.
+# hadolint ignore=DL3059
 RUN pnpm --filter localnetwork deploy --prod --ignore-scripts /prod
 
 FROM base AS runtime
@@ -39,7 +41,7 @@ COPY --from=build --chown=node:node /app/apps/web/src/lib/server/backup ./src/li
 # Railway refuses a `VOLUME` line. With BACKUP_S3_* set, the app backs it up to a bucket each day.
 RUN mkdir -p /data && chown node:node /data
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD node -e "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD ["node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
 # Railway mounts its volume owned by root, so the container starts as root, hands /data to the node
 # user, and runs the app as node. Started as another user (`docker run --user`), it runs as that.
 # If /data can't be handed over, it stops rather than run the app as root.
