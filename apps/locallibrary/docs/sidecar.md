@@ -484,10 +484,16 @@ URL, and a table's column is its heading or `{name, kind, unit?}`. `plugins.op.p
 context}` (`context.drive` is required) answers an edit plan whose `operation` is
 `<plugin>.<operation>`, its summary first (an image a plugin's `set_artwork` gives is read as it's
 planned, and held by the plan), applied by `plugins.op.apply {plan_id}`; it's stale once the drive
-changes, or a file on this computer the plugin worked it out from. A view command or an operation
-may ask the user something first: `plugins.run` answers a view `{kind: "choose", title, param,
-multi?, items: [{label, detail?, value}]}`, `plugins.op.plan` `{choose: {...}}` (no plan, nothing
-kept). Show the items, then call it again with `params[param]` set to the chosen item's `value`
+changes, or a file on this computer the plugin worked it out from. A command whose manifest says
+`plan: true` isn't run by `plugins.run`: `plugins.command.plan {plugin, command, params, context}`
+answers the plugin's dry run as a plan (`<plugin>.command.<name>`: `{plugin, command, files:
+[{path, what, bytes, exists}]}`, its summary first, destructive when it would overwrite a file),
+applied by `plugins.command.apply {plan_id}`, which runs the same request and answers what the
+command answers; it's stale once one of its files changes. A command with `long_running: true`
+reports progress: show it and offer `$/cancel`. A view command, an operation or a command planned
+first may ask the user something first: `plugins.run` answers a view `{kind: "choose", title, param,
+multi?, items: [{label, detail?, value}]}`, `plugins.op.plan` and `plugins.command.plan`
+`{choose: {...}}` (no plan, nothing kept). Show the items, then call it again with `params[param]` set to the chosen item's `value`
 (with `multi`, a list of the values chosen, maybe none); `plugins.op.apply` with a request refuses
 one that asks. A question may carry `more`, further questions of the same shape (at most 64 in
 all, each about a param of its own): ask them all, then call it again once with every param
@@ -534,6 +540,8 @@ change it before it goes on as it does when they start it.
   plugin).
 - `analyze` `{analyzer, drive, tracks?}`: `plugins.analyze {plugin, analyzer, drive, tracks}`,
   once the user says so.
+- `command` `{command, params?}`: `plugins.command.plan {plugin, command, params, context}` for
+  one whose manifest says `plan: true`, else `plugins.run`, with the context where the user is.
 
 Never plan or apply either unless the user chooses to.
 

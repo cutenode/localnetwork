@@ -13,8 +13,9 @@ use serde_json::Value;
 use crate::RpcError;
 
 /// The protocol's version, versioned apart from locallibrary's. A new kind of hook doesn't change
-/// it: it's an optional feature (see [`crate::FEATURES`]).
-pub const PROTOCOL_VERSION: &str = "0.2.0";
+/// it: it's an optional feature (see [`crate::FEATURES`]). What a side may leave out or ignore
+/// raises the patch version: before 1.0 the caret rule keeps those compatible.
+pub const PROTOCOL_VERSION: &str = "0.2.1";
 
 /// The methods' names.
 pub mod method {
@@ -117,6 +118,12 @@ pub struct Context {
     /// refers to go here (see [`Blob`]). The host removes it once it has read them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scratch: Option<PathBuf>,
+    /// The plugin's own folder for what it keeps between requests (a list of its backups, say),
+    /// absolute: `<store>/plugins/<id>/data/`, made before the request. The host never removes
+    /// it, unlike the folder the plugin runs in, which is a temporary one without a store. None
+    /// without a store, or from a host older than it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_dir: Option<PathBuf>,
 }
 
 /// A file in the request's [`Context::scratch`] folder standing for a value too big for a

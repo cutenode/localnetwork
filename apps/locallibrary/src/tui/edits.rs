@@ -18,7 +18,7 @@ use locallibrary::collection_export::{CollectionExportOptions, CollectionExportP
 use locallibrary::edit::{Edit, EditOptions, EditPlan, TrackFields};
 use locallibrary::model::TrackColor;
 use locallibrary::op::{AnyPlanned, Planned};
-use locallibrary::plugin::PluginExport;
+use locallibrary::plugin::{PluginCommand, PluginExport};
 use locallibrary::progress::{Event, Phase, Progress};
 use locallibrary::query::{SortKey, TrackSelector};
 use locallibrary::{CancelToken, Ctx, Error};
@@ -363,6 +363,11 @@ impl Confirm {
         self.plan.as_any().downcast_ref::<Planned<PluginExport>>()
     }
 
+    /// The plan, when it's a plugin's command planned first (its files shown).
+    pub fn command(&self) -> Option<&Planned<PluginCommand>> {
+        self.plan.as_any().downcast_ref::<Planned<PluginCommand>>()
+    }
+
     /// The plan, when it's undoing (shown in detail).
     pub fn undo(&self) -> Option<&api::UndoPlan> {
         self.plan.as_any().downcast_ref::<Planned<api::UndoPlan, bool>>().map(|p| &p.plan)
@@ -506,6 +511,14 @@ pub fn wording(plan: &dyn AnyPlanned, drive: &str) -> Wording {
         };
         let who = e.plan.output.display().to_string();
         return Wording { ask, yes, who, what: "export".into(), doing: "Exporting".into() };
+    }
+    // A plugin's command planned first: it does what it says, on this computer.
+    if let Some(c) = plan.as_any().downcast_ref::<Planned<PluginCommand>>() {
+        let named = super::plugins::planned_command(plan.operation());
+        let (by, title) =
+            named.map_or((c.plan.plugin.clone(), c.plan.command.clone()), |(by, x)| (by.into(), x.title.clone()));
+        let what = super::plugins::named(&title);
+        return Wording { ask: format!("{title}?"), yes: "run", who: by, what, doing: title };
     }
     let written: Vec<&str> = (plan.drives().iter()).filter(|t| t.writes && t.drive).map(|t| t.name.as_str()).collect();
     let who = if written.is_empty() { drive.to_string() } else { written.join(", ") };
@@ -1244,12 +1257,15 @@ impl App {
             after: c.after.clone(),
         });
         let tx = self.sender();
+        let plugin_command = c.command().is_some();
         let Confirm { root, plan, .. } = c;
         let store_root = self.store_root.clone();
         let failed_root = root.clone();
         let job = move || {
             let _opened = opening.as_ref().map(|o| o.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
-            let inner = CancelToken::new();
+            // A plugin's command stops when the plugin can, so esc asks it at once, not only as
+            // its progress comes in.
+            let inner = if plugin_command { outer.clone() } else { CancelToken::new() };
             let reporter = Reporter::new(tx, id, outer.clone(), inner.clone());
             let ctx = Ctx::new(&reporter, inner);
             let result = if outer.is_cancelled() {
@@ -1366,6 +1382,10 @@ impl App {
                     msg.push_str(" · u to undo");
                 }
                 self.toast(msg, Level::Info);
+            }
+            Ok(Applied { operation, report }) if super::plugins::planned_command(&operation).is_some() => {
+                let (_, command) = super::plugins::planned_command(&operation).expect("checked above");
+                self.show_planned_answer(command, report);
             }
             Ok(Applied { operation, report }) if operation == "undo" => {
                 let when = report["created"].as_str().and_then(|t| t.get(..16)).unwrap_or("").replace('T', " ");

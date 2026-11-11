@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use locallibrary::edit::EditPlan;
 use locallibrary::op::{AnyPlanned, Operation, Planned};
-use locallibrary::plugin::OpPlanned;
+use locallibrary::plugin::{CommandPlanned, OpPlanned, PluginCommand};
 use locallibrary::progress::{Ctx, Event, Phase};
 use locallibrary::{Store, api};
 use schemars::{JsonSchema, Schema, SchemaGenerator};
@@ -300,6 +300,18 @@ impl PlanAnswer for OpPlanned {
         match self {
             OpPlanned::Plan(plan) => plan.keep(plans, method),
             asked @ OpPlanned::Choose { .. } => ok(asked),
+        }
+    }
+}
+
+/// A plugin's command planned first may ask a question first too.
+impl PlanAnswer for CommandPlanned {
+    type Report = <Planned<PluginCommand> as PlanAnswer>::Report;
+
+    fn keep(self, plans: &Plans, method: &str) -> Result<Value, RpcError> {
+        match self {
+            CommandPlanned::Plan(plan) => plan.keep(plans, method),
+            asked @ CommandPlanned::Choose { .. } => ok(asked),
         }
     }
 }

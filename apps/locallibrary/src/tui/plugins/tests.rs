@@ -1109,6 +1109,13 @@ fn hook(plugin: &str, name: &str) -> (String, Vec<String>) {
     (title.clone(), properties(params).map(|(k, _)| k.clone()).collect())
 }
 
+/// Whether the plugin `plugin`'s command `name` is about the collection alone, as its manifest
+/// says (`where = ["collection"]`). An operation never is.
+fn about_the_collection(plugin: &str, name: &str) -> bool {
+    let c = &crate::plugins::host().unwrap().manifest(plugin).unwrap().contributes;
+    c.commands.iter().any(|x| x.name == name && Cli::Command(x).collection_only())
+}
+
 /// The form open now: its title and its fields' names.
 fn form_open(app: &App) -> (String, Vec<String>) {
     match &app.modal {
@@ -1127,7 +1134,8 @@ fn form_open(app: &App) -> (String, Vec<String>) {
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
     let (at, mut app, drive, _store) = somewhere(&tc);
-    // Every plugin here reads the drive: its hooks need one open (a folder opened by path too),
+    // Every plugin here reads the drive, or reads only rekordbox's collection: its hooks need a
+    // drive open (a folder opened by path too) but for its commands about the collection alone;
     // its settings and columns don't.
     let why = match at {
         Opened::Nowhere => Some("open a drive first"),
@@ -1152,16 +1160,18 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
             assert!(!own.contains(&i.label), "{:?} takes a command's name", i.label);
         }
         for (i, act) in items.iter().zip(&acts).skip(first) {
-            let needs = matches!(
-                act,
-                Act::Plugin(..)
-                    | Act::Analyze(..)
-                    | Act::ApplyFields(..)
-                    | Act::Export(..)
-                    | Act::Import(..)
-                    | Act::Source(..)
-                    | Act::Fetch(_)
-            );
+            let needs = match *act {
+                Act::Plugin(p, n) => !about_the_collection(p, n),
+                _ => matches!(
+                    act,
+                    Act::Analyze(..)
+                        | Act::ApplyFields(..)
+                        | Act::Export(..)
+                        | Act::Import(..)
+                        | Act::Source(..)
+                        | Act::Fetch(_)
+                ),
+            };
             // A set's export needs a set open too, which none of these places has.
             let of_set = matches!(act, Act::Export(_, _, loclib_plugin::ExportFrom::Set));
             let said = if of_set { why.or(Some("open a set first")) } else { why.filter(|_| needs) };
@@ -2121,4 +2131,5 @@ mod asking;
 mod checks;
 mod events;
 mod importing;
+mod planned;
 mod sources;

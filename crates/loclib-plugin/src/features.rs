@@ -45,4 +45,12 @@ pub const FEATURES: &[Feature] = &[
     // What a view may be besides a list, a table of plain columns, labelled values and text: a
     // tree, a chart, an image, sections, and a table's typed columns.
     Feature { name: "views", methods: &[], sends: &[], contributed: |_| false },
+    // A command planned first (`plan = true`): a host with it asks for a dry run and the user's
+    // yes before running one, and a plugin without it would run one as asked.
+    Feature {
+        name: hooks::commands::PLANS,
+        methods: &[],
+        sends: &[],
+        contributed: |m| m.contributes.commands.iter().any(|c| c.plan),
+    },
 ];

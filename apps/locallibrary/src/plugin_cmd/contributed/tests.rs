@@ -28,11 +28,30 @@ fn schema() -> Value {
     })
 }
 
+/// A plugin's operation `go` (or, not `operation`, a command) whose params are `schema`, offered
+/// on a drive.
+fn go(schema: &Value, operation: bool) -> Cli<'static> {
+    go_planned(schema, operation, false, vec![Where::Drive])
+}
+
+/// [`go`], a command planned first when `planned`, offered in `offered`.
+fn go_planned(schema: &Value, operation: bool, planned: bool, offered: Vec<Where>) -> Cli<'static> {
+    let (name, title, params) = ("go".to_string(), "Go".to_string(), Some(schema.clone()));
+    if operation {
+        let op = loclib_plugin::Operation { name, title, offered, long_running: false, params, cli: None };
+        return Cli::Operation(Box::leak(Box::new(op)));
+    }
+    let mode = loclib_plugin::Mode::Headless;
+    let command =
+        loclib_plugin::Command { name, title, mode, offered, plan: planned, long_running: false, params, cli: None };
+    Cli::Command(Box::leak(Box::new(command)))
+}
+
 /// The params `args` give the command whose params are [`schema`] (an operation's when
 /// `operation`).
 fn given(args: &[&str], operation: bool) -> Result<Value> {
     let schema = schema();
-    let cmd = contributed("go", "Go", Some(&schema), operation);
+    let cmd = contributed("go", go(&schema, operation));
     let m = cmd.try_get_matches_from(std::iter::once("go").chain(args.iter().copied()))?;
     params_of(Some(&schema), &m)
 }
@@ -117,17 +136,33 @@ fn values_not_of_their_type_are_refused() {
     assert!(wrong(&["--deep", "a=b"]).contains("unexpected argument '--deep'"));
 }
 
+/// An operation and a command planned first have `--dry-run`; any other command doesn't.
 #[test]
-fn only_an_operation_has_dry_run() {
+fn only_what_is_planned_has_dry_run() {
     let schema = schema();
-    let op =
-        contributed("go", "Go", Some(&schema), true).try_get_matches_from(["go", "--name", "x", "--dry-run"]).unwrap();
+    let args = ["go", "--name", "x", "--dry-run"];
+    let op = contributed("go", go(&schema, true)).try_get_matches_from(args).unwrap();
     assert!(op.get_flag(DRY_RUN_ID));
-    assert!(
-        contributed("go", "Go", Some(&schema), false).try_get_matches_from(["go", "--name", "x", "--dry-run"]).is_err()
-    );
-    let help = contributed("go", "Go", Some(&schema), true).render_long_help().to_string();
+    let planned = go_planned(&schema, false, true, vec![Where::Drive]);
+    assert!(contributed("go", planned).try_get_matches_from(args).unwrap().get_flag(DRY_RUN_ID));
+    assert!(contributed("go", go(&schema, false)).try_get_matches_from(args).is_err());
+    let help = contributed("go", go(&schema, true)).render_long_help().to_string();
     assert!(help.contains("The playlist (required)"), "{help}");
+}
+
+/// A command about the collection alone takes no drive: its positional param comes first. One
+/// offered on a drive too still takes one.
+#[test]
+fn a_command_about_the_collection_alone_takes_no_drive() {
+    let schema =
+        json!({ "type": "object", "properties": { "to": { "type": "string", "x-cli": { "positional": true } } } });
+    let alone = contributed("go", go_planned(&schema, false, true, vec![Where::Collection]));
+    let m = alone.clone().try_get_matches_from(["go", "/backups"]).unwrap();
+    assert_eq!(params_of(Some(&schema), &m).unwrap(), json!({ "to": "/backups" }));
+    assert!(alone.try_get_matches_from(["go", "USB", "/backups"]).is_err(), "no drive");
+    let both = contributed("go", go_planned(&schema, false, true, vec![Where::Collection, Where::Drive]));
+    let m = both.try_get_matches_from(["go", "USB", "/backups"]).unwrap();
+    assert_eq!(m.get_one::<String>(DRIVE).map(String::as_str), Some("USB"));
 }
 
 #[test]
@@ -369,7 +404,7 @@ fn flags_drawn_from_a_schema_give_the_params_typed(tc: hegel::TestCase) {
     let required: Vec<&str> = params.iter().filter(|p| p.required).map(|p| p.name.as_str()).collect();
     let schema = json!({ "type": "object", "properties": properties, "required": required });
     let operation = tc.draw(gs::booleans());
-    let cmd = contributed("go", "Go", Some(&schema), operation);
+    let cmd = contributed("go", go(&schema, operation));
 
     // What `--params` gives first: a value for some params, given with flags too or not.
     let base: Option<Map<String, Value>> = tc.draw(gs::weighted_booleans(0.3)).then(|| {

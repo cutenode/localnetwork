@@ -10,16 +10,18 @@ settings; it never ships UI code, and it never writes to a drive.
 A plugin is a program locallibrary runs, in a folder of its own (`<store>/plugins/<id>/work/`).
 They talk JSON-RPC 2.0 over the plugin's stdin and stdout, one JSON message per line (no newlines
 inside one, at most 16 MiB). Anything the plugin writes to stderr is its log. The protocol is
-versioned on its own, at `0.2.0` (`PROTOCOL_VERSION`); two versions are compatible by semver's
-caret rule, so before 1.0 the minor version must match. A new kind of hook doesn't change it: each
+versioned on its own, at `0.2.1` (`PROTOCOL_VERSION`); two versions are compatible by semver's
+caret rule, so before 1.0 the minor version must match, and what a side may leave out or ignore
+(a field, a key) raises the patch version. A new kind of hook doesn't change it: each
 family of hooks is an optional feature named after it (`FEATURES`, see [Hooks](#hooks)), and so
 are the SDK's own, which every plugin written with it has: `blobs` (scratch folders and partial
 results), `net` (fetching through the host), `choose` (asking the user first), `accounts` (naming
-an account in a request, see [accounts](#accounts)) and `views` (trees, charts, images, sections
-and typed table columns, see [views](#views)).
+an account in a request, see [accounts](#accounts)), `views` (trees, charts, images, sections
+and typed table columns, see [views](#views)) and `plans` (commands planned and confirmed first,
+see [commands](#commands)).
 
 1. The host's first message is `hello`
-   (`{"protocol": "0.2.0", "host": {"name", "version"}, "features": [...]}`, the features it
+   (`{"protocol": "0.2.1", "host": {"name", "version"}, "features": [...]}`, the features it
    has). The plugin answers `{"protocol", "plugin": {"id", "version"}, "features": [...]}`, those
    it implements, or an error of kind `incompatible`. Neither side sends anything else before it,
    and feature names a side doesn't know are ignored: the host calls only the hooks of features
@@ -29,8 +31,11 @@ and typed table columns, see [views](#views)).
    (commands without `commands`, `[[net]]` limits without `net`).
 3. The host calls hooks, one for each kind of contribution (see [Hooks](#hooks)), each with a
    `context`: the drive (by id or name), for a command or an operation the playlist, tracks and set
-   (by id) the user is on, the plugin's `settings` (never a secret one) and, with `blobs`,
-   `scratch`: an absolute, empty folder for this request alone. A value too big for a message (an
+   (by id) the user is on, the plugin's `settings` (never a secret one), with a store `data_dir`
+   (the plugin's own folder for what it keeps between requests, `<store>/plugins/<id>/data/`,
+   absolute, made before the request and never removed; none without a store, where the folder it
+   runs in is a temporary one) and, with `blobs`, `scratch`: an absolute, empty folder for this
+   request alone. A value too big for a message (an
    image) is a file the plugin leaves there, given as `{"blob": "cover.jpg"}` (its name in the
    folder): the host reads it itself, refuses a name that leads out of the folder (or is a link, or
    a file with another name) and a folder holding more than it takes (512 MiB), and removes the
@@ -182,7 +187,9 @@ assert!(manifest.validate(false).is_err());
   `net/fetch` requests a second the host sends there, at least 1/3600: the limit the server asks
   for. Each host is limited once.
 - `where` is which menus offer a command or an operation: `track` (the tracks selected),
-  `playlist` and `drive`, `["drive"]` unless it says. A palette has every one.
+  `playlist` and `drive`, `["drive"]` unless it says; and for a command, `collection`: about
+  rekordbox's collection on this computer rather than a track, a playlist or a drive (a backup of
+  it, say), run without a drive when that's its only place. A palette has every one.
 - `cli` (built-in plugins only) is a command's or operation's own place on the command line:
   one name (`import`) or two, the first a group of the host's commands (`playlist import`).
   Otherwise it's `locallibrary <id> <name>`. A params property's `x-cli` says how the command
@@ -411,14 +418,30 @@ playlist) 500 characters, without control characters. A file one names must be o
 
 ### commands
 
-`command/run {command, params, context}`: any JSON for a headless command; for a view command a
-view (`View`, see [views](#views)), which each host draws its own way.
+`command/run {command, params, dry_run?, context}`: any JSON for a headless command; for a view
+command a view (`View`, see [views](#views)), which each host draws its own way.
 While it works, a view command may send its rows (or items) in parts, `partial {id, rows | items}`
 notifications (`id`: the host's request), for a host to show as they come; the view it answers still
 has them all, first.
 
-- `[[contributes.commands]]`: `name`, `title`, `mode` (`headless` or `view`), `where`, `params`
-  (a JSON Schema for an object) and `cli`.
+A command with `plan = true` (one that writes or replaces files, say) is planned first. The host
+sends `dry_run: true`, and the command answers its plan, doing nothing: `{summary, warnings,
+files: [{path, what, bytes}]}` (`CommandPlan`), the files it would write as an exporter says them
+(each absolute, with what it holds and its size as far as it's known), or with `choose` a question
+first, `{"choose": {...}}` (`CommandPlanAnswer`), asked as an operation's is. The host shows the
+plan and asks the user; the plan is destructive when it would overwrite a file there already, and
+the host refuses to run it once one of its files changed. Then it sends the same request with
+`dry_run: false`, and the command answers as any does, never with a question. A dry run of a
+command not planned first is refused, and the SDK refuses to run a planned command for a host
+without `plans` (an older one would run it without asking), as `incompatible`.
+
+A command with `long_running = true` takes a while: hosts show its progress and offer to stop it,
+and once they've asked it to stop give it a minute (`Options::long_grace`, rather than five
+seconds) before they kill the plugin, so it can tidy up what it was writing. Nothing else times a
+command out.
+
+- `[[contributes.commands]]`: `name`, `title`, `mode` (`headless` or `view`), `where`, `plan`,
+  `long_running`, `params` (a JSON Schema for an object) and `cli`.
 
 ### destinations
 
@@ -479,6 +502,8 @@ tracks the drive has, each once, refusing one with none. The actions:
   a set or a mix as the exporter's `source` takes (with a drive at most for a set or a mix), its
   `options` fitting the exporter's. Where to is always the user's to pick.
 - `analyze` `{analyzer, drive, tracks?}`: its analyzer on the drive's tracks.
+- `command` `{command, params?}`: one of its commands, with params its schema takes, run as from a
+  menu (planned and confirmed first when it's planned first), where the user is.
 
 `pull` and `sync` `{drive}` are the host's alone (what fixes one of its own check findings), never
 a plugin's to suggest. The host refuses (and logs) a suggestion with both, an action it doesn't
@@ -663,8 +688,10 @@ re-exports. `host.fetch(&Fetch::get(url))` goes online through the host (`net/fe
 answer names go in `req.context.scratch`; `host.notify(..)` tells the user something
 (`host/notify`). A hook answers its answer or what makes one: an
 operation an `OpPlan`, or an `OpAnswer` when it may ask first (`Choice`; `View::Choose` for a
-command). `Choice::together(questions)` asks several in one round, the first with the rest as
-its `more`, leaving any past `Choice::MAX_QUESTIONS` for the round after.
+command); a command planned first a `CommandPlan` (or a `CommandPlanAnswer`) when `req.dry_run`
+says so, and what it answers otherwise. `Choice::together(questions)` asks several in one round,
+the first with the rest as its `more`, leaving any past `Choice::MAX_QUESTIONS` for the round after.
+`host.has(feature)` says whether the host named a feature in its `hello`.
 `RpcError::failure` gives a library's error the kind the host shows it as: `cancelled` once the
 hook is, `io` for a file that couldn't be read or written, else the kind it's given. A new kind of
 hook is a family of its own in this crate (`src/hooks/`): its request types implementing `Hook`
@@ -709,9 +736,10 @@ let (from_plugin, plugin_out) = std::io::pipe()?;
 let served = std::thread::spawn(move || serve(MANIFEST, Hooks::new().on(count), plugin_in, plugin_out));
 let (host, incoming) = Peer::new(from_plugin, to_plugin);
 
-let hello = json!({ "protocol": "0.2.0", "host": { "name": "locallibrary", "version": "0.1.0" } });
+let hello = json!({ "protocol": "0.2.1", "host": { "name": "locallibrary", "version": "0.1.0" } });
 let reply: Value = host.request(method::HELLO, &hello)?;
-assert_eq!(reply["features"], json!(["accounts", "analysis", "commands", "blobs", "net", "choose", "views"]));
+let features = ["accounts", "analysis", "commands", "blobs", "net", "choose", "views", "plans"];
+assert_eq!(reply["features"], json!(features));
 let run = json!({ "command": "count", "context": { "drive": "USB" } });
 let counting = host.send_request(method::RUN_COMMAND, &run)?;
 let Ok(Incoming::Request(callback)) = incoming.recv() else { panic!("a callback") };

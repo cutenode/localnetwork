@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::manifest::{object_schema, offered_in, on_a_drive, shown, unique_names};
+use crate::manifest::{invalid, object_schema, offered_in, on_a_drive, shown, unique_names};
 use crate::sdk::declared;
 use crate::{Choice, Context, Contributions, Feature, Hook, Manifest, ManifestError, RpcError, Where};
 
@@ -57,12 +57,7 @@ impl From<Choice> for OpAnswer {
 /// a plan's error.
 impl<'de> Deserialize<'de> for OpAnswer {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<OpAnswer, D::Error> {
-        let answer = Value::deserialize(d)?;
-        let read = match answer.get("choose") {
-            Some(choose) => Choice::deserialize(choose).map(OpAnswer::from),
-            None => OpPlan::deserialize(answer).map(OpAnswer::Plan),
-        };
-        read.map_err(serde::de::Error::custom)
+        crate::choice::or_plan(d, OpAnswer::from, OpAnswer::Plan)
     }
 }
 
@@ -122,6 +117,12 @@ pub(crate) fn validate(m: &Manifest) -> Result<(), ManifestError> {
     for (i, x) in c.operations.iter().enumerate() {
         shown(format!("{at}[{i}].title"), &x.title)?;
         offered_in(format!("{at}[{i}].where"), &x.offered)?;
+        if x.offered.contains(&Where::Collection) {
+            return Err(invalid(
+                format!("{at}[{i}].where"),
+                "an operation edits a drive, so it isn't the collection's",
+            ));
+        }
         object_schema(format!("{at}[{i}].params"), x.params.as_ref())?;
     }
     Ok(())

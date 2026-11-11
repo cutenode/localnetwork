@@ -65,13 +65,17 @@ pub struct Contributions {
 }
 
 /// Where a host offers a command or an operation: in the menu of the tracks selected, of a
-/// playlist, or of a drive. A host's palette has every one.
+/// playlist, or of a drive; or, for a command alone, with what's about rekordbox's collection on
+/// this computer rather than a drive (`collection`). A host's palette has every one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Where {
     Track,
     Playlist,
     Drive,
+    /// About this computer's rekordbox collection, not a track, a playlist or a drive: run without
+    /// one (a backup of the collection, say). Commands only: an operation edits a drive.
+    Collection,
 }
 
 impl Where {
@@ -81,6 +85,7 @@ impl Where {
             Where::Track => "track",
             Where::Playlist => "playlist",
             Where::Drive => "drive",
+            Where::Collection => "collection",
         }
     }
 }
@@ -467,7 +472,7 @@ pub(crate) fn object_schema(at: String, schema: Option<&Value>) -> Result<(), Ma
 /// `offered` (at `at`) names somewhere, each place once.
 pub(crate) fn offered_in(at: String, offered: &[Where]) -> Result<(), ManifestError> {
     if offered.is_empty() {
-        return Err(invalid(at, "names no place: track, playlist or drive"));
+        return Err(invalid(at, "names no place: track, playlist, drive or collection"));
     }
     let mut seen = FxHashSet::default();
     match offered.iter().find(|w| !seen.insert(*w)) {
