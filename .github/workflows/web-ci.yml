@@ -218,7 +218,9 @@ jobs:
           tags: localnetwork
           load: true
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Main saves the layers and pull requests read them: each pull request's own copy took a
+          # tenth of the repository's 10 GB of caches and pushed main's apt caches out.
+          cache-to: ${{ github.ref == 'refs/heads/main' && 'type=gha,mode=max' || '' }}
       - run: pnpm test:docker
 
   # Coverage and size on the pull request, in one comment each push updates: the integration job's
