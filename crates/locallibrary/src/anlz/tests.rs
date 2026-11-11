@@ -348,3 +348,32 @@ fn rejects_garbage() {
     f[8..12].copy_from_slice(&9999u32.to_be_bytes());
     assert!(read_path(&f).is_err());
 }
+
+/// Every kind of waveform a track has comes back, whichever the player shows first: the demo
+/// export has all three, in `.DAT`, `.EXT` and `.2EX`.
+#[test]
+fn a_tracks_waveforms_of_every_kind_are_read() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rekordcrate/demo_tracks");
+    let device = Device::open_export(&root).unwrap();
+    let track = device.library().unwrap().tracks.remove(0);
+    let w = load_waves(&device, &track);
+    let preview = w.blue_preview.as_ref().unwrap();
+    assert_eq!((preview.style, preview.columns_per_sec), (WaveformStyle::Blue, None));
+    assert_eq!(w.blue_detail.as_ref().unwrap().style, WaveformStyle::Blue);
+    let colour = w.rgb_detail.as_ref().unwrap();
+    assert_eq!((colour.style, colour.columns_per_sec), (WaveformStyle::Rgb, Some(150.0)));
+    assert_eq!(w.rgb_preview.as_ref().unwrap().style, WaveformStyle::Rgb);
+    let (bands, rate) = w.band_detail.as_ref().unwrap();
+    assert_eq!(*rate, 150.0);
+    assert_eq!(bands.0.len(), colour.columns.len(), "the same track, column for column");
+    assert!(!w.band_preview.as_ref().unwrap().0.is_empty());
+    // What `load` picks for a player is among them.
+    let a = load(&device, &track);
+    assert_eq!(a.detail.as_ref(), w.rgb_detail.as_ref());
+    assert_eq!(a.preview.as_ref(), w.rgb_preview.as_ref());
+
+    let none = Track { analyze_path: String::new(), ..track.clone() };
+    assert_eq!(load_waves(&device, &none), TrackWaves::default());
+    let gone = Track { analyze_path: "/PIONEER/USBANLZ/nothing/ANLZ0000.DAT".into(), ..track };
+    assert_eq!(load_waves(&device, &gone), TrackWaves::default());
+}

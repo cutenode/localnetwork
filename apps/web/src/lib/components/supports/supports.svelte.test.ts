@@ -61,7 +61,7 @@ describe('ArtistSupport', () => {
 		const plays = page.getByRole('list', { name: 'Plays of Night Bus' }).getByRole('listitem');
 		await expect
 			.element(plays.first())
-			.toHaveTextContent('Tue 13 Oct Neon Tide, Saffron Social @neon.test Halle Nord, Berlin club 0:00 in the set');
+			.toHaveTextContent('Tue 13 Oct Neon Tide, Saffron Social @neon.test Halle Nord, Berlin club at 0:00');
 		await expect
 			.element(plays.first().getByRole('link', { name: 'Saffron Social' }))
 			.toHaveAttribute('href', '/projects/saffron-social');

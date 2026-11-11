@@ -2,7 +2,82 @@
 //! the name players show, firmware updates, recordings made on the player, and the backups
 //! made before each change.
 
+use hegel::generators as gs;
+use hegel::{HealthCheck, TestCase};
+use serde_json::Value;
+
 use crate::support::{Env, line, path};
+
+/// Recordings copied off a drive into a folder, then copied there again with some made since:
+/// each one copied before is already there, so it isn't copied again and the run says why (in
+/// text as in `--json`) and exits as a partial change does; the new ones are copied.
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+fn recordings_copied_off_again_are_already_there(tc: TestCase) {
+    let env = Env::new();
+    let main = env.drive("Main");
+    let to = env.outside("Recordings");
+    let record = |n: usize| {
+        let name = format!("ALPHATHETA REC/REC{n:03}.WAV");
+        std::fs::create_dir_all(main.join("ALPHATHETA REC")).unwrap();
+        std::fs::write(main.join(&name), format!("recording {n}").repeat(n)).unwrap();
+        name
+    };
+    let before: Vec<String> = (1..=tc.draw(gs::integers::<usize>().min_value(1).max_value(3))).map(record).collect();
+    env.ok(&["--yes", "drive", "recordings", path(&main), "--copy-to", path(&to)]);
+    let since: Vec<String> =
+        (before.len() + 1..=before.len() + tc.draw(gs::integers::<usize>().max_value(2))).map(record).collect();
+    let json = tc.draw(gs::booleans());
+    let mut args = vec!["--yes", "drive", "recordings", path(&main), "--copy-to", path(&to)];
+    if json {
+        args.insert(0, "--json");
+    }
+    let r = env.run(&args);
+    assert_eq!(r.code, 5, "{}\n{}", r.out, r.err);
+    if json {
+        let v: Value = serde_json::from_str(&r.out).unwrap();
+        let failed: Vec<&str> =
+            v["report"]["failed"].as_array().unwrap().iter().map(|f| f[0].as_str().unwrap()).collect();
+        let copied: Vec<&str> =
+            v["report"]["collected"].as_array().unwrap().iter().map(|c| c["recording"].as_str().unwrap()).collect();
+        assert_eq!((failed, copied), (strs(&before), strs(&since)), "{v}");
+        return;
+    }
+    for name in &before {
+        let said = line(&r.out, &format!("{name}: "));
+        assert!(said.starts_with("! ") && said.ends_with("already exists"), "{name}: {}", r.out);
+    }
+    for name in &since {
+        assert!(line(&r.out, &format!("{name} →")).starts_with("✓ "), "{name}: {}", r.out);
+    }
+}
+
+/// Contact details for a drive, with the playlist players show first or without: the plan names
+/// the file and the playlist asked for, and a dry run writes nothing; written, the file holds the
+/// details and the drive has the playlist exactly when asked.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn contact_details_are_written_as_asked(tc: TestCase) {
+    let env = Env::new();
+    let main = env.drive("Main");
+    let contact = tc.draw(gs::sampled_from(&["sam@example.com", "+44 7700 900123", "DJ Sam"][..]));
+    let playlist = tc.draw(gs::booleans());
+    let mut args = vec!["drive", "contact", path(&main), contact];
+    if playlist {
+        args.push("--playlist");
+    }
+    let named = format!("IF FOUND: {contact}");
+    let out = env.ok(&[&args[..], &["--dry-run"]].concat());
+    assert!(out.contains("IF FOUND.txt"), "{out}");
+    assert_eq!(out.contains(&format!("add the playlist {named:?}")), playlist, "{out}");
+    assert!(!main.join("IF FOUND.txt").exists());
+    args.insert(0, "--yes");
+    env.ok(&args);
+    assert!(std::fs::read_to_string(main.join("IF FOUND.txt")).unwrap().contains(contact));
+    assert_eq!(env.ok(&["playlist", "ls", path(&main)]).contains(&named), playlist);
+}
+
+fn strs(v: &[String]) -> Vec<&str> {
+    v.iter().map(String::as_str).collect()
+}
 
 #[test]
 fn contact_details_go_in_a_file_and_a_playlist_players_show_first() {

@@ -76,6 +76,8 @@ struct StoreMachine {
     order: Vec<Hash>,
     /// Manifests overwritten with garbage.
     damaged: BTreeSet<Hash>,
+    /// Manifests changed so they still read but no longer hash to their id, with what was saved.
+    edited: IndexMap<Hash, Snapshot>,
     libraries: Vec<Library>,
 }
 
@@ -92,6 +94,7 @@ impl StoreMachine {
             snapshots: IndexMap::new(),
             order: Vec::new(),
             damaged: BTreeSet::new(),
+            edited: IndexMap::new(),
             libraries: Vec::new(),
         }
     }
@@ -221,6 +224,7 @@ impl StoreMachine {
                 assert_eq!(json(&saved), json(&Snapshot { id: saved.id, ..snap }), "save only sets the id");
                 assert_eq!(json(&self.store.load_snapshot(&saved.id).unwrap()), json(&saved), "loads as saved");
                 self.damaged.remove(&saved.id);
+                self.edited.shift_remove(&saved.id);
                 if !self.order.contains(&saved.id) {
                     self.order.push(saved.id);
                 }
@@ -256,6 +260,7 @@ impl StoreMachine {
         let Some(h) = Self::pick(&tc, &self.on_disk()) else { return };
         let mut bytes = self.objects[&h].clone();
         bytes.push(b'!');
+        fs::remove_file(self.store.object_path(&h)).unwrap();
         fs::write(self.store.object_path(&h), bytes).unwrap();
         self.tampered.insert(h);
     }
@@ -283,6 +288,34 @@ impl StoreMachine {
         }
         fs::write(self.manifest(&id), b"{ not a snapshot").unwrap();
         self.damaged.insert(id);
+    }
+
+    /// Something other than the store changes what a snapshot's manifest says, leaving it readable.
+    /// snapshots holds what's on disk, so everything that reads it reads the change.
+    #[rule]
+    fn edit_manifest(&mut self, tc: TestCase) {
+        let Some(id) = Self::pick(&tc, &self.order) else { return };
+        if self.damaged.contains(&id) || self.edited.contains_key(&id) {
+            return;
+        }
+        let Some(saved) = self.snapshots.get(&id).cloned() else { return };
+        let changed = Snapshot { message: Some("edited".into()), ..saved.clone() };
+        fs::write(self.manifest(&id), serde_json::to_vec(&changed).unwrap()).unwrap();
+        self.snapshots.insert(id, changed);
+        self.edited.insert(id, saved);
+    }
+
+    /// An edited manifest is put back as it was saved.
+    #[rule]
+    fn undo_edit(&mut self, tc: TestCase) {
+        let edited: Vec<Hash> = self.edited.keys().copied().collect();
+        let Some(id) = Self::pick(&tc, &edited) else { return };
+        if self.damaged.contains(&id) {
+            return;
+        }
+        let saved = self.edited.shift_remove(&id).unwrap();
+        fs::write(self.manifest(&id), serde_json::to_vec(&saved).unwrap()).unwrap();
+        self.snapshots.insert(id, saved);
     }
 
     /// A garbled manifest is put back (from a copy of the store, say).
@@ -329,6 +362,7 @@ impl StoreMachine {
         if !dry_run {
             for id in &dead_snapshots {
                 self.snapshots.shift_remove(id);
+                self.edited.shift_remove(id);
                 self.order.retain(|o| o != id);
             }
             for h in &dead_objects {
@@ -364,6 +398,11 @@ impl StoreMachine {
         assert_eq!(hashes(&report.missing), missing, "missing objects");
         assert_eq!(hashes(&report.corrupt), corrupt, "corrupt objects");
         assert_eq!(report.checked, used.len() - missing.len(), "objects checked");
+        let edited: BTreeSet<Hash> = self.edited.keys().copied().collect();
+        assert_eq!(report.damaged_snapshots.iter().copied().collect::<BTreeSet<_>>(), edited, "edited manifests");
+        if !edited.is_empty() {
+            tc.event("verify found an edited manifest");
+        }
         for (found, what) in [(&missing, "verify found missing objects"), (&corrupt, "verify found corrupt objects")] {
             if !found.is_empty() {
                 tc.event(what);
@@ -601,6 +640,7 @@ fn verify_reports_exactly_the_damaged_objects(tc: TestCase) {
                     Some(b) => *b ^= 1 << tc.draw(gs::integers::<u8>().max_value(7)),
                     None => changed.push(0),
                 }
+                fs::remove_file(store.object_path(h)).unwrap();
                 fs::write(store.object_path(h), changed).unwrap();
                 corrupt.insert(*h);
             }

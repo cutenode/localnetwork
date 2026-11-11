@@ -29,7 +29,6 @@
 //! MIT) with its rows removed, which keeps rekordbox's colours and browse columns. A new OneLibrary
 //! database starts from rekordbox's schema and default rows ([`OneLibrary::create`]).
 
-use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::{Path, PathBuf};
 
@@ -440,7 +439,7 @@ pub fn plan(device: &Device, opts: &ConvertOptions, _ctx: &Ctx<'_>) -> Result<Co
         (false, _) => 256 * 1024,
     };
     let database = base + (source.tracks.len() + entries) as u64 * 1024;
-    let backup: u64 = paths::DATABASE_FILES.iter().map(|k| round(size(k))).sum();
+    let backup = crate::backup::needed_bytes(device, []);
     let needed_bytes = round(database) + round(artwork_bytes) + artwork.len() as u64 * 2 * cluster + backup;
     let free_space = fsutil::available_space(device.root());
     let fits = free_space.is_none_or(|f| needed_bytes <= f);
@@ -648,7 +647,8 @@ impl Builder<'_, '_> {
         let device = self.device;
         let mut rows: FxHashMap<u32, _> = match (&rebuilt, self.additions) {
             (None, None) => {
-                self.source.tracks.par_iter().map(|t| (t.id, cue_edit::rows_from_analysis(device, t))).collect()
+                let rows = |t: &Track| (t.id, cue_edit::rows_from_analysis(device, t));
+                crate::workers::map(self.source.tracks.iter().collect(), rows).into_iter().collect()
             }
             _ => FxHashMap::default(),
         };

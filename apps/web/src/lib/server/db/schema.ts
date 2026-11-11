@@ -18,11 +18,14 @@ export interface Database {
 	projectDetails: ProjectDetailsTable;
 	request: RequestTable;
 	staffRole: StaffRoleTable;
+	featureFlag: FeatureFlagTable;
+	flagGroup: FlagGroupTable;
 	auditEntry: AuditEntryTable;
 	auditCopy: AuditCopyTable;
 	spaceWatch: SpaceWatchTable;
 	syncedRepo: SyncedRepoTable;
 	syncRepoRetry: SyncRepoRetryTable;
+	pendingProjection: PendingProjectionTable;
 	spaceRecord: SpaceRecordTable;
 	bookingThread: BookingThreadTable;
 	bookingParticipant: BookingParticipantTable;
@@ -112,11 +115,40 @@ export interface RequestTable {
 export interface StaffRoleTable {
 	did: string;
 	role: 'admin' | 'moderator';
+	/** The grants a moderator holds, as a JSON array. */
+	grants: string | null;
 	grantedBy: string | null;
 	note: string | null;
 	uri: string | null;
 	cid: string | null;
 	createdAt: string;
+}
+
+export interface FeatureFlagTable {
+	key: string;
+	/** 0 when it's turned off for everyone, with its gates kept. */
+	enabled: number;
+	everyone: number;
+	percentage: number;
+	/** Record keys of its groups, as a JSON array. */
+	groupRkeys: string;
+	/** Its accounts, as a JSON array. */
+	dids: string;
+	uri: string;
+	updatedBy: string;
+	updatedAt: string;
+}
+
+export interface FlagGroupTable {
+	rkey: string;
+	name: string;
+	description: string | null;
+	/** Its accounts, as a JSON array. */
+	members: string;
+	uri: string;
+	createdAt: string;
+	updatedBy: string;
+	updatedAt: string;
 }
 
 export type CopyStatus = 'pending' | 'written' | 'verified' | 'failed' | 'self' | 'unsupported';
@@ -189,6 +221,16 @@ export interface SyncRepoRetryTable {
 	attempts: number;
 	nextAttemptAt: string;
 	lastError: string;
+}
+
+export interface PendingProjectionTable {
+	spaceUri: string;
+	repoDid: string;
+	collection: string;
+	rkey: string;
+	attempts: number;
+	nextAttemptAt: string;
+	lastError: string | null;
 }
 
 export interface SpaceRecordTable {

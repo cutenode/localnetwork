@@ -738,7 +738,7 @@ fn sync_step(
     let mut matching = Vec::new();
     let (mut copied, mut back_from_set) = (Vec::new(), false);
     for o in others {
-        let p = match sync_plan(&pair(source.root(), o.root()), ctx) {
+        let p = match op::without_measuring(|| sync_plan(&pair(source.root(), o.root()), ctx)) {
             Ok(p) => p,
             Err(Error::Cancelled) => return Err(Error::Cancelled),
             Err(e) => {
@@ -1646,15 +1646,20 @@ pub(crate) fn unmatched_drive(spec: &str, mounted: &[Device]) -> Error {
         true => "; no rekordbox drive is mounted".to_string(),
         false => format!("; mounted: {}", ours.join(", ")),
     };
-    if let Some(store) = registry()
-        && let Ok(rec) = fleet::find_record(&store, spec)
-    {
-        return Error::NotFound(format!(
-            "{} is known but not mounted; last seen {} at {}{listing}",
-            rec.name,
-            local_time(rec.last_seen, "%Y-%m-%d %H:%M"),
-            rec.last_mount.display()
-        ));
+    if let Some(store) = registry() {
+        match fleet::find_record(&store, spec) {
+            Ok(rec) => {
+                return Error::NotFound(format!(
+                    "{} is known but not mounted; last seen {} at {}{listing}",
+                    rec.name,
+                    local_time(rec.last_seen, "%Y-%m-%d %H:%M"),
+                    rec.last_mount.display()
+                ));
+            }
+            // Several drives the store knows answer to it: which one is meant comes first.
+            Err(e) if e.reason() == Some(Reason::ChooseDrive) => return e,
+            Err(_) => {}
+        }
     }
     Error::NotFound(format!("no mounted drive matches {spec:?} (use a path, a drive name, or an id){listing}"))
 }

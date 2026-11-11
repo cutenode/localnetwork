@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { LocateFixed, Search } from '@lucide/svelte';
+	import { Combobox } from '#lib/combobox.svelte.ts';
 	import { searchPlaces, type Place } from '#lib/places.ts';
 	import type { ProjectFormValues } from '#lib/types.ts';
+	import PlaceOptions from './PlaceOptions.svelte';
 
 	let {
 		values = {},
@@ -28,31 +30,7 @@
 
 	let query = $state('');
 
-	let results = $state<Place[]>([]);
-
-	let searching = $state(false);
-
-	let timer: ReturnType<typeof setTimeout> | undefined;
-
-	function search() {
-		clearTimeout(timer);
-
-		if (query.trim().length < 2) {
-			results = [];
-
-			return;
-		}
-
-		timer = setTimeout(async () => {
-			searching = true;
-
-			try {
-				results = await searchPlaces(query);
-			} finally {
-				searching = false;
-			}
-		}, 250);
-	}
+	const places = new Combobox<Place>((search) => searchPlaces(search), choose, 250);
 
 	// Coordinates belong to the picked place, so typing a different one drops them.
 	function edited() {
@@ -67,7 +45,6 @@
 		latE6 = String(place.latE6);
 		lngE6 = String(place.lngE6);
 		query = place.label;
-		results = [];
 	}
 </script>
 
@@ -77,19 +54,24 @@
 			<label class="label" for="place-search">Find a city</label>
 			<div class="relative">
 				<Search class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-fg-subtle" />
-				<input id="place-search" class="input pl-9" bind:value={query} oninput={search} placeholder="Start typing a city…" autocomplete="off" />
+				<input
+					id="place-search"
+					class="input pl-9"
+					role="combobox"
+					aria-autocomplete="list"
+					aria-expanded={places.open}
+					aria-controls="place-search-places"
+					aria-activedescendant={places.open && places.active >= 0 ? `place-search-places-${places.active}` : undefined}
+					bind:value={query}
+					oninput={() => places.search(query)}
+					onkeydown={places.onkeydown}
+					onblur={places.close}
+					placeholder="Start typing a city…"
+					autocomplete="off"
+				/>
+				<PlaceOptions combobox={places} id="place-search-places" />
 			</div>
-			{#if results.length}
-				<ul class="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-line-strong bg-raised p-1 text-small" role="listbox">
-					{#each results as place (place.label + place.latE6)}
-						<li>
-							<button type="button" class="w-full rounded-md px-3 py-2 text-left text-fg-soft hover:bg-well hover:text-fg" onclick={() => choose(place)}>{place.label}</button>
-						</li>
-					{/each}
-				</ul>
-			{:else if searching}
-				<p class="hint">Searching…</p>
-			{/if}
+			{#if places.searching && !places.open}<p class="hint">Searching…</p>{/if}
 		</div>
 	{/if}
 	<div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem]">

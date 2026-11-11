@@ -75,8 +75,8 @@
 		<div class="relative flex flex-col gap-2" style:width="{zoom * 100}%" style:min-width="100%" {onpointermove} onpointerleave={() => (hover = null)}>
 			<Waveform bands={report.waveform} label="The mix in three bands, {clock(duration)} long" class="h-24 sm:h-35" />
 
-			<!-- On a phone the lanes are colour bars; the tracklist names them. -->
-			<div class="relative [--lane:1rem] sm:[--lane:3.25rem]" style:height="calc({laneCount} * var(--lane))">
+			<!-- On a phone the lanes are colour bars the tracklist names, each 24px tall so a thumb can pick one. -->
+			<div class="relative [--lane:1.75rem] sm:[--lane:3.25rem]" style:height="calc({laneCount} * var(--lane))">
 				{#each report.unidentified as gap (gap.start)}
 					<div
 						class="absolute flex h-[calc(var(--lane)-0.25rem)] items-center justify-center overflow-hidden rounded-sm border border-line-strong bg-well font-mono text-caption text-fg-subtle"

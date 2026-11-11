@@ -203,6 +203,14 @@ Linux's 128 KiB cap on a single argument, and fails if one file's tests alone ne
 `tools/hegel-coverage.sh --print-filter` prints those filtersets one per line, for other runs of the
 same tests; the scheduled workflow's `hegel` job passes each as a `--filterset`.
 
+Run one coverage run at a time in a checkout. Both commands build into the same
+`target/llvm-cov-target`, and cargo-llvm-cov deletes the old build output there when it starts, so
+a second run takes the binaries out from under the first one's tests. Those tests fail to start
+(`failed to exec ... No such file or directory`) or can't find the `locallibrary` binary, and Hegel
+saves no case for them. Any other cargo command in the same target folder can do it too: each one
+replaces `target/debug/locallibrary`, even with nothing to rebuild. A second checkout has a
+`target/` of its own, so runs there don't collide.
+
 ## Benchmarks
 
 ```bash

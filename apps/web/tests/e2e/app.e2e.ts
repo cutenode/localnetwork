@@ -5,6 +5,11 @@ import { z } from 'zod';
 import { signIn } from '../sign-in.ts';
 import { expectAccessible } from './axe.ts';
 
+/** A page's data as SvelteKit sends it: each node flattened into an array, its values given as indexes into that. */
+const pageData = z.object({ nodes: z.array(z.object({ data: z.array(z.unknown()) })) });
+
+const flagsAt = z.object({ parityCanary: z.number() });
+
 /**
  * WebKit on Linux won't keep a `Secure` cookie from plain-HTTP localhost, where the other browsers
  * (and WebKit on macOS) will, and the local PDS's sign-in form reads its CSRF token from one. So in
@@ -39,12 +44,18 @@ test.beforeEach(({ page }) => keepPdsCookies(page));
 const hydrated = (page: Page) => expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
 
 /**
- * Signs out from the dashboard and waits for the redirect home: /logout records the audit entry and
- * revokes the OAuth session first, and a sign-in started before it finishes would find the old session.
+ * Signs out from the header's account menu (the site menu on a phone) and waits for the redirect home: /logout
+ * records the audit entry and revokes the OAuth session first, and a sign-in started before it finishes would find
+ * the old session.
  */
 async function signOut(page: Page) {
 	await page.goto('/dashboard');
 	await hydrated(page);
+	await page
+		.getByRole('banner')
+		.getByRole('button', { name: /^(Account|Menu)\b/ })
+		.filter({ visible: true })
+		.click();
 	await page.getByRole('button', { name: 'Sign out' }).click();
 	await page.waitForURL((url) => url.pathname === '/');
 }
@@ -540,6 +551,83 @@ test.describe('signed in', () => {
 		await signOut(page);
 	});
 
+	test('an admin turns a flag on for one account, and only that account gets it', async ({
+		browser,
+		baseURL,
+		request
+	}) => {
+		const session = async (handle: string, password: string, next: string) => {
+			const context = await browser.newContext({ baseURL });
+			const page = await context.newPage();
+			await signIn(page, handle, password, next);
+
+			return page;
+		};
+
+		// What the root layout hands a page, since this flag gates nothing to look at. SvelteKit flattens it: values are indexes.
+		// The home page streams, so the reply is a line of JSON per chunk, and the layouts are all in the first.
+		const flagOn = async (get: typeof request.get) => {
+			const [first] = (await (await get('/__data.json')).text()).split('\n');
+			const [{ data }] = pageData.parse(JSON.parse(first)).nodes;
+			const flags = data.map((value) => flagsAt.safeParse(value)).find(({ success }) => success)?.data;
+
+			return data[flags?.parityCanary ?? -1];
+		};
+
+		const ada = await session('ada.test', 'ada-pass', '/admin/flags/parityCanary');
+		await expect(ada.getByRole('heading', { name: 'parityCanary' })).toBeVisible();
+		await expectAccessible(ada);
+		await ada.getByLabel('Accounts', { exact: true }).fill('milo.test');
+		await ada.getByRole('button', { name: 'Save' }).click();
+		await expect(ada.getByText('Flag saved')).toBeVisible();
+		await ada.goto('/admin/flags');
+		await expect(ada.getByRole('row', { name: /parityCanary/ }).getByText('1 account')).toBeVisible();
+		await expectAccessible(ada);
+		await ada.goto('/admin/flags/groups');
+		await expectAccessible(ada);
+
+		const milo = await session('milo.test', 'milo-pass', '/dashboard');
+		expect(await flagOn((url) => milo.request.get(url))).toBe(true);
+		expect(await flagOn((url) => ada.request.get(url))).toBe(false);
+		expect(await flagOn((url) => request.get(url))).toBe(false);
+
+		// Off for everyone keeps who it was for, and turning it back on gives them it again.
+		await ada.goto('/admin/flags/parityCanary');
+		await expect(ada.locator('html')).toHaveAttribute('data-hydrated', '');
+		await ada.getByRole('switch', { name: 'Off for everyone' }).check();
+		await ada.getByRole('button', { name: 'Save' }).click();
+		await expect(ada.getByText('Flag saved')).toBeVisible();
+		expect(await flagOn((url) => milo.request.get(url))).toBe(false);
+		await expect(ada.getByLabel('Accounts', { exact: true })).toHaveValue('milo.test');
+		await expectAccessible(ada);
+
+		// A preview changes what this browser sees and no one else's, until it's cleared.
+		await ada.getByRole('button', { name: 'On for me' }).click();
+		await expect(ada.getByRole('status').filter({ hasText: 'Previewing parityCanary on' })).toBeVisible();
+		expect(await flagOn((url) => ada.request.get(url))).toBe(true);
+		expect(await flagOn((url) => milo.request.get(url))).toBe(false);
+		expect(await flagOn((url) => request.get(url))).toBe(false);
+		await expectAccessible(ada);
+		await ada.getByRole('button', { name: 'Clear' }).click();
+		await expect(ada.getByRole('status').filter({ hasText: 'Previewing' })).toBeHidden();
+		expect(await flagOn((url) => ada.request.get(url))).toBe(false);
+
+		await ada.getByRole('switch', { name: 'Off for everyone' }).uncheck();
+		await ada.getByRole('button', { name: 'Save' }).click();
+		await expect(ada.getByText('Flag saved')).toBeVisible();
+		expect(await flagOn((url) => milo.request.get(url))).toBe(true);
+
+		await ada.goto('/admin/flags/parityCanary');
+		// Before hydrating, Svelte can't tell a textarea someone emptied from one it hasn't filled yet, and fills it.
+		await expect(ada.locator('html')).toHaveAttribute('data-hydrated', '');
+		await ada.getByLabel('Accounts', { exact: true }).fill('');
+		await ada.getByRole('button', { name: 'Save' }).click();
+		await expect(ada.getByText('Flag saved')).toBeVisible();
+		expect(await flagOn((url) => milo.request.get(url))).toBe(false);
+		await ada.context().close();
+		await milo.context().close();
+	});
+
 	test("an admin verifies a project's manager on Bluesky, then removes it", async ({ page }) => {
 		await signIn(page, 'ada.test', 'ada-pass', '/admin/projects/neon-tide');
 		const managers = page.locator('form[action="?/managers"]');
@@ -663,16 +751,23 @@ test.describe('signed in', () => {
 		await page.locator('input[name="latE6"]').evaluate((input: HTMLInputElement) => (input.value = '52520000'));
 		await page.locator('input[name="lngE6"]').evaluate((input: HTMLInputElement) => (input.value = '13405000'));
 		await page.getByRole('button', { name: 'Announce show' }).click();
+		// Saving stays on the show and says so, with the way to where it's listed.
+		await expect(page.getByRole('status').filter({ hasText: 'Announced.' })).toBeVisible();
+		await expectAccessible(page);
+		await page.goto('/dashboard/projects/neon-tide#shows');
 		const listed = page.getByRole('listitem').filter({ hasText: name });
 		await expect(listed).toContainText('23:00 to 05:00');
-		await expectAccessible(page);
 
 		await listed.getByRole('link', { name: `Edit ${name}` }).click();
 		await page.getByLabel('This show is cancelled').check();
 		await page.getByRole('button', { name: 'Save changes' }).click();
+		await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible();
+		await page.goto('/dashboard/projects/neon-tide#shows');
 		await expect(listed).toContainText('Cancelled');
 
 		await listed.getByRole('link', { name: `Edit ${name}` }).click();
+		// Deleting asks once more, as a press kit's does.
+		await page.getByRole('button', { name: 'Delete…' }).click();
 		await page.getByRole('button', { name: 'Delete show' }).click();
 		await expect(page.getByRole('heading', { name: 'Upcoming shows' })).toBeVisible();
 		await expect(listed).toHaveCount(0);
@@ -827,7 +922,8 @@ test.describe('keeps what people entered', () => {
 
 		const kitHeadline = page.getByLabel('Headline');
 		const longBio = page.getByLabel('Full bio');
-		const open = page.getByRole('radio', { name: /^Open/ });
+		// One of the common presets, which the editor offers before any rule is set.
+		const open = page.getByRole('radio', { name: /^Promoters automatically/ });
 		const quote = page.getByLabel('Quote 1', { exact: true });
 
 		await beforeHydration(page, '/dashboard/projects/neon-tide/press-kits/new', async () => {
@@ -840,8 +936,10 @@ test.describe('keeps what people entered', () => {
 		await expect(longBio).toHaveValue('A full bio typed early');
 		await expect(open).toBeChecked();
 		await expect(quote).toHaveValue('Relentless');
-		// Picking a preset before the script loaded still sets the rules it stands for.
-		await expect(page.getByRole('radio', { name: 'Anyone signed in: Approved automatically' })).toBeChecked();
+		// Picking a preset before the script loaded still sets the rules it stands for. The table of rules only shows
+		// for your own mix, so the radio is read as the form would send it.
+		await expect(page.locator('input[name="access.promoters"][value="auto"]')).toBeChecked();
+		await expect(page.locator('input[name="access.anyone"][value="review"]')).toBeChecked();
 	});
 
 	test('a claim can change its relationship and links when revised', async ({ page }) => {
@@ -893,6 +991,8 @@ test.describe('keeps what people entered', () => {
 		await hydrated(page);
 		await page.locator('ol > li').filter({ hasText: 'Neon Tide' }).getByLabel('Lineup').check();
 		await page.getByRole('button', { name: 'Save show to planner' }).click();
+		await expect(page.getByRole('heading', { name: 'Rooftop Rave' })).toBeVisible();
+		await expectAccessible(page);
 		await page.getByRole('link', { name: 'Inquire with Neon Tide' }).click();
 		await expect(page.locator('#title')).toHaveValue('Rooftop Rave');
 		await expect(page.locator('#date')).toHaveValue('2026-12-19');
@@ -905,19 +1005,12 @@ test.describe('keeps what people entered', () => {
 		await expect(page.getByRole('status').filter({ hasText: 'unsent changes' })).toBeVisible();
 		await expectAccessible(page);
 
-		// Signing out drops it, so the next person on this browser doesn't find it, even when Sign out is
-		// pressed before the dashboard's scripts have run.
+		// Signing out drops it, so the next person on this browser doesn't find it, even when the page's scripts
+		// never saw the sign-out: here it's posted from outside the page, as a form posts without scripts.
 		const inquiry = page.url();
 
-		const holdScripts = (route: Route) =>
-			route.request().resourceType() === 'script' ? route.abort() : route.fallback();
-
-		await page.route('**/*', holdScripts);
-		await page.goto('/dashboard');
-		await page.unroute('**/*', holdScripts);
-		await expect(page.locator('html')).not.toHaveAttribute('data-hydrated');
-		await page.getByRole('button', { name: 'Sign out' }).click();
-		await page.waitForURL((url) => url.pathname === '/');
+		expect((await page.request.post('/logout', { maxRedirects: 0 })).status()).toBe(303);
+		await page.goto('/');
 		await hydrated(page);
 		const drafts = () => Object.keys(localStorage).filter((key) => key.startsWith('ln:draft:'));
 		expect(await page.evaluate(drafts)).toEqual([]);

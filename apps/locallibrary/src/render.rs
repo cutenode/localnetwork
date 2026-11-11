@@ -574,12 +574,7 @@ pub fn comparison(c: &Comparison) {
         let list = |label: &str, items: Vec<String>| {
             if !items.is_empty() {
                 say!("  {label} ({}):", items.len());
-                for i in items.iter().take(crate::output::cap(10)) {
-                    say!("    {i}");
-                }
-                if items.len() > crate::output::cap(10) {
-                    say!("    {}", dim(format!("... and {} more", items.len() - 10)));
-                }
+                capped(&items, 10);
             }
         };
         list("+ tracks", d.added_tracks.iter().map(|t| t.name.clone()).collect());
@@ -652,12 +647,29 @@ pub fn sync_report(r: &SyncReport) {
 pub fn merge_plan(p: &MergePlan) {
     say!("{} → {}", style(&p.source).bold(), p.target.display());
     say!("  {} new track(s), {} already present, {}", p.new_tracks.len(), p.matched_tracks, bytes(p.copy_bytes));
-    for t in p.new_tracks.iter().take(15) {
-        let note = if t.renamed { format!("  (as {})", t.audio) } else { String::new() };
-        say!("    + {}{}", t.name, dim(note));
+    let new: Vec<String> = p
+        .new_tracks
+        .iter()
+        .map(|t| format!("+ {}{}", t.name, dim(if t.renamed { format!("  (as {})", t.audio) } else { String::new() })))
+        .collect();
+    capped(&new, 15);
+    if !p.differing_tracks.is_empty() {
+        say!("  {} already present differ; the target's stay as they are", p.differing_tracks.len());
     }
-    if p.new_tracks.len() > 15 {
-        say!("    {}", dim(format!("... and {} more", p.new_tracks.len() - 15)));
+    let differing: Vec<String> = p
+        .differing_tracks
+        .iter()
+        .map(|t| {
+            let fields: Vec<&str> = t.fields.iter().map(|f| f.field.as_str()).collect();
+            format!("~ {} {}", t.track.name, dim(format!("({})", fields.join(", "))))
+        })
+        .collect();
+    capped(&differing, 15);
+    match p.takes_in_source {
+        true => say!("  {}", dim(format!("afterwards, sync copies the merged library to {}", p.source))),
+        false => {
+            say!("  {}", dim(format!("{} keeps what this merge leaves out, so sync still asks which way", p.source)))
+        }
     }
     for pl in &p.playlists {
         let verb = if pl.create { "create" } else { "extend" };
@@ -674,6 +686,17 @@ pub fn merge_plan(p: &MergePlan) {
     }
     for w in &p.warnings {
         warn(w);
+    }
+}
+
+/// The first `n` of `lines` (all of them with `--all`), indented, then how many more there are.
+fn capped(lines: &[String], n: usize) {
+    let shown = crate::output::cap(n);
+    for l in lines.iter().take(shown) {
+        say!("    {l}");
+    }
+    if lines.len() > shown {
+        say!("    {}", dim(format!("... and {} more", lines.len() - shown)));
     }
 }
 

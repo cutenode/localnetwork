@@ -1,7 +1,7 @@
 use loclib_model::TrackColor;
 use loclib_model::analysis::Cue;
 use loclib_model::theme::{self, Theme};
-use ratatui::buffer::Buffer;
+use ratatui::buffer::{Buffer, Cell};
 use ratatui::style::{Color, Modifier};
 
 use crate::color::{better_ink, fade};
@@ -50,6 +50,9 @@ pub struct Palette<'a> {
     /// No colours (NO_COLOR): coloured cells (a cue's letter, a loop) show in reverse video, and
     /// pictures aren't drawn.
     pub plain: bool,
+    /// Colours can't be trusted to shade (16 of them, or none): what's been played takes the dim
+    /// attribute, and nothing is tinted.
+    pub flat: bool,
 }
 
 impl Default for Palette<'_> {
@@ -80,6 +83,7 @@ impl Palette<'static> {
             marker: |c| c,
             image: |[r, g, b]| Color::Rgb(r, g, b),
             plain: false,
+            flat: false,
         }
     };
 }
@@ -132,13 +136,17 @@ impl<'a> Palette<'a> {
 
     pub(crate) fn put(&self, buf: &mut Buffer, x: u16, y: u16, symbol: &str, fg: Color, bg: Option<Color>) {
         if let Some(cell) = buf.cell_mut((x, y)) {
-            cell.set_symbol(symbol).set_fg(fg);
-            if let Some(bg) = bg {
-                cell.set_bg(bg);
-                // Without colours, a coloured cell (a cue's letter, a loop) shows in reverse video.
-                if self.plain {
-                    cell.modifier.insert(Modifier::REVERSED);
-                }
+            self.put_in(cell, symbol, fg, bg);
+        }
+    }
+
+    pub(crate) fn put_in(&self, cell: &mut Cell, symbol: &str, fg: Color, bg: Option<Color>) {
+        cell.set_symbol(symbol).set_fg(fg);
+        if let Some(bg) = bg {
+            cell.set_bg(bg);
+            // Without colours, a coloured cell (a cue's letter, a loop) shows in reverse video.
+            if self.plain {
+                cell.modifier.insert(Modifier::REVERSED);
             }
         }
     }

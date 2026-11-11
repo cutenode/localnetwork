@@ -11,6 +11,10 @@ export const COLLECTION = {
 	request: `${NS}.moderation.request`,
 	decision: `${NS}.moderation.decision`,
 	staffRole: `${NS}.staff.role`,
+	/** Who a feature flag is on for, in the staff space. */
+	staffFlag: `${NS}.staff.flag`,
+	/** A named group of accounts feature flags can target, in the staff space. */
+	staffGroup: `${NS}.staff.group`,
 	bookingInquiry: `${NS}.booking.inquiry`,
 	bookingMessage: `${NS}.booking.message`,
 	bookingStatus: `${NS}.booking.status`,
@@ -51,9 +55,6 @@ export const COLLECTION = {
 /** The lexicon-community calendar event a show is, so other calendar apps can read it. */
 export const CALENDAR_EVENT = 'community.lexicon.calendar.event' as const;
 
-/** The lexicon-community RSVP a guest answers an event with, in their own repo. */
-export const CALENDAR_RSVP = 'community.lexicon.calendar.rsvp' as const;
-
 /** Bluesky's verification, which the root account issues to vouch that an account is who it says it is. */
 export const VERIFICATION = 'app.bsky.graph.verification' as const;
 
@@ -91,6 +92,9 @@ export const DIRECTORY = {
  * HappyView read a caller's locallibrary records again.
  */
 export const REQUEST_INDEX = `${NS}.directory.requestIndex` as const;
+
+/** The website's own method that tells a caller which feature flags are on for it. */
+export const GET_FLAGS = `${NS}.flags.getFlags` as const;
 
 export const SPACE_TYPE = {
 	audit: `${NS}.space.audit`,

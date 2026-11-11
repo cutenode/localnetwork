@@ -3,7 +3,6 @@ use crate::model::Library;
 use crate::query::{Filter, QueryContext};
 use hegel::TestCase;
 use hegel::generators as gs;
-use rustc_hash::FxHashMap;
 
 fn today() -> NaiveDate {
     NaiveDate::from_ymd_opt(2024, 6, 1).unwrap()
@@ -155,10 +154,10 @@ fn draw_condition(tc: &TestCase, kind: usize, property: Option<&str>) -> Conditi
 fn a_filter_matches_what_the_rules_match(tc: TestCase) {
     let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(6));
     let tracks: Vec<Track> = (1..=n).map(|i| draw_track(&tc, i)).collect();
-    let mut tags: FxHashMap<String, Vec<String>> = FxHashMap::default();
+    let mut tags = crate::tags::TagsByTrack::default();
     for t in &tracks {
         let carried: Vec<&str> = tc.draw(gs::subsequences(&["Genre/Deep", "Situation/Peak", "genre/DEEP"]));
-        tags.insert(crate::paths::file_key(&t.file_path), carried.into_iter().map(String::from).collect());
+        tags.by_id.insert(t.id, carried.into_iter().map(String::from).collect());
     }
     let count = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
     // Of one property now and then, which a filter can say as alternatives when any one matches.
@@ -186,7 +185,7 @@ fn a_filter_matches_what_the_rules_match(tc: TestCase) {
     let library = Library { tracks, ..Default::default() };
     let ctx = QueryContext::new(&library).with_tags(&tags);
     for t in &library.tracks {
-        let own = &tags[&crate::paths::file_key(&t.file_path)];
+        let own = tags.of(t);
         assert_eq!(parsed.matches(t, &ctx), list.matches(t, own, today()), "{filter} on {t:?} with {own:?}");
     }
 }

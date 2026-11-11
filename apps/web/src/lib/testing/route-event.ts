@@ -1,6 +1,7 @@
 import type { Cookies } from '@sveltejs/kit';
 import { type Logger, silentLogger } from '#lib/server/logger.ts';
-import type { Viewer } from '#lib/types.ts';
+import { FLAGS } from '#lib/server/flags/catalog.ts';
+import type { FlagPreview, Flags, Viewer } from '#lib/types.ts';
 
 type MaybePromise<T> = T | Promise<T>;
 
@@ -23,6 +24,9 @@ export type RouteEventInit = {
 	request?: Request;
 	headers?: Record<string, string>;
 	cookies?: Record<string, string>;
+	/** Every flag is off unless a test sets it. */
+	flags?: Partial<Flags>;
+	flagPreview?: FlagPreview;
 	/** What `parent()` resolves to in a load under a layout. */
 	parent?: object;
 	fetch?: typeof fetch;
@@ -81,6 +85,8 @@ export function routeEvent(init: RouteEventInit = {}) {
 	const locals = {
 		app: init.app ?? {},
 		viewer: init.viewer ?? null,
+		flags: { ...Object.fromEntries(FLAGS.map(({ key }) => [key, false])), ...init.flags },
+		flagPreview: init.flagPreview,
 		reauth: init.reauth,
 		sessionToken: init.sessionToken,
 		requestId: 'test-request',

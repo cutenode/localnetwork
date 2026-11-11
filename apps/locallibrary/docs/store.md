@@ -107,6 +107,39 @@ The plan is shown first, and exactly that is removed (a pull or label in between
 again); history still runs through what was removed (`library log` skips it), and a removed
 snapshot's id says when it was pruned.
 
+## Browsing a snapshot
+
+`store browse` opens a past version of a drive as an ordinary folder, laid out as the drive was,
+with nothing copied:
+
+```bash
+locallibrary store browse "Friday warmup"                 # in a temporary folder, until Ctrl-C
+locallibrary store browse 3f9a2c --to ~/Desktop/friday    # in a new or empty folder of your choice
+locallibrary store browse 3f9a2c --keep                   # stays after the command ends
+locallibrary store views                                  # what's open, and any broken links
+locallibrary store unbrowse                               # remove them (or name one)
+```
+
+It prints where the folder is. The files in it are links into the store, so they take no room:
+hard links when the folder is on the store's disk, symlinks otherwise. Hard links open and play like
+any file. A symlink leads to a stored file named by its hash, so on macOS a double-click opens the
+text editor: drag it into a player, or use Open With.
+
+The view is read-only, since a stored file is named after what it holds. Writing to one fails with
+"permission denied", and so does saving a new file there, so an edit can't vanish with the view.
+Stored files are read-only from this version on; older ones become read-only when a view shows them.
+An app that sets the permissions back can still get through, as can one that follows a symlink and
+replaces the stored file itself: `store verify` finds what changed.
+
+A view goes when the command stops, on Ctrl-C or when its terminal closes. One a crash left stays
+listed in `store views` and warned of by `store info` and `store browse` until `store unbrowse`
+removes it. `store unbrowse` only removes what the view made, so a file someone added to it stays and
+is reported. Pruning a view's snapshot warns first and goes ahead. Hard links keep working, and the
+space their files take isn't freed until the view is removed. Symlinks to files nothing else uses
+break, and the rest keep working.
+
+Views aren't available on Windows, where links take administrator rights.
+
 ## From another computer
 
 ```bash

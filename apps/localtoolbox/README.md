@@ -441,11 +441,11 @@ pnpm test:coverage   # run it with coverage; the report is in coverage/
 pnpm lint            # oxlint, type-aware, with the repo's shared rules
 pnpm format          # oxfmt, with the repo's shared settings
 pnpm check           # strict TypeScript, by svelte-check over both tsconfigs
-pnpm knip            # unused files, exports and dependencies
+pnpm -w knip         # unused files, exports and dependencies, repo-wide
 pnpm test:shuffle    # the same suite in a random order, to catch tests that
                      # only pass because of the ones before them
 pnpm test:repeat     # every test twice, to catch state kept between runs
-pnpm verify          # format, lint, types, knip, coverage, shuffled, repeated
+pnpm verify          # format, lint, types, coverage, shuffled, repeated
                      # and the build: the whole gate
 pnpm test:mutation   # Stryker; slow, so CI runs it weekly. The report is in
                      # reports/mutation/
@@ -563,6 +563,7 @@ test/
   a11y.test.ts           every panel through the accessibility audit
   resilience.test.ts     every panel against a browser that says no
   scale.test.ts          five hundred rows: requests, writes, markers, rows
+  stepping-past-a-timeout.test.ts  a timed-out test can't reach the next one
   golden.test.ts         snapshots of every output the extension hands over
   build.test.ts          the real build, inspected as Chrome would load it
   docs.test.ts           this README against the code it describes
@@ -1105,7 +1106,8 @@ a white **Downloaded** pill in the bottom-right corner, wherever that track
 appears: playlist rows, Likes rows (List view), Likes tiles (Badges view), a
 track page's own hero artwork, and the player bar. Playlist rows show 32 px
 thumbnails and the player bar a 30 px one, too small for the word, so there
-the pill shrinks to a check mark in the same corner.
+the pill shrinks to a check mark in the same corner, which a screen reader
+still reads as "downloaded".
 
 A track page's hero is marked from the page's own identity rather than from a
 link, because nothing in the hero holds the track's path — its title is a
@@ -1221,7 +1223,8 @@ same care — the page is not the extension's to make slow.
 
 The artwork elements marked, in each layout: `.trackItem__image .sc-artwork`
 (playlist rows), `.sound__coverArt .sc-artwork` (Likes rows),
-`.playableTile__image .sc-artwork` (Likes tiles),
+`.playableTile__artwork` (Likes tiles: the box around the artwork link, so
+nothing of ours ends up inside the link),
 `.listenArtworkWrapper__artwork .sc-artwork` (a track page's hero — the outer
 of the two nested there) and `.playbackSoundBadge__avatar .sc-artwork` (the
 player bar, whose track is named by `a.playbackSoundBadge__titleLink`).
@@ -1332,8 +1335,9 @@ so a plain click on this extension's button there does what that tool's
 **Get** does: the gate is walked, the file lands in the site's folder under the
 download directory, and the track is marked downloaded (unless **mark the
 SoundCloud track downloaded** is off in Settings). The button dims while the
-walk runs and ignores another click until it ends. Nothing goes into the
-session queue, since nothing is left to mark.
+walk runs and ignores another click until it ends, and a screen reader hears
+"saved" or "opened the gate" when it does. Nothing goes into the session queue,
+since nothing is left to mark.
 
 When the walk does not end in a saved file, the gate opens in a tab beside the
 page and the track is queued, which is what the button did before. That covers
@@ -1967,7 +1971,7 @@ Elements the marker and click detection rely on (verified September 2026):
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Artwork element to overlay (playlist row) | `.trackItem__image .sc-artwork` (32 × 32, made `position: relative` by the `tbx-mark-host` class the script adds — never by `:has()`, see above) |
 | Artwork element to overlay (Likes row)    | `.sound__coverArt .sc-artwork` (160 × 160)                                                                                                       |
-| Artwork element to overlay (Likes tile)   | `.playableTile__image .sc-artwork` (180 × 180)                                                                                                   |
+| Artwork element to overlay (Likes tile)   | `.playableTile__artwork` (180 × 180, around `a.playableTile__artworkLink`)                                                                       |
 | Track identity                            | `href` of `.trackItem__trackTitle`, `.soundTitle__title`, or `.playableTile__mainHeading` / `.playableTile__artworkLink`                         |
 | Purchase link in a Likes row              | `a.soundActions__purchaseLink` (`href` via `gate.sc`, label in `aria-label`)                                                                     |
 | Purchase link on a track page             | the same, in `.listenEngagement` below the hero (legacy `.sc-buylink`; the link's own text where there is no `aria-label`)                       |
@@ -1990,10 +1994,11 @@ of ours. That matters most for the rule holding a queued track's button up
 with no pointer on it — lose there and the button still appears on hover and
 never otherwise, which is the page saying nothing at all about what is in the
 queue. The button that stands in for SoundCloud's own
-download controls is `tbx-dl` (`tbx-dl--soundcloud`, `tbx-dl--external`, with
-`tbx-dl__icon` and `tbx-dl__text` inside it), and the control it stands in for
-is given `tbx-dl-replaced`, which hides it. Nothing else on the page is
-touched.
+download controls is `tbx-dl` (`tbx-dl--soundcloud`, `tbx-dl--external`,
+`tbx-dl--v2`, with `tbx-dl__icon` and `tbx-dl__text` inside it), and the control
+it stands in for is given `tbx-dl-replaced`, which hides it. A gate walk's
+outcome goes in `tbx-status`, a visually hidden `role="status"` region.
+Nothing else on the page is touched.
 
 ### Grouping
 
@@ -2083,9 +2088,9 @@ other tools, so a channel upload searches for the channel.
   reported as not checked (their purchase link, if any, still comes from the
   page on Likes pages and track pages); the attempt is not repeated for a day.
 - Marks are stored per browser profile and are not synced.
-- On playlist rows the Downloaded pill is a check mark, not the word — the
-  thumbnail is 32 px ("nodl" still fits) — and the queue button there is a plus
-  or a minus for the same reason.
+- On playlist rows the thumbnail is 32 px, so the Downloaded pill is a check
+  mark rather than the word ("nodl" still fits), and the queue button is a
+  plus, a check mark once queued, or a minus under the pointer.
 - The queue button needs the popup to have been opened at least once this
   browsing session: it is the popup that opens session storage to the content
   script, and until it has, the page can neither read the queue nor write to
@@ -2565,7 +2570,8 @@ takes one off again.
    badges, up to three on the row and a **+n** for the rest. Each badge opens
    that page, behind the popup or in front depending on the **background
    tabs** switch the Manager also has. An artist SoundCloud had no public
-   profile for, or whose request failed, says **no public profile**.
+   profile for says **no public profile**. A lookup that fails says **lookup
+   failed** and leaves what the row knew.
 4. The chevron opens the row into everything else, one field a line, each a
    button that copies it: the SoundCloud profile and every link as an address
    (with an arrow to open it), SoundCloud's own name for the account where the

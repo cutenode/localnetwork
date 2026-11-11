@@ -128,6 +128,12 @@ fn render_undo(p: &api::UndoPlan) {
     if !p.history_lists.is_empty() {
         warn(format!("history lists players recorded since are dropped: {}", p.history_lists.join(", ")));
     }
+    if let Some(example) = p.unbacked_audio.first() {
+        warn(format!(
+            "{} track(s) come back without their audio until rekordbox's next export (e.g. {example})",
+            p.unbacked_audio.len()
+        ));
+    }
     for m in p.missing_audio.iter().take(5) {
         warn(format!("no audio on the drive for {m}"));
     }

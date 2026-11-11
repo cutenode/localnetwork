@@ -544,6 +544,211 @@ fn plays_print_what_their_json_says(tc: TestCase) {
     }
 }
 
+/// Drive A's two tracks as two different sounds, and a recording of one or both in any order: a
+/// set made from the recording holds the tracks it plays, in that order, each heard in it and
+/// timed from its start; asked for a file that isn't there or isn't one mix reads, it's refused
+/// saying which.
+#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_set_from_a_recording_holds_what_it_plays(tc: TestCase) {
+    use loclib_mixid::test_util::{synth, wav_of};
+    const RATE: u32 = 11_025;
+    let wav = |s: &[f32]| wav_of(RATE, 16, s.iter().map(|x| (x * 12_000.0) as i32).collect::<Vec<_>>().into_iter());
+    let fx = Env::from_template();
+    let a = fx.volumes.join("A");
+    let seeds = tc.draw(gs::permutations(vec![7919u32, 104_729, 1_299_709]));
+    let secs: Vec<f64> =
+        (0..2).map(|_| f64::from(tc.draw(gs::integers::<u32>().min_value(30).max_value(40)))).collect();
+    for n in 0..2 {
+        let file = a.join(format!("Contents/Loopmasters/UnknownAlbum/Demo Track {}.mp3", n + 1));
+        std::fs::write(&file, wav(&synth(secs[n], seeds[n]))).unwrap();
+    }
+    let order: Vec<usize> = tc.draw(gs::permutations(tc.draw(gs::subsequences(vec![0usize, 1]).min_size(1))));
+    let recording = fx.home("friday.wav");
+    let audio: Vec<f32> = order.iter().flat_map(|&n| synth(secs[n], seeds[n])).collect();
+    std::fs::write(&recording, wav(&audio)).unwrap();
+
+    let refused = |more: &[&str], why: &str| {
+        let args = [&["--json", "sets", "new", "--drive", "A", "--title", "Friday"][..], more].concat();
+        let r = fx.run(&args);
+        let v: Value = serde_json::from_str(&r.out).unwrap_or_else(|e| panic!("{e}: {}\n{}", r.out, r.err));
+        assert!(r.code != 0 && v["error"]["message"].as_str().unwrap().contains(why), "{args:?}: {v}");
+    };
+    let notes = fx.home("notes.txt");
+    std::fs::write(&notes, "not a recording").unwrap();
+    refused(&["--recording", path(&notes)], "isn't a recording mix reads");
+    refused(&["--recording", path(&fx.home("gone.wav"))], "gone.wav");
+
+    let v = fx.json(&["--yes", "sets", "new", "--recording", path(&recording), "--drive", "A", "--title", "Friday"]);
+    let set = &v["report"]["set"];
+    let said = format!("order {order:?}: {set}");
+    let tracks = set["tracks"].as_array().unwrap();
+    let heard: Vec<&Value> = tracks.iter().filter(|t| t["origin"] == "recording").collect();
+    let names: Vec<String> = heard.iter().map(|t| t["title"].as_str().unwrap().to_string()).collect();
+    let want: Vec<String> = order.iter().map(|n| format!("Demo Track {}", n + 1)).collect();
+    assert_eq!(names, want, "{said}");
+    let starts: Vec<u64> = heard.iter().map(|t| t["start_seconds"].as_u64().unwrap()).collect();
+    assert!(starts.windows(2).all(|w| w[0] < w[1]), "{said}");
+    assert_eq!(set["recording"]["path"], path(&recording), "{said}");
+    set_is_printed(set, &fx.ok(&["sets", "show", "Friday"]), &said);
+}
+
+/// A set of any kind, from any number of sessions, with a recording or not: `sets show` prints
+/// its kind beside its day, the sessions and the recording it came from, and its tracks; its
+/// tracklist for 1001Tracklists prints what the JSON export's text is; and deleted with `--yes`,
+/// it says which set went, and `sets` no longer lists it.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_set_shows_where_it_came_from_and_goes_when_deleted(tc: TestCase) {
+    let fx = Env::new();
+    locallibrary::Store::open_or_init(&fx.store).unwrap();
+    let (id, at) = ("3m4n5o6p7q8r9", "2026-10-03T23:00:00Z");
+    let sessions: Vec<String> = (0..tc.draw(gs::integers::<usize>().max_value(3)))
+        .map(|i| format!("{i}a1b2c3d-0000-4000-8000-00000000000{i}"))
+        .collect();
+    let tracks: Vec<Value> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)))
+        .map(|i| serde_json::json!({ "title": format!("Track {i}"), "artist": "Bicep", "origin": "added" }))
+        .collect();
+    let mut set = serde_json::json!({
+        "id": id, "title": "Friday", "date": "2026-10-03", "sessions": sessions, "tracks": tracks,
+        "created_at": at, "updated_at": at,
+    });
+    let kind = tc.draw(gs::optional(gs::sampled_from(&["club", "radio", "festival"][..])));
+    if let Some(k) = kind {
+        set["kind"] = serde_json::json!(k);
+    }
+    let recording = tc.draw(gs::booleans()).then(|| fx.outside("friday.wav"));
+    if let Some(r) = &recording {
+        set["recording"] = serde_json::json!({ "path": r });
+    }
+    std::fs::write(fx.store.join("sets.json"), serde_json::json!({ "sets": [set] }).to_string()).unwrap();
+
+    let shown = fx.json(&["sets", "show", id]);
+    let out = fx.ok(&["sets", "show", id]);
+    let said = format!("{out}\n{shown}");
+    set_is_printed(&shown, &out, &said);
+    let day = match kind {
+        Some(k) => format!("  {id} · 2026-10-03 · {k}\n"),
+        None => format!("  {id} · 2026-10-03\n"),
+    };
+    assert!(out.contains(&day), "{day:?}: {said}");
+    let short: Vec<&str> = sessions.iter().map(|s| &s[..8]).collect();
+    let from = [
+        match short.as_slice() {
+            [] => None,
+            [one] => Some(format!("session {one}")),
+            many => Some(format!("sessions {}", many.join(", "))),
+        },
+        recording.as_ref().map(|r| format!("the recording {}", r.display())),
+    ];
+    let from: Vec<String> = from.into_iter().flatten().collect();
+    assert_eq!(out.contains(&format!("  From    {}\n", from.join(" and "))), !from.is_empty(), "{said}");
+    assert_eq!(out.contains("  From    "), !from.is_empty(), "{said}");
+
+    let export = ["sets", "export", id, "--format", "1001"];
+    let v = fx.json(&export);
+    assert_eq!(fx.ok(&export), v["text"].as_str().unwrap(), "{v}");
+    for t in 0..tracks.len() {
+        assert!(v["text"].as_str().unwrap().contains(&format!("Bicep - Track {t}")), "{v}");
+    }
+
+    let out = fx.ok(&["--yes", "sets", "delete", id]);
+    assert!(out.lines().any(|l| l.starts_with("✓ deleted 2026-10-03") && l.contains("Friday")), "{out}");
+    assert!(listed(&fx).is_empty());
+}
+
+/// Sessions a player recorded on a club drive with no store yet: `plays DRIVE` lists them without
+/// saying whether a store has them, and `--all` says there's no store to look in. Pulled, one
+/// made a set, and more played after: `plays --all` lists them all on the drive, marks the set's,
+/// and has none only in the store, until a list is taken off the drive: then it's the one only in
+/// the store, named with the drive it was kept from. `plays stats --since` the pull's snapshot
+/// names the lists played since and how much more each track was played (its play count raised,
+/// or not).
+#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+fn plays_say_what_the_store_has_and_what_was_played_since(tc: TestCase) {
+    let fx = Env::new();
+    let club = fx.club("Club");
+    let d = path(&club).to_string();
+    let ids: Vec<u32> = (1..=12).collect();
+    let before = tc.draw(gs::integers::<usize>().min_value(1).max_value(2));
+    for i in 1..=before {
+        let tracks: Vec<u32> = tc
+            .draw(gs::permutations(ids.clone()))
+            .into_iter()
+            .take(tc.draw(gs::integers::<usize>().min_value(1).max_value(6)))
+            .collect();
+        play(&club, &format!("HISTORY {i:03}"), &tracks);
+    }
+    let v = fx.json(&["plays", &d]);
+    let printed = fx.ok(&["plays", &d]);
+    let sessions = v["sessions"].as_array().unwrap();
+    assert_eq!(sessions.len(), before, "{v}");
+    // Without a drive named, the one plugged in.
+    let listed_ids = |v: &Value| v["sessions"].as_array().unwrap().iter().map(|s| s["id"].clone()).collect::<Vec<_>>();
+    assert_eq!(listed_ids(&fx.json(&["plays"])), listed_ids(&v));
+    for s in sessions {
+        let line = printed.lines().find(|l| l.contains(&s["id"].as_str().unwrap()[..8])).unwrap();
+        assert!(!line.contains("in the store"), "{line}: {printed}");
+    }
+    let r = fx.run(&["plays", "lists", &d, "--all"]);
+    assert_eq!(r.code, 0, "{}", r.err);
+    assert!((r.out + &r.err).contains("there's no store yet, so nothing is archived"));
+
+    fx.ok(&["pull", &d, "--library", "Club", "--new-library"]);
+    let set = &fx.json(&["plays", "lists", &d])["sessions"][tc.draw(gs::integers::<usize>().max_value(before - 1))];
+    let short = set["id"].as_str().unwrap()[..8].to_string();
+    fx.ok(&["--yes", "sets", "new", "--from", &short, "--title", "Friday"]);
+    let since: Vec<u32> = tc.draw(gs::subsequences(ids.clone()).min_size(1));
+    play(&club, &format!("HISTORY {:03}", before + 1), &since);
+    // Some played on, so their counts go up too.
+    for id in tc.draw(gs::subsequences(since.clone())) {
+        let count = tc.draw(gs::integers::<u16>().min_value(1).max_value(9)).to_string();
+        fx.ok(&["--yes", "track", "set", &d, "--track", &id.to_string(), "--play-count", &count]);
+    }
+    // While the drive has every list, none is only in the store.
+    let listed = fx.ok(&["plays", "lists", &d, "--all"]);
+    assert!(listed.contains("Only in the store (0)\n  none\n"), "{listed}");
+    // rekordbox took a saved list off the drive: then only the store has it.
+    let gone = tc.draw(gs::integers::<usize>().min_value(1).max_value(before));
+    let name = format!("HISTORY {gone:03}");
+    let pdb = club.join(crate::support::PDB);
+    let lib = locallibrary::pdb::read_library(&pdb).unwrap();
+    let id = lib.history.iter().find(|h| h.name == name).unwrap().id;
+    let mut ed = rekordbox_pdb::PdbEditor::from_file(&pdb).unwrap();
+    ed.remove_history_playlists(&[id]).unwrap();
+    ed.save(&pdb).unwrap();
+    let all = fx.json(&["plays", "lists", &d, "--all"]);
+    let listed = fx.ok(&["plays", "lists", &d, "--all"]);
+    let line = listed.lines().find(|l| l.contains(&short)).unwrap();
+    assert!(line.contains("in the store") && line.contains(" · in "), "{line}: {listed}");
+    let (_, only) = listed.split_once("Only in the store (1)\n").unwrap_or_else(|| panic!("{listed}"));
+    let s = all["sessions"].as_array().unwrap().iter().find(|s| s["name"] == name.as_str()).unwrap();
+    let row = only.lines().next().unwrap();
+    assert!(row.contains(&s["id"].as_str().unwrap()[..8]) && row.contains(&name), "{row}: {listed}");
+    assert!(row.contains("in the store"), "{row}: {listed}");
+    // Off the drive, it says which drive it was kept from.
+    let after = row.split_once(&name).unwrap().1;
+    assert!(after.trim_start().starts_with("Club "), "{row}: {listed}");
+
+    let words = ["plays", "stats", d.as_str(), "--since", "2099"];
+    let s = fx.json(&words);
+    let out = fx.ok(&words);
+    let said = format!("{out}\n{s}");
+    let since = &s["since"];
+    assert!(out.contains(&format!("Since snapshot {} (", since["short_id"].as_str().unwrap())), "{said}");
+    let new: Vec<&str> = since["new_histories"].as_array().unwrap().iter().map(|h| h.as_str().unwrap()).collect();
+    assert_eq!(new, [format!("HISTORY {:03}", before + 1)], "{said}");
+    assert!(out.contains(&format!("  1 new history list(s): {}\n", new[0])), "{said}");
+    let tracks = since["tracks"].as_array().unwrap();
+    assert!(!tracks.is_empty() && !out.contains("nothing played"), "{said}");
+    for t in tracks {
+        let plus = t["after"].as_u64().unwrap().saturating_sub(t["before"].as_u64().unwrap());
+        let name = t["track"]["name"].as_str().unwrap();
+        // Under the snapshot's heading.
+        let mut after_heading = out.lines().skip_while(|l| !l.starts_with("Since snapshot "));
+        let line = after_heading.find(|l| l.ends_with(name)).unwrap_or_else(|| panic!("{name}: {said}"));
+        assert_eq!(line.trim_start().starts_with(&format!("+{plus} ")), plus > 0, "{line:?}: {said}");
+    }
+}
+
 /// A log of plays (Beat Link Trigger's Playlist Writer) with drawn tracks and start times kept as a
 /// session (`--quiet` leaving out the tip to make a set of it): a set made from it is timed, `sets
 /// show` prints each start, and its Mixcloud and YouTube tracklists and chapters print what its JSON
@@ -620,7 +825,16 @@ fn a_timed_log_makes_a_timed_set(tc: TestCase) {
             let v: Value = serde_json::from_str(&j.out).unwrap();
             assert_eq!(printed.out, v["text"].as_str().unwrap(), "{format}");
         }
+        // A dry run is for the formats plugins write.
+        let r = fx.run(&[&export[..], &["--dry-run"]].concat());
+        assert!(r.code != 0 && r.err.contains("--dry-run is for plugins' formats"), "{format}: {}", r.err);
     }
+    // A track typed in anywhere has no start: printed, it lines up under the timed ones.
+    let at = tc.draw(gs::integers::<usize>().min_value(1).max_value(picked.len() + 1));
+    let v = fx.json(&["--yes", "sets", "edit", "last", "--insert", &format!("{at}:Someone - Dubplate")]);
+    let set = &v["report"]["set"];
+    assert!(set["tracks"][at - 1]["start_seconds"].is_null(), "{set}");
+    set_is_printed(set, &fx.ok(&["sets", "show", "last"]), &format!("{set}"));
 }
 
 /// Sessions a player recorded on the club drive since it was last saved: saving it (`pull`, or

@@ -2,8 +2,8 @@
 //! (`$/cancel`), which keeps its plugin from being stopped as idle. Only a host that stays open
 //! runs them (the player, the sidecar, the `watch` agent), and only those the user turned on
 //! (`services.<name>`, among the plugin's settings). One that stops or fails is started again
-//! after a while, longer each time, and left off once it has failed
-//! [`super::Options::restarts`] times in a row, saying so.
+//! after a while, longer each time, up to [`super::Options::restarts`] times in a row, then left
+//! off, saying so.
 
 use std::sync::{Arc, Weak};
 use std::thread::JoinHandle;
@@ -90,8 +90,8 @@ impl Slot {
 }
 
 /// Runs the plugin's service until `cancel`, starting it again (after a while, longer each time)
-/// whenever it stops or fails, until it has failed [`super::Options::restarts`] times in a row:
-/// then it's left off, and the user is told.
+/// whenever it stops or fails, up to [`super::Options::restarts`] times in a row: the failure
+/// after that leaves it off, and the user is told.
 fn supervise(slot: &Weak<Slot>, service: &str, store: Option<&Store>, cancel: &CancelToken) {
     let mut failed: u32 = 0;
     loop {

@@ -50,20 +50,31 @@ fn some_sessions(tc: &TestCase) -> Vec<Session> {
         .collect()
 }
 
+/// A store to suggest from: the tracks its recording heard, and the drive it takes to sets.
+type Suggesting = (Vec<u32>, Option<&'static str>, Store, tempfile::TempDir);
+
 /// Stores to suggest from, made once (writing one takes a while): with no recording, and with
-/// a recording of tracks 1 to 3, or 2 to 6.
-fn stores() -> &'static [(Vec<u32>, Store, tempfile::TempDir); 3] {
-    static STORES: std::sync::OnceLock<[(Vec<u32>, Store, tempfile::TempDir); 3]> = std::sync::OnceLock::new();
+/// a recording of tracks 1 to 3, or 2 to 6; with the Main drive one taken to sets, or none.
+fn stores() -> &'static [Suggesting; 4] {
+    static STORES: std::sync::OnceLock<[Suggesting; 4]> = std::sync::OnceLock::new();
     STORES.get_or_init(|| {
-        [vec![], vec![1, 2, 3], vec![2, 3, 4, 5, 6]].map(|heard| {
-            let dir = tempfile::tempdir().unwrap();
-            let store = Store::open_or_init(dir.path().join("store")).unwrap();
-            if !heard.is_empty() {
-                let plays: Vec<(u32, f64, f64)> = heard.iter().map(|&n| (n, f64::from(n) * 300.0, 0.9)).collect();
-                report::save(&store, &mix_report(&plays)).unwrap();
-            }
-            (heard, store, dir)
-        })
+        [(vec![], None), (vec![1, 2, 3], None), (vec![2, 3, 4, 5, 6], None), (vec![], Some("Main"))].map(
+            |(heard, set_drive)| {
+                let dir = tempfile::tempdir().unwrap();
+                let store = Store::open_or_init(dir.path().join("store")).unwrap();
+                if !heard.is_empty() {
+                    let plays: Vec<(u32, f64, f64)> = heard.iter().map(|&n| (n, f64::from(n) * 300.0, 0.9)).collect();
+                    report::save(&store, &mix_report(&plays)).unwrap();
+                }
+                if let Some(name) = set_drive {
+                    let id = uuid::Uuid::from_u128(1);
+                    let mut record = crate::store::DriveRecord::new(id, name, dir.path().to_path_buf());
+                    record.role = Some(crate::fleet::Role::Set);
+                    store.update_drives(|d| Ok(d.insert(id, record))).unwrap();
+                }
+                (heard, set_drive, store, dir)
+            },
+        )
     })
 }
 
@@ -96,12 +107,12 @@ fn is_one_night(group: &[&Session]) -> bool {
 /// that go together (both only on drives, which nothing here tells apart, or both saved or
 /// imported, by the same pull or with windows that overlap) are in the same candidate unless
 /// their night can't be told, when each is its own; only then does a candidate say so. Each
-/// is scored for its different tracks, a recording hearing 3 or more of them and drives on
-/// the same night, is dated by the imported logs' times or the time its windows share, and
-/// they come newest first.
+/// is scored for its different tracks, a recording hearing 3 or more of them, drives on the
+/// same night and a drive taken to sets, is dated by the imported logs' times or the time its
+/// windows share, and they come newest first.
 #[hegel::test(test_cases = 150)]
 fn suggestions_group_what_goes_together_and_score_the_evidence(tc: TestCase) {
-    let (heard, store, _) = &stores()[tc.draw(gs::integers::<usize>().max_value(stores().len() - 1))];
+    let (heard, set_drive, store, _) = &stores()[tc.draw(gs::integers::<usize>().max_value(stores().len() - 1))];
     let sessions = some_sessions(&tc);
     let got = suggest(Some(store), &sessions, &[]).unwrap();
 
@@ -164,10 +175,14 @@ fn suggestions_group_what_goes_together_and_score_the_evidence(tc: TestCase) {
         let heard_here = files.intersection(&recorded).count();
         let drives: FxHashSet<&String> =
             group.iter().filter_map(|s| s.first_seen_on.as_ref().or(s.drives.first())).collect();
+        let to_sets =
+            group.iter().flat_map(|s| s.drives.iter().chain(&s.first_seen_on)).any(|d| Some(d.as_str()) == *set_drive);
         let score = files.len().min(40) as u32
             + if heard_here >= MIN_TRACKS { 30 } else { 0 }
-            + if drives.len() > 1 { 10 } else { 0 };
+            + if drives.len() > 1 { 10 } else { 0 }
+            + if to_sets { 20 } else { 0 };
         assert_eq!(c.score, score, "{:?}", c.reasons);
+        assert_eq!(c.reasons.contains(&"from a drive you take to sets".to_string()), to_sets, "{:?}", c.reasons);
         let tracks = match files.len() {
             1 => "1 track: at least a minute of play".to_string(),
             n => format!("{n} tracks: at least {n} minutes of play"),

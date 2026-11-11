@@ -683,8 +683,9 @@ fn odd_projects_are_refused_for_what_is_odd(tc: TestCase) {
 
 /// What isn't a whole Audacity project is refused as unparseable, naming the file and what it
 /// lacks: a file that isn't there, bytes that aren't SQLite, a database without the project's
-/// tables, a project with no rows and no autosave table, a document whose dictionary names
-/// nothing (so no `<project>` element), or one whose audio has no sample blocks table.
+/// tables, a project with no rows and no autosave table, one with neither a saved project nor an
+/// autosave in them, a document whose dictionary names nothing (so no `<project>` element), or
+/// one whose audio has no sample blocks table.
 #[hegel::test(test_cases = 40)]
 fn files_that_arent_whole_projects_are_refused_for_what_they_lack(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -693,7 +694,7 @@ fn files_that_arent_whole_projects_are_refused_for_what_they_lack(tc: TestCase) 
     x.end("waveclip").end("wavetrack").end("project");
     let path = dir.path().join("set.aup3");
     let sqlite = |sql: &str| Connection::open(&path).unwrap().execute_batch(sql).unwrap();
-    let kind = tc.draw(gs::integers::<u8>().max_value(5));
+    let kind = tc.draw(gs::integers::<u8>().max_value(6));
     let lacks = match kind {
         0 => "unable to open",
         1 => {
@@ -715,6 +716,10 @@ fn files_that_arent_whole_projects_are_refused_for_what_they_lack(tc: TestCase) 
         3 => {
             sqlite("CREATE TABLE project(id INTEGER PRIMARY KEY, dict BLOB, doc BLOB)");
             "no such table: autosave"
+        }
+        6 => {
+            std::fs::rename(project(dir.path(), "project", None, &[]), &path).unwrap();
+            "the project is empty"
         }
         4 => {
             let unnamed = Xml { dict: vec![FT_CHAR_SIZE, x.char_size], doc: x.doc.clone(), names: Vec::new(), ..x };

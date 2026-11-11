@@ -47,8 +47,9 @@ fn ending(tc: &TestCase) -> Try {
 /// Whatever the set and its settings and however Mixcloud answers each try, a recording Mixcloud
 /// takes goes up as one form: the whole file as `mp3`, the show's fields, then the picture, the
 /// same form each try, the upload's progress as much as it sends. It answers the show's page once
-/// a try makes it, fails at once on a refusal, and after the last try otherwise; and a dry run, or
-/// a recording or picture Mixcloud wouldn't take, sends nothing.
+/// a try makes it, fails at once on a refusal, and after the last try otherwise; and a dry run
+/// (saying the tracklist and tags that would go, when there are any), or a recording or picture
+/// Mixcloud wouldn't take, sends nothing.
 #[hegel::test(test_cases = 50)]
 fn the_form_goes_until_mixcloud_makes_or_refuses_it(tc: TestCase) {
     let (set, tags, tracklist) = any_set(&tc, 12);
@@ -109,6 +110,12 @@ fn the_form_goes_until_mixcloud_makes_or_refuses_it(tc: TestCase) {
     if dry_run {
         let warnings = answer.unwrap().warnings;
         assert!(warnings[0].starts_with(&format!("set.{extension} (")), "{warnings:?}");
+        // The tracklist and the tags that go, said when there are any.
+        let timed = made.sections.iter().filter(|s| s.start.is_some()).count();
+        let listed = format!(", its {} tracks as the tracklist ({timed} timed)", made.sections.len());
+        assert_eq!(warnings[0].contains(&listed), !made.sections.is_empty(), "{warnings:?}");
+        let tagged = format!(", tagged {}", made.tags.join(", "));
+        assert_eq!(warnings[0].contains(&tagged), !made.tags.is_empty(), "{warnings:?}");
         assert_eq!(warnings[1..], [made.notes, vec![MIXCLOUD.into()]].concat());
         assert!(sent.is_empty() && started.is_empty());
         return;

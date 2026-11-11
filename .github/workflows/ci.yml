@@ -117,6 +117,7 @@ jobs:
               - 'lexicons/community/lexicon/location/address.json'
               - 'lexicons/app/userinput/discussion.json'
               - 'lexicons/com/atproto/repo/strongRef.json'
+              - 'flags/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
@@ -190,6 +191,7 @@ jobs:
               - '.node-version'
               - '.dockerignore'
               - 'lexicons/**'
+              - 'flags/**'
               - '.oxlintrc.json'
               - '.oxfmtrc.json'
               - 'tools/oxlint/**'
@@ -218,16 +220,16 @@ jobs:
               - '!apps/web/tests/e2e/**'
               - '!apps/web/playwright.config.ts'
               - '!apps/web/lighthouserc.cjs'
-              - '!apps/web/knip.json'
             # What the e2e tests run: the app as `pnpm dev` serves it, on the dev network and seed
             # data, and the tools' READMEs, which the home page's tool cards are made from. Left out:
-            # the unit, integration and build tests, stories and Storybook, and what only Lighthouse,
-            # knip and the Docker image read.
+            # the unit, integration and build tests, stories and Storybook, and what only Lighthouse and
+            # the Docker image read.
             web_e2e:
               - 'apps/web/**'
               - 'apps/*/README.md'
               - 'packages/tokens/**'
               - 'lexicons/**'
+              - 'flags/**'
               - 'package.json'
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
@@ -243,7 +245,6 @@ jobs:
               - '!apps/web/Dockerfile'
               - '!apps/web/tests/docker.test.ts'
               - '!apps/web/lighthouserc.cjs'
-              - '!apps/web/knip.json'
             # What the Docker image is built from (.dockerignore lets in only these) and the test
             # that starts it (tests/docker.test.ts), which runs the dev network from the workspace.
             # Left out: the app's other tests, stories and the configs only they read.
@@ -253,6 +254,7 @@ jobs:
               - 'apps/*/docs/*.md'
               - 'packages/tokens/**'
               - 'lexicons/**'
+              - 'flags/**'
               - 'package.json'
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
@@ -267,7 +269,6 @@ jobs:
               - '!apps/web/tests/{build.test,sign-in}.ts'
               - '!apps/web/playwright.config.ts'
               - '!apps/web/lighthouserc.cjs'
-              - '!apps/web/knip.json'
             # What the pages Lighthouse measures are built and served from: the app's code, static
             # files and Lua (HappyView answers the directory's queries), the dev network and seed
             # data it measures them on, its build and Lighthouse config, the dependencies, and the
@@ -290,6 +291,7 @@ jobs:
               - 'apps/locallibrary/docs/*.md'
               - 'packages/tokens/**'
               - 'lexicons/**'
+              - 'flags/**'
               - 'package.json'
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'

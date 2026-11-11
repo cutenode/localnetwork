@@ -60,7 +60,7 @@ jobs:
         run: pnpm lexicons:format --check
       - run: pnpm lint
       - run: pnpm check
-      - run: pnpm knip
+      - run: pnpm -w knip
       # No --with-deps, here or below: the runner has the libraries Chromium needs, and the fonts it
       # would add come from Ubuntu's mirror, which has taken long enough to cancel the job.
       - run: pnpm exec playwright install chromium

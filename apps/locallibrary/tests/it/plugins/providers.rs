@@ -129,6 +129,46 @@ fn art_fetch_sets_the_cover_found() {
     assert!(out.contains("nothing to change"), "{out}");
 }
 
+/// Whether the provider finds a cover or not, fetched twice, each time with `--replace` or not
+/// and as a dry run or not: a cover found is set on every track that hasn't one (all of them
+/// with `--replace`), and only by a run that isn't a dry run; with none found, or every track
+/// left alone, there's nothing to change.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn art_fetch_sets_a_cover_only_where_its_asked(tc: TestCase) {
+    let (env, _usb) = env();
+    let found = tc.draw(gs::booleans());
+    let each = match found {
+        true => json!([{ "score": 1, "source": "Covers", "label": "front", "artwork": { "blob": "a.jpg" } }]),
+        false => json!([]),
+    };
+    answer(&env, json!({ "blobs": { "a.jpg": jpeg(64) }, "each": each }));
+    let mut without = 2;
+    for run in 0..2 {
+        let (replace, dry) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
+        let mut args = vec!["--yes", "art", "fetch", "USB", "--from", "echo"];
+        args.extend(replace.then_some("--replace"));
+        args.extend(dry.then_some("--dry-run"));
+        let out = env.ok(&args);
+        let set = if !found {
+            0
+        } else if replace {
+            2
+        } else {
+            without
+        };
+        let said = format!("run {run}, found {found}, {args:?}: {out}");
+        match set {
+            0 => assert!(out.contains("nothing to change"), "{said}"),
+            n => assert!(out.contains(&format!("set cover art on {n} track(s) from Covers")), "{said}"),
+        }
+        if found && !dry {
+            without = 0;
+        }
+        let missing = env.ok(&["art", "missing", "USB"]);
+        assert!(missing.contains(&format!("{without} track(s) without artwork")), "{said}\n{missing}");
+    }
+}
+
 /// The drive's tracks, by id.
 fn tracks(usb: &Path) -> Vec<locallibrary::Track> {
     let mut tracks = locallibrary::Device::open(usb).unwrap().library().unwrap().tracks;
@@ -235,10 +275,13 @@ fn plugin_providers_shows_and_sets_the_auto_pick() {
     }
 }
 
-/// Whatever candidates the provider finds for each track (none to three, of any score below the
-/// auto-pick), answered any way with `--choose`: each track gets the year of the candidate
-/// numbered as answered, best first, or keeps its own with `null`.
-#[hegel::test(test_cases = 4)]
+/// Whatever candidates the provider finds for each track (none to three, the best alone scoring
+/// the auto-pick or not), answered any way with `--choose` or not: each track gets the year of the
+/// candidate numbered as answered, best first, or keeps its own with `null`, and one not answered
+/// gets the candidate picked for it. Before anything changes, an answer for a track nothing was
+/// found for is refused, then one that isn't a number of the track's, then the tracks left with
+/// no answer and none picked, naming each.
+#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn any_answers_fill_in_the_candidates_numbered(tc: TestCase) {
     let (env, usb) = env();
     let before = years(&usb);
@@ -253,29 +296,72 @@ fn any_answers_fill_in_the_candidates_numbered(tc: TestCase) {
         "--replace".into(),
     ];
     let mut want = Vec::new();
+    let (mut wrong, mut unanswered, mut picked) = (false, Vec::new(), Vec::new());
     for (k, (id, had)) in before.iter().enumerate() {
         let n = tc.draw(gs::integers::<usize>().max_value(3));
-        // Distinct scores, best first, and distinct years: none alike, none picked.
-        let found: Vec<(f64, u16)> = (0..n).map(|i| (0.8 - 0.2 * i as f64, 2000 + (k * 10 + i) as u16)).collect();
+        // The best alone scoring the auto-pick (0.9) is picked; distinct years: none alike.
+        let sure = n > 0 && tc.draw(gs::booleans());
+        let found: Vec<(f64, u16)> = (0..n)
+            .map(|i| (if sure && i == 0 { 0.95 } else { 0.8 - 0.2 * i as f64 }, 2000 + (k * 10 + i) as u16))
+            .collect();
         for (score, y) in &found {
             let mut c = year(*score, *y);
             c["track"] = json!(id);
             candidates.push(c);
         }
+        // `Some(Some(i))` answers candidate i (none with 0), `Some(None)` a number it hasn't.
+        // The first track, when it's sure, is left to its pick.
         let chosen = match n {
             0 => None,
-            _ => Some(tc.draw(gs::integers::<usize>().max_value(n))),
+            _ if sure && k == 0 => None,
+            _ => tc.draw(gs::optional(gs::optional(gs::integers::<usize>().max_value(n)))),
         };
-        if let Some(i) = chosen {
-            let value = if i == 0 { "null".to_string() } else { i.to_string() };
-            args.extend(["--choose".into(), format!("{id}={value}")]);
+        match chosen {
+            Some(Some(i)) => {
+                let value = if i == 0 { "null".to_string() } else { i.to_string() };
+                args.extend(["--choose".into(), format!("{id}={value}")]);
+            }
+            Some(None) => {
+                args.extend(["--choose".into(), format!("{id}={}", n + 1)]);
+                wrong = true;
+            }
+            None if n > 0 && !sure => unanswered.push(*id),
+            None if sure => picked.push(*id),
+            None => {}
         }
-        want.push((*id, chosen.filter(|i| *i > 0).map_or(*had, |i| found[i - 1].1)));
+        let kept = match chosen {
+            Some(Some(i)) if i > 0 => found[i - 1].1,
+            None if sure => found[0].1,
+            _ => *had,
+        };
+        want.push((*id, kept));
+    }
+    let unfound = tc.draw(gs::weighted_booleans(0.2));
+    if unfound {
+        args.extend(["--choose".into(), "99=1".into()]);
     }
     answer(&env, json!({ "candidates": candidates }));
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    env.ok(&args);
-    assert_eq!(years(&usb), want, "{args:?}");
+    if !(unfound || wrong || !unanswered.is_empty()) {
+        env.ok(&args);
+        assert_eq!(years(&usb), want, "{args:?}");
+        return;
+    }
+    let err = env.fails(2, &args);
+    if unfound {
+        assert!(err.contains("--choose 99=...: nothing was found for track #99 to choose from"), "{err}");
+    } else if wrong {
+        assert!(err.contains(" isn't an answer: ") && err.contains("  null  none of these"), "{err}");
+    } else {
+        for id in &unanswered {
+            assert!(err.contains(&format!(": answer with --choose {id}=VALUE, VALUE one of:")), "{id}: {err}");
+        }
+        // One picked for you isn't asked about.
+        for id in &picked {
+            assert!(!err.contains(&format!("--choose {id}=VALUE")), "{id}: {err}");
+        }
+    }
+    assert_eq!(years(&usb), before, "nothing changed: {args:?}");
 }
 
 /// Any steps of `plugin providers` (an auto-pick from 0 to 1, or one it can't be, or back to its

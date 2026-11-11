@@ -15,5 +15,6 @@
 	<SectionHeader level={1} align="center" eyebrow="Error {page.status}" {title} {lede}>
 		{#snippet actions()}<Button href="/">Back to home</Button><Button variant="secondary" href="/projects">Find DJs</Button>{/snippet}
 	</SectionHeader>
-	{#if page.error?.requestId}<p class="m-0 font-mono text-caption text-fg-subtle">Reference: {page.error.requestId}</p>{/if}
+	<!-- A reference is for reporting a fault, so a missing or refused page doesn't show one. -->
+	{#if page.error?.requestId && page.status >= 500}<p class="m-0 font-mono text-caption text-fg-subtle">Reference: {page.error.requestId}</p>{/if}
 </div>

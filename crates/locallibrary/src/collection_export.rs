@@ -33,7 +33,6 @@
 //! recorded, changes since the last export) is saved in the store first, as [`crate::pack`] does.
 
 use indexmap::IndexMap;
-use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -59,7 +58,7 @@ use crate::smart::SmartPlaylist;
 use crate::store::{SnapshotInfo, Store};
 use crate::sync::PullOptions;
 use crate::tags::DbTags;
-use crate::{Error, Result, backup, convert, edit, fsutil, hash, merge};
+use crate::{Error, Result, backup, convert, edit, fsutil, hash, merge, workers};
 
 const RECORD_FILE: &str = "collection.json";
 
@@ -496,21 +495,18 @@ fn hash_checked(written: &mut Planned, checked: &FxHashSet<String>, ctx: &Ctx<'_
     }
     ctx.phase_start(Phase::Hash, hashed.len() as u64, hashed.iter().map(|c| c.size).sum());
     let sources = &written.sources;
-    let hashes: Vec<Result<(String, Hash)>> = hashed
-        .into_par_iter()
-        .map(|c| {
-            let src = &sources[&c.path];
-            ctx.emit(Event::Item { phase: Phase::Hash, path: c.path.clone(), bytes: 0 });
-            let hash = hash::hash_file(&src.path, ctx, Phase::Hash)?;
-            // After the hash: a size that changed while the others were read counts too.
-            let now = std::fs::metadata(&src.path).at(&src.path)?.len();
-            if now != src.size {
-                let changed = format!("{} changed while the export was planned; plan it again", src.path.display());
-                return Err(Error::invalid(changed));
-            }
-            Ok((c.path.clone(), hash))
-        })
-        .collect();
+    let hashes: Vec<Result<(String, Hash)>> = workers::map(hashed, |c| {
+        let src = &sources[&c.path];
+        ctx.emit(Event::Item { phase: Phase::Hash, path: c.path.clone(), bytes: 0 });
+        let hash = hash::hash_file(&src.path, ctx, Phase::Hash)?;
+        // After the hash: a size that changed while the others were read counts too.
+        let now = std::fs::metadata(&src.path).at(&src.path)?.len();
+        if now != src.size {
+            let changed = format!("{} changed while the export was planned; plan it again", src.path.display());
+            return Err(Error::invalid(changed));
+        }
+        Ok((c.path.clone(), hash))
+    });
     ctx.phase_end(Phase::Hash);
     for hash in hashes {
         let (key, h) = hash?;
@@ -564,8 +560,7 @@ fn fill_smart(
     warnings: &mut Vec<String>,
 ) -> (FxHashMap<u32, Vec<u32>>, Vec<SmartPlaylist>) {
     let lib = &from.library;
-    let tags = crate::masterdb::tags_by_file(&from.tags, lib);
-    let none = Vec::new();
+    let tags = crate::masterdb::tags_by_track(&from.tags, lib);
     let (mut filled, mut rules, mut plain, mut left_out) = (FxHashMap::default(), Vec::new(), Vec::new(), Vec::new());
     for &id in from.smart_playlists.iter().filter(|id| keep.contains(id)) {
         let path = lib.playlist_path(id);
@@ -577,7 +572,7 @@ fn fill_smart(
             left_out.push(format!("{path}: {why}"));
             continue;
         }
-        let of = |t: &Track| tags.get(&paths::file_key(&t.file_path)).unwrap_or(&none);
+        let of = |t: &Track| tags.of(t);
         filled.insert(id, lib.tracks.iter().filter(|t| list.matches(t, of(t), today)).map(|t| t.id).collect());
         match list.filter() {
             Ok(filter) => rules.push(SmartPlaylist { path, filter, sort: None, limit: None, drives: Vec::new() }),
@@ -610,7 +605,7 @@ fn analysis_slots(from: &Collected<'_>, library: &Library) -> FxHashMap<PathBuf,
         files.map(|f| collection.share_file(&f)).collect::<Vec<_>>()
     };
     let paths: Vec<PathBuf> = library.tracks.iter().flat_map(share).collect();
-    paths.into_par_iter().map(|p| (library_write::path_slot(&p), p)).map(|(slot, p)| (p, slot)).collect()
+    workers::map(paths, |p| (library_write::path_slot(&p), p)).into_iter().map(|(slot, p)| (p, slot)).collect()
 }
 
 /// Where the exported library's files go on the target, and where they come from.
@@ -862,7 +857,7 @@ pub fn apply(
     let _lock = crate::commit::lock(target, None)?;
     if target.has_export() {
         let reason = format!("before exporting {}", plan.what());
-        report.backup = Some(backup::create(target, &reason, &plan.written.backed_up, None)?.id);
+        report.backup = Some(backup::create(target, &reason, &plan.written.backed_up, &[], None)?.id);
     }
     target.begin(LineageOp::Export, format!("export {}", plan.what()), report.backup.clone())?;
     let identity = crate::player::stash(target, true)?;

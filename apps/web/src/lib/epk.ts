@@ -35,50 +35,55 @@ export const RULE_LABELS: Record<AccessRule, string> = {
 };
 
 /** The ladder from fully open to closed, most open first. Anything else is a custom mix. */
-export const ACCESS_PRESETS: { id: string; label: string; description: string; access: EpkAccess }[] = [
-	{
-		id: 'open',
-		label: 'Open',
-		description: 'Anyone signed in gets access as soon as they ask.',
-		access: { bookedWith: 'auto', following: 'auto', promoters: 'auto', anyone: 'auto' }
-	},
-	{
-		id: 'promoters',
-		label: 'Promoters automatically',
-		description: 'Promoters and people you know get in at once. You approve everyone else.',
-		access: { bookedWith: 'auto', following: 'auto', promoters: 'auto', anyone: 'review' }
-	},
-	{
-		id: 'known',
-		label: 'People you know automatically',
-		description: "People you've booked with or follow get in at once. You approve everyone else.",
-		access: { bookedWith: 'auto', following: 'auto', promoters: 'review', anyone: 'review' }
-	},
-	{
-		id: 'review',
-		label: 'You approve everyone',
-		description: 'Anyone signed in can ask, and you decide each time.',
-		access: { bookedWith: 'review', following: 'review', promoters: 'review', anyone: 'review' }
-	},
-	{
-		id: 'promoters-ask',
-		label: 'Only promoters can ask',
-		description: 'Promoters and people you know can ask, and you decide. Nobody else can.',
-		access: { bookedWith: 'review', following: 'review', promoters: 'review', anyone: 'none' }
-	},
-	{
-		id: 'known-ask',
-		label: 'Only people you know can ask',
-		description: "People you've booked with or follow can ask, and you decide. Nobody else can.",
-		access: { bookedWith: 'review', following: 'review', promoters: 'none', anyone: 'none' }
-	},
-	{
-		id: 'closed',
-		label: 'Nobody can ask',
-		description: 'Only the people you add yourself get access.',
-		access: { bookedWith: 'none', following: 'none', promoters: 'none', anyone: 'none' }
-	}
-];
+export const ACCESS_PRESETS: { id: string; label: string; description: string; common?: boolean; access: EpkAccess }[] =
+	[
+		{
+			id: 'open',
+			label: 'Open',
+			description: 'Anyone signed in gets access as soon as they ask.',
+			access: { bookedWith: 'auto', following: 'auto', promoters: 'auto', anyone: 'auto' }
+		},
+		{
+			id: 'promoters',
+			label: 'Promoters automatically',
+			description: 'Promoters and people you know get in at once. You approve everyone else.',
+			common: true,
+			access: { bookedWith: 'auto', following: 'auto', promoters: 'auto', anyone: 'review' }
+		},
+		{
+			id: 'known',
+			label: 'People you know automatically',
+			description: "People you've booked with or follow get in at once. You approve everyone else.",
+			access: { bookedWith: 'auto', following: 'auto', promoters: 'review', anyone: 'review' }
+		},
+		{
+			id: 'review',
+			label: 'You approve everyone',
+			description: 'Anyone signed in can ask, and you decide each time.',
+			common: true,
+			access: { bookedWith: 'review', following: 'review', promoters: 'review', anyone: 'review' }
+		},
+		{
+			id: 'promoters-ask',
+			label: 'Only promoters can ask',
+			description: 'Promoters and people you know can ask, and you decide. Nobody else can.',
+			access: { bookedWith: 'review', following: 'review', promoters: 'review', anyone: 'none' }
+		},
+		{
+			id: 'known-ask',
+			label: 'Only people you know can ask',
+			description: "People you've booked with or follow can ask, and you decide. Nobody else can.",
+			common: true,
+			access: { bookedWith: 'review', following: 'review', promoters: 'none', anyone: 'none' }
+		},
+		{
+			id: 'closed',
+			label: 'Nobody can ask',
+			description: 'Only the people you add yourself get access.',
+			common: true,
+			access: { bookedWith: 'none', following: 'none', promoters: 'none', anyone: 'none' }
+		}
+	];
 
 export const DEFAULT_ACCESS: EpkAccess = ACCESS_PRESETS.find((preset) => preset.id === 'review')!.access;
 
@@ -331,7 +336,7 @@ export function pressChecks(photos: { width?: number; height?: number; credit?: 
 	];
 }
 
-/** An empty press kit form: no mixes on the project yet, and the default rules. */
+/** An empty press kit form: no mixes on the project yet, and the default rules. @internal */
 export const epkFormDefaults: EpkFormValues = {
 	cid: '',
 	title: '',

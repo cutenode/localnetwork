@@ -64,6 +64,7 @@ pub fn rot(path: &Path) {
     let mut bytes = fs::read(path).unwrap();
     let mid = bytes.len() / 2;
     bytes[mid] ^= 0xFF;
+    fs::remove_file(path).unwrap();
     fs::write(path, bytes).unwrap();
     filetime::set_file_mtime(path, mtime).unwrap();
 }

@@ -1,7 +1,48 @@
 //! Naming drives and keeping track of them: adopt, rename, roles, retiring, the logbook, the
 //! registry of known drives, copies and drives that lost their identity, and drive groups.
 
+use hegel::generators as gs;
+use hegel::{HealthCheck, TestCase};
+
 use crate::support::{Env, PDB, copy_dir, fixtures, line, path};
+
+/// A backup synced from Main, then left behind by any number of pulls of Main made while it was
+/// unplugged: the registry says it's up to date, or how many snapshots behind it is and which one
+/// it holds. A blank name for a drive is refused. With the store gone, `drive groups` still puts
+/// both drives under their library, unnamed.
+#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_drive_left_behind_says_by_how_much(tc: TestCase) {
+    let env = Env::new();
+    let main = env.pulled("Main");
+    let backup = env.blank("Backup");
+    env.ok(&["--yes", "sync", "Main", path(&backup)]);
+    env.ok(&["--yes", "adopt", path(&backup), "--name", "Backup"]);
+    let behind = tc.draw(gs::integers::<usize>().max_value(2));
+    std::fs::rename(&backup, env.outside("Backup")).unwrap();
+    for i in 0..behind {
+        env.ok(&["--yes", "playlist", "new", "Main", &format!("New {i}")]);
+        env.ok(&["pull", "Main"]);
+    }
+    std::fs::rename(env.outside("Backup"), &backup).unwrap();
+    let out = env.ok(&["drive", "ls", "--known"]);
+    let said = line(&out, "Backup  Main");
+    match behind {
+        0 => assert!(said.ends_with("up to date"), "{out}"),
+        n => assert!(said.contains(&format!("{n} snapshot(s) behind (held ")), "{out}"),
+    }
+
+    let blank = tc.draw(gs::sampled_from(&["", " ", "\t "][..]));
+    let r = env.run(&["drive", "rename", "Main", blank]);
+    assert!(r.code == 1 && r.err.contains("the name is empty"), "{blank:?}: {}", r.err);
+
+    std::fs::rename(&env.store, env.outside("store kept")).unwrap();
+    let out = env.ok(&["drive", "groups"]);
+    assert!(out.starts_with("an unnamed library ("), "{out}");
+    for d in [&main, &backup] {
+        assert!(line(&out, path(d)).ends_with(path(d)), "{out}");
+    }
+    assert!(!env.store.exists(), "nothing makes a store");
+}
 
 #[test]
 fn a_drive_is_named_given_a_role_retired_and_forgotten() {

@@ -177,6 +177,77 @@ fn intelligent_playlists_hold_what_their_rules_match() {
     assert!(again.warnings.iter().any(|w| w.contains("Recent: its rules can't be read")), "{:?}", again.warnings);
 }
 
+/// Intelligent playlists on the title, with any of rekordbox's text operators: those a filter
+/// can say (contains, doesn't contain) get a smart rule saying it, and the plan counts the others,
+/// exported as the tracks they hold now, naming the first; either way each holds the tracks its
+/// condition matches.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(lists = vec![(10u8, "o"), (8u8, "never"), (2u8, "here")])]
+fn intelligent_playlists_get_a_rule_when_a_filter_can_say_it(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let operators = vec![1u8, 2, 8, 9, 10, 11];
+    let values = vec!["never", "one more time", "o", "here"];
+    let lists: Vec<(u8, &str)> =
+        tc.draw(gs::vecs(gs::tuples!(gs::sampled_from(operators), gs::sampled_from(values))).min_size(1).max_size(4));
+    // The collection's own intelligent playlist, Recent, as one a filter can say.
+    let recent = r#"<NODE Id="1" LogicalOperator="1" AutomaticUpdate="1"><CONDITION PropertyName="genre" Operator="8" ValueUnit="" ValueLeft="house" ValueRight=""/></NODE>"#;
+    let recent = format!("UPDATE djmdPlaylist SET SmartList = '{recent}' WHERE ID = '12';");
+    let sql: String = std::iter::once(recent)
+        .chain(lists.iter()
+        .enumerate()
+        .map(|(i, (operator, value))| {
+            let node = format!(
+                r#"<NODE Id="1" LogicalOperator="1" AutomaticUpdate="1"><CONDITION PropertyName="name" Operator="{operator}" ValueUnit="" ValueLeft="{value}" ValueRight=""/></NODE>"#
+            );
+            format!(
+                "INSERT INTO djmdPlaylist (ID, Seq, Name, Attribute, ParentID, SmartList) VALUES ('{}', {}, 'Smart {i}', 4, 'root', '{node}');",
+                30 + i,
+                10 + i
+            )
+        }))
+        .collect();
+    let pc = Computer::with(&sql);
+    let mut target = pc.folder("Export");
+    let (plan, _) = pc.export(&mut target, &CollectionExportOptions::default());
+    let lib = target.library().unwrap();
+    let sayable = |op: u8| matches!(op, 8 | 9);
+    for (i, (operator, value)) in lists.iter().enumerate() {
+        let path = format!("Smart {i}");
+        let rule = plan.smart.iter().find(|s| s.path == path).map(|s| s.filter.as_str());
+        let minus = if *operator == 9 { "-" } else { "" };
+        let want = sayable(*operator).then(|| format!(r#"{minus}title:"{value}""#));
+        assert_eq!(rule, want.as_deref(), "{path}: {:?}", plan.smart);
+        let matches = |title: &str| {
+            let title = title.to_lowercase();
+            match operator {
+                1 => title == *value,
+                2 => title != *value,
+                8 => title.contains(value),
+                9 => !title.contains(value),
+                10 => title.starts_with(value),
+                _ => title.ends_with(value),
+            }
+        };
+        let mut want: Vec<&str> = lib.tracks.iter().filter(|t| matches(&t.title)).map(|t| t.title.as_str()).collect();
+        let held = lib.find_playlist(&path).unwrap_or_else(|| panic!("{path} wasn't exported: {:?}", plan.warnings));
+        let mut got: Vec<&str> = held.track_ids.iter().map(|id| lib.track(*id).unwrap().title.as_str()).collect();
+        want.sort();
+        got.sort();
+        assert_eq!(got, want, "{path}: title {operator} {value}");
+    }
+    let plain: Vec<usize> = (0..lists.len()).filter(|i| !sayable(lists[*i].0)).collect();
+    let said =
+        plan.warnings.iter().find(|w| w.contains("intelligent playlist(s) are exported as the tracks they hold now"));
+    match plain.first() {
+        None => assert!(said.is_none(), "{said:?}"),
+        Some(first) => {
+            let said = said.unwrap_or_else(|| panic!("{:?}", plan.warnings));
+            assert!(said.starts_with(&format!("{} intelligent playlist(s)", plain.len())), "{said}");
+            assert!(said.contains(&format!("(e.g. Smart {first}: name ")), "{said}");
+        }
+    }
+}
+
 #[test]
 fn exporting_again_copies_only_what_changed() {
     let pc = Computer::new();
@@ -730,6 +801,37 @@ fn an_export_cut_off_part_way_through_a_new_file_writes_it_again() {
     assert_eq!(std::fs::read(target.path(key)).unwrap(), b"one more time");
 }
 
+/// Recovery must not keep a file just because it matches today's source: the interrupted
+/// write may have noted a different size or time, so begin removes that file.
+#[hegel::test(test_cases = 4)]
+#[hegel::explicit_test_case(size_changed = true)]
+#[hegel::explicit_test_case(size_changed = false)]
+fn an_export_recopies_an_unfinished_file_matching_the_current_source(tc: hegel::TestCase) {
+    let size_changed = tc.draw(hegel::generators::booleans());
+    let pc = Computer::new();
+    let mut target = pc.folder("Export");
+    let key = "Contents/Daft Punk/Discovery/One More Time.mp3";
+    let source = pc.dir.path().join("Music/One More Time.mp3");
+    let time = 1_600_000_000;
+    fsutil::set_mtime(&source, time).unwrap();
+    target.begin(LineageOp::Export, "interrupted export", None).unwrap();
+    let (size, noted_time) = if size_changed { (14, time) } else { (13, time - 10) };
+    crate::writing::note(&target, [(key.to_string(), size, noted_time)].into_iter()).unwrap();
+    std::fs::create_dir_all(target.path(key).parent().unwrap()).unwrap();
+    std::fs::write(target.path(key), b"one more ????").unwrap();
+    fsutil::set_mtime(&target.path(key), time).unwrap();
+    assert_eq!(crate::writing::unfinished(&target), [key]);
+
+    let (again, _) = pc.export(&mut target, &CollectionExportOptions::default());
+    for library in [target.library().unwrap(), target.library_plus().unwrap().library().unwrap()] {
+        for track in library.tracks {
+            assert!(target.path(&paths::key(&track.file_path)).is_file(), "missing {}", track.file_path);
+        }
+    }
+    assert_eq!(std::fs::read(target.path(key)).unwrap(), b"one more time");
+    assert!(again.copies.iter().any(|c| c.path == key));
+}
+
 /// The progress bar fills: every file copied counts its bytes, an analysis file with its new path
 /// as much as audio.
 #[test]
@@ -1076,7 +1178,7 @@ fn prop_intelligent_playlists_export_what_their_rules_match(tc: hegel::TestCase)
     }
     let recent = planned.library.find_playlist("Recent");
     assert_eq!(recent.is_some(), kept && evaluable, "{xml}");
-    let tags = collection.tags_by_file();
+    let tags = collection.tags_by_track();
     let today = chrono::Local::now().date_naive();
     if let (Some(recent), Some(list)) = (recent, &list) {
         let held: Vec<&str> =
@@ -1086,7 +1188,7 @@ fn prop_intelligent_playlists_export_what_their_rules_match(tc: hegel::TestCase)
             .tracks
             .iter()
             .filter(|t| t.title != "Only Here")
-            .filter(|t| list.matches(t, tags.get(&paths::file_key(&t.file_path)).map_or(&[][..], Vec::as_slice), today))
+            .filter(|t| list.matches(t, tags.of(t), today))
             .map(|t| t.title.as_str())
             .collect();
         let mut held_sorted = held.clone();

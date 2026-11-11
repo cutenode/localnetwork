@@ -1,9 +1,12 @@
-import { page } from 'vitest/browser';
-import { expect, it } from 'vitest';
+import { page, userEvent } from 'vitest/browser';
+import { afterEach, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { showFormDefaults } from '#lib/shows.ts';
+import { stubFormAction } from '#lib/testing/form-action.ts';
 import type { ProjectView, Viewer } from '#lib/types.ts';
 import Page from './+page.svelte';
+
+afterEach(() => vi.unstubAllGlobals());
 
 const project: ProjectView = {
 	uri: 'at://did:plc:root/computer.localnetwork.project/2',
@@ -33,12 +36,16 @@ const data = {
 	viewer,
 	pendingRequests: 0,
 	unread: 0,
+	waiting: 0,
+	needs: [],
+	access: Promise.resolve([]),
 	projects: Promise.resolve([project]),
 	sections: Promise.resolve(null),
 	project,
 	isNew: true,
 	values: showFormDefaults,
-	geocoder: false
+	geocoder: false,
+	saved: null
 };
 
 it('offers to sign in again outside the show form, which keeps every field', async () => {
@@ -60,6 +67,55 @@ it('offers to sign in again outside the show form, which keeps every field', asy
 	expect(announce.contains(signIn)).toBe(false);
 	expect(new FormData(announce).get('name')).toBe('Tidal Hours');
 	expect(new FormData(announce).get('city')).toBe('Berlin');
+});
+
+it('says a show went up, with a link to where it shows', async () => {
+	await render(Page, {
+		params: { slug: 'neon-tide', rkey: 'abc' },
+		data: { ...data, isNew: false, saved: 'announced' },
+		form: null
+	});
+
+	await expect.element(page.getByRole('status')).toBeVisible();
+	expect(page.getByRole('status').element().textContent).toMatch(/^Announced\./);
+	await expect
+		.element(page.getByRole('link', { name: "See it on Neon Tide's page" }))
+		.toHaveAttribute('href', '/projects/neon-tide');
+});
+
+it('holds the buttons, and keeps the show, while it saves', async () => {
+	const action = stubFormAction();
+	await render(Page, {
+		params: { slug: 'neon-tide', rkey: 'new' },
+		data: {
+			...data,
+			values: {
+				...showFormDefaults,
+				name: 'Tidal Hours',
+				date: '2026-12-05',
+				start: '23:00',
+				city: 'Berlin',
+				country: 'DE'
+			}
+		},
+		form: null
+	});
+
+	await userEvent.click(page.getByRole('button', { name: 'Announce show' }));
+
+	await expect.element(page.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+	await expect.poll(() => action.sent.length).toBe(1);
+	action.answer();
+	await expect.element(page.getByRole('button', { name: 'Announce show' })).toBeEnabled();
+});
+
+it('asks once more before deleting a show', async () => {
+	await render(Page, { params: { slug: 'neon-tide', rkey: 'abc' }, data: { ...data, isNew: false }, form: null });
+
+	await expect.element(page.getByRole('button', { name: 'Delete show' })).not.toBeInTheDocument();
+	await userEvent.click(page.getByRole('button', { name: 'Delete…' }));
+
+	await expect.element(page.getByRole('button', { name: 'Delete show' })).toBeVisible();
 });
 
 it('asks for the city from the search until it has coordinates', async () => {

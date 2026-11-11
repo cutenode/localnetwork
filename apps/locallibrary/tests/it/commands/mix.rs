@@ -124,6 +124,42 @@ fn the_report_shows_the_fields_analyzers_say_how_to_show() {
     assert!(html.contains(&format!(r#""fields":[{{"label":"echo.bytes","value":"{bytes} B"}}]"#)), "{html}");
 }
 
+/// Whatever unit an analyzer says its field is shown in (or none), and whether the tracks were
+/// analysed: the report shows the field, in that unit, exactly when they were and it says how to
+/// show it.
+#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn the_report_shows_a_field_only_as_its_analyzer_says(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut env = Env::ascii();
+    let unit = tc.draw(gs::sampled_from(vec![None, Some("B"), Some("bytes"), Some("o")]));
+    let display = unit.map(|u| format!("\ndisplay.bytes = {{ unit = \"{u}\" }}")).unwrap_or_default();
+    let hinted = crate::support::echo_plugin()
+        .replace("fields = { bytes = \"integer\" }", &format!("fields = {{ bytes = \"integer\" }}{display}"));
+    env.plugins(&[&hinted]);
+    let (drive, recording) = drive_and_recording(&env);
+    let d = path(&drive);
+    let page = env.outside("friday.html");
+    let report = || {
+        env.ok(&["mix", path(&recording), "--drive", d, "--html", path(&page), "--replace"]);
+        std::fs::read_to_string(&page).unwrap()
+    };
+    // Before the tracks are analysed, too, now and then.
+    if tc.draw(gs::booleans()) {
+        let html = report();
+        assert!(!html.contains(r#""label":"echo.bytes""#), "{html}");
+    }
+    env.ok(&["analyze", d, "--analyzer", "size"]);
+    let html = report();
+    let bytes = std::fs::metadata(drive.join("Contents/Loopmasters/UnknownAlbum/Demo Track 1.mp3")).unwrap().len();
+    match unit {
+        Some(u) => {
+            let field = format!(r#""fields":[{{"label":"echo.bytes","value":"{bytes} {u}"}}]"#);
+            assert!(html.contains(&field), "{field} in:\n{html}");
+        }
+        None => assert!(!html.contains(r#""label":"echo.bytes""#), "{html}"),
+    }
+}
+
 #[test]
 fn several_recordings_are_written_into_a_folder() {
     let env = Env::ascii();

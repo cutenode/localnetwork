@@ -668,25 +668,29 @@ fn playlist_contents(lib: &Library) -> IndexMap<PlaylistKey<'_>, (String, Vec<St
     out
 }
 
-fn track_field_changes(a: &Track, b: &Track) -> Vec<FieldChange> {
+/// The details `b` holds differently from `a` (old: `a`'s, new: `b`'s).
+/// Values are only written out for the fields that differ: most tracks compared are the same.
+pub fn track_field_changes(a: &Track, b: &Track) -> Vec<FieldChange> {
     let mut out = Vec::new();
-    let mut cmp = |field: &str, x: &str, y: &str| {
-        if x != y {
-            out.push(FieldChange { field: field.into(), old: x.into(), new: y.into() });
+    let mut cmp = |field: &str, same: bool, show: &dyn Fn(&Track) -> String| {
+        if !same {
+            out.push(FieldChange { field: field.into(), old: show(a), new: show(b) });
         }
     };
-    cmp("title", &a.title, &b.title);
-    cmp("artist", &a.artist, &b.artist);
-    cmp("album", &a.album, &b.album);
-    cmp("genre", &a.genre, &b.genre);
-    cmp("key", &a.key, &b.key);
-    cmp("label", &a.label, &b.label);
-    cmp("comment", &a.comment, &b.comment);
-    cmp("bpm", &format!("{:.2}", a.bpm), &format!("{:.2}", b.bpm));
-    cmp("rating", &a.rating.to_string(), &b.rating.to_string());
-    cmp("color", &format!("{:?}", a.color), &format!("{:?}", b.color));
-    cmp("file_size", &a.file_size.to_string(), &b.file_size.to_string());
-    cmp("artwork", &a.artwork_id.is_some().to_string(), &b.artwork_id.is_some().to_string());
+    cmp("title", a.title == b.title, &|t| t.title.clone());
+    cmp("artist", a.artist == b.artist, &|t| t.artist.clone());
+    cmp("album", a.album == b.album, &|t| t.album.clone());
+    cmp("genre", a.genre == b.genre, &|t| t.genre.clone());
+    cmp("key", a.key == b.key, &|t| t.key.clone());
+    cmp("label", a.label == b.label, &|t| t.label.clone());
+    cmp("comment", a.comment == b.comment, &|t| t.comment.clone());
+    // Two tempos that print the same to two places are the same.
+    let bpm = |t: &Track| format!("{:.2}", t.bpm);
+    cmp("bpm", a.bpm == b.bpm || bpm(a) == bpm(b), &bpm);
+    cmp("rating", a.rating == b.rating, &|t| t.rating.to_string());
+    cmp("color", a.color == b.color, &|t| format!("{:?}", t.color));
+    cmp("file_size", a.file_size == b.file_size, &|t| t.file_size.to_string());
+    cmp("artwork", a.artwork_id.is_some() == b.artwork_id.is_some(), &|t| t.artwork_id.is_some().to_string());
     out
 }
 

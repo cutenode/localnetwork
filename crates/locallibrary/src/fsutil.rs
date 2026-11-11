@@ -206,6 +206,7 @@ fn temp_beside(dst: &Path) -> Result<tempfile::NamedTempFile> {
 /// file under its own name spares FAT and exFAT the rename, which costs them as much as making
 /// the file. It's removed if it's dropped, so one that fails leaves nothing. `None` when it can't
 /// be made: the temp file that's used instead finds out why.
+#[cfg(not(windows))]
 fn new_file(dst: &Path) -> Option<tempfile::NamedTempFile> {
     let open = || File::options().read(true).write(true).create_new(true).open(dst);
     let file = match open() {
@@ -286,10 +287,11 @@ pub(crate) fn reflink_or_copy(src: &Path, tmp: tempfile::NamedTempFile) -> Resul
 }
 
 /// [`copy_file`] for a write to a drive, without an fsync, whose files aren't finished until
-/// [`flush`] and then [`set_mtime`] say so: a new file is written under its own name (see
-/// `new_file`), and a file already there through a temp file, since the library in use may
-/// need it. A run cut off leaves a new file part written with a time after it began, and the
-/// next run writes it again, as it does a temp file renamed before its data reached the disk (see
+/// [`flush`] and then [`set_mtime`] say so: on platforms that can persist the recovery note's
+/// directory, a new file is written under its own name (see `fresh_or_temp`). A file already
+/// there goes through a temp file, since the library in use may need it. A run cut off leaves a
+/// new file part written with a time after it began. The next run writes it again, as it does a
+/// temp file renamed before its data reached the disk (see
 /// `sync::cut_off_since`). Nothing a reader must find whole goes this way.
 pub fn copy_for_drive(src: &Path, dst: &Path, expected: Option<Hash>, ctx: &Ctx<'_>) -> Result<Hash> {
     // A copy on `src`'s own volume may be cloned, and goes through a temp file: the clone is made
@@ -311,11 +313,14 @@ pub fn write_for_drive(dst: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 /// What a file for a drive is written through: `dst` when it's new (`true`), else a temp file.
+/// Windows has no directory-sync barrier here for the recovery note, so it keeps the temp-file
+/// route. Temp names identify unfinished writes only before rename; landed files need retry repair.
 fn fresh_or_temp(dst: &Path) -> Result<(bool, tempfile::NamedTempFile)> {
-    match new_file(dst) {
-        Some(file) => Ok((true, file)),
-        None => Ok((false, temp_beside(dst)?)),
+    #[cfg(not(windows))]
+    if let Some(file) = new_file(dst) {
+        return Ok((true, file));
     }
+    Ok((false, temp_beside(dst)?))
 }
 
 /// `tmp` kept as `dst`: already there when it's `new`, else renamed over it.
@@ -372,6 +377,26 @@ pub fn absolute(path: &Path) -> PathBuf {
 }
 
 pub use loclib_model::paths::resolved;
+
+/// Take the write permission off `path` for everyone, and say whether it's read-only now: some
+/// disks accept this and keep nothing. Being renamed over or deleted still works, since that
+/// writes its folder. Not on Windows, where a read-only file can't be replaced or deleted.
+pub(crate) fn seal(path: &Path) -> std::io::Result<bool> {
+    #[cfg(unix)]
+    {
+        let mut permissions = fs::metadata(path)?.permissions();
+        if !permissions.readonly() {
+            permissions.set_readonly(true);
+            fs::set_permissions(path, permissions)?;
+        }
+        Ok(fs::metadata(path)?.permissions().readonly())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(false)
+    }
+}
 
 /// Delete a file if it exists. Returns whether it did.
 pub fn remove_if_exists(path: &Path) -> Result<bool> {

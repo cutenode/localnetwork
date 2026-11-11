@@ -4,54 +4,60 @@ packages:
   - packages/*
 linkWorkspacePackages: false
 engineStrict: true
+# Install scripts run only for these versions, so a bump has to approve its script again.
+# better-sqlite3 fetches or builds the native addon @atproto/pds (the dev network) loads, lefthook
+# installs the git hooks, and ast-grep links its platform package's binary in place of a JS shim
+# that warns on every run. The others work without theirs: esbuild runs its platform package's
+# binary, sharp uses its prebuilt @img package, and core-js and protobufjs only print.
 allowBuilds:
-  better-sqlite3: true
-  protobufjs: false
-  sharp: true
+  '@ast-grep/cli@0.51.0': true
+  better-sqlite3@12.11.1: true
+  lefthook@2.2.2: true
   core-js: false
-  esbuild: true
-  lefthook: true
-  '@ast-grep/cli': true
+  esbuild: false
+  protobufjs: false
+  sharp: false
 # Atproto Spaces alpha: pin every @atproto package to the same alpha build.
 overrides:
-  '@atproto/api': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/aws': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/bsky': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/bsync': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/car': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/common': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/common-web': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/crypto': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/dev-env': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/did': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/identity': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/lex': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/lex-builder': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/lex-cbor': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/lex-client': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/lex-data': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/lex-document': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/lex-installer': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/lex-json': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/lex-password-session': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/lex-resolver': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/lex-schema': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/lexicon': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/oauth-client': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/oauth-client-node': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/oauth-provider': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/oauth-provider-api': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/oauth-provider-ui': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/oauth-scopes': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/oauth-types': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/ozone': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/pds': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/repo': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/space': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/sync': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/syntax': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/xrpc': 0.0.0-spaces-alpha-20261029171913
-  '@atproto/xrpc-server': 0.0.0-spaces-alpha-20261029171913
+  '@atproto/api': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/aws': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/bsky': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/bsync': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/car': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/common': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/common-web': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/crypto': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/dev-env': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/did': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/identity': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/lex': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/lex-builder': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/lex-cbor': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/lex-client': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/lex-data': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/lex-document': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/lex-installer': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/lex-json': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/lex-password-session': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/lex-resolver': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/lex-schema': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/lexicon': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/oauth-client': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/oauth-client-node': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/oauth-provider': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/oauth-provider-api': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/oauth-provider-ui': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/oauth-scopes': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/oauth-types': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/ozone': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/pds': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/repo': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/space': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/star': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/sync': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/syntax': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/xrpc': 0.0.0-spaces-alpha-20261105160032
+  '@atproto/xrpc-server': 0.0.0-spaces-alpha-20261105160032
   # Dev-only paths whose own ranges keep a version with known advisories.
   # connect-node 1.7.0 (atproto dev network) only takes Headers from undici, and only on Node < 18.
   '@connectrpc/connect-node>undici': ^6.29.1
@@ -60,18 +66,16 @@ overrides:
   'typed-rest-client>qs': ^6.16.1
   # sdk-node 0.219.0 (atproto dev network) pins propagator-jaeger 2.8.0; 2.9.0 has the fix.
   '@opentelemetry/sdk-node>@opentelemetry/propagator-jaeger': 2.9.0
-  # @lhci/cli and the external-editor under it (through inquirer) only call tmp.fileSync and
-  # tmp.tmpNameSync, which 0.2 keeps.
-  '@lhci/cli>tmp': ^0.2.6
-  'external-editor>tmp': ^0.2.6
+  # Every get-uri release (Lighthouse CI's proxy-agent, through pac-proxy-agent) takes basic-ftp
+  # ^5, which has GHSA-c475-qrg2-pj4r. get-uri only reads ftp: URLs, with new Client(), access,
+  # lastMod, list (each entry's name and modifiedAt), downloadTo and close, all the same in 6.
+  # 6.0.0's one breaking change refuses a PASV reply that names another host than the one
+  # connected to, which a PAC file fetched over FTP would only hit on an unusual server.
+  'get-uri>basic-ftp': ^6.2.6
   # Every satori release pins fflate 0.7.3, which has GHSA-px8p-9vwx-vf98 (an endless loop on a
   # malformed ZIP64 archive); 0.7.5 fixes it. Satori only calls inflateSync, to read fonts.
   'satori>fflate': ^0.7.5
-# Stryker's vitest runner 10.0.0 names tests the way Vitest 4 did, so on Vitest 5 it runs no tests
-# for a mutant and every mutant survives (stryker-mutator/stryker-js#6210). Drop the patch once a
-# release has the fix (#6214).
 patchedDependencies:
-  '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch
   # SvelteKit's client imports the root error page before it hydrates, but the server doesn't
   # preload it, so every page fetched it a round trip late (sveltejs/kit#17415). That round trip put
   # /projects/halflight's simulated LCP over Lighthouse's budget on a busy machine. Drop the patch
@@ -82,3 +86,20 @@ patchedDependencies:
 auditConfig:
   ignoreGhsas:
     - GHSA-mrhx-c7xc-m3w5
+# Avoid installing packages published in last 3 days (in minutes).
+minimumReleaseAge: 4320
+# Disable exotic subdeps in older pnpm versions.
+blockExoticSubdeps: true
+# Fail if trusted publishing or provenance is gone from a package that used to have it.
+trustPolicy: no-downgrade
+# Versions whose own maintainers published them by hand after earlier releases had provenance.
+# Each is pinned, so the next release is checked again. chokidar 4.0.2 on (paulmillr; 4.0.1 had
+# provenance, 5.x has trusted publishing, svelte-check takes ^4). lefthook 2.2.2 (mrexox; 2.2.1 came
+# from GitHub Actions). chromium-bidi, which puppeteer-core pins exactly (chrome-devtools-npm; the
+# last release with provenance was 17.0.2). @yarnpkg/libzip 3.2.2, which @lavamoat/harden's
+# @yarnpkg/core takes at ^3.2.2 (arcanis; 3.2.0 and 3.2.1 came from yarnbot with provenance).
+trustPolicyExclude:
+  - '@yarnpkg/libzip@3.2.2'
+  - chokidar@4.0.3
+  - chromium-bidi@157.0.8090-0
+  - lefthook@2.2.2

@@ -234,6 +234,10 @@ pub enum Capability {
     CollectionRead,
     LibraryPlan,
     LibraryDelete,
+    /// Delete tracks whose files the backup leaves out (`delete_unbacked`), for tracks rekordbox's
+    /// next export puts back: undoing can't bring those files back, so only plugins locallibrary
+    /// ships have it.
+    LibraryDeleteUnbacked,
     TagsPlan,
     CuesPlan,
     ArtworkPlan,
@@ -257,7 +261,7 @@ pub enum Capability {
 
 impl Capability {
     /// Every capability but `net:<host>`.
-    pub const NAMED: [Capability; 21] = [
+    pub const NAMED: [Capability; 22] = [
         Capability::LibraryRead,
         Capability::AnalysisRead,
         Capability::ArtworkRead,
@@ -271,6 +275,7 @@ impl Capability {
         Capability::CollectionRead,
         Capability::LibraryPlan,
         Capability::LibraryDelete,
+        Capability::LibraryDeleteUnbacked,
         Capability::TagsPlan,
         Capability::CuesPlan,
         Capability::ArtworkPlan,
@@ -297,6 +302,7 @@ impl Capability {
             Capability::CollectionRead => "collection:read",
             Capability::LibraryPlan => "library:plan",
             Capability::LibraryDelete => "library:delete",
+            Capability::LibraryDeleteUnbacked => "library:delete-unbacked",
             Capability::TagsPlan => "tags:plan",
             Capability::CuesPlan => "cues:plan",
             Capability::ArtworkPlan => "artwork:plan",
@@ -591,6 +597,12 @@ impl Manifest {
         let mut granted = FxHashSet::default();
         if let Some((i, c)) = self.capabilities.iter().enumerate().find(|(_, c)| !granted.insert(*c)) {
             return Err(invalid(format!("capabilities[{i}]"), format!("{c} is there twice")));
+        }
+        if !built_in && let Some(i) = self.capabilities.iter().position(|c| *c == Capability::LibraryDeleteUnbacked) {
+            return Err(invalid(
+                format!("capabilities[{i}]"),
+                "only plugins locallibrary ships delete without a backup",
+            ));
         }
         let c = &self.contributes;
         let commands = c.commands.iter().enumerate().map(|(i, x)| ("contributes.commands", i, x.cli.as_deref()));

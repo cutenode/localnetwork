@@ -98,6 +98,7 @@ Every change shows what it will do and asks first. It ends with the commands you
 | You want to check your drives for a particular player | `locallibrary check --players CDJ-3000X,CDJ-2000NXS2` |
 | You changed your mind about the last change | `locallibrary undo` |
 | You want to browse and listen | `locallibrary` |
+| You want a past version of a drive as a folder, nothing copied | `locallibrary store browse <snapshot>` |
 | You want to know what a command does | `locallibrary help sync` |
 | Something went wrong | `locallibrary bug` (reports it, with your version and system filled in) |
 
@@ -111,7 +112,9 @@ such as `REKORDBOX`) or its mount path. `locallibrary --help` lists every comman
 
 - Every command that changes a library on a drive shows its plan first and asks, but for `watch`,
   which you opt into. If the drive changed in between (rekordbox exported again, say), it writes
-  nothing and asks you to plan again.
+  nothing and asks you to plan again. A dry run writes nothing. Otherwise the one thing written
+  before you say yes is a short test of a drive's speed, in its `.locallibrary/`, which the plan
+  mentions and which is removed after ([Speed](docs/drives.md#speed)).
 - Edits, merges and other changes to a library made in place are backed up first, and `locallibrary undo` takes
   the last one back. A `sync` or `library push` isn't backed up: it replaces the library, and `undo`
   refuses after it.

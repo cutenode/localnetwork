@@ -18,6 +18,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::anlz::{self, Beat, CueFile, CuePoint, DEFAULT_HOT_CUE_RGB, HOT_CUE_PALETTE};
+use crate::backup;
 use crate::commit::{Changes, NewDatabases, NewFile, Options};
 use crate::device::{Device, LineageOp};
 use crate::edit::Replayed;
@@ -1017,21 +1018,21 @@ pub fn plan(device: &Device, track_ids: &[u32], edit: &CueEdit, ctx: &Ctx<'_>) -
         });
     }
 
-    // The backup copies the databases and the analysis files; each file is staged before it
-    // replaces the old one.
+    // The backup copies the databases and the analysis files; each analysis file, and OneLibrary's
+    // database when it changes, is staged before it replaces the old one.
     let cluster = fsutil::cluster_size(device.root());
     let round = |n: u64| n.div_ceil(cluster) * cluster;
     let size = |key: &str| std::fs::metadata(device.path(key)).map(|m| m.len()).unwrap_or(0);
     let needed_bytes = match tracks.is_empty() {
         true => 0,
         false => {
-            let databases: u64 = paths::DATABASE_FILES.iter().map(|k| round(size(k))).sum();
-            let analysis: u64 = tracks.iter().flat_map(|t| &t.files).map(|k| 2 * round(size(k))).sum();
+            let analysis = || tracks.iter().flat_map(|t| &t.files).map(String::as_str);
+            let staged: u64 = analysis().map(|k| round(size(k))).sum();
             let staged_plus = match tracks.iter().any(|t| t.onelibrary) {
                 true => round(size(paths::LIBRARY_PLUS_DB) + size(paths::LIBRARY_PLUS_WAL)),
                 false => 0,
             };
-            databases + analysis + staged_plus
+            backup::needed_bytes(device, analysis()) + staged + staged_plus
         }
     };
     let free_space = fsutil::available_space(device.root());

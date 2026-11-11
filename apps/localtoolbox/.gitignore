@@ -3,4 +3,3 @@ dist/
 .vitest/
 localtoolbox.zip
 reports/
-.stryker-tmp/

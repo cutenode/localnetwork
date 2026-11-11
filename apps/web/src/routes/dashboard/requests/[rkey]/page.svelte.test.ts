@@ -12,6 +12,9 @@ const base = {
 	projects: Promise.resolve([neonTide]),
 	sections: Promise.resolve(null),
 	unread: 0,
+	waiting: 0,
+	needs: [],
+	access: Promise.resolve([]),
 	request: request('update'),
 	project: neonTide,
 	changes: [{ field: 'profile.tagline', after: 'Dub' }],
@@ -66,4 +69,32 @@ it('says when the requester deleted what a decided request said', async () => {
 		data: { ...base, submitted: false, request: request('update', { ...decided, deletedAt: '2026-10-05T12:00:00Z' }) }
 	});
 	await expect.element(page.getByText(/you deleted what it said/)).toBeVisible();
+});
+
+it('lets a DJ sent back for changes send their listing request again once their profile is updated', async () => {
+	const listing = request('list', {
+		project: null,
+		projectUri: null,
+		status: 'changes_requested',
+		record: {
+			kind: 'list',
+			listing: { subject: 'at://did:plc:neon/computer.localnetwork.profile/self', cid: 'c' },
+			createdAt: '2026-10-01T00:00:00Z'
+		},
+		decision: { by: ada, at: '2026-10-02T00:00:00Z', reason: 'Add a photo' }
+	});
+
+	const { rerender } = await render(Page, {
+		params: { rkey: '3klist' },
+		data: { ...base, submitted: false, request: listing },
+		form: null
+	});
+
+	await expect.element(page.getByRole('link', { name: 'Edit your profile' })).toBeInTheDocument();
+	await expect.element(page.getByRole('textbox', { name: 'Note' })).toBeInTheDocument();
+	await expect.element(page.getByRole('button', { name: "I've updated my profile" })).toBeInTheDocument();
+
+	// While it waits for review there's nothing to send back.
+	await rerender({ data: { ...base, submitted: false, request: { ...listing, status: 'pending', decision: null } } });
+	await expect.element(page.getByRole('button', { name: "I've updated my profile" })).not.toBeInTheDocument();
 });

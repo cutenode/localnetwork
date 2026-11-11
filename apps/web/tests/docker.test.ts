@@ -106,8 +106,7 @@ it.each([
 	['/', `${headline.verbs[0]} your ${headline.nouns[0]}.`],
 	['/projects/halflight', 'Halflight'],
 	// The tools' guides come from apps/<tool>/, which only the image's build context brings in.
-	['/tools/locallibrary/docs/install', 'Installing locallibrary'],
-	['/robots.txt', 'User-agent']
+	['/tools/locallibrary/docs/install', 'Installing locallibrary']
 ])('answers %s with 200 and the page', async (path, text) => {
 	const response = await fetch(`${APP}${path}`, { redirect: 'manual' });
 

@@ -11,7 +11,6 @@ import {
 	parseMacHeader,
 	parseSpaceToken,
 	RECORD_MAC_TYPE,
-	RepoVerificationError,
 	SpaceMacError,
 	verifyRecord,
 	WANT_MAC_HEADER
@@ -49,9 +48,12 @@ export function isCredentialRejected(cause: unknown): boolean {
 	return cause instanceof XrpcResponseError && (cause.status === 401 || CREDENTIAL_REJECTED.has(cause.error));
 }
 
-/** Whether a response's MAC didn't verify. `verifyRepoStar` reports a commit that fails its MAC as a RepoVerificationError. */
+/**
+ * Whether a response's MAC didn't verify. Not a RepoVerificationError: that also covers an archive that doesn't
+ * parse, which a fresh KEM key can't fix.
+ */
 export function isMacFailure(cause: unknown): boolean {
-	return cause instanceof SpaceMacError || cause instanceof RepoVerificationError;
+	return cause instanceof SpaceMacError;
 }
 
 type RequestInput = {
@@ -165,7 +167,7 @@ export class SpaceCredentialManager {
 		// The credential is bound to this key (its `cnf.kid`), which signs every request it authorizes.
 		const key = await P256Keypair.create();
 
-		const response = await this.deps.identity.serviceFetch(
+		const response = await this.deps.identity.serviceApiFetch(
 			new URL('/xrpc/com.atproto.space.getSpaceCredential', host),
 			{
 				method: 'POST',
@@ -224,7 +226,7 @@ export class SpaceCredentialManager {
 		return this.retryRejected(input.space, async () => {
 			const credential = await this.get(input.space);
 
-			const response = await this.deps.identity.serviceFetch(new URL(`/xrpc/${input.nsid}`, input.service), {
+			const response = await this.deps.identity.serviceApiFetch(new URL(`/xrpc/${input.nsid}`, input.service), {
 				method: 'POST',
 				redirect: 'error',
 				headers: { ...(await credential.headers(input.audience)), 'content-type': 'application/json' },
@@ -344,7 +346,11 @@ export class SpaceCredentialManager {
 			if (value !== undefined) url.searchParams.set(name, String(value));
 		}
 
-		const response = await this.deps.identity.serviceFetch(url, {
+		// A repo export is read as a stream. Everything else here is read whole.
+		const { identity } = this.deps;
+		const guarded = input.nsid === 'com.atproto.space.getRepo' ? identity.serviceFetch : identity.serviceApiFetch;
+
+		const response = await guarded(url, {
 			redirect: 'error',
 			headers: { ...(await credential.headers(input.audience)), ...headers },
 			signal: AbortSignal.timeout(30_000)

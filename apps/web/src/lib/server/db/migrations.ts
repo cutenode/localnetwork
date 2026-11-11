@@ -1,5 +1,6 @@
 import { type Kysely, sql } from 'kysely';
 import { type Migration, type MigrationProvider, Migrator } from 'kysely/migration';
+import { COLLECTION } from '#lib/nsid.ts';
 import type { Database } from './schema';
 
 const statements = (...items: string[]) => items;
@@ -347,7 +348,7 @@ const epkViews = statements(
 	`CREATE INDEX epk_view_created ON epk_view (created_at)`
 );
 
-const migrations = {
+export const migrations = {
 	'001_init': {
 		async up(db) {
 			for (const statement of init) await sql.raw(statement).execute(db);
@@ -419,6 +420,76 @@ const migrations = {
 					)`
 				)
 				.execute(db);
+		}
+	},
+	// Feature flags and their groups, from the staff space, and the grants that let a moderator manage them.
+	'012_feature_flags': {
+		async up(db) {
+			await sql.raw('ALTER TABLE staff_role ADD COLUMN grants TEXT').execute(db);
+			await sql
+				.raw(
+					`CREATE TABLE feature_flag (
+						key TEXT PRIMARY KEY,
+						everyone INTEGER NOT NULL,
+						percentage INTEGER NOT NULL,
+						group_rkeys TEXT NOT NULL,
+						dids TEXT NOT NULL,
+						uri TEXT NOT NULL,
+						updated_by TEXT NOT NULL,
+						updated_at TEXT NOT NULL
+					)`
+				)
+				.execute(db);
+			await sql
+				.raw(
+					`CREATE TABLE flag_group (
+						rkey TEXT PRIMARY KEY,
+						name TEXT NOT NULL,
+						description TEXT,
+						members TEXT NOT NULL,
+						uri TEXT NOT NULL,
+						created_at TEXT NOT NULL,
+						updated_by TEXT NOT NULL,
+						updated_at TEXT NOT NULL
+					)`
+				)
+				.execute(db);
+		}
+	},
+	// A synced record stored but not yet projected. Before this table a failed projection was lost, so the insert queues
+	// the stored records of the kinds that need the directory to project, when their table has no row for them.
+	'013_pending_projection': {
+		async up(db) {
+			await sql
+				.raw(
+					`CREATE TABLE pending_projection (
+						space_uri TEXT NOT NULL,
+						repo_did TEXT NOT NULL,
+						collection TEXT NOT NULL,
+						rkey TEXT NOT NULL,
+						attempts INTEGER NOT NULL,
+						next_attempt_at TEXT NOT NULL,
+						last_error TEXT,
+						PRIMARY KEY (space_uri, repo_did, collection, rkey)
+					)`
+				)
+				.execute(db);
+			await sql`
+				INSERT INTO pending_projection (space_uri, repo_did, collection, rkey, attempts, next_attempt_at)
+				SELECT space_uri, repo_did, collection, rkey, 0, ${new Date().toISOString()}
+				FROM (SELECT *, space_uri || '/' || repo_did || '/' || collection || '/' || rkey AS uri FROM space_record)
+				WHERE (
+					collection IN (${COLLECTION.bookingInquiry}, ${COLLECTION.bookingMessage}, ${COLLECTION.bookingStatus})
+					AND uri NOT IN (SELECT uri FROM booking_event)
+				) OR (collection = ${COLLECTION.epkRequest} AND uri NOT IN (SELECT uri FROM epk_request))
+				OR (collection = ${COLLECTION.epkGrant} AND uri NOT IN (SELECT uri FROM epk_grant))
+			`.execute(db);
+		}
+	},
+	// Flags gained an off switch that keeps their gates. Records from before it don't say, and are on.
+	'014_feature_flag_enabled': {
+		async up(db) {
+			await sql.raw('ALTER TABLE feature_flag ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1').execute(db);
 		}
 	}
 } satisfies Record<string, Migration>;

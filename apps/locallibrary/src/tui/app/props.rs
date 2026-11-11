@@ -7,6 +7,8 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use locallibrary::query::QueryContext;
 
+use crate::output::plural;
+
 use super::testing::*;
 use super::*;
 
@@ -31,9 +33,8 @@ fn browsing(tc: &TestCase) -> (App, tempfile::TempDir) {
     // The drive's My Tags read, or not yet.
     let l = app.loaded.as_mut().unwrap();
     if tc.draw(gs::booleans()) {
-        let tags =
-            l.library.tracks.iter().map(|t| (paths::file_key(&t.file_path), vec!["Genre/House".to_string()])).collect();
-        l.my_tags = MyTags::Read(Arc::new(tags));
+        let by_id = l.library.tracks.iter().map(|t| (t.id, vec!["Genre/House".to_string()])).collect();
+        l.my_tags = MyTags::Read(Arc::new(locallibrary::tags::TagsByTrack { by_id, ..Default::default() }));
     }
     (app, dir)
 }
@@ -233,6 +234,10 @@ fn the_help_and_the_log_scroll_and_close(tc: TestCase) {
         let k = order[step % order.len()] as usize;
         let moved = if k < keys.len() {
             let (code, by) = keys[k];
+            // In the help, letters are what's typed to narrow it.
+            if help && matches!(code, KeyCode::Char(_)) {
+                continue;
+            }
             app.on_key(key_of(code, false));
             by
         } else {
@@ -241,13 +246,13 @@ fn the_help_and_the_log_scroll_and_close(tc: TestCase) {
             by
         };
         scroll = moved.map(|by: i32| (help, (at as i32 + by).max(0) as u16));
-        let shown = if help { (app.help, app.help_scroll) } else { (app.show_log, app.log_scroll) };
+        let shown = if help { (app.help, app.help_row as u16) } else { (app.show_log, app.log_scroll) };
         assert_eq!(shown, (scroll.is_some(), scroll.map_or(shown.1, |s| s.1)), "help {help}");
         assert!(!(app.help && app.show_log));
         // Drawn, it scrolls no further than its last line; not past what it was.
         let (w, h) = (tc.draw(gs::integers::<u16>().min_value(20).max_value(160)), 24);
         assert_eq!(super::super::ui::screen(&mut app, w, h).lines().count(), h as usize);
-        let drawn = if help { app.help_scroll } else { app.log_scroll };
+        let drawn = if help { app.help_row as u16 } else { app.log_scroll };
         if let Some((help, at)) = scroll {
             assert!(drawn <= at, "drawn scrolled to {drawn}, past {at}");
             scroll = Some((help, drawn));
@@ -463,8 +468,7 @@ fn background_results_land_where_they_belong(tc: TestCase) {
                 }
             }
             7 => {
-                let r =
-                    if tc.draw(gs::booleans()) { Ok(FxHashMap::default()) } else { Err("no tags here".to_string()) };
+                let r = if tc.draw(gs::booleans()) { Ok(Default::default()) } else { Err("no tags here".to_string()) };
                 let ok = r.is_ok();
                 app.handle_msg(Msg::MyTags(g, r));
                 let tags = &app.loaded.as_ref().unwrap().my_tags;
@@ -1066,7 +1070,7 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                     app.crate_list.add(Path::new("/Volumes/OTHER"), "OTHER", [track(7, "DJ", "Elsewhere")]);
                 }
                 let i = tc.draw(gs::integers::<usize>().max_value(paths.len() - 1));
-                (app.show_crate, app.focus, app.fullscreen) = (true, Focus::Crate, false);
+                (app.show_crate, app.focus, app.deck_layout) = (true, Focus::Crate, false);
                 (app.modal, app.picking, app.searching) = (None, None, false);
                 app.crate_state.select(Some(i));
                 let was = app.now.as_ref().map(|n| n.id);
@@ -1081,7 +1085,7 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
             9 => wait(&mut app, |a| a.now.as_ref().is_none_or(|n| !n.opening)),
             10 => {
                 // Full screen, the pick among the matches (clicked twice, or enter) plays next.
-                app.fullscreen = true;
+                app.deck_layout = true;
                 // A key or click first catches up with what played (`follow_queue`): a track that
                 // ended since goes on to the next, with matches of its own, so catch up before
                 // giving the playing one its matches.
@@ -1140,7 +1144,7 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 let key = tc.draw(gs::sampled_from(PLAY_KEYS));
                 let picked = app.next_pick.selected();
                 let matched = app.now.as_ref().and_then(|n| n.matches.as_ref()).map_or(0, |m| m.items.len());
-                let queued = app.fullscreen && app.playing_queue() && picked.is_some_and(|p| p < matched);
+                let queued = app.deck_layout && app.playing_queue() && picked.is_some_and(|p| p < matched);
                 let set = app.now.is_some() && !app.playing_queue();
                 if key == "<right>" {
                     app.on_key(key_of(KeyCode::Right, false));
@@ -1188,7 +1192,7 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Away {
     Waiting,
-    FullScreen,
+    DeckLayout,
     Job,
     Errors,
     Replay,
@@ -1212,7 +1216,7 @@ fn esc_puts_away_one_thing_at_a_time(tc: TestCase) {
         yes
     };
     let waiting = on(Away::Waiting);
-    app.fullscreen = on(Away::FullScreen);
+    app.deck_layout = on(Away::DeckLayout);
     if on(Away::Job) {
         app.job = Some(job(false, false));
     }
@@ -1246,7 +1250,7 @@ fn esc_puts_away_one_thing_at_a_time(tc: TestCase) {
         left.retain(|a| *a != Away::Job);
     }
     // Offered, y replays the edits (planned first) instead.
-    if app.replay_offer.is_some() && app.job.is_none() && !app.fullscreen && tc.draw(gs::booleans()) {
+    if app.replay_offer.is_some() && app.job.is_none() && !app.deck_layout && tc.draw(gs::booleans()) {
         press(&mut app, "y");
         assert!(app.replay_offer.is_none() && app.job.as_ref().is_some_and(|j| j.label == "Planning"));
         return;
@@ -1256,15 +1260,15 @@ fn esc_puts_away_one_thing_at_a_time(tc: TestCase) {
         match what {
             Away::Waiting => {
                 assert!(!app.quit_after_write && last_message(&app) == "staying: not quitting after the write");
-                if app.fullscreen {
+                if app.deck_layout {
                     press(&mut app, "\u{1b}");
-                    assert!(!app.fullscreen);
+                    assert!(!app.deck_layout);
                 }
                 press(&mut app, "\u{1b}");
                 assert_eq!(last_message(&app), "writing the drive: too late to stop", "the write goes on");
                 return;
             }
-            Away::FullScreen => assert!(!app.fullscreen),
+            Away::DeckLayout => assert!(!app.deck_layout),
             Away::Job => assert!(app.job.is_none() && last_message(&app) == "cancelled"),
             Away::Errors => assert!(app.held.is_none() && app.toast.as_ref().is_none_or(|t| t.1 == Level::Info)),
             Away::Replay => {
@@ -1362,11 +1366,12 @@ fn the_search_box_filters_as_the_library_does(tc: TestCase) {
     lib.tracks = any_tracks(&tc, 8);
     let (mut app, _dir) = app_with(lib);
     let l = app.loaded.as_mut().unwrap();
-    let tags: FxHashMap<String, Vec<String>> = tc
+    let by_id = tc
         .draw(gs::subsequences(&l.library.tracks[..]))
         .iter()
-        .map(|t| (paths::file_key(&t.file_path), vec!["Genre/House".to_string()]))
+        .map(|t| (t.id, vec!["Genre/House".to_string()]))
         .collect();
+    let tags = locallibrary::tags::TagsByTrack { by_id, ..Default::default() };
     l.my_tags = MyTags::Reading;
     // In a playlist, or all tracks.
     if tc.draw(gs::booleans()) {
@@ -1411,7 +1416,7 @@ fn searched_as_the_library_does(app: &mut App, query: &str, enter: bool) {
         MyTags::Read(t) => Some(t.clone()),
         _ => None,
     };
-    let none = FxHashMap::default();
+    let none = locallibrary::tags::TagsByTrack::default();
     let ctx = QueryContext::new(&lib).with_tags(read.as_deref().unwrap_or(&none));
     match Filter::parse(query).and_then(|f| f.check(&ctx).map(|()| f)) {
         Ok(f) => {
@@ -1535,7 +1540,7 @@ fn the_player_says_what_it_knows_of_the_track(tc: TestCase) {
     }
     let pos = tc.draw(gs::integers::<u64>().max_value(40_000));
     app.resume = Some(Duration::from_millis(pos));
-    app.fullscreen = true;
+    app.deck_layout = true;
     // In any of the visualisers, which v goes round.
     let vis = [Vis::Bars, Vis::Mirror, Vis::Scope, Vis::Deck];
     let turns = tc.draw(gs::integers::<usize>().max_value(5));
@@ -1559,19 +1564,21 @@ fn the_player_says_what_it_knows_of_the_track(tc: TestCase) {
     }
     if !a.beats.is_empty() {
         let tempo = if a.beats.iter().any(|b| b.bpm != 120.0) { "120.0–126.0 BPM" } else { "steady tempo" };
-        assert!(says(&format!("{} beats · {} bars · {tempo}", a.beats.len(), a.beats.len().div_ceil(4))), "{s}");
+        let (beats, bars) = (a.beats.len(), a.beats.len().div_ceil(4));
+        assert!(says(&format!("{} · {} · {tempo}", plural(beats, "beat"), plural(bars, "bar"))), "{s}");
     }
     if !a.cues.is_empty() {
         let hot = a.cues.iter().filter(|c| c.hot_cue.is_some()).count();
         let loops = a.cues.iter().filter(|c| c.end_ms.is_some()).count();
-        assert!(says(&format!("{hot} hot cues ({loops} loops) · {} memory", a.cues.len() - hot)), "{s}");
+        let memory = a.cues.len() - hot;
+        assert!(says(&format!("{} ({}) · {memory} memory", plural(hot, "hot cue"), plural(loops, "loop"))), "{s}");
     }
     if !now.phrases.is_empty() {
-        assert!(says(&format!("{} phrases", now.phrases.len())), "{s}");
+        assert!(says(&plural(now.phrases.len(), "phrase")), "{s}");
     }
     if let Some((i, _, _)) = now.phrase_at(pos as f64) {
         let next = match now.phrases.get(i + 1) {
-            Some(p) => format!("phrase next {} in", p.kind.name()),
+            Some(p) => format!("phrase  {} ", p.kind.name()),
             None => "phrase last".into(),
         };
         assert!(says(&next), "{next}\n{s}");
@@ -1613,7 +1620,7 @@ fn the_player_says_what_it_knows_of_the_track(tc: TestCase) {
     // Back in the library, the keys listed are matched against the playing track's (with no key
     // playing, against the selected track's, or none).
     let playing_key = app.now.as_ref().unwrap().key;
-    app.fullscreen = false;
+    app.deck_layout = false;
     let s = super::super::ui::screen(&mut app, 220, 40);
     let selected_key =
         app.selected_track().and_then(|i| Camelot::parse(&app.loaded.as_ref().unwrap().library.tracks[i].key));
@@ -2376,5 +2383,37 @@ fn plugins_fields_of_every_kind_show_and_sort(tc: TestCase) {
             let wrong = if descending { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater };
             assert_ne!(ord, wrong, "{pair:?}, descending {descending}");
         }
+    }
+}
+
+/// For any library and any track in it, the matches found are the tracks that mix into it,
+/// closest tempo first within each way of mixing in, and those ways take turns: the first rows
+/// hold one of each there is, so the few rows the panel has never show only the playing track's
+/// key while others mix in too (LOC-13).
+#[hegel::test(test_cases = 200)]
+fn prop_the_ways_of_mixing_in_take_turns(tc: TestCase) {
+    use crate::tui::keys::Relation;
+    let mut tracks = any_tracks(&tc, 14);
+    for t in &mut tracks {
+        t.key = tc.draw(strings_from(&["8B", "C", "7B", "9B", "8A", "10B", "3A", ""]));
+        t.bpm = tc.draw(gs::sampled_from(&[0.0, 121.0, 128.0, 129.0][..]));
+    }
+    let lib = Arc::new(Library { tracks, ..Default::default() });
+    let Some(playing) = lib.tracks.first().cloned() else { return };
+    let limit = tc.draw(gs::integers::<usize>().min_value(1).max_value(16));
+    let found = Matches::find(lib.clone(), PathBuf::new(), &playing, limit);
+    let all = locallibrary::api::matches_in(&lib, &playing, usize::MAX);
+    assert_eq!(found.items.len(), all.len().min(limit));
+    let ways: Vec<Relation> = found.items.iter().map(|m| m.relation).collect();
+    let mut kinds: Vec<Relation> = all.iter().map(|s| s.relation).collect();
+    kinds.dedup();
+    // One of each, in the order the suggestions rank them.
+    let first = &ways[..kinds.len().min(ways.len())];
+    assert_eq!(first, &kinds[..first.len()], "{ways:?}");
+    for way in kinds {
+        let mine: Vec<u32> = (found.items.iter()).filter(|m| m.relation == way).map(|m| found.track(m).id).collect();
+        let theirs: Vec<u32> =
+            (all.iter()).filter(|s| s.relation == way).map(|s| s.track.id).take(mine.len()).collect();
+        assert_eq!(mine, theirs, "{way:?}");
     }
 }

@@ -1,7 +1,6 @@
 //! Work done off the UI thread: its messages, the workers that send them, and what each tick does
 //! with them.
 
-use rustc_hash::FxHashMap;
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
@@ -40,7 +39,7 @@ pub enum Msg {
     /// Which tracks' audio files are missing, for the library load with this generation.
     Missing(u64, Vec<bool>),
     /// The drive's My Tags, for the library load with this generation.
-    MyTags(u64, Result<FxHashMap<String, Vec<String>>, String>),
+    MyTags(u64, Result<locallibrary::tags::TagsByTrack, String>),
     /// What the analyzers worked out for the drive's tracks, for the library load with this
     /// generation.
     Fields(u64, Result<Box<TrackValues>, String>),
@@ -72,6 +71,10 @@ pub enum Msg {
     EnterKeys(Box<locallibrary::plugin::AccountSignIn>, Sender<locallibrary::plugin::EnteredKeys>),
     /// The playing track's analysis, artwork and matches, for the play with this id.
     TrackInfo(u64, Box<TrackInfo>),
+    /// A cover made for the size it's shown at.
+    Cover(Box<crate::tui::art::Cover>),
+    /// A cover's two main colours, by the drive it's on and its artwork id.
+    Chip(PathBuf, u32, Option<[loclib_waveform::Rgb; 2]>),
     Details(Box<Details>),
     /// A plugin's panel answered, for the track (as `Panels` keeps it) and the panel at this
     /// place among its panels.
@@ -186,6 +189,9 @@ pub(in crate::tui) fn worker(
     });
 }
 
+/// How long a track plays before the library counts it as played.
+const HEARD: Duration = Duration::from_secs(30);
+
 impl App {
     /// Run `job` in the background (see [`worker`]); should it panic, the UI says so.
     pub(in crate::tui) fn spawn(&self, job: impl FnOnce() -> Msg + Send + 'static) {
@@ -249,6 +255,7 @@ impl App {
         self.follow_queue();
         self.want_details();
         self.want_panels();
+        self.want_chips();
 
         let dt = self.last_tick.elapsed().as_secs_f32().min(0.25);
         self.last_tick = Instant::now();
@@ -274,7 +281,23 @@ impl App {
             self.flash = Some((color, Instant::now()));
         }
         crate::tui::deck::reach_active_loop(self, prev, pos_ms);
+        self.hear(prev, pos_ms);
         self.last_pos_ms = pos_ms;
+    }
+
+    /// A track counts as played once it's been heard for a while, so looking through a crate
+    /// marks nothing. Seeks don't count, and it's time that counts, not how far in it got.
+    fn hear(&mut self, prev: f64, pos_ms: f64) {
+        let Some(now) = &self.now else { return };
+        if self.heard.0 != now.id {
+            self.heard = (now.id, Duration::ZERO);
+        }
+        if pos_ms > prev && pos_ms - prev < 500.0 {
+            self.heard.1 += Duration::from_secs_f64((pos_ms - prev) / 1000.0);
+        }
+        if self.heard.1 >= HEARD && !self.played_tracks.contains(&now.track.file_path) {
+            self.played_tracks.insert(now.track.file_path.clone());
+        }
     }
 
     pub(in crate::tui) fn handle_msg(&mut self, msg: Msg) {
@@ -344,6 +367,9 @@ impl App {
                         }
                         (None, None, None) => {}
                     }
+                }
+                if first {
+                    self.first_answer();
                 }
                 if std::mem::take(&mut self.drives_again) {
                     self.refresh_drives();
@@ -440,6 +466,7 @@ impl App {
                     let info = *info;
                     now.phrases = phrase_spans(&info.analysis, now.duration);
                     now.analysis = info.analysis;
+                    now.waves = info.waves;
                     now.from_plugins = info.from_plugins;
                     now.art = info.art;
                     now.matches = info.matches;
@@ -450,6 +477,8 @@ impl App {
                     self.reset_next_pick();
                 }
             }
+            Msg::Cover(cover) => self.covers.cover = Some(*cover),
+            Msg::Chip(root, id, chip) => self.chip_read(&root, id, chip),
             Msg::Details(d) => {
                 if self.details_asked == Some((d.generation, d.index)) {
                     self.details_asked = None;
@@ -505,7 +534,10 @@ impl App {
                 // A poll that keeps failing is said once, not every second.
                 let again = work == Work::Volumes && std::mem::replace(&mut self.volumes_failing, true);
                 match work {
-                    Work::Drives => self.drives_in_flight = false,
+                    Work::Drives => {
+                        self.drives_in_flight = false;
+                        self.first_answer();
+                    }
                     Work::Volumes => self.volumes_in_flight = false,
                     Work::Details(generation, index) => {
                         self.details_asked.take_if(|k| *k == (generation, index));

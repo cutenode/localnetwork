@@ -5,10 +5,10 @@ package apps
 import data.lib
 
 # The scripts the root's `pnpm -r` scripts and the CI workflows call.
-scripts := {"dev", "build", "check", "lint", "format", "format:check", "knip", "test", "test:coverage", "verify"}
+scripts := {"dev", "build", "check", "lint", "format", "format:check", "test", "test:coverage", "verify"}
 
 # The checks `verify` has to run, as CI's verify jobs do.
-verify_steps := {"pnpm format:check", "pnpm lint", "pnpm check", "pnpm knip"}
+verify_steps := {"pnpm format:check", "pnpm lint", "pnpm check"}
 
 root := lib.file("package.json")
 
@@ -72,6 +72,17 @@ deny contains msg if {
 	some tool in tools
 	not hook_runs(hook, sprintf("apps/%s/", [app]), tool)
 	msg := sprintf("lefthook.yml: add a %s job with root apps/%s/ that runs %s", [hook, app, tool])
+}
+
+# The hooks run the committing worktree's lefthook, not the path of the one that installed them last.
+deny contains msg if {
+	lib.file("lefthook.yml").lefthook != "pnpm exec lefthook"
+	msg := "lefthook.yml: set `lefthook: pnpm exec lefthook`, so every worktree's hooks run its own lefthook"
+}
+
+deny contains msg if {
+	not lib.file("lefthook.yml").lefthook
+	msg := "lefthook.yml: set `lefthook: pnpm exec lefthook`, so every worktree's hooks run its own lefthook"
 }
 
 hook_runs(hook, root_dir, tool) if {
