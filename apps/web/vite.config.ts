@@ -155,14 +155,16 @@ export default defineConfig({
 				'src/routes/**/+server.ts',
 				'src/hooks.server.ts'
 			],
-			// The tests, their harness (fakes and request builders that only tests import), stories and types.
+			// The tests, their harness (fakes and request builders that only tests import), stories and types, the
+			// generated lexicon types included.
 			exclude: [
 				'src/lib/server/testing/**',
 				'src/lib/testing/**',
 				'src/lib/**/*.{test,spec}.ts',
 				'src/lib/**/*.svelte.{test,spec}.ts',
 				'src/lib/**/*.stories.svelte',
-				'src/lib/**/types.ts'
+				'src/lib/**/types.ts',
+				'src/lib/lexicons/**'
 			],
 			// CI's pull request comment reads the summary, and json for each changed file's uncovered lines.
 			reporter: ['text', 'html', 'lcov', 'json-summary', 'json'],

@@ -73,6 +73,13 @@ export class FollowService {
 		});
 	}
 
+	/** Whether `actor` follows any project, from one record of theirs the directory kept. */
+	async followsAny(actor: string): Promise<boolean> {
+		const { records } = await this.directory.query('listRecords', { actor, collection: COLLECTION.follow, limit: 1 });
+
+		return records.length > 0;
+	}
+
 	private status(project: ProjectView, actor: string | undefined) {
 		return this.directory.query('getFollowStatus', { project: project.uri, actor });
 	}
