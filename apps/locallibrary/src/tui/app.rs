@@ -36,6 +36,7 @@ use uuid::Uuid;
 use super::analyzer::Analyzer;
 use super::audio::{self, Audio, Outputs};
 use super::browse::SavedNode;
+use super::choices::Hints;
 use super::crate_list::Crate;
 use super::drives::{DriveKey, DriveRow};
 use super::edits::{Job, Modal, Pick};
@@ -61,6 +62,9 @@ use {
     std::path::Path,
     std::sync::{Arc, Mutex},
 };
+
+/// This build's version, which what a first run shows goes with.
+pub(super) const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
@@ -305,7 +309,10 @@ pub struct App {
     /// The Deck layout: the pick among the tracks that mix into the playing one, to play next.
     pub next_pick: ListState,
     pub help: bool,
-    pub help_scroll: u16,
+    /// The help's row selected, among those `help_query` leaves.
+    pub help_row: usize,
+    /// What's been typed in the help.
+    pub help_query: String,
     /// The latest message, in the footer: an info for a few seconds (see `reading_time`), an
     /// error until esc dismisses it.
     pub toast: Option<(String, Level, Instant)>,
@@ -317,6 +324,16 @@ pub struct App {
     pub log_scroll: u16,
     /// When esc was pressed with marks to clear: a second esc soon after clears them.
     clear_marks_armed: Option<Instant>,
+    /// How much the footer says.
+    pub hints: Hints,
+    /// The palette's commands run lately, newest first, by name.
+    pub recent_commands: Vec<String>,
+    /// The first-run line is up, until a key or a click.
+    pub intro: bool,
+    /// The version that last showed that line. Test apps start as if theirs had.
+    pub(super) intro_seen: Option<String>,
+    /// The empty state's next step selected.
+    pub steps: ListState,
     /// The queue's track was this far in when the last run ended: space carries on from there.
     pub resume: Option<Duration>,
     /// The queue the last run had, until its drive's library is read.
@@ -392,18 +409,10 @@ impl App {
             app.set_view(v);
         }
         app.saved = Some(saved);
-        if let Some(spec) = drive {
-            // A path or name given on the command line: open it straight away.
-            match api::resolve_drive(&spec) {
-                Ok(d) => {
-                    let root = d.root().to_path_buf();
-                    if !api::drives_mounted().iter().any(|m| m.root == root) {
-                        app.extra_roots.push(root.clone());
-                    }
-                    app.load_library(root);
-                }
-                Err(e) => app.toast(e.to_string(), Level::Error),
-            }
+        if let Some(spec) = drive
+            && let Err(e) = app.open_drive(&spec)
+        {
+            app.toast(e, Level::Error);
         }
         app.refresh_drives();
         app
@@ -508,13 +517,19 @@ impl App {
             browsing: false,
             next_pick: ListState::default(),
             help: false,
-            help_scroll: 0,
+            help_row: 0,
+            help_query: String::new(),
             toast: None,
             held: None,
             log: VecDeque::new(),
             show_log: false,
             log_scroll: 0,
             clear_marks_armed: None,
+            hints: Hints::default(),
+            recent_commands: Vec::new(),
+            intro: false,
+            intro_seen: Some(VERSION.to_string()),
+            steps: ListState::default().with_selected(Some(0)),
             resume: None,
             restore_queue: None,
             pending_seek: None,

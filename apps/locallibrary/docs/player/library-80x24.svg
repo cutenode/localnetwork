@@ -154,7 +154,7 @@
 <text x="414 423" y="428" fill="#9494a8">to</text>
 <text x="441 450 459 468 477" y="428" fill="#9494a8">crate</text>
 <text x="504" y="428" fill="#ff5ca0" font-weight="bold">e</text>
-<text x="522 531 540 549" y="428" fill="#9494a8">edit</text>
-<text x="576" y="428" fill="#ff5ca0" font-weight="bold">:</text>
-<text x="594 603 612 621 630 639 648 657" y="428" fill="#9494a8">commands</text>
+<text x="522 531 540 549 558 567 576" y="428" fill="#9494a8">actions</text>
+<text x="603" y="428" fill="#ff5ca0" font-weight="bold">:</text>
+<text x="621 630 639 648 657 666 675 684" y="428" fill="#9494a8">commands</text>
 </svg>

@@ -41,11 +41,13 @@ const SAMPLES_A_FRAME: usize = RATE as usize / 60;
 const START: Duration = Duration::from_secs(45);
 
 /// The views counted: each one's name in the budget, how it's shown, and text it has to show.
-const VIEWS: [(&str, View, bool, &str); 4] = [
+const VIEWS: [(&str, View, bool, &str); 6] = [
     ("library", View::Library, false, "All tracks"),
     ("deck", View::Library, true, "spectrum"),
     ("drives", View::Drives, false, "Demo"),
     ("prepare", View::Prepare, false, "check the drive"),
+    ("palette", View::Library, false, "search or filter the tracks"),
+    ("help", View::Library, false, "enter runs it"),
 ];
 
 /// A minute of two tones, so the spectrum and the scope have something to show.
@@ -158,6 +160,11 @@ fn frames_allocate_what_their_budgets_say() {
             continue;
         }
         (app.view, app.deck_layout) = (shown, deck_layout);
+        app.help = name == "help";
+        app.modal = None;
+        if name == "palette" {
+            app.open_palette();
+        }
         let (allocations, bytes, text) = draw_frames(&mut app, &mut out, frames);
         assert!(text.contains(says), "{name} doesn't show {says:?}:\n{text}");
         counts.insert(format!("{name}.allocations"), allocations / frames.max(1));

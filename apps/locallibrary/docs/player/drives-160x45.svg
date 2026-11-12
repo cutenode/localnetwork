@@ -331,10 +331,10 @@
 <text x="1323 1332 1341 1350" y="788" fill="#9494a8">12.0</text>
 <text x="1368 1377" y="788" fill="#9494a8">GB</text>
 <text x="1395 1404 1413 1422" y="788" fill="#9494a8">free</text>
-<text x="9 18" y="806" fill="#ff5ca0" font-weight="bold">↑↓</text>
-<text x="36 45 54 63 72 81" y="806" fill="#9494a8">select</text>
-<text x="108 117 126 135 144" y="806" fill="#ff5ca0" font-weight="bold">enter</text>
-<text x="162 171 180 189 198 207" y="806" fill="#9494a8">browse</text>
+<text x="9 18 27 36 45" y="806" fill="#ff5ca0" font-weight="bold">enter</text>
+<text x="63 72 81 90 99 108" y="806" fill="#9494a8">browse</text>
+<text x="135 144" y="806" fill="#ff5ca0" font-weight="bold">↑↓</text>
+<text x="162 171 180 189 198 207" y="806" fill="#9494a8">select</text>
 <text x="234" y="806" fill="#ff5ca0" font-weight="bold">e</text>
 <text x="252 261 270 279 288 297 306" y="806" fill="#9494a8">actions</text>
 <text x="333" y="806" fill="#ff5ca0" font-weight="bold">u</text>
@@ -342,12 +342,22 @@
 <text x="405" y="806" fill="#ff5ca0" font-weight="bold">R</text>
 <text x="423 432 441 450 459 468 477" y="806" fill="#9494a8">refresh</text>
 <text x="495 504 513 522 531 540" y="806" fill="#9494a8">status</text>
-<text x="567 576 585 594 603" y="806" fill="#ff5ca0" font-weight="bold">space</text>
-<text x="621 630 639 648 657" y="806" fill="#9494a8">pause</text>
-<text x="684" y="806" fill="#ff5ca0" font-weight="bold">:</text>
-<text x="702 711 720 729 738 747 756 765" y="806" fill="#9494a8">commands</text>
-<text x="792" y="806" fill="#ff5ca0" font-weight="bold">?</text>
-<text x="810 819 828 837" y="806" fill="#9494a8">help</text>
-<text x="864" y="806" fill="#ff5ca0" font-weight="bold">q</text>
-<text x="882 891 900 909" y="806" fill="#9494a8">quit</text>
+<text x="567" y="806" fill="#ff5ca0" font-weight="bold">V</text>
+<text x="585 594 603 612 621" y="806" fill="#9494a8">check</text>
+<text x="648" y="806" fill="#ff5ca0" font-weight="bold">W</text>
+<text x="666 675 684 693 702 711 720 729" y="806" fill="#9494a8">snapshot</text>
+<text x="756" y="806" fill="#ff5ca0" font-weight="bold">Y</text>
+<text x="774 783 792 801" y="806" fill="#9494a8">sync</text>
+<text x="828" y="806" fill="#ff5ca0" font-weight="bold">K</text>
+<text x="846 855 864 873" y="806" fill="#9494a8">pack</text>
+<text x="900" y="806" fill="#ff5ca0" font-weight="bold">E</text>
+<text x="918 927 936 945 954" y="806" fill="#9494a8">eject</text>
+<text x="981 990 999 1008 1017" y="806" fill="#ff5ca0" font-weight="bold">space</text>
+<text x="1035 1044 1053 1062 1071" y="806" fill="#9494a8">pause</text>
+<text x="1098" y="806" fill="#ff5ca0" font-weight="bold">:</text>
+<text x="1116 1125 1134 1143 1152 1161 1170 1179" y="806" fill="#9494a8">commands</text>
+<text x="1206" y="806" fill="#ff5ca0" font-weight="bold">?</text>
+<text x="1224 1233 1242 1251" y="806" fill="#9494a8">help</text>
+<text x="1278" y="806" fill="#ff5ca0" font-weight="bold">q</text>
+<text x="1296 1305 1314 1323" y="806" fill="#9494a8">quit</text>
 </svg>

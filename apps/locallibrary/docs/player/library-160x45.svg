@@ -239,22 +239,22 @@
 <text x="486 495" y="806" fill="#9494a8">to</text>
 <text x="513 522 531 540 549" y="806" fill="#9494a8">crate</text>
 <text x="576" y="806" fill="#ff5ca0" font-weight="bold">e</text>
-<text x="594 603 612 621" y="806" fill="#9494a8">edit</text>
-<text x="648" y="806" fill="#ff5ca0" font-weight="bold">i</text>
-<text x="666 675 684 693" y="806" fill="#9494a8">info</text>
-<text x="720" y="806" fill="#ff5ca0" font-weight="bold">t</text>
-<text x="738 747 756 765 774" y="806" fill="#9494a8">crate</text>
-<text x="801" y="806" fill="#ff5ca0" font-weight="bold">T</text>
-<text x="819 828" y="806" fill="#9494a8">My</text>
-<text x="846 855 864" y="806" fill="#9494a8">Tag</text>
-<text x="891" y="806" fill="#ff5ca0" font-weight="bold">f</text>
-<text x="909 918 927 936" y="806" fill="#9494a8">deck</text>
-<text x="963 972 981" y="806" fill="#ff5ca0" font-weight="bold">tab</text>
-<text x="999 1008 1017 1026 1035" y="806" fill="#9494a8">focus</text>
-<text x="1062" y="806" fill="#ff5ca0" font-weight="bold">:</text>
-<text x="1080 1089 1098 1107 1116 1125 1134 1143" y="806" fill="#9494a8">commands</text>
-<text x="1170" y="806" fill="#ff5ca0" font-weight="bold">?</text>
-<text x="1188 1197 1206 1215" y="806" fill="#9494a8">help</text>
-<text x="1242" y="806" fill="#ff5ca0" font-weight="bold">q</text>
-<text x="1260 1269 1278 1287" y="806" fill="#9494a8">quit</text>
+<text x="594 603 612 621 630 639 648" y="806" fill="#9494a8">actions</text>
+<text x="675" y="806" fill="#ff5ca0" font-weight="bold">i</text>
+<text x="693 702 711 720" y="806" fill="#9494a8">info</text>
+<text x="747" y="806" fill="#ff5ca0" font-weight="bold">t</text>
+<text x="765 774 783 792 801" y="806" fill="#9494a8">crate</text>
+<text x="828" y="806" fill="#ff5ca0" font-weight="bold">T</text>
+<text x="846 855" y="806" fill="#9494a8">My</text>
+<text x="873 882 891" y="806" fill="#9494a8">Tag</text>
+<text x="918" y="806" fill="#ff5ca0" font-weight="bold">f</text>
+<text x="936 945 954 963" y="806" fill="#9494a8">deck</text>
+<text x="990 999 1008" y="806" fill="#ff5ca0" font-weight="bold">tab</text>
+<text x="1026 1035 1044 1053 1062" y="806" fill="#9494a8">focus</text>
+<text x="1089" y="806" fill="#ff5ca0" font-weight="bold">:</text>
+<text x="1107 1116 1125 1134 1143 1152 1161 1170" y="806" fill="#9494a8">commands</text>
+<text x="1197" y="806" fill="#ff5ca0" font-weight="bold">?</text>
+<text x="1215 1224 1233 1242" y="806" fill="#9494a8">help</text>
+<text x="1269" y="806" fill="#ff5ca0" font-weight="bold">q</text>
+<text x="1287 1296 1305 1314" y="806" fill="#9494a8">quit</text>
 </svg>

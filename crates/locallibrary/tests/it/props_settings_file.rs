@@ -143,6 +143,10 @@ fn contents(tc: &TestCase) -> Contents {
             bands: tc.draw(gs::optional(gs::sampled_from(vec!["blue", "3band"]))).map(String::from),
             end_warning: tc.draw(gs::optional(gs::sampled_from(vec![0, 30]))),
             art: maybe(tc),
+            hints: tc.draw(gs::optional(gs::sampled_from(vec!["full", "off"]))).map(String::from),
+            recent_commands: tc
+                .draw(gs::optional(gs::vecs(gs::sampled_from(vec!["quit", "sync"])).max_size(2)))
+                .map(|c| c.into_iter().map(String::from).collect()),
         };
         let Value::Object(mut player) = serde_json::to_value(prefs).unwrap() else { unreachable!() };
         for (key, value) in SESSION.iter() {
