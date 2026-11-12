@@ -23,11 +23,6 @@ impl App {
         (t > 0.0).then_some((color, t * t))
     }
 
-    /// Seconds of track the cue lane shows: zoomed together with the deck.
-    pub fn lane_secs(&self) -> f64 {
-        self.deck_secs * 4.0
-    }
-
     pub fn is_playing(&self) -> bool {
         self.audio.as_ref().is_some_and(|a| a.is_loaded() && !a.is_paused())
     }
@@ -314,6 +309,7 @@ impl App {
             drive: self.queue.drive.clone(),
             root,
             analysis: TrackAnalysis::default(),
+            waves: Default::default(),
             from_plugins: None,
             art: None,
             phrases: Vec::new(),
@@ -649,6 +645,7 @@ impl App {
             duration: Duration::from_secs(track.duration_secs as u64),
             track,
             analysis: TrackAnalysis::default(),
+            waves: Default::default(),
             from_plugins: None,
             art: None,
             phrases: Vec::new(),

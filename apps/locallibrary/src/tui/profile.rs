@@ -168,6 +168,16 @@ impl ProfileTab {
     }
 }
 
+/// Stop the build under way: what it sends back is for an older generation.
+pub fn stop(app: &mut App) {
+    let t = &mut app.profile;
+    if let Some(c) = t.cancel.take() {
+        c.cancel();
+    }
+    t.generation += 1;
+    t.loading = false;
+}
+
 /// Rebuild the profile in the background (a running build is cancelled).
 pub fn refresh(app: &mut App) {
     let root = app.store_root.clone();

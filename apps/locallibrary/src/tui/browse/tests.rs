@@ -289,7 +289,7 @@ fn any_playlists(tc: &hegel::TestCase) -> Vec<Playlist> {
 /// The tree lists the playlists as the library orders them: a folder's children (in their
 /// order) straight after it, one deeper, when it's open; and each path is the library's.
 #[hegel::test(test_cases = 300)]
-fn the_tree_and_its_paths_are_the_librarys(tc: hegel::TestCase) {
+fn the_tree_and_its_paths_come_from_the_library(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let lib = Library { playlists: any_playlists(&tc), ..library() };
     let mut open = FxHashSet::default();

@@ -9,6 +9,6 @@ function handle()
 			' AND did IN (' .. marks(#actors) .. ')',
 			args,
 			" ORDER BY json_extract(record, '$.date') DESC, uri LIMIT ?"
-		)
+		),
 	}
 end

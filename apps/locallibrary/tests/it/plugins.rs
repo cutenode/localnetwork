@@ -106,29 +106,39 @@ fn env() -> Env {
     env
 }
 
+/// An [`Env`] with the echo plugin and a secret setting of its, `token`.
+fn with_a_secret() -> Env {
+    let mut env = Env::new();
+    let secret = "\n[[contributes.settings]]\nkey = \"token\"\ntitle = \"Token\"\ntype = \"secret\"\n";
+    env.plugins(&[&format!("{}{secret}", echo())]);
+    env
+}
+
+/// `args` run given `stdin`, secrets kept in a file only you can read
+/// (`LOCALLIBRARY_SESSION_STORE=file`): its exit status, stdout and stderr.
+fn fed(env: &Env, args: &[&str], stdin: &str) -> (i32, String, String) {
+    let mut child = env
+        .command()
+        .env("LOCALLIBRARY_SESSION_STORE", "file")
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    let said = |bytes: Vec<u8>| String::from_utf8(bytes).unwrap();
+    (out.status.code().unwrap(), said(out.stdout), said(out.stderr))
+}
+
 /// A secret setting is read from stdin (`--secret`), never from the command line, kept apart (a
 /// file only you can read, here: `LOCALLIBRARY_SESSION_STORE=file`) and only ever shown as set or
 /// not, by the command line and the sidecar, which takes one too.
 #[test]
 fn a_secret_setting_is_read_from_stdin_and_never_shown() {
-    let mut env = Env::new();
-    let secret = "\n[[contributes.settings]]\nkey = \"token\"\ntitle = \"Token\"\ntype = \"secret\"\n";
-    env.plugins(&[&format!("{}{secret}", echo())]);
-    let run = |args: &[&str], stdin: &str| {
-        let mut child = env
-            .command()
-            .env("LOCALLIBRARY_SESSION_STORE", "file")
-            .args(args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
-        let out = child.wait_with_output().unwrap();
-        let said = |bytes: Vec<u8>| String::from_utf8(bytes).unwrap();
-        (out.status.code().unwrap(), said(out.stdout), said(out.stderr))
-    };
+    let env = with_a_secret();
+    let run = |args: &[&str], stdin: &str| fed(&env, args, stdin);
     let (code, _, said) = run(&["plugin", "settings", "echo", "token", "hunter2"], "");
     assert_eq!(code, 2, "{said}");
     assert!(
@@ -178,6 +188,105 @@ fn a_secret_setting_is_read_from_stdin_and_never_shown() {
     let answer = s.call(2, "plugins.settings.set", json!({ "plugin": "echo", "key": "token", "value": null }));
     assert_eq!(answer["result"]["secrets"], json!({ "token": false }));
     assert!(!file.exists());
+}
+
+/// For any steps on a secret setting (set from stdin, or nothing on stdin; given on the command
+/// line; forgotten; shown; its keychain damaged), it reads back as set exactly when it was last
+/// set and not forgotten, in text as in `--json`, and no secret ever given is shown. One on the
+/// command line, an empty one, or `--secret` for a setting that isn't one is refused. While
+/// whether one that's set is still set can't be known (its file damaged), it's shown as unknown,
+/// saying why.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_secret_reads_back_as_last_set_and_is_never_shown(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let env = with_a_secret();
+    let file = env.store.join("secrets/plugins/echo.json");
+    let (mut set, mut given) = (false, Vec::<String>::new());
+    let steps = tc.draw(gs::integers::<usize>().min_value(2).max_value(6));
+    for step in 0..steps {
+        // Damaged at least once, at the end.
+        let what = match step + 1 == steps {
+            true => 4,
+            false => tc.draw(gs::integers::<u8>().max_value(5)),
+        };
+        let (_, out, err) = match what {
+            0 => {
+                let secret = format!("s3cret-{}", tc.draw(gs::text().alphabet("abcXYZ019").min_size(1).max_size(8)));
+                given.push(secret.clone());
+                let r = fed(&env, &["-y", "plugin", "settings", "echo", "token", "--secret"], &format!("{secret}\n"));
+                assert_eq!(r.0, 0, "{}", r.2);
+                assert!(r.1.contains("set the echo plugin's token\n"), "{}", r.1);
+                set = true;
+                r
+            }
+            1 => {
+                let (code, out, err) = fed(&env, &["-y", "plugin", "settings", "echo", "token", "--secret"], "\n");
+                assert!(code == 2 && err.contains("no token came on stdin"), "{err}");
+                (code, out, err)
+            }
+            2 => {
+                let secret = format!("s3cret-{}", tc.draw(gs::text().alphabet("abc").min_size(1).max_size(4)));
+                given.push(secret.clone());
+                let (code, out, err) = fed(&env, &["-y", "plugin", "settings", "echo", "token", &secret], "");
+                let says = "a secret isn't given on the command line, which keeps it in your shell's history: `locallibrary plugin settings echo token --secret` reads it from stdin";
+                assert!(code == 2 && err.contains(says), "{err}");
+                let (code, _, err) = fed(&env, &["-y", "plugin", "settings", "echo", "greeting", "--secret"], "x\n");
+                assert!(code == 2 && err.contains("greeting isn't a secret: give its value"), "{err}");
+                (code, out, err)
+            }
+            3 => {
+                let r = fed(&env, &["-y", "plugin", "settings", "echo", "token", "--reset"], "");
+                assert_eq!(r.0, 0, "{}", r.2);
+                assert!(r.1.contains("forget the echo plugin's token\n"), "{}", r.1);
+                set = false;
+                r
+            }
+            // Damaged while it's set: unknown, then as it was once mended.
+            4 => {
+                // Only one kept can be damaged.
+                if !set {
+                    given.push("s3cret-kept".into());
+                    let r = fed(&env, &["-y", "plugin", "settings", "echo", "token", "--secret"], "s3cret-kept\n");
+                    assert_eq!(r.0, 0, "{}", r.2);
+                    set = true;
+                }
+                let kept = std::fs::read(&file).unwrap();
+                std::fs::write(&file, "not json").unwrap();
+                let (code, shown, err) = fed(&env, &["plugin", "settings", "echo"], "");
+                assert_eq!(code, 0, "{err}");
+                let words = shown.split_whitespace().collect::<Vec<_>>().join(" ");
+                assert!(words.contains("token unknown Token"), "{shown}");
+                assert!(shown.contains("whether its secrets are set isn't known: "), "{shown}");
+                let (_, json, _) = fed(&env, &["--json", "plugin", "settings", "echo", "token"], "");
+                let json: Value = serde_json::from_str(&json).unwrap();
+                assert_eq!(json["secrets"], json!({ "token": null }), "{json}");
+                std::fs::write(&file, kept).unwrap();
+                // Mended, it's set again.
+                let (_, shown, _) = fed(&env, &["plugin", "settings", "echo", "token"], "");
+                let words = shown.split_whitespace().collect::<Vec<_>>().join(" ");
+                assert!(words.contains("token set Token"), "{shown}");
+                (code, shown, err)
+            }
+            _ => {
+                let one = tc.draw(gs::booleans());
+                let args: &[&str] =
+                    if one { &["plugin", "settings", "echo", "token"] } else { &["plugin", "settings", "echo"] };
+                let (code, shown, err) = fed(&env, args, "");
+                assert_eq!(code, 0, "{err}");
+                let words = shown.split_whitespace().collect::<Vec<_>>().join(" ");
+                let state = if set { "set" } else { "not set" };
+                assert!(words.contains(&format!("token {state} Token")), "{shown}");
+                assert_eq!(words.contains("greeting"), !one, "{shown}");
+                (code, shown, err)
+            }
+        };
+        for secret in &given {
+            assert!(!out.contains(secret.as_str()) && !err.contains(secret.as_str()), "{secret} shown:\n{out}\n{err}");
+        }
+        let (_, json, _) = fed(&env, &["--json", "plugin", "settings", "echo"], "");
+        let json: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!((&json["secrets"], json["settings"].get("token")), (&json!({ "token": set }), None), "{json}");
+    }
 }
 
 /// `plugin serve` speaks the protocol on stdout and writes nothing else there; an id that's no
@@ -512,6 +621,55 @@ fn check_and_doctor_name_the_coverart_plugins_art_fetch() {
     {
         assert!(doctor.out.contains(hint) || doctor.err.contains(hint), "{hint}: {}{}", doctor.out, doctor.err);
     }
+}
+
+/// For any of the demo drive's tracks given artwork that's then gone: `check` warns of exactly
+/// those, naming `art fetch` and fixing them by fetching covers for them; `doctor` lists them as
+/// having no artwork and names `art auto` and `art fetch`, or says every track's artwork is there;
+/// and it exits with problems when a track lacks its artwork or a check found a problem.
+#[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn check_and_doctor_name_the_tracks_whose_artwork_is_gone(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let env = env();
+    let usb = env.volumes.join("USB");
+    std::fs::write(env.outside("cover.jpg"), crate::support::jpeg(64)).unwrap();
+    let gone: Vec<u32> = tc.draw(gs::subsequences(vec![1, 2]));
+    for t in &gone {
+        env.ok(&["--yes", "art", "set", "USB", path(&env.outside("cover.jpg")), "--track", &t.to_string()]);
+    }
+    if !gone.is_empty() {
+        std::fs::remove_dir_all(usb.join("PIONEER/Artwork")).unwrap();
+    }
+    let said = format!("gone {gone:?}");
+    let r = env.run(&["--json", "check", "USB"]);
+    let v: Value = serde_json::from_str(&r.out).unwrap_or_else(|e| panic!("{said}: {e}: {}\n{}", r.out, r.err));
+    let art =
+        v["items"].as_array().unwrap().iter().find(|i| {
+            i["check"] == "files" && i["message"].as_str().is_some_and(|m| m.contains("have no artwork image"))
+        });
+    match art {
+        None => assert!(gone.is_empty(), "{said}: {v}"),
+        Some(i) => {
+            let message = i["message"].as_str().unwrap();
+            assert!(
+                message.starts_with(&format!("{} track(s) have no artwork image: ", gone.len())),
+                "{said}: {message}"
+            );
+            assert!(message.ends_with("`locallibrary art fetch \"USB\"` finds covers online"), "{said}: {message}");
+            assert_eq!(i["fix"], json!({ "name": "art.fetch", "params": { "drive": "USB", "tracks": gone } }));
+        }
+    }
+    let only = tc.draw(gs::sampled_from(vec!["missing", "missing,checks", "checks"]));
+    let doctor = env.run(&["doctor", "USB", "--only", only]);
+    let shown = format!("{}{}", doctor.out, doctor.err);
+    let listed = only.contains("missing");
+    assert_eq!(shown.contains("`locallibrary art fetch \"USB\"` finds covers online"), listed && !gone.is_empty());
+    assert_eq!(shown.matches("no artwork ").count(), if listed { gone.len() } else { 0 }, "{said}: {shown}");
+    assert_eq!(shown.contains("every track's audio, analysis and artwork is there"), listed && gone.is_empty());
+    let report: Value = serde_json::from_str(&env.run(&["--json", "doctor", "USB", "--only", only]).out).unwrap();
+    let missing = report["missing"].as_array().is_some_and(|m| !m.is_empty());
+    let problem = report["checks"].as_array().into_iter().flatten().any(|i| i["level"] == "problem");
+    assert_eq!(doctor.code, if missing || problem { 4 } else { 0 }, "{said} --only {only}: {shown}\n{report}");
 }
 
 /// A plugin whose id is a namespace of the sidecar's methods is left out, saying why, and the

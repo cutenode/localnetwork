@@ -3,7 +3,9 @@ name: locallibrary cache
 # locallibrary-ci.yml's other-os job, nightly on main, so the macOS and Windows caches it restores
 # stay warm: only main saves caches, and ci.yml runs other-os for merge queue groups and labelled
 # pull requests, never for a push to main. It's the same job, so what fails here would fail a
-# merge queue group too.
+# merge queue group too. The apt packages every workflow installs are warmed here too, and the
+# run fails when the repository's caches near GitHub's 10 GB, past which it drops the least
+# recently used.
 on:
   schedule:
     - cron: "37 3 * * *"
@@ -71,7 +73,66 @@ jobs:
       docs: false
       cache: false
       deny: false
+      release: false
       dist: false
       other-os: true
       semver: false
       commands: false
+
+  # Each set of apt packages a workflow installs (.github/actions/apt-packages), restored or saved
+  # on main every night. A pull request reads main's caches but can't see another pull request's,
+  # and a push to main runs only the jobs that need libasound2-dev, so without this every other
+  # set was fetched from Ubuntu's mirror by each new pull request, and failed with it. Read from the
+  # workflows, so a new set is warmed without a list to edit.
+  apt-sets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sets: ${{ steps.sets.outputs.sets }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # yq is on the runner.
+      - id: sets
+        run: |
+          sets=$(yq -o json '[.jobs[].steps[]? | select(.uses == "./.github/actions/apt-packages") | .with.packages]' \
+            .github/workflows/*.yml | jq -sc 'add | unique')
+          echo "Package sets: $sets"
+          echo "sets=$sets" >> "$GITHUB_OUTPUT"
+
+  apt:
+    needs: apt-sets
+    strategy:
+      fail-fast: false
+      matrix:
+        packages: ${{ fromJSON(needs.apt-sets.outputs.sets) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: ${{ matrix.packages }}
+
+  # Fails over 9 GiB of the 10 GB GitHub keeps, so the caches get trimmed before GitHub starts
+  # dropping the least recently used ones, which were the apt packages.
+  cache-usage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          read -r bytes count < <(gh api "repos/$GH_REPO/actions/cache/usage" \
+            --jq '"\(.active_caches_size_in_bytes) \(.active_caches_count)"')
+          echo "Actions caches: $count, $((bytes / 1048576)) MiB"
+          if [ "$bytes" -gt $((9 * 1024 * 1024 * 1024)) ]; then
+            echo "::error title=Caches near the limit::$((bytes / 1048576)) MiB of caches; GitHub drops the least recently used past 10 GB. gh cache list --sort size_in_bytes shows what to trim."
+            exit 1
+          fi

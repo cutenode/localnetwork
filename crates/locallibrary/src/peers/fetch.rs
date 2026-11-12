@@ -156,8 +156,5 @@ async fn get_object(conn: &Connection, store: &Store, hash: Hash, size: u64) -> 
     if n != size || got != hash {
         return Err(Error::Peer(format!("a stored file came back damaged ({})", hash.short())));
     }
-    let dst = store.object_path(&hash);
-    let parent = dst.parent().expect("object path has parent");
-    std::fs::create_dir_all(parent).at(parent)?;
-    fsutil::replace(tmp.into_temp_path(), &dst)
+    store.keep_object(tmp.into_temp_path(), &hash)
 }

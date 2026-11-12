@@ -3,11 +3,12 @@
  * builder takes the page's metadata, so the addresses in it are the same absolute ones the head names, and only the
  * fields of a project or profile it reads.
  */
+import { type DjSet, setName } from '#lib/dj.ts';
 import type { EpkRecord } from '#lib/epk.ts';
 import type { PageMeta } from '#lib/meta.ts';
 import type { MixReport } from '#lib/mix/report.ts';
 import type { JsonLd, JsonLdNode } from '#lib/structured-data.ts';
-import { musicBrainzUrl } from '#lib/supports.ts';
+import { musicBrainzUrl, trackArtists } from '#lib/supports.ts';
 import type {
 	BasicsSection,
 	PerformerSection,
@@ -159,6 +160,37 @@ export const personProfile =
 			...sameAs(profile.record.basics.links)
 		}
 	});
+
+/** A DJ's set: the tracks they played, in order, as a playlist by them. Tracks they left unnamed are left out. */
+export const setPlaylist =
+	(
+		set: Pick<DjSet, 'title' | 'venue' | 'location' | 'date' | 'tracks'>,
+		dj: { name: string; path: string }
+	): JsonLdBuilder =>
+	(meta) => {
+		const tracks = set.tracks.flatMap((track) => {
+			if (track.unidentified || !track.title) return [];
+
+			const artists = trackArtists(track).map(({ name, mbid }) => ({
+				'@type': 'MusicGroup',
+				name,
+				...(mbid && { sameAs: [musicBrainzUrl('artist', mbid)] })
+			}));
+
+			return [{ '@type': 'MusicRecording', name: track.title, ...(artists.length > 0 && { byArtist: artists }) }];
+		});
+
+		return {
+			'@type': 'MusicPlaylist',
+			name: setName(set),
+			url: meta.url,
+			// The set's schema takes only a calendar date.
+			dateCreated: set.date,
+			numTracks: set.tracks.length,
+			creator: { '@type': 'Person', name: dj.name, url: new URL(dj.path, meta.url).href },
+			...(tracks.length > 0 && { track: tracks })
+		};
+	};
 
 /** An artist the directory knows by MusicBrainz ID, with MusicBrainz's page about them as the same artist. */
 export const musicBrainzArtist =

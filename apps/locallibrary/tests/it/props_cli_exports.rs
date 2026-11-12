@@ -9,7 +9,7 @@ use std::path::Path;
 
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::support::{Env, path};
 
@@ -332,6 +332,15 @@ fn the_collection_prints_what_its_json_says(tc: TestCase) {
     for l in lists.as_array().unwrap() {
         assert!(out.contains(l["name"].as_str().unwrap()), "{l}: {out}");
     }
+    // A playlist the collection hasn't got, and a plugin's library source that isn't one.
+    let missing = tc.draw(gs::sampled_from(&["Saturday", "Shows/Sunday"][..]));
+    let r = fx.run(&with(&["tracks", "--playlist", missing]).iter().map(String::as_str).collect::<Vec<_>>());
+    assert!(r.code == 1 && r.err.contains(&format!("no playlist {missing:?} in the collection")), "{}", r.err);
+    let source = tc.draw(gs::sampled_from(&["nope", "rekordbox"][..]));
+    let from = format!("interop:{source}");
+    let elsewhere = path(&fx.home("elsewhere")).to_string();
+    let r = fx.run(&["collection", "export", &elsewhere, "--from", &from]);
+    assert!(r.code == 1 && r.err.contains(&format!("has no library source {source:?}")), "{}", r.err);
 
     let (diff, out) = both(&["diff", "A"]);
     assert!(out.contains(&format!("{} track(s) found on the drive by file", diff["matched_by_file"])), "{out}\n{diff}");
@@ -345,8 +354,22 @@ fn the_collection_prints_what_its_json_says(tc: TestCase) {
         assert!(out.contains(t["name"].as_str().unwrap_or_else(|| t["file_path"].as_str().unwrap())), "{t}: {out}");
     }
 
-    let folder = fx.home("export");
-    let export = with(&["export", path(&folder), "--dry-run"]);
+    // Into a new folder, or over drive A's library (which wasn't exported from the collection,
+    // so it's replaced only when asked, and the history players recorded on it is saved in the
+    // store first); all of it, or a playlist or a folder of them.
+    let over_a = tc.draw(gs::booleans());
+    let folder = if over_a { fx.volumes.join("A") } else { fx.home("export") };
+    let playlist = tc.draw(gs::sampled_from(&[None, Some("Friday"), Some("Shows")][..]));
+    let mut export = vec!["export", path(&folder)];
+    if let Some(p) = playlist {
+        export.extend(["--playlist", p]);
+    }
+    let unasked = with(&[&export[..], &["--dry-run"]].concat());
+    let unasked = fx.run(&unasked.iter().map(String::as_str).collect::<Vec<_>>());
+    if over_a {
+        export.push("--replace");
+    }
+    let export = with(&[&export[..], &["--dry-run"]].concat());
     let export: Vec<&str> = export.iter().map(String::as_str).collect();
     let (planned, printed) = (fx.run(&[&["--json"][..], &export].concat()), fx.run(&export));
     let said = format!("{}\n{}\n{}", printed.out, printed.err, planned.out);
@@ -354,12 +377,22 @@ fn the_collection_prints_what_its_json_says(tc: TestCase) {
     if planned.code != 0 {
         return;
     }
-    assert!(!folder.exists(), "a dry run made {folder:?}");
+    // Without --replace, drive A's library isn't replaced.
+    match over_a {
+        true => assert!(unasked.code == 1 && unasked.err.contains("replace it to export over it"), "{}", unasked.err),
+        false => assert_eq!(unasked.code, 0, "{}", unasked.err),
+    }
+    assert!(over_a || !folder.exists(), "a dry run made {folder:?}");
     let p = &serde_json::from_str::<Value>(&planned.out).unwrap()["plan"];
+    assert_eq!(p["replaces_library"], json!(over_a), "{said}");
     let copies = p["copies"].as_array().unwrap().len();
     assert!(printed.out.contains(&format!("  copy {copies} file(s), ")), "{said}");
+    let what = match playlist {
+        Some(p) => p.to_string(),
+        None => String::new(),
+    };
     let head = format!(
-        " -> {}: {} track(s), {} playlist(s), ",
+        "{what} -> {}: {} track(s), {} playlist(s), ",
         p["target"].as_str().unwrap(),
         p["tracks"],
         p["playlist_count"]
@@ -369,19 +402,20 @@ fn the_collection_prints_what_its_json_says(tc: TestCase) {
         assert!(printed.out.contains(w.as_str().unwrap()), "{w}: {said}");
     }
     let json = tc.draw(gs::booleans());
-    let apply = with(&["export", path(&folder)]);
-    let mut apply: Vec<&str> = apply.iter().map(String::as_str).collect();
+    let mut apply: Vec<&str> = export.iter().copied().filter(|a| *a != "--dry-run").collect();
     apply.insert(0, "--yes");
     if json {
         apply.insert(0, "--json");
     }
     let r = fx.run(&apply);
     assert_eq!(r.code, 0, "{}\n{}", r.out, r.err);
-    let copied = files_under(&folder.join("Contents")).len();
-    assert_eq!(copied, p["copies"].as_array().unwrap().len(), "{}", r.out);
+    let kept = files_under(&folder.join("Contents")).len();
+    assert_eq!(kept, copies + p["unchanged"].as_u64().unwrap() as usize, "{}", r.out);
     if !json {
         assert!(r.out.contains(&format!("exported {} track(s) to ", p["tracks"])), "{}", r.out);
-        assert!(r.out.contains(&format!("{copied} file(s) copied")), "{}", r.out);
+        assert!(r.out.contains(&format!("{copies} file(s) copied")), "{}", r.out);
+        // What the export replaced is in the store first.
+        assert_eq!(r.out.contains("saved snapshot "), over_a && !p["unsaved"].is_null(), "{}", r.out);
     }
 }
 

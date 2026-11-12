@@ -12,6 +12,7 @@ use ratatui::widgets::ListState;
 use super::app::{App, Level, Msg, View};
 use super::audio::{Audio, Listed};
 use super::icons;
+use super::keys::{KeyPalette, Notation};
 use super::theme;
 
 /// Hot cues the digit row plays: 1-8 for A-H, as many as a CDJ has pads.
@@ -66,6 +67,13 @@ pub struct Deck {
     pub outputs: Option<Outputs>,
     /// The output still opening in the background (see `Msg::Output`): the last asked for.
     pub opening: Option<u64>,
+    pub notation: Notation,
+    pub key_palette: KeyPalette,
+    /// How waveforms are coloured, if not as the drive says.
+    pub bands: Option<BandMode>,
+    /// Seconds before a track's end the deck warns of it, 0 for not at all.
+    pub end_warning: u16,
+    pub art: bool,
 }
 
 impl Default for Deck {
@@ -79,14 +87,66 @@ impl Default for Deck {
             output: None,
             outputs: None,
             opening: None,
+            notation: Notation::default(),
+            key_palette: KeyPalette::default(),
+            bands: None,
+            end_warning: END_WARNING,
+            art: true,
+        }
+    }
+}
+
+/// Seconds before a track's end the deck warns of it, unless told otherwise.
+pub const END_WARNING: u16 = 30;
+
+/// How waveforms are coloured, as rekordbox's players offer it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BandMode {
+    Blue,
+    Rgb,
+    ThreeBand,
+}
+
+impl BandMode {
+    pub const ALL: [BandMode; 3] = [BandMode::Blue, BandMode::Rgb, BandMode::ThreeBand];
+
+    /// As My Settings and the settings keep it.
+    pub fn name(self) -> &'static str {
+        match self {
+            BandMode::Blue => "blue",
+            BandMode::Rgb => "rgb",
+            BandMode::ThreeBand => "3band",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<BandMode> {
+        BandMode::ALL.into_iter().find(|b| b.name() == name)
+    }
+
+    /// As rekordbox writes it.
+    pub fn title(self) -> &'static str {
+        match self {
+            BandMode::Blue => "BLUE",
+            BandMode::Rgb => "RGB",
+            BandMode::ThreeBand => "3Band",
         }
     }
 }
 
 impl App {
-    /// Whether the digit row plays hot cues: with the pads on, or in full screen.
+    /// Whether the digit row plays hot cues: with the pads on, or in the Deck layout.
     pub fn pads_on(&self) -> bool {
-        self.deck.pads || (self.view == View::Library && self.fullscreen)
+        self.deck.pads || self.deck_showing()
+    }
+
+    /// Whether the deck has the screen: the Library view's Deck layout, with Browse closed.
+    pub fn deck_showing(&self) -> bool {
+        self.view == View::Library && self.deck_layout && !self.browsing
+    }
+
+    /// How waveforms are coloured now: as chosen, else as the playing track's drive says, else 3Band.
+    pub fn band_mode(&self) -> BandMode {
+        self.deck.bands.or(self.now.as_ref().and_then(|n| n.waves.bands)).unwrap_or(BandMode::ThreeBand)
     }
 
     /// The playhead, in milliseconds.

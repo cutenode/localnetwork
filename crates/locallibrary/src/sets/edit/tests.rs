@@ -235,4 +235,12 @@ fn edits_go_through_when_every_position_is_a_track(tc: TestCase) {
         }
         (out, why) => panic!("{c:?} on {len} tracks: {out:?}, expected {why:?}"),
     }
+    // The inserts alone: refused exactly when one is outside the tracklist and one past it.
+    let inserts = Changes { insert: c.insert.clone(), ..Changes::default() };
+    let outside = c.insert.iter().find(|(p, _)| *p == 0 || *p > len + 1);
+    match (inserts.apply(&tracks(len as u32), typed), outside) {
+        (Ok(out), None) => assert_eq!(out.len(), len + c.insert.len(), "{inserts:?}"),
+        (Err(e), Some((p, _))) => assert!(e.to_string().starts_with(&format!("can't insert at {p}: ")), "{e}"),
+        (out, outside) => panic!("{inserts:?} on {len} tracks: {out:?}, outside {outside:?}"),
+    }
 }

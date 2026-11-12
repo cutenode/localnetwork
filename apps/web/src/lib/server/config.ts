@@ -41,6 +41,31 @@ const didList = z
 		return items;
 	});
 
+/** `key=on,other=off`: flags forced on or off on this server, whatever their records say. */
+const flagOverrides = z
+	.string()
+	.optional()
+	.transform((value, ctx) => {
+		const overrides: Record<string, boolean> = {};
+
+		for (const item of (value ?? '')
+			.split(',')
+			.map((part) => part.trim())
+			.filter(Boolean)) {
+			const [key, state, ...rest] = item.split('=');
+
+			if (!key || (state !== 'on' && state !== 'off') || rest.length > 0) {
+				ctx.addIssue({ code: 'custom', message: `"${item}" is not key=on or key=off` });
+
+				return z.NEVER;
+			}
+
+			overrides[key] = state === 'on';
+		}
+
+		return overrides;
+	});
+
 const absoluteUrl = z.url().transform((value) => value.replace(/\/+$/, ''));
 
 /** A userinput.app space's at:// URI. Left empty, it reads as unset. */
@@ -86,6 +111,7 @@ const envSchema = z.object({
 	EMAIL_FROM: z.string().min(1).optional(),
 	DM_PROVIDER: z.enum(['bluesky', 'log', 'none']).optional(),
 	CHAT_SERVICE_DID: z.string().startsWith('did:').default('did:web:api.bsky.chat'),
+	FLAG_OVERRIDES: flagOverrides,
 	...backupVariables
 });
 
@@ -130,6 +156,8 @@ export type Config = {
 	dm: { provider: 'bluesky' | 'log' | 'none'; chatService: string };
 	/** The bucket the database is backed up to each day. Unset, the app takes no backups. */
 	backup?: BackupSettings;
+	/** Flags forced on (true) or off for every request to this server. Development and tests only. */
+	flagOverrides: Record<string, boolean>;
 };
 
 export const SYNC_SERVICE_FRAGMENT = 'localnetwork_syncer';
@@ -169,6 +197,14 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 
 	const value = parsed.data;
 	const dev = value.NODE_ENV !== 'production';
+
+	// Overrides change what every visitor sees with no record or audit entry, so production refuses them.
+	if (!dev && Object.keys(value.FLAG_OVERRIDES).length > 0) {
+		throw new Error(
+			'Invalid configuration:\n  FLAG_OVERRIDES: only for development and tests, so unset it in production'
+		);
+	}
+
 	const isHttps = value.PUBLIC_URL.startsWith('https:');
 	const serviceDid = value.SERVICE_DID ?? serviceDidFor(value.PUBLIC_URL);
 
@@ -203,7 +239,8 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		epkViewRetentionDays: value.EPK_VIEW_RETENTION_DAYS,
 		email: emailConfig(value, dev),
 		dm: { provider: value.DM_PROVIDER ?? (dev ? 'log' : 'none'), chatService: value.CHAT_SERVICE_DID },
-		backup: backupSettings(value)
+		backup: backupSettings(value),
+		flagOverrides: value.FLAG_OVERRIDES
 	};
 }
 

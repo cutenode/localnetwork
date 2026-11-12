@@ -10,6 +10,13 @@ pub fn mix(a: Rgb, b: Rgb, t: f32) -> Rgb {
     [0, 1, 2].map(|i| (a[i] as f32 + (b[i] as f32 - a[i] as f32) * t).round() as u8)
 }
 
+/// `c` taken `t` of the way to the grey of the same lightness: 0 gives `c`, 1 the grey.
+pub fn mute(c: Rgb, t: f32) -> Rgb {
+    let [r, g, b] = c.map(f32::from);
+    let grey = (0.2126 * r + 0.7152 * g + 0.0722 * b).round() as u8;
+    mix(c, [grey; 3], t)
+}
+
 /// Each channel times `f`, clamped: below 1 darkens, above 1 brightens.
 pub fn scale(c: Rgb, f: f32) -> Rgb {
     c.map(|v| (v as f32 * f).clamp(0.0, 255.0) as u8)

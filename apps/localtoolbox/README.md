@@ -441,11 +441,11 @@ pnpm test:coverage   # run it with coverage; the report is in coverage/
 pnpm lint            # oxlint, type-aware, with the repo's shared rules
 pnpm format          # oxfmt, with the repo's shared settings
 pnpm check           # strict TypeScript, by svelte-check over both tsconfigs
-pnpm knip            # unused files, exports and dependencies
+pnpm -w knip         # unused files, exports and dependencies, repo-wide
 pnpm test:shuffle    # the same suite in a random order, to catch tests that
                      # only pass because of the ones before them
 pnpm test:repeat     # every test twice, to catch state kept between runs
-pnpm verify          # format, lint, types, knip, coverage, shuffled, repeated
+pnpm verify          # format, lint, types, coverage, shuffled, repeated
                      # and the build: the whole gate
 pnpm test:mutation   # Stryker; slow, so CI runs it weekly. The report is in
                      # reports/mutation/

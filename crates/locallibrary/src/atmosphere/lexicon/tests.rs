@@ -497,7 +497,8 @@ fn unions_check_listed_types_and_pass_others_unless_closed(tc: hegel::TestCase) 
 }
 
 /// A ref names a definition in its own document (`#name`), another document's (`nsid#name`),
-/// or another document's main definition (`nsid`).
+/// or another document's main definition (`nsid`); a value checked against a ref to a
+/// definition its document doesn't have is refused, naming the ref.
 #[hegel::test(test_cases = 200)]
 fn refs_name_their_document_and_definition(tc: hegel::TestCase) {
     let nsid = || gs::from_regex("[a-z]{1,6}\\.[a-z]{1,6}\\.[a-z][a-zA-Z]{0,6}").fullmatch(true);
@@ -507,6 +508,13 @@ fn refs_name_their_document_and_definition(tc: hegel::TestCase) {
     assert_eq!(target(&here, &format!("{there}#{name}")), (there.as_str(), name.as_str()));
     assert_eq!(target(&here, &there), (there.as_str(), "main"));
     assert_eq!(short_name(&there), there.rsplit('.').next().unwrap());
+    // A local ref to a definition the set's document doesn't have is refused, naming it.
+    let checked = check(SET, &json!({ "type": "ref", "ref": format!("#{name}") }), &json!({}), "place");
+    if def(SET, &name).is_none() {
+        assert_eq!(checked.unwrap_err(), format!("place: unknown ref #{name}"));
+    } else if let Err(e) = checked {
+        assert!(!e.contains("unknown ref"), "{name}: {e}");
+    }
 }
 
 /// A `uri` is a scheme of letters, digits and `_`, a colon, maybe `//`, then text without

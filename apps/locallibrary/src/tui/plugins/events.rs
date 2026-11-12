@@ -14,7 +14,7 @@ use locallibrary::{Result, Store};
 use loclib_plugin::{Context, HostAction, Manifest, Suggested, Suggestion};
 
 use super::{Run, named};
-use crate::tui::app::{App, Level, Msg};
+use crate::tui::app::{App, Level, Msg, UNDO_HINT};
 use crate::tui::edits::Modal;
 use crate::tui::keymap::Act;
 use crate::tui::palette::Item;
@@ -89,7 +89,13 @@ impl App {
     pub(in crate::tui) fn told(&mut self, notice: PluginNotice) {
         let by = name(&notice.plugin);
         let review = if notice.suggests.is_some() { " (: to review)" } else { "" };
-        self.toast(format!("{by}: {}{review}", notice.message), Level::Info);
+        let said = format!("{by}: {}{review}", notice.message);
+        // A change made at once has only its message to say `u` takes it back, and reading the
+        // drive after it is what sets plugins off: their news waits in the log.
+        if self.toast.as_ref().is_some_and(|(m, ..)| m.contains(UNDO_HINT)) {
+            return self.remember(said, Level::Info);
+        }
+        self.toast(said, Level::Info);
     }
 
     /// What plugins suggested, as the palette lists them, newest first: to review, or dismiss.
