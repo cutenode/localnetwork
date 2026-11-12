@@ -266,7 +266,7 @@ pnpm dev
 | `neon.test` | `neon-pass` | DJ with a profile at `/@neon.test`, manages two demo projects, has three sets and four shows, and made Neon Tide's Radio press kit the old way, so it moves to the root on their first dashboard visit |
 | `pat.test`  | `pat-pass`  | promoter, follows both of neon's projects                                                                                                                                                              |
 
-`harbour.test`, `pirate.test`, and `glasshouse.test` (passwords `harbour-pass` and so on) manage Harbour Lights, Pirate Signal, and Glasshouse and have sets of their own, so `/charts` has tracks several DJs played.
+`harbour.test`, `pirate.test`, and `glasshouse.test` (passwords `harbour-pass` and so on) manage Harbour Lights, Pirate Signal, and Glasshouse and have sets of their own, so `/charts` has tracks several DJs played. Every other demo project has a manager too (`velvet.test`, `tunde.test` and so on; the dev network prints them all). Each manager got there through a claim ada.test approved, and each solo project's DJ claimed it as themselves.
 
 The network is temporary; Ctrl-C stops it, and restarting resets everything (and the dev database). To restart the app without resetting the network, run `pnpm dev:network` in one terminal and `pnpm dev:app` in another.
 
