@@ -108,6 +108,9 @@ export const NEON_DJ = {
 	}))
 };
 
+/** NEON_DJ's first set, under Recent sets, linking its page. */
+export const SET_PAGE: ExpectedLink = { name: 'Tidal Hours', href: '/@neon.test/sets/0', within: 'Recent sets' };
+
 /** The first artist in NEON_DJ's first set, in its tracklist under Recent sets. */
 export const SET_ARTIST: ExpectedLink = {
 	name: 'Ferrule',
