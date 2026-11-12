@@ -244,7 +244,7 @@ fn prop_an_m4a_is_lossless_by_its_header(tc: hegel::TestCase) {
 /// it's the same audio can't be told.
 #[cfg(unix)]
 #[hegel::test(test_cases = 3)]
-fn prop_an_unreadable_file_at_the_copys_name_is_an_error(tc: hegel::TestCase) {
+fn prop_an_unreadable_file_at_the_copy_name_is_an_error(tc: hegel::TestCase) {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("USB");

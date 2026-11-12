@@ -76,12 +76,64 @@ it("shows a person's profile at their handle, with structured data for search en
 	expect(locals).toMatchObject({ crawlerHead: expect.stringContaining('application/ld+json') });
 });
 
+it("streams the sets a profile's mixes link, and asks for none when no mix links one", async () => {
+	const set = {
+		uri: `at://${MARA}/${COLLECTION.djSet}/3kset`,
+		cid: 'bafyreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy'
+	};
+
+	await t.net.client(MARA).putRecord({
+		collection: COLLECTION.profile,
+		rkey: 'self',
+		record: {
+			$type: COLLECTION.profile,
+			basics: { name: 'Mara Lind', location: { city: 'Leipzig', country: 'DE' } },
+			performer: {
+				mixes: [
+					{ title: 'Warehouse', url: 'https://mixes.test/warehouse', set },
+					{ title: 'Unlinked', url: 'https://mixes.test/unlinked' }
+				]
+			},
+			createdAt: '2026-10-30T00:00:00.000Z',
+			updatedAt: '2026-10-30T00:00:00.000Z'
+		}
+	});
+
+	const linked = await routeEvent({
+		app: app(),
+		params: { handle: 'mara.test' },
+		url: '/@mara.test'
+	}).loadData<PageServerData>(load);
+
+	const unlinked = await routeEvent({
+		app: app(),
+		params: { handle: 'oskar.test' },
+		url: '/@oskar.test'
+	}).loadData<PageServerData>(load);
+
+	// The directory serves only sets by accounts that manage a project, which Mara doesn't, so it has none to give.
+	expect(await linked.sets).toEqual(new Map());
+	expect(unlinked.sets).toBeUndefined();
+});
+
 it('shows an account without a profile by its handle, without structured data', async () => {
 	const { loadData, locals } = routeEvent({ app: app(), params: { handle: 'oskar.test' }, url: '/@oskar.test' });
 	const data = await loadData<PageServerData>(load);
 
 	expect(data).toMatchObject({ profile: null, name: '@oskar.test' });
 	expect(locals).toMatchObject({ crawlerHead: expect.not.stringContaining('application/ld+json') });
+});
+
+it('streams what the tabs show, except to a link that opens a tab, which gets it with the page', async () => {
+	const loadAt = (url: string) =>
+		routeEvent({ app: app(), params: { handle: 'mara.test' }, url }).loadData<PageServerData>(load);
+
+	const streamed = await loadAt('/@mara.test');
+	const linked = await loadAt('/@mara.test?tab=plays-in');
+
+	expect(streamed.playsIn).toBeInstanceOf(Promise);
+	expect(streamed.dj).toBeInstanceOf(Promise);
+	expect(linked).toMatchObject({ playsIn: [], dj: [] });
 });
 
 it('sends a DID or a handle written another way to the canonical address, keeping the query', async () => {

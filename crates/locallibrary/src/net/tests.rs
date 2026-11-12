@@ -79,7 +79,7 @@ fn port_and_path(tc: &TestCase) -> String {
 /// is this computer's, a private network's, a link's own or none; it names this computer
 /// only when it's a loopback address; and any other scheme is refused.
 #[hegel::test(test_cases = 400)]
-fn ipv4_addresses_are_public_unless_theyre_local(tc: TestCase) {
+fn ipv4_addresses_are_public_unless_they_are_local(tc: TestCase) {
     let v4 = ipv4(&tc);
     let url = format!("https://{}{}", spelled_v4(&tc, v4), port_and_path(&tc));
     let parsed = reqwest::Url::parse(&url).unwrap();
@@ -96,7 +96,7 @@ fn ipv4_addresses_are_public_unless_theyre_local(tc: TestCase) {
 /// The same for IPv6: the loopback and unspecified addresses, unique local (fc00::/7) and
 /// link-local (fe80::/10) ones, and IPv4 ones mapped into IPv6 that are local as IPv4.
 #[hegel::test(test_cases = 400)]
-fn ipv6_addresses_are_public_unless_theyre_local(tc: TestCase) {
+fn ipv6_addresses_are_public_unless_they_are_local(tc: TestCase) {
     let low = tc.draw(gs::integers::<u128>().max_value(u128::from(u32::MAX)));
     let v6: u128 = match tc.draw(gs::integers::<u8>().max_value(6)) {
         0 => tc.draw(gs::sampled_from(vec![0u128, 1])),
@@ -119,7 +119,7 @@ fn ipv6_addresses_are_public_unless_theyre_local(tc: TestCase) {
 /// A name is public unless it's `localhost` or below it (in any case, with or without the
 /// final dot), and then it names this computer. Whatever's refused is said on one line.
 #[hegel::test(test_cases = 300)]
-fn names_are_public_unless_theyre_localhost(tc: TestCase) {
+fn names_are_public_unless_they_are_localhost(tc: TestCase) {
     let label = || gs::from_regex("[a-zA-Z0-9]([a-zA-Z0-9-]{0,8}[a-zA-Z0-9])?").fullmatch(true);
     let labels: Vec<String> = tc.draw(gs::vecs(label()).max_size(3));
     let last = tc.draw(hegel::one_of!(
