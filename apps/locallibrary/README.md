@@ -265,12 +265,12 @@ flowchart TD
     api --> store[("Store")]
     api --> master
     api --> host["Plugin host"]
-    host -->|"plugin serve ID, stdio"| procs["Plugin processes"]
+    host -->|"stdio: plugin serve ID,<br/>or a --dev-plugin program"| procs["Plugin processes"]
     host --> net["Online services"]
     api --> net
 ```
 
-Source: [`src/main.rs`](src/main.rs), [`src/rpc.rs`](src/rpc.rs), [`src/tui/mod.rs`](src/tui/mod.rs), [`src/autostart.rs`](src/autostart.rs), [`crates/locallibrary/src/api.rs`](../../crates/locallibrary/src/api.rs), [`crates/locallibrary/src/plugin.rs`](../../crates/locallibrary/src/plugin.rs)
+Source: [`src/main.rs`](src/main.rs), [`src/rpc.rs`](src/rpc.rs), [`src/tui/mod.rs`](src/tui/mod.rs), [`src/autostart.rs`](src/autostart.rs), [`src/plugins.rs`](src/plugins.rs), [`crates/locallibrary/src/api.rs`](../../crates/locallibrary/src/api.rs), [`crates/locallibrary/src/plugin.rs`](../../crates/locallibrary/src/plugin.rs)
 
 ### What the binary is built from
 
@@ -308,7 +308,9 @@ What `main` does before and after a command.
 flowchart TD
     start["locallibrary ..."] --> direct{"Answered<br/>at once?"}
     direct -->|"a shell completing, --version alone,<br/>a built-in plugin's serve"| quick["Answer, exit"]
-    direct -->|"no"| tree["Build the commands,<br/>with what plugins add"]
+    direct -->|"no"| dev{"Plugins given with<br/>--dev-plugin load?"}
+    dev -->|no| failed["Error, exit 1"]
+    dev -->|"yes, or none given"| tree["Build the commands,<br/>with what plugins add"]
     tree --> parse{"Parses?"}
     parse -->|no| usage["Usage error, exit 2"]
     parse -->|yes| kind["What was asked?"]
@@ -321,7 +323,7 @@ flowchart TD
     run --> stop
 ```
 
-Source: [`src/main.rs`](src/main.rs), [`src/help.rs`](src/help.rs), [`src/completion.rs`](src/completion.rs), [`src/plugin_cmd/contributed.rs`](src/plugin_cmd/contributed.rs)
+Source: [`src/main.rs`](src/main.rs), [`src/help.rs`](src/help.rs), [`src/completion.rs`](src/completion.rs), [`src/plugins.rs`](src/plugins.rs), [`src/plugin_cmd/contributed.rs`](src/plugin_cmd/contributed.rs)
 
 ### Exit status
 
@@ -494,7 +496,7 @@ The rest of the command tree, with the commands the help leaves out.
 flowchart TD
     hub["Other"]
     hub --> account["account<br/>status, login, logout, TARGET status, TARGET sign-in, TARGET sign-out"]
-    hub --> plugin["plugin<br/>list, info, settings, access, roles, checks, providers"]
+    hub --> plugin["plugin<br/>list, info, settings, access, roles, checks, providers, check"]
     hub --> misc["bug, completions, help"]
     hub --> more["import, analysis bench"]
     hub --> rpc["Not in the help<br/>rpc, man, drive list, plugin serve, account client-metadata"]

@@ -383,11 +383,19 @@ pub(crate) fn printable_json<R: DeserializeOwned>(file: impl std::io::Read) -> s
 
 /// `manifest` with its text [`printable`], as what the plugin answers `describe` is: as it was
 /// when all of it is.
-#[cfg(any(test, debug_assertions))]
 pub(crate) fn printable_manifest(manifest: Manifest) -> serde_json::Result<Manifest> {
     match printed(serde_json::to_value(&manifest)?) {
         None => Ok(manifest),
         Some(v) => serde_json::from_value(v),
+    }
+}
+
+impl super::Plugins {
+    /// Starts the plugin, if it isn't running (without a store, in a new folder in the temporary
+    /// folder), shaking hands with it: answers the features it and the host both have.
+    pub fn start(&self, plugin: &str) -> Result<Vec<String>> {
+        let p = self.slot(plugin)?.start(None)?;
+        Ok(p.live.features.get().cloned().unwrap_or_default())
     }
 }
 

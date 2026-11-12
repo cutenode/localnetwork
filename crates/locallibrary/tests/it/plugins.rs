@@ -326,8 +326,10 @@ fn a_plugin_starts_when_first_used_and_answers() {
     );
 }
 
+/// A plugin is hosted by the rules for whoever made it: one locallibrary doesn't ship, by a third
+/// party's, so it has no place of its own on the command line.
 #[test]
-fn only_plugins_locallibrary_ships_are_hosted() {
+fn plugins_are_hosted_by_the_rules_for_whoever_made_them() {
     let dir = tempfile::tempdir().unwrap();
     let new = |specs: Vec<PluginSpec>| match Plugins::new(specs, Arc::new(NoReads), Options::default()) {
         Ok(_) => String::new(),
@@ -336,7 +338,8 @@ fn only_plugins_locallibrary_ships_are_hosted() {
     let echo = spec(dir.path(), ECHO, &[]);
     assert_eq!(new(vec![echo.clone()]), "");
     let third = PluginSpec { built_in: false, ..echo.clone() };
-    assert_eq!(new(vec![third]), "echo: third-party plugins aren't supported yet");
+    assert_eq!(new(vec![third.clone()]), "");
+    assert_eq!(new(vec![echo.clone(), third]), "two plugins are called \"echo\"");
     assert_eq!(new(vec![echo.clone(), echo.clone()]), "two plugins are called \"echo\"");
     let cli = |id: &str| {
         let toml = ECHO.replace("id = \"echo\"", &format!("id = \"{id}\"")).replace(
@@ -346,6 +349,13 @@ fn only_plugins_locallibrary_ships_are_hosted() {
         spec(dir.path(), &toml, &[])
     };
     assert_eq!(new(vec![cli("one"), cli("two")]), "the two plugin's command \"say\" is another plugin's too");
+    let placed =
+        "the one plugin's manifest: contributes.commands[0].cli: only plugins locallibrary ships add CLI commands";
+    assert_eq!(new(vec![PluginSpec { built_in: false, ..cli("one") }]), placed);
+    let e = PluginSpec::third_party(cli("one").manifest, launch_nothing()).unwrap_err();
+    assert_eq!(e.to_string(), placed);
+    let hosted = PluginSpec::third_party(echo.manifest.clone(), launch_nothing()).unwrap();
+    assert!(!hosted.built_in);
     let hosted = Plugins::new(vec![cli("one")], Arc::new(NoReads), Options::default()).unwrap();
     let said =
         hosted.cli("say").map(|(id, c)| (id, matches!(c, locallibrary::plugin::Cli::Command(c) if c.name == "echo")));
@@ -416,6 +426,31 @@ fn a_plugins_error_keeps_its_kind_and_fields() {
     assert!(matches!(fail("cancelled", json!({})), Error::Cancelled));
     // A kind locallibrary has no error of is the plugin failing.
     assert_eq!(failure(fail("explode", json!({}))), "the Echo plugin failed: it went wrong");
+}
+
+/// A plugin locallibrary doesn't ship runs as one it does, once it has shaken hands: starting it
+/// answers the features it and the host both have.
+#[test]
+fn a_third_partys_plugin_runs_once_it_has_shaken_hands() {
+    let f = Fixture::new(
+        |dir| {
+            let third = |id: &str, args: &[&str]| PluginSpec {
+                built_in: false,
+                ..spec(dir, &ECHO.replace("id = \"echo\"", &format!("id = \"{id}\"")), args)
+            };
+            vec![third("echo", &[]), third("unchoosing", &["--without", "choose"])]
+        },
+        Options::default(),
+    );
+    assert!(!f.plugins.is_running("echo"));
+    let features = f.plugins.start("echo").unwrap();
+    assert!(f.plugins.is_running("echo"));
+    assert_eq!(f.plugins.start("echo").unwrap(), features, "the one running");
+    assert!(features.iter().any(|n| n == "choose"), "{features:?}");
+    let without: Vec<String> = features.iter().filter(|n| *n != "choose").cloned().collect();
+    assert_eq!(f.plugins.start("unchoosing").unwrap(), without);
+    assert_eq!(f.echo_params(json!({ "n": 1 })).unwrap(), json!({ "n": 1 }));
+    assert_eq!(f.plugins.start("nope").unwrap_err().code(), "not_found");
 }
 
 fn launch_nothing() -> Launch {

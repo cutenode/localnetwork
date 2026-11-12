@@ -127,7 +127,8 @@ crates/locallibrary/src/    the library, built on the crates above
                files) are cached by their contents
   fields.rs    analyzer plugins' fields for each audio file, kept the same way, by plugin, analyzer
                and the analyzer's version
-  plugin/      the plugin host: starting the plugins locallibrary ships and checking who they are,
+  plugin/      the plugin host: starting the plugins (those locallibrary ships, and one a developer
+               gives for a run, held to a third party's rules) and checking who they are,
                the reads they may call back for (callbacks.rs), and their commands, operations
                (planned as edit plans), exports, analyzers and settings
   sound/       tempo, key and loudness as the analyzers chosen for those roles kept them: doctor's
@@ -182,7 +183,8 @@ apps/locallibrary/          `locallibrary` (clap), the JSON-RPC sidecar (rpc.rs;
                             and the TypeScript types), the plugins it ships (plugins.rs: every crate in plugins/,
                             linked in from the table build.rs writes, each run as `locallibrary plugin serve
                             <id>`, and the manifest of every account plugin in plugins/accounts/, which nothing
-                            runs; plugin_cmd/: what they add to the command line), and the player (tui/:
+                            runs, and those --dev-plugin gives for a run; plugin_cmd/: what they add to the
+                            command line, and `plugin check`), and the player (tui/:
                             ratatui + rodio, drawing with loclib-waveform, the `tui` and `playback` features;
                             account_off.rs and the `playback`-less audio.rs stand in for what a build leaves
                             out)

@@ -621,6 +621,14 @@ drawn, and a section can't be one.
 
 ## Writing a plugin in Rust
 
+To try one in locallibrary, give it the manifest and the program for one run: `locallibrary
+--dev-plugin locallibrary-plugin.toml:target/debug/my-plugin plugin list`, or
+`LOCALLIBRARY_DEV_PLUGINS` (`;` between the two on Windows). It holds the manifest to
+`Manifest::validate(false)` and refuses an id one of its own plugins has. `locallibrary plugin
+check locallibrary-plugin.toml -- target/debug/my-plugin` checks the same without running a
+command: the manifest, then `hello` and `describe` (which must answer the manifest exactly), and
+lists the features both sides have. Either way the plugin runs as you, unsandboxed.
+
 Register a function for each kind of hook the manifest needs in `Hooks` (`.on(run_command)`, for
 a `fn(RunCommand, &Host) -> Result<Value, RpcError>`), and `serve` them, with the manifest, over
 stdin and stdout. `serve` answers `hello` (with the features of the hooks registered) and

@@ -1,11 +1,13 @@
 //! The plugins locallibrary ships, and the host the CLI, the player and the sidecar run them in
-//! (see [`locallibrary::plugin`]). Only plugins linked into this binary run: each is started as
+//! (see [`locallibrary::plugin`]). Each plugin linked into this binary is started as
 //! `locallibrary plugin serve <id>`, a process of its own speaking the plugin protocol over its
 //! stdin and stdout. An account plugin is its manifest alone, which locallibrary signs in from and
 //! never starts. A plugin whose id or contributions locallibrary couldn't tell from its own
 //! commands, the sidecar's methods or another plugin's is left out (see [`check`]): the command
 //! line says why as it starts, the sidecar's `plugins.list` has it with why, and every other
-//! plugin works.
+//! plugin works. A developer may give plugins locallibrary doesn't ship for one run
+//! (`--dev-plugin`, [`DEV_PLUGINS`]): those run as any other, held to a third party's rules, and
+//! one that can't run fails the run instead of being left out.
 
 pub mod checks;
 pub mod events;
@@ -13,7 +15,8 @@ pub mod params;
 pub mod providers;
 pub mod roles;
 
-use std::path::PathBuf;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use clap::{CommandFactory, ValueEnum};
@@ -59,9 +62,28 @@ const TEST_OFFLINE: &str = "LOCALLIBRARY_TEST_OFFLINE";
 #[cfg(debug_assertions)]
 const TEST_LOOPBACK: &str = "LOCALLIBRARY_TEST_LOOPBACK";
 
+/// Set by the CLI's tests: the binary, run with no arguments, serves the test plugin with the
+/// manifest in this file, as a program `--dev-plugin` names. Only in builds with debug assertions.
+#[cfg(debug_assertions)]
+const TEST_SERVE: &str = "LOCALLIBRARY_TEST_SERVE";
+
 #[cfg(debug_assertions)]
 #[path = "../../../crates/locallibrary/src/bin/test-plugin/plugin.rs"]
 mod test_plugin;
+
+/// Plugins locallibrary doesn't ship, for this run alone, when `--dev-plugin` gives none: each
+/// one's manifest file and the program to run it with, one plugin after another, joined as `PATH`
+/// joins paths ([`SEPARATOR`]). Nothing is installed: a plugin keeps only what any keeps under its
+/// id (its settings, and its access to your accounts).
+pub const DEV_PLUGINS: &str = "LOCALLIBRARY_DEV_PLUGINS";
+
+/// The environment variables a plugin is started without: the shell's completion request, which
+/// would have locallibrary answer that instead of serving, and the plugins given for this run.
+pub const ENV_REMOVE: [&str; 2] = [crate::completion::VAR, DEV_PLUGINS];
+
+/// What joins a plugin's manifest and program in `--dev-plugin` and [`DEV_PLUGINS`], as it joins
+/// paths in `PATH`: Windows' paths have a colon after the drive letter.
+const SEPARATOR: char = if cfg!(windows) { ';' } else { ':' };
 
 /// The flag a contributed command or operation takes its params as JSON with.
 pub const PARAMS: &str = "params";
@@ -84,6 +106,8 @@ struct Loaded {
     serves: FxHashMap<String, Serves>,
     /// The plugins [`check`] left out, and why.
     left_out: Vec<(Manifest, String)>,
+    /// The ids of the plugins given for this run, which locallibrary doesn't ship.
+    dev: Vec<String>,
 }
 
 static LOADED: OnceLock<std::result::Result<Loaded, String>> = OnceLock::new();
@@ -110,6 +134,86 @@ pub fn left_out() -> &'static [(Manifest, String)] {
     loaded().map_or(&[], |l| &l.left_out)
 }
 
+/// The plugins given for this run, which locallibrary doesn't ship: none if they couldn't be
+/// loaded at all.
+pub fn dev() -> Vec<&'static Manifest> {
+    let Ok(l) = loaded() else { return Vec::new() };
+    l.dev.iter().filter_map(|id| l.plugins.manifest(id).ok()).collect()
+}
+
+/// Fails, saying why, when plugins were given for this run and can't run: every command does
+/// then, since theirs would be missing from the command line.
+pub fn dev_loaded() -> Result<()> {
+    if !dev_values().0.is_empty() {
+        host()?;
+    }
+    Ok(())
+}
+
+/// What gives the plugins for this run, and its name: `--dev-plugin`'s values, read from the
+/// arguments before the command line is parsed (it's built from the plugins), else
+/// [`DEV_PLUGINS`]'s value.
+fn dev_values() -> (Vec<OsString>, &'static str) {
+    let mut args = std::env::args_os().skip(1).take_while(|a| a != "--");
+    let mut given = Vec::new();
+    while let Some(arg) = args.next() {
+        if arg == "--dev-plugin" {
+            given.extend(args.next());
+        } else if let Some(value) = arg.to_str().and_then(|a| a.strip_prefix("--dev-plugin=")) {
+            given.push(value.into());
+        }
+    }
+    match given.is_empty() {
+        true => (std::env::var_os(DEV_PLUGINS).filter(|v| !v.is_empty()).into_iter().collect(), DEV_PLUGINS),
+        false => (given, "--dev-plugin"),
+    }
+}
+
+/// Each plugin given for this run: its manifest file and program.
+fn dev_given() -> Result<Vec<(PathBuf, PathBuf)>> {
+    let (values, from) = dev_values();
+    let mut given = Vec::new();
+    for value in values {
+        let paths: Vec<PathBuf> = std::env::split_paths(&value).collect();
+        if !paths.len().is_multiple_of(2) || paths.iter().any(|p| p.as_os_str().is_empty()) {
+            return Err(Error::Invalid(format!(
+                "{from} {}: give each plugin's manifest and the program to run it with, as MANIFEST{SEPARATOR}PROGRAM",
+                value.to_string_lossy()
+            )));
+        }
+        given.extend(paths.chunks(2).map(|pair| (pair[0].clone(), pair[1].clone())));
+    }
+    Ok(given)
+}
+
+/// The manifest in `file`, of a plugin locallibrary doesn't ship.
+pub fn dev_manifest(file: &Path) -> Result<Manifest> {
+    let text = std::fs::read_to_string(file).map_err(|source| Error::Io { path: file.to_path_buf(), source })?;
+    Manifest::parse(&text).map_err(|e| Error::Parse { path: file.to_path_buf(), message: e.to_string() })
+}
+
+/// Why `m`, a plugin locallibrary doesn't ship, can't run beside the others, if it can't: its id
+/// is one of a plugin locallibrary ships, whose settings and access to your accounts it would
+/// have, or `clash`, what [`check`] says of it beside them.
+fn unfit(m: &Manifest, clash: Option<String>) -> Option<String> {
+    if BUILT_IN.iter().any(|row| row.0 == m.id) {
+        return Some(format!(
+            "the {} plugin is one locallibrary ships: another can't take its id, or its settings and access to your accounts",
+            m.id
+        ));
+    }
+    clash
+}
+
+/// Why `m`, a plugin locallibrary doesn't ship, couldn't run beside those it does, if it
+/// couldn't (see [`unfit`]).
+pub fn unfit_beside_shipped(m: &Manifest) -> Option<String> {
+    let shipped: Vec<Manifest> =
+        BUILT_IN.iter().map(|&(_, json, _)| Manifest::from_json(json).expect("build.rs wrote it")).collect();
+    let all: Vec<&Manifest> = shipped.iter().chain([m]).collect();
+    unfit(m, check(&all, true).pop().flatten())
+}
+
 fn load() -> Result<Loaded> {
     // Only the test plugins are added to it, and a release has none.
     #[cfg_attr(not(debug_assertions), allow(unused_mut))]
@@ -126,16 +230,27 @@ fn load() -> Result<Loaded> {
     }
     let (mut specs, mut serves, mut left_out) = (Vec::new(), FxHashMap::default(), Vec::new());
     let program = exe().map_err(|e| Error::Invalid(format!("where locallibrary is: {e}")))?;
+    let env_remove: Vec<OsString> = ENV_REMOVE.map(OsString::from).to_vec();
     let mut all = Vec::new();
     for (manifest, how) in found {
-        // The shell's completion request would have it answer that instead of serving.
-        let env_remove = vec![crate::completion::VAR.into()];
-        let mut spec =
-            PluginSpec::shipped(manifest, Launch { program: program.clone(), args: Vec::new(), env_remove })?;
+        let launch = Launch { program: program.clone(), args: Vec::new(), env_remove: env_remove.clone() };
+        let mut spec = PluginSpec::shipped(manifest, launch)?;
         spec.launch.args = vec!["plugin".into(), "serve".into(), spec.manifest.id.clone().into()];
         all.push((spec, how));
     }
-    let clashes = check(&all.iter().map(|(s, _)| &s.manifest).collect::<Vec<_>>());
+    let given = dev_given()?;
+    let mut dev_specs = Vec::new();
+    for (file, program) in &given {
+        let launch = Launch { program: program.clone(), args: Vec::new(), env_remove: env_remove.clone() };
+        dev_specs.push(PluginSpec::third_party(dev_manifest(file)?, launch)?);
+    }
+    let manifests = all.iter().map(|(s, _)| &s.manifest).chain(dev_specs.iter().map(|s| &s.manifest));
+    let mut clashes = check(&manifests.collect::<Vec<_>>(), !dev_specs.is_empty());
+    for ((spec, (file, _)), clash) in dev_specs.iter().zip(&given).zip(clashes.split_off(all.len())) {
+        if let Some(why) = unfit(&spec.manifest, clash) {
+            return Err(Error::Invalid(format!("the plugin in {} can't run: {why}", file.display())));
+        }
+    }
     for ((spec, how), clash) in all.into_iter().zip(clashes) {
         match clash {
             Some(why) => left_out.push((spec.manifest, why)),
@@ -147,6 +262,8 @@ fn load() -> Result<Loaded> {
             }
         }
     }
+    let dev = dev_specs.iter().map(|s| s.manifest.id.clone()).collect();
+    specs.extend(dev_specs);
     let stderr = Options::default().log;
     let log: Log = Arc::new(move |id, line| match LOG.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
         Some(log) => log(id, line),
@@ -165,7 +282,7 @@ fn load() -> Result<Loaded> {
     events::tell_applied();
     // What core reads tracks' keys, tempos and levels from.
     locallibrary::fields::roles::set_offered(plugins.roles());
-    Ok(Loaded { plugins, serves, left_out })
+    Ok(Loaded { plugins, serves, left_out, dev })
 }
 
 /// Where plugins' logs go instead of stderr, while the player draws on the terminal.
@@ -246,10 +363,11 @@ type Claim = (String, String);
 /// that clash with each other are all left out, since none is more right than the others; one
 /// left out already (clashing with locallibrary) clashes with none. Then a plugin asking for
 /// accounts is left out when an account plugin kept would be no use to it (see [`unmet`]).
-fn check(manifests: &[&Manifest]) -> Vec<Option<String>> {
-    // Only in builds with debug assertions: the plugins a release ships don't clash, which the
-    // tests check, and this builds the whole command line a second time on every start.
-    if !cfg!(debug_assertions) {
+fn check(manifests: &[&Manifest], dev: bool) -> Vec<Option<String>> {
+    // Only in builds with debug assertions, or with plugins given for this run (`dev`): the
+    // plugins a release ships don't clash, which the tests check, and this builds the whole
+    // command line a second time on every start.
+    if !cfg!(debug_assertions) && !dev {
         return vec![None; manifests.len()];
     }
     let cli = crate::Cli::command();
@@ -431,12 +549,27 @@ pub fn serve(id: &str) -> Result<()> {
     match serves {
         Serves::Linked(serve) => serve(std::io::stdin(), std::io::stdout()),
         #[cfg(debug_assertions)]
-        Serves::Test(manifest) => {
-            let hooks = test_plugin::Test { wrong_fields: false }.hooks(&[]);
-            loclib_plugin::serve(manifest, hooks, std::io::stdin(), std::io::stdout());
-        }
+        Serves::Test(manifest) => serve_test_plugin(manifest),
     }
     Ok(())
+}
+
+/// Serves the test plugin with `manifest` over stdin and stdout until its input closes.
+#[cfg(debug_assertions)]
+fn serve_test_plugin(manifest: &str) {
+    let hooks = test_plugin::Test { wrong_fields: false }.hooks(&[]);
+    loclib_plugin::serve(manifest, hooks, std::io::stdin(), std::io::stdout());
+}
+
+/// Serves the test plugin with the manifest in the file [`TEST_SERVE`] names, if it's set, with
+/// nothing else set up: the CLI's tests give the locallibrary binary to `--dev-plugin` as a
+/// plugin's program, which runs it with no arguments.
+#[cfg(debug_assertions)]
+pub fn serve_test() -> bool {
+    let Some(file) = std::env::var_os(TEST_SERVE) else { return false };
+    let _ = ctrlc::set_handler(|| {});
+    serve_test_plugin(&std::fs::read_to_string(file).expect("the test plugin's manifest"));
+    true
 }
 
 /// Serves the plugin `id`, if locallibrary ships one that serves, with nothing else set up: a

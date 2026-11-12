@@ -413,7 +413,11 @@ when that can help) and `accounts.access.set_default`.
 
 ## Plugins
 
-What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. `plugins.list` answers
+What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. A plugin you're writing
+runs in the sidecar as in any command, given as it starts (`locallibrary --dev-plugin
+MANIFEST:PROGRAM rpc`, or `LOCALLIBRARY_DEV_PLUGINS`, see [Writing one](plugins.md#writing-one)):
+it's listed after the plugins locallibrary ships, the sidecar warns on stderr that it's loaded, and
+one that can't run keeps the sidecar from starting, saying why. `plugins.list` answers
 each plugin's `{id, name, version, capabilities: [{capability, means}], accounts, account_types,
 commands, destinations, events, operations, panels, analyzers, checks, exporters, importers,
 providers, services, sources, themes, settings, running, left_out}`, `means` saying in plain words

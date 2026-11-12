@@ -102,6 +102,8 @@ fn locallibrary(store: &Path, volumes: &[&Path]) -> Command {
         .env_remove("LOCALLIBRARY_OAUTH_CLIENT_ID")
         .env_remove("LOCALLIBRARY_SESSION_STORE")
         .env_remove("LOCALLIBRARY_TEST_PLUGINS")
+        .env_remove("LOCALLIBRARY_TEST_SERVE")
+        .env_remove("LOCALLIBRARY_DEV_PLUGINS")
         .env_remove("LOCALLIBRARY_TEST_LOOPBACK")
         .env_remove("LOCALLIBRARY_USERINPUT_SPACE")
         // Local Network's directory and website: nowhere, unless a test names its own.
