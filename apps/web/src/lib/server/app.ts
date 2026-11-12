@@ -1,3 +1,4 @@
+import { AtUri } from '@atproto/syntax';
 import { USERINPUT } from '#lib/bug-report.ts';
 import { BSKY_FOLLOW, COLLECTION, VERIFICATION } from '#lib/nsid.ts';
 import type { SpaceKind } from '#lib/capabilities.ts';
@@ -475,7 +476,7 @@ export async function createApp(options: CreateAppOptions) {
 			if (!config.happyView.apiKey) return;
 			const { scripts } = bundle();
 			let managers: Promise<string[]> | undefined;
-			const spaceOwner = config.userinputSpace?.split('/')[2];
+			const spaceOwner = config.userinputSpace && new AtUri(config.userinputSpace).host;
 
 			const refreshes = [
 				...MANAGER_COLLECTIONS.map((collection) => ({

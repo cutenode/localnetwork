@@ -4,6 +4,9 @@
 // environment, sends it on to the service's token endpoint (only ever one in services.json), and
 // answers what the service answered. Codes, verifiers, tokens and secrets are never logged.
 //
+// Each service has an ops flag (its pauseFlag) that stops its exchange without a deploy, say when a
+// secret leaks. The request has no account, so only "on for everyone" pauses it.
+//
 // It only trades codes sent back to locallibrary's listener on this computer: a redirect_uri, when
 // a grant has one, must be `http://127.0.0.1:<port>/callback` or `http://[::1]:<port>/callback`,
 // as locallibrary sends it. A service that only compares the redirect_uri with the authorize
@@ -12,6 +15,7 @@
 import { z } from 'zod';
 import { parseJson } from '../db';
 import type { Logger } from '../logger';
+import type { Flags } from '#lib/types.ts';
 import { type Service, services } from './services';
 
 /** The most of a request, or of a service's answer, read: either is a few kilobytes. */
@@ -100,14 +104,22 @@ export type ExchangeOptions = {
 	/** Where the services' client ids and secrets are read from. */
 	env?: Record<string, string | undefined>;
 	fetch?: typeof fetch;
+	/** The request's flags, where a service's pauseFlag stops its exchange. Nothing is paused without them. */
+	flags?: Partial<Flags>;
 };
 
 /** Trades a code or refresh token for tokens at the service `id` names, with Local Network's client there. */
 export async function exchangeToken(id: string, request: Request, options: ExchangeOptions): Promise<Response> {
-	const { log, env = process.env, fetch: send = fetch } = options;
+	const { log, env = process.env, fetch: send = fetch, flags = {} } = options;
 	const service = Object.hasOwn(services, id) ? services[id] : undefined;
 
 	if (!service) return refuse(404, 'invalid_request', `Local Network doesn't sign in to "${id.slice(0, 64)}"`);
+
+	if (flags[service.pauseFlag]) {
+		log.info('token exchange paused', { service: id, flag: service.pauseFlag });
+
+		return refuse(503, 'temporarily_unavailable', `Local Network has paused signing in to ${service.title}`);
+	}
 
 	const body = await readCapped(request);
 

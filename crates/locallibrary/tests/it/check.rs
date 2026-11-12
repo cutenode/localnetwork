@@ -289,7 +289,7 @@ fn audio_cut_short_by_an_interrupted_copy() {
 /// fixture (`tests/fixtures/audio/`): nothing here encodes AAC.
 #[test]
 fn compressed_audio_cut_short_by_an_interrupted_copy() {
-    use loclib_mixid::test_util::{MP3_FRAME_SAMPLES, mp3};
+    use loclib_testkit::audio::{MP3_FRAME_SAMPLES, mp3};
     use loclib_transcode::{Container, Dither, Recipe};
 
     let dir = tempfile::tempdir().unwrap();
@@ -297,7 +297,7 @@ fn compressed_audio_cut_short_by_an_interrupted_copy() {
     // 20 s at 44.1 kHz.
     let frames = 20 * 44_100 / MP3_FRAME_SAMPLES + 1;
     let wav = dir.path().join("src.wav");
-    fs::write(&wav, loclib_mixid::test_util::wav(22_050, 16, 20.0)).unwrap();
+    fs::write(&wav, loclib_testkit::audio::wav(22_050, 16, 20.0)).unwrap();
     let flac = dir.path().join("src.flac");
     let recipe = Recipe { container: Container::Flac, sample_rate: 22_050, bit_depth: 16, dither: Dither::None };
     loclib_transcode::transcode(&wav, &recipe, &flac, &Ctx::silent()).unwrap();

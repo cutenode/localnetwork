@@ -16,11 +16,20 @@ import type {
 	ListedEntry,
 	PartialDetails,
 	QueueEntry,
+	SearchSiteEntry,
 	StateFile
 } from '$lib/types';
 
 /** What one of these builders makes. */
-type Built = KnownDetails | PartialDetails | QueueEntry | ListedEntry | KnownProfile | ArtistEntry | StateFile;
+type Built =
+	| KnownDetails
+	| PartialDetails
+	| QueueEntry
+	| ListedEntry
+	| KnownProfile
+	| ArtistEntry
+	| SearchSiteEntry
+	| StateFile;
 
 /** A field's value as a builder may be handed one: what another builder made, or any JSON. */
 export type FieldValue =
@@ -124,6 +133,18 @@ export const artistEntry = (extra: Overrides = {}): ArtistEntry => ({
 	...extra
 });
 
+// A search site somebody added in settings, in the shape of a shipped one
+// (src/lib/search-sites.schema.json).
+export const searchSite = (extra: Overrides = {}): SearchSiteEntry => ({
+	id: 'juno',
+	name: 'Juno',
+	badge: 'J',
+	url: 'https://www.juno.co.uk/search/?q={query}',
+	background: '#f26522',
+	color: '#ffffff',
+	...extra
+});
+
 export const file = (extra: Overrides = {}): StateFile => ({
 	format: 'toolbox.manager.state',
 	version: 1,
@@ -134,5 +155,6 @@ export const file = (extra: Overrides = {}): StateFile => ({
 	artists: [artistEntry()],
 	queue: [queueEntry()],
 	prefs: { background: true, sort: 'page', hideDownloaded: false },
+	searchSites: [searchSite()],
 	...extra
 });

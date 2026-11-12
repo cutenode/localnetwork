@@ -181,6 +181,8 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
   players load from a drive
 - [loclib-tracklist](../../crates/loclib-tracklist): reading M3U, CSV, rekordbox and plain-text
   tracklists, and finding their tracks in a library
+- [loclib-audio](../../crates/loclib-audio): decoding tracks and recordings without trusting their
+  headers, and resampling them as they stream
 - [loclib-mixid](../../crates/loclib-mixid): which known tracks a recorded mix plays, when and at what
   speed
 - [loclib-transcode](../../crates/loclib-transcode): which copy of a file a set of players needs,
@@ -286,6 +288,7 @@ flowchart LR
     core --> equip["loclib-equipment<br/>what players read"]
     core --> track["loclib-tracklist<br/>outside tracklists"]
     core --> mixid["loclib-mixid<br/>fingerprints, matcher"]
+    core --> audio["loclib-audio<br/>decoding, resampling"]
     core --> sound["loclib-analysis<br/>tempo, key, loudness"]
     core --> trans["loclib-transcode<br/>copies for players"]
     core --> model["loclib-model<br/>loclib-progress"]
