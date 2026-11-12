@@ -177,6 +177,77 @@ fn intelligent_playlists_hold_what_their_rules_match() {
     assert!(again.warnings.iter().any(|w| w.contains("Recent: its rules can't be read")), "{:?}", again.warnings);
 }
 
+/// Intelligent playlists on the title, with any of rekordbox's text operators: those a filter
+/// can say (contains, doesn't contain) get a smart rule saying it, and the plan counts the others,
+/// exported as the tracks they hold now, naming the first; either way each holds the tracks its
+/// condition matches.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(lists = vec![(10u8, "o"), (8u8, "never"), (2u8, "here")])]
+fn intelligent_playlists_get_a_rule_when_a_filter_can_say_it(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let operators = vec![1u8, 2, 8, 9, 10, 11];
+    let values = vec!["never", "one more time", "o", "here"];
+    let lists: Vec<(u8, &str)> =
+        tc.draw(gs::vecs(gs::tuples!(gs::sampled_from(operators), gs::sampled_from(values))).min_size(1).max_size(4));
+    // The collection's own intelligent playlist, Recent, as one a filter can say.
+    let recent = r#"<NODE Id="1" LogicalOperator="1" AutomaticUpdate="1"><CONDITION PropertyName="genre" Operator="8" ValueUnit="" ValueLeft="house" ValueRight=""/></NODE>"#;
+    let recent = format!("UPDATE djmdPlaylist SET SmartList = '{recent}' WHERE ID = '12';");
+    let sql: String = std::iter::once(recent)
+        .chain(lists.iter()
+        .enumerate()
+        .map(|(i, (operator, value))| {
+            let node = format!(
+                r#"<NODE Id="1" LogicalOperator="1" AutomaticUpdate="1"><CONDITION PropertyName="name" Operator="{operator}" ValueUnit="" ValueLeft="{value}" ValueRight=""/></NODE>"#
+            );
+            format!(
+                "INSERT INTO djmdPlaylist (ID, Seq, Name, Attribute, ParentID, SmartList) VALUES ('{}', {}, 'Smart {i}', 4, 'root', '{node}');",
+                30 + i,
+                10 + i
+            )
+        }))
+        .collect();
+    let pc = Computer::with(&sql);
+    let mut target = pc.folder("Export");
+    let (plan, _) = pc.export(&mut target, &CollectionExportOptions::default());
+    let lib = target.library().unwrap();
+    let sayable = |op: u8| matches!(op, 8 | 9);
+    for (i, (operator, value)) in lists.iter().enumerate() {
+        let path = format!("Smart {i}");
+        let rule = plan.smart.iter().find(|s| s.path == path).map(|s| s.filter.as_str());
+        let minus = if *operator == 9 { "-" } else { "" };
+        let want = sayable(*operator).then(|| format!(r#"{minus}title:"{value}""#));
+        assert_eq!(rule, want.as_deref(), "{path}: {:?}", plan.smart);
+        let matches = |title: &str| {
+            let title = title.to_lowercase();
+            match operator {
+                1 => title == *value,
+                2 => title != *value,
+                8 => title.contains(value),
+                9 => !title.contains(value),
+                10 => title.starts_with(value),
+                _ => title.ends_with(value),
+            }
+        };
+        let mut want: Vec<&str> = lib.tracks.iter().filter(|t| matches(&t.title)).map(|t| t.title.as_str()).collect();
+        let held = lib.find_playlist(&path).unwrap_or_else(|| panic!("{path} wasn't exported: {:?}", plan.warnings));
+        let mut got: Vec<&str> = held.track_ids.iter().map(|id| lib.track(*id).unwrap().title.as_str()).collect();
+        want.sort();
+        got.sort();
+        assert_eq!(got, want, "{path}: title {operator} {value}");
+    }
+    let plain: Vec<usize> = (0..lists.len()).filter(|i| !sayable(lists[*i].0)).collect();
+    let said =
+        plan.warnings.iter().find(|w| w.contains("intelligent playlist(s) are exported as the tracks they hold now"));
+    match plain.first() {
+        None => assert!(said.is_none(), "{said:?}"),
+        Some(first) => {
+            let said = said.unwrap_or_else(|| panic!("{:?}", plan.warnings));
+            assert!(said.starts_with(&format!("{} intelligent playlist(s)", plain.len())), "{said}");
+            assert!(said.contains(&format!("(e.g. Smart {first}: name ")), "{said}");
+        }
+    }
+}
+
 #[test]
 fn exporting_again_copies_only_what_changed() {
     let pc = Computer::new();
@@ -803,6 +874,102 @@ fn an_export_stopped_part_way_finishes_when_run_again() {
     for c in &planned.copies {
         assert_eq!(std::fs::metadata(target.path(&c.path)).unwrap().len(), c.size, "{}", c.path);
     }
+}
+
+/// A pull of a drive holding what the collection does stores no second copy: the audio's object is
+/// a clone of the collection's file, on a volume with clones, and the object keeps its bytes when
+/// that file is edited. A drive's file of the same size with other bytes is stored as it is.
+#[hegel::test(test_cases = 4)]
+#[hegel::explicit_test_case(same = true)]
+#[hegel::explicit_test_case(same = false)]
+fn a_pull_clones_the_collections_audio_into_the_store(tc: hegel::TestCase) {
+    let same = tc.draw(hegel::generators::booleans());
+    let pc = Computer::new();
+    let mut target = pc.folder("Export");
+    pc.export(&mut target, &CollectionExportOptions::default());
+    // A real drive holds bytes of its own, where this folder would hold clones.
+    let on_drive = target.path("Contents/Daft Punk/Discovery/One More Time.mp3");
+    let (mut bytes, meta) = (std::fs::read(&on_drive).unwrap(), std::fs::metadata(&on_drive).unwrap());
+    if !same {
+        bytes[0] ^= 0x20;
+    }
+    std::fs::remove_file(&on_drive).unwrap();
+    std::fs::write(&on_drive, &bytes).unwrap();
+    fsutil::set_mtime(&on_drive, fsutil::mtime_secs(&meta)).unwrap();
+    let store = Store::open_or_init(pc.dir.path().join("store")).unwrap();
+    // SAFETY: nextest runs each test in a process of its own, and Hegel runs its cases in turn.
+    unsafe { std::env::set_var(masterdb::PATH_ENV, pc.dir.path().join("rekordbox/master.db")) };
+    let pulled = crate::sync::pull(&store, &mut target, &PullOptions::default(), &Ctx::silent()).unwrap();
+    unsafe { std::env::remove_var(masterdb::PATH_ENV) };
+    assert!(pulled.imported_files > 0);
+
+    let hash = Hash::of(&bytes);
+    assert_eq!(std::fs::read(store.object_path(&hash)).unwrap(), bytes);
+    let music = pc.dir.path().join("Music/One More Time.mp3");
+    #[cfg(target_os = "macos")]
+    assert_eq!(
+        volume_blocks(&store.object_path(&hash)) == volume_blocks(&music),
+        same,
+        "a clone of the collection's file only when it holds the drive's bytes"
+    );
+    std::fs::write(&music, b"ONE MORE TIME").unwrap();
+    assert_eq!(std::fs::read(store.object_path(&hash)).unwrap(), bytes);
+}
+
+/// A test's pull never opens the collection of the computer it runs on. Here that collection, at
+/// rekordbox's own path below a made-up home, holds the drive's audio, so a pull that opened it
+/// would clone the object from it.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_pull_under_test_leaves_this_computers_collection_alone() {
+    let pc = Computer::new();
+    let mut target = pc.folder("Export");
+    pc.export(&mut target, &CollectionExportOptions::default());
+    let on_drive = target.path("Contents/Daft Punk/Discovery/One More Time.mp3");
+    let (bytes, meta) = (std::fs::read(&on_drive).unwrap(), std::fs::metadata(&on_drive).unwrap());
+    std::fs::remove_file(&on_drive).unwrap();
+    std::fs::write(&on_drive, bytes).unwrap();
+    fsutil::set_mtime(&on_drive, fsutil::mtime_secs(&meta)).unwrap();
+
+    let home = pc.dir.path().join("home");
+    let rekordbox = home.join("Library/Pioneer/rekordbox");
+    std::fs::create_dir_all(&rekordbox).unwrap();
+    std::fs::copy(pc.dir.path().join("rekordbox/master.db"), rekordbox.join("master.db")).unwrap();
+    // SAFETY: nextest runs each test in a process of its own.
+    unsafe {
+        std::env::remove_var(masterdb::PATH_ENV);
+        std::env::set_var("HOME", &home);
+    }
+    assert_eq!(
+        masterdb::default_path(),
+        Some(rekordbox.join("master.db")),
+        "rekordbox's own path, which a release build would open"
+    );
+
+    let store = Store::open_or_init(pc.dir.path().join("store")).unwrap();
+    crate::sync::pull(&store, &mut target, &PullOptions::default(), &Ctx::silent()).unwrap();
+    let object = store.object_path(&Hash::of(b"one more time"));
+    let music = pc.dir.path().join("Music/One More Time.mp3");
+    assert_ne!(volume_blocks(&object), volume_blocks(&music), "the pull opened this computer's collection");
+}
+
+/// Where the first byte of `path` is on its volume: a clone and its source share it.
+#[cfg(target_os = "macos")]
+fn volume_blocks(path: &Path) -> i64 {
+    use std::os::fd::AsRawFd;
+    #[repr(C, packed(4))]
+    struct Log2Phys {
+        flags: u32,
+        contigbytes: i64,
+        devoffset: i64,
+    }
+    const F_LOG2PHYS_EXT: i32 = 65;
+    let file = std::fs::File::open(path).unwrap();
+    file.sync_all().unwrap();
+    let mut l = Log2Phys { flags: 0, contigbytes: 1, devoffset: 0 };
+    // SAFETY: `l` outlives the call, which fills it in.
+    assert_eq!(unsafe { libc::fcntl(file.as_raw_fd(), F_LOG2PHYS_EXT, &raw mut l) }, 0);
+    l.devoffset
 }
 
 /// What a drawn library source track brings: nothing, a hot cue and a beat grid, a waveform ten

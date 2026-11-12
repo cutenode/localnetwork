@@ -13,13 +13,13 @@ use crate::tui::app::{App, CHORD_HINT, typed_tail};
 use crate::tui::browse::{COLOURS, colour_name, stars};
 use crate::tui::edits::{Menu, Modal, Sub};
 use crate::tui::icons;
-use crate::tui::keymap::{KEYMAP, Scope};
+use crate::tui::keymap::{self, KEYMAP, Scope};
 use crate::tui::theme::{self, bold, dim, faint, fg, text};
 
 use super::*;
 
 /// A box of `w` x `h` in the middle of `area`, or by the pointer when opened with the mouse.
-pub(super) fn popup(area: Rect, w: u16, h: u16, at: Option<(u16, u16)>) -> Rect {
+pub(in crate::tui) fn popup(area: Rect, w: u16, h: u16, at: Option<(u16, u16)>) -> Rect {
     let (w, h) = (w.min(area.width), h.min(area.height));
     let (x, y) = match at {
         Some((x, y)) => (x.min(area.right().saturating_sub(w)), (y + 1).min(area.bottom().saturating_sub(h))),
@@ -72,7 +72,7 @@ pub(super) fn draw_menu(f: &mut Frame, app: &mut App, area: Rect) {
                     ]))
                 })
                 .collect();
-            (format!("Edit · {}", clip(&m.target.what, (w as usize).saturating_sub(14))), items, &mut m.state)
+            (format!("Actions · {}", clip(&m.target.what, (w as usize).saturating_sub(17))), items, &mut m.state)
         }
         Some(sub) => {
             let items = Menu::sub_items(sub)
@@ -104,7 +104,7 @@ pub(super) fn draw_menu(f: &mut Frame, app: &mut App, area: Rect) {
     let r = popup(area, w, h, m.at);
     state.fit(r.height.saturating_sub(2) as usize, items.len());
     let b = block(title(&heading, true), true)
-        .title_bottom(Line::styled(" every change to the drive asks first ", faint()).right_aligned());
+        .title_bottom(Line::styled(" ↑↓ choose · enter · esc close ", faint()).right_aligned());
     let list = List::new(items)
         .block(b)
         .highlight_style(theme::selected())
@@ -140,7 +140,11 @@ pub(super) fn draw_picker(f: &mut Frame, app: &mut App, area: Rect) {
         f.render_widget(Paragraph::new(Line::styled(format!("  {}", p.empty), dim())), list);
     } else {
         let w = list.width.saturating_sub(2);
-        let items: Vec<ListItem> = (p.shown.iter().map(|&i| (i, &p.items[i])))
+        // Only the rows on screen: the palette can hold hundreds.
+        p.state.fit(list.height as usize, n);
+        let top = p.state.offset();
+        let rows = &p.shown[top..(top + list.height as usize).min(n)];
+        let items: Vec<ListItem> = (rows.iter().map(|&i| (i, &p.items[i])))
             .map(|(i, it)| {
                 let style = if it.unavailable.is_some() { faint() } else { text() };
                 let right = vec![Span::styled(format!("{} ", it.detail), theme::key())];
@@ -152,15 +156,19 @@ pub(super) fn draw_picker(f: &mut Frame, app: &mut App, area: Rect) {
                     None => None,
                 };
                 let room = (w as usize).saturating_sub(rw + 1 + mark.as_ref().map_or(0, Span::width));
-                let left: Vec<Span> = mark.into_iter().chain([Span::styled(clip(&it.label, room), style)]).collect();
+                let label = match &it.unavailable {
+                    Some(why) => clip(&format!("{} · {why}", it.label), room),
+                    None => clip(&it.label, room),
+                };
+                let left: Vec<Span> = mark.into_iter().chain([Span::styled(label, style)]).collect();
                 ListItem::new(spread(left, right, w))
             })
             .collect();
         let l = List::new(items)
             .highlight_style(theme::selected())
             .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
-        p.state.fit(list.height as usize, n);
-        f.render_stateful_widget(l, list, &mut p.state);
+        let mut window = ListState::default().with_selected(p.state.selected().map(|s| s - top));
+        f.render_stateful_widget(l, list, &mut window);
     }
     app.areas.menu = r;
 }
@@ -643,23 +651,17 @@ pub(super) fn draw_ask(f: &mut Frame, question: String, area: Rect) {
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }).block(b), r);
 }
 
-/// The help's sections as lines `width` wide, descriptions wrapped under themselves.
-pub(super) fn help_lines(sections: &[crate::tui::keymap::HelpSection], width: u16) -> Vec<Line<'static>> {
+/// A row of the help as lines `width` wide, its description wrapped under itself.
+pub(super) fn help_row_lines(keys: &str, about: &str, width: u16) -> Vec<Line<'static>> {
     const KEYS: usize = 15;
     let desc_w = (width as usize).saturating_sub(KEYS).max(16);
-    let mut lines = Vec::new();
-    for (name, keys) in sections {
-        lines.push(Line::styled(name.to_uppercase(), bold(theme::current().info)));
-        for (k, d) in keys.iter() {
-            for (n, part) in wrap_text(d, desc_w).into_iter().enumerate() {
-                let key = if n == 0 { format!("  {k:<13}") } else { " ".repeat(KEYS) };
-                let style = if k.is_empty() { dim() } else { text() };
-                lines.push(Line::from(vec![Span::styled(key, theme::key()), Span::styled(part, style)]));
-            }
-        }
-        lines.push(Line::raw(""));
-    }
-    lines
+    let style = if keys.is_empty() { dim() } else { text() };
+    (wrap_text(about, desc_w).into_iter().enumerate())
+        .map(|(n, part)| {
+            let key = if n == 0 { format!("  {keys:<13}") } else { " ".repeat(KEYS) };
+            Line::from(vec![Span::styled(key, theme::key()), Span::styled(part, style)])
+        })
+        .collect()
 }
 
 fn help_footer(width: u16) -> Vec<Line<'static>> {
@@ -681,41 +683,53 @@ fn help_footer(width: u16) -> Vec<Line<'static>> {
     lines
 }
 
+/// `?`: every key that means something here, the pane with focus first, narrowed by what's typed.
+/// The row selected is what enter runs, and it's kept in view.
 pub(super) fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
-    // The view's own keys first, then those for everywhere: side by side when there's room,
-    // else one column that scrolls.
-    let two = area.width >= 120;
-    let w = if two { 118.min(area.width) } else { 84.min(area.width) };
+    let w = 96.min(area.width);
     let inner_w = w.saturating_sub(4);
-    let col_w = if two { inner_w.saturating_sub(2) / 2 } else { inner_w };
-    let (own, everywhere) = crate::tui::keymap::help(app.view);
-    let columns: Vec<Vec<Line<'static>>> = if two {
-        let mut right = help_lines(&everywhere, col_w);
-        right.extend(help_footer(col_w));
-        vec![help_lines(&own, col_w), right]
-    } else {
-        let mut all = help_lines(&own, col_w);
-        all.extend(help_lines(&everywhere, col_w));
-        all.extend(help_footer(col_w));
-        vec![all]
-    };
-    let most = columns.iter().map(Vec::len).max().unwrap_or(0) as u16;
-    let r = popup(area, w, most + 2, None);
+    let rows = keymap::help_rows(app, &app.help_query);
+    app.help_row = app.help_row.min(rows.len().saturating_sub(1));
+    let narrowed = !app.help_query.is_empty();
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut section = "";
+    let mut selected = 0..0;
+    for (i, row) in rows.iter().enumerate() {
+        if !narrowed && row.title != section {
+            section = row.title;
+            if !lines.is_empty() {
+                lines.push(Line::raw(""));
+            }
+            lines.push(Line::styled(section.to_uppercase(), bold(theme::current().info)));
+        }
+        let start = lines.len();
+        lines.extend(help_row_lines(row.binding.shown, row.binding.help, inner_w));
+        if i == app.help_row {
+            selected = start..lines.len();
+            lines[start..].iter_mut().for_each(|l| l.style = theme::selected());
+        }
+    }
+    if rows.is_empty() {
+        lines.push(Line::styled("no key has those words", dim()));
+    }
+    if !narrowed {
+        lines.push(Line::raw(""));
+        lines.extend(help_footer(inner_w));
+    }
+    let total = lines.len() as u16;
+    let r = popup(area, w, total + 3, None);
+    let keys = " ↑↓ choose · enter runs it · esc close ";
     let b = block(title(&format!("Keys · {}", app.view.title()), true), true)
-        .title_bottom(Line::styled(" ↑↓ scroll · any other key closes ", faint()).right_aligned())
+        .title_bottom(Line::styled(keys, faint()).right_aligned())
         .padding(ratatui::widgets::Padding::horizontal(1));
     let inner = b.inner(r);
     f.render_widget(Clear, r);
     f.render_widget(b, r);
-    app.help_scroll = app.help_scroll.min(most.saturating_sub(inner.height));
-    let areas: Vec<Rect> = if two {
-        let [a, _, c] =
-            Layout::horizontal([Constraint::Length(col_w), Constraint::Length(2), Constraint::Min(0)]).areas(inner);
-        vec![a, c]
-    } else {
-        vec![inner]
-    };
-    for (lines, a) in columns.into_iter().zip(areas) {
-        f.render_widget(Paragraph::new(lines).scroll((app.help_scroll, 0)), a);
-    }
+    let [input, list] = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
+    let label = vec![Span::styled("› ", theme::key())];
+    f.render_widget(Paragraph::new(input_line(label, &app.help_query, Vec::new(), input.width)), input);
+    // The row selected in view, and past the last one, what's under it.
+    let end = if app.help_row + 1 == rows.len() { lines.len() } else { selected.end };
+    let top = end.saturating_sub(list.height as usize).min(selected.start);
+    f.render_widget(Paragraph::new(lines).scroll((top as u16, 0)), list);
 }

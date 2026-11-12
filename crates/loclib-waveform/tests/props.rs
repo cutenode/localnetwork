@@ -510,9 +510,9 @@ fn phrases_dim_once_played(tc: TestCase) {
     PhraseStrip { phrases: &phrases, duration_ms, progress, palette: p }.render(area, &mut buf);
     let head = ((progress as f64 * width as f64) as u16).min(width - 1);
     let x_of = |ms: f64| ((ms / duration_ms) * width as f64).round().clamp(0.0, width as f64) as u16;
-    assert_eq!(buf[(head, 0)].symbol(), "┃");
+    assert_eq!(buf[(head, 0)].bg, (p.paint)(p.playhead));
     // The last phrase drawn over a cell is the one it shows.
-    for x in 0..width {
+    for x in (0..width).filter(|x| *x != head) {
         let Some((start, _, _, color)) =
             phrases.iter().rev().find(|(s, e, _, _)| (x_of(*s)..x_of(*e).max(x_of(*s) + 1)).contains(&x))
         else {
@@ -522,6 +522,29 @@ fn phrases_dim_once_played(tc: TestCase) {
         let shown = if x == x_of(*start) { scale(played, 0.7) } else { played };
         assert_eq!(buf[(x, 0)].bg, (p.paint)(shown), "column {x}");
     }
+}
+
+/// A phrase shows its name whole, or a shorter form, or its colour alone: never a cut name, and
+/// never only part of one under the playhead.
+#[hegel::test(test_cases = 200)]
+fn prop_phrases_show_whole_names_or_none(tc: TestCase) {
+    let width = tc.draw(gs::integers::<u16>().min_value(8).max_value(120));
+    let area = Rect::new(0, 0, width, 1);
+    let duration_ms = 60_000.0;
+    let mut cuts = tc.draw(gs::vecs(gs::floats::<f64>().min_value(0.0).max_value(duration_ms)).max_size(12));
+    cuts.sort_by(f64::total_cmp);
+    let ends: Vec<f64> = std::iter::once(0.0).chain(cuts).chain([duration_ms]).collect();
+    let phrases: Vec<(f64, f64, String, Rgb)> = ends
+        .windows(2)
+        .enumerate()
+        .map(|(i, e)| (e[0], e[1], if i % 2 == 0 { "Verse 1" } else { "Chorus" }.to_string(), [90, 160, 80]))
+        .collect();
+    let progress = tc.draw(gs::floats::<f32>().min_value(0.0).max_value(1.0));
+    let mut buf = Buffer::empty(area);
+    PhraseStrip { phrases: &phrases, duration_ms, progress, palette: Palette::default() }.render(area, &mut buf);
+    let row: String = (0..width).map(|x| buf[(x, 0)].symbol()).collect();
+    let left = ["Verse 1", "Chorus", "Verse"].iter().fold(row.clone(), |r, name| r.replace(name, ""));
+    assert_eq!(left.trim(), "", "{row:?}");
 }
 
 /// Given more bands than fit, the spectrum draws the bars that do, from the left edge, and
@@ -646,4 +669,26 @@ fn a_cues_own_colour_is_the_palettes_to_keep_readable() {
     let p = Palette { marker: |_| [9, 9, 9], ..Palette::default() };
     assert_eq!(p.cue_color(&own), [9, 9, 9]);
     assert_eq!(p.cue_color(&memory), p.memory_cue);
+}
+
+/// A cover of any size in two colours far enough apart: its main colour is the one most of it is,
+/// and the second the other one, or the same again where it's all one colour.
+#[cfg(feature = "image")]
+#[hegel::test(test_cases = 200)]
+fn prop_a_covers_main_colours_are_what_most_of_it_is(tc: TestCase) {
+    use loclib_waveform::Art;
+    let (most, rest) = (rgb(&tc), rgb(&tc));
+    let bin = |c: Rgb| c.map(|v| v >> 5);
+    tc.assume(bin(most) != bin(rest));
+    // Under 64 pixels a side every pixel is counted, so the counts are exact.
+    let w = tc.draw(gs::integers::<u32>().min_value(1).max_value(63));
+    let h = tc.draw(gs::integers::<u32>().min_value(1).max_value(63));
+    let rows = tc.draw(gs::integers::<u32>().min_value(h / 2 + 1).max_value(h));
+    let cover = image::RgbImage::from_fn(w, h, |_, y| image::Rgb(if y < rows { most } else { rest }));
+    let mut png = Vec::new();
+    cover.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+    let art = Art::decode(&png).unwrap();
+    assert_eq!(art.image().dimensions(), (w, h));
+    let second = if rows == h { most } else { rest };
+    assert_eq!(art.main_colours(), [most, second], "{w}x{h}, {rows} rows of the first");
 }

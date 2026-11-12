@@ -185,11 +185,41 @@ fn the_store_says_what_it_holds() {
         .flat_map(|d| std::fs::read_dir(d.unwrap().path()).unwrap())
         .map(|f| f.unwrap().path())
         .collect();
+    std::fs::remove_file(&objects[0]).unwrap();
     std::fs::write(&objects[0], "damaged").unwrap();
     std::fs::remove_file(&objects[1]).unwrap();
     let r = env.run(&["store", "verify"]);
     assert_eq!(r.code, 4, "problems found");
     assert!(r.out.contains("! corrupt: ") && r.out.contains("! missing: "), "{}", r.out);
+}
+
+/// For any change planned (a dry run, or not confirmed) in a copy `store copy` made or in the
+/// store it copied: in the copy, the plan says once that the next copy to it refuses unless
+/// forced; in the store copied, it never does.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_change_planned_in_a_copy_says_its_a_copy(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let env = Env::new();
+    env.pulled("Main");
+    let copy = env.outside("copy");
+    env.ok(&["--yes", "store", "copy", path(&copy)]);
+    let in_copy = tc.draw(gs::booleans());
+    // Each with whether it takes `--dry-run`.
+    let (change, dry) = tc.draw(gs::sampled_from(vec![
+        (vec!["players", "set", "cdj-3000"], true),
+        (vec!["players", "set", "xdj-az", "--library", "Main"], true),
+        (vec!["settings", "set", "quantize=off"], false),
+    ]));
+    let mut args: Vec<&str> = if in_copy { vec!["--store", path(&copy)] } else { vec![] };
+    args.extend(&change);
+    if dry && tc.draw(gs::booleans()) {
+        args.push("--dry-run");
+    }
+    let r = env.run(&args);
+    let said = format!("{args:?}: exit {}\n{}{}", r.code, r.out, r.err);
+    assert!([0, 3].contains(&r.code), "{said}");
+    let warned = format!("{} is a copy of the store at ", copy.display());
+    assert_eq!(said.matches(&warned).count(), usize::from(in_copy), "{said}");
 }
 
 /// Regression: commands that only look something up in the store made an empty one first, then
@@ -248,4 +278,15 @@ fn a_store_that_wont_open_is_named() {
         let err = env.fails(1, args);
         assert!(err.contains(&named) && err.contains("newer than this version"), "{args:?}: {err}");
     }
+}
+
+/// Windows has no view to give: links there take administrator rights.
+#[cfg(windows)]
+#[test]
+fn windows_says_views_arent_available() {
+    let env = Env::new();
+    env.pulled("Main");
+    let id = env.ok(&["log", "Main"]).lines().last().unwrap().split_whitespace().next().unwrap().to_string();
+    let err = env.fails(1, &["store", "browse", &id]);
+    assert!(err.contains("isn't available on Windows"), "{err}");
 }

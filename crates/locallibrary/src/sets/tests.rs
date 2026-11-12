@@ -435,3 +435,47 @@ fn prop_a_set_found_to_edit_is_the_one_found_to_read(tc: TestCase) {
     std::fs::write(store.root().join(SETS_FILE), garbage).unwrap();
     assert!(SetBook::load(&store).is_err(), "{garbage:?}");
 }
+
+/// Sessions of drawn lists, some of them sharing a name: a session is found by its whole id and
+/// by its name when only it has that name; a name more than one has is refused, naming each of
+/// them by its short id, its name and where it was recorded.
+#[hegel::test(test_cases = 100)]
+fn a_session_shared_by_name_is_refused_naming_each(tc: TestCase) {
+    let names = ["HISTORY 001", "HISTORY 002", "Friday"];
+    let drawn = tc.draw(gs::vecs(gs::sampled_from(&names[..])).min_size(1).max_size(5));
+    let sessions: Vec<Session> = drawn
+        .iter()
+        .enumerate()
+        .map(|(i, name)| Session {
+            id: format!("{:x}{i:011}", 10 + i),
+            name: name.to_string(),
+            path: name.to_string(),
+            source: "device_library".into(),
+            drives: vec![format!("Drive{i}")],
+            first_seen_on: None,
+            window: Window::default(),
+            tracks: Vec::new(),
+            missing: 0,
+            sets: Vec::new(),
+            dismissed: false,
+        })
+        .collect();
+    for s in &sessions {
+        assert_eq!(session::find(&sessions, &s.id).unwrap().id, s.id);
+    }
+    let q = tc.draw(gs::sampled_from(&names[..]));
+    let same: Vec<&Session> = sessions.iter().filter(|s| s.name == q).collect();
+    match (session::find(&sessions, q), &same[..]) {
+        (Err(e), []) => assert_eq!(e.code(), "not_found"),
+        (Ok(found), [one]) => assert_eq!(found.id, one.id),
+        (Err(e), many) if many.len() > 1 => {
+            let said = e.to_string();
+            assert!(said.contains("could be any of"), "{said}");
+            for s in many {
+                let described = format!("{} {} ({}, ", s.short_id(), s.name, s.drives[0]);
+                assert!(said.contains(&described), "{described:?}: {said}");
+            }
+        }
+        (got, same) => panic!("{q}: {got:?} for {} sessions so named", same.len()),
+    }
+}

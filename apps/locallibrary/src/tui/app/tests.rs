@@ -270,6 +270,7 @@ fn quitting_waits_for_a_write_to_finish() {
         cancel: locallibrary::CancelToken::new(),
         writing,
         committed: writing,
+        too_late: "writing the drive: too late to stop",
         started: Instant::now(),
         touched: Vec::new(),
         after: None,
@@ -442,30 +443,6 @@ fn a_filter_naming_no_playlist_says_so() {
     assert!(e.contains("playlist \"fridayx\""), "{e}");
 }
 
-/// Wait for the plan, check the confirmation, say yes, and wait for the drive to be read again:
-/// what the write said.
-fn confirm(app: &mut App, check: impl Fn(&locallibrary::edit::EditPlan)) -> String {
-    wait(app, |a| a.job.is_none());
-    let Some(Modal::Confirm(c)) = &app.modal else { panic!("no confirmation: {:?}", app.toast.as_ref().map(|t| &t.0)) };
-    check(c.edit().expect("an edit plan"));
-    if std::env::var_os("SHOW_SCREENS").is_some() {
-        println!("{}", super::super::ui::screen(app, 100, 30));
-    }
-    let generation = app.loaded.as_ref().unwrap().generation;
-    just_shown(app);
-    press(app, "y");
-    assert!(matches!(app.modal, Some(Modal::Confirm(_))), "keys right as it appears are ignored");
-    settle(app);
-    press(app, "\n");
-    assert!(app.job.is_none(), "enter doesn't write");
-    press(app, "y");
-    assert!(app.job.as_ref().is_some_and(|j| j.writing));
-    let said = written(app);
-    assert_ne!(app.loaded.as_ref().unwrap().generation, generation, "read again");
-    assert!(said.contains("written to export.pdb"), "{said}");
-    said
-}
-
 #[test]
 fn edits_a_real_drive_and_keeps_the_view() {
     let (_dir, root) = demo_drive();
@@ -480,7 +457,7 @@ fn edits_a_real_drive_and_keeps_the_view() {
     app.track_state.select(Some(1));
     let title = track(&app).title;
     press(&mut app, "e4");
-    confirm(&mut app, |p| assert_eq!(p.tracks_changed, 1));
+    written(&mut app);
     assert_eq!(track(&app).title, title, "still on the same track");
     assert_eq!(track(&app).rating, 4);
 
@@ -488,7 +465,7 @@ fn edits_a_real_drive_and_keeps_the_view() {
     press(&mut app, "Men");
     assert!(matches!(app.modal, Some(Modal::Prompt(_))));
     press(&mut app, "Sets/Warmup\n");
-    confirm(&mut app, |p| assert_eq!(p.playlists_created, ["Sets/", "Sets/Warmup"]));
+    written(&mut app);
     let lib = app.loaded.as_ref().unwrap().library.clone();
     let warmup = lib.find_playlist("Sets/Warmup").unwrap();
     assert_eq!(warmup.track_ids.len(), 2);
@@ -505,7 +482,7 @@ fn edits_a_real_drive_and_keeps_the_view() {
     app.sort = Some(SortKey { field: SortField::Bpm, descending: false });
     app.refresh_visible();
     press(&mut app, "es");
-    confirm(&mut app, |p| assert!(p.playlists_changed[0].reordered));
+    written(&mut app);
     let l = app.loaded.as_ref().unwrap();
     assert_eq!(l.playlist_name(), "Sets › Warmup", "the playlist is still open");
     let warmup = &l.library.find_playlist("Sets/Warmup").unwrap().track_ids;
@@ -514,7 +491,7 @@ fn edits_a_real_drive_and_keeps_the_view() {
 
     // Remove the selected track from it with del.
     press(&mut app, "\u{7f}");
-    confirm(&mut app, |p| assert_eq!(p.playlists_changed[0].removed, 1));
+    written(&mut app);
     assert_eq!(app.visible.len(), 1);
 
     // Add it back by picking the playlist in the tree.
@@ -525,22 +502,12 @@ fn edits_a_real_drive_and_keeps_the_view() {
     let row = app.loaded.as_ref().unwrap().tree.iter().position(|n| n.name == "Warmup").unwrap();
     app.playlist_state.select(Some(row));
     press(&mut app, "\n");
-    wait(&mut app, |a| a.job.is_none());
-    match &app.modal {
-        Some(Modal::Confirm(_)) => {
-            confirm(&mut app, |p| assert_eq!(p.playlists_changed[0].path, "Sets/Warmup"));
-        }
-        _ => assert!(app.toast.as_ref().is_some_and(|t| t.0.starts_with("nothing to change"))),
-    }
+    let said = written(&mut app);
+    assert!(said.contains("written to") || said.starts_with("nothing to change"), "{said}");
 
     // Another process writing the drive: the lock error is a message, not a crash.
     let lock = Device::open(&root).unwrap().lock().unwrap();
     press(&mut app, "e5");
-    wait(&mut app, |a| a.job.is_none());
-    if let Some(Modal::Confirm(c)) = &mut app.modal {
-        c.shown -= Duration::from_secs(1);
-    }
-    press(&mut app, "y");
     wait(&mut app, |a| a.job.is_none() && a.loading.is_none());
     let msg = app.toast.as_ref().map(|t| t.0.clone()).unwrap_or_default();
     assert!(msg.contains("busy"), "{msg}");
@@ -560,9 +527,9 @@ fn u_undoes_the_last_change() {
     let rating = |app: &App| app.selected_track().map(|i| app.loaded.as_ref().unwrap().library.tracks[i].rating);
     let before = rating(&app);
     press(&mut app, "e4");
-    let said = confirm(&mut app, |p| assert_eq!(p.tracks_changed, 1));
+    let said = written(&mut app);
     assert_eq!(rating(&app), Some(4));
-    assert!(said.ends_with("u to undo"), "{said}");
+    assert!(said.ends_with("u undo"), "{said}");
 
     press(&mut app, "u");
     wait(&mut app, |a| a.job.is_none());
@@ -749,7 +716,7 @@ fn offers_to_replay_edits_rekordbox_exported_over() {
     app.track_state.select(Some(1));
     let rating = |app: &App| app.selected_track().map(|i| app.loaded.as_ref().unwrap().library.tracks[i].rating);
     press(&mut app, "e4");
-    confirm(&mut app, |_| {});
+    written(&mut app);
     let g = generation(&app);
     wait(&mut app, |a| a.replay_checked == g);
     assert!(app.replay_offer.is_none(), "the edit is on the drive");
@@ -1268,6 +1235,7 @@ fn tracks_open_in_the_background() {
         drive: "TEST".into(),
         root,
         analysis: TrackAnalysis::default(),
+        waves: Default::default(),
         from_plugins: None,
         art: None,
         duration: Duration::from_secs(300),
@@ -1396,7 +1364,7 @@ fn full_screen_queues_a_match_to_play_next() {
     let info =
         TrackInfo { matches: Some(Matches { library, root, items: vec![mix(2), mix(1)] }), ..Default::default() };
     app.handle_msg(Msg::TrackInfo(id, Box::new(info)));
-    app.fullscreen = true;
+    app.deck_layout = true;
     assert_eq!(app.next_pick.selected(), Some(0));
     press(&mut app, "j\n");
     assert_eq!(last_message(&app), "next: DJ - Track 2");
@@ -1776,7 +1744,8 @@ fn a_plan_waits_for_the_dialog_open() {
     app.install(root.clone(), Loaded::prepare(device, lib));
     app.track_state.select(Some(1));
     press(&mut app, "e4");
-    press(&mut app, "eN");
+    written(&mut app);
+    press(&mut app, "ueN");
     wait(&mut app, |a| a.job.is_none());
     assert!(matches!(app.modal, Some(Modal::Prompt(_))), "the prompt stays");
     press(&mut app, "Friday y");
@@ -1791,7 +1760,7 @@ fn a_plan_waits_for_the_dialog_open() {
 
     // Behind a search being typed too.
     press(&mut app, "\u{1b}");
-    press(&mut app, "e5/demo");
+    press(&mut app, "u/demo");
     wait(&mut app, |a| a.job.is_none());
     assert!(app.searching && app.modal.is_none() && app.query == "demo");
     press(&mut app, "\n");
@@ -1922,7 +1891,7 @@ fn u_after_packing_undoes_on_the_drive_packed_onto() {
     let (op, _) = confirming(&mut app);
     assert_eq!(op, "pack");
     let said = say_yes(&mut app);
-    assert!(said.ends_with("u to undo"), "{said}");
+    assert!(said.ends_with("u undo"), "{said}");
     press(&mut app, "u");
     let (op, _) = confirming(&mut app);
     let Some(Modal::Confirm(c)) = &app.modal else { panic!() };
@@ -2103,25 +2072,29 @@ fn right_click_opens_the_menu_and_its_items_are_clicked() {
     wait(&mut app, |a| a.job.is_none());
 }
 
-/// The help and the messages scroll with the keys and the wheel, and any other key or a click
-/// closes them.
+/// The help moves with the arrows and the wheel, and esc, `?` or a click closes it; the messages
+/// scroll the same way, and any other key closes them.
 #[test]
 fn the_help_and_the_messages_scroll_then_close() {
     let (mut app, _dir) = app_with(library());
     press(&mut app, "?");
-    press(&mut app, "jj ");
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::PageDown);
     key(&mut app, KeyCode::PageUp);
     key(&mut app, KeyCode::Down);
-    press(&mut app, "k");
-    assert_eq!((app.help, app.help_scroll), (true, 2));
+    key(&mut app, KeyCode::Up);
+    assert_eq!((app.help, app.help_row), (true, 2));
     mouse(&mut app, MouseEventKind::ScrollDown, (5, 5));
     mouse(&mut app, MouseEventKind::ScrollUp, (5, 5));
     mouse(&mut app, MouseEventKind::ScrollUp, (5, 5));
-    assert_eq!(app.help_scroll, 0);
+    assert_eq!(app.help_row, 0);
     mouse(&mut app, LEFT, (5, 5));
     assert!(!app.help);
-    press(&mut app, "?x");
+    press(&mut app, "??");
     assert!(!app.help && app.view == View::Library, "the key only closes it");
+    press(&mut app, "?\u{1b}");
+    assert!(!app.help);
 
     press(&mut app, "!");
     key(&mut app, KeyCode::PageDown);
@@ -2327,9 +2300,9 @@ fn playback_modes_and_bounds() {
     press(&mut app, &"[".repeat(20));
     assert_eq!(app.deck_secs, 60.0);
     press(&mut app, "f");
-    assert!(app.fullscreen);
+    assert!(app.deck_layout);
     press(&mut app, "\u{1b}");
-    assert!(!app.fullscreen, "esc leaves full screen");
+    assert!(!app.deck_layout, "esc leaves full screen");
 }
 
 /// `o` goes to the playing track: selected in the library, showing all tracks when the list
@@ -3001,7 +2974,7 @@ fn the_log_keeps_the_last_messages() {
 /// On a big library the search box narrows the list once typing pauses (at the next tick
 /// after then), not on every key.
 #[test]
-fn a_big_librarys_search_waits_for_typing_to_pause() {
+fn a_big_library_search_waits_for_typing_to_pause() {
     let dir = tempfile::tempdir().unwrap();
     let mut app = App::with_library(dir.path(), big_library(TYPE_AHEAD as u32 + 1));
     press(&mut app, "/title 4999");
@@ -3123,6 +3096,18 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
     let (mut app, _dir) = playing(analysis.clone());
     let now = app.now.as_mut().unwrap();
     now.phrases = phrase_spans(&analysis, now.duration);
+    // Any of the waveforms a drive can have, or none.
+    if tc.draw(gs::booleans()) {
+        let columns = tc.draw(gs::integers::<usize>().max_value(2_000));
+        let bands = locallibrary::anlz::Bands(vec![[200, 90, 40]; columns]);
+        now.waves.kinds.band_preview = Some(bands.clone());
+        now.waves.kinds.band_detail = Some((bands, 150.0));
+        now.waves.gains = (tc.draw(gs::sampled_from(&[1.0f32, 3.0][..])), 1.0);
+    }
+    if tc.draw(gs::booleans()) {
+        now.waves.kinds.blue_detail = Some(wave(3_000));
+        now.waves.kinds.rgb_preview = Some(wave(400));
+    }
     // Only those that start on the grid and end after they start are drawn.
     let placed: Vec<&Phrase> = (analysis.structure.iter().flat_map(|s| &s.phrases))
         .filter(|p| p.start_beat > 0 && (p.start_beat as usize) <= n as usize && p.end_beat > p.start_beat)
@@ -3136,7 +3121,7 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
     let end = now.duration - Duration::from_millis(250);
     const KEYS: &[&str] = &[
         "1", "2", "3", "4", "5", "6", "7", "8", "c", "C", "N", "P", ",", ".", "<", ">", "{", "}", "l", "(", ")", "Q",
-        "v", "f", "[", "]", "'",
+        "v", "f", "[", "]", "'", "b", "w",
     ];
     press(&mut app, "'");
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(12)) {
@@ -3167,6 +3152,8 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
         if w >= 100 && h >= 30 && app.view == View::Library {
             assert!(s.contains("Around the World") && s.contains("BPM"), "the deck at {w}x{h}:\n{s}");
         }
+        // In Browse, the sort it starts with would hide nothing; a frame's fine either way.
+        app.browsing = false;
     }
 }
 
@@ -3212,7 +3199,7 @@ fn a_plugins_analysis_fills_in_what_the_drive_lacks() {
 
     let (mut app, _played) = playing(info.analysis);
     app.now.as_mut().unwrap().from_plugins = info.from_plugins;
-    app.fullscreen = true;
+    app.deck_layout = true;
     let s = crate::tui::ui::screen(&mut app, 160, 45);
     assert!(s.contains(said), "{s}");
 }
@@ -3221,7 +3208,7 @@ fn a_plugins_analysis_fills_in_what_the_drive_lacks() {
 /// library has it (LOC-13: every match was said to show 4A). On rekordcrate's 3,886-track
 /// export, playing tracks in each of the keys it has.
 #[test]
-fn the_mixes_into_panel_shows_each_matchs_own_key() {
+fn the_mixes_into_panel_shows_each_match_with_its_own_key() {
     let dir = tempfile::tempdir().unwrap();
     let pdb = dir.path().join(paths::EXPORT_PDB);
     std::fs::create_dir_all(pdb.parent().unwrap()).unwrap();
@@ -3246,6 +3233,7 @@ fn the_mixes_into_panel_shows_each_matchs_own_key() {
             drive: "LARGE".into(),
             root: dir.path().to_path_buf(),
             analysis: TrackAnalysis::default(),
+            waves: Default::default(),
             from_plugins: None,
             art: None,
             duration: Duration::from_secs(300),
@@ -3258,7 +3246,7 @@ fn the_mixes_into_panel_shows_each_matchs_own_key() {
             track: track.clone(),
         });
         app.handle_msg(Msg::TrackInfo(id, Box::new(info)));
-        app.fullscreen = true;
+        app.deck_layout = true;
         let s = super::super::ui::screen(&mut app, 200, 60);
         let m = app.now.as_ref().unwrap().matches.as_ref().expect("the drive's library is open");
         for x in m.items.iter().take(8) {
@@ -3273,6 +3261,28 @@ fn the_mixes_into_panel_shows_each_matchs_own_key() {
         }
     }
     assert!(shown.len() > 12, "keys shown: {shown:?}");
+}
+
+/// The few rows the "mixes into" panel has room for show the other keys that mix in too, where
+/// same-key tracks alone would fill them and every row would read as the playing track's key
+/// (LOC-13).
+#[test]
+fn the_mixes_into_panel_shows_more_than_the_playing_key() {
+    let at = |id, key: &str, title: &str| Track { key: key.into(), bpm: 128.0, ..track(id, "DJ", title) };
+    let mut tracks = vec![at(1, "8B", "Playing")];
+    tracks.extend((2..9).map(|id| at(id, "8B", &format!("Same {id}"))));
+    tracks.extend([at(9, "7B", "Neighbour"), at(10, "8A", "Relative")]);
+    let lib = Library { tracks, ..Default::default() };
+    let (mut app, _dir) = playing_in(lib, TrackAnalysis::default());
+    let l = app.loaded.as_ref().unwrap();
+    let (root, lib) = (l.root().to_path_buf(), l.library.clone());
+    let info = track_info(&root, &lib.tracks[0], Some(lib.clone()), &root.join("store"));
+    app.handle_msg(Msg::TrackInfo(1, Box::new(info)));
+    app.deck_layout = true;
+    let s = super::super::ui::screen(&mut app, 120, 40);
+    for row in ["8B  128.0 Same 2", "7B  128.0 Neighbour", "8A  128.0 Relative"] {
+        assert!(s.contains(row), "{row}:\n{s}");
+    }
 }
 
 /// The player as `tui::run` makes it, with nothing to hear and the drives in [`plugins_once`] the
@@ -3391,7 +3401,7 @@ fn edits_on_a_drive_with_no_export_are_not_offered_again() {
     app.install(root.clone(), Loaded::prepare(device, lib.clone()));
     app.track_state.select(Some(1));
     press(&mut app, "e4");
-    confirm(&mut app, |_| {});
+    written(&mut app);
     std::fs::remove_file(root.join(paths::EXPORT_PDB)).unwrap();
     app.install(root.clone(), Loaded::prepare(Device::open(&root).unwrap(), lib));
     let g = app.loaded.as_ref().unwrap().generation;
@@ -3501,7 +3511,7 @@ fn prop_a_click_under_the_matches_picks_nothing(tc: hegel::TestCase) {
     let mix = Mix { index: 1, key: Camelot::parse("8A").unwrap(), relation: Relation::Same, tempo_gap: 0.0 };
     app.now.as_mut().unwrap().matches = Some(Matches { library, root, items: vec![mix] });
     app.reset_next_pick();
-    app.fullscreen = true;
+    app.deck_layout = true;
     super::super::ui::screen(&mut app, 160, 45);
     let r = app.areas.matches;
     assert!(r.height > 2, "{r:?}");
@@ -3623,7 +3633,7 @@ fn prop_a_match_from_a_newer_read_queues_the_same_track(tc: hegel::TestCase) {
     let matches = Matches { library: Arc::new(newer), root: app.queue.root.clone(), items: vec![mix] };
     let playing = app.now.as_ref().unwrap().id;
     app.handle_msg(Msg::TrackInfo(playing, Box::new(TrackInfo { matches: Some(matches), ..Default::default() })));
-    app.fullscreen = true;
+    app.deck_layout = true;
     press(&mut app, "\n");
     let queued: Vec<u32> = app.queue.order.iter().map(|&i| app.queue.track(i).id).collect();
     if id == 99 {
@@ -3694,4 +3704,31 @@ fn prop_a_click_in_the_sidebar_selects_that_drive(tc: hegel::TestCase) {
     let k = tc.draw(gs::integers::<u16>().max_value(1));
     mouse(&mut app, LEFT, (r.x + 2, r.y + 1 + k));
     assert_eq!((app.focus, app.drive_state.selected()), (Focus::Drives, Some(k as usize)));
+}
+
+/// A track's playlists come with the folders above them, and a playlist's own name keeps its
+/// slashes.
+#[test]
+fn a_tracks_playlists_keep_their_names_whole() {
+    let list = |id, parent, name: &str, is_folder, track_ids| locallibrary::Playlist {
+        id,
+        parent_id: parent,
+        name: name.into(),
+        is_folder,
+        sort_order: id,
+        track_ids,
+    };
+    let track = Track { id: 51, file_path: "/Contents/upstart.mp3".into(), ..Default::default() };
+    let playlists = vec![
+        list(1, None, "current set 2021 reduced", true, vec![]),
+        list(2, Some(1), "CLOSING (END) SMALL", true, vec![]),
+        list(7, Some(2), "1.2 BEATDOWN/acid", false, vec![51]),
+        list(8, Some(2), "elsewhere", false, vec![50]),
+        list(20, Some(1), "acid 1", false, vec![51]),
+    ];
+    let lib = Library { tracks: vec![track.clone()], playlists, ..Default::default() };
+    assert_eq!(
+        loaded::playlists_of(&lib, &track),
+        ["current set 2021 reduced › CLOSING (END) SMALL › 1.2 BEATDOWN/acid", "current set 2021 reduced › acid 1"]
+    );
 }

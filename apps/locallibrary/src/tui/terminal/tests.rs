@@ -66,6 +66,18 @@ fn da1_ends_the_answers() {
     assert!(!finished(b"\x1b[?1049h"), "something else");
 }
 
+/// Attribute 4 of DA1's answer is sixels, among the other answers or alone, and only there.
+#[test]
+fn a_terminal_that_lists_sixels() {
+    assert!(says_sixel(b"\x1b[?62;4;22c"));
+    assert!(says_sixel(&[TC, b"\x1b[?1;2;4c"].concat()));
+    assert!(!says_sixel(DA1));
+    assert!(!says_sixel(b"\x1b[?4;1c"), "the first is the terminal's level");
+    assert!(!says_sixel(b"\x1b[?62;14c"));
+    assert!(!says_sixel(b"\x1b[?62;4"), "cut off");
+    assert!(!says_sixel(b""));
+}
+
 /// The two ends of a pty: the terminal's, and the one a program runs on.
 fn pty() -> (File, File) {
     let (mut ours, mut theirs) = (0, 0);

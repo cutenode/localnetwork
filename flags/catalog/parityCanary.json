@@ -1,5 +1,6 @@
 {
 	"$schema": "../flag.schema.json",
 	"key": "parityCanary",
-	"description": "Gates nothing. Turn it on for an account to check that the website and locallibrary give it the same answer."
+	"description": "Gates nothing. Turn it on for an account to check that the website and locallibrary give it the same answer.",
+	"type": "ops"
 }

@@ -21,6 +21,7 @@ beforeEach(async () => {
 	t = await createTestServices({ admins: [ADMIN] });
 	key = await Secp256k1Keypair.create();
 	await t.flags.updateFlag(await t.viewer(ADMIN), 'parityCanary', {
+		enabled: true,
 		everyone: false,
 		percentage: 10,
 		groups: [],
@@ -51,7 +52,9 @@ async function ask(authorization?: string) {
 }
 
 it('tells anyone the public gates, and targets nobody', async () => {
-	expect(await ask()).toEqual({ flags: [{ key: 'parityCanary', everyone: false, percentage: 10, targeted: false }] });
+	expect(await ask()).toEqual({
+		flags: [{ key: 'parityCanary', enabled: true, everyone: false, percentage: 10, targeted: false }]
+	});
 });
 
 it('tells an account its own targeting, with a token from its server', async () => {
@@ -63,6 +66,20 @@ it('tells an account its own targeting, with a token from its server', async () 
 	});
 
 	expect(await ask(token)).toEqual({
-		flags: [{ key: 'parityCanary', everyone: false, percentage: 10, targeted: true }]
+		flags: [{ key: 'parityCanary', enabled: true, everyone: false, percentage: 10, targeted: true }]
+	});
+});
+
+it('says a flag is off for everyone, with the gates it keeps for when it is back on', async () => {
+	await t.flags.updateFlag(await t.viewer(ADMIN), 'parityCanary', {
+		enabled: false,
+		everyone: false,
+		percentage: 10,
+		groups: [],
+		dids: [DJ]
+	});
+
+	expect(await ask()).toEqual({
+		flags: [{ key: 'parityCanary', enabled: false, everyone: false, percentage: 10, targeted: false }]
 	});
 });

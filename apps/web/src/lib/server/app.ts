@@ -228,7 +228,10 @@ export async function createApp(options: CreateAppOptions) {
 	const plyr = new PlyrClient(logger.child({ component: 'plyr' }));
 	const projects = new ProjectService(core, happyView, INDEX_WAIT_MS, backfills, plyr);
 	const staff = new StaffService(core);
-	const flags = new FlagService(core, staff);
+	const flags = new FlagService(core, staff, config.flagOverrides);
+
+	if (Object.keys(config.flagOverrides).length > 0)
+		logger.warn('flags forced by FLAG_OVERRIDES', { flags: config.flagOverrides });
 	const bookings = new BookingService(core, projects);
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);

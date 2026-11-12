@@ -24,6 +24,6 @@ deny contains msg if {
 updated(ecosystem, dir) if {
 	some update in lib.file(".github/dependabot.yml").updates
 	update["package-ecosystem"] == ecosystem
-	some pattern in (lib.strings(object.get(update, "directory", [])) | lib.strings(object.get(update, "directories", [])))
+	some pattern in (lib.string_set(object.get(update, "directory", [])) | lib.string_set(object.get(update, "directories", [])))
 	lib.matches(pattern, dir)
 }

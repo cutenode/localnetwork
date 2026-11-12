@@ -6,16 +6,20 @@
 mod account;
 mod analyzer;
 mod app;
+mod art;
 mod audio;
 mod browse;
+mod choices;
 mod crate_list;
 mod deck;
 mod docs;
 mod drives;
 mod edits;
+mod first_run;
 mod form;
 mod frames;
 mod icons;
+mod jobs;
 mod keymap;
 mod keys;
 mod looks;
@@ -33,6 +37,7 @@ mod state;
 mod stderr;
 mod terminal;
 mod theme;
+mod transitions;
 mod ui;
 
 use std::io::{IsTerminal, Write, stdout};
@@ -71,6 +76,7 @@ pub fn run(store_root: PathBuf, drive: Option<String>) -> Result<()> {
     let answers = asked.join().unwrap_or_default();
     theme::answered(&answers);
     app.expect_late(&answers);
+    app.sixel = answers.sixel;
     // (Not `ratatui::init`, whose panic hook would put the screen back for a worker's panic.)
     enable_raw_mode()?;
     execute!(stdout(), EnterAlternateScreen)?;

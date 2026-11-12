@@ -5,7 +5,6 @@
 	import { locallibrary } from '#lib/tools/locallibrary.ts';
 	import { localtoolbox } from '#lib/tools/localtoolbox.ts';
 	import type { ShowRecord } from '#lib/types.ts';
-	import BrowserFrame from './BrowserFrame.svelte';
 	import Button from './Button.svelte';
 	import Card from './Card.svelte';
 	import { onColour } from './contrast.ts';
@@ -139,26 +138,24 @@
 <Story name="Hero preview" asChild>
 	<Section labelledby="preview-title">
 		<h2 id="preview-title" class="sr-only">A project page</h2>
-		<BrowserFrame url="localnetwork.computer/projects/neon-tide" bleed>
-			<div class="flex flex-wrap">
-				<div class="flex min-w-0 flex-[1_1_20rem] flex-col gap-4 border-line p-5 sm:border-r sm:p-7">
-					<div class="flex items-center gap-3.5"><Monogram name="Neon Tide" size="xl" /><div><p class="m-0 text-heading font-semibold">Neon Tide</p><p class="m-0 text-small text-fg-muted">Solo DJ · Berlin, DE · since 2014</p></div></div>
-					<p class="m-0 text-fg-soft">Rolling, hypnotic techno for late rooms.</p>
-					<div class="flex flex-wrap gap-1.5 max-sm:hidden"><Tag>techno</Tag><Tag>dub techno</Tag><Tag>hypnotic techno</Tag></div>
-					<dl class="m-0 grid grid-cols-[auto_1fr] gap-x-5 gap-y-1.5 text-small max-sm:hidden">
-						<dt class="text-fg-subtle">Fee</dt><dd class="m-0 font-mono text-label">€600–1,500</dd>
-						<dt class="text-fg-subtle">Rooms</dt><dd class="m-0 font-mono text-label">150–1,500 cap</dd>
-						<dt class="text-fg-subtle">Next</dt><dd class="m-0">Tidal Hours, Fri 16 Oct, Halle Nord</dd>
-					</dl>
-					<div class="mt-auto flex gap-2 max-sm:hidden"><Button size="sm" href="/dashboard/bookings/new?project=neon-tide">Send inquiry</Button><Button size="sm" variant="secondary">Save</Button></div>
-				</div>
-				<div class="flex min-w-0 flex-[2_1_30rem] flex-col gap-3.5 border-line p-5 max-sm:border-t sm:p-7">
-					<div class="flex flex-wrap items-baseline justify-between gap-2"><span class="font-semibold">{mix.mix.title}</span><span class="font-mono text-caption text-fg-subtle">{mix.plays.length} tracks · {clock(duration)} · 124–128 BPM</span></div>
-					<Waveform bands={mix.waveform} playhead={0.38} label="{mix.mix.title}, {clock(duration)}" class="h-20 sm:h-30" />
-					{@render lanes()}
-				</div>
+		<div class="flex flex-wrap">
+			<div class="flex min-w-0 flex-[1_1_20rem] flex-col gap-4 border-line p-5 sm:border-r sm:p-7">
+				<div class="flex items-center gap-3.5"><Monogram name="Neon Tide" size="xl" /><div><p class="m-0 text-heading font-semibold">Neon Tide</p><p class="m-0 text-small text-fg-muted">Solo DJ · Berlin, DE · since 2014</p></div></div>
+				<p class="m-0 text-fg-soft">Rolling, hypnotic techno for late rooms.</p>
+				<div class="flex flex-wrap gap-1.5 max-sm:hidden"><Tag>techno</Tag><Tag>dub techno</Tag><Tag>hypnotic techno</Tag></div>
+				<dl class="m-0 grid grid-cols-[auto_1fr] gap-x-5 gap-y-1.5 text-small max-sm:hidden">
+					<dt class="text-fg-subtle">Fee</dt><dd class="m-0 font-mono text-label">€600–1,500</dd>
+					<dt class="text-fg-subtle">Rooms</dt><dd class="m-0 font-mono text-label">150–1,500 cap</dd>
+					<dt class="text-fg-subtle">Next</dt><dd class="m-0">Tidal Hours, Fri 16 Oct, Halle Nord</dd>
+				</dl>
+				<div class="mt-auto flex gap-2 max-sm:hidden"><Button size="sm" href="/dashboard/bookings/new?project=neon-tide">Send inquiry</Button><Button size="sm" variant="secondary">Save</Button></div>
 			</div>
-		</BrowserFrame>
+			<div class="flex min-w-0 flex-[2_1_30rem] flex-col gap-3.5 border-line p-5 max-sm:border-t sm:p-7">
+				<div class="flex flex-wrap items-baseline justify-between gap-2"><span class="font-semibold">{mix.mix.title}</span><span class="font-mono text-caption text-fg-subtle">{mix.plays.length} tracks · {clock(duration)} · 124–128 BPM</span></div>
+				<Waveform bands={mix.waveform} playhead={0.38} label="{mix.mix.title}, {clock(duration)}" class="h-20 sm:h-30" />
+				{@render lanes()}
+			</div>
+		</div>
 	</Section>
 </Story>
 

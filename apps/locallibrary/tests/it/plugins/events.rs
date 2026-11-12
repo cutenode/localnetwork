@@ -178,3 +178,129 @@ fn the_watch_agent_tells_plugins_and_keeps_their_suggestions() {
     let analyze = json!({ "name": "analyze", "params": { "analyzer": "size", "drive": "USB" } });
     assert!(kept.iter().any(|k| k["message"] == "analyze USB" && k["action"] == analyze), "{kept:?}");
 }
+
+/// The `watch` agent, printing for people or as JSON, with the `suggests` service on or off: it
+/// says what each service tells the user, as a line each, saying which ones the player offers
+/// to review (as JSON, those with an action), and keeps those suggestions in the store, only
+/// when they're made.
+#[cfg(unix)]
+#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn the_watch_agent_says_what_services_tell_the_user(tc: hegel::TestCase) {
+    use std::io::{BufRead, BufReader};
+    use std::process::Stdio;
+    use std::time::Duration;
+
+    use hegel::generators as gs;
+
+    let mut env = Env::new();
+    env.plugins(&[&(listening(&["drive.pulled"]) + SUGGESTS)]);
+    env.pulled("Main");
+    env.demo("USB");
+    // Mostly printed for people with suggestions on, the case that says the most.
+    let (json, suggests) = (tc.draw(gs::weighted_booleans(0.25)), !tc.draw(gs::weighted_booleans(0.2)));
+    env.ok(&["--yes", "plugin", "settings", "echo", "services.beat", "on"]);
+    if suggests {
+        env.ok(&["--yes", "plugin", "settings", "echo", "services.suggests", "on"]);
+    }
+    let mut args = vec!["watch", "--settle", "0"];
+    if json {
+        args.insert(0, "--json");
+    }
+    let mut child = env.command().args(&args).stdout(Stdio::piped()).spawn().unwrap();
+    let (tx, lines) = std::sync::mpsc::channel();
+    let stdout = child.stdout.take().unwrap();
+    std::thread::spawn(move || BufReader::new(stdout).lines().for_each(|l| drop(tx.send(l.unwrap()))));
+    // What's told, and whether the player offers to review it.
+    let mut wanted = vec![("beat is running", false)];
+    if suggests {
+        wanted.extend([("analyze USB", true), ("export USB", true)]);
+    }
+    let told = |line: &str, (message, offered): (&str, bool)| match json {
+        true => serde_json::from_str::<Value>(line)
+            .is_ok_and(|v| v["plugin"] == "echo" && v["message"] == message && v.get("action").is_some() == offered),
+        false => {
+            let review = if offered { " (the player offers to review it)" } else { "" };
+            line.ends_with(&format!(" echo: {message}{review}"))
+        }
+    };
+    let mut said: Vec<String> = Vec::new();
+    // The service says it's running again and again: what's wanted is said within 30 s.
+    let until = std::time::Instant::now() + Duration::from_secs(30);
+    while !wanted.iter().all(|w| said.iter().any(|l| told(l, *w))) {
+        let left = until.saturating_duration_since(std::time::Instant::now());
+        let Ok(l) = lines.recv_timeout(left) else {
+            let _ = child.kill();
+            panic!("watch said {said:?}, not all of {wanted:?}");
+        };
+        said.push(l);
+    }
+    // Stopped as Ctrl-C stops it, it exits cleanly (and a killed one writes no coverage).
+    assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGINT) }, 0);
+    crate::support::end(&mut child, Duration::from_secs(30));
+    let kept: Value = std::fs::read(env.store.join("plugins/suggested.json"))
+        .map_or(json!([]), |bytes| serde_json::from_slice(&bytes).unwrap());
+    let messages: Vec<&Value> = kept.as_array().unwrap().iter().map(|k| &k["message"]).collect();
+    assert_eq!(messages.contains(&&json!("analyze USB")), suggests, "{kept}\n{said:?}");
+}
+
+/// For any commands run one after another, each making a playlist (the plugin's operation or
+/// locallibrary's) or only showing its plan: the plugin listening hears of each plan applied once,
+/// named as its operation, and what it tells the user back is in its log; a plan only shown is
+/// told of to no one.
+#[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn every_plan_applied_is_told_once_and_answered_in_the_log(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut env = Env::new();
+    env.plugins(&[&listening(&["plan.applied"])]);
+    env.demo("USB");
+    for i in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
+        let name = format!("List {i}");
+        let (ours, dry) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
+        let mut args = match ours {
+            true => vec!["playlist", "new", "USB", &name],
+            false => vec!["playlist", "fresh", "USB", "--name", &name],
+        };
+        args.insert(0, "--yes");
+        if dry {
+            args.push("--dry-run");
+        }
+        let r = env.run(&args);
+        assert_eq!(r.code, 0, "{args:?}\n{}", r.err);
+        let heard = heard(&r.err, "plan.applied");
+        let operation = if ours { "edit" } else { "echo.playlist" };
+        match dry {
+            true => assert!(heard.is_empty() && !r.err.contains("echo: heard "), "{args:?}\n{}", r.err),
+            false => {
+                let [(drive, payload)] = &heard[..] else { panic!("one event: {}", r.err) };
+                assert_eq!((drive.as_str(), &payload["operation"]), ("USB", &json!(operation)), "{}", r.err);
+                assert_eq!(r.err.matches("echo: heard plan.applied\n").count(), 1, "{}", r.err);
+            }
+        }
+    }
+}
+
+/// For any steps turning a service on or off over the sidecar, it reads back as last set, and
+/// once it's first on, what it tells the user comes as a `plugin.notice` event of its plugin.
+#[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_service_turned_on_over_the_sidecar_reads_back_and_speaks(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut env = Env::new();
+    env.plugins(&[&listening(&["job.finished"])]);
+    let mut rpc = Rpc::start(env.command());
+    rpc.call(1, "events.subscribe", json!({ "kinds": ["plugin"] }));
+    let (mut on, mut heard) = (false, false);
+    for id in 2..tc.draw(gs::integers::<i64>().min_value(3).max_value(6)) {
+        let value = tc.draw(gs::optional(gs::booleans()));
+        let set = json!({ "plugin": "echo", "key": "services.beat", "value": value });
+        let answer = rpc.call(id, "plugins.settings.set", set);
+        on = value.unwrap_or(false);
+        assert_eq!(answer["result"]["settings"]["services.beat"], on, "{answer}");
+        if on && !heard {
+            let notice = rpc.event(|e| e["message"] == "beat is running");
+            assert_eq!((&notice["event"], &notice["plugin"]), (&json!("plugin.notice"), &json!("echo")));
+            heard = true;
+        }
+    }
+    let settings = rpc.call(99, "plugins.settings", json!({ "plugin": "echo" }));
+    assert_eq!(settings["result"]["settings"]["services.beat"], on, "{settings}");
+}
