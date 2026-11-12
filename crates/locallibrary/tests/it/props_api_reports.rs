@@ -739,7 +739,10 @@ fn stored_keys_are_scored_as_mirex_scores_them(tc: TestCase) {
     }
     let options = locallibrary::sound::bench::BenchOptions { keys: Some(keys), tempos: None, audio: None };
     let req = api::AnalysisBenchRequest { drive: Some(path(&root)), options };
-    let r = api::analysis_bench(&req, &Ctx::silent()).unwrap();
+    // No analyzer is offered: rekordbox alone.
+    locallibrary::testing::roles_on_this_thread(Some(Default::default()));
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let r = api::analysis_bench(&req, &store, |_, _| unreachable!("nothing is measured"), &Ctx::silent()).unwrap();
     let rb = &r.keys[locallibrary::sound::bench::REKORDBOX];
     assert_eq!((rb.tracks, r.unmatched), (n, strays));
     let mean = expected.iter().sum::<f64>() / n as f64;

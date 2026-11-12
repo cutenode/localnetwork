@@ -329,7 +329,9 @@ has none and writes them into analysis files only when the user asks. An operati
 
 `track/analyze {analyzer, track: {id, file_path, audio_path, analyze_path?}, context}` ->
 `{"fields": {name: value}}`, of the types the manifest declares (`FieldValue`), or `null` for one
-worked out with nothing to show. A field left out wasn't worked out.
+worked out with nothing to show. A field left out wasn't worked out. A track with `id` 0 is an
+audio file on no drive, handed in to score the analyzer (`file_path` is the file's name): the
+context names no drive, and reads of a library are refused until the answer.
 
 - `[[contributes.analyzers]]`: `name`, `title`, `version` (its own: locallibrary keeps its
   values by it, so bump it when they'd change), `fields` (each `number`, `integer`, `string`,

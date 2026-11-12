@@ -20,7 +20,8 @@ cargo_common_metadata = "warn"
 [workspace.dependencies]
 # Without its default features (the Atmosphere account): the CLI turns them on with its own.
 locallibrary = { path = "crates/locallibrary", default-features = false }
-loclib-analysis = { path = "crates/loclib-analysis", version = "0.1.0" }
+# Without its DSP (`dsp`): core scores analyzers with it, and only the sound plugin analyses.
+loclib-analysis = { path = "crates/loclib-analysis", version = "0.1.0", default-features = false }
 loclib-equipment = { path = "crates/loclib-equipment", version = "0.1.0" }
 loclib-interop = { path = "crates/loclib-interop", version = "0.1.0" }
 loclib-mixid = { path = "crates/loclib-mixid", version = "0.1.0" }

@@ -534,7 +534,9 @@ plugin roles` shows which, `plugin roles key PLUGIN.ANALYZER` chooses another th
 `plugin roles key --reset` puts it back (kept in the store's `plugins/settings.json` as
 `analysis.roles.key`). `doctor --analyze` runs those analyzers first on the tracks they haven't
 worked out, and so does `sets publish` for the MusicBrainz IDs of the tracks it names (see
-[Publishing](account.md#publishing)); the check and ordering a set read what they kept. A
+[Publishing](account.md#publishing)); the check and ordering a set read what they kept. `analysis
+bench` scores the key and bpm ones against annotated datasets, keeping nothing (see [Checking the
+analysis](drives.md#checking-the-analysis)). A
 recording or release ID that isn't a UUID is left out, and so are the artists' unless every one
 is a UUID and there's one for each name. What an analyzer keeps goes with the audio file, which a
 library can retag without changing, so a track takes the IDs only when they were looked up by its

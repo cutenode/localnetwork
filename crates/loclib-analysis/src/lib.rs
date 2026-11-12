@@ -2,31 +2,41 @@
 
 pub mod benchmark;
 mod error;
+#[cfg(feature = "dsp")]
 mod estimate;
+#[cfg(feature = "dsp")]
 mod loudness;
 pub mod tempo;
+#[cfg(feature = "dsp")]
 mod waveform;
 
-use std::path::Path;
-
-use std::ops::ControlFlow;
-
-use loclib_mixid::audio::{self, Damaged, Resampler};
-use loclib_progress::Ctx;
-use serde::{Deserialize, Serialize};
+// What the `dsp` feature adds: `analyze` and what it measures.
+#[cfg(feature = "dsp")]
+pub use {
+    estimate::Estimate,
+    loudness::Loudness,
+    waveform::{COLUMNS_PER_SEC, Waveform},
+};
+#[cfg(feature = "dsp")]
+use {
+    estimate::RATE,
+    loclib_mixid::audio::{self, Damaged, Resampler},
+    loclib_progress::Ctx,
+    serde::{Deserialize, Serialize},
+    std::ops::ControlFlow,
+    std::path::Path,
+};
 
 pub use error::{Error, Result};
-pub use estimate::Estimate;
-use estimate::RATE;
-pub use loudness::Loudness;
-pub use waveform::{COLUMNS_PER_SEC, Waveform};
 
 /// Changes whenever [`analyze`] would give different results for the same audio (a new
 /// stratum-dsp or ebur128, different settings, a fix here), so cached analyses made with another
 /// version can be thrown away.
+#[cfg(feature = "dsp")]
 pub const VERSION: u32 = 5;
 
 /// What [`analyze`] measures. One decode feeds them all.
+#[cfg(feature = "dsp")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Want {
     /// Tempo and key.
@@ -35,11 +45,13 @@ pub struct Want {
     pub waveform: bool,
 }
 
+#[cfg(feature = "dsp")]
 impl Want {
     pub const ALL: Want = Want { estimate: true, loudness: true, waveform: true };
 }
 
 /// One track's analysis, for caching by the audio's content hash and [`VERSION`].
+#[cfg(feature = "dsp")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Analysis {
     /// The [`VERSION`] it was made with.
@@ -60,6 +72,7 @@ pub struct Analysis {
 /// Decoding checks `ctx` for cancellation as it goes; the tempo and key analysis that follows
 /// runs to the end once started (a few seconds a track). Reporting progress is left to the
 /// caller, which knows how many tracks it has, as with loclib-mixid's `fingerprint_file`.
+#[cfg(feature = "dsp")]
 pub fn analyze(path: &Path, want: Want, ctx: &Ctx<'_>) -> Result<Analysis> {
     let mut meter = want.loudness.then(loudness::Meter::default);
     let mut bands = want.waveform.then(waveform::Bands::new);
@@ -99,5 +112,5 @@ pub fn analyze(path: &Path, want: Want, ctx: &Ctx<'_>) -> Result<Analysis> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "dsp"))]
 mod tests;

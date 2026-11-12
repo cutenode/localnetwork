@@ -14,7 +14,7 @@ use super::*;
 
 /// The echo manifest (as plugin `id`) with an analyzer, `heard`, answering what the test writes
 /// in each audio file: a key and a BPM, and how sure it is of each.
-fn heard(id: &str) -> String {
+pub(super) fn heard(id: &str) -> String {
     ECHO.replace("id = \"echo\"", &format!("id = \"{id}\"")).replace(
         "fields = { bytes = \"integer\" }\n",
         "fields = { bytes = \"integer\" }\n\n[[contributes.analyzers]]\nname = \"heard\"\ntitle = \"Heard\"\n\
@@ -43,7 +43,7 @@ fn roles_are_offered_in_the_order_the_plugins_are() {
 
 impl Fixture {
     /// The `heard` analyzer's answers for each track: what's written in its audio file.
-    fn hear(&self, answers: &[Value]) -> Vec<locallibrary::Track> {
+    pub(super) fn hear(&self, answers: &[Value]) -> Vec<locallibrary::Track> {
         let tracks = common::library(&self.drive).tracks;
         for (t, answer) in tracks.iter().zip(answers) {
             std::fs::write(paths::to_fs(&self.drive, &paths::key(&t.file_path)), answer.to_string()).unwrap();

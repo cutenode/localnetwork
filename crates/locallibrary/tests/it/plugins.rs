@@ -4,6 +4,7 @@
 mod accesses;
 mod accounts;
 mod analysis;
+mod bench;
 mod blobs;
 mod callbacks;
 mod checks;

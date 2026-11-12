@@ -23373,7 +23373,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/KeyOutcomeReport"
           },
-          "description": "Key reports by analyzer (`rekordbox`, `stratum-dsp`): `score` is MIREX's weighted score."
+          "description": "Key reports by analyzer (`rekordbox`, `sound.tempo-key-loudness`): `score` is MIREX's\nweighted score."
         },
         "tempos": {
           "type": "object",
@@ -23411,7 +23411,7 @@
             "minItems": 2,
             "maxItems": 2
           },
-          "description": "Audio files that couldn't be analysed: `[name, error]`."
+          "description": "Audio files that couldn't be analysed: `[name, error]`, once for each analyzer that failed\non it."
         }
       },
       "required": [

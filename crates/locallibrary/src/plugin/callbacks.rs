@@ -131,6 +131,12 @@ fn allowed(method: &str) -> Option<(Capability, bool, Params)> {
     })
 }
 
+/// Whether `method` reads a drive's library (its tracks, playlists and tags, or what's kept for
+/// its tracks): refused while the plugin has audio files on no drive (see [`Plugin::has_loose`]).
+fn reads_library(method: &str) -> bool {
+    allowed(method).is_some_and(|(capability, library, _)| library || capability == Capability::LibraryRead)
+}
+
 fn invalid_params(message: impl std::fmt::Display) -> RpcFailure {
     RpcFailure::new(code::INVALID_PARAMS, "invalid_params", format!("invalid params: {message}"))
 }
@@ -194,7 +200,17 @@ pub(crate) fn answer(
                     plugin.ensure(&live, req.params, &Ctx::new(&NoProgress, req.cancel.clone()))
                 }
                 _ => {
-                    let params = check(&plugin.manifest, &|spec| plugin.drive(spec), &req.method, req.params);
+                    let params = match plugin.has_loose() && reads_library(&req.method) {
+                        true => Err(RpcFailure::new(
+                            code::FAILED,
+                            "denied",
+                            format!(
+                                "{} reads a library, and the audio file the plugin was handed is on no drive",
+                                req.method
+                            ),
+                        )),
+                        false => check(&plugin.manifest, &|spec| plugin.drive(spec), &req.method, req.params),
+                    };
                     let read =
                         params.and_then(|p| reads.read(&req.method, p, &Ctx::new(&NoProgress, req.cancel.clone())));
                     let roots = known_roots(live.store.as_ref(), &plugin.given());

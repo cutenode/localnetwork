@@ -77,6 +77,18 @@ pub fn set_lookup(root: &Path, req: &api::SetPublishRequest, ctx: &Ctx<'_>) -> R
     api::set_lookup(root, req, run, ctx)
 }
 
+/// `analysis bench`, as the command line and the sidecar run it: the analyzers chosen for its
+/// roles in `store` measure the audio afresh, keeping nothing (see [`api::analysis_bench`]).
+pub fn bench(
+    req: &api::AnalysisBenchRequest,
+    store: &Store,
+    ctx: &Ctx<'_>,
+) -> Result<locallibrary::sound::bench::BenchReport> {
+    // First: the analyzers' roles are offered as the plugins load.
+    let plugins = host()?;
+    api::analysis_bench(req, store, |a, audio| plugins.measure(&a.plugin, &a.analyzer, audio, store, ctx), ctx)
+}
+
 /// `doctor`, as the command line and the sidecar run it: with its analysis, the analyzers for
 /// tempo, key and loudness run first (keeping what they work out in `store`), and the report says
 /// what they did.
