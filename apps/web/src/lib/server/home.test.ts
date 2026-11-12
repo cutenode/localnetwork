@@ -4,7 +4,7 @@ import { silentLogger } from '#lib/server/logger.ts';
 import { ADMIN, DJ, pressKitServices, PROMOTER, STRANGER } from '#lib/server/testing/press-kits.ts';
 import { writtenLog } from '#lib/server/testing/written-log.ts';
 import type { BookingThreadView, PlannerShowView, RequestView, ShowView } from '#lib/types.ts';
-import { accessWaiting, needsCount, needsYou, nextNights, soon, withOthers } from './home';
+import { accessWaiting, needsCount, needsYou, nextNights, soon, withOthers, type NightWindow } from './home';
 
 let f: Awaited<ReturnType<typeof pressKitServices>>;
 
@@ -165,6 +165,7 @@ describe("a thread the directory can't name", () => {
 			[thread],
 			null,
 			{ promoter: false },
+			{},
 			NOW
 		);
 
@@ -341,12 +342,16 @@ describe('nextNights', () => {
 		shows = [],
 		plans = [],
 		threads = [],
-		sections = { promoter: false }
+		sections = { promoter: false },
+		window = {},
+		as = DJ
 	}: {
 		shows?: ShowView[] | Error;
 		plans?: PlannerShowView[] | Error;
 		threads?: BookingThreadView[];
 		sections?: { promoter: boolean } | null;
+		window?: NightWindow;
+		as?: string;
 	}) => {
 		const answer = async <T>(result: T | Error) => {
 			if (result instanceof Error) throw result;
@@ -360,7 +365,7 @@ describe('nextNights', () => {
 			projects: { byUris: async () => new Map() }
 		};
 
-		return nextNights({ app, log: silentLogger }, await f.t.viewer(DJ), threads, [f.project], sections, NOW);
+		return nextNights({ app, log: silentLogger }, await f.t.viewer(as), threads, [f.project], sections, window, NOW);
 	};
 
 	it('puts shows, bookings and plans in one list by date, without what already went by', async () => {
@@ -414,6 +419,47 @@ describe('nextNights', () => {
 		expect(nights[0]).toMatchObject({ title: 'Booked', tentative: false, detail: 'Booking for Neon Tide' });
 		expect(nights).toHaveLength(5);
 		expect(more).toBe(2);
+	});
+
+	it('leaves the lineup out of a plan with nobody on it yet', async () => {
+		const { nights } = await open({
+			plans: [{ ...planned('Winter', '2026-11-20T22:00:00.000Z'), lineup: [] }],
+			sections: { promoter: true }
+		});
+
+		expect(nights[0].detail).toBe('Planned · Kantine');
+	});
+
+	it('lists every night up to a horizon when asked to', async () => {
+		const shows = ['2026-11-20', '2026-12-01', '2027-03-01', '2027-12-01'].map((day, at) =>
+			announced(`Night ${at}`, `${day}T22:00:00.000Z`)
+		);
+
+		const { nights, more } = await open({ shows, window: { shown: Infinity, ahead: 365 } });
+
+		expect(nights.map((night) => night.title)).toEqual(['Night 0', 'Night 1', 'Night 2']);
+		expect(more).toBe(0);
+	});
+
+	it("counts an act's unconfirmed bookings that share a night on the first of them, but not a promoter's", async () => {
+		await inquire('Rooftop', '2026-11-20');
+		await inquire('Basement', '2026-11-20');
+		await inquire('Alone', '2026-11-21');
+		const settled = await inquire('Booked', '2026-11-21');
+		await f.t.bookings.setStatus({ actor: await f.t.viewer(DJ), space: settled, status: 'confirmed' });
+
+		const { nights } = await open({ threads: await f.t.bookings.threadsFor(DJ) });
+
+		expect(nights.map(({ date, inquiries }) => [date, inquiries])).toEqual([
+			['2026-11-20', 2],
+			['2026-11-20', undefined],
+			['2026-11-21', undefined],
+			['2026-11-21', undefined]
+		]);
+
+		const promoter = await open({ threads: await f.t.bookings.threadsFor(PROMOTER), as: PROMOTER });
+
+		expect(promoter.nights.map((night) => night.inquiries)).toEqual([undefined, undefined, undefined, undefined]);
 	});
 
 	it("leaves a performer's planner unread, but keeps it for someone whose sections aren't known", async () => {

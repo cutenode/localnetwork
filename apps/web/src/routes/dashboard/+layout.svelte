@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { CalendarPlus, CircleUser, Inbox, House, NotebookPen, Plus, ShieldCheck } from '@lucide/svelte';
+	import { CalendarDays, CalendarPlus, CircleUser, Inbox, House, NotebookPen, Plus, ShieldCheck } from '@lucide/svelte';
 	import { accountLabel } from '#lib/format.ts';
 	import { resolved } from '#lib/resolved.svelte.ts';
 	import SidebarLayout, { type SidebarItem } from '#lib/ui/SidebarLayout.svelte';
@@ -13,7 +13,8 @@
 	const main = $derived([
 		{ href: '/dashboard', label: 'Home', icon: House, exact: true, badge: data.waiting + access.value.length },
 		{ href: '/dashboard/inbox', label: 'Inbox', icon: Inbox, dot: data.unread > 0 },
-		{ href: '/dashboard/bookings', label: 'Bookings', icon: CalendarPlus }
+		{ href: '/dashboard/bookings', label: 'Bookings', icon: CalendarPlus },
+		...(data.flags?.dashboardCalendar ? [{ href: '/dashboard/calendar', label: 'Calendar', icon: CalendarDays }] : [])
 	]);
 
 	const projects = resolved(() => data.projects, undefined);

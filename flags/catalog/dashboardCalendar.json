@@ -1,0 +1,7 @@
+{
+	"$schema": "../flag.schema.json",
+	"key": "dashboardCalendar",
+	"description": "Shows Calendar in the dashboard sidebar and serves /dashboard/calendar, every night for the year ahead.",
+	"type": "release",
+	"removeBy": "2027-02-15"
+}

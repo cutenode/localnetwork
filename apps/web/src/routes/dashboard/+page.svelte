@@ -2,6 +2,7 @@
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import NeedsList from '#lib/components/NeedsList.svelte';
 	import NightList from '#lib/components/NightList.svelte';
+	import NightsFailed from '#lib/components/NightsFailed.svelte';
 	import OnboardingChecklist from '#lib/components/OnboardingChecklist.svelte';
 	import { nightLabel, pluralize } from '#lib/format.ts';
 	import { statusLine } from '#lib/home.ts';
@@ -29,10 +30,6 @@
 </script>
 
 <svelte:head><title>Home · Local Network</title></svelte:head>
-
-{#snippet failure()}
-	<p class="notice notice-info m-0 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">Some of your nights didn't load. Everything else here is up to date.<a class="btn-secondary btn-sm" href="/dashboard" data-sveltekit-reload>Try again</a></p>
-{/snippet}
 
 <div class="flex max-w-3xl flex-col gap-8 sm:gap-10">
 	<header class="flex flex-col gap-1">
@@ -86,9 +83,9 @@
 				{#if more}<p class="m-0 text-small text-fg-muted">And {pluralize(more, 'more night')} after that.</p>{/if}
 			</section>
 		{/if}
-		{#if failed}{@render failure()}{/if}
+		{#if failed}<NightsFailed href="/dashboard" />{/if}
 	{:catch}
-		{@render failure()}
+		<NightsFailed href="/dashboard" />
 	{/await}
 
 	{#if summary.value?.others}<p class="m-0 text-small text-fg-muted">{summary.value.others}</p>{/if}
