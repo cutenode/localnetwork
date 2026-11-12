@@ -2,16 +2,19 @@
 //! phrases and a waveform. Kept beside their fields and keyed the same way (see
 //! [`super::FieldStore`]), in `<store>/cache/overlay/<plugin>/<analyzer>/<version>/`. Only
 //! drawn, where a track's drive has none, unless they're written to its analysis files
-//! (`plugins.apply_analysis`).
+//! (`plugins.apply_analysis`); each part from the analyzer chosen for it, if one is (see
+//! [`super::roles`]): drawn from another where that one hasn't worked it out, never written.
 
 use std::path::Path;
 
 use base64::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use super::roles::PartsChosen;
 use super::{Analyzer, is_name};
 use crate::anlz::{Bands, Beat, DETAIL_RATE, SongStructure, TrackAnalysis};
 use crate::audio_cache::{CACHE_DIR, Cache, Kind};
+use crate::plugin::AnalysisPart;
 use crate::store::Store;
 use crate::{Error, Result};
 
@@ -93,21 +96,32 @@ impl OverlayStore {
         self.of(a).get(&Cache::<Overlay>::key(audio)?)
     }
 
-    /// For drawing: each part from the first of `analyzers` with one for the audio file at
-    /// `audio`, and that analyzer.
-    pub fn first(&self, audio: &Path, analyzers: &[Analyzer]) -> Shown {
+    /// What the player draws (`fallback`), and `plugins.apply_analysis` writes with no analyzer
+    /// named: each part from the one `chosen` for it, else the first of `analyzers` with one for
+    /// the audio file at `audio`, and that analyzer. None once it's turned off. With `fallback`, a
+    /// part the chosen one hasn't worked out comes from the first other with it.
+    pub fn first(&self, audio: &Path, analyzers: &[Analyzer], chosen: &PartsChosen, fallback: bool) -> Shown {
+        let kept: Vec<(&Analyzer, Overlay)> = analyzers.iter().filter_map(|a| Some((a, self.get(audio, a)?))).collect();
         let mut shown = Shown::default();
-        for a in analyzers {
-            let Some(o) = self.get(audio, a) else { continue };
-            let from = || Some(a.clone());
-            if shown.overlay.beats.is_none() && o.beats.is_some() {
-                (shown.overlay.beats, shown.beats_from) = (o.beats.clone(), from());
-            }
-            if shown.overlay.phrases.is_none() && o.phrases.is_some() {
-                (shown.overlay.phrases, shown.phrases_from, shown.phrases_grid) = (o.phrases, from(), o.beats.clone());
-            }
-            if shown.overlay.waveform.is_none() && o.waveform.is_some() {
-                (shown.overlay.waveform, shown.waveform_from) = (o.waveform, from());
+        let passes: &[bool] = if fallback { &[false, true] } else { &[false] };
+        for &falling_back in passes {
+            for (a, o) in &kept {
+                let reads = |part: AnalysisPart| match chosen.get(&part) {
+                    None => true,
+                    Some(c) => c.as_ref() == Some(*a) || (falling_back && c.is_some()),
+                };
+                let from = || Some(Analyzer::clone(a));
+                if shown.overlay.beats.is_none() && o.beats.is_some() && reads(AnalysisPart::Grid) {
+                    (shown.overlay.beats, shown.beats_from) = (o.beats.clone(), from());
+                }
+                if shown.overlay.phrases.is_none() && o.phrases.is_some() && reads(AnalysisPart::Phrases) {
+                    let phrases = o.phrases.clone();
+                    (shown.overlay.phrases, shown.phrases_from, shown.phrases_grid) =
+                        (phrases, from(), o.beats.clone());
+                }
+                if shown.overlay.waveform.is_none() && o.waveform.is_some() && reads(AnalysisPart::Waveform) {
+                    (shown.overlay.waveform, shown.waveform_from) = (o.waveform.clone(), from());
+                }
             }
         }
         shown

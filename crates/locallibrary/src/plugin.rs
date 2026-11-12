@@ -68,7 +68,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde_json::{Map, Value};
 
 use crate::fields::Analyzer;
-use crate::fields::roles::{Offered, RoleField};
+use crate::fields::roles::{Offered, RoleField, RoleOrPart};
 use crate::keychain::Storage;
 use crate::model::{Library, Track};
 use crate::{Error, Result};
@@ -337,14 +337,20 @@ impl Plugins {
         self.installed().map(|(a, _)| a).collect()
     }
 
-    /// The analyzers' fields with each role, in the order the app gave the plugins: what it tells
-    /// the readers ([`crate::fields::roles::set_offered`]).
+    /// The analyzers' fields with each role, and their beat grids, phrases and waveforms (each a
+    /// part of the analysis), in the order the app gave the plugins: what it tells the readers
+    /// ([`crate::fields::roles::set_offered`]).
     pub fn roles(&self) -> Offered {
         let mut offered = Offered::new();
         for (analyzer, declared) in self.installed() {
-            for (role, field) in &declared.roles {
+            let roles = declared.roles.iter().map(|(role, field)| (RoleOrPart::Role(*role), field));
+            let part = |kind: loclib_plugin::FieldType| {
+                AnalysisPart::ALL.into_iter().find(|p| p.kind() == kind).map(RoleOrPart::Part)
+            };
+            let parts = declared.fields.iter().filter_map(|(field, kind)| Some((part(*kind)?, field)));
+            for (at, field) in roles.chain(parts) {
                 let field = RoleField { analyzer: analyzer.clone(), field: field.clone() };
-                offered.entry(*role).or_default().push(field);
+                offered.entry(at).or_default().push(field);
             }
         }
         offered
