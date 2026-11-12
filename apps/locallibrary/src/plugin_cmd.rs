@@ -1,5 +1,6 @@
 //! `plugin`: the plugins locallibrary has, their settings and access to your accounts, which
-//! analyzer each field role is read from, which checks run and when a provider's candidate is chosen for the user;
+//! analyzer each field role is read from, which checks run and when a provider's candidate is chosen for the user,
+//! and whether a plugin it doesn't ship would run (`plugin check`);
 //! `analyze`, running their analyzers on a drive's tracks; `art fetch` and `track fetch`, what
 //! their providers find; `import`, what their importers read; their panels under `track show`'s
 //! details; and the commands and operations they add to the command line (`locallibrary <plugin>
@@ -10,12 +11,14 @@ mod analyze;
 mod checks;
 pub(crate) mod choose;
 mod contributed;
+mod dev;
 mod fetch;
 mod import;
 mod listing;
 mod panels;
 pub(crate) mod view;
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -143,6 +146,19 @@ enum PluginCommand {
         #[arg(long)]
         reset: bool,
     },
+    /// Whether a plugin locallibrary doesn't ship would run with --dev-plugin: its manifest by a
+    /// third party's rules, and the program speaking the protocol and describing itself as its
+    /// manifest does, given nothing to read, fetch or sign in with (exit status 4 when it wouldn't)
+    #[command(after_long_help = "Examples:
+  locallibrary plugin check locallibrary-plugin.toml -- ./target/debug/my-plugin
+  locallibrary plugin check locallibrary-plugin.toml -- python3 plugin.py --verbose")]
+    Check {
+        /// The plugin's manifest (locallibrary-plugin.toml)
+        manifest: PathBuf,
+        /// The program to run it with, and its arguments, after `--`
+        #[arg(last = true, required = true, value_name = "PROGRAM")]
+        program: Vec<OsString>,
+    },
     /// Run a plugin, speaking its protocol over stdin and stdout: how locallibrary starts one
     #[command(hide = true)]
     Serve {
@@ -188,6 +204,7 @@ pub fn run(args: PluginArgs, store_path: &Option<PathBuf>, out: Output) -> Resul
         PluginCommand::Providers { auto_pick, reset } => {
             return listing::providers(plugins, auto_pick, reset, store_path, out);
         }
+        PluginCommand::Check { manifest, program } => return dev::check(&manifest, program, out),
         PluginCommand::Serve { plugin } => plugins::serve(&plugin)?,
     }
     Ok(ExitCode::SUCCESS)

@@ -9,8 +9,9 @@ library through locallibrary, within what its capabilities allow, and an operati
 locallibrary the edits it would make, which you're shown and asked about as any edit is, backed up
 and journaled.
 
-For now only plugins built into locallibrary run. There's no way to install another yet. Those
-are:
+There's no way to install a plugin yet: those built into locallibrary run, and one you're writing
+runs for as long as one command, the player or the sidecar does (see [Writing one](#writing-one)).
+The built-in ones are:
 
 - **sound**: works out each track's tempo, key and loudness from its audio (`locallibrary
   analyze`, then `sound.bpm`, `sound.key`... on the track). It's what `doctor --analyze`, the
@@ -600,6 +601,26 @@ handles events, a service is a hook that runs until it's cancelled, and `host.no
 you something. Each family of hooks is an optional feature of the protocol, so a newer
 locallibrary adds kinds of hooks without breaking older plugins.
 
+To run one you're writing, give locallibrary its manifest and the program that serves it, for that
+run only: `locallibrary --dev-plugin locallibrary-plugin.toml:target/debug/my-plugin plugin list`
+(`;` between the two on Windows). `LOCALLIBRARY_DEV_PLUGINS` does the same when there's no
+`--dev-plugin`, several plugins one after another as `PATH` lists folders. It works for every
+command, the player (`locallibrary --dev-plugin ... tui`) and the sidecar (`locallibrary
+--dev-plugin ... rpc`). Nothing is installed, though what you set for it (its settings, its access
+to your accounts) is kept under its id like any plugin's. It's held to the rules for a plugin
+locallibrary doesn't ship: no place of its own on the command line (`cli`), no
+`library:delete-unbacked`, no token exchange for its account types, and an id none of
+locallibrary's plugins has, so it can't take their settings or access. Every run warns that it's
+loaded, naming its capabilities, and one that breaks a rule or clashes with locallibrary's
+commands or plugins fails the run, saying why.
+
+`locallibrary plugin check MANIFEST -- PROGRAM [ARGS...]` tries one first. It checks the manifest
+by those rules, then starts the program, refusing anything it calls back for (a read, `net/fetch`,
+an account): it must answer `hello` and `describe` exactly as its manifest says, and have the
+features its contributions need. It lists
+the features it and locallibrary both have, or what's wrong, with exit status 4 (`--json`: `{id,
+version, features, problems, outcome}`).
+
 ## Safety
 
 A plugin is refused if it says it's something other than what locallibrary knows it as. It may
@@ -637,4 +658,5 @@ only when it's in a folder you granted for that build, its links resolved (see
 [Library sources](#library-sources)).
 
 A plugin runs as you and isn't sandboxed. The limits above are locallibrary's own, and your
-system doesn't enforce them: a plugin could still read any file you can.
+system doesn't enforce them: a plugin could still read any file you can. That holds for one given
+with `--dev-plugin` too, so only give it programs you trust.

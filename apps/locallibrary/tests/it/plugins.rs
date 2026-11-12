@@ -14,6 +14,7 @@ mod accounts;
 mod checks;
 mod choose;
 mod destinations;
+mod dev;
 mod events;
 mod imports;
 mod panels;

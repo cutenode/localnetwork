@@ -172,6 +172,12 @@ pub(crate) fn answer(
             peer.respond(&req.id, Err(RpcError::closed()));
             continue;
         }
+        if plugin.host.options.isolated {
+            let id = &plugin.manifest.id;
+            let why = format!("the {id} plugin is given nothing to call back for here, {} included", req.method);
+            peer.respond(&req.id, Err(RpcError::failed("denied", why)));
+            continue;
+        }
         let most = plugin.host.options.callbacks;
         let under_way = busy.fetch_add(1, Ordering::SeqCst);
         let quota = Quota(busy.clone());

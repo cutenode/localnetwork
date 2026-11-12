@@ -170,6 +170,13 @@ pub struct Cli {
     /// Print long lists straight to the terminal instead of through a pager ($PAGER, else less)
     #[arg(long, global = true, help_heading = GLOBAL)]
     no_pager: bool,
+    /// Run a plugin locallibrary doesn't ship, for this run only: its manifest and the program to
+    /// run it with (`;` between them on Windows). It runs as you, unsandboxed (repeatable)
+    #[arg(long, global = true, env = plugins::DEV_PLUGINS, value_name = "MANIFEST:PROGRAM", help_heading = GLOBAL)]
+    // Read before the command line is parsed (see `plugins::dev_loaded`): it's built from the
+    // plugins.
+    #[allow(dead_code)]
+    dev_plugin: Vec<std::ffi::OsString>,
     /// Without one, opens the interactive player (`locallibrary tui`) in a terminal.
     #[command(subcommand)]
     command: Option<Command>,
@@ -1057,6 +1064,9 @@ fn main() -> ExitCode {
     if answered_directly() {
         return ExitCode::SUCCESS;
     }
+    if let Err(e) = plugins::dev_loaded() {
+        return failed(&anyhow::Error::from(e), json_asked());
+    }
     let mut cmd = help::for_this_run();
     let mut matches = match cmd.try_get_matches_from_mut(std::env::args_os()) {
         Ok(m) => m,
@@ -1094,6 +1104,14 @@ fn main() -> ExitCode {
         for (m, why) in plugins::left_out() {
             output::diag(format!("the {} plugin is left out: {why}", m.id));
         }
+        for m in plugins::dev() {
+            let capabilities: Vec<String> = m.capabilities.iter().map(ToString::to_string).collect();
+            let with = match capabilities.is_empty() {
+                true => "no capabilities".to_string(),
+                false => format!("capabilities {}", capabilities.join(", ")),
+            };
+            output::diag(format!("the {} plugin isn't one locallibrary ships: it runs as you, with {with}", m.id));
+        }
     }
     let code = run(cli, out, contributed);
     // Plugins started for the command stop with it.
@@ -1103,30 +1121,40 @@ fn main() -> ExitCode {
     pager::finish();
     match code {
         Ok(code) => code,
-        Err(e) => {
-            let kind = error_kind(&e);
-            let library = e.chain().find_map(|c| c.downcast_ref::<locallibrary::Error>());
-            let message = describe(&e);
-            if out.json {
-                print_error(kind, library.map(locallibrary::Error::detail).unwrap_or_default(), &message);
-            } else {
-                eprintln!("{} {message}", console::style("error:").red().bold());
-                for hint in library.map(hints::hints).unwrap_or_default() {
-                    eprintln!("  {} {hint}", console::style("hint:").dim());
-                }
-            }
-            match kind {
-                "cancelled" => ExitCode::from(130),
-                "usage" => ExitCode::from(2),
-                _ => ExitCode::FAILURE,
-            }
+        Err(e) => failed(&e, out.json),
+    }
+}
+
+/// Says the error a run failed with, on stderr with its hints (`json`: on stdout, as JSON), and
+/// answers its exit status.
+fn failed(e: &anyhow::Error, json: bool) -> ExitCode {
+    let kind = error_kind(e);
+    let library = e.chain().find_map(|c| c.downcast_ref::<locallibrary::Error>());
+    let message = describe(e);
+    if json {
+        print_error(kind, library.map(locallibrary::Error::detail).unwrap_or_default(), &message);
+    } else {
+        eprintln!("{} {message}", console::style("error:").red().bold());
+        for hint in library.map(hints::hints).unwrap_or_default() {
+            eprintln!("  {} {hint}", console::style("hint:").dim());
         }
     }
+    match kind {
+        "cancelled" => ExitCode::from(130),
+        "usage" => ExitCode::from(2),
+        _ => ExitCode::FAILURE,
+    }
+}
+
+/// Whether `--json` is on the command line, for what's said before it's parsed.
+fn json_asked() -> bool {
+    std::env::args_os().skip(1).take_while(|a| a != "--").any(|a| a == "--json")
 }
 
 /// Answers what needs no command line built, whose every flag and command take most of the time
 /// of a run: `--version` alone, and `plugin serve <id>` for a plugin locallibrary ships, which is
-/// every plugin's start.
+/// every plugin's start. And, for the tests, the test plugin served with no arguments (see
+/// `plugins::serve_test`).
 fn answered_directly() -> bool {
     let args: Option<Vec<String>> = std::env::args_os().skip(1).take(4).map(|a| a.into_string().ok()).collect();
     let args = args.unwrap_or_default();
@@ -1137,6 +1165,8 @@ fn answered_directly() -> bool {
             true
         }
         ["plugin", "serve", id] => plugins::serve_shipped(id),
+        #[cfg(debug_assertions)]
+        [] => plugins::serve_test(),
         _ => false,
     }
 }
@@ -1165,7 +1195,7 @@ fn print_error(kind: &str, detail: locallibrary::error::Detail, message: &str) {
 /// A command line that can't be read: clap's message and exit status 2, or under `--json` the
 /// error as every other one prints (kind `usage`). Help and `--version` go out as they are.
 fn usage_error(e: clap::Error) -> ExitCode {
-    if !e.use_stderr() || !std::env::args().skip(1).take_while(|a| a != "--").any(|a| a == "--json") {
+    if !e.use_stderr() || !json_asked() {
         e.exit();
     }
     print_error("usage", Default::default(), e.render().to_string().trim().trim_start_matches("error: "));

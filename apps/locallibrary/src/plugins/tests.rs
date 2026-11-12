@@ -23,7 +23,7 @@ fn operation(name: &str, more: &str) -> String {
 
 /// Why each of `manifests` is left out, if it is.
 fn left_out(manifests: &[Manifest]) -> Vec<Option<String>> {
-    check(&manifests.iter().collect::<Vec<_>>())
+    check(&manifests.iter().collect::<Vec<_>>(), false)
 }
 
 /// Why the one plugin, or each of the plugins clashing with each other, is left out.
@@ -212,7 +212,7 @@ fn only_plugins_whose_accounts_can_be_used_are_kept(tc: hegel::TestCase) {
 #[test]
 fn ids_and_places_that_clash_are_refused() {
     let echo = manifest("echo", &command("say", "cli = \"say\""));
-    assert_eq!(check(&[&echo]), [None]);
+    assert_eq!(check(&[&echo], false), [None]);
     assert_eq!(refused(&[manifest("eject", "")]), "the eject plugin's id is a locallibrary command already");
     assert_eq!(refused(&[manifest("info", "")]), "the info plugin's id is a locallibrary command already");
     assert_eq!(
@@ -233,7 +233,7 @@ fn ids_and_places_that_clash_are_refused() {
         let e = format!("the other plugin's command \"{p}\" is in \"{group}\", which isn't a group of commands");
         assert_eq!(refused(&[place(p)]), e);
     }
-    assert_eq!(check(&[&place("playlist fresh"), &echo]), [None, None]);
+    assert_eq!(check(&[&place("playlist fresh"), &echo], false), [None, None]);
     assert_eq!(
         refused(&[place("playlist fresh"), manifest("third", &command("x", "cli = \"playlist fresh\""))]),
         "the third plugin's command \"playlist fresh\" is the other plugin's command already"
@@ -255,7 +255,7 @@ fn commands_and_params_that_clash_are_refused() {
         let params = format!("params = {{ type = \"object\", properties = {{ {property} }} }}");
         manifest("p", &operation("go", &params))
     };
-    assert_eq!(check(&[&with("name = { type = \"string\" }")]), [None]);
+    assert_eq!(check(&[&with("name = { type = \"string\" }")], false), [None]);
     for (property, flag) in [
         ("json = { type = \"boolean\" }", "json"),
         ("dry_run = { type = \"boolean\" }", "dry-run"),
@@ -280,7 +280,7 @@ fn import_formats_and_set_formats_that_clash_are_refused() {
         )
     };
     // An import format is named apart from export formats.
-    assert_eq!(check(&[&importer("a", "csv")]), [None]);
+    assert_eq!(check(&[&importer("a", "csv")], false), [None]);
     assert_eq!(
         refused(&[importer("a", "nml"), importer("b", "nml")]),
         "the b plugin's import format \"nml\" is the a plugin's already"
@@ -296,7 +296,7 @@ fn import_formats_and_set_formats_that_clash_are_refused() {
         refused(&[set("mixcloud")]),
         "the a plugin's export format \"mixcloud\" is a locallibrary format already"
     );
-    assert_eq!(check(&[&set("m3u")]), [None], "export's own formats are a drive's");
+    assert_eq!(check(&[&set("m3u")], false), [None], "export's own formats are a drive's");
 }
 
 #[test]
@@ -305,7 +305,7 @@ fn formats_that_clash_are_refused() {
         let toml = format!("[[contributes.exporters]]\nformat = \"{format}\"\ntitle = \"T\"\nextension = \"txt\"\n");
         manifest(id, &toml)
     };
-    assert_eq!(check(&[&exporter("a", "plain")]), [None]);
+    assert_eq!(check(&[&exporter("a", "plain")], false), [None]);
     for format in ["csv", "m3u", "txt"] {
         let e = refused(&[exporter("a", format)]);
         assert_eq!(e, format!("the a plugin's export format \"{format}\" is a locallibrary format already"));
@@ -618,4 +618,31 @@ fn plugins_that_clash_are_left_out_saying_why(tc: hegel::TestCase) {
         .collect();
     tc.note(&format!("{:#?}", plugins.iter().map(|p| &p.manifest).collect::<Vec<_>>()));
     assert_eq!(left_out(&manifests), expected);
+}
+
+/// For any id, a plugin locallibrary doesn't ship runs beside those it does only with an id of
+/// its own: one of theirs is refused, naming it; one nothing of locallibrary's has runs; one a
+/// locallibrary command has clashes, as any plugin's would, and so does one the sidecar names
+/// methods after.
+#[hegel::test(test_cases = 50)]
+fn a_plugin_locallibrary_doesnt_ship_needs_an_id_of_its_own(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let shipped: Vec<&str> = BUILT_IN.iter().map(|row| row.0).collect();
+    let id = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => tc.draw(gs::sampled_from(shipped.clone())).to_string(),
+        1 => format!("dev-{}", tc.draw(gs::from_regex("[a-z]{1,8}").fullmatch(true))),
+        _ => tc.draw(gs::sampled_from(vec!["status", "sync", "plugin"])).to_string(),
+    };
+    let m = manifest(&id, &command("hello", ""));
+    let expected = match (shipped.contains(&id.as_str()), id.starts_with("dev-")) {
+        (true, _) => Some(format!(
+            "the {id} plugin is one locallibrary ships: another can't take its id, or its settings and access to your accounts"
+        )),
+        (false, true) => None,
+        (false, false) if id == "plugin" => Some(format!("the {id} plugin's id is a locallibrary command already")),
+        (false, false) => Some(format!(
+            "the {id} plugin's id is the sidecar's {id}.* methods' too: its plans would be named like them"
+        )),
+    };
+    assert_eq!(unfit_beside_shipped(&m), expected);
 }

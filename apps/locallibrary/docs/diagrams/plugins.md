@@ -87,15 +87,20 @@ Source: [`plugins/plyr/locallibrary-plugin.toml`](../../../../plugins/plyr/local
 
 ## Loading plugins
 
-How the plugins in `plugins/` end up in a host. Only built-in plugins run. A clash is with a command, a sidecar method or another plugin, or an account nothing can meet.
+How the plugins in `plugins/`, and any a developer gives for one run, end up in a host. A clash is with a command, a sidecar method or another plugin, or an account nothing can meet.
 
 ```mermaid
 flowchart TD
     folders["plugins/ID, plugins/accounts/ID"] --> build["build.rs writes the table:<br/>each manifest and how it serves"]
     build --> specs["Compiled in. A spec for each:<br/>run this binary, plugin serve ID"]
-    specs --> check{"Debug builds<br/>only: a clash?"}
-    check -->|yes| out["Left out, and said why"]
-    check -->|"no, or a release"| host["The plugin host. A repeated id or<br/>cli place refuses every plugin"]
+    dev["--dev-plugin MANIFEST:PROGRAM,<br/>or LOCALLIBRARY_DEV_PLUGINS"] --> rules{"Its manifest keeps<br/>a third party's rules?"}
+    rules -->|no| fail["The run fails, saying why"]
+    rules -->|yes| given["A spec: run that program"]
+    specs --> check{"Debug builds, or plugins<br/>given: a clash?"}
+    given --> check
+    check -->|"yes, a shipped plugin"| out["Left out, and said why"]
+    check -->|"yes, or a shipped plugin's<br/>id: a given plugin"| fail
+    check -->|"no, or a release<br/>with none given"| host["The plugin host. A repeated id or<br/>cli place refuses every plugin"]
     host --> lazy["Started when first used"]
     host --> account["Account plugins:<br/>signed in from, never started"]
 ```
