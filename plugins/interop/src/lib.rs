@@ -21,6 +21,10 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use loclib_interop::{Error, Export, HISTORY_FOLDER, Software, Source, engine, rekordbox, serato, traktor};
+
+/// What a rekordbox XML file this plugin writes says made it.
+pub(crate) const LOCALLIBRARY: rekordbox::Product<'static> =
+    rekordbox::Product { name: "locallibrary", version: env!("CARGO_PKG_VERSION"), company: "locallibrary" };
 use loclib_model::analysis::TrackAnalysis;
 use loclib_model::paths::{self, PathStyle, resolved};
 use loclib_model::{Library, Track};
@@ -157,7 +161,7 @@ fn write_export(req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
             let copies = serato::Copies { root: output.clone(), audio: &audio };
             serato::build(&source, &req.output, options.write_tags.then_some(&copies), &ctx)
         }
-        Software::Rekordbox => rekordbox::build(&source, &req.output, &ctx),
+        Software::Rekordbox => rekordbox::build(&source, &LOCALLIBRARY, &req.output, &ctx),
         _ => engine::build(&source, &output, options.paths, &ctx),
     }
     .map_err(|e| failure(e, &ctx))?;

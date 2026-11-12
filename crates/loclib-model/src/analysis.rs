@@ -66,6 +66,7 @@ pub struct WaveColumn {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum WaveformStyle {
     /// Monochrome blue, older players (`PWAV`, `PWV3`).
     Blue,

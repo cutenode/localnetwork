@@ -1,14 +1,16 @@
 import type { z } from 'zod';
 import type { djProfileSchema, djSetSchema } from './dj-schema.ts';
+import type { localnetwork } from './lexicons/computer.ts';
+import type { LexiconRead } from './types.ts';
 
 /**
  * What locallibrary publishes about a DJ to their own repo, as HappyView serves it: `computer.localnetwork.dj.profile`
  * (one per account, their playing stats) and `computer.localnetwork.dj.set` (one per set played).
  * The schemas live in dj-schema.ts, for the server; this module is what pages need to show them.
  */
-export type DjProfile = z.infer<typeof djProfileSchema>;
+export type DjProfile = LexiconRead<z.infer<typeof djProfileSchema>, localnetwork.dj.profile.Main>;
 
-export type DjSet = z.infer<typeof djSetSchema> & { uri: string };
+export type DjSet = LexiconRead<z.infer<typeof djSetSchema>, localnetwork.dj.set.Main> & { uri: string };
 
 /** One account's records: what a project page and its press kit show for each of its DJs. */
 export type DjActivity = { did: string; handle: string | null; profile: DjProfile | null; sets: DjSet[] };

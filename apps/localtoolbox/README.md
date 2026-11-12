@@ -141,7 +141,7 @@ still a plain classic script — a content script has no imports, and the marks
 have to be written by the same code on both sides — so it is not bundled at
 all. The build only blanks its types out (ts-blank-space puts spaces where the
 annotations were) and ships each file under a `.js` name, `content.ts` as
-`content.js` and the two shared ones likewise, with every line and column
+`content.js` and the others likewise, with every line and column
 where it was: an error on soundcloud.com points at the same place in the
 source, and there is no sourcemap to carry. The manifest names the `.js`
 files, which exist only in `dist/`.
@@ -156,6 +156,8 @@ state-transfer.ts      import/export of the whole saved state as JSON — the
                        marks, the lookups, the list, the queue and the panel
                        options (the TbxState global). Adds by default;
                        replacing is an opt-in the settings sheet asks for
+theme-prepaint.ts      puts the saved theme on the popup's <html> before it
+                       first paints
 src/
   manifest.json        extension manifest (under src/, so this folder is not
                        loadable as an extension — it names files the build makes)
@@ -449,7 +451,11 @@ focus).
 `downloaded-store.ts` and `state-transfer.ts` stay classic scripts: they define
 page globals, which only a classic script can do, and the content script loads
 the first of them too. The build ships them as `downloaded-store.js` and
-`state-transfer.js`. The store goes into `popup.html` ahead of the bundle; the
+`state-transfer.js`. `theme-prepaint.ts` is a classic script for another
+reason: the bundle is a module, which runs after the page could already have
+painted, so it ships as `theme-prepaint.js` and goes first in `popup.html`,
+putting `light` on `<html>` when that is the saved theme (or, with nothing
+saved, the browser's). The store goes into `popup.html` ahead of the bundle; the
 state file's script is only needed by the settings sheet, so
 `src/lib/globals.ts` adds it to the page when the sheet first opens. That file
 is the one place that reaches either of them by name.
@@ -2899,14 +2905,14 @@ Source: [`src/manifest.json`](src/manifest.json)
 ```mermaid
 flowchart TD
   Pages["src/popup.html, src/offscreen.html,<br/>src/background.ts"]
-  Classic["content.ts, gate-page.ts,<br/>downloaded-store.ts, state-transfer.ts"]
+  Classic["content.ts, gate-page.ts,<br/>downloaded-store.ts, state-transfer.ts,<br/>theme-prepaint.ts"]
   Static["src/manifest.json,<br/>content.css, icons"]
   Vite["vite build<br/>Svelte, Tailwind"]
   Blank["ts-blank-space<br/>types become spaces"]
   Copy["copied as they are"]
   Mjs["assets/: the page entries, core, ui, shared,<br/>panel-shell, a chunk per Panel and sheet,<br/>CSS and fonts"]
-  Html["popup.html with the store's script tag,<br/>offscreen.html, background.js"]
-  Js["content.js, gate-page.js,<br/>downloaded-store.js, state-transfer.js<br/>same lines and columns as the source"]
+  Html["popup.html with the theme's and the store's<br/>script tags, offscreen.html, background.js"]
+  Js["content.js, gate-page.js, downloaded-store.js,<br/>state-transfer.js, theme-prepaint.js<br/>same lines and columns as the source"]
   Dist["dist/, loaded unpacked in Chrome"]
 
   Pages --> Vite
@@ -2921,7 +2927,7 @@ flowchart TD
   Copy --> Dist
 ```
 
-Source: [`vite.config.ts`](vite.config.ts), [`package.json`](package.json), [`src/main.ts`](src/main.ts), [`src/app.css`](src/app.css)
+Source: [`vite.config.ts`](vite.config.ts), [`package.json`](package.json), [`src/main.ts`](src/main.ts), [`src/app.css`](src/app.css), [`theme-prepaint.ts`](theme-prepaint.ts)
 
 ### The three build commands
 
@@ -2951,6 +2957,7 @@ The shell boots on its own. Everything heavy is a chunk fetched at most once per
 ```mermaid
 flowchart TD
   Html["popup.html"]
+  Theme["theme-prepaint.js<br/>classic script, the light class"]
   Store["downloaded-store.js<br/>classic script, TbxDownloaded"]
   Shell["The shell<br/>main.ts, App.svelte, the registry, the stores"]
   Panel["The tool's Panel chunk"]
@@ -2958,6 +2965,7 @@ flowchart TD
   SettingsSheet["SettingsSheet chunk"]
   Transfer["state-transfer.js<br/>classic script, TbxState"]
 
+  Html --> Theme
   Html --> Store
   Html --> Shell
   Shell -->|"a tool opens, or was left open"| Panel
@@ -2966,7 +2974,7 @@ flowchart TD
   SettingsSheet -->|"loaded beside it"| Transfer
 ```
 
-Source: [`src/App.svelte`](src/App.svelte), [`src/lib/tools.ts`](src/lib/tools.ts), [`src/lib/queue-sheet.ts`](src/lib/queue-sheet.ts), [`src/lib/settings-sheet.ts`](src/lib/settings-sheet.ts), [`src/lib/globals.ts`](src/lib/globals.ts)
+Source: [`src/App.svelte`](src/App.svelte), [`src/lib/tools.ts`](src/lib/tools.ts), [`src/lib/queue-sheet.ts`](src/lib/queue-sheet.ts), [`src/lib/settings-sheet.ts`](src/lib/settings-sheet.ts), [`src/lib/globals.ts`](src/lib/globals.ts), [`theme-prepaint.ts`](theme-prepaint.ts), [`vite.config.ts`](vite.config.ts)
 
 ### Declaring a tool in the registry
 

@@ -22,6 +22,7 @@ export default {
 		'gate-page.ts',
 		'downloaded-store.ts',
 		'state-transfer.ts',
+		'theme-prepaint.ts',
 		'src/lib/*.ts',
 		'src/tools/**/*.ts',
 		'!**/*.d.ts'
