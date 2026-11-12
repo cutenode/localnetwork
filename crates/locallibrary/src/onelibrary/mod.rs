@@ -16,7 +16,7 @@ pub mod cipher;
 mod cues;
 mod edit;
 mod tags;
-pub mod wal;
+pub use loclib_sqlcipher::wal;
 
 pub use cues::{CueRow, CueRowChanges};
 pub use edit::Tree;
@@ -24,7 +24,6 @@ pub use edit::Tree;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::{Path, PathBuf};
 
-use rusqlite::config::DbConfig;
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -36,11 +35,26 @@ use crate::paths;
 use crate::{Error, Result};
 
 use cipher::{Codec, PAGE_SIZE};
+pub(crate) use loclib_sqlcipher::{reads_main_page, wal_pages};
+// Opening a file someone else wrote: shared with master.db and Audacity projects.
+pub(crate) use loclib_sqlcipher::untrusted::{damaged, distrust};
 pub use tags::MyTagRow;
 
 impl From<rusqlite::Error> for Error {
     fn from(e: rusqlite::Error) -> Self {
         Error::OneLibrary(e.to_string())
+    }
+}
+
+impl From<loclib_sqlcipher::Error> for Error {
+    fn from(e: loclib_sqlcipher::Error) -> Self {
+        match e {
+            // Here the key is rekordbox's own, so a page that fails is the file's fault.
+            loclib_sqlcipher::Error::Authentication(pgno) => {
+                Error::OneLibrary(format!("page {pgno} fails authentication (not a rekordbox database, or corrupt)"))
+            }
+            other => Error::OneLibrary(other.to_string()),
+        }
     }
 }
 
@@ -53,52 +67,9 @@ pub(crate) fn ident(name: &str) -> String {
 /// Decrypt `exportLibrary.db` and replay the committed part of its WAL: the database as a player
 /// (or rekordbox) opening it would see it, as a plain SQLite file.
 pub fn decrypt(db: &[u8], wal: Option<&[u8]>) -> Result<(Codec, Vec<u8>)> {
-    let codec = Codec::for_file(db)?;
-    let committed = wal.map(|w| wal::committed(w, PAGE_SIZE)).transpose()?.flatten();
-    let mut plain = codec.decrypt(db, |pgno| reads_main_page(pgno, committed.as_ref()))?;
-    cipher::check_plain_header(&plain)?;
-    if let Some(committed) = committed {
-        let replayed = wal_pages(&codec, &committed, plain.len() / PAGE_SIZE)?;
-        plain.resize(committed.db_pages as usize * PAGE_SIZE, 0);
-        for (pgno, page) in replayed {
-            let at = (pgno as usize - 1) * PAGE_SIZE;
-            plain[at..at + PAGE_SIZE].copy_from_slice(&page);
-        }
-        cipher::check_plain_header(&plain)?;
-    }
+    let codec = cipher::for_file(db)?;
+    let plain = loclib_sqlcipher::decrypt(&codec, db, wal)?;
     Ok((codec, plain))
-}
-
-/// Whether SQLite, opening a database whose WAL holds `committed`, reads page `pgno` from the
-/// main file. It doesn't read the lock-byte page, a page a committed frame replaces, or a page
-/// past the last commit's size, so those may hold anything (a hole an interrupted checkpoint
-/// left, say) and aren't checked. Page 1 always is: its salt keys every other page.
-pub(crate) fn reads_main_page(pgno: u32, committed: Option<&wal::Committed<'_>>) -> bool {
-    let replaced = committed.is_some_and(|c| c.pages.contains_key(&pgno) || pgno > c.db_pages);
-    pgno == 1 || (pgno != cipher::LOCK_PAGE && !replaced)
-}
-
-/// The pages of a WAL's `committed` transactions over a main file of `main_pages`, decrypted,
-/// that lie within the database size the last commit gives. Every page is decrypted first,
-/// which authenticates it against its page number. A database grows only by writing its new
-/// pages, so a size past the main file plus the WAL's pages beyond it (and one more: SQLite never
-/// writes the lock-byte page at 1 GiB) is corrupt or crafted, and is refused instead of
-/// allocated.
-pub(crate) fn wal_pages(
-    codec: &Codec,
-    committed: &wal::Committed<'_>,
-    main_pages: usize,
-) -> Result<Vec<(u32, Vec<u8>)>> {
-    let pages: Vec<(u32, Vec<u8>)> =
-        committed.pages.iter().map(|(&n, p)| Ok((n, codec.decrypt_page(n, p)?))).collect::<Result<_>>()?;
-    let known = main_pages + pages.iter().filter(|(n, _)| *n as usize > main_pages).count();
-    let size = committed.db_pages as usize;
-    if size > known + 1 {
-        return Err(Error::OneLibrary(format!(
-            "the WAL's last commit says the database has {size} pages, but only {known} exist"
-        )));
-    }
-    Ok(pages.into_iter().filter(|(n, _)| *n as usize <= size).collect())
 }
 
 /// Identity of the library a database (and WAL) holds: a hash of the decrypted pages after
@@ -183,33 +154,6 @@ fn property_page(plain: &[u8]) -> Result<Option<(u32, Vec<u8>)>> {
         canonical.push(b'\n');
     }
     Ok(Some((root, canonical)))
-}
-
-/// Make `conn`, open on a database someone else wrote, safe to run SQL on: SQL in its schema may
-/// only call functions without side effects, no SQL may corrupt the file on purpose (SQLite's
-/// defensive mode), a malformed b-tree cell is an error rather than read out of bounds, and a
-/// schema object of one of the `refused` kinds, which `maker` never makes, is refused: a view
-/// standing in for a table could loop for ever when read, a trigger would run on every edit made
-/// here. `Some` says which one the file has.
-pub(crate) fn distrust(conn: &Connection, refused: &[&str], maker: &str) -> rusqlite::Result<Option<String>> {
-    conn.set_db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true)?;
-    conn.execute_batch("PRAGMA trusted_schema = OFF; PRAGMA cell_size_check = ON")?;
-    for kind in refused {
-        let name: Option<String> =
-            conn.query_row("SELECT name FROM sqlite_master WHERE type = ?1", [kind], |r| r.get(0)).optional()?;
-        if let Some(name) = name {
-            return Ok(Some(format!("it has a {kind} {name}, which {maker} never makes")));
-        }
-    }
-    Ok(None)
-}
-
-/// SQLite's structural check of every b-tree in `conn`'s database, which SQLite advises before
-/// reading a file someone else wrote. It reads the whole file, so it's for databases of a few
-/// hundred MB at most (rekordbox's), not Audacity projects full of audio. `Some` says what's wrong.
-pub(crate) fn damaged(conn: &Connection) -> rusqlite::Result<Option<String>> {
-    let check: String = conn.query_row("PRAGMA quick_check(1)", [], |r| r.get(0))?;
-    Ok((check != "ok").then(|| format!("SQLite finds it damaged: {check}")))
 }
 
 /// Replace a drive's OneLibrary database with `bytes`, a complete encrypted file.
@@ -537,7 +481,7 @@ impl OneLibrary {
     /// A new, empty OneLibrary database: rekordbox 7's schema and default rows (colours, browse
     /// menus, sort columns), a fresh salt, and WAL mode like rekordbox's own files.
     pub fn create() -> Result<OneLibrary> {
-        OneLibrary::from_plain(Codec::random()?, empty_database())?.into_new()
+        OneLibrary::from_plain(cipher::random()?, empty_database())?.into_new()
     }
 
     /// An empty working copy made a new database (see [`OneLibrary::create`]).

@@ -20,6 +20,8 @@ crates/loclib-equipment/    what each player, all-in-one system and mixer reads 
                             equipment.json is the table for other languages
 crates/loclib-mysettings/   My Settings files (MYSETTING.DAT and the rest): every setting's schema, decoding
                             and byte-level patching
+crates/loclib-sqlcipher/    SQLCipher 4 page encryption and SQLite WAL replay, in memory and pure Rust: how
+                            exportLibrary.db and master.db are decrypted and written
 crates/loclib-tracklist/    reading outside tracklists (M3U, CSV, rekordbox text and XML, plain text) and
                             matching them to a library: by path, ISRC, artist and title, then fuzzily;
                             and rekordbox XML collections with their tags, keys, beat grids and cues
@@ -149,7 +151,8 @@ crates/locallibrary/src/    the library, built on the crates above
                waveforms, phrases, decoded into loclib-model's analysis types
   pdb.rs       reading export.pdb into the library model, through rekordbox-pdb
   paths.rs     which files on a drive locallibrary manages (the path keys are loclib-model's)
-  onelibrary/  exportLibrary.db: SQLCipher pages, WAL replay, reading and editing via SQLite
+  onelibrary/  exportLibrary.db: rekordbox's passphrase and the derived keys kept between runs (the
+               cipher and WAL replay are loclib-sqlcipher's), reading and editing via SQLite
   masterdb.rs  rekordbox's own collection (master.db), decrypted from a copy and read; comparing a drive with it
   format/      drive formatting: which layouts players read, diskutil/lsblk/PowerShell backends, FAT32
                writer, fake-capacity probe

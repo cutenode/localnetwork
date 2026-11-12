@@ -45,15 +45,12 @@ peers = ["dep:iroh", "dep:iroh-tickets"]
 
 [dependencies]
 rekordbox-pdb.workspace = true
-aes.workspace = true
 blake3.workspace = true
-cbc.workspace = true
 chrono.workspace = true
 directories.workspace = true
 filetime.workspace = true
 fs4.workspace = true
 getrandom.workspace = true
-hmac.workspace = true
 image.workspace = true
 http = { workspace = true, optional = true }
 jacquard-api = { workspace = true, optional = true }
@@ -99,7 +96,6 @@ loclib-transcode = { workspace = true, features = ["schemars"] }
 iroh = { version = "1.3", optional = true }
 iroh-tickets = { version = "1", optional = true }
 quick-xml = "0.42"
-ring = "0.17.14"
 unicode-segmentation = { version = "1.13.3", optional = true }
 # The plugin protocol the plugin host speaks (`plugin`).
 loclib-plugin.workspace = true
@@ -110,6 +106,7 @@ oauth2 = { version = "5.0.0", default-features = false }
 futures-util = { version = "0.3.34", default-features = false }
 rayon = "1.12.0"
 memchr = "2.8.3"
+loclib-sqlcipher = { workspace = true, features = ["rusqlite"] }
 
 [dev-dependencies]
 hegeltest = { workspace = true, features = ["chrono"] }
@@ -129,6 +126,7 @@ locallibrary-plugin-demos = { path = "../../plugins/demos" }
 # Waiting until a connection reaches the sign-in listener's queue (`callback` tests).
 mio = { version = "1.2.4", features = ["os-poll", "net"] }
 criterion.workspace = true
+loclib-sqlcipher = { workspace = true, features = ["test-util"] }
 
 [target."cfg(windows)".dependencies]
 # A file's index and its volume's serial number, which the drive watcher tells rewrites by.

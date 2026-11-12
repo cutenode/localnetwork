@@ -179,6 +179,8 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
   reads from a USB drive, with sources, also as JSON
 - [loclib-mysettings](../../crates/loclib-mysettings): reading and writing the My Settings files
   players load from a drive
+- [loclib-sqlcipher](../../crates/loclib-sqlcipher): decrypting and encrypting SQLCipher 4 databases
+  (rekordbox's OneLibrary and collection) in pure Rust, with their write-ahead log replayed
 - [loclib-tracklist](../../crates/loclib-tracklist): reading M3U, CSV, rekordbox and plain-text
   tracklists, and finding their tracks in a library
 - [loclib-mixid](../../crates/loclib-mixid): which known tracks a recorded mix plays, when and at what
@@ -283,6 +285,7 @@ flowchart LR
     core --> sdk
     core --> pdb["rekordbox-pdb<br/>export.pdb, vendored"]
     core --> set["loclib-mysettings<br/>My Settings files"]
+    core --> sqlc["loclib-sqlcipher<br/>SQLCipher pages, WAL"]
     core --> equip["loclib-equipment<br/>what players read"]
     core --> track["loclib-tracklist<br/>outside tracklists"]
     core --> mixid["loclib-mixid<br/>fingerprints, matcher"]

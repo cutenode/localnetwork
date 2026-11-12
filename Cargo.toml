@@ -28,6 +28,7 @@ loclib-model = { path = "crates/loclib-model", version = "0.1.0" }
 loclib-mysettings = { path = "crates/loclib-mysettings", version = "0.1.0" }
 loclib-plugin = { path = "crates/loclib-plugin", version = "0.1.0" }
 loclib-progress = { path = "crates/loclib-progress", version = "0.1.0" }
+loclib-sqlcipher = { path = "crates/loclib-sqlcipher", version = "0.1.0" }
 loclib-transcode = { path = "crates/loclib-transcode", version = "0.1.0" }
 loclib-tracklist = { path = "crates/loclib-tracklist", version = "0.1.0" }
 loclib-waveform = { path = "crates/loclib-waveform", version = "0.1.0" }
