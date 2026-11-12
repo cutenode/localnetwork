@@ -346,6 +346,8 @@ pub struct App {
     failed_in_row: usize,
     /// What was saved last, and when it was last checked for changes.
     saved: Option<Saved>,
+    /// The saved state couldn't be read at startup: this run leaves its file alone.
+    state_unreadable: bool,
     last_save_check: Instant,
     pub areas: Areas,
     pub started: Instant,
@@ -395,8 +397,10 @@ pub struct App {
 
 impl App {
     pub fn new(store_root: PathBuf, drive: Option<String>) -> App {
-        let saved = state::load(&store_root);
+        let read = state::load(&store_root);
         let mut app = App::blank(store_root, None);
+        app.state_unreadable = read.is_none();
+        let saved = read.unwrap_or_default();
         app.offline = false;
         app.transitions.enabled = true;
         app.outputs = Outputs::from_env();
@@ -536,6 +540,7 @@ impl App {
             start_paused: false,
             failed_in_row: 0,
             saved: None,
+            state_unreadable: false,
             last_save_check: Instant::now(),
             areas: Areas::default(),
             started: Instant::now(),

@@ -317,7 +317,9 @@ Cover art is drawn in half blocks, in as many colours as the terminal has. The p
 panels and columns, colours and icons, shuffle, repeat, quantize, single play and auto cue, the output, the crate,
 and the queue with how far into its track it got, to the last 15 seconds (`space` carries on
 from there). It saves them as they change, in the
-store once there is one and in a `locallibrary-player` folder beside it until then. Messages show
+store once there is one and in a `locallibrary-player` folder beside it until then. A file it
+can't read as it starts (a newer version's, say) is left as it is: that run uses the defaults and
+saves nothing. Messages show
 in the status line: errors stay until `esc`, and `!` lists every message since starting. The footer
 hints at the keys for where focus is, as many as fit. `?` lists every key, the view's own first;
 all of them come from one table, so a key means one thing in every view (`l` loops, `d` picks the
