@@ -2,7 +2,6 @@
 	import { page } from '$app/state';
 	import { ArrowLeft, ExternalLink, KeyRound } from '@lucide/svelte';
 	import EpkEditor from '#lib/components/epk/EpkEditor.svelte';
-	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import SignInAgain from '#lib/components/SignInAgain.svelte';
 	import { pressKitPath } from '#lib/epk.ts';
@@ -37,7 +36,7 @@
 		<p class="notice m-0">This press kit moves to the project the next time <Handle account={data.legacyMaker} /> opens the dashboard. Until then, only they can change it.</p>
 	{:else}
 		{#if data.notice && !form}<p role="status" class="notice notice-ok m-0">{data.notice}</p>{/if}
-		{#if form && 'reauth' in form && form.reauth && form.error && data.viewer}<SignInAgain did={data.viewer.did} next={page.url.pathname} error={form.error} />{:else}<FormMessage form={form && 'error' in form ? form : null} />{/if}
-		<EpkEditor {values} photoBase="{base}/photos" editHref="/dashboard/projects/{data.project.slug}/profile" draft={data.draft} others={data.others} published={!!data.epk} {conflicts} />
+		{#if form && 'reauth' in form && form.reauth && form.error && data.viewer}<SignInAgain did={data.viewer.did} next={page.url.pathname} error={form.error} />{/if}
+		<EpkEditor form={form && 'error' in form ? form : null} {values} photoBase="{base}/photos" editHref="/dashboard/projects/{data.project.slug}/profile" draft={data.draft} others={data.others} published={!!data.epk} {conflicts} />
 	{/if}
 </div>

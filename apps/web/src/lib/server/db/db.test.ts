@@ -1,6 +1,8 @@
 import { sql } from 'kysely';
 import { afterEach, describe, expect, it } from 'vitest';
-import { type Db, openDatabase, parseJson } from './index';
+import { COLLECTION } from '#lib/nsid.ts';
+import { type Db, nowIso, openDatabase, parseJson } from './index';
+import { migrations } from './migrations';
 
 describe('database', () => {
 	let db: Db | undefined;
@@ -14,6 +16,54 @@ describe('database', () => {
 		await db.insertInto('kv').values({ key: 'a', value: 'b' }).execute();
 		const row = await db.selectFrom('kv').selectAll().where('key', '=', 'a').executeTakeFirstOrThrow();
 		expect(row).toEqual({ key: 'a', value: 'b' });
+	});
+
+	it('queues stored records a failed projection left out of their tables, once', async () => {
+		db = await openDatabase(':memory:');
+		const space = 'ats://did:plc:root/computer.localnetwork.space.booking/gig';
+
+		const stored = (collection: string, rkey: string) => ({
+			spaceUri: space,
+			repoDid: 'did:plc:a',
+			collection,
+			rkey,
+			cid: 'bafy',
+			value: '{}',
+			indexedAt: nowIso()
+		});
+
+		await db
+			.insertInto('spaceRecord')
+			.values([
+				stored(COLLECTION.bookingInquiry, 'lost'),
+				stored(COLLECTION.bookingInquiry, 'indexed'),
+				stored(COLLECTION.epkRequest, 'lost'),
+				stored(COLLECTION.epkGrant, 'lost'),
+				stored(COLLECTION.person, 'other')
+			])
+			.execute();
+		await db
+			.insertInto('bookingEvent')
+			.values({
+				uri: `${space}/did:plc:a/${COLLECTION.bookingInquiry}/indexed`,
+				spaceUri: space,
+				authorDid: 'did:plc:a',
+				kind: 'inquiry',
+				record: '{}',
+				createdAt: nowIso()
+			})
+			.execute();
+
+		// Run on its own, as the migrator can't run it again once later migrations have.
+		await sql`DROP TABLE pending_projection`.execute(db);
+		await migrations['013_pending_projection'].up(db);
+
+		const queued = await db.selectFrom('pendingProjection').selectAll().orderBy('collection').execute();
+		expect(queued.map(({ collection, rkey }) => [collection, rkey])).toEqual([
+			[COLLECTION.bookingInquiry, 'lost'],
+			[COLLECTION.epkGrant, 'lost'],
+			[COLLECTION.epkRequest, 'lost']
+		]);
 	});
 
 	it('maps camelCase columns, binary values, and booleans', async () => {

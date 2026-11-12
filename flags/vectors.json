@@ -1,0 +1,747 @@
+{
+	"$comment": "Computed answers both the website and locallibrary test themselves against. A case without `enabled` is a record that doesn't say, which counts as true. Add cases freely; changing one means the rule changed, and every account can move.",
+	"cases": [
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 48,
+			"bucket": 48,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 49,
+			"bucket": 48,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:ewvi7nxzyoun6zhxrhs64oiz",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 23,
+			"bucket": 23,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:ewvi7nxzyoun6zhxrhs64oiz",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 24,
+			"bucket": 23,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:web:localnetwork.computer",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 70,
+			"bucket": 70,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:web:localnetwork.computer",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 71,
+			"bucket": 70,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:web:dj.example%3A8443",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 91,
+			"bucket": 91,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:web:dj.example%3A8443",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 92,
+			"bucket": 91,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 21,
+			"bucket": 21,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 22,
+			"bucket": 21,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": 48,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 100,
+			"bucket": 48,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": true,
+			"percentage": 0,
+			"bucket": 48,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": 48,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": null,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 100,
+			"bucket": null,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": null,
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": null,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": null,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": null,
+			"on": false
+		},
+		{
+			"key": "newPlanner",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 9,
+			"bucket": 9,
+			"on": false
+		},
+		{
+			"key": "newPlanner",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 10,
+			"bucket": 9,
+			"on": true
+		},
+		{
+			"key": "newPlanner",
+			"did": "did:plc:ewvi7nxzyoun6zhxrhs64oiz",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 30,
+			"bucket": 30,
+			"on": false
+		},
+		{
+			"key": "newPlanner",
+			"did": "did:plc:ewvi7nxzyoun6zhxrhs64oiz",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 31,
+			"bucket": 30,
+			"on": true
+		},
+		{
+			"key": "newPlanner",
+			"did": "did:web:localnetwork.computer",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 43,
+			"bucket": 43,
+			"on": false
+		},
+		{
+			"key": "newPlanner",
+			"did": "did:web:localnetwork.computer",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 44,
+			"bucket": 43,
+			"on": true
+		},
+		{
+			"key": "newPlanner",
+			"did": "did:web:dj.example%3A8443",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 13,
+			"bucket": 13,
+			"on": false
+		},
+		{
+			"key": "newPlanner",
+			"did": "did:web:dj.example%3A8443",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 14,
+			"bucket": 13,
+			"on": true
+		},
+		{
+			"key": "newPlanner",
+			"did": "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 3,
+			"bucket": 3,
+			"on": false
+		},
+		{
+			"key": "newPlanner",
+			"did": "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 4,
+			"bucket": 3,
+			"on": true
+		},
+		{
+			"key": "newPlanner",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": 9,
+			"on": false
+		},
+		{
+			"key": "newPlanner",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 100,
+			"bucket": 9,
+			"on": true
+		},
+		{
+			"key": "newPlanner",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": true,
+			"percentage": 0,
+			"bucket": 9,
+			"on": true
+		},
+		{
+			"key": "newPlanner",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": 9,
+			"on": true
+		},
+		{
+			"key": "newPlanner",
+			"did": null,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 100,
+			"bucket": null,
+			"on": false
+		},
+		{
+			"key": "newPlanner",
+			"did": null,
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": null,
+			"on": true
+		},
+		{
+			"key": "newPlanner",
+			"did": null,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": null,
+			"on": false
+		},
+		{
+			"key": "a",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 40,
+			"bucket": 40,
+			"on": false
+		},
+		{
+			"key": "a",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 41,
+			"bucket": 40,
+			"on": true
+		},
+		{
+			"key": "a",
+			"did": "did:plc:ewvi7nxzyoun6zhxrhs64oiz",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 43,
+			"bucket": 43,
+			"on": false
+		},
+		{
+			"key": "a",
+			"did": "did:plc:ewvi7nxzyoun6zhxrhs64oiz",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 44,
+			"bucket": 43,
+			"on": true
+		},
+		{
+			"key": "a",
+			"did": "did:web:localnetwork.computer",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 92,
+			"bucket": 92,
+			"on": false
+		},
+		{
+			"key": "a",
+			"did": "did:web:localnetwork.computer",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 93,
+			"bucket": 92,
+			"on": true
+		},
+		{
+			"key": "a",
+			"did": "did:web:dj.example%3A8443",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 26,
+			"bucket": 26,
+			"on": false
+		},
+		{
+			"key": "a",
+			"did": "did:web:dj.example%3A8443",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 27,
+			"bucket": 26,
+			"on": true
+		},
+		{
+			"key": "a",
+			"did": "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 1,
+			"bucket": 1,
+			"on": false
+		},
+		{
+			"key": "a",
+			"did": "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 2,
+			"bucket": 1,
+			"on": true
+		},
+		{
+			"key": "a",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": 40,
+			"on": false
+		},
+		{
+			"key": "a",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 100,
+			"bucket": 40,
+			"on": true
+		},
+		{
+			"key": "a",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": true,
+			"percentage": 0,
+			"bucket": 40,
+			"on": true
+		},
+		{
+			"key": "a",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": 40,
+			"on": true
+		},
+		{
+			"key": "a",
+			"did": null,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 100,
+			"bucket": null,
+			"on": false
+		},
+		{
+			"key": "a",
+			"did": null,
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": null,
+			"on": true
+		},
+		{
+			"key": "a",
+			"did": null,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": null,
+			"on": false
+		},
+		{
+			"key": "mixUploads2",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 88,
+			"bucket": 88,
+			"on": false
+		},
+		{
+			"key": "mixUploads2",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 89,
+			"bucket": 88,
+			"on": true
+		},
+		{
+			"key": "mixUploads2",
+			"did": "did:plc:ewvi7nxzyoun6zhxrhs64oiz",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 65,
+			"bucket": 65,
+			"on": false
+		},
+		{
+			"key": "mixUploads2",
+			"did": "did:plc:ewvi7nxzyoun6zhxrhs64oiz",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 66,
+			"bucket": 65,
+			"on": true
+		},
+		{
+			"key": "mixUploads2",
+			"did": "did:web:localnetwork.computer",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 88,
+			"bucket": 88,
+			"on": false
+		},
+		{
+			"key": "mixUploads2",
+			"did": "did:web:localnetwork.computer",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 89,
+			"bucket": 88,
+			"on": true
+		},
+		{
+			"key": "mixUploads2",
+			"did": "did:web:dj.example%3A8443",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 76,
+			"bucket": 76,
+			"on": false
+		},
+		{
+			"key": "mixUploads2",
+			"did": "did:web:dj.example%3A8443",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 77,
+			"bucket": 76,
+			"on": true
+		},
+		{
+			"key": "mixUploads2",
+			"did": "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 73,
+			"bucket": 73,
+			"on": false
+		},
+		{
+			"key": "mixUploads2",
+			"did": "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 74,
+			"bucket": 73,
+			"on": true
+		},
+		{
+			"key": "mixUploads2",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": 88,
+			"on": false
+		},
+		{
+			"key": "mixUploads2",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": false,
+			"percentage": 100,
+			"bucket": 88,
+			"on": true
+		},
+		{
+			"key": "mixUploads2",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": false,
+			"targeted": true,
+			"percentage": 0,
+			"bucket": 88,
+			"on": true
+		},
+		{
+			"key": "mixUploads2",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": 88,
+			"on": true
+		},
+		{
+			"key": "mixUploads2",
+			"did": null,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 100,
+			"bucket": null,
+			"on": false
+		},
+		{
+			"key": "mixUploads2",
+			"did": null,
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": null,
+			"on": true
+		},
+		{
+			"key": "mixUploads2",
+			"did": null,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": null,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"enabled": false,
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": 48,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": null,
+			"enabled": false,
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": null,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"enabled": false,
+			"everyone": false,
+			"targeted": true,
+			"percentage": 0,
+			"bucket": 48,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"enabled": false,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 100,
+			"bucket": 48,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:ewvi7nxzyoun6zhxrhs64oiz",
+			"enabled": false,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 24,
+			"bucket": 23,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"enabled": false,
+			"everyone": true,
+			"targeted": true,
+			"percentage": 100,
+			"bucket": 48,
+			"on": false
+		},
+		{
+			"key": "newPlanner",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"enabled": false,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 100,
+			"bucket": 9,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"enabled": true,
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": 48,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": null,
+			"enabled": true,
+			"everyone": true,
+			"targeted": false,
+			"percentage": 0,
+			"bucket": null,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+			"enabled": true,
+			"everyone": false,
+			"targeted": true,
+			"percentage": 0,
+			"bucket": 48,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:ewvi7nxzyoun6zhxrhs64oiz",
+			"enabled": true,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 23,
+			"bucket": 23,
+			"on": false
+		},
+		{
+			"key": "parityCanary",
+			"did": "did:plc:ewvi7nxzyoun6zhxrhs64oiz",
+			"enabled": true,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 24,
+			"bucket": 23,
+			"on": true
+		},
+		{
+			"key": "parityCanary",
+			"did": null,
+			"enabled": true,
+			"everyone": false,
+			"targeted": false,
+			"percentage": 100,
+			"bucket": null,
+			"on": false
+		}
+	]
+}

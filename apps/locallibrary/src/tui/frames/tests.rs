@@ -41,11 +41,13 @@ const SAMPLES_A_FRAME: usize = RATE as usize / 60;
 const START: Duration = Duration::from_secs(45);
 
 /// The views counted: each one's name in the budget, how it's shown, and text it has to show.
-const VIEWS: [(&str, View, bool, &str); 4] = [
+const VIEWS: [(&str, View, bool, &str); 6] = [
     ("library", View::Library, false, "All tracks"),
     ("deck", View::Library, true, "spectrum"),
     ("drives", View::Drives, false, "Demo"),
     ("prepare", View::Prepare, false, "check the drive"),
+    ("palette", View::Library, false, "search or filter the tracks"),
+    ("help", View::Library, false, "enter runs it"),
 ];
 
 /// A minute of two tones, so the spectrum and the scope have something to show.
@@ -94,6 +96,7 @@ fn mid_set() -> (App, MixerSource, TempDir, Fixture) {
         drive: "LARGE".into(),
         root,
         analysis: Default::default(),
+        waves: Default::default(),
         from_plugins: None,
         art: None,
         duration: Duration::from_secs(u64::from(track.duration_secs)),
@@ -106,7 +109,7 @@ fn mid_set() -> (App, MixerSource, TempDir, Fixture) {
         track,
     });
     let playlists = vec!["Sets › Friday".into()];
-    let info = TrackInfo { analysis, from_plugins: None, art: cover(), matches, playlists };
+    let info = TrackInfo { analysis, art: cover(), matches, playlists, ..Default::default() };
     app.handle_msg(Msg::TrackInfo(1, Box::new(info)));
 
     let (mut audio, out) = Audio::offline(RATE);
@@ -152,11 +155,16 @@ fn frames_allocate_what_their_budgets_say() {
     let (mut app, mut out, _dir, _drives) = mid_set();
 
     let mut counts = IndexMap::new();
-    for (name, shown, fullscreen, says) in VIEWS {
+    for (name, shown, deck_layout, says) in VIEWS {
         if view.as_deref().is_some_and(|v| v != name) {
             continue;
         }
-        (app.view, app.fullscreen) = (shown, fullscreen);
+        (app.view, app.deck_layout) = (shown, deck_layout);
+        app.help = name == "help";
+        app.modal = None;
+        if name == "palette" {
+            app.open_palette();
+        }
         let (allocations, bytes, text) = draw_frames(&mut app, &mut out, frames);
         assert!(text.contains(says), "{name} doesn't show {says:?}:\n{text}");
         counts.insert(format!("{name}.allocations"), allocations / frames.max(1));

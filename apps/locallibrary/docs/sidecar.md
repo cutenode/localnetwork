@@ -220,7 +220,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `remove_tracks`, `move_tracks`, `set_tracks`, `set_entries`, `sort_playlist`, `dedupe`,
   `plan_set`, `edit_tracks`, `delete_tracks`, `replace_track`, `set_path`, `delete_history`,
   `my_tag`, `cues`, `set_artwork`; see `edit::Edit`), applied as one change with one backup and one
-  journal entry. `my_tag`, `cues` and `set_artwork` are made first, in their order, then the rest;
+  journal entry. `delete_unbacked` is refused here: it's only for plugins with its capability. `my_tag`, `cues` and `set_artwork` are made first, in their order, then the rest;
   the plan checks the tracks they name are on the drive, and applying stops (`replay_stopped`)
   at one that can't be made: what was made is recorded, and `undo` takes it back (having made
   nothing, the error says it changed nothing and no backup is left). `set_artwork`'s `image` is

@@ -5,8 +5,6 @@ import { render } from 'vitest-browser-svelte';
 import { Disc3, Globe, LayoutDashboard, NotebookPen } from '@lucide/svelte';
 import { colors } from '#lib/mix/report.ts';
 import { sampleReport } from '#lib/mix/sample.ts';
-import Badge from './Badge.svelte';
-import BrowserFrame from './BrowserFrame.svelte';
 import Button from './Button.svelte';
 import Card from './Card.svelte';
 import CodeBlock from './CodeBlock.svelte';
@@ -15,7 +13,6 @@ import Eyebrow from './Eyebrow.svelte';
 import Monogram from './Monogram.svelte';
 import Section from './Section.svelte';
 import SectionHeader from './SectionHeader.svelte';
-import SelectField from './SelectField.svelte';
 import SidebarLayout from './SidebarLayout.svelte';
 import SiteHeader from './SiteHeader.svelte';
 import Tag from './Tag.svelte';
@@ -65,15 +62,6 @@ describe('Tag', () => {
 		await render(Tag, { variant: 'mono', children: text('radio') });
 		await expect.element(page.getByText('radio')).toBeInTheDocument();
 		expect(page.getByRole('button').elements()).toHaveLength(0);
-	});
-});
-
-describe('Badge', () => {
-	it('links its news with a label', async () => {
-		await render(Badge, { label: 'New', href: '/mixes', children: text('Mixes show every track') });
-		await expect
-			.element(page.getByRole('link', { name: 'New Mixes show every track' }))
-			.toHaveAttribute('href', '/mixes');
 	});
 });
 
@@ -149,24 +137,6 @@ describe('TextField', () => {
 	});
 });
 
-describe('SelectField', () => {
-	it('labels its select and lists the options', async () => {
-		await render(SelectField, {
-			id: 'slot',
-			label: 'Slot',
-			value: 'peak',
-			options: [
-				{ value: 'warmup', label: 'Warm-up' },
-				{ value: 'peak', label: 'Peak time' }
-			]
-		});
-		const select = page.getByRole('combobox', { name: 'Slot' });
-		await expect.element(select).toHaveValue('peak');
-		await userEvent.selectOptions(select, 'warmup');
-		await expect.element(select).toHaveValue('warmup');
-	});
-});
-
 describe('CodeBlock', () => {
 	it('captions a record, colours its keys and can be scrolled from the keyboard', async () => {
 		await render(CodeBlock, {
@@ -202,20 +172,18 @@ describe('CodeBlock', () => {
 	});
 });
 
-describe('BrowserFrame', () => {
-	it('captions the screen with its address', async () => {
-		const { container } = await render(BrowserFrame, {
-			url: 'localnetwork.computer/projects/neon-tide',
-			bleed: true,
-			children: text('Neon Tide')
-		});
-
-		expect(container.querySelector('figcaption')?.textContent?.trim()).toBe('localnetwork.computer/projects/neon-tide');
-		await expect.element(page.getByText('Neon Tide')).toBeInTheDocument();
-	});
-});
-
 describe('DateBlock', () => {
+	it('dashes a tentative date and drops its colour, and keeps a settled one solid', async () => {
+		const { rerender } = await render(DateBlock, { date: '2026-11-14', tentative: true });
+
+		const block = page.getByText('14').element().closest('time');
+		expect(block?.getAttribute('datetime')).toBe('2026-11-14');
+		expect(block?.className).toContain('border-dashed');
+
+		await rerender({ tentative: false });
+		expect(block?.className).not.toContain('border-dashed');
+	});
+
 	it('reads the record date as a calendar page', async () => {
 		const { container } = await render(DateBlock, { date: '2026-10-16', tone: 'aqua' });
 		const time = container.querySelector('time');
@@ -461,5 +429,90 @@ describe('SidebarLayout', () => {
 		await expect.element(projects).toHaveAttribute('aria-busy', 'true');
 		await expect.element(projects.getByRole('listitem').nth(1)).toBeInTheDocument();
 		await expect.element(projects.getByRole('link')).not.toBeInTheDocument();
+	});
+
+	const tabs = [
+		{ href: '/dashboard', label: 'Home', icon: LayoutDashboard, exact: true, badge: 2 },
+		{ href: '/dashboard/inbox', label: 'Inbox', icon: NotebookPen, dot: true }
+	];
+
+	const tabbed = {
+		label: 'Dashboard',
+		groups: [
+			{ items: tabs },
+			{ label: 'Yours', items: [{ href: '/dashboard/projects/neon-tide', label: 'Neon Tide', monogram: 'Neon Tide' }] }
+		],
+		tabs,
+		children: text('Page')
+	};
+
+	it('gives a phone named tabs in place of the menu button, and says when one has something waiting', async () => {
+		await render(SidebarLayout, { ...tabbed, current: '/dashboard' });
+
+		const bar = page.getByRole('navigation', { name: 'Dashboard tabs' });
+		await expect.element(bar.getByRole('link', { name: 'Home 2' })).toHaveAttribute('aria-current', 'page');
+		await expect.element(bar.getByRole('link', { name: 'Inbox Unread' })).not.toHaveAttribute('aria-current');
+		await expect.element(page.getByRole('button', { name: /^Dashboard menu:/ })).not.toBeInTheDocument();
+	});
+
+	it('leaves the bar out, and the menu button in, for an area that passes no tabs', async () => {
+		await render(SidebarLayout, { label: 'Staff', title: 'Admin', groups, current: '/admin', children: text('Page') });
+
+		await expect.element(page.getByRole('button', { name: 'Admin menu: Admin' })).toBeInTheDocument();
+		await expect.element(page.getByRole('navigation', { name: 'Staff tabs' })).not.toBeInTheDocument();
+	});
+
+	it('opens everything else in a sheet from the last tab, which closes on a pick, on Escape and on the backdrop', async () => {
+		await render(SidebarLayout, { ...tabbed, current: '/dashboard/projects/neon-tide' });
+
+		const sheet = page.getByRole('dialog', { name: 'Dashboard menu' });
+		const open = page.getByRole('button', { name: 'Dashboard menu' });
+		await expect.element(sheet).not.toBeInTheDocument();
+
+		await open.click();
+		await expect.element(sheet.getByRole('link', { name: 'Neon Tide' })).toHaveAttribute('aria-current', 'page');
+
+		await userEvent.keyboard('{Escape}');
+		await expect.element(sheet).not.toBeInTheDocument();
+
+		await open.click();
+		// A click on the dialog itself is one outside its panel.
+		sheet.element().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		await expect.element(sheet).not.toBeInTheDocument();
+
+		await open.click();
+		await page.getByRole('button', { name: 'Close menu' }).click();
+		await expect.element(sheet).not.toBeInTheDocument();
+
+		await open.click();
+		sheet
+			.getByRole('link', { name: 'Neon Tide' })
+			.element()
+			.addEventListener('click', (event) => event.preventDefault());
+		await sheet.getByRole('link', { name: 'Neon Tide' }).click();
+		await expect.element(sheet).not.toBeInTheDocument();
+	});
+
+	it("keeps the sheet's list names apart from the sidebar's", async () => {
+		await render(SidebarLayout, { ...tabbed, current: '/dashboard', open: true });
+
+		const ids = [...document.querySelectorAll('[id]')].map((element) => element.id);
+		expect(new Set(ids).size).toBe(ids.length);
+		await expect.element(page.getByRole('dialog').getByRole('list', { name: 'Yours' })).toBeInTheDocument();
+	});
+
+	it('runs a continuing group straight on from the one before, with no placeholders while it waits', async () => {
+		await render(SidebarLayout, {
+			label: 'Dashboard',
+			groups: [{ items: tabs }, { continues: true, items: new Promise<never>(() => {}) }],
+			tabs,
+			current: '/dashboard',
+			open: true,
+			children: text('Page')
+		});
+
+		const sheet = page.getByRole('dialog', { name: 'Dashboard menu' });
+		await expect.element(sheet.getByRole('link', { name: 'Home 2' })).toBeInTheDocument();
+		expect(sheet.getByRole('list').elements()).toHaveLength(1);
 	});
 });

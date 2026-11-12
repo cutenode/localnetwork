@@ -9,7 +9,6 @@
 //! [`crate::watch::VolumeWatcher`] that it changed, can also [`LibraryCache::invalidate`] it,
 //! which covers file systems whose timestamps are too coarse to tell two quick writes apart.
 
-use rustc_hash::FxHashMap;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -24,6 +23,8 @@ use crate::progress::Ctx;
 use crate::tags::MyTags;
 use crate::watch::LibraryStamp;
 use crate::{Result, lock, tags};
+
+pub use crate::tags::TagsByTrack;
 
 // The library a read is about: the drive's, as players see it or whole (see
 // `CachedLibrary::view`). Not a doc comment: requests flatten it, and the schema would give its
@@ -81,9 +82,6 @@ enum IdentifierSlot {
     Building,
     Built(PathBuf, Arc<Identifier>),
 }
-
-/// Each track's My Tags (`Category/Tag`) by its file key, as [`tags::by_track`] gives them.
-pub type TagsByTrack = FxHashMap<String, Vec<String>>;
 
 impl CachedLibrary {
     /// Reads the drive's library now.

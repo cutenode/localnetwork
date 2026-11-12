@@ -492,6 +492,29 @@ export class EpkService {
 		return this.legacy.migrate(viewer);
 	}
 
+	/** Who's waiting to hear about one of `project`'s press kits, oldest first. */
+	async waiting(project: ProjectView) {
+		const kits = new Map((await this.kits(project)).map((epk) => [epk.uri, epk]));
+
+		if (!kits.size) return [];
+
+		const rows = await this.core.db
+			.selectFrom('epkRequest')
+			.selectAll()
+			.where('epkUri', 'in', [...kits.keys()])
+			.where('status', '=', 'pending')
+			.orderBy('createdAt')
+			.execute();
+
+		const accounts = await this.core.accounts.views(rows.map((row) => row.requesterDid));
+
+		return rows.flatMap((row) => {
+			const epk = kits.get(row.epkUri);
+
+			return epk ? [{ project, epk, requester: accounts.get(row.requesterDid), createdAt: row.createdAt }] : [];
+		});
+	}
+
 	async requests(epk: EpkView): Promise<EpkRequestView[]> {
 		const rows = await this.core.db
 			.selectFrom('epkRequest')

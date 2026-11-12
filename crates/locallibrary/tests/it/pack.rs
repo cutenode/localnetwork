@@ -84,6 +84,45 @@ fn packs_chosen_playlists_and_updates_incrementally() {
 }
 
 #[test]
+fn pack_recopies_an_unfinished_file_matching_the_current_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let src_root = source(dir.path());
+    let club_root = dir.path().join("Club");
+    fs::create_dir_all(&club_root).unwrap();
+    let src = Device::open_export(&src_root).unwrap();
+    let mut club = Device::open(&club_root).unwrap();
+    let opts = PackOptions { playlists: vec!["Sets".into()], ..Default::default() };
+    let first = pack::plan(&src, &club, &opts, &Ctx::silent()).unwrap();
+    let audio = first.copies.iter().find(|c| c.path.starts_with("Contents/")).unwrap();
+    let bytes = fs::read(src.path(&audio.path)).unwrap();
+    let time = 1_600_000_000;
+    locallibrary::fsutil::set_mtime(&src.path(&audio.path), time).unwrap();
+    club.begin(LineageOp::Pack, "interrupted pack", None).unwrap();
+    locallibrary::fsutil::write_json_atomic(
+        &club.state_dir().join("writing.json"),
+        &serde_json::json!({
+            "started": club.state().unwrap().pending.as_ref().unwrap().started,
+            "files": [{ "key": audio.path, "size": audio.size + 1, "mtime": time }],
+        }),
+    )
+    .unwrap();
+    let dst = club.path(&audio.path);
+    fs::create_dir_all(dst.parent().unwrap()).unwrap();
+    fs::write(&dst, vec![0; bytes.len()]).unwrap();
+    locallibrary::fsutil::set_mtime(&dst, time).unwrap();
+
+    let again = pack::plan(&src, &club, &opts, &Ctx::silent()).unwrap();
+    pack::apply(&again, &src, &mut club, None, &Ctx::silent()).unwrap();
+    for library in [lib(&club_root), common::plus_library(&club_root)] {
+        for track in library.tracks {
+            assert!(club.path(&paths::key(&track.file_path)).is_file(), "missing {}", track.file_path);
+        }
+    }
+    assert_eq!(fs::read(dst).unwrap(), bytes);
+    assert!(again.copies.iter().any(|c| c.path == audio.path));
+}
+
+#[test]
 fn packing_over_another_library_says_so() {
     let dir = tempfile::tempdir().unwrap();
     let src_root = source(dir.path());

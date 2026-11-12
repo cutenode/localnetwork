@@ -439,7 +439,7 @@ pub fn plan(device: &Device, opts: &ConvertOptions, _ctx: &Ctx<'_>) -> Result<Co
         (false, _) => 256 * 1024,
     };
     let database = base + (source.tracks.len() + entries) as u64 * 1024;
-    let backup: u64 = paths::DATABASE_FILES.iter().map(|k| round(size(k))).sum();
+    let backup = crate::backup::needed_bytes(device, []);
     let needed_bytes = round(database) + round(artwork_bytes) + artwork.len() as u64 * 2 * cluster + backup;
     let free_space = fsutil::available_space(device.root());
     let fits = free_space.is_none_or(|f| needed_bytes <= f);
@@ -642,6 +642,16 @@ impl Builder<'_, '_> {
         let mut images: FxHashMap<String, Option<u32>> = FxHashMap::default();
         let mut ids = FxHashMap::default();
         let mut unreadable = Vec::new();
+        // Most of a drive's time here is reading each track's analysis files. Only a database built
+        // from nothing wants all of them, so only that one reads them all ahead.
+        let device = self.device;
+        let mut rows: FxHashMap<u32, _> = match (&rebuilt, self.additions) {
+            (None, None) => {
+                let rows = |t: &Track| (t.id, cue_edit::rows_from_analysis(device, t));
+                crate::workers::map(self.source.tracks.iter().collect(), rows).into_iter().collect()
+            }
+            _ => FxHashMap::default(),
+        };
         for t in &self.source.tracks {
             self.progress(t)?;
             if let Some(id) = self.matched(t) {
@@ -685,7 +695,8 @@ impl Builder<'_, '_> {
             // A row OneLibrary had keeps its cues; a new one gets the analysis files'.
             if made {
                 self.made.push(id);
-                match cue_edit::add_rows_from_analysis(&mut one, id, self.device, t)? {
+                let rows = rows.remove(&t.id).unwrap_or_else(|| cue_edit::rows_from_analysis(device, t));
+                match cue_edit::add_rows(&mut one, id, rows)? {
                     Some(added) => self.report.cues += added,
                     None => unreadable.push(t.display_name()),
                 }

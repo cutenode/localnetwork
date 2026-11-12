@@ -36,6 +36,22 @@ struct ViewKeep {
 
 impl App {
     /// Full drive details (this reads every drive's database).
+    /// Open the drive a path or name means, straight away: from the command line, or typed.
+    pub(in crate::tui) fn open_drive(&mut self, spec: &str) -> Result<(), String> {
+        let root = api::resolve_drive(spec).map_err(|e| e.to_string())?.root().to_path_buf();
+        if !api::drives_mounted().iter().any(|m| m.root == root) {
+            self.extra_roots.push(root.clone());
+        }
+        self.load_library(root);
+        Ok(())
+    }
+
+    /// The first read of the drive list is under way: until it answers, nothing can be said about
+    /// what's plugged in.
+    pub fn scanning(&self) -> bool {
+        self.drives_in_flight && !self.listed
+    }
+
     pub(in crate::tui) fn refresh_drives(&mut self) {
         if self.offline {
             return;
@@ -170,6 +186,7 @@ impl App {
         new.sets = self.loaded.as_mut().and_then(|l| l.sets.take());
         self.crate_list.refresh(new.root(), &new.library);
         self.loaded = Some(new);
+        self.first_open();
         self.details = None;
         self.details_asked = None;
         match keep {

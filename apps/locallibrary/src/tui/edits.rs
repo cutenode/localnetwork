@@ -2,10 +2,10 @@
 //! the marked or selected tracks, the playlist in view and the crate (plugins' commands and
 //! operations for tracks or a playlist last);
 //! the prompts and playlist picking some actions need; and the job every write goes through: plan
-//! it in the background, show the plan and wait for a yes, apply exactly that plan (the library
-//! backs the drive up first, and refuses if the drive changed since), then read the drive again,
-//! keeping the view. Any kind of plan goes through the same dialog ([`AnyPlanned`]); playlist and
-//! track edits show in detail.
+//! it in the background, show the plan and wait for a yes (a change `u` takes back whole needs none:
+//! see [`Confirm::reversible`]), apply exactly that plan (the library backs the drive up first, and
+//! refuses if the drive changed since), then read the drive again, keeping the view. Any kind of
+//! plan goes through the same dialog ([`AnyPlanned`]); playlist and track edits show in detail.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -26,7 +26,7 @@ use loclib_plugin::Where;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::widgets::ListState;
 
-use super::app::{App, Focus, Level, Msg, View, edit_line};
+use super::app::{App, Focus, Level, Msg, UNDO_HINT, View, edit_line};
 use super::browse::{COLOURS, NodeId, colour_name, sort_label, sort_spec};
 use super::drives::{After, Report};
 use super::keymap::{self, Act};
@@ -129,6 +129,16 @@ pub enum Action {
     Fetch(loclib_plugin::ProviderKind),
 }
 
+/// What had focus when a menu opened, whose actions come first.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Selected {
+    #[default]
+    Tracks,
+    /// A playlist or folder in the tree.
+    List,
+    Crate,
+}
+
 /// What an action works on, captured when the menu opens so moving about afterwards (picking a
 /// playlist, say) doesn't change it.
 #[derive(Debug, Clone, Default)]
@@ -151,6 +161,7 @@ pub struct Target {
     pub crate_total: usize,
     /// The drive was unplugged.
     pub stale: bool,
+    pub selected: Selected,
 }
 
 pub struct MenuItem {
@@ -213,7 +224,7 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
         t.node.as_ref().map(|(p, folder)| format!("{} {}", if *folder { "folder" } else { "playlist" }, leaf(p)));
     let no_node = because(t.node.is_none(), "select a playlist or folder");
     let into = if t.folder.is_empty() { String::new() } else { format!(" in {}", leaf(&t.folder)) };
-    vec![
+    let items: Vec<MenuItem> = vec![
         item("a", "add to the crate".into(), Action::CrateAdd, no_tracks),
         item("0-5", "set the rating…".into(), Action::RatingMenu, tracks.clone()),
         item("c", "set the colour…".into(), Action::ColourMenu, tracks.clone()),
@@ -287,7 +298,16 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
         let unavailable = stale.clone().or(why).or(because(t.tracks.is_empty(), "no track selected"));
         item("", label, Action::Fetch(kind), unavailable)
     }))
-    .collect()
+    .collect();
+    // What the selection is comes first, so enter on the menu as it opens does the likeliest thing.
+    let first: &[Action] = match t.selected {
+        Selected::Tracks => &[],
+        Selected::List => &[Action::Rename, Action::NewPlaylist, Action::NewFolder, Action::Delete, Action::Restore],
+        Selected::Crate => &[Action::SaveCrate, Action::ClearCrate],
+    };
+    let mut items = items;
+    items.sort_by_key(|i| first.iter().position(|a| *a == i.action).unwrap_or(first.len()));
+    items
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -316,6 +336,8 @@ pub enum PromptFor {
     RestoreFrom {
         snapshot: String,
     },
+    /// A folder holding an export, to open.
+    OpenFolder,
     /// A new My Tag (`Category/Tag`) for these tracks.
     NewTag {
         tracks: Vec<String>,
@@ -367,6 +389,23 @@ impl Confirm {
     pub fn undo(&self) -> Option<&api::UndoPlan> {
         self.plan.as_any().downcast_ref::<Planned<api::UndoPlan, bool>>().map(|p| &p.plan)
     }
+
+    /// Whether `u` takes all of it back, so asking first would add nothing: the player's own
+    /// track and playlist edits (the library backs the drive up before them or fails) on the one
+    /// drive, with nothing in the plan to read. Tracks, files or history lists going, a warning, a
+    /// guard, other clones, and what a plugin plans are all still asked about.
+    pub fn reversible(&self) -> bool {
+        let Some(p) = self.plan.as_any().downcast_ref::<Planned<EditPlan>>() else { return false };
+        let plan = &p.plan;
+        let loses = !plan.files.is_empty() || !plan.tracks_removed.is_empty() || plan.history_removed > 0;
+        p.operation == "edit"
+            && !loses
+            && plan.fits
+            && self.after.is_none()
+            && p.blocked.is_none()
+            && p.warnings.is_empty()
+            && p.clones.is_empty()
+    }
 }
 
 /// What applying a plan came to.
@@ -392,6 +431,8 @@ pub enum Modal {
     Report(Report),
     /// A plugin's params to fill in.
     Form(super::form::Form),
+    /// What's running (see `jobs`).
+    Jobs(ListState),
 }
 
 /// Choosing the playlist to add tracks to, in the sidebar tree.
@@ -415,12 +456,16 @@ pub struct Job {
     pub writing: bool,
     /// The databases are being written: too late to stop.
     pub committed: bool,
+    /// What a cancel is told then.
+    pub too_late: &'static str,
     pub started: Instant,
     /// The drives a write changes, read again once it's done.
     pub touched: Vec<PathBuf>,
     /// What comes next once the change is made.
     pub after: Option<After>,
 }
+
+const TOO_LATE: &str = "writing the drive: too late to stop";
 
 /// What a background task hands back, to finish on the UI thread.
 pub type Done = Box<dyn FnOnce(&mut App) + Send>;
@@ -454,6 +499,7 @@ fn phase_name(p: Phase) -> &'static str {
         Phase::Format => "formatting",
         Phase::Analyze => "analyzing",
         Phase::Upload => "uploading",
+        Phase::Measure => "timing the drive",
         // Mix identification's phases (edits don't run them), and any newer.
         _ => "working",
     }
@@ -612,6 +658,11 @@ impl App {
             crated,
             crate_total: self.crate_list.len(),
             stale: l.stale,
+            selected: match self.focus {
+                Focus::Playlists => Selected::List,
+                Focus::Crate => Selected::Crate,
+                _ => Selected::Tracks,
+            },
         })
     }
 
@@ -706,6 +757,7 @@ impl App {
             },
             Modal::Pick(p) => self.on_picker_key(p, key),
             Modal::Form(f) => self.on_form_key(f, key),
+            Modal::Jobs(list) => self.on_jobs_key(list, key),
             Modal::Report(mut r) => {
                 r.scroll = match key.code {
                     KeyCode::Up | KeyCode::Char('k') => r.scroll.saturating_sub(1),
@@ -906,6 +958,13 @@ impl App {
                 self.write_export(p.root, &p.text, list.clone());
                 return;
             }
+            PromptFor::OpenFolder => {
+                if let Err(e) = self.open_drive(p.text.trim()) {
+                    self.toast(e, Level::Error);
+                    self.modal = Some(Modal::Prompt(p));
+                }
+                return;
+            }
             PromptFor::NewTag { tracks } => {
                 let tag = p.text.trim().trim_matches('/').to_string();
                 match tag.split_once('/') {
@@ -1089,6 +1148,7 @@ impl App {
             cancel: cancel.clone(),
             writing: false,
             committed: false,
+            too_late: TOO_LATE,
             started: Instant::now(),
             touched: Vec::new(),
             after,
@@ -1099,6 +1159,8 @@ impl App {
         let failed_root = root.clone();
         let job = move || {
             locallibrary::op::allow_archive_writes(archive);
+            // The dialog shows the plan next.
+            locallibrary::op::allow_measuring(true);
             let reporter = Reporter::new(tx, id, cancel.clone(), cancel.clone());
             let ctx = Ctx::new(&reporter, cancel);
             let result = make(&ctx);
@@ -1143,6 +1205,7 @@ impl App {
             cancel: cancel.clone(),
             writing: false,
             committed: false,
+            too_late: TOO_LATE,
             started: Instant::now(),
             touched: Vec::new(),
             after: None,
@@ -1203,7 +1266,11 @@ impl App {
                 self.toast(msg, Level::Info);
             }
             Ok(plan) => {
-                self.show(Modal::Confirm(Confirm { root, drive, plan, scroll: 0, shown: Instant::now(), after }))
+                let c = Confirm { root, drive, plan, scroll: 0, shown: Instant::now(), after };
+                match c.reversible() {
+                    true => self.apply(c),
+                    false => self.show(Modal::Confirm(c)),
+                }
             }
             Err(Error::Cancelled) => {}
             Err(e) => self.toast(describe(&e, &drive), Level::Error),
@@ -1221,8 +1288,10 @@ impl App {
         let outer = CancelToken::new();
         let touched: Vec<PathBuf> = c.plan.drives().iter().filter(|t| t.writes).map(|t| t.root.clone()).collect();
         let label = wording(&*c.plan, &c.drive).doing;
-        // Ejecting waits for a track being opened, whose file would keep the drive busy.
-        let opening = (c.plan.operation() == "eject").then(|| self.opener_idle());
+        // Ejecting waits for a track being opened, whose file would keep the drive busy. It reports
+        // no phases, so a cancel would have nothing to stop it at.
+        let eject = c.plan.operation() == "eject";
+        let opening = eject.then(|| self.opener_idle());
         if opening.is_some() {
             for t in c.plan.drives() {
                 let root = t.root.clone();
@@ -1235,7 +1304,8 @@ impl App {
             detail: String::new(),
             cancel: outer.clone(),
             writing: true,
-            committed: false,
+            committed: eject,
+            too_late: if eject { "ejecting: too late to stop" } else { TOO_LATE },
             started: Instant::now(),
             touched,
             after: c.after.clone(),
@@ -1262,9 +1332,9 @@ impl App {
     }
 
     pub(super) fn on_applied(&mut self, job: u64, root: PathBuf, result: Result<Box<Applied>, Error>) {
-        let (touched, after) = match self.job.take_if(|j| j.id == job) {
-            Some(j) => (j.touched, j.after),
-            None => (Vec::new(), None),
+        let (touched, after, asked_to_stop) = match self.job.take_if(|j| j.id == job) {
+            Some(j) => (j.touched, j.after, j.cancel.is_cancelled()),
+            None => (Vec::new(), None, false),
         };
         let drive = self.drive_label(&root);
         let done = result.is_ok();
@@ -1325,7 +1395,7 @@ impl App {
                 let n = report["tracks_changed"].as_u64().unwrap_or(0);
                 let mut msg = format!("My Tags changed on {n} track{} on {drive}", if n == 1 { "" } else { "s" });
                 if report["backup"].is_string() {
-                    msg.push_str(" · u to undo");
+                    msg.push_str(UNDO_HINT);
                 }
                 self.toast(msg, Level::Info);
             }
@@ -1338,7 +1408,7 @@ impl App {
                     locallibrary::op::bytes(bytes)
                 );
                 if report["backup"].is_string() {
-                    msg.push_str(" · u to undo");
+                    msg.push_str(UNDO_HINT);
                 }
                 self.toast(msg, Level::Info);
                 self.refresh_status();
@@ -1360,7 +1430,7 @@ impl App {
                     format!("{by}: {} written, {} kept", plural(changes, "change"), plural(sessions, "history list"));
                 if report["edits"]["backup"].is_string() {
                     self.last_backup = Some(self.drive_at(root.clone()));
-                    msg.push_str(" · u to undo");
+                    msg.push_str(UNDO_HINT);
                 }
                 self.toast(msg, Level::Info);
             }
@@ -1381,7 +1451,7 @@ impl App {
                     _ => format!("{operation}: done on {drive}"),
                 };
                 if report["backup"].is_string() {
-                    msg.push_str(" · u to undo");
+                    msg.push_str(UNDO_HINT);
                 }
                 if let Some(w) = report["warnings"].as_array().and_then(|w| w.first()).and_then(|w| w.as_str()) {
                     msg.push_str(&format!(" · {w}"));
@@ -1390,6 +1460,10 @@ impl App {
             }
             Err(Error::Cancelled) => self.toast("cancelled: nothing was written", Level::Info),
             Err(e) => self.toast(describe(&e, &drive), Level::Error),
+        }
+        // A cancel that came after the point of no return: it was all made.
+        if let Some((m, ..)) = self.toast.as_mut().filter(|_| done && asked_to_stop) {
+            m.insert_str(0, "too late to stop: ");
         }
         // Read the drive again (keeping the view), whatever happened: it's the truth now.
         let open = self.loaded.as_ref().map(|l| l.root().to_path_buf());
@@ -1418,12 +1492,13 @@ impl App {
         }
     }
 
-    /// Esc while a job runs: planning stops at once; writing only until the databases are being
-    /// written.
+    /// Esc while a job runs, or a cancel in the job list: planning stops at once; writing only until
+    /// the databases are being written.
     pub(super) fn cancel_job(&mut self) {
         let Some(j) = &mut self.job else { return };
         if j.committed {
-            self.toast("writing the drive: too late to stop", Level::Info);
+            let said = j.too_late;
+            self.toast(said, Level::Info);
         } else if j.writing {
             j.cancel.cancel();
             j.detail = "cancelling…".into();

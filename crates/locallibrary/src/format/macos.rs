@@ -79,19 +79,33 @@ fn usb_devices() -> String {
     Cmd::new("ioreg", &["-r", "-c", "IOUSBHostDevice", "-l", "-w0"]).run().unwrap_or_default()
 }
 
-/// The serial number of the USB device the disk `id` (`disk4`) is on, from [`usb_devices`]: the
-/// innermost device whose tree holds the disk (a hub's tree holds the devices behind it). `None`
-/// for a disk that isn't USB, or a device that has none.
-fn usb_serial(ioreg: &str, id: &str) -> Option<String> {
+fn ioreg_property(line: &str) -> &str {
+    line.trim_start_matches(['|', ' '])
+}
+
+/// What [`usb_devices`] says of the USB device the disk `id` (`disk4`) is on: the innermost device
+/// whose tree holds the disk (a hub's tree holds the devices behind it). `None` for a disk that
+/// isn't USB.
+fn usb_device<'a>(ioreg: &'a str, id: &str) -> Option<&'a str> {
     let media = format!("\"BSD Name\" = \"{id}\"");
-    let property = |line: &str| line.trim_start_matches(['|', ' ']).to_string();
-    ioreg
-        .split("\n+-o ")
-        .filter(|tree| tree.lines().any(|l| property(l) == media))
-        .min_by_key(|tree| tree.len())?
+    ioreg.split("\n+-o ").filter(|tree| tree.lines().any(|l| ioreg_property(l) == media)).min_by_key(|tree| tree.len())
+}
+
+/// The serial number of the USB device the disk `id` is on, if it has one.
+fn usb_serial(ioreg: &str, id: &str) -> Option<String> {
+    usb_device(ioreg, id)?
         .lines()
-        .find_map(|l| property(l).strip_prefix("\"USB Serial Number\" = \"")?.strip_suffix('"').map(String::from))
+        .find_map(|l| ioreg_property(l).strip_prefix("\"USB Serial Number\" = \"")?.strip_suffix('"').map(String::from))
         .filter(|s| !s.is_empty())
+}
+
+/// The speed the link of the USB device the disk `id` is on came up at, in bits a second.
+fn usb_link_speed(ioreg: &str, id: &str) -> Option<u64> {
+    usb_device(ioreg, id)?.lines().find_map(|l| ioreg_property(l).strip_prefix("\"UsbLinkSpeed\" = ")?.parse().ok())
+}
+
+pub fn link_speed(disk: &Disk) -> Option<u64> {
+    usb_link_speed(&usb_devices(), &disk.id)
 }
 
 /// `disk4s1` -> `disk4`.

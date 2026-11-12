@@ -72,6 +72,44 @@ fn doctor_says_when_export_pdb_and_onelibrary_drift_apart() {
     assert!(line(&out, "OneLibrary can't be read: ").starts_with("! "), "{out}");
 }
 
+/// For a drive with both databases, as written or with a playlist only export.pdb has, or with
+/// OneLibrary garbled either of two ways: `doctor --only drift` says they agree,
+/// that they differ (exiting with problems), or that OneLibrary can't be read; and cleaning up
+/// orphaned files is refused only when it can't be read, since which files are orphaned can't
+/// be known then.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn doctor_says_how_the_two_databases_stand(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let env = Env::new();
+    let main = env.drive("Main");
+    env.ok(&["--yes", "convert", path(&main), "--to", "onelibrary"]);
+    let state = tc.draw(gs::sampled_from(vec!["agree", "differ", "unreadable"]));
+    match state {
+        "differ" => {
+            let mut ed = PdbEditor::from_file(main.join(PDB)).unwrap();
+            ed.create_playlist(tc.draw(gs::sampled_from(vec!["Only here", "Late"])), 0, false).unwrap();
+            ed.save(main.join(PDB)).unwrap();
+        }
+        "unreadable" => {
+            let garbage = tc.draw(gs::sampled_from(vec![vec![0x5a; 8192], b"not a database".to_vec()]));
+            std::fs::write(main.join("PIONEER/rekordbox/exportLibrary.db"), garbage).unwrap();
+        }
+        _ => {}
+    }
+    let r = env.run(&["doctor", path(&main), "--only", "drift"]);
+    let said = format!("{state}: exit {}\n{}{}", r.code, r.out, r.err);
+    let (code, says) = match state {
+        "agree" => (0, "export.pdb and OneLibrary agree"),
+        "differ" => (4, "export.pdb and OneLibrary differ"),
+        _ => (4, "OneLibrary can't be read: "),
+    };
+    assert!(r.code == code && r.out.contains(says), "{said}");
+    let fix = env.run(&["doctor", path(&main), "--fix-orphans", "--dry-run"]);
+    let refused = "without it, which files are orphaned can't be known";
+    assert_eq!(fix.err.contains(refused), state == "unreadable", "{state}: {}{}", fix.out, fix.err);
+    assert_eq!(fix.code == 0, state != "unreadable", "{state}: {}{}", fix.out, fix.err);
+}
+
 #[test]
 fn doctor_of_every_mounted_drive_reports_each() {
     let env = Env::new();

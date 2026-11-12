@@ -69,6 +69,7 @@ and typed table columns, see [views](#views)).
    `key`, filled in once the request is checked, left out of the plugin's log and the errors
    it's told, and never sent on to another server a redirect leads to: the headers it was filled
    into (and `Authorization`, `Cookie`) are dropped there, and a body with it isn't sent on.
+   One in a query value comes back as `{secret:<key>}` where the answer says the address back.
    `{account:<type>}` is the same for the access token of an account it has access to (see
    [accounts](#accounts)), as the whole value of the `Authorization` header or of the query
    parameter the account type names, and refused anywhere else in a request.
@@ -143,7 +144,8 @@ assert!(manifest.validate(false).is_err());
 
 - `capabilities`: `library:read`, `analysis:read`, `artwork:read`, `drive:info`, `health:read`,
   `store:read`, `settings:read`, `plays:read`, `sets:read`, `account:status`,
-  `collection:read`, `library:plan`, `library:delete`, `tags:plan`, `cues:plan`,
+  `collection:read`, `library:plan`, `library:delete`, `library:delete-unbacked` (plugins
+  locallibrary ships only), `tags:plan`, `cues:plan`,
   `artwork:plan`, `analysis:plan`, `events:drives`, `events:jobs`, `events:plans`, `fs:read`, and `net:<host>`, or `net:*.<domain>` for any host below the domain: what
   `net/fetch` may reach (shown to the user; a native plugin can't be held to it otherwise). Any
   other is refused, and each is granted once.
@@ -241,7 +243,7 @@ assert!(!upload.covers("POST", &Url::parse("https://www.googleapis.com.evil.exam
   and the website adds its client id and secret for the service, sends the request on the way the
   service takes it and answers what the service answered. `client_id` is then Local Network's
   client at the service. The services it knows are in
-  [`apps/web/src/lib/server/token-exchange/services.json`](../../apps/web/src/lib/server/token-exchange/services.json);
+  [`apps/web/src/lib/server/token-exchange/services.json`](https://github.com/cutenode/localnetwork/blob/main/apps/web/src/lib/server/token-exchange/services.json);
   one it doesn't know, or isn't set up for yet, fails the sign-in with what the website said.
 - `one_account` and `another_account` are authorize params for signing in again as one account
   the host knows (`login_hint = "{subject}"`, the only placeholder) and for adding another

@@ -35,6 +35,20 @@ describe('jsonAfter', () => {
 		expect(jsonAfter('window.x = {"a":1', 'window.x =')).toBe(null);
 		expect(jsonAfter('window.x = {not json}', 'window.x =')).toBe(null);
 	});
+
+	it('reads nothing when the marker is missing, whatever else the text holds', () => {
+		expect(jsonAfter('window.y = {"a":1};', 'window.x =')).toBe(null);
+	});
+
+	it('skips whatever sits between the marker and the object', () => {
+		expect(jsonAfter('window.x = Object.freeze({"a":1});', 'window.x =')).toEqual({ a: 1 });
+		// At the very start of the text, the object can open on the second character.
+		expect(jsonAfter('={"a":1}', '=')).toEqual({ a: 1 });
+	});
+
+	it('gives up on a string that never closes rather than reading past the end', () => {
+		expect(jsonAfter('x = {"a', 'x =')).toBe(null);
+	});
 });
 
 describe('flightPayload', () => {
@@ -89,6 +103,28 @@ describe('formFields', () => {
 			)
 		).toEqual({ ticked: '1', radio: 'b' });
 	});
+
+	it('sends the ticked radio of a group, wherever in the group it sits', () => {
+		expect(
+			formFields(
+				form(`
+          <input name="radio" type="radio" value="a" checked>
+          <input name="radio" type="radio" value="b">
+        `)
+			)
+		).toEqual({ radio: 'a' });
+	});
+
+	it('leaves out a fieldset and an output, which are never sent', () => {
+		expect(
+			formFields(
+				form(`
+          <fieldset name="group"><input name="inside" value="1"></fieldset>
+          <output name="total">5</output>
+        `)
+			)
+		).toEqual({ inside: '1' });
+	});
 });
 
 describe('decodeBase64Json', () => {
@@ -96,6 +132,11 @@ describe('decodeBase64Json', () => {
 		const value = { destUrl: 'https://example.test/a?b=c', srvc: 'beatport' };
 		const raw = btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_');
 		expect(decodeBase64Json(raw.replace(/=+$/, ''))).toEqual(value);
+	});
+
+	it('tops up padding that was cut short', () => {
+		// Two characters of padding due and one left: atob takes all of it or none.
+		expect(decodeBase64Json(btoa('{"a":1}').replace(/=$/, ''))).toEqual({ a: 1 });
 	});
 
 	it('answers null for anything that is not one', () => {

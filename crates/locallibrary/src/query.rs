@@ -43,6 +43,7 @@ use crate::fields::{Declared, FieldType, FieldValue, TrackValues};
 use crate::harmony::{self, Camelot};
 use crate::model::{Library, Playlist, Track, TrackColor, normalize};
 use crate::plays::HistoryList;
+use crate::tags::TagsByTrack;
 use crate::{Error, Result};
 
 // ---------------------------------------------------------------------------------------------
@@ -654,8 +655,8 @@ impl Term {
 /// What filters need besides the track itself, worked out lazily and once per library.
 pub struct QueryContext<'a> {
     pub library: &'a Library,
-    /// My Tags by lowercase file key (see [`crate::paths::key`]), as `Category/Tag`.
-    pub tags: Option<&'a FxHashMap<String, Vec<String>>>,
+    /// My Tags, as `Category/Tag` (see [`crate::tags::by_track`]).
+    pub tags: Option<&'a TagsByTrack>,
     /// What analyzers worked out for the tracks, for plugins' fields (`sound.bpm`).
     pub fields: Option<&'a TrackValues>,
     /// The drive's history lists, from both its databases (see [`DriveContext`]); without them,
@@ -683,7 +684,7 @@ impl<'a> QueryContext<'a> {
         }
     }
 
-    pub fn with_tags(mut self, tags: &'a FxHashMap<String, Vec<String>>) -> Self {
+    pub fn with_tags(mut self, tags: &'a TagsByTrack) -> Self {
         self.tags = Some(tags);
         self
     }
@@ -743,7 +744,7 @@ impl<'a> QueryContext<'a> {
     }
 
     fn tags_of(&self, t: &Track) -> &[String] {
-        self.tags.and_then(|m| m.get(&crate::paths::file_key(&t.file_path))).map(Vec::as_slice).unwrap_or(&[])
+        self.tags.map_or(&[], |m| m.of(t))
     }
 
     fn haystack(&self, t: &Track) -> &str {
@@ -1176,7 +1177,7 @@ impl TrackSelector {
 /// [`crate::fields::Installed`]).
 #[derive(Debug, Default)]
 pub struct DriveContext {
-    tags: Option<FxHashMap<String, Vec<String>>>,
+    tags: Option<TagsByTrack>,
     history: Option<Vec<HistoryList>>,
     fields: Option<TrackValues>,
 }

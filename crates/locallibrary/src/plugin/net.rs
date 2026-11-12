@@ -137,7 +137,8 @@ fn tokens(filled: Vec<Filled>) -> Vec<(Usable, String)> {
     filled.into_iter().filter_map(token).collect()
 }
 
-/// The accounts' tokens filled into a request's query, and the placeholders that named them.
+/// The secrets and accounts' tokens filled into a request's query, and the placeholders that
+/// named them.
 type InQuery = Vec<(String, String)>;
 
 /// What a request was answered: its status and headers, and its body, to be read: what of it
@@ -234,8 +235,9 @@ impl Plugin {
         }
     }
 
-    /// `text` with each `{secret:<key>}` in it the plugin's secret setting `key`.
-    fn fill(&self, live: &Live, text: &str) -> Result<String, RpcError> {
+    /// `text` with each `{secret:<key>}` in it the plugin's secret setting `key`, and each secret
+    /// filled in with its placeholder added to `named`, when given.
+    fn fill(&self, live: &Live, text: &str, mut named: Option<&mut InQuery>) -> Result<String, RpcError> {
         let mut out = String::with_capacity(text.len());
         let mut rest = text;
         while let Some(at) = rest.find(SECRET) {
@@ -258,6 +260,9 @@ impl Plugin {
                 ))
             })?;
             self.net.saw(&secret);
+            if let Some(named) = named.as_deref_mut().filter(|_| !secret.is_empty()) {
+                named.push((secret.clone(), rest[at..at + SECRET.len() + end + 1].to_string()));
+            }
             out.push_str(&rest[..at]);
             out.push_str(&secret);
             rest = &after[end + 1..];
@@ -289,14 +294,21 @@ impl Plugin {
         let requests = Requests::new().map_err(|e| RpcError::internal(format!("the network: {e}")))?;
         let followed = self.follow(live, url, sent, &requests, cancel)?;
         let (answer, in_query) = self.answered(live, &req, followed, in_query, &requests, cancel)?;
-        // A server says the address it was asked at back (a next page's link, a `Location`): a token
-        // sent in the query is given back as the placeholder that named it, which asks for it again.
-        let named = |text: String| {
-            in_query.iter().fold(text, |text, (token, placeholder)| {
-                let encoded: String = form_urlencoded::byte_serialize(token.as_bytes()).collect();
-                text.replace(token, placeholder).replace(&encoded, placeholder)
+        // A server says the address it was asked at back (a next page's link, a `Location`): a secret
+        // or token sent in the query is given back as the placeholder that named it, which asks for
+        // it again.
+        let mut spelt: Vec<(String, &String)> = in_query
+            .iter()
+            .flat_map(|(filled, placeholder)| {
+                let encoded: String = form_urlencoded::byte_serialize(filled.as_bytes()).collect();
+                [(encoded, placeholder), (filled.clone(), placeholder)]
             })
-        };
+            .collect();
+        // Longest first: one inside another (a secret with a `%` is in how a URL spells it) is
+        // given back with it, not leaving the rest.
+        spelt.sort_by_key(|(filled, _)| std::cmp::Reverse(filled.len()));
+        let named =
+            |text: String| spelt.iter().fold(text, |text, (filled, placeholder)| text.replace(filled, placeholder));
         let mut answered: IndexMap<String, String> = IndexMap::new();
         for (name, value) in &answer.headers {
             let value = named(String::from_utf8_lossy(value.as_bytes()).into_owned());
@@ -387,8 +399,8 @@ impl Plugin {
     }
 
     /// The request `req` asks for at `url` (its [`Plugin::address`]), as it's sent, its secrets
-    /// and accounts' tokens filled in, the query's kept apart from the address: with the tokens
-    /// filled into its query, and the placeholders that named them.
+    /// and accounts' tokens filled in, the query's kept apart from the address: with the secrets
+    /// and tokens filled into its query, and the placeholders that named them.
     fn prepare(&self, live: &Live, req: &Fetch, url: &Url) -> Result<(Sent, InQuery), RpcError> {
         let method = Method::from_bytes(req.method.as_bytes())
             .map_err(|_| invalid(format!("{} isn't an HTTP method", one_line(&req.method))))?;
@@ -409,7 +421,7 @@ impl Plugin {
         let asked = (method.clone(), url.clone());
         let (plain, filled) = (HeaderMap::new(), HeaderMap::new());
         let mut sent = Sent { method, plain, filled, body: None, secret: false, accounts: Vec::new(), query: None };
-        // The accounts' tokens filled into the query, and the placeholders that named them.
+        // The secrets and tokens filled into the query, and the placeholders that named them.
         let mut in_query = Vec::new();
         if url.query_pairs().any(|(_, v)| v.contains(SECRET) || v.contains(ACCOUNT_PLACEHOLDER)) {
             let pairs: Vec<(String, String)> =
@@ -417,7 +429,7 @@ impl Plugin {
             let mut filled = Vec::with_capacity(pairs.len());
             for (k, v) in pairs {
                 if !v.contains(ACCOUNT_PLACEHOLDER) {
-                    filled.push((k, self.fill(live, &v)?));
+                    filled.push((k, self.fill(live, &v, Some(&mut in_query))?));
                     continue;
                 }
                 let token = self.account(live, &v, Some(&k), &asked, &mut sent.accounts)?;
@@ -445,7 +457,7 @@ impl Plugin {
                 continue;
             }
             let to = if value.contains(SECRET) { &mut sent.filled } else { &mut sent.plain };
-            let value = HeaderValue::from_str(&self.fill(live, value)?)
+            let value = HeaderValue::from_str(&self.fill(live, value, None)?)
                 .map_err(|_| invalid(format!("the {name} header's value can't be sent")))?;
             to.append(name, value);
         }
@@ -454,7 +466,7 @@ impl Plugin {
         sent.plain.insert(USER_AGENT, agent);
         sent.secret = texts.clone().any(|t| t.contains(SECRET));
         if let Some(body) = &req.body {
-            sent.body = Some(Body::Text(self.fill(live, body)?.into_bytes()));
+            sent.body = Some(Body::Text(self.fill(live, body, None)?.into_bytes()));
         }
         if let Some(blob) = &req.body_blob {
             sent.body = Some(Body::File(FilePart::new(live, blob, req.body_range)?));
@@ -524,7 +536,7 @@ impl Plugin {
     /// A form's parts, its text's secrets filled in and its files checked.
     fn form(&self, live: &Live, parts: &[FormPart]) -> Result<Vec<(String, Field)>, RpcError> {
         let field = |p: &FormPart| match (&p.value, &p.file) {
-            (Some(value), None) if p.range.is_none() => Ok(Field::Text(self.fill(live, value)?)),
+            (Some(value), None) if p.range.is_none() => Ok(Field::Text(self.fill(live, value, None)?)),
             (None, Some(file)) => Ok(Field::File {
                 file: FilePart::new(live, file, p.range)?,
                 filename: p.filename.clone(),

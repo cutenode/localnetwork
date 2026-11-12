@@ -16,7 +16,7 @@ import {
 	RepoPermission,
 	SpacePermission
 } from '@atproto/oauth-scopes';
-import { CALENDAR_RSVP, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
+import { COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
 import type { Config } from '../config';
 import { type Db, nowIso } from '../db';
 import type { AccountRow } from '../db/schema';
@@ -31,9 +31,6 @@ const permissions = new IncludeScope(PERMISSIONS);
  * NSID authority, so writing them is asked for on its own.
  */
 const CALENDAR_EVENTS = 'repo:community.lexicon.calendar.event?action=create&action=update&action=delete';
-
-/** Guests' RSVPs to events, asked for on its own for the same reason as calendar events. */
-const RSVPS = `repo:${CALENDAR_RSVP}?action=create&action=update&action=delete`;
 
 /** Avatars, and the JSON mix reports DJs attach to their mixes as tracklists. */
 const BLOBS = 'blob?accept=image/jpeg&accept=image/png&accept=image/webp&accept=application/json';
@@ -54,22 +51,20 @@ const PUBLIC_RECORDS = [
 ].join(' ');
 
 /**
- * Scopes added to `full` after accounts had already signed in with it: `dj.set` records, the performer space, and
- * RSVPs. The site doesn't write sets or RSVPs yet. Like PUBLIC_RECORDS, a grant without them still counts as one with
- * spaces; the first write that needs one asks for a fresh sign-in, and that grant holds them all. The permission set's
- * are read from it as `rootDid` publishes it, so they're the scopes the PDS expands it to.
+ * Scopes added to `full` after accounts had already signed in with it: `dj.set` records and the performer space. The
+ * site doesn't write sets yet. Like PUBLIC_RECORDS, a grant without them still counts as one with spaces; the first
+ * write that needs one asks for a fresh sign-in, and that grant holds them all. The permission set's are read from it
+ * as `rootDid` publishes it, so they're the scopes the PDS expands it to.
  */
-const stepUp = (rootDid: string) => [
-	...permissions
+const stepUp = (rootDid: string) =>
+	permissions
 		.toPermissions(permissionSetFor(rootDid))
 		.filter((permission) =>
 			permission instanceof RepoPermission
 				? permission.collection.includes(COLLECTION.djSet)
 				: permission instanceof SpacePermission && permission.type === SPACE_TYPE.performer
 		)
-		.map(String),
-	RSVPS
-];
+		.map(String);
 
 /**
  * Granular OAuth scopes. Local Network's permission set (lexicons/computer/localnetwork/permissions.json)
@@ -77,7 +72,7 @@ const stepUp = (rootDid: string) => [
  * spaces, a personal planner space under the user's own DID, and the records it writes to the user's
  * public repo (their profile, press kits, shows, follows, and edits to their sets). The shared spaces are
  * the root's: each network's root publishes the set with its own DID as their authority, so the PDS
- * expands it to that network's spaces only. Blob uploads, calendar events and RSVPs stay explicit: a
+ * expands it to that network's spaces only. Blob uploads and calendar events stay explicit: a
  * permission set can only hold repo, rpc, and space permissions, and only for its own namespace. Nothing
  * grants reading other users' data; the app reads shared spaces with credentials issued to the root
  * authority. The base fallback, for a PDS without spaces, asks for the public records anyone can write
@@ -87,7 +82,7 @@ const stepUp = (rootDid: string) => [
  * through sign-in.
  */
 export const SCOPES = {
-	full: ['atproto', BLOBS, CALENDAR_EVENTS, RSVPS, permissions.toString()].join(' '),
+	full: ['atproto', BLOBS, CALENDAR_EVENTS, permissions.toString()].join(' '),
 	base: `atproto ${PUBLIC_RECORDS} ${BLOBS}`,
 	/** For a PDS that refuses even the base scopes' granular permissions. */
 	minimal: 'atproto',

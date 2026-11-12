@@ -1,4 +1,4 @@
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import type { Place } from '#lib/places.ts';
@@ -22,7 +22,7 @@ const lisbon: Place = {
 	lngE6: -9_139_300
 };
 
-const search = () => page.getByRole('textbox', { name: 'Find a city' });
+const search = () => page.getByRole('combobox', { name: 'Find a city' });
 
 const posted = (name: string) => document.querySelector<HTMLInputElement>(`input[name=${name}]`)?.value;
 
@@ -41,7 +41,7 @@ describe('PlacePicker', () => {
 		await render(PlacePicker);
 
 		await search().fill('Leip');
-		await page.getByRole('button', { name: 'Leipzig, Saxony, Germany' }).click();
+		await page.getByRole('option', { name: 'Leipzig, Saxony, Germany' }).click();
 
 		expect(asked).toEqual(['/api/places?q=Leip']);
 		await expect.element(page.getByRole('listbox')).not.toBeInTheDocument();
@@ -61,7 +61,7 @@ describe('PlacePicker', () => {
 		await render(PlacePicker, { values: { city: 'Leipzig', region: 'Saxony', country: 'DE' } });
 
 		await search().fill('Lis');
-		await page.getByRole('button', { name: 'Lisbon, Portugal' }).click();
+		await page.getByRole('option', { name: 'Lisbon, Portugal' }).click();
 
 		await expect.element(page.getByLabelText('Region / state')).toHaveValue('');
 		expect([posted('city'), posted('country')]).toEqual(['Lisbon', 'PT']);
@@ -77,7 +77,7 @@ describe('PlacePicker', () => {
 		await expect.element(page.getByText('Searching…')).toBeVisible();
 
 		answer(Response.json({ places: [leipzig] }));
-		await expect.element(page.getByRole('button', { name: 'Leipzig, Saxony, Germany' })).toBeVisible();
+		await expect.element(page.getByRole('option', { name: 'Leipzig, Saxony, Germany' })).toBeVisible();
 		await expect.element(page.getByText('Searching…')).not.toBeInTheDocument();
 	});
 
@@ -91,6 +91,18 @@ describe('PlacePicker', () => {
 
 		await expect.element(page.getByRole('listbox')).not.toBeInTheDocument();
 		expect(asked).toEqual(['/api/places?q=Le']);
+	});
+
+	it('picks a place from the keyboard, as a combobox', async () => {
+		serve({ Lis: [lisbon] });
+		await render(PlacePicker);
+
+		await search().fill('Lis');
+		await expect.element(search()).toHaveAttribute('aria-expanded', 'true');
+		await userEvent.keyboard('{ArrowDown}{Enter}');
+
+		expect([posted('city'), posted('country')]).toEqual(['Lisbon', 'PT']);
+		await expect.element(page.getByRole('listbox')).not.toBeInTheDocument();
 	});
 
 	it('takes the region and country typed by hand', async () => {

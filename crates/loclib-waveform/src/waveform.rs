@@ -1,21 +1,12 @@
-use loclib_model::analysis::{Beat, Cue, WaveColumn, Waveform};
+use loclib_model::analysis::{Beat, Cue, WaveLayer, Waveform};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Modifier;
 use ratatui::widgets::Widget;
 
-use crate::color::scale;
-use crate::cues::{cue_label, put_cue, put_labels};
-use crate::{LOWER, Palette, Rgb};
-
-/// The loudest waveform column in `[from, to)`, or the one at `from` when the range is empty.
-fn column(w: &Waveform, from: f64, to: f64) -> Option<WaveColumn> {
-    if from < 0.0 || from >= w.columns.len() as f64 {
-        return None;
-    }
-    let a = from as usize;
-    let b = (to.ceil() as usize).clamp(a + 1, w.columns.len());
-    w.columns[a..b].iter().copied().max_by(|x, y| x.back.height.total_cmp(&y.back.height))
-}
+use crate::cues::{place_markers, put_cue};
+use crate::wave::{Stack, fill_of};
+use crate::{Marker, Palette, Wave, Zoom, ZoomRing};
 
 /// Whole-track overview: a row of cue markers above a bottom-anchored waveform; the part already
 /// played is dimmed, with the playhead in white.
@@ -31,36 +22,73 @@ pub struct Overview<'a> {
 
 impl Widget for Overview<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let Overview { wave, progress, cues, duration_ms, palette } = self;
+        WaveOverview { wave: wave.map(Wave::Layers), progress, cues, duration_ms, cue_rows: 1, palette }
+            .render(area, buf);
+    }
+}
+
+/// [`Overview`] of any [`Wave`], with a second row of cue markers where they collide if `cue_rows`
+/// allows it.
+pub struct WaveOverview<'a> {
+    pub wave: Option<Wave<'a>>,
+    /// 0-1.
+    pub progress: f32,
+    pub cues: &'a [Cue],
+    pub duration_ms: f64,
+    pub cue_rows: u16,
+    pub palette: Palette<'a>,
+}
+
+impl WaveOverview<'_> {
+    fn markers(&self, area: Rect) -> Vec<Marker<'_>> {
+        let w = f64::from(area.width);
+        let rows = self.cue_rows.clamp(1, area.height.saturating_sub(1).max(1));
+        place_markers(self.cues, rows, i64::from(area.width), |c| self.x_of(c.start_ms, w))
+    }
+
+    fn x_of(&self, ms: u32, w: f64) -> Option<i64> {
+        (self.duration_ms > 0.0).then(|| ((f64::from(ms) / self.duration_ms) * w) as i64)
+    }
+
+    /// The rows `area` gives to cue markers, over the waveform.
+    pub fn marker_rows(&self, area: Rect) -> u16 {
+        self.markers(area).iter().map(|m| m.row + 1).max().unwrap_or(1)
+    }
+}
+
+impl Widget for WaveOverview<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
         if area.height < 2 || area.width < 4 {
             return;
         }
         let (p, paint) = (&self.palette, self.palette.paint);
-        let marker_y = area.y;
-        let wave_area = Rect { y: area.y + 1, height: area.height - 1, ..area };
         let w = area.width as f64;
         let head = ((self.progress.clamp(0.0, 1.0) as f64 * w) as u16).min(area.width - 1);
+        let x_of = |ms: u32| self.x_of(ms, w);
+        let markers = self.markers(area);
+        let cue_rows = self.marker_rows(area);
+        let wave_area = Rect { y: area.y + cue_rows, height: area.height - cue_rows, ..area };
 
-        if self.duration_ms > 0.0 {
-            let x_of = |ms: u32| ((ms as f64 / self.duration_ms) * w) as u16;
-            for c in self.cues {
-                if let Some(end) = c.end_ms {
-                    for x in x_of(c.start_ms)..=x_of(end).min(area.width - 1) {
-                        p.put(buf, area.x + x, marker_y, "▁", paint(p.fade(p.cue_color(c), 0.8)), None);
+        for c in self.cues {
+            let (Some(end), Some(from)) = (c.end_ms, x_of(c.start_ms)) else { continue };
+            let to = x_of(end).unwrap_or(from).min(i64::from(area.width) - 1);
+            let tint = paint(p.fade(p.cue_color(c), 0.22));
+            for x in from..=to {
+                let x = area.x + x as u16;
+                p.put(buf, x, area.y, "▁", paint(p.fade(p.cue_color(c), 0.8)), None);
+                for y in wave_area.y..wave_area.bottom() {
+                    if let Some(cell) = buf.cell_mut((x, y)).filter(|_| !p.flat) {
+                        cell.set_bg(tint);
                     }
                 }
             }
-            // Memory cues first, so a hot cue at the same spot stays visible.
-            let mut cues: Vec<&Cue> = self.cues.iter().collect();
-            cues.sort_by_key(|c| c.hot_cue.is_some());
-            for c in cues {
-                let x = x_of(c.start_ms);
-                if x < area.width {
-                    put_cue(p, buf, area.x + x, marker_y, c, x < head);
-                }
-            }
+        }
+        for m in &markers {
+            put_cue(p, buf, area.x + m.x as u16, area.y + m.row, m.cue, m.x < i64::from(head));
         }
 
-        let Some(wave) = self.wave.filter(|w| !w.columns.is_empty()) else {
+        let Some(wave) = self.wave.filter(|w| !w.is_empty()) else {
             // No analysis: a plain progress rail.
             let y = wave_area.y + wave_area.height / 2;
             for x in 0..area.width {
@@ -71,49 +99,54 @@ impl Widget for Overview<'_> {
             return;
         };
 
-        let n = wave.columns.len() as f64;
+        let n = wave.len() as f64;
         let h = wave_area.height as f32;
         for x in 0..area.width {
-            let col = column(wave, x as f64 * n / w, (x + 1) as f64 * n / w).unwrap_or_default();
+            let stack = wave.stack(x as f64 * n / w, (x + 1) as f64 * n / w).unwrap_or_default();
             let played = x < head;
-            // Once a column, not once a cell: every row of it is the same two colours.
-            let shade = |c: Rgb| {
+            // Once a column, not once a cell: every row of it is the same colours.
+            let shade = |l: &WaveLayer| {
                 paint(if x == head {
                     p.playhead
                 } else if played {
-                    p.fade((p.marker)(c), 0.5)
+                    p.fade(p.wave_colour(l.color), 0.5)
                 } else {
-                    (p.marker)(scale(c, 1.25))
+                    p.wave_colour(l.color)
                 })
             };
-            let (front_color, back_color) = (shade(col.front.color), shade(col.back.color));
-            let (back, front) = (col.back.height * h, col.front.height * h);
+            let colors = [shade(&stack[0]), shade(&stack[1]), shade(&stack[2])];
+            let heights = layer_heights(p, &stack, h);
             for row in 0..wave_area.height {
                 let y = wave_area.bottom() - 1 - row;
-                let r = row as f32;
-                let back_fill = ((back - r) * 8.0).round().clamp(0.0, 8.0) as usize;
-                let front_fill = ((front - r) * 8.0).round().clamp(0.0, 8.0) as usize;
-                if back_fill == 0 {
+                let Some(cell) = buf.cell_mut((area.x + x, y)) else { continue };
+                let f = fill_of(heights, row);
+                if f.fill == 0 {
                     if x == head {
-                        p.put(buf, area.x + x, y, "│", paint(p.fg), None);
+                        cell.set_symbol("│").set_fg(paint(p.fg));
                     }
                     continue;
                 }
-                if front_fill == 8 {
-                    p.put(buf, area.x + x, y, "█", front_color, None);
-                } else if front_fill > 0 && back_fill == 8 {
-                    // Front layer fills the bottom of the cell, the back layer the rest.
-                    p.put(buf, area.x + x, y, LOWER[front_fill], front_color, Some(back_color));
-                } else {
-                    p.put(buf, area.x + x, y, LOWER[back_fill], back_color, None);
+                p.put_rising(cell, f, &colors);
+                if played && p.flat {
+                    cell.modifier.insert(Modifier::DIM);
                 }
             }
         }
     }
 }
 
+/// A column's layers as heights in cells. Without colours there's one shape to see.
+pub(crate) fn layer_heights(p: &Palette<'_>, stack: &Stack, cells: f32) -> [f32; 3] {
+    let heights = stack.map(|l| l.height * cells);
+    match p.plain {
+        true => [heights.into_iter().fold(0.0, f32::max), 0.0, 0.0],
+        false => heights,
+    }
+}
+
 /// Scrolling detail waveform centred on the playhead, mirrored, with beat ticks above it
-/// (bar starts brighter) and cue markers.
+/// (bar starts brighter) and cue markers. Every column is worked out each time: [`ZoomRing`] keeps
+/// them for what's drawn many times a second.
 pub struct Detail<'a> {
     pub wave: &'a Waveform,
     pub position_secs: f64,
@@ -126,118 +159,9 @@ pub struct Detail<'a> {
 
 impl Widget for Detail<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        if area.height < 3 || area.width < 8 {
-            return;
-        }
-        let (p, paint) = (&self.palette, self.palette.paint);
-        let cps = self.wave.columns_per_sec.unwrap_or(150.0);
-        let w = area.width as f64;
-        let start = self.position_secs - self.visible_secs / 2.0;
-        let secs_per_col = self.visible_secs / w;
-        let centre = area.width / 2;
-        let x_of = |secs: f64| ((secs - start) / secs_per_col).floor();
-
-        let tick_y = area.y;
-        for b in self.beats {
-            let x = x_of(b.time_ms as f64 / 1000.0);
-            if (0.0..w).contains(&x) {
-                let (sym, c) = if b.beat_number == 1 { ("╻", p.accent) } else { ("╷", p.dim) };
-                p.put(buf, area.x + x as u16, tick_y, sym, paint(c), None);
-            }
-        }
-        let wave_area = Rect { y: area.y + 1, height: area.height - 1, ..area };
-        let in_view = |x: f64| (0.0..w).contains(&x);
-        // Loops: a wash of the loop's colour behind the waveform for their length.
-        for c in self.cues {
-            let Some(end) = c.end_ms else { continue };
-            let (a, b) = (x_of(c.start_ms as f64 / 1000.0).max(0.0), x_of(end as f64 / 1000.0).min(w - 1.0));
-            if b < 0.0 || a >= w {
-                continue;
-            }
-            let wash = paint(p.fade(p.cue_color(c), 0.22));
-            for x in a as u16..=b as u16 {
-                for y in wave_area.y..wave_area.bottom() {
-                    if let Some(cell) = buf.cell_mut((area.x + x, y)) {
-                        cell.set_bg(wash);
-                    }
-                }
-            }
-        }
-
-        let up_rows = wave_area.height / 2;
-        let down_rows = wave_area.height - up_rows;
-        let centre_y = wave_area.y + up_rows;
-        for x in 0..area.width {
-            let t0 = start + x as f64 * secs_per_col;
-            let Some(col) = column(self.wave, t0 * cps, (t0 + secs_per_col) * cps) else { continue };
-            let color = if x == centre { p.playhead } else { (p.marker)(col.back.color) };
-            let past = x < centre;
-            let color = if past { p.fade(color, 0.7) } else { color };
-            // Painted once a column, not once a cell.
-            let (paint_color, reflection) = (paint(color), paint(p.fade(color, 0.55)));
-            let a = col.back.height;
-            // Upper half grows up from the centre line, in eighths.
-            let up = a * up_rows as f32;
-            for k in 0..up_rows {
-                let fill = ((up - k as f32) * 8.0).round().clamp(0.0, 8.0) as usize;
-                if fill > 0 {
-                    p.put(buf, area.x + x, centre_y - 1 - k, LOWER[fill], paint_color, None);
-                }
-            }
-            // Lower half: a dimmer reflection, in half cells.
-            let down = a * down_rows as f32;
-            for k in 0..down_rows {
-                let f = down - k as f32;
-                let sym = if f >= 0.75 {
-                    "█"
-                } else if f >= 0.25 {
-                    "▀"
-                } else {
-                    continue;
-                };
-                p.put(buf, area.x + x, centre_y + k, sym, reflection, None);
-            }
-            if x == centre && a == 0.0 {
-                p.put(buf, area.x + x, centre_y, "│", paint(p.fg), None);
-            }
-        }
-
-        // Cue lines through the waveform (memory cues first, hot cues over them), flags above
-        // with their names, and memory cues marked underneath too.
-        let mut cues: Vec<&Cue> = self.cues.iter().collect();
-        cues.sort_by_key(|c| c.hot_cue.is_some());
-        let mut labels = Vec::new();
-        for c in &cues {
-            let x = x_of(c.start_ms as f64 / 1000.0);
-            if !in_view(x) {
-                continue;
-            }
-            let x = x as u16;
-            let color = p.cue_color(c);
-            for y in wave_area.y..wave_area.bottom() {
-                if let Some(cell) = buf.cell_mut((area.x + x, y)) {
-                    if cell.symbol() == " " {
-                        cell.set_symbol("│");
-                    }
-                    cell.set_fg(paint(color));
-                }
-            }
-            if c.hot_cue.is_none() {
-                p.put(buf, area.x + x, wave_area.bottom() - 1, "▲", paint(color), None);
-            }
-            put_cue(p, buf, area.x + x, tick_y, c, false);
-            labels.push((x + 1, cue_label(c, self.beats.first().map_or(0.0, |b| b.bpm)), color));
-        }
-        // Loop ends get a thinner line.
-        for c in self.cues {
-            if let Some(end) = c.end_ms {
-                let x = x_of(end as f64 / 1000.0);
-                if in_view(x) {
-                    p.put(buf, area.x + x as u16, tick_y, "╷", paint(p.cue_color(c)), None);
-                }
-            }
-        }
-        put_labels(p, buf, area, tick_y, labels);
-        p.put(buf, area.x + centre, tick_y, "▼", paint(p.fg), None);
+        let Detail { wave, position_secs, visible_secs, beats, cues, palette } = self;
+        let wave = Wave::Layers(wave);
+        let zoom = Zoom { wave, position_secs, visible_secs, beats, cues, cue_rows: 0, bar_numbers: false, palette };
+        ZoomRing::default().draw(&zoom, area, buf);
     }
 }

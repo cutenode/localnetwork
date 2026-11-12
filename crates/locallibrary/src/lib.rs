@@ -11,6 +11,7 @@
 //!   their tracks in a library (the `loclib-tracklist` crate, re-exported).
 //! * [`smart`]: rule-based playlists kept in the store and written to drives as plain playlists.
 //! * [`pack`]: drives for a set, holding only chosen playlists of another drive.
+//! * [`drive_speed`]: how long a write to a drive will take, from what's measured on it.
 //! * [`settings`]: manage the player/mixer "My Settings" on every drive from one profile (the
 //!   files themselves are [`loclib_mysettings`]'s).
 //! * [`artwork`]: set and audit cover art on drives and in audio files.
@@ -72,6 +73,7 @@ pub mod cue_edit;
 pub mod device;
 pub mod diff;
 pub mod doctor;
+pub mod drive_speed;
 pub mod edit;
 pub mod eject;
 pub mod equipment;
@@ -129,14 +131,23 @@ pub mod tidy;
 mod timeline;
 mod track_files;
 pub mod tree;
+mod twins;
 pub mod upgrade;
+pub mod view;
 pub mod watch;
 mod workers;
+mod writing;
 
 /// Hooks for tests: what a failed write leaves behind, tests that share a process, and big files
 /// that take no room.
 #[doc(hidden)]
 pub mod testing {
+    /// Write every copy as to a drive with no clones, for tests whose drives share one disk. Holds
+    /// for the process.
+    pub fn no_reflinks() {
+        crate::fsutil::NO_REFLINKS.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
     pub use crate::commit::{fail_after_swap, fail_before_swap};
 
     /// Make the file at `path` (made if missing) `len` bytes long without taking the room: sparse,

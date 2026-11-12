@@ -109,6 +109,9 @@ pub enum LineageOp {
     Export,
     /// Damaged files rewritten from a known-good copy (see [`crate::scrub`]).
     Repair,
+    /// Another drive's state a merge took in whole, recorded before the merged state (see
+    /// [`crate::merge`]).
+    MergedIn,
     /// An operation from a newer version of locallibrary.
     #[serde(other)]
     Other,
@@ -144,7 +147,7 @@ impl PendingOp {
             LineageOp::Artwork => Some("art"),
             LineageOp::Restore => Some("undo"),
             LineageOp::Repair => Some("drive verify --repair"),
-            LineageOp::Edit | LineageOp::Observed | LineageOp::Other => None,
+            LineageOp::Edit | LineageOp::Observed | LineageOp::MergedIn | LineageOp::Other => None,
         };
         let what = command.map_or("a locallibrary operation".into(), |c| format!("a `locallibrary {c}`"));
         let about = if self.description.is_empty() { String::new() } else { format!(" ({})", self.description) };
@@ -366,6 +369,22 @@ impl std::fmt::Debug for Device {
     }
 }
 
+/// The drive's `state.json`, if it has one. One a newer locallibrary wrote is refused: this one
+/// would drop the fields it doesn't know when it next saves it.
+fn read_state(path: &Path) -> Result<Option<DeviceState>> {
+    let state: Option<DeviceState> = fsutil::read_json_opt(path)?;
+    if let Some(s) = &state
+        && s.format > STATE_FORMAT
+    {
+        return Err(Error::invalid(format!(
+            "{} is format {}, newer than this version of locallibrary supports ({STATE_FORMAT}): update locallibrary",
+            path.display(),
+            s.format
+        )));
+    }
+    Ok(state)
+}
+
 impl Device {
     /// Open a drive root (a mounted volume or any directory used as one).
     pub fn open(root: impl AsRef<Path>) -> Result<Device> {
@@ -374,7 +393,7 @@ impl Device {
             return Err(Error::NotFound(format!("{} is not a directory", root.display())));
         }
         let root = dunce_canonicalize(root);
-        let state = fsutil::read_json_opt(&root.join(paths::STATE_DIR).join("state.json"))?;
+        let state = read_state(&root.join(paths::STATE_DIR).join("state.json"))?;
         Ok(Device { root, state, swaps: 0 })
     }
 
@@ -531,7 +550,7 @@ impl Device {
     /// Read the identity file again: after something put an earlier one back, or once the drive
     /// is locked, as another process may have written it since this one opened the drive.
     pub(crate) fn reload_state(&mut self) -> Result<()> {
-        self.state = fsutil::read_json_opt(&self.state_dir().join("state.json"))?;
+        self.state = read_state(&self.state_dir().join("state.json"))?;
         Ok(())
     }
 

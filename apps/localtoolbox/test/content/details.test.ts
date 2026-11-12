@@ -1254,6 +1254,74 @@ describe('a page the anonymous API cannot see', () => {
 		expect(paths().filter((p) => p.startsWith('/resolve'))).toHaveLength(3);
 		expect(response.unseen).toBe(false);
 	});
+
+	const resolves = (paths: () => string[]) => paths().filter((p) => p.startsWith('/resolve'));
+	const rows40 = Array.from({ length: 40 }, (_, i) => i + 1);
+
+	it('carries on through the rest when just one of the handful comes back', async () => {
+		blind(rows40);
+
+		const { paths } = mockFetch((url) =>
+			url.pathname === '/resolve' && trackNumber(url) === 1 ? jsonResponse(track(1)) : jsonResponse([])
+		);
+
+		await loadContentScript();
+		const response = await getDetails();
+		expect(resolves(paths)).toHaveLength(40);
+		expect(response.unseen).toBe(false);
+	});
+
+	// Something the bulk source settled says the page is visible, so the rows it
+	// did not reach are asked about however many of them come back empty.
+	it('asks about every row the bulk source left, once it settled some', async () => {
+		blind(rows40);
+
+		const { paths } = mockFetch((url) => {
+			if (url.pathname !== '/tracks') return jsonResponse([]);
+			const ids = url.searchParams.get('ids')!.split(',').map(Number);
+
+			return jsonResponse(ids.filter((id) => id <= 10).map((id) => track(id)));
+		});
+
+		await loadContentScript();
+		const response = await getDetails();
+		expect(resolves(paths)).toHaveLength(30);
+		expect(response.unseen).toBe(false);
+	});
+
+	// No bulk source has come back empty, so nothing says the page is hidden.
+	it('asks about every row of a page with no bulk source', async () => {
+		render(`<ul>${rows40.map(row).join('')}</ul>`, '/stream');
+		hydrationScript([apiClientEntry()]);
+		const { paths } = mockFetch(() => jsonResponse([]));
+		await loadContentScript();
+		const response = await getDetails();
+		expect(response.pageType).toBe('other');
+		expect(resolves(paths)).toHaveLength(40);
+		expect(response.unseen).toBe(false);
+	});
+
+	it('gives the rest of a Likes page up the same way', async () => {
+		const items = rows40.map((n) => likedSound({ title: `L${n}`, href: `/l${n}/t${n}` }));
+		render(publicLikesPage({ user: 'dj', items }), '/dj/likes');
+		hydrationScript([apiClientEntry(), { hydratable: 'user', data: { id: 7, permalink: 'dj' } }]);
+		const { paths } = mockFetch((url) => jsonResponse(url.pathname === '/users/7/likes' ? likesListing([]) : []));
+		await loadContentScript();
+		const response = await getDetails();
+		expect(paths().filter((p) => p.startsWith('/users/7/likes'))).toHaveLength(1);
+		expect(resolves(paths)).toHaveLength(PROBE);
+		expect(response.unseen).toBe(true);
+	});
+
+	// A rejected key says nothing about whether the page is visible.
+	it('does not call a page unseen when the handful met a rejected key', async () => {
+		blind(rows40);
+		mockFetch((url) => (url.pathname === '/resolve' ? jsonResponse({}, 401) : jsonResponse([])));
+		await loadContentScript();
+		const response = await getDetails();
+		expect(response.error).toBe('unauthorized');
+		expect(response.unseen).toBe(false);
+	});
 });
 
 describe('one lookup at a time', () => {

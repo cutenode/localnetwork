@@ -42,6 +42,15 @@ describe('FollowService', () => {
 		expect(follows()).toHaveLength(1);
 	});
 
+	it('says whether an account follows anyone', async () => {
+		expect(await t.follows.followsAny(FAN)).toBe(false);
+
+		await t.follows.follow(await t.viewer(FAN), project);
+
+		expect(await t.follows.followsAny(FAN)).toBe(true);
+		expect(await t.follows.followsAny(ADMIN)).toBe(false);
+	});
+
 	it('deletes nothing for a follow the directory names without a record key', async () => {
 		await t.follows.follow(await t.viewer(FAN), project);
 		const directory = answering(JSON.stringify({ followers: 1, follows: [`at://${FAN}/${COLLECTION.follow}`] }));

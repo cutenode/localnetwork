@@ -138,10 +138,317 @@ fn a_write_leaves_the_drive_holding_the_library_it_wants(tc: hegel::TestCase) {
     assert_eq!(after.keys().map(String::as_str).collect::<Vec<_>>(), want);
 }
 
+/// Whichever way a run of copies goes (any size of file, the small ones at once), each comes out
+/// once, and an error stops the run: nothing starts after it among the large files, and the first
+/// error is the one given back.
+#[hegel::test(test_cases = 50)]
+fn every_copy_runs_once_until_one_fails(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let sizes: Vec<u64> =
+        tc.draw(gs::vecs(gs::sampled_from(vec![0, 1, SMALL_FILE, SMALL_FILE + 1, 1 << 30])).max_size(40));
+    let fails_at = tc.draw(gs::optional(gs::integers::<usize>().max_value(40)));
+    let items: Vec<(usize, u64)> = sizes.iter().copied().enumerate().collect();
+    let tried = std::sync::Mutex::new(Vec::new());
+    let (done, stopped) = copy_each(
+        &items,
+        |i| i.1,
+        |&(n, _)| {
+            tried.lock().unwrap().push(n);
+            match Some(n) == fails_at {
+                true => Err(Error::invalid(format!("copy {n}"))),
+                false => Ok(n),
+            }
+        },
+    );
+    let mut tried = tried.into_inner().unwrap();
+    tried.sort_unstable();
+    assert!(tried.windows(2).all(|w| w[0] != w[1]), "one copied twice: {tried:?}");
+    match fails_at.filter(|n| *n < items.len()) {
+        None => {
+            assert!(stopped.is_none());
+            let mut done = done;
+            done.sort_unstable();
+            assert_eq!(done, (0..items.len()).collect::<Vec<_>>());
+        }
+        Some(n) => {
+            assert!(matches!(&stopped, Some(Error::Invalid(m)) if *m == format!("copy {n}")), "{stopped:?}");
+            assert!(!done.contains(&n));
+            let is_small = |i: usize| items[i].1 <= SMALL_FILE;
+            if !is_small(n) {
+                let last_large = tried.iter().rev().find(|i| !is_small(**i));
+                assert_eq!(last_large, Some(&n), "large copies are made in order, and stop at the failure");
+            }
+            assert!(tried.iter().all(|i| is_small(n) == is_small(*i) || is_small(*i)), "large copies follow the small");
+        }
+    }
+}
+
+/// Downloading ahead reads what it's given and changes nothing, stops once the copy has finished,
+/// and passes over a file that's gone.
+#[hegel::test(test_cases = 10)]
+fn downloading_ahead_leaves_every_file_as_it_was(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let count = tc.draw(gs::integers::<usize>().max_value(6));
+    let finished = AtomicBool::new(tc.draw(gs::booleans()));
+    let dir = tempfile::tempdir().unwrap();
+    let files: Vec<PathBuf> = (0..count).map(|i| dir.path().join(i.to_string())).collect();
+    for (i, f) in files.iter().enumerate() {
+        if i != 0 {
+            std::fs::write(f, i.to_string()).unwrap();
+        }
+    }
+    download_ahead(&Mutex::new(files.clone().into_iter()), &finished);
+    for (i, f) in files.iter().enumerate().skip(1) {
+        assert_eq!(std::fs::read_to_string(f).unwrap(), i.to_string());
+    }
+}
+
+/// A failure while another copy is part way through it: that copy finishes and is kept, and the
+/// audio that would have followed doesn't start.
+#[test]
+fn a_copy_under_way_when_another_fails_finishes() {
+    let (failed, under_way) = std::sync::mpsc::channel();
+    let (failed, under_way) = (std::sync::Mutex::new(failed), std::sync::Mutex::new(under_way));
+    let items = [(0, 1), (1, 1), (2, SMALL_FILE + 1)];
+    let (done, stopped) = copy_each(
+        &items,
+        |i| i.1,
+        |&(n, _)| match n {
+            0 => {
+                let wait = std::time::Duration::from_secs(30);
+                under_way.lock().unwrap().recv_timeout(wait).expect("the other copy fails");
+                Ok(0)
+            }
+            1 => {
+                failed.lock().unwrap().send(()).unwrap();
+                Err(Error::invalid("copy 1"))
+            }
+            n => Ok(n),
+        },
+    );
+    assert_eq!(done, [0]);
+    assert!(matches!(&stopped, Some(Error::Invalid(m)) if m == "copy 1"), "{stopped:?}");
+}
+
+/// Release reads already under way and remove the names so a late open fails instead of blocking.
+/// Keep the handles alive until the workers exit, including when a connection timed out.
+#[cfg(unix)]
+fn release_downloads(files: &[PathBuf]) -> Vec<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    files
+        .iter()
+        .map(|path| {
+            let mut fifo =
+                std::fs::File::options().read(true).write(true).custom_flags(libc::O_NONBLOCK).open(path).unwrap();
+            std::fs::remove_file(path).unwrap();
+            std::io::Write::write_all(&mut fifo, &[b'x'; DOWNLOADS_AT_ONCE]).unwrap();
+            fifo
+        })
+        .collect()
+}
+
+#[cfg(unix)]
+fn join_downloads(workers: Vec<std::thread::JoinHandle<()>>) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while workers.iter().any(|w| !w.is_finished()) && std::time::Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert!(workers.iter().all(std::thread::JoinHandle::is_finished), "released downloads did not exit");
+    for worker in workers {
+        worker.join().unwrap();
+    }
+}
+
+/// Online-only files come down side by side: here each "download" (a read of a FIFO) waits for a
+/// writer, and those only turn up last file first, so reading them in turn would never get past
+/// the first.
+#[cfg(unix)]
+#[test]
+fn downloads_overlap_instead_of_waiting_their_turn() {
+    use std::fs::File;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::OpenOptionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let files: Vec<PathBuf> = (0..DOWNLOADS_AT_ONCE).map(|i| dir.path().join(i.to_string())).collect();
+    for f in &files {
+        let name = std::ffi::CString::new(f.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `name` is a C string for the length of the call.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    }
+    let pending = Mutex::new(files.clone().into_iter());
+    let finished = Arc::new(AtomicBool::new(false));
+    let give_up = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    // Opening a FIFO to write without blocking fails until something is reading it.
+    let reached = |f: &PathBuf| {
+        while std::time::Instant::now() < give_up {
+            if let Ok(mut fifo) = File::options().write(true).custom_flags(libc::O_NONBLOCK).open(f) {
+                return std::io::Write::write_all(&mut fifo, b"x").is_ok();
+            }
+            std::thread::yield_now();
+        }
+        false
+    };
+    let stop = finished.clone();
+    let worker = std::thread::spawn(move || download_ahead(&pending, &stop));
+    let overlapped = files.iter().rev().all(reached);
+    finished.store(true, Ordering::Relaxed);
+    let _released = release_downloads(&files);
+    join_downloads(vec![worker]);
+    assert!(overlapped, "each waited for the one before it");
+}
+
+/// A blocked cloud read owns only its source. It cannot hold up settling a failed or cancelled
+/// copy. The FIFO stays blocked until after the result is observed, then is released and joined.
+#[cfg(unix)]
+#[hegel::test(test_cases = 2)]
+#[hegel::explicit_test_case(cancelled = false)]
+#[hegel::explicit_test_case(cancelled = true)]
+fn a_stopped_copy_settles_without_waiting_for_a_blocked_download(tc: hegel::TestCase) {
+    use std::fs::File;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::sync::{Mutex, mpsc};
+    use std::time::{Duration, Instant};
+
+    let cancelled = tc.draw(hegel::generators::booleans());
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("drive");
+    std::fs::create_dir(&root).unwrap();
+    let fifo_path = dir.path().join("cloud");
+    let queued_path = dir.path().join("queued");
+    for path in [&fifo_path, &queued_path] {
+        let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: name is a valid C string for this call.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    }
+    let src = dir.path().join("source");
+    std::fs::write(&src, b"done").unwrap();
+    let mut target = Device::open(&root).unwrap();
+    target.begin(crate::device::LineageOp::Export, "export", None).unwrap();
+    let mut planned = Planned::default();
+    planned.copies.push(FileCopy { path: "Contents/done.mp3".into(), size: 4 });
+    planned.sources.insert("Contents/done.mp3".into(), Source::file(src, 4, 1_600_000_000));
+    planned.copies.push(FileCopy { path: "Contents/fails.mp3".into(), size: SMALL_FILE + 1 });
+    planned
+        .sources
+        .insert("Contents/fails.mp3".into(), Source::file(dir.path().join("missing"), SMALL_FILE + 1, 1_600_000_000));
+    if cancelled {
+        std::fs::write(dir.path().join("missing"), b"cancelled").unwrap();
+    }
+    let (ready, wait) = mpsc::channel();
+    let (done, result) = mpsc::channel();
+    let mut online = vec![fifo_path; DOWNLOADS_AT_ONCE];
+    online.push(queued_path.clone());
+    let mut downloads = Downloads::start(online);
+    let prefetch = downloads.worker.take().unwrap();
+    let pending = downloads.pending.clone();
+    let worker = std::thread::spawn(move || {
+        let cancel = crate::progress::CancelToken::new();
+        let wait = Mutex::new(wait);
+        let progress = |event: &Event| {
+            if matches!(event, Event::Item { path, .. } if path == "Contents/fails.mp3") {
+                wait.lock().unwrap().recv_timeout(Duration::from_secs(10)).unwrap();
+                if cancelled {
+                    cancel.cancel();
+                }
+            }
+        };
+        let _ = done.send(copy_with_downloads(&target, &planned, &Ctx::new(&progress, cancel.clone()), || downloads));
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let fifo_path = dir.path().join("cloud");
+    let fifo = loop {
+        if let Ok(file) = File::options().write(true).custom_flags(libc::O_NONBLOCK).open(&fifo_path) {
+            break Some(file);
+        }
+        if Instant::now() >= deadline {
+            break None;
+        }
+        std::thread::yield_now();
+    };
+    let _ = ready.send(());
+    let early = result.recv_timeout(Duration::from_secs(2));
+    let released_pending = pending.lock().unwrap().as_slice().is_empty();
+    let settled = std::fs::metadata(root.join("Contents/done.mp3"))
+        .is_ok_and(|m| fsutil::mtime_eq(fsutil::mtime_secs(&m), 1_600_000_000));
+    // Retrying while the first batch is still blocked must not accumulate more workers.
+    let mut retry = Downloads::start(vec![queued_path.clone()]);
+    let retried = retry.worker.take().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !retried.is_finished() && Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    let retry_skipped = retried.is_finished();
+    drop(retry);
+    let requested_after_stop = File::options().write(true).custom_flags(libc::O_NONBLOCK).open(&queued_path).is_ok();
+    let _released = release_downloads(&[fifo_path, queued_path]);
+    join_downloads(vec![worker, prefetch, retried]);
+    assert!(fifo.is_some(), "prefetch did not reach the initial FIFO");
+    assert!(released_pending, "cancelled downloads retained queued paths");
+    let outcome = early.expect("copy must return before the cloud read is released");
+    assert!(retry_skipped, "a retry added another batch while the first was blocked");
+    assert!(!requested_after_stop, "a queued download started after the copy stopped");
+    assert!(settled, "completed copies must be flushed and stamped before returning");
+    assert!(matches!(outcome, Err(Error::Cancelled)) == cancelled, "{outcome:?}");
+    assert!(outcome.is_err());
+    assert_eq!(std::fs::read(root.join("Contents/done.mp3")).unwrap(), b"done");
+    assert!(!root.join("Contents/fails.mp3").exists());
+}
+
+/// A rejected write cannot hydrate a cloud source. A FIFO stands in for the blocking cloud read.
+#[cfg(unix)]
+#[hegel::test(test_cases = 2)]
+#[hegel::explicit_test_case(blocked_note = false)]
+#[hegel::explicit_test_case(blocked_note = true)]
+fn a_rejected_note_does_not_start_downloads(tc: hegel::TestCase) {
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::time::{Duration, Instant};
+    let blocked_note = tc.draw(hegel::generators::booleans());
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("drive");
+    std::fs::create_dir(&root).unwrap();
+    let target = Device::open(&root).unwrap();
+    if blocked_note {
+        std::fs::create_dir_all(target.state_dir().join("writing.json")).unwrap();
+    } else {
+        std::fs::write(target.state_dir(), b"not a directory").unwrap();
+    }
+    let source = dir.path().join("cloud");
+    let name = std::ffi::CString::new(source.as_os_str().as_bytes()).unwrap();
+    // SAFETY: name is a valid C string for this call.
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    let mut planned = Planned::default();
+    planned.copies.push(FileCopy { path: "Contents/a.mp3".into(), size: 1 });
+    planned.sources.insert("Contents/a.mp3".into(), Source::file(source.clone(), 1, 1_600_000_000));
+    let mut worker = None;
+    let mut hydrated = false;
+    let result = copy_with_downloads(&target, &planned, &Ctx::silent(), || {
+        let mut downloads = Downloads::start(vec![source.clone()]);
+        worker = downloads.worker.take();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            if std::fs::File::options().write(true).custom_flags(libc::O_NONBLOCK).open(&source).is_ok() {
+                hydrated = true;
+                break;
+            }
+            std::thread::yield_now();
+        }
+        downloads
+    });
+    let _released = release_downloads(&[source]);
+    let started = worker.is_some();
+    join_downloads(worker.into_iter().collect());
+    assert!(result.is_err());
+    assert!(!hydrated, "a rejected write opened its cloud source");
+    assert!(!started, "a rejected write started background work");
+    assert!(!root.join("Contents/a.mp3").exists());
+}
+
 /// A copy that fails part way (its source gone, not planned, an unsafe path, a folder where its
 /// own should go, an analysis file that isn't one, or stopped) reports the error, and the files
 /// copied before it are in place with their sources' times, so running it again copies only the
-/// rest.
+/// rest. The one that failed leaves nothing, and any after it that were under way are whole too.
 #[hegel::test(test_cases = 30)]
 #[hegel::explicit_test_case(at = 0usize, failure = 0u8, analysis = false)]
 #[hegel::explicit_test_case(at = 1usize, failure = 1u8, analysis = true)]
@@ -223,8 +530,15 @@ fn a_copy_cut_short_keeps_what_it_copied(tc: hegel::TestCase) {
         6 => assert!(matches!(err, Error::Cancelled), "{err}"),
         _ => {}
     }
-    for c in &planned.copies[..at] {
+    for (i, c) in planned.copies.iter().enumerate() {
         let p = target.path(&c.path);
+        if i == at || failure == 6 {
+            assert!(!p.is_file(), "{} copied", c.path);
+            continue;
+        }
+        if i > at && !p.is_file() {
+            continue;
+        }
         let s = &planned.sources[&c.path];
         let want = match &s.audio_path {
             Some(audio) => analysis_bytes(&s.path, audio, s.shift_ms).unwrap(),
@@ -232,9 +546,6 @@ fn a_copy_cut_short_keeps_what_it_copied(tc: hegel::TestCase) {
         };
         assert_eq!(std::fs::read(&p).unwrap(), want);
         assert_eq!(fsutil::mtime_secs(&std::fs::metadata(&p).unwrap()), s.mtime);
-    }
-    for c in &planned.copies[at..] {
-        assert!(!target.path(&c.path).is_file(), "{} copied", c.path);
     }
 }
 

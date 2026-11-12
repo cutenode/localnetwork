@@ -7,6 +7,8 @@
 /.build/
 # cargo-mutants' results (.cargo/mutants.toml).
 /mutants.out*
+# Stryker's sandboxes for apps/localtoolbox (its stryker.config.mjs says why they're here).
+/.stryker-tmp/
 node_modules/
 # The coverage report from `pnpm test:tools`.
 /coverage/

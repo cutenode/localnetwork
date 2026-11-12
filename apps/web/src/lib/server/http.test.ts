@@ -2,7 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import { describe, expect, it } from 'vitest';
 import type { StaffRole, Viewer } from '#lib/types.ts';
 import { RecordValidationError } from './atproto/lexicons';
-import { ReauthError, UserError } from './core';
+import { FieldError, ReauthError, UserError } from './core';
 import {
 	act,
 	all,
@@ -67,6 +67,11 @@ describe('act', () => {
 		const lapsed = await act(() => Promise.reject(new ReauthError('Sign in again to follow DJs')));
 		expect(lapsed).toMatchObject({ status: 401, data: { error: 'Sign in again to follow DJs', reauth: true } });
 		const invalid = await act(() => Promise.reject(new RecordValidationError('x', 'too long')), values);
+		const refused = await act(() => Promise.reject(new FieldError('Pick a fee tier', 'feeTier', 2)), values);
+		expect(refused).toMatchObject({
+			status: 400,
+			data: { error: 'Pick a fee tier', field: { name: 'feeTier', row: 2 } }
+		});
 		expect(invalid).toMatchObject({ status: 400, data: { error: expect.stringMatching(/record format/), values } });
 		expect(await act(() => Promise.resolve({ ok: true }))).toEqual({ ok: true });
 	});

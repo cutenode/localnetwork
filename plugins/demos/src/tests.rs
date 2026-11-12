@@ -92,7 +92,7 @@ impl Session {
 }
 
 fn delete(paths: &[&str]) -> Value {
-    json!({ "op": "delete_tracks", "tracks": { "paths": paths } })
+    json!({ "op": "delete_unbacked", "tracks": { "paths": paths } })
 }
 
 /// Two demo tracks (spelled as rekordbox does, and not), one of them twice on one file, one
@@ -119,7 +119,12 @@ fn the_manifest_is_a_built_in_one_with_a_check_and_a_destructive_operation() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     assert!(manifest.validate(true).is_ok());
     assert!(manifest.validate(false).is_err(), "only a plugin locallibrary ships has a top-level CLI command");
-    let capabilities = [Capability::LibraryRead, Capability::LibraryPlan, Capability::LibraryDelete];
+    let capabilities = [
+        Capability::LibraryRead,
+        Capability::LibraryPlan,
+        Capability::LibraryDelete,
+        Capability::LibraryDeleteUnbacked,
+    ];
     assert_eq!(manifest.capabilities, capabilities);
     let check = &manifest.contributes.checks[0];
     assert_eq!((check.name.as_str(), check.default_on, check.when.as_slice()), ("tracks", true, &[When::Check][..]));

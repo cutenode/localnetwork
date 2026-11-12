@@ -1,7 +1,13 @@
-# Git hooks (installed by `pnpm install`). Each TypeScript app has its own jobs, which run in the
-# app's folder and only see the files under it; the lexicons have one of their own, and ast-grep
-# one over the whole repo.
+# Git hooks (installed by `pnpm install`). Each TypeScript app and package has its own jobs, which
+# run in its folder and only see the files under it; the lexicons have one of their own, and
+# ast-grep one over the whole repo.
 rc: tools/lefthook-rc.sh
+# Every worktree shares one .git/hooks. Without this, the hooks run the lefthook of whichever
+# worktree ran `lefthook install` last, and skip their jobs without a word once that worktree is
+# gone and neither lefthook nor pnpm is on PATH. `pnpm exec` runs the committing worktree's own
+# lefthook (installing it first if that worktree hasn't been), and the hook fails when pnpm isn't
+# on PATH, which the jobs need anyway. tools/policy/apps.rego keeps this set.
+lefthook: pnpm exec lefthook
 
 # Each hook installs once before its jobs. pnpm checks the dependencies before every `pnpm exec` and `pnpm <script>`
 # and installs them when the lockfile has moved on (after a merge), so the parallel jobs would each start an install.
@@ -20,9 +26,59 @@ pre-commit:
       glob: '*.{ts,mts,js,json,css,md}'
       run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
       stage_fixed: true
+    - name: format atstore
+      root: packages/atstore/
+      glob: '*.{ts,js,json,css}'
+      run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
+      stage_fixed: true
     - name: format lexicons
       glob: 'lexicons/computer/**/*.json'
       run: pnpm exec oxfmt {staged_files}
+      stage_fixed: true
+    # The root's own files that no app's jobs see (the root's format:tools and lint:tools).
+    - name: format tools
+      glob:
+        - 'tools/**.{ts,mts,js,mjs,json,yml}'
+        - '.railway/*.ts'
+        - 'vitest.config.ts'
+        - 'commitlint.config.js'
+        - '{flags,benchmarks,packages/tokens}/**.{json,css}'
+        - 'apps/locallibrary/bombadil/*.{ts,mjs,json}'
+      run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
+      stage_fixed: true
+    - name: lint tools
+      glob:
+        - 'tools/**.{ts,mts,js,mjs}'
+        - '.railway/*.ts'
+        - 'vitest.config.ts'
+        - 'commitlint.config.js'
+        - 'apps/locallibrary/bombadil/*.{ts,mjs}'
+      run: pnpm exec oxlint {staged_files}
+    # Skipped without ShellCheck (`brew install shellcheck`); CI runs it on every script (repo-checks.yml).
+    - name: shellcheck
+      glob: '*.sh'
+      skip:
+        - run: '! command -v shellcheck > /dev/null'
+      run: shellcheck {staged_files}
+    # Skipped without typos (`brew install typos-cli`); CI runs it on every file (repo-checks.yml).
+    - name: typos
+      skip:
+        - run: '! command -v typos > /dev/null'
+      run: typos --force-exclude {staged_files}
+    # HappyView's Lua scripts; skipped without StyLua and selene (`brew install stylua selene`).
+    - name: lua
+      root: apps/web/lua/
+      glob: '*.lua'
+      skip:
+        - run: '! (command -v stylua && command -v selene) > /dev/null'
+      run: stylua {staged_files} && selene {staged_files}
+      stage_fixed: true
+    # Skipped without taplo (`brew install taplo`); CI checks every TOML file (repo-checks.yml).
+    - name: taplo
+      glob: '*.toml'
+      skip:
+        - run: '! command -v taplo > /dev/null'
+      run: taplo fmt {staged_files}
       stage_fixed: true
     - name: lint web
       root: apps/web/
@@ -32,14 +88,24 @@ pre-commit:
       root: apps/localtoolbox/
       glob: '*.{ts,mts,js,svelte}'
       run: pnpm exec oxlint {staged_files}
+    - name: lint atstore
+      root: packages/atstore/
+      glob: '*.{ts,js}'
+      run: pnpm exec oxlint {staged_files}
+    # rustfmt.toml's settings, on the staged files of both Cargo workspaces (the root's and fuzz/'s).
+    - name: rustfmt
+      glob: '*.rs'
+      run: rustfmt --edition 2024 {staged_files}
+      stage_fixed: true
     # The languages sgconfig.yml's rules are written for: TypeScript and Rust, and Svelte, whose
     # scripts the TypeScript rules check.
     - name: ast-grep
       glob: '*.{ts,mts,cts,rs,svelte}'
       run: pnpm exec ast-grep scan {staged_files}
 
+# The jobs run one at a time. Side by side, the web and localtoolbox suites starve each other's
+# browser tests of CPU on a busy machine until they time out, and the push fails.
 pre-push:
-  parallel: true
   setup:
     - run: pnpm install --frozen-lockfile
   jobs:
@@ -54,7 +120,13 @@ pre-push:
     - name: tests localtoolbox
       root: apps/localtoolbox/
       run: pnpm test
-    # Nothing else here compiles what's behind cfg(windows), so a slip there would wait for CI's Windows job. Skipped
+    - name: typecheck atstore
+      root: packages/atstore/
+      run: pnpm check
+    - name: tests atstore
+      root: packages/atstore/
+      run: pnpm test
+    # Nothing else here compiles what's behind cfg(windows); CI runs the same command (locallibrary-ci.yml's clippy-windows). Skipped
     # without the target and a MinGW compiler, which the crates that build C need: `rustup target add
     # x86_64-pc-windows-gnu`, `brew install mingw-w64`.
     - name: clippy for Windows
@@ -65,3 +137,9 @@ pre-push:
       skip:
         - run: '! (command -v x86_64-w64-mingw32-gcc && rustup target list --installed | grep -q x86_64-pc-windows-gnu) > /dev/null'
       run: cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-gnu -- -D warnings
+
+# Conventional Commits (commitlint.config.js), as CI checks each pull request's commits.
+commit-msg:
+  jobs:
+    - name: commitlint
+      run: pnpm exec commitlint --edit {1}

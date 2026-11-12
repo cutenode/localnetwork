@@ -1,0 +1,67 @@
+{
+	"$id": "flag.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"oneOf": [
+		{
+			"type": "object",
+			"properties": {
+				"$schema": {
+					"type": "string"
+				},
+				"key": {
+					"type": "string",
+					"maxLength": 64,
+					"pattern": "^[a-z][a-zA-Z0-9]*$",
+					"description": "What code asks for: camelCase, the same as the file name."
+				},
+				"description": {
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 300,
+					"description": "What the flag gates, for the staff console."
+				},
+				"type": {
+					"type": "string",
+					"enum": ["release", "experiment"],
+					"description": "release rolls a feature out, experiment tries one out. Both go once it is decided."
+				},
+				"removeBy": {
+					"type": "string",
+					"format": "date",
+					"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+					"description": "When the flag and the code it gates should be gone, as YYYY-MM-DD. Tests fail after it."
+				}
+			},
+			"required": ["key", "description", "type", "removeBy"],
+			"additionalProperties": false
+		},
+		{
+			"type": "object",
+			"properties": {
+				"$schema": {
+					"type": "string"
+				},
+				"key": {
+					"type": "string",
+					"maxLength": 64,
+					"pattern": "^[a-z][a-zA-Z0-9]*$",
+					"description": "What code asks for: camelCase, the same as the file name."
+				},
+				"description": {
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 300,
+					"description": "What the flag gates, for the staff console."
+				},
+				"type": {
+					"type": "string",
+					"enum": ["ops", "permission"],
+					"description": "ops changes how the site runs, permission says who can use something. Both stay."
+				}
+			},
+			"required": ["key", "description", "type"],
+			"additionalProperties": false
+		}
+	],
+	"description": "A feature flag the website and locallibrary share. Who it is on for is set in the staff console."
+}

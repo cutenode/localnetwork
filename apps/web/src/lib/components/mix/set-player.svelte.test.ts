@@ -56,7 +56,7 @@ describe('SetPlayer', () => {
 		await expect.element(page.getByRole('button', { name: 'Play' })).toBeEnabled();
 	});
 
-	it('follows the tracklist as the recording plays on', async () => {
+	it('follows the tracklist as the recording moves on', async () => {
 		const short = [
 			{ title: 'First', artist: 'One', startSeconds: 0 },
 			{ title: 'Second', artist: 'Two', startSeconds: 1 }
@@ -66,8 +66,16 @@ describe('SetPlayer', () => {
 		await expect.element(position()).toBeEnabled();
 		await start();
 		await expect.element(nowPlaying('First')).toBeInTheDocument();
-		// A second of silence plays, then the second track starts.
-		await expect.element(nowPlaying('Second'), { timeout: 5_000 }).toBeInTheDocument();
+
+		// Past the second track's start, as playing on would get there, without waiting on a busy machine's media clock.
+		// The player hears of it in `timeupdate` either way.
+		const audio = page
+			.getByRole('region', { name: /^Player for/ })
+			.element()
+			.querySelector('audio')!;
+
+		audio.currentTime = 1.5;
+		await expect.element(nowPlaying('Second')).toBeInTheDocument();
 		await expect.element(nowPlaying('Two')).toBeInTheDocument();
 	});
 

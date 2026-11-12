@@ -11,7 +11,7 @@ valid:
   - "#[cfg(test)]\nmod helpers {\n    fn f() {}\n}"
   - "#[cfg(not(test))]\nmod live;"
   - "#[cfg(debug_assertions)]\n#[path = \"bin/test-plugin/plugin.rs\"]\nmod test_plugin;"
-  - "mod helpers;"
+  - 'mod helpers;'
   - "#[cfg(test)]\nmod tests;\nmod helpers;"
 invalid:
   - "#[cfg(test)]\nmod helpers;"

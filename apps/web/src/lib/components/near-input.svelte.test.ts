@@ -1,4 +1,4 @@
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import type { Place } from '#lib/places.ts';
@@ -32,11 +32,11 @@ describe('NearInput', () => {
 		await render(NearInput);
 
 		await near().fill('Leip');
-		await page.getByRole('button', { name: 'Leipzig, Germany' }).click();
+		await page.getByRole('option', { name: 'Leipzig, Germany' }).click();
 
 		expect(asked).toEqual(['/api/places?q=Leip']);
 		await expect.element(near()).toHaveValue('Leipzig, Germany');
-		await expect.element(page.getByRole('button', { name: 'Leipzig, Germany' })).not.toBeInTheDocument();
+		await expect.element(page.getByRole('option', { name: 'Leipzig, Germany' })).not.toBeInTheDocument();
 		expect(posted()).toEqual(['51.33970', '12.37310']);
 	});
 
@@ -46,10 +46,10 @@ describe('NearInput', () => {
 		expect(posted()).toEqual(['52.52000', '13.40500']);
 
 		await near().fill('Le');
-		await expect.element(page.getByRole('button', { name: 'Leipzig, Germany' })).toBeVisible();
+		await expect.element(page.getByRole('option', { name: 'Leipzig, Germany' })).toBeVisible();
 		await near().fill('L');
 
-		await expect.element(page.getByRole('button', { name: 'Leipzig, Germany' })).not.toBeInTheDocument();
+		await expect.element(page.getByRole('option', { name: 'Leipzig, Germany' })).not.toBeInTheDocument();
 		expect(posted()).toEqual(['', '']);
 	});
 
@@ -80,10 +80,34 @@ describe('NearInput', () => {
 		expect(posted()).toEqual(['51.33970', '12.37310']);
 	});
 
-	it("leaves the place as it was when the location can't be had", async () => {
+	it('picks a place from the keyboard, and closes the list on Escape', async () => {
+		serve({ Leip: [leipzig, { ...leipzig, label: 'Leipzig, Ohio', latE6: 41_100_000, lngE6: -84_000_000 }] });
+		await render(NearInput);
+
+		await near().fill('Leip');
+		await expect.element(near()).toHaveAttribute('aria-expanded', 'true');
+		await userEvent.keyboard('{ArrowDown}{ArrowDown}');
+		await expect.element(page.getByRole('option', { name: 'Leipzig, Ohio' })).toHaveAttribute('aria-selected', 'true');
+		await expect.element(near()).toHaveAttribute('aria-activedescendant', 'near-places-1');
+		await userEvent.keyboard('{Enter}');
+
+		await expect.element(near()).toHaveValue('Leipzig, Ohio');
+		expect(posted()).toEqual(['41.10000', '-84.00000']);
+
+		await near().fill('Leip');
+		await expect.element(page.getByRole('listbox')).toBeVisible();
+		await userEvent.keyboard('{Escape}');
+		await expect.element(page.getByRole('listbox')).not.toBeInTheDocument();
+		await expect.element(near()).toHaveAttribute('aria-expanded', 'false');
+	});
+
+	it('says when location is blocked, and leaves the place as it was', async () => {
 		vi.spyOn(navigator.geolocation, 'getCurrentPosition').mockImplementation((_, failure) =>
-			// SAFETY: NearInput only learns that the position failed, not how.
-			failure?.({ code: 1, message: 'User denied Geolocation' } as GeolocationPositionError)
+			// SAFETY: NearInput reads only the error's code.
+			failure?.({
+				code: GeolocationPositionError.PERMISSION_DENIED,
+				message: 'User denied Geolocation'
+			} as GeolocationPositionError)
 		);
 		await render(NearInput, { place: 'Berlin', lat: '52.52000', lng: '13.40500' });
 
@@ -92,9 +116,32 @@ describe('NearInput', () => {
 		await expect.element(locate()).toBeEnabled();
 		await expect.element(near()).toHaveValue('Berlin');
 		expect(posted()).toEqual(['52.52000', '13.40500']);
+		await expect
+			.element(page.getByRole('alert'))
+			.toHaveTextContent('Location is blocked for this site. Type a place instead.');
+		await expect
+			.element(near())
+			.toHaveAccessibleDescription('Location is blocked for this site. Type a place instead.');
+
+		await near().fill('Berl');
+		await expect.element(page.getByRole('alert')).not.toBeInTheDocument();
 	});
 
-	it('does nothing in a browser without geolocation', async () => {
+	it("says when the location can't be found", async () => {
+		vi.spyOn(navigator.geolocation, 'getCurrentPosition').mockImplementation((_, failure) =>
+			// SAFETY: NearInput reads only the error's code.
+			failure?.({ code: GeolocationPositionError.TIMEOUT, message: 'Timeout' } as GeolocationPositionError)
+		);
+		await render(NearInput);
+
+		await locate().click();
+
+		await expect
+			.element(page.getByRole('alert'))
+			.toHaveTextContent("Couldn't find your location. Type a place instead.");
+	});
+
+	it('says so in a browser without geolocation', async () => {
 		// Shadows the prototype's getter until afterEach deletes it.
 		Object.defineProperty(navigator, 'geolocation', { value: undefined, configurable: true });
 		await render(NearInput, { id: 'hero-near' });
@@ -104,5 +151,8 @@ describe('NearInput', () => {
 		await expect.element(locate()).toBeEnabled();
 		await expect.element(near()).toHaveAttribute('id', 'hero-near');
 		await expect.element(near()).toHaveValue('');
+		await expect
+			.element(page.getByRole('alert'))
+			.toHaveTextContent("This browser can't share its location. Type a place instead.");
 	});
 });

@@ -98,3 +98,39 @@ fn edits_select_and_sort_by_a_plugins_field() {
     let e = edit(vec![Edit::SortPlaylist { playlist: "Sized".into(), by: "other.bytes".into() }]).unwrap_err();
     assert!(e.to_string().contains("(no plugin installed has it)"), "{e}");
 }
+
+/// A smart rule comparing a plugin's field with any size, applied, holds exactly the tracks the
+/// analyzer found to compare so, in the order asked for; before anything was analyzed, it holds
+/// none and the plan says to analyze the tracks first.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_smart_rule_on_a_field_holds_what_was_analyzed(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let f = Hosted::new(Fixture::echo());
+    let analyzed = tc.draw(gs::booleans());
+    let tracks = sized(&f, analyzed);
+    let bigger = tc.draw(gs::booleans());
+    let size = tc.draw(gs::integers::<u32>().min_value(100).max_value(3000));
+    let descending = tc.draw(gs::booleans());
+    let filter = format!("echo.bytes:{}{size}", if bigger { ">" } else { "<" });
+    let sort = if descending { "-echo.bytes" } else { "echo.bytes" };
+    api::smart_set(&f.store, &rule(&filter, Some(sort))).unwrap();
+    let plan = api::smart_apply_plan(&f.store, &DriveRef { drive: "USB".into() }, &Ctx::silent()).unwrap();
+    let unanalyzed = "no track here has a value for echo.bytes: analyze the tracks first";
+    assert_eq!(plan.warnings.iter().any(|w| w == unanalyzed), !analyzed, "{:?}", plan.warnings);
+    plan.apply(Some(&f.store), &Ctx::silent()).unwrap();
+    let mut want: Vec<(u32, u32)> = match analyzed {
+        true => tracks
+            .iter()
+            .zip([2000, 500])
+            .filter(|(_, s)| if bigger { *s > size } else { *s < size })
+            .map(|(t, s)| (s, t.id))
+            .collect(),
+        false => Vec::new(),
+    };
+    want.sort();
+    if descending {
+        want.reverse();
+    }
+    let want: Vec<u32> = want.into_iter().map(|(_, id)| id).collect();
+    assert_eq!(entries(&f, "Smart/Big"), want, "{filter} by {sort}");
+}

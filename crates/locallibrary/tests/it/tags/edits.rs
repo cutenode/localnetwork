@@ -66,7 +66,7 @@ fn a_track_only_export_pdb_lists_is_tagged_there_with_a_warning() {
     assert!(plan.warnings.iter().any(|w| w == warning), "{:?}", plan.warnings);
     tags::apply(&plan, &mut d, &Ctx::silent()).unwrap();
     let by_track = tags::by_track(&d).unwrap();
-    assert_eq!(by_track.values().filter(|t| t.contains(&"Genre/Deep".to_string())).count(), 2);
+    assert_eq!(by_track.by_id.values().filter(|t| t.contains(&"Genre/Deep".to_string())).count(), 2);
 }
 
 /// A My Tag is added to a track, renamed, taken off and deleted, each planned first.

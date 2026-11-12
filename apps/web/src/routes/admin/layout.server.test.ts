@@ -12,8 +12,10 @@ const moderator: Viewer = {
 	spacesCapable: true
 };
 
-it('lets staff into the console', async () => {
-	expect(await callRoute(load, { viewer: moderator, url: '/admin/requests' })).toEqual({});
+const app = { staff: { grants: async (did: string) => (did === moderator.did ? ['flags'] : []) } };
+
+it('lets staff into the console, with what they were granted', async () => {
+	expect(await callRoute(load, { app, viewer: moderator, url: '/admin/requests' })).toEqual({ grants: ['flags'] });
 });
 
 it('sends someone signed out to sign in, and refuses an account without a role', async () => {

@@ -1,6 +1,6 @@
 // src/tools/artists/profiles.ts, the pure logic under the artists panel:
 // who is behind a track, and where else to find them.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
 	artistPathOf,
 	artistsOf,
@@ -134,6 +134,31 @@ describe('the artists behind a list of tracks', () => {
 		]);
 	});
 
+	it('keeps the name the first row gave, and a track once wherever it comes again', () => {
+		expect(
+			artistsOf([
+				track('Bicep', 'Glue', '/bicep/glue'),
+				track('BICEP', 'Aura', '/bicep/aura'),
+				track('', 'Glue', '/bicep/glue')
+			])
+		).toEqual([
+			{
+				permalink: '/bicep',
+				name: 'Bicep',
+				tracks: [
+					{ permalink: '/bicep/glue', title: 'Glue' },
+					{ permalink: '/bicep/aura', title: 'Aura' }
+				]
+			}
+		]);
+	});
+
+	it('has no name or title where the row carried none', () => {
+		expect(artistsOf([{ permalink: '/bicep/glue' }])).toEqual([
+			{ permalink: '/bicep', name: '', tracks: [{ permalink: '/bicep/glue', title: '' }] }
+		]);
+	});
+
 	it('is nothing for anything that is not a list', () => {
 		// @ts-expect-error -- no list at all
 		expect(artistsOf(null)).toEqual([]);
@@ -172,6 +197,10 @@ describe('which network an address is on', () => {
 
 	it('is email for a mailto, whatever it was filed under', () => {
 		expect(networkOf('mailto:a@b.com', 'personal')).toBe('email');
+	});
+
+	it('is not email for an address that only carries a mailto further along', () => {
+		expect(networkOf('https://example.com/contact?to=mailto:a@b.com')).toBe('personal');
 	});
 
 	it('does not take a host that merely ends with a network’s name', () => {
@@ -219,6 +248,23 @@ describe('the addresses written into a bio', () => {
 			'https://linktr.ee/bicep'
 		]);
 	});
+
+	it('drops a run of that punctuation, not just the last of it', () => {
+		expect(bioLinks('linktr.ee/bicep!!').map((l) => l.url)).toEqual(['https://linktr.ee/bicep']);
+	});
+
+	it('keeps an http address as written, and adds a scheme only where the start has none', () => {
+		expect(bioLinks('http://bicep.net/page and www.example.com/?next=https://x.com').map((l) => l.url)).toEqual([
+			'http://bicep.net/page',
+			'https://www.example.com/?next=https://x.com'
+		]);
+	});
+
+	it('gives an email no title, and the bare address as its key', () => {
+		expect(bioLinks('agent@example.com')).toEqual([
+			expect.objectContaining({ key: 'agent@example.com', url: 'mailto:agent@example.com', title: '' })
+		]);
+	});
 });
 
 describe('every link an artist offers', () => {
@@ -250,6 +296,55 @@ describe('every link an artist offers', () => {
 		expect(linksOf(profile({ links: 'nope' }))).toEqual([]);
 	});
 
+	// The same page written two ways is one link: spaces around it, http for
+	// https, and any number of trailing slashes say nothing about where it goes.
+	it('tells one address from another by where it goes, not how it was written', () => {
+		const links = linksOf(
+			profile({
+				links: [{ url: ' https://instagram.com/bicepmusic ' }, { url: 'http://feelmybicep.com//' }],
+				bio: 'instagram.com/bicepmusic and https://feelmybicep.com'
+			})
+		);
+
+		expect(links.map((link) => [link.key, link.url])).toEqual([
+			['instagram.com/bicepmusic', 'https://instagram.com/bicepmusic'],
+			['feelmybicep.com', 'http://feelmybicep.com//']
+		]);
+	});
+
+	it('keeps a scheme, a www or a mailto that only comes further along an address', () => {
+		const links = linksOf(
+			profile({
+				links: [
+					{ url: 'ftp://files.example.com/https://mirror' },
+					{ url: 'https://example.com/www.bicep' },
+					{ url: 'https://example.com/mailto:bicep' }
+				]
+			})
+		);
+
+		expect(links.map((link) => link.key)).toEqual([
+			'ftp://files.example.com/https://mirror',
+			'example.com/www.bicep',
+			'example.com/mailto:bicep'
+		]);
+	});
+
+	it('names a website by its whole host, and one with no host as a website', () => {
+		const links = linksOf(
+			profile({ links: [{ url: 'https://shop.www.feelmybicep.com/' }, { url: 'feelmybicep', network: 'personal' }] })
+		);
+
+		expect(links.map((link) => [link.network, link.name])).toEqual([
+			['personal', 'shop.www.feelmybicep.com'],
+			['personal', 'website']
+		]);
+	});
+
+	it('skips a profile link whose address is only spaces', () => {
+		expect(linksOf(profile({ links: [{ url: '   ' }] }))).toEqual([]);
+	});
+
 	it('is nothing for nobody asked, and for no public profile', () => {
 		expect(linksOf(null)).toEqual([]);
 		expect(linksOf({ unavailable: true, at: 1 })).toEqual([]);
@@ -263,6 +358,8 @@ describe('what a row says', () => {
 		expect(hasProfile(entry({ profile: profile() }))).toBe(true);
 		expect(hasProfile(entry({ profile: { unavailable: true, at: 1 } }))).toBe(false);
 		expect(isUnchecked(entry({ profile: profile() }))).toBe(false);
+		expect(isUnavailable(entry())).toBe(false);
+		expect(isUnavailable(entry({ profile: profile() }))).toBe(false);
 	});
 
 	it('shortens a follower count to the width a row has', () => {
@@ -272,6 +369,7 @@ describe('what a row says', () => {
 		expect(shortCount(1234)).toBe('1.2K');
 		expect(shortCount(12345)).toBe('12K');
 		expect(shortCount(999999)).toBe('1000K');
+		expect(shortCount(1000000)).toBe('1M');
 		expect(shortCount(1234567)).toBe('1.2M');
 		expect(shortCount(34000000)).toBe('34M');
 		expect(shortCount(null)).toBe('');
@@ -319,6 +417,8 @@ describe('what a row says', () => {
 
 	it('is searched by everything known about the artist', () => {
 		expect(searchText(entry())).toBe('Bicep /bicep My Playlist Glue');
+		// What is not known leaves no gap behind.
+		expect(searchText(entry({ from: '' }))).toBe('Bicep /bicep Glue');
 
 		const full = searchText(
 			entry({
@@ -385,6 +485,19 @@ describe('what a row opens into', () => {
 		expect(facts.find((fact) => fact.id === 'followers')).toMatchObject({ value: 'unknown', copy: '' });
 	});
 
+	it('lists every track on one line', () => {
+		const facts = rowFacts(
+			entry({
+				tracks: [
+					{ permalink: '/bicep/glue', title: 'Glue' },
+					{ permalink: '/bicep/aura', title: 'Aura' }
+				]
+			})
+		);
+
+		expect(facts.find((fact) => fact.id === 'tracks')).toMatchObject({ value: 'Glue, Aura', copy: 'Glue, Aura' });
+	});
+
 	it('does not know the followers of a restored profile that does not carry them', () => {
 		const facts = rowFacts(entry({ profile: { at: 1 } }));
 		expect(facts.find((fact) => fact.id === 'followers')).toMatchObject({ value: 'unknown', copy: '' });
@@ -416,6 +529,17 @@ describe('the list in order', () => {
 	it('puts the most followed first, and the ones nobody counted last', () => {
 		expect(sorted([a, b, c, d], 'followers').map((one) => one.permalink)).toEqual(['/d', '/b', '/a', '/c']);
 	});
+
+	it('puts an artist with no followers above one nobody asked about', () => {
+		const none = entry({ permalink: '/e', name: 'Eve', profile: profile({ followers: 0 }) });
+		expect(sorted([a, none], 'followers').map((one) => one.permalink)).toEqual(['/e', '/a']);
+	});
+
+	it('leaves two names that differ only in case in the order they came', () => {
+		const upper = entry({ permalink: '/x', name: 'Bicep' });
+		const lower = entry({ permalink: '/y', name: 'bicep' });
+		expect(sorted([upper, lower], 'name').map((one) => one.permalink)).toEqual(['/x', '/y']);
+	});
 });
 
 describe('the list as text', () => {
@@ -442,5 +566,37 @@ describe('the list as text', () => {
 			].join('\n')
 		);
 		expect(asText([])).toBe('');
+	});
+});
+
+// Stryker switches a mutant on only once this file's imports have run, so
+// whatever the module builds as it loads (its helpers, the bio's pattern, the
+// sort values) is checked here against a copy imported after that.
+describe('what the module builds as it loads', () => {
+	async function fresh() {
+		vi.resetModules();
+
+		return import('../../src/tools/artists/profiles.ts');
+	}
+
+	it('colours a badge, finds a known host in a bio and trims what ends it', async () => {
+		const profiles = await fresh();
+		expect(profiles.bioLinks('linktr.ee/bicep.')).toEqual([
+			expect.objectContaining({
+				url: 'https://linktr.ee/bicep',
+				network: 'linktree',
+				style: 'background:#43e660;color:#000000'
+			})
+		]);
+	});
+
+	it('tells an artist with no public profile apart', async () => {
+		const profiles = await fresh();
+		expect(profiles.isUnavailable(entry({ profile: { unavailable: true, at: 1 } }))).toBe(true);
+	});
+
+	it('offers every sort by its value', async () => {
+		const profiles = await fresh();
+		expect(profiles.SORT_VALUES).toEqual(['name', 'list', 'followers']);
 	});
 });

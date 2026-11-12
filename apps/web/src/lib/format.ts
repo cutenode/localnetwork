@@ -38,6 +38,16 @@ export function profileHref(account: AccountView): string {
 	return `/@${account.handle ?? account.did}`;
 }
 
+/**
+ * A set's page, from the set's at:// URI: under its DJ's handle when it's known, else their DID, which the page sends
+ * on to the handle.
+ */
+export function setHref(uri: string, handle: string | null = null): string {
+	const [did, , rkey] = uri.slice('at://'.length).split('/');
+
+	return `${profileHref({ did, handle })}/sets/${rkey}`;
+}
+
 const RELATIVE = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
 
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
@@ -82,6 +92,12 @@ export function formatShowDate(iso: string | null | undefined, withTime = false)
 
 	return formatDate(iso, options);
 }
+
+/** A night the way lists lead with it, like "Sat 14 Nov", from a show date, which is in UTC. */
+export const nightLabel = (iso: string): string =>
+	new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })
+		.format(new Date(iso))
+		.replace(',', '');
 
 /** A profile's fee levels, reading a record written before `fees` as one level. */
 export function feeLevels(profile: Pick<ProjectProfile, 'fees' | 'fee'>): ProjectFee[] {

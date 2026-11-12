@@ -132,6 +132,33 @@ pub fn rewrite_path(bytes: &[u8], new_path: &str) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+/// What [`rewrite_path`] needs of an analysis file to say how long its result is, for any path:
+/// a plan that sizes thousands of files reads each once, with the path each gets still to come.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PathSlot {
+    /// The file's length without its path.
+    rest: usize,
+    /// Whether it holds a path to rewrite. One that doesn't is copied as it is.
+    holds_path: bool,
+}
+
+impl PathSlot {
+    /// The slot in `bytes`, or why [`rewrite_path`] would refuse them.
+    pub(crate) fn of(bytes: &[u8]) -> Result<PathSlot> {
+        let secs = sections(bytes)?;
+        let path = find(&secs, b"PPTH");
+        Ok(PathSlot { rest: bytes.len() - path.map_or(0, |s| s.total_len), holds_path: path.is_some() })
+    }
+
+    /// How long [`rewrite_path`] makes the file with `new_path` in it.
+    pub(crate) fn len_with(&self, new_path: &str) -> usize {
+        match self.holds_path {
+            true => self.rest + 16 + 2 * (new_path.encode_utf16().count() + 1),
+            false => self.rest,
+        }
+    }
+}
+
 pub fn beat_grid(bytes: &[u8]) -> Result<Vec<Beat>> {
     let secs = sections(bytes)?;
     let Some(s) = find(&secs, b"PQTZ") else { return Ok(Vec::new()) };
@@ -298,77 +325,80 @@ fn detail_rate(bytes: &[u8], s: &SectionRef) -> f64 {
     }
 }
 
+/// A colour overview (`PWV4`).
+fn rgb_preview(bytes: &[u8], secs: &[SectionRef]) -> Option<Waveform> {
+    let body = entries(bytes, find(secs, b"PWV4")?, 6, Some(16))?;
+    // Bytes 3-5 are the red/green/blue (low/mid/high) amplitudes, up to 127. The back layer
+    // is as tall as the loudest band; the front one is the high band.
+    let columns = body
+        .chunks_exact(6)
+        .map(|e| {
+            let rgb = [e[3], e[4], e[5]];
+            let back = e[3].max(e[4]).max(e[5]);
+            WaveColumn {
+                back: WaveLayer { height: (back as f32 / 127.0).min(1.0), color: normalized(rgb, 191) },
+                front: WaveLayer { height: (e[5] as f32 / 127.0).min(1.0), color: normalized(rgb, 255) },
+            }
+        })
+        .collect();
+    Some(Waveform { style: WaveformStyle::Rgb, columns_per_sec: None, columns })
+}
+
+/// A blue overview (`PWAV`).
+fn blue_preview(bytes: &[u8], secs: &[SectionRef]) -> Option<Waveform> {
+    let body = entries(bytes, find(secs, b"PWAV")?, 1, Some(12))?;
+    let columns = body.iter().copied().map(blue_column).collect();
+    Some(Waveform { style: WaveformStyle::Blue, columns_per_sec: None, columns })
+}
+
+/// A 3-band overview (`PWV6`).
+fn band_preview(bytes: &[u8], secs: &[SectionRef]) -> Option<Bands> {
+    Some(waves::three_band(entries(bytes, find(secs, b"PWV6")?, 3, Some(16))?, b"PWV6"))
+}
+
+/// A colour detail waveform (`PWV5`).
+fn rgb_detail(bytes: &[u8], secs: &[SectionRef]) -> Option<Waveform> {
+    let s = find(secs, b"PWV5")?;
+    // u16: red 3 bits, green 3 bits, blue 3 bits, height 5 bits, 2 unused.
+    let columns = entries(bytes, s, 2, Some(16))?
+        .chunks_exact(2)
+        .map(|e| {
+            let v = u16::from_be_bytes([e[0], e[1]]);
+            let rgb = [(v >> 13) & 7, (v >> 10) & 7, (v >> 7) & 7].map(|c| (c * 36) as u8);
+            let height = ((v >> 2) & 0x1f) as f32 / 31.0;
+            WaveColumn { back: WaveLayer { height, color: normalized(rgb, 255) }, front: WaveLayer::default() }
+        })
+        .collect();
+    Some(Waveform { style: WaveformStyle::Rgb, columns_per_sec: Some(detail_rate(bytes, s)), columns })
+}
+
+/// A blue detail waveform (`PWV3`).
+fn blue_detail(bytes: &[u8], secs: &[SectionRef]) -> Option<Waveform> {
+    let s = find(secs, b"PWV3")?;
+    let columns = entries(bytes, s, 1, Some(16))?.iter().copied().map(blue_column).collect();
+    Some(Waveform { style: WaveformStyle::Blue, columns_per_sec: Some(detail_rate(bytes, s)), columns })
+}
+
+/// A 3-band detail waveform (`PWV7`), and how many columns it has a second.
+fn band_detail(bytes: &[u8], secs: &[SectionRef]) -> Option<(Bands, f64)> {
+    let s = find(secs, b"PWV7")?;
+    Some((waves::three_band(entries(bytes, s, 3, Some(16))?, b"PWV7"), detail_rate(bytes, s)))
+}
+
 /// The whole-track overview waveform in an analysis file: colour (`PWV4`, in `.EXT`) if present,
 /// else blue (`PWAV`, in `.DAT`), else 3-band (`PWV6`, in `.2EX`).
 pub fn preview(bytes: &[u8]) -> Result<Option<Waveform>> {
     let secs = sections(bytes)?;
-    if let Some(s) = find(&secs, b"PWV4")
-        && let Some(body) = entries(bytes, s, 6, Some(16))
-    {
-        // Bytes 3-5 are the red/green/blue (low/mid/high) amplitudes, up to 127. The back layer
-        // is as tall as the loudest band; the front one is the high band.
-        let columns = body
-            .chunks_exact(6)
-            .map(|e| {
-                let rgb = [e[3], e[4], e[5]];
-                let back = e[3].max(e[4]).max(e[5]);
-                WaveColumn {
-                    back: WaveLayer { height: (back as f32 / 127.0).min(1.0), color: normalized(rgb, 191) },
-                    front: WaveLayer { height: (e[5] as f32 / 127.0).min(1.0), color: normalized(rgb, 255) },
-                }
-            })
-            .collect();
-        return Ok(Some(Waveform { style: WaveformStyle::Rgb, columns_per_sec: None, columns }));
-    }
-    if let Some(s) = find(&secs, b"PWAV")
-        && let Some(body) = entries(bytes, s, 1, Some(12))
-    {
-        let columns = body.iter().copied().map(blue_column).collect();
-        return Ok(Some(Waveform { style: WaveformStyle::Blue, columns_per_sec: None, columns }));
-    }
-    if let Some(s) = find(&secs, b"PWV6")
-        && let Some(body) = entries(bytes, s, 3, Some(16))
-    {
-        return Ok(Some(waves::three_band(body, b"PWV6").waveform(None)));
-    }
-    Ok(None)
+    let bands = || band_preview(bytes, &secs).map(|b| b.waveform(None));
+    Ok(rgb_preview(bytes, &secs).or_else(|| blue_preview(bytes, &secs)).or_else(bands))
 }
 
 /// The scrolling detail waveform in an analysis file: colour (`PWV5`, in `.EXT`) if present, else
 /// blue (`PWV3`, `.EXT`), else 3-band (`PWV7`, `.2EX`).
 pub fn detail(bytes: &[u8]) -> Result<Option<Waveform>> {
     let secs = sections(bytes)?;
-    if let Some(s) = find(&secs, b"PWV5")
-        && let Some(body) = entries(bytes, s, 2, Some(16))
-    {
-        // u16: red 3 bits, green 3 bits, blue 3 bits, height 5 bits, 2 unused.
-        let columns = body
-            .chunks_exact(2)
-            .map(|e| {
-                let v = u16::from_be_bytes([e[0], e[1]]);
-                let rgb = [(v >> 13) & 7, (v >> 10) & 7, (v >> 7) & 7].map(|c| (c * 36) as u8);
-                let height = ((v >> 2) & 0x1f) as f32 / 31.0;
-                WaveColumn { back: WaveLayer { height, color: normalized(rgb, 255) }, front: WaveLayer::default() }
-            })
-            .collect();
-        return Ok(Some(Waveform { style: WaveformStyle::Rgb, columns_per_sec: Some(detail_rate(bytes, s)), columns }));
-    }
-    if let Some(s) = find(&secs, b"PWV3")
-        && let Some(body) = entries(bytes, s, 1, Some(16))
-    {
-        let columns = body.iter().copied().map(blue_column).collect();
-        return Ok(Some(Waveform {
-            style: WaveformStyle::Blue,
-            columns_per_sec: Some(detail_rate(bytes, s)),
-            columns,
-        }));
-    }
-    if let Some(s) = find(&secs, b"PWV7")
-        && let Some(body) = entries(bytes, s, 3, Some(16))
-    {
-        return Ok(Some(waves::three_band(body, b"PWV7").waveform(Some(detail_rate(bytes, s)))));
-    }
-    Ok(None)
+    let bands = || band_detail(bytes, &secs).map(|(b, rate)| b.waveform(Some(rate)));
+    Ok(rgb_detail(bytes, &secs).or_else(|| blue_detail(bytes, &secs)).or_else(bands))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -455,6 +485,44 @@ pub fn track_cues(dat: Option<&[u8]>, ext: Option<&[u8]>) -> Vec<Cue> {
 /// empty.
 pub fn load(device: &Device, track: &Track) -> TrackAnalysis {
     read_track(device, track, true)
+}
+
+/// Every waveform a track's analysis files hold, for a player that lets you pick. rekordbox writes
+/// them all, whichever one its players are set to show. A missing or unreadable file leaves its
+/// fields empty.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TrackWaves {
+    pub blue_preview: Option<Waveform>,
+    pub blue_detail: Option<Waveform>,
+    pub rgb_preview: Option<Waveform>,
+    pub rgb_detail: Option<Waveform>,
+    pub band_preview: Option<Bands>,
+    /// With how many columns it has a second.
+    pub band_detail: Option<(Bands, f64)>,
+}
+
+pub fn load_waves(device: &Device, track: &Track) -> TrackWaves {
+    let mut w = TrackWaves::default();
+    let Some(stem) = paths::key(&track.analyze_path).strip_suffix(".DAT").map(str::to_string) else { return w };
+    let read = |ext: &str| {
+        let path = device.checked_path(&format!("{stem}.{ext}")).ok()?;
+        let bytes = crate::fsutil::read(&path).ok()?;
+        let secs = sections(&bytes).ok()?;
+        Some((bytes, secs))
+    };
+    if let Some((bytes, secs)) = read("DAT") {
+        w.blue_preview = blue_preview(&bytes, &secs);
+    }
+    if let Some((bytes, secs)) = read("EXT") {
+        w.rgb_preview = rgb_preview(&bytes, &secs);
+        w.rgb_detail = rgb_detail(&bytes, &secs);
+        w.blue_detail = blue_detail(&bytes, &secs);
+    }
+    if let Some((bytes, secs)) = read("2EX") {
+        w.band_preview = band_preview(&bytes, &secs);
+        w.band_detail = band_detail(&bytes, &secs);
+    }
+    w
 }
 
 /// A track's beat grid and cues only, for bulk work such as XML export.

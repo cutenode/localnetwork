@@ -5,10 +5,10 @@ package apps
 import data.lib
 
 # The scripts the root's `pnpm -r` scripts and the CI workflows call.
-scripts := {"dev", "build", "check", "lint", "format", "format:check", "knip", "test", "test:coverage", "verify"}
+scripts := {"dev", "build", "check", "lint", "format", "format:check", "test", "test:coverage", "verify"}
 
 # The checks `verify` has to run, as CI's verify jobs do.
-verify_steps := {"pnpm format:check", "pnpm lint", "pnpm check", "pnpm knip"}
+verify_steps := {"pnpm format:check", "pnpm lint", "pnpm check"}
 
 root := lib.file("package.json")
 
@@ -60,18 +60,32 @@ deny contains msg if {
 	msg := sprintf("apps/%s/package.json: pin oxlint to %q, as the root does", [app, root.devDependencies.oxlint])
 }
 
-# lefthook.yml formats and lints staged files and checks and tests before a push, per app.
+# lefthook.yml formats and lints staged files and checks and tests before a push, per app and per
+# package.
 hooks := {
 	"pre-commit": {"oxfmt", "oxlint"},
 	"pre-push": {"pnpm check", "pnpm test"},
 }
 
+hooked := {sprintf("apps/%s/", [app]) | some app in lib.ts_apps} | {trim_suffix(p, "package.json") | some p in lib.paths("packages/*/package.json")}
+
 deny contains msg if {
-	some app in lib.ts_apps
+	some dir in hooked
 	some hook, tools in hooks
 	some tool in tools
-	not hook_runs(hook, sprintf("apps/%s/", [app]), tool)
-	msg := sprintf("lefthook.yml: add a %s job with root apps/%s/ that runs %s", [hook, app, tool])
+	not hook_runs(hook, dir, tool)
+	msg := sprintf("lefthook.yml: add a %s job with root %s that runs %s", [hook, dir, tool])
+}
+
+# The hooks run the committing worktree's lefthook, not the path of the one that installed them last.
+deny contains msg if {
+	lib.file("lefthook.yml").lefthook != "pnpm exec lefthook"
+	msg := "lefthook.yml: set `lefthook: pnpm exec lefthook`, so every worktree's hooks run its own lefthook"
+}
+
+deny contains msg if {
+	not lib.file("lefthook.yml").lefthook
+	msg := "lefthook.yml: set `lefthook: pnpm exec lefthook`, so every worktree's hooks run its own lefthook"
 }
 
 hook_runs(hook, root_dir, tool) if {

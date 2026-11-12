@@ -936,9 +936,10 @@ enum Says {
 /// with a drawn status (or offers no revocation): checking takes the handle the server vouches
 /// for and keeps the one known otherwise, says the session has ended when the server won't take
 /// it, and says what went wrong when it answers with another error, isn't there, or can't
-/// refresh a session whose access token ran out, the session kept each time; signing out removes it whatever, revoked only when the server took both
-/// tokens. Signed out, signing out again has nobody to sign out, and signing in needs an
-/// account named.
+/// refresh a session whose access token ran out, the session kept each time; signing out removes
+/// it whatever, revoked only when the server took both tokens, and says who it signed out with
+/// the handle known, which the next sign-in offers. Signed out, signing out again has nobody to
+/// sign out, and signing in needs an account named.
 #[hegel::test(test_cases = 40)]
 fn checking_and_signing_out_say_what_the_server_did(tc: hegel::TestCase) {
     use hegel::generators as gs;
@@ -998,6 +999,7 @@ fn checking_and_signing_out_say_what_the_server_did(tc: hegel::TestCase) {
     if let Some(h) = &known {
         let mut file = AccountFile::load(root).unwrap();
         file.account.as_mut().unwrap().info.handle = Some(h.clone());
+        file.last_handle = Some(h.clone());
         file.save(root).unwrap();
     }
     let checked = check(root, &Ctx::silent());
@@ -1023,8 +1025,11 @@ fn checking_and_signing_out_say_what_the_server_did(tc: hegel::TestCase) {
     assert!(status(root).unwrap().is_some(), "still signed in");
     let r = logout(root).unwrap();
     let took = !matches!(says, Says::Unreachable | Says::Down) && matches!(revocation, Some(200 | 204));
-    assert_eq!((r.account.map(|a| a.did), r.revoked), (Some("did:plc:abc".to_string()), took));
+    let handle = if says == Says::Handle { Some("dj.example.com".to_string()) } else { known };
+    let account = r.account.map(|a| (a.did, a.handle));
+    assert_eq!((account, r.revoked), (Some(("did:plc:abc".to_string(), handle.clone())), took));
     assert_eq!(status(root).unwrap(), None);
+    assert_eq!(last_handle(root), handle, "offered at the next sign-in");
     let again = logout(root).unwrap();
     assert!(again.account.is_none() && !again.revoked);
     let e = begin_login(root, " @ ", &LoginOptions::default()).unwrap_err();

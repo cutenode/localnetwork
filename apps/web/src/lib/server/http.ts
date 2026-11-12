@@ -1,7 +1,7 @@
 import { error, fail, isHttpError, isRedirect, redirect } from '@sveltejs/kit';
 import type { Viewer } from '#lib/types.ts';
 import { RecordValidationError } from './atproto/lexicons';
-import { ReauthError, UserError } from './core';
+import { FieldError, ReauthError, UserError } from './core';
 
 type LocalsLike = { viewer: Viewer | null };
 
@@ -81,6 +81,9 @@ export function withQuery(path: string, params: Record<string, string>, fallback
 	return safeNext(url.pathname + url.search + url.hash, fallback);
 }
 
+/** What a form action hands back when it refuses: why, what was sent, and the control at fault if it's one. */
+type Refused<V> = { error: string; values: V | undefined; reauth: boolean; field?: { name: string; row: number } };
+
 /**
  * Runs a form action body, turning user-facing errors into `fail()` results
  * so the page re-renders with a message instead of an error page.
@@ -91,12 +94,23 @@ export async function act<T, V extends object = never>(run: () => Promise<T>, va
 	} catch (cause) {
 		if (isRedirect(cause) || isHttpError(cause)) throw cause;
 
-		if (cause instanceof UserError)
-			return fail(cause.status, { error: cause.message, values, reauth: cause instanceof ReauthError });
+		if (cause instanceof FieldError)
+			return fail<Refused<V>>(cause.status, {
+				error: cause.message,
+				values,
+				reauth: false,
+				field: { name: cause.field, row: cause.row }
+			});
 
-		// The same shape as above: TypeScript would drop `reauth` from the action's result type otherwise.
+		if (cause instanceof UserError)
+			return fail<Refused<V>>(cause.status, { error: cause.message, values, reauth: cause instanceof ReauthError });
+
 		if (cause instanceof RecordValidationError)
-			return fail(400, { error: `That doesn't fit the record format: ${cause.message}`, values, reauth: false });
+			return fail<Refused<V>>(400, {
+				error: `That doesn't fit the record format: ${cause.message}`,
+				values,
+				reauth: false
+			});
 		throw cause;
 	}
 }

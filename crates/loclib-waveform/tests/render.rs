@@ -147,7 +147,7 @@ fn deck_draws_cue_lines_and_shades_loops() {
         .render(area, &mut buf);
     // 0.2 s per column from 6 s: the hot cue at 9 s is column 15, the loop spans 25-35.
     assert_eq!(buf[(15, 0)].symbol(), "C");
-    assert_eq!(buf[(16, 0)].symbol(), "V");
+    assert_eq!((buf[(16, 0)].symbol(), buf[(17, 0)].symbol()), (" ", "V"));
     let cue_fg = (p.paint)(p.hot_cue);
     assert!((1..6).all(|y| buf[(15, y)].fg == cue_fg));
     let wash = (p.paint)(scale(p.loop_cue, 0.22));
@@ -218,12 +218,21 @@ fn phrase_strip_draws_named_blocks_and_the_playhead() {
     let mut buf = Buffer::empty(area);
     PhraseStrip { phrases: &phrases, duration_ms: 10_000.0, progress: 0.25, palette: Palette::default() }
         .render(area, &mut buf);
-    assert_eq!(rendered(&buf), " Intr┃     Chorus   ");
+    assert_eq!(rendered(&buf), " Intro     Chorus   ");
     let bg = |x: u16| buf[(x, 0)].bg;
     assert_eq!(bg(2), Color::Rgb(31, 50, 104), "played: at 45%");
     assert_eq!(bg(10), Color::Rgb(178, 70, 70), "a phrase's first cell: at 70%");
     assert_eq!(bg(12), Color::Rgb(255, 100, 100), "still to come: as it is");
-    assert_eq!(buf[(5, 0)].fg, Color::Rgb(255, 255, 255));
+    let head = &buf[(5, 0)];
+    assert_eq!(
+        (head.symbol(), head.fg),
+        ("o", Color::Rgb(255, 255, 255)),
+        "the playhead on a name: the letter in its colour"
+    );
+    assert!(head.modifier.contains(Modifier::UNDERLINED), "{head:?}");
+    PhraseStrip { phrases: &phrases, duration_ms: 10_000.0, progress: 0.4, palette: Palette::default() }
+        .render(area, &mut buf);
+    assert_eq!(buf[(8, 0)].bg, Color::Rgb(255, 255, 255), "the playhead on a blank cell: the cell in its colour");
 }
 
 /// The palette's `paint` decides every colour the waveforms draw, and `image` the pictures'.

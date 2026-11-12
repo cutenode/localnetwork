@@ -56,7 +56,7 @@ plugins/coverart/           the coverart plugin: front covers and track details 
                             all, asked to), each album looked up on MusicBrainz and its cover fetched from
                             the Cover Art Archive, offered as candidates locallibrary plans the edits of
 plugins/demos/              the demos plugin: rekordbox's demo tracks on a drive, found by its check and
-                            removed by `clean` as one `delete_tracks` edit
+                            removed by `clean` as one `delete_unbacked` edit
 plugins/interop/            the interop plugin: exporters for Traktor, Serato, Engine DJ and rekordbox XML,
                             writing a drive's library with loclib-interop on this computer, and an importer
                             and a library source reading Traktor's collection.nml back
@@ -83,6 +83,7 @@ crates/locallibrary/src/    the library, built on the crates above
   progress.rs  loclib-progress, re-exported, and the guard that keeps a front end quitting from cutting
                a database swap short
   hash.rs      BLAKE3 hashes for stored files, change detection and fingerprints
+  twins.rs     audio in rekordbox's collection that a pull can clone a store object from
   fsutil.rs    atomic writes, copies that keep modification times, free space
   device.rs    a drive: identity, lineage, scanning, fingerprint
   tree.rs      file scanning + persistent (size, mtime) -> hash cache
@@ -126,8 +127,9 @@ crates/locallibrary/src/    the library, built on the crates above
   plugin/      the plugin host: starting the plugins locallibrary ships and checking who they are,
                the reads they may call back for (callbacks.rs), and their commands, operations
                (planned as edit plans), exports, analyzers and settings
-  sound/       tempo, key and loudness through loclib-analysis: doctor's analysis section, how sure each
-               key is for the set planner, the check's loudness item, and `analysis bench` (bench.rs)
+  sound/       tempo, key and loudness as the analyzers chosen for those roles kept them: doctor's
+               analysis section, how sure each key is for the set planner and the check's loudness
+               item; and `analysis bench` (bench.rs), which runs loclib-analysis itself
   mix/         which library tracks a recorded set plays, through loclib-mixid: the drive's tracks, the
                store's fingerprints (index.rs), Audacity projects (aup.rs), the report (the
                interactive page, the mix's playable audio, the reports kept in the store: report.rs and
@@ -208,7 +210,10 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   from the lead. A sync carries the drive's recorded edits along with its library, so `refresh` makes
   edits made on any clone again.
 - **Store.** Files are stored by BLAKE3 hash. Snapshots are manifests with parent links, so
-  history is a DAG and storage is deduplicated across drives and time.
+  history is a DAG and storage is deduplicated across drives and time. On APFS, Btrfs and XFS, a
+  pull that brings in a track rekordbox's collection holds on the store's volume makes the object
+  a copy-on-write copy of the collection's file, which takes no space until one of them is written.
+  Those tracks then have no second physical copy in the store: see [Backing up](store.md).
 - **OneLibrary.** `exportLibrary.db` is SQLite encrypted with SQLCipher 4's defaults (AES-256-CBC
   pages with HMAC-SHA512, PBKDF2-HMAC-SHA512 key derivation) under one passphrase every rekordbox
   installation shares. It's decrypted (with its WAL replayed) into a temporary working copy,
@@ -230,16 +235,22 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   `TRASHBOX` and the track filter `PIONEER/rekordbox/RBFLTR.DAT`) and rekordbox's records of the
   playlists it syncs to the drive (`playlists3*.sync`) are never copied to another drive or into
   the store, never deleted, and don't count as a change to the library.
-- **Crash-safe ordering.** Every file is written to a temp file and renamed into place. Audio,
-  analysis and artwork are copied first and flushed to the device, and only then given their
-  source's modification time, so a copy whose data never reached the drive can't pass for a finished
-  one. The database files are then staged and swapped in back to back, and stale files are deleted
+- **Crash-safe ordering.** A file the drive already has is written to a temp file and renamed into
+  place. On macOS and Linux, a new one, which no database names yet, is written under its own
+  name, since a rename costs FAT and exFAT as much as making the file. The write notes those on
+  the drive first, with when its operation started, and flushes the note's folder before any new
+  file starts, so the next write and `drive tidy` remove what it didn't finish; a note an earlier
+  operation left behind is ignored. Windows keeps the temp-file route: a write cut off after its
+  rename is copied again by the next run, which goes by the file's unstamped time, but
+  `drive tidy` may not find it. Audio, analysis and artwork are copied first and flushed to the
+  device, and only then given their source's modification time, so a copy whose data never
+  reached the drive can't pass for a finished one. The database files are then staged and swapped in back to back, and stale files are deleted
   only after that. If a sync is interrupted (unplugged drive, Ctrl-C), the database on the drive
   still finds every file it references; a file the sync changed may already hold its new contents.
   (With `--delete-first` the old databases go first, so the drive holds no library until the new
   ones are in.) A
-  marker is left that `locallibrary drive info` reports, and re-running finishes the job: `diff
-  --summary` and `sync` take the interrupted drive as the older one, and the next sync copies again
+  marker is left that `locallibrary drive info` reports, and re-running finishes the job:
+  `diff --summary` and `sync` take the interrupted drive as the older one, and the next sync copies again
   any file changed since the interrupted one started, unless its content is known to match. `pack`
   works the same way. Until an interrupted operation is finished, nothing else changes the drive or
   reads a library from it (an edit, `pull`, `merge`, or a sync or pack from it): `drive info` and
@@ -278,6 +289,11 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   in between (rekordbox exported again, another command wrote to the drive, a sync would now copy
   other files) nothing is written and it says to plan again (`stale_plan`). Archive and retired
   drives aren't written to without `--overwrite-archive`.
+- **Timing a drive is the one write before a plan's confirmed.** A plan of a big write times a drive
+  that has no recent result, with scratch data in `.locallibrary/` that's removed after, keeps the
+  result there, and says it did. A drive that had no `.locallibrary/` loses it again if you say no.
+  A dry run never does any of this (see [Speed](drives.md#speed) and
+  [the decision](adr/0002-a-plan-may-time-its-drive.md)).
 - **No silent overwrites.** `library push` refuses to overwrite a drive holding a library state the
   store has never seen (pull it first, or `--force`), `sync` refuses when it can't tell which side
   is newer (without lineage, holding more tracks isn't enough on its own, and a side with fewer
@@ -292,7 +308,9 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   packs: `locallibrary undo` puts back the backup of the last change the drive still holds, and run
   again, the one before (`drive restore --backup ID` puts back any). Backups include every file a
   change overwrote or deleted (artwork images, analysis files, settings files, removed tracks'
-  files), with their modification times. Each notes what its change left, and putting it back is
+  files), with their modification times; a `clean`'s hold only the databases, as rekordbox's next
+  export puts the demo samples back, so undoing one brings those tracks back without their files
+  and says so. Each notes what its change left, and putting it back is
   refused, unless `--force`, when the drive changed since: a rekordbox export, a sync or push, or
   history players recorded would be lost too. Only the drive a change was made on is backed up:
   copying it onto a library's other drives isn't, and an undo is copied onto them like any change.
@@ -317,7 +335,7 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   read back exactly as planned. Database files are
   re-hashed on every scan; other files use a (size, mtime) hash cache that ignores entries
   recorded within FAT's 2-second timestamp window. `--verify` compares audio by content, and
-  `locallibrary store verify` re-hashes the store.
+  `locallibrary store verify` re-hashes the store, snapshots' manifests included.
 - Built for FAT32/exFAT/HFS+ drives: matching ignores letter case and Unicode normalisation,
   mtime comparisons allow FAT's 2-second granularity, and a cached hash index keeps rescans fast.
 
@@ -378,8 +396,8 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   files change). The back-from-a-set rule stays conservative: playlist edits made on a CDJ-3000X
   count as a real change.
 - **Linux and Windows are experimental, untested on hardware** (see
-  [Platforms](install.md#platforms)), and `drive format`, `drive fsck`, `eject`, `drive rename
-  --label` and `--check-capacity` have never run there. `drive fsck` needs administrator rights on
+  [Platforms](install.md#platforms)), and `drive format`, `drive fsck`, `eject`,
+  `drive rename --label` and `--check-capacity` have never run there. `drive fsck` needs administrator rights on
   Linux and Windows. `--check-capacity` needs them on a real disk and isn't available on Windows.
   `eject` on Windows uses Explorer's Eject, which reports nothing: locallibrary waits for the drive
   to disappear.

@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { type AddressInfo, createServer as createNetServer, type Socket } from 'node:net';
 import { IncludeScope, ScopePermissions, ScopePermissionsTransition, SpacePermission } from '@atproto/oauth-scopes';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CALENDAR_EVENT, CALENDAR_RSVP, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
+import { CALENDAR_EVENT, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
 import { loadConfig } from '../config';
 import { nowIso, openDatabase } from '../db';
 import { silentLogger } from '../logger';
@@ -26,6 +26,9 @@ import {
 	SCOPES,
 	type SignedInAccount
 } from './oauth';
+
+/** The lexicon-community RSVP a guest answers an event with, which nothing here writes yet. */
+const CALENDAR_RSVP = 'community.lexicon.calendar.rsvp';
 
 /** A fetch for services whose client never reaches the network. */
 const offline: typeof globalThis.fetch = async (input) => {
@@ -146,13 +149,14 @@ describe('OAuth scopes', () => {
 		expect(permissions.allowsSpace({ ...legacy, action: 'create', collection: COLLECTION.epkRequest })).toBe(false);
 	});
 
-	it("lets users keep their profile, edit their sets, draft in a performer's space, and answer events", () => {
+	it("lets users keep their profile, edit their sets and draft in a performer's space", () => {
 		const permissions = new ScopePermissions(granted);
 		const performer = { type: SPACE_TYPE.performer, authority: root, skey: '3mperf' } as const;
 
 		for (const action of ['create', 'update', 'delete'] as const) {
 			expect(permissions.allowsRepo({ collection: COLLECTION.profile, action })).toBe(true);
-			expect(permissions.allowsRepo({ collection: CALENDAR_RSVP, action })).toBe(true);
+			// Nothing writes an RSVP yet, so sign-in doesn't ask to.
+			expect(permissions.allowsRepo({ collection: CALENDAR_RSVP, action })).toBe(false);
 			expect(permissions.allowsSpace({ ...performer, action, collection: COLLECTION.epkDraft })).toBe(true);
 			// Only staff list a DJ, from the root account.
 			expect(permissions.allowsRepo({ collection: COLLECTION.listingProfile, action })).toBe(false);
@@ -284,7 +288,7 @@ describe('OAuth scopes', () => {
 
 		for (const scope of Object.values(SCOPES).flatMap((scopes) => scopes.split(' '))) expect(declared).toContain(scope);
 		expect(new Set(declared).size).toBe(declared.length);
-		expect(new ScopePermissions(declared).allowsRepo({ collection: CALENDAR_RSVP, action: 'create' })).toBe(true);
+		expect(new ScopePermissions(declared).allowsRepo({ collection: CALENDAR_RSVP, action: 'create' })).toBe(false);
 	});
 
 	it('compares grants the way the PDS writes them, and spots any scope missing', () => {

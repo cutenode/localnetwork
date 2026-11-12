@@ -23,6 +23,7 @@ import type { RepoClient } from '../atproto/repo-client';
 import { parseSpaceRecordUri, spaceRecordUri } from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
+import { unlessOffline } from '../happyview/offline';
 import type { RequestRow } from '../db/schema';
 import { AVATAR_TYPES } from '../images';
 import { diff } from './diff';
@@ -311,7 +312,10 @@ export class RequestService {
 		return next;
 	}
 
-	/** Lets the requester revise a pending request or answer a "changes requested" decision. */
+	/**
+	 * Lets the requester revise a pending request or answer a "changes requested" decision. A listing request takes only
+	 * a new note, since staff review the profile it names as it is.
+	 */
 	async revise(
 		actor: Viewer,
 		uri: string,
@@ -325,8 +329,11 @@ export class RequestService {
 			throw new UserError('This request has already been decided');
 		const current = storedRecord(row);
 
-		// A listing request only names the profile, which its owner edits in their dashboard instead.
-		if (current.kind === 'list')
+		// A listing request only names the profile, which its owner edits in their dashboard instead. Sending it back
+		// to staff after that takes just a note.
+		const changesRecord = input.profile || input.details || input.claim || input.avatar || input.tracklists;
+
+		if (current.kind === 'list' && changesRecord)
 			throw new UserError('Edit your profile instead. Staff see it as it is when they review');
 		const client = row.repoDid === actor.did ? await this.core.userClient(actor.did) : null;
 
@@ -936,6 +943,18 @@ export class RequestService {
 		return this.toViews(rows);
 	}
 
+	/** How many of `did`'s requests staff sent back to them. It reads only the site's index. */
+	async sentBack(did: string): Promise<number> {
+		const { count } = await this.core.db
+			.selectFrom('request')
+			.select((eb) => eb.fn.countAll<number>().as('count'))
+			.where('requesterDid', '=', did)
+			.where('status', '=', 'changes_requested')
+			.executeTakeFirstOrThrow();
+
+		return Number(count);
+	}
+
 	async counts(): Promise<Record<RequestStatus, number>> {
 		const rows = await this.core.db
 			.selectFrom('request')
@@ -959,13 +978,16 @@ export class RequestService {
 	private async toViews(rows: RequestRow[]): Promise<RequestView[]> {
 		const accounts = await this.core.accounts.views(rows.flatMap((row) => [row.requesterDid, row.decidedBy ?? '']));
 
-		const projects = await this.projects.byUris([
-			...new Set(rows.flatMap((row) => [row.projectUri, row.resultProjectUri]).filter((uri): uri is string => !!uri))
-		]);
+		// A request stays readable without the directory while it's down, by the name it was sent with.
+		const projects = await unlessOffline(this.core.logger, () =>
+			this.projects.byUris([
+				...new Set(rows.flatMap((row) => [row.projectUri, row.resultProjectUri]).filter((uri): uri is string => !!uri))
+			])
+		);
 
 		return rows.map((row) => {
-			const project = row.projectUri ? projects.get(row.projectUri) : undefined;
-			const result = row.resultProjectUri ? projects.get(row.resultProjectUri) : undefined;
+			const project = row.projectUri ? projects?.get(row.projectUri) : undefined;
+			const result = row.resultProjectUri ? projects?.get(row.resultProjectUri) : undefined;
 			const record = storedRecord(row);
 
 			return {

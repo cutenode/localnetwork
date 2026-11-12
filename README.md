@@ -16,6 +16,7 @@ The website and locallibrary read every atproto record through Local Network's [
 apps/web/             Local Network, the website (its README covers setup and deployment)
 apps/locallibrary/    locallibrary's command line tool, player and sidecar, with its docs
 apps/localtoolbox/    localtoolbox, the Chrome extension (its README is also its spec, checked by its tests)
+flags/                The website's feature flags, one file each (its README)
 lexicons/             Every tool's lexicons (computer.localnetwork.*), and copies of others' they use (its README)
 crates/               Rust libraries: locallibrary's core and the loclib-* crates other DJ tools can use
 plugins/              locallibrary's own plugins, each a crate on its plugin SDK, and in accounts/ its account plugins, a manifest each
@@ -36,7 +37,7 @@ The TypeScript apps need the Node.js version in `.node-version` (24) and [pnpm](
 ```bash
 pnpm install                 # every TypeScript app's dependencies and the git hooks
 pnpm dev                     # the website on a local network with demo accounts (http://127.0.0.1:5173), and the extension's watch build
-pnpm verify                  # each app's format, lint, type check, tests and build, and the lexicons' format
+pnpm verify                  # each app's format, lint, type check, tests and build, the root's own (pnpm *:tools), knip over the whole repo, and the lexicons' format
 pnpm atstore                 # each tool's AT Store icon, hero and screenshots, and the website's tool captures (packages/atstore)
 pnpm exec ast-grep scan      # the repo's ast-grep rules (sgconfig.yml), over the Rust and TypeScript code
 

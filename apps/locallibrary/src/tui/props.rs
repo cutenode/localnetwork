@@ -233,8 +233,10 @@ fn check(app: &mut App, (w, h): (u16, u16)) {
     let lines: Vec<&str> = s.lines().collect();
     assert_eq!(lines.len(), h as usize, "{w}x{h}");
     if !overlay(app) && w >= 60 && h >= 20 {
-        assert!(lines[0].contains("◉"), "no header at {w}x{h}:\n{s}");
-        assert!(!lines[h as usize - 1].trim().is_empty(), "no footer at {w}x{h}:\n{s}");
+        // The palette can change the icons, and turn the footer's hints off.
+        assert!(lines[0].contains(super::icons::LOGO.get()), "no header at {w}x{h}:\n{s}");
+        let hints = app.hints != super::choices::Hints::Off;
+        assert!(!hints || !lines[h as usize - 1].trim().is_empty(), "no footer at {w}x{h}:\n{s}");
     }
     // What clicks are matched against is where it was drawn, on the screen.
     let screen_rect = Rect::new(0, 0, w, h);
@@ -326,7 +328,7 @@ fn state(app: &mut App) {
 /// Esc, as often as it takes, puts away whatever's open (a dialog, a typed line, the help, full
 /// screen) once the background is done; then q quits.
 fn back_out(app: &mut App) {
-    let out = |a: &App| !a.input_taken() && !a.fullscreen;
+    let out = |a: &App| !a.input_taken() && !a.deck_layout;
     settle(app);
     // A quit asked for while the drive was written happens once the write is done: the walk
     // ended there.
@@ -481,7 +483,7 @@ struct Toggles {
     repeat: u8,
     /// Spectrum, mirror, scope, deck.
     vis: u8,
-    fullscreen: bool,
+    deck_layout: bool,
     quantize: bool,
     single: bool,
     auto_cue: bool,
@@ -509,7 +511,7 @@ impl Toggles {
                 Vis::Scope => 2,
                 Vis::Deck => 3,
             },
-            fullscreen: app.fullscreen,
+            deck_layout: app.deck_layout,
             quantize: app.deck.quantize,
             single: app.deck.single,
             auto_cue: app.deck.auto_cue,
@@ -537,7 +539,7 @@ impl Toggles {
             "s" => self.shuffle = !self.shuffle,
             "r" => self.repeat = (self.repeat + 1) % 3,
             "v" => self.vis = (self.vis + 1) % 4,
-            "f" => self.fullscreen = !self.fullscreen,
+            "f" => self.deck_layout = !self.deck_layout,
             "Q" => self.quantize = !self.quantize,
             "S" => self.single = !self.single,
             "A" => self.auto_cue = !self.auto_cue,
@@ -910,7 +912,7 @@ fn playing_keeps_the_queue_whole(tc: TestCase) {
                     _ if !free => {}
                     "x" => assert!(app.now.is_none(), "x stops"),
                     // In the library (not full screen, where it queues the pick) n is the next.
-                    "n" if !app.fullscreen && playing => {
+                    "n" if !app.deck_layout && playing => {
                         let want = if pos + 1 < len {
                             Some(pos + 1)
                         } else {
@@ -985,7 +987,8 @@ fn edits_write_what_they_say(tc: TestCase) {
     }
     "Friday".chars().for_each(|c| app.on_key(key_event(&c.to_string())));
     app.on_key(key_event("<enter>"));
-    yes(&mut app);
+    wait(&mut app, |a| a.job.is_none() && a.loading.is_none());
+    assert!(app.modal.is_none(), "`u` takes it back: nothing asks");
     app.on_key(key_event("M"));
     assert!(app.marks.is_empty());
     model.playlists.insert("Friday".into(), every);
@@ -1118,9 +1121,14 @@ fn edits_write_what_they_say(tc: TestCase) {
                 }
                 want = model.clone();
             }
-            _ => assert_eq!(asked, want != model, "{edit:?} asks only to change something: {}", {
+            (Edit::Undo, _) => assert_eq!(asked, want != model, "an undo asks only to change something: {}", {
                 super::app::testing::last_message(&app).to_string()
             }),
+            // `u` takes these back, so nothing asks.
+            _ => {
+                assert!(!asked, "{edit:?} asked");
+                wait(&mut app, |a| a.job.is_none() && a.loading.is_none());
+            }
         }
         if asked && app.modal.is_some() {
             check(&mut app, (120, 40));
@@ -1215,8 +1223,9 @@ fn exports_hold_the_list_shown(tc: TestCase) {
 fn tags_on(root: &Path) -> std::collections::BTreeSet<(String, String)> {
     let drive = locallibrary::api::DriveRef { drive: root.display().to_string() };
     let by = locallibrary::api::tags_by_track(&drive).unwrap();
+    let lib = locallibrary::Device::open(root).unwrap().library().unwrap();
     let name = |p: &str| p.rsplit('/').next().unwrap_or(p).to_lowercase();
-    by.iter().flat_map(|(p, tags)| tags.iter().map(move |t| (name(p), t.clone()))).collect()
+    lib.tracks.iter().flat_map(|t| by.of(t).iter().map(|tag| (name(&t.file_path), tag.clone()))).collect()
 }
 
 /// Giving the selected (or marked) tracks a new My Tag or one the drive has, and taking one off,
@@ -1610,10 +1619,10 @@ fn a_smart_playlist_holds_what_the_search_showed(tc: TestCase) {
     assert!(app.modal.is_none(), "x didn't close the panel");
 }
 
-/// The details panel of whichever track is selected lists what mixes into it, as the api's
-/// matches (`track.matches`) are (the other recordings in a key that mixes, near its tempo, best
-/// first), names it and the best of them on screen, and enter there queues those tracks from the
-/// one picked.
+/// The details panel of whichever track is selected lists what mixes into it: the api's matches
+/// (`track.matches`, the other recordings in a key that mixes, near its tempo), each way of mixing
+/// in taking its turn, closest tempo first within each (LOC-13). It names the track and the first
+/// of them on screen, and enter there queues those tracks from the one picked.
 #[hegel::test(test_cases = 20, suppress_health_check = [HealthCheck::TooSlow])]
 fn the_details_list_what_mixes_into_the_track(tc: TestCase) {
     use super::app::testing::{app_with, track};
@@ -1636,9 +1645,17 @@ fn the_details_list_what_mixes_into_the_track(tc: TestCase) {
     app.on_key(key_event("i"));
     wait(&mut app, |a| a.details_current());
     let d = app.details.as_ref().unwrap();
-    let want: Vec<usize> = (locallibrary::api::matches_in(&lib, &lib.tracks[at], 60).iter())
-        .map(|s| lib.tracks.iter().position(|t| t.id == s.track.id).unwrap())
+    let all = locallibrary::api::matches_in(&lib, &lib.tracks[at], usize::MAX);
+    let mut ways: Vec<_> = all.iter().map(|s| s.relation).collect();
+    ways.dedup();
+    let by_way: Vec<Vec<usize>> = (ways.iter())
+        .map(|&way| {
+            let of_way = all.iter().filter(|s| s.relation == way);
+            of_way.map(|s| lib.tracks.iter().position(|t| t.id == s.track.id).unwrap()).collect()
+        })
         .collect();
+    let want: Vec<usize> =
+        (0..all.len()).flat_map(|turn| by_way.iter().filter_map(move |w| w.get(turn).copied())).collect();
     assert_eq!(d.matches.items.iter().map(|m| m.index).collect::<Vec<_>>(), want, "for {:?}", lib.tracks[at]);
     let s = screen(&mut app, 180, 50);
     assert!(s.contains(&lib.tracks[at].title), "the details don't name it:\n{s}");
@@ -1652,6 +1669,25 @@ fn the_details_list_what_mixes_into_the_track(tc: TestCase) {
         assert_eq!((&app.queue.items, app.queue.pos), (&want, pick), "enter queues the matches");
     }
     check(&mut app, draw_size(&tc));
+}
+
+/// A ±1 match comes before a second same-key one in the details panel, and the queue enter makes
+/// keeps that order. The smallest case `the_details_list_what_mixes_into_the_track` found.
+#[test]
+fn the_details_take_each_way_of_mixing_in_by_turns() {
+    use super::app::testing::{app_with, track};
+    let at =
+        |id, key: &str| locallibrary::Track { key: key.into(), bpm: 120.0, ..track(id, "DJ", &format!("Song {id}")) };
+    let tracks = vec![at(1, "8A"), at(2, "8A"), at(3, "8A"), at(4, "9A")];
+    let (mut app, _dir) = app_with(locallibrary::Library { tracks, ..Default::default() });
+    app.on_key(key_event("<home>"));
+    app.on_key(key_event("i"));
+    wait(&mut app, |a| a.details_current());
+    let d = app.details.as_ref().unwrap();
+    assert_eq!(d.matches.items.iter().map(|m| m.index).collect::<Vec<_>>(), [1, 3, 2]);
+    app.on_key(key_event("<tab>"));
+    app.on_key(key_event("<enter>"));
+    assert_eq!(app.queue.items, [1, 3, 2]);
 }
 
 /// Packing for a set (the playlist shown, the playlists marked in the tree, or the crate, saved

@@ -15,7 +15,7 @@ use locallibrary::api::{self, CueOp, EditCues, ListCues, TrackSelector};
 use locallibrary::cue_edit::{CuePosition, CueRef, HotCue, SetCue, UpdateCue};
 use locallibrary::onelibrary::{self, OneLibrary};
 use locallibrary::progress::Ctx;
-use locallibrary::{Device, Error, backup, paths};
+use locallibrary::{Device, Error, backup, fsutil, paths};
 
 const ANALYSED: [&str; 2] = ["P016/0000875E", "P053/0001D21F"];
 
@@ -345,6 +345,36 @@ fn a_stale_plan_is_refused() {
     apply(&root, &[2], CueOp::Set(set(None, CuePosition::Beat(17))));
     let err = locallibrary::cue_edit::apply(&plan, &mut Device::open(&root).unwrap(), &Ctx::silent()).unwrap_err();
     assert!(matches!(err, Error::StalePlan(_)), "{err}");
+}
+
+/// A cue edit needs room for the backup it takes and a staged copy of each file it replaces, each
+/// rounded up to the drive's allocation unit: an analysis file counts once in the backup and once
+/// staged, OneLibrary's database (with its WAL) once more, staged.
+#[test]
+fn the_space_a_cue_edit_needs_is_its_backup_and_its_staged_files() {
+    for onelibrary in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = common::demo_drive(dir.path(), "USB");
+        if onelibrary {
+            common::add_onelibrary(&root);
+        }
+        let plan =
+            api::cues_plan(&edit(&root, &[1], CueOp::Set(set(Some('A'), CuePosition::Ms(0)))), &Ctx::silent()).unwrap();
+        let cluster = fsutil::cluster_size(&root);
+        let on_disk = |path: &Path| fs::metadata(path).map_or(0, |m| m.len().div_ceil(cluster) * cluster);
+        let plus = paths::to_fs(&root, paths::LIBRARY_PLUS_DB);
+        let wal = fs::metadata(paths::to_fs(&root, paths::LIBRARY_PLUS_WAL)).map_or(0, |m| m.len());
+        let staged_plus = fs::metadata(&plus).map_or(0, |m| (m.len() + wal).div_ceil(cluster) * cluster);
+        let analysis: Vec<&String> = plan.tracks.iter().flat_map(|t| &t.files).collect();
+        assert_eq!(analysis.len(), 2, "the track's .DAT and .EXT");
+        let staged = analysis.iter().map(|k| on_disk(&paths::to_fs(&root, k))).sum::<u64>() + staged_plus;
+
+        let mut d = Device::open(&root).unwrap();
+        let id = locallibrary::cue_edit::apply(&plan, &mut d, &Ctx::silent()).unwrap().backup.unwrap();
+        let info = backup::list(&d).unwrap().into_iter().find(|b| b.id == id).unwrap();
+        let backed_up = info.files.iter().map(|k| on_disk(&paths::to_fs(&backup::dir(&d, &id), k))).sum::<u64>();
+        assert_eq!(plan.needed_bytes, backed_up + staged, "onelibrary: {onelibrary}");
+    }
 }
 
 #[test]

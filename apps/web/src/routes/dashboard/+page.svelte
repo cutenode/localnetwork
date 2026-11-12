@@ -1,172 +1,110 @@
 <script lang="ts">
-	import { ArrowRight, LogOut, Plus } from '@lucide/svelte';
-	import type { Snippet } from 'svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
-	import PerformerCard from '#lib/components/PerformerCard.svelte';
-	import ProfileSetupCard from '#lib/components/ProfileSetupCard.svelte';
-	import RequestList from '#lib/components/RequestList.svelte';
-	import StatusPill from '#lib/components/StatusPill.svelte';
-	import { bookingGroup } from '#lib/bookings.ts';
-	import { accountLabel, formatShowDate, placeLabel, pluralize, timeAgo } from '#lib/format.ts';
-	import { projectSummary } from '#lib/performers.ts';
-	import Button from '#lib/ui/Button.svelte';
-	import Card from '#lib/ui/Card.svelte';
-	import Eyebrow from '#lib/ui/Eyebrow.svelte';
+	import NeedsList from '#lib/components/NeedsList.svelte';
+	import NightList from '#lib/components/NightList.svelte';
+	import OnboardingChecklist from '#lib/components/OnboardingChecklist.svelte';
+	import { nightLabel, pluralize } from '#lib/format.ts';
+	import { statusLine } from '#lib/home.ts';
+	import { resolved } from '#lib/resolved.svelte.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 
-	const viewer = $derived(data.viewer?.did ?? '');
+	const NEEDS_SHOWN = 5;
 
-	const overview = $derived(Promise.all([data.projects, data.books]));
+	const rows = resolved(() => data.needs, null);
+
+	const access = resolved(() => data.access, []);
+
+	const firstRun = resolved(() => data.firstRun, null);
+
+	const summary = resolved(() => data.summary, null);
+
+	const onboarding = resolved(() => data.onboarding, null);
+
+	const needs = $derived(rows.value && [...rows.value, ...access.value]);
+
+	// Known before the rows are, so the heading and the room they take never wait.
+	const count = $derived(data.waiting + access.value.length);
 </script>
 
-<svelte:head><title>Dashboard · Local Network</title></svelte:head>
+<svelte:head><title>Home · Local Network</title></svelte:head>
 
-<!-- A card with a heading and a link to the full page; `count` notes what's waiting there. -->
-{#snippet panel(id: string, title: string, href: string, link: string, body: Snippet, count?: string)}
-	<Card as="section" padding="none">
-		<div class="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
-			<h2 {id} class="m-0 flex flex-wrap items-baseline gap-x-2 text-emphasis font-semibold">{title}{#if count}{' '}<span class="text-small font-medium text-warning">{count}</span>{/if}</h2>
-			<a {href} class="inline-flex shrink-0 items-center gap-1 text-small text-fg-muted no-underline hover:text-fg">{link}<ArrowRight class="size-3.5" /></a>
-		</div>
-		{@render body()}
-	</Card>
+{#snippet failure()}
+	<p class="notice notice-info m-0 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">Some of your nights didn't load. Everything else here is up to date.<a class="btn-secondary btn-sm" href="/dashboard" data-sveltekit-reload>Try again</a></p>
 {/snippet}
 
-{#snippet threads(managing: boolean)}
-	{#snippet body()}
-		{#if data.threads.length}
-			<ul class="m-0 list-none divide-y divide-line p-0">
-				{#each data.threads as thread (thread.space)}
-					<li class="flex items-center justify-between gap-3 px-5 py-3.5">
-						<div class="flex min-w-0 flex-col gap-0.5">
-							<a class="truncate text-fg no-underline hover:text-link" href="/dashboard/bookings/{thread.skey}">{thread.title ?? 'Booking'} · {thread.project?.name}</a>
-							<p class="m-0 text-caption text-fg-subtle">
-								{#if bookingGroup(thread, viewer) === 'reply'}<span class="font-medium text-warning">Needs your reply</span> · {/if}{timeAgo(thread.lastActivityAt)}
-							</p>
-						</div>
-						<StatusPill status={thread.status} />
-					</li>
-				{/each}
-			</ul>
-		{:else if managing}
-			<EmptyState framed={false} title="No booking threads yet" body="When a promoter sends an inquiry to one of your projects, the thread starts here." />
-		{:else}
-			<EmptyState framed={false} title="No booking threads yet" body="Find a DJ and send an inquiry with your show details.">
-				<Button size="sm" href="/projects">Find DJs</Button>
-			</EmptyState>
-		{/if}
-	{/snippet}
-	{@render panel('threads', 'Booking threads', '/dashboard/bookings', 'All bookings', body, data.waiting ? `${data.waiting} waiting on you` : undefined)}
-{/snippet}
-
-{#snippet submissions()}
-	{#snippet body()}<RequestList requests={data.requests} />{/snippet}
-	{@render panel('submissions', 'Your submissions', '/dashboard/requests', 'All submissions', body)}
-{/snippet}
-
-<div class="flex flex-col gap-10">
-	<header class="flex flex-wrap items-end justify-between gap-x-10 gap-y-6">
-		<div class="flex min-w-0 flex-col gap-3">
-			<Eyebrow>Overview</Eyebrow>
-			<h1 class="m-0 text-title font-semibold break-words">{accountLabel(data.viewer)}</h1>
-		</div>
-		<form method="POST" action="/logout" class="flex"><button class="btn-ghost"><LogOut class="size-4" />Sign out</button></form>
+<div class="flex max-w-3xl flex-col gap-8 sm:gap-10">
+	<header class="flex flex-col gap-1">
+		<h1 class="m-0 text-heading font-semibold">{firstRun.value && !count ? 'Set up your page' : statusLine(count)}</h1>
+		<!-- Always a line, so the lists below stay put when it arrives. -->
+		<p class="m-0 min-h-lh text-body text-fg-muted">
+			{#if firstRun.value && !count}
+				This goes away when you're done.
+			{:else}
+				{#await data.nights}
+					<span class="sr-only">Finding your next night</span>
+				{:then { nights, failed }}
+					{@const [next] = nights}
+					{#if next}Your next night is {next.when?.toLowerCase() ?? nightLabel(next.date)}: {next.title}.{:else if !failed}No nights coming up.{/if}
+				{:catch}
+					<!-- The notice below says so. -->
+				{/await}
+			{/if}
+		</p>
 	</header>
+
+	{#if onboarding.value}<OnboardingChecklist data={onboarding.value} flags={data.flags} />{/if}
 
 	{#if !data.viewer?.spacesCapable}
 		<p class="notice notice-info m-0">Your account's server can't keep private data for Local Network yet, so Local Network keeps your bookings and submissions for you (<a href="/dashboard/data">see what it keeps</a>) and the planner is off. Once it can, sign out and back in.</p>
 	{/if}
 
-	{#if data.firstRun}<ProfileSetupCard name={data.firstRun.name} hasAvatar={data.firstRun.hasAvatar} />{/if}
+	{#if !needs && count}
+		<section aria-labelledby="needs" class="flex flex-col gap-3">
+			<h2 id="needs" class="m-0 text-emphasis font-semibold">Needs you</h2>
+			<div role="status" aria-label="Loading what needs you"><NeedsList loading={Math.min(count, NEEDS_SHOWN)} /></div>
+		</section>
+	{:else if needs?.length}
+		<section aria-labelledby="needs" class="flex flex-col gap-3">
+			<h2 id="needs" class="m-0 text-emphasis font-semibold">Needs you</h2>
+			<NeedsList rows={needs.slice(0, NEEDS_SHOWN)} />
+			{#if needs.length > NEEDS_SHOWN}<p class="m-0 text-small text-fg-muted"><a class="link" href="/dashboard/bookings">{needs.length - NEEDS_SHOWN} more</a></p>{/if}
+		</section>
+	{/if}
 
-	{#await overview}
-		<div role="status" aria-busy="true" aria-label="Loading your overview" class="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-			<div class="h-40 animate-pulse rounded-xl bg-surface"></div>
-		</div>
-	{:then [projects, books]}
-		{#if !books}
-			<section aria-labelledby="projects" class="flex flex-col gap-5">
-				<div class="flex flex-wrap items-center justify-between gap-3">
-					<h2 id="projects" class="m-0 text-heading font-semibold">Projects you manage</h2>
-					<Button variant="secondary" size="sm" href="/dashboard/projects/new"><Plus class="size-4" />List a project</Button>
-				</div>
-				{#if projects === null}
-					<EmptyState title="Projects are offline" body="The directory isn't answering. Try again in a minute." />
-				{:else if projects.length === 0}
-					<EmptyState title="You don't manage any projects yet" body="List your own project, or find one an admin already added and claim it.">
-						<Button variant="secondary" href="/projects">Find yours</Button>
-					</EmptyState>
-				{:else}
-					<div class="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-						{#each projects as project (project.uri)}
-							<PerformerCard performer={projectSummary(project)}>
-								<div class="flex gap-2">
-									<Button variant="secondary" size="sm" href="/dashboard/projects/{project.slug}" aria-label="Manage {project.profile.name}">Manage</Button>
-									<Button variant="ghost" size="sm" href="/projects/{project.slug}" aria-label="View {project.profile.name}">View</Button>
-								</div>
-							</PerformerCard>
-						{/each}
-					</div>
-				{/if}
+	{#await data.nights}
+		<section aria-labelledby="next" class="flex flex-col gap-3">
+			<h2 id="next" class="m-0 text-emphasis font-semibold">Next up</h2>
+			<div role="status" aria-label="Loading your nights"><NightList loading /></div>
+		</section>
+	{:then { nights, more, failed }}
+		{#if nights.length}
+			<section aria-labelledby="next" class="flex flex-col gap-3">
+				<h2 id="next" class="m-0 text-emphasis font-semibold">Next up</h2>
+				<NightList {nights} />
+				{#if more}<p class="m-0 text-small text-fg-muted">And {pluralize(more, 'more night')} after that.</p>{/if}
 			</section>
-			<div class="grid gap-6 xl:grid-cols-2">
-				{@render threads(true)}
-				{@render submissions()}
-			</div>
-		{:else}
-			{@render threads(false)}
-			{#await data.planner}
-				<div role="status" aria-busy="true" aria-label="Loading your planner" class="grid gap-6 xl:grid-cols-2">
-					<div class="h-40 animate-pulse rounded-xl bg-surface"></div>
-					<div class="h-40 animate-pulse rounded-xl bg-surface"></div>
-				</div>
-			{:then planner}
-				{#if planner?.available}
-					<div class="grid gap-6 xl:grid-cols-2">
-						{#snippet shows()}
-							{#if planner.shows.length}
-								<ul class="m-0 list-none divide-y divide-line p-0">
-									{#each planner.shows.slice(0, 5) as show (show.rkey)}
-										<li class="flex flex-col gap-0.5 px-5 py-3.5">
-											<a class="truncate text-fg no-underline hover:text-link" href="/dashboard/planner/shows/{show.rkey}">{show.details.title}</a>
-											<p class="m-0 text-caption text-fg-subtle">{[show.details.date ? formatShowDate(show.details.date) : 'No date yet', show.details.venue, pluralize(show.lineup.length, 'DJ')].filter(Boolean).join(' · ')}</p>
-										</li>
-									{/each}
-								</ul>
-							{:else}
-								<EmptyState framed={false} title="No shows planned" body="Plan a night and build its lineup here before you send inquiries.">
-									<Button variant="secondary" size="sm" href="/dashboard/planner/shows/new">Plan a show</Button>
-								</EmptyState>
-							{/if}
-						{/snippet}
-						{#snippet saved()}
-							{@const projects = planner.saves.flatMap((save) => planner.projects[save.project] ?? [])}
-							{#if projects.length}
-								<ul class="m-0 list-none divide-y divide-line p-0">
-									{#each projects.slice(0, 5) as project (project.uri)}
-										<li class="flex flex-col gap-0.5 px-5 py-3.5">
-											<a class="truncate text-fg no-underline hover:text-link" href="/projects/{project.slug}">{project.profile.name}</a>
-											<p class="m-0 text-caption text-fg-subtle">{placeLabel(project.profile)}</p>
-										</li>
-									{/each}
-								</ul>
-							{:else}
-								<EmptyState framed={false} title="Nothing saved" body="Save DJs from their profiles to keep a shortlist here.">
-									<Button variant="secondary" size="sm" href="/projects">Find DJs</Button>
-								</EmptyState>
-							{/if}
-						{/snippet}
-						{@render panel('planned', 'Planned shows', '/dashboard/planner', 'Planner', shows)}
-						{@render panel('saved', 'Saved projects', '/dashboard/planner#saved', 'All saved', saved)}
-					</div>
-				{:else if planner && 'problem' in planner}
-					<EmptyState title="Your planner didn't load" body="Try again in a minute." />
-				{/if}
-			{/await}
-			{#if data.requests.length}{@render submissions()}{/if}
-			<p class="m-0 text-small text-fg-muted">DJ yourself? <a class="link" href="/dashboard/projects/new">List a project</a></p>
 		{/if}
+		{#if failed}{@render failure()}{/if}
+	{:catch}
+		{@render failure()}
 	{/await}
+
+	{#if summary.value?.others}<p class="m-0 text-small text-fg-muted">{summary.value.others}</p>{/if}
+
+	{#if firstRun.value && !count}
+		<p class="m-0 text-small text-fg-muted">Bookings, shows and anything else show up here when they need you.</p>
+	{:else if summary.value && !summary.value.hasBookings && !count}
+		{#await data.projects then projects}
+			{@const [act] = projects ?? []}
+			{#if act}
+				<p class="m-0 text-small text-fg-muted">All quiet. A good time to freshen up <a class="link" href="/dashboard/projects/{act.slug}">{act.profile.name}</a>.</p>
+			{:else if !firstRun.value}
+				<EmptyState title="Nothing here yet" body="Bookings show up here as soon as someone writes.">
+					<div class="flex flex-wrap justify-center gap-2"><a class="btn-primary" href="/projects">Find DJs</a><a class="btn-secondary" href="/dashboard/projects/new">List a project</a></div>
+				</EmptyState>
+			{/if}
+		{/await}
+	{/if}
 </div>

@@ -17,6 +17,11 @@ const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotoco
 
 const ECHO: &str = include_str!("../../examples/echo/locallibrary-plugin.toml");
 
+/// The capabilities a third-party plugin may have (`net:` aside).
+fn third_party_capabilities() -> Vec<Capability> {
+    Capability::NAMED.into_iter().filter(|c| *c != Capability::LibraryDeleteUnbacked).collect()
+}
+
 /// What's wrong with `HEAD` followed by `rest`, for a third-party plugin (`""`: nothing).
 fn problem(rest: &str) -> String {
     match Manifest::parse(&format!("{HEAD}{rest}")).and_then(|m| m.validate(false)) {
@@ -50,6 +55,18 @@ fn a_manifest_reads_back_from_json_unchanged() {
     let m = Manifest::parse(ECHO).unwrap();
     let back: Manifest = serde_json::from_value(serde_json::to_value(&m).unwrap()).unwrap();
     assert_eq!(back, m);
+}
+
+#[hegel::test(test_cases = 8)]
+fn only_built_in_plugins_delete_without_a_backup(tc: TestCase) {
+    let mut capabilities = tc.draw(gs::subsequences(third_party_capabilities()));
+    let at = tc.draw(gs::integers::<usize>().max_value(capabilities.len()));
+    capabilities.insert(at, Capability::LibraryDeleteUnbacked);
+    let names: Vec<String> = capabilities.iter().map(|c| format!("{:?}", c.to_string())).collect();
+    let m = Manifest::parse(&format!("{HEAD}capabilities = [{}]\n", names.join(", "))).unwrap();
+    m.validate(true).unwrap();
+    let e = m.validate(false).unwrap_err().to_string();
+    assert_eq!(e, format!("capabilities[{at}]: only plugins locallibrary ships delete without a backup"));
 }
 
 #[test]
@@ -110,7 +127,7 @@ fn a_cli_place_is_one_or_two_names() {
 
 /// `x-cli` is checked wherever params or options are, so the CLI can rely on it.
 #[test]
-fn a_propertys_cli_hints_are_checked() {
+fn property_cli_hints_are_checked() {
     let hinted = |hints: &str| {
         problem(&format!(
             "[[contributes.commands]]\nname = \"c\"\ntitle = \"C\"\nmode = \"headless\"\n\
@@ -1237,7 +1254,7 @@ fn a_theme_sets_colours_by_their_names() {
 
 /// How an analyzer's fields are shown: hints for its own fields, in a format that fits each.
 #[test]
-fn an_analyzers_fields_say_how_theyre_shown() {
+fn an_analyzers_fields_say_how_they_are_shown() {
     let analyzer = |display: &str| {
         format!(
             "[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nversion = \"1\"\nfields = {{ lufs = \"number\", camelot = \"string\", runs = \"integer\" }}\n{display}"
@@ -1749,7 +1766,7 @@ fn manifest(tc: &TestCase, built_in: bool) -> Manifest {
         .collect();
     let panels = drawn_names(tc, 3).into_iter().map(|name| Panel { name, title: title(tc), offered: Where::Track });
     let themes = drawn_names(tc, 3).into_iter().map(|name| Theme { name, title: title(tc), tokens: tokens(tc) });
-    let mut capabilities = tc.draw(gs::subsequences(Capability::NAMED.to_vec()));
+    let mut capabilities = tc.draw(gs::subsequences(third_party_capabilities()));
     // Granted reading the sets and mixes they write out.
     let reads_sets = exporters.iter().flat_map(Exporter::sources).any(|s| *s != ExportFrom::Drive);
     if reads_sets && !capabilities.contains(&Capability::SetsRead) {
@@ -2962,6 +2979,7 @@ fn capabilities_read_back_from_their_names_and_nothing_else(tc: TestCase) {
         "collection:read",
         "library:plan",
         "library:delete",
+        "library:delete-unbacked",
         "tags:plan",
         "cues:plan",
         "artwork:plan",
@@ -3183,7 +3201,7 @@ fn each_kind_of_account_type_mistake_is_refused_saying_where(tc: TestCase) {
         }
         "beside" => {
             match tc.draw(gs::sampled_from(vec!["capability", "accounts", "net", "contribution"])) {
-                "capability" => m.capabilities.push(tc.draw(gs::sampled_from(Capability::NAMED.to_vec()))),
+                "capability" => m.capabilities.push(tc.draw(gs::sampled_from(third_party_capabilities()))),
                 "accounts" => m.accounts.push(account_need(&tc, tc.draw(gs::from_regex(DRAWN_NAME)))),
                 "net" => m.net.push(NetLimit { host: "a.example".into(), per_second: 1.0 }),
                 _ => add(&mut m.contributes, tc.draw(gs::sampled_from(CONTRIBUTIONS.to_vec())), 1),

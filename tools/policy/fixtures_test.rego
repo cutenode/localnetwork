@@ -37,8 +37,8 @@ repo := [
 		"devDependencies": {"oxlint": "1.86.0"},
 		"scripts": {
 			"dev": "vite dev", "build": "vite build", "check": "svelte-check", "lint": "oxlint", "format": "oxfmt",
-			"format:check": "oxfmt --check", "knip": "knip", "test": "vitest run", "test:coverage": "vitest run --coverage",
-			"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm knip && pnpm test:coverage",
+			"format:check": "oxfmt --check", "test": "vitest run", "test:coverage": "vitest run --coverage",
+			"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm test:coverage",
 		},
 	}},
 	{"path": "apps/site/Dockerfile", "contents": []},
@@ -58,8 +58,15 @@ repo := [
 	{"path": "plugins/p/Cargo.toml", "contents": {"package": object.union({"name": "locallibrary-plugin-p", "publish": false}, package_fields), "lints": {"workspace": true}}},
 	{"path": "vendor/pdb/Cargo.toml", "contents": {"package": {"name": "pdb", "edition": "2021", "rust-version": {"workspace": true}}, "lints": {"workspace": true}}},
 	{"path": "lefthook.yml", "contents": {
-		"pre-commit": {"jobs": [{"root": "apps/site/", "run": "pnpm exec oxfmt {staged_files}"}, {"root": "apps/site/", "run": "pnpm exec oxlint {staged_files}"}]},
-		"pre-push": {"jobs": [{"root": "apps/site/", "run": "pnpm check"}, {"root": "apps/site/", "run": "pnpm test"}]},
+		"lefthook": "pnpm exec lefthook",
+		"pre-commit": {"jobs": [
+			{"root": "apps/site/", "run": "pnpm exec oxfmt {staged_files}"}, {"root": "apps/site/", "run": "pnpm exec oxlint {staged_files}"},
+			{"root": "packages/kit/", "run": "pnpm exec oxfmt {staged_files}"}, {"root": "packages/kit/", "run": "pnpm exec oxlint {staged_files}"},
+		]},
+		"pre-push": {"jobs": [
+			{"root": "apps/site/", "run": "pnpm check"}, {"root": "apps/site/", "run": "pnpm test"},
+			{"root": "packages/kit/", "run": "pnpm check"}, {"root": "packages/kit/", "run": "pnpm test"},
+		]},
 	}},
 	{"path": ".github/workflows/site-ci.yml", "contents": {
 		"true": {"pull_request": null, "push": {"branches": ["main"]}},
@@ -90,6 +97,10 @@ repo := [
 		"tool": [{"changed-files": [{"any-glob-to-any-file": "apps/tool/**"}]}],
 		"docs": [{"changed-files": [{"all-globs-to-any-file": ["**/*.md", "!apps/**"]}, {"any-glob-to-any-file": "docs/**/*.txt"}]}],
 	}},
+	{"path": ".github/dependabot.yml", "contents": {"updates": [
+		{"package-ecosystem": "cargo", "directory": "/"},
+		{"package-ecosystem": "npm", "directories": ["/", "/apps/site"]},
+	]}},
 	{"path": ".github/ISSUE_TEMPLATE/site-bug.yml", "contents": {"labels": ["bug", "site"]}},
 	{"path": ".github/ISSUE_TEMPLATE/tool-bug.yml", "contents": {"labels": ["bug", "tool"]}},
 	{"path": ".github/ISSUE_TEMPLATE/feature_request.yml", "contents": {"body": [{"id": "tool", "attributes": {"options": ["site", "tool", "Something new"]}}]}},
@@ -102,7 +113,7 @@ repo := [
 	{"path": "lexicons/computer/localnetwork/dj/set.json", "contents": {"id": "computer.localnetwork.dj.set"}},
 	{"path": "lexicons/community/lexicon/location/address.json", "contents": {"id": "community.lexicon.location.address"}},
 	{"path": "/scratch/embedded-files.json", "contents": {"files": ["lexicons/computer/localnetwork/dj/set.json", "plugins/p/locallibrary-plugin.toml"]}},
-	{"path": "/scratch/tracked-files.json", "contents": {"files": ["apps/site/src/app.ts", "README.md", "crates/x/README.md", "docs/b.txt", "apps/tool/x.rs"]}},
+	{"path": "/scratch/tracked-files.json", "contents": {"files": ["apps/site/src/app.ts", "apps/site/package-lock.json", "README.md", "crates/x/README.md", "docs/b.txt", "apps/tool/x.rs"]}},
 ]
 
 # The repository with the file at `path` (or every item of a list file) replaced by `contents`.

@@ -119,7 +119,7 @@ fn bad_fields_are_refused() {
 /// by each track's audio file on the drive: a track whose file has none, or isn't there, has
 /// none; with no store, or no analyzer, no track has any, and the fields are still declared.
 #[test]
-fn a_librarys_values_are_named_by_plugin_and_field() {
+fn library_values_are_named_by_plugin_and_field() {
     let dir = tempfile::tempdir().unwrap();
     let st = Store::open_or_init(dir.path().join("store")).unwrap();
     let store = FieldStore::in_store(&st);
@@ -209,7 +209,7 @@ fn field_value(tc: &TestCase) -> FieldValue {
 
 /// For any sequence of values kept for a drive's audio files, by any plugin, version and
 /// analyzer, and of files changing: a value is kept only when its names can be folders and its
-/// numbers are finite, and reads back (as the store has it, and named `plugin.field` for a
+/// numbers are finite and its file is there (one that isn't is named), and reads back (as the store has it, and named `plugin.field` for a
 /// library's tracks) from the analyzers asked for, until its file changes.
 #[hegel::test(test_cases = 50, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn kept_fields_read_back_until_their_file_changes(tc: TestCase) {
@@ -242,6 +242,16 @@ fn kept_fields_read_back_until_their_file_changes(tc: TestCase) {
         let values = fields(&[(field, field_value(&tc))]);
         let named = PLUGINS[..2].contains(&plugin) && VERSIONS[..2].contains(&version) && name != ANALYZERS[2].0;
         let finite = values.values().all(|v| !matches!(v, FieldValue::Number(n) if !n.is_finite()));
+        // Now and then for a file that isn't there.
+        if tc.draw(gs::integers::<u8>().max_value(5)) == 0 {
+            let gone = drive.join("Contents/gone.mp3");
+            match (store.put(&gone, &a, &values), named, finite) {
+                (Err(Error::NotFound(m)), true, true) => assert_eq!(m, gone.display().to_string()),
+                (Err(Error::Invalid(_)), ..) if !(named && finite) => {}
+                (other, ..) => panic!("{a:?} {values:?} for a file that isn't there: {other:?}"),
+            }
+            continue;
+        }
         match (store.put(&files[file], &a, &values), named, finite) {
             (Ok(()), true, true) => {
                 kept.retain(|(f, k, _)| (*f, k) != (file, &a));

@@ -31,7 +31,9 @@ are:
   Traktor](other-software.md#from-traktor).
 - **demos**: `locallibrary clean LIBRARY` removes rekordbox's demo tracks and their files (see
   [Editing](editing.md#clean)), and its check lists them in `check` and `doctor`, with `clean` as
-  the fix. `refresh` runs it first.
+  the fix. `refresh` runs it first. Its `delete_unbacked` edit leaves the files out of the backup,
+  which only plugins locallibrary ship can ask for (`library:delete-unbacked`), and `edit.plan`
+  refuses.
 - **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
   fetch`, and track details on MusicBrainz for `locallibrary track fetch` (see
   [Providers](#providers)).
@@ -378,7 +380,8 @@ A store destination keeps a copy of the store, as a copy in a folder does (`stor
 some, `--dry-run`), after losing this computer say, and `locallibrary drive verify DRIVE --from
 PLUGIN:DESTINATION --repair` rewrites damaged files from it when nothing nearer has them. Every
 file that comes back is checked against its BLAKE3 hash before it goes in the store, and only
-locallibrary writes the store.
+locallibrary writes the store. Stored files reach a plugin read-only on macOS and Linux, and a
+system copy call keeps that, so a plugin that may write its copy again copies the bytes.
 
 A set destination publishes a set's recording with its tracklist (tracks marked unnamed, tracks
 your profile hides and those `--hide 3,7` names go without their names, notes stay private):
@@ -620,8 +623,8 @@ its manifest says each server allows. A secret setting, or an account's token, g
 such a request names it (an account's token, only where its account type says it goes and a scope
 of the plugin's access covers), filled in by
 locallibrary, never on to another server a redirect leads to, and is left out of the plugin's log
-and of the errors it's told. What a server answers is passed on as it is, but for an account's
-token sent in the address, which comes back as the placeholder that named it, and a server
+and of the errors it's told. What a server answers is passed on as it is, but for a secret or an
+account's token sent in the address, which comes back as the placeholder that named it, and a server
 refusing an account's token, which locallibrary answers itself (see [Accounts](#accounts)). The
 files a plugin sends are those in its request's folder (see below) and a set's recording while it
 publishes the set, nothing else. A destination is given stored files to read, never the store's

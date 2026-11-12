@@ -1,0 +1,43 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.staff.flag",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "any",
+			"description": "Who a feature flag is on for, keyed by the flag's key. Any gate that matches turns it on. Written only by the root account into the staff space.",
+			"record": {
+				"type": "object",
+				"required": ["key", "everyone", "percentage", "groups", "dids", "updatedBy", "updatedAt"],
+				"properties": {
+					"key": { "type": "string", "maxLength": 64 },
+					"enabled": {
+						"type": "boolean",
+						"description": "False turns it off for everyone and keeps the gates below for when it's back on. Missing means true."
+					},
+					"everyone": { "type": "boolean", "description": "On for every visitor, signed in or not." },
+					"percentage": {
+						"type": "integer",
+						"minimum": 0,
+						"maximum": 100,
+						"description": "On for this share of signed-in accounts. An account stays in as the share grows."
+					},
+					"groups": {
+						"type": "array",
+						"maxLength": 100,
+						"description": "Record keys of the computer.localnetwork.staff.group records it's on for.",
+						"items": { "type": "string", "maxLength": 64 }
+					},
+					"dids": {
+						"type": "array",
+						"maxLength": 1000,
+						"description": "Accounts it's on for.",
+						"items": { "type": "string", "format": "did" }
+					},
+					"updatedBy": { "type": "string", "format": "did" },
+					"updatedAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}
