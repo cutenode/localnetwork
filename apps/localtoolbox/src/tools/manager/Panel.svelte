@@ -54,9 +54,9 @@
   The footer points at settings, where all of that goes out to a JSON file and
   reads back in ($lib/components/StateTransfer.svelte), so a reinstalled
   extension is one import away from where it left off, half-worked-through batch
-  included. It lives there because the file holds the marks, the looked-up
-  details, the session queue and three panels' options, which do not belong
-  behind one tool's footer. The file's shape is specified in
+  included. It lives there because the file holds the marks, the session queue,
+  the artists list, the search sites and three panels' options, which do not
+  belong behind one tool's footer. The file's shape is specified in
   docs/manager-state.schema.json, and state-transfer.ts reads and writes it.
 -->
 <script lang="ts">

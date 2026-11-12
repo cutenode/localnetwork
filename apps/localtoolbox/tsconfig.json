@@ -23,6 +23,7 @@
 		"content.ts",
 		"page-data.ts",
 		"downloaded-store.ts",
-		"state-transfer.ts"
+		"state-transfer.ts",
+		"theme-prepaint.ts"
 	]
 }

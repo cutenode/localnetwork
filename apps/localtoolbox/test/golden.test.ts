@@ -259,7 +259,19 @@ describe('the exported state file', () => {
 			}
 		];
 
-		const file = TbxState.serialize(await TbxState.snapshot(queue, listed, artists));
+		// A search site added in settings, with an accent in its name.
+		const searchSites = [
+			{
+				id: 'juno',
+				name: 'Juno Récords',
+				badge: 'J',
+				url: 'https://www.juno.co.uk/search/?q={query}',
+				background: '#f26522',
+				color: '#ffffff'
+			}
+		];
+
+		const file = TbxState.serialize(await TbxState.snapshot(queue, listed, artists, searchSites));
 		const doc = JSON.parse(file);
 		// The order the schema declares them in, which is the order two exports
 		// are compared by when somebody diffs them.
@@ -271,7 +283,8 @@ describe('the exported state file', () => {
 			'listed',
 			'artists',
 			'queue',
-			'prefs'
+			'prefs',
+			'searchSites'
 		]);
 		expect(doc).toEqual({
 			format: 'toolbox.manager.state',
@@ -283,7 +296,8 @@ describe('the exported state file', () => {
 			artists: artists.map((artist) => ({ ...artist, profile: null })),
 			queue,
 			// '1', 'page' and '0' as localStorage holds them.
-			prefs: { background: true, sort: 'page', hideDownloaded: false }
+			prefs: { background: true, sort: 'page', hideDownloaded: false },
+			searchSites
 		});
 		// Laid out as plain two-space JSON, with nothing escaped that need not be
 		// (the accents and the curly apostrophe are written as themselves).
@@ -315,7 +329,10 @@ describe('the exported state file', () => {
 			'{"format":"toolbox.manager.state","version":1,"queue":[{"permalink":"/a/b","details":{"partial":true,"permalink":"/a/b","downloadable":false,"hasDownloadsLeft":null,"purchaseUrl":"","purchaseTitle":""}}]}',
 			'{"format":"toolbox.manager.state","version":1,"queue":[{"permalink":"/a/b","details":{"permalink":"/c/d","downloadable":true,"hasDownloadsLeft":true,"purchaseUrl":"","purchaseTitle":"","at":1}}]}',
 			'{"format":"toolbox.manager.state","version":1,"prefs":{"sort":"sideways"}}',
-			'{"format":"toolbox.manager.state","version":1,"prefs":{"nope":true}}'
+			'{"format":"toolbox.manager.state","version":1,"prefs":{"nope":true}}',
+			'{"format":"toolbox.manager.state","version":1,"searchSites":{}}',
+			'{"format":"toolbox.manager.state","version":1,"searchSites":[{"id":"a","name":"A","badge":"A","url":"http://a.test/?q={artist}"}]}',
+			'{"format":"toolbox.manager.state","version":1,"searchSites":[{"id":"a","name":"A","badge":"A","url":"https://a.test/?q={artis}"}]}'
 		].map((text) => {
 			try {
 				TbxState.parse(text);

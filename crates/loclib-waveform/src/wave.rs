@@ -10,6 +10,7 @@ use crate::{LEFT, LOWER, Palette, Rgb};
 
 /// A waveform as a widget reads it.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub enum Wave<'a> {
     /// Up to two layers a column in colours of their own: rekordbox's BLUE and RGB.
     Layers(&'a Waveform),

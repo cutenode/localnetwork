@@ -243,6 +243,29 @@ const prefs = () =>
 		{ requiredKeys: [] }
 	);
 
+// A search site added in settings: words that are not blank, a badge of one
+// to three characters, and a template a badge can use, from a handful.
+const searchSites = () =>
+	fc.array(
+		fc.record(
+			{
+				id: fc.constantFrom('a', 'b', 'shop 1'),
+				name: fc.string({ minLength: 1 }).map((name) => `${name}x`),
+				badge: fc.constantFrom('B', 'bc', 'ø!', '🎵'),
+				url: fc.constantFrom(
+					'https://a.test/?q={artist}',
+					'https://b.test/{title}/{artist}',
+					'https://c.test/?q={query}&w={x y}{{artist}}'
+				),
+				background: fc.constantFrom('#fff', '#1e1e1e', '#ABCDEF80'),
+				color: fc.constantFrom('#000', '#ffffff'),
+				on: fc.boolean()
+			},
+			{ requiredKeys: ['id', 'name', 'badge', 'url'] }
+		),
+		{ maxLength: 3 }
+	);
+
 const validDocument = () =>
 	fc.record(
 		{
@@ -254,7 +277,8 @@ const validDocument = () =>
 			listed: listed(),
 			artists: artists(),
 			queue: fileQueue(),
-			prefs: prefs()
+			prefs: prefs(),
+			searchSites: searchSites()
 		},
 		{ requiredKeys: ['format', 'version'] }
 	);
@@ -278,7 +302,8 @@ describe('the exported state file (state-transfer.js)', () => {
 					listed: doc.listed ?? [],
 					artists: doc.artists ?? [],
 					queue: doc.queue ?? [],
-					prefs: doc.prefs ?? {}
+					prefs: doc.prefs ?? {},
+					searchSites: doc.searchSites ?? []
 				});
 			}),
 			RUNS
@@ -308,7 +333,8 @@ describe('the exported state file (state-transfer.js)', () => {
 								'listed',
 								'artists',
 								'queue',
-								'prefs'
+								'prefs',
+								'searchSites'
 							),
 							fc.jsonValue({ maxDepth: 2 })
 						)

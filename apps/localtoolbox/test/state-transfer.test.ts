@@ -16,6 +16,7 @@ import {
 	listedEntry,
 	partialDetails,
 	queueEntry,
+	searchSite,
 	type FieldValue,
 	type Overrides
 } from './helpers/state-fixtures.ts';
@@ -79,7 +80,7 @@ describe('parse', () => {
 		expect(state.parse(json(file()))).toEqual(file());
 	});
 
-	it('fills in the six optional members, so callers never check for them', () => {
+	it('fills in the seven optional members, so callers never check for them', () => {
 		expect(state.parse(json({ format: state.FORMAT, version: 1 }))).toEqual({
 			format: state.FORMAT,
 			version: 1,
@@ -87,7 +88,8 @@ describe('parse', () => {
 			listed: [],
 			artists: [],
 			queue: [],
-			prefs: {}
+			prefs: {},
+			searchSites: []
 		});
 	});
 
@@ -538,7 +540,7 @@ describe('snapshot', () => {
 		localStorage.setItem('pref:sort', 'page');
 		localStorage.setItem('pref:hide-downloaded', '1');
 
-		expect(await state.snapshot([queued], [held], [artistEntry({ profile: null })])).toEqual({
+		expect(await state.snapshot([queued], [held], [artistEntry()], [searchSite()])).toEqual({
 			format: state.FORMAT,
 			version: 1,
 			exportedAt: ISO,
@@ -546,7 +548,8 @@ describe('snapshot', () => {
 			listed: [held],
 			artists: [artistEntry({ profile: null })],
 			queue: [queued],
-			prefs: { background: false, sort: 'page', hideDownloaded: true }
+			prefs: { background: false, sort: 'page', hideDownloaded: true },
+			searchSites: [searchSite()]
 		});
 	});
 
@@ -559,7 +562,8 @@ describe('snapshot', () => {
 			listed: [],
 			artists: [],
 			queue: [],
-			prefs: {}
+			prefs: {},
+			searchSites: []
 		});
 	});
 
@@ -865,6 +869,7 @@ describe('summary', () => {
 			artists: 1,
 			queue: 1,
 			prefs: 3,
+			searchSites: 1,
 			exportedAt: ISO
 		});
 	});
@@ -877,6 +882,7 @@ describe('summary', () => {
 			artists: 0,
 			queue: 0,
 			prefs: 0,
+			searchSites: 0,
 			exportedAt: ''
 		});
 	});

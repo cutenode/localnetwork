@@ -2,7 +2,7 @@
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
 	"$id": "https://bnb.im/schemas/toolbox/manager-state/v1.json",
 	"title": "Toolbox — Manager state",
-	"description": "A backup of everything the extension holds: the Manager's own list of tracks, the ones marked as downloaded, the artists tool's list (without the profiles, which last the browser session), the session queue, and the panels' remembered options. Written by the settings sheet's Export button and read by its Import button; both hold to this schema exactly, so a file that validates here imports, and one that does not is refused with the same reason.",
+	"description": "A backup of everything the extension holds: the Manager's own list of tracks, the ones marked as downloaded, the artists tool's list (without the profiles, which last the browser session), the session queue, the search sites added in settings, and the panels' remembered options. Written by the settings sheet's Export button and read by its Import button; both hold to this schema exactly, so a file that validates here imports, and one that does not is refused with the same reason.",
 	"type": "object",
 	"required": ["format", "version"],
 	"additionalProperties": false,
@@ -71,6 +71,12 @@
 				}
 			},
 			"default": {}
+		},
+		"searchSites": {
+			"description": "The search sites added in the settings sheet, each in the shape of a shipped one (src/lib/search-sites.schema.json). Mirrors localStorage `pref:search-sites`, though the sheet reads it from and gives it back to the store that owns that key. Importing adds the ones whose search is not already a badge, and an import asked to replace makes them exactly the file's; whether each badge is switched on stays with the install. Absent in files written before sites could be added.",
+			"type": "array",
+			"items": { "$ref": "https://bnb.im/schemas/toolbox/search-sites/v1.json#/$defs/site" },
+			"default": []
 		}
 	},
 	"$defs": {

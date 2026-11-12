@@ -114,7 +114,8 @@ const STATE = {
 	listed: [],
 	artists: [],
 	queue: [],
-	prefs: { background: false, sort: 'page', hideDownloaded: true }
+	prefs: { background: false, sort: 'page', hideDownloaded: true },
+	searchSites: []
 };
 
 // The same file as an older version wrote it, with a month of download
@@ -189,7 +190,7 @@ describe('what there is to lose', () => {
 	it('names what the file holds, which is not everything the extension keeps', async () => {
 		await openApp();
 		expect(section()!.querySelector('p')!.textContent.trim()).toBe(
-			'your marks, lists, queue and a few options, out to one file and back.'
+			'your marks, lists, queue, search sites and a few options, out to one file and back.'
 		);
 	});
 
@@ -629,6 +630,74 @@ describe('importing, asked to replace', () => {
 });
 
 // --- where it is, and how it is reached --------------------------------------
+
+// The search sites added in settings travel with the rest, through the store
+// that keeps them, and an import adds the ones whose search is not a badge yet.
+describe('search sites of your own', () => {
+	const JUNO = {
+		id: 'juno',
+		name: 'Juno',
+		badge: 'J',
+		url: 'https://www.juno.co.uk/search/?q={query}',
+		background: '#f26522',
+		color: '#ffffff'
+	};
+
+	const SHOP = { id: 'shop', name: 'Record Shop', badge: 'RS', url: 'https://records.test/?q={artist}' };
+
+	const own = () => JSON.parse(localStorage.getItem('pref:search-sites') ?? '[]');
+
+	it('go out to the file, and are counted', async () => {
+		localStorage.setItem('pref:search-sites', JSON.stringify([JUNO]));
+		await openApp();
+		await click(button('export'));
+		expect(note()).toBe('saved 1 search site to manager-2026-09-08.json.');
+
+		const written = JSON.parse(await createObjectURL.mock.calls[0][0].text());
+		expect(written.searchSites).toEqual([JUNO]);
+		expectValid(written);
+	});
+
+	it('are counted in a file about to be imported', async () => {
+		await openApp();
+		await openImport();
+		await type(pasteBox(), JSON.stringify(file({ searchSites: [JUNO, SHOP] })));
+		expect(verdict()).toBe('a state file — 2 search sites.');
+	});
+
+	it('are added to the ones here, none of them twice', async () => {
+		localStorage.setItem('pref:search-sites', JSON.stringify([JUNO]));
+		await openApp();
+		await openImport();
+		await type(pasteBox(), JSON.stringify(file({ searchSites: [{ ...JUNO, name: 'Juno again' }, SHOP] })));
+		await click(importNow());
+
+		expect(note()).toBe('imported 0 new marks, 1 search site.');
+		expect(own().map((one: { name: string }) => one.name)).toEqual(['Juno', 'Record Shop']);
+		// And the sheet above has a switch for it already.
+		expect(document.getElementById('search-shop')!.getAttribute('aria-checked')).toBe('true');
+	});
+
+	it('become the file’s when asked to replace, and go where it has none', async () => {
+		localStorage.setItem('pref:search-sites', JSON.stringify([JUNO]));
+		await openApp();
+		await openImport();
+		await type(pasteBox(), JSON.stringify(file({ searchSites: [SHOP] })));
+		await click(replaceSwitch());
+		await click(importNow());
+		expect(note()).toBe(
+			'replaced everything with 0 marks, 0 tracks listed, 0 artists, 0 tracks queued, 1 search site.'
+		);
+		expect(own().map((one: { id: string }) => one.id)).toEqual(['shop']);
+
+		await openImport();
+		await type(pasteBox(), JSON.stringify(file()));
+		await click(replaceSwitch());
+		await click(importNow());
+		expect(own()).toEqual([]);
+		expect(document.getElementById('search-shop')).toBe(null);
+	});
+});
 
 describe('getting to it', () => {
 	// The list is the biggest thing in the backup, so the Manager's footer is

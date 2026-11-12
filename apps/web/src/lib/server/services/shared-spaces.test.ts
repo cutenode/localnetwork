@@ -1,6 +1,6 @@
 import type { JsonObject } from '@atproto/lex-json';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { COLLECTION } from '#lib/nsid.ts';
+import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
 import { memberSpacePolicy } from '../atproto/repo-client';
 import { FakeRootClient } from '../testing/fakes';
 import { createTestServices, ROOT } from '../testing/core';
@@ -433,6 +433,102 @@ describe('SharedSpaces', () => {
 
 			await t.sharedSpaces.unindex({ space, collection: COLLECTION.listingStatus, rkey: 'self' });
 			expect(await t.sharedSpaces.get(space)).toBeNull();
+		});
+	});
+
+	describe('acts', () => {
+		const basics = { name: 'Crew' };
+
+		const start = async (slug = 'crew') => t.sharedSpaces.createAct(await t.viewer(ADA), { slug, form: 'duo', basics });
+
+		const page = (space: string) => t.net.spaceRecords.get(`${space}|${ROOT}|${COLLECTION.performer}|self`);
+
+		it('starts an act with its page, and its creator in it as a member', async () => {
+			const space = await start();
+
+			expect(page(space)?.value).toEqual({
+				$type: COLLECTION.performer,
+				subject: { $type: `${COLLECTION.performer}#act`, slug: 'crew', form: 'duo', basics, performer: {} },
+				createdAt: expect.any(String),
+				updatedAt: expect.any(String)
+			});
+			expect(person(space, ADA)).toMatchObject({ role: 'member', via: 'created' });
+			expect(access(space)).toEqual({ [ADA]: readWrite });
+			expect(await t.performerRegistry.bySlug('crew')).toMatchObject({
+				kind: 'act',
+				space,
+				act: { form: 'duo', basics }
+			});
+			expect(await audited('space.create')).toEqual([
+				{ actor: ADA, actorRole: 'member', subject: space, details: { person: ADA, role: 'member' } }
+			]);
+		});
+
+		it('refuses an address another act has, even when two ask at once, and one that is not an address', async () => {
+			await start();
+
+			await expect(start()).rejects.toThrow(new UserError('Another act has that address'));
+			await expect(start('Crew Two')).rejects.toBeInstanceOf(UserError);
+
+			const both = await Promise.allSettled([start('twins'), start('twins')]);
+			expect(both.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+			expect(await t.db.selectFrom('performer').select('slug').orderBy('slug').execute()).toEqual([
+				{ slug: 'crew' },
+				{ slug: 'twins' }
+			]);
+			// The one refused never started a space.
+			expect([...t.net.spaces.keys()].filter((uri) => uri.includes(SPACE_TYPE.performer))).toHaveLength(2);
+		});
+
+		it('saves the page for people with page.edit and staff, over the version its form was opened on', async () => {
+			const space = await start();
+			const admin = await t.viewer(ADMIN);
+			await t.sharedSpaces.addPerson(admin, space, { did: BO, role: 'manager' });
+
+			const input = {
+				form: 'group' as const,
+				basics: { name: 'Crew Three' },
+				performer: { genres: ['techno'] },
+				avatar: { upload: { bytes: new Uint8Array([1, 2, 3]), mimeType: 'image/png' } },
+				swap: page(space)!.cid
+			};
+
+			await expect(t.sharedSpaces.updatePage(await t.viewer(CY), space, input)).rejects.toBeInstanceOf(ForbiddenError);
+			await t.sharedSpaces.updatePage(await t.viewer(BO), space, input);
+
+			const saved = page(space)!;
+			expect(saved.value.subject).toEqual({
+				$type: `${COLLECTION.performer}#act`,
+				slug: 'crew',
+				form: 'group',
+				basics: { name: 'Crew Three', avatar: expect.objectContaining({ $type: 'blob', mimeType: 'image/png' }) },
+				performer: { genres: ['techno'] }
+			});
+			expect(await t.performerRegistry.bySlug('crew')).toMatchObject({ cid: saved.cid, act: { form: 'group' } });
+			expect(await audited('page.update')).toEqual([
+				{ actor: BO, actorRole: 'member', subject: space, details: { slug: 'crew' } }
+			]);
+
+			// The form was opened on the version before.
+			await expect(t.sharedSpaces.updatePage(await t.viewer(BO), space, input)).rejects.toThrow(
+				new UserError('The page changed since you opened it. Reload to see the latest, then save again.')
+			);
+
+			await t.sharedSpaces.updatePage(admin, space, { ...input, avatar: 'keep', swap: saved.cid });
+			// The same page, avatar kept.
+			expect(page(space)?.value.subject).toEqual(saved.value.subject);
+		});
+
+		it('refuses to save the page for someone whose page.edit was taken away, and for a space with no act', async () => {
+			const space = await start();
+			await t.sharedSpaces.addPerson(await t.viewer(ADMIN), space, { did: BO, role: 'manager' });
+			await t.sharedSpaces.updatePerson(await t.viewer(ADA), space, BO, { capabilities: ['bookings.answer'] });
+			const input = { form: 'duo' as const, basics, performer: {}, avatar: 'remove' as const, swap: page(space)!.cid };
+
+			await expect(t.sharedSpaces.updatePage(await t.viewer(BO), space, input)).rejects.toBeInstanceOf(ForbiddenError);
+			await expect(t.sharedSpaces.updatePage(await t.viewer(ADA), await party(), input)).rejects.toBeInstanceOf(
+				NotFoundError
+			);
 		});
 	});
 

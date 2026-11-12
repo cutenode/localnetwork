@@ -1,0 +1,19 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.performer.details",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "literal:self",
+			"description": "A performer's private booking details. Written only by the Local Network root account, into the performer's booking details space.",
+			"record": {
+				"type": "object",
+				"required": ["details", "updatedAt"],
+				"properties": {
+					"details": { "type": "ref", "ref": "computer.localnetwork.defs#projectDetails" },
+					"updatedAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

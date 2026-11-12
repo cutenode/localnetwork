@@ -170,6 +170,7 @@ describe('the build', () => {
 		// src/lib reaches both by name there.
 		const classic = /const classicScripts = \[([^\]]+)\]/.exec(viteConfig)![1];
 		expect(classic).toContain('downloaded-store.js');
+		expect(classic).toContain('theme-prepaint.js');
 		expect(classic).not.toContain('state-transfer.js');
 		const globals = read('src/lib/globals.ts');
 		expect(globals).toContain("'./state-transfer.js'");
@@ -422,7 +423,7 @@ describe('the settings', () => {
 		]) {
 			expect(source, file).toContain("from '$lib/search-sites.svelte.ts'");
 
-			for (const site of JSON.parse(read('src/lib/search-sites.json'))) {
+			for (const site of JSON.parse(read('src/lib/search-sites.json')).sites) {
 				expect(source, `${file} names ${site.name}`).not.toContain(site.name);
 			}
 		}
@@ -652,10 +653,11 @@ describe('the exported state file', () => {
 			'listed',
 			'artists',
 			'queue',
-			'prefs'
+			'prefs',
+			'searchSites'
 		]);
 
-		for (const member of ['downloaded', 'details', 'listed', 'artists', 'queue', 'prefs']) {
+		for (const member of ['downloaded', 'details', 'listed', 'artists', 'queue', 'prefs', 'searchSites']) {
 			expect(transfer, member).toContain(`${member}:`);
 		}
 	});
@@ -689,10 +691,13 @@ describe('the exported state file', () => {
 		// And the queue and the list travel through their own stores in both
 		// directions, which is what keeps the file honest about what the popup is
 		// showing and keeps an import from holding a track twice.
-		expect(section).toContain('snapshot(queue.entries, listed.entries, artists.entries)');
+		expect(section).toMatch(
+			/snapshot\(\s*queue\.entries,\s*listed\.entries,\s*artists\.entries,\s*searchSites\.entries\s*\)/
+		);
 		expect(section).toContain('queue.add(doc.queue)');
 		expect(section).toContain('listed.add(doc.listed)');
 		expect(section).toContain('artists.add(doc.artists)');
+		expect(section).toContain('searchSites.add(doc.searchSites)');
 		// The sheet is what the settings sheet draws, and the Manager's footer is
 		// one press from it rather than a second copy of it.
 		expect(read('src/lib/components/SettingsSheet.svelte')).toContain('<StateTransfer />');
@@ -715,6 +720,7 @@ describe('the exported state file', () => {
 			['src/lib/queue.svelte.ts', /async replace\(tracks(?:: [^)\n]+)?\)/],
 			['src/tools/manager/listed.svelte.ts', /async replace\(tracks(?:: [^)\n]+)?\)/],
 			['src/tools/artists/artists.svelte.ts', /async replace\(artists(?:: [^)\n]+)?\)/],
+			['src/lib/search-sites.svelte.ts', /replace\(entries(?:: [^)\n]+)?\)/],
 			['downloaded-store.ts', /const replaceAll = async \(marks(?:: [^)\n]+)?\)/]
 		] as const) {
 			expect(read(file), file).toMatch(call);

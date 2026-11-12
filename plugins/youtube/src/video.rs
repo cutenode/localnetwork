@@ -5,7 +5,7 @@
 //! three, in order, each at least ten seconds long; otherwise it makes none, so a time that would
 //! break that is left off its line.
 
-use loclib_plugin::{PublishedSet, TracklistEntry};
+use loclib_plugin::{PublishedSet, TracklistEntry, fit_lines};
 
 /// The longest title a video has, in characters.
 pub(crate) const MAX_TITLE: usize = 100;
@@ -27,18 +27,23 @@ pub(crate) struct Details {
     pub(crate) notes: Vec<String>,
 }
 
-/// `text` as YouTube takes it: without `<` or `>`, and on one line.
+/// `text` as YouTube takes it: without `<` or `>`.
 fn plain(text: &str) -> String {
-    text.chars().filter(|c| !matches!(c, '<' | '>')).map(|c| if c.is_control() { ' ' } else { c }).collect()
+    text.replace(['<', '>'], "")
 }
 
 /// `set`'s details for a recording `length` seconds long: its title, else where and when it was
 /// played ("Warehouse, 2026-10-03"), and its tracklist a line each (see [`chapters`]). A
 /// tracklist too long for YouTube keeps the tracks that fit, saying how many more there are.
 pub(crate) fn of(set: &PublishedSet, tracklist: &[TracklistEntry], length: u32) -> Details {
-    let given = |s: &Option<String>| s.as_deref().map(plain).filter(|s| !s.trim().is_empty()).map(|s| s.trim().into());
-    let place = given(&set.venue).or_else(|| given(&set.city)).unwrap_or_else(|| "DJ set".into());
-    let mut title = given(&set.title).unwrap_or_else(|| format!("{place}, {}", plain(&set.date)));
+    let mut title = PublishedSet {
+        title: set.title.as_deref().map(plain),
+        venue: set.venue.as_deref().map(plain),
+        city: set.city.as_deref().map(plain),
+        date: plain(&set.date),
+        ..set.clone()
+    }
+    .name();
     let mut notes = Vec::new();
     if title.chars().count() > MAX_TITLE {
         title = title.chars().take(MAX_TITLE).collect::<String>().trim_end().into();
@@ -46,16 +51,12 @@ pub(crate) fn of(set: &PublishedSet, tracklist: &[TracklistEntry], length: u32) 
     }
     let starts = chapters(tracklist, length);
     let lines: Vec<String> = tracklist.iter().zip(&starts).map(|(e, at)| line(e, *at)).collect();
-    let mut description = lines.join("\n");
-    let mut kept = lines.len();
-    if description.len() > MAX_DESCRIPTION {
-        let more;
-        (kept, more) = fitting(&lines);
+    let (kept, description) = fit_lines(&lines, MAX_DESCRIPTION, str::len);
+    if kept < lines.len() {
         notes.push(format!(
             "the description lists {kept} of the {} tracks, as many as YouTube's {MAX_DESCRIPTION} bytes hold",
             lines.len()
         ));
-        description = lines[..kept].iter().map(|l| format!("{l}\n")).collect::<String>() + &more;
     }
     let chapters = starts[..kept].iter().flatten().count();
     // The first track starts at 0 once any has a time.
@@ -93,40 +94,9 @@ pub(crate) fn chapters(tracklist: &[TracklistEntry], length: u32) -> Vec<Option<
     starts
 }
 
-/// How many of `lines` fit in a description with a last line saying how many more there are,
-/// and that line.
-fn fitting(lines: &[String]) -> (usize, String) {
-    let more = |kept: usize| format!("+ {} more", lines.len() - kept);
-    let mut used = 0;
-    // Each line kept takes more room than the last line saves (a digit at most).
-    let kept = lines
-        .iter()
-        .enumerate()
-        .take_while(|(i, l)| {
-            used += l.len() + 1;
-            used + more(i + 1).len() <= MAX_DESCRIPTION
-        })
-        .count();
-    (kept, more(kept))
-}
-
-/// `secs` as YouTube reads a chapter's time: `05:30`, or past an hour `1:02:03`.
-pub(crate) fn clock(secs: u32) -> String {
-    match secs {
-        3600.. => format!("{}:{:02}:{:02}", secs / 3600, secs / 60 % 60, secs % 60),
-        _ => format!("{:02}:{:02}", secs / 60, secs % 60),
-    }
-}
-
 /// A tracklist's line: `05:30 Artist - Title` when it starts a chapter at `at`, else without a
-/// time. A track published unnamed is `ID - ID`, as DJs write one.
+/// time, as YouTube takes it. A track published unnamed is `ID - ID`, as DJs write one.
 pub(crate) fn line(entry: &TracklistEntry, at: Option<u32>) -> String {
-    let named = |s: &Option<String>| {
-        s.as_deref().map(plain).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| "ID".into())
-    };
-    let name = format!("{} - {}", named(&entry.artist), named(&entry.title));
-    match at {
-        Some(at) => format!("{} {name}", clock(at)),
-        None => name,
-    }
+    let (artist, title) = (entry.artist.as_deref().map(plain), entry.title.as_deref().map(plain));
+    TracklistEntry { artist, title, ..entry.clone() }.line_at(at)
 }

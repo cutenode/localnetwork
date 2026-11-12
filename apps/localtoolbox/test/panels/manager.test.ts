@@ -920,6 +920,24 @@ describe('the search badges a row carries', () => {
 		]);
 	});
 
+	// A site added in settings is a badge like the file's, after them.
+	it('carries a site added in settings after the file’s, and names it', async () => {
+		localStorage.setItem(
+			'pref:search-sites',
+			JSON.stringify([{ id: 'juno', name: 'Juno', badge: 'J', url: 'https://www.juno.co.uk/search/?q={query}' }])
+		);
+		await openWith(['bandcamp', 'zipdj', 'mp3pool']);
+		expect(badges()).toEqual(['BP', 'J']);
+		expect(noLinksHint()).toBe(
+			'no SoundCloud download and no purchase link. the badges search the artist on Beatport, Juno.'
+		);
+
+		await click(openButtons('/nolink/one')[1]);
+		expect(chrome.tabs.create.mock.calls.map((c) => c[0].url)).toEqual([
+			`https://www.juno.co.uk/search/?q=${encodeURIComponent('Nolink Artist One')}`
+		]);
+	});
+
 	it('says so where every one of them is off, rather than drawing nothing', async () => {
 		await openWith(['beatport', 'bandcamp', 'zipdj', 'mp3pool']);
 		expect(badges()).toEqual([]);

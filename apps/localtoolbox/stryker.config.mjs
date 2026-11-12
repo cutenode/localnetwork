@@ -17,7 +17,16 @@ export default {
 	// The files vitest.config.ts holds to full coverage. The components are left
 	// out for the reason they have a lower floor there: much of what they compile
 	// to is Svelte's bookkeeping, not ours.
-	mutate: ['content.ts', 'downloaded-store.ts', 'state-transfer.ts', 'src/lib/*.ts', 'src/tools/**/*.ts', '!**/*.d.ts'],
+	mutate: [
+		'content.ts',
+		'page-data.ts',
+		'downloaded-store.ts',
+		'state-transfer.ts',
+		'theme-prepaint.ts',
+		'src/lib/*.ts',
+		'src/tools/**/*.ts',
+		'!**/*.d.ts'
+	],
 	// Code that runs as a module loads is skipped, both where Stryker can tell
 	// from coverage alone and where it can't (see stryker-load-time.mjs).
 	ignoreStatic: true,

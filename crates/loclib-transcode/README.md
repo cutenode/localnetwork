@@ -58,8 +58,8 @@ std::fs::rename(".copy.aiff.tmp", "copy.aiff").unwrap();
 
 ## How copies are made
 
-Audio is decoded through symphonia (as in
-[loclib-mixid](https://github.com/cutenode/localnetwork/tree/main/crates/loclib-mixid)) at the
+Audio is decoded through symphonia (by
+[loclib-audio](https://github.com/cutenode/localnetwork/tree/main/crates/loclib-audio)) at the
 source's own rate, streamed in packets so a long 24/96 file never sits in memory, resampled with
 [rubato](https://crates.io/crates/rubato)'s sinc resampler when the rate changes, rounded to the
 copy's depth with TPDF dither of ±1 LSB from a fixed seed (the same master and recipe always make
