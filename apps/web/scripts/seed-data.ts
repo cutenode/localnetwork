@@ -433,7 +433,7 @@ export const DEMO_MANAGERS = [
 	{ handle: 'footwork.test', password: 'footwork-pass', displayName: 'Footwork Fever' },
 	{ handle: 'halflight.test', password: 'halflight-pass', displayName: 'Halflight' },
 	{ handle: 'tunde.test', password: 'tunde-pass', displayName: 'Tunde' },
-	{ handle: 'ines.test', password: 'ines-pass', displayName: 'Ines' },
+	{ handle: 'imani.test', password: 'imani-pass', displayName: 'Imani' },
 	{ handle: 'rowan.test', password: 'rowan-pass', displayName: 'Rowan' },
 	{ handle: 'marisol.test', password: 'marisol-pass', displayName: 'Marisol' }
 ];
@@ -448,7 +448,7 @@ export const DEMO_CLAIMS: { handle: string; project: number; relationship: Claim
 	{ handle: 'tunde.test', project: 2, relationship: 'member' },
 	{ handle: 'pirate.test', project: 3, relationship: 'self' },
 	{ handle: 'velvet.test', project: 4, relationship: 'self' },
-	{ handle: 'ines.test', project: 5, relationship: 'member' },
+	{ handle: 'imani.test', project: 5, relationship: 'member' },
 	{ handle: 'footwork.test', project: 6, relationship: 'self' },
 	{ handle: 'rowan.test', project: 7, relationship: 'member' },
 	{ handle: 'harbour.test', project: 8, relationship: 'self' },
