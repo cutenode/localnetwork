@@ -26,7 +26,7 @@ const here = import.meta.dirname;
 
 const root = resolve(here, 'src');
 
-// The script the popup shares with the content script. It defines a page
+// The script the popup shares with the content scripts. It defines a page
 // global (TbxDownloaded), which only a classic script can do, so it is
 // injected as a plain <script src> tag rather than imported: Vite leaves tags
 // it injects itself alone, and `pageScripts` below puts the file beside the
@@ -48,13 +48,14 @@ const unbundled = {
 	icons: 'icons'
 };
 
-// The classic scripts: the content script and the two the popup reads. A classic
+// The classic scripts: the two content scripts and the two the popup reads. A classic
 // script has nothing to compile but its types, so ts-blank-space replaces each
 // annotation with spaces and leaves every line and column where it was, so an
 // error on soundcloud.com points at the same place in the source, with no
 // sourcemap to ship. Keyed the same way as `unbundled`.
 const pageScripts = {
 	'content.js': 'content.ts',
+	'gate-page.js': 'gate-page.ts',
 	'downloaded-store.js': 'downloaded-store.ts',
 	'state-transfer.js': 'state-transfer.ts'
 };
@@ -182,8 +183,9 @@ export default defineConfig(({ mode }) => ({
 		// a release does not.
 		sourcemap: mode === 'development',
 		rollupOptions: {
-			// The popup, and the two that walk a gate for the page's Download button:
-			// the background worker and the offscreen page it opens (background.ts).
+			// The popup, and the background worker with the offscreen page it opens,
+			// which walk a gate for the page's Download button and run the gates
+			// done on their own page (background.ts).
 			input: {
 				popup: resolve(root, 'popup.html'),
 				offscreen: resolve(root, 'offscreen.html'),

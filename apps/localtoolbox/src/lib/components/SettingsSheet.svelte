@@ -74,9 +74,15 @@
   const LIKES_VIEW_HINT =
     'the Badges grid shows no genre, no like button and no download link; this presses List.';
 
+  // What Hypeddit's privacy policy says it does with a gate's address
+  // (hypeddit.com/privacy): the artist gets it, and so do the service it checks
+  // addresses with and its own marketing providers. The address also goes into
+  // the email field of a Droploud or Laylo page opened from the Downloader,
+  // where the person sends it or not.
   const EMAIL_HINT =
-    'only Hypeddit and Laylo ask for these, and both hand them to the artist — a Laylo drop ' +
-    'signs you up for their mailing list.';
+    'Hypeddit gates that ask get these, and Hypeddit shares them with the artist, its ' +
+    'email-checking service and its marketing providers. Droploud and Laylo pages you open ' +
+    'from here get the email filled in, for you to send.';
 
   const MARK_HINT = 'off, saved files go unmarked — mark them by hand from the row.';
 
