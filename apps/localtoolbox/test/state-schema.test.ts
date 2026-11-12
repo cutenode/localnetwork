@@ -442,7 +442,7 @@ const INVALID = {
 	'a search site that is not https': file({ searchSites: [searchSite({ url: 'http://a.test/?q={artist}' })] }),
 	'a search site with no variable in it': file({ searchSites: [searchSite({ url: 'https://a.test/search' })] }),
 	'a search site naming a variable that does not exist': file({
-		searchSites: [searchSite({ url: 'https://a.test/?q={artist}&t={titel}' })]
+		searchSites: [searchSite({ url: 'https://a.test/?q={artist}&t={unknown}' })]
 	}),
 	'a search site whose colour is a word': file({ searchSites: [searchSite({ background: 'orange' })] }),
 	'a search site whose colour smuggles a declaration in': file({
