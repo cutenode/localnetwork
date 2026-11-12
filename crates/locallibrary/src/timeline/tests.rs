@@ -61,7 +61,7 @@ fn prop_with_a_waveform_the_lead_is_measured_from_the_audio(tc: hegel::TestCase)
         _ => format!("/Contents/a.{ext}"),
     };
     let audio = match case {
-        0 => Some(loclib_mixid::test_util::mp3(tc.draw(gs::integers::<u32>().min_value(1).max_value(200)), None)),
+        0 => Some(loclib_testkit::audio::mp3(tc.draw(gs::integers::<u32>().min_value(1).max_value(200)), None)),
         1 => Some(std::fs::read(fixtures.join("audio/silence.m4a")).unwrap()),
         2 => Some(b"not audio".to_vec()),
         _ => None,

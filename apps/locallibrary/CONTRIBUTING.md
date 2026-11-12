@@ -217,7 +217,7 @@ replaces `target/debug/locallibrary`, even with nothing to rebuild. A second che
 ```bash
 cargo bench -p locallibrary --bench library -- --save-baseline before   # on the code before a change
 cargo bench -p locallibrary --bench library -- --baseline before        # after it: the change in each
-cargo bench -p loclib-mixid --features test-util --bench mixid -- matcher/find   # one group
+cargo bench -p loclib-mixid --bench mixid -- matcher/find   # one group
 ```
 
 Crates with work that grows with a library or a recording have
@@ -226,7 +226,7 @@ Crates with work that grows with a library or a recording have
 of 5k to 20k made-up tracks), `loclib-mixid` (fingerprinting, resampling, indexing and finding
 tracks in a mix), `loclib-model`, `loclib-tracklist` and `loclib-interop` (over
 `loclib_model::test_util::library`), `loclib-waveform` (a frame of each widget) and
-`loclib-analysis`. `loclib-mixid` and `loclib-model` need `--features test-util`. The first
+`loclib-analysis`. `loclib-model` needs `--features test-util`. The first
 `library` run builds its drives under `target/`, which takes about a minute. Compare on a quiet
 machine and rerun anything close: a few percent is noise.
 

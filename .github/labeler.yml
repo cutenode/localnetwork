@@ -174,7 +174,7 @@ atstore:
 "locallibrary: core":
   - changed-files:
       - any-glob-to-any-file:
-          - "crates/{locallibrary,loclib-model,loclib-progress,loclib-mysettings,loclib-equipment}/**"
+          - "crates/{locallibrary,loclib-model,loclib-progress,loclib-mysettings,loclib-equipment,loclib-audio,loclib-testkit}/**"
           - "vendor/**"
           - "fuzz/**"
 

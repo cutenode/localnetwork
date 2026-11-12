@@ -7,8 +7,8 @@ use std::f64::consts::PI;
 use locallibrary::fields::{Analyzer, FieldStore, FieldValue, Fields};
 use locallibrary::harmony::Camelot;
 use locallibrary::{Device, Store, paths};
-use loclib_mixid::test_util::wav_of;
 use loclib_plugin::Manifest;
+use loclib_testkit::audio::wav_of;
 
 use serde_json::{Value, json};
 
