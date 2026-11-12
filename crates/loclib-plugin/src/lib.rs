@@ -33,6 +33,7 @@ pub use hooks::analysis::{Output, WaveformBlob};
 pub use hooks::analyzers::{
     Analysis, AnalyzeTrack, Analyzer, FieldDisplay, FieldFormat, FieldType, FieldValue, Role, Track,
 };
+pub use hooks::atmosphere::{PutRecord, is_nsid};
 pub use hooks::checks::{Check, CheckFinding, Findings, Fix, PlanCheck, RunCheck, When};
 pub use hooks::commands::{Command, Mode, RunCommand};
 pub use hooks::destinations::{

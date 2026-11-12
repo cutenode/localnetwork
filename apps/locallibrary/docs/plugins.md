@@ -326,6 +326,30 @@ is in the player; `track` and the player show them so, and the rest as they are,
 HTML report shows those fields of each track it played. What
 locallibrary itself reads from them is their [roles](#roles).
 
+## Atmosphere records
+
+A plugin may write records in your [Atmosphere account](account.md), of the record types its
+capabilities name (`atmosphere:write:fm.plyr.track`, one type each, never a pattern; `plugin
+info` lists them). Only plugins built into locallibrary write Local Network's own
+(`computer.localnetwork.*`), and none writes the AT Protocol's (`com.atproto.*`). locallibrary
+writes each one itself, with your session, which the plugin never sees, and only after you
+confirm it: the command line shows you the record, which account it goes to and whether it's new
+or replaces one, and asks (`--yes` answers yes, and the record is still shown). Records are
+public, and anyone can read them. Where you can't be asked (`--json` without `--yes`, the player,
+the sidecar), nothing is written.
+
+Before you're asked, the record is checked against its Lexicon, strictly: a field the Lexicon
+doesn't define is an error, as with the records locallibrary publishes. The Lexicon is
+locallibrary's own for the record types it knows, else the one the plugin ships in its manifest,
+which can't stand in for one of locallibrary's. A plugin replaces a record only by naming the
+version it read, and can't delete one or upload files.
+
+Your session needs permission for the record type, which signing in doesn't ask for: the plugin
+fails saying how to sign in again allowing it (`locallibrary account login --scope
+'repo:fm.plyr.track?action=create&action=update'`). Signing in asks only for what locallibrary's
+client document allows, so a record type it doesn't list can't be allowed yet (the development
+client, `account login --dev-client`, asks for anything).
+
 ## Checks
 
 A plugin's check looks for something on a drive, and what it finds is in `locallibrary check` and
@@ -591,8 +615,8 @@ each becomes the nearest of them, and with `NO_COLOR` there are none.
 A plugin in Rust uses [loclib-plugin](../../../crates/loclib-plugin)'s SDK: a function for each
 kind of hook it has, `host.drive(drive)` to read a drive (the library, tracks by id or by
 query, playlists, analysis, artwork and `drive.info`, each read whole however locallibrary pages
-it), `host.fetch(..)` to go online and `host.partial_rows(..)` to send a view's rows as they're
-ready. A command or an operation may answer a question for you (`Choice`) instead, or several
+it), `host.fetch(..)` to go online, `host.put_record(..)` to write an [Atmosphere
+record](#atmosphere-records) and `host.partial_rows(..)` to send a view's rows as they're ready. A command or an operation may answer a question for you (`Choice`) instead, or several
 at once (`Choice::together`), and is run again with your answers as its params. A view (a
 command's, a panel's) is any of loclib-plugin's kinds, each with a plain text form for a host
 that can't draw it, and a theme is a table of colours in the manifest. `Hooks::on_event`
@@ -623,7 +647,9 @@ its manifest says each server allows. A secret setting, or an account's token, g
 such a request names it (an account's token, only where its account type says it goes and a scope
 of the plugin's access covers), filled in by
 locallibrary, never on to another server a redirect leads to, and is left out of the plugin's log
-and of the errors it's told. What a server answers is passed on as it is, but for a secret or an
+and of the errors it's told. A plugin never sees your Atmosphere session either, and writes a
+record there only of a type its capabilities name, once it fits its Lexicon and you've confirmed
+it (see [Atmosphere records](#atmosphere-records)). What a server answers is passed on as it is, but for a secret or an
 account's token sent in the address, which comes back as the placeholder that named it, and a server
 refusing an account's token, which locallibrary answers itself (see [Accounts](#accounts)). The
 files a plugin sends are those in its request's folder (see below) and a set's recording while it

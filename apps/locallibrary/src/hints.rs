@@ -95,7 +95,15 @@ fn command(a: &Action) -> Option<String> {
             format!("locallibrary convert {} --to {to}{replace}", p("drive")?)
         }
         "account.login.begin" if yes("publish") => "locallibrary account login --publish".into(),
-        "account.login.begin" => "locallibrary account login".into(),
+        "account.login.begin" => {
+            // `atproto` left out: signing in asks for it anyway.
+            let scopes = a.params.get("scopes").and_then(Value::as_array).into_iter().flatten();
+            let scopes = scopes.filter_map(Value::as_str).filter(|s| *s != "atproto");
+            format!(
+                "locallibrary account login{}",
+                scopes.map(|s| format!(" --scope {}", quote(s))).collect::<String>()
+            )
+        }
         "accounts.sign_in.begin" => {
             // Again as an account, named TYPE:SUBJECT.
             let target = match a.params.get("account").and_then(Value::as_str) {

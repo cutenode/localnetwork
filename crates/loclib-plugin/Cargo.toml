@@ -33,6 +33,7 @@ test-util = []
 
 [dev-dependencies]
 hegeltest.workspace = true
+jacquard-common.workspace = true
 tempfile.workspace = true
 
 [lints]

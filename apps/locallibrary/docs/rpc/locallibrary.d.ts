@@ -8577,6 +8577,11 @@ export type Manifest = {
   contributes: Contributions;
   /** How often the host may send `net/fetch` requests to some of the hosts it talks to. */
   net?: NetLimit[];
+  /**
+   * The Lexicon documents of the record types its `atmosphere:write:` capabilities name, as
+   * their authorities publish them, and of the definitions they refer to.
+   */
+  lexicons?: unknown[];
 };
 
 /**

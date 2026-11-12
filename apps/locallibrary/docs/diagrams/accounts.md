@@ -78,12 +78,14 @@ What each sign-in asks of the account's server. Each is asked for the first time
 flowchart TD
     plain["account login<br/>atproto: know who you are"] --> publish["Publishing, or login --publish<br/>include:computer.localnetwork.locallibraryPublishing,<br/>blob:audio/*"]
     plain --> report["bug, the first time<br/>repo:app.userinput.discussion?action=create"]
+    plain --> plugin["A plugin's record write, the first time,<br/>or login --scope: repo:NSID"]
     publish --> records["Create and replace settings, profile, set, recording.<br/>Delete set, recording.<br/>A token for directory.requestIndex"]
     publish --> upload["Upload audio files"]
     report --> discussion["Create bug reports"]
+    plugin --> written["Create and replace NSID records"]
 ```
 
-Source: [`crates/locallibrary/src/atmosphere/mod.rs`](../../../../crates/locallibrary/src/atmosphere/mod.rs), [`lexicons/computer/localnetwork/locallibraryPublishing.json`](../../../../lexicons/computer/localnetwork/locallibraryPublishing.json)
+Source: [`crates/locallibrary/src/atmosphere/mod.rs`](../../../../crates/locallibrary/src/atmosphere/mod.rs), [`crates/locallibrary/src/atmosphere/repo.rs`](../../../../crates/locallibrary/src/atmosphere/repo.rs), [`src/account_cmd/atmosphere.rs`](../../src/account_cmd/atmosphere.rs), [`lexicons/computer/localnetwork/locallibraryPublishing.json`](../../../../lexicons/computer/localnetwork/locallibraryPublishing.json)
 
 ## The DJ account's life
 
