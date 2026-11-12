@@ -1,8 +1,7 @@
-//! Synthetic audio for tests, behind the `test-util` feature. Not part of the stable API: it
-//! changes with the tests that use it.
+//! Synthetic audio and audio files for tests.
 
-use crate::audio::Resampler;
-use crate::fingerprint::RATE;
+use loclib_audio::Resampler;
+pub use loclib_mixid::fingerprint::RATE;
 
 /// Deterministic noise-like test signal with structure: chirps and clicks, at [`RATE`].
 pub fn synth(secs: f64, seed: u32) -> Vec<f32> {

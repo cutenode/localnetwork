@@ -1,16 +1,4 @@
-//! Decoding audio: [`decode_native`] at a file's own rate and channel count (the one loop over
-//! symphonia, which loclib-analysis and loclib-transcode use too), and [`decode`] to mono at a
-//! given rate: fingerprints' low one, or 44.1 kHz for [`refine`](fn@crate::refine).
-//!
-//! Everything a drive or a recorder produces (MP3, AAC/ALAC in `.m4a`, FLAC, WAV, AIFF) decodes
-//! through symphonia. Channels are averaged and the result resampled as it streams, so an
-//! hour-long recording never sits in memory at full rate. Other sources (an editor's project, a
-//! live input) can feed [`Resampler`] themselves.
-//!
-//! symphonia trusts what a file's headers say: a WAV saying 0 Hz panics it. [`decode`] catches
-//! that, so one bad file is that file's error rather than a crash; a program that wants the
-//! panic's message kept off stderr installs its own panic hook around the call. An MP4 claiming
-//! huge sample counts would make it abort the process instead, so [`open`] checks those first.
+#![doc = include_str!("../README.md")]
 
 use std::f64::consts::PI;
 use std::fs::File;
@@ -31,9 +19,10 @@ use symphonia::core::probe::Hint;
 use loclib_model::audio::Format;
 use loclib_progress::{Cancelled, Ctx};
 
-use crate::{Error, Result};
-
+mod error;
 mod mp4;
+
+pub use error::{Error, Result};
 pub use mp4::vet_container;
 
 /// What a decoder that panicked on a file is reported as.

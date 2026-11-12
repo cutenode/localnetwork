@@ -39,6 +39,7 @@ export default {
 		'Its mixes': [{ name: 'Tracklist', href: '/projects/neon-tide/mixes/1', within: 'Mixes' }],
 		'Its sets': [SET_PAGE],
 		'Artists in its sets': [SET_ARTIST],
-		'Send an inquiry': [{ name: 'Send inquiry', href: '/dashboard/bookings/new?project=neon-tide' }]
+		'Send an inquiry': [{ name: 'Send inquiry', href: '/dashboard/bookings/new?project=neon-tide' }],
+		locallibrary: [{ name: 'locallibrary', href: '/tools/locallibrary', within: 'How they play' }]
 	}
 } satisfies LinkChecks;

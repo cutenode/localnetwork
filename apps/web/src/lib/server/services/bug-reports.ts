@@ -1,3 +1,4 @@
+import { AtUri } from '@atproto/syntax';
 import Bowser from 'bowser';
 import { discussionUrl, USERINPUT } from '#lib/bug-report.ts';
 import { validateRecord } from '../atproto/lexicons';
@@ -56,7 +57,7 @@ export class BugReportService {
 		const { space, indexed, userClient, logger } = this.deps;
 
 		if (!space) throw new Error('no userinput.app space is configured');
-		const [owner, , rkey] = space.replace('at://', '').split('/');
+		const { host: owner, rkey } = new AtUri(space);
 		// A post points at one version of the space, so its CID is looked up each time.
 		const found = await indexed.getRecordOrReindex(owner, USERINPUT.space, rkey, { strict: true });
 

@@ -146,7 +146,9 @@ it("shows the managers' playing stats and sets once they arrive", async () => {
 		.element(page.getByRole('link', { name: 'Press kits' }))
 		.toHaveAttribute('href', '/projects/neon-tide/press-kits');
 	// With one member, "How they play" is theirs, so it names nobody.
-	await expect.element(page.getByRole('region', { name: 'How they play' }).getByRole('link')).not.toBeInTheDocument();
+	await expect
+		.element(page.getByRole('region', { name: 'How they play' }).getByRole('link', { name: '@neon.test' }))
+		.not.toBeInTheDocument();
 });
 
 it('names each member beside "How they play", linking their profile', async () => {

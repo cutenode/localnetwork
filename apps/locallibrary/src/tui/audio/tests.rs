@@ -1,4 +1,4 @@
-use loclib_mixid::test_util::{be, m4a, mp4_empty_tables, mp4_full};
+use loclib_testkit::audio::{be, m4a, mp4_empty_tables, mp4_full};
 use rodio::buffer::SamplesBuffer;
 
 use super::*;
@@ -155,7 +155,7 @@ fn files_start_where_asked() {
 /// encoder's delay and padding), and is as long as what's left; one with no tag plays every frame.
 #[test]
 fn mp3s_play_gapless() {
-    use loclib_mixid::test_util::{MP3_FRAME_SAMPLES, mp3};
+    use loclib_testkit::audio::{MP3_FRAME_SAMPLES, mp3};
 
     let dir = tempfile::tempdir().unwrap();
     let frames = 40;
