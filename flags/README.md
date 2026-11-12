@@ -18,7 +18,7 @@ Who a flag is on for lives in the staff space and is set at `/admin/flags`, not 
 }
 ```
 
-Check a flag on the website with `locals.flags.newPlanner` on the server or `data.flags?.newPlanner` in a page.
+Check a flag on the website with `locals.flags.newPlanner` on the server or `data.flags?.newPlanner` in a page. An xrpc route gets the flags a signed-out visitor does, since the website never reads the sign-in cookie there: a flag on or off for everyone works, and targeting and percentages don't. A route that has checked a service token can call `app.flags.evaluate(did)` with that token's DID to get them.
 
 ## How a flag is decided
 
