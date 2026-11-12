@@ -82,8 +82,10 @@ It matches a rekordbox 7.2.14 backup made on macOS in these ways:
   character outside the BMP). `DB_ID`, `CONTENT_NUM`, `BACKUP_RB_VER`, `BACKUP_FILE_VER`,
   `DIRECTORY_ARRAY` and the folders follow the rules seen in rekordbox's backups.
 - The music copies are named `/<Artist>/<Album>/<HEXID>_<name>`: the track id in 8 hex digits,
-  the artist and album without spaces, and the file's stem cut to 35 characters. Each copy keeps
-  its source's modification time. A track whose file is missing is left out of the folder and of
+  then the file's stem cut to 35 characters, with any whitespace left at its end trimmed. The
+  artist and album folders are composed (NFC) and lose their whitespace, `~` becomes `_`, they're
+  cut to 48 characters, and a last `.` becomes `_`. Control characters U+0080 to U+009F stay, as
+  rekordbox keeps them. Each copy keeps its source's modification time. A track whose file is missing is left out of the folder and of
   `contents.xml`, and still counted in `CONTENT_NUM`, as rekordbox does.
 
 What isn't verified, or differs:
@@ -102,10 +104,14 @@ What isn't verified, or differs:
   `~/Music/rekordbox/Sampler/GROOVE CIRCUIT/` went into `rekordbox/GROOVECIRCUITFACTORYSAMPLES/`,
   which is their tags, not their folders. A track without an artist or album goes into
   `UnknownArtist` or `UnknownAlbum`, which is a guess from rekordbox's drive exports. So is
-  writing `_` for a character no folder can hold on macOS or Windows (`/ \ : * ? " < > |`) and
-  for a name of dots alone, putting `_` before a name Windows keeps for a device (`CON`, `NUL`,
-  `COM1`...), and cutting a folder's name to 200 bytes. The stem is cut to 35 characters, not
-  bytes.
+  writing `_` for a character no file name can hold on macOS or Windows (C0 controls and
+  `/ \ : * ? " < > |`), and putting `_` before a name Windows keeps for a device (`CON`, `NUL`,
+  `COM1`...). Lengths count characters, not bytes.
+- The only decomposed names in the backup seen were four artists, which rekordbox's folders
+  had composed. rekordbox may compose every name, or read the artist from the file's tag
+  instead of `master.db`. Albums are composed here too, and stems are left as stored.
+- No stem in that backup had a `~`, or whitespace at its end without being cut. Here a stem's
+  `~` stays and its trailing whitespace always goes.
 - The music is copied before the zip is written, where rekordbox writes the zip first. A file
   rekordbox removes while the backup runs (an analysis redone) is left out with a warning;
   `master.db` gone fails the backup.

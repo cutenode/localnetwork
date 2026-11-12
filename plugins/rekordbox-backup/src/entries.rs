@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use loclib_plugin::{CollectionLocations, CollectionTrack};
 use rustc_hash::FxHashSet;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::credentials;
 
@@ -189,12 +190,10 @@ fn key_mappings(settings: &Path) -> Vec<(String, PathBuf)> {
 }
 
 /// rekordbox's name for a track's copy in `rekordbox_bak/`: `/<Artist>/<Album>/<HEXID>_<name>`,
-/// the id as 8 hex digits, the artist and album without spaces (`UnknownArtist` and
-/// `UnknownAlbum` without one), and the file's stem cut to 35 characters. None for an id that
-/// isn't a 32-bit number, as rekordbox's are. Characters no folder can have on macOS or Windows
-/// become `_`, and a name of dots alone (`..`) too, so the copy stays in its folder; a folder
-/// Windows keeps for a device (`CON`, `COM1.x`) gets a `_` before it, and one longer than a file
-/// system takes is cut.
+/// the id as 8 hex digits, the artist and album as [`folder`] names them, and the file's stem cut
+/// to 35 characters without the whitespace the cut leaves at its end. None for an id that isn't a
+/// 32-bit number, as rekordbox's are. Characters no file name can have on macOS or Windows become
+/// `_`. `contents.xml` lists the copies by this name too.
 pub(crate) fn music_name(id: &str, artist: Option<&str>, album: Option<&str>, path: &str) -> Option<String> {
     let hex = format!("{:08X}", id.trim().parse::<u32>().ok()?);
     let file = path.rsplit(['/', '\\']).next().unwrap_or(path);
@@ -203,6 +202,7 @@ pub(crate) fn music_name(id: &str, artist: Option<&str>, album: Option<&str>, pa
         _ => (file, None),
     };
     let stem: String = stem.chars().take(35).collect();
+    let stem = stem.trim_end();
     let file = match ext {
         Some(ext) => format!("{hex}_{stem}.{ext}"),
         None => format!("{hex}_{stem}"),
@@ -212,9 +212,9 @@ pub(crate) fn music_name(id: &str, artist: Option<&str>, album: Option<&str>, pa
     Some(format!("/{artist}/{album}/{}", safe(&file)))
 }
 
-/// The most bytes of a folder named from a tag: file systems take 255 (APFS and NTFS count
-/// otherwise, but not by less), and a long tag can be longer.
-const FOLDER_BYTES: usize = 200;
+/// The most characters (Unicode scalar values, as JUCE's strings count) of a folder named from a
+/// tag. 48 of the widest UTF-8 characters still fit the 255 bytes a file system takes.
+const FOLDER_CHARS: usize = 48;
 
 /// Names Windows keeps for devices, whatever follows a dot.
 const DEVICES: [&str; 22] = [
@@ -222,29 +222,34 @@ const DEVICES: [&str; 22] = [
     "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 
-/// A folder name from a tag: without its whitespace, safe, or `unknown` when nothing's left.
+/// A folder name from a tag, as rekordbox 7.2.14 names it: composed (NFC), without its
+/// whitespace, `~` as `_`, cut to [`FOLDER_CHARS`], and a last `.` as `_`, so a name of dots
+/// alone (`..`) stays in its folder too. `unknown` when nothing's left. What no file name can hold
+/// becomes `_`, and a name Windows keeps for a device (`CON`, `COM1.x`) gets a `_` before it.
 fn folder(name: Option<&str>, unknown: &str) -> String {
-    let squeezed: String = name.unwrap_or_default().chars().filter(|c| !c.is_whitespace()).collect();
+    let squeezed: String = name.unwrap_or_default().nfc().filter(|c| !c.is_whitespace()).collect();
     if squeezed.is_empty() {
         return unknown.into();
     }
-    let mut out = safe(&squeezed);
+    let mut out = safe(&squeezed.replace('~', "_"));
     let device = out.split('.').next().is_some_and(|base| DEVICES.iter().any(|d| d.eq_ignore_ascii_case(base)));
     if device {
         out.insert(0, '_');
     }
-    while out.len() > FOLDER_BYTES {
+    let mut out: String = out.chars().take(FOLDER_CHARS).collect();
+    if out.ends_with('.') {
         out.pop();
+        out.push('_');
     }
     out
 }
 
-/// `name` with what no file name can hold on macOS or Windows as `_`, and dots alone too.
+/// `name` with what no file name can hold on macOS or Windows (C0 controls and
+/// `/ \ : * ? " < > |`) as `_`. The C1 controls (U+0080 to U+009F) stay, as both systems take
+/// them and rekordbox keeps them: a file named `JoÌ\u{88}rgen` (a decomposed `ö`'s UTF-8 read
+/// as Latin-1) kept its U+0088. DEL stays too, since both systems take it.
 fn safe(name: &str) -> String {
-    if name.chars().all(|c| c == '.') {
-        return "_".repeat(name.chars().count());
-    }
-    name.chars().map(|c| if c.is_control() || r#"/\:*?"<>|"#.contains(c) { '_' } else { c }).collect()
+    name.chars().map(|c| if c < ' ' || r#"/\:*?"<>|"#.contains(c) { '_' } else { c }).collect()
 }
 
 #[cfg(test)]
