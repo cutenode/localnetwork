@@ -24,7 +24,6 @@ import {
 	likedSound,
 	trackPage,
 	hydrationScript,
-	apiClientEntry,
 	apiTrack,
 	moreMenu,
 	ART,
@@ -169,7 +168,6 @@ describe('a song page read by the Manager panel', () => {
 	it('puts the one track the page is about on the list, answers and all', async () => {
 		await openSong();
 		hydrationScript([
-			apiClientEntry(),
 			{
 				hydratable: 'sound',
 				data: apiTrack({ id: 5, permalink: TRACK, downloadable: true, genre: 'Techno' })
@@ -191,7 +189,8 @@ describe('a song page read by the Manager panel', () => {
 		expect(row).not.toBeNull();
 		expect(row!.textContent).toContain('Glue');
 		expect(row!.textContent).toContain('Bicep');
-		// The hydration answered for it, so nothing went out to SoundCloud.
+		// The hydration answered for it, and the content script never asks
+		// SoundCloud anything of its own.
 		expect(api.calls).toEqual([]);
 		expect(chrome.testStore('local').listed[0]).toMatchObject({
 			permalink: TRACK,
@@ -207,10 +206,6 @@ describe('a song page read by the Manager panel', () => {
 	// the page gives for free, exactly as a Likes row's is.
 	it('carries the purchase link the page renders through to the row', async () => {
 		await openSong({ purchase: { url: 'https://hypeddit.com/x/y', label: 'Free Download' } });
-		hydrationScript([apiClientEntry()]);
-		mockFetch();
-		disposeContentScripts();
-		await loadContentScript();
 
 		await mountPanel('manager');
 		await addPage();
@@ -235,7 +230,6 @@ describe('marks travelling between the page and the popup', () => {
 	const openWithDetails = async (storage: Seed = {}) => {
 		await openPage(page(), SET, { storage });
 		hydrationScript([
-			apiClientEntry(),
 			{
 				hydratable: 'playlist',
 				data: {
@@ -248,7 +242,6 @@ describe('marks travelling between the page and the popup', () => {
 				}
 			}
 		]);
-		mockFetch();
 		// The script read the page before the hydration was appended; a fresh one
 		// starts up with it, as it would on a real load.
 		disposeContentScripts();
@@ -350,7 +343,6 @@ describe('the session queue between two tools', () => {
 			})
 		);
 		hydrationScript([
-			apiClientEntry(),
 			{
 				hydratable: 'playlist',
 				data: {
@@ -360,7 +352,6 @@ describe('the session queue between two tools', () => {
 				}
 			}
 		]);
-		mockFetch();
 		disposeContentScripts();
 		await loadContentScript();
 
@@ -386,12 +377,13 @@ describe('the session queue between two tools', () => {
 
 // ---------------------------------------------------------------------------
 
-describe('the details cache shared between contexts', () => {
+describe('what the page loaded, and nothing kept past it', () => {
 	// Two loads of the same page. The first learns the track's details from the
-	// page's own hydration and writes them to storage; the second has no
-	// hydration to learn them from, so an answer that costs no request can only
-	// have come out of what the first one wrote.
-	it('reuses what an earlier load of the page looked up rather than asking again', async () => {
+	// page's own hydration; the second has no hydration, as a page that has not
+	// loaded the track yet would not. What the first learned lives in that tab's
+	// memory alone, so the second knows nothing, and the panel says how to get
+	// it rather than serving an old answer from storage.
+	it('starts again from what each load of the page brings, writing none of it to storage', async () => {
 		await openPage(
 			playlistPage({
 				rows: [playlistRow({ artist: 'Bicep', title: 'Glue', href: `/bicep/glue?in=curator/sets/my-playlist` })]
@@ -399,7 +391,6 @@ describe('the details cache shared between contexts', () => {
 		);
 
 		const hydration = hydrationScript([
-			apiClientEntry(),
 			{
 				hydratable: 'playlist',
 				data: {
@@ -410,7 +401,6 @@ describe('the details cache shared between contexts', () => {
 			}
 		]);
 
-		const { fn } = mockFetch();
 		disposeContentScripts();
 		await loadContentScript();
 
@@ -419,14 +409,15 @@ describe('the details cache shared between contexts', () => {
 		await vi.advanceTimersByTimeAsync(1000);
 		await settle();
 		expect(text()).toContain('soundcloud.com');
+		expect(text()).not.toMatch(/not loaded yet:/);
 
-		// The page writes what it learned back a moment later.
-		await vi.advanceTimersByTimeAsync(3000);
-		expect(chrome.testStore().details).toHaveProperty('/bicep/glue');
+		// However long the page stays open, nothing about the track is written
+		// where another tab or a later load could read it.
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(chrome.testStore()).not.toHaveProperty('details');
 
-		// Loaded again, with the API key and nothing else to answer from.
+		// Loaded again, with nothing to answer from.
 		hydration.remove();
-		hydrationScript([apiClientEntry()]);
 		disposeContentScripts();
 		await loadContentScript();
 
@@ -435,7 +426,6 @@ describe('the details cache shared between contexts', () => {
 		await vi.advanceTimersByTimeAsync(1000);
 		await settle();
 		expect(text()).toMatch(/refreshed 1 track from My Playlist/);
-		expect(text()).not.toMatch(/couldn’t check/);
-		expect(fn).not.toHaveBeenCalled();
+		expect(text()).toMatch(/1 track not loaded yet: scroll to them or open the track, then add again\./);
 	});
 });

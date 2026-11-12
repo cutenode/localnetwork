@@ -61,15 +61,15 @@ export interface PageTrack extends PageFacts {
 
 /** A page's track with what is known of its downloads; a missing cover is taken from them. */
 export interface DetailedTrack extends PageTrack {
-	/** Null when nothing is known; absent only when no lookup could run ('no-client-id'). */
+	/** Null when the page has not loaded the track yet. */
 	details?: TrackDetails | null;
 }
 
 // ---- Download details -------------------------------------------------------
 
-/** What SoundCloud said about a track, as the details cache files it (content.ts detailsOf). */
+/** What the page loaded about a track, as content.ts files it (detailsOf). */
 export interface KnownDetails {
-	/** SoundCloud's numeric id. A lookup always names one; a restored file need not. */
+	/** SoundCloud's numeric id. The page always names one; a restored file need not. */
 	id?: number | null;
 	/** The track's path: the one the entry is filed under, or the track carrying it. */
 	permalink: string;
@@ -85,7 +85,7 @@ export interface KnownDetails {
 	genre?: string;
 	/** The track's artwork, else the uploader's avatar, else ''. Absent in details that old. */
 	artworkUrl?: string;
-	/** When it was learned, in milliseconds. It goes stale thirty days later. */
+	/** When it was learned, in milliseconds. */
 	at: number;
 	/** Never set; declared so `details.partial` can be asked of either kind. */
 	partial?: undefined;
@@ -96,7 +96,7 @@ export interface KnownDetails {
 /** What a Likes row or track page shows by itself: the purchase link, and nothing asked. */
 export interface PartialDetails {
 	partial: true;
-	/** The id comes from the API, which was not asked. Absent in older files. */
+	/** The id comes with the track object, which the page has not loaded. Absent in older files. */
 	id?: null;
 	permalink: string;
 	downloadable: null;
@@ -121,10 +121,10 @@ export interface RememberedFailure {
 /** The details a track carries: an answer or a partial one, never a failure. */
 export type TrackDetails = KnownDetails | PartialDetails;
 
-/** One entry of the details cache: an answer, or a remembered failure. */
+/** One entry of an older version's details cache: an answer, or a remembered failure. */
 export type DetailsCacheEntry = KnownDetails | RememberedFailure;
 
-/** The details cache, permalink -> entry. Owned by content.ts; the state file carries it. */
+/** An older version's details cache, permalink -> entry, as its state files carry it. */
 export type DetailsCache = Record<string, DetailsCacheEntry>;
 
 // ---- A track, hop by hop ----------------------------------------------------
@@ -186,7 +186,7 @@ export interface ProfileLink {
 	url: string;
 }
 
-/** An account as GET_ARTIST_PROFILES looks it up (content.ts profileOf). */
+/** An account as the page loaded it, as GET_ARTIST_PROFILES answers (content.ts profileOf). */
 export interface ArtistProfile {
 	id: number | null;
 	/** The artist's path, '/<user>', as it was asked for. */
@@ -207,6 +207,8 @@ export interface ArtistProfile {
 	bio: string;
 	/** At most twenty, http(s) only, in SoundCloud's order. */
 	links: ProfileLink[];
+	/** Set where the bio or the links have not been loaded: they come with the profile page. */
+	partial?: true;
 	/** Never set; declared so `profile.unavailable` can be asked of any answer. */
 	unavailable?: undefined;
 }
@@ -228,9 +230,6 @@ export type ProfileEntry = KnownProfile | ProfileFailure;
 export type ProfileFailure = RememberedFailure &
 	Partial<Record<Exclude<keyof KnownProfile, keyof RememberedFailure>, undefined>>;
 
-/** What a lookup hands the artists store (artists.learn): a profile, or a path with none. */
-export type ProfileAnswer = ArtistProfile | { permalink: string; unavailable: true };
-
 /** One of the tracks an artist is on the list for. */
 export interface ArtistTrack {
 	permalink: string;
@@ -250,7 +249,7 @@ export interface Artist {
 
 /** An artist on the artists list, as artists.svelte.ts entryOf writes it. */
 export interface ArtistEntry extends Artist {
-	/** Null until somebody asks. Kept as it came, so a restored one may carry less. */
+	/** Null until a SoundCloud tab has loaded the account. Kept for the session only (artists.svelte.ts). */
 	profile: ProfileEntry | null;
 	/** A page's name, "the Manager’s list" or "the session queue"; '' when nothing named it. */
 	from: string;
@@ -269,9 +268,6 @@ export type PageRequest =
 	| { type: 'EXTRACT_TRACKS' }
 	| { type: 'GET_DOWNLOAD_DETAILS' }
 	| { type: 'GET_ARTIST_PROFILES'; permalinks: string[] };
-
-/** Why a lookup stopped short: '' for no reason, else a key of LOOKUP_ERRORS ($lib/lookup-errors.ts). */
-export type LookupError = '' | 'no-client-id' | 'unauthorized';
 
 /** The answer to EXTRACT_TRACKS: the page read off its DOM, nothing asked of SoundCloud. */
 export interface TracksAnswer {
@@ -294,37 +290,19 @@ export interface TracksAnswer {
 /** The answer to GET_DOWNLOAD_DETAILS: the page again, each track with its details. */
 export interface DetailsAnswer extends TracksAnswer {
 	tracks: DetailedTrack[];
-	/** How many tracks this lookup asked about and got no answer for. */
-	lookupFailed: number;
-	/** Whether it waited on a lookup already under way rather than starting one. */
-	resumed: boolean;
-	/** Whether it gave up because nothing came back: a page the anonymous API cannot see. */
-	unseen: boolean;
-	error: LookupError;
 }
 
-/** The answer to GET_ARTIST_PROFILES. */
+/** The answer to GET_ARTIST_PROFILES: the accounts the page has loaded, of those asked about. */
 export interface ProfilesAnswer {
 	ok: true;
 	profiles: ArtistProfile[];
-	/** The paths SoundCloud says have no public profile behind them. */
-	missing: string[];
-	/** The paths that could not be asked about, which says nothing about them. */
-	failed: string[];
-	error: LookupError;
-}
-
-/** What a question that is answered later says when it threw instead: the message. */
-export interface PageFailure {
-	ok: false;
-	error: string;
 }
 
 /** Each question's answer, by its type: what askPage's `response` holds when one came. */
 export interface PageAnswers {
 	EXTRACT_TRACKS: TracksAnswer;
-	GET_DOWNLOAD_DETAILS: DetailsAnswer | PageFailure;
-	GET_ARTIST_PROFILES: ProfilesAnswer | PageFailure;
+	GET_DOWNLOAD_DETAILS: DetailsAnswer;
+	GET_ARTIST_PROFILES: ProfilesAnswer;
 }
 
 // ---- What a replaced download button asks the extension ---------------------
@@ -364,36 +342,6 @@ export interface RoundTripRequest {
 
 /** A read of the page (readPage, lookupProfiles): its answer, or the sentence for why not. */
 export type PageRead<T> = { data: T; status?: undefined } | { status: string; data?: undefined };
-
-// ---- What the page tells a panel while it works -----------------------------
-//
-// Sent with chrome.runtime.sendMessage to whoever is listening, which is the open panel or
-// nobody: the Manager and the Downloader hear the details, the artists panel the profiles.
-
-/** How far a details lookup has got, with what it learned since the panel was last told. */
-export interface DetailsProgress {
-	type: 'DOWNLOAD_DETAILS_PROGRESS';
-	/** How many of the request's tracks are settled, answered or failed. */
-	done: number;
-	total: number;
-	/** Whether the request joined a lookup already under way. */
-	resumed: boolean;
-	/** Each answer once. A failure settles a row with nothing to show, so it is not sent. */
-	details: KnownDetails[];
-}
-
-/** How far a profile lookup has got, an artist at a time. */
-export interface ProfilesProgress {
-	type: 'ARTIST_PROFILES_PROGRESS';
-	done: number;
-	total: number;
-	profiles: ArtistProfile[];
-	missing: string[];
-	failed: string[];
-}
-
-/** Anything the page sends a panel unasked. */
-export type PageProgress = DetailsProgress | ProfilesProgress;
 
 // ---- The tools --------------------------------------------------------------
 
@@ -437,7 +385,6 @@ export interface PageSettings {
 /** chrome.storage.local, key by key, as this version writes it. Readers still check. */
 export interface LocalArea {
 	downloaded: DownloadedMarks;
-	details: DetailsCache;
 	listed: ListedEntry[];
 	artists: ArtistEntry[];
 	settings: PageSettings;
@@ -472,6 +419,7 @@ export interface StateFile {
 	version: 1;
 	exportedAt?: string;
 	downloaded?: DownloadedMarks;
+	/** An older version's download details. Read, checked, and left out (state-transfer.ts apply). */
 	details?: DetailsCache;
 	listed?: SavedListedEntry[];
 	artists?: SavedArtistEntry[];
@@ -482,7 +430,6 @@ export interface StateFile {
 /** A state file as TbxState.parse answers it: every member but `exportedAt` filled in. */
 export interface ParsedState extends StateFile {
 	downloaded: DownloadedMarks;
-	details: DetailsCache;
 	listed: SavedListedEntry[];
 	artists: SavedArtistEntry[];
 	queue: QueueEntry[];

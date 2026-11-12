@@ -275,7 +275,6 @@ describe('the exported state file (state-transfer.js)', () => {
 				expect(parsed).toEqual({
 					...doc,
 					downloaded: doc.downloaded ?? {},
-					details: doc.details ?? {},
 					listed: doc.listed ?? [],
 					artists: doc.artists ?? [],
 					queue: doc.queue ?? [],
@@ -331,7 +330,6 @@ describe('the exported state file (state-transfer.js)', () => {
 						{
 							parsed: expect.objectContaining({
 								downloaded: expect.any(Object),
-								details: expect.any(Object),
 								queue: expect.any(Array),
 								prefs: expect.any(Object)
 							})
@@ -430,28 +428,21 @@ describe('the exported state file (state-transfer.js)', () => {
 		);
 	});
 
-	it('takes details only where they are newer than what is known', async () => {
+	// An older version's file carries a month of download details. They are
+	// read and checked, and then go nowhere, adding or replacing: details last
+	// as long as the tab that loaded them now (content.ts), and a cache an
+	// older version left behind is src/background.ts's to clear, not this.
+	it('never writes a file’s details, whatever it carries and whatever is stored', async () => {
 		await fc.assert(
-			fc.asyncProperty(details(), details(), async (stored, incoming) => {
+			fc.asyncProperty(details(), details(), fc.boolean(), async (stored, incoming, replace) => {
 				globalThis.chrome = createChrome({ storage: { details: structuredClone(stored) } });
 
 				const doc = TbxState.parse(
 					JSON.stringify({ format: TbxState.FORMAT, version: TbxState.VERSION, details: incoming })
 				);
 
-				await TbxState.apply(doc);
-
-				const after = chrome.testStore().details;
-
-				for (const [path, entry] of Object.entries(stored)) {
-					const arriving = incoming[path];
-					const expected = arriving && arriving.at > entry.at ? arriving : entry;
-					expect(after[path]).toEqual(expected);
-				}
-
-				const arrived = Object.entries(incoming).filter(([key]) => !(key in stored));
-
-				for (const [path, entry] of arrived) expect(after[path]).toEqual(entry);
+				expect(await TbxState.apply(doc, { replace })).toEqual({ marks: 0, prefs: 0 });
+				expect(await chrome.storage.local.get('details')).toEqual({ details: stored });
 			}),
 			ASYNC_RUNS
 		);

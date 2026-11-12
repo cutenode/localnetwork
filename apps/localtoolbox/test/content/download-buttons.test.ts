@@ -25,14 +25,16 @@ import {
 	v2TrackPage,
 	moreMenu,
 	ART,
+	hydrationScript,
+	apiTrack,
+	pageLoaded,
+	type ApiTrackOptions,
 	type LikedSoundOptions,
 	type V2TrackPageOptions
 } from '../helpers/dom.ts';
-import type { KnownDetails, SaveGateAnswer } from '$lib/types';
+import type { SaveGateAnswer } from '$lib/types';
 
 declare const chrome: ChromeMock;
-
-const NOW = new Date('2026-09-08T12:00:00Z').getTime();
 
 // The listeners a test puts on the document go when the test does, so no test
 // clicks through another's.
@@ -51,18 +53,14 @@ afterEach(() => {
 	disposeContentScripts();
 });
 
-const details = (permalink: string, extra: Partial<KnownDetails> = {}) => ({
-	id: 1,
-	permalink,
-	downloadable: true,
-	hasDownloadsLeft: true,
-	purchaseUrl: '',
-	purchaseTitle: '',
-	genre: '',
-	artworkUrl: '',
-	at: NOW,
-	...extra
-});
+// A track SoundCloud offers its own download for, as its API describes one.
+const track = (permalink: string, extra: ApiTrackOptions = {}) =>
+	apiTrack({ id: 1, permalink, downloadable: true, ...extra });
+
+// The tracks the page was served with: what the content script knows about
+// them from the moment it starts.
+const served = (...tracks: ReturnType<typeof apiTrack>[]) =>
+	hydrationScript(tracks.map((data) => ({ hydratable: 'sound', data })));
 
 // Anchors would make jsdom try to navigate. Our button leaves an ordinary
 // link's click to the browser, so the test cancels it, after it has been seen.
@@ -229,17 +227,9 @@ describe('what our button says', () => {
 	// The same word wherever it stands, whatever the page or the lookup calls
 	// the link: it is the same click on every one of them.
 	it('says Download, whatever SoundCloud and the lookup call the link', async () => {
-		globalThis.chrome = createChrome({
-			storage: {
-				details: {
-					'/l/one': details('/l/one', {
-						purchaseUrl: 'https://hypeddit.com/x',
-						purchaseTitle: 'Buy on Bandcamp'
-					})
-				}
-			}
-		});
+		globalThis.chrome = createChrome();
 		render(likesWithPurchase(), '/dj/likes');
+		served(track('/l/one', { purchaseUrl: 'https://hypeddit.com/x', purchaseTitle: 'Buy on Bandcamp' }));
 		await loadContentScript();
 		expect(ours().textContent).toBe('Download');
 
@@ -271,10 +261,9 @@ describe('what our button says', () => {
 	});
 
 	it('says when SoundCloud’s download limit is used up, as the panel does', async () => {
-		globalThis.chrome = createChrome({
-			storage: { details: { '/a/one': details('/a/one', { hasDownloadsLeft: false }) } }
-		});
+		globalThis.chrome = createChrome();
 		render(playlistPage({ rows: [playlistRow({ href: '/a/one?in=c/sets/p' })] }), '/c/sets/p');
+		served(track('/a/one', { hasDownloadsLeft: false }));
 		await loadContentScript();
 		await openMore(document.querySelector('.trackItem .sc-button-more'));
 
@@ -282,8 +271,8 @@ describe('what our button says', () => {
 		expect(ours().title).toBe('soundcloud.com (no downloads left)');
 	});
 
-	// The tooltip is drawn before SoundCloud has been asked anything, and
-	// brought up to date when the answer lands, from this tab or from another.
+	// The tooltip is drawn before the page has loaded anything about the track,
+	// and brought up to date when one of the page's own requests brings it.
 	it('takes up a spent download limit that is learned after the page was painted', async () => {
 		globalThis.chrome = createChrome();
 		render(playlistPage({ rows: [playlistRow({ href: '/a/one?in=c/sets/p' })] }), '/c/sets/p');
@@ -291,9 +280,7 @@ describe('what our button says', () => {
 		await openMore(document.querySelector('.trackItem .sc-button-more'));
 		expect(ours().title).toBe('soundcloud.com');
 
-		await chrome.storage.local.set({
-			details: { '/a/one': details('/a/one', { hasDownloadsLeft: false }) }
-		});
+		pageLoaded('/tracks', [track('/a/one', { hasDownloadsLeft: false })]);
 		await paint();
 		expect(ours().title).toBe('soundcloud.com (no downloads left)');
 		expect(allOurs()).toHaveLength(1);
@@ -477,10 +464,9 @@ describe('what a click on it does', () => {
 	});
 
 	it('carries the details it has, so the queue knows where the gate is', async () => {
-		globalThis.chrome = createChrome({
-			storage: { details: { '/l/one': details('/l/one', { purchaseUrl: 'https://hypeddit.com/x' }) } }
-		});
+		globalThis.chrome = createChrome();
 		render(likesWithPurchase(), '/dj/likes');
+		served(track('/l/one', { purchaseUrl: 'https://hypeddit.com/x' }));
 		await loadContentScript();
 		stopNavigation();
 

@@ -6,9 +6,9 @@
 // That path is the artist's identity throughout this tool: what SoundCloud
 // resolves to a profile, what the list holds an artist once under, and what
 // takes one off again. A profile is what SoundCloud said about the account
-// (content.ts, GET_ARTIST_PROFILES), and its socials are the links the
-// uploader put on it, plus whatever addresses they wrote into the bio, which
-// is where a good many of them put the links that matter.
+// as the page loaded it (content.ts, GET_ARTIST_PROFILES), and its socials are
+// the links the uploader put on it, plus whatever web addresses they wrote
+// into the bio, which is where a good many of them put the links that matter.
 
 import { storedList } from '$lib/stored';
 import type { Artist, ArtistEntry, KnownProfile, ProfileEntry, Track } from '$lib/types';
@@ -189,7 +189,6 @@ export const NETWORKS = {
 		color: '#000000'
 	},
 	soundcloud: { name: 'SoundCloud', badge: 'sc', hosts: ['soundcloud.com'], background: '#ff5500' },
-	email: { name: 'email', badge: '@', hosts: [], background: '#52525b' },
 	personal: { name: 'website', badge: 'www', hosts: [], background: '#52525b' }
 } satisfies Record<string, Network>;
 
@@ -212,14 +211,13 @@ const hostOf = (url: string) => {
 /**
  * Which network an address is on: the one whose host it is under, else the
  * one SoundCloud filed it under when that is a network this knows, else a
- * website. A `mailto:` is email, whatever it was filed under.
+ * website.
  *
  * @param filed SoundCloud's `network` for it
  * @returns an id in NETWORKS
  */
 // Stryker disable next-line StringLiteral: equivalent. A default that names no network falls through to 'personal' just as '' does.
 export function networkOf(url: string, filed = ''): NetworkId {
-	if (/^mailto:/i.test(url)) return 'email';
 	const host = hostOf(url);
 
 	for (const id of NETWORK_IDS) {
@@ -228,7 +226,7 @@ export function networkOf(url: string, filed = ''): NetworkId {
 
 	const given = words(filed).toLowerCase();
 
-	return isNetworkId(given) && given !== 'email' ? given : 'personal';
+	return isNetworkId(given) ? given : 'personal';
 }
 
 /** The badge's colours, as a style attribute. */
@@ -243,7 +241,6 @@ const keyOf = (url: string) =>
 		.toLowerCase()
 		.replace(/^https?:\/\//, '')
 		.replace(/^www\./, '')
-		.replace(/^mailto:/, '')
 		.replace(/\/+$/, '');
 
 /** @param filed SoundCloud's `network` for it */
@@ -282,20 +279,19 @@ const BIO_URL = new RegExp(
 	'gi'
 );
 
-const BIO_EMAIL = /\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b/g;
-
 // Punctuation a sentence ends an address with, which is not part of it.
 const trimmed = (found: string) => found.replace(/[.,;:!?)\]]+$/, '');
 
 /**
- * The addresses written into a bio, as links: full ones, `www.` ones, and
- * known hosts with a path; and email addresses. The addresses first, then the
- * emails, each in the order they appear.
+ * The web addresses written into a bio, as links: full ones, `www.` ones, and
+ * known hosts with a path, in the order they appear. Email addresses are left
+ * where they are: a list of other people's contact details is not this tool's
+ * to keep.
  */
 export function bioLinks(bio?: string) {
 	const text = words(bio);
 
-	// Stryker disable next-line ConditionalExpression: equivalent when false, since empty text matches nothing and the loops below return [] anyway; the `true` variant is caught by the bio tests, which this hides too.
+	// Stryker disable next-line ConditionalExpression: equivalent when false, since empty text matches nothing and the loop below returns [] anyway; the `true` variant is caught by the bio tests, which this hides too.
 	if (!text) return [];
 	const links: Link[] = [];
 
@@ -304,11 +300,6 @@ export function bioLinks(bio?: string) {
 		const url = /^https?:\/\//i.test(found) ? found : `https://${found}`;
 		// Stryker disable next-line StringLiteral: equivalent for the network, since one that names no network falls through to the host or 'personal' just as '' does; the title and 'bio' literals here are pinned by the bio tests all the same.
 		links.push(linkOf(url, '', '', 'bio'));
-	}
-
-	for (const match of text.matchAll(BIO_EMAIL)) {
-		// Stryker disable next-line StringLiteral: equivalent for the network, since networkOf answers 'email' for any mailto: before it reads it; the title and 'bio' literals here are pinned by the bio tests all the same.
-		links.push(linkOf(`mailto:${match[0]}`, 'email', '', 'bio'));
 	}
 
 	return links;
@@ -351,11 +342,14 @@ export function linksOf(profile: ProfileEntry | null) {
 
 // --- what a row says ---------------------------------------------------------
 
-/** Whether an artist has been asked about and SoundCloud had no profile. */
+/** Whether a lookup by an older version found no profile, as a restored list may say. */
 export const isUnavailable = (entry: ArtistEntry) => entry.profile?.unavailable === true;
 
-/** Whether nobody has asked SoundCloud about an artist yet. */
+/** Whether no SoundCloud tab has loaded an artist's account yet. */
 export const isUnchecked = (entry: ArtistEntry) => !entry.profile;
+
+/** Whether there is more to load: no profile at all, or one without its bio and links. */
+export const isIncomplete = (entry: ArtistEntry) => !entry.profile || entry.profile.partial === true;
 
 /** Whether an artist has a profile to show. */
 export const hasProfile = (entry: ArtistEntry): entry is ProfiledEntry => !!entry.profile && !entry.profile.unavailable;
@@ -379,20 +373,20 @@ export function shortCount(n?: number | null) {
 /** Where an artist says they are: "Belfast, GB", or either half alone. */
 export const placeOf = (profile?: ProfileEntry | null) => [profile?.city, profile?.country].filter(Boolean).join(', ');
 
+/** What a row says before any SoundCloud tab has loaded the account. */
+export const NOT_LOADED = 'not loaded yet';
+
+/** How to load the rest of an account: its own page loads the bio and the links. */
+export const LOAD_HINT = 'open their SoundCloud page, then come back here.';
+
 /**
  * The line under an artist's name. What is known (their place, their
- * followers, how many links), or, when nothing is, why: nobody has asked, or
- * SoundCloud had no profile for the path.
- *
- * @param options `checking` while a lookup is asking about it, `failed` when
- *   the last lookup couldn't, whatever the row already holds
+ * followers, how many links), or, when nothing is, why: no SoundCloud tab has
+ * loaded the account yet, or an older lookup found no profile for the path.
+ * The links come with the profile page, so a profile without them says so.
  */
-export function profileLine(entry: ArtistEntry, { checking = false, failed = false } = {}) {
-	if (checking) return 'looking up…';
-
-	if (failed) return 'lookup failed';
-
-	if (isUnchecked(entry)) return 'not looked up';
+export function profileLine(entry: ArtistEntry) {
+	if (isUnchecked(entry)) return NOT_LOADED;
 
 	if (!hasProfile(entry)) return 'no public profile';
 	const { profile } = entry;
@@ -401,7 +395,7 @@ export function profileLine(entry: ArtistEntry, { checking = false, failed = fal
 	return [
 		placeOf(profile),
 		profile.followers == null ? '' : `${shortCount(profile.followers)} followers`,
-		links === 0 ? 'no links' : `${links} link${links === 1 ? '' : 's'}`
+		links > 0 ? `${links} link${links === 1 ? '' : 's'}` : profile.partial ? 'links not loaded yet' : 'no links'
 	]
 		.filter(Boolean)
 		.join(' · ');
@@ -446,9 +440,12 @@ export function rowFacts(entry: ArtistEntry) {
 		});
 	}
 
-	/** @param value '' or absent where nothing is known */
-	const fact = (id: string, label: string, value?: string) =>
-		facts.push({ id, label, value: value || 'unknown', copy: value || '', open: '' });
+	/**
+	 * @param value '' or absent where nothing is known
+	 * @param missing what to say then
+	 */
+	const fact = (id: string, label: string, value?: string, missing = 'unknown') =>
+		facts.push({ id, label, value: value || missing, copy: value || '', open: '' });
 
 	if (hasProfile(entry)) {
 		const { profile } = entry;
@@ -461,7 +458,7 @@ export function rowFacts(entry: ArtistEntry) {
 
 		fact('place', 'place', placeOf(profile));
 		fact('followers', 'followers', profile.followers == null ? '' : profile.followers.toLocaleString('en-US'));
-		fact('bio', 'bio', profile.bio);
+		fact('bio', 'bio', profile.bio, profile.partial ? NOT_LOADED : undefined);
 	}
 
 	fact('tracks', 'tracks', entry.tracks.map((one) => one.title || one.permalink).join(', '));

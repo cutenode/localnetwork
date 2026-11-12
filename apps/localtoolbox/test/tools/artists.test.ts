@@ -1,10 +1,11 @@
-// src/tools/artists/artists.svelte.ts: the artists tool's list, kept for good.
+// src/tools/artists/artists.svelte.ts: the artists tool's list, kept for good,
+// and the profiles on it, kept for the browser session.
 //
 // The panel around it is tested in test/panels/artists.test.ts; what is here
 // is the store's own rules: what an entry keeps, what happens when the same
-// artist comes in twice, which of two answers about an artist wins, how a
-// lookup's answers are folded in and written back, and what it does when
-// storage will not take it.
+// artist comes in twice, which of two answers about an artist wins, how what
+// a tab loaded is folded in and written back, where each half is written, and
+// what it does when storage will not take it.
 import { describe, it, expect, vi } from 'vitest';
 import type { ProfileFailure, SavedArtistEntry } from '$lib/types';
 import { flush } from '../helpers/flush.ts';
@@ -13,9 +14,9 @@ import { createChrome, type ChromeMock } from '../helpers/chrome.ts';
 declare const chrome: ChromeMock;
 
 // A fresh module graph each time, so the singleton starts empty.
-async function freshArtists(storage = {}) {
+async function freshArtists(storage = {}, session = {}) {
 	vi.resetModules();
-	globalThis.chrome = createChrome({ storage });
+	globalThis.chrome = createChrome({ storage, session });
 	const module = await import('../../src/tools/artists/artists.svelte.ts');
 	await module.artists.start();
 
@@ -23,6 +24,9 @@ async function freshArtists(storage = {}) {
 }
 
 const stored = () => chrome.testStore('local').artists;
+
+/** The profiles as the session area holds them, by artist path. */
+const sessionProfiles = async () => (await chrome.storage.session.get('artistProfiles')).artistProfiles;
 
 const NOW = Date.parse('2026-09-08T12:00:00Z');
 
@@ -70,18 +74,22 @@ describe('the list', () => {
 		const { artists } = await freshArtists();
 		vi.setSystemTime(new Date(NOW));
 		await artists.add([artist('/a', { profile: { ...profile(), at: NOW } })], { from: 'My Playlist' });
-		expect(stored()).toEqual([
-			{
-				permalink: '/a',
-				name: 'A',
-				tracks: [{ permalink: '/a/one', title: 'One' }],
-				profile: { ...profile(), at: NOW },
-				from: 'My Playlist',
-				at: NOW
-			}
-		]);
+
+		const whole = {
+			permalink: '/a',
+			name: 'A',
+			tracks: [{ permalink: '/a/one', title: 'One' }],
+			profile: { ...profile(), at: NOW },
+			from: 'My Playlist',
+			at: NOW
+		};
+
+		expect(artists.entries).toEqual([whole]);
 		expect(artists.sources).toEqual(['My Playlist']);
-		expect(artists.entries).toEqual(stored());
+		// Somebody else's account is kept for the session only: the list that
+		// lasts carries the entry without it.
+		expect(stored()).toEqual([{ ...whole, profile: null }]);
+		expect(await sessionProfiles()).toEqual({ '/a': { ...profile(), at: NOW } });
 	});
 
 	it('fills in what a source left out, without claiming anything about it', async () => {
@@ -201,6 +209,14 @@ describe('the same artist twice', () => {
 		const newer = { ...profile(), at: 3 };
 		expect(betterProfile(known, newer)).toBe(newer);
 		expect(betterProfile(newer, known)).toBe(newer);
+		// A profile a tab learned from a track alone has no bio or links, so a
+		// whole one beats it whichever is newer, and either beats a failure.
+		const partial = { ...profile(), partial: true as const, at: 9 };
+		expect(betterProfile(known, partial)).toBe(known);
+		expect(betterProfile(partial, known)).toBe(known);
+		expect(betterProfile(failed, partial)).toBe(partial);
+		const newerPartial = { ...partial, at: 10 };
+		expect(betterProfile(partial, newerPartial)).toBe(newerPartial);
 		// Two answers with no time at all: the fresh one, as a refresh should.
 		const timeless = { ...profile() };
 		// @ts-expect-error -- two profiles with no `at`, which a stored one always has
@@ -211,25 +227,26 @@ describe('the same artist twice', () => {
 		const { artists } = await freshArtists();
 		await artists.add([artist('/a')]);
 		await artists.add([artist('/a', { profile: { ...profile(), at: 1 } })]);
-		expect(stored()[0].profile).toEqual({ ...profile(), at: 1 });
+		expect(artists.items[0].profile).toEqual({ ...profile(), at: 1 });
 		await artists.add([artist('/a')]);
-		expect(stored()[0].profile).toEqual({ ...profile(), at: 1 });
+		expect(artists.items[0].profile).toEqual({ ...profile(), at: 1 });
+		expect(await sessionProfiles()).toEqual({ '/a': { ...profile(), at: 1 } });
 	});
 });
 
-describe('what a lookup said', () => {
+describe('what a tab has loaded', () => {
 	it('is taken onto the entries it names, stamped with the time, and written a moment later', async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date(NOW));
 		const { artists, SAVE_DELAY_MS } = await freshArtists();
 		await artists.add([artist('/a'), artist('/b'), artist('/c')]);
-		chrome.storage.local.set.mockClear();
+		chrome.storage.session.set.mockClear();
 
 		expect(
 			artists.learn([
 				profile({ permalink: '/a' }),
-				{ permalink: '/b', unavailable: true },
-				{ permalink: '/nobody', unavailable: true },
+				profile({ permalink: '/b', partial: true }),
+				profile({ permalink: '/nobody' }),
 				// @ts-expect-error -- a path that is not an artist's, answered with nothing
 				{ permalink: '/a/b' },
 				// @ts-expect-error -- no answer at all
@@ -237,36 +254,51 @@ describe('what a lookup said', () => {
 			])
 		).toBe(2);
 		expect(artists.items[0].profile).toEqual({ ...profile({ permalink: '/a' }), at: NOW });
-		expect(artists.items[1].profile).toEqual({ unavailable: true, at: NOW });
+		expect(artists.items[1].profile).toEqual({ ...profile({ permalink: '/b', partial: true }), at: NOW });
 		expect(artists.items[2].profile).toBe(null);
 		// In memory at once; in storage after the delay, and once, however many
 		// answers land in it.
-		expect(chrome.storage.local.set).not.toHaveBeenCalled();
+		expect(chrome.storage.session.set).not.toHaveBeenCalled();
 		expect(artists.learn([profile({ permalink: '/c' })])).toBe(1);
 		await vi.advanceTimersByTimeAsync(SAVE_DELAY_MS);
-		expect(chrome.storage.local.set).toHaveBeenCalledTimes(1);
-		expect(stored().map((one) => one.profile?.permalink ?? one.profile)).toEqual([
-			'/a',
-			{ unavailable: true, at: NOW },
-			'/c'
-		]);
+		expect(chrome.storage.session.set).toHaveBeenCalledTimes(1);
+		expect(Object.keys((await sessionProfiles()) ?? {})).toEqual(['/a', '/b', '/c']);
+		expect(stored().map((one) => one.profile)).toEqual([null, null, null]);
+	});
+
+	// Opening the panel on a page that shows only an artist's tracks must not
+	// undo what their profile page loaded earlier in the session.
+	it('keeps a whole profile over a later one without its bio and links, and takes a whole one over that', async () => {
+		vi.setSystemTime(new Date(NOW));
+		const { artists } = await freshArtists();
+		await artists.add([artist('/a', { profile: { ...profile({ permalink: '/a', bio: 'hi' }), at: 1 } })]);
+
+		expect(artists.learn([profile({ permalink: '/a', partial: true })])).toBe(0);
+		expect(artists.items[0].profile).toEqual({ ...profile({ permalink: '/a', bio: 'hi' }), at: 1 });
+
+		await artists.add([artist('/b', { profile: { ...profile({ permalink: '/b', partial: true }), at: 1 } })]);
+		expect(artists.learn([profile({ permalink: '/b', bio: 'whole' })])).toBe(1);
+		expect(artists.items[1].profile).toEqual({ ...profile({ permalink: '/b', bio: 'whole' }), at: NOW });
 	});
 
 	it('is written now when flushed, and flushing with nothing pending writes nothing', async () => {
 		vi.useFakeTimers();
 		const { artists } = await freshArtists();
 		await artists.add([artist('/a')]);
+		chrome.storage.session.set.mockClear();
 		chrome.storage.local.set.mockClear();
 		await artists.flush();
+		expect(chrome.storage.session.set).not.toHaveBeenCalled();
 		expect(chrome.storage.local.set).not.toHaveBeenCalled();
 
 		artists.learn([profile({ permalink: '/a' })]);
 		await artists.flush();
+		expect(chrome.storage.session.set).toHaveBeenCalledTimes(1);
 		expect(chrome.storage.local.set).toHaveBeenCalledTimes(1);
-		expect(stored()[0].profile!.permalink).toBe('/a');
+		expect(await sessionProfiles()).toMatchObject({ '/a': { permalink: '/a' } });
 		// The timer went with the flush: nothing writes again later.
 		await vi.advanceTimersByTimeAsync(5000);
-		expect(chrome.storage.local.set).toHaveBeenCalledTimes(1);
+		expect(chrome.storage.session.set).toHaveBeenCalledTimes(1);
 	});
 
 	it('takes nothing from an answer that names nobody on the list', async () => {
@@ -322,13 +354,88 @@ describe('what storage holds', () => {
 		expect(listOf('nope')).toEqual([]);
 	});
 
+	it('puts the session’s profiles onto the list it reads, skipping what is not one', async () => {
+		const { artists } = await freshArtists(
+			{ artists: [artist('/a'), artist('/b'), artist('/c')] },
+			{ artistProfiles: { '/a': { ...profile({ permalink: '/a' }), at: 1 }, '/b': 'nope', '/nobody': { at: 1 } } }
+		);
+
+		expect(artists.items.map((one) => one.profile)).toEqual([{ ...profile({ permalink: '/a' }), at: 1 }, null, null]);
+		// Reading writes nothing back.
+		expect(chrome.storage.local.set).not.toHaveBeenCalled();
+		expect(chrome.storage.session.set).not.toHaveBeenCalled();
+	});
+
+	it('reads a session area holding something other than profiles as none', async () => {
+		const { artists } = await freshArtists({ artists: [artist('/a')] }, { artistProfiles: 'nope' });
+		expect(artists.items[0].profile).toBe(null);
+	});
+
+	// An older version kept the profiles in the local area, for good. They are
+	// not this version's to show: the worker takes them off on install
+	// (old-profiles.ts), and until it has, the list reads as if it had.
+	it('shows none of the profiles an older version left in the local area', async () => {
+		const sessions = { ...profile({ permalink: '/b', city: 'Derry' }), at: 2 };
+
+		const { artists } = await freshArtists(
+			{
+				artists: [
+					artist('/a', { profile: { ...profile({ permalink: '/a' }), at: 1 } }),
+					artist('/b', { profile: { ...profile(), at: 1 } })
+				]
+			},
+			{ artistProfiles: { '/b': sessions } }
+		);
+
+		expect(artists.items.map((one) => one.profile)).toEqual([null, sessions]);
+		expect(chrome.storage.local.set).not.toHaveBeenCalled();
+	});
+
 	it('follows another context’s write, and ignores the rest', async () => {
 		const { artists } = await freshArtists();
 		chrome.testEmitStorageChange({ artists: { newValue: [artist('/a')] } }, 'local');
 		expect(artists.items.map((one) => one.permalink)).toEqual(['/a']);
 		chrome.testEmitStorageChange({ artists: { newValue: [artist('/b')] } }, 'session');
+		chrome.testEmitStorageChange({ artistProfiles: { newValue: { '/a': { ...profile(), at: 1 } } } }, 'local');
 		chrome.testEmitStorageChange({ listed: { newValue: [] } }, 'local');
 		expect(artists.items.map((one) => one.permalink)).toEqual(['/a']);
+		expect(artists.items[0].profile).toBe(null);
+	});
+
+	// Another popup writes the list without profiles, as every write does; the
+	// profiles this one holds stay on the entries the new list still has, and
+	// one the written list itself carries is not taken from the local area.
+	it('keeps the profiles it holds when the list changes elsewhere', async () => {
+		const held = { ...profile({ permalink: '/a' }), at: 1 };
+		const { artists } = await freshArtists({ artists: [artist('/a')] }, { artistProfiles: { '/a': held } });
+		chrome.testEmitStorageChange(
+			{
+				artists: {
+					newValue: [artist('/a', { profile: null }), artist('/b', { profile: { ...profile(), at: 2 } })]
+				}
+			},
+			'local'
+		);
+		expect(artists.items.map((one) => [one.permalink, one.profile])).toEqual([
+			['/a', held],
+			['/b', null]
+		]);
+	});
+
+	it('takes the session’s profiles when they change elsewhere, and drops the ones it no longer has', async () => {
+		const first = { ...profile({ permalink: '/a' }), at: 1 };
+
+		const { artists } = await freshArtists(
+			{ artists: [artist('/a'), artist('/b')] },
+			{ artistProfiles: { '/a': first } }
+		);
+
+		const fresh = { ...profile({ permalink: '/b' }), at: 2 };
+		chrome.testEmitStorageChange({ artistProfiles: { newValue: { '/b': fresh } } }, 'session');
+		expect(artists.items.map((one) => one.profile)).toEqual([null, fresh]);
+		// Removed altogether, as closing the browser does.
+		chrome.testEmitStorageChange({ artistProfiles: { oldValue: { '/b': fresh } } }, 'session');
+		expect(artists.items.map((one) => one.profile)).toEqual([null, null]);
 	});
 
 	it('starts empty, in memory, when storage cannot be read', async () => {
@@ -350,5 +457,15 @@ describe('what storage holds', () => {
 		expect(artists.count).toBe(1);
 		expect(stored()).toBeUndefined();
 		await flush();
+	});
+
+	// The list is what lasts; a session area too full for the profiles must not
+	// cost it.
+	it('keeps the list in local storage when the session area refuses the profiles', async () => {
+		const { artists } = await freshArtists();
+		chrome.storage.session.set.mockRejectedValue(new Error('QUOTA_BYTES quota exceeded'));
+		await artists.add([artist('/a')]);
+		await flush();
+		expect(stored()?.map((entry) => entry.permalink)).toEqual(['/a']);
 	});
 });

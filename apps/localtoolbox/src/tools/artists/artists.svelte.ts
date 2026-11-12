@@ -4,33 +4,42 @@
 // The same arrangement as the Manager's list (src/tools/manager/listed.svelte.ts)
 // and for the same reasons: nothing goes onto it by itself, what is on it
 // stays across openings of the popup, tabs and browser restarts until it is
-// taken off, and it lives in chrome.storage.local beside the marks and the
-// details cache: what the tool knows, as against where somebody is in a
-// piece of work, which is the session's. The exported state file carries it;
+// taken off, and it lives in chrome.storage.local beside the marks: what the
+// tool knows, as against where somebody is in a piece of work, which is the
+// session's. The exported state file carries it;
 // state-transfer.ts reads this key directly, and test/consistency.test.ts
 // checks the two agree on it.
 //
 // What an entry is: an artist as the panel lists one (the uploader's path,
 // which is its identity; the name a page gave; the tracks that brought it in,
-// so the row can say why it is here), plus what SoundCloud said about the
-// account when it was asked (`profile`, see content.ts GET_ARTIST_PROFILES),
-// and the two things the list itself knows: where the artist came in from,
-// and when.
+// so the row can say why it is here), plus what a SoundCloud tab loaded about
+// the account (`profile`, see content.ts GET_ARTIST_PROFILES), and the two
+// things the list itself knows: where the artist came in from, and when.
+//
+// The profile is the one part not kept for good. It is somebody else's
+// account (their place, their bio, their links), so it lives in
+// chrome.storage.session under PROFILES_KEY and is gone when the browser
+// closes; the list in chrome.storage.local and the state file carry each
+// entry with `profile: null`. Reopening the panel on a SoundCloud tab fills
+// the profiles in again from what that tab has loaded.
 
 import { isArtistPath } from './profiles.ts';
 import { storedList } from '$lib/stored';
-import type { ArtistEntry, ProfileAnswer, ProfileEntry, SavedArtistEntry } from '$lib/types';
+import type { ArtistEntry, ArtistProfile, ProfileEntry, SavedArtistEntry } from '$lib/types';
 import { fallback, z } from '$lib/zod';
 
 /** The storage key. state-transfer.ts writes the same one; keep them in step. */
 export const ARTISTS_KEY = 'artists';
 
-// How many artists the list holds. An entry with a profile is a kilobyte or
-// so (the bio is the bulk of it, and content.ts caps that), so two thousand
-// of them is a couple of megabytes of the 10 MB area, beside the Manager's
-// list and the details cache. Past it the list refuses rather than dropping
-// the oldest, for the reason the Manager's does: these were put here on
-// purpose, and the add says how many did not fit.
+/** The session area's key for the profiles, by artist path. */
+export const PROFILES_KEY = 'artistProfiles';
+
+// How many artists the list holds. A profile is a kilobyte or so (the bio is
+// the bulk of it, and content.ts caps that), so two thousand of them is a
+// couple of megabytes of the session area's 10 MB, beside the queue. Past it
+// the list refuses rather than dropping the oldest, for the reason the
+// Manager's does: these were put here on purpose, and the add says how many
+// did not fit.
 export const MAX = 2000;
 
 // How many of an artist's tracks an entry remembers. Enough to say "12
@@ -88,8 +97,9 @@ const ArtistPathed = z.looseObject({ permalink: z.string().check(z.refine(isArti
 export const listOf = storedList(z.custom<ArtistEntry>((item) => ArtistPathed.safeParse(item).success));
 
 // Which of two answers about an artist to keep. A profile beats a remembered
-// failure beats nobody having asked; between two of a kind the newer wins,
-// which is what makes looking an artist up again a refresh.
+// failure beats nobody having asked, and a whole profile beats one without
+// its bio and links (a tab that only saw the artist's tracks); between two of
+// a kind the newer wins.
 export function betterProfile(held: ProfileEntry | null, fresh: ProfileEntry | null) {
 	if (!fresh) return held;
 
@@ -99,8 +109,21 @@ export function betterProfile(held: ProfileEntry | null, fresh: ProfileEntry | n
 
 	if (fresh.unavailable && !held.unavailable) return held;
 
+	if (fresh.partial && !held.partial) return held;
+
+	if (held.partial && !fresh.partial) return fresh;
+
 	return (fresh.at ?? 0) >= (held.at ?? 0) ? fresh : held;
 }
+
+/** The session area's profiles, by path: anything that does not read as one is left out. */
+const SessionProfiles = z.pipe(
+	fallback(z.record(z.string(), Profile), {}),
+	z.transform(
+		(held) =>
+			new Map(Object.entries(held).flatMap(([permalink, profile]) => (profile ? [[permalink, profile] as const] : [])))
+	)
+);
 
 // What an entry becomes when the same artist is added again: the fresh name
 // where the page gave one, the tracks of both (the ones already here first),
@@ -155,18 +178,35 @@ class Artists {
 		this.#started = true;
 
 		try {
-			const stored = await chrome.storage.local.get(ARTISTS_KEY);
-			this.#items = listOf(stored[ARTISTS_KEY]);
+			const [stored, session] = await Promise.all([
+				chrome.storage.local.get(ARTISTS_KEY),
+				chrome.storage.session.get(PROFILES_KEY)
+			]);
+
+			const profiles = SessionProfiles.parse(session[PROFILES_KEY]);
+			this.#items = listOf(stored[ARTISTS_KEY]).map((item) => ({
+				...item,
+				profile: profiles.get(item.permalink) ?? null
+			}));
 		} catch (_e) {
 			// No storage to read (or none granted): the list starts empty and is
 			// held in memory for as long as this popup is open.
 			return;
 		}
 
-		// Another window's popup, or an import, can move it under us.
+		// Another window's popup, or an import, can move either under us.
 		chrome.storage.onChanged.addListener((changes, area) => {
 			if (area === 'local' && changes[ARTISTS_KEY]) {
-				this.#items = listOf(changes[ARTISTS_KEY].newValue);
+				const held = new Map(this.#items.map((item) => [item.permalink, item.profile]));
+				this.#items = listOf(changes[ARTISTS_KEY].newValue).map((item) => ({
+					...item,
+					profile: held.get(item.permalink) ?? null
+				}));
+			}
+
+			if (area === 'session' && changes[PROFILES_KEY]) {
+				const profiles = SessionProfiles.parse(changes[PROFILES_KEY].newValue);
+				this.#items = this.#items.map((item) => ({ ...item, profile: profiles.get(item.permalink) ?? null }));
 			}
 		});
 	}
@@ -254,34 +294,35 @@ class Artists {
 	}
 
 	/**
-	 * Takes in what a lookup said: a profile per artist, or that SoundCloud has
-	 * none (`{ permalink, unavailable: true }`). Answers for artists not on
-	 * the list are dropped: they may have been taken off while the lookup
-	 * ran. Each is stamped with the time it arrived.
+	 * Takes in what a SoundCloud tab has loaded: a profile per artist it knows.
+	 * Answers for artists not on the list are dropped. Each is stamped with the
+	 * time it arrived, and kept only where it is the better answer (see
+	 * betterProfile).
 	 *
 	 * Written back a moment later rather than at once (see SAVE_DELAY_MS);
 	 * `flush()` writes it now.
 	 *
 	 * @returns how many entries took an answer
 	 */
-	learn(profiles: ProfileAnswer[]) {
+	learn(profiles: ArtistProfile[]) {
 		let taken = 0;
 		const at = Date.now();
 		const answers: Map<string, ProfileEntry> = new Map();
 
 		for (const profile of Array.isArray(profiles) ? profiles : []) {
 			if (!profile || !isArtistPath(profile.permalink)) continue;
-			answers.set(profile.permalink, profile.unavailable ? { unavailable: true, at } : { ...profile, at });
+			answers.set(profile.permalink, { ...profile, at });
 		}
 
 		if (answers.size === 0) return 0;
 		this.#items = this.#items.map((item) => {
 			const answer = answers.get(item.permalink);
+			const better = answer ? betterProfile(item.profile, answer) : item.profile;
 
-			if (!answer) return item;
+			if (better === item.profile) return item;
 			taken += 1;
 
-			return { ...item, profile: answer };
+			return { ...item, profile: better };
 		});
 
 		if (taken > 0) this.#scheduleSave();
@@ -315,12 +356,18 @@ class Artists {
 
 	// The list on screen is the list in memory: it is written back on every
 	// change, and a write that cannot happen costs it only its life beyond this
-	// popup.
+	// popup. The profiles go to the session area and the list without them to
+	// the local one (see the top of this file).
 	async #write(items: ArtistEntry[]) {
 		this.#items = items;
+		const snapshot = $state.snapshot(items);
+		const profiles = snapshot.flatMap((item) => (item.profile ? [[item.permalink, item.profile]] : []));
 
+		// The list first: it is the part that lasts, and a session area that will
+		// not take the profiles (two thousand bios is a lot) must not cost it.
 		try {
-			await chrome.storage.local.set({ [ARTISTS_KEY]: $state.snapshot(items) });
+			await chrome.storage.local.set({ [ARTISTS_KEY]: snapshot.map((item) => ({ ...item, profile: null })) });
+			await chrome.storage.session.set({ [PROFILES_KEY]: Object.fromEntries(profiles) });
 		} catch (_e) {
 			// Nothing to do: the panel already shows what it holds.
 		}

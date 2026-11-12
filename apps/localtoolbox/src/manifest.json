@@ -24,6 +24,13 @@
 	"content_scripts": [
 		{
 			"matches": ["https://soundcloud.com/*"],
+			"js": ["page-data.js"],
+			"run_at": "document_start",
+			"all_frames": true,
+			"world": "MAIN"
+		},
+		{
+			"matches": ["https://soundcloud.com/*"],
 			"js": ["downloaded-store.js", "content.js"],
 			"css": ["content.css"],
 			"run_at": "document_idle",

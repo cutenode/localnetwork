@@ -12,8 +12,7 @@ Click its icon in the toolbar and pick a tool:
   for you and saves the files.
 - **SoundCloud playlist to text** turns a playlist, Likes page or track page into plain text,
   CSV, TSV or JSON.
-- **artists** keeps a list of the artists behind your tracks, with their socials and contact
-  addresses.
+- **artists** keeps a list of the artists behind your tracks, with their socials.
 
 Every view's header has two more buttons. The **session queue** holds the tracks you've picked
 out while working through a page, until you mark the batch as downloaded or hand it to another
@@ -28,10 +27,11 @@ download, and puts a queue button on each track's cover art. See
 There's no account to sign in to, and nothing goes to Local Network. Everything localtoolbox keeps
 stays in your browser, in the extension's own storage.
 
-It reads SoundCloud pages as they're drawn. It asks SoundCloud's public API about a page's tracks
-when you add the page to the Manager's list or open the third-party downloader on it, and about
-artists when you add them to the artists list. The downloader talks to the gate sites it walks,
-and gives a gate the email address and name you typed in Settings when the gate asks for one.
+It reads SoundCloud pages as they're drawn, along with the track and artist data SoundCloud's own
+page loads while you browse. It never asks SoundCloud for anything itself. What it learns about
+tracks lasts until you reload the tab, and artists' profiles until you close the browser. The
+downloader talks to the gate sites it walks, and gives a gate the email address and name you typed
+in Settings when the gate asks for one.
 
 ## Guides
 

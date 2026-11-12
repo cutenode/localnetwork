@@ -8,12 +8,15 @@ import {
 	bioLinks,
 	hasProfile,
 	isArtistPath,
+	isIncomplete,
 	isUnavailable,
 	isUnchecked,
 	linksOf,
+	LOAD_HINT,
 	nameOf,
 	NETWORKS,
 	networkOf,
+	NOT_LOADED,
 	placeOf,
 	profileLine,
 	profileUrl,
@@ -195,8 +198,12 @@ describe('which network an address is on', () => {
 		expect(networkOf('not a url', 'instagram')).toBe('instagram');
 	});
 
-	it('is email for a mailto, whatever it was filed under', () => {
-		expect(networkOf('mailto:a@b.com', 'personal')).toBe('email');
+	// Email addresses are other people's contact details, which the tool does
+	// not keep, so there is no network for them: a mailto is a website at most.
+	it('has no email network, so a mailto is a website whatever it was filed under', () => {
+		expect(Object.keys(NETWORKS)).not.toContain('email');
+		expect(networkOf('mailto:a@b.com', 'email')).toBe('personal');
+		expect(networkOf('mailto:a@b.com', 'instagram')).toBe('instagram');
 	});
 
 	it('is not email for an address that only carries a mailto further along', () => {
@@ -218,20 +225,18 @@ describe('which network an address is on', () => {
 });
 
 describe('the addresses written into a bio', () => {
-	it('finds full addresses, www ones, known hosts with a path, and emails', () => {
+	it('finds full addresses, www ones and known hosts with a path, and leaves emails alone', () => {
 		const links = bioLinks(
-			'IG: https://www.instagram.com/bicepmusic/ — also www.feelmybicep.com and ' +
+			'IG: https://www.instagram.com/bicepmusic/, also www.feelmybicep.com and ' +
 				'linktr.ee/bicep. bookings: agent@example.com!'
 		);
 
 		expect(links.map((link) => [link.network, link.url, link.source])).toEqual([
 			['instagram', 'https://www.instagram.com/bicepmusic/', 'bio'],
 			['personal', 'https://www.feelmybicep.com', 'bio'],
-			['linktree', 'https://linktr.ee/bicep', 'bio'],
-			['email', 'mailto:agent@example.com', 'bio']
+			['linktree', 'https://linktr.ee/bicep', 'bio']
 		]);
 		expect(links[1].name).toBe('feelmybicep.com');
-		expect(links[3].name).toBe('email');
 	});
 
 	it('leaves a bare word with a dot in it alone, and finds nothing in nothing', () => {
@@ -260,10 +265,11 @@ describe('the addresses written into a bio', () => {
 		]);
 	});
 
-	it('gives an email no title, and the bare address as its key', () => {
-		expect(bioLinks('agent@example.com')).toEqual([
-			expect.objectContaining({ key: 'agent@example.com', url: 'mailto:agent@example.com', title: '' })
-		]);
+	// A list of other people's contact details is not the tool's to keep, so
+	// an address in a bio stays text: searchable with the bio, never a link.
+	it('makes no link of an email address', () => {
+		expect(bioLinks('agent@example.com')).toEqual([]);
+		expect(bioLinks('mail me: mailto:agent@example.com')).toEqual([]);
 	});
 });
 
@@ -385,9 +391,17 @@ describe('what a row says', () => {
 		expect(placeOf(null)).toBe('');
 	});
 
+	it('knows when there is more to load: no profile, or one without its bio and links', () => {
+		expect(isIncomplete(entry())).toBe(true);
+		expect(isIncomplete(entry({ profile: profile({ partial: true }) }))).toBe(true);
+		expect(isIncomplete(entry({ profile: profile() }))).toBe(false);
+		// An older lookup that found nobody has nothing more to load.
+		expect(isIncomplete(entry({ profile: { unavailable: true, at: 1 } }))).toBe(false);
+	});
+
 	it('says what is known, or why nothing is', () => {
-		expect(profileLine(entry())).toBe('not looked up');
-		expect(profileLine(entry(), { checking: true })).toBe('looking up…');
+		expect(profileLine(entry())).toBe(NOT_LOADED);
+		expect(NOT_LOADED).toBe('not loaded yet');
 		expect(profileLine(entry({ profile: { unavailable: true, at: 1 } }))).toBe('no public profile');
 		expect(profileLine(entry({ profile: profile() }))).toBe('Belfast, GB · 1.2K followers · no links');
 		expect(
@@ -405,6 +419,19 @@ describe('what a row says', () => {
 		expect(profileLine(entry({ profile: profile({ bio: 'https://x.com/a and https://instagram.com/a' }) }))).toBe(
 			'Belfast, GB · 1.2K followers · 2 links'
 		);
+	});
+
+	// A track names its uploader in short, so a profile learned from one has no
+	// bio or links yet: that is not the same as an artist who put up none.
+	it('says the links are still to load for a profile without them', () => {
+		expect(profileLine(entry({ profile: profile({ partial: true }) }))).toBe(
+			'Belfast, GB · 1.2K followers · links not loaded yet'
+		);
+		// Whatever links it does carry are counted as ever.
+		expect(profileLine(entry({ profile: profile({ partial: true, links: [{ url: 'https://x.com/a' }] }) }))).toBe(
+			'Belfast, GB · 1.2K followers · 1 link'
+		);
+		expect(LOAD_HINT).toBe('open their SoundCloud page, then come back here.');
 	});
 
 	// A state file can restore a profile as little as `{ at }`. A follower count
@@ -432,7 +459,9 @@ describe('what a row says', () => {
 		expect(full).toContain('Belfast');
 		expect(full).toContain('Andy & Matt');
 		expect(full).toContain('Instagram https://instagram.com/bicepmusic IG');
-		expect(full).toContain('email mailto:agent@example.com');
+		// The bio is searched as written; an address in it is not made a link.
+		expect(full).toContain('bookings: agent@example.com');
+		expect(full).not.toContain('mailto:');
 	});
 });
 
@@ -498,6 +527,16 @@ describe('what a row opens into', () => {
 		expect(facts.find((fact) => fact.id === 'tracks')).toMatchObject({ value: 'Glue, Aura', copy: 'Glue, Aura' });
 	});
 
+	it('says the bio is still to load for a profile without it, and has nothing to copy', () => {
+		const facts = rowFacts(entry({ profile: profile({ partial: true }) }));
+		expect(facts.find((fact) => fact.id === 'bio')).toMatchObject({ value: NOT_LOADED, copy: '' });
+		// A whole profile with an empty bio is one whose uploader wrote none.
+		expect(rowFacts(entry({ profile: profile() })).find((fact) => fact.id === 'bio')).toMatchObject({
+			value: 'unknown',
+			copy: ''
+		});
+	});
+
 	it('does not know the followers of a restored profile that does not carry them', () => {
 		const facts = rowFacts(entry({ profile: { at: 1 } }));
 		expect(facts.find((fact) => fact.id === 'followers')).toMatchObject({ value: 'unknown', copy: '' });
@@ -559,7 +598,6 @@ describe('the list as text', () => {
 				'Bicep',
 				'https://soundcloud.com/bicep',
 				'Instagram: https://instagram.com/bicepmusic',
-				'email: mailto:agent@example.com',
 				'',
 				'Four Tet',
 				'https://soundcloud.com/fourtet'

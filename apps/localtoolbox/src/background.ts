@@ -14,6 +14,7 @@
 
 import { roundTrip } from '$lib/chrome.ts';
 import type { RoundTripRequest, SaveGateAnswer, SaveGateRequest, WalkGateAnswer, WalkGateRequest } from '$lib/types';
+import { dropOldProfiles } from './tools/artists/old-profiles.ts';
 import { save } from './tools/third-party-downloads/save.ts';
 
 const OFFSCREEN = 'offscreen.html';
@@ -110,4 +111,15 @@ chrome.runtime.onMessage.addListener((message: SaveGateRequest | RoundTripReques
 	}
 
 	return undefined;
+});
+
+// Versions before this one kept every track's download details for a month,
+// under `details` in the local area, and every listed artist's profile on the
+// artists list for good. Details last as long as the tab that loaded them now
+// (content.ts) and profiles as long as the browser session
+// (artists/artists.svelte.ts), so what an older version left on the disk is
+// cleared once, when this one is installed over it.
+chrome.runtime.onInstalled.addListener(() => {
+	void chrome.storage.local.remove('details');
+	void dropOldProfiles();
 });

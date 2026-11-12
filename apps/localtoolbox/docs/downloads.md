@@ -10,9 +10,9 @@ Nothing goes on the list by itself. Open a SoundCloud playlist, Likes page or tr
 long list to the end, then open the Manager. The bar at the top names the page and how many of its
 tracks are new:
 
-- **add 12** puts them on the list and asks SoundCloud where each one can be had. The rows show up
-  at once and fill in as the answers come back.
-- **refresh 42** shows up instead once the whole page is on the list, and asks again.
+- **add 12** puts them on the list with where each one can be had, from what the page has loaded.
+  Tracks further down than you've scrolled say **not loaded yet**.
+- **refresh 42** shows up instead once the whole page is on the list, and reads them again.
 - **queue** adds the tracks in the session queue, from any tab.
 
 The list stays until you take tracks off it, across tabs and browser restarts.
@@ -30,8 +30,8 @@ in the order you added it.
   is used up says "no downloads left".
 - **no download links** lists tracks with neither. Each has search badges for the artist on
   Beatport, Bandcamp, ZIPDJ and MyMP3Pool. Pick which ones show in Settings, under search badges.
-- **not checked** is for tracks nobody has asked SoundCloud about yet. Add the page they're on to
-  find out.
+- **not loaded yet** is for tracks the page hadn't loaded when you added it. Scroll to them or open
+  the track, then add the page again.
 
 Each row also has a button to queue the track without opening anything and a check button to mark
 it downloaded by hand. Click a row's cover art to copy the artwork at full size; ⌘-click opens it

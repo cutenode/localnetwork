@@ -72,7 +72,6 @@
   import Repeat2 from '@lucide/svelte/icons/repeat-2';
   import SquareCheckBig from '@lucide/svelte/icons/square-check-big';
   import ListPlus from '@lucide/svelte/icons/list-plus';
-  import LoaderCircle from '@lucide/svelte/icons/loader-circle';
   import ListX from '@lucide/svelte/icons/list-x';
   import Trash2 from '@lucide/svelte/icons/trash-2';
   import X from '@lucide/svelte/icons/x';
@@ -86,7 +85,6 @@
   import { Button } from '$lib/components/ui/button/index.ts';
   import { Checkbox } from '$lib/components/ui/checkbox/index.ts';
   import { Label } from '$lib/components/ui/label/index.ts';
-  import { Progress } from '$lib/components/ui/progress/index.ts';
   import * as Select from '$lib/components/ui/select/index.ts';
   import * as Tooltip from '$lib/components/ui/tooltip/index.ts';
   import { BACKGROUND_HINT, openTab } from '$lib/chrome.ts';
@@ -96,7 +94,6 @@
   import { queue } from '$lib/queue.svelte.ts';
   import { createSelection } from '$lib/selection.svelte.ts';
   import { createFilter } from '$lib/list-filter.svelte.ts';
-  import { LOOKUP_ERRORS } from '$lib/lookup-errors.ts';
   import { createPainting } from '$lib/painting.svelte.ts';
   import { choicePref, flagPref } from '$lib/prefs.svelte.ts';
   import { remembered, view, type Remembered } from '$lib/view.svelte.ts';
@@ -105,14 +102,14 @@
   import { searchSites } from '$lib/search-sites.svelte.ts';
   import { titleCasing } from '$lib/title-case.svelte.ts';
   import { toasts } from '$lib/toast.svelte.ts';
-  import { betterDetails, listed, MAX } from './listed.svelte.ts';
+  import { listed, MAX } from './listed.svelte.ts';
   import {
     buildGroups,
     buildListOrder,
     downloadLabel,
     entriesFor,
     isWithoutLinks,
-    lookupNotes,
+    pageNotes,
     rowFacts,
     rowMarks,
     searchText,
@@ -123,10 +120,7 @@
   } from './links.ts';
   import type { LinkEntry } from './links.ts';
   import type {
-    DetailsProgress,
-    KnownDetails,
     ListedEntry,
-    PageProgress,
     PageTrack,
     PageType,
     PanelProps,
@@ -142,8 +136,6 @@
     /** The one its download button opens; null for none. */
     primary: LinkEntry | null;
     secondary: LinkEntry[];
-    /** Whether a running lookup covers it. */
-    pending?: boolean;
     /** The line under its title. */
     detail: string;
   }
@@ -241,9 +233,7 @@
     playlist: 'a playlist',
   };
 
-  const NOT_CHECKED_HINT = 'nobody has asked SoundCloud about these. add the page they’re on.';
-
-  const CHECKING_HINT = 'asking SoundCloud about these.';
+  const NOT_LOADED_HINT = 'SoundCloud hasn’t loaded these yet. scroll to them or open the track, then add the page again.';
 
   const here = untrack(() => tool.id);
 
@@ -289,23 +279,7 @@
 
   listed.start().then(() => (ready = true));
 
-  /** Details learned so far, while a lookup runs. */
-  let streamed: Map<string, KnownDetails> = $state(new Map());
-
-  /** The permalinks the running lookup covers, so their rows can say so. */
-  let checkingIds: Set<string> = $state(new Set());
-
-  const tracks = $derived.by(() => {
-    const items = listed.items;
-
-    if (streamed.size === 0) return items;
-
-    return items.map((item) => {
-      const best = betterDetails(item.details, streamed.get(item.permalink));
-
-      return best === item.details ? item : { ...item, details: best };
-    });
-  });
+  const tracks = $derived(listed.items);
 
   // --- what there is to add --------------------------------------------------
   //
@@ -411,32 +385,11 @@
 
   let adding = $state(false);
 
-  let progress: DetailsProgress | null = $state(null);
-
   // What an add came to, when that is something to leave on screen rather than
   // to slide past: a page that could not be read, tracks SoundCloud would not
   // describe, tracks that did not fit. An add with nothing to add to that gets
   // a toast instead: the list itself is the report.
   let note: { tone: 'info' | 'bad'; text: string } | null = $state(null);
-
-  // Answers arriving from the lookup, a few at a time, so a long page fills in
-  // as it goes rather than all at once at the end.
-  try {
-    chrome.runtime.onMessage.addListener((message: PageProgress) => {
-      if (!message || message.type !== 'DOWNLOAD_DETAILS_PROGRESS') return;
-
-      if (!adding) return;
-      progress = message;
-
-      if (!message.details?.length) return;
-      const next = new Map(streamed);
-
-      for (const details of message.details) next.set(details.permalink, details);
-      streamed = next;
-    });
-  } catch (_e) {
-    // No runtime to listen on: the lookup just finishes without a count.
-  }
 
   // What an add came to, as one sentence. Written from what the list reports
   // rather than from what was handed to it, so "12 added, 30 refreshed" is
@@ -475,44 +428,23 @@
   async function addFromTab() {
     adding = true;
     note = null;
-    progress = null;
     const from = page.from;
-    const found = page.tracks;
-    // The rows go up now, from what the page itself rendered (on a Likes page
-    // that already carries the purchase links) and are marked as being looked
-    // up, so the list is on screen before SoundCloud has been asked a thing.
-    checkingIds = new Set(found.map((track) => track.permalink));
-    const first = await listed.add(found, { from });
-
+    // The page's tracks with what it has loaded about them, which the tab
+    // answers from memory. A track already on the list keeps its place and
+    // takes the better of the two answers.
     const result = await readPage('GET_DOWNLOAD_DETAILS');
 
-    if (result.status || LOOKUP_ERRORS[result.data!.error]) {
-      // The rows are on the list either way (they came off the page, not out
-      // of the lookup), so this says what is missing from them rather than
+    if (result.status) {
+      // The rows the button offered go on the list all the same (they came
+      // off the page), so this says what is missing from them rather than
       // that nothing happened.
-      const why = result.status || LOOKUP_ERRORS[result.data!.error];
-      note = { tone: 'bad', text: `${said(first, from)}, but their links weren’t checked. ${why}` };
+      const tally = await listed.add(page.tracks, { from });
+      note = { tone: 'bad', text: `${said(tally, from)}, but their links weren’t read. ${result.status}` };
     } else {
-      // Everything the page holds, answers and all. A track already on the
-      // list keeps its place and takes the better of the two answers.
-      const second = await listed.add(result.data!.tracks, { from });
-      // The two reads are mostly the same tracks, so a track neither could fit
-      // was refused twice: what did not fit is what is still not on the list.
-      const offered = new Set([...found, ...result.data!.tracks].map((track) => track?.permalink));
-
-      const tally = {
-        added: first.added + second.added,
-        refreshed: first.refreshed,
-        refused: [...offered].filter((permalink) => permalink && !listed.has(permalink)).length,
-      };
-
-      reported(said(tally, from), [refusal(tally), lookupNotes(result.data!)].filter(Boolean).join(' '));
+      const tally = await listed.add(result.data!.tracks, { from });
+      reported(said(tally, from), [refusal(tally), pageNotes(result.data!)].filter(Boolean).join(' '));
     }
 
-    // The list has the answers now; the streamed copies would only shadow them.
-    streamed = new Map();
-    checkingIds = new Set();
-    progress = null;
     adding = false;
   }
 
@@ -543,14 +475,14 @@
     if (tracks.length === 0) return [];
 
     if (sort.value === 'page') {
-      const rows = buildListOrder(tracks, { checking: checkingIds });
+      const rows = buildListOrder(tracks);
       const hints = [];
 
       if (rows.some((row) => row.entries.some((entry) => entry.kind === 'soundcloud'))) {
         hints.push(SOUNDCLOUD_HINT);
       }
 
-      if (rows.some((row) => !row.pending && row.entries.length === 0)) {
+      if (rows.some((row) => row.entries.length === 0)) {
         hints.push(LISTED_BADGES_HINT);
       }
 
@@ -559,7 +491,7 @@
           key: 'page',
           heading: '',
           hint: hints.join(' '),
-          rows: rows.map(({ track, entries, pending }, index) => {
+          rows: rows.map(({ track, entries }, index) => {
             // Best link first, so the detail line reads in the same order as
             // the buttons beside it: the one that leads, then the one that
             // trails.
@@ -571,13 +503,11 @@
               entries: ordered,
               primary,
               secondary,
-              pending,
-              detail: pending
-                ? 'checking…'
-                : ordered.length === 0
+              detail:
+                ordered.length === 0
                   ? isWithoutLinks(track)
                     ? 'no download links'
-                    : 'not checked'
+                    : 'not loaded yet'
                   : ordered
                       .map((entry) => (entry.note ? `${entry.host} (${entry.note})` : entry.host))
                       .join(' · '),
@@ -622,24 +552,21 @@
     }
 
     // Sorted by site, a track cannot be filed until its site is known, so the
-    // ones nobody has an answer about wait here, last, since they are the
-    // part of the list that is going somewhere else. During an add they leave
-    // a few at a time as the answers come in; the rest sit until the page they
-    // are on is added.
+    // ones SoundCloud had not loaded when they were added wait here, last,
+    // until the page they are on is added again.
     const unchecked = uncheckedTracks(tracks);
 
     if (unchecked.length > 0) {
       bySite.push({
         key: 'unchecked',
-        heading: 'not checked',
-        hint: adding ? CHECKING_HINT : NOT_CHECKED_HINT,
+        heading: 'not loaded yet',
+        hint: NOT_LOADED_HINT,
         rows: unchecked.map((track, index): Row => ({
           key: rowKey(index, 'unchecked', track.permalink),
           track,
           entries: [],
           primary: null,
           secondary: [],
-          pending: checkingIds.has(track.permalink),
           detail: '',
         })),
       });
@@ -706,7 +633,7 @@
           count(tracks.length, 'track'),
           count(linkCount, 'download link'),
           ...(noLinkCount > 0 ? [`${noLinkCount} without`] : []),
-          ...(uncheckedCount > 0 ? [`${uncheckedCount} not checked`] : []),
+          ...(uncheckedCount > 0 ? [`${uncheckedCount} not loaded yet`] : []),
           ...(sourceCount > 1 ? [count(sourceCount, 'source')] : []),
         ].join(' · ')
   );
@@ -1211,29 +1138,6 @@
     </Button>
   {/snippet}
 
-  {#snippet banner()}
-    {#if adding && progress}
-      <div class="shrink-0 border-b border-line px-3 py-2">
-        <div class="mb-1 flex items-center justify-between text-caption text-fg-muted">
-          <span>
-            checking download details…
-            {#if progress.resumed}<span>(already running)</span>{/if}
-          </span>
-          <span class="font-mono">{progress.done} / {progress.total}</span>
-        </div>
-        <!-- The total is never 0: the page only reports on a lookup that has
-             tracks to look up (content.ts). -->
-        <Progress
-          value={progress.done}
-          max={progress.total}
-          class="h-1"
-          aria-label="checking download details"
-          aria-valuetext={`${progress.done} of ${progress.total}`}
-        />
-      </div>
-    {/if}
-  {/snippet}
-
   {#if !ready}
     <StatusNote tone="busy">reading your list…</StatusNote>
   {:else}
@@ -1435,16 +1339,7 @@
                     onartwork={(event) => onArtwork(event, row.track)}
                   >
                     {#snippet actions()}
-                      {#if row.pending}
-                        <!-- A lookup is running for this one. The badges say
-                             "there is nowhere to get this, try searching",
-                             which is not something to tell anybody before
-                             SoundCloud has answered. -->
-                        <LoaderCircle
-                          class="size-3.5 shrink-0 animate-spin text-fg-muted"
-                          aria-label="checking download details"
-                        />
-                      {:else if !row.primary}
+                      {#if !row.primary}
                         {@render searchBadges(row.track)}
                       {:else}
                         <!-- One icon, the same width on every row, whatever

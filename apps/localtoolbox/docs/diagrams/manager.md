@@ -10,36 +10,32 @@ Adding, filing and acting on rows, filters and search badges. The rest are liste
 
 ## Adding to the Manager list
 
-Opening the panel only reads the page to label the button. Pressing **add** puts rows up first and asks SoundCloud second.
+Opening the panel only reads the page to label the button. Pressing **add** reads the page again with what it has loaded about each track, which the tab answers from memory.
 
 ```mermaid
 sequenceDiagram
   participant P as Manager panel
   participant L as listed store
   participant C as Content script
-  participant A as SoundCloud API
   P->>C: EXTRACT_TRACKS, warmed at boot
   C-->>P: the page's tracks
   alt add from the tab
-    P->>L: add the page's tracks
     P->>C: GET_DOWNLOAD_DETAILS
-    loop until the rendered rows settle
-      C->>A: what the cache can't answer
-      C--)P: DOWNLOAD_DETAILS_PROGRESS
-    end
-    alt the lookup answered
-      C-->>P: tracks with details
-      P->>L: add again, better answer wins
-    else no tab, no client id, or a 401
-      Note over P: rows stay, a note says so
+    alt the tab answered
+      C-->>P: tracks with details, or null where not loaded yet
+      P->>L: add them, the better answer wins
+      Note over P: a note counts the tracks not loaded yet
+    else no answer
+      P->>L: add the tracks the button offered
+      Note over P: a note says their links weren't read
     end
   else add from the session queue
-    P->>L: add the queue's tracks, no lookup
+    P->>L: add the queue's tracks, with the details they were queued with
   end
   Note over L: each add is one write
 ```
 
-Source: [`src/tools/manager/Panel.svelte`](../../src/tools/manager/Panel.svelte), [`src/tools/manager/AddBar.svelte`](../../src/tools/manager/AddBar.svelte), [`src/tools/manager/listed.svelte.ts`](../../src/tools/manager/listed.svelte.ts), [`src/lib/tools.ts`](../../src/lib/tools.ts)
+Source: [`src/tools/manager/Panel.svelte`](../../src/tools/manager/Panel.svelte), [`src/tools/manager/AddBar.svelte`](../../src/tools/manager/AddBar.svelte), [`src/tools/manager/listed.svelte.ts`](../../src/tools/manager/listed.svelte.ts), [`src/tools/manager/links.ts`](../../src/tools/manager/links.ts), [`src/lib/tools.ts`](../../src/lib/tools.ts)
 
 ## Filing a Manager row
 
@@ -55,7 +51,7 @@ flowchart TD
   Sort{"pref:sort"}
   Site["by site<br/>grouped by domain,<br/>soundcloud.com first"]
   None["no download links<br/>search badges"]
-  Unchecked["not checked<br/>search badges, a spinner<br/>while a lookup runs"]
+  Unchecked["not loaded yet<br/>search badges, last;<br/>add the page again once loaded"]
   Order["list order<br/>every track once, best link leads"]
 
   Track --> Dl
@@ -145,7 +141,7 @@ flowchart TD
   Json["src/lib/search-sites.json"]
   Read["readSites<br/>drops entries it can't use, and repeats"]
   Switch["one switch per site<br/>pref:search:id, set in settings"]
-  Manager["Manager row with no links,<br/>unless a lookup covers it"]
+  Manager["Manager row with no links"]
   Artists["opened artist row"]
   Url["searchUrl<br/>fills artist, title, query"]
   Tab["opens a tab, never a fetch"]

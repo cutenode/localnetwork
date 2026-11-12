@@ -2,14 +2,14 @@
 // section: everything the extension has saved, out to a JSON file and back.
 //
 // The file carries other tools' state too (the marks a SoundCloud page paints,
-// the content script's cache of lookups, the session queue behind every
-// header's count, three panels' options), so it belongs to the extension
+// the session queue behind every header's count, three panels' options), so
+// it belongs to the extension
 // and not to the Manager, whose footer only points here. Every test here
 // mounts the whole popup and opens the sheet, as somebody using it would.
 //
 // What is most worth holding down is the promise the section makes: an import
-// adds. Every part of it does: marks merge, the newer lookups win, listed and
-// queued tracks go on the end without landing twice, and an option already
+// adds. Every part of it does: marks merge, listed and queued tracks go on
+// the end without landing twice, and an option already
 // chosen is left alone. The one way to the other behaviour is a switch that
 // starts off every time the popup opens.
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
@@ -111,12 +111,15 @@ const STATE = {
 	version: 1,
 	exportedAt: ISO,
 	downloaded: { '/a/one': ISO },
-	details: { '/a/one': detailsEntry() },
 	listed: [],
 	artists: [],
 	queue: [],
 	prefs: { background: false, sort: 'page', hideDownloaded: true }
 };
+
+// The same file as an older version wrote it, with a month of download
+// details in it. Those are read and left out (state-transfer.ts apply).
+const OLD_STATE = { ...STATE, details: { '/a/one': detailsEntry() } };
 
 /** A queued track, as the queue keeps one. */
 const queueEntry = (permalink: string, extra = {}) => ({
@@ -192,7 +195,9 @@ describe('what there is to lose', () => {
 
 	// An "export" button on its own says nothing about what would come out of
 	// it. The numbers are the argument for pressing it.
-	it('counts the marks, the lookups, the list, the artists and the queue', async () => {
+	// Download details are not among them: they last as long as the tab that
+	// loaded them, so a cache an older version left behind counts for nothing.
+	it('counts the marks, the list, the artists and the queue', async () => {
 		await openApp({
 			storage: {
 				downloaded: { '/a/one': ISO, '/b/two': ISO },
@@ -202,30 +207,32 @@ describe('what there is to lose', () => {
 			},
 			session: { queue: [queueEntry('/a/one')] }
 		});
-		expect(held()).toEqual({ marks: 2, 'looked up': 2, listed: 3, artists: 2, queued: 1 });
+		expect(held()).toEqual({ marks: 2, listed: 3, artists: 2, queued: 1 });
 	});
 
 	it('counts nothing on a fresh install', async () => {
 		await openApp();
-		expect(held()).toEqual({ marks: 0, 'looked up': 0, listed: 0, artists: 0, queued: 0 });
+		expect(held()).toEqual({ marks: 0, listed: 0, artists: 0, queued: 0 });
 	});
 
-	// A lookup made in a SoundCloud tab while the sheet is open, or an import
+	// A track marked in a SoundCloud tab while the sheet is open, or an import
 	// run in another window.
 	it('follows what another tab does while it is on screen', async () => {
 		await openApp();
-		await chrome.storage.local.set({ details: { '/a/one': detailsEntry() } });
+		await chrome.storage.local.set({ downloaded: { '/a/one': ISO } });
 		await settle();
-		expect(held()['looked up']).toBe(1);
+		expect(held().marks).toBe(1);
 	});
 });
 
 // --- exporting ---------------------------------------------------------------
 
 describe('exporting', () => {
+	// An older version's details cache may still be in storage; the file is
+	// written without it.
 	it('offers the whole state as a dated JSON file, whatever the active tab is', async () => {
 		await openApp({
-			storage: { downloaded: STATE.downloaded, details: STATE.details }
+			storage: { downloaded: STATE.downloaded, details: OLD_STATE.details }
 		});
 		localStorage.setItem('pref:background', '0');
 		localStorage.setItem('pref:sort', 'page');
@@ -233,7 +240,7 @@ describe('exporting', () => {
 
 		await click(button('export'));
 		expect(saved).toEqual([{ name: 'manager-2026-09-08.json', href: 'blob:test/0' }]);
-		expect(note()).toBe('saved 1 mark, 1 looked-up track, 3 options to manager-2026-09-08.json.');
+		expect(note()).toBe('saved 1 mark, 3 options to manager-2026-09-08.json.');
 
 		// What went into the blob is the whole state, as the schema describes it.
 		const [blob] = createObjectURL.mock.calls[0];
@@ -251,7 +258,9 @@ describe('exporting', () => {
 
 	// The queue is the one part of the file that would otherwise be gone by
 	// tomorrow: closing the browser ends it. The two lists are handed over by
-	// the stores that own them, as the queue is.
+	// the stores that own them, as the queue is. The artists go without their
+	// profiles: those are somebody else's account, kept for the browser session
+	// and no longer (src/tools/artists/artists.svelte.ts).
 	it('carries the session queue and both lists into the file, and counts them', async () => {
 		const bicep = artistEntry('/bicep', { profile: artistProfile() });
 		await openApp({
@@ -266,7 +275,7 @@ describe('exporting', () => {
 		const written = JSON.parse(await blob.text());
 		expect(written.queue).toEqual([queueEntry('/b/two'), queueEntry('/c/three')]);
 		expect(written.listed).toEqual([listedEntry('/a/one')]);
-		expect(written.artists).toEqual([bicep]);
+		expect(written.artists).toEqual([{ ...bicep, profile: null }]);
 		expectValid(written);
 	});
 
@@ -305,8 +314,9 @@ describe('reading what is about to be imported', () => {
 		expect(verdict()).toBe(null);
 		expect(importNow()!.disabled).toBe(true);
 
-		await type(pasteBox(), JSON.stringify(STATE));
-		expect(verdict()).toBe('a backup from 2026-09-08 — 1 mark, 1 looked-up track, 3 options.');
+		// An older file's details are not counted: an import leaves them out.
+		await type(pasteBox(), JSON.stringify(OLD_STATE));
+		expect(verdict()).toBe('a backup from 2026-09-08 — 1 mark, 3 options.');
 		expect(importNow()!.disabled).toBe(false);
 	});
 
@@ -413,22 +423,25 @@ describe('reading what is about to be imported', () => {
 // --- importing, which adds ---------------------------------------------------
 
 describe('importing, which adds to what is here', () => {
-	it('restores marks, details and options, and says what it did', async () => {
+	// An older version's file still imports, details and all; the details
+	// are read and go nowhere, since they last as long as the tab that loaded
+	// them now.
+	it('restores marks and options from an older file, leaving its details out', async () => {
 		await openApp({ storage: { downloaded: { '/b/two': ISO } } });
 		await openImport();
-		await type(pasteBox(), JSON.stringify(STATE));
+		await type(pasteBox(), JSON.stringify(OLD_STATE));
 		await click(importNow());
 
 		expect(chrome.testStore().downloaded).toEqual({ '/a/one': ISO, '/b/two': ISO });
-		expect(chrome.testStore().details).toEqual(STATE.details);
+		expect(await chrome.storage.local.get('details')).toEqual({});
 		expect(localStorage.getItem('pref:background')).toBe('0');
 		expect(localStorage.getItem('pref:sort')).toBe('page');
 		expect(localStorage.getItem('pref:hide-downloaded')).toBe('1');
 
-		expect(note()).toBe('imported 1 new mark, 1 track of download details, 3 options.');
+		expect(note()).toBe('imported 1 new mark, 3 options.');
 		// The drawer is put away, and the file is not left lying in it.
 		expect(pasteBox()).toBe(null);
-		expect(held()).toEqual({ marks: 2, 'looked up': 1, listed: 0, artists: 0, queued: 0 });
+		expect(held()).toEqual({ marks: 2, listed: 0, artists: 0, queued: 0 });
 	});
 
 	it('appends the file’s tracks to the list and the queue, holding neither twice', async () => {
@@ -448,9 +461,7 @@ describe('importing, which adds to what is here', () => {
 		);
 		await click(importNow());
 
-		expect(note()).toBe(
-			'imported 0 new marks, 0 tracks of download details, 1 track onto the list, ' + '1 track into the queue.'
-		);
+		expect(note()).toBe('imported 0 new marks, 1 track onto the list, 1 track into the queue.');
 		expect(chrome.testStore().listed.map((one) => one.permalink)).toEqual(['/a/one', '/b/two']);
 		expect(chrome.testStore('session').queue.map((one) => one.permalink)).toEqual(['/a/one', '/c/three']);
 		// The entry already queued is the one that stays.
@@ -464,7 +475,7 @@ describe('importing, which adds to what is here', () => {
 		await type(pasteBox(), JSON.stringify(file({ artists: [again, artistEntry('/b')] })));
 		await click(importNow());
 
-		expect(note()).toBe('imported 0 new marks, 0 tracks of download details, 1 artist onto the artists.');
+		expect(note()).toBe('imported 0 new marks, 1 artist onto the artists.');
 		expect(chrome.testStore().artists.map((one) => one.permalink)).toEqual(['/a', '/b']);
 		// The artist already here keeps where it first came from.
 		expect(chrome.testStore().artists[0].from).toBe('My Playlist');
@@ -487,10 +498,7 @@ describe('importing, which adds to what is here', () => {
 		await type(pasteBox(), JSON.stringify(file({ listed: [listedEntry('/b/one')], artists: [artistEntry('/b')] })));
 		await click(importNow());
 
-		expect(note()).toBe(
-			'imported 0 new marks, 0 tracks of download details. 1 track didn’t fit on the list. ' +
-				'1 artist didn’t fit on the artists.'
-		);
+		expect(note()).toBe('imported 0 new marks. 1 track didn’t fit on the list. 1 artist didn’t fit on the artists.');
 		expect(held()).toMatchObject({ listed: LISTED_MAX, artists: ARTISTS_MAX });
 	});
 
@@ -514,7 +522,7 @@ describe('importing, which adds to what is here', () => {
 		await openImport();
 		await type(pasteBox(), JSON.stringify(file({ prefs: { sort: 'page' } })));
 		await click(importNow());
-		expect(note()).toBe('imported 0 new marks, 0 tracks of download details, 1 option.');
+		expect(note()).toBe('imported 0 new marks, 1 option.');
 	});
 
 	it('reports a write that fails, and leaves the box open to try again', async () => {
@@ -556,7 +564,6 @@ describe('importing, asked to replace', () => {
 		await openApp({
 			storage: {
 				downloaded: { '/gone/soon': ISO },
-				details: { '/gone/soon': detailsEntry('/gone/soon') },
 				listed: [listedEntry('/gone/soon')],
 				artists: [artistEntry('/gone')]
 			},
@@ -570,23 +577,18 @@ describe('importing, asked to replace', () => {
 		});
 
 		expect(chrome.testStore().downloaded).toEqual(STATE.downloaded);
-		expect(chrome.testStore().details).toEqual(STATE.details);
 		expect(chrome.testStore().listed.map((one) => one.permalink)).toEqual(['/a/one']);
 		expect(chrome.testStore().artists.map((one) => one.permalink)).toEqual(['/a']);
 		expect(chrome.testStore('session').queue.map((one) => one.permalink)).toEqual(['/a/one', '/b/two']);
 
-		expect(note()).toBe(
-			'replaced everything with 1 mark, 1 track of download details, 1 track listed, ' +
-				'1 artist, 2 tracks queued, 3 options.'
-		);
-		expect(held()).toEqual({ marks: 1, 'looked up': 1, listed: 1, artists: 1, queued: 2 });
+		expect(note()).toBe('replaced everything with 1 mark, 1 track listed, 1 artist, 2 tracks queued, 3 options.');
+		expect(held()).toEqual({ marks: 1, listed: 1, artists: 1, queued: 2 });
 	});
 
 	it('empties what the file is silent about', async () => {
 		await openApp({
 			storage: {
 				downloaded: { '/gone/soon': ISO },
-				details: { '/gone/soon': detailsEntry('/gone/soon') },
 				listed: [listedEntry('/gone/soon')],
 				artists: [artistEntry('/gone')]
 			},
@@ -594,11 +596,8 @@ describe('importing, asked to replace', () => {
 		});
 		await armAndImport(file());
 
-		expect(note()).toBe(
-			'replaced everything with 0 marks, 0 tracks of download details, 0 tracks listed, ' +
-				'0 artists, 0 tracks queued.'
-		);
-		expect(held()).toEqual({ marks: 0, 'looked up': 0, listed: 0, artists: 0, queued: 0 });
+		expect(note()).toBe('replaced everything with 0 marks, 0 tracks listed, 0 artists, 0 tracks queued.');
+		expect(held()).toEqual({ marks: 0, listed: 0, artists: 0, queued: 0 });
 	});
 
 	it('overrules an option that is already set', async () => {
@@ -669,7 +668,7 @@ describe('getting to it', () => {
 	});
 
 	// The one text box in the extension that is not kept: what goes into it is a
-	// whole state file, which can be megabytes of marks and looked-up details.
+	// whole state file, which can be megabytes of marks and lists.
 	it('does not keep what was pasted into it', async () => {
 		await openApp();
 		await openImport();

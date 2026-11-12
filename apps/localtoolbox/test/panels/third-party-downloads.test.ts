@@ -258,37 +258,26 @@ describe('collecting links', () => {
 		expect(text()).toMatch(/couldn’t read the page/);
 	});
 
-	// The content script hands over what it has learned in batches rather than
-	// all at the end, so a track whose purchase link was still unknown when the
-	// list went up joins the list as its answer lands.
-	it('lists a track whose link arrives after the page did', async () => {
+	// The tab is asked once, for its tracks with what the page has loaded about
+	// them, and every row comes out of that one answer. A track the page had
+	// not loaded carries no purchase link, so it is not a row.
+	it('builds the rows from one read of the page', async () => {
 		panelChrome({
 			response: extraction({
-				tracks: [track('Artist', 'Track 1'), track('Artist', 'Track 2', { details: { purchaseUrl: HYPE } })]
+				tracks: [
+					track('Artist', 'Track 1', { details: null }),
+					track('Artist', 'Track 2', { details: { purchaseUrl: HYPE } }),
+					track('Artist', 'Track 3', { details: { purchaseUrl: DROP } })
+				]
 			})
 		});
 
 		await load();
-		expect(rows()).toHaveLength(1);
-
-		await chrome.testSendMessage({
-			type: 'DOWNLOAD_DETAILS_PROGRESS',
-			details: [{ permalink: '/artist/track1', purchaseUrl: DROP }]
-		});
-		await settle();
+		expect(chrome.tabs.sendMessage.mock.calls.map(([, message]) => message)).toEqual([
+			{ type: 'GET_DOWNLOAD_DETAILS' }
+		]);
+		expect(rows().map((row) => row.title.slice(-7))).toEqual(['Track 2', 'Track 3']);
 		expect(rows().map((row) => row.state)).toEqual(['Hypeddit', 'Droploud']);
-
-		// A second answer about a track that already has one changes nothing, and
-		// neither does anything that is not an answer.
-		await chrome.testSendMessage({
-			type: 'DOWNLOAD_DETAILS_PROGRESS',
-			details: [{ permalink: '/artist/track1', purchaseUrl: LAYLO }]
-		});
-		await chrome.testSendMessage({ type: 'DOWNLOAD_DETAILS_PROGRESS', details: [] });
-		await chrome.testSendMessage({ type: 'SOMETHING_ELSE', details: [{ permalink: '/a/b' }] });
-		await chrome.testSendMessage(null);
-		await settle();
-		expect(rows()).toHaveLength(2);
 	});
 });
 

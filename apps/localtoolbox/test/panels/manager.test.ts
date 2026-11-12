@@ -24,7 +24,7 @@ import {
 	type Target
 } from '../helpers/panel.ts';
 import type { AnswerFields, ChromeMock, PageReply } from '../helpers/chrome.ts';
-import type { DetailsProgress, KnownDetails, TrackDetails } from '$lib/types';
+import type { KnownDetails, TrackDetails } from '$lib/types';
 
 declare const chrome: ChromeMock;
 
@@ -68,8 +68,7 @@ const DETAILS: KnownDetails = {
 const details = (extra: Partial<TrackDetails> = {}) => ({ ...DETAILS, ...extra });
 
 // The panel's answer: extraction plus per-track details.
-const answer = (tracks: object[], extra: AnswerFields = {}) =>
-	extraction({ tracks, lookupFailed: 0, resumed: false, error: '', ...extra });
+const answer = (tracks: object[], extra: AnswerFields = {}) => extraction({ tracks, ...extra });
 
 const meta = () => document.querySelector('header p')?.textContent.trim() ?? '';
 
@@ -179,10 +178,9 @@ describe('opening the panel', () => {
 		expect(text()).toMatch(/not a SoundCloud playlist, likes or track page/);
 	});
 
-	// Nothing is asked of SoundCloud until somebody presses add. Reading the
-	// page's own rows is free (it is a DOM read in the tab) and is what the
-	// button counts; the lookup is the part that costs.
-	it('reads the tab to describe the button, and looks nothing up', async () => {
+	// The page's own rows are what the button counts. The details the page has
+	// loaded about them are read when somebody presses add, and not before.
+	it('reads the tab to describe the button, and nothing more', async () => {
 		panelChrome({ response: answer([track('A', 'One'), track('B', 'Two')]) });
 		await open();
 		expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(7, { type: 'EXTRACT_TRACKS' });
@@ -211,10 +209,10 @@ describe('opening the panel', () => {
 		expect(text()).toMatch(/added 1 track from the session queue/);
 	});
 
-	// Nothing is asked of SoundCloud for the queue: the lookup runs on the page a
-	// track is on, and with this source that page need not be open. On a
-	// SoundCloud tab, where a lookup *could* run, it still does not.
-	it('adds the queue without looking anything up, even on a SoundCloud tab', async () => {
+	// Nothing is read off the tab for the queue: a track's details are what its
+	// own page loaded, and with this source that page need not be open. On a
+	// SoundCloud tab, which could be asked, it still is not.
+	it('adds the queue without reading the tab, even on a SoundCloud tab', async () => {
 		panelChrome({
 			response: answer([track('B', 'Two')]),
 			session: { queue: [{ permalink: '/a/one', title: 'One', artist: 'A' }] }
@@ -259,60 +257,27 @@ describe('opening the panel', () => {
 });
 
 describe('adding a page', () => {
-	it('shows progress while the content script looks the tracks up, until the answer is in', async () => {
+	// Adding is one question to the tab: its tracks with what the page has
+	// loaded about them, which the content script answers from memory. The
+	// button is busy for the length of it, and nothing goes up before it lands.
+	it('reads the page once, and lists what it answers', async () => {
 		let answerNow!: (value: PageReply) => void;
 		panelChrome({ response: answer([track('A', 'B')]) });
 		await open();
+		chrome.tabs.sendMessage.mockClear();
 		chrome.tabs.sendMessage.mockReturnValue(new Promise((resolve) => (answerNow = resolve)));
 		await click(addButton());
-		// The button says what it is doing, and the row is already up saying it
-		// has not been checked; the bar under the header appears once the content
-		// script reports how far along it is.
 		expect(clean(addButton())).toBe('adding…');
-		expect(rows()).toHaveLength(1);
-		expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(7, { type: 'GET_DOWNLOAD_DETAILS' });
-
-		await chrome.testSendMessage({
-			type: 'DOWNLOAD_DETAILS_PROGRESS',
-			done: 3,
-			total: 10,
-			resumed: false
-		});
-		await settle();
-		expect(text()).toMatch(/checking download details…/);
-		expect(text()).toMatch(/3 \/ 10/);
-
-		await chrome.testSendMessage({
-			type: 'DOWNLOAD_DETAILS_PROGRESS',
-			done: 4,
-			total: 10,
-			resumed: true
-		});
-		await settle();
-		expect(text()).toMatch(/4 \/ 10/);
-		expect(text()).toMatch(/\(already running\)/);
-
-		await chrome.testSendMessage({ type: 'SOMETHING_ELSE' });
-		await chrome.testSendMessage(null);
-		await settle();
-		expect(text()).toMatch(/4 \/ 10/);
+		expect(rows()).toHaveLength(0);
 
 		answerNow(answer([track('A', 'B', { details: details({ downloadable: true }) })]));
 		await settle();
-		expect(text()).not.toMatch(/checking download details/);
-
-		// A report arriving after the add is over (another popup's lookup, still
-		// running) is not this add's: it neither brings the bar back nor paints
-		// its answers over the ones the list now holds.
-		await chrome.testSendMessage({
-			type: 'DOWNLOAD_DETAILS_PROGRESS',
-			done: 9,
-			total: 10,
-			details: [details({ permalink: '/a/b' })]
-		});
-		await settle();
-		expect(text()).not.toMatch(/checking download details/);
+		expect(chrome.tabs.sendMessage.mock.calls.map(([, message]) => message)).toEqual([
+			{ type: 'GET_DOWNLOAD_DETAILS' }
+		]);
+		expect(listedTracks()).toEqual(['/a/b']);
 		expect(meta()).toBe('1 track · 1 download link');
+		expect(text()).toMatch(/added 1 track from My Playlist/);
 	});
 
 	// Nothing to add from, so nothing is added and the reason is on screen
@@ -341,54 +306,68 @@ describe('adding a page', () => {
 		expect(rows()).toHaveLength(0);
 	});
 
-	// The rows came off the page, not out of the lookup, so a lookup that could
-	// not run leaves them on the list and says what is missing from them
-	// rather than throwing away what was already read.
+	// The tab went somewhere else, or was reloaded into a content script that
+	// answers in another shape, between the read that drew the button and the
+	// press. The tracks the button offered came off the page, so they go on the
+	// list all the same, and the note says what is missing from them and why.
 	it.each([
-		['no-client-id', /couldn’t find SoundCloud’s API key in the page/],
-		['unauthorized', /SoundCloud rejected the lookups/]
-	])('adds the tracks but says their links went unchecked (%s)', async (error, message) => {
-		panelChrome({ response: answer([track('A', 'B')], { error }) });
+		['the page cannot be reached', new Error('gone'), /can’t reach the page/],
+		['the answer cannot be read', { ok: false }, /couldn’t read the page/]
+	])('adds what the button offered when %s, and says their links weren’t read', async (_why, reply, message) => {
+		panelChrome({ response: answer([track('A', 'B'), track('C', 'D')]) });
 		await open();
+
+		if (reply instanceof Error) chrome.tabs.sendMessage.mockRejectedValue(reply);
+		else chrome.tabs.sendMessage.mockResolvedValue(reply);
 		await addPage();
-		expect(text()).toMatch(/added 1 track from My Playlist, but their links weren’t checked/);
+		expect(text()).toMatch(/added 2 tracks from My Playlist, but their links weren’t read\./);
 		expect(text()).toMatch(message);
-		expect(listedTracks()).toEqual(['/a/b']);
-		expect(rows()).toHaveLength(1);
+		expect(listedTracks()).toEqual(['/a/b', '/c/d']);
+		expect(meta()).toBe('2 tracks · 0 download links · 2 not loaded yet');
 	});
 
-	// The tab went somewhere else between the read that drew the button and the
-	// press: the rows are on, and the reason the rest could not be is said.
-	it('says so when the page cannot be reached for the lookup', async () => {
-		panelChrome({ response: answer([track('A', 'B')]) });
-		await open();
-		chrome.tabs.sendMessage.mockRejectedValue(new Error('gone'));
-		await addPage();
-		expect(text()).toMatch(/added 1 track from My Playlist, but their links weren’t checked/);
-		expect(text()).toMatch(/can’t reach the page/);
-		expect(listedTracks()).toEqual(['/a/b']);
-	});
-
-	it('says so when no track on the page could be checked', async () => {
+	// A track the page has not drawn yet has no details in the tab, and the
+	// note says how to get them rather than calling it a failure.
+	it('says how to load the tracks the page had not loaded yet', async () => {
 		panelChrome({
-			response: answer([track('A', 'B', { details: null }), track('C', 'D', { details: null })], {
-				lookupFailed: 2
-			})
+			response: answer([
+				track('A', 'B', { details: null }),
+				track('C', 'D', { details: null }),
+				track('E', 'F', { details: details({ permalink: '/e/f', downloadable: true }) })
+			])
 		});
 		await load();
-		expect(meta()).toBe('2 tracks · 0 download links · 2 not checked');
-		expect(text()).toMatch(/added 2 tracks from My Playlist/);
-		expect(text()).toMatch(/couldn’t check 2 tracks — SoundCloud didn’t answer for them\./);
+		expect(meta()).toBe('3 tracks · 1 download link · 2 not loaded yet');
+		expect(text()).toMatch(
+			/added 3 tracks from My Playlist\. 2 tracks not loaded yet: scroll to them or open the track, then add again\./
+		);
 		// They are still rows, because they are still on the list: what the tool
-		// does not know about a track is not a reason to hide it.
-		expect(sections().map((one) => one.heading)).toEqual(['not checked']);
-		expect(sections()[0].hint).toMatch(/nobody has asked SoundCloud about these/);
+		// does not know about a track is not a reason to hide it, and the search
+		// badges are there for somebody who would rather not wait.
+		expect(sections()).toEqual([
+			expect.objectContaining({ heading: 'soundcloud.com', count: '(1)' }),
+			{
+				heading: 'not loaded yet',
+				count: '(2)',
+				hint: 'SoundCloud hasn’t loaded these yet. scroll to them or open the track, then add the page again.',
+				rows: [
+					{ permalink: '/a/b', detail: null, buttons: ['BP', 'bc', 'Z', 'M'] },
+					{ permalink: '/c/d', detail: null, buttons: ['BP', 'bc', 'Z', 'M'] }
+				]
+			}
+		]);
+	});
+
+	it('says one track not loaded yet in the singular', async () => {
+		panelChrome({ response: answer([track('A', 'B', { details: null })]) });
+		await load();
+		expect(text()).toMatch(/added 1 track from My Playlist\. 1 track not loaded yet: scroll to them/);
+		expect(meta()).toBe('1 track · 0 download links · 1 not loaded yet');
 	});
 
 	// The list refuses rather than dropping its oldest, and says how many it
-	// refused. Both reads offer the same tracks, so the one that did not fit is
-	// one track, not one from each read. A search that hides every row keeps
-	// five thousand of them from being drawn: the list holds them either way.
+	// refused. A search that hides every row keeps five thousand of them from
+	// being drawn: the list holds them either way.
 	it('says how many tracks did not fit when the list is full', async () => {
 		panelChrome({
 			response: answer([
@@ -446,21 +425,6 @@ describe('adding a page', () => {
 		});
 		await load();
 		expect(chrome.testStore('local').listed.map((one) => one.from)).toEqual(['a playlist']);
-	});
-
-	it('says why when SoundCloud will not describe the tracks at all', async () => {
-		// A private playlist: the lookup stopped rather than asking about each row
-		// in turn, and the note has to say that rather than leave it at "could not
-		// be checked", which would read as a failure to fix.
-		panelChrome({
-			response: answer([track('A', 'B', { details: null }), track('C', 'D', { details: null })], {
-				lookupFailed: 0,
-				unseen: true
-			})
-		});
-		await load();
-		expect(text()).toMatch(/couldn’t check 2 tracks: SoundCloud won’t describe them to a signed-out visitor/);
-		expect(text()).toMatch(/usually that means they’re private/);
 	});
 });
 
@@ -524,134 +488,7 @@ describe('adding a song page', () => {
 	});
 });
 
-describe('while the lookup is still running', () => {
-	// The page's tracks come back in a few milliseconds; their download details
-	// take as long as SoundCloud takes, which on a scrolled page is seconds.
-	// These are about the list going up on the first answer, with no spinner
-	// waiting on the second, and filling in as the second lands. That is why the
-	// popup feels fast.
-	//
-	// `arrive` settles the details read; `report` pushes a progress message the
-	// way the content script does as each answer comes in.
-	function slowLookup(tracks: object[]) {
-		let deliver: (value: PageReply) => void;
-
-		const lookedUp = new Promise<PageReply>((resolve) => {
-			deliver = resolve;
-		});
-
-		panelChrome({ response: undefined });
-		chrome.tabs.sendMessage.mockImplementation((_id, message) =>
-			message.type === 'EXTRACT_TRACKS' ? Promise.resolve(answer(tracks)) : lookedUp
-		);
-
-		return {
-			arrive: async (finished?: object[]) => {
-				deliver(answer(finished ?? tracks));
-				await settle();
-			},
-			report: async (message: Partial<DetailsProgress>) => {
-				await chrome.testSendMessage({ type: 'DOWNLOAD_DETAILS_PROGRESS', ...message });
-				await settle();
-			}
-		};
-	}
-
-	const PENDING = [track('A', 'One'), track('B', 'Two')];
-
-	it('lists the page’s tracks before any detail has been looked up', async () => {
-		slowLookup(PENDING);
-		await load();
-
-		// Every track is on screen, named, and says what it is waiting for.
-		expect(rows()).toHaveLength(2);
-		expect(sections()).toEqual([
-			{
-				heading: 'not checked',
-				count: '(2)',
-				hint: 'asking SoundCloud about these.',
-				rows: [
-					{ permalink: '/a/one', detail: null, buttons: [] },
-					{ permalink: '/b/two', detail: null, buttons: [] }
-				]
-			}
-		]);
-		// And nothing claims an answer nobody has: no count of tracks without
-		// links, no note about tracks that couldn’t check, and no search
-		// badges offering somewhere else to look.
-		expect(meta()).toBe('2 tracks · 0 download links · 2 not checked');
-		expect(text()).not.toMatch(/couldn’t check/);
-		expect(text()).not.toMatch(/without/);
-	});
-
-	// In list order there is no "not checked" section to wait in, so each row
-	// says it for itself, and carries no search badges until SoundCloud answers.
-	it('says each row is being checked in list order too', async () => {
-		localStorage.setItem('pref:sort', 'page');
-		slowLookup(PENDING);
-		await load();
-
-		expect(sections()).toEqual([
-			{
-				heading: null,
-				count: null,
-				hint: null,
-				rows: [
-					{ permalink: '/a/one', detail: 'checking…', buttons: [] },
-					{ permalink: '/b/two', detail: 'checking…', buttons: [] }
-				]
-			}
-		]);
-	});
-
-	it('fills a row in as its answer arrives, without waiting for the rest', async () => {
-		const { report } = slowLookup(PENDING);
-		await load();
-
-		await report({
-			done: 1,
-			total: 2,
-			resumed: false,
-			details: [{ ...DETAILS, permalink: '/a/one', downloadable: true }]
-		});
-
-		expect(sections()).toEqual([
-			{
-				heading: 'soundcloud.com',
-				count: '(1)',
-				hint: expect.stringContaining('SoundCloud'),
-				rows: [{ permalink: '/a/one', detail: null, buttons: ['open the track page to download'] }]
-			},
-			{
-				heading: 'not checked',
-				count: '(1)',
-				hint: expect.any(String),
-				rows: [{ permalink: '/b/two', detail: null, buttons: [] }]
-			}
-		]);
-		expect(meta()).toBe('2 tracks · 1 download link · 1 not checked');
-
-		// The bar says what it is measuring, and how far, in words.
-		const bar = document.querySelector('[role="progressbar"]')!;
-		expect(bar.getAttribute('aria-label')).toBe('checking download details');
-		expect(bar.getAttribute('aria-valuetext')).toBe('1 of 2');
-	});
-
-	it('settles into the finished list when the details land', async () => {
-		const { arrive } = slowLookup(PENDING);
-		await load();
-
-		await arrive([
-			track('A', 'One', { details: details({ downloadable: true }) }),
-			track('B', 'Two', { details: details({ permalink: '/b/two' }) })
-		]);
-
-		// "Not checked" is gone, and the track that turned out to have nothing is
-		// said to have nothing.
-		expect(sections().map((section) => section.heading)).toEqual(['soundcloud.com', 'no download links']);
-		expect(meta()).toBe('2 tracks · 1 download link · 1 without');
-	});
-
+describe('a long page', () => {
 	it('draws a screenful first and the rest of a long page after it', async ({ signal }) => {
 		// Five hundred rows are the best part of a second of DOM work and the
 		// popup shows about eight at a time, so the first paint is a screenful and
@@ -660,7 +497,7 @@ describe('while the lookup is still running', () => {
 		// hundred mounted twice.
 		vi.useFakeTimers();
 		const many = Array.from({ length: 150 }, (_, i) => track(`A${i}`, `T${i}`));
-		slowLookup(many);
+		panelChrome({ response: answer(many) });
 		await load();
 		expect(rows()).toHaveLength(60);
 
@@ -757,7 +594,7 @@ describe('grouping links by site', () => {
 
 	beforeEach(async () => {
 		panelChrome({
-			response: answer(TRACKS, { lookupFailed: 0, skippedPlaylists: 1 }),
+			response: answer(TRACKS, { skippedPlaylists: 1 }),
 			storage: { downloaded: { '/scartist/two': ISO, '/elsewhere/x': ISO } }
 		});
 		await load();
@@ -775,19 +612,19 @@ describe('grouping links by site', () => {
 			// Two nobody has an answer about: one whose details never arrived, and
 			// one whose purchase link is not a URL, so its SoundCloud download is
 			// the only half of the question that was ever answered.
-			['not checked', '(2)']
+			['not loaded yet', '(2)']
 		]);
 	});
 
 	it('summarises the list, and says what the page offered', () => {
 		// Twelve, not thirteen: the track with no permalink is not something the
 		// list can hold, since there would be nothing to tell it from another.
-		expect(meta()).toBe('12 tracks · 9 download links · 2 without · 2 not checked');
+		expect(meta()).toBe('12 tracks · 9 download links · 2 without · 2 not loaded yet');
 		// What the page itself was is said by the bar that offered it, which is
 		// where a fact about one page belongs once the list spans several.
 		expect(text()).toMatch(/by Curator · 13 tracks · 12 already here · 1 liked playlist skipped/);
 		expect(text()).toMatch(
-			/couldn’t check 1 track\. 1 track: purchase link read off the page, SoundCloud download unknown\./
+			/1 track not loaded yet: scroll to them or open the track, then add again\. 1 track: purchase link read off the page, SoundCloud download unknown\./
 		);
 	});
 
@@ -870,18 +707,18 @@ describe('grouping links by site', () => {
 					track('C', 'Three', { details: null }),
 					track('D', 'Four', { details: null })
 				],
-				{ pageType: 'likes', title: '', curator: '', skippedPlaylists: 2, lookupFailed: 0 }
+				{ pageType: 'likes', title: '', curator: '', skippedPlaylists: 2 }
 			)
 		});
 		await load();
-		expect(meta()).toBe('4 tracks · 2 download links · 2 not checked');
+		expect(meta()).toBe('4 tracks · 2 download links · 2 not loaded yet');
 		expect(text()).toMatch(/2 liked playlists skipped/);
 		expect(text()).toMatch(
-			/couldn’t check 2 tracks\. 2 tracks: purchase link read off the page, SoundCloud download unknown\./
+			/2 tracks not loaded yet: scroll to them or open the track, then add again\. 2 tracks: purchase link read off the page, SoundCloud download unknown\./
 		);
 		expect(sections().map((s) => [s.heading, s.count])).toEqual([
 			['hypeddit.com', '(2)'],
-			['not checked', '(2)']
+			['not loaded yet', '(2)']
 		]);
 		// A likes page with no heading of its own: the tracks are still filed
 		// under something a person can read.
@@ -897,7 +734,7 @@ describe('grouping links by site', () => {
 		expect(rowFor('/a/b').querySelector('img')).toBe(null);
 		expect(rowFor('/a/b').querySelector('[title="no cover art"]')).not.toBe(null);
 		expect(meta()).toBe('1 track · 1 download link');
-		expect(text()).not.toMatch(/couldn’t check/);
+		expect(text()).not.toMatch(/not loaded yet/);
 	});
 
 	// A page lazy-loads its thumbnails as they scroll into view, so a list read
@@ -1279,7 +1116,7 @@ describe('the session queue', () => {
 // The row buttons know nothing about batches; src/lib/selection.svelte.ts says
 // why.
 describe('selecting a batch', () => {
-	// Every one of them looked up, and `start` sorts the list in list order, so
+	// Every one of them loaded, and `start` sorts the list in list order, so
 	// each track is one row and one tick box.
 	const ROWS = [
 		track('A', 'One', { details: details({ purchaseUrl: 'https://hypeddit.com/one' }) }),
@@ -1732,7 +1569,7 @@ describe('list order', () => {
 			['/nolinkartist/ten', 'no download links', ['BP', 'bc', 'Z', 'M']],
 			// On the list and never checked, which the row says rather than
 			// leaving it to look like a track known to have nothing.
-			['/unknownartist/twelve', 'not checked', ['BP', 'bc', 'Z', 'M']]
+			['/unknownartist/twelve', 'not loaded yet', ['BP', 'bc', 'Z', 'M']]
 		]);
 		expect(isMarked('/scartist/two')).toBe(true);
 	});
@@ -2111,10 +1948,10 @@ describe('opening a row', () => {
 	});
 
 	// The genre the page itself rendered beside the row (Likes pages do), which
-	// is the whole answer for a track nobody has looked up, and the one a
+	// is the whole answer for a track the page had not loaded, and the one a
 	// track that came in through the session queue has, since a queued track
-	// carries what its page said and no lookup ever runs for it.
-	it('shows the genre the page rendered, without waiting for a lookup', async () => {
+	// carries what its page said and nothing more.
+	it('shows the genre the page rendered, without the track’s details', async () => {
 		panelChrome({
 			response: answer([track('Bicep', 'Glue', { genre: 'Drum & Bass', liked: true, reposted: false, details: null })])
 		});
@@ -2126,7 +1963,7 @@ describe('opening a row', () => {
 	});
 
 	// What a queued track carries is what its page said, and it is all there is
-	// to say about those three: no lookup answers them, and the page a queued
+	// to say about those three: no details answer them, and the page a queued
 	// track came off is not open any more.
 	it('keeps what the page said about a track added from the queue', async () => {
 		panelChrome({
@@ -2410,13 +2247,10 @@ describe('opening a row', () => {
 		expect(facts('/both/five')[0]).toEqual(['title', 'Five']);
 	});
 
-	// Title and artist are on screen before a single lookup has come back, so
-	// the chevron has something to open from the first frame.
-	it('opens a row that is still being checked', async () => {
-		panelChrome();
-		chrome.tabs.sendMessage.mockImplementation(async (_id, message) =>
-			message.type === 'EXTRACT_TRACKS' ? answer([track('Waiting', 'Soon')]) : new Promise(() => {})
-		);
+	// Title and artist come off the page's own row, so a track whose details
+	// the page had not loaded still has something to open.
+	it('opens a row the page had not loaded yet', async () => {
+		panelChrome({ response: answer([track('Waiting', 'Soon', { details: null })]) });
 		await load();
 		await click(chevron('/waiting/soon'));
 		expect(facts('/waiting/soon')).toEqual([
@@ -2431,8 +2265,8 @@ describe('opening a row', () => {
 });
 
 // The backup itself is the settings sheet's (test/saved-state.test.ts): the
-// file carries the marks a SoundCloud page paints, the content script's cache
-// of lookups, the session queue and three panels' options, none of which is
+// file carries the marks a SoundCloud page paints, the artists tool's list,
+// the session queue and three panels' options, none of which is
 // this tool's. What stays here is the way to it: the list is the biggest
 // thing in the file, so the footer is where somebody looks.
 describe('the footer', () => {

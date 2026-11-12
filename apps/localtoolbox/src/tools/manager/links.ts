@@ -7,8 +7,8 @@
 // where they point, soundcloud.com first; sorted in "list order", every
 // track appears once with all of its links. Tracks that turn out to offer
 // nothing at all are listed on their own, with searches to try instead, and
-// tracks nobody has asked SoundCloud about yet say so rather than pretending
-// to be either.
+// tracks SoundCloud had not loaded yet say so rather than pretending to be
+// either.
 
 import { titleCase } from '$lib/title-case.ts';
 import type { ListedEntry, DetailsAnswer } from '$lib/types';
@@ -140,8 +140,8 @@ export function entriesFor(track: ListedEntry) {
 				url,
 				host,
 				domain: domainOf(host),
-				// SoundCloud's own label for the link, from the API or from the
-				// page's button ("Buy" when the uploader gave none).
+				// SoundCloud's own label for the link, from the track the page
+				// loaded or from its button ("Buy" when the uploader gave none).
 				label: details.purchaseTitle || track.domPurchaseTitle || 'open link',
 				spent: false,
 				note: ''
@@ -211,17 +211,16 @@ export const tracksWithoutLinks = (tracks: ListedEntry[]) => tracks.filter(isWit
 // A track the list has no answer about: no details at all, or an answer that
 // does not settle the question. A Likes row read straight off the page that
 // rendered no purchase link says nothing about SoundCloud's own download
-// either, which is half the question and the half nobody asked.
+// either, which is half the question.
 //
 // The three kinds of row are this, `isWithoutLinks`, and having entries, and
 // they are exhaustive and disjoint by construction: a track with no entries
-// that is not known to be link-less is one nobody has finished asking about.
+// that is not known to be link-less is one whose details are not in yet.
 //
-// On a list that is kept this can mean two things: a lookup that is running or
-// has just failed, or a track that has never been checked, because the page it
-// came in from was added before it, or because it came from the queue on a tab
-// that was not SoundCloud at all. Which of the two a given track is depends on
-// something the track cannot say, so the panel decides how it reads.
+// On a list that is kept that means the page had not loaded the track when it
+// was added (a row not drawn yet), or the track came from the queue on a tab
+// that was not SoundCloud at all. Adding its page again once it has loaded
+// fills it in.
 export const isUnchecked = (track: ListedEntry) =>
 	!!track.permalink && entriesFor(track).length === 0 && !isWithoutLinks(track);
 
@@ -233,15 +232,9 @@ export const uncheckedTracks = (tracks: ListedEntry[]) => tracks.filter(isUnchec
  *
  * Every track, unconditionally. A row with no answer yet stays in, since
  * leaving it out would hide a track somebody put on the list on purpose.
- * `checking` is the set of permalinks a lookup is running for right now, so
- * those rows can say they are on their way rather than that nobody has asked.
  */
-export function buildListOrder(tracks: ListedEntry[], { checking = new Set() }: { checking?: Set<string> } = {}) {
-	return tracks.map((track) => ({
-		track,
-		entries: entriesFor(track),
-		pending: isUnchecked(track) && checking.has(track.permalink)
-	}));
+export function buildListOrder(tracks: ListedEntry[]) {
+	return tracks.map((track) => ({ track, entries: entriesFor(track) }));
 }
 
 // What the search box matches a row against: title, artist, the sites its
@@ -250,27 +243,16 @@ export function buildListOrder(tracks: ListedEntry[], { checking = new Set() }: 
 export const searchText = (track: ListedEntry, entries: LinkEntry[]) =>
 	[track.title, track.artist, track.from, ...entries.map((entry) => entry.host)].join(' ');
 
-/** Tracks whose details could not be fetched, fully or at all. */
-export function lookupNotes({
-	tracks,
-	lookupFailed,
-	unseen
-}: Pick<DetailsAnswer, 'tracks' | 'lookupFailed' | 'unseen'>) {
+/** Tracks the page had not loaded, fully or at all, and how to get the rest. */
+export function pageNotes({ tracks }: Pick<DetailsAnswer, 'tracks'>) {
 	const notes = [];
 	const unknown = tracks.filter((t) => !t.details).length;
 
 	if (unknown > 0) {
-		// `unseen` means the lookup stopped rather than asking about each of them
-		// in turn: nothing it had already asked about came back, which is what a
-		// page the anonymous API cannot describe looks like. Saying "could not be
-		// checked" there would be true but useless, so this says why, and that the
-		// page itself is still the source for whatever it renders.
-		const some = `couldn’t check ${unknown} track${unknown === 1 ? '' : 's'}`;
+		// The page loads a track's details as it draws the track, so a row it
+		// has not drawn yet is one scroll or one click away from them.
 		notes.push(
-			unseen
-				? `${some}: SoundCloud won’t describe them to a signed-out visitor — usually that means ` +
-						'they’re private. what the page shows for them is still listed.'
-				: some + (lookupFailed > 0 ? ' — SoundCloud didn’t answer for them.' : '.')
+			`${unknown} track${unknown === 1 ? '' : 's'} not loaded yet: scroll to them or open the track, then add again.`
 		);
 	}
 
@@ -300,12 +282,9 @@ export function lookupNotes({
 //   title, artist   the page's own row. Always there.
 //   genre           the page's own tag beside the row, where it rendered one
 //                   (Likes rows and track pages do; playlist rows and the
-//                   badge tiles do not), else the lookup (SoundCloud's API).
-//                   '' from the lookup means the uploader set none; null or
-//                   missing on both means nobody has learned it. (Details
-//                   cached by a version from before the genre was kept do not
-//                   linger as unknowns: content.ts counts such an entry stale
-//                   and asks again.)
+//                   badge tiles do not), else the track object the page
+//                   loaded. '' from that means the uploader set none; null
+//                   or missing on both means nobody has learned it.
 //   from            the list itself: the page this track was added from. The
 //                   one field that is about the list rather than the track,
 //                   and the reason it is worth a line: a list built from six
@@ -403,10 +382,10 @@ export const rowMarks = (track: ListedEntry) =>
  */
 export function rowFacts(track: ListedEntry, { titleCased = false }: { titleCased?: boolean } = {}) {
 	const cased: (value: string) => string = titleCased ? titleCase : (value) => value;
-	// The page first, the lookup second. Both name the same thing (the tag
+	// The row first, the details second. Both name the same thing (the tag
 	// SoundCloud renders beside a row *is* the track's genre field), but the
-	// page's answer is there the moment the track is added, needs no request,
-	// and is the only one a track that came in through the session queue has.
+	// row's answer is there the moment the track is added, and is the only one
+	// a track that came in through the session queue has.
 	const genre = track.genre || track.details?.genre;
 
 	const fields = [

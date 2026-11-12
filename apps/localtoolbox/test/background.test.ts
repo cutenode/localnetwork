@@ -3,9 +3,10 @@
 // The walk itself is the offscreen page's (test/offscreen.test.ts); here it is
 // whatever that page answers WALK_GATE with, and what is under test is what the
 // worker does around it: the offscreen page opened and closed, the file saved,
-// the gate opened when there is no file, and one walk at a time.
+// the gate opened when there is no file, and one walk at a time. Last, what it
+// clears when it is installed over an older version.
 import { describe, it, expect, vi } from 'vitest';
-import { createChrome, type ChromeMock, type PageReply } from './helpers/chrome.ts';
+import { createChrome, type ChromeMock, type PageReply, type Seed } from './helpers/chrome.ts';
 import { flush } from './helpers/flush.ts';
 import type { WalkGateAnswer } from '$lib/types';
 
@@ -212,4 +213,38 @@ it('leaves every other message to whoever it is for', async () => {
 
 	expect(await chrome.testSendMessage({ type: 'EXTRACT_TRACKS' })).toBeUndefined();
 	expect(await chrome.testSendMessage(null)).toBeUndefined();
+});
+
+// Versions before this one kept every track's download details for a month,
+// under `details` in the local area. They last as long as the tab that loaded
+// them now (content.ts), so installing this version over an older one clears
+// that key once, and nothing else the extension keeps beside it.
+describe('installed over an older version', () => {
+	const install = async (storage: Seed) => {
+		globalThis.chrome = createChrome({ storage });
+		vi.resetModules();
+		await import('../src/background.ts');
+		const [[installed]] = chrome.runtime.onInstalled.addListener.mock.calls;
+		installed();
+		await flush();
+	};
+
+	it('clears the details cache it left, and keeps the marks and the lists', async () => {
+		const kept = {
+			downloaded: { '/a/b': '2026-09-08T12:00:00.000Z' },
+			listed: [],
+			artists: []
+		};
+
+		await install({ ...kept, details: { '/a/b': { unavailable: true, at: 1 } } });
+
+		expect(chrome.testStore()).toEqual(kept);
+	});
+
+	it('changes nothing where there was no cache to clear', async () => {
+		await install({ downloaded: { '/a/b': '2026-09-08T12:00:00.000Z' } });
+
+		expect(chrome.testStore()).toEqual({ downloaded: { '/a/b': '2026-09-08T12:00:00.000Z' } });
+		expect(chrome.storage.local.set).not.toHaveBeenCalled();
+	});
 });

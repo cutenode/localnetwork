@@ -25,7 +25,7 @@ flowchart TD
   Queued["queue.items<br/>each track's purchase link"]
   Tab{"what the tab is"}
   Gate["that one link"]
-  Sc["SoundCloud page<br/>EXTRACT_TRACKS for what it renders,<br/>GET_DOWNLOAD_DETAILS for the rest"]
+  Sc["SoundCloud page<br/>GET_DOWNLOAD_DETAILS, one read:<br/>purchase links the page loaded or drew"]
   Hand["links pasted earlier"]
   Claim["addRows<br/>only links a site claims,<br/>a known link comes back as it was"]
   Paste["Pasted text<br/>extractGateUrls"]

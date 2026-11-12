@@ -76,7 +76,7 @@ const withDetails = () => [
 
 // The artists tool's list, one artist in each state a row can be in: one
 // SoundCloud described (links, a picture, a verified mark), one it had no
-// profile for, and one nobody has asked about.
+// profile for, and one no SoundCloud tab has loaded yet.
 const ARTISTS = [
 	{
 		permalink: '/bicep',
@@ -113,6 +113,17 @@ const ARTISTS = [
 	},
 	{ permalink: '/unknown', name: '', tracks: [], profile: null, from: '', at: 1 }
 ];
+
+// That list as the artists store keeps it: the entries in the local area with
+// no profile, and the profiles in the session area by path.
+const ARTIST_AREAS = {
+	storage: { artists: ARTISTS.map((artist) => ({ ...artist, profile: null })) },
+	session: {
+		artistProfiles: Object.fromEntries(
+			ARTISTS.flatMap((artist) => (artist.profile ? [[artist.permalink, artist.profile] as const] : []))
+		)
+	}
+};
 
 const clean = () => expect(audit()).toEqual([]);
 
@@ -237,22 +248,20 @@ const STATES: [id: string, states: State[]][] = [
 			['a page to add, not yet added', () => panelChrome({ response: extraction({ tracks: TRACKS }) })],
 			[
 				// Added on a page whose every answer is the page itself, which is a
-				// lookup that could not be read: the artists are listed, unlooked-up,
-				// under the note that says so.
-				'a page added, whose lookup could not be read',
+				// profile read that could not be understood: the artists are listed,
+				// not filled in, under the note that says so.
+				'a page added, whose socials could not be read',
 				() => panelChrome({ response: extraction({ tracks: TRACKS }) }),
 				async () => {
 					await click(document.querySelector('[aria-label$="from this tab"]'));
-					expect(document.body.textContent).toContain('not looked up');
+					expect(document.body.textContent).toContain('couldn’t read their socials');
+					expect(document.body.textContent).toContain('not loaded yet');
 				}
 			],
-			[
-				'artists of every kind',
-				() => panelChrome({ response: extraction({ tracks: TRACKS }), storage: { artists: ARTISTS } })
-			],
+			['artists of every kind', () => panelChrome({ response: extraction({ tracks: TRACKS }), ...ARTIST_AREAS })],
 			[
 				'artists of every kind, with rows opened',
-				() => panelChrome({ response: extraction({ tracks: TRACKS }), storage: { artists: ARTISTS } }),
+				() => panelChrome({ response: extraction({ tracks: TRACKS }), ...ARTIST_AREAS }),
 				async () => {
 					for (const chevron of document.querySelectorAll('li [aria-expanded]')) await click(chevron);
 					expect(document.querySelectorAll('li dl').length).toBe(3);
@@ -260,14 +269,14 @@ const STATES: [id: string, states: State[]][] = [
 			],
 			[
 				'artists of every kind, filtered to none',
-				() => panelChrome({ response: extraction({ tracks: TRACKS }), storage: { artists: ARTISTS } }),
+				() => panelChrome({ response: extraction({ tracks: TRACKS }), ...ARTIST_AREAS }),
 				async () => {
 					await type(document.querySelector('[aria-label="search the artists"]'), 'zzzzzz');
 				}
 			],
 			[
 				'artists of every kind, with the sort menu open',
-				() => panelChrome({ response: extraction({ tracks: TRACKS }), storage: { artists: ARTISTS } }),
+				() => panelChrome({ response: extraction({ tracks: TRACKS }), ...ARTIST_AREAS }),
 				async () => {
 					await click(document.querySelector('[aria-label="sort order"]'));
 				}
