@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use hegel::TestCase;
 use hegel::generators as gs;
@@ -50,6 +50,8 @@ struct Req {
 /// failure to get an answer.
 enum Reply {
     Answer(u16, Vec<u8>),
+    /// Busy (`503`), asking to wait this `Retry-After`.
+    Busy(String),
     Fails(RpcError),
     /// No answer yet: the fetch is under way until the plugin's hook is cancelled.
     Held,
@@ -78,12 +80,14 @@ fn asked(url: &str) -> Req {
 /// The host's answer to a fetch the server answered with `reply`, as the host gives it: the body
 /// as text, or in the file `into_blob` names. None while it's held.
 fn fetched(reply: Reply, into_blob: Option<PathBuf>) -> Option<Result<Value, RpcError>> {
-    let (status, body) = match reply {
-        Reply::Answer(status, body) => (status, body),
+    let (status, wait, body) = match reply {
+        Reply::Answer(status, body) => (status, None, body),
+        Reply::Busy(wait) => (503, Some(wait), Vec::new()),
         Reply::Fails(e) => return Some(Err(e)),
         Reply::Held => return None,
     };
-    let fetched = Fetched { status, headers: IndexMap::new(), body: None, blob: None };
+    let headers = wait.map(|w| ("retry-after".to_string(), w.to_string())).into_iter().collect();
+    let fetched = Fetched { status, headers, body: None, blob: None };
     let fetched = match into_blob {
         Some(file) => std::fs::File::create_new(&file)
             .and_then(|mut f| f.write_all(&body))
@@ -767,6 +771,89 @@ fn an_isrc_search_refused_leaves_the_album_out() {
     assert_eq!(candidates.warnings, ["Young Fathers - Cocoa Sugar: left out, as MusicBrainz answered 503"]);
     let queries: Vec<String> = session.searches().into_iter().map(|(_, q)| q).collect();
     assert_eq!(queries, [format!("isrc:{ISRC}"), format!("isrc:{ISRC}"), format!("isrc:{ISRC}")]);
+}
+
+/// A busy MusicBrainz (`503`) is asked again once its `Retry-After` has passed (seconds, here
+/// [`musicbrainz::SECOND`]s, or an HTTP-date, at once when it's past); asking for longer than
+/// it waits, its album is left out at once.
+#[test]
+fn a_busy_musicbrainz_is_asked_again_after_its_wait() {
+    for (wait, waited) in [("25", musicbrainz::SECOND * 25), ("Sun, 06 Nov 1994 08:49:37 GMT", Duration::ZERO)] {
+        let asked: Arc<Mutex<Vec<Instant>>> = Arc::default();
+        let asking = asked.clone();
+        let route = move |req: &Req| {
+            let mut asked = asking.lock().unwrap();
+            asked.push(Instant::now());
+            match asked.len() {
+                1 => Reply::Busy(wait.into()),
+                _ => services_as_they_are(req),
+            }
+        };
+        let session = start(route);
+        let candidates = session.provide(&[tags(1, "Bicep", "Bicep", "Glue")]).unwrap();
+        assert_eq!(found(&candidates, &session.scratch()).len(), 1);
+        let bicep = ("/ws/2/release/".to_string(), r#"release:"Bicep" AND artist:"Bicep""#.to_string());
+        assert_eq!(session.searches()[..2], [bicep.clone(), bicep]);
+        let asked = asked.lock().unwrap();
+        assert!(asked[1] - asked[0] >= waited, "{:?}", asked[1] - asked[0]);
+    }
+
+    let route = |req: &Req| match req.path.starts_with(SEARCH) {
+        true => Reply::Busy("31".into()),
+        false => services_as_they_are(req),
+    };
+    let session = start(route);
+    let candidates = session.provide(&[tags(1, "Bicep", "Bicep", "Glue")]).unwrap();
+    assert_eq!(candidates.warnings, ["Bicep - Bicep: left out, as MusicBrainz answered 503"]);
+    assert_eq!(session.searches().len(), 1, "not worth waiting for");
+}
+
+/// For any number of seconds a busy MusicBrainz asks its first search to wait, the search is
+/// asked again once they've passed, when they're no more than it waits for; any more, and the
+/// album is left out at once.
+#[hegel::test(test_cases = 15)]
+fn prop_a_busy_musicbrainz_is_waited_for_as_long_as_it_asks(tc: TestCase) {
+    let wait = tc.draw(gs::integers::<u64>().max_value(musicbrainz::LONGEST_WAIT + 10));
+    let asked: Arc<Mutex<Vec<Instant>>> = Arc::default();
+    let asking = asked.clone();
+    let route = move |req: &Req| {
+        let mut asked = asking.lock().unwrap();
+        asked.push(Instant::now());
+        match asked.len() {
+            1 => Reply::Busy(wait.to_string()),
+            _ => services_as_they_are(req),
+        }
+    };
+    let session = start(route);
+    let candidates = session.provide(&[tags(1, "Bicep", "Bicep", "Glue")]).unwrap();
+    if wait > musicbrainz::LONGEST_WAIT {
+        assert_eq!(candidates.warnings, ["Bicep - Bicep: left out, as MusicBrainz answered 503"]);
+        assert_eq!(session.searches().len(), 1);
+        return;
+    }
+    assert_eq!(found(&candidates, &session.scratch()).len(), 1);
+    let asked = asked.lock().unwrap();
+    let waited = musicbrainz::SECOND * u32::try_from(wait).unwrap();
+    assert!(asked[1] - asked[0] >= waited, "{:?} for {wait}", asked[1] - asked[0]);
+}
+
+/// Cancelled while it waits out a busy MusicBrainz's `Retry-After`, the hook stops then, asking
+/// for no more.
+#[test]
+fn cancelling_while_it_waits_for_musicbrainz_stops_it() {
+    let route = |req: &Req| match req.path.starts_with(SEARCH) {
+        true => Reply::Busy("30".into()),
+        false => services_as_they_are(req),
+    };
+    let session = start(route);
+    let pending = session.send(ProviderKind::Artwork, &[tags(1, "Bicep", "Bicep", "Glue")], json!({}));
+    session.heard.recv_timeout(Duration::from_secs(10)).expect("a search");
+    // A sixth of the wait: the plugin has the 503 by then, so the cancel finds it waiting.
+    std::thread::sleep(musicbrainz::SECOND * 5);
+    pending.cancel();
+    let answer = pending.wait_timeout(Duration::from_secs(10)).expect("it stops");
+    assert_eq!(answer.map(|_: Candidates| ()).unwrap_err(), RpcError::cancelled());
+    assert_eq!(session.searches().len(), 1);
 }
 
 /// A tags candidate found: its track, score, label and tags.

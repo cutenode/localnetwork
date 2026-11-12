@@ -768,10 +768,8 @@ fn the_metadata_fits_its_headers(tc: TestCase) {
     let cut = header_value(&title).len() > MAX_VALUE;
     assert_eq!(item.notes.iter().any(|n| n.starts_with("the title is cut")), cut);
 
-    let lines: Vec<String> = tracklist
-        .iter()
-        .map(|e| item::line(e).replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;"))
-        .collect();
+    let lines: Vec<String> =
+        tracklist.iter().map(|e| e.line().replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")).collect();
     assert_eq!(said("x-archive-meta-description").unwrap_or_default(), item.description);
     let all = lines.join("<br>");
     if header_value(&all).len() <= MAX_VALUE {
@@ -792,26 +790,6 @@ fn the_metadata_fits_its_headers(tc: TestCase) {
     assert!(header_value(&next).len() > MAX_VALUE);
     let note = format!("the description lists {} of the {} tracks, as many as a header holds", kept.len(), lines.len());
     assert!(item.notes.contains(&note), "{:?}", item.notes);
-}
-
-/// A line's time, as `05:30` or past an hour `1:02:03`, reads back as the entry's.
-#[hegel::test(test_cases = 100)]
-fn a_lines_time_reads_back(tc: TestCase) {
-    // Where a field turns over, as often as anywhere.
-    let secs = match tc.draw(gs::booleans()) {
-        true => tc.draw(gs::sampled_from(vec![59, 60, 3599, 3600, 3601, 35999, 36000])),
-        false => tc.draw(gs::integers::<u32>()),
-    };
-    let line = item::line(&entry(Some("A"), Some("B"), Some(secs)));
-    let (time, name) = line.split_once(' ').unwrap();
-    assert_eq!(name, "A - B");
-    let fields: Vec<u64> = time.split(':').map(|f| f.parse().unwrap()).collect();
-    assert!(time.split(':').skip(1).all(|f| f.len() == 2), "{line}");
-    match fields[..] {
-        [m, s] => assert_eq!((secs < 3600, m * 60 + s), (true, u64::from(secs)), "{line}"),
-        [h, m, s] => assert_eq!((secs >= 3600, h * 3600 + m * 60 + s), (true, u64::from(secs)), "{line}"),
-        _ => panic!("{line}"),
-    }
 }
 
 /// What the Archive answers in place of going on, in the property below: the identifier check

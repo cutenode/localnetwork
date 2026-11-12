@@ -7,15 +7,14 @@ use chrono::TimeDelta;
 use hegel::TestCase;
 use hegel::generators as gs;
 use loclib_plugin::{
-    AccountType, Capability, DestinationKind, Fetched, Manifest, PublishedSet, SettingType, TokenPlace, TracklistEntry,
-    method,
+    AccountType, Capability, DestinationKind, Manifest, PublishedSet, SettingType, TokenPlace, TracklistEntry, method,
 };
 use loclib_progress::{Event, Phase};
 use serde_json::{Value, json};
 
 use self::soundcloud::{PAGE, Reply, SIGNED_OUT, SoundCloud, TOKEN, refusal, start};
 use super::track::{MAX_DESCRIPTION, MAX_TITLE};
-use super::upload::{AUTHORIZATION, LONGEST_WAIT, NEWEST, TRACKS, TRIES, retry_after};
+use super::upload::{AUTHORIZATION, LONGEST_WAIT, NEWEST, TRACKS, TRIES};
 use super::*;
 
 /// The account type the plugin asks for, as the SoundCloud account plugin provides it.
@@ -439,22 +438,6 @@ fn soundcloud_refusing_says_why() {
     assert!(e.message.starts_with("SoundCloud's answer can't be read: missing field `permalink_url`"), "{e:?}");
 }
 
-/// `Retry-After` is a number of seconds (one too big to count longer than any wait); none, or one
-/// that isn't a number, says nothing.
-#[test]
-fn retry_after_says_seconds() {
-    let said = |name: &str, value: &str| {
-        let headers = [(name.to_string(), value.to_string())].into_iter().collect();
-        retry_after(&Fetched { status: 429, headers, body: None, blob: None })
-    };
-    assert_eq!(said("retry-after", " 12 "), Some(12));
-    assert_eq!(said("Retry-After", "0"), Some(0));
-    assert_eq!(said("retry-after", "99999999999999999999"), Some(u64::MAX));
-    assert_eq!(said("retry-after", "Sun, 06 Nov 1994 08:49:37 GMT"), None);
-    assert_eq!(said("retry-after", ""), None);
-    assert_eq!(said("x-other", "12"), None);
-}
-
 /// A tracklist of up to `most` entries, each maybe named, maybe placed in the recording.
 #[hegel::test_helper]
 fn tracklist(tc: &TestCase, most: usize) -> Vec<TracklistEntry> {
@@ -500,7 +483,7 @@ fn the_track_is_the_set_within_soundclouds_lengths(tc: TestCase) {
     assert_eq!(t.notes.iter().any(|n| n.starts_with("the title is cut")), cut);
 
     assert!(chars(&t.description) <= MAX_DESCRIPTION, "{}", chars(&t.description));
-    let lines: Vec<String> = tracklist.iter().map(track::line).collect();
+    let lines: Vec<String> = tracklist.iter().map(TracklistEntry::line).collect();
     assert!(lines.iter().all(|l| !l.contains('\n')), "{lines:?}");
     let all = lines.join("\n");
     if chars(&all) <= MAX_DESCRIPTION {
@@ -534,7 +517,7 @@ fn prop_a_tracklist_too_long_keeps_the_lines_that_fit(tc: TestCase) {
         })
         .collect();
     let t = track::of(&set(), &tracklist);
-    let lines: Vec<String> = tracklist.iter().map(track::line).collect();
+    let lines: Vec<String> = tracklist.iter().map(TracklistEntry::line).collect();
     assert!(t.description.chars().count() <= MAX_DESCRIPTION);
     let (kept, more) = t.description.rsplit_once('\n').unwrap();
     let kept: Vec<&str> = kept.lines().collect();
@@ -556,23 +539,6 @@ fn a_cut_tracklist_keeps_every_line_that_fits() {
     let t = track::of(&set(), &vec![long; 17]);
     assert_eq!(t.description.chars().count(), MAX_DESCRIPTION);
     assert!(t.description.ends_with("\n+ 9 more"), "{:?}", t.description.chars().rev().take(20).collect::<String>());
-}
-
-/// A line's time, as `05:30` or past an hour `1:02:03`, reads back as the entry's.
-#[hegel::test(test_cases = 100)]
-fn a_lines_time_reads_back(tc: TestCase) {
-    let secs = tc.draw(gs::integers::<u32>());
-    let line = track::line(&entry(Some("A"), Some("B"), Some(secs)));
-    let (time, name) = line.split_once(' ').unwrap();
-    assert_eq!(name, "A - B");
-    let fields: Vec<u64> = time.split(':').map(|f| f.parse().unwrap()).collect();
-    assert!(time.split(':').skip(1).all(|f| f.len() == 2), "{line}");
-    assert!(secs >= 3600 || time.len() == 5, "{line}");
-    match fields[..] {
-        [m, s] => assert_eq!((secs < 3600, m * 60 + s), (true, u64::from(secs)), "{line}"),
-        [h, m, s] => assert_eq!((secs >= 3600, h * 3600 + m * 60 + s), (true, u64::from(secs)), "{line}"),
-        _ => panic!("{line}"),
-    }
 }
 
 /// How SoundCloud may answer a try in the property below, in place of taking the track: not being
