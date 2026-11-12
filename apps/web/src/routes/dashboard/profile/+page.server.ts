@@ -9,19 +9,20 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const viewer = requireViewer(locals, url);
 	const { app } = locals;
 
-	const [profile, account, listing, [listRequest]] = await Promise.all([
+	const [profile, account, listing, [listRequest], bluesky] = await Promise.all([
 		app.profiles.get(viewer.did),
 		app.accounts.get(viewer.did),
 		app.djListings.get(viewer.did),
-		app.requests.list({ kind: 'list', requester: viewer.did, status: 'open', limit: 1 })
+		app.requests.list({ kind: 'list', requester: viewer.did, status: 'open', limit: 1 }),
+		app.profiles.blueskyPrefill(viewer.did)
 	]);
-
-	// Someone without a profile starts from their Bluesky one.
-	const prefill = profile ? null : await app.profiles.blueskyPrefill(viewer.did);
 
 	return {
 		profile,
-		values: profile ? profileFormValues(profile.record) : { name: prefill?.name, bio: prefill?.bio },
+		// Someone without a profile starts from their Bluesky one.
+		values: profile ? profileFormValues(profile.record) : { name: bluesky?.name, bio: bluesky?.bio },
+		// What their profile page shows (see personName).
+		pronouns: bluesky?.pronouns ?? profile?.record.basics.pronouns ?? '',
 		sectionsOn: sectionsOf(profile?.record),
 		// Whether staff list them in Find DJs, or are looking at their request to be.
 		listing: listing ? { listedAt: listing.createdAt } : null,

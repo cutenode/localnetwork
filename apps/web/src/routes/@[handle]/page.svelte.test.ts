@@ -11,17 +11,17 @@ const withMixes = view({
 	performer: { mixes: [{ title: 'Warehouse Hours', url: 'https://soundcloud.com/neon/warehouse' }] }
 });
 
-type Streamed = { dj?: DjActivity[]; playsIn?: ProjectView[] };
+type Extras = { dj?: DjActivity[]; playsIn?: ProjectView[]; pronouns?: string | null };
 
 /**
- * Renders the page for `profile` (null for an account without one, shown as `name`), as `viewer`, with what streams
- * in: their DJ records and the projects they play in.
+ * Renders the page for `profile` (null for an account without one, shown as `name`), as `viewer`, with their pronouns
+ * and what streams in: their DJ records and the projects they play in.
  */
 const open = (
 	profile: ProfileView | null,
 	viewer: Viewer | null = null,
 	name = profile?.record.basics.name ?? '',
-	{ dj = [], playsIn = [NEON_CREW] }: Streamed = {}
+	{ dj = [], playsIn = [NEON_CREW], pronouns = null }: Extras = {}
 ) =>
 	render(Page, {
 		params: { handle: 'neon.test' },
@@ -30,6 +30,7 @@ const open = (
 			pendingRequests: 0,
 			profile,
 			name,
+			pronouns,
 			account: { did: NEON, handle: 'neon.test' },
 			meta: PAGE_META,
 			dj: Promise.resolve(dj),
@@ -51,13 +52,19 @@ it("shows a DJ's details, with the projects they play in a tab away", async () =
 			},
 			performer: { tagline: 'Four hours of rolling techno', genres: ['techno'], setTypes: ['closing'] },
 			promoter: { cities: [{ city: 'Leipzig', country: 'DE' }] }
-		})
+		}),
+		null,
+		undefined,
+		{ pronouns: 'she/her' }
 	);
 
 	await expect.element(page.getByRole('heading', { level: 1, name: 'Neon Tide' })).toBeInTheDocument();
 	await expect.element(page.getByText('Four hours of rolling techno')).toBeInTheDocument();
 	await expect.element(page.getByText('@neon.test')).toBeInTheDocument();
 	await expect.element(page.getByText('Berlin, DE')).toBeInTheDocument();
+	// The pronouns the loader picked (see personName), not the ones the profile kept before.
+	await expect.element(page.getByText('she/her')).toBeInTheDocument();
+	await expect.element(page.getByText('they/them')).not.toBeInTheDocument();
 	await expect.element(page.getByRole('link', { name: 'techno' })).toHaveAttribute('href', '/projects?genres=techno');
 	await expect.element(page.getByText('Closing')).toBeInTheDocument();
 	await expect.element(page.getByText('Leipzig, DE')).toBeInTheDocument();

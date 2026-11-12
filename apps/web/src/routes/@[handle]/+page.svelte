@@ -33,7 +33,7 @@
 				<p class="m-0 flex flex-wrap items-center gap-x-4 gap-y-1 text-small text-fg-muted">
 					<span class="break-all">{accountLabel(data.account)}</span>
 					{#if place}<span class="inline-flex items-center gap-1.5"><MapPin class="size-4" />{place}</span>{/if}
-					{#if basics?.pronouns}<span>{basics.pronouns}</span>{/if}
+					{#if data.pronouns}<span>{data.pronouns}</span>{/if}
 					{#if performer?.activeSince}<span class="inline-flex items-center gap-1.5"><Clock class="size-4" />Playing since {performer.activeSince}</span>{/if}
 				</p>
 				{#if !data.profile}<p class="m-0 text-small text-fg-muted">Hasn't set up a profile yet.</p>{/if}

@@ -30,6 +30,7 @@ export default {
 					avatarUrl: null
 				},
 				name: DEMO_PROFILE.basics.name,
+				pronouns: null,
 				account: NEON,
 				meta: PAGE_META,
 				dj: Promise.resolve(row === ARTISTS ? [{ ...NEON_DJ, profile: null }] : []),
