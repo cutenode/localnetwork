@@ -331,7 +331,7 @@ fn keys_serialise_as_their_code(tc: hegel::TestCase) {
         (p, d) => panic!("{text:?}: parse {p:?}, deserialise {d:?}"),
     }
     assert_eq!(key_order(&text), Camelot::parse(&text).map_or(u8::MAX, Camelot::order));
-    // Wheel order sorts by number, minor before major, all below where unparseable text sorts.
+    // Wheel order sorts by number, minor before major, all below where unparsable text sorts.
     let other = tc.draw(keys());
     assert_eq!(k.order().cmp(&other.order()), (k.number, k.major).cmp(&(other.number, other.major)));
     assert_eq!(key_order(&k.note()), k.order());
@@ -514,4 +514,61 @@ fn sets_too_long_to_tidy_keep_the_greedy_order(tc: hegel::TestCase) {
         let cheapest = order[k + 1..].iter().map(|&o| cost(order[k], o)).fold(f64::INFINITY, f64::min);
         assert!(next <= cheapest + 1e-9, "step {k} costs {next}, {cheapest} was left");
     }
+}
+
+/// `Camelot::parse` as it was when it copied what it read, kept to check the one that reads in
+/// place against.
+fn parse_copying(s: &str) -> Option<Camelot> {
+    let s = s.trim();
+    let digits: String = s.chars().take_while(char::is_ascii_digit).collect();
+    if let Ok(n) = digits.parse::<u8>()
+        && (1..=12).contains(&n)
+    {
+        return match s[digits.len()..].to_ascii_lowercase().as_str() {
+            "a" => Some(Camelot { number: n, major: false }),
+            "b" => Some(Camelot { number: n, major: true }),
+            "m" => Some(Camelot { number: (n + 6) % 12 + 1, major: false }),
+            "d" => Some(Camelot { number: (n + 6) % 12 + 1, major: true }),
+            _ => None,
+        };
+    }
+    let mut chars = s.chars();
+    let root = match chars.next()?.to_ascii_uppercase() {
+        'C' => 0,
+        'D' => 2,
+        'E' => 4,
+        'F' => 5,
+        'G' => 7,
+        'A' => 9,
+        'B' => 11,
+        _ => return None,
+    };
+    let rest: String = chars.collect();
+    let (shift, quality) = match rest.chars().next() {
+        Some(c @ ('#' | '♯')) => (1, &rest[c.len_utf8()..]),
+        Some(c @ ('b' | '♭')) => (11, &rest[c.len_utf8()..]),
+        _ => (0, rest.as_str()),
+    };
+    let major = match quality.trim().to_ascii_lowercase().as_str() {
+        "" | "maj" | "major" => true,
+        "m" | "min" | "minor" => false,
+        _ => return None,
+    };
+    Some(Camelot::from_pitch(root + shift, major))
+}
+
+/// Any text, a key or not, parses as the copying reader parsed it.
+#[hegel::test(test_cases = 1000)]
+fn prop_parse_reads_any_text_as_the_copying_reader_did(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let text = match tc.draw(gs::sampled_from(vec![0, 1, 2])) {
+        0 => tc.draw(gs::text().max_size(8)),
+        1 => tc.draw(gs::text().alphabet("0123456789AaBbCcDdEeFfGgMm#♯♭ ijnor").max_size(8)),
+        _ => {
+            let k = tc.draw(keys());
+            let names = vec![k.code(), k.note(), format!("{}d", k.number), format!("{} minor", k.note())];
+            typed(&tc, &tc.draw(gs::sampled_from(names)))
+        }
+    };
+    assert_eq!(Camelot::parse(&text), parse_copying(&text), "{text:?}");
 }

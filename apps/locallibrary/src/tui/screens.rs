@@ -253,14 +253,9 @@ fn help_and_messages() {
     let Fixture { _dir, mut app, .. } = fixture();
     key(&mut app, KeyCode::Char('?'));
     assert!(app.help);
-    // The library's own keys first, then those for everywhere (beside them when there's room).
-    check(
-        &mut app,
-        "the help",
-        &["Keys · Library", "BROWSING", "any other key closes"],
-        &["MARKS AND THE CRATE", "PLAYBACK"],
-    );
-    key(&mut app, KeyCode::Char('x'));
+    // The library's own keys first, then those for everywhere.
+    check(&mut app, "the help", &["Keys · Library", "BROWSING", "enter runs it"], &["MARKS AND THE CRATE"]);
+    key(&mut app, KeyCode::Esc);
     app.toast("added 2 to the crate", super::app::Level::Info);
     // (Said just now, however long the screens below take to draw.)
     app.log.back_mut().unwrap().2 = just_now();
@@ -575,7 +570,7 @@ fn edit_menu_and_confirmation() {
     let Fixture { _dir, mut app, root } = fixture();
     app.focus = Focus::Tracks;
     key(&mut app, KeyCode::Char('e'));
-    check(&mut app, "the edit menu", &["Edit ·", "set the rating…", "every change to the drive asks first"], &[]);
+    check(&mut app, "the edit menu", &["Actions ·", "set the rating…", "enter · esc close"], &[]);
     key(&mut app, KeyCode::Esc);
 
     // The plan for a rating, as the player gets it back from planning.

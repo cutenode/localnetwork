@@ -35,6 +35,43 @@ fn track_upgrade_points_an_mp3_at_its_lossless_file() {
     assert_eq!(v["outcome"], "nothing_to_do", "{v}");
 }
 
+/// For the demo drive's first track an MP3 of a recording heard some milliseconds late, and its
+/// second the same recording or another: `doctor --by-sound` finds the two the same recording
+/// only when they are; and `track upgrade` from a folder holding the first's lossless file plans
+/// it, moving its cues and grid back by at least that delay, and at most 30 ms more.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(delay = 26usize, same = true)]
+fn upgrade_and_doctor_match_tracks_by_their_sound(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let env = Env::ascii();
+    let demo = env.demo("Demo");
+    let d = path(&demo);
+    let album = demo.join("Contents/Loopmasters/UnknownAlbum");
+    let delay = tc.draw(gs::sampled_from(vec![10, 26, 40]));
+    let same = tc.draw(gs::booleans());
+    std::fs::write(album.join("Demo Track 1.mp3"), recording(7919, 30.0, 44_100, 16, delay)).unwrap();
+    std::fs::write(album.join("Demo Track 2.mp3"), recording(if same { 7919 } else { 104_729 }, 30.0, 44_100, 16, 0))
+        .unwrap();
+    let r = env.run(&["doctor", d, "--only", "duplicates", "--by-sound"]);
+    let said = format!("delay {delay}, same {same}: exit {}\n{}{}", r.code, r.out, r.err);
+    assert_eq!(r.code, if same { 4 } else { 0 }, "{said}");
+    assert_eq!(r.out.contains("(same recording, by sound)"), same, "{said}");
+
+    let music = env.outside("Lossless");
+    std::fs::create_dir_all(&music).unwrap();
+    std::fs::write(music.join("Demo Track 1.wav"), recording(7919, 30.0, 44_100, 16, 0)).unwrap();
+    let v = env.json(&["track", "upgrade", d, "--from", path(&music), "--dry-run"]);
+    let upgrades = v["plan"]["upgrades"].as_array().unwrap();
+    let first = upgrades.iter().find(|u| u["track"]["name"].as_str().is_some_and(|n| n.ends_with("Demo Track 1")));
+    let shift = first.and_then(|u| u["shift_ms"].as_i64()).unwrap_or_else(|| panic!("{said}\nno upgrade: {v}"));
+    // Back by the delay at least (the 10 ms one has come out 26 ms further back), never forward.
+    let back = -shift;
+    assert!(
+        back >= delay as i64 - 3 && back <= delay as i64 + 30,
+        "{said}\na delay of {delay} ms moved the cues {shift} ms: {v}"
+    );
+}
+
 /// The demo drive plus a 24-bit 96 kHz WAV in a playlist "Set".
 fn with_hi_res(root: &Path) {
     let file = "/Contents/Hi/Hi Res.wav";

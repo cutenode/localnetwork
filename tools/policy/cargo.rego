@@ -7,7 +7,10 @@ import data.lib
 workspace := lib.file("Cargo.toml").workspace
 
 # The members' manifests: apps/<app>/, crates/*, plugins/* and vendor/*.
-members := {path | some path in lib.manifests; endswith(path, "/Cargo.toml")}
+members contains path if {
+	some path in lib.manifests
+	endswith(path, "/Cargo.toml")
+}
 
 # crates/* and plugins/* join through globs; apps and vendored crates have to be listed.
 deny contains msg if {
@@ -66,7 +69,7 @@ deny contains msg if {
 dev_optimised := {"aes", "blake3", "clap_builder", "hmac", "hybrid-array", "inout", "jsonschema", "referencing", "ring", "sha2", "symphonia-codec-pcm", "symphonia-core"}
 
 # tools/policy.sh gives conftest Cargo.lock as /scratch/Cargo.lock.toml, so it parses it as TOML.
-locked := {p.name | some p in lib.file("/scratch/Cargo.lock.toml")["package"]}
+locked contains p.name if some p in lib.file("/scratch/Cargo.lock.toml")["package"]
 
 dev_packages := object.get(lib.file("Cargo.toml"), ["profile", "dev", "package"], {})
 

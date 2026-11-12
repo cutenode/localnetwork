@@ -2,7 +2,7 @@ import { TID } from '@atproto/common-web';
 import { z } from 'zod';
 import type { FlagKey } from '#lib/flags/keys.generated.ts';
 import { COLLECTION } from '#lib/nsid.ts';
-import type { FlagGroupView, Flags, FlagView, StaffGrant, Viewer } from '#lib/types.ts';
+import type { FlagGroupView, FlagPreview, Flags, FlagView, StaffGrant, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
 import { rkeyOf } from '../atproto/spaces';
 import type { AuditChange, AuditEvent } from '../audit/log';
@@ -10,11 +10,13 @@ import { type Core, ForbiddenError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 import { FLAGS } from '../flags/catalog';
 import { type FlagGates, isOn } from '../flags/evaluate';
+import { openPreview } from '../flags/preview';
 import { actorRole } from './requests';
 import type { StaffService } from './staff';
 
 export const flagRecord = z.object({
 	key: z.string(),
+	enabled: z.boolean().optional(),
 	everyone: z.boolean(),
 	percentage: z.number().int().min(0).max(100),
 	groups: z.array(z.string()),
@@ -39,32 +41,47 @@ type FlagGroupRecord = z.infer<typeof flagGroupRecord>;
 /** What getFlags tells a caller about a flag. */
 export type FlagAnswer = FlagGates & { key: FlagKey };
 
-export type FlagInput = Pick<FlagRecord, 'everyone' | 'percentage' | 'groups' | 'dids'>;
+export type FlagInput = Pick<FlagRecord, 'everyone' | 'percentage' | 'groups' | 'dids'> & { enabled: boolean };
 
 export type FlagGroupInput = Pick<FlagGroupRecord, 'name' | 'description' | 'members'>;
 
 type Loaded = {
-	flags: Map<string, Pick<FlagRecord, 'everyone' | 'percentage' | 'groups' | 'dids' | 'updatedAt'>>;
+	flags: Map<string, FlagInput & Pick<FlagRecord, 'updatedAt'>>;
 	groups: Map<string, Omit<FlagGroupRecord, 'members'> & { members: Set<string> }>;
 };
 
 const list = (items: string[]) => items.toSorted().join(', ');
 
-/** The audit changes between two flags' gates. Empty when saving changes nothing. */
-function flagChanges(before: FlagInput, after: FlagInput): AuditChange[] {
-	const fields = [
-		['everyone', String(before.everyone), String(after.everyone)],
-		['percentage', String(before.percentage), String(after.percentage)],
-		['groups', list(before.groups), list(after.groups)],
-		['accounts', list(before.dids), list(after.dids)]
-	];
+const inCatalog = (key: string) => FLAGS.some((flag) => flag.key === key);
 
-	return fields
+/** How long a flag has to be fully on, untouched, before the console says to remove it. PostHog uses the same. */
+const READY_TO_REMOVE_MS = 30 * 86_400_000;
+
+/** The audit changes among `[field, before, after]` values. Empty when saving changes nothing. */
+const changed = (fields: [string, string, string][]): AuditChange[] =>
+	fields
 		.values()
 		.filter(([, was, is]) => was !== is)
 		.map(([field, was, is]) => ({ field, before: was, after: is }))
 		.toArray();
-}
+
+/** The audit changes between two flags' gates. */
+const flagChanges = (before: FlagInput, after: FlagInput) =>
+	changed([
+		['enabled', String(before.enabled), String(after.enabled)],
+		['everyone', String(before.everyone), String(after.everyone)],
+		['percentage', String(before.percentage), String(after.percentage)],
+		['groups', list(before.groups), list(after.groups)],
+		['accounts', list(before.dids), list(after.dids)]
+	]);
+
+/** The audit changes between two versions of a group. */
+const groupChanges = (before: FlagGroupInput, after: FlagGroupInput) =>
+	changed([
+		['name', before.name, after.name],
+		['description', before.description ?? '', after.description ?? ''],
+		['members', list(before.members), list(after.members)]
+	]);
 
 /**
  * Feature flags and the groups they target: records in the root's staff space, indexed into SQLite so they rebuild from
@@ -74,10 +91,16 @@ function flagChanges(before: FlagInput, after: FlagInput): AuditChange[] {
 export class FlagService {
 	private loaded: Promise<Loaded> | null = null;
 
+	/** `overrides` forces flags on (true) or off for every caller, from FLAG_OVERRIDES in development and tests. */
 	constructor(
 		private readonly core: Core,
-		private readonly staff: Pick<StaffService, 'grants'>
-	) {}
+		private readonly staff: Pick<StaffService, 'grants'>,
+		private readonly overrides: Record<string, boolean> = {}
+	) {
+		for (const key of Object.keys(overrides)) {
+			if (!inCatalog(key)) throw new Error(`FLAG_OVERRIDES names ${key}, which is not in flags/catalog`);
+		}
+	}
 
 	private load(): Promise<Loaded> {
 		this.loaded ??= this.read().catch((cause: unknown) => {
@@ -99,6 +122,7 @@ export class FlagService {
 				flags.map((row) => [
 					row.key,
 					{
+						enabled: row.enabled === 1,
 						everyone: row.everyone === 1,
 						percentage: row.percentage,
 						groups: parseJson<string[]>(row.groupRkeys, []),
@@ -133,7 +157,19 @@ export class FlagService {
 			const targeted =
 				!!did && !!flag && (flag.dids.includes(did) || flag.groups.some((rkey) => groups.get(rkey)?.members.has(did)));
 
-			return { key, everyone: flag?.everyone ?? false, percentage: flag?.percentage ?? 0, targeted };
+			const answer = {
+				key,
+				enabled: flag?.enabled ?? true,
+				everyone: flag?.everyone ?? false,
+				percentage: flag?.percentage ?? 0,
+				targeted
+			};
+
+			const override = this.overrides[key];
+
+			if (override === undefined) return answer;
+
+			return override ? { ...answer, enabled: true, everyone: true } : { ...answer, enabled: false };
 		});
 	}
 
@@ -148,18 +184,22 @@ export class FlagService {
 	async list(): Promise<FlagView[]> {
 		const { flags, groups } = await this.load();
 		const accounts = await this.core.accounts.views([...flags.values()].flatMap((flag) => flag.dids));
+		const settled = new Date(Date.now() - READY_TO_REMOVE_MS).toISOString();
 
 		return FLAGS.map(({ key, description }) => {
 			const flag = flags.get(key);
+			const fullyOn = !!flag?.enabled && (flag.everyone || flag.percentage === 100);
 
 			return {
 				key,
 				description,
+				enabled: flag?.enabled ?? true,
 				everyone: flag?.everyone ?? false,
 				percentage: flag?.percentage ?? 0,
 				groups: (flag?.groups ?? []).map((rkey) => ({ rkey, name: groups.get(rkey)?.name ?? rkey })),
 				accounts: (flag?.dids ?? []).map((did) => ({ did, handle: accounts.get(did).handle })),
-				updatedAt: flag?.updatedAt ?? null
+				updatedAt: flag?.updatedAt ?? null,
+				readyToRemove: fullyOn && flag.updatedAt <= settled
 			};
 		});
 	}
@@ -202,14 +242,15 @@ export class FlagService {
 	async updateFlag(actor: Viewer, key: string, input: FlagInput): Promise<void> {
 		await this.requireGrant(actor, 'flags');
 
-		if (!FLAGS.some((flag) => flag.key === key)) throw new UserError('There is no flag with that key', 404);
+		if (!inCatalog(key)) throw new UserError('There is no flag with that key', 404);
 
 		if (!Number.isInteger(input.percentage) || input.percentage < 0 || input.percentage > 100)
 			throw new UserError('Enter a percentage from 0 to 100');
 		const { flags, groups } = await this.load();
 
 		if (input.groups.some((rkey) => !groups.has(rkey))) throw new UserError('That group no longer exists');
-		const changes = flagChanges(flags.get(key) ?? { everyone: false, percentage: 0, groups: [], dids: [] }, input);
+		const before = flags.get(key) ?? { enabled: true, everyone: false, percentage: 0, groups: [], dids: [] };
+		const changes = flagChanges(before, input);
 
 		if (changes.length === 0) return;
 		const root = await this.core.root();
@@ -228,8 +269,42 @@ export class FlagService {
 			action: 'flag.update',
 			subject: key,
 			subjectKind: 'flag',
-			summary: `Changed who ${key} is on for`,
+			summary:
+				before.enabled === input.enabled
+					? `Changed who ${key} is on for`
+					: input.enabled
+						? `Turned ${key} back on`
+						: `Turned ${key} off for everyone`,
 			changes
+		});
+	}
+
+	/** What a preview cookie turns on or off for `viewer`, while they still hold the flags grant. */
+	async preview(
+		viewer: Viewer,
+		cookie: string | undefined,
+		sessionToken: string | undefined
+	): Promise<FlagPreview | null> {
+		const preview = openPreview(cookie, sessionToken, viewer.did);
+
+		if (!preview || !(await this.staff.grants(viewer.did)).includes('flags')) return null;
+
+		return preview;
+	}
+
+	/**
+	 * Logs `actor` previewing `key` on or off in their own browser, or stopping with null. The route sets the cookie;
+	 * nothing changes for anyone else.
+	 */
+	async recordPreview(actor: Viewer, key: string, on: boolean | null): Promise<void> {
+		await this.requireGrant(actor, 'flags');
+
+		if (!inCatalog(key)) throw new UserError('There is no flag with that key', 404);
+		await this.audit(actor, {
+			action: 'flag.preview',
+			subject: key,
+			subjectKind: 'flag',
+			summary: on === null ? `Stopped previewing ${key}` : `Previewed ${key} ${on ? 'on' : 'off'} in their own browser`
 		});
 	}
 
@@ -260,22 +335,23 @@ export class FlagService {
 		return rkey;
 	}
 
+	/** Saving what's already set writes nothing. */
 	async updateGroup(actor: Viewer, rkey: string, input: FlagGroupInput): Promise<void> {
 		await this.requireGrant(actor, 'flagGroups');
 		const group = (await this.load()).groups.get(rkey);
 
 		if (!group) throw new UserError('That group no longer exists', 404);
 		await this.checkName(input.name, rkey);
+		const changes = groupChanges({ ...group, members: [...group.members] }, input);
+
+		if (changes.length === 0) return;
 		await this.writeGroup(rkey, { ...input, createdAt: group.createdAt, updatedBy: actor.did, updatedAt: nowIso() });
 		await this.audit(actor, {
 			action: 'flagGroup.update',
 			subject: rkey,
 			subjectKind: 'flagGroup',
 			summary: `Changed the flag group ${input.name}`,
-			changes: [
-				{ field: 'name', before: group.name, after: input.name },
-				{ field: 'members', before: list([...group.members]), after: list(input.members) }
-			]
+			changes
 		});
 	}
 
@@ -318,6 +394,7 @@ export class FlagService {
 
 	async indexFlag(uri: string, record: FlagRecord): Promise<void> {
 		const values = {
+			enabled: record.enabled === false ? 0 : 1,
 			everyone: record.everyone ? 1 : 0,
 			percentage: record.percentage,
 			groupRkeys: JSON.stringify(record.groups),

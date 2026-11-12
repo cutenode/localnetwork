@@ -127,6 +127,11 @@ _Avoid_: stick, device, volume, USB
 A saved copy of a drive's library in the store.
 _Avoid_: backup, version, commit
 
+**View**:
+A temporary, read-only folder of links into the store, laid out as one snapshot's drive tree, with
+nothing copied.
+_Avoid_: mount, browse folder, checkout
+
 **Backup**:
 What a change to a drive keeps on that drive so `undo` can put it back: the databases and the files
 the change replaces or deletes.
@@ -159,6 +164,60 @@ _Avoid_: tag list, cart, queue
 **Deck**:
 The player that plays one loaded track.
 _Avoid_: channel, turntable
+
+**Library layout**:
+The Library view with its panes and the deck strip.
+_Avoid_: list mode
+
+**Deck layout**:
+The Library view with the deck on the whole screen.
+_Avoid_: full screen
+
+**Browse overlay**:
+The Library view's panes opened over the Deck layout until a track's loaded, as a CDJ's BROWSE
+button does. Not the Browse node at the top of the tree.
+_Avoid_: library popup
+
+**Master**:
+The deck tempo and key differences are measured against: the player has one deck, so the track
+playing.
+_Avoid_: sync source
+
+**Overview**:
+The whole track's waveform, still, with a playhead that moves.
+_Avoid_: preview, in the player (it's the name of the analysis tag's data)
+
+**Zoomed view**:
+The waveform scrolling past a playhead fixed in the middle.
+_Avoid_: detail view, scrolling view
+
+**Band mode**:
+How a waveform is coloured, as rekordbox's players offer it: BLUE, RGB or 3Band.
+_Avoid_: waveform style, colour scheme
+
+**Chip**:
+A track row's mark in its cover's two main colours.
+_Avoid_: swatch
+
+**Palette**:
+The list of every command by name, opened with `:`.
+_Avoid_: launcher, command menu
+
+**Actions**:
+What can be done to the selection, opened with `e`.
+_Avoid_: context menu, edit menu
+
+**Job**:
+Something the player runs in the background: a plan, a write, a check, a read.
+_Avoid_: task, background process
+
+**Hints**:
+The keys the footer names, as much of them as the hint setting says: full, compact or off.
+_Avoid_: tips, shortcuts bar
+
+**Empty state**:
+What the library shows with no drive open: how to get one, and at most three next steps.
+_Avoid_: welcome screen, onboarding
 
 **Pads**:
 The deck's hot cue pads.

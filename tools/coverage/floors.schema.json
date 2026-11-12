@@ -1,0 +1,30 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "Rust coverage floors",
+	"description": "The least coverage each crate of the Rust workspace may have, as percentages: see tools/coverage/coverage.ts.",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["$schema", "floors"],
+	"properties": {
+		"$schema": { "const": "./floors.schema.json" },
+		"floors": {
+			"type": "object",
+			"minProperties": 1,
+			"propertyNames": { "pattern": "^(apps|crates|plugins|vendor)/[^/]+$" },
+			"additionalProperties": { "$ref": "#/$defs/floor" }
+		}
+	},
+	"$defs": {
+		"floor": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["lines", "functions", "regions"],
+			"properties": {
+				"lines": { "$ref": "#/$defs/percent" },
+				"functions": { "$ref": "#/$defs/percent" },
+				"regions": { "$ref": "#/$defs/percent" }
+			}
+		},
+		"percent": { "type": "number", "minimum": 0, "maximum": 100 }
+	}
+}

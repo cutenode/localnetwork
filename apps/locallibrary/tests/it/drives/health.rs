@@ -3,10 +3,35 @@
 
 use std::path::Path;
 
+use hegel::generators as gs;
+use hegel::{HealthCheck, TestCase};
+
 use crate::support::{Env, line, path};
 
 const TRACK_1: &str = "Contents/Loopmasters/UnknownAlbum/Demo Track 1.mp3";
 const TRACK_2: &str = "Contents/Loopmasters/UnknownAlbum/Demo Track 2.mp3";
+
+/// Good copies fetched `--from` a copy of the store go into the store, so with no store yet a
+/// verify given one is refused as a usage error, whatever it names and whether it repairs, and
+/// leaves no store and the drive as it was.
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+fn verify_from_a_copy_needs_the_store(tc: TestCase) {
+    let env = Env::new();
+    let main = env.drive("Main");
+    let before = Env::files_in(&env.volumes);
+    let from = tc.draw(gs::sampled_from(&["backup", "archive:stash", "s3:bucket/store", "/elsewhere"][..]));
+    let mut args = vec!["drive", "verify", path(&main), "--from", from];
+    if tc.draw(gs::booleans()) {
+        args.push("--repair");
+    }
+    if tc.draw(gs::booleans()) {
+        args.insert(0, "--yes");
+    }
+    let err = env.fails(2, &args);
+    assert!(err.contains("--from needs the store, and there's none yet"), "{args:?}: {err}");
+    assert!(!env.store.exists(), "{args:?} made a store");
+    assert!(Env::files_in(&env.volumes) == before, "{args:?} changed the drive");
+}
 
 #[test]
 fn verify_finds_damaged_and_missing_files_and_repairs_them_from_the_store() {
@@ -177,6 +202,47 @@ fn tidy_says_what_it_couldnt_remove() {
     let out = env.exits(5, &["--yes", "drive", "tidy", path(&main)]);
     set_mode(&locked, 0o755);
     assert!(out.contains("removed 0 file(s)") && line(&out, "Locked/.DS_Store: ").starts_with("! "), "{out}");
+}
+
+/// Clutter in folders that can't be written to, beside clutter in ones that can: tidy removes
+/// what it can, says each file it couldn't remove, and exits as a partial change does when there
+/// was one.
+#[cfg(unix)]
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn tidy_says_each_file_it_couldnt_remove(tc: TestCase) {
+    use crate::support::{permissions_enforced, set_mode};
+    if !permissions_enforced() {
+        return;
+    }
+    let env = Env::new();
+    let main = env.drive("Main");
+    let locked: Vec<String> =
+        (0..tc.draw(gs::integers::<usize>().max_value(2))).map(|i| format!("Locked{i}")).collect();
+    let open: Vec<String> = (0..tc
+        .draw(gs::integers::<usize>().min_value(usize::from(locked.is_empty())).max_value(2)))
+        .map(|i| format!("Open{i}"))
+        .collect();
+    for dir in locked.iter().chain(&open) {
+        std::fs::create_dir(main.join(dir)).unwrap();
+        std::fs::write(main.join(dir).join(".DS_Store"), "finder").unwrap();
+    }
+    for dir in &locked {
+        set_mode(&main.join(dir), 0o555);
+    }
+    let r = env.run(&["--yes", "drive", "tidy", path(&main)]);
+    for dir in &locked {
+        set_mode(&main.join(dir), 0o755);
+    }
+    assert_eq!(r.code, if locked.is_empty() { 0 } else { 5 }, "{}\n{}", r.out, r.err);
+    assert!(r.out.contains(&format!("removed {} file(s)", open.len())), "{}", r.out);
+    for dir in &locked {
+        assert!(line(&r.out, &format!("{dir}/.DS_Store: ")).starts_with("! "), "{}", r.out);
+        assert!(main.join(dir).join(".DS_Store").exists());
+    }
+    for dir in &open {
+        assert!(!r.out.contains(&format!("{dir}/.DS_Store: ")), "{}", r.out);
+        assert!(!main.join(dir).join(".DS_Store").exists());
+    }
 }
 
 /// Checking a file system or ejecting runs the system's own tools on the disk: here the tests

@@ -98,6 +98,7 @@ Every change shows what it will do and asks first. It ends with the commands you
 | You want to check your drives for a particular player | `locallibrary check --players CDJ-3000X,CDJ-2000NXS2` |
 | You changed your mind about the last change | `locallibrary undo` |
 | You want to browse and listen | `locallibrary` |
+| You want a past version of a drive as a folder, nothing copied | `locallibrary store browse <snapshot>` |
 | You want to know what a command does | `locallibrary help sync` |
 | Something went wrong | `locallibrary bug` (reports it, with your version and system filled in) |
 

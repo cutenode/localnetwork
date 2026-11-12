@@ -602,12 +602,41 @@ fn roles_text(listed: &Value) -> String {
 /// Any steps of `plugin roles` (a role read from an analyzer that has it, from one that doesn't,
 /// from none, or back from its default; confirmed or not; shown in text or `--json`): each role
 /// reads back as last chosen, its default until then and again once put back, and an analyzer
-/// that doesn't have it is refused, naming those that do. The text says what the JSON does.
+/// that doesn't have it is refused, naming those that do. The text says what the JSON does, and
+/// names the other analyzers a role could be read from (here, a second one of the key).
+/// Without the sound plugin (in a debug build, left out clashing with another called `sound`),
+/// no analyzer works out its roles (tempo, key, level), and the doctor's analysis says no plugin
+/// works them out.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn plugin_roles_read_back_as_last_chosen(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let env = Env::new();
+    let mut env = Env::new();
+    let without_sound = cfg!(debug_assertions) && tc.draw(gs::booleans());
+    if without_sound {
+        env.plugins(&[&crate::support::echo_plugin().replace("id = \"echo\"", "id = \"sound\"")]);
+        let root = env.demo("A");
+        let r = env.run(&["doctor", path(&root), "--only", "analysis"]);
+        assert_eq!(r.code, 1, "{}\n{}", r.out, r.err);
+        assert!(r.err.contains("error: no plugin works out bpm"), "{}", r.err);
+    } else if cfg!(debug_assertions) {
+        // A second analyzer of the key, beside the sound plugin's.
+        let heard = "\n[[contributes.analyzers]]\nname = \"heard\"\ntitle = \"Heard\"\nversion = \"1\"\n\
+                     fields = { tone = \"string\" }\nroles = { key = \"tone\" }\n";
+        env.plugins(&[&(crate::support::echo_plugin() + heard)]);
+        let key = env.ok(&["plugin", "roles", "key"]);
+        assert!(key.trim_end().ends_with("default; also echo.heard"), "{key}");
+    }
     let all = env.json(&["plugin", "roles"]);
+    if without_sound {
+        // The sound plugin's roles go with it; other plugins' (musicbrainz's) stay.
+        for c in all.as_array().unwrap() {
+            let offered = c["offered"].as_array().unwrap();
+            assert!(offered.iter().all(|o| !o.as_str().unwrap().starts_with("sound.")), "{all}");
+            if ["key", "bpm", "loudness"].contains(&c["role"].as_str().unwrap()) {
+                assert!(c["chosen"].is_null() && offered.is_empty(), "{all}");
+            }
+        }
+    }
     assert_eq!(env.ok(&["plugin", "roles"]), roles_text(&all));
     let roles: Vec<(String, Vec<String>, Value)> = all
         .as_array()
@@ -667,4 +696,54 @@ fn plugin_roles_read_back_as_last_chosen(tc: hegel::TestCase) {
         }
         assert_eq!(env.ok(&["plugin", "roles", role]), roles_text(&shown), "{said}");
     }
+}
+
+/// For the demo drive's first track heard at double or half its stored tempo, in its key or its
+/// parallel one, and the library's other track at the tempo heard or not: `doctor` lists the
+/// tempo with how the two relate, and the key when it's parallel; it offers `--fix-tempo` unless
+/// the library's tempos favour the stored one, and `--fix-tempo` then sets the tempo heard (a dry
+/// run changing nothing), or else has nothing to change.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn doctor_fixes_a_tempo_only_where_the_library_favours_the_analysis(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let env = Env::new();
+    let root = env.demo("A");
+    let lib = Device::open(&root).unwrap().library().unwrap();
+    let (t, other) = (&lib.tracks[0], &lib.tracks[1]);
+    let factor = tc.draw(gs::sampled_from(vec![2.0, 0.5]));
+    let (parallel, agrees, checks) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()), tc.draw(gs::booleans()));
+    let heard = factor * t.bpm;
+    if agrees {
+        let other_id = other.id.to_string();
+        env.ok(&["--yes", "track", "set", path(&root), "--track", &other_id, "--bpm", &heard.to_string()]);
+    }
+    let store = FieldStore::in_store(&Store::open_or_init(&env.store).unwrap());
+    let key = Camelot::parse(&t.key).unwrap();
+    let fields = [
+        (t, heard, if parallel { key.parallel() } else { key }),
+        (other, if agrees { heard } else { other.bpm }, Camelot::parse(&other.key).unwrap()),
+    ];
+    for (x, bpm, key) in fields {
+        store.put(&paths::to_fs(&root, &paths::key(&x.file_path)), &sound(), &analysis(bpm, key, -8.0, 0)).unwrap();
+    }
+    let bpm = || Device::open(&root).unwrap().library().unwrap().tracks[0].bpm;
+    let only = if checks { "analysis,checks" } else { "analysis" };
+    let out = env.ok(&["doctor", path(&root), "--only", only]);
+    let said = format!("x{factor}, parallel {parallel}, agrees {agrees}: {out}");
+    let relation = if factor > 1.0 { "(half" } else { "(double" };
+    assert!(line(&out, "Tempo (1)").contains("stored, then heard") && out.contains(relation), "{said}");
+    assert_eq!(out.contains("(parallel)"), parallel, "{said}");
+    let offered = out.contains("--fix-tempo` doubles or halves the beat grids");
+    assert_eq!(offered, !out.contains("the library's tempos favour the stored one"), "{said}");
+    assert!(offered || !agrees, "{said}");
+    if !offered {
+        assert!(env.ok(&["doctor", path(&root), "--fix-tempo"]).contains("nothing to change"), "{said}");
+        assert_eq!(bpm(), t.bpm);
+        return;
+    }
+    let dry = env.ok(&["doctor", path(&root), "--fix-tempo", "--dry-run"]);
+    assert!(dry.contains(&format!("set the beat grid of {}", t.file_path)), "{said}\n{dry}");
+    assert_eq!(bpm(), t.bpm, "a dry run changed it");
+    env.ok(&["--yes", "doctor", path(&root), "--fix-tempo"]);
+    assert!((bpm() - heard).abs() < 0.02, "{} from {}: {said}", bpm(), t.bpm);
 }

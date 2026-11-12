@@ -11,6 +11,10 @@
 				"required": ["key", "everyone", "percentage", "groups", "dids", "updatedBy", "updatedAt"],
 				"properties": {
 					"key": { "type": "string", "maxLength": 64 },
+					"enabled": {
+						"type": "boolean",
+						"description": "False turns it off for everyone and keeps the gates below for when it's back on. Missing means true."
+					},
 					"everyone": { "type": "boolean", "description": "On for every visitor, signed in or not." },
 					"percentage": {
 						"type": "integer",
