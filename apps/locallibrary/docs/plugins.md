@@ -300,7 +300,10 @@ says so.
 An analyzer may also work out a track's beat grid, phrases and waveform (fields of type `beats`,
 `phrases` and `waveform`). They're not columns: locallibrary keeps them in the store beside the
 analyzer's other values, and the player draws them for a track whose drive has none, marked as not
-on the drive. `locallibrary analyze [LIBRARY] --apply grid,phrases,waveform` writes them into the
+on the drive. When several analyzers work one out, it's drawn from the one chosen for it in
+`locallibrary plugin roles` (see [Roles](#roles)) where that one has worked it out for the track,
+else from the first with one.
+`locallibrary analyze [LIBRARY] --apply grid,phrases,waveform` writes them into the
 tracks' analysis files, planned and confirmed as any edit is (`undo` takes it back, and `edits
 replay` makes it again after rekordbox exports): only where a track has none, unless
 `--overwrite`. A grid sets the track's BPM too, and its cues stay where they are (the plan says
@@ -526,8 +529,8 @@ by an ISRC scores 0.95, by name 0.9, and one of several 0.5, for you to choose.
 
 An analyzer's manifest may say what some of its fields are to locallibrary: a track's key, its
 tempo (BPM), how sure it is of each, its loudness, true peak and clipped runs, what tells one
-recording from another, or its MusicBrainz IDs: the recording's (`recording`) and the release's
-(`release`), each a bare lowercase UUID, and the artists' (`artists`), a list with one for each
+recording from another (`identity`), or its MusicBrainz IDs: the recording's (`recording`) and the
+release's (`release`), each a bare lowercase UUID, and the artists' (`artists`), a list with one for each
 artist its credit names, in order, split as a published set splits them (at commas, semicolons and
 "feat."), with the ISRC they were looked up by (`isrc`) and the names the artists' go with
 (`credits`). Doctor's analysis, the check before a set, ordering a set (`playlist order`),
@@ -536,7 +539,9 @@ each, the sound plugin's and the musicbrainz plugin's unless another does too: `
 plugin roles` shows which, `plugin roles key PLUGIN.ANALYZER` chooses another that has it,
 `plugin roles recording --none` reads one from none (`sets publish` then looks nothing up), and
 `plugin roles key --reset` puts it back (kept in the store's `plugins/settings.json` as
-`analysis.roles.key`). `doctor --analyze` runs those analyzers first on the tracks they haven't
+`analysis.roles.key`). Nothing reads `identity` yet: it's reserved for telling when two tracks are
+the same recording (their values are equal), and the musicbrainz plugin answers it with the
+recording's ID. `doctor --analyze` runs those analyzers first on the tracks they haven't
 worked out, and so does `sets publish` for the MusicBrainz IDs of the tracks it names (see
 [Publishing](account.md#publishing)); the check and ordering a set read what they kept. A
 recording or release ID that isn't a UUID is left out, and so are the artists' unless every one
@@ -544,6 +549,13 @@ is a UUID and there's one for each name. What an analyzer keeps goes with the au
 library can retag without changing, so a track takes the IDs only when they were looked up by its
 ISRC, and the artists' only for its credit, as far as the analyzer says (`isrc`, `credits`);
 `sets publish` looks those tracks up again.
+
+A beat grid, phrases and a waveform are chosen the same way, as `grid`, `phrases` and `waveform`,
+from any analyzer that works one out: `plugin roles waveform PLUGIN.ANALYZER` has the player draw
+that analyzer's waveform (another's for a track it hasn't analysed), and `analyze --apply waveform`
+write it and no other's. With `--none` neither draws or writes any.
+Unchosen, the player draws each from the first analyzer with one for the track, and `--apply`
+asks which analyzer when several have it (`--plugin`, `--analyzer`).
 
 `locallibrary analyze LIBRARY --apply key,bpm` writes what the analyzer heard to the tracks, as an
 edit you're shown and asked about (only where a track has none unless `--overwrite`;

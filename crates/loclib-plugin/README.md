@@ -344,7 +344,8 @@ worked out with nothing to show. A field left out wasn't worked out.
 - `roles` says which of an analyzer's fields locallibrary reads as what (`Role`), a role to a
   field: `key` (a Camelot code, `8A`: a string), `bpm`, `key_confidence` and `bpm_confidence`
   (0 to 1), `loudness` (integrated LUFS), `true_peak` (dBTP), each a number, `clipped_runs` (an
-  integer), `identity` (a string, equal for one recording), `recording` and `release` (the
+  integer), `identity` (a string, equal for one recording; no host reads it yet, it's reserved for
+  telling two tracks are the same recording), `recording` and `release` (the
   MusicBrainz recording's and release's IDs, each a string: a bare lowercase UUID) and `artists`
   (a `string[]`: the MusicBrainz artist IDs, one for each name loclib-model's `artist_credits`
   splits the track's artist into, in its order), and what they were worked out from: `isrc` (a
@@ -355,7 +356,9 @@ worked out with nothing to show. A field left out wasn't worked out.
   field of another type than its role's is refused. Doctor's tempos, keys and levels, the check before a set, ordering a set, writing keys
   and BPMs to tracks and the MusicBrainz IDs of a set published to an Atmosphere account read a
   role from the analyzer the user chose for it, else the only one, else the first. Roles need no
-  feature of their own: a host that doesn't know them leaves them out.
+  feature of their own: a host that doesn't know them leaves them out. A beat grid, phrases and a
+  waveform need no role: locallibrary lets the user choose whose to draw and write from every
+  analyzer with one.
 
 ### checks
 
