@@ -26,6 +26,11 @@ impl Account {
         false
     }
 
+    /// Nothing's ever under way.
+    pub fn stop(&mut self) -> bool {
+        false
+    }
+
     /// No handle is ever typed.
     pub fn typing(&self) -> bool {
         false

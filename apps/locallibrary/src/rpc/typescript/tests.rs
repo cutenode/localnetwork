@@ -97,12 +97,26 @@ fn the_error_data_is_declared_once() {
 /// Names a schema might give a property or a definition: identifiers and not.
 const NAMES: &[&str] = &["a", "kind", "a b", "1st", "$x", "with-dash", "é", "_ok", "quote\"d"];
 
-/// A schema of the kinds schemars writes, nested up to `depth` deep, with names, constants
-/// and descriptions that need quoting or escaping.
+/// A schema of the kinds schemars writes (and now and then one it doesn't), nested up to `depth`
+/// deep, with names, constants and descriptions that need quoting or escaping.
 #[hegel::test_helper]
 fn schema(tc: &hegel::TestCase, depth: usize) -> Value {
     use hegel::generators as gs;
     let name = |tc: &hegel::TestCase| tc.draw(gs::sampled_from(NAMES));
+    // Now and then one schemars doesn't write: an enum of nothing, a type it doesn't know, a
+    // schema that's neither an object nor a boolean, properties with no type beside them.
+    if tc.draw(gs::weighted_booleans(0.1)) {
+        return match tc.draw(gs::integers::<u8>().max_value(4)) {
+            0 => json!({ "enum": [] }),
+            1 => json!({ "type": tc.draw(gs::sampled_from(&["decimal", "uint"][..])) }),
+            2 => json!({ "type": 7 }),
+            3 => tc.draw(gs::sampled_from(vec![json!(3), json!("string"), json!(null)])),
+            _ => {
+                let n = name(tc);
+                json!({ "properties": { n: { "type": "string" } }, "required": [] })
+            }
+        };
+    }
     let kind = tc.draw(gs::integers::<u8>().max_value(if depth == 0 { 6 } else { 12 }));
     let mut s = match kind {
         0 => json!({ "type": tc.draw(gs::sampled_from(&["string", "integer", "number", "boolean", "null"][..])) }),
@@ -198,7 +212,7 @@ fn any_schema_becomes_a_well_formed_type(tc: hegel::TestCase) {
     assert!(!t.is_empty());
     let tight_t = tight(t.clone());
     assert!(tight_t == t || tight_t == format!("({t})"), "{tight_t}");
-    if s["type"] == "object"
+    if (s["type"] == "object" || s.get("type").is_none())
         && let Some(props) = s["properties"].as_object()
     {
         let required: Vec<&Value> = s["required"].as_array().into_iter().flatten().collect();

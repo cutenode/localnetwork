@@ -2,6 +2,8 @@
 //! with `--json`), refused saying how to answer it, and answered with `--choose PARAM=VALUE`, the
 //! value as JSON or text. The test plugin's `titles` and `playlist` ask `ask` until given its param.
 
+use hegel::generators as gs;
+use hegel::{HealthCheck, TestCase};
 use serde_json::{Value, json};
 
 use crate::support::{Env, echo_plugin};
@@ -83,4 +85,56 @@ fn an_operation_asks_and_is_planned_answered() {
     let wrong = ask("name", &[json!(5)]);
     let err = env.fails(1, &["--yes", "echo", "playlist", "USB", "--params", &wrong]);
     assert!(err.contains("its question won't do"), "{err}");
+}
+
+/// Any questions a command asks together (each taking one value or a list of any, of numbers and
+/// text), without a terminal: refused saying how to answer each, every value aligned beside its
+/// label; given every answer with `--choose`, as JSON or as text, the command runs once with them
+/// all.
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+fn any_questions_a_command_asks_are_answered_with_choose(tc: TestCase) {
+    let env = env();
+    let mut questions = Vec::new();
+    let mut choose = Vec::new();
+    let mut given = Vec::new();
+    for q in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
+        let all = vec![json!(1), json!(22), json!("two"), json!("Peak Time")];
+        let values: Vec<Value> = tc.draw(gs::vecs(gs::sampled_from(all)).min_size(1).unique(true));
+        let multi = tc.draw(gs::booleans());
+        let param = format!("p{q}");
+        let mut question: Value = serde_json::from_str(&ask(&param, &values)).unwrap();
+        question["ask"]["multi"] = json!(multi);
+        questions.push(question["ask"].clone());
+        let answer = match multi {
+            true => json!(tc.draw(gs::subsequences(values.clone()))),
+            false => tc.draw(gs::sampled_from(values.clone())),
+        };
+        // Text that doesn't read as JSON is taken as it is.
+        let raw = match answer.as_str() {
+            Some(text) if tc.draw(gs::booleans()) => text.to_string(),
+            _ => answer.to_string(),
+        };
+        choose.extend(["--choose".to_string(), format!("{param}={raw}")]);
+        given.push(answer.to_string());
+    }
+    let mut asked = questions[0].clone();
+    asked["more"] = json!(questions[1..]);
+    let params = json!({ "ask": asked }).to_string();
+    let titles = ["echo", "titles", "USB", "--params", &params];
+    if tc.draw(gs::booleans()) {
+        let said = env.fails(2, &titles);
+        for q in &questions {
+            let takes = if q["multi"] == true { "a JSON list of any of" } else { "one of" };
+            let values: Vec<String> = q["items"].as_array().unwrap().iter().map(|i| i["value"].to_string()).collect();
+            let width = values.iter().map(String::len).max().unwrap();
+            let param = q["param"].as_str().unwrap();
+            let mut lines = vec![format!("Which one?: answer with --choose {param}=VALUE, VALUE {takes}:")];
+            lines.extend(values.iter().map(|v| format!("  {v:<width$}  is {v}")));
+            let lines = lines.join("\n");
+            assert!(said.contains(&lines), "{lines}\nin:\n{said}");
+        }
+        return;
+    }
+    let choose: Vec<&str> = choose.iter().map(String::as_str).collect();
+    assert_eq!(env.ok(&[&titles[..], &choose[..]].concat()).trim(), given.join(" "), "{choose:?}");
 }

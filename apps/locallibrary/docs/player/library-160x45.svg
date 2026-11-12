@@ -39,8 +39,8 @@
 <text x="324" y="68" fill="#9494a8">2</text>
 <text x="333" y="68" fill="#5c5c74">│</text>
 <text x="342" y="68" fill="#5cd6ff">│</text>
-<text x="414 423 432 441 450" y="68" fill="#9494a8" font-weight="bold">Title</text>
-<text x="774 783 792 801 810 819" y="68" fill="#9494a8" font-weight="bold">Artist</text>
+<text x="432 441 450 459 468" y="68" fill="#9494a8" font-weight="bold">Title</text>
+<text x="792 801 810 819 828 837" y="68" fill="#9494a8" font-weight="bold">Artist</text>
 <text x="1026 1035 1044 1053 1062" y="68" fill="#9494a8" font-weight="bold">Album</text>
 <text x="1269 1278 1287" y="68" fill="#9494a8" font-weight="bold">BPM</text>
 <text x="1332 1341 1350" y="68" fill="#9494a8" font-weight="bold">Key</text>
@@ -50,12 +50,12 @@
 <text x="0 9 18 27 36 45 54 63 72 81 90 99 108 117 126 135 144 153 162 171 180 189 198 207 216 225 234 243 252 261 270 279 288 297 306 315 324 333" y="86" fill="#5c5c74">╰────────────────────────────────────╯</text>
 <text x="342" y="86" fill="#5cd6ff">│</text>
 <text x="351" y="86" fill="#ff5ca0" font-weight="bold">▍</text>
-<text x="414 423 432 441" y="86" fill="#e2e2ec" font-weight="bold">Demo</text>
-<text x="459 468 477 486 495" y="86" fill="#e2e2ec" font-weight="bold">Track</text>
-<text x="513" y="86" fill="#e2e2ec" font-weight="bold">1</text>
-<text x="774 783 792 801 810 819 828 837 846 855 864" y="86" fill="#c3c3d1" font-weight="bold">Loopmasters</text>
+<text x="432 441 450 459" y="86" fill="#e2e2ec" font-weight="bold">Demo</text>
+<text x="477 486 495 504 513" y="86" fill="#e2e2ec" font-weight="bold">Track</text>
+<text x="531" y="86" fill="#e2e2ec" font-weight="bold">1</text>
+<text x="792 801 810 819 828 837 846 855 864 873 882" y="86" fill="#c3c3d1" font-weight="bold">Loopmasters</text>
 <text x="1278 1287 1296 1305 1314" y="86" fill="#ffc456" font-weight="bold">128.0</text>
-<text x="1341 1350" y="86" fill="#5cd6ff" font-weight="bold">Fm</text>
+<text x="1341 1350" y="86" fill="#5cd6ff" font-weight="bold">4A</text>
 <text x="1395 1404 1413 1422" y="86" fill="#9494a8" font-weight="bold">2:52</text>
 <text x="1431" y="86" fill="#5cd6ff">│</text>
 <rect x="1332" y="90" width="36" height="18" fill="#1e422a"/>
@@ -64,12 +64,12 @@
 <text x="36 45 54 63 72 81 90 99 108" y="104" fill="#9494a8" font-weight="bold">Playlists</text>
 <text x="126 135 144 153 162 171 180 189 198 207 216 225 234 243 252 261 270 279 288 297 306 315 324 333" y="104" fill="#5c5c74">───────────────────────╮</text>
 <text x="342" y="104" fill="#5cd6ff">│</text>
-<text x="414 423 432 441" y="104" fill="#e2e2ec">Demo</text>
-<text x="459 468 477 486 495" y="104" fill="#e2e2ec">Track</text>
-<text x="513" y="104" fill="#e2e2ec">2</text>
-<text x="774 783 792 801 810 819 828 837 846 855 864" y="104" fill="#c3c3d1">Loopmasters</text>
+<text x="432 441 450 459" y="104" fill="#e2e2ec">Demo</text>
+<text x="477 486 495 504 513" y="104" fill="#e2e2ec">Track</text>
+<text x="531" y="104" fill="#e2e2ec">2</text>
+<text x="792 801 810 819 828 837 846 855 864 873 882" y="104" fill="#c3c3d1">Loopmasters</text>
 <text x="1278 1287 1296 1305 1314" y="104" fill="#ffc456">120.0</text>
-<text x="1341 1350" y="104" fill="#78de8c" font-weight="bold">Fm</text>
+<text x="1332 1341 1350" y="104" fill="#78de8c" font-weight="bold">=4A</text>
 <text x="1395 1404 1413 1422" y="104" fill="#9494a8">2:08</text>
 <text x="1431" y="104" fill="#5cd6ff">│</text>
 <rect x="9" y="108" width="324" height="18" fill="#20202e"/>
@@ -220,7 +220,7 @@
 <text x="333 342 351 360 369" y="716" fill="#9494a8">press</text>
 <text x="387 396 405 414 423 432" y="716" fill="#9494a8">enter.</text>
 <text x="1413 1422 1431" y="716" fill="#9494a8">80%</text>
-<text x="0" y="770" fill="#ffffff">●</text>
+<text x="0" y="770" fill="#e2e2ec">●</text>
 <text x="9 18 27 36 45 54 63 72 81 90 99 108 117 126 135 144 153 162 171 180 189 198 207 216 225 234 243 252 261 270 279 288 297 306 315 324 333 342 351 360 369 378 387 396 405 414 423 432 441 450 459 468 477 486 495 504 513 522 531 540 549 558 567 576 585 594 603 612 621 630 639 648 657 666 675 684 693 702 711 720 729 738 747 756 765 774 783 792 801 810 819 828 837 846 855 864 873 882 891 900 909 918 927 936 945 954 963 972 981 990 999 1008 1017 1026 1035 1044 1053 1062 1071 1080 1089 1098 1107 1116 1125 1134 1143 1152 1161 1170 1179 1188 1197 1206 1215 1224 1233 1242 1251 1260 1269 1278 1287 1296 1305 1314 1323 1332 1341 1350 1359 1368 1377 1386 1395 1404 1413 1422 1431" y="770" fill="#5c5c74">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</text>
 <rect x="0" y="774" width="72" height="18" fill="#9494a8"/>
 <text x="9 18 27 36 45 54" y="788" fill="#0e0e14" font-weight="bold">BROWSE</text>
@@ -239,23 +239,22 @@
 <text x="486 495" y="806" fill="#9494a8">to</text>
 <text x="513 522 531 540 549" y="806" fill="#9494a8">crate</text>
 <text x="576" y="806" fill="#ff5ca0" font-weight="bold">e</text>
-<text x="594 603 612 621" y="806" fill="#9494a8">edit</text>
-<text x="648" y="806" fill="#ff5ca0" font-weight="bold">i</text>
-<text x="666 675 684 693" y="806" fill="#9494a8">info</text>
-<text x="720" y="806" fill="#ff5ca0" font-weight="bold">t</text>
-<text x="738 747 756 765 774" y="806" fill="#9494a8">crate</text>
-<text x="801" y="806" fill="#ff5ca0" font-weight="bold">T</text>
-<text x="819 828" y="806" fill="#9494a8">My</text>
-<text x="846 855 864" y="806" fill="#9494a8">Tag</text>
-<text x="891" y="806" fill="#ff5ca0" font-weight="bold">f</text>
-<text x="909 918 927 936" y="806" fill="#9494a8">full</text>
-<text x="954 963 972 981 990 999" y="806" fill="#9494a8">screen</text>
-<text x="1026 1035 1044" y="806" fill="#ff5ca0" font-weight="bold">tab</text>
-<text x="1062 1071 1080 1089 1098" y="806" fill="#9494a8">focus</text>
-<text x="1125" y="806" fill="#ff5ca0" font-weight="bold">:</text>
-<text x="1143 1152 1161 1170 1179 1188 1197 1206" y="806" fill="#9494a8">commands</text>
-<text x="1233" y="806" fill="#ff5ca0" font-weight="bold">?</text>
-<text x="1251 1260 1269 1278" y="806" fill="#9494a8">help</text>
-<text x="1305" y="806" fill="#ff5ca0" font-weight="bold">q</text>
-<text x="1323 1332 1341 1350" y="806" fill="#9494a8">quit</text>
+<text x="594 603 612 621 630 639 648" y="806" fill="#9494a8">actions</text>
+<text x="675" y="806" fill="#ff5ca0" font-weight="bold">i</text>
+<text x="693 702 711 720" y="806" fill="#9494a8">info</text>
+<text x="747" y="806" fill="#ff5ca0" font-weight="bold">t</text>
+<text x="765 774 783 792 801" y="806" fill="#9494a8">crate</text>
+<text x="828" y="806" fill="#ff5ca0" font-weight="bold">T</text>
+<text x="846 855" y="806" fill="#9494a8">My</text>
+<text x="873 882 891" y="806" fill="#9494a8">Tag</text>
+<text x="918" y="806" fill="#ff5ca0" font-weight="bold">f</text>
+<text x="936 945 954 963" y="806" fill="#9494a8">deck</text>
+<text x="990 999 1008" y="806" fill="#ff5ca0" font-weight="bold">tab</text>
+<text x="1026 1035 1044 1053 1062" y="806" fill="#9494a8">focus</text>
+<text x="1089" y="806" fill="#ff5ca0" font-weight="bold">:</text>
+<text x="1107 1116 1125 1134 1143 1152 1161 1170" y="806" fill="#9494a8">commands</text>
+<text x="1197" y="806" fill="#ff5ca0" font-weight="bold">?</text>
+<text x="1215 1224 1233 1242" y="806" fill="#9494a8">help</text>
+<text x="1269" y="806" fill="#ff5ca0" font-weight="bold">q</text>
+<text x="1287 1296 1305 1314" y="806" fill="#9494a8">quit</text>
 </svg>

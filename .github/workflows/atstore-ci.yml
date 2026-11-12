@@ -33,7 +33,7 @@ jobs:
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm check
-      - run: pnpm knip
+      - run: pnpm -w knip
       # The render tests draw the icon and the hero in Chromium.
       - run: pnpm exec playwright install chromium
       - run: pnpm test:coverage

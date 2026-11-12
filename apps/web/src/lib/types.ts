@@ -358,17 +358,24 @@ export type StaffGrant = 'flags' | 'flagGroups';
 /** Every feature flag, on or off for whoever is looking. */
 export type Flags = Record<FlagKey, boolean>;
 
+/** Flags a staff member sees on or off in one browser, instead of what everyone else sees. */
+export type FlagPreview = Partial<Flags>;
+
 export type FlagAccount = { did: string; handle: string | null };
 
 /** A feature flag as the staff console shows it. */
 export type FlagView = {
 	key: FlagKey;
 	description: string;
+	/** False when it's turned off for everyone. The gates below are kept for when it's back on. */
+	enabled: boolean;
 	everyone: boolean;
 	percentage: number;
 	groups: { rkey: string; name: string }[];
 	accounts: FlagAccount[];
 	updatedAt: string | null;
+	/** On for everyone, or every account, and unchanged for 30 days: time to take it out of the code. */
+	readyToRemove: boolean;
 };
 
 /** A group feature flags can target, and the flags that do. */

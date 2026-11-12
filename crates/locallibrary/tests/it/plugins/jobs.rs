@@ -115,7 +115,8 @@ enum Asked {
 /// is written; otherwise it's one step, a plan for each, and applying it makes each in order.
 /// Skipped, none is planned.
 #[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn a_refreshs_operations_are_planned_up_front(tc: TestCase) {
+#[hegel::explicit_test_case(asked = vec![Asked::Make, Asked::Make], skip = false)]
+fn a_refresh_plans_its_operations_up_front(tc: TestCase) {
     let f = Hosted::new(Fixture::echo());
     let all = vec![Asked::Make, Asked::MissingPlugin, Asked::MissingOperation, Asked::Unnamed, Asked::NoName];
     let asked: Vec<Asked> = tc.draw(gs::vecs(gs::sampled_from(all)).min_size(1).max_size(4));

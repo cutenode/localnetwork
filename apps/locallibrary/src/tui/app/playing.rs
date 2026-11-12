@@ -5,11 +5,13 @@ use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use locallibrary::anlz::{PhraseKind, TrackAnalysis};
+use locallibrary::anlz::Cue;
+use locallibrary::anlz::{PhraseKind, TrackAnalysis, TrackWaves};
 use locallibrary::{Library, Track};
-use loclib_waveform::Art;
+use loclib_waveform::{Art, Wave};
 
 use crate::tui::audio::{self};
+use crate::tui::deck::BandMode;
 use crate::tui::keys::Camelot;
 
 use super::*;
@@ -21,6 +23,7 @@ pub struct NowPlaying {
     pub drive: String,
     pub root: PathBuf,
     pub analysis: TrackAnalysis,
+    pub waves: DriveWaves,
     /// What of the analysis is a plugin's, not the drive's: a line to show.
     pub from_plugins: Option<String>,
     pub art: Option<Art>,
@@ -39,6 +42,22 @@ pub struct NowPlaying {
     pub opening: bool,
     /// Started by moving through the queue: if it won't play, the queue moves on past it.
     pub advancing: bool,
+}
+
+/// What the drive says of how a track's waveforms are drawn.
+pub struct DriveWaves {
+    /// Every kind it has.
+    pub kinds: TrackWaves,
+    /// What its My Settings colour them with, when it has them.
+    pub bands: Option<BandMode>,
+    /// What the overview's and the zoomed view's 3-band waveforms are turned up by.
+    pub gains: (f32, f32),
+}
+
+impl Default for DriveWaves {
+    fn default() -> DriveWaves {
+        DriveWaves { kinds: TrackWaves::default(), bands: None, gains: (1.0, 1.0) }
+    }
 }
 
 pub struct PhraseSpan {
@@ -70,7 +89,67 @@ pub(super) fn phrase_spans(analysis: &TrackAnalysis, duration: Duration) -> Vec<
         .collect()
 }
 
+/// What's tried for `mode`, when it isn't there: the others, best first.
+fn tried(mode: BandMode) -> [BandMode; 3] {
+    match mode {
+        BandMode::Blue => [BandMode::Blue, BandMode::Rgb, BandMode::ThreeBand],
+        BandMode::Rgb => [BandMode::Rgb, BandMode::ThreeBand, BandMode::Blue],
+        BandMode::ThreeBand => [BandMode::ThreeBand, BandMode::Rgb, BandMode::Blue],
+    }
+}
+
 impl NowPlaying {
+    /// The overview in `mode`, or the nearest there is, and what that came to. Older analysis has
+    /// only blue, and what a plugin worked out is only in the analysis.
+    pub fn overview_wave(&self, mode: BandMode) -> Option<(Wave<'_>, Option<BandMode>)> {
+        let (w, gain) = (&self.waves.kinds, self.waves.gains.0);
+        let of = |m: BandMode| match m {
+            BandMode::Blue => w.blue_preview.as_ref().map(Wave::Layers),
+            BandMode::Rgb => w.rgb_preview.as_ref().map(Wave::Layers),
+            BandMode::ThreeBand => {
+                w.band_preview.as_ref().map(|bands| Wave::Bands { bands, columns_per_sec: None, gain })
+            }
+        };
+        (tried(mode).into_iter().find_map(|m| Some((of(m)?, Some(m)))))
+            .or_else(|| Some((Wave::Layers(self.analysis.preview.as_ref()?), None)))
+    }
+
+    /// The zoomed waveform in `mode`, or the nearest there is, and what that came to.
+    pub fn zoom_wave(&self, mode: BandMode) -> Option<(Wave<'_>, Option<BandMode>)> {
+        let (w, gain) = (&self.waves.kinds, self.waves.gains.1);
+        let of = |m: BandMode| match m {
+            BandMode::Blue => w.blue_detail.as_ref().map(Wave::Layers),
+            BandMode::Rgb => w.rgb_detail.as_ref().map(Wave::Layers),
+            BandMode::ThreeBand => {
+                w.band_detail.as_ref().map(|(bands, rate)| Wave::Bands { bands, columns_per_sec: Some(*rate), gain })
+            }
+        };
+        (tried(mode).into_iter().find_map(|m| Some((of(m)?, Some(m)))))
+            .or_else(|| Some((Wave::Layers(self.analysis.detail.as_ref()?), None)))
+    }
+
+    /// The tempo at `ms`: the beat grid's there, else the track's.
+    pub fn bpm_at(&self, ms: f64) -> f64 {
+        let at_beat = self.beat_at(ms).map(|(i, _, _)| self.analysis.beats[i].bpm);
+        at_beat.filter(|b| *b > 0.0).unwrap_or(self.track.bpm)
+    }
+
+    /// Whole bars and beats on the grid from `ms` to `to_ms`, as a CDJ counts down to a cue:
+    /// `None` without a grid there.
+    pub fn bars_to(&self, ms: f64, to_ms: f64) -> Option<(usize, usize)> {
+        let beats = &self.analysis.beats;
+        let beat = beats.partition_point(|b| f64::from(b.time_ms) <= ms).checked_sub(1)?;
+        let target = beats.partition_point(|b| f64::from(b.time_ms) < to_ms);
+        let left = target.saturating_sub(beat);
+        Some((left / 4, left % 4))
+    }
+
+    /// The next cue after `ms`, a hot cue over a memory cue at the same spot.
+    pub fn next_cue(&self, ms: f64) -> Option<&Cue> {
+        let later = self.analysis.cues.iter().filter(|c| f64::from(c.start_ms) > ms + 50.0);
+        later.min_by_key(|c| (c.start_ms, c.hot_cue.is_none()))
+    }
+
     /// The phrase playing at `ms`, its index, and the bar within it (from 1).
     pub fn phrase_at(&self, ms: f64) -> Option<(usize, &PhraseSpan, u16)> {
         let i = self.phrases.iter().position(|p| p.start_ms <= ms && ms < p.end_ms)?;

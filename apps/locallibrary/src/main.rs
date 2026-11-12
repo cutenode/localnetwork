@@ -696,6 +696,25 @@ enum StoreCommand {
     },
     /// Where the store has been copied, when, and whether each copy is up to date
     Copies,
+    /// Open a past version of a drive as a folder of read-only links into the store, nothing
+    /// copied: it's there until Ctrl-C, then removed (macOS and Linux)
+    Browse {
+        /// Snapshot id (prefix) or label
+        snapshot: String,
+        /// Make it in this new or empty folder [default: a temporary one]
+        #[arg(long, value_name = "DIR")]
+        to: Option<PathBuf>,
+        /// Leave it there until `store unbrowse` instead of waiting for Ctrl-C
+        #[arg(long)]
+        keep: bool,
+    },
+    /// The folders `store browse` has open, and any broken links in them
+    Views,
+    /// Remove a folder `store browse` left open [default: all of them]
+    Unbrowse {
+        /// The folder
+        path: Option<PathBuf>,
+    },
     /// Bring back what a copy of the store at a plugin's destination has that this store lacks
     /// (after losing a computer, say): nothing this store has is replaced
     Restore {
@@ -1419,7 +1438,11 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
             // Reads about the store, and changes to what it holds already, never make one.
             let existing = || diff_cmd::store_to_read(&cli.store);
             match command.unwrap_or(StoreCommand::Info) {
-                StoreCommand::Info => out.emit(&api::store_info(&existing()?)?, render::store_info),
+                StoreCommand::Info => {
+                    let store = existing()?;
+                    out.emit(&api::store_info(&store)?, render::store_info);
+                    store_cmd::views_open(&store)?;
+                }
                 StoreCommand::Gc { dry_run } => {
                     let store = existing()?;
                     let plan = api::store_gc_plan(&store)?;
@@ -1465,6 +1488,11 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
                     };
                 }
                 StoreCommand::Copies => return store_cmd::copies(&cli.store, out),
+                StoreCommand::Browse { snapshot, to, keep } => {
+                    return store_cmd::browse(&existing()?, &snapshot, to.as_deref(), keep, out, &ctx);
+                }
+                StoreCommand::Views => return store_cmd::views(&cli.store, out),
+                StoreCommand::Unbrowse { path } => return store_cmd::unbrowse(&existing()?, path, out),
                 StoreCommand::IndexLimit { limit } => return store_cmd::index_limit(&cli.store, limit, out),
                 StoreCommand::Restore { from, libraries, dry_run } => {
                     let options = locallibrary::offsite::RestoreOptions { libraries, dry_run };

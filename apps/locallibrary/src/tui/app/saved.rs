@@ -6,8 +6,11 @@ use std::time::{Duration, Instant};
 use locallibrary::Track;
 use locallibrary::query::FieldName;
 
+use crate::tui::choices::Hints;
 use crate::tui::crate_list::CrateTrack;
+use crate::tui::deck::{BandMode, END_WARNING};
 use crate::tui::icons::IconSet;
+use crate::tui::keys::{KeyPalette, Notation};
 use crate::tui::state::{self, Saved, SavedCrateTrack, SavedQueue};
 use crate::tui::terminal::Answers;
 use crate::tui::theme::Tier;
@@ -47,6 +50,15 @@ impl App {
         self.deck.output = s.output.clone();
         self.deck.single = s.single;
         self.deck.auto_cue = s.auto_cue;
+        self.deck_layout = s.deck_layout;
+        self.deck.notation = s.notation.as_deref().and_then(Notation::parse).unwrap_or_default();
+        self.deck.key_palette = s.key_palette.as_deref().and_then(KeyPalette::parse).unwrap_or_default();
+        self.deck.bands = s.bands.as_deref().and_then(BandMode::parse);
+        self.deck.end_warning = s.end_warning.unwrap_or(END_WARNING);
+        self.deck.art = s.art.unwrap_or(true);
+        self.hints = s.hints.as_deref().and_then(Hints::parse).unwrap_or_default();
+        self.recent_commands = s.recent_commands.clone();
+        self.intro_seen = s.intro_seen.clone();
         if let Some(v) = s.volume {
             self.set_volume(v);
         }
@@ -84,6 +96,15 @@ impl App {
             output: self.deck.output.clone(),
             single: self.deck.single,
             auto_cue: self.deck.auto_cue,
+            deck_layout: self.deck_layout,
+            notation: Some(self.deck.notation.name().to_string()),
+            key_palette: Some(self.deck.key_palette.name().to_string()),
+            bands: self.deck.bands.map(|b| b.name().to_string()),
+            end_warning: Some(self.deck.end_warning),
+            art: Some(self.deck.art),
+            hints: (self.hints != Hints::default()).then(|| self.hints.name().to_string()),
+            recent_commands: self.recent_commands.clone(),
+            intro_seen: self.intro_seen.clone(),
             mixes: self.mix.recent.clone(),
             mix_folders: self.mix.folders.clone(),
             crate_list: (self.crate_list.items.iter())

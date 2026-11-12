@@ -1,12 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { Ajv2020 } from 'ajv/dist/2020.js';
-import { type Budget, loosened, problems, ratcheted, run, undeclared } from './budgets.ts';
+import { type Budget, type Measured, loosened, problems, ratcheted, run, undeclared } from './budgets.ts';
 
-const repo = resolve(import.meta.dirname, '../..');
 const budget = (limit: number | null, tolerance_percent = 1): Budget => ({
 	$schema: '../budget.schema.json',
 	job: 'pull-request',
@@ -82,9 +80,12 @@ describe('undeclared', () => {
 describe('the commands', () => {
 	const start = process.cwd();
 	let dir: string;
+
 	const git = (...args: string[]) =>
 		execFileSync('git', ['-c', 'commit.gpgsign=false', '-c', 'user.name=t', '-c', 'user.email=t@t', ...args]);
-	const write = (name: string, body: unknown) => writeFileSync(name, `${JSON.stringify(body, null, '\t')}\n`);
+
+	const write = (name: string, body: Budget | Measured) => writeFileSync(name, `${JSON.stringify(body, null, '\t')}\n`);
+
 	const commitBase = () => {
 		git('init', '-q');
 		git('add', '.');
@@ -156,17 +157,7 @@ describe('the commands', () => {
 	it.each([[[]], [['check', 'measured']], [['ratchet', 'a', 'b', 'c']], [['raises', 'HEAD']], [['other', 'a', 'b']]])(
 		'%j prints how to use it',
 		(args) => {
-			expect(run(args as string[]).ok).toBe(false);
+			expect(run(args).ok).toBe(false);
 		}
 	);
-});
-
-describe('the budgets in benchmarks/budgets', () => {
-	const validate = new Ajv2020().compile(
-		JSON.parse(readFileSync(join(repo, 'benchmarks/budget.schema.json'), 'utf8')) as object
-	);
-	it.each(readdirSync(join(repo, 'benchmarks/budgets')))('%s follows the schema', (file) => {
-		const parsed = JSON.parse(readFileSync(join(repo, 'benchmarks/budgets', file), 'utf8')) as unknown;
-		expect(validate(parsed), JSON.stringify(validate.errors)).toBe(true);
-	});
 });

@@ -93,7 +93,8 @@ const VALUES: &[&str] = &[
 
 /// Every hint that names a command is one the command line reads, with each value given
 /// back as it was (quoted where a shell needs it); one that adds to the request names a flag
-/// for each parameter it adds, and leaves out a switch that's off.
+/// for each parameter it adds, and leaves out a switch that's off. One missing a value it needs
+/// (a drive's role without the drive) says where it goes.
 #[hegel::test(test_cases = 200)]
 fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
     use hegel::generators as gs;
@@ -137,6 +138,10 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
         params.insert(key.into(), tc.draw(gs::booleans()).into());
     }
     let method = tc.draw(gs::sampled_from(&methods[..]));
+    // A drive's role is often asked for without the drive: the hint says where it goes.
+    if method == "drive.role" && tc.draw(gs::booleans()) {
+        params.remove("drive");
+    }
     // Signing in again names the account by its subject.
     let again = method == "accounts.sign_in.begin" && tc.draw(gs::booleans());
     if again {
@@ -180,6 +185,7 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
             comes_back(params["account"]["subject"].as_str().unwrap());
             scopes.iter().for_each(|s| comes_back(s));
         }
+        "drive.role" if !params.contains_key("drive") => comes_back("<DRIVE>"),
         _ => {}
     }
 

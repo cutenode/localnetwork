@@ -35,5 +35,5 @@ Ctrl-C stops a run and cleans up after it: the commands it started end, the play
 
 ```bash
 pnpm test:coverage   # from this folder
-pnpm verify          # format, lint, types, unused code, tests with coverage
+pnpm verify          # format, lint, types, tests with coverage
 ```
