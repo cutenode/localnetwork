@@ -22,14 +22,14 @@ whether your own Likes page is opened as a list rather than a grid of badges
 (see [Opening your likes as a list](#opening-your-likes-as-a-list)),
 what the third-party downloader hands a gate that asks for it — the email
 address, the name beside it, and whether saving a file marks its track —
-which shops the Manager's search badges point at (see
+which shops the Manager's search badges point at, including ones you add (see
 [Artist searches](#artist-searches); the [artists](#artists) tool's opened
 rows carry the same badges), and whether an opened row's words are
 put into Title Case (see [Title Case](#title-case)). Those are typed or ticked once and never
 thought about again, which is what makes them settings rather than one panel's
 options; a failed row that wants one opens this sheet. One section is not a setting at all: most of what the
 extension has saved (the marks, the looked-up details, the Manager's list,
-the artists list, the session queue and three panel options) goes out to one JSON file there and
+the artists list, the session queue, the search sites you added and three panel options) goes out to one JSON file there and
 reads back in, adding to what is here unless a switch is turned on to replace
 it (see [Saving and restoring it all](#saving-and-restoring-it-all)). The last,
 **about**, says which version this is (and the commit it was built from), and
@@ -155,9 +155,12 @@ src/
                        track — set in the settings sheet and read by the panel
     search-sites.json  the sites a link-less track offers a search on: a list of
                        plain objects, which is all adding one takes
+    search-sites.schema.json  the JSON Schema that file names in `$schema`
     search-sites.ts    reads that file and fills a search URL's {variables} in
-    search-sites.svelte.ts  which of those badges are switched on, set in the
-                       settings sheet and read by the Manager panel
+    search-sites.svelte.ts  which of those badges are switched on, and the sites
+                       added in settings, read by the Manager panel
+    components/SearchSiteForm.svelte  the settings sheet's form for adding or
+                       editing a search site
     settings-sheet.ts  fetches the settings sheet's chunk
     bug-report.ts      the settings sheet's report a bug link: GitHub's bug
                        form, with the version, browser and open tool filled in
@@ -287,12 +290,13 @@ different lengths of time.
 **Options** are settings, and are kept for good in the popup page's own
 `localStorage` (`$lib/prefs.svelte.ts`): the output format, the sort order,
 the background-tabs switch, the two Hide toggles, the email and name some gates and drops ask for,
-which search badges are switched on, and whether an opened row's words are
-title-cased.
+which search badges are switched on, the search sites you added, and whether
+an opened row's words are title-cased.
 No storage permission is asked for on the user's behalf to hold them. Three of
 them, the background-tabs switch, the sort order and **Hide downloaded**, are
 in the exported state file, so they travel to another install with the marks
-(see "Saving and restoring it all"); the rest stay on this install. An
+(see "Saving and restoring it all"), and so do the search sites you added; the
+rest stay on this install. An
 import sets one of the three only where nothing is set already, so a file carries an option
 to an install that has never been asked rather than overruling a choice made
 here; asking the import to replace is what overrules them, and then it puts
@@ -1507,10 +1511,10 @@ file and reads one back (`src/lib/components/StateTransfer.svelte`).
 It was the Manager panel's own footer, which was the wrong place for it twice
 over. The file carries the marks a SoundCloud page paints, the content
 script's cache of lookups, the [session queue](#session-queue) behind every
-header's count, the [artists](#artists) tool's list and three panels' options
-— one of its members is the Manager's list and the rest are not — and a
-backup is something one takes _before_ opening a playlist rather than while
-looking at one. The panel's footer still
+header's count, the [artists](#artists) tool's list, the search sites added
+in settings and three panels' options. Only one of its members is the
+Manager's list, and a backup is something one takes _before_ opening a
+playlist rather than while looking at one. The panel's footer still
 points at it, since the list is the biggest thing in the file and so where
 somebody goes looking. The section opens with a row of counts — marks, tracks
 looked up, tracks listed, artists, tracks queued — because a button reading
@@ -2021,11 +2025,23 @@ one off takes its badge off every row and its name out of the sentence above
 the section. Turn them all off and a link-less row carries nothing but its own
 toggles, which the panel and the sheet both say out loud.
 
-The sites are not written into the panel. They are a list of plain objects in
-[`src/lib/search-sites.json`](src/lib/search-sites.json), read and checked by
-[`src/lib/search-sites.ts`](src/lib/search-sites.ts), and adding one is an
+The sites are not written into the panel. They are a list of plain objects
+under `sites` in [`src/lib/search-sites.json`](src/lib/search-sites.json),
+specified by [`src/lib/search-sites.schema.json`](src/lib/search-sites.schema.json)
+(which the file names in `$schema`, so an editor checks it), read and checked
+by [`src/lib/search-sites.ts`](src/lib/search-sites.ts), and adding one is an
 entry in that file and nothing else — no code change, and no manifest change
 either, since a badge opens a tab and never fetches.
+
+**add a site** in the same Settings section adds one of your own in the same
+shape: a name, the badge's letters and colours, and the search address. The
+line under the address says why one cannot be used (not `https:`, no
+variable, a variable that does not exist, or a search that is already a
+badge), and **save** stays off until it can. Yours come after the shipped
+ones, each with its own switch and with buttons to edit and remove it. They
+are kept in the popup's `localStorage` (`pref:search-sites`) and go into the
+exported state file; importing one adds the sites whose search is not already
+a badge.
 
 | Badge | Site      | URL                                                         |
 | ----- | --------- | ----------------------------------------------------------- |

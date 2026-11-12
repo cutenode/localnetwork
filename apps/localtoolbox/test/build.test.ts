@@ -325,12 +325,15 @@ describe('the bundle', () => {
 			// the bundle's. Svelte's own errors end in a link to their page on
 			// svelte.dev, which is text in a message, not a request. The settings
 			// sheet's "report a bug" is a link to this repository's issue form
-			// (src/lib/bug-report.ts), opened in a tab and never fetched.
+			// (src/lib/bug-report.ts), opened in a tab and never fetched. The search
+			// site form's placeholder is on the reserved .example domain, which is
+			// text in an empty field and resolves nowhere.
 			for (const [, url] of code.matchAll(/["'`](https?:\/\/[^"'`\s]+)/g)) {
 				const isLinkOut =
 					/^https:\/\/\$\{\w+\}$/.test(url) ||
 					url.startsWith('https://svelte.dev/e/') ||
-					url === 'https://github.com/cutenode/localnetwork/issues/new';
+					url === 'https://github.com/cutenode/localnetwork/issues/new' ||
+					/^https:\/\/[\w.]+\.example\//.test(url);
 
 				if (isLinkOut) continue;
 				expect(url, `${file}: ${url}`).toMatch(
