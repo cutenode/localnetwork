@@ -933,20 +933,6 @@ fn settings_have_known_types_and_fitting_defaults() {
     }
 }
 
-/// The manifest's JSON Schema describes what parses: it takes the example and refuses an
-/// unknown capability.
-#[test]
-fn the_json_schema_describes_manifests() {
-    let schema = serde_json::to_value(schemars::schema_for!(Manifest)).unwrap();
-    let validator = jsonschema::validator_for(&schema).unwrap();
-    let mut echo = serde_json::to_value(Manifest::parse(ECHO).unwrap()).unwrap();
-    assert!(validator.is_valid(&echo), "{:?}", validator.iter_errors(&echo).map(|e| e.to_string()).collect::<Vec<_>>());
-    echo["capabilities"] = json!(["net:example.com"]);
-    assert!(validator.is_valid(&echo));
-    echo["capabilities"] = json!(["library:write"]);
-    assert!(!validator.is_valid(&echo));
-}
-
 #[test]
 fn names_and_titles_arent_empty() {
     let m = Manifest::parse(&HEAD.replace("name = \"Demo\"", "name = \" \"")).unwrap();

@@ -1,3 +1,4 @@
+#:schema ../../manifest.schema.json
 id = "echo"
 name = "Echo"
 version = "0.1.0"

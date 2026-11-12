@@ -1,3 +1,4 @@
+#:schema ../../crates/loclib-plugin/manifest.schema.json
 id = "mixcloud"
 name = "Mixcloud"
 version = "0.1.0"

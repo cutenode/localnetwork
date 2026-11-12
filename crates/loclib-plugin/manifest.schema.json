@@ -1,0 +1,1245 @@
+{
+  "$id": "manifest.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "locallibrary-plugin.toml",
+  "description": "A locallibrary plugin's manifest as its author writes it: who the plugin is, what it may call back for and what it adds. Keys it doesn't list are allowed, so an older locallibrary reads a newer plugin's manifest. `Manifest::validate` in loclib-plugin checks the rest: names, versions, schemas that compile and what needs a capability.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "description": "Lowercase letters, digits, `-` and `_`, starting with a letter.",
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "version": {
+      "description": "The plugin's version (semver).",
+      "type": "string"
+    },
+    "protocol": {
+      "description": "The protocol versions it speaks, as a semver requirement (`^0.2`).",
+      "type": "string"
+    },
+    "capabilities": {
+      "description": "What it may call back for (see [`Capability`]).",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Capability"
+      },
+      "default": []
+    },
+    "accounts": {
+      "description": "The account types it asks for, and the scopes of each it needs.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/AccountNeed"
+      }
+    },
+    "contributes": {
+      "$ref": "#/$defs/Contributions",
+      "default": {
+        "account_types": [],
+        "commands": [],
+        "destinations": [],
+        "events": [],
+        "operations": [],
+        "panels": [],
+        "analyzers": [],
+        "checks": [],
+        "exporters": [],
+        "importers": [],
+        "providers": [],
+        "services": [],
+        "sources": [],
+        "themes": [],
+        "settings": []
+      }
+    },
+    "net": {
+      "description": "How often the host may send `net/fetch` requests to some of the hosts it talks to.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/NetLimit"
+      }
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "version",
+    "protocol"
+  ],
+  "$defs": {
+    "Capability": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "library:read",
+            "analysis:read",
+            "artwork:read",
+            "drive:info",
+            "health:read",
+            "store:read",
+            "settings:read",
+            "plays:read",
+            "sets:read",
+            "account:status",
+            "collection:read",
+            "collection:files",
+            "library:plan",
+            "library:delete",
+            "library:delete-unbacked",
+            "tags:plan",
+            "cues:plan",
+            "artwork:plan",
+            "analysis:plan",
+            "events:drives",
+            "events:jobs",
+            "events:plans",
+            "fs:read"
+          ]
+        },
+        {
+          "pattern": "^net:(\\*\\.)?[A-Za-z0-9.-]+$"
+        }
+      ]
+    },
+    "AccountNeed": {
+      "description": "`[[accounts]]`: an account type a plugin asks for, the scopes of it it needs and why, and those\nit can do without.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "description": "The account type (`google`), which an account plugin provides.",
+          "type": "string"
+        },
+        "scopes": {
+          "description": "The type's scopes it needs, by name (`youtube-upload`).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "why": {
+          "description": "Why it needs them, shown when the user gives it access.",
+          "type": "string"
+        },
+        "optional": {
+          "description": "Scopes it asks for besides, which the user may leave out.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OptionalScopes"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "scopes",
+        "why"
+      ]
+    },
+    "OptionalScopes": {
+      "description": "`optional = [{ scopes = [\"read\"], why = \"...\" }]`: scopes a plugin can do without, and what\nthey're for.",
+      "type": "object",
+      "properties": {
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "why": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scopes",
+        "why"
+      ]
+    },
+    "Contributions": {
+      "type": "object",
+      "properties": {
+        "account_types": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccountType"
+          },
+          "default": []
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Command"
+          },
+          "default": []
+        },
+        "destinations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Destination"
+          },
+          "default": []
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Listener"
+          },
+          "default": []
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Operation"
+          },
+          "default": []
+        },
+        "panels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Panel"
+          },
+          "default": []
+        },
+        "analyzers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Analyzer"
+          },
+          "default": []
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Check"
+          },
+          "default": []
+        },
+        "exporters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Exporter"
+          },
+          "default": []
+        },
+        "importers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Importer"
+          },
+          "default": []
+        },
+        "providers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Provider"
+          },
+          "default": []
+        },
+        "services": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Service"
+          },
+          "default": []
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LibrarySource"
+          },
+          "default": []
+        },
+        "themes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Theme"
+          },
+          "default": []
+        },
+        "settings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Setting"
+          },
+          "default": []
+        }
+      }
+    },
+    "AccountType": {
+      "description": "`[[contributes.account_types]]`: an account type, signed in to in the browser, or by entering\nkeys (`kind = \"keys\"`). Its OAuth fields are an account type's signed in to in the browser,\nand only its; `keys`, `keys_url` and `authorization` are one's signed in to with keys, and only\nits.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "description": "The account type it provides (`google`), which other account plugins may provide too.",
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "How it's signed in to: in the browser unless it says.",
+          "$ref": "#/$defs/SignIn"
+        },
+        "authorize_url": {
+          "description": "The service's authorization endpoint, where the browser signs in (https).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "token_url": {
+          "description": "Its token endpoint, where the host trades the browser's code for tokens and refreshes\nthem (https). An account type signed in to in the browser has this or `token_exchange`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "token_exchange": {
+          "description": "Local Network's token exchange for its service, in `token_url`'s place: only in an\naccount plugin locallibrary ships, since it signs people in as Local Network.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "client_id": {
+          "description": "Its client at the service: a public one, without a secret, or Local Network's, whose\nsecret the token exchange holds.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revoke_url": {
+          "description": "Where its tokens are revoked at signing out (RFC 7009), when the service has one (https).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "token": {
+          "description": "Where its access token goes in a request: `Authorization: Bearer <token>` unless it says.",
+          "$ref": "#/$defs/TokenPlace"
+        },
+        "redirect_port": {
+          "description": "The port on 127.0.0.1 the browser comes back to, for a service that compares the redirect\nURI with the one its client was registered with. Any free port otherwise.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "always": {
+          "description": "The service's scopes every sign-in asks for, as the service names them (`openid`).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "whoami": {
+          "description": "Where the host asks the service who signed in. One signed in to with keys may leave it\nout: the user names the account then.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Whoami"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "one_account": {
+          "description": "The authorize params that sign in again as one account the host knows (`login_hint =\n\"{subject}\"`): their values may name it only as [`SUBJECT_PLACEHOLDER`].",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "another_account": {
+          "description": "The authorize params that sign in to another account than those the browser has\n(`prompt = \"select_account\"`).",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "params": {
+          "description": "The authorize params every sign-in sends besides (`access_type = \"offline\"`), none of\n`one_account`'s or `another_account`'s.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "keys": {
+          "description": "The keys the user enters, by name (`access`), which the service gave them.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Key"
+          }
+        },
+        "keys_url": {
+          "description": "Where the user gets them (https).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "authorization": {
+          "description": "The `Authorization` header's value they make in a request (`LOW {access}:{secret}`), each\nkey named in braces.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scopes": {
+          "description": "What a plugin may be given access to, by name (`youtube-upload`).",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Scope"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "title"
+      ]
+    },
+    "SignIn": {
+      "description": "How an account of a type is signed in to.",
+      "oneOf": [
+        {
+          "description": "In the browser, with OAuth 2: `oauth`.",
+          "type": "string",
+          "const": "oauth"
+        },
+        {
+          "description": "By entering the keys the service gave the user: `keys`.",
+          "type": "string",
+          "const": "keys"
+        }
+      ]
+    },
+    "TokenPlace": {
+      "description": "Where an account type's access token goes in a `net/fetch` request: `token = { scheme =\n\"OAuth\" }` or `token = { query = \"access_token\" }`. The request names the account there, and\nonly there.",
+      "oneOf": [
+        {
+          "description": "The `Authorization` header, as this scheme and the token (`OAuth <token>`).",
+          "type": "object",
+          "properties": {
+            "scheme": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scheme"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "This query parameter's value (`?access_token=<token>`), for a service that takes it only\nthere (Mixcloud).",
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Whoami": {
+      "description": "`whoami = { url = \"...\", subject = \"/sub\", name = \"/email\" }`: the endpoint the host gets with a\nnew access token, or keys just entered, and JSON pointers into its answer.",
+      "type": "object",
+      "properties": {
+        "url": {
+          "description": "Where (https).",
+          "type": "string"
+        },
+        "subject": {
+          "description": "The account's id at the service, which tells two accounts apart (`/sub`).",
+          "type": "string"
+        },
+        "name": {
+          "description": "What the account is shown as (`/email`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "subject",
+        "name"
+      ]
+    },
+    "Key": {
+      "description": "`[contributes.account_types.keys.<name>]`: a key the user enters.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "description": "What it's called where the user gets it (`S3 access key`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ]
+    },
+    "Scope": {
+      "description": "`[contributes.account_types.scopes.<name>]`: one thing a plugin may do with an account.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "asks": {
+          "description": "The service's scopes it asks for at signing in, as the service names them. None for a\nscope only locallibrary knows, which the service's own scopes already allow.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "requests": {
+          "description": "The requests it covers: the only ones the host fills the account's token into for it.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ScopeRequest"
+          }
+        }
+      },
+      "required": [
+        "title",
+        "requests"
+      ]
+    },
+    "ScopeRequest": {
+      "description": "`{ method = \"POST\", url = \"https://www.googleapis.com/upload/youtube/v3/videos*\" }`: requests\nwith this method to this URL, or to any URL starting with it when it ends in `*`. The URL is\nwritten as it's read (`https://a.com/*`, not `https://a.com*`), so the start it names is a whole\nhost.",
+      "type": "object",
+      "properties": {
+        "method": {
+          "description": "`GET`, `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE`.",
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "url"
+      ]
+    },
+    "Command": {
+      "description": "Run with `command/run`.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "mode": {
+          "$ref": "#/$defs/Mode"
+        },
+        "where": {
+          "description": "Where hosts offer it (see [`Where`]).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Where"
+          },
+          "default": [
+            "drive"
+          ]
+        },
+        "plan": {
+          "description": "Planned first: the host asks for a dry run, shows its plan ([`CommandPlan`]) and runs it\nonly once the user confirms.",
+          "type": "boolean"
+        },
+        "long_running": {
+          "description": "Running it takes a while: hosts show its progress and offer to stop it, and give it longer\nto stop once asked before they kill the plugin.",
+          "type": "boolean"
+        },
+        "params": {
+          "description": "A JSON Schema for its params (an object)."
+        },
+        "cli": {
+          "description": "Its own place on the command line (see [`Operation::cli`]).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "mode"
+      ]
+    },
+    "Mode": {
+      "oneOf": [
+        {
+          "description": "Answers any JSON, shown as it is (`--json`) or not at all.",
+          "type": "string",
+          "const": "headless"
+        },
+        {
+          "description": "Answers a [`crate::View`].",
+          "type": "string",
+          "const": "view"
+        }
+      ]
+    },
+    "Where": {
+      "description": "Where a host offers a command or an operation: in the menu of the tracks selected, of a\nplaylist, or of a drive; or, for a command alone, with what's about rekordbox's collection on\nthis computer rather than a drive (`collection`). A host's palette has every one.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "track",
+            "playlist",
+            "drive"
+          ]
+        },
+        {
+          "description": "About this computer's rekordbox collection, not a track, a playlist or a drive: run without\none (a backup of the collection, say). Commands only: an operation edits a drive.",
+          "type": "string",
+          "const": "collection"
+        }
+      ]
+    },
+    "Destination": {
+      "description": "`[[contributes.destinations]]`: somewhere the user copies their store to (`store`), or\npublishes sets at (`set`).",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/DestinationKind"
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "kind"
+      ]
+    },
+    "DestinationKind": {
+      "description": "What a destination keeps.",
+      "oneOf": [
+        {
+          "description": "Copies of the store: `blobs/*` and `manifest/*`.",
+          "type": "string",
+          "const": "store"
+        },
+        {
+          "description": "Sets, published: `set/publish`.",
+          "type": "string",
+          "const": "set"
+        }
+      ]
+    },
+    "Listener": {
+      "description": "`[[contributes.events]]`: what the plugin is told of (`event/notify`).",
+      "type": "object",
+      "properties": {
+        "on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EventName"
+          }
+        }
+      },
+      "required": [
+        "on"
+      ]
+    },
+    "EventName": {
+      "description": "What a host tells plugins of: a closed list, each needing a capability (see\n[`EventName::capability`]).",
+      "oneOf": [
+        {
+          "description": "A drive was plugged in.",
+          "type": "string",
+          "const": "drive.mounted"
+        },
+        {
+          "description": "A drive was unplugged.",
+          "type": "string",
+          "const": "drive.unmounted"
+        },
+        {
+          "description": "A drive's databases or its locallibrary state changed (`payload.changed` says which).",
+          "type": "string",
+          "const": "drive.changed"
+        },
+        {
+          "description": "A drive was saved into the store as a new snapshot (`payload.history_lists`: the\nhistory lists the store lacked).",
+          "type": "string",
+          "const": "drive.pulled"
+        },
+        {
+          "description": "A drive back from a set was saved beside its library's newest snapshot.",
+          "type": "string",
+          "const": "set.returned"
+        },
+        {
+          "description": "A request to the sidecar finished (`payload.method`, `payload.ok`).",
+          "type": "string",
+          "const": "job.finished"
+        },
+        {
+          "description": "A plan was applied (`payload.operation`, `payload.summary`).",
+          "type": "string",
+          "const": "plan.applied"
+        }
+      ]
+    },
+    "Operation": {
+      "description": "Planned with `op/plan`, applied by the host, which works out from the edits whether it's\ndestructive.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "where": {
+          "description": "Where hosts offer it (see [`Where`]).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Where"
+          },
+          "default": [
+            "drive"
+          ]
+        },
+        "long_running": {
+          "description": "Planning takes a while: the host shows progress.",
+          "type": "boolean",
+          "default": false
+        },
+        "params": {
+          "description": "A JSON Schema for its params (an object)."
+        },
+        "cli": {
+          "description": "Its own place on the command line, rather than `locallibrary <plugin> <name>`: a\ntop-level command (`import`), or one in a group of the host's (`playlist import`).\nBuilt-in plugins only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "title"
+      ]
+    },
+    "Panel": {
+      "description": "Shown under a track's details, as `panel/render` answers for the track. Hosts ask for it as\nthe user comes to a track, so it answers quickly, reading only what it needs.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "where": {
+          "description": "What it's shown with: a track, unless it says.",
+          "$ref": "#/$defs/Where",
+          "default": "track"
+        }
+      },
+      "required": [
+        "name",
+        "title"
+      ]
+    },
+    "Analyzer": {
+      "description": "Run with `track/analyze`; its fields become columns.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "version": {
+          "description": "Its own version: the host keeps its values by it, so a new one works them out again. Bump\nit whenever the values would change.",
+          "type": "string"
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/FieldType"
+          }
+        },
+        "roles": {
+          "description": "Which of its fields has each role it answers (`bpm = \"bpm\"`): what the host reads for\nthat role (see [`Role`]).",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "display": {
+          "description": "How hosts show some of its fields, by field (`display.lufs = { unit = \"LUFS\" }`): in the\nplayer's columns, `track show` and the mix report.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/FieldDisplay"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "version",
+        "fields"
+      ]
+    },
+    "FieldType": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "number",
+            "integer",
+            "string",
+            "boolean",
+            "string[]"
+          ]
+        },
+        {
+          "description": "A beat grid (feature `analysis`, see [`crate::Output`]).",
+          "type": "string",
+          "const": "beats"
+        },
+        {
+          "description": "A song structure: the mood and the phrases (feature `analysis`).",
+          "type": "string",
+          "const": "phrases"
+        },
+        {
+          "description": "A waveform in three bands, in a blob (feature `analysis`).",
+          "type": "string",
+          "const": "waveform"
+        }
+      ]
+    },
+    "FieldDisplay": {
+      "description": "How hosts show a field's values, each part optional. Without them a number shows to two\nplaces at most (trailing zeros left out), a list joined with commas, a boolean as yes or no.",
+      "type": "object",
+      "properties": {
+        "unit": {
+          "description": "Said after a value (`LUFS`); a `db` format's is `dB` unless it says.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "precision": {
+          "description": "A number's decimal places, 0 to 6.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FieldFormat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "width": {
+          "description": "How wide its column is in the player, in cells (1 to 40); for a `meter`, how long it is.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        }
+      }
+    },
+    "FieldFormat": {
+      "description": "What a field's values are, for hosts to show them as such.",
+      "oneOf": [
+        {
+          "description": "A key (a string), as the host shows keys.",
+          "type": "string",
+          "const": "key"
+        },
+        {
+          "description": "Seconds (a number), as minutes and seconds (`3:07`, `1:02:03`).",
+          "type": "string",
+          "const": "duration"
+        },
+        {
+          "description": "Decibels (a number), signed (`+0.4 dB`, `-8.2 dB`).",
+          "type": "string",
+          "const": "db"
+        },
+        {
+          "description": "A fraction (a number, 0 to 1) as a percentage (`85%`; no decimal places unless it says).",
+          "type": "string",
+          "const": "percent"
+        },
+        {
+          "description": "A fraction (a number, 0 to 1) as a bar, `width` cells long (8 unless it says).",
+          "type": "string",
+          "const": "meter"
+        }
+      ]
+    },
+    "Check": {
+      "description": "Run with `check/run` on a drive along with locallibrary's own checks, and with `plan/check`\nbefore a plan is applied: as its `when` says.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "default_on": {
+          "description": "It runs unless the user turns it off; otherwise, once they turn it on.",
+          "type": "boolean",
+          "default": true
+        },
+        "when": {
+          "description": "When it runs: with the check before a set and doctor (`check`, the default), and before a\nplan is applied (`apply`: a guard).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/When"
+          },
+          "default": [
+            "check"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "title"
+      ]
+    },
+    "When": {
+      "description": "When a check runs.",
+      "oneOf": [
+        {
+          "description": "With locallibrary's check before a set and doctor (`check/run`).",
+          "type": "string",
+          "const": "check"
+        },
+        {
+          "description": "Before a plan is applied (`plan/check`): a guard.",
+          "type": "string",
+          "const": "apply"
+        }
+      ]
+    },
+    "Exporter": {
+      "description": "Run with `export/write`.",
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "extension": {
+          "description": "The file it writes ends in this: lowercase letters and digits, without the dot (`nml`).\nEither this or `folder`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "folder": {
+          "description": "It writes a folder.",
+          "type": "boolean",
+          "default": false
+        },
+        "options": {
+          "description": "A JSON Schema for its options (an object)."
+        },
+        "source": {
+          "description": "What it writes out [default: a drive's library]: one source (`\"set\"`), or a list of them\n(`[\"drive\", \"set\", \"mix\"]`) for an exporter that writes each out the same way.",
+          "$ref": "#/$defs/ExportSources"
+        }
+      },
+      "required": [
+        "format",
+        "title"
+      ]
+    },
+    "ExportSources": {
+      "description": "What an exporter writes out, as its manifest says it: one source, or a list.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ExportFrom"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExportFrom"
+          }
+        }
+      ]
+    },
+    "ExportFrom": {
+      "description": "What an exporter writes out.",
+      "oneOf": [
+        {
+          "description": "A drive's library.",
+          "type": "string",
+          "const": "drive"
+        },
+        {
+          "description": "A set the DJ declared (`locallibrary sets`).",
+          "type": "string",
+          "const": "set"
+        },
+        {
+          "description": "A recorded mix's tracklist, as `locallibrary mix` found it.",
+          "type": "string",
+          "const": "mix"
+        }
+      ]
+    },
+    "Importer": {
+      "description": "Run with `import/read` on a file the user names: the host finds what it read on a drive and\nplans the edits itself, so it needs no capability to plan one.",
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "extension": {
+          "description": "The file it reads usually ends in this: lowercase letters and digits, without the dot\n(`nml`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "options": {
+          "description": "A JSON Schema for its options (an object)."
+        },
+        "provides": {
+          "description": "What it reads: what of a track's (and the plays) the host takes from it.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImportKind"
+          }
+        }
+      },
+      "required": [
+        "format",
+        "title",
+        "provides"
+      ]
+    },
+    "ImportKind": {
+      "description": "What an importer reads.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "cues"
+          ]
+        },
+        {
+          "description": "A track's key and BPM.",
+          "type": "string",
+          "const": "fields"
+        },
+        {
+          "description": "My Tags.",
+          "type": "string",
+          "const": "tags"
+        },
+        {
+          "description": "What played, as sessions.",
+          "type": "string",
+          "const": "sessions"
+        }
+      ]
+    },
+    "Provider": {
+      "description": "Asked with `provide/candidates` for what it has for tracks, of its kind: the host offers the\nuser every provider's, and makes the edits chosen itself. It's given the tracks' tags, which\ntakes `library:read`, and needs no capability to plan an edit.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ProviderKind"
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "kind"
+      ]
+    },
+    "ProviderKind": {
+      "description": "What a provider finds for a track.",
+      "oneOf": [
+        {
+          "description": "Cover art: an image.",
+          "type": "string",
+          "const": "artwork"
+        },
+        {
+          "description": "Tags: a title, an artist, an album...",
+          "type": "string",
+          "const": "metadata"
+        }
+      ]
+    },
+    "Service": {
+      "description": "Started with `service/start` by a host that stays open (the player, the sidecar, the `watch`\nagent), once the user has turned it on (its plugin's setting `services.<name>`), never by a\ncommand run once.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "title"
+      ]
+    },
+    "LibrarySource": {
+      "description": "Read with `library/read`, a page at a time, for the host to build a drive from. It's given the\nfolders the user grants it, which takes `fs:read`.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "options": {
+          "description": "A JSON Schema for its options (an object)."
+        }
+      },
+      "required": [
+        "name",
+        "title"
+      ]
+    },
+    "Theme": {
+      "description": "`[[contributes.themes]]`: a theme's colours, by the names of [`theme::TOKENS`] as tables (`cues.hot =\n\"#28e214\"`, `ui = { accent = \"#ff8800\" }`), each `#rrggbb` (a gradient, `waveform.*`, a list\nof two or more). What it leaves out is the default's.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "tokens": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "tokens"
+      ]
+    },
+    "Setting": {
+      "description": "A setting the host stores and shows in its settings.",
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/SettingType"
+        },
+        "default": true,
+        "choices": {
+          "description": "What an `enum` setting can be.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "key",
+        "title",
+        "type"
+      ]
+    },
+    "SettingType": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "string",
+            "number",
+            "boolean",
+            "file",
+            "directory"
+          ]
+        },
+        {
+          "description": "One of `choices`.",
+          "type": "string",
+          "const": "enum"
+        },
+        {
+          "description": "A password or a key: kept in the system's keychain, never shown, and given to the plugin\nonly as the host fills it into its `net/fetch` requests. It has no default.",
+          "type": "string",
+          "const": "secret"
+        }
+      ]
+    },
+    "NetLimit": {
+      "description": "`[[net]]`: at most `per_second` `net/fetch` requests a second to `host`, one of the plugin's\n`net:` capabilities as it's written (`musicbrainz.org`, `*.archive.org`), however many hooks\nare under way: the limit the server asks its clients to keep.",
+      "type": "object",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "per_second": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "host",
+        "per_second"
+      ]
+    }
+  }
+}

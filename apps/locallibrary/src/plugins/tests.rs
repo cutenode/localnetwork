@@ -48,11 +48,19 @@ fn the_plugins_locallibrary_ships_are_accepted() {
 
 /// The manifests locallibrary links in are valid, their JSON Schemas included, and what build.rs
 /// wrote says what the TOML does: a release build doesn't check them as it starts (see
-/// `PluginSpec::shipped`), so this does, whatever the build.
+/// `PluginSpec::shipped`), so this does, whatever the build. As written, each fits
+/// crates/loclib-plugin/manifest.schema.json, so the schema an editor checks them with never
+/// refuses one locallibrary takes.
 #[test]
 fn the_manifests_locallibrary_ships_are_valid() {
     let plugins = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
+    let schema = std::fs::read_to_string(plugins.join("../crates/loclib-plugin/manifest.schema.json")).unwrap();
+    let schema = jsonschema::validator_for(&serde_json::from_str(&schema).unwrap()).unwrap();
     for ((id, json, _), m) in BUILT_IN.iter().zip(shipped()) {
+        // build.rs's JSON is the TOML as written, defaults left out.
+        let problems: Vec<String> =
+            schema.iter_errors(&serde_json::from_str(json).unwrap()).map(|e| e.to_string()).collect();
+        assert!(problems.is_empty(), "the {id} plugin's manifest doesn't fit manifest.schema.json: {problems:?}");
         let at = |dir: std::path::PathBuf| dir.join("locallibrary-plugin.toml");
         let file = [at(plugins.join(id)), at(plugins.join("accounts").join(id))].into_iter().find(|f| f.is_file());
         let toml = Manifest::parse(&std::fs::read_to_string(file.unwrap()).unwrap()).unwrap();
