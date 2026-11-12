@@ -450,6 +450,27 @@ describe('createProjections', () => {
 			expect(await counts()).toEqual([0, 0, 0, 0]);
 		});
 
+		it("indexes a performer space's performer record only from the root, at its key, and drops it when deleted", async () => {
+			const performerSpace = sharedSpace(ROOT, 'performer', '3perf');
+			const dj = { subject: { $type: `${COLLECTION.performer}#dj`, did: ALICE }, createdAt: now, updatedAt: now };
+			const rows = () => t.db.selectFrom('performer').select(['spaceUri', 'kind', 'did']).execute();
+
+			await upsert(performerSpace, ALICE, COLLECTION.performer, 'self', dj);
+			await upsert(sharedSpace(ALICE, 'performer', '3perf'), ROOT, COLLECTION.performer, 'self', dj);
+			await upsert(performerSpace, ROOT, COLLECTION.performer, 'other', dj);
+			// Only a performer's space says who it's for.
+			await upsert(space, ROOT, COLLECTION.performer, 'self', dj);
+			expect(await rows()).toEqual([]);
+
+			await upsert(performerSpace, ROOT, COLLECTION.performer, 'self', dj);
+			expect(await rows()).toEqual([{ spaceUri: performerSpace, kind: 'dj', did: ALICE }]);
+
+			await remove(performerSpace, ALICE, COLLECTION.performer, 'self');
+			expect(await rows()).toHaveLength(1);
+			await remove(performerSpace, ROOT, COLLECTION.performer, 'self');
+			expect(await rows()).toEqual([]);
+		});
+
 		it('ignores records keyed by the wrong DID and listing statuses under any other key', async () => {
 			await upsert(space, ROOT, COLLECTION.invite, ALICE, {
 				subject: BOB,
