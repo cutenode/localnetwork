@@ -4470,6 +4470,7 @@ dependencies = [
  "hegeltest",
  "httpdate",
  "indexmap",
+ "jacquard-common",
  "jsonschema",
  "loclib-model",
  "loclib-progress",

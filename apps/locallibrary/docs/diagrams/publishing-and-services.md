@@ -52,9 +52,10 @@ flowchart LR
     upload --> setrec
     delete["sets delete"] --> gone["Deletes both from the account"]
     bug["bug"] --> discussion["app.userinput.discussion<br/>a bug report"]
+    plugin["A command running a plugin<br/>with atmosphere:write:NSID"] --> pluginrec["NSID records, each one<br/>you confirm in a terminal"]
 ```
 
-Source: [`crates/locallibrary/src/publish.rs`](../../../../crates/locallibrary/src/publish.rs), [`crates/locallibrary/src/atmosphere/lexicon.rs`](../../../../crates/locallibrary/src/atmosphere/lexicon.rs), [`crates/locallibrary/src/api/publish.rs`](../../../../crates/locallibrary/src/api/publish.rs), [`docs/account.md`](../account.md), [`lexicons/computer/localnetwork`](../../../../lexicons/computer/localnetwork)
+Source: [`crates/locallibrary/src/publish.rs`](../../../../crates/locallibrary/src/publish.rs), [`crates/locallibrary/src/atmosphere/lexicon.rs`](../../../../crates/locallibrary/src/atmosphere/lexicon.rs), [`crates/locallibrary/src/api/publish.rs`](../../../../crates/locallibrary/src/api/publish.rs), [`docs/account.md`](../account.md), [`crates/locallibrary/src/plugin/atmosphere.rs`](../../../../crates/locallibrary/src/plugin/atmosphere.rs), [`lexicons/computer/localnetwork`](../../../../lexicons/computer/localnetwork)
 
 ## Publishing a set
 

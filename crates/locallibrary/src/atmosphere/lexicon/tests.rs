@@ -36,7 +36,7 @@ fn walk(nsid: &str, v: &Value, at: &str, problems: &mut Vec<String>) {
                 .chain(v["refs"].as_array().into_iter().flatten().map(|r| r.as_str().unwrap_or_default()));
             for r in refs {
                 let (doc, name) = target(nsid, r);
-                if def(doc, name).is_none() {
+                if def(&[], doc, name).is_none() {
                     problems.push(format!("{nsid} {at}: ref {r} doesn't resolve"));
                 }
             }
@@ -49,7 +49,7 @@ fn walk(nsid: &str, v: &Value, at: &str, problems: &mut Vec<String>) {
         "string"
             if v.get("format").is_some_and(|f| {
                 let bare = json!({ "type": "string", "format": f });
-                check(nsid, &bare, &json!(""), at).is_err_and(|e| e.contains("doesn't know the format"))
+                check(&[], nsid, &bare, &json!(""), at, 0).is_err_and(|e| e.contains("doesn't know the format"))
             }) =>
         {
             problems.push(format!("{nsid} {at}: format {}", v["format"]));
@@ -214,19 +214,29 @@ fn refs_to_other_documents_are_checked_there() {
     // document (the settings have no #camelotKey), and the profile's collection, whose counts
     // are the shared document's.
     let track = json!({ "type": "ref", "ref": "computer.localnetwork.dj.defs#track" });
-    check(SETTINGS, &track, &json!({ "title": "Glue", "key": "8A" }), "track").unwrap();
-    assert!(check(SETTINGS, &track, &json!({ "key": "8A9" }), "track").is_ok(), "a key it doesn't know");
-    assert!(check(SETTINGS, &track, &json!({ "key": "10AB" }), "track").unwrap_err().contains("track.key is 4 bytes"));
+    check(&[], SETTINGS, &track, &json!({ "title": "Glue", "key": "8A" }), "track", 0).unwrap();
+    assert!(check(&[], SETTINGS, &track, &json!({ "key": "8A9" }), "track", 0).is_ok(), "a key it doesn't know");
+    assert!(
+        check(&[], SETTINGS, &track, &json!({ "key": "10AB" }), "track", 0)
+            .unwrap_err()
+            .contains("track.key is 4 bytes")
+    );
     let partner = json!({ "type": "ref", "ref": "computer.localnetwork.dj.defs#partner" });
-    check(PROFILE, &partner, &json!({ "name": "Ayla" }), "playedWith").unwrap();
-    assert!(check(PROFILE, &partner, &json!({}), "playedWith").unwrap_err().contains("playedWith is missing name"));
+    check(&[], PROFILE, &partner, &json!({ "name": "Ayla" }), "playedWith", 0).unwrap();
+    assert!(
+        check(&[], PROFILE, &partner, &json!({}), "playedWith", 0).unwrap_err().contains("playedWith is missing name")
+    );
     let collection = json!({ "type": "ref", "ref": "computer.localnetwork.dj.profile#collection" });
     let counts = json!({ "tracks": { "count": 3500 }, "playlists": { "atLeast": 5 } });
-    check(SET, &collection, &counts, "collection").unwrap();
+    check(&[], SET, &collection, &counts, "collection", 0).unwrap();
     let bad = json!({ "tracks": { "count": -1 }, "playlists": {} });
-    assert!(check(SET, &collection, &bad, "collection").unwrap_err().contains("collection.tracks.count is -1"));
+    assert!(check(&[], SET, &collection, &bad, "collection", 0).unwrap_err().contains("collection.tracks.count is -1"));
     let nowhere = json!({ "type": "ref", "ref": "community.lexicon.nowhere#place" });
-    assert!(check(SET, &nowhere, &json!({}), "x").unwrap_err().contains("unknown ref community.lexicon.nowhere#place"));
+    assert!(
+        check(&[], SET, &nowhere, &json!({}), "x", 0)
+            .unwrap_err()
+            .contains("unknown ref community.lexicon.nowhere#place")
+    );
 
     // The address is a document records refer to, not a record type to write.
     let address = json!({ "$type": ADDRESS, "country": "GB" });
@@ -235,7 +245,8 @@ fn refs_to_other_documents_are_checked_there() {
 
 #[test]
 fn string_formats_are_checked() {
-    let fits = |format: &str, s: &str| check(SET, &json!({ "type": "string", "format": format }), &json!(s), "x");
+    let fits =
+        |format: &str, s: &str| check(&[], SET, &json!({ "type": "string", "format": format }), &json!(s), "x", 0);
     let cases = [
         ("datetime", vec!["2026-10-04T09:30:00.000Z", "2026-10-04T09:30:00+01:00"], vec!["yesterday", "2026-10-04"]),
         (
@@ -283,7 +294,7 @@ fn nullable_fields_closed_enums_and_unknowns_are_checked() {
             "blob": { "type": "blob" },
         },
     });
-    let checked = |v: Value| check(SET, &object, &v, "");
+    let checked = |v: Value| check(&[], SET, &object, &v, "", 0);
     checked(json!({ "note": null, "mood": "dark", "extra": { "any": 1 } })).unwrap();
     assert_eq!(checked(json!({ "mood": "grey" })).unwrap_err(), "mood can't be \"grey\"");
     assert_eq!(checked(json!({ "extra": 1 })).unwrap_err(), "extra should be an object");
@@ -293,7 +304,7 @@ fn nullable_fields_closed_enums_and_unknowns_are_checked() {
 
     // A closed union takes only the types it lists, and a local ref's type is `nsid#name`.
     let closed = json!({ "type": "union", "refs": ["#link", ADDRESS], "closed": true });
-    let checked = |v: Value| check(SET, &closed, &v, "place");
+    let checked = |v: Value| check(&[], SET, &closed, &v, "place", 0);
     checked(json!({ "$type": format!("{SET}#link"), "uri": "https://station.example/" })).unwrap();
     checked(json!({ "$type": ADDRESS, "country": "GB" })).unwrap();
     assert_eq!(
@@ -303,7 +314,7 @@ fn nullable_fields_closed_enums_and_unknowns_are_checked() {
     assert_eq!(checked(json!({ "$type": "app.example.place" })).unwrap_err(), "place can't be a app.example.place");
     assert_eq!(checked(json!({ "$type": format!("{SET}#link") })).unwrap_err(), "place is missing uri");
     let nowhere = json!({ "type": "union", "refs": ["#nowhere"] });
-    let err = check(SET, &nowhere, &json!({ "$type": format!("{SET}#nowhere") }), "place").unwrap_err();
+    let err = check(&[], SET, &nowhere, &json!({ "$type": format!("{SET}#nowhere") }), "place", 0).unwrap_err();
     assert_eq!(err, "place: unknown ref #nowhere");
 }
 
@@ -338,7 +349,7 @@ fn text_fits_when_its_bytes_graphemes_and_value_do(tc: hegel::TestCase) {
     let bytes_fit = min.is_none_or(|m| bytes >= m) && max.is_none_or(|m| bytes <= m);
     let graphemes_fit = graphemes.is_none_or(|m| count <= m);
     let listed = !closed || words.contains(&s.as_str());
-    match check(SET, &schema, &json!(s), "x") {
+    match check(&[], SET, &schema, &json!(s), "x", 0) {
         Ok(()) => assert!(bytes_fit && graphemes_fit && listed, "{s:?} passed {schema}"),
         Err(e) if !bytes_fit => assert_eq!(e, format!("x is {bytes} bytes long, outside what the Lexicon allows")),
         Err(e) if !graphemes_fit => assert_eq!(e, format!("x is longer than {} graphemes", graphemes.unwrap())),
@@ -351,7 +362,7 @@ fn text_fits_when_its_bytes_graphemes_and_value_do(tc: hegel::TestCase) {
 #[test]
 fn max_graphemes_counts_clusters_not_code_points() {
     let schema = json!({ "type": "string", "maxGraphemes": 3 });
-    let checked = |s: &str| check(SET, &schema, &json!(s), "name");
+    let checked = |s: &str| check(&[], SET, &schema, &json!(s), "name", 0);
     let three = "🇬🇧👩\u{200d}👩\u{200d}👧e\u{301}";
     assert_eq!(three.chars().count(), 9);
     checked(three).unwrap();
@@ -379,7 +390,7 @@ fn integers_are_whole_numbers_within_their_bounds(tc: hegel::TestCase) {
     if let Some(m) = max {
         schema["maximum"] = m.into();
     }
-    let checked = check(SET, &schema, &v, "n");
+    let checked = check(&[], SET, &schema, &v, "n", 0);
     let Some(i) = (if v.is_f64() { None } else { v.as_i64() }) else {
         assert_eq!(checked, Err(format!("n should be a whole number, not {v}")));
         return;
@@ -405,7 +416,7 @@ fn lists_check_their_length_then_each_entry(tc: hegel::TestCase) {
     let n = items.len() as i64;
     let length_fits = min.is_none_or(|m| n >= m) && max.is_none_or(|m| n <= m);
     let first_bad = items.iter().position(|i| *i < 0);
-    match check(SET, &schema, &json!(items), "list") {
+    match check(&[], SET, &schema, &json!(items), "list", 0) {
         Ok(()) => assert!(length_fits && first_bad.is_none()),
         Err(e) if !length_fits => assert_eq!(e, format!("list has {n} entries, outside what the Lexicon allows")),
         Err(e) => {
@@ -413,7 +424,7 @@ fn lists_check_their_length_then_each_entry(tc: hegel::TestCase) {
             assert_eq!(e, format!("list[{i}] is {}, outside what the Lexicon allows", items[i]));
         }
     }
-    assert_eq!(check(SET, &schema, &json!({ "0": 1 }), "list").unwrap_err(), "list should be a list");
+    assert_eq!(check(&[], SET, &schema, &json!({ "0": 1 }), "list", 0).unwrap_err(), "list should be a list");
 }
 
 /// An object fits when it has every required field, holds only fields the schema defines,
@@ -452,7 +463,7 @@ fn objects_need_what_is_required_and_hold_nothing_else(tc: hegel::TestCase) {
         Some(s) if s.len() > 3 => Some(format!("{k} is {} bytes long, outside what the Lexicon allows", s.len())),
         Some(_) => None,
     });
-    assert_eq!(check(SET, &schema, &value, "").err(), missing.or(wrong), "{value} against {schema}");
+    assert_eq!(check(&[], SET, &schema, &value, "", 0).err(), missing.or(wrong), "{value} against {schema}");
 }
 
 /// A union's value names its type in `$type`: a type the union lists is checked as that type,
@@ -492,8 +503,8 @@ fn unions_check_listed_types_and_pass_others_unless_closed(tc: hegel::TestCase) 
         Some(t) if closed => Err(format!("place can't be a {t}")),
         Some(_) => Ok(()),
     };
-    assert_eq!(check(SET, &schema, &value, "place"), expected, "{value}");
-    assert_eq!(check(SET, &schema, &json!("Fabric"), "place").unwrap_err(), "place should be an object");
+    assert_eq!(check(&[], SET, &schema, &value, "place", 0), expected, "{value}");
+    assert_eq!(check(&[], SET, &schema, &json!("Fabric"), "place", 0).unwrap_err(), "place should be an object");
 }
 
 /// A ref names a definition in its own document (`#name`), another document's (`nsid#name`),
@@ -509,8 +520,8 @@ fn refs_name_their_document_and_definition(tc: hegel::TestCase) {
     assert_eq!(target(&here, &there), (there.as_str(), "main"));
     assert_eq!(short_name(&there), there.rsplit('.').next().unwrap());
     // A local ref to a definition the set's document doesn't have is refused, naming it.
-    let checked = check(SET, &json!({ "type": "ref", "ref": format!("#{name}") }), &json!({}), "place");
-    if def(SET, &name).is_none() {
+    let checked = check(&[], SET, &json!({ "type": "ref", "ref": format!("#{name}") }), &json!({}), "place", 0);
+    if def(&[], SET, &name).is_none() {
         assert_eq!(checked.unwrap_err(), format!("place: unknown ref #{name}"));
     } else if let Err(e) = checked {
         assert!(!e.contains("unknown ref"), "{name}: {e}");
@@ -529,7 +540,7 @@ fn uris_are_a_scheme_then_text_without_spaces(tc: hegel::TestCase) {
     let slashes = if tc.draw(gs::booleans()) { "//" } else { "" };
     let uri = format!("{scheme}:{slashes}{rest}");
     assert!(is_uri(&uri), "{uri:?}");
-    assert_eq!(check(SET, &json!({ "type": "string", "format": "uri" }), &json!(uri), "x"), Ok(()));
+    assert_eq!(check(&[], SET, &json!({ "type": "string", "format": "uri" }), &json!(uri), "x", 0), Ok(()));
 
     let space = tc.draw(gs::sampled_from(vec![' ', '\t', '\n', '\u{a0}', '\u{2003}', '\u{3000}']));
     let at = tc.draw(gs::integers::<usize>().max_value(rest.chars().count()));
@@ -557,15 +568,16 @@ fn booleans_unknowns_and_what_the_check_doesnt_know(tc: hegel::TestCase) {
         json!({}),
         json!({ "a": 1 }),
     ]));
-    let boolean = check(SET, &json!({ "type": "boolean" }), &v, "b");
+    let boolean = check(&[], SET, &json!({ "type": "boolean" }), &v, "b", 0);
     assert_eq!(boolean, if v.is_boolean() { Ok(()) } else { Err("b should be true or false".into()) });
-    let unknown = check(SET, &json!({ "type": "unknown" }), &v, "u");
+    let unknown = check(&[], SET, &json!({ "type": "unknown" }), &v, "u", 0);
     assert_eq!(unknown, if v.is_object() { Ok(()) } else { Err("u should be an object".into()) });
     let ty = tc.draw(gs::sampled_from(vec!["bytes", "cid-link", "token", "float"]));
-    let err = check(SET, &json!({ "type": ty }), &v, "x").unwrap_err();
+    let err = check(&[], SET, &json!({ "type": ty }), &v, "x", 0).unwrap_err();
     assert_eq!(err, format!("x: the check doesn't know the Lexicon type {ty:?}"));
     let format = tc.draw(gs::sampled_from(vec!["handle", "nsid", "tid", "language", "record-key"]));
-    let err = check(SET, &json!({ "type": "string", "format": format }), &json!("dj.example.com"), "s").unwrap_err();
+    let err =
+        check(&[], SET, &json!({ "type": "string", "format": format }), &json!("dj.example.com"), "s", 0).unwrap_err();
     assert_eq!(err, format!("s: the check doesn't know the format {format:?}"));
 }
 
@@ -577,31 +589,31 @@ const CID: &str = "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a";
 #[test]
 fn cids_and_blobs_are_checked() {
     let cid = json!({ "type": "string", "format": "cid" });
-    check(SET, &cid, &json!(CID), "c").unwrap();
-    assert_eq!(check(SET, &cid, &json!("bafy-not-one"), "c").unwrap_err(), "c isn't a CID: \"bafy-not-one\"");
+    check(&[], SET, &cid, &json!(CID), "c", 0).unwrap();
+    assert_eq!(check(&[], SET, &cid, &json!("bafy-not-one"), "c", 0).unwrap_err(), "c isn't a CID: \"bafy-not-one\"");
 
     let schema = json!({ "type": "blob", "accept": ["image/*", "application/json"], "maxSize": 1000 });
     let blob =
         |mime: &str, size: i64| json!({ "$type": "blob", "ref": { "$link": CID }, "mimeType": mime, "size": size });
-    check(SET, &schema, &blob("image/png", 1000), "b").unwrap();
-    check(SET, &schema, &blob("application/json", 1), "b").unwrap();
-    check(SET, &json!({ "type": "blob" }), &blob("video/mp4", 1 << 30), "b").unwrap();
+    check(&[], SET, &schema, &blob("image/png", 1000), "b", 0).unwrap();
+    check(&[], SET, &schema, &blob("application/json", 1), "b", 0).unwrap();
+    check(&[], SET, &json!({ "type": "blob" }), &blob("video/mp4", 1 << 30), "b", 0).unwrap();
     assert_eq!(
-        check(SET, &schema, &blob("video/mp4", 10), "b").unwrap_err(),
+        check(&[], SET, &schema, &blob("video/mp4", 10), "b", 0).unwrap_err(),
         "b is video/mp4, which the Lexicon doesn't take"
     );
     assert_eq!(
-        check(SET, &schema, &blob("image/png", 1001), "b").unwrap_err(),
+        check(&[], SET, &schema, &blob("image/png", 1001), "b", 0).unwrap_err(),
         "b is 1001 bytes, more than the Lexicon takes"
     );
     for broken in ["$type", "ref", "mimeType", "size"] {
         let mut b = blob("image/png", 10);
         b.as_object_mut().unwrap().remove(broken);
-        assert_eq!(check(SET, &schema, &b, "b").unwrap_err(), "b isn't a blob", "{broken}");
+        assert_eq!(check(&[], SET, &schema, &b, "b", 0).unwrap_err(), "b isn't a blob", "{broken}");
     }
     let mut b = blob("image/png", 10);
     b["ref"]["$link"] = "bafy-not-one".into();
-    assert_eq!(check(SET, &schema, &b, "b").unwrap_err(), "b isn't a blob");
+    assert_eq!(check(&[], SET, &schema, &b, "b", 0).unwrap_err(), "b isn't a blob");
 }
 
 /// A recording's file is a blob the Lexicon takes only when it's one (its `$type`, a CID link, a
@@ -639,5 +651,89 @@ fn prop_a_recordings_file_is_a_blob_the_lexicon_takes(tc: hegel::TestCase) {
         (None, None) => {}
         (Some(w), Some(e)) => assert!(e.contains(w), "{w}: {e}"),
         _ => panic!("{want:?} but {err:?}"),
+    }
+}
+
+/// A plugin's Lexicon for `fm.plyr.track`: a title of 10 bytes at most, an album (a strongRef,
+/// this crate's document) and a credit (its own definition).
+fn shipped_track() -> Value {
+    json!({ "lexicon": 1, "id": "fm.plyr.track", "defs": {
+        "main": { "type": "record", "key": "tid", "record": { "type": "object", "required": ["title"], "properties": {
+            "title": { "type": "string", "maxLength": 10 },
+            "album": { "type": "ref", "ref": STRONG_REF },
+            "credit": { "type": "ref", "ref": "#credit" },
+        } } },
+        "credit": { "type": "object", "properties": { "name": { "type": "string" } } },
+    } })
+}
+
+/// A record of a plugin's type is checked against the Lexicon it ships, as strictly as one of
+/// locallibrary's, its refs reaching its own definitions and locallibrary's documents; one of a
+/// type locallibrary has is checked against locallibrary's, whatever a plugin ships for it; and a
+/// Lexicon that refers to itself in a loop is an error.
+#[test]
+fn a_plugins_record_is_checked_against_its_lexicon_after_locallibrarys() {
+    let shipped = [shipped_track()];
+    let album = json!({ "uri": "at://did:plc:abc/fm.plyr.album/3l", "cid": CID });
+    let track = json!({ "$type": "fm.plyr.track", "title": "Friday", "credit": { "name": "A" }, "album": album });
+    validate_with(&shipped, "fm.plyr.track", &track).unwrap();
+    let said = |r: &Value| validate_with(&shipped, "fm.plyr.track", r).unwrap_err().to_string();
+    let mut extra = track.clone();
+    extra["mood"] = "dark".into();
+    assert_eq!(said(&extra), "the track record doesn't fit its Lexicon: mood isn't in the Lexicon");
+    let mut long = track.clone();
+    long["title"] = "Friday night".into();
+    assert!(said(&long).ends_with("title is 12 bytes long, outside what the Lexicon allows"), "{}", said(&long));
+    let mut broken = track.clone();
+    broken["album"]["cid"] = "nope".into();
+    assert!(said(&broken).ends_with("album.cid isn't a CID: \"nope\""), "{}", said(&broken));
+    let mut broken = track.clone();
+    broken["credit"] = json!({ "name": 1 });
+    assert!(said(&broken).ends_with("credit.name should be text"), "{}", said(&broken));
+    let e = validate("fm.plyr.track", &track).unwrap_err().to_string();
+    assert!(e.contains("isn't one of locallibrary's record types"), "{e}");
+
+    let loose = json!({ "lexicon": 1, "id": SETTINGS, "defs": { "main": { "type": "record", "record": { "type": "unknown" } } } });
+    let anything = json!({ "$type": SETTINGS, "anything": true });
+    // The plugin's Lexicon would take it; locallibrary's own, checked instead, doesn't.
+    let e = validate_with(&[loose], SETTINGS, &anything).unwrap_err().to_string();
+    assert!(e.starts_with("the settings record doesn't fit its Lexicon"), "{e}");
+
+    let defs = json!({
+        "main": { "type": "record", "record": { "type": "ref", "ref": "#a" } },
+        "a": { "type": "ref", "ref": "#b" },
+        "b": { "type": "ref", "ref": "#a" },
+    });
+    let looped = json!({ "lexicon": 1, "id": "fm.plyr.loop", "defs": defs });
+    let e = validate_with(&[looped], "fm.plyr.loop", &json!({ "$type": "fm.plyr.loop" })).unwrap_err().to_string();
+    assert!(e.contains("refers to itself in a loop"), "{e}");
+}
+
+/// For a plugin's Lexicon whose record is a chain of refs of any length, ending in an object or
+/// back where it started: a record is checked against the object at its end, and a loop (or more
+/// refs in a row than are followed) is an error.
+#[hegel::test(test_cases = 60)]
+fn prop_a_plugins_refs_are_followed_and_a_loop_is_an_error(tc: hegel::TestCase) {
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(40));
+    let looped: bool = tc.draw(gs::booleans());
+    let mut defs = serde_json::Map::new();
+    defs.insert("main".into(), json!({ "type": "record", "record": { "type": "ref", "ref": "#d0" } }));
+    for i in 0..n {
+        let def = match i + 1 < n {
+            true => json!({ "type": "ref", "ref": format!("#d{}", i + 1) }),
+            false if looped => json!({ "type": "ref", "ref": "#d0" }),
+            false => json!({ "type": "object", "properties": { "n": { "type": "integer" } } }),
+        };
+        defs.insert(format!("d{i}"), def);
+    }
+    let shipped = [json!({ "lexicon": 1, "id": "fm.plyr.chain", "defs": defs })];
+    let fits: bool = tc.draw(gs::booleans());
+    let record = json!({ "$type": "fm.plyr.chain", "n": if fits { json!(1) } else { json!("one") } });
+    let checked = validate_with(&shipped, "fm.plyr.chain", &record).map_err(|e| e.to_string());
+    // The record's ref and the n - 1 after it, each followed while no more than MAX_HOPS came before.
+    match (looped || n > MAX_HOPS + 1, fits) {
+        (true, _) => assert!(checked.unwrap_err().contains("refers to itself in a loop"), "{n} {looped}"),
+        (false, true) => checked.unwrap(),
+        (false, false) => assert!(checked.unwrap_err().ends_with("n should be a whole number, not \"one\""), "{n}"),
     }
 }
