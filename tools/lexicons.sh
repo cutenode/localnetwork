@@ -21,6 +21,7 @@ goat() { go run github.com/bluesky-social/goat@v0.2.6 "$@"; }
 
 # Each string without a limit, as `file: path.to.field`.
 unbounded() {
+  # shellcheck disable=SC2016 # $path is jq's variable.
   git ls-files --cached --others --exclude-standard -z -- ':(glob)lexicons/computer/**/*.json' |
     xargs -0 jq -r 'paths(objects and .type == "string" and ((has("format") or has("maxLength") or has("maxGraphemes")) | not)) as $path
       | "\(input_filename): \($path | map(tostring) | join("."))"'

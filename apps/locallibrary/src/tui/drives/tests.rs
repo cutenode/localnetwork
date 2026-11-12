@@ -88,7 +88,7 @@ fn a_drives_commands_need_a_drive() {
 
 /// Set prep checks the other drives of the drive's library plugged in with it, in one report.
 #[test]
-fn set_prep_checks_the_librarys_drives_together() {
+fn set_prep_checks_the_library_drives_together() {
     let (mut app, _dir, root) = demo_app();
     let (_other_dir, other) = demo_drive();
     let info = |root: &Path| locallibrary::Device::open(root).unwrap().info();

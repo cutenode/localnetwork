@@ -75,11 +75,9 @@ impl Item {
 /// many more there are.
 pub(crate) fn of(set: &PublishedSet, creator: Option<&str>, tracklist: &[TracklistEntry]) -> Item {
     let given = |s: Option<&str>| s.map(str::trim).filter(|s| !s.is_empty()).map(String::from);
-    let place = given(set.venue.as_deref()).or_else(|| given(set.city.as_deref()));
-    let title = given(set.title.as_deref())
-        .unwrap_or_else(|| format!("{}, {}", place.as_deref().unwrap_or("DJ set"), set.date));
     let creator = given(creator);
-    let identifier = identifier(creator.as_deref(), &set.date, given(set.title.as_deref()).or(place).as_deref());
+    let named = given(set.title.as_deref()).or_else(|| set.place());
+    let identifier = identifier(creator.as_deref(), &set.date, named.as_deref());
     let mut notes = Vec::new();
     let mut cut = |what: &str, text: String| {
         let (fitted, was_cut) = fit(text);
@@ -88,7 +86,7 @@ pub(crate) fn of(set: &PublishedSet, creator: Option<&str>, tracklist: &[Trackli
         }
         fitted
     };
-    let title = cut("title", title);
+    let title = cut("title", set.name());
     let creator = creator.map(|c| cut("creator", c));
     let date = cut("date", set.date.clone());
     let mut subjects: Vec<String> = vec![TAG.into()];
@@ -168,7 +166,7 @@ fn fit(text: String) -> (String, bool) {
 /// The description: `tracklist` a line each, as HTML. One too long for a header keeps the lines
 /// that fit, and a last saying how many more there are, which the note says too.
 fn description(tracklist: &[TracklistEntry]) -> (String, Option<String>) {
-    let lines: Vec<String> = tracklist.iter().map(|e| escape(&line(e))).collect();
+    let lines: Vec<String> = tracklist.iter().map(|e| escape(&e.line())).collect();
     let all = lines.join(BREAK);
     if header_value(&all).len() <= MAX_VALUE {
         return (all, None);
@@ -192,16 +190,4 @@ fn description(tracklist: &[TracklistEntry]) -> (String, Option<String>) {
 /// `text` as HTML text.
 fn escape(text: &str) -> String {
     text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-}
-
-/// A tracklist's line: `05:30 Artist - Title`, `1:02:03` past an hour, without a time when it's
-/// not known. A track published unnamed is `ID - ID`, as DJs write one.
-pub(crate) fn line(entry: &TracklistEntry) -> String {
-    let named = |s: &Option<String>| s.as_deref().map(str::trim).filter(|s| !s.is_empty()).unwrap_or("ID").to_string();
-    let name = format!("{} - {}", named(&entry.artist), named(&entry.title));
-    match entry.start_seconds {
-        Some(s) if s >= 3600 => format!("{}:{:02}:{:02} {name}", s / 3600, s / 60 % 60, s % 60),
-        Some(s) => format!("{:02}:{:02} {name}", s / 60, s % 60),
-        None => name,
-    }
 }

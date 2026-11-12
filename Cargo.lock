@@ -4092,7 +4092,6 @@ dependencies = [
  "ring",
  "rusqlite",
  "rustc-hash",
- "rustfft",
  "same-file",
  "schemars",
  "serde",
@@ -4255,11 +4254,9 @@ name = "locallibrary-plugin-musicbrainz"
 version = "0.1.0"
 dependencies = [
  "hegeltest",
- "httpdate",
  "indexmap",
  "loclib-model",
  "loclib-plugin",
- "loclib-progress",
  "loclib-tracklist",
  "quick-xml 0.42.0",
  "rustc-hash",
@@ -4330,6 +4327,7 @@ name = "locallibrary-plugin-youtube"
 version = "0.1.0"
 dependencies = [
  "hegeltest",
+ "libc",
  "loclib-plugin",
  "loclib-progress",
  "serde",
@@ -4363,7 +4361,6 @@ dependencies = [
  "serde",
  "serde_json",
  "stratum-dsp",
- "symphonia",
  "tempfile",
  "thiserror 2.0.21",
 ]
@@ -4454,7 +4451,9 @@ dependencies = [
 name = "loclib-plugin"
 version = "0.1.0"
 dependencies = [
+ "codspeed-criterion-compat",
  "hegeltest",
+ "httpdate",
  "indexmap",
  "jsonschema",
  "loclib-model",
@@ -4511,7 +4510,6 @@ dependencies = [
  "rubato",
  "schemars",
  "serde",
- "symphonia",
  "tempfile",
  "thiserror 2.0.21",
 ]

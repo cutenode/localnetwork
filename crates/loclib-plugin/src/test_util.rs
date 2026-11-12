@@ -1,11 +1,16 @@
-//! Test support for a fake host: cancelling a request the plugin is serving right after the host
-//! has answered one of the plugin's calls, the way a user's cancel can land between two calls.
+//! Test support: [`FakeHost`], a host to test a plugin against over the protocol, and
+//! [`Canceller`], for a hand-written one, cancelling a request the plugin is serving right after
+//! the host has answered one of the plugin's calls, the way a user's cancel can land between two
+//! calls.
+
+mod fake_host;
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::Value;
 
+pub use self::fake_host::{FakeHost, Sent};
 use crate::{Cancel, Peer, Pending, RpcError, method};
 
 /// The request a fake host cancels, and whether the answer it's sending now cancels it.
