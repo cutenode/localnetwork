@@ -7,7 +7,8 @@
 	import Handle from '#lib/components/Handle.svelte';
 	import ProjectForm from '#lib/components/ProjectForm.svelte';
 	import { draftKey, hasDraft } from '#lib/form-draft.svelte.ts';
-	import { formatDateTime, requestStanding, requestTitle } from '#lib/format.ts';
+	import { formatDateTime, requestTitle } from '#lib/format.ts';
+	import { requestStanding } from '#lib/request-standing.ts';
 	import { CLAIM_RELATIONSHIPS, labelFor } from '#lib/taxonomy/options.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import Card from '#lib/ui/Card.svelte';

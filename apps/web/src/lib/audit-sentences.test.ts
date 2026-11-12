@@ -23,6 +23,9 @@ describe('auditSentence', () => {
 		expect(auditSentence(entry)).toBe('You updated your profile');
 		expect(auditSentence(entry, '@pat.test')).toBe('@pat.test updated their profile');
 		expect(said('show.save', 'Announced the show “All their love” for Neon Tide')).toContain('All their love');
+		expect(said('flag.preview', 'Previewed dashboardCalendar on in their own browser')).toBe(
+			'You previewed dashboardCalendar on in your own browser'
+		);
 	});
 
 	it('drops revision numbers', () => {

@@ -65,6 +65,11 @@ const PHRASES: Record<
 	'people.link': said,
 	'listing.list': said,
 	'listing.unlist': said,
+	'flag.update': said,
+	'flag.preview': said,
+	'flagGroup.create': said,
+	'flagGroup.update': said,
+	'flagGroup.delete': said,
 	// Entries written before these were called requests still say "a submission".
 	'record.delete': (summary) =>
 		said(summary)
@@ -91,7 +96,7 @@ export function auditSentence(
 
 	if (!phrase) return unsaid;
 
-	return `${who} ${who === 'You' ? phrase.replace(/\btheir (planner|profile|behalf)\b/, 'your $1') : phrase}`;
+	return `${who} ${who === 'You' ? phrase.replace(/\btheir (own|planner|profile|behalf)\b/, 'your $1') : phrase}`;
 }
 
 /** Where each copy of an entry stands, for the details of a row. */

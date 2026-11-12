@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { requestStanding, requestTitle } from '#lib/format.ts';
+	import { requestTitle } from '#lib/format.ts';
+	import { requestStanding } from '#lib/request-standing.ts';
 	import type { RequestView } from '#lib/types.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import EmptyState from './EmptyState.svelte';
