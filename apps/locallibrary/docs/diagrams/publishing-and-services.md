@@ -136,7 +136,7 @@ flowchart LR
     core --> iroh["iroh and n0's relays:<br/>store serve, store fetch"]
 ```
 
-Source: [`crates/locallibrary/src/atmosphere/mod.rs`](../../../../crates/locallibrary/src/atmosphere/mod.rs), [`crates/locallibrary/src/atmosphere/directory.rs`](../../../../crates/locallibrary/src/atmosphere/directory.rs), [`crates/locallibrary/src/atmosphere/repo.rs`](../../../../crates/locallibrary/src/atmosphere/repo.rs), [`crates/locallibrary/src/peers/mod.rs`](../../../../crates/locallibrary/src/peers/mod.rs)
+Source: [`crates/locallibrary/src/atmosphere/mod.rs`](../../../../crates/locallibrary/src/atmosphere/mod.rs), [`crates/locallibrary/src/atmosphere/identity.rs`](../../../../crates/locallibrary/src/atmosphere/identity.rs), [`crates/locallibrary/src/atmosphere/directory.rs`](../../../../crates/locallibrary/src/atmosphere/directory.rs), [`crates/locallibrary/src/atmosphere/repo.rs`](../../../../crates/locallibrary/src/atmosphere/repo.rs), [`crates/locallibrary/src/peers/mod.rs`](../../../../crates/locallibrary/src/peers/mod.rs)
 
 ## Online services of plugins and the browser
 
