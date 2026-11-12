@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { DJ, pressKitServices, PROMOTER, STRANGER } from '#lib/server/testing/press-kits.ts';
 import { callRoute, loadRoute } from '#lib/testing/route-event.ts';
 import { actions, load } from './+page.server.ts';
@@ -45,6 +46,16 @@ it('opens the thread with its inquiry for both sides', async () => {
 	expect(promoter.thread).toMatchObject({ skey, status: 'open', title: 'Warehouse Night' });
 	expect(promoter.events.map((event) => [event.kind, event.text])).toEqual([['inquiry', 'Free on the 12th?']]);
 	expect(dj.thread.space).toBe(space);
+});
+
+it('streams the act, and opens the thread without it when the directory is down', async () => {
+	await expect(Promise.resolve((await opened(DJ)).project)).resolves.toMatchObject({ name: 'Neon Tide' });
+
+	vi.spyOn(f.t.directory, 'query').mockRejectedValue(new HappyViewError(503, 'down'));
+	const down = await opened(PROMOTER);
+
+	expect(down.thread.title).toBe('Warehouse Night');
+	await expect(Promise.resolve(down.project)).resolves.toBeNull();
 });
 
 it("says a thread that doesn't exist, or that the viewer isn't in, isn't found", async () => {

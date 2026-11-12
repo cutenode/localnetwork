@@ -505,6 +505,12 @@ export type BookingThreadView = {
 	createdAt: string;
 };
 
+/** A thread in the bookings list, where a closed one keeps why: `withdrawn` is a cancelled inquiry nobody confirmed. */
+export type BookingListThread = BookingThreadView & { withdrawn: boolean };
+
+/** What the directory adds to threads, by their space. */
+export type ThreadProjects = Map<string, NonNullable<BookingThreadView['project']>>;
+
 export type BookingEventView = {
 	uri: string;
 	kind: 'inquiry' | 'message' | 'status';

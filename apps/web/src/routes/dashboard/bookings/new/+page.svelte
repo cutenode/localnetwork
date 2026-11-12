@@ -9,7 +9,6 @@
 	import { formFields } from '#lib/form-fields.svelte.ts';
 	import { placeLabel } from '#lib/format.ts';
 	import { FEE_TIERS, SET_TYPES } from '#lib/taxonomy/options.ts';
-	import Eyebrow from '#lib/ui/Eyebrow.svelte';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -29,17 +28,16 @@
 
 <svelte:head><title>Inquire with {data.project.profile.name} · Local Network</title></svelte:head>
 
-<div class="flex max-w-3xl flex-col gap-8">
+<div class="flex max-w-3xl flex-col gap-8 sm:gap-10">
 	<header class="flex flex-col gap-4">
 		<div class="flex items-center gap-4">
 			<Avatar src={data.project.avatarUrl} name={data.project.profile.name} />
 			<div class="flex min-w-0 flex-col gap-1">
-				<Eyebrow>Booking inquiry</Eyebrow>
-				<h1 class="m-0 text-title font-semibold">{data.project.profile.name}</h1>
+				<h1 class="m-0 text-heading font-semibold">Inquire with {data.project.profile.name}</h1>
 				<p class="m-0 text-small text-fg-muted">{placeLabel(data.project.profile)}</p>
 			</div>
 		</div>
-		<p class="m-0 text-lede text-fg-muted">This opens a private thread with the project's managers. The details below go first, so they can answer quickly.</p>
+		<p class="m-0 text-body text-fg-muted">This opens a private thread with the project's managers. The details below go first, so they can answer quickly.</p>
 		{#if data.show}<p class="m-0 text-small text-fg-muted">Filled in from <a class="link" href="/dashboard/planner/shows/{data.show.rkey}">{data.show.title}</a> in your planner.</p>{/if}
 	</header>
 	<form
