@@ -64,6 +64,7 @@ fn by_hand(fx: &Env, step: &str) {
         // A file in the store changes on disk.
         "!corrupt-store" => {
             if let Some(f) = same_in_both(&fx.store.join("objects")) {
+                std::fs::remove_file(&f).unwrap();
                 std::fs::write(f, "not what was stored").unwrap();
             }
         }

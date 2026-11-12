@@ -58,6 +58,7 @@ static SAID: OnceLock<Colours> = OnceLock::new();
 
 #[cfg(test)]
 thread_local! {
+    static TEST_REDUCED_MOTION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// A test's own mode, so tests drawing in different modes can run side by side.
     static TEST_MODE: std::cell::Cell<Option<Mode>> = const { std::cell::Cell::new(None) };
     /// A test's own colour tier, whatever terminal runs it.
@@ -212,6 +213,12 @@ fn refit_test() {
     TEST_CURRENT.with(|c| c.set(drawn_in));
 }
 
+/// Ask for less motion on this thread.
+#[cfg(test)]
+pub fn set_test_reduced_motion(on: bool) {
+    TEST_REDUCED_MOTION.with(|m| m.set(on));
+}
+
 /// Draw this thread's frames in `mode` (`None`: as the player would).
 #[cfg(test)]
 pub fn set_test_mode(mode: Option<Mode>) {
@@ -260,6 +267,10 @@ pub fn flat() -> bool {
 /// LOCALLIBRARY_REDUCED_MOTION: redraw only as often as when nothing moves, and leave out
 /// motion that's only decoration (the spinning record, the pulsing logo, cue flashes).
 pub fn reduced_motion() -> bool {
+    #[cfg(test)]
+    if TEST_REDUCED_MOTION.with(std::cell::Cell::get) {
+        return true;
+    }
     REDUCED_MOTION.load(Ordering::Relaxed)
 }
 
@@ -406,7 +417,7 @@ pub fn set_test_theme(theme: Option<&'static Theme>) {
 pub fn palette() -> Palette<'static> {
     // Settled here, not for each of a waveform's columns.
     let marker = if markers_read_as_they_are() { |c| c } else { marker };
-    Palette { paint: rgb3, image, marker, plain: plain(), background: page(), ..Palette::of(current()) }
+    Palette { paint: rgb3, image, marker, plain: plain(), flat: flat(), background: page(), ..Palette::of(current()) }
 }
 
 pub fn fg(c: [u8; 3]) -> Style {

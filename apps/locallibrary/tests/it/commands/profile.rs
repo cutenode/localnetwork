@@ -31,7 +31,7 @@ fn a_collection_with_no_sets_is_described_as_it_is() {
 }
 
 #[test]
-fn choices_are_said_as_theyre_made_and_shown_in_the_report() {
+fn choices_are_said_as_they_are_made_and_shown_in_the_report() {
     let env = Env::ascii();
     let club = env.club("Club");
     // Two sessions that open and close alike, and play 1 into 2 both times.

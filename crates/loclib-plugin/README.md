@@ -243,7 +243,7 @@ assert!(!upload.covers("POST", &Url::parse("https://www.googleapis.com.evil.exam
   and the website adds its client id and secret for the service, sends the request on the way the
   service takes it and answers what the service answered. `client_id` is then Local Network's
   client at the service. The services it knows are in
-  [`apps/web/src/lib/server/token-exchange/services.json`](../../apps/web/src/lib/server/token-exchange/services.json);
+  [`apps/web/src/lib/server/token-exchange/services.json`](https://github.com/cutenode/localnetwork/blob/main/apps/web/src/lib/server/token-exchange/services.json);
   one it doesn't know, or isn't set up for yet, fails the sign-in with what the website said.
 - `one_account` and `another_account` are authorize params for signing in again as one account
   the host knows (`login_hint = "{subject}"`, the only placeholder) and for adding another
@@ -417,7 +417,11 @@ link is (`plyr.fm`, 64 characters at most, kept only with a `url`), and `record`
 `com.atproto.repo.strongRef`: an at:// URI and a CID) as the Atmosphere record the recording is,
 when the destination keeps it as one (a plyr.fm track). The set's published record names the link
 and points to the record. An answer with a link that isn't https, a name too long or a record that
-isn't one is the plugin misbehaving, and the host keeps none of it.
+isn't one is the plugin misbehaving, and the host keeps none of it. In Rust, `set.name()` is the
+set's title, else where and when it was played (`Warehouse, 2026-10-03`), `entry.line()` an
+entry's tracklist line (`05:30 Artist - Title`, `1:02:03` past an hour, `ID - ID` unnamed; each on
+one line; `line_at(at)` with another time, `clock(secs)` the time alone), and `fit_lines` keeps the
+lines that fit a description, then says how many more there are.
 
 - `[[contributes.destinations]]`: `name`, `title` and `kind`, `store` or `set`. Each method is
   only for a destination of its kind.
@@ -629,7 +633,9 @@ and notices the host cancelling; a callback under way when the host cancels fail
 library, tracks by id or by query, playlists, the tracks' analysis and artwork, and the drive's
 info, each whole however the host pages and batches it (`host.call` makes any other read), as
 loclib-model's types (`Track`, `Library`, `TrackAnalysis`), which `loclib_plugin::loclib_model`
-re-exports. `host.fetch(&Fetch::get(url))` goes online through the host (`net/fetch`), and
+re-exports. `host.fetch(&Fetch::get(url))` goes online through the host (`net/fetch`), and its
+answer's `retry_after(now)` reads how long the server asks to wait (`Retry-After`, seconds or an
+HTTP-date), which `pause(&host.ctx(), wait)` waits out, ending once the hook is cancelled;
 `host.partial_rows(rows)` (`partial_items`) sends a view's rows as they're ready; files the
 answer names go in `req.context.scratch`; `host.notify(..)` tells the user something
 (`host/notify`). A hook answers its answer or what makes one: an

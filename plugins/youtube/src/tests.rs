@@ -22,10 +22,6 @@ fn set() -> PublishedSet {
     }
 }
 
-fn entry(artist: Option<&str>, title: Option<&str>, start: Option<u32>) -> TracklistEntry {
-    TracklistEntry { artist: artist.map(Into::into), title: title.map(Into::into), start_seconds: start }
-}
-
 /// It reaches YouTube's API alone, publishes sets at one destination, asks for a Google account
 /// to upload with and nothing else, naming it where the Google account plugin puts its token
 /// (after `Bearer`), and keeps who can watch and the picture as settings.
@@ -161,16 +157,4 @@ fn prop_an_untitled_set_is_named_after_where_and_when(tc: TestCase) {
     let given = |s: Option<String>| s.map(|s| s.replace(['<', '>'], "")).filter(|s| !s.trim().is_empty());
     let place = given(venue).or_else(|| given(city)).unwrap_or_else(|| "DJ set".into());
     assert_eq!(video::of(&set, &[], 60).title, format!("{place}, 2026-10-03"));
-}
-
-/// A chapter's time, as `05:30` or past an hour `1:02:03`, reads back as the second it's for.
-#[hegel::test(test_cases = 100)]
-fn a_chapters_time_reads_back(tc: TestCase) {
-    let secs = tc.draw(gs::integers::<u32>());
-    let line = video::line(&entry(Some("A"), Some("B"), None), Some(secs));
-    let (time, name) = line.split_once(' ').unwrap();
-    assert_eq!(name, "A - B");
-    assert!(time.split(':').skip(1).all(|f| f.len() == 2), "{line}");
-    assert_eq!(time.split(':').count(), if secs < 3600 { 2 } else { 3 }, "{line}");
-    assert_eq!(timed(&line).0, Some(secs), "{line}");
 }

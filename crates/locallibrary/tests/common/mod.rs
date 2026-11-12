@@ -64,6 +64,7 @@ pub fn rot(path: &Path) {
     let mut bytes = fs::read(path).unwrap();
     let mid = bytes.len() / 2;
     bytes[mid] ^= 0xFF;
+    fs::remove_file(path).unwrap();
     fs::write(path, bytes).unwrap();
     filetime::set_file_mtime(path, mtime).unwrap();
 }
@@ -526,7 +527,8 @@ pub fn rekordbox_xml(d: &Device, opts: &XmlOptions) -> Result<(String, loclib_in
     let analysis: &dyn Fn(&locallibrary::Track) -> TrackAnalysis = &load;
     let root = opts.location_root.clone().unwrap_or_else(|| d.root().to_path_buf());
     let source = Source { library: &library, root, analysis: (!opts.skip_analysis).then_some(analysis) };
-    let export = rekordbox::build(&source, Path::new("rekordbox.xml"), &Ctx::silent()).unwrap();
+    let product = rekordbox::Product { name: "locallibrary", version: "0.1.0", company: "locallibrary" };
+    let export = rekordbox::build(&source, &product, Path::new("rekordbox.xml"), &Ctx::silent()).unwrap();
     let Content::Bytes(bytes) = &export.files[0].content else { panic!("the XML is written out") };
     Ok((String::from_utf8(bytes.clone()).unwrap(), export))
 }

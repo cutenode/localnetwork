@@ -1,0 +1,5 @@
+std = "happyview"
+
+[lints]
+# The scripts keep one-line guards and loops (`if not ok then return nil end`, `for ... do out[i] = ... end`) on purpose.
+multiple_statements = "allow"

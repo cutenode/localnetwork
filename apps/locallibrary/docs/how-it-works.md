@@ -88,6 +88,7 @@ crates/locallibrary/src/    the library, built on the crates above
   progress.rs  loclib-progress, re-exported, and the guard that keeps a front end quitting from cutting
                a database swap short
   hash.rs      BLAKE3 hashes for stored files, change detection and fingerprints
+  twins.rs     audio in rekordbox's collection that a pull can clone a store object from
   fsutil.rs    atomic writes, copies that keep modification times, free space
   device.rs    a drive: identity, lineage, scanning, fingerprint
   tree.rs      file scanning + persistent (size, mtime) -> hash cache
@@ -131,8 +132,9 @@ crates/locallibrary/src/    the library, built on the crates above
   plugin/      the plugin host: starting the plugins locallibrary ships and checking who they are,
                the reads they may call back for (callbacks.rs), and their commands, operations
                (planned as edit plans), exports, analyzers and settings
-  sound/       tempo, key and loudness through loclib-analysis: doctor's analysis section, how sure each
-               key is for the set planner, the check's loudness item, and `analysis bench` (bench.rs)
+  sound/       tempo, key and loudness as the analyzers chosen for those roles kept them: doctor's
+               analysis section, how sure each key is for the set planner and the check's loudness
+               item; and `analysis bench` (bench.rs), which runs loclib-analysis itself
   mix/         which library tracks a recorded set plays, through loclib-mixid: the drive's tracks, the
                store's fingerprints (index.rs), Audacity projects (aup.rs), the report (the
                interactive page, the mix's playable audio, the reports kept in the store: report.rs and
@@ -213,7 +215,10 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   from the lead. A sync carries the drive's recorded edits along with its library, so `refresh` makes
   edits made on any clone again.
 - **Store.** Files are stored by BLAKE3 hash. Snapshots are manifests with parent links, so
-  history is a DAG and storage is deduplicated across drives and time.
+  history is a DAG and storage is deduplicated across drives and time. On APFS, Btrfs and XFS, a
+  pull that brings in a track rekordbox's collection holds on the store's volume makes the object
+  a copy-on-write copy of the collection's file, which takes no space until one of them is written.
+  Those tracks then have no second physical copy in the store: see [Backing up](store.md).
 - **OneLibrary.** `exportLibrary.db` is SQLite encrypted with SQLCipher 4's defaults (AES-256-CBC
   pages with HMAC-SHA512, PBKDF2-HMAC-SHA512 key derivation) under one passphrase every rekordbox
   installation shares. It's decrypted (with its WAL replayed) into a temporary working copy,

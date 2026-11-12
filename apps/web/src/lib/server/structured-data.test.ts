@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest';
+import type { DjSet } from '#lib/dj.ts';
 import type { PageMeta } from '#lib/meta.ts';
 import type { MixReport } from '#lib/mix/report.ts';
 import type { ProfileView, ProjectView } from '#lib/types.ts';
-import { artistMeta, mixMeta, performerMeta, pressKitMeta, profileMeta } from './meta';
+import { artistMeta, mixMeta, performerMeta, pressKitMeta, profileMeta, setMeta } from './meta';
 import {
 	mixRecording,
 	musicBrainzArtist,
 	performerProfile,
 	personProfile,
 	jsonLdFor,
-	pressKitProfile
+	pressKitProfile,
+	setPlaylist
 } from './structured-data';
 
 const SITE = 'https://localnetwork.test';
@@ -159,6 +161,87 @@ describe('mixes', () => {
 		expect(jsonLd).not.toHaveProperty('dateCreated');
 		expect(jsonLd).not.toHaveProperty('image');
 		expect(recording(project, { date: '2026-10-04 at the boathouse' })).not.toHaveProperty('dateCreated');
+	});
+});
+
+describe('sets', () => {
+	const account = { did: 'did:plc:mira', handle: 'mira.test' };
+
+	const set: Pick<DjSet, 'uri' | 'title' | 'venue' | 'location' | 'date' | 'tracks'> = {
+		uri: 'at://did:plc:mira/computer.localnetwork.dj.set/3kset',
+		title: 'Closing',
+		date: '2026-09-01',
+		venue: 'Halle Nord',
+		location: { country: 'DE', locality: 'Berlin' },
+		tracks: [
+			{ title: 'Night Bus', artists: [{ artistName: 'Ferrule', artistMbId: '1b4f1c3e-0000-4000-8000-000000000001' }] },
+			{ title: 'Halogen', artist: 'Two Rooms' },
+			{ title: 'Kept back', unidentified: true },
+			{ startSeconds: 600 }
+		]
+	};
+
+	const playlist = (fields: Partial<typeof set> = {}) => {
+		const page = setMeta(SITE, account, { name: 'Mira', avatarUrl: null }, { ...set, ...fields });
+
+		return { page, jsonLd: jsonLdFor(page, setPlaylist({ ...set, ...fields }, { name: 'Mira', path: '/@mira.test' })) };
+	};
+
+	it("makes a set a playlist by its DJ, naming only the tracks they named, at the set's page", () => {
+		const { page, jsonLd } = playlist();
+
+		expect(page).toMatchObject({
+			title: 'Closing by Mira',
+			description: 'Mira played 4 tracks at Halle Nord, Berlin on Sep 1, 2026.',
+			url: 'https://localnetwork.test/@mira.test/sets/3kset',
+			type: 'music.playlist'
+		});
+		expect(jsonLd).toEqual({
+			'@context': 'https://schema.org',
+			'@type': 'MusicPlaylist',
+			name: 'Closing',
+			url: 'https://localnetwork.test/@mira.test/sets/3kset',
+			dateCreated: '2026-09-01',
+			numTracks: 4,
+			creator: { '@type': 'Person', name: 'Mira', url: 'https://localnetwork.test/@mira.test' },
+			track: [
+				{
+					'@type': 'MusicRecording',
+					name: 'Night Bus',
+					byArtist: [
+						{
+							'@type': 'MusicGroup',
+							name: 'Ferrule',
+							sameAs: ['https://musicbrainz.org/artist/1b4f1c3e-0000-4000-8000-000000000001']
+						}
+					]
+				},
+				{ '@type': 'MusicRecording', name: 'Halogen', byArtist: [{ '@type': 'MusicGroup', name: 'Two Rooms' }] }
+			]
+		});
+	});
+
+	it('names a set without a title by its place, and leaves out what it lacks', () => {
+		expect(playlist({ title: undefined }).jsonLd.name).toBe('Halle Nord, Berlin');
+
+		const { page, jsonLd } = playlist({
+			title: undefined,
+			venue: undefined,
+			location: undefined,
+			tracks: [{ title: 'Alone' }]
+		});
+
+		expect(page).toMatchObject({ title: 'Untitled set by Mira', description: 'Mira played 1 track on Sep 1, 2026.' });
+		expect(jsonLd.track).toEqual([{ '@type': 'MusicRecording', name: 'Alone' }]);
+		expect(playlist({ tracks: [{ unidentified: true }] }).jsonLd).not.toHaveProperty('track');
+	});
+
+	it("previews with the DJ's picture when they have one, else the site's card", () => {
+		expect(setMeta(SITE, account, { name: 'Mira', avatarUrl: '/media/did:plc:mira/bafyface' }, set).image).toEqual({
+			url: 'https://localnetwork.test/media/did:plc:mira/bafyface',
+			alt: "Mira's picture"
+		});
+		expect(playlist().page.image).toMatchObject({ url: 'https://localnetwork.test/og/site.png' });
 	});
 });
 

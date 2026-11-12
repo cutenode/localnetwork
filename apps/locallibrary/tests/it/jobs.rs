@@ -585,3 +585,34 @@ fn setup_takes_the_drives_named_and_joins_their_library() {
     let role = |name: &str| drives.as_array().unwrap().iter().find(|d| d["name"] == name).map(|d| d["role"].clone());
     assert_eq!((role("ZED"), role("REKORDBOX")), (Some(json!("primary")), Some(json!("backup"))), "{drives}");
 }
+
+/// For a library of three drives, any but the first archive: `check` and `prep
+/// --dry-run` given no drive say which drives they left out, all of those and no others.
+#[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_group_command_says_which_drives_it_left_out(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let env = Env::new();
+    let names = ["A", "B", "C"];
+    for (i, name) in names.iter().enumerate() {
+        let root = demo_drive(&env.volumes, name);
+        let more: &[&str] = if i == 0 { &["--new-library"] } else { &[] };
+        let (_, err, code) = env.run(&[&["pull", path(&root), "--library", "Main"][..], more].concat());
+        assert_eq!(code, 0, "{err}");
+    }
+    let mut left: Vec<&str> = Vec::new();
+    for name in &names[1..] {
+        let role = tc.draw(gs::sampled_from(vec![None, Some("archive")]));
+        if let Some(role) = role {
+            let (_, err, code) = env.run(&["--yes", "drive", "role", path(&env.volumes.join(name)), role]);
+            assert_eq!(code, 0, "{err}");
+            left.push(name);
+        }
+    }
+    let command = tc.draw(gs::sampled_from(vec![vec!["check"], vec!["prep", "--dry-run"]]));
+    let (out, err, code) = env.run(&command);
+    let err = format!("{out}{err}");
+    let said = format!("{command:?}, left out {left:?}: exit {code}\n{out}{err}");
+    let warned = format!("left out {}: archive and retired drives aren't taken unless named", left.join(", "));
+    assert_eq!(err.contains(&warned), !left.is_empty(), "{said}");
+    assert_eq!(err.contains("left out "), !left.is_empty(), "{said}");
+}

@@ -290,6 +290,32 @@ test.describe('public pages', () => {
 		await expect(page.getByTestId('playhead')).toHaveCSS('transition-property', 'none');
 	});
 
+	test("a person's profile opens each section as a tab, by link too, with scripts or without", async ({
+		page,
+		browser
+	}) => {
+		await page.goto('/@neon.test');
+		await hydrated(page);
+		await page.getByRole('tab', { name: 'Sets' }).click();
+		await expect(page).toHaveURL('/@neon.test?tab=sets');
+		await expect(page.getByRole('tabpanel', { name: 'Sets' }).getByText('Tidal Hours', { exact: true })).toBeVisible();
+		// Safari doesn't focus a link it clicks.
+		await page.getByRole('tab', { name: 'Sets' }).focus();
+		await page.keyboard.press('ArrowRight');
+		await page.keyboard.press('Enter');
+		await expect(page).toHaveURL('/@neon.test?tab=how-they-play');
+		await expect(page.getByRole('tab', { name: 'How they play' })).toBeFocused();
+		await expectAccessible(page);
+
+		const noScripts = await browser.newContext({ javaScriptEnabled: false, baseURL: new URL(page.url()).origin });
+		const plain = await noScripts.newPage();
+		await plain.goto('/@neon.test?tab=plays-in');
+		await expect(
+			plain.getByRole('tabpanel', { name: 'Plays in' }).getByRole('link', { name: 'Neon Tide' })
+		).toBeVisible();
+		await noScripts.close();
+	});
+
 	test("a profile's sets link their artists to who played them", async ({ page }) => {
 		// The sets render with the page once the server has them cached (otherwise they stream in after it
 		// hydrates), and a tracklist opened before the page hydrates stays open.
@@ -590,6 +616,32 @@ test.describe('signed in', () => {
 		expect(await flagOn((url) => milo.request.get(url))).toBe(true);
 		expect(await flagOn((url) => ada.request.get(url))).toBe(false);
 		expect(await flagOn((url) => request.get(url))).toBe(false);
+
+		// Off for everyone keeps who it was for, and turning it back on gives them it again.
+		await ada.goto('/admin/flags/parityCanary');
+		await expect(ada.locator('html')).toHaveAttribute('data-hydrated', '');
+		await ada.getByRole('switch', { name: 'Off for everyone' }).check();
+		await ada.getByRole('button', { name: 'Save' }).click();
+		await expect(ada.getByText('Flag saved')).toBeVisible();
+		expect(await flagOn((url) => milo.request.get(url))).toBe(false);
+		await expect(ada.getByLabel('Accounts', { exact: true })).toHaveValue('milo.test');
+		await expectAccessible(ada);
+
+		// A preview changes what this browser sees and no one else's, until it's cleared.
+		await ada.getByRole('button', { name: 'On for me' }).click();
+		await expect(ada.getByRole('status').filter({ hasText: 'Previewing parityCanary on' })).toBeVisible();
+		expect(await flagOn((url) => ada.request.get(url))).toBe(true);
+		expect(await flagOn((url) => milo.request.get(url))).toBe(false);
+		expect(await flagOn((url) => request.get(url))).toBe(false);
+		await expectAccessible(ada);
+		await ada.getByRole('button', { name: 'Clear' }).click();
+		await expect(ada.getByRole('status').filter({ hasText: 'Previewing' })).toBeHidden();
+		expect(await flagOn((url) => ada.request.get(url))).toBe(false);
+
+		await ada.getByRole('switch', { name: 'Off for everyone' }).uncheck();
+		await ada.getByRole('button', { name: 'Save' }).click();
+		await expect(ada.getByText('Flag saved')).toBeVisible();
+		expect(await flagOn((url) => milo.request.get(url))).toBe(true);
 
 		await ada.goto('/admin/flags/parityCanary');
 		// Before hydrating, Svelte can't tell a textarea someone emptied from one it hasn't filled yet, and fills it.

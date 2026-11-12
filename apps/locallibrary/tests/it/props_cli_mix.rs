@@ -32,7 +32,8 @@ fn is_play(line: &str) -> bool {
 
 /// Drive A's tracks, each a drawn sound (two may be the same) or no audio, fingerprinted ahead of
 /// time, then found in a recording of some of them and sounds the drive doesn't have (each
-/// printed as a gap in the tracklist when it's long enough to be one).
+/// printed as a gap in the tracklist when it's long enough to be one), with the cover given for
+/// it if one was.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_recorded_mix_prints_the_tracklist_its_json_has(tc: TestCase) {
     let fx = Env::from_template();
@@ -134,10 +135,19 @@ fn a_recorded_mix_prints_the_tracklist_its_json_has(tc: TestCase) {
     if want_data {
         args.extend(["--export", data.to_str().unwrap()]);
     }
+    // A cover given for a single recording is its cover, not the image found beside it.
+    let cover = fx.home("artwork.png");
+    let with_cover = !twice && tc.draw(gs::booleans());
+    if with_cover {
+        image::RgbImage::from_pixel(300, 300, image::Rgb([30, 30, 200])).save(&cover).unwrap();
+        args.extend(["--cover", path(&cover)]);
+    }
     let v = fx.json(&args);
     let reports = v.as_array().unwrap();
     assert_eq!(reports.len(), 1 + usize::from(twice), "{v}");
     let report = &reports[0];
+    let given = &report["mix"]["cover"];
+    assert_eq!(given["kind"] == "given", with_cover, "{given}");
     let plays = report["plays"].as_array().unwrap();
     for r in reports {
         assert_eq!(r["plays"].as_array().unwrap().len(), plays.len(), "the same recording: {v}");
@@ -252,7 +262,8 @@ fn reports_are_opened_where_they_are_written(tc: TestCase) {
 }
 
 /// Only files `mix` can read are taken, before anything is fingerprinted: a recording that isn't
-/// there, one that isn't audio, and `--audio` for several recordings are refused, saying why.
+/// there, one that isn't audio, and `--audio` or `--cover` for several recordings are refused,
+/// in any order, as JSON or not, saying why.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
 fn only_recordings_mix_can_read_are_taken(tc: TestCase) {
     let fx = Env::from_template();
@@ -261,26 +272,33 @@ fn only_recordings_mix_can_read_are_taken(tc: TestCase) {
     let set = fx.home("set.wav");
     std::fs::write(&set, wav(&synth(1.0, 1))).unwrap();
     let gone = fx.home("gone.wav");
-    let json = tc.draw(gs::booleans());
-    let (args, why): (Vec<&str>, String) = match tc.draw(gs::integers::<u8>().max_value(2)) {
-        0 => (vec!["mix", path(&gone)], format!("{} doesn't exist", gone.display())),
-        1 => (vec!["mix", path(&notes)], format!("{} isn't a format mix reads", notes.display())),
-        _ => (vec!["mix", path(&set), path(&set), "--audio", path(&set)], "--audio goes with a single mix".into()),
-    };
-    let mut all = if json { vec!["--json"] } else { vec![] };
-    all.extend(args);
-    let r = fx.run(&all);
-    assert_eq!(r.code, 1, "{}\n{}", r.out, r.err);
-    let said = if json {
-        serde_json::from_str::<Value>(&r.out).unwrap()["error"]["message"].as_str().unwrap().to_string()
-    } else {
-        r.err
-    };
-    assert!(said.contains(&why), "{why:?}: {said}");
+    let cover = fx.home("cover.png");
+    for refused in tc.draw(gs::permutations(vec![0u8, 1, 2, 3])) {
+        let json = tc.draw(gs::booleans());
+        let (args, why): (Vec<&str>, String) = match refused {
+            0 => (vec!["mix", path(&gone)], format!("{} doesn't exist", gone.display())),
+            1 => (vec!["mix", path(&notes)], format!("{} isn't a format mix reads", notes.display())),
+            2 => (vec!["mix", path(&set), path(&set), "--audio", path(&set)], "--audio goes with a single mix".into()),
+            _ => {
+                (vec!["mix", path(&set), path(&set), "--cover", path(&cover)], "--cover goes with a single mix".into())
+            }
+        };
+        let mut all = if json { vec!["--json"] } else { vec![] };
+        all.extend(args);
+        let r = fx.run(&all);
+        assert_eq!(r.code, 1, "{}\n{}", r.out, r.err);
+        let said = if json {
+            serde_json::from_str::<Value>(&r.out).unwrap()["error"]["message"].as_str().unwrap().to_string()
+        } else {
+            r.err
+        };
+        assert!(said.contains(&why), "{why:?}: {said}");
+    }
 }
 
 /// `store index-limit` keeps the last limit set (or none, back at the default), says so in text
-/// as its `--json` does, and `settings export` carries what's set.
+/// as its `--json` does, as it's set and when it's shown, and `settings export` carries what's
+/// set.
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
 fn the_index_limit_set_is_the_one_shown_and_exported(tc: TestCase) {
     let fx = Env::new();
@@ -288,9 +306,18 @@ fn the_index_limit_set_is_the_one_shown_and_exported(tc: TestCase) {
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
         let limit = tc.draw(gs::optional(gs::sampled_from(vec![0u64, 1, 512, 4096, u64::MAX])));
         let arg = limit.map_or("default".to_string(), |mib| mib.to_string());
-        let r = fx.json(&["store", "index-limit", &arg]);
-        assert_eq!(r["outcome"], "applied", "{r}");
         set = limit;
+        if tc.draw(gs::booleans()) {
+            let r = fx.json(&["store", "index-limit", &arg]);
+            assert_eq!(r["outcome"], "applied", "{r}");
+            continue;
+        }
+        let said = fx.ok(&["store", "index-limit", &arg]);
+        match set.unwrap_or(512) {
+            0 => assert!(said.contains("fingerprint indexes aren't kept"), "{said}"),
+            mib => assert!(said.contains(&format!("kept up to {mib} MiB a drive")), "{said}"),
+        }
+        assert_eq!(said.contains("(the default)"), set.is_none(), "{said}");
     }
     let shown = fx.json(&["store", "index-limit"]);
     let mib = set.unwrap_or(512);

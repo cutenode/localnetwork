@@ -19,7 +19,7 @@ beforeAll(async () => {
 
 const flags = {
 	answers: async (did: string | null) => [
-		{ key: 'parityCanary' as const, everyone: false, percentage: 25, targeted: did === DJ }
+		{ key: 'parityCanary' as const, enabled: true, everyone: false, percentage: 25, targeted: did === DJ }
 	]
 };
 
@@ -48,7 +48,7 @@ describe('getFlags', () => {
 
 		expect(response.status).toBe(200);
 		expect(await response.json()).toEqual({
-			flags: [{ key: 'parityCanary', everyone: false, percentage: 25, targeted: false }]
+			flags: [{ key: 'parityCanary', enabled: true, everyone: false, percentage: 25, targeted: false }]
 		});
 		expect(response.headers.get('cache-control')).toBe('public, max-age=60');
 		expect(response.headers.get('vary')).toBe('authorization');
@@ -58,7 +58,7 @@ describe('getFlags', () => {
 		const response = await ask(await token());
 
 		expect(await response.json()).toEqual({
-			flags: [{ key: 'parityCanary', everyone: false, percentage: 25, targeted: true }]
+			flags: [{ key: 'parityCanary', enabled: true, everyone: false, percentage: 25, targeted: true }]
 		});
 		expect(response.headers.get('cache-control')).toBe('private, no-store');
 		expect(response.headers.get('vary')).toBe('authorization');

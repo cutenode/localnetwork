@@ -4,24 +4,34 @@
 	"tolerance_percent": 1,
 	"metrics": {
 		"library": {
-			"limit": null,
+			"limit": 5046942,
 			"unit": "instructions",
 			"measures": "Instructions of one frame of the Library view at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"deck": {
-			"limit": null,
+			"limit": 3680918,
 			"unit": "instructions",
-			"measures": "Instructions of one frame of the full-screen deck at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
+			"measures": "Instructions of one frame of the Deck layout at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"drives": {
-			"limit": null,
+			"limit": 3212290,
 			"unit": "instructions",
 			"measures": "Instructions of one frame of the Drives view at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"prepare": {
-			"limit": null,
+			"limit": 3533185,
 			"unit": "instructions",
 			"measures": "Instructions of one frame of the Prepare view at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
+		},
+		"palette": {
+			"limit": null,
+			"unit": "instructions",
+			"measures": "Instructions of one frame of the command palette, over the Library view, at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
+		},
+		"help": {
+			"limit": null,
+			"unit": "instructions",
+			"measures": "Instructions of one frame of the help, over the Library view, at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		}
 	}
 }

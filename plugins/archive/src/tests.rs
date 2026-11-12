@@ -786,10 +786,8 @@ fn the_metadata_fits_its_headers(tc: TestCase) {
     let cut = header_value(&title).len() > MAX_VALUE;
     assert_eq!(item.notes.iter().any(|n| n.starts_with("the title is cut")), cut);
 
-    let lines: Vec<String> = tracklist
-        .iter()
-        .map(|e| item::line(e).replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;"))
-        .collect();
+    let lines: Vec<String> =
+        tracklist.iter().map(|e| e.line().replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")).collect();
     assert_eq!(said("x-archive-meta-description").unwrap_or_default(), item.description);
     let all = lines.join("<br>");
     if header_value(&all).len() <= MAX_VALUE {
@@ -810,26 +808,6 @@ fn the_metadata_fits_its_headers(tc: TestCase) {
     assert!(header_value(&next).len() > MAX_VALUE);
     let note = format!("the description lists {} of the {} tracks, as many as a header holds", kept.len(), lines.len());
     assert!(item.notes.contains(&note), "{:?}", item.notes);
-}
-
-/// A line's time, as `05:30` or past an hour `1:02:03`, reads back as the entry's.
-#[hegel::test(test_cases = 100)]
-fn a_lines_time_reads_back(tc: TestCase) {
-    // Where a field turns over, as often as anywhere.
-    let secs = match tc.draw(gs::booleans()) {
-        true => tc.draw(gs::sampled_from(vec![59, 60, 3599, 3600, 3601, 35999, 36000])),
-        false => tc.draw(gs::integers::<u32>()),
-    };
-    let line = item::line(&entry(Some("A"), Some("B"), Some(secs)));
-    let (time, name) = line.split_once(' ').unwrap();
-    assert_eq!(name, "A - B");
-    let fields: Vec<u64> = time.split(':').map(|f| f.parse().unwrap()).collect();
-    assert!(time.split(':').skip(1).all(|f| f.len() == 2), "{line}");
-    match fields[..] {
-        [m, s] => assert_eq!((secs < 3600, m * 60 + s), (true, u64::from(secs)), "{line}"),
-        [h, m, s] => assert_eq!((secs >= 3600, h * 3600 + m * 60 + s), (true, u64::from(secs)), "{line}"),
-        _ => panic!("{line}"),
-    }
 }
 
 /// What the Archive answers in place of going on, in the property below: the identifier check
@@ -1030,14 +1008,16 @@ fn publish_stops(path: &Path, at: &str, reply: Reply) {
 }
 
 /// The publish goes once what it can wait out has passed: a limit check that fails or can't be
-/// had says nothing of the limit, and a PUT timed out, rate limited or failed by the Archive is
-/// sent again. The answer is the item's page, saying it's taken only when the identifier was.
+/// had says nothing of the limit, one saying it's over the limit holds the PUT until it isn't, and
+/// a PUT timed out, rate limited or failed by the Archive is sent again. The answer is the item's
+/// page, saying it's taken only when the identifier was.
 #[hegel::test(test_cases = 1)]
 fn prop_a_publish_goes_once_what_it_can_wait_out_has_passed(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let path = recording(dir.path(), "set.flac", tc.draw(gs::integers::<u64>().min_value(1).max_value(4000)));
     let s = start(Archive::new());
-    for limit in [None, Some(Reply::Status(500, String::new())), Some(Reply::Unreachable)] {
+    let over = Reply::Status(200, json!({ "over_limit": 1 }).to_string());
+    for limit in [None, Some(Reply::Status(500, String::new())), Some(Reply::Unreachable), Some(over)] {
         let puts =
             [None, Some(Reply::Status(408, String::new())), Some(s3_error(429, "SlowDown", "")), Some(slow_down())];
         for put in puts {
@@ -1050,11 +1030,11 @@ fn prop_a_publish_goes_once_what_it_can_wait_out_has_passed(tc: TestCase) {
 }
 
 /// [`prop_a_publish_goes_once_what_it_can_wait_out_has_passed`] with the Archive answering the
-/// limit check `limit`, the first PUT `put` (`None`: as it would), and the identifier `taken`.
+/// first limit check `limit`, the first PUT `put` (`None`: as it would), and the identifier `taken`.
 fn goes_after(s: &Session, path: &Path, limit: Option<Reply>, put: Option<Reply>, taken: bool) {
     let (l, p) = (limit.clone(), put.clone());
     let archive = Archive::scripted(move |route, asked| match route {
-        "limit" => l.clone(),
+        "limit" if asked == 0 => l.clone(),
         "put" if asked == 0 => p.clone(),
         _ => None,
     });
@@ -1068,7 +1048,15 @@ fn goes_after(s: &Session, path: &Path, limit: Option<Reply>, put: Option<Reply>
         published.warnings.iter().any(|w| w.ends_with(" is taken, so it's dj-kit-2026-10-03-closing-set-2")),
         taken
     );
-    assert_eq!(r.count("PUT"), if put.is_some() { 2 } else { 1 });
+    let puts = if put.is_some() { 2 } else { 1 };
+    assert_eq!(r.count("PUT"), puts);
+    // The limit is checked before each PUT, and once more after it said the S3 was over it.
+    let over = limit.is_some_and(|l| matches!(l, Reply::Status(200, ref body) if body.contains("over_limit")));
+    let checks = r.requests.iter().filter(|(_, u)| u.contains("check_limit=1")).count();
+    assert_eq!(checks, puts + usize::from(over), "{:?}", r.requests);
+    // Held by it, the first PUT waits for a check that says the S3 isn't.
+    let held = r.requests.iter().take_while(|(m, _)| m != "PUT").filter(|(_, u)| u.contains("check_limit=1")).count();
+    assert_eq!(held, 1 + usize::from(over), "{:?}", r.requests);
 }
 
 /// Whatever the tracklist, and however long a title of printable ASCII is, a dry run says what

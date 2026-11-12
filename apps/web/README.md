@@ -21,7 +21,8 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 - People edit their profile at `/dashboard/profile`: the basics, and the DJ and promoter sections they turn on, each adding its own fields (the project form is built from the same basics and performer fields). Turning a section off asks first, since saving deletes what was in it. The profile goes to the account's own repo with its session, over the version the form opened on. A session from before profiles is offered "Sign in again" when the page opens. Someone without a profile gets a card on `/dashboard` to make one from their Bluesky name and picture, read once from their own repo. The sections decide the dashboard sidebar: a DJ's projects under Yours, and a promoter's planner (everything shows until there's a profile, and projects someone manages always do). On a phone the sidebar's main items become tabs along the bottom, and Menu opens the rest in a sheet.
 - A DJ asks staff to list them in Find DJs from their profile editor, once their profile has the DJ section on: a `list` request in the moderation space that names their profile and the version they asked with. Staff review it at `/admin/requests` like any other, seeing the profile as it is now, with a note when it changed since the request and when the same account manages a solo project, which would put them in Find DJs twice. Approving writes the root's `computer.localnetwork.listing.profile` for them and has HappyView read their profile again; `/admin/listings/<did>` (staff's Manage link on a profile) shows the listing and takes them out again. Both are audited.
 - Public pages only read, apart from Follow and Save. A project's managers get a Manage link to its dashboard there, and staff one to the staff console. A project that isn't public shows its managers and staff a "Not public yet" banner; everyone else gets a 404.
-- Every account has a profile page at `/@<handle>`, showing its `computer.localnetwork.profile`: its basics, the performer and promoter sections it turned on, the DJ stats and sets it publishes, and the active projects it manages. A DID with a verified handle, and a handle in any other form, redirect there; an account without a verified handle has its page at `/@<did>`. An account without a profile record still gets a page, with its Bluesky display name when the directory keeps one (else its handle), the projects it plays in, and a line saying it hasn't set up a profile; only an address that names no account is a 404. Handles across the site link to these pages. The owner gets a Manage link to their profile editor, and staff one to its Find DJs listing (`/admin/listings/<did>`).
+- Every account has a profile page at `/@<handle>`, showing its `computer.localnetwork.profile`: its basics, the performer and promoter sections it turned on, the DJ stats and sets it publishes, and the active projects it manages. A DID with a verified handle, and a handle in any other form, redirect there; an account without a verified handle has its page at `/@<did>`. Its sections are tabs (About, Mixes, Sets, How they play, Plays in), each a file in `src/lib/profile-tabs/` that the page collects, so a new tab is a new file; a tab with nothing in it is left out, and `?tab=<id>` opens one, without scripts too. An account without a profile record still gets a page, with its Bluesky display name when the directory keeps one (else its handle), the projects it plays in, and a line saying it hasn't set up a profile; only an address that names no account is a 404. Handles across the site link to these pages. The owner gets a Manage link to their profile editor, and staff one to its Find DJs listing (`/admin/listings/<did>`).
+- Each published set has a page at `/@<handle>/sets/<rkey>`, redirected the same way: its place and date, the event it names (when HappyView keeps that event), its player and tracklist, and the mixes on its DJ's active projects that link it, each to its tracklist page when it has one. A mix's "Set:" line links there. A set HappyView doesn't have is a 404.
 
 ### Promoters
 
@@ -75,7 +76,9 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 ### Flags
 
-A flag turns a feature on for some people before everyone. The flags themselves are files in [`flags/catalog/`](../../flags/README.md). Staff set who each is on for at `/admin/flags`: everyone, a percentage of accounts, [flag groups](../../GLOSSARY.md) at `/admin/flags/groups`, or single accounts. Admins manage all of it, and on the Staff page they can give a moderator either part: flags, or flag groups. Every change is in the audit log.
+A flag turns a feature on for some people before everyone. The flags themselves are files in [`flags/catalog/`](../../flags/README.md). Staff set who each is on for at `/admin/flags`: everyone, a percentage of accounts, [flag groups](../../GLOSSARY.md) at `/admin/flags/groups`, or single accounts. "Off for everyone" turns a flag off and keeps all of that for when it's back on. Admins manage all of it, and on the Staff page they can give a moderator either part: flags, or flag groups. Every change is in the audit log. The list marks a flag "Ready to remove" once it's been on for everyone, or every account, for 30 days.
+
+To see a flag without changing it for anyone, staff with the flags grant can turn it on or off for their own browser from its page. The preview is a cookie signed with their session, lasts an hour, shows a banner on every page until it's cleared, and is audited. In development and tests, `FLAG_OVERRIDES=key=on,other=off` forces flags for every request instead; the app won't start with it in production ([ADR 0010](../../docs/adr/0010-flags-turn-off-and-preview-without-touching-targeting.md)).
 
 What's set is kept as `staff.flag` and `staff.group` records in the staff space, indexed into SQLite and held in memory, so reading one on a request costs nothing. Pages read `data.flags?.key` and server code `locals.flags.key`, worked out once per request. A signed-out visitor only gets flags on for everyone. locallibrary can't read the staff space, so `computer.localnetwork.flags.getFlags` tells it the public gates and whether it's targeted ([ADR 0006](../../docs/adr/0006-locallibrary-asks-the-website-for-flags.md)).
 
@@ -245,7 +248,7 @@ The app reads public records only from HappyView, never straight from a PDS (`co
 
 Requirements: Node.js 24 (`.node-version` at the repo root; with [fnm](https://github.com/Schniz/fnm), `fnm install && fnm use`), [pnpm](https://pnpm.io/installation), and Docker (or OrbStack), running, for the local HappyView.
 
-The app lives in `apps/web` of a pnpm workspace whose root is the repo root. Run the commands below in `apps/web`; `pnpm install` there installs the whole workspace and the git hooks. The repo root forwards `dev`, `build`, `check`, `lint`, `format`, `test`, `knip`, and `verify` here.
+The app lives in `apps/web` of a pnpm workspace whose root is the repo root. Run the commands below in `apps/web`; `pnpm install` there installs the whole workspace and the git hooks. The repo root forwards `dev`, `build`, `check`, `lint`, `format`, `test`, and `verify` here.
 
 ```bash
 pnpm install
@@ -272,7 +275,7 @@ The network is temporary; Ctrl-C stops it, and restarting resets everything (and
 | `pnpm dev`                          | Local atproto network, HappyView, and the dev server                                         |
 | `pnpm dev:network` / `pnpm dev:app` | The network and HappyView only / the dev server only (reads `.env.local`)                    |
 | `pnpm build` / `pnpm start`         | Production build (adapter-node) / run it                                                     |
-| `pnpm check`                        | `svelte-check` with TypeScript 6                                                             |
+| `pnpm check`                        | `svelte-check` with TypeScript 6, after `pnpm lexicons:types`                                |
 | `pnpm lint`                         | Oxlint with type-aware rules (tsgolint) and the anti-slop plugin                             |
 | `pnpm format` / `pnpm format:check` | Oxfmt                                                                                        |
 | `pnpm test`                         | Unit tests (Node) + component tests (Vitest browser mode, Chromium)                          |
@@ -285,8 +288,9 @@ The network is temporary; Ctrl-C stops it, and restarting resets everything (and
 | `pnpm test:e2e`                     | Playwright (desktop browsers and phones) on an isolated network, axe                         |
 | `pnpm test:lighthouse`              | Lighthouse CI on the production build (`lighthouserc.cjs`)                                   |
 | `pnpm test:lighthouse:full`         | Lighthouse on every page, phone and desktop, against its history ([Lighthouse](#lighthouse)) |
-| `pnpm knip`                         | Unused files, exports, and dependencies                                                      |
+| `pnpm -w knip`                      | Unused files, exports, and dependencies across the repo (the root `knip.jsonc`)              |
 | `pnpm lexicons:publish`             | Publish lexicons from the root account and check or set their DNS                            |
+| `pnpm lexicons:types`               | Types from the lexicons in `src/lib/lexicons` (git-ignored), to check the readers against    |
 | `pnpm db:backup`                    | Back the database up to the bucket now ([Backups](#backups))                                 |
 | `pnpm db:backups`                   | List the bucket's backups                                                                    |
 | `pnpm db:restore <key> [path]`      | Restore a backup (or `latest`) over the database, or to `path`                               |
@@ -415,11 +419,12 @@ scripts/lib/                    Local HappyView container and Jetstream stand-in
 src/lib/                        Shared code: matching, genre taxonomy, geo, formatting, components
 src/lib/headline.json           The homepage headline's words ("<verb> your <noun>."), to edit by hand
 src/lib/hosts.json              The hosts "Make an account" offers, to edit by hand
+src/lib/onboarding/steps/       The dashboard home's checklist, one file per step; a new file adds a step
 src/lib/ui/                     The design system: theme tokens, components and their stories
 src/lib/server/atproto/         Identity, OAuth, root session, repo clients, space credentials, service auth
 src/lib/server/audit/           Hash-chained audit log with dual atproto delivery
 src/lib/server/backup/          Daily database backups to a bucket, and restoring them
-src/lib/server/flags/           The flag catalog, the rule that decides a flag, and the method locallibrary asks
+src/lib/server/flags/           The flag catalog, the rule that decides a flag, staff previews, and the method locallibrary asks
 src/lib/server/happyview/       HappyView client, script bundling, and boot sync
 src/lib/server/services/        Projects, requests, staff, bookings, planner
 src/lib/server/sync/            Space syncer and record projections
