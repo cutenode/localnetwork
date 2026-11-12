@@ -1,0 +1,39 @@
+id = "discogs"
+name = "Discogs"
+version = "0.1.0"
+protocol = "^0.2"
+# It's given the tracks to find covers and tags for, and reads their record labels
+# (library:read), and answers what it finds, which locallibrary offers and sets itself. It searches
+# Discogs' API, and downloads covers from Discogs' image server.
+capabilities = ["library:read", "net:api.discogs.com", "net:i.discogs.com"]
+
+# Discogs' limit: 60 requests a minute from a signed-in account.
+[[net]]
+host = "api.discogs.com"
+per_second = 1
+
+# Discogs answers its database's searches only for a signed-in account.
+[[accounts]]
+type = "discogs"
+scopes = ["database"]
+why = "Discogs answers searches of its database only for a signed-in account."
+
+# Each album's front cover, found on Discogs (`locallibrary art fetch`).
+[[contributes.providers]]
+name = "covers"
+title = "Discogs"
+kind = "artwork"
+
+# Each album's title, year, record label and style found on Discogs, or the release a track
+# without an album is on (`locallibrary track fetch`).
+[[contributes.providers]]
+name = "tags"
+title = "Discogs"
+kind = "metadata"
+
+# Discogs asks every program to say who it is in its User-Agent: the host sends this there.
+[[contributes.settings]]
+key = "contact"
+title = "Contact for Discogs (a web page)"
+type = "string"
+default = "https://github.com/cutenode/localnetwork"

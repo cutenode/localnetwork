@@ -1,0 +1,39 @@
+{
+  "pagination": { "page": 1, "pages": 1, "per_page": 25, "items": 2, "urls": {} },
+  "results": [
+    {
+      "country": "UK",
+      "year": "2017",
+      "format": ["Vinyl", "LP", "Album"],
+      "label": ["Ninja Tune"],
+      "type": "release",
+      "genre": ["Electronic"],
+      "style": ["Techno", "Breakbeat", "House"],
+      "id": 10625545,
+      "master_id": 1229530,
+      "uri": "/release/10625545-Bicep-Bicep",
+      "catno": "ZEN242",
+      "title": "Bicep - Bicep",
+      "thumb": "https://i.discogs.com/aW1hZ2Ut/rs:fit/g:sm/q:40/h:150/w:150/UjEwNjI1NTQ1.jpeg",
+      "cover_image": "https://i.discogs.com/aW1hZ2Ut/rs:fit/g:sm/q:90/h:600/w:600/UjEwNjI1NTQ1.jpeg",
+      "resource_url": "https://api.discogs.com/releases/10625545"
+    },
+    {
+      "country": "UK",
+      "year": "2017",
+      "format": ["Vinyl", "12\"", "Single"],
+      "label": ["Not On Label (Bicep Self-released)", "Feel My Bicep"],
+      "type": "release",
+      "genre": ["Electronic"],
+      "style": ["Breakbeat"],
+      "id": 11050001,
+      "master_id": null,
+      "uri": "/release/11050001-Bicep-Glue",
+      "catno": "FMB012",
+      "title": "Bicep - Glue",
+      "thumb": "",
+      "cover_image": "https://i.discogs.com/Z2x1ZQ/rs:fit/g:sm/q:90/h:600/w:600/UjExMDUwMDAx.jpeg",
+      "resource_url": "https://api.discogs.com/releases/11050001"
+    }
+  ]
+}

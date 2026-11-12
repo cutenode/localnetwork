@@ -37,6 +37,11 @@ are:
 - **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
   fetch`, and track details on MusicBrainz for `locallibrary track fetch` (see
   [Providers](#providers)).
+- **discogs**: finds front covers on Discogs for `locallibrary art fetch`, and an album's title,
+  year, record label and style for `locallibrary track fetch` (see [Providers](#providers)).
+  Discogs answers searches only for a signed-in account: make a personal access token at
+  discogs.com/settings/developers and sign in with `locallibrary account discogs sign-in --for
+  discogs`. Until then it finds nothing and says so.
 - **musicbrainz**: looks up a track's MusicBrainz recording, release and artist IDs by its ISRC
   (`musicbrainz.recording`, `musicbrainz.release`, `musicbrainz.artists`, with the ISRC as
   `musicbrainz.isrc` and the names the artists' go with as `musicbrainz.credits`). The recording
@@ -154,6 +159,9 @@ are:
   `archive` account type, signed in to with the pair of S3 keys from
   archive.org/account/s3.php. The Archive doesn't say whose keys they are, so you name the
   account. Its scope `upload` uploads items to the Internet Archive.
+- **discogs-account**: an account plugin, the `discogs` account type, signed in to with a
+  personal access token from discogs.com/settings/developers. Its scope `database` searches the
+  Discogs database.
 - **google-account**: an account plugin, the `google` account type, signed in to through Local
   Network's token exchange. Its scope `youtube-upload` uploads videos to YouTube.
 - **mixcloud-account**: an account plugin, the `mixcloud` account type, signed in to through the
@@ -164,10 +172,11 @@ are:
   the token exchange. Its scopes are `upload`, for uploading tracks to SoundCloud, and `read`, for
   reading from SoundCloud as you.
 
-coverart, musicbrainz, plyr, archive, youtube, mixcloud and soundcloud are the only ones that go
-online, and
+coverart, musicbrainz, discogs, plyr, archive, youtube, mixcloud and soundcloud are the only ones
+that go online, and
 only for these, through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz
-between the first two, as it asks: `art fetch` and `track fetch`; `sets publish` when it's about to
+between the first two and to Discogs' API from the third, as each asks: `art fetch` and `track
+fetch`; `sets publish` when it's about to
 publish (signed in, with `--yes` or a terminal to ask in), for the tracks it names without IDs,
 unless `--no-lookup` (or `plugin roles recording --none`, for good); `analyze --plugin
 musicbrainz`; and `sets publish --to plyr:track`, `--to archive:item`, `--to youtube:video`,
@@ -203,13 +212,14 @@ signed in, and the scopes a plugin may be given, each with the requests it cover
 code, so locallibrary never starts one: it runs every sign-in from the manifest and keeps the
 tokens itself (see [the decision](adr/0001-account-plugins-are-manifests.md)). Only the ones
 locallibrary ships, in `plugins/accounts/`, may use Local Network's token exchange:
-google-account, mixcloud-account and soundcloud-account do, and archive-account and plyr-account
-take keys you enter instead (see [the decision](adr/0002-keys-accounts.md)). `locallibrary plugin` lists the account type each adds, and `plugin
+google-account, mixcloud-account and soundcloud-account do, and archive-account, discogs-account
+and plyr-account take keys you enter instead (see [the decision](adr/0002-keys-accounts.md)). `locallibrary plugin` lists the account type each adds, and `plugin
 info` its scopes.
 
 A plugin asks for accounts of a type with `[[accounts]]`, naming the scopes it needs and why:
 youtube asks for a google account to upload videos with; archive, mixcloud, plyr and soundcloud
-each for an account of their own type to upload with.
+each for an account of their own type to upload with; discogs for a discogs account to search
+with.
 
 ## Accounts
 
@@ -516,6 +526,20 @@ ISRC found it also gets that recording's title and artist; the album's other tra
 album's details alone. A track without an album is looked up by its title, and gets details only
 from a single of that name, never from an album it's the title track of. One release group found
 by an ISRC scores 0.95, by name 0.9, and one of several 0.5, for you to choose.
+
+The discogs plugin has one of each too, and searches Discogs once for each album: by its name,
+artist and record label when one of its tracks has a label (read from the library), then by its
+name and artist when that finds nothing, as tags spell labels many ways. A track without an album
+is looked up by its title and artist, as the releases it's on. Only releases titled as the album
+is count, and an album's editions (a master's releases) are one. `discogs.covers` offers the
+front cover of each, and `discogs.tags` its title, the earliest year of its editions, its first
+label and its first style (else its genre); each candidate shows its label and catalogue number.
+One release found by its label scores 0.95, by name 0.9, by a track's title 0.6, and one of
+several 0.5. Searches go a second apart. When Discogs says the account is over its limit (60
+requests a minute), a search waits as long as Discogs asks (else a minute) and goes again, a few
+times at most, and an album it would wait over two minutes for is left out, saying so. Without a
+signed-in Discogs account, or with a token Discogs refuses, it finds nothing and says how to sign
+in.
 
 ## Roles
 

@@ -4066,6 +4066,7 @@ dependencies = [
  "locallibrary-plugin-archive",
  "locallibrary-plugin-coverart",
  "locallibrary-plugin-demos",
+ "locallibrary-plugin-discogs",
  "locallibrary-plugin-interop",
  "locallibrary-plugin-mixcloud",
  "locallibrary-plugin-musicbrainz",
@@ -4145,6 +4146,22 @@ dependencies = [
  "loclib-plugin",
  "rustc-hash",
  "serde_json",
+]
+
+[[package]]
+name = "locallibrary-plugin-discogs"
+version = "0.1.0"
+dependencies = [
+ "form_urlencoded",
+ "hegeltest",
+ "image",
+ "indexmap",
+ "loclib-model",
+ "loclib-plugin",
+ "loclib-progress",
+ "serde",
+ "serde_json",
+ "url",
 ]
 
 [[package]]

@@ -1,0 +1,22 @@
+{
+  "pagination": { "page": 1, "pages": 1, "per_page": 25, "items": 1, "urls": {} },
+  "results": [
+    {
+      "country": "UK",
+      "year": "2021",
+      "format": ["Vinyl", "LP", "Album"],
+      "label": ["Ninja Tune (2)"],
+      "type": "release",
+      "genre": ["Electronic"],
+      "style": [],
+      "id": 17001001,
+      "master_id": 1900001,
+      "uri": "/release/17001001-Bicep-Isles",
+      "catno": "ZEN275",
+      "title": "Bicep - Isles",
+      "thumb": "https://i.discogs.com/aXNsZXM/rs:fit/g:sm/q:40/h:150/w:150/UjE3MDAxMDAx.jpeg",
+      "cover_image": "https://i.discogs.com/aXNsZXM/rs:fit/g:sm/q:90/h:600/w:600/UjE3MDAxMDAx.jpeg",
+      "resource_url": "https://api.discogs.com/releases/17001001"
+    }
+  ]
+}

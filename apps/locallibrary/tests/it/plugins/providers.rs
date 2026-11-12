@@ -109,9 +109,9 @@ fn track_fetch_in_json_from_one_provider() {
     );
     assert_eq!(years(&usb)[0], (ids[0], 1984));
     let err = env.fails(1, &["track", "fetch", "USB", "--from", "nope"]);
-    assert!(err.contains("nope provides no metadata: coverart.tags, echo.found do"), "{err}");
+    assert!(err.contains("nope provides no metadata: coverart.tags, discogs.tags, echo.found do"), "{err}");
     let err = env.fails(1, &["art", "fetch", "USB", "--from", "echo.found"]);
-    assert!(err.contains("echo.found provides no artwork: coverart.covers, echo.covers do"), "{err}");
+    assert!(err.contains("echo.found provides no artwork: coverart.covers, discogs.covers, echo.covers do"), "{err}");
 }
 
 /// The cover an artwork provider finds is set on the tracks it's for; once they have one, they're
@@ -202,6 +202,8 @@ fn plugin_providers_shows_and_sets_the_auto_pick() {
     for line in [
         "coverart.covers  artwork   Cover Art Archive",
         "coverart.tags    metadata  MusicBrainz",
+        "discogs.covers   artwork   Discogs",
+        "discogs.tags     metadata  Discogs",
         "echo.found       metadata  Found",
         "echo.covers      artwork   Covers",
     ] {
