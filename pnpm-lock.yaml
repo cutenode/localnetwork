@@ -426,6 +426,9 @@ importers:
       '@atproto/syntax':
         specifier: 0.0.0-spaces-alpha-20261105160032
         version: 0.0.0-spaces-alpha-20261105160032
+      '@atproto/xrpc-server':
+        specifier: 0.0.0-spaces-alpha-20261105160032
+        version: 0.0.0-spaces-alpha-20261105160032(supports-color@5.5.0)
       '@aws-sdk/client-s3':
         specifier: ^3.1159.0
         version: 3.1159.0
