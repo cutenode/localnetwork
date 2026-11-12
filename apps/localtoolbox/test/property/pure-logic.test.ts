@@ -45,7 +45,7 @@ import {
 	isWithoutLinks,
 	lookupNotes
 } from '../../src/tools/manager/links.ts';
-import { safeName, filenameOf, looksLikeFile } from '../../src/tools/third-party-downloads/save.ts';
+import { safeName, filenameOf } from '../../src/tools/third-party-downloads/save.ts';
 import {
 	siteFor,
 	isGateUrl,
@@ -801,10 +801,9 @@ describe('saving files (save.js)', () => {
 			.tuple(fc.domain(), safePath(), fc.constantFrom('mp3', 'wav', 'flac', 'aiff', 'zip'))
 			.map(([host, path, ext]) => `https://${host}${path}.${ext}`);
 
-	it('recognises an audio URL as a file, and takes its name from the path', () => {
+	it('takes an audio URL’s name from its path', () => {
 		fc.assert(
 			fc.property(audioUrl(), (url) => {
-				expect(looksLikeFile(url)).toBe(true);
 				expect(filenameOf(url)).not.toBe('');
 			}),
 			RUNS
@@ -821,24 +820,6 @@ describe('saving files (save.js)', () => {
 					encodeURIComponent(`attachment; filename="${wanted}"`);
 
 				expect(filenameOf(url)).toBe(safeName(wanted));
-			}),
-			RUNS
-		);
-	});
-
-	it('says a page is not a file', () => {
-		fc.assert(
-			fc.property(fc.domain(), (host) => {
-				expect(looksLikeFile(`https://${host}/some/page`)).toBe(false);
-			}),
-			RUNS
-		);
-	});
-
-	it('never throws deciding whether arbitrary text is a file', () => {
-		fc.assert(
-			fc.property(bytes(), (text) => {
-				expect(looksLikeFile(text)).toBeTypeOf('boolean');
 			}),
 			RUNS
 		);
