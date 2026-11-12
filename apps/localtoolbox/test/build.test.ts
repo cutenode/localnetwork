@@ -58,11 +58,13 @@ describe('what the build produces', () => {
 		expect(there('manifest.json')).toBe(true);
 		expect(JSON.parse(read('manifest.json'))).toEqual(manifest);
 
-		const [contentScript] = manifest.content_scripts;
+		const scripts = manifest.content_scripts.flatMap((script: { js: string[]; css?: string[] }) => [
+			...script.js,
+			...(script.css ?? [])
+		]);
 
 		for (const file of [
-			...contentScript.js,
-			...contentScript.css,
+			...scripts,
 			...Object.values(manifest.icons),
 			manifest.action.default_popup,
 			manifest.background.service_worker
@@ -75,7 +77,7 @@ describe('what the build produces', () => {
 		// The page scripts are TypeScript with nothing to compile but the types:
 		// what runs on soundcloud.com is the file in the repository with each
 		// annotation blanked out, so every line and column is where it was.
-		for (const name of ['content', 'downloaded-store', 'state-transfer', 'theme-prepaint']) {
+		for (const name of ['content', 'gate-page', 'downloaded-store', 'state-transfer', 'theme-prepaint']) {
 			const shipped = read(`${name}.js`);
 			expect(shipped, name).toBe(blankSpace(source(`${name}.ts`)));
 			// Still a classic script: a content script cannot be a module, the shared
@@ -96,6 +98,7 @@ describe('what the build produces', () => {
 				'content.css',
 				'content.js',
 				'downloaded-store.js',
+				'gate-page.js',
 				'icons',
 				'manifest.json',
 				'offscreen.html',
@@ -264,7 +267,7 @@ describe('the bundle', () => {
 		// passing on nothing.
 		const chunks = js();
 
-		for (const marker of ['api.droploud.com', 'checking download details', 'close the queue', 'close settings']) {
+		for (const marker of ['/verifyEmailAddress', 'checking download details', 'close the queue', 'close settings']) {
 			expect(
 				chunks.some(([file, code]) => !boot.has(file) && code.includes(marker)),
 				`${marker} is in no chunk at all`
