@@ -408,9 +408,10 @@ content of: stored files by their BLAKE3 hash (in hex) and the store's records b
   when it has none.
 
 A set destination publishes a set: `set/publish {destination, set: {id, date, title?, kind?,
-venue?, city?, country?}, recording, tracklist: [{artist?, title?, start_seconds?}], dry_run}` ->
-`{url?, name?, record?, warnings}`. `recording` is the set's audio file (absolute, to read), a
-track the DJ publishes unnamed has no artist or title, and the DJ's notes never go. The host always
+venue?, city?, country?}, recording, tracklist: [{artist?, title?, album?, start_seconds?,
+duration_seconds?}], dry_run}` -> `{url?, name?, record?, warnings}`. `recording` is the set's
+audio file (absolute, to read), a track the DJ publishes unnamed has no artist, title, album or
+duration, and the DJ's notes never go. The host always
 asks for a dry run first (which publishes nothing and may say where the set would be), shows it to
 the user and asks, then publishes and keeps `url` (https) as the set's link, `name` as what that
 link is (`plyr.fm`, 64 characters at most, kept only with a `url`), and `record` (`{uri, cid}`, a
@@ -421,7 +422,10 @@ isn't one is the plugin misbehaving, and the host keeps none of it. In Rust, `se
 set's title, else where and when it was played (`Warehouse, 2026-10-03`), `entry.line()` an
 entry's tracklist line (`05:30 Artist - Title`, `1:02:03` past an hour, `ID - ID` unnamed; each on
 one line; `line_at(at)` with another time, `clock(secs)` the time alone), and `fit_lines` keeps the
-lines that fit a description, then says how many more there are.
+lines that fit a description, then says how many more there are. `youtube::description(tracklist,
+length)` is the tracklist as a YouTube description, its times left off where they would break
+YouTube's chapters (`youtube::chapters`), and `mixcloud::warnings(tracklist)` says which of
+Mixcloud's licensing rules the show breaks: `sets export` writes and warns the same.
 
 - `[[contributes.destinations]]`: `name`, `title` and `kind`, `store` or `set`. Each method is
   only for a destination of its kind.
