@@ -18,6 +18,8 @@ crates/loclib-model/        the library model (tracks, playlists, the difference
 crates/loclib-equipment/    what each player, all-in-one system and mixer reads (databases, file systems, audio
                             formats, sample rates, bit depths), with the manual each value comes from;
                             equipment.json is the table for other languages
+crates/loclib-capacity/     the fake-capacity probe (f3probe's idea): distinct patterns written across a whole
+                            disk, highest first, read back from the device, and how much really keeps data
 crates/loclib-mysettings/   My Settings files (MYSETTING.DAT and the rest): every setting's schema, decoding
                             and byte-level patching
 crates/loclib-tracklist/    reading outside tracklists (M3U, CSV, rekordbox text and XML, plain text) and
@@ -152,7 +154,7 @@ crates/locallibrary/src/    the library, built on the crates above
   onelibrary/  exportLibrary.db: SQLCipher pages, WAL replay, reading and editing via SQLite
   masterdb.rs  rekordbox's own collection (master.db), decrypted from a copy and read; comparing a drive with it
   format/      drive formatting: which layouts players read, diskutil/lsblk/PowerShell backends, FAT32
-               writer, fake-capacity probe
+               writer, running the fake-capacity probe (loclib-capacity) first
   equipment.rs loclib-equipment's table, and the player models remembered in the store (players.json)
   fleet.rs     every drive you own: registry views, roles, logbook, recognising and re-identifying drives
   scrub.rs     re-reading a drive against known-good copies, and repairing it
