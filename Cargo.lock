@@ -4160,7 +4160,6 @@ dependencies = [
  "rodio",
  "rusqlite",
  "rustc-hash",
- "rustfft",
  "schemars",
  "serde",
  "serde_json",
@@ -4525,6 +4524,7 @@ dependencies = [
  "image",
  "loclib-model",
  "ratatui",
+ "rustfft",
 ]
 
 [[package]]

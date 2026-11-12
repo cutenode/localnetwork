@@ -190,7 +190,7 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
 - [loclib-interop](../../crates/loclib-interop): writing a library for Traktor, Serato and Engine DJ,
   and reading Traktor's back
 - [loclib-waveform](../../crates/loclib-waveform): ratatui widgets for waveforms, cues, phrases, a
-  spectrum and cover art
+  spectrum and cover art, and the analysis that turns what's playing into a spectrum and a scope
 - [loclib-plugin](../../crates/loclib-plugin): the plugin protocol (JSON-RPC over stdio), the
   plugin manifest, and an SDK for writing plugins in Rust
 
