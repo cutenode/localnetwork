@@ -174,6 +174,7 @@ fn a_copy_holds_the_store_and_catches_up_incrementally(tc: TestCase) {
     // A file damaged in the store isn't copied: its snapshots are left out, the rest go.
     let (h, _) = *objects(&store).iter().next().unwrap();
     let fresh = dir.path().join("Disk");
+    fs::remove_file(store.object_path(&h)).unwrap();
     fs::write(store.object_path(&h), b"rotten").unwrap();
     let r = offsite::copy(&store, &fresh, &CopyOptions::default(), &Ctx::silent()).unwrap();
     assert!(!r.complete && !r.problems.is_empty());

@@ -127,6 +127,11 @@ _Avoid_: stick, device, volume, USB
 A saved copy of a drive's library in the store.
 _Avoid_: backup, version, commit
 
+**View**:
+A temporary, read-only folder of links into the store, laid out as one snapshot's drive tree, with
+nothing copied.
+_Avoid_: mount, browse folder, checkout
+
 **Backup**:
 What a change to a drive keeps on that drive so `undo` can put it back: the databases and the files
 the change replaces or deletes.
@@ -193,6 +198,26 @@ _Avoid_: waveform style, colour scheme
 **Chip**:
 A track row's mark in its cover's two main colours.
 _Avoid_: swatch
+
+**Palette**:
+The list of every command by name, opened with `:`.
+_Avoid_: launcher, command menu
+
+**Actions**:
+What can be done to the selection, opened with `e`.
+_Avoid_: context menu, edit menu
+
+**Job**:
+Something the player runs in the background: a plan, a write, a check, a read.
+_Avoid_: task, background process
+
+**Hints**:
+The keys the footer names, as much of them as the hint setting says: full, compact or off.
+_Avoid_: tips, shortcuts bar
+
+**Empty state**:
+What the library shows with no drive open: how to get one, and at most three next steps.
+_Avoid_: welcome screen, onboarding
 
 **Pads**:
 The deck's hot cue pads.

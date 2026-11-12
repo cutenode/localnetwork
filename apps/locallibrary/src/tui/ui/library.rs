@@ -133,7 +133,7 @@ fn draw_drive_list(f: &mut Frame, app: &mut App, area: Rect) {
     if area.height <= 1 {
         return title_row(f, pane_title(1, "Drives", focused), focused, area);
     }
-    let list = drive_list(items, focused);
+    let list = drive_list(items, focused, app.scanning());
     app.drive_state.fit(area.height.saturating_sub(2) as usize, app.drives.len());
     f.render_stateful_widget(list, area, &mut app.drive_state);
 }
@@ -158,8 +158,8 @@ pub(super) fn drive_line(d: &DeviceInfo, open: bool, indent: &str, width: u16) -
 }
 
 /// The drive lists' frame, and what they say with no drive.
-pub(super) fn drive_list(items: Vec<ListItem<'static>>, focused: bool) -> List<'static> {
-    let list = if items.is_empty() {
+pub(super) fn drive_list(items: Vec<ListItem<'static>>, focused: bool, scanning: bool) -> List<'static> {
+    let list = if items.is_empty() && !scanning {
         List::new([ListItem::new(Line::styled("no rekordbox drives", dim()))])
     } else {
         List::new(items)
@@ -230,7 +230,8 @@ fn draw_playlists(f: &mut Frame, app: &mut App, area: Rect) {
         b = b.border_style(fg(theme::current().warning));
     }
     let Some(l) = &app.loaded else {
-        f.render_widget(Paragraph::new(Line::styled("no drive open", dim())).block(b), area);
+        let said = if app.scanning() { "" } else { "no drive open" };
+        f.render_widget(Paragraph::new(Line::styled(said, dim())).block(b), area);
         return;
     };
     // Only the rows on screen: an open category can hold thousands of values.
@@ -545,19 +546,14 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
         b = b.title_top(Line::from(right).right_aligned());
     }
     let Some(l) = &app.loaded else {
-        let msg = if app.loading.is_some() {
-            vec![Line::styled("Reading library…", dim())]
-        } else {
-            vec![
-                Line::raw(""),
-                Line::styled("No rekordbox drive open.", bold(theme::current().text)),
-                Line::raw(""),
-                Line::styled("Plug in a USB drive with a rekordbox export, or start with", dim()),
-                Line::styled("locallibrary tui /path/to/drive", fg(theme::current().info)),
-            ]
-        };
-        f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).block(b), area);
-        return;
+        if app.scanning() {
+            return f.render_widget(b, area);
+        }
+        if app.loading.is_none() {
+            return crate::tui::first_run::draw_empty(f, app, b, area);
+        }
+        let msg = Paragraph::new(Line::styled("Reading library…", dim()));
+        return f.render_widget(msg.alignment(Alignment::Center).block(b), area);
     };
 
     let cols = columns(area.width, app.sort, app.show_ratings, app.show_tags_column);

@@ -45,7 +45,7 @@ Lint and format:
 
 - TypeScript: [oxlint](https://oxc.rs) with type-aware rules, the vendored anti-slop plugin (`tools/oxlint/`, see its `UPSTREAM.md`; `pnpm test:tools` runs its rules' tests) and `@stylistic/eslint-plugin`'s `padding-line-between-statements` for blank lines, configured in the root `.oxlintrc.json`, which each app's own `.oxlintrc.json` extends. [oxfmt](https://oxc.rs) formats with the root `.oxfmtrc.json` (tabs, single quotes, 120 columns). `oxlint` and `@oxlint/plugins` are pinned to the same version: upgrade them together.
 - Rust: `cargo fmt` with `rustfmt.toml`, and `cargo clippy -- -D warnings`. `clippy.toml` bans `BTreeMap` (use `indexmap::IndexMap`), and the workspace uses `rustc-hash` for hash maps. Each member has `[lints] workspace = true`, so the lints in the root `Cargo.toml` apply to it.
-- `knip` finds unused files, exports and dependencies in every JavaScript and TypeScript project (the pnpm workspace, the root's `tools/` and `apps/locallibrary/bombadil/`), from the root `knip.jsonc`.
+- `knip` finds unused files, exports and dependencies in every JavaScript and TypeScript project (the pnpm workspace, the root's `tools/` and `apps/locallibrary/bombadil/`), from the root `knip.jsonc`. `pnpm knip` runs it twice: over everything, then in production mode (`knip --production`) over only the code that ships, so an export only tests use counts as unused there unless it's tagged `@internal`.
 
 Logging: the website logs with [pino](https://getpino.io) (`apps/web/src/lib/server/logger.ts`), pretty in dev and JSON lines in production, with secrets redacted. locallibrary has no logging crate: what it tells people goes through `output::diag`, and plugins' stderr is relayed as `id: line`.
 
@@ -113,7 +113,7 @@ localtoolbox has no release workflow. `pnpm zip` builds `localtoolbox.zip`, peop
 
 1. Create `apps/<tool>/` with a `package.json`, which makes it part of the pnpm workspace. Add dependencies with `pnpm add --filter <name>`.
 2. Give its `package.json` `"type": "module"`, `"private": true`, the root's `engines.node`, `oxlint` at the root's exact version, and these scripts, which the root's `pnpm -r` scripts and CI call: `dev`, `build`, `check`, `lint` (`oxlint --type-aware`), `format` and `format:check` (`oxfmt`), `test`, `test:coverage`, and `verify`, which runs everything CI's verify job runs.
-3. Add an `.oxlintrc.json` that extends `../../.oxlintrc.json`, a strict `tsconfig.json`, a `.gitignore` for its build output, and coverage thresholds just under its current numbers. If its build output isn't already in `.oxfmtrc.json`'s ignores, add it. If `pnpm knip` at the root reports files it can't trace, add the app under `workspaces` in `knip.jsonc` with its entry files.
+3. Add an `.oxlintrc.json` that extends `../../.oxlintrc.json`, a strict `tsconfig.json`, a `.gitignore` for its build output, and coverage thresholds just under its current numbers. If its build output isn't already in `.oxfmtrc.json`'s ignores, add it. If `pnpm knip` at the root reports files it can't trace, add the app under `workspaces` in `knip.jsonc` with its entry files, ending the ones that ship in `!`.
 4. Add `format <tool>` and `lint <tool>` jobs under `pre-commit` and `typecheck <tool>` and `tests <tool>` jobs under `pre-push` in `lefthook.yml`, with `root: apps/<tool>/`.
 5. Add `.github/workflows/<tool>-ci.yml` from `localtoolbox-ci.yml`, and `<tool>-scheduled.yml` for anything too slow for every pull request.
 6. In `ci.yml`, add the tool's paths to the `changes` job's filter and an output for them, a job that calls `<tool>-ci.yml` when the output is true, and that job to `passed`'s needs and its skipped check.
@@ -138,7 +138,7 @@ Then do the steps every app shares, below.
 3. Its lexicons, if it writes records, under `lexicons/computer/localnetwork/<tool>/`.
 4. If it signs people in with their Atmosphere account, as locallibrary does: a permission-set lexicon (`<tool>Publishing.json`), `hosts` and `clientMetadata` in its tool entry, and DNS for its own host (see [Tools' pages and hosts](../apps/web/README.md#tools-pages-and-hosts)).
 5. A label for it in `.github/labels.yml`, its paths under that label in `.github/labeler.yml`, and any areas as `"<tool>: <area>"` labels in both. The `web: tools` label's description names every tool.
-6. `.github/ISSUE_TEMPLATE/<tool>-bug.yml` (labels `["bug", "<tool>"]`, `type: Bug`), and the tool in the description and "Which tool?" dropdown of `feature_request.yml`. Questions go to Discussions, which has no form.
+6. `.github/ISSUE_TEMPLATE/<tool>-bug.yml` (labels `["bug", "<tool>"]`, `type: Bug`), and the tool in the description and "Which tool?" dropdown of `feature_request.yml`.
 7. A line in `.github/CODEOWNERS` if someone other than the default owner reviews it.
 8. Its row in the root `README.md`'s table and layout; its docs and its label in `.github/CONTRIBUTING.md`; and in `.github/SECURITY.md`, its supported version and where to find the version it's on.
 
@@ -149,7 +149,7 @@ Then do the steps every app shares, below.
 1. Create `plugins/<id>/` with a `Cargo.toml` named `locallibrary-plugin-<id>`, `publish = false`, the workspace's package fields, `[lints] workspace = true`, and `loclib-plugin.workspace = true`.
 2. Write its manifest, `plugins/<id>/locallibrary-plugin.toml`: `id`, `name`, `version`, `protocol = "^0.2"`, `capabilities` (only what it needs) and what it `contributes`.
 3. In `src/lib.rs`, export `pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");` and `pub fn serve(input, output)`, which calls `loclib_plugin::serve` with `MANIFEST` and its `Hooks`.
-4. Test it in `src/tests.rs` over in-memory pipes with a fake host, as `plugins/sound/src/tests.rs` does, including a test that the manifest passes `validate(true)` and that `describe` returns it.
+4. Test it in `src/tests.rs` against loclib-plugin's `FakeHost` ([Testing a plugin](../crates/loclib-plugin/README.md#testing-a-plugin)), as `plugins/interop/src/tests.rs` does: `cargo add --dev -p locallibrary-plugin-<id> loclib-plugin --features test-util`. Include a test that the manifest passes `validate(true)`. `FakeHost::start` checks that `describe` returns it.
 5. Make it a dependency of locallibrary: from the repository's root, `cargo add -p locallibrary-cli --path plugins/<id>`. `apps/locallibrary/build.rs` links in every folder in `plugins/` but `accounts/`, in alphabetical order (as `plugin list` shows them), and fails the build while one isn't a dependency.
 6. List it in `apps/locallibrary/docs/plugins.md` and in the layout in `apps/locallibrary/docs/how-it-works.md`, and add a changelog line in `apps/locallibrary/changes/`.
 7. If it fits an existing area label, add `plugins/<id>/**` to it in `.github/labeler.yml`. The `locallibrary` and `locallibrary: plugins` labels already cover `plugins/**`.

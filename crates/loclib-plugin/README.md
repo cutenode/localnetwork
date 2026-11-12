@@ -243,7 +243,7 @@ assert!(!upload.covers("POST", &Url::parse("https://www.googleapis.com.evil.exam
   and the website adds its client id and secret for the service, sends the request on the way the
   service takes it and answers what the service answered. `client_id` is then Local Network's
   client at the service. The services it knows are in
-  [`apps/web/src/lib/server/token-exchange/services.json`](../../apps/web/src/lib/server/token-exchange/services.json);
+  [`apps/web/src/lib/server/token-exchange/services.json`](https://github.com/cutenode/localnetwork/blob/main/apps/web/src/lib/server/token-exchange/services.json);
   one it doesn't know, or isn't set up for yet, fails the sign-in with what the website said.
 - `one_account` and `another_account` are authorize params for signing in again as one account
   the host knows (`login_hint = "{subject}"`, the only placeholder) and for adding another
@@ -700,6 +700,66 @@ served.join().expect("the plugin stops");
 `examples/echo` is a whole plugin, with one of each kind of contribution but events, services and
 a library source (`Hooks::on_event` handles events; a service is a hook, `StartService`, that runs
 until it's cancelled).
+
+## Testing a plugin
+
+With the `test-util` feature, `test_util::FakeHost` plays the host over the real protocol, so a
+plugin's tests needn't write one. Add it as a dev-dependency
+(`cargo add --dev loclib-plugin --features test-util`).
+
+`FakeHost::start(MANIFEST, serve)` runs the plugin's `serve(input, output)` on a thread over
+in-memory pipes, sends `hello`, and checks that `describe` answers the manifest. `read(method,
+answer)` answers a read every time the plugin calls it. `on_read(method, f)` works the answer out
+from the params instead, and answers any other call too (`accounts/ensure`). `fetch(url, answer)`
+answers `net/fetch` for one URL. A call with no answer fails: `external` for a fetch,
+`method_not_found` for anything else.
+
+`request(method, params)` sends a hook and waits for its typed answer. `send` returns a `Sent`
+instead, which can `cancel()` it (`$/cancel`), `wait()` for it, and has its `progress()`. With the
+`blobs` feature each request gets a fresh `context.scratch` folder (`Sent::scratch`), removed when
+the `Sent` is dropped, as the host removes it once it has read the answer. `cancel_on(method)`
+cancels the hook under way the next time the plugin calls `method`. `calls()` lists every call the
+plugin made, with its params. `event(..)` sends `event/notify`, and `notices()` has what the
+plugin told the user (`host/notify`). `stop()` closes the plugin's input and waits for it to stop:
+after that, every notice is in.
+
+```rust
+# #[cfg(feature = "test-util")] {
+use loclib_plugin::test_util::FakeHost;
+use loclib_plugin::{Hooks, Host, RpcError, RunCommand, View, method, serve};
+use serde_json::{Value, json};
+
+fn count(req: RunCommand, host: &Host) -> Result<Value, RpcError> {
+    let drive = req.context.drive.unwrap_or_default();
+    let tree = host.drive(&drive).playlists()?;
+    let view = View::Text { title: Some(drive), text: format!("{} playlists", tree.playlists.len()) };
+    Ok(serde_json::to_value(view).expect("a view is JSON"))
+}
+
+const MANIFEST: &str = r#"
+    id = "count"
+    name = "Count"
+    version = "0.1.0"
+    protocol = "^0.2"
+    capabilities = ["library:read"]
+
+    [[contributes.commands]]
+    name = "count"
+    title = "Count the playlists"
+    mode = "view"
+"#;
+
+// A plugin crate passes its own `serve`.
+let host = FakeHost::start(MANIFEST, |input, output| serve(MANIFEST, Hooks::new().on(count), input, output));
+let set = |id, name| json!({ "id": id, "name": name, "path": name, "folder": false, "tracks": 0, "duration_secs": 0 });
+host.read("playlists.tree", json!({ "playlists": [set(1, "Friday"), set(2, "Warm up")], "history": [] }));
+let view: View = host.request(method::RUN_COMMAND, &json!({ "command": "count", "context": { "drive": "USB" } }))?;
+assert_eq!(view, View::Text { title: Some("USB".into()), text: "2 playlists".into() });
+assert_eq!(host.calls(), [("playlists.tree".to_string(), json!({ "drive": "USB" }))]);
+host.stop();
+# }
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
 
 ## Licence
 

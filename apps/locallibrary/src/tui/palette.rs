@@ -1,8 +1,11 @@
 //! Choosing from a list by typing: the command palette (`:`), which lists every action of the
-//! keymap by name, and the lists actions ask for an answer from (a drive, a snapshot, a tag, a
-//! plugin's question). What's typed narrows the list fuzzily: its letters in order, best where
-//! they start words. A list some of which may be chosen is marked with space.
+//! keymap by name, with the key each has, the ones used lately first and those that can't run now
+//! greyed with the reason; the lists actions ask for an answer from (a drive, a snapshot, a tag, a
+//! plugin's question); and `e` where a pane has no menu of its own. What's typed narrows the list
+//! fuzzily: its letters in order, best where they start words. A list some of which may be chosen
+//! is marked with space.
 
+use std::cmp::Reverse;
 use std::path::PathBuf;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
@@ -13,9 +16,10 @@ use uuid::Uuid;
 use super::app::{App, View, edit_line};
 use super::drives::{DriveKey, PackWhat};
 use super::edits::Modal;
-use super::keymap::{Act, K, KEYMAP, Scope};
+use super::keymap::{self, Act, K, KEYMAP, Scope};
 use super::mytags::TagChoice;
 use super::plugins::Asking;
+use super::prepare;
 
 /// A list to choose from, narrowed by what's typed.
 pub struct Picker {
@@ -32,6 +36,9 @@ pub struct Picker {
     /// Which items are marked, for a list any of which may be chosen (space marks one, enter
     /// takes those marked); `None` for a list one is chosen from.
     pub marks: Option<Vec<bool>>,
+    /// How recently each item was used, higher for later, 0 for not lately; empty but in the
+    /// palette, whose choices count as used.
+    recency: Vec<usize>,
 }
 
 /// One choice.
@@ -83,6 +90,7 @@ impl Picker {
             then,
             empty: "nothing matches",
             marks: None,
+            recency: Vec::new(),
         };
         p.state.select(p.first_available());
         p
@@ -93,14 +101,29 @@ impl Picker {
         i.or((!self.shown.is_empty()).then_some(0))
     }
 
+    /// Rank the items used lately (`recent`, newest first, by label) ahead of the others.
+    fn rank(&mut self, recent: &[String]) {
+        let at = |it: &Item| recent.iter().position(|r| *r == it.label).map_or(0, |i| recent.len() - i);
+        self.recency = self.items.iter().map(at).collect();
+        self.filter();
+    }
+
     /// Narrow the list to what's typed, in the label or the detail (so a command's name finds it),
-    /// best matches first (ties keep the list's order).
+    /// best matches first, with the edge a command used lately has (ties go to the later one, then
+    /// keep the list's order). A label typed out in full comes first whatever was used lately, so
+    /// "cover art" isn't "no cover art" just because that ran last.
     pub fn filter(&mut self) {
-        let mut scored: Vec<(i32, usize)> = (self.items.iter().enumerate())
+        let recency = |i: usize| self.recency.get(i).copied().unwrap_or(0);
+        let typed = self.query.trim().to_lowercase();
+        let mut scored: Vec<(bool, i32, usize)> = (self.items.iter().enumerate())
             .filter_map(|(i, it)| fuzzy(&self.query, &it.label).max(fuzzy(&self.query, &it.detail)).map(|s| (s, i)))
+            .map(|(s, i)| {
+                let named = !typed.is_empty() && self.items[i].label.to_lowercase() == typed;
+                (named, if recency(i) > 0 { s + RECENT_EDGE } else { s }, i)
+            })
             .collect();
-        scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-        self.shown = scored.into_iter().map(|(_, i)| i).collect();
+        scored.sort_by_key(|&(named, s, i)| (Reverse(named), Reverse(s), Reverse(recency(i)), i));
+        self.shown = scored.into_iter().map(|(_, _, i)| i).collect();
         self.state = ListState::default();
         self.state.select(self.first_available());
     }
@@ -126,6 +149,12 @@ impl Picker {
         self.state.select(Some((cur + delta).clamp(0, n as isize - 1) as usize));
     }
 }
+
+/// How many of the commands run lately are kept.
+const RECENT: usize = 20;
+/// What being used lately is worth, against [`fuzzy`]'s scores: one word start, enough to settle
+/// near ties and not enough to lift a scattered match over a clean one.
+const RECENT_EDGE: i32 = 6;
 
 /// How well `query` matches `text`: all of the query's letters (spaces aside) in order, ignoring
 /// case, scoring more where they start words or follow each other and less for what's skipped.
@@ -158,7 +187,7 @@ pub fn fuzzy(query: &str, text: &str) -> Option<i32> {
 }
 
 /// How a key is written in the palette: as the help writes it (a test checks every command's).
-fn key_name(k: &K) -> String {
+pub(super) fn key_name(k: &K) -> String {
     let code = |c: &KeyCode| match c {
         KeyCode::Up => "↑".to_string(),
         KeyCode::Down => "↓".into(),
@@ -177,7 +206,8 @@ fn key_name(k: &K) -> String {
 }
 
 /// The palette's commands in `view`: the view's own first, then those for everywhere (the keymap
-/// names each command once in a view, which a test checks).
+/// names each command once in a view, which a test checks), each with its key here. One with no
+/// key here says where it lives and the word it's known by.
 pub fn commands(view: View) -> Vec<(Act, Item)> {
     let own: &[Scope] = match view {
         View::Library => &[Scope::Tracks, Scope::Tree, Scope::Details, Scope::Library, Scope::Crate],
@@ -192,7 +222,14 @@ pub fn commands(view: View) -> Vec<(Act, Item)> {
         .map(|b| {
             // What follows `g` needs the `g`.
             let keys = b.keys.first().filter(|_| b.scope != Scope::Goto);
-            let detail = keys.map_or_else(|| b.shown.to_string(), key_name);
+            let key = keys.or_else(|| own.iter().find_map(|scope| keymap::key_in(*scope, b.act)));
+            // The word a job's known by stays findable.
+            let detail = match (key, prepare::holds(b.act) && b.keys.is_empty()) {
+                (Some(k), true) => format!("{} · {}", key_name(k), b.shown),
+                (Some(k), false) => key_name(k),
+                (None, true) => format!("{} · {}", View::Prepare.title(), b.shown),
+                (None, false) => b.shown.to_string(),
+            };
             (b.act, Item::new(b.name, detail))
         })
         .collect()
@@ -210,11 +247,94 @@ impl App {
             .chain(self.plugin_items(self.action_drive().as_deref(), &super::plugins::EVERYWHERE));
         let fields = (self.view == View::Library).then(|| self.field_items()).into_iter().flatten();
         let fixes = super::plugins::checks::items(self);
-        let (acts, items): (Vec<Act>, Vec<Item>) =
+        let (acts, mut items): (Vec<Act>, Vec<Item>) =
             acts.chain(fields).chain(self.settings_items()).chain(self.suggested_items()).chain(fixes).unzip();
+        for (act, item) in acts.iter().zip(&mut items) {
+            item.unavailable = item.unavailable.take().or_else(|| self.unavailable(*act));
+        }
         let mut p = Picker::new("Commands", items, Then::Act(acts));
         p.empty = "no command has those letters";
+        p.rank(&self.recent_commands);
         self.modal = Some(Modal::Pick(p));
+    }
+
+    /// `e` where a pane has no menu of its own: what enter does there, then the pane's keys.
+    pub(super) fn open_actions(&mut self) {
+        let panes = [Scope::Prepare, Scope::Snapshots, Scope::History, Scope::Profile, Scope::Mixes];
+        let scopes = keymap::scopes(self);
+        let Some(&scope) = scopes.iter().find(|s| panes.contains(s)) else { return };
+        let mine = || KEYMAP.iter().filter(|b| b.scope == scope);
+        let enter = mine().find(|b| b.shown == "enter" && b.hint.is_some());
+        let enter = enter.and_then(|b| b.hint).map(|(label, _)| (Act::Activate, Item::new(label, "enter")));
+        let keys = mine().filter(|b| !b.keys.is_empty() && b.act != Act::PaneActions && b.act != Act::Remove);
+        let named = keys.map(|b| {
+            let name = if b.name.is_empty() { keymap::name(b.act) } else { b.name };
+            let item = Item { unavailable: self.unavailable(b.act), ..Item::new(name, b.shown) };
+            (b.act, item)
+        });
+        let (acts, items): (Vec<Act>, Vec<Item>) = enter.into_iter().chain(named).unzip();
+        let title = format!("Actions · {}", self.view.title());
+        self.modal = Some(Modal::Pick(Picker::new(title, items, Then::Act(acts))));
+    }
+
+    /// Why `act` can't run now, for the palette and the Prepare view to say.
+    pub(super) fn unavailable(&self, act: Act) -> Option<String> {
+        let need = |cond: bool, why: &str| cond.then(|| why.to_string());
+        let no_drive = "open a drive first";
+        let library = need(self.loaded.is_none(), no_drive);
+        let writes = |drive: bool| {
+            let busy = self.job.as_ref().map(|j| format!("wait for {} to finish", j.label.to_lowercase()));
+            need(!drive, no_drive).or(busy)
+        };
+        let silent = need(self.now.is_none(), "nothing's playing");
+        // A library's row in the Drives view has its own sync, check and eject.
+        let header = self.view == View::Drives && self.drive_header.is_some();
+        match act {
+            Act::SyncGroup | Act::SetPrep | Act::Eject if header => None,
+            Act::Pull | Act::Check | Act::RestorePlaylist | Act::Replay | Act::SmartApply if header => {
+                Some("select one of the library's drives".into())
+            }
+            Act::Pull
+            | Act::Check
+            | Act::SetPrep
+            | Act::SyncGroup
+            | Act::Pack
+            | Act::RestorePlaylist
+            | Act::Replay
+            | Act::Eject
+            | Act::SmartApply => writes(self.action_drive().is_some()),
+            Act::Undo => writes(self.undo_drive().is_some()),
+            Act::SmartNew => library.or(need(self.query.trim().is_empty(), "search first (/)")),
+            Act::Actions
+            | Act::Search
+            | Act::Sort
+            | Act::Tag
+            | Act::Mark
+            | Act::MarkAll
+            | Act::CrateAdd
+            | Act::ExportList
+            | Act::Details => library,
+            Act::SortReverse => library.or(need(self.sort.is_none(), "sort the list first (b)")),
+            Act::CrateSave | Act::CrateClear => need(self.crate_list.is_empty(), "the crate is empty"),
+            Act::Stop
+            | Act::Seek(_)
+            | Act::Next
+            | Act::Prev
+            | Act::Cue(_)
+            | Act::Phrase(_)
+            | Act::BeatJump(_)
+            | Act::Loop
+            | Act::LoopSize(_)
+            | Act::GoTo => silent,
+            _ => None,
+        }
+    }
+
+    /// Keep a command the palette ran for next time, first.
+    fn used(&mut self, label: String) {
+        self.recent_commands.retain(|r| *r != label);
+        self.recent_commands.insert(0, label);
+        self.recent_commands.truncate(RECENT);
     }
 
     /// Keys while a list to choose from is open: typing narrows it (in a question taking several,
@@ -261,7 +381,7 @@ impl App {
         self.modal = Some(Modal::Pick(p));
     }
 
-    fn choose_item(&mut self, p: Picker) {
+    fn choose_item(&mut self, mut p: Picker) {
         // Those marked, whichever are shown: none is an answer too.
         if let (Some(marks), Then::Choose(asking)) = (&p.marks, &p.then) {
             let values = (marks.iter().zip(asking.choice().items.iter())).filter(|(m, _)| **m);
@@ -280,7 +400,14 @@ impl App {
             return;
         }
         match p.then {
-            Then::Act(acts) => self.perform(acts[i], None),
+            Then::Act(acts) => {
+                // What's plugin-made and passing (a suggestion, a fix) won't be there to come back to.
+                let lasting = !matches!(acts[i], Act::Review(_) | Act::Dismiss(_) | Act::Fix(_));
+                if !p.recency.is_empty() && lasting {
+                    self.used(p.items.swap_remove(i).label);
+                }
+                self.perform(acts[i], None)
+            }
             Then::Drive { drive, name, acts } => match self.mounted(&drive) {
                 Some(root) => self.drive_act(acts[i], root),
                 None => self.toast(format!("{name} isn't plugged in any more"), super::app::Level::Info),

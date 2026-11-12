@@ -70,6 +70,18 @@ impl Account {
         matches!(self.sign_in, Some(SignIn::Starting(_) | SignIn::Waiting { .. } | SignIn::SigningOut))
     }
 
+    /// Stop signing in, if that's what's under way: signing out just finishes. Returns whether
+    /// it was.
+    pub fn stop(&mut self) -> bool {
+        match &self.sign_in {
+            Some(SignIn::Starting(cancel) | SignIn::Waiting { cancel, .. }) => {
+                cancel.cancel();
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Whether a handle is being typed.
     pub fn typing(&self) -> bool {
         matches!(self.sign_in, Some(SignIn::Typing(_)))

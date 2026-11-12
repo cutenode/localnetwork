@@ -3,7 +3,8 @@
 //! and the queue and where it was in it), in `tui.json` in the store, or beside the store's folder until there is one. Best
 //! effort: a missing or unreadable file just means starting fresh, and nothing is ever written to
 //! a drive. Of it, the choices that are the user's preferences (the theme, colours and icons,
-//! the columns, the visualiser, playback modes, how keys and waveforms look) go in `settings export`; see `locallibrary::settings::transfer`.
+//! the columns, the visualiser, playback modes, how keys and waveforms look, the footer's hints and
+//! the palette's recent commands) go in `settings export`; see `locallibrary::settings::transfer`.
 
 use std::path::{Path, PathBuf};
 
@@ -70,6 +71,12 @@ pub struct Saved {
     pub end_warning: Option<u16>,
     /// Cover art (on unless turned off).
     pub art: Option<bool>,
+    /// How much the footer says (`full`, `compact`, `off`): all of it without one.
+    pub hints: Option<String>,
+    /// The palette's commands run lately, newest first, by name.
+    pub recent_commands: Vec<String>,
+    /// The version that last showed what a first run shows once.
+    pub intro_seen: Option<String>,
     /// Recorded sets opened in the Mixes view, newest first.
     pub mixes: Vec<PathBuf>,
     /// Folders of recorded sets opened in the Mixes view, newest first.

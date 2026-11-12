@@ -276,7 +276,7 @@ fn the_bar_follows_typing_and_signing_in(tc: hegel::TestCase) {
 /// again soon after signs out (only once: a second L while it does waits), L long after asks
 /// again; a tab clicked while a handle is typed puts it away.
 #[hegel::test(test_cases = 100)]
-fn the_bar_says_whos_signed_in_and_l_twice_signs_out(tc: hegel::TestCase) {
+fn the_bar_says_who_is_signed_in_and_l_twice_signs_out(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, _dir) = blank(View::Profile);
     let days = tc.draw(gs::sampled_from(&[-400i64, -1, 1, 3, 200][..]));

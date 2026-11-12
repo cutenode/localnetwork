@@ -61,6 +61,7 @@ export function parseCatalog(files: [path: string, file: unknown][]): FlagDefini
 /**
  * Why each flag past its removeBy on `today` (YYYY-MM-DD, UTC) should go. Only tests call this: a date passing must
  * not break a build or a deploy.
+ * @internal
  */
 export function overdue(flags: FlagDefinition[], today: string): string[] {
 	return flags.flatMap(({ key, removeBy }) =>

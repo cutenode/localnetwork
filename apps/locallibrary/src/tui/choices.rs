@@ -1,5 +1,6 @@
-//! How the deck looks, as the palette offers it: how keys are written and coloured, how waveforms
-//! are coloured, when it warns of a track's end, and cover art. What's chosen is kept in tui.json.
+//! How the player looks, as the palette offers it: how keys are written and coloured, how waveforms
+//! are coloured, when it warns of a track's end, cover art and the footer's hints. What's chosen is
+//! kept in tui.json.
 
 use super::app::{App, Level};
 use super::deck::BandMode;
@@ -9,6 +10,40 @@ use super::palette::Item;
 
 /// The warnings on offer, in seconds.
 const WARNINGS: [u16; 5] = [0, 15, 30, 45, 60];
+
+/// How much the footer says. Errors and a job's progress show whatever it's set to.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Hints {
+    #[default]
+    Full,
+    /// The few that matter most.
+    Compact,
+    Off,
+}
+
+impl Hints {
+    const ALL: [Hints; 3] = [Hints::Full, Hints::Compact, Hints::Off];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Hints::Full => "full",
+            Hints::Compact => "compact",
+            Hints::Off => "off",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Hints> {
+        Hints::ALL.into_iter().find(|h| h.name() == s)
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Hints::Full => "full hints",
+            Hints::Compact => "compact hints",
+            Hints::Off => "no hints",
+        }
+    }
+}
 
 /// How the palette names a way of colouring waveforms.
 fn bands_label(mode: Option<BandMode>) -> String {
@@ -46,7 +81,8 @@ pub(super) fn items() -> Vec<(Act, Item)> {
     let palettes = KeyPalette::ALL.map(|k| (Act::KeyPalette(k), item(palette_label(k).into())));
     let warnings = WARNINGS.map(|secs| (Act::EndWarning(secs), item(warning_label(secs))));
     let art = [(Act::Art(true), item("cover art".into())), (Act::Art(false), item("no cover art".into()))];
-    bands.chain(notations).chain(palettes).chain(warnings).chain(art).collect()
+    let hints = Hints::ALL.map(|h| (Act::Hints(h), item(h.label().into())));
+    bands.chain(notations).chain(palettes).chain(warnings).chain(art).chain(hints).collect()
 }
 
 impl App {
@@ -79,6 +115,11 @@ impl App {
     pub(super) fn use_end_warning(&mut self, secs: u16) {
         self.deck.end_warning = secs;
         self.toast(warning_label(secs), Level::Info);
+    }
+
+    pub(super) fn use_hints(&mut self, hints: Hints) {
+        self.hints = hints;
+        self.toast(hints.label(), Level::Info);
     }
 
     /// Forget what's been played, for the rest of a set: nothing's dimmed until it plays again.
