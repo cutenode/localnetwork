@@ -77,7 +77,7 @@ type VariableName = keyof typeof VARIABLES;
 /** Own keys only: `'constructor' in VARIABLES` is true too. */
 const isVariable = (name: string): name is VariableName => Object.hasOwn(VARIABLES, name);
 
-/** The names a template may use, for the README and the tests to check. */
+/** The names a template may use, for the README and the tests to check. @internal */
 export const VARIABLE_NAMES = Object.keys(VARIABLES);
 
 // `{artist}` rather than `${artist}`: the second is what a JavaScript template

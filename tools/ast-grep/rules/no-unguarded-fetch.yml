@@ -17,11 +17,11 @@ severity: error
 message: This fetches a host from a DID document with the plain fetch.
 note: Use `identity.fetch`, `identity.serviceApiFetch` or `identity.serviceFetch` (apps/web/src/lib/server/atproto/identity.ts) with `redirect` set to 'error'. A host that's ours (the root's own PDS) can carry an `ast-grep-ignore` comment saying so.
 files:
-  - "apps/web/src/**"
+  - 'apps/web/src/**'
 ignores:
   # Tests and their fakes answer these requests themselves.
-  - "**/*.test.ts"
-  - "apps/web/src/lib/server/testing/**"
+  - '**/*.test.ts'
+  - 'apps/web/src/lib/server/testing/**'
 rule:
   any:
     - pattern: fetch($$$)

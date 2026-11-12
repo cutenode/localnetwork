@@ -136,6 +136,12 @@ pub struct PlayerPrefs {
     /// Cover art.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub art: Option<bool>,
+    /// How much the footer says: `full`, `compact` or `off`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hints: Option<String>,
+    /// The palette's commands run lately, newest first, by name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recent_commands: Option<Vec<String>>,
 }
 
 /// The file the player reads what it remembers from: the store's, else the one beside it (see

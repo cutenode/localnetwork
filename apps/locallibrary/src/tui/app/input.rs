@@ -101,6 +101,7 @@ impl App {
         if self.late_answers.swallows(&key, Instant::now()) {
             return;
         }
+        self.intro = false;
         let key = capital(key);
         // The player may have gone on to the next track since the last tick: keys act on the one
         // playing (a seek asked of the one that ended would be lost).
@@ -119,13 +120,7 @@ impl App {
             return;
         }
         if self.help {
-            match key.code {
-                KeyCode::Up | KeyCode::Char('k') => self.help_scroll = self.help_scroll.saturating_sub(1),
-                KeyCode::Down | KeyCode::Char('j') => self.help_scroll = self.help_scroll.saturating_add(1),
-                KeyCode::PageUp => self.help_scroll = self.help_scroll.saturating_sub(10),
-                KeyCode::PageDown | KeyCode::Char(' ') => self.help_scroll = self.help_scroll.saturating_add(10),
-                _ => self.help = false,
-            }
+            self.on_help_key(key);
             return;
         }
         if self.show_log {
@@ -198,6 +193,32 @@ impl App {
         }
     }
 
+    /// Keys while the help is open: typing narrows it, the arrows move, enter runs the row selected
+    /// and esc closes it (`?` too, with nothing typed).
+    fn on_help_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Up => self.help_row = self.help_row.saturating_sub(1),
+            KeyCode::Down => self.help_row = self.help_row.saturating_add(1),
+            KeyCode::PageUp => self.help_row = self.help_row.saturating_sub(10),
+            KeyCode::PageDown => self.help_row = self.help_row.saturating_add(10),
+            KeyCode::Esc => self.help = false,
+            KeyCode::Char('?') if self.help_query.is_empty() => self.help = false,
+            KeyCode::Enter => {
+                let rows = keymap::help_rows(self, &self.help_query);
+                let chosen = rows.get(self.help_row).map(|r| r.binding.act).filter(|a| keymap::runs(*a));
+                if let Some(act) = chosen {
+                    self.help = false;
+                    self.perform(act, None);
+                }
+            }
+            _ => {
+                if edit_line(&mut self.help_query, key) {
+                    self.help_row = 0;
+                }
+            }
+        }
+    }
+
     /// Picking a playlist stays in the library: `g` then only reaches the first row.
     fn picking_view(&self, key: &KeyEvent) -> bool {
         self.picking.is_some() && key.code != KeyCode::Char('g')
@@ -218,9 +239,16 @@ impl App {
             Act::Quit => self.request_quit(),
             Act::Help => {
                 self.help = true;
-                self.help_scroll = 0;
+                self.help_row = 0;
+                self.help_query.clear();
             }
             Act::Palette => self.open_palette(),
+            Act::Jobs => self.open_jobs(),
+            Act::PaneActions => self.open_actions(),
+            Act::OpenFolder => self.open_folder(),
+            Act::Snapshots => self.browse_snapshots(),
+            Act::SignIn => self.sign_in(),
+            Act::Hints(hints) => self.use_hints(hints),
             Act::Messages => {
                 self.show_log = true;
                 self.log_scroll = 0;
@@ -324,6 +352,7 @@ impl App {
             Act::End(dir) if in_profile => profile::move_by(self, 10_000 * dir as isize),
             Act::End(dir) if in_mixes => mix::move_by(self, 100_000 * dir as isize),
             Act::End(dir) => self.move_selection(if dir < 0 { isize::MIN / 2 } else { isize::MAX / 2 }),
+            Act::Activate if self.empty() && self.focus == Focus::Tracks => self.take_step(),
             Act::Activate if in_profile => profile::switch_pane(self),
             Act::Activate if in_mixes => mix::enter(self),
             Act::Activate => self.activate(),
@@ -530,7 +559,7 @@ impl App {
         self.refresh_visible();
     }
 
-    pub(super) fn set_view(&mut self, v: View) {
+    pub(in crate::tui) fn set_view(&mut self, v: View) {
         // The search box is the library's: keys typed in another view aren't for it.
         if self.searching && v != View::Library {
             self.close_search();
@@ -619,6 +648,7 @@ impl App {
             (View::Library, _) if self.deck_showing() => {
                 self.now.as_ref().and_then(|n| n.matches.as_ref()).map_or(0, |m| m.items.len())
             }
+            (View::Library, Focus::Tracks) if self.empty() => self.next_steps().len(),
             (View::Library, Focus::Tracks) => self.visible.len(),
             (View::Library, Focus::Playlists) => self.loaded.as_ref().map_or(0, |l| l.tree.len()),
             (View::Library, Focus::Details) => {
@@ -645,6 +675,7 @@ impl App {
         let len = self.list_len();
         let sel = match (self.view, self.focus) {
             (View::Library, _) if self.deck_showing() => self.next_pick.selected_mut(),
+            (View::Library, Focus::Tracks) if self.empty() => self.steps.selected_mut(),
             (View::Library, Focus::Tracks) => self.track_state.selected_mut(),
             (View::Library, Focus::Playlists) => self.playlist_state.selected_mut(),
             (View::Library, Focus::Details) => self.details_state.selected_mut(),

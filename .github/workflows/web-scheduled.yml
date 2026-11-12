@@ -211,12 +211,52 @@ jobs:
           path: apps/web/lighthouse-history.jsonl
           retention-days: 90
 
+  # Known vulnerabilities in the deployed image's OS packages and node_modules (Grype), every week
+  # whatever changed: advisories come out without a commit here, and Dependabot only bumps the base
+  # image's digest. Only ones with a fix fail it, since a fix is something a pull request can take.
+  image-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # Reads web-ci.yml's build cache and saves none of its own.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          tags: localnetwork
+          load: true
+          cache-from: type=gha
+      # What the scan leaves out: the advisories `pnpm audit` ignores (auditConfig.ignoreGhsas in
+      # pnpm-workspace.yaml, each with its reason), as dependency-review.yml does, and the npm the
+      # base image bundles in /usr/local/lib/node_modules/npm, which the app never runs (pnpm
+      # builds it, and Node runs it) and whose own dependencies only a new Node image updates.
+      # yq is on the runner.
+      - name: Grype's ignore list
+        run: |
+          yq -o yaml '{"ignore": ([.auditConfig.ignoreGhsas // [] | .[] | {"vulnerability": .}]
+            + [{"package": {"location": "/usr/local/lib/node_modules/npm/**"}}])}' pnpm-workspace.yaml > "$RUNNER_TEMP/grype.yaml"
+      - uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: localnetwork
+          config: ${{ runner.temp }}/grype.yaml
+          grype-version: v0.121.0
+          only-fixed: true
+          severity-cutoff: medium
+          output-format: table
+
   # Weekly runs only: a failed job opens an issue, or comments on the open one, and the next run
-  # that passes closes it (scheduled-issue.yml). A skipped run counts as passed.
+  # that passes closes it (scheduled-issue.yml). A skipped run counts as passed, and the image scan
+  # runs every week, so a week the suites skip can still close or open the issue.
   report:
-    needs: [changes, e2e, lighthouse, lighthouse-history]
-    # A week the suites skip follows one that passed, so there's no issue to close.
-    if: ${{ !cancelled() && github.event_name == 'schedule' && needs.changes.outputs.run == 'true' }}
+    needs: [changes, e2e, lighthouse, lighthouse-history, image-scan]
+    if: ${{ !cancelled() && github.event_name == 'schedule' }}
     permissions:
       actions: read
       issues: write
@@ -227,3 +267,4 @@ jobs:
         The Playwright report, with each failed test's trace and screenshots, is the run's
         playwright-report artifact. Lighthouse's regressions and bad results are in the run's
         summary, and each page's reports in its lighthouse-mobile and lighthouse-desktop artifacts.
+        The image scan's log lists each vulnerability with its package and the version that fixes it.

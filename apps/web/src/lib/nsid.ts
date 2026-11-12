@@ -55,9 +55,6 @@ export const COLLECTION = {
 /** The lexicon-community calendar event a show is, so other calendar apps can read it. */
 export const CALENDAR_EVENT = 'community.lexicon.calendar.event' as const;
 
-/** The lexicon-community RSVP a guest answers an event with, in their own repo. */
-export const CALENDAR_RSVP = 'community.lexicon.calendar.rsvp' as const;
-
 /** Bluesky's verification, which the root account issues to vouch that an account is who it says it is. */
 export const VERIFICATION = 'app.bsky.graph.verification' as const;
 

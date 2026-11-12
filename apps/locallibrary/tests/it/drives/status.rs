@@ -195,7 +195,7 @@ fn a_drive_says_when_its_two_databases_differ() {
 }
 
 #[test]
-fn status_offers_to_save_drives_as_theyre_plugged_in() {
+fn status_offers_to_save_drives_as_they_are_plugged_in() {
     let env = Env::new();
     env.demo("A");
     env.ok(&["--yes", "drive", "adopt", "A", "--name", "Main"]);

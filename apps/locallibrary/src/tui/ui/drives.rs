@@ -144,6 +144,9 @@ fn draw_info(f: &mut Frame, app: &mut App, detail: Rect) {
         None => {}
     }
     let Some(d) = app.drive_state.selected().and_then(|i| app.drives.get(i)) else {
+        if app.scanning() {
+            return;
+        }
         let p = Paragraph::new(vec![
             Line::raw(""),
             Line::styled("No rekordbox drives mounted.", bold(theme::current().text)),
@@ -392,7 +395,8 @@ fn draw_drive_rows(f: &mut Frame, app: &mut App, area: Rect) {
     }
     // Each row takes two lines.
     app.drive_rows.fit(area.height.saturating_sub(2) as usize / 2, rows.len());
-    f.render_stateful_widget(drive_list(items, focused), area, &mut app.drive_rows);
+    let list = drive_list(items, focused, app.scanning());
+    f.render_stateful_widget(list, area, &mut app.drive_rows);
 }
 
 /// How a library's clones plugged in stand together: whether they hold the same, and whether

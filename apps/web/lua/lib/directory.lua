@@ -123,12 +123,16 @@ end
 -- with ' AND ', its placeholders filled from `args`) and sorted by `order` (newest first by default).
 local function projects(where, args, order)
 	local values = { PROJECT, ROOT_DID }
-	for _, arg in ipairs(args) do values[#values + 1] = arg end
+	for _, arg in ipairs(args) do
+		values[#values + 1] = arg
+	end
 	local rows = db.raw(
 		'SELECT uri, cid, record FROM happyview_records WHERE collection = ? AND did = ?' .. where .. (order or RECENT),
 		values
 	)
-	for _, row in ipairs(rows) do row.record = json.decode(row.record) end
+	for _, row in ipairs(rows) do
+		row.record = json.decode(row.record)
+	end
 	return rows
 end
 
@@ -155,9 +159,13 @@ local SET_FIELDS = "json_remove(record, '$.tracks', '$.playedWith', '$.links', '
 -- status, are read here. Narrowed and sorted like projects(), with `order` required.
 local function sets(where, args, order)
 	local values = { SET, PROJECT, ROOT_DID }
-	for _, arg in ipairs(args) do values[#values + 1] = arg end
+	for _, arg in ipairs(args) do
+		values[#values + 1] = arg
+	end
 	local rows = db.raw(
-		'SELECT uri, cid, ' .. SET_FIELDS .. ' FROM happyview_records AS s WHERE s.collection = ?'
+		'SELECT uri, cid, '
+			.. SET_FIELDS
+			.. ' FROM happyview_records AS s WHERE s.collection = ?'
 			.. " AND s.did IN (SELECT m.value FROM happyview_records AS p, json_each(p.record, '$.managers') AS m"
 			.. ' WHERE p.collection = ? AND p.did = ?)'
 			.. where
@@ -165,7 +173,9 @@ local function sets(where, args, order)
 		values
 	)
 	local out = {}
-	for i, row in ipairs(rows) do out[i] = setView(row.record, row.uri, row.cid) end
+	for i, row in ipairs(rows) do
+		out[i] = setView(row.record, row.uri, row.cid)
+	end
 	return toarray(out)
 end
 
@@ -187,7 +197,9 @@ local SHOWS_FROM = " FROM happyview_records s JOIN happyview_records p ON p.uri 
 -- and project JSON, so callers decode only the rows they return.
 local function showRows(where, args, order)
 	local values = { SHOW, PROJECT, ROOT_DID }
-	for _, arg in ipairs(args) do values[#values + 1] = arg end
+	for _, arg in ipairs(args) do
+		values[#values + 1] = arg
+	end
 	return db.raw(
 		'SELECT s.uri, s.cid, s.record,'
 			.. " json_extract(s.record, '$.location.latE6') AS latE6, json_extract(s.record, '$.location.lngE6') AS lngE6,"
@@ -202,7 +214,9 @@ end
 -- How many shows showRows would return for `where` and `args`, without reading them.
 local function showCount(where, args)
 	local values = { SHOW, PROJECT, ROOT_DID }
-	for _, arg in ipairs(args) do values[#values + 1] = arg end
+	for _, arg in ipairs(args) do
+		values[#values + 1] = arg
+	end
 	return db.raw('SELECT count(*) AS n' .. SHOWS_FROM .. where, values)[1].n
 end
 
@@ -226,8 +240,12 @@ local MAX_SUPPORTS_PER_DJ = 5
 
 local MIN_DJS_TO_CHART = 3
 
-local UUID = '^' .. string.rep('%x', 8) .. string.rep('%-' .. string.rep('%x', 4), 3) .. '%-'
-	.. string.rep('%x', 12) .. '$'
+local UUID = '^'
+	.. string.rep('%x', 8)
+	.. string.rep('%-' .. string.rep('%x', 4), 3)
+	.. '%-'
+	.. string.rep('%x', 12)
+	.. '$'
 
 -- Like the record script's normalize(), which made the keys these queries compare against. ASCII-only lowercasing,
 -- as Lua has no Unicode case tables, so "Ä" and "ä" stay two names.
@@ -258,7 +276,9 @@ local DJS = [[djs AS MATERIALIZED (
 -- Each set's named tracks are pulled out of its record once, and each play keeps its track's JSON (`track`), since
 -- going back to a record for a track means SQLite parsing the whole record, tracklist and all, again: dozens of
 -- times slower over long sets. playsArgs() gives its placeholders.
-local PLAYS = 'WITH ' .. DJS .. [[, sets AS (
+local PLAYS = 'WITH '
+	.. DJS
+	.. [[, sets AS (
 	SELECT s.uri, s.did, d.act, json_extract(s.record, '$.namedTracks') AS named,
 		json_extract(s.record, '$.date') AS date,
 		json_extract(s.record, '$.location.locality') AS city, upper(json_extract(s.record, '$.location.country')) AS country
@@ -299,7 +319,9 @@ local PLAYS = 'WITH ' .. DJS .. [[, sets AS (
 -- PLAYS' placeholders, then `...`.
 local function playsArgs(...)
 	local args = { PROJECT, ROOT_DID, SET }
-	for _, arg in ipairs({ ... }) do args[#args + 1] = arg end
+	for _, arg in ipairs({ ... }) do
+		args[#args + 1] = arg
+	end
 	return args
 end
 
@@ -307,8 +329,12 @@ end
 -- each act's distinct tracks of theirs, at most MAX_SUPPORTS_PER_DJ, summed; its placeholder is the limit) and
 -- `artistNames` (each one's name as plays credit it most).
 local function rankArtists(source)
-	return ', perAct AS (SELECT artistId, act, min(count(DISTINCT trackId), ' .. MAX_SUPPORTS_PER_DJ .. ') AS n'
-		.. ' FROM ' .. source .. ' GROUP BY artistId, act)'
+	return ', perAct AS (SELECT artistId, act, min(count(DISTINCT trackId), '
+		.. MAX_SUPPORTS_PER_DJ
+		.. ') AS n'
+		.. ' FROM '
+		.. source
+		.. ' GROUP BY artistId, act)'
 		.. ', topArtists AS (SELECT artistId, sum(n) AS supports, count(*) AS djCount FROM perAct GROUP BY artistId'
 		.. ' ORDER BY supports DESC, djCount DESC, artistId LIMIT ?)'
 		.. ', artistNames AS (SELECT artistId, artistName FROM (SELECT artistId, artistName,'
@@ -325,7 +351,9 @@ end
 local function trackView(id, encoded, supports)
 	local track = json.decode(encoded)
 	local artists = {}
-	for i, artist in ipairs(track.artists) do artists[i] = { name = artist.artistName, mbid = artist.artistMbId } end
+	for i, artist in ipairs(track.artists) do
+		artists[i] = { name = artist.artistName, mbid = artist.artistMbId }
+	end
 	return {
 		id = id,
 		title = track.title,
@@ -333,7 +361,7 @@ local function trackView(id, encoded, supports)
 		artists = toarray(artists),
 		recordingMbId = id:match('^mbid:(.+)$'),
 		isrc = id:match('^isrc:(.+)$') or track.isrc,
-		supports = supports
+		supports = supports,
 	}
 end
 
@@ -342,7 +370,9 @@ end
 -- Family by genre, then by family id, so a family's id (like 'bass') finds it even when it isn't one of its genres.
 local FAMILY = {}
 for _, family in ipairs(TAXONOMY.families) do
-	for _, genre in ipairs(family.genres) do FAMILY[genre] = family end
+	for _, genre in ipairs(family.genres) do
+		FAMILY[genre] = family
+	end
 end
 for _, family in ipairs(TAXONOMY.families) do
 	FAMILY[family.id] = FAMILY[family.id] or family
@@ -433,15 +463,18 @@ local find, concat = string.find, table.concat
 local function relevance(performer, needles)
 	local location = performer.location or {}
 	local name, tagline = words(performer.name), words(performer.tagline or '')
-	local about = words((performer.bio or '') .. ' ' .. (performer.lookingFor or '') .. ' '
-		.. concat(performer.highlights or {}, ' '))
+	local about = words(
+		(performer.bio or '') .. ' ' .. (performer.lookingFor or '') .. ' ' .. concat(performer.highlights or {}, ' ')
+	)
 	local genres = words(concat(performer.genres, ' '))
 	local place = words((location.city or '') .. ' ' .. (location.region or '') .. ' ' .. (location.country or ''))
 	local total = 0
 	for i = 1, #needles do
 		local needle = needles[i]
-		local found = (find(name, needle, 1, true) and 10 or 0) + (find(tagline, needle, 1, true) and 4 or 0)
-			+ (find(about, needle, 1, true) and 1 or 0) + (find(genres, needle, 1, true) and 6 or 0)
+		local found = (find(name, needle, 1, true) and 10 or 0)
+			+ (find(tagline, needle, 1, true) and 4 or 0)
+			+ (find(about, needle, 1, true) and 1 or 0)
+			+ (find(genres, needle, 1, true) and 6 or 0)
 			+ (find(place, needle, 1, true) and 3 or 0)
 		if found == 0 then return nil end
 		total = total + found
@@ -462,8 +495,14 @@ end
 -- `tiers`, or whose one fee from before fee levels (at `legacy`, when given) is, and its placeholders' values.
 local function inFeeTiers(column, fees, tiers, legacy)
 	local inTiers, values = ' IN (' .. marks(#tiers) .. ')', table.move(tiers, 1, #tiers, 1, {})
-	local clause = 'EXISTS (SELECT 1 FROM json_each(' .. column .. ", '" .. fees .. "')"
-		.. " WHERE json_extract(value, '$.tier')" .. inTiers .. ')'
+	local clause = 'EXISTS (SELECT 1 FROM json_each('
+		.. column
+		.. ", '"
+		.. fees
+		.. "')"
+		.. " WHERE json_extract(value, '$.tier')"
+		.. inTiers
+		.. ')'
 	if not legacy then return clause, values end
 	table.move(tiers, 1, #tiers, #tiers + 1, values)
 	return '(' .. clause .. ' OR json_extract(' .. column .. ", '" .. legacy .. ".tier')" .. inTiers .. ')', values
@@ -515,7 +554,9 @@ local function searchPage(items, sort, params, needles)
 		end
 		items = {}
 		for rank = top, 1, -1 do
-			for _, item in ipairs(groups[rank] or {}) do items[#items + 1] = item end
+			for _, item in ipairs(groups[rank] or {}) do
+				items[#items + 1] = item
+			end
 		end
 	elseif sort == 'distance' then
 		table.sort(items, function(a, b)
@@ -528,6 +569,8 @@ local function searchPage(items, sort, params, needles)
 	local offset = tonumber(text(params.cursor) or '')
 	offset = math.type(offset) == 'integer' and offset > 0 and offset or 0
 	local page = {}
-	for i = offset + 1, math.min(#items, offset + limit) do page[#page + 1] = items[i].view end
+	for i = offset + 1, math.min(#items, offset + limit) do
+		page[#page + 1] = items[i].view
+	end
 	return toarray(page), #items, offset + limit < #items and tostring(offset + limit) or nil
 end

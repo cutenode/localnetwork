@@ -152,10 +152,12 @@ fn io(e: std::io::Error) -> RpcError {
     RpcError::failed("io", e.to_string())
 }
 
-/// Copies `from` to `to`, making `to`'s folder first.
+/// Copies `from` to `to`, making `to`'s folder first. Bytes, not `fs::copy`, which would carry over
+/// a stored file's read-only permissions and refuse the next write to `to`.
 fn copy(from: &Path, to: &Path) -> Result<(), RpcError> {
     std::fs::create_dir_all(to.parent().unwrap_or(Path::new("."))).map_err(io)?;
-    std::fs::copy(from, to).map(drop).map_err(io)
+    let mut from = std::fs::File::open(from).map_err(io)?;
+    std::io::copy(&mut from, &mut std::fs::File::create(to).map_err(io)?).map(drop).map_err(io)
 }
 
 /// The request's scratch folder.

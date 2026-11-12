@@ -281,7 +281,9 @@ impl Loaded {
 }
 
 /// Tracks that mix into one track (from `harmony::suggestions`), as indexes into the library they
-/// were found in, which they keep.
+/// were found in, which they keep. Each way of mixing in takes its turn, closest tempo first:
+/// same-key tracks come first in the suggestions, and in a big library they would fill the few
+/// rows the panel has, every one in the playing track's key (LOC-13).
 pub struct Matches {
     pub library: Arc<Library>,
     pub root: PathBuf,
@@ -297,9 +299,18 @@ pub struct Mix {
 
 impl Matches {
     pub(in crate::tui) fn find(library: Arc<Library>, root: PathBuf, track: &Track, limit: usize) -> Matches {
-        let items = api::matches_in(&library, track, limit)
+        let mut turns = [0usize; 4];
+        let mut ranked: Vec<_> = api::matches_in(&library, track, usize::MAX)
             .into_iter()
-            .filter_map(|s| {
+            .map(|s| {
+                let turn = &mut turns[s.relation as usize];
+                *turn += 1;
+                (*turn, s)
+            })
+            .collect();
+        ranked.sort_by_key(|(turn, s)| (*turn, s.relation));
+        let items = (ranked.into_iter().take(limit))
+            .filter_map(|(_, s)| {
                 let index = library.tracks.iter().position(|t| t.id == s.track.id)?;
                 Some(Mix { index, key: s.key, relation: s.relation, tempo_gap: s.tempo_gap })
             })
