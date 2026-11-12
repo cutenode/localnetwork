@@ -67,7 +67,7 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 ### Tools
 
-- `/tools` lists Local Network's other tools, [locallibrary](../locallibrary) and [localtoolbox](../localtoolbox). Each has a page at `/tools/<id>` that shows what it does as hot cues on a real track's waveform, each with a capture of the tool at work, then how to install it and its guides, which are bundled from the repo at build time: its README and `docs/*.md`, or only `docs/*.md` led by `docs/overview.md` when the README is written for developers, as localtoolbox's is. A guide with four or more sections opens on a list of them. See [Tools' pages and hosts](#tools-pages-and-hosts).
+- `/tools` lists Local Network's other tools, [locallibrary](../locallibrary) and [localtoolbox](../localtoolbox). Each has a page at `/tools/<id>` that shows what it does as hot cues on a real track's waveform, each with a capture of the tool at work, then how to install it and its guides, which are bundled from the repo at build time: its README and `docs/*.md`, or only `docs/*.md` led by `docs/overview.md` when the README is written for developers, as localtoolbox's is, and its `CHANGELOG.md` last when it has one. A guide with four or more sections opens on a list of them. See [Tools' pages and hosts](#tools-pages-and-hosts).
 
 ### Bug reports
 
@@ -275,7 +275,7 @@ The network is temporary; Ctrl-C stops it, and restarting resets everything (and
 | `pnpm dev`                          | Local atproto network, HappyView, and the dev server                                         |
 | `pnpm dev:network` / `pnpm dev:app` | The network and HappyView only / the dev server only (reads `.env.local`)                    |
 | `pnpm build` / `pnpm start`         | Production build (adapter-node) / run it                                                     |
-| `pnpm check`                        | `svelte-check` with TypeScript 6                                                             |
+| `pnpm check`                        | `svelte-check` with TypeScript 6, after `pnpm lexicons:types`                                |
 | `pnpm lint`                         | Oxlint with type-aware rules (tsgolint) and the anti-slop plugin                             |
 | `pnpm format` / `pnpm format:check` | Oxfmt                                                                                        |
 | `pnpm test`                         | Unit tests (Node) + component tests (Vitest browser mode, Chromium)                          |
@@ -290,6 +290,7 @@ The network is temporary; Ctrl-C stops it, and restarting resets everything (and
 | `pnpm test:lighthouse:full`         | Lighthouse on every page, phone and desktop, against its history ([Lighthouse](#lighthouse)) |
 | `pnpm -w knip`                      | Unused files, exports, and dependencies across the repo (the root `knip.jsonc`)              |
 | `pnpm lexicons:publish`             | Publish lexicons from the root account and check or set their DNS                            |
+| `pnpm lexicons:types`               | Types from the lexicons in `src/lib/lexicons` (git-ignored), to check the readers against    |
 | `pnpm db:backup`                    | Back the database up to the bucket now ([Backups](#backups))                                 |
 | `pnpm db:backups`                   | List the bucket's backups                                                                    |
 | `pnpm db:restore <key> [path]`      | Restore a backup (or `latest`) over the database, or to `path`                               |
@@ -375,7 +376,7 @@ A restore downloads the backup, checks its integrity, keeps the database it repl
 
 ### Tools' pages and hosts
 
-Each tool has an entry in `src/lib/tools/` (name, tagline, one to eight things it does with a capture for each, install steps) and a page at `/tools/<id>`. The captures in `src/lib/tools/captures/`, and the demo track their hot cues sit on, come from `pnpm atstore` at the repo root ([packages/atstore](../../packages/atstore)); the build turns them into AVIF and WebP at the widths they're shown at, and the page offers only those, with one JPEG or PNG as the fallback. The hot cues draw the track the way the tool's own world does: rekordbox's coloured overview for locallibrary, SoundCloud's flat bars for localtoolbox (`lookOf` in `HotCues.svelte`). A tool's guides are its own `README.md` and `docs/*.md` in `apps/<tool>/` (localtoolbox leaves out its README, which is for developers, and leads with `docs/overview.md`), bundled at build time and rendered on the server with GitHub's heading ids. Links to the tool's other guides stay on this site, links to other files in the repo go to GitHub, and raw HTML in the Markdown shows as text. Adding a tool is one file there, listed in `src/lib/tools/index.ts`, plus the steps in [Adding an app or plugin](../../.github/NEW_PROJECT.md).
+Each tool has an entry in `src/lib/tools/` (name, tagline, one to eight things it does with a capture for each, install steps) and a page at `/tools/<id>`. The captures in `src/lib/tools/captures/`, and the demo track their hot cues sit on, come from `pnpm atstore` at the repo root ([packages/atstore](../../packages/atstore)); the build turns them into AVIF and WebP at the widths they're shown at, and the page offers only those, with one JPEG or PNG as the fallback. The hot cues draw the track the way the tool's own world does: rekordbox's coloured overview for locallibrary, SoundCloud's flat bars for localtoolbox (`lookOf` in `HotCues.svelte`). A tool's guides are its own `README.md`, `docs/*.md` and `CHANGELOG.md` in `apps/<tool>/` (localtoolbox leaves out its README, which is for developers, and leads with `docs/overview.md`; locallibrary's changelog starts at its first version, leaving out the notes for maintainers), bundled at build time and rendered on the server with GitHub's heading ids. Links to the tool's other guides stay on this site, links to other files in the repo go to GitHub, and raw HTML in the Markdown shows as text. Adding a tool is one file there, listed in `src/lib/tools/index.ts`, plus the steps in [Adding an app or plugin](../../.github/NEW_PROJECT.md).
 
 A tool with a host of its own lists it in its entry, and this app answers that host before anything else runs, so it works even while the app isn't configured. `/` redirects (308) to the tool's page on `PUBLIC_URL` (`https://localnetwork.computer` when it isn't set), `/oauth-client-metadata.json` serves the tool's OAuth client document if it has one, and every other path is a 404.
 

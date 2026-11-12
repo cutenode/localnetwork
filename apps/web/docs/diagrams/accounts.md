@@ -159,7 +159,7 @@ Source: [`src/lib/server/atproto/root.ts`](../../src/lib/server/atproto/root.ts)
 
 ## Token exchange flow
 
-How a locallibrary plugin gets tokens from a service that wants a client secret.
+How a locallibrary plugin gets tokens from a service that wants a client secret. Each service has a pauseFlag; turning it on for everyone stops that service's exchange.
 
 ```mermaid
 sequenceDiagram
@@ -167,8 +167,12 @@ sequenceDiagram
   participant A as App
   participant S as Service token endpoint
   L->>A: POST /api/token-exchange/[service] as JSON
-  alt Unknown service, over 64 KiB, or not a grant
-    A-->>L: 404, 413 or 400
+  alt Unknown service
+    A-->>L: 404
+  else Paused by its flag
+    A-->>L: 503 temporarily_unavailable
+  else Over 64 KiB, or not a grant
+    A-->>L: 413 or 400
   else redirect_uri isn't locallibrary's listener
     A-->>L: 400 invalid_request
   else Service's variables aren't set

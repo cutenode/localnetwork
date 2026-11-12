@@ -110,6 +110,7 @@ oauth2 = { version = "5.0.0", default-features = false }
 futures-util = { version = "0.3.34", default-features = false }
 rayon = "1.12.0"
 memchr = "2.8.3"
+loclib-audio.workspace = true
 # A handle's `_atproto` TXT record, looked up with the DNS servers the system is set to use.
 hickory-resolver = { version = "0.26.3", default-features = false, features = ["system-config", "tokio"], optional = true }
 
@@ -122,7 +123,6 @@ quick-xml = { version = "0.42", features = ["serialize"] }
 # Independent FAT reader used to check the FAT32 formatter.
 fatfs = "0.3"
 loclib-model = { workspace = true, features = ["test-util"] }
-loclib-mixid = { workspace = true, features = ["test-util"] }
 jsonschema.workspace = true
 # The interop plugin's rekordbox XML writer, which tests read fixture drives' libraries through.
 loclib-interop.workspace = true
@@ -131,6 +131,7 @@ locallibrary-plugin-demos = { path = "../../plugins/demos" }
 # Waiting until a connection reaches the sign-in listener's queue (`callback` tests).
 mio = { version = "1.2.4", features = ["os-poll", "net"] }
 criterion.workspace = true
+loclib-testkit.workspace = true
 
 [target."cfg(windows)".dependencies]
 # A file's index and its volume's serial number, which the drive watcher tells rewrites by.

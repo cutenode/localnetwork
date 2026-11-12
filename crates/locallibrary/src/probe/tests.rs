@@ -1,6 +1,6 @@
 use super::*;
 
-pub use loclib_mixid::test_util::{wav, wav_of};
+pub use loclib_testkit::audio::{wav, wav_of};
 
 #[test]
 fn formats_from_headers() {
