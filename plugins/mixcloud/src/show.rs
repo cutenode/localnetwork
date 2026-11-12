@@ -36,8 +36,7 @@ pub(crate) struct Section {
 /// is kept when it's after the time before it, so the sections are in order.
 pub(crate) fn of(set: &PublishedSet, tracklist: &[TracklistEntry], tags: &str, unlisted: bool) -> Show {
     let mut notes = Vec::new();
-    let place = given(&set.venue).or_else(|| given(&set.city)).unwrap_or("DJ set");
-    let name = given(&set.title).map_or_else(|| format!("{place}, {}", set.date), String::from);
+    let name = set.name();
     let at: Vec<&str> = [&set.venue, &set.city, &set.country].into_iter().filter_map(given).collect();
     let mut description = match at.join(", ") {
         at if at.is_empty() => format!("Played on {}", set.date),

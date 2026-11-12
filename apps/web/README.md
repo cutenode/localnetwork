@@ -277,7 +277,7 @@ The network is temporary; Ctrl-C stops it, and restarting resets everything (and
 | `pnpm dev`                          | Local atproto network, HappyView, and the dev server                                         |
 | `pnpm dev:network` / `pnpm dev:app` | The network and HappyView only / the dev server only (reads `.env.local`)                    |
 | `pnpm build` / `pnpm start`         | Production build (adapter-node) / run it                                                     |
-| `pnpm check`                        | `svelte-check` with TypeScript 6                                                             |
+| `pnpm check`                        | `svelte-check` with TypeScript 6, after `pnpm lexicons:types`                                |
 | `pnpm lint`                         | Oxlint with type-aware rules (tsgolint) and the anti-slop plugin                             |
 | `pnpm format` / `pnpm format:check` | Oxfmt                                                                                        |
 | `pnpm test`                         | Unit tests (Node) + component tests (Vitest browser mode, Chromium)                          |
@@ -292,6 +292,7 @@ The network is temporary; Ctrl-C stops it, and restarting resets everything (and
 | `pnpm test:lighthouse:full`         | Lighthouse on every page, phone and desktop, against its history ([Lighthouse](#lighthouse)) |
 | `pnpm -w knip`                      | Unused files, exports, and dependencies across the repo (the root `knip.jsonc`)              |
 | `pnpm lexicons:publish`             | Publish lexicons from the root account and check or set their DNS                            |
+| `pnpm lexicons:types`               | Types from the lexicons in `src/lib/lexicons` (git-ignored), to check the readers against    |
 | `pnpm db:backup`                    | Back the database up to the bucket now ([Backups](#backups))                                 |
 | `pnpm db:backups`                   | List the bucket's backups                                                                    |
 | `pnpm db:restore <key> [path]`      | Restore a backup (or `latest`) over the database, or to `path`                               |
