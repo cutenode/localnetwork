@@ -1,5 +1,6 @@
 import { type EpkRecord, type EpkView, pressKitPath } from '#lib/epk.ts';
-import { kindLabel, placeLabel, pluralize, profileHref } from '#lib/format.ts';
+import { type DjSet, setName, setPlace } from '#lib/dj.ts';
+import { formatShowDate, kindLabel, placeLabel, pluralize, profileHref, setHref } from '#lib/format.ts';
 import { type PageImage, type PageMeta, SITE_NAME } from '#lib/meta.ts';
 import { CARD } from '#lib/og/style.ts';
 import { bareMbid } from '#lib/supports.ts';
@@ -153,6 +154,24 @@ export function profileMeta(
 		path: profileHref(account),
 		type: 'profile',
 		image: profile?.avatarUrl ? { path: profile.avatarUrl, alt: `${name}'s picture` } : undefined
+	});
+}
+
+/** A DJ's set, at its page under their address, with their picture when they have one. */
+export function setMeta(
+	publicUrl: string,
+	account: AccountView,
+	dj: { name: string; avatarUrl: string | null },
+	set: Pick<DjSet, 'uri' | 'title' | 'venue' | 'location' | 'date' | 'tracks'>
+): PageMeta {
+	const place = setPlace(set);
+
+	return pageMeta(publicUrl, {
+		title: `${setName(set)} by ${dj.name}`,
+		description: `${dj.name} played ${pluralize(set.tracks.length, 'track')}${place ? ` at ${place}` : ''} on ${formatShowDate(set.date)}.`,
+		path: setHref(set.uri, account.handle),
+		type: 'music.playlist',
+		image: dj.avatarUrl ? { path: dj.avatarUrl, alt: `${dj.name}'s picture` } : undefined
 	});
 }
 

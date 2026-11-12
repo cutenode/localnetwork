@@ -204,7 +204,7 @@ What a public page tells crawlers and link previews.
 flowchart TD
   Load["A public page's load"] --> Meta["meta: title, description,<br/>preview image"]
   Load -- "listed in search" --> Records["meta-records: at:canonical,<br/>at:alternate, at:author"]
-  Load -- "listed in search" --> Json["JSON-LD: performer, press kit,<br/>profile, mix, artist"]
+  Load -- "listed in search" --> Json["JSON-LD: performer, press kit,<br/>profile, mix, set playlist, artist"]
   Records --> Head["crawlerHead"]
   Json --> Head
   Head --> Hook["Server hook swaps it for the<br/>marker in app.html"]

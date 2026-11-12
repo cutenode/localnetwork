@@ -1,0 +1,19 @@
+rules:
+  idiomatic:
+    # conftest loads tools/policy/ as one flat folder, one package per file.
+    directory-package-mismatch:
+      level: ignore
+    # conftest queries each package's `deny`; there is no single entrypoint.
+    no-defined-entrypoint:
+      level: ignore
+    # $"..." prints an undefined value as <undefined> where sprintf leaves the message out, and has no %q.
+    prefer-string-interpolation:
+      level: ignore
+  style:
+    # Each deny rule sits next to the helpers it uses.
+    messy-rule:
+      level: ignore
+    # Messages and test fixtures are long strings that can't wrap; this fits the longest.
+    line-length:
+      level: error
+      max-line-length: 260

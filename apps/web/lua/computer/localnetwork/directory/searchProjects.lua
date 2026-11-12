@@ -8,7 +8,9 @@ function handle()
 	local where, args = {}, {}
 	local function filter(clause, values)
 		where[#where + 1] = ' AND ' .. clause
-		for _, value in ipairs(values or {}) do args[#args + 1] = value end
+		for _, value in ipairs(values or {}) do
+			args[#args + 1] = value
+		end
 	end
 
 	local status = text(params.status)
