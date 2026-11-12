@@ -1232,7 +1232,6 @@ fn tracks_open_in_the_background() {
     app.now = Some(NowPlaying {
         id: 5,
         key: None,
-        drive: "TEST".into(),
         root,
         analysis: TrackAnalysis::default(),
         waves: Default::default(),
@@ -1374,7 +1373,7 @@ fn full_screen_queues_a_match_to_play_next() {
     let screen = super::super::ui::screen(&mut app, 200, 50);
     assert!(screen.contains("Track 3 next"), "{screen}");
     let hints = super::super::keymap::hints(&app, 200);
-    assert!(hints.iter().any(|h| h.1 == "play next") && hints.iter().any(|h| h.1 == "autoplay"), "{hints:?}");
+    assert!(hints.iter().any(|h| h.1 == "play next") && hints.iter().any(|h| h.1 == "hot cue"), "{hints:?}");
     press(&mut app, "S");
     assert_eq!(last_message(&app), "autoplay off: stops after each track");
     press(&mut app, "n");
@@ -3230,7 +3229,6 @@ fn the_mixes_into_panel_shows_each_match_with_its_own_key() {
         app.now = Some(NowPlaying {
             id,
             key: Camelot::parse(&track.key),
-            drive: "LARGE".into(),
             root: dir.path().to_path_buf(),
             analysis: TrackAnalysis::default(),
             waves: Default::default(),
