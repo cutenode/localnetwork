@@ -5,12 +5,18 @@ export type SpaceRefParts = { authority: string; type: string; skey: string };
 
 export type SpaceRecordParts = SpaceRefParts & { author: string; collection: string; rkey: string };
 
-const SPACE_URI = /^at:\/\/(did:[a-z0-9]+:[a-zA-Z0-9._:%-]+)\/space\/([a-zA-Z0-9.-]+)\/([A-Za-z0-9._:~-]{1,512})$/;
+const DID = 'did:[a-z0-9]+:[a-zA-Z0-9._:%-]+';
 
-const SPACE_RECORD_URI =
-	/^at:\/\/(did:[a-z0-9]+:[a-zA-Z0-9._:%-]+)\/space\/([a-zA-Z0-9.-]+)\/([A-Za-z0-9._:~-]{1,512})\/(did:[a-z0-9]+:[a-zA-Z0-9._:%-]+)\/([a-zA-Z0-9.-]+)\/([A-Za-z0-9._:~-]{1,512})$/;
+const NSID = '[a-zA-Z0-9.-]+';
 
-const PUBLIC_RECORD_URI = /^at:\/\/(did:[a-z0-9]+:[a-zA-Z0-9._:%-]+)\/([a-zA-Z0-9.-]+)\/([A-Za-z0-9._:~-]{1,512})$/;
+/** A record or space key, as atproto's record key syntax has it: never `.` or `..`. */
+const KEY = '(?!\\.\\.?(?:/|$))[A-Za-z0-9._:~-]{1,512}';
+
+const SPACE_URI = new RegExp(`^at://(${DID})/space/(${NSID})/(${KEY})$`);
+
+const SPACE_RECORD_URI = new RegExp(`^at://(${DID})/space/(${NSID})/(${KEY})/(${DID})/(${NSID})/(${KEY})$`);
+
+const PUBLIC_RECORD_URI = new RegExp(`^at://(${DID})/(${NSID})/(${KEY})$`);
 
 export function spaceUri(authority: string, type: string, skey: string): string {
 	return `at://${authority}/space/${type}/${skey}`;

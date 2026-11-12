@@ -12,11 +12,13 @@ mod hooks;
 mod manifest;
 mod peer;
 mod protocol;
+mod publishing;
 mod reads;
 mod sdk;
-#[cfg(feature = "test-util")]
+#[cfg(any(test, feature = "test-util"))]
 pub mod test_util;
 mod view;
+mod wait;
 mod words;
 
 pub use choice::{Choice, ChoiceItem};
@@ -68,12 +70,14 @@ pub use manifest::{
 };
 pub use peer::{Incoming, Peer, Pending, Request};
 pub use protocol::*;
+pub use publishing::{clock, fit_lines};
 pub use reads::{
     AnalysedTrack, ArtworkImage, DriveInfo, DriveReads, MAX_ANALYSES, MAX_IDS, MAX_IMAGES, PlaylistNode, PlaylistTree,
     TrackArtwork, TracksAnalysis, TracksById, TracksQuery,
 };
 pub use sdk::{Hook, Hooks, Host, serve};
 pub use view::{ChartStyle, Column, ColumnKind, ListItem, Pair, Section, Series, TreeItem, TypedColumn, View};
+pub use wait::pause;
 pub use words::a_or_an;
 
 /// The error codes.

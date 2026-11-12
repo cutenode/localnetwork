@@ -56,6 +56,18 @@ fn the_defaults_are_what_nothing_saved_comes_to() {
     assert_eq!(chosen(&app), start);
 }
 
+/// Cover art turned off from the palette comes back on by its name, though "no cover art" ran
+/// last. The smallest case `prop_the_last_choice_of_each_kind_holds` found.
+#[test]
+fn cover_art_comes_back_on_after_it_was_turned_off() {
+    let (mut app, _dir) = blank(View::Library);
+    press(&mut app, ":no cover art\n");
+    assert!(!app.deck.art);
+    press(&mut app, ":cover art\n");
+    assert!(app.deck.art);
+    assert_eq!(last_message(&app), "cover art");
+}
+
 /// The setting's in the palette, kept, and read back; what isn't known is the default.
 #[test]
 fn the_hint_setting_is_kept() {

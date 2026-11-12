@@ -39,7 +39,8 @@ The plugins locallibrary ships are a crate each in `plugins/<id>/` (`locallibrar
 written on loclib-plugin's SDK (see [Plugins](docs/plugins.md)). Like the crates above, they never
 depend on `locallibrary`: they read the library through the host's callbacks, and the CLI links
 every one into its binary (`apps/locallibrary/src/plugins.rs`, from the table `build.rs` writes).
-Their tests sit beside their code, driving the plugin over in-memory pipes with a fake host; the
+Their tests sit beside their code, driving the plugin over in-memory pipes with a fake host
+(loclib-plugin's `FakeHost` for new ones, see its README's "Testing a plugin"); the
 CLI's tests run them through the real one. Account plugins are the exception: each is a
 `locallibrary-plugin.toml` alone in `plugins/accounts/<id>/`, outside the workspace, which
 `build.rs` includes and nothing runs, so adding one is adding its folder.

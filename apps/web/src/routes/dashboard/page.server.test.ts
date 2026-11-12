@@ -4,6 +4,8 @@ import { HappyViewClient } from '#lib/server/happyview/client.ts';
 import { IndexedRepo } from '#lib/server/happyview/indexed.ts';
 import { silentLogger } from '#lib/server/logger.ts';
 import { BookingService } from '#lib/server/services/bookings.ts';
+import { DjListings } from '#lib/server/services/dj-listings.ts';
+import { FollowService } from '#lib/server/services/follows.ts';
 import { ProfileService } from '#lib/server/services/profiles.ts';
 import { ProjectService } from '#lib/server/services/projects.ts';
 import { DJ, NO_SPACES, pressKitServices, PROMOTER } from '#lib/server/testing/press-kits.ts';
@@ -117,7 +119,55 @@ it("asks nobody to set up a profile while the directory can't say what they have
 	const data = await overview(PROMOTER, { app });
 
 	expect(await data.firstRun).toBeNull();
+	expect(await data.onboarding).toBeNull();
 	expect((await data.nights).failed).toBe(true);
+});
+
+it('gives a new account a checklist with nothing done, starting from Bluesky', async () => {
+	expect(await (await overview(NO_SPACES, { as: { handle: 'nospaces.test' } })).onboarding).toEqual({
+		profile: null,
+		prefill: { name: 'nospaces.test', hasAvatar: false },
+		listing: false,
+		follows: false
+	});
+});
+
+it('checks a DJ off once they asked to be listed and follow someone', async () => {
+	await performerProfile(DJ);
+	const dj = await f.t.viewer(DJ);
+	const profile = await f.t.profiles.get(DJ);
+	await f.t.requests.submit({
+		actor: dj,
+		kind: 'list',
+		listing: profile ? { subject: profile.uri, cid: profile.cid } : undefined
+	});
+	await f.t.follows.follow(dj, f.project);
+
+	expect(await (await overview(DJ)).onboarding).toEqual({
+		profile: expect.objectContaining({ basics: { name: 'Neon' }, performer: {} }),
+		prefill: null,
+		listing: true,
+		follows: true
+	});
+});
+
+it("leaves a step to do when what it checks can't be read", async () => {
+	await performerProfile(DJ);
+	const dj = await f.t.viewer(DJ);
+	await f.t.follows.follow(dj, f.project);
+
+	const down = new HappyViewClient({
+		url: 'http://happyview.test',
+		fetch: async () => new Response(null, { status: 503 })
+	});
+
+	const app = {
+		...f.t,
+		follows: new FollowService(f.t.core, down),
+		djListings: new DjListings(f.t.core, new IndexedRepo(down, silentLogger, 0))
+	};
+
+	expect(await (await overview(DJ, { app })).onboarding).toMatchObject({ listing: false, follows: false });
 });
 
 it('streams what a slow directory holds up, and keeps booking threads while it is down', async () => {
