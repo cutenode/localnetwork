@@ -18,7 +18,7 @@
 	const needs = [
 		need('1', 'Neon Tide', 'Reply to Rooftop Rave', 'Sat 14 Nov · New inquiry from @pat.test · 2 hours ago'),
 		need('2', 'Saffron Social', 'Reply to Walkthrough Night', 'No date yet · From @jonas.test · 3 hours ago'),
-		need('3', 'Second Act', 'Update your request for Second Act', 'Staff asked for changes · yesterday', 'Update')
+		need('3', 'Second Act', 'Update your review request for Second Act', 'Staff asked for changes · yesterday', 'Update')
 	];
 
 	const access = [need('4', 'Neon Tide', 'Let @lena.test see Clubs?', 'Asked yesterday', 'Review')];

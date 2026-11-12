@@ -3,7 +3,7 @@
 
 	/** Each kind's heading and what deleting one does, in the order they show. */
 	const GROUPS: { kind: HeldRecordKind; label: string; hint: string }[] = [
-		{ kind: 'request', label: 'Submissions', hint: 'Deleting a pending one withdraws it. A decided one keeps its decision.' },
+		{ kind: 'request', label: 'Review requests', hint: 'Deleting a pending one withdraws it. A decided one keeps its decision.' },
 		{ kind: 'booking', label: 'Booking messages', hint: 'Inquiries and messages. Deleting one takes it out of the thread for everyone.' },
 		{ kind: 'epkRequest', label: 'Press kit requests', hint: 'Deleting a pending one withdraws it. An answer stays.' },
 		{ kind: 'epkDraft', label: 'Press kit drafts', hint: "Changes you haven't published yet." }

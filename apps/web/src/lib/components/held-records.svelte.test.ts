@@ -34,8 +34,11 @@ describe('HeldRecordList', () => {
 		await render(HeldRecordList, { records: Promise.resolve(records) });
 
 		const headings = page.getByRole('heading', { level: 2 });
-		await expect.element(headings.first()).toHaveTextContent('Submissions1');
-		expect(headings.elements().map((heading) => heading.textContent)).toEqual(['Submissions1', 'Booking messages2']);
+		await expect.element(headings.first()).toHaveTextContent('Review requests1');
+		expect(headings.elements().map((heading) => heading.textContent)).toEqual([
+			'Review requests1',
+			'Booking messages2'
+		]);
 		await expect
 			.element(page.getByText('Deleting a pending one withdraws it. A decided one keeps its decision.'))
 			.toBeVisible();
@@ -43,7 +46,7 @@ describe('HeldRecordList', () => {
 
 		expect(posts('Delete Inquiry in Rooftop')).toEqual(['?/delete', { uri: 'at://m2' }]);
 		expect(posts('Delete all booking messages')).toEqual(['?/deleteAll', { kind: 'booking' }]);
-		expect(posts('Delete all submissions')).toEqual(['?/deleteAll', { kind: 'request' }]);
+		expect(posts('Delete all review requests')).toEqual(['?/deleteAll', { kind: 'request' }]);
 	});
 
 	it('holds a placeholder while loading, and keeps the list while a new one loads', async () => {

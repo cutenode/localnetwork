@@ -39,7 +39,7 @@
 
 	<div class="grid items-start gap-6 xl:grid-cols-2">
 		<Card as="section">
-			<div class="flex items-center justify-between gap-4"><h2 class="section-title">Oldest pending requests</h2><a class="link text-small" href="/admin/requests">Queue</a></div>
+			<div class="flex items-center justify-between gap-4"><h2 class="section-title">Oldest pending review requests</h2><a class="link text-small" href="/admin/requests">Queue</a></div>
 			<ul class="mt-2 divide-y divide-line">
 				{#each data.pending as request (request.uri)}
 					<li class="flex items-center justify-between gap-3 py-3">

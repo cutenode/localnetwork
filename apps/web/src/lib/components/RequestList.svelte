@@ -5,7 +5,7 @@
 	import EmptyState from './EmptyState.svelte';
 	import StatusPill from './StatusPill.svelte';
 
-	/** The viewer's own submissions to staff, newest first, each linking to where they can follow or revise it. Sits inside a card. */
+	/** The viewer's own review requests to staff, newest first, each linking to where they can follow or revise it. Sits inside a card. */
 	let { requests }: { requests: RequestView[] } = $props();
 </script>
 
@@ -22,7 +22,7 @@
 		{/each}
 	</ul>
 {:else}
-	<EmptyState framed={false} title="No submissions yet" body="New projects, claims and profile changes you send to the moderators show up here.">
+	<EmptyState framed={false} title="No review requests yet" body="New projects, claims and profile changes you send to the moderators show up here.">
 		<Button variant="secondary" size="sm" href="/dashboard/projects/new">List a project</Button>
 	</EmptyState>
 {/if}

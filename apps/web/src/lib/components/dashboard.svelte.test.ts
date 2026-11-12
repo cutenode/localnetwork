@@ -134,7 +134,7 @@ describe('RequestList', () => {
 	it('says when there are none', async () => {
 		await render(RequestList, { requests: [] });
 
-		await expect.element(page.getByText('No submissions yet')).toBeInTheDocument();
+		await expect.element(page.getByText('No review requests yet')).toBeInTheDocument();
 		await expect
 			.element(page.getByRole('link', { name: 'List a project' }))
 			.toHaveAttribute('href', '/dashboard/projects/new');

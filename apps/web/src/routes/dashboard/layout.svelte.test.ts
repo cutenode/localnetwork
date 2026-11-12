@@ -51,7 +51,7 @@ it("lists the sections and everything that is the viewer's own", async () => {
 		['Inbox', '/dashboard/inbox'],
 		['Bookings', '/dashboard/bookings'],
 		['Planner', '/dashboard/planner'],
-		['Submissions', '/dashboard/requests'],
+		['Review requests', '/dashboard/requests'],
 		['Activity', '/dashboard/activity'],
 		['Your data', '/dashboard/data']
 	]) {

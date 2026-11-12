@@ -24,7 +24,7 @@
 			<div><label class="label" for="subject">Handle or DID</label><input id="subject" name="subject" class="input" required placeholder="alice.bsky.social" /></div>
 			<div>
 				<label class="label" for="role">Role</label>
-				<select id="role" name="role" class="input"><option value="moderator">Moderator: reviews requests, hides projects, reads the audit log</option><option value="admin">Admin: everything, including staff and direct edits</option></select>
+				<select id="role" name="role" class="input"><option value="moderator">Moderator: decides review requests, hides projects, reads the audit log</option><option value="admin">Admin: everything, including staff and direct edits</option></select>
 			</div>
 			<div><label class="label" for="note">Note</label><input id="note" name="note" class="input" maxlength="300" /></div>
 			<button class="btn-primary w-full">Grant role</button>

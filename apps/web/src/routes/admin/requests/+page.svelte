@@ -26,10 +26,10 @@
 	const chip = (active: boolean) => ['chip min-h-9 px-3 transition-colors hover:border-fg-subtle', active && 'border-fg bg-fg font-semibold text-fg-inverse hover:border-fg'];
 </script>
 
-<svelte:head><title>Requests · Staff</title></svelte:head>
+<svelte:head><title>Review requests · Staff</title></svelte:head>
 
 <div class="flex flex-col gap-6">
-	<SectionHeader level={1} title="Requests" lede="New projects, claims, changes and listings. You can't review your own requests." />
+	<SectionHeader level={1} title="Review requests" lede="New projects, claims, changes and listings. You can't review your own." />
 	{#if data.decided}<FormMessage form={{ success: `${data.decided}. Nothing else is waiting for you to review.` }} />{/if}
 
 	<div class="flex flex-col gap-3">

@@ -32,7 +32,7 @@
 	<FormMessage {form} />
 
 	<Card as="section" padding="none">
-		<h2 class="m-0 border-b border-line px-5 py-4 text-emphasis font-semibold">Requests to be listed</h2>
+		<h2 class="m-0 border-b border-line px-5 py-4 text-emphasis font-semibold">Review requests to be listed</h2>
 		<ul class="m-0 list-none divide-y divide-line p-0">
 			{#each data.requests as request (request.uri)}
 				<li class="flex items-center justify-between gap-3 px-5 py-3.5">

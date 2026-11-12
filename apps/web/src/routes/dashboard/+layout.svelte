@@ -37,7 +37,7 @@
 	const groups = $derived([{ items: main }, { continues: true, items: isKnown ? planner : stillComing }, { label: 'Yours', items: isKnown ? yours : stillComing }]);
 
 	const footer = $derived([
-		{ href: '/dashboard/requests', label: 'Submissions', icon: ClipboardList },
+		{ href: '/dashboard/requests', label: 'Review requests', icon: ClipboardList },
 		{ href: '/dashboard/activity', label: 'Activity', icon: History },
 		{ href: '/dashboard/data', label: 'Your data', icon: Database },
 		...(data.viewer?.isStaff ? [{ href: '/admin', label: 'Staff console', icon: ShieldCheck, badge: data.pendingRequests }] : [])

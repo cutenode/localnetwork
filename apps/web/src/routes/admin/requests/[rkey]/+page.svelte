@@ -162,7 +162,7 @@
 		<aside class="flex flex-col gap-6">
 			{#if request.status === 'pending'}
 				{#if own}
-					<p class="notice notice-info">This is your own request. Another staff member has to review it.</p>
+					<p class="notice notice-info">This is your own review request. Another staff member has to review it.</p>
 				{:else}
 					<form method="POST" action="?/decide" class="card flex flex-col gap-4 p-5" use:enhance={({ formElement }) => { busy = true; return async ({ result, update }) => { await update(); busy = false; if (result.type === 'redirect') { outcome = undefined; formElement.reset(); } }; }}>
 						<h2 class="text-emphasis font-semibold">Decision</h2>
@@ -206,7 +206,7 @@
 					{#each data.history as item (item.uri)}
 						<li class="flex items-center justify-between gap-2 py-2.5"><a class="truncate text-fg no-underline hover:underline" href="/admin/requests/{item.rkey}">{requestTitle(item)}</a><StatusPill status={item.status} /></li>
 					{:else}
-						<li class="py-2.5 text-fg-muted">First request from this account.</li>
+						<li class="py-2.5 text-fg-muted">First review request from this account.</li>
 					{/each}
 				</ul>
 			</Card>
