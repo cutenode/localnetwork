@@ -76,7 +76,7 @@ pub struct SetPublished {
 const LINK_NAME_CHARS: usize = 64;
 
 /// The set as it's published: its details and tracklist, never its notes, and the tracks at
-/// `unnamed`'s positions as only their place.
+/// `unnamed`'s positions as only their place (see [`Set::tracklist`]).
 fn published(set: &Set, unnamed: &Unnamed) -> (PublishedSet, Vec<TracklistEntry>) {
     let details = PublishedSet {
         id: set.id.clone(),
@@ -87,18 +87,7 @@ fn published(set: &Set, unnamed: &Unnamed) -> (PublishedSet, Vec<TracklistEntry>
         city: set.city.clone(),
         country: set.country.clone(),
     };
-    let tracklist = (1..)
-        .zip(&set.tracks)
-        .map(|(n, e)| {
-            let named = !unnamed.positions.contains(&n);
-            TracklistEntry {
-                artist: named.then(|| e.artist.clone()),
-                title: named.then(|| e.title.clone()),
-                start_seconds: e.start_seconds,
-            }
-        })
-        .collect();
-    (details, tracklist)
+    (details, set.tracklist(&unnamed.positions))
 }
 
 /// How big the recording at `path` is, which the plugin's accounts have to stay signed in for
@@ -111,8 +100,8 @@ impl Plugins {
     /// Plans publishing the set `set` names (see [`SetBook::find`]) with its recording at the
     /// set destination `spec` names (`<plugin>:<destination>`): the plugin's dry run says what
     /// would happen, publishing nothing. Tracks the set marks unnamed, those at the positions
-    /// (from 1) in `hide` and those the DJ's profile hides go without their names (see
-    /// [`Set::unnamed`]), and the plan says which. The plan (operation
+    /// (from 1) in `hide` and those the DJ's profile hides go without their names, albums and
+    /// lengths (see [`Set::unnamed`]), and the plan says which. The plan (operation
     /// `<plugin>.publish.<destination>`) is stale once the set, its recording or the profile's
     /// choices change, and destructive when the set has a link already, which publishing replaces.
     pub fn publish_plan(
