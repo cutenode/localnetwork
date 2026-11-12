@@ -27,7 +27,7 @@ showing the two colours either side of one. `playhead_cells` draws a playhead a 
 in eighths, and `place_markers` lays out cue markers in rows so no two share a cell and no two hot
 cue letters touch.
 
-The track data is loclib-model's `analysis` types (`Waveform`, `Beat`, `Cue`), which locallibrary
+The track data is loclib-model's `analysis` types (`Waveform`, `Beat`, `Cue`), which loclib-anlz
 reads from rekordbox's ANLZ files.
 
 ```rust

@@ -6,7 +6,7 @@
 
 use hegel::TestCase;
 use hegel::generators as gs;
-use locallibrary::anlz::{self, Mood, PhraseKind};
+use loclib_anlz::{self as anlz, Mood, PhraseKind};
 
 /// The XOR mask rekordbox 6 puts over a `PSSI` body (per crate-digger), offset by the count.
 const MASK: [u8; 19] =
@@ -162,7 +162,7 @@ fn sections_cut_short_are_refused_as_truncated(tc: TestCase) {
     let bytes = file(&sections);
     // The section and everything after it, as the readers see it.
     let f = &bytes[28..];
-    let truncated = |e: locallibrary::Error| {
+    let truncated = |e: anlz::Error| {
         let name = String::from_utf8_lossy(&tag).into_owned();
         assert!(e.to_string().contains(&format!("truncated {name}")), "{e}");
     };

@@ -4,7 +4,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use locallibrary::anlz::{self, CueFile, CuePoint};
+use loclib_anlz::{self as anlz, CueFile, CuePoint};
 
 const PATH: &str = "/Contents/fuzz/track.mp3";
 

@@ -44,6 +44,7 @@ bench = false
 indexmap = "2.14"
 libfuzzer-sys = "0.4.13"
 locallibrary = { version = "0.1.0", path = "../crates/locallibrary", default-features = false }
+loclib-anlz = { version = "0.1.0", path = "../crates/loclib-anlz" }
 loclib-mysettings = { version = "0.1.0", path = "../crates/loclib-mysettings" }
 loclib-tracklist = { version = "0.1.0", path = "../crates/loclib-tracklist" }
 rekordbox-pdb = { version = "0.1.0", path = "../vendor/rekordbox-pdb" }

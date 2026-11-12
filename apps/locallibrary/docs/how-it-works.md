@@ -20,6 +20,9 @@ crates/loclib-equipment/    what each player, all-in-one system and mixer reads 
                             equipment.json is the table for other languages
 crates/loclib-mysettings/   My Settings files (MYSETTING.DAT and the rest): every setting's schema, decoding
                             and byte-level patching
+crates/loclib-anlz/         rekordbox's analysis files (ANLZ0000.DAT, .EXT, .2EX): path rewriting, beat grid,
+                            cues (read and write), waveforms, phrases, decoded into loclib-model's analysis
+                            types; the writers keep every section they don't change byte for byte
 crates/loclib-tracklist/    reading outside tracklists (M3U, CSV, rekordbox text and XML, plain text) and
                             matching them to a library: by path, ISRC, artist and title, then fuzzily;
                             and rekordbox XML collections with their tags, keys, beat grids and cues
@@ -145,8 +148,7 @@ crates/locallibrary/src/    the library, built on the crates above
   settings.rs  My Settings on drives and in rekordbox's folder (the files' codec is loclib-mysettings),
                and the settings profile
   artwork.rs   drive artwork rows/thumbnails, audio tag embedding
-  anlz.rs      analysis files (anlz/write.rs writes them): path rewriting, beat grid, cues (read and write),
-               waveforms, phrases, decoded into loclib-model's analysis types
+  anlz.rs      a track's analysis files on a drive, read through loclib-anlz (which it re-exports)
   pdb.rs       reading export.pdb into the library model, through rekordbox-pdb
   paths.rs     which files on a drive locallibrary manages (the path keys are loclib-model's)
   onelibrary/  exportLibrary.db: SQLCipher pages, WAL replay, reading and editing via SQLite
