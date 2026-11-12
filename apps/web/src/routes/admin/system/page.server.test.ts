@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { ensureRootSpaces } from '#lib/server/bootstrap.ts';
-import { HappyViewClient } from '#lib/server/happyview/client.ts';
+import { HappyViewClient, HappyViewError } from '#lib/server/happyview/client.ts';
 import { createTestServices, ROOT } from '#lib/server/testing/core.ts';
 import { callRoute, loadRoute, type RouteEventInit } from '#lib/testing/route-event.ts';
 import type { PageServerData } from './$types';
@@ -131,6 +131,7 @@ it('leaves the System page and its actions to admins', async () => {
 	await expect(loadRoute<PageServerData>(load, init)).rejects.toMatchObject({ status: 403 });
 	await expect(callRoute(actions.resync, init)).rejects.toMatchObject({ status: 403 });
 	await expect(callRoute(actions.retryAudit, init)).rejects.toMatchObject({ status: 403 });
+	await expect(callRoute(actions.planMigration, init)).rejects.toMatchObject({ status: 403 });
 });
 
 it('bootstraps and syncs every space and the directory', async () => {
@@ -170,4 +171,34 @@ it('retries the audit copies still waiting, at once', async () => {
 		success: 'Retried 1 audit entries'
 	});
 	expect((await loadRoute<PageServerData>(load, await as(ADMIN))).failed).toEqual([]);
+});
+
+it('plans the project migration', async () => {
+	const { project } = await t.projects.publish({
+		profile: { name: 'Saffron Social', kind: 'duo', genres: ['disco'], location: { city: 'Berlin', country: 'DE' } },
+		managers: ['did:plc:dj'],
+		status: 'active',
+		createdBy: ADMIN
+	});
+
+	expect(await callRoute(actions.planMigration, await as(ADMIN, { form: {} }))).toMatchObject({
+		plan: { totals: { acts: 1, djs: 0, blocked: 0 }, projects: [{ uri: project.uri, target: 'act' }] }
+	});
+});
+
+it("says when HappyView doesn't answer the plan's reads", async () => {
+	const down = new HappyViewError(503, 'HappyView /xrpc: fetch failed');
+	const app = { ...systemApp(), projectMigration: { plan: () => Promise.reject(down) } };
+
+	expect(await callRoute(actions.planMigration, await as(ADMIN, { app, form: {} }))).toMatchObject({
+		status: 502,
+		data: { error: "HappyView isn't answering, so the plan can't count press kits, shows and follows" }
+	});
+});
+
+it("lets any other failure of the plan through, so it isn't blamed on HappyView", async () => {
+	const broken = new Error('database is locked');
+	const app = { ...systemApp(), projectMigration: { plan: () => Promise.reject(broken) } };
+
+	await expect(callRoute(actions.planMigration, await as(ADMIN, { app, form: {} }))).rejects.toBe(broken);
 });

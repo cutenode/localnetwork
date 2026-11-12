@@ -1,5 +1,6 @@
 import { rootSpacePolicies } from '#lib/server/bootstrap.ts';
 import { UserError } from '#lib/server/core.ts';
+import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { act, requireAdmin } from '#lib/server/http.ts';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -66,5 +67,18 @@ export const actions: Actions = {
 		const attempted = await locals.app.audit.processPending(200);
 
 		return { success: `Retried ${attempted} audit entries` };
+	},
+	planMigration: async ({ locals, url }) => {
+		requireAdmin(locals, url);
+
+		return act(async () => {
+			try {
+				return { plan: await locals.app.projectMigration.plan() };
+			} catch (cause) {
+				if (cause instanceof HappyViewError)
+					throw new UserError("HappyView isn't answering, so the plan can't count press kits, shows and follows", 502);
+				throw cause;
+			}
+		});
 	}
 };
