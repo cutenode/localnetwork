@@ -34,7 +34,8 @@ export default {
 				meta: PAGE_META,
 				dj: Promise.resolve(row === ARTISTS ? [{ ...NEON_DJ, profile: null }] : []),
 				sets: undefined,
-				playsIn: Promise.resolve(row === ACTS ? [NEON_TIDE] : [])
+				playsIn: Promise.resolve(row === ACTS ? [NEON_TIDE] : []),
+				follow: undefined
 			},
 			form: null
 		}),

@@ -38,24 +38,25 @@ Source: [`src/lib/server/services/shows.ts`](../../src/lib/server/services/shows
 
 ## Follows and the shows list
 
-Following a performer, and what that does to `/shows`.
+Following a performer or a person, and what that does to `/shows`.
 
 ```mermaid
 flowchart TD
   Button["Follow on a performer's page"] --> Signed{"Signed in?"}
+  Person["Follow on a profile"] --> Signed
   Signed -- "no" --> Login["/login, then back"]
-  Signed -- "yes" --> Active{"Performer active?"}
-  Active -- "no" --> Gone["404"]
+  Signed -- "yes" --> Active{"Performer active,<br/>or someone else's profile?"}
+  Active -- "no" --> Gone["404, or refused"]
   Active -- "yes" --> Write["computer.localnetwork.follow<br/>in the follower's repo"]
   Write --> Wait["Wait for getFollowStatus to show it"]
   Wait --> Audit["Audit follow.create"]
   Shows["/shows"] --> View{"Which view?"}
   View -- "default" --> Near["listShows near a city,<br/>kept in a cookie"]
   View -- "Following" --> Followed["listShows of followed performers"]
-  Write -. "read by" .-> Followed
+  Write -. "performer follows read by" .-> Followed
 ```
 
-Source: [`src/lib/server/services/follows.ts`](../../src/lib/server/services/follows.ts), [`src/routes/projects/[slug]/+page.server.ts`](../../src/routes/projects/[slug]/+page.server.ts), [`src/routes/shows/+page.server.ts`](../../src/routes/shows/+page.server.ts), [`src/lib/server/shows-place.ts`](../../src/lib/server/shows-place.ts), [`lua/computer/localnetwork/directory/listShows.lua`](../../lua/computer/localnetwork/directory/listShows.lua)
+Source: [`src/lib/server/services/follows.ts`](../../src/lib/server/services/follows.ts), [`src/routes/projects/[slug]/+page.server.ts`](../../src/routes/projects/[slug]/+page.server.ts), [`src/routes/@[handle]/+page.server.ts`](../../src/routes/@[handle]/+page.server.ts), [`src/routes/shows/+page.server.ts`](../../src/routes/shows/+page.server.ts), [`src/lib/server/shows-place.ts`](../../src/lib/server/shows-place.ts), [`lua/computer/localnetwork/directory/listShows.lua`](../../lua/computer/localnetwork/directory/listShows.lua)
 
 ## Inbox delivery
 

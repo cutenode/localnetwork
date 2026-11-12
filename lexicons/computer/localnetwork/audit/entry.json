@@ -82,6 +82,7 @@
 						"knownValues": [
 							"account",
 							"project",
+							"profile",
 							"request",
 							"role",
 							"booking",

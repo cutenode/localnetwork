@@ -5,7 +5,7 @@
 		"main": {
 			"type": "record",
 			"key": "tid",
-			"description": "Following a project, to see its upcoming shows. In the follower's own repo; deleting it unfollows.",
+			"description": "Following a project, to see its upcoming shows, or a person. In the follower's own repo; deleting it unfollows.",
 			"record": {
 				"type": "object",
 				"required": ["subject", "createdAt"],
@@ -13,7 +13,7 @@
 					"subject": {
 						"type": "string",
 						"format": "at-uri",
-						"description": "The computer.localnetwork.project record followed."
+						"description": "The computer.localnetwork.project or computer.localnetwork.profile record followed."
 					},
 					"createdAt": { "type": "string", "format": "datetime" }
 				}

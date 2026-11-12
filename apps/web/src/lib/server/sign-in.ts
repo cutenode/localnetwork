@@ -1,3 +1,4 @@
+import { isValidHandle } from '@atproto/syntax';
 import hostList from '#lib/hosts.json' with { type: 'json' };
 import type { AccountHost, ProjectView } from '#lib/types.ts';
 import { isLoopback } from './atproto/oauth';
@@ -23,7 +24,8 @@ export function accountHosts(config: Pick<Config, 'dev' | 'root'>): AccountHost[
 /**
  * Why someone was sent to sign in, from where they go after (`next`), finishing "Sign in … to <purpose>." Null when
  * the page they came from doesn't say. A project's page, or the inquiry form for it, is about booking it, unless
- * they came from its Follow button (`#follow`).
+ * they came from its Follow button (`#follow`). A profile's Follow button names the handle in its address, which
+ * says who without looking anyone up.
  */
 export async function signInPurpose(
 	next: string,
@@ -32,6 +34,10 @@ export async function signInPurpose(
 	const url = new URL(next, 'http://same.site');
 
 	if (url.pathname === '/shows' && url.searchParams.get('view') === 'following') return 'see shows from DJs you follow';
+
+	const handle = url.hash === '#follow' ? url.pathname.match(/^\/@([^/]+)$/)?.[1] : undefined;
+
+	if (handle) return isValidHandle(handle) ? `follow @${handle}` : null;
 
 	const slug =
 		url.pathname.match(/^\/projects\/([^/]+)/)?.[1] ??

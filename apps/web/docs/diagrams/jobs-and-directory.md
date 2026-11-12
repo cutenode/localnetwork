@@ -124,7 +124,7 @@ flowchart LR
   Jet -- "accounts that manage<br/>the root's performers" --> Managers["calendar event, and show when<br/>it names a performer they manage"]
   Jet -- "managers, and accounts<br/>the root verified" --> Names["Bluesky display names"]
   Jet -- "press kits of the<br/>root's performers" --> Kits["The root's, and a<br/>manager's older ones"]
-  Jet -- "of the root's performers" --> Follows["computer.localnetwork.follow"]
+  Jet -- "of the root's performers,<br/>and of others' profiles" --> Follows["computer.localnetwork.follow"]
   Jet -- "managers of a performer whose<br/>press kit reads follows" --> Bsky["Bluesky follows"]
   Jet -- "USERINPUT_SPACE alone" --> Input["app.userinput.space"]
 ```
@@ -146,7 +146,7 @@ flowchart LR
   Pages -- "/shows, performer pages" --> Q5["listShows"]
   Pages -- "waiting on a show write" --> Q11["getShows"]
   Pages -- "mixes, the set picker" --> Q6["getSets, listSets"]
-  Pages -- "Follow button" --> Q7["getFollowStatus"]
+  Pages -- "Follow on performers<br/>and profiles" --> Q7["getFollowStatus"]
   Pages -- "/charts, /artists" --> Q8["getCharts, getArtist,<br/>searchArtists"]
   Pages -- "stats, press kits, profiles,<br/>verifications, bug report space" --> Q9["getRecords, listRecords"]
 ```

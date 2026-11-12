@@ -109,8 +109,9 @@ export default defineConfig({
 										ctx.getModuleInfo(id)?.importedIds.every((dep) => isSmall(dep, ctx)) ? 'shared' : null,
 									// Not the Tools pages' own components, the staff console's table, the booking rules the
 									// dashboard's booking pages share, the suggestion lists only the place and handle fields use,
-									// or the drafts only long forms keep: only those pages load them, and every page loads this.
-									test: /[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|GuideList\.svelte|PlaceOptions\.svelte)|ui[\\/]ResponsiveTable\.svelte|bookings\.ts$|combobox\.svelte\.ts$|form-draft\.svelte\.ts$)|@lucide/,
+									// the Follow button (and its icons) only performer and profile pages show, or the drafts only
+									// long forms keep: only those pages load them, and every page loads this.
+									test: /[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|FollowButton\.svelte|GuideList\.svelte|PlaceOptions\.svelte)|ui[\\/]ResponsiveTable\.svelte|bookings\.ts$|combobox\.svelte\.ts$|form-draft\.svelte\.ts$)|@lucide[\\/](?!.*[\\/]user-(?:check|plus)\.)/,
 									minShareCount: 2,
 									maxModuleSize: SHARED_MODULE_SIZE
 								}
