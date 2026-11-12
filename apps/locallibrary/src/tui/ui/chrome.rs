@@ -9,8 +9,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 use crate::output::bytes;
-use crate::tui::app::{App, Level, View, typed_tail};
+use crate::tui::app::{App, Level, UNDO_HINT, View, typed_tail};
 use crate::tui::edits::Modal;
+use crate::tui::first_run::intro_line;
 use crate::tui::theme::{self, bold, dim, faint, fg, text};
 use crate::tui::{icons, keymap};
 
@@ -51,7 +52,7 @@ pub(super) fn title_row(f: &mut Frame, title: impl Into<Line<'static>>, focused:
 }
 
 /// `left` and `right` on one line, `right` flush right when it fits.
-pub(super) fn spread<'a>(mut left: Vec<Span<'a>>, right: Vec<Span<'a>>, width: u16) -> Line<'a> {
+pub(in crate::tui) fn spread<'a>(mut left: Vec<Span<'a>>, right: Vec<Span<'a>>, width: u16) -> Line<'a> {
     let lw: usize = left.iter().map(Span::width).sum();
     let rw: usize = right.iter().map(Span::width).sum();
     if lw + rw < width as usize {
@@ -163,7 +164,8 @@ pub(super) fn draw_header(f: &mut Frame, app: &mut App, area: Rect, carries_cont
     f.render_widget(spread(spans, fit(about, room), area.width), area);
 }
 
-/// What the player's doing: a job's progress first, cut short if need be, else what's loading.
+/// What the player's doing: the job's progress first, cut short if need be, else the first of what
+/// the job list (`&`) holds, so the two can't say different things.
 fn busy(app: &App) -> Vec<Span<'static>> {
     let mut busy = Vec::new();
     if let Some(j) = &app.job {
@@ -173,6 +175,9 @@ fn busy(app: &App) -> Vec<Span<'static>> {
         if secs > 0 {
             busy.push(Span::styled(format!("{secs}s "), faint()));
         }
+        if j.committed {
+            busy.push(Span::styled("can't stop now ", fg(theme::current().warning)));
+        }
         if !j.detail.is_empty() {
             busy.push(Span::styled(format!("{} ", j.detail), dim()));
         }
@@ -180,15 +185,11 @@ fn busy(app: &App) -> Vec<Span<'static>> {
             busy.push(Span::styled(" esc ", theme::key()));
             busy.push(Span::styled("cancel ", dim()));
         }
-    } else if app.loading.is_some() || app.status_loading || app.profile.loading || app.mix.is_loading() {
+        busy.push(Span::styled(" & ", theme::key()));
+        busy.push(Span::styled("jobs ", dim()));
+    } else if let Some(row) = crate::tui::jobs::rows(app).first() {
         busy.push(Span::styled(format!("{} ", spinner(app)), fg(theme::current().info)));
-        if let Some(m) = &app.loading {
-            busy.push(Span::styled(format!("{m} "), dim()));
-        } else if let Some(m) = app.profile.status() {
-            busy.push(Span::styled(format!("{m} "), dim()));
-        } else if let Some(m) = app.mix.status() {
-            busy.push(Span::styled(format!("{m} "), dim()));
-        }
+        busy.push(Span::styled(format!("{} ", row.label), dim()));
     }
     busy
 }
@@ -204,7 +205,7 @@ fn mode(app: &App) -> &'static str {
         "TYPING"
     } else if app.picking.is_some() {
         "PICK"
-    } else if app.fullscreen && app.view == View::Library {
+    } else if app.deck_showing() {
         "DECK"
     } else if app.deck.pads {
         "PADS"
@@ -309,6 +310,9 @@ pub(super) fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         f.render_widget(Paragraph::new(Line::from(fit(spans, area.width as usize))), area);
         return;
     }
+    if app.intro {
+        return f.render_widget(Line::from(fit(intro_line(), area.width as usize)), area);
+    }
     // The keymap's hints for where focus is, as many as fit.
     let mut spans = vec![Span::raw(" ")];
     for (k, label) in crate::tui::keymap::hints(app, area.width as usize) {
@@ -352,17 +356,30 @@ fn level_style(level: Level) -> (&'static str, [u8; 3]) {
     }
 }
 
-/// A message as lines `width` wide: its icon, then the text wrapped under itself.
+/// A message as lines `width` wide: its icon, then the text wrapped under itself, with the key that
+/// takes a change back drawn as a key.
 fn message_lines(msg: &str, level: Level, width: u16) -> Vec<Line<'static>> {
     let (icon, c) = level_style(level);
-    wrap_text(msg, (width as usize).saturating_sub(4))
+    let mut lines: Vec<Line> = wrap_text(msg, (width as usize).saturating_sub(4))
         .into_iter()
         .enumerate()
         .map(|(i, part)| {
             let head = if i == 0 { Span::styled(format!(" {icon} "), bold(c)) } else { Span::raw("   ") };
             Line::from(vec![head, Span::styled(part, fg(c))])
         })
-        .collect()
+        .collect();
+    if let Some(last) = lines.last_mut()
+        && let Some((said, rest)) = last.spans[1].content.clone().split_once(UNDO_HINT)
+    {
+        last.spans.truncate(1);
+        last.spans.extend([
+            Span::styled(format!("{said} · "), fg(c)),
+            Span::styled("u", theme::key()),
+            Span::styled(" undo", dim()),
+            Span::styled(rest.to_string(), fg(c)),
+        ]);
+    }
+    lines
 }
 
 /// The messages: an error that's waiting to be dismissed above the latest message. One line that
@@ -371,7 +388,15 @@ fn message_lines(msg: &str, level: Level, width: u16) -> Vec<Line<'static>> {
 pub(super) fn draw_toasts(f: &mut Frame, app: &App, area: Rect, room: Rect) {
     let dialog = matches!(
         app.modal,
-        Some(Modal::Menu(_) | Modal::Confirm(_) | Modal::Ask(..) | Modal::Pick(_) | Modal::Report(_) | Modal::Form(_))
+        Some(
+            Modal::Menu(_)
+                | Modal::Confirm(_)
+                | Modal::Ask(..)
+                | Modal::Pick(_)
+                | Modal::Report(_)
+                | Modal::Form(_)
+                | Modal::Jobs(_)
+        )
     );
     let width = area.width;
     let mut lines: Vec<Line> = Vec::new();

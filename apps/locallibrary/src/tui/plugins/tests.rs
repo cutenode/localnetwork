@@ -434,7 +434,7 @@ fn an_operation_is_planned_confirmed_applied_and_undone() {
         assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
     }
     let said = say_yes(&mut app);
-    assert!(said.contains("u to undo"), "{said}");
+    assert!(said.contains("u undo"), "{said}");
     let has = |app: &App| app.loaded.as_ref().unwrap().library.playlists.iter().any(|p| p.name == "Plugged");
     assert!(has(&app), "read again");
     press(&mut app, "u");
@@ -1088,8 +1088,11 @@ fn palette(app: &App) -> (Vec<Item>, Vec<Act>) {
 /// The list open moved (with the arrows) to its `i`th item.
 fn move_to(app: &mut App, i: usize) {
     for _ in 0..200 {
-        let at = picker(app).state.selected().unwrap_or(0);
-        match at.cmp(&i) {
+        let p = picker(app);
+        let at = p.state.selected().unwrap_or(0);
+        // What's run lately comes first, so an item's place isn't its row.
+        let row = p.shown.iter().position(|shown| *shown == i).unwrap();
+        match at.cmp(&row) {
             std::cmp::Ordering::Equal => return,
             std::cmp::Ordering::Less => key(app, KeyCode::Down),
             std::cmp::Ordering::Greater => key(app, KeyCode::Up),
@@ -2133,3 +2136,21 @@ mod events;
 mod importing;
 mod planned;
 mod sources;
+
+/// A plugin's analysis is a job like any other: the job list holds it as the status line shows it,
+/// with a cancel, and the cancel stops it.
+#[test]
+fn a_running_analysis_is_in_the_job_list() {
+    plugins_once();
+    let drive = plugged();
+    let mut app = app_on(&drive.0);
+    app.analyze("echo", "size", Some(drive.0.clone()), None);
+    press(&mut app, "&");
+    let s = screen(&mut app, 120, 40);
+    let status = s.lines().nth(38).unwrap_or_default().to_string();
+    assert!(status.contains("Analyzing"), "{status}");
+    assert!(s.lines().any(|l| l.contains("Analyzing") && l.contains("enter cancels")), "{s}");
+    press(&mut app, "\n");
+    assert!(app.job.is_none(), "cancelled");
+    assert!(screen(&mut app, 120, 40).contains("Nothing's running."));
+}

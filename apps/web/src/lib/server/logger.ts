@@ -198,5 +198,5 @@ export function createLogger(options: { level: string; pretty: boolean }): Logge
 	return logger(new Map(Object.entries(RANK)).get(options.level) ?? RANK.info);
 }
 
-/** A logger that discards everything, for tests and scripts that do not care. */
+/** A logger that discards everything, for tests and scripts that do not care. @internal */
 export const silentLogger: Logger = logger(RANK.silent);

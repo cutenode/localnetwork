@@ -15,11 +15,13 @@ afterEach(() => {
 const flag = (gates: Partial<FlagView>): FlagView => ({
 	key: 'parityCanary',
 	description: 'Gates nothing.',
+	enabled: true,
 	everyone: false,
 	percentage: 0,
 	groups: [],
 	accounts: [],
 	updatedAt: null,
+	readyToRemove: false,
 	...gates
 });
 
@@ -56,6 +58,30 @@ describe('FlagTable', () => {
 		await render(FlagTable, { flags: [flag(gates)] });
 
 		await expect.element(page.getByText(expected, { exact: true }).first()).toBeInTheDocument();
+	});
+
+	it('says a flag is off for everyone, and what it keeps for when it is back on', async () => {
+		const { rerender } = await render(FlagTable, {
+			flags: [flag({ enabled: false, everyone: true, percentage: 25, groups: [{ rkey: 'a', name: 'Beta' }] })]
+		});
+
+		await expect.element(page.getByText('Off for everyone', { exact: true }).first()).toBeInTheDocument();
+		await expect.element(page.getByText('Kept: Everyone', { exact: true }).first()).toBeInTheDocument();
+
+		await rerender({ flags: [flag({ enabled: false })] });
+
+		await expect.element(page.getByText('Off for everyone', { exact: true }).first()).toBeInTheDocument();
+		await expect.element(page.getByText('Kept:', { exact: false })).not.toBeInTheDocument();
+	});
+
+	it('marks a flag that is ready to come out of the code', async () => {
+		const { rerender } = await render(FlagTable, { flags: [flag({ everyone: true, readyToRemove: true })] });
+
+		await expect.element(page.getByText('Ready to remove').first()).toBeInTheDocument();
+
+		await rerender({ flags: [flag({ everyone: true })] });
+
+		await expect.element(page.getByText('Ready to remove')).not.toBeInTheDocument();
 	});
 
 	it('links each flag to its page, and says so when there are none', async () => {

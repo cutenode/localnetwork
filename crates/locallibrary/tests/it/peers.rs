@@ -163,6 +163,7 @@ fn a_damaged_file_is_refused_and_nothing_is_recorded() {
     let object = laptop.object_path(&file.hash.unwrap());
     let mut bytes = std::fs::read(&object).unwrap();
     bytes[0] ^= 0xff;
+    std::fs::remove_file(&object).unwrap();
     std::fs::write(&object, bytes).unwrap();
     let serving = serve(&laptop);
 

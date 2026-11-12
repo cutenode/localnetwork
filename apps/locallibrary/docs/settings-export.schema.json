@@ -119,7 +119,17 @@
 				"repeat": { "enum": ["off", "all", "one"] },
 				"quantize": { "type": "boolean" },
 				"single": { "description": "Stop after each track.", "type": "boolean" },
-				"auto_cue": { "description": "Start tracks at their first memory cue or beat.", "type": "boolean" }
+				"auto_cue": { "description": "Start tracks at their first memory cue or beat.", "type": "boolean" },
+				"notation": { "description": "How keys are written.", "enum": ["camelot", "open-key", "musical"] },
+				"key_palette": {
+					"description": "The colours keys come in.",
+					"enum": ["theme", "wheel", "protanopia", "deuteranopia", "tritanopia"]
+				},
+				"bands": { "description": "How waveforms are coloured. Without one, as the drive says.", "enum": ["blue", "rgb", "3band"] },
+				"end_warning": { "description": "Seconds before a track's end the deck warns of it; 0 for not at all.", "type": "integer", "minimum": 0 },
+				"art": { "description": "Cover art.", "type": "boolean" },
+				"hints": { "description": "How much the footer says.", "enum": ["full", "compact", "off"] },
+				"recent_commands": { "description": "The palette's commands run lately, newest first, by name.", "$ref": "#/$defs/names" }
 			}
 		},
 		"mix": {

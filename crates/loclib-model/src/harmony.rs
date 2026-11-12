@@ -46,18 +46,18 @@ impl Camelot {
     /// rekordbox's key text in any of the notations it shows: Camelot (`8A`), Open Key (`1m`),
     /// or a note name (`Am`, `F#`, `Ebm`, `C# minor`).
     pub fn parse(s: &str) -> Option<Camelot> {
+        // Read in place: the track list parses each row's key every frame.
         let s = s.trim();
-        let digits: String = s.chars().take_while(char::is_ascii_digit).collect();
+        let (digits, rest) = s.split_at(s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len()));
         if let Ok(n) = digits.parse::<u8>()
             && (1..=12).contains(&n)
         {
-            let rest = s[digits.len()..].to_ascii_lowercase();
-            return match rest.as_str() {
-                "a" => Some(Camelot { number: n, major: false }),
-                "b" => Some(Camelot { number: n, major: true }),
+            return match rest.as_bytes() {
+                [b'a' | b'A'] => Some(Camelot { number: n, major: false }),
+                [b'b' | b'B'] => Some(Camelot { number: n, major: true }),
                 // Open Key: 1m is A minor (8A), 1d C major (8B).
-                "m" => Some(Camelot { number: (n + 6) % 12 + 1, major: false }),
-                "d" => Some(Camelot { number: (n + 6) % 12 + 1, major: true }),
+                [b'm' | b'M'] => Some(Camelot { number: (n + 6) % 12 + 1, major: false }),
+                [b'd' | b'D'] => Some(Camelot { number: (n + 6) % 12 + 1, major: true }),
                 _ => None,
             };
         }
@@ -72,17 +72,21 @@ impl Camelot {
             'B' => 11,
             _ => return None,
         };
-        let rest: String = chars.collect();
+        let rest = chars.as_str();
         // After the note letter, `b` can only be a flat.
         let (shift, quality) = match rest.chars().next() {
             Some(c @ ('#' | '♯')) => (1, &rest[c.len_utf8()..]),
             Some(c @ ('b' | '♭')) => (11, &rest[c.len_utf8()..]),
-            _ => (0, rest.as_str()),
+            _ => (0, rest),
         };
-        let major = match quality.trim().to_ascii_lowercase().as_str() {
-            "" | "maj" | "major" => true,
-            "m" | "min" | "minor" => false,
-            _ => return None,
+        let quality = quality.trim();
+        let is = |words: &[&str]| words.iter().any(|w| quality.eq_ignore_ascii_case(w));
+        let major = if is(&["", "maj", "major"]) {
+            true
+        } else if is(&["m", "min", "minor"]) {
+            false
+        } else {
+            return None;
         };
         Some(Camelot::from_pitch(root + shift, major))
     }
@@ -159,7 +163,7 @@ impl TryFrom<String> for Camelot {
     }
 }
 
-/// Sort position of a key text (unparseable keys last).
+/// Sort position of a key text (unparsable keys last).
 pub fn key_order(key: &str) -> u8 {
     Camelot::parse(key).map_or(u8::MAX, Camelot::order)
 }

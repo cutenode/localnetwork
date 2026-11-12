@@ -188,8 +188,8 @@ fn the_sidecar_sends_an_image_once_however_many_tracks_its_for() {
 }
 
 /// Whatever the provider finds for the tracks and whatever the setting, the sidecar offers it best
-/// first, picked exactly when one alone scores the setting or more; and planned and applied, the
-/// picks are what the tracks then have (a title over theirs only with `replace`, a year where they
+/// first, picked exactly when one alone scores the setting or more; and planned and applied (by
+/// the plan's id, or in one go), the picks are what the tracks then have (a title over theirs only with `replace`, a year where they
 /// have none).
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
 fn any_candidates_are_offered_and_their_picks_applied(tc: TestCase) {
@@ -222,9 +222,17 @@ fn any_candidates_are_offered_and_their_picks_applied(tc: TestCase) {
         }
     }
     let plan = json!({ "kind": "metadata", "drive": drive, "picks": picks, "replace": replace });
-    let planned = result(s.call(5, "plugins.provide.plan", plan));
-    if planned["noop"] == false {
-        result(s.call(6, "plugins.provide.apply", json!({ "plan_id": planned["plan_id"] })));
+    // Planned first and applied by its id, or planned and applied in one go.
+    match tc.draw(gs::booleans()) {
+        true => {
+            let planned = result(s.call(5, "plugins.provide.plan", plan));
+            if planned["noop"] == false {
+                result(s.call(6, "plugins.provide.apply", json!({ "plan_id": planned["plan_id"] })));
+            }
+        }
+        false => {
+            result(s.call(5, "plugins.provide.apply", plan));
+        }
     }
     let after = titles(&mut s, 7, &drive);
     for ((id, title, year), now) in before.iter().zip(&after) {

@@ -500,9 +500,11 @@ fn checks_agree_with_check(tc: TestCase) {
 
 /// A recording identified against a drive (whose placeholder audio plays none of it) is kept
 /// when asked, once per save, listed newest first, read back with its id, and written as a page
-/// whose size is the page's; as a data document it's written once unless replacing. Fetching a
-/// report that isn't kept is refused. One that can't be kept is answered with a warning.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+/// whose size is the page's; as a data document it's written once unless replacing, or only
+/// answered when no file is named. A cover given goes into the report and its document. Fetching
+/// a report that isn't kept is refused. One that can't be kept is answered with a warning, and
+/// one not asked to be kept with none.
+#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
 fn mix_reports_are_kept_once_per_save(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -517,7 +519,16 @@ fn mix_reports_are_kept_once_per_save(tc: TestCase) {
         let mix = dir.path().join(format!("Set {n}.wav"));
         let channels = tc.draw(gs::integers::<u16>().min_value(1).max_value(2));
         fs::write(&mix, common::media::wav_of(44_100, 16, channels, 0.5)).unwrap();
-        let identify = api::IdentifyMix { mix: mix.clone(), drive: Some(path(&main)), tempo_range: None, cover: None };
+        // At times a cover of its own (away from the recordings, where one would be found anyway),
+        // which the report and its document carry.
+        let cover = tc.draw(gs::booleans()).then(|| {
+            let cover = dir.path().join("covers").join(format!("{n}.png"));
+            fs::create_dir_all(cover.parent().unwrap()).unwrap();
+            image::RgbImage::from_pixel(16, 16, image::Rgb([200, 40, 90])).save(&cover).unwrap();
+            cover
+        });
+        let identify =
+            api::IdentifyMix { mix: mix.clone(), drive: Some(path(&main)), tempo_range: None, cover: cover.clone() };
         // The first is kept, so there's always one to read back.
         let save = n == 0 || tc.draw(gs::booleans());
         let req = api::IdentifyMixRequest { identify: identify.clone(), extras: tc.draw(gs::booleans()), save };
@@ -525,11 +536,19 @@ fn mix_reports_are_kept_once_per_save(tc: TestCase) {
         assert!(found.report.plays.is_empty() && found.extras.is_empty());
         assert_eq!(found.audio.as_deref(), Some(mix.as_path()));
         assert_eq!(found.saved.is_some(), save);
+        let given = |c: &Option<locallibrary::mix::CoverSource>| matches!(c, Some(locallibrary::mix::CoverSource::Given(p)) if Some(p) == cover.as_ref());
+        assert_eq!(given(&found.report.mix.cover), cover.is_some(), "{:?}", found.report.mix.cover);
         saved.extend(found.saved);
-        let out = dir.path().join(format!("set {n}.json"));
-        let export = |replace| api::ExportMix { identify: identify.clone(), output: Some(out.clone()), replace };
+        // Written to a file, or only answered.
+        let out = tc.draw(gs::booleans()).then(|| dir.path().join(format!("set {n}.json")));
+        let export = |replace| api::ExportMix { identify: identify.clone(), output: out.clone(), replace };
         let doc = api::mix_export_cached(&cache, &store, &export(false), &ctx).unwrap();
-        let written: serde_json::Value = serde_json::from_slice(&fs::read(&out).unwrap()).unwrap();
+        assert_eq!(doc.mix.cover.is_some(), cover.is_some(), "the cover goes into the document");
+        let Some(out) = &out else {
+            assert!(!dir.path().join(format!("set {n}.json")).exists());
+            continue;
+        };
+        let written: serde_json::Value = serde_json::from_slice(&fs::read(out).unwrap()).unwrap();
         assert_eq!(written["format"], doc.format);
         assert!(api::mix_export_cached(&cache, &store, &export(false), &ctx).is_err(), "replaced unasked");
         assert!(api::mix_export_cached(&cache, &store, &export(true), &ctx).is_ok());
@@ -552,16 +571,18 @@ fn mix_reports_are_kept_once_per_save(tc: TestCase) {
     assert!(api::mix_drive(Some(&path(&main))).is_ok() && api::mix_drive(None).is_ok());
 
     // With a file where the reports go, a report asked to be kept is answered all the same, saying
-    // it wasn't kept.
+    // it wasn't kept; one not asked to be kept says nothing.
     let reports = store.root().join("reports");
     fs::remove_dir_all(&reports).unwrap();
     fs::write(&reports, b"").unwrap();
     let mix = dir.path().join("Set 0.wav");
     let identify = api::IdentifyMix { mix, drive: Some(path(&main)), tempo_range: None, cover: None };
     let warnings = common::Warnings::default();
-    let req = api::IdentifyMixRequest { identify, extras: false, save: true };
+    let save = tc.draw(gs::booleans());
+    let req = api::IdentifyMixRequest { identify, extras: false, save };
     assert!(api::mix_identify_cached(&cache, &store, &req, &warnings.ctx()).unwrap().saved.is_none());
-    assert!(warnings.said().iter().any(|w| w.starts_with("the report wasn't kept: ")), "{:?}", warnings.said());
+    let said = warnings.said().iter().any(|w| w.starts_with("the report wasn't kept: "));
+    assert_eq!(said, save, "{:?}", warnings.said());
 }
 
 // ---------------------------------------------------------------------------------------------

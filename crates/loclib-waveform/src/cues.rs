@@ -1,11 +1,39 @@
 use loclib_model::analysis::Cue;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::widgets::Widget;
 
 use crate::color::mix;
 use crate::{Palette, Rgb};
+
+/// A cue's marker in a row of markers.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Marker<'a> {
+    pub cue: &'a Cue,
+    pub x: i64,
+    pub row: u16,
+}
+
+/// Where the cues' markers go in `rows` rows: at the column `x_of` gives (none: not drawn), in the
+/// first row free there, hot cues getting theirs first. With every row taken a marker goes on to
+/// the next free cell, up to `end` where it's left out, so no two ever share one. Two hot cues'
+/// letters never sit side by side in a row, where they'd read as a word ("BC").
+pub fn place_markers<'a>(cues: &'a [Cue], rows: u16, end: i64, x_of: impl Fn(&Cue) -> Option<i64>) -> Vec<Marker<'a>> {
+    let mut todo: Vec<(&Cue, i64)> = cues.iter().filter_map(|c| Some((c, x_of(c)?))).collect();
+    todo.sort_by_key(|(c, x)| (c.hot_cue.is_none(), *x));
+    let mut placed: Vec<Marker> = Vec::with_capacity(todo.len());
+    for (cue, x) in todo {
+        let lettered = cue_letter(cue).is_some();
+        let touches = |m: &Marker, x: i64| lettered && m.x.abs_diff(x) == 1 && cue_letter(m.cue).is_some();
+        let free = |row: u16, x: i64| !placed.iter().any(|m| m.row == row && (m.x == x || touches(m, x)));
+        let spot = (x..end).find_map(|x| (0..rows).find(|row| free(*row, x)).map(|row| (x, row)));
+        if let Some((x, row)) = spot {
+            placed.push(Marker { cue, x, row });
+        }
+    }
+    placed
+}
 
 /// `A`-`H` (and on) for hot cues.
 pub fn cue_letter(c: &Cue) -> Option<char> {
@@ -34,11 +62,22 @@ pub fn cue_label(c: &Cue, bpm: f64) -> String {
 
 /// Marker for a cue in a single cell: the hot cue's letter on its colour, or a triangle.
 pub(crate) fn put_cue(p: &Palette<'_>, buf: &mut Buffer, x: u16, y: u16, c: &Cue, dim: bool) {
+    let Some(cell) = buf.cell_mut((x, y)) else { return };
     let (color, paint) = (p.cue_color(c), p.paint);
     let color = if dim { p.fade(color, 0.55) } else { color };
     match cue_letter(c) {
-        Some(letter) => p.put(buf, x, y, &letter.to_string(), paint(p.ink_on(color)), Some(paint(color))),
-        None => p.put(buf, x, y, "▼", paint(color), None),
+        Some(letter) => {
+            let mut text = [0; 4];
+            let letter = &*letter.encode_utf8(&mut text);
+            // With 16 colours, which ink reads on which isn't known: reverse video always reads.
+            if p.flat {
+                p.put_in(cell, letter, paint(color), None);
+                cell.modifier.insert(Modifier::REVERSED);
+            } else {
+                p.put_in(cell, letter, paint(p.ink_on(color)), Some(paint(color)));
+            }
+        }
+        None => p.put_in(cell, "▼", paint(color), None),
     }
 }
 

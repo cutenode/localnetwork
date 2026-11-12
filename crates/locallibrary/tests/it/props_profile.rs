@@ -581,15 +581,21 @@ fn archived_and_mounted_sessions_count_once_each(tc: TestCase) {
     for (k, l) in fresh.iter().enumerate() {
         common::add_history(&root, &format!("HISTORY {:03}", k + 10), l);
     }
-    let named = tc.draw(gs::booleans());
     let req = ProfileRequest {
         drives: vec![common::path(&root)],
-        libraries: if named { vec!["club".into()] } else { Vec::new() },
         min_set_tracks: Some(2),
         no_analysis: tc.draw(gs::booleans()),
         ..Default::default()
     };
     let r = api::profile(Some(&store), &req, &Ctx::silent()).unwrap().report;
+    // Named (in any case), the library reads the same; a library the store hasn't isn't found.
+    let library = tc.draw(gs::sampled_from(vec!["club", "Club", "CLUB"]));
+    let named = ProfileRequest { libraries: vec![library.into()], ..req.clone() };
+    let by_name = api::profile(Some(&store), &named, &Ctx::silent()).unwrap().report;
+    assert_eq!(serde_json::to_value(&by_name.sets).unwrap(), serde_json::to_value(&r.sets).unwrap());
+    let nowhere = ProfileRequest { libraries: vec!["Nowhere".into()], ..req.clone() };
+    let e = api::profile(Some(&store), &nowhere, &Ctx::silent()).unwrap_err();
+    assert_eq!((e.code(), e.to_string().contains("library \"Nowhere\"")), ("not_found", true), "{e}");
     assert_eq!(r.basis, profile::Basis::Sessions);
     assert_eq!((r.sets.count, r.sets.not_archived), (archived.len() + fresh.len(), fresh.len()));
     assert_eq!(r.sets.plays, archived.iter().chain(&fresh).map(Vec::len).sum::<usize>());

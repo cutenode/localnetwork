@@ -408,3 +408,84 @@ fn a_plan_is_applied_by_the_apply_of_its_kind(tc: TestCase) {
     let method = tc.draw(gs::sampled_from(methods));
     assert_eq!(applied_as(method, &operation), applied_by(method, &operation), "{method} {operation}");
 }
+
+/// Steps begun, warnings and files of an operation, on its own or for one drive of several, in
+/// any order: the steps and warnings go out in that order, each warning with the step running
+/// and the drive it's about, and once the request is done the files counted for each drive and
+/// step add up to the ones there were, however they were coalesced.
+#[hegel::test(test_cases = 40)]
+fn progress_says_each_step_and_warning_where_it_was(tc: TestCase) {
+    let (p, sink) = progress();
+    let ctx = Ctx::new(&p, CancelToken::new());
+    let ids = tc.draw(gs::subsequences(vec!["name", "library", "audio", "verify"]).min_size(1));
+    let steps = Steps::new(&ctx, ids.clone());
+    let ctx = steps.ctx();
+    // The events that go out at once, and the files there were by drive and step.
+    let (mut said, mut files) = (Vec::new(), rustc_hash::FxHashMap::<String, u64>::default());
+    let mut step = Value::Null;
+    for n in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(12)) {
+        let target = tc.draw(gs::optional(gs::sampled_from(vec!["/Volumes/A", "/Volumes/B"])));
+        let emit = |event: Event| match target {
+            Some(t) => ctx.for_target(t, |ctx| ctx.emit(event)),
+            None => ctx.emit(event),
+        };
+        match tc.draw(gs::integers::<u8>().max_value(2)) {
+            0 => {
+                let id = tc.draw(gs::sampled_from(ids.clone()));
+                steps.begin(id);
+                let index = ids.iter().position(|s| *s == id).unwrap() + 1;
+                step = json!({ "index": index, "total": ids.len(), "id": id });
+                said.push(json!({ "event": "step", "step": step }));
+            }
+            1 => {
+                emit(Event::Warning { message: format!("w{n}") });
+                let mut e = json!({ "event": "warning", "message": format!("w{n}") });
+                if let Some(t) = target {
+                    e["target"] = json!(t);
+                }
+                if !step.is_null() {
+                    e["step"] = step.clone();
+                }
+                said.push(e);
+            }
+            _ => {
+                emit(Event::Item { phase: Phase::Copy, path: format!("/t/{n}"), bytes: 1 });
+                *files.entry(format!("{} {step}", json!(target))).or_default() += 1;
+            }
+        }
+    }
+    p.finish();
+    let (items, rest): (Vec<Value>, Vec<Value>) = sink.events().into_iter().partition(|e| e["event"] == "item");
+    assert_eq!(rest, said);
+    let mut counted = rustc_hash::FxHashMap::<String, u64>::default();
+    for e in &items {
+        let at = format!("{} {}", e.get("target").unwrap_or(&Value::Null), e.get("step").unwrap_or(&Value::Null));
+        *counted.entry(at).or_default() += e["items"].as_u64().unwrap_or(1);
+    }
+    assert_eq!(counted, files, "{items:?}");
+}
+
+/// `rpc.describe` asked about one method, by its name or an old one, describes that one, and asked
+/// about a name no method has, says there's no such method, naming it.
+#[hegel::test(test_cases = 40)]
+fn describe_answers_for_the_method_named(tc: TestCase) {
+    let (s, sink) = server();
+    let names: Vec<&str> = registry().names().into_iter().collect();
+    let known = tc.draw(gs::booleans());
+    let name = match known {
+        true => tc.draw(gs::sampled_from(names.clone())).to_string(),
+        false => tc.draw(gs::sampled_from(vec!["no.such", "store", "rpc.describe.x", "Version"])).to_string(),
+    };
+    let request = json!({ "jsonrpc": "2.0", "id": 1, "method": "rpc.describe", "params": { "method": name } });
+    assert!(s.handle(request.to_string().as_bytes()));
+    let text = String::from_utf8(sink.0.lock().unwrap().clone()).unwrap();
+    let reply: Value = serde_json::from_str(text.lines().last().unwrap()).unwrap();
+    match names.contains(&name.as_str()) {
+        true => assert_eq!(reply["result"]["methods"][0]["name"], registry().get(&name).unwrap().name, "{reply}"),
+        false => {
+            let e = &reply["error"];
+            assert_eq!(e["data"]["kind"], "invalid_params", "{reply}");
+            assert_eq!(e["message"], format!("invalid params: there's no method {name:?}"), "{reply}");
+        }
+    }
+}

@@ -4,7 +4,7 @@
 	"defs": {
 		"main": {
 			"type": "query",
-			"description": "Every feature flag's public gates, and whether the caller is targeted by account or group. Inter-service auth is optional: without it, nothing is targeted. A flag is on for a caller when it's on for everyone, when it targets them, or when their DID falls inside the percentage. Group names and member lists aren't exposed.",
+			"description": "Every feature flag's public gates, and whether the caller is targeted by account or group. Inter-service auth is optional: without it, nothing is targeted. A flag is on for a caller when it's enabled and it's on for everyone, targets them, or their DID falls inside the percentage. Group names and member lists aren't exposed.",
 			"output": {
 				"encoding": "application/json",
 				"schema": {
@@ -25,9 +25,13 @@
 		},
 		"flag": {
 			"type": "object",
-			"required": ["key", "everyone", "percentage", "targeted"],
+			"required": ["key", "enabled", "everyone", "percentage", "targeted"],
 			"properties": {
 				"key": { "type": "string", "maxLength": 64 },
+				"enabled": {
+					"type": "boolean",
+					"description": "False means off for every caller, whatever the other gates say."
+				},
 				"everyone": { "type": "boolean" },
 				"percentage": { "type": "integer", "minimum": 0, "maximum": 100 },
 				"targeted": {

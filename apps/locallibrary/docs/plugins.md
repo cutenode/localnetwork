@@ -398,7 +398,8 @@ A store destination keeps a copy of the store, as a copy in a folder does (`stor
 some, `--dry-run`), after losing this computer say, and `locallibrary drive verify DRIVE --from
 PLUGIN:DESTINATION --repair` rewrites damaged files from it when nothing nearer has them. Every
 file that comes back is checked against its BLAKE3 hash before it goes in the store, and only
-locallibrary writes the store.
+locallibrary writes the store. Stored files reach a plugin read-only on macOS and Linux, and a
+system copy call keeps that, so a plugin that may write its copy again copies the bytes.
 
 A set destination publishes a set's recording with its tracklist (tracks marked unnamed, tracks
 your profile hides and those `--hide 3,7` names go without their names, notes stay private):

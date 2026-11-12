@@ -336,7 +336,7 @@ export function pressChecks(photos: { width?: number; height?: number; credit?: 
 	];
 }
 
-/** An empty press kit form: no mixes on the project yet, and the default rules. */
+/** An empty press kit form: no mixes on the project yet, and the default rules. @internal */
 export const epkFormDefaults: EpkFormValues = {
 	cid: '',
 	title: '',

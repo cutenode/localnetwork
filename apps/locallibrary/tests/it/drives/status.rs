@@ -87,6 +87,64 @@ fn status_says_where_each_drive_stands() {
     assert!(line(&r.err, "  hint: Merge B into Main: ").contains(": locallibrary merge "), "{}", r.err);
 }
 
+/// For a drive synced from the library's drive, then the store moving on without it or not and
+/// the drive edited on its own or not: `status` says it's up to date, behind the store, has
+/// changes the store hasn't or has diverged from it; and `compare` says the two are the same,
+/// that one is newer (saying to sync them) or that both changed (saying to pick one or merge).
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn status_and_compare_say_which_side_moved(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let env = Env::new();
+    let b = env.blank("B");
+    let a = env.demo("A");
+    env.ok(&["--yes", "drive", "adopt", "A", "--name", "Main"]);
+    env.ok(&["pull", "Main"]);
+    env.ok(&["--yes", "sync", "--from", "Main", path(&b)]);
+    let (store_moved, drive_edited) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
+    let unplugged = |drive: &std::path::Path, run: &dyn Fn()| {
+        std::fs::rename(drive, env.outside("away")).unwrap();
+        run();
+        std::fs::rename(env.outside("away"), drive).unwrap();
+    };
+    if store_moved {
+        let rating = tc.draw(gs::integers::<u8>().min_value(2).max_value(5)).to_string();
+        unplugged(&b, &|| {
+            env.ok(&["--yes", "track", "set", "Main", "--track", "1", "--rating", &rating]);
+        });
+        env.ok(&["pull", "Main"]);
+    }
+    if drive_edited {
+        let track = tc.draw(gs::sampled_from(vec!["1", "2"]));
+        unplugged(&a, &|| {
+            env.ok(&["--yes", "track", "set", "B", "--track", track, "--rating", "1"]);
+        });
+    }
+    let said = format!("store moved {store_moved}, drive edited {drive_edited}");
+    let state = line(&env.ok(&["status"]), "B ").to_string();
+    let expected = match (store_moved, drive_edited) {
+        (false, false) => "up to date",
+        (true, false) => "behind the store (locallibrary library push)",
+        (false, true) => "has changes not in the store (locallibrary pull)",
+        (true, true) => "diverged from the store",
+    };
+    assert!(state.contains(expected), "{said}: {state}");
+    let compared = env.ok(&["compare", "Main", "B"]);
+    let ending = match (store_moved, drive_edited) {
+        (false, false) => None,
+        (true, true) => Some("pick a winner, or `locallibrary merge` to combine\n"),
+        _ => Some("run `locallibrary sync` with the same two drives to update the older one\n"),
+    };
+    match ending {
+        None => {
+            assert!(compared.starts_with("Main and B are identical"), "{said}: {compared}");
+            // Nothing to copy, syncing them again does nothing.
+            let v = env.json(&["sync", "--from", "Main", path(&b)]);
+            assert_eq!(v["outcome"], "nothing_to_do", "{v}");
+        }
+        Some(e) => assert!(compared.ends_with(e), "{said}: {compared}"),
+    }
+}
+
 /// A drive with both databases says whether they agree, and what's in one but not the other.
 #[test]
 fn a_drive_says_when_its_two_databases_differ() {
@@ -137,7 +195,7 @@ fn a_drive_says_when_its_two_databases_differ() {
 }
 
 #[test]
-fn status_offers_to_save_drives_as_theyre_plugged_in() {
+fn status_offers_to_save_drives_as_they_are_plugged_in() {
     let env = Env::new();
     env.demo("A");
     env.ok(&["--yes", "drive", "adopt", "A", "--name", "Main"]);

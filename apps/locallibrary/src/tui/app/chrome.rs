@@ -12,6 +12,9 @@ pub const CHORD_HINT: Duration = Duration::from_millis(400);
 /// How many messages the log (`!`) keeps.
 pub(super) const LOG: usize = 200;
 
+/// What a message about a change `u` takes back ends with.
+pub const UNDO_HINT: &str = " · u undo";
+
 /// How long an info message stays: five seconds, longer for long ones.
 pub fn reading_time(msg: &str) -> Duration {
     Duration::from_secs(5 + (msg.chars().count() as u64).saturating_sub(100) / 20)
@@ -66,9 +69,11 @@ impl App {
             .unwrap_or_else(|| root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
     }
 
-    /// Whether the screen needs redrawing at animation rate.
+    /// Whether the screen needs redrawing at animation rate. The first drive scan counts: the loop
+    /// only wakes for input or its timer, so its answer would otherwise wait out the slow timer.
     pub fn animating(&self) -> bool {
-        self.loading.is_some()
+        self.scanning()
+            || self.loading.is_some()
             || self.search_due.is_some()
             || self.status_loading
             || self.profile.loading
@@ -89,6 +94,8 @@ impl App {
             || !self.analyzer.is_idle()
             || self.is_playing()
             || self.flash().is_some()
+            || self.covers.busy()
+            || self.transitions.active()
             || self.chord.is_some_and(|at| at.elapsed() < CHORD_HINT)
     }
 }
