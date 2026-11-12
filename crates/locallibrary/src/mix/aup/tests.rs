@@ -681,7 +681,7 @@ fn odd_projects_are_refused_for_what_is_odd(tc: TestCase) {
     }
 }
 
-/// What isn't a whole Audacity project is refused as unparseable, naming the file and what it
+/// What isn't a whole Audacity project is refused as unparsable, naming the file and what it
 /// lacks: a file that isn't there, bytes that aren't SQLite, a database without the project's
 /// tables, a project with no rows and no autosave table, one with neither a saved project nor an
 /// autosave in them, a document whose dictionary names nothing (so no `<project>` element), or

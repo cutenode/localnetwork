@@ -8,10 +8,14 @@ local EPK = 'computer.localnetwork.epk'
 local function pressKits(project)
 	local managers = project.record.managers or {}
 	local args = { EPK, project.uri, ROOT_DID }
-	for _, did in ipairs(managers) do args[#args + 1] = did end
+	for _, did in ipairs(managers) do
+		args[#args + 1] = did
+	end
 	return db.raw(
 		'SELECT count(DISTINCT rkey) AS n FROM happyview_records'
-			.. " WHERE collection = ? AND json_extract(record, '$.project') = ? AND did IN (" .. marks(#args - 2) .. ')',
+			.. " WHERE collection = ? AND json_extract(record, '$.project') = ? AND did IN ("
+			.. marks(#args - 2)
+			.. ')',
 		args
 	)[1].n
 end

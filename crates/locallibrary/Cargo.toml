@@ -68,7 +68,6 @@ reqwest = { workspace = true, features = ["blocking", "multipart", "stream"] }
 lofty.workspace = true
 percent-encoding.workspace = true
 rusqlite.workspace = true
-rustfft.workspace = true
 same-file.workspace = true
 schemars.workspace = true
 serde.workspace = true
@@ -134,6 +133,10 @@ winapi-util = "0.1.11"
 # Whether this process is elevated: plugins are never started from one. And sparse files for
 # tests (`testing::sparse`).
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Threading"] }
+
+# The tests' shared helpers, which each test binary (and apps/locallibrary's) takes in by #[path].
+[package.metadata.cargo-shear]
+ignored-paths = ["tests/support/*.rs"]
 
 [target."cfg(unix)".dependencies]
 # Whether this process runs as root: plugins are never started from one.

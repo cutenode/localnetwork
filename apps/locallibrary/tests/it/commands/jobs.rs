@@ -76,7 +76,7 @@ fn setup_names_a_drive_for_players_that_read_onelibrary() {
 /// the library the drives are in, else a name no library has.
 #[cfg(unix)]
 #[test]
-fn setup_asks_for_the_librarys_name_and_not_the_drives() {
+fn setup_asks_for_the_library_name_and_not_the_drives() {
     use std::io::Write;
     use std::process::Stdio;
     use std::time::{Duration, Instant};
@@ -155,7 +155,7 @@ fn setup_asks_for_the_librarys_name_and_not_the_drives() {
 /// Without a terminal, `--library` is all setup needs: each drive keeps its volume name, and the
 /// report lists the steps it took.
 #[test]
-fn setup_without_a_terminal_needs_only_the_librarys_name() {
+fn setup_without_a_terminal_needs_only_the_library_name() {
     let env = Env::ascii();
     let main = env.demo("REKORDBOX");
     copy_dir(&main, &env.volumes.join("BACKUP"));
