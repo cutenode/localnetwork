@@ -1163,20 +1163,29 @@ fn track_edits_take_only_tempos_codes_dates_and_album_artists_there_are(tc: hege
 }
 
 /// Playlists and folders chosen in any order, overlapping however they do, are what each of them
-/// chooses on its own: a folder named after a playlist in it still brings the rest.
+/// chooses on its own: a folder named after a playlist in it still brings the rest. With the
+/// folder they're in missing from the database, as in a damaged export, its playlists are top
+/// level and nothing chosen names it.
 #[hegel::test(test_cases = 100)]
-#[hegel::explicit_test_case(specs = vec!["Sets/Fri", "Sets"])]
+#[hegel::explicit_test_case(specs = vec!["Sets/Fri", "Sets"], orphaned = false)]
+#[hegel::explicit_test_case(orphaned = true, specs = vec!["Fri"])]
 fn what_is_chosen_is_what_each_spec_chooses(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut library = lib();
     let sat =
         Playlist { id: 4, parent_id: Some(1), name: "Sat".into(), is_folder: false, sort_order: 1, track_ids: vec![5] };
     library.playlists.push(sat);
+    let orphaned = tc.draw(gs::booleans());
+    if orphaned {
+        library.playlists.retain(|p| p.id != 1);
+    }
     let chosen = |specs: &[&str]| chosen_nodes(&library, &specs.iter().map(|s| s.to_string()).collect::<Vec<_>>());
-    let names = vec!["Sets", "Sets/Fri", "Sets/Sat", "Loose"];
+    let names = if orphaned { vec!["Fri", "Sat", "Loose"] } else { vec!["Sets", "Sets/Fri", "Sets/Sat", "Loose"] };
     let specs: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(names)).min_size(1).max_size(4));
     let each: FxHashSet<u32> = specs.iter().flat_map(|s| chosen(&[s]).unwrap()).collect();
-    assert_eq!(chosen(&specs).unwrap(), each, "{specs:?}");
+    let all = chosen(&specs).unwrap();
+    assert_eq!(all, each, "{specs:?}");
+    assert!(all.iter().all(|id| library.playlist(*id).is_some()), "{all:?} names a node that isn't there");
     assert!(chosen(&["Sets", "Nowhere"]).is_err());
 }
 
