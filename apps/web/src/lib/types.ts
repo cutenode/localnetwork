@@ -159,6 +159,34 @@ export type ProfileView = {
 	avatarUrl: string | null;
 };
 
+/** What kind of act it is: an alias has one member, the others several. */
+export type ActForm = 'alias' | 'duo' | 'group' | 'collective';
+
+/** An act's public fields (`computer.localnetwork.performer#act`). */
+export type ActSubject = { slug: string; form: ActForm; basics: BasicsSection; performer: PerformerSection };
+
+/**
+ * Who a performer's space is for (`computer.localnetwork.performer`): an act, or a DJ under their own name, whose
+ * backstage and managers the space holds. `formerly` lists the projects it was before.
+ */
+export type PerformerRecord = {
+	subject:
+		| ({ $type: 'computer.localnetwork.performer#act' } & ActSubject)
+		| { $type: 'computer.localnetwork.performer#dj'; did: string };
+	formerly?: string[];
+	createdAt: string;
+	updatedAt: string;
+};
+
+/**
+ * A performer by what names it: a DJ by their profile, an act by its listing (whose key is its space's key), or a
+ * project that hasn't become an act yet.
+ */
+export type PerformerRef =
+	| { kind: 'dj'; did: string }
+	| { kind: 'act'; skey: string }
+	| { kind: 'project'; rkey: string };
+
 /** A DJ Find DJs lists: their profile, handle, the genres they were found by, and how far they are from the place searched. */
 export type ListedDj = { profile: ProfileView; handle: string | null; genres: string[]; distanceKm?: number };
 

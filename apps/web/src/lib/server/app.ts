@@ -36,6 +36,8 @@ import { BookingService } from './services/bookings';
 import { BugReportService } from './services/bug-reports';
 import { DjService } from './services/dj';
 import { DjListings } from './services/dj-listings';
+import { performerListingSource } from './services/performer-index';
+import { PerformerService } from './services/performer-registry';
 import { PerformerSearch } from './services/performers';
 import { ProfileService } from './services/profiles';
 import { EpkService } from './services/epk';
@@ -70,7 +72,7 @@ export type CreateAppOptions = {
 	userClient?: (did: string) => Promise<RepoClient | null>;
 	/** Start polling, audit retries, and directory sync retries. */
 	background?: boolean;
-	/** What each kind's listing shows. No kind has a public page yet, so only tests list anything. */
+	/** What each kind's listing shows, over the acts' own. Parties and venues have no public page yet. */
 	listingSources?: Partial<Record<SpaceKind, ListingSource>>;
 };
 
@@ -258,8 +260,9 @@ export async function createApp(options: CreateAppOptions) {
 	const shows = new ShowService(core, projects, happyView, indexedRepo);
 	const follows = new FollowService(core, happyView);
 	const verifications = new VerificationService(core, indexedRepo, projects, identity);
-	const listings = new ListingWriter(core, options.listingSources ?? {});
+	const listings = new ListingWriter(core, { performer: performerListingSource(db), ...options.listingSources });
 	const sharedSpaces = new SharedSpaces(core, listings);
+	const performerRegistry = new PerformerService(core, sharedSpaces, projects);
 
 	const limits = {
 		login: new RateLimiter(10, 10 / 60),
@@ -387,6 +390,7 @@ export async function createApp(options: CreateAppOptions) {
 		profiles,
 		djListings,
 		performers,
+		performerRegistry,
 		recordings,
 		supports,
 		epks,
@@ -461,8 +465,8 @@ export async function createApp(options: CreateAppOptions) {
 		 * Has HappyView re-read, once for each collection's current record script (`uploaded` lists the scripts it just
 		 * got), the older records the site reads from other repos: the records of each of MANAGER_COLLECTIONS by the
 		 * managers and the root (which holds press kits), the follows of the accounts press kits' audience checks read, the
-		 * root's verifications and DJ listings, and the bug report space. A failure is logged and tried again on the next
-		 * round, without marking the directory sync failed.
+		 * root's verifications, DJ listings and listings, and the bug report space. A failure is logged and tried again on
+		 * the next round, without marking the directory sync failed.
 		 */
 		async refreshRecords(uploaded: string[] = []) {
 			if (!config.happyView.apiKey) return;
@@ -478,6 +482,7 @@ export async function createApp(options: CreateAppOptions) {
 				{ collection: BSKY_FOLLOW, accounts: () => epks.followReaders() },
 				{ collection: VERIFICATION, accounts: async () => [rootDid] },
 				{ collection: COLLECTION.listingProfile, accounts: async () => [rootDid] },
+				{ collection: COLLECTION.listing, accounts: async () => [rootDid] },
 				...(spaceOwner ? [{ collection: USERINPUT.space, accounts: async () => [spaceOwner] }] : [])
 			];
 
