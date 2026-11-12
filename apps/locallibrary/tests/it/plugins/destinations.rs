@@ -280,7 +280,7 @@ fn the_sidecar_copies_restores_repairs_and_publishes_through_destinations() {
     assert_eq!(link(&env), json!("https://sets.example/3m4n5o6p7q8r9"));
 }
 
-/// Where a step of [`destinations_do_what_the_model_says_wherever_theyre_asked`] runs.
+/// Where a step of [`destinations_do_what_the_model_says_wherever_they_are_asked`] runs.
 #[derive(Debug, Clone, Copy)]
 enum Via {
     /// The command line, printing text or `--json`.
@@ -290,7 +290,7 @@ enum Via {
     Sidecar,
 }
 
-/// How a set is published in [`destinations_do_what_the_model_says_wherever_theyre_asked`].
+/// How a set is published in [`destinations_do_what_the_model_says_wherever_they_are_asked`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Publishing {
     /// Asked about, with no one to answer (or, in the sidecar, only planned).
@@ -299,7 +299,7 @@ enum Publishing {
     Confirmed,
 }
 
-/// A step of [`destinations_do_what_the_model_says_wherever_theyre_asked`].
+/// A step of [`destinations_do_what_the_model_says_wherever_they_are_asked`].
 #[derive(Debug, Clone, Copy)]
 enum Step {
     /// The store copied to `echo:folder`.
@@ -326,7 +326,7 @@ enum Step {
 /// repaired (each case ends doing so); and a destination that isn't one, or of the wrong kind, is
 /// refused naming it.
 #[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn destinations_do_what_the_model_says_wherever_theyre_asked(tc: hegel::TestCase) {
+fn destinations_do_what_the_model_says_wherever_they_are_asked(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (env, a) = env();
     let mut other = Env::new();

@@ -40,6 +40,26 @@ describe('space URIs', () => {
 		expect(parsePublicRecordUri(`at://${ROOT}/space/x`)).toBeNull();
 	});
 
+	it('refuses `.` and `..` as record and space keys, which atproto never allows', () => {
+		const space = rootSpaces(ROOT).moderation;
+
+		for (const key of ['.', '..']) {
+			expect(parsePublicRecordUri(publicRecordUri(ROOT, 'computer.localnetwork.dj.set', key))).toBeNull();
+			expect(parseSpaceUri(`at://${ROOT}/space/computer.localnetwork.space.audit/${key}`)).toBeNull();
+			expect(
+				parseSpaceRecordUri(spaceRecordUri(space, 'did:plc:alice', 'computer.localnetwork.moderation.request', key))
+			).toBeNull();
+			expect(
+				parseSpaceRecordUri(`at://${ROOT}/space/computer.localnetwork.space.audit/${key}/did:plc:alice/a.b.c/3abc`)
+			).toBeNull();
+		}
+
+		// Dots inside a key are fine.
+		expect(parsePublicRecordUri(publicRecordUri(ROOT, 'computer.localnetwork.dj.set', '...'))).toMatchObject({
+			rkey: '...'
+		});
+	});
+
 	it("takes a record URI's rkey", () => {
 		expect(rkeyOf(publicRecordUri(ROOT, 'app.bsky.graph.verification', '3kverify'))).toBe('3kverify');
 		expect(rkeyOf('self')).toBe('self');
