@@ -3,6 +3,18 @@
  * classes like btn-primary, input and card), plus the prose styles for the tools' guides.
  */
 @import 'tailwindcss';
+/*
+ * Tailwind reads every file here for class names. Stories, tests, docs and scripts aren't the site,
+ * and Storybook builds its own stylesheet (.storybook/preview.css), so their classes stay out.
+ */
+@source not '../**/*.{test,spec}.ts';
+@source not '../**/*.stories.svelte';
+@source not '../lib/testing';
+@source not '../../tests';
+@source not '../../docs';
+@source not '../../scripts';
+@source not '../../.storybook';
+@source not '../../README.md';
 @import '../lib/ui/theme.css';
 
 /*
