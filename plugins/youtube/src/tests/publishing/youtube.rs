@@ -1,23 +1,21 @@
 //! A host whose `net/fetch` YouTube answers as its resumable upload does
 //! (`guides/using_resumable_upload_protocol`), but as a test scripts it, and the plugin served to
-//! it over pipes.
+//! it by a fake host.
 
-use std::io::{Read, Seek, SeekFrom, pipe};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 use std::time::Duration;
 
-use loclib_plugin::test_util::Canceller;
+use loclib_plugin::test_util::{FakeHost, Response, Sent};
 use loclib_plugin::{
-    Fetch, Fetched, HelloReply, Incoming, PROTOCOL_VERSION, Peer, Pending, ProgressReport, Progressed, Published,
-    PublishedSet, RpcError, TracklistEntry, method,
+    Fetch, Fetched, ProgressReport, Progressed, Published, PublishedSet, RpcError, TracklistEntry, method,
 };
 use loclib_progress::Event;
 use serde_json::{Value, json};
 
-use crate::serve;
 use crate::upload::{AUTHORIZATION, QUANTUM, START};
+use crate::{MANIFEST, serve};
 
 /// Where the fake YouTube's session is, and the video it makes.
 pub(super) const SESSION: &str =
@@ -78,10 +76,12 @@ pub(super) struct YouTube {
     received: Received,
     /// The size the session was started with.
     size: u64,
-    /// Cancels the publish once the call in hand is answered, when [`Reply::Cancels`] says to.
-    cancel: Arc<Canceller>,
-    /// Whether it has: a call on its way by then is answered `cancelled`, as a host answers it,
-    /// and goes no further, since the plugin may already have let go of the video it names.
+    /// Whether the publish is cancelled once the call in hand is answered, as [`Reply::Cancels`]
+    /// says.
+    cancels: bool,
+    /// Whether it has been cancelled: a call on its way by then is answered `cancelled`, as a host
+    /// answers it, and goes no further, since the plugin may already have let go of the video it
+    /// names.
     cancelled: bool,
 }
 
@@ -97,14 +97,7 @@ impl YouTube {
 
     pub(super) fn scripted(script: impl Fn(&str, usize) -> Option<Reply> + Send + 'static) -> YouTube {
         let received = Received::default();
-        YouTube {
-            signed_in: true,
-            script: Box::new(script),
-            received,
-            size: 0,
-            cancel: Arc::default(),
-            cancelled: false,
-        }
+        YouTube { signed_in: true, script: Box::new(script), received, size: 0, cancels: false, cancelled: false }
     }
 
     /// The host's answer to `fetch`.
@@ -128,7 +121,7 @@ impl YouTube {
         let reply = match (self.script)(kind, before) {
             Some(Reply::Cancels(then)) => {
                 self.cancelled = true;
-                self.cancel.arm();
+                self.cancels = true;
                 then.map(|r| *r)
             }
             reply => reply,
@@ -208,48 +201,37 @@ impl YouTube {
     }
 }
 
-/// The plugin served on a thread over pipes, as [`serve`] serves it, past `hello`, with a host
-/// whose fetches `youtube` answers.
+/// The plugin served by a fake host, as [`serve`] serves it, whose fetches `youtube` answers.
 pub(super) struct Session {
-    pub(super) host: Peer,
-    served: JoinHandle<()>,
-    answering: JoinHandle<()>,
-    pub(super) hello: HelloReply,
+    pub(super) host: FakeHost,
     youtube: Arc<Mutex<YouTube>>,
     /// The requests' scratch folder.
     pub(super) scratch: tempfile::TempDir,
 }
 
 pub(super) fn start(youtube: YouTube) -> Session {
-    let (plugin_in, to_plugin) = pipe().unwrap();
-    let (from_plugin, plugin_out) = pipe().unwrap();
-    let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
-    let (host, incoming) = Peer::new(from_plugin, to_plugin);
+    let host = FakeHost::start(MANIFEST, serve);
     let youtube = Arc::new(Mutex::new(youtube));
-    let (to, answers) = (host.clone(), youtube.clone());
-    let answering = std::thread::spawn(move || {
-        for msg in incoming {
-            let Incoming::Request(req) = msg else { continue };
-            assert_eq!(req.method, method::NET_FETCH, "the plugin reads nothing else");
-            let fetch: Fetch = serde_json::from_value(req.params).unwrap();
-            let mut youtube = answers.lock().unwrap();
-            let answer = youtube.answer(&fetch).map(|f| serde_json::to_value(f).unwrap());
-            let cancel = youtube.cancel.clone();
-            drop(youtube);
-            cancel.respond(&to, &req.id, answer);
+    let answers = youtube.clone();
+    // A failed check in `answer` poisons the lock, failing the test where it's next read.
+    host.on_call(method::NET_FETCH, move |params| {
+        let fetch: Fetch = serde_json::from_value(params).unwrap();
+        let mut youtube = answers.lock().unwrap();
+        let answer = youtube.answer(&fetch).map(|f| serde_json::to_value(f).unwrap());
+        match std::mem::take(&mut youtube.cancels) {
+            true => Response::AnswerThenCancel(answer),
+            false => Response::Answer(answer),
         }
     });
-    let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
-    let hello = host.request(method::HELLO, &hello).unwrap();
-    Session { host, served, answering, hello, youtube, scratch: tempfile::tempdir().unwrap() }
+    Session { host, youtube, scratch: tempfile::tempdir().unwrap() }
 }
 
 /// What a publish answered, and the progress it reported.
 pub(super) type Outcome = (Result<Published, RpcError>, Vec<Event>);
 
 /// The progress events `pending` has reported since it was last asked.
-pub(super) fn events(pending: &Pending) -> Vec<Event> {
-    let events = pending.progress().filter_map(|p| match p {
+pub(super) fn events(pending: &Sent) -> Vec<Event> {
+    let events = pending.progress().into_iter().filter_map(|p| match p {
         ProgressReport::Known(e) => match e.event {
             Progressed::Event(event) => Some(event),
             Progressed::Step(_) => None,
@@ -283,30 +265,28 @@ impl Session {
         tracklist: &[TracklistEntry],
         settings: Value,
         dry_run: bool,
-    ) -> Pending {
+    ) -> Sent {
         let context = json!({ "scratch": self.scratch.path(), "settings": settings });
         let req = json!({ "destination": "video", "set": set, "recording": recording, "tracklist": tracklist, "dry_run": dry_run, "context": context });
-        let cancel = self.youtube.lock().unwrap().cancel.clone();
-        cancel.send(|| self.host.send_request_reporting(method::SET_PUBLISH, &req).unwrap())
+        self.host.send(method::SET_PUBLISH, &req)
     }
 
     /// Its fetches answered by `youtube` from now on.
     pub(super) fn script(&self, youtube: YouTube) {
-        let mut answering = self.youtube.lock().unwrap();
-        *answering = YouTube { cancel: answering.cancel.clone(), ..youtube };
+        *self.youtube.lock().unwrap() = youtube;
     }
 
     /// What YouTube has been sent.
     pub(super) fn received(&self) -> Received {
+        let calls = self.host.calls();
+        assert!(calls.iter().all(|(m, _)| m == method::NET_FETCH), "the plugin reads nothing else: {calls:?}");
         std::mem::take(&mut self.youtube.lock().unwrap().received)
     }
 
     /// Closes the plugin's input: it stops. What YouTube was sent, read once all of it is
     /// answered: what the plugin sent before a cancel reached it may still be on its way.
     pub(super) fn stop(self) -> Received {
-        self.host.close();
-        self.served.join().unwrap();
-        self.answering.join().unwrap();
-        std::mem::take(&mut self.youtube.lock().unwrap().received)
+        self.host.stop();
+        self.received()
     }
 }

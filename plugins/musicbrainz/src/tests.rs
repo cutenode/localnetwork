@@ -1,14 +1,13 @@
-use std::io::pipe;
+use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, channel};
-use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime};
 
 use hegel::TestCase;
 use hegel::generators as gs;
 use indexmap::IndexMap;
 use loclib_model::Track;
-use loclib_plugin::{Fetch, Fetched, HelloReply, Incoming, Manifest, NetLimit, PROTOCOL_VERSION, Peer, Role, method};
+use loclib_plugin::test_util::{FakeHost, Response, Sent};
+use loclib_plugin::{Fetch, Fetched, Manifest, NetLimit, Role, method};
 use loclib_progress::{CancelToken, Ctx, Event};
 use serde_json::{Value, json};
 
@@ -41,8 +40,8 @@ enum Reply {
     Fails(RpcError),
     /// No answer yet: the fetch is under way until the plugin's hook is cancelled.
     Held,
-    /// Busy (`503`), asking to wait this `Retry-After`, and then the host cancelling the session's
-    /// first analysis (its second request, after `hello`), while the hook waits.
+    /// Busy (`503`), asking to wait this `Retry-After`, and then the host cancelling the analysis
+    /// under way, while the hook waits.
     BusyThenCancelled(&'static str),
 }
 
@@ -71,88 +70,63 @@ fn as_it_is(isrc: &str, _asked: usize) -> Reply {
 /// A read the plugin called back for: its method and params.
 type Read = (String, Value);
 
-/// The plugin served on a thread over pipes, as [`serve`] serves it, past `hello`, with a host
-/// whose library has `tracks` and whose fetches MusicBrainz answers as the route does (given the
-/// ISRC asked about, and how many times it was asked before).
+/// The plugin served by a fake host whose library has `tracks` and whose fetches MusicBrainz
+/// answers as the route does (given the ISRC asked about, and how many times it was asked
+/// before).
 struct Session {
-    host: Peer,
-    served: JoinHandle<()>,
-    answering: JoinHandle<()>,
-    /// The reads the plugin called back for.
-    reads: Arc<Mutex<Vec<Read>>>,
-    /// The URLs it fetched.
-    fetched: Arc<Mutex<Vec<String>>>,
+    host: FakeHost,
     /// Told of each fetch once it's asked.
     heard: Receiver<()>,
-    /// What the plugin answered `hello`.
-    hello: HelloReply,
     /// The library's tracks.
     tracks: Vec<Track>,
 }
 
 fn start(tracks: Vec<Track>, route: impl Fn(&str, usize) -> Reply + Send + 'static) -> Session {
-    let (plugin_in, to_plugin) = pipe().unwrap();
-    let (from_plugin, plugin_out) = pipe().unwrap();
-    let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
-    let (host, incoming) = Peer::new(from_plugin, to_plugin);
-    let reads: Arc<Mutex<Vec<Read>>> = Arc::default();
-    let fetched: Arc<Mutex<Vec<String>>> = Arc::default();
+    let host = FakeHost::start(MANIFEST, serve);
+    let library = tracks.clone();
+    host.on_read("tracks.get", move |params| {
+        if params["drive"] != "USB" {
+            return Err(RpcError::failed("not_found", format!("not found: drive {}", params["drive"])));
+        }
+        let ids: Vec<u32> = serde_json::from_value(params["ids"].clone()).unwrap_or_default();
+        let held = |id: &u32| library.iter().find(|t| t.id == *id);
+        let (found, missing): (Vec<u32>, Vec<u32>) = ids.into_iter().partition(|id| held(id).is_some());
+        let found: Vec<&Track> = found.iter().filter_map(held).collect();
+        Ok(json!({ "tracks": found, "missing": missing }))
+    });
     let (tell, heard) = channel();
-    let (to, read, fetches, library) = (host.clone(), reads.clone(), fetched.clone(), tracks.clone());
-    let answering = std::thread::spawn(move || {
-        for msg in incoming {
-            let Incoming::Request(req) = msg else { continue };
-            if req.method != method::NET_FETCH {
-                read.lock().unwrap().push((req.method.clone(), req.params.clone()));
-                if req.params["drive"] != "USB" {
-                    let gone = RpcError::failed("not_found", format!("not found: drive {}", req.params["drive"]));
-                    to.respond(&req.id, Err(gone));
-                    continue;
-                }
-                let ids: Vec<u32> = serde_json::from_value(req.params["ids"].clone()).unwrap_or_default();
-                let held = |id: &u32| library.iter().find(|t| t.id == *id);
-                let (found, missing): (Vec<u32>, Vec<u32>) = ids.into_iter().partition(|id| held(id).is_some());
-                let found: Vec<&Track> = found.iter().filter_map(held).collect();
-                to.respond(&req.id, Ok(json!({ "tracks": found, "missing": missing })));
-                continue;
-            }
-            let fetch: Fetch = serde_json::from_value(req.params).unwrap();
-            let asked = {
-                let mut fetched = fetches.lock().unwrap();
-                fetched.push(fetch.url.clone());
-                fetched.iter().filter(|u| **u == fetch.url).count() - 1
-            };
-            let _ = tell.send(());
-            let isrc = fetch.url.strip_prefix(LOOKUP).and_then(|rest| rest.split_once('?')).map_or("", |(i, _)| i);
-            let answered = |status, wait: Option<&str>, body| {
-                let headers: IndexMap<String, String> =
-                    wait.map(|w| ("retry-after".to_string(), w.to_string())).into_iter().collect();
-                Ok(serde_json::to_value(Fetched { status, headers, body: Some(body), blob: None }).unwrap())
-            };
-            let (answer, cancelling) = match route(isrc, asked) {
-                Reply::Answer(status, wait, body) => (answered(status, wait, body), false),
-                Reply::BusyThenCancelled(wait) => (answered(503, Some(wait), String::new()), true),
-                Reply::Fails(e) => (Err(e), false),
-                Reply::Held => continue,
-            };
-            to.respond(&req.id, answer);
-            if cancelling {
-                to.notify(method::CANCEL, &json!({ "id": 2 }));
-            }
+    let fetched = Mutex::new(Vec::new());
+    host.on_call(method::NET_FETCH, move |params| {
+        let fetch: Fetch = serde_json::from_value(params).unwrap();
+        let asked = {
+            let mut fetched = fetched.lock().unwrap();
+            fetched.push(fetch.url.clone());
+            fetched.iter().filter(|u| **u == fetch.url).count() - 1
+        };
+        let _ = tell.send(());
+        let isrc = fetch.url.strip_prefix(LOOKUP).and_then(|rest| rest.split_once('?')).map_or("", |(i, _)| i);
+        let answered = |status, wait: Option<&str>, body| {
+            let headers: IndexMap<String, String> =
+                wait.map(|w| ("retry-after".to_string(), w.to_string())).into_iter().collect();
+            Ok(serde_json::to_value(Fetched { status, headers, body: Some(body), blob: None }).unwrap())
+        };
+        match route(isrc, asked) {
+            Reply::Answer(status, wait, body) => Response::Answer(answered(status, wait, body)),
+            Reply::BusyThenCancelled(wait) => Response::AnswerThenCancel(answered(503, Some(wait), String::new())),
+            Reply::Fails(e) => Response::Answer(Err(e)),
+            Reply::Held => Response::Hold,
         }
     });
-    let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
-    let hello = host.request(method::HELLO, &hello).unwrap();
-    Session { host, served, answering, reads, fetched, heard, hello, tracks }
+    Session { host, heard, tracks }
 }
 
 impl Session {
     /// `track/analyze` with `ids` for track `id`, as the host sends it, in `context`.
-    fn send(&self, id: u32, context: Value) -> loclib_plugin::Pending {
+    fn send(&self, id: u32, context: Value) -> Sent {
         let audio = "/Volumes/USB/Contents/track.mp3";
         let track = json!({ "id": id, "file_path": "/Contents/track.mp3", "audio_path": audio });
         let req = json!({ "analyzer": "ids", "track": track, "context": context });
-        self.host.send_request(method::ANALYZE_TRACK, &req).unwrap()
+        self.host.send(method::ANALYZE_TRACK, &req)
     }
 
     /// Its fields for track `id` in `context` but for the ISRC and credits they're for, which are
@@ -174,16 +148,16 @@ impl Session {
         self.analyze_in(id, json!({ "drive": "USB" }))
     }
 
+    /// The URLs it fetched.
     fn fetched(&self) -> Vec<String> {
-        self.fetched.lock().unwrap().clone()
+        let fetches = self.host.calls().into_iter().filter(|(m, _)| m == method::NET_FETCH);
+        fetches.map(|(_, fetch)| fetch["url"].as_str().unwrap().into()).collect()
     }
 
     /// Closes the plugin's input: it stops. The reads it called back for.
     fn stop(self) -> Vec<Read> {
-        self.host.close();
-        self.served.join().unwrap();
-        self.answering.join().unwrap();
-        Arc::try_unwrap(self.reads).unwrap().into_inner().unwrap()
+        self.host.stop();
+        self.host.calls().into_iter().filter(|(m, _)| m != method::NET_FETCH).collect()
     }
 }
 
@@ -270,12 +244,12 @@ fn the_manifest_is_a_built_in_analyzer_of_musicbrainz_ids() {
     let settings: Vec<&str> = manifest.contributes.settings.iter().map(|s| s.key.as_str()).collect();
     assert_eq!(settings, ["contact"]);
 
-    // Served as a real one is: it says it's this manifest, analysing and sending fetches.
+    // Served as a real one is: it says it's this manifest (`FakeHost::start` checks), analysing and
+    // sending fetches.
     let session = start(Vec::new(), as_it_is);
-    let has = |f: &&str| session.hello.features.iter().any(|had| had == f);
-    assert!(["analyzers", "net"].iter().all(has), "{:?}", session.hello.features);
-    let described: Manifest = session.host.request(method::DESCRIBE, &json!({})).unwrap();
-    assert_eq!(described, manifest);
+    let hello = session.host.hello();
+    let has = |f: &&str| hello.features.iter().any(|had| had == f);
+    assert!(["analyzers", "net"].iter().all(has), "{:?}", hello.features);
     session.stop();
 }
 

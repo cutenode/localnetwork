@@ -120,13 +120,13 @@ pub(crate) fn fifo(dir: &Path, name: &str) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// Cancels `pending`, sent by `host`, once its hook is reading the FIFO `file` (opening it to
-/// write waits for the hook to open it: cancelled before it starts, a hook never runs), then
-/// feeds it `text` once the plugin has taken the cancel in.
+/// Cancels `sent`, sent by `host`, once its hook is reading the FIFO `file` (opening it to write
+/// waits for the hook to open it: cancelled before it starts, a hook never runs), then feeds it
+/// `text` once the plugin has taken the cancel in.
 #[cfg(unix)]
 pub(crate) fn cancel_while_reading(
-    host: &loclib_plugin::Peer,
-    pending: &loclib_plugin::Pending,
+    host: &loclib_plugin::test_util::FakeHost,
+    sent: &loclib_plugin::test_util::Sent,
     file: &str,
     text: &str,
 ) {
@@ -134,9 +134,9 @@ pub(crate) fn cancel_while_reading(
     let path = file.to_string();
     std::thread::spawn(move || opened.send(std::fs::OpenOptions::new().write(true).open(path).unwrap()));
     let mut fifo = fifo.recv_timeout(std::time::Duration::from_secs(30)).expect("the hook reads the file");
-    pending.cancel();
+    sent.cancel();
     // The plugin reads what the host sends in order: once it has answered this, it has the cancel.
-    host.request::<_, serde_json::Value>(method::DESCRIBE, &json!({})).unwrap();
+    host.request::<serde_json::Value>(method::DESCRIBE, &json!({})).unwrap();
     std::io::Write::write_all(&mut fifo, text.as_bytes()).unwrap();
 }
 
@@ -178,12 +178,12 @@ fn big_read(read: Read, name: &str) {
     };
     let s = start(Library::default());
     let req = json!({ "importer": "rekordbox-xml", "file": file, "context": { "scratch": scratch } });
-    let pending = s.host.send_request(method::READ_IMPORT, &req).unwrap();
+    let sent = s.host.send(method::READ_IMPORT, &req);
     #[cfg(unix)]
     if let Read::Cancelled = read {
-        cancel_while_reading(&s.host, &pending, &file, &big());
+        cancel_while_reading(&s.host, &sent, &file, &big());
     }
-    let answer = pending.wait_timeout::<ImportAnswer>(std::time::Duration::from_secs(60)).expect("an answer");
+    let answer = sent.wait_timeout::<ImportAnswer>(std::time::Duration::from_secs(60)).expect("an answer");
     assert!(s.stop().is_empty(), "it reads nothing through the host");
     let e = match (read, answer) {
         (Read::Whole, Ok(answer)) => {

@@ -711,17 +711,23 @@ plugin's tests needn't write one. Add it as a dev-dependency
 in-memory pipes, sends `hello`, and checks that `describe` answers the manifest. `read(method,
 answer)` answers a read every time the plugin calls it. `on_read(method, f)` works the answer out
 from the params instead, and answers any other call too (`accounts/ensure`). `fetch(url, answer)`
-answers `net/fetch` for one URL. A call with no answer fails: `external` for a fetch,
-`method_not_found` for anything else.
+answers `net/fetch` for one URL. `on_call(method, f)` is `on_read` whose `f` returns a
+`Response`: an answer, an answer followed by a cancel of the hook (the user cancelling just as the
+call came back), or `Hold`, which never answers (a server that keeps the plugin waiting until its
+hook is cancelled). A call with no answer fails: `external` for a fetch, `method_not_found` for
+anything else.
 
 `request(method, params)` sends a hook and waits for its typed answer. `send` returns a `Sent`
-instead, which can `cancel()` it (`$/cancel`), `wait()` for it, and has its `progress()`. With the
-`blobs` feature each request gets a fresh `context.scratch` folder (`Sent::scratch`), removed when
-the `Sent` is dropped, as the host removes it once it has read the answer. `cancel_on(method)`
+instead, which can `cancel()` it (`$/cancel`), `wait()` or `wait_timeout(limit)` for it, and has
+its `progress()`. With the `blobs` feature each request gets a fresh `context.scratch` folder
+(`Sent::scratch`), removed when the `Sent` is dropped, as the host removes it once it has read the
+answer. Params that already give `context.scratch` keep it: a folder of the test's, or `null` for
+a host without `blobs`. `cancel_on(method)`
 cancels the hook under way the next time the plugin calls `method`. `calls()` lists every call the
 plugin made, with its params. `event(..)` sends `event/notify`, and `notices()` has what the
 plugin told the user (`host/notify`). `stop()` closes the plugin's input and waits for it to stop:
-after that, every notice is in.
+after that, every notice is in. A call an event's handler is still waiting on fails then, so a
+test whose events make calls first sends one last event and waits for its call, held.
 
 ```rust
 # #[cfg(feature = "test-util")] {

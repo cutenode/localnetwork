@@ -1,65 +1,54 @@
-use std::io::pipe;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::Receiver;
-use std::thread::JoinHandle;
 
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use loclib_mixid::test_util::{resample, synth, wav_of};
-use loclib_plugin::{
-    EventName, FieldType, Incoming, Listener, Manifest, Output, PROTOCOL_VERSION, Peer, Pending, Role, Suggestion,
-    code, method,
-};
+use loclib_plugin::test_util::{FakeHost, Response, Sent};
+use loclib_plugin::{EventName, FieldType, Listener, Manifest, Output, Role, Suggestion, code, method};
 use loclib_progress::Ctx;
 use serde_json::{Value, json};
 
 use super::*;
 
-/// The host's end of the plugin, served on a thread over in-memory pipes and past `hello`.
+/// The plugin served by a fake host.
 struct Session {
-    host: Peer,
-    _incoming: Receiver<Incoming>,
-    served: JoinHandle<()>,
-    /// The scratch folder its requests give the plugin.
-    scratch: tempfile::TempDir,
+    host: FakeHost,
 }
 
 fn start() -> Session {
-    let (plugin_in, to_plugin) = pipe().unwrap();
-    let (from_plugin, plugin_out) = pipe().unwrap();
-    let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
-    let (host, incoming) = Peer::new(from_plugin, to_plugin);
-    let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
-    host.request::<_, Value>(method::HELLO, &hello).unwrap();
-    Session { host, _incoming: incoming, served, scratch: tempfile::tempdir().unwrap() }
+    Session { host: FakeHost::start(MANIFEST, serve) }
 }
 
 impl Session {
-    /// `track/analyze` with `tempo-key-loudness`, as the host sends it, with a scratch folder.
-    fn analyze(&self, audio: &Path) -> Pending {
-        self.analyze_in(audio, Some(self.scratch.path()))
+    /// `track/analyze` with `tempo-key-loudness`, as the host sends it, with a scratch folder of
+    /// its own.
+    fn analyze(&self, audio: &Path) -> Sent {
+        self.send(audio, json!({ "drive": "USB" }))
     }
 
     /// `track/analyze`, with `scratch` as its scratch folder (none from a host without `blobs`).
-    fn analyze_in(&self, audio: &Path, scratch: Option<&Path>) -> Pending {
-        let track = json!({ "id": 1, "file_path": "/Contents/track.wav", "audio_path": audio });
-        let context = json!({ "drive": "USB", "scratch": scratch });
-        let req = json!({ "analyzer": "tempo-key-loudness", "track": track, "context": context });
-        self.host.send_request(method::ANALYZE_TRACK, &req).unwrap()
+    fn analyze_in(&self, audio: &Path, scratch: Option<&Path>) -> Sent {
+        self.send(audio, json!({ "drive": "USB", "scratch": scratch }))
     }
 
-    /// The waveform a request answered, read from its file in the scratch folder.
-    fn waveform(&self, value: &FieldValue) -> Vec<u8> {
-        let Ok(Some(Output::Waveform(w))) = Output::of(FieldType::Waveform, value) else { panic!("{value:?}") };
-        assert_eq!(w.columns_per_sec, COLUMNS_PER_SEC);
-        std::fs::read(self.scratch.path().join(w.blob)).unwrap()
+    /// `track/analyze` of `audio`, in `context`.
+    fn send(&self, audio: &Path, context: Value) -> Sent {
+        let track = json!({ "id": 1, "file_path": "/Contents/track.wav", "audio_path": audio });
+        let req = json!({ "analyzer": "tempo-key-loudness", "track": track, "context": context });
+        self.host.send(method::ANALYZE_TRACK, &req)
     }
 
     /// Closes the plugin's input: it stops.
     fn stop(self) {
-        self.host.close();
-        self.served.join().unwrap();
+        self.host.stop();
     }
+}
+
+/// The waveform `sent` answered, read from its file in the request's scratch folder.
+fn waveform(sent: &Sent, value: &FieldValue) -> Vec<u8> {
+    let Ok(Some(Output::Waveform(w))) = Output::of(FieldType::Waveform, value) else { panic!("{value:?}") };
+    assert_eq!(w.columns_per_sec, COLUMNS_PER_SEC);
+    std::fs::read(sent.scratch().unwrap().join(w.blob)).unwrap()
 }
 
 fn manifest() -> Manifest {
@@ -116,13 +105,11 @@ fn describes_one_analyzer_and_hears_of_drives_changing() {
     let roles: Vec<Role> = analyzer.roles.keys().copied().collect();
     let not_heard = [Role::Identity, Role::Recording, Role::Release, Role::Artists, Role::Isrc, Role::Credits];
     assert!(Role::ALL.iter().all(|r| roles.contains(r) != not_heard.contains(r)), "{roles:?}");
-    let s = start();
-    let described: Manifest = s.host.request(method::DESCRIBE, &json!({})).unwrap();
-    assert_eq!(described, manifest);
-    s.stop();
+    // Started, the fake host checks that `describe` answers the manifest.
+    start().stop();
 }
 
-/// The plugin served over pipes past `hello`, told `events` in order while the host answers each
+/// The plugin served by a fake host, told `events` in order while the host answers each
 /// `drive.library` with tracks 1 to `tracks` and each `track.fields` with those of them in
 /// `analysed`: what it suggests, and the reads it asked for (each one's method and how many tracks).
 fn told(events: &[EventNotify], tracks: u32, analysed: &[u32]) -> (Vec<HostNotify>, Vec<(String, usize)>) {
@@ -137,66 +124,61 @@ fn told_failing(
     analysed: &[u32],
     failing: Option<&str>,
 ) -> (Vec<HostNotify>, Vec<(String, usize)>) {
-    let (plugin_in, to_plugin) = pipe().unwrap();
-    let (from_plugin, plugin_out) = pipe().unwrap();
-    let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
-    let (host, incoming) = Peer::new(from_plugin, to_plugin);
-    let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
-    host.request::<_, Value>(method::HELLO, &hello).unwrap();
-    for e in events {
-        host.notify(method::EVENT_NOTIFY, e);
-    }
-    // One last event that suggests something, so everything before it has been handled.
-    host.notify(method::EVENT_NOTIFY, &databases_changed("LAST"));
-    let (mut suggested, mut reads) = (Vec::new(), Vec::new());
-    for msg in incoming {
-        match msg {
-            Incoming::Request(req) => {
-                let last = req.params["drive"] == "LAST";
-                let answer = match req.method.as_str() {
-                    "drive.library" => {
-                        let n = if last { 1 } else { tracks };
-                        let tracks = (1..=n).map(|id| loclib_plugin::loclib_model::Track { id, ..Default::default() });
-                        let library =
-                            loclib_plugin::loclib_model::Library { tracks: tracks.collect(), ..Default::default() };
-                        json!({ "library": library, "page": { "total": n } })
-                    }
-                    "track.fields" => {
-                        assert_eq!(req.params["plugin"], "sound");
-                        let asked: Vec<u32> = serde_json::from_value(req.params["tracks"].clone()).unwrap();
-                        if !last {
-                            reads.push((req.method.clone(), asked.len()));
-                        }
-                        let kept: Vec<Value> = asked
-                            .iter()
-                            .filter(|t| !last && analysed.contains(t))
-                            .map(|t| json!({ "track": t, "plugins": { "sound": {} } }))
-                            .collect();
-                        json!({ "tracks": kept, "missing": [] })
-                    }
-                    other => panic!("{other}"),
-                };
-                if !last && req.method == "drive.library" {
-                    reads.push((req.method.clone(), 0));
-                }
-                let fails = !last && failing == Some(req.method.as_str());
-                let answer =
-                    if fails { Err(RpcError::failed("not_found", "not found: drive USB")) } else { Ok(answer) };
-                host.respond(&req.id, answer);
-            }
-            Incoming::Notification { method: m, params } if m == method::HOST_NOTIFY => {
-                let notice: HostNotify = serde_json::from_value(params).unwrap();
-                if notice.action.as_ref().is_some_and(|a| a.params["drive"] == "LAST") {
-                    break;
-                }
-                suggested.push(notice);
-            }
-            Incoming::Notification { .. } => {}
+    let host = FakeHost::start(MANIFEST, serve);
+    let fails = |method: &str| failing == Some(method);
+    let (library_fails, fields_fail) = (fails("drive.library"), fails("track.fields"));
+    let gone = || Err::<Value, _>(RpcError::failed("not_found", "not found: drive USB"));
+    let (last, handled) = std::sync::mpsc::channel();
+    host.on_call("drive.library", move |params| {
+        if params["drive"] == "LAST" {
+            let _ = last.send(());
+            return Response::Hold;
         }
+        if library_fails {
+            return Response::Answer(gone());
+        }
+        let held = (1..=tracks).map(|id| loclib_plugin::loclib_model::Track { id, ..Default::default() });
+        let library = loclib_plugin::loclib_model::Library { tracks: held.collect(), ..Default::default() };
+        Response::Answer(Ok(json!({ "library": library, "page": { "total": tracks } })))
+    });
+    let analysed = analysed.to_vec();
+    host.on_read("track.fields", move |params| {
+        if fields_fail {
+            return gone();
+        }
+        let asked: Vec<u32> = serde_json::from_value(params["tracks"].clone()).unwrap();
+        let kept: Vec<Value> = asked
+            .iter()
+            .filter(|t| analysed.contains(t))
+            .map(|t| json!({ "track": t, "plugins": { "sound": {} } }))
+            .collect();
+        Ok(json!({ "tracks": kept, "missing": [] }))
+    });
+    for e in events {
+        host.event(e);
     }
-    host.close();
-    served.join().unwrap();
-    (suggested, reads)
+    // One last event: its read comes once every event before it has been handled, and is held,
+    // so stopping the plugin then cuts no read short.
+    host.event(&databases_changed("LAST"));
+    handled.recv().unwrap();
+    host.stop();
+    let reads = host
+        .calls()
+        .into_iter()
+        .filter(|(_, params)| params["drive"] != "LAST")
+        .map(|(method, params)| {
+            let asked = match method.as_str() {
+                "drive.library" => 0,
+                "track.fields" => {
+                    assert_eq!(params["plugin"], "sound");
+                    serde_json::from_value::<Vec<u32>>(params["tracks"].clone()).unwrap().len()
+                }
+                other => panic!("{other}"),
+            };
+            (method, asked)
+        })
+        .collect();
+    (host.notices(), reads)
 }
 
 /// `drive.changed` for `drive`, its databases changed.
@@ -308,8 +290,9 @@ fn fields_are_what_doctor_reports(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let path = recording(dir.path(), seed, secs, rate, gain);
     let s = start();
-    let fields = s.analyze(&path).wait::<Analysis>().unwrap().fields;
-    let drawn = (fields["waveform"] != FieldValue::Null).then(|| s.waveform(&fields["waveform"]));
+    let sent = s.analyze(&path);
+    let fields = sent.wait::<Analysis>().unwrap().fields;
+    let drawn = (fields["waveform"] != FieldValue::Null).then(|| waveform(&sent, &fields["waveform"]));
     s.stop();
 
     let declared = &manifest().contributes.analyzers[0].fields;
@@ -528,8 +511,9 @@ fn clicks(dir: &Path, bpm: f64, lead: f64, secs: f64) -> PathBuf {
 /// The waveform `audio` answers, three bytes a column.
 fn waveform_of(audio: &Path) -> Vec<u8> {
     let s = start();
-    let fields = s.analyze(audio).wait::<Analysis>().unwrap().fields;
-    let bands = s.waveform(&fields["waveform"]);
+    let sent = s.analyze(audio);
+    let fields = sent.wait::<Analysis>().unwrap().fields;
+    let bands = waveform(&sent, &fields["waveform"]);
     s.stop();
     bands
 }
@@ -595,8 +579,9 @@ fn prop_the_waveform_is_a_file_in_the_scratch_folder(tc: TestCase) {
     for case in 0..3 {
         match case {
             0 => {
-                let fields = s.analyze(&audio).wait::<Analysis>().unwrap().fields;
-                assert!(!s.waveform(&fields["waveform"]).is_empty());
+                let sent = s.analyze(&audio);
+                let fields = sent.wait::<Analysis>().unwrap().fields;
+                assert!(!waveform(&sent, &fields["waveform"]).is_empty());
             }
             1 => {
                 let fields = s.analyze_in(&audio, None).wait::<Analysis>().unwrap().fields;

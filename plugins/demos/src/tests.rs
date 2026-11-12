@@ -1,13 +1,11 @@
 use std::collections::BTreeSet;
-use std::io::pipe;
-use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 
 use hegel::TestCase;
 use hegel::generators as gs;
 use loclib_model::model::Library;
 use loclib_model::test_util::track;
-use loclib_plugin::{Capability, Incoming, Manifest, PROTOCOL_VERSION, Peer, When, method};
+use loclib_plugin::test_util::FakeHost;
+use loclib_plugin::{Capability, Manifest, When, method};
 
 use super::*;
 
@@ -16,46 +14,24 @@ const PAGE: usize = 500;
 
 const SAMPLES: &str = "/Contents/rekordbox/GROOVE CIRCUIT FACTORY SAMPLES";
 
-/// A read callback: its method and params.
-type Call = (String, Value);
-
-/// The plugin served on a thread, over pipes, past `hello`, with a host whose drive `USB` has a
-/// library (both its databases') and that answers its reads as locallibrary does.
+/// The plugin served by a fake host whose drive `USB` has a library (both its databases') and
+/// that answers its reads as locallibrary does.
 struct Session {
-    host: Peer,
-    served: JoinHandle<()>,
-    answering: JoinHandle<()>,
-    calls: Arc<Mutex<Vec<Call>>>,
+    host: FakeHost,
 }
 
 fn start(lib: Library) -> Session {
-    let (plugin_in, to_plugin) = pipe().unwrap();
-    let (from_plugin, plugin_out) = pipe().unwrap();
-    let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
-    let (host, incoming) = Peer::new(from_plugin, to_plugin);
-    let calls: Arc<Mutex<Vec<Call>>> = Arc::default();
-    let (to, log) = (host.clone(), calls.clone());
-    let answering = std::thread::spawn(move || {
-        for msg in incoming {
-            let Incoming::Request(req) = msg else { continue };
-            log.lock().unwrap().push((req.method.clone(), req.params.clone()));
-            to.respond(&req.id, read(&lib, &req.method, req.params));
-        }
-    });
-    let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
-    host.request::<_, Value>(method::HELLO, &hello).unwrap();
-    Session { host, served, answering, calls }
+    let host = FakeHost::start(MANIFEST, serve);
+    host.on_read("drive.library", move |params| read(&lib, params));
+    Session { host }
 }
 
-/// A read as the host answers a plugin: only the params it may give, a drive it knows, and
-/// `drive.library`'s tracks a page at a time.
-fn read(lib: &Library, method: &str, params: Value) -> Result<Value, RpcError> {
-    if method != "drive.library" {
-        return Err(RpcError::failed("denied", format!("{method} needs a capability the plugin doesn't have")));
-    }
+/// `drive.library` as the host answers a plugin: only the params it may give, a drive it knows,
+/// and the tracks a page at a time.
+fn read(lib: &Library, params: Value) -> Result<Value, RpcError> {
     let Value::Object(params) = params else { return Err(RpcError::invalid_params("expected an object")) };
     if let Some(name) = params.keys().find(|k| !["drive", "combined", "offset", "limit"].contains(&k.as_str())) {
-        return Err(RpcError::invalid_params(format!("a plugin doesn't give {method} `{name}`")));
+        return Err(RpcError::invalid_params(format!("a plugin doesn't give drive.library `{name}`")));
     }
     if params["drive"] != "USB" {
         return Err(RpcError::failed("not_found", format!("not found: drive {}", params["drive"])));
@@ -83,11 +59,9 @@ impl Session {
     }
 
     /// Closes the plugin's input: it stops. Answers the reads it called back for.
-    fn stop(self) -> Vec<Call> {
-        self.host.close();
-        self.served.join().unwrap();
-        self.answering.join().unwrap();
-        Arc::try_unwrap(self.calls).unwrap().into_inner().unwrap()
+    fn stop(self) -> Vec<(String, Value)> {
+        self.host.stop();
+        self.host.calls()
     }
 }
 
@@ -130,9 +104,8 @@ fn the_manifest_is_a_built_in_one_with_a_check_and_a_destructive_operation() {
     assert_eq!((check.name.as_str(), check.default_on, check.when.as_slice()), ("tracks", true, &[When::Check][..]));
     let operation = &manifest.contributes.operations[0];
     assert_eq!((operation.name.as_str(), operation.cli.as_deref()), ("clean", Some("clean")));
+    // Started, it's checked to describe itself as its manifest.
     let s = start(Library::default());
-    let described: Manifest = s.host.request(method::DESCRIBE, &Value::Null).unwrap();
-    assert_eq!(described, manifest);
     s.stop();
 }
 
@@ -194,8 +167,8 @@ fn prop_without_a_drive_it_knows_nothing_is_found_or_removed(tc: TestCase) {
     let s = start(drive());
     let context = json!({ "drive": on });
     let e = match check {
-        true => s.host.request::<_, Value>(method::RUN_CHECK, &json!({ "check": "tracks", "context": context })),
-        false => s.host.request::<_, Value>(method::PLAN_OP, &json!({ "operation": "clean", "context": context })),
+        true => s.host.request::<Value>(method::RUN_CHECK, &json!({ "check": "tracks", "context": context })),
+        false => s.host.request::<Value>(method::PLAN_OP, &json!({ "operation": "clean", "context": context })),
     }
     .unwrap_err();
     let said = on.map(|d| format!("not found: drive \"{d}\""));

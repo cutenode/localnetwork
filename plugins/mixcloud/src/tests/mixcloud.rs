@@ -1,22 +1,19 @@
 //! A host whose `net/fetch` Mixcloud answers as its upload does (mixcloud.com/developers,
-//! "Uploading shows"), but as a test scripts it, and the plugin served to it over pipes.
+//! "Uploading shows"), but as a test scripts it, and the plugin served to it by a fake host.
 
-use std::io::pipe;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 use std::time::Duration;
 
-use loclib_plugin::test_util::Canceller;
+use loclib_plugin::test_util::{FakeHost, Response, Sent};
 use loclib_plugin::{
-    Fetch, Fetched, HelloReply, Incoming, PROTOCOL_VERSION, Peer, Pending, ProgressReport, Progressed, Published,
-    PublishedSet, RpcError, TracklistEntry, method,
+    Fetch, Fetched, ProgressReport, Progressed, Published, PublishedSet, RpcError, TracklistEntry, method,
 };
 use loclib_progress::{Event, Phase};
 use serde_json::{Value, json};
 
-use crate::serve;
 use crate::upload::UPLOAD;
+use crate::{MANIFEST, serve};
 
 /// The show the fake Mixcloud makes, and its page.
 const KEY: &str = "/djkit/closing-set/";
@@ -80,8 +77,9 @@ pub(super) struct Mixcloud {
     signed_in: bool,
     script: Script,
     received: Received,
-    /// Cancels the publish once the call in hand is answered, when [`Reply::Cancels`] says to.
-    cancel: Arc<Canceller>,
+    /// Whether the publish is cancelled once the call in hand is answered, as [`Reply::Cancels`]
+    /// says.
+    cancels: bool,
 }
 
 impl Mixcloud {
@@ -95,7 +93,7 @@ impl Mixcloud {
     }
 
     pub(super) fn scripted(script: impl Fn(usize) -> Option<Reply> + Send + 'static) -> Mixcloud {
-        Mixcloud { signed_in: true, script: Box::new(script), received: Received::new(), cancel: Arc::default() }
+        Mixcloud { signed_in: true, script: Box::new(script), received: Received::new(), cancels: false }
     }
 
     /// The host's answer to `fetch`.
@@ -128,7 +126,7 @@ impl Mixcloud {
         self.received.push(form);
         let reply = match (self.script)(before) {
             Some(Reply::Cancels(then)) => {
-                self.cancel.arm();
+                self.cancels = true;
                 Some(*then)
             }
             reply => reply,
@@ -183,40 +181,29 @@ fn as_mixcloud(form: &[(String, Part)]) -> (u16, Vec<(&'static str, String)>, St
     )
 }
 
-/// The plugin served on a thread over pipes, as [`serve`] serves it, past `hello`, with a host
-/// whose fetches `mixcloud` answers.
+/// The plugin served by a fake host, as [`serve`] serves it, whose fetches `mixcloud` answers.
 pub(super) struct Session {
-    pub(super) host: Peer,
-    served: JoinHandle<()>,
-    answering: JoinHandle<()>,
-    pub(super) hello: HelloReply,
+    pub(super) host: FakeHost,
     mixcloud: Arc<Mutex<Mixcloud>>,
     /// The requests' scratch folder.
     pub(super) scratch: tempfile::TempDir,
 }
 
 pub(super) fn start(mixcloud: Mixcloud) -> Session {
-    let (plugin_in, to_plugin) = pipe().unwrap();
-    let (from_plugin, plugin_out) = pipe().unwrap();
-    let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
-    let (host, incoming) = Peer::new(from_plugin, to_plugin);
+    let host = FakeHost::start(MANIFEST, serve);
     let mixcloud = Arc::new(Mutex::new(mixcloud));
-    let (to, answers) = (host.clone(), mixcloud.clone());
-    let answering = std::thread::spawn(move || {
-        for msg in incoming {
-            let Incoming::Request(req) = msg else { continue };
-            assert_eq!(req.method, method::NET_FETCH, "the plugin reads nothing else");
-            let fetch: Fetch = serde_json::from_value(req.params).unwrap();
-            let mut mixcloud = answers.lock().unwrap();
-            let answer = mixcloud.answer(&fetch).map(|f| serde_json::to_value(f).unwrap());
-            let cancel = mixcloud.cancel.clone();
-            drop(mixcloud);
-            cancel.respond(&to, &req.id, answer);
+    let answers = mixcloud.clone();
+    // A failed check in `answer` poisons the lock, failing the test where it's next read.
+    host.on_call(method::NET_FETCH, move |params| {
+        let fetch: Fetch = serde_json::from_value(params).unwrap();
+        let mut mixcloud = answers.lock().unwrap();
+        let answer = mixcloud.answer(&fetch).map(|f| serde_json::to_value(f).unwrap());
+        match std::mem::take(&mut mixcloud.cancels) {
+            true => Response::AnswerThenCancel(answer),
+            false => Response::Answer(answer),
         }
     });
-    let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
-    let hello = host.request(method::HELLO, &hello).unwrap();
-    Session { host, served, answering, hello, mixcloud, scratch: tempfile::tempdir().unwrap() }
+    Session { host, mixcloud, scratch: tempfile::tempdir().unwrap() }
 }
 
 /// What a publish answered, and the uploads it started and ended: each start's total bytes, and
@@ -224,7 +211,7 @@ pub(super) fn start(mixcloud: Mixcloud) -> Session {
 pub(super) type Outcome = (Result<Published, RpcError>, Vec<u64>, usize);
 
 /// The uploads `pending` started (each one's bytes) and ended, of the progress it has reported.
-fn uploads(pending: &Pending) -> (Vec<u64>, usize) {
+fn uploads(pending: &Sent) -> (Vec<u64>, usize) {
     let (mut started, mut ended) = (Vec::new(), 0);
     for p in pending.progress() {
         match p {
@@ -264,24 +251,21 @@ impl Session {
         settings: Value,
         dry_run: bool,
         scratch: bool,
-    ) -> Pending {
-        let mut context = json!({ "settings": settings });
-        if scratch {
-            context["scratch"] = json!(self.scratch.path());
-        }
+    ) -> Sent {
+        let context = json!({ "settings": settings, "scratch": scratch.then(|| self.scratch.path()) });
         let req = json!({ "destination": "show", "set": set, "recording": recording, "tracklist": tracklist, "dry_run": dry_run, "context": context });
-        let cancel = self.mixcloud.lock().unwrap().cancel.clone();
-        cancel.send(|| self.host.send_request_reporting(method::SET_PUBLISH, &req).unwrap())
+        self.host.send(method::SET_PUBLISH, &req)
     }
 
     /// Its fetches answered by `mixcloud` from now on.
     pub(super) fn script(&self, mixcloud: Mixcloud) {
-        let mut answering = self.mixcloud.lock().unwrap();
-        *answering = Mixcloud { cancel: answering.cancel.clone(), ..mixcloud };
+        *self.mixcloud.lock().unwrap() = mixcloud;
     }
 
     /// What Mixcloud has been sent since it was last asked.
     pub(super) fn received(&self) -> Received {
+        let calls = self.host.calls();
+        assert!(calls.iter().all(|(m, _)| m == method::NET_FETCH), "the plugin reads nothing else: {calls:?}");
         std::mem::take(&mut self.mixcloud.lock().unwrap().received)
     }
 
@@ -293,9 +277,7 @@ impl Session {
     /// Closes the plugin's input: it stops. What Mixcloud was sent, read once all of it is
     /// answered: what the plugin sent before a cancel reached it may still be on its way.
     pub(super) fn stop(self) -> Received {
-        self.host.close();
-        self.served.join().unwrap();
-        self.answering.join().unwrap();
-        std::mem::take(&mut self.mixcloud.lock().unwrap().received)
+        self.host.stop();
+        self.received()
     }
 }

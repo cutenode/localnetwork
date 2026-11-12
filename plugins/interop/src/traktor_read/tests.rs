@@ -1,38 +1,26 @@
 //! The Traktor importer and source served over pipes, as `locallibrary import` and `collection
 //! export --from interop:traktor` run them, on collections in the shape Traktor writes them.
 
-use std::io::pipe;
-use std::sync::mpsc::Receiver;
-use std::thread::JoinHandle;
-
 use hegel::generators as gs;
 use hegel::{Generator, TestCase};
 use loclib_model::analysis::{Beat, Cue, TrackAnalysis};
 use loclib_model::test_util::track;
 use loclib_model::{Library, Playlist, Track};
-use loclib_plugin::{Incoming, PROTOCOL_VERSION, Peer, method};
+use loclib_plugin::method;
+use loclib_plugin::test_util::FakeHost;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
 use super::*;
 
-/// The plugin served on a thread, over pipes, past `hello`, and a folder for its files.
+/// The plugin served by a fake host, and a folder for its files. These hooks call nothing back.
 struct Session {
-    host: Peer,
-    served: JoinHandle<()>,
-    /// What the plugin sends unasked: these hooks call nothing back.
-    incoming: Receiver<Incoming>,
+    host: FakeHost,
     dir: TempDir,
 }
 
 fn start() -> Session {
-    let (plugin_in, to_plugin) = pipe().unwrap();
-    let (from_plugin, plugin_out) = pipe().unwrap();
-    let served = std::thread::spawn(move || crate::serve(plugin_in, plugin_out));
-    let (host, incoming) = Peer::new(from_plugin, to_plugin);
-    let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
-    host.request::<_, Value>(method::HELLO, &hello).unwrap();
-    Session { host, served, incoming, dir: tempfile::tempdir().unwrap() }
+    Session { host: FakeHost::start(crate::MANIFEST, crate::serve), dir: tempfile::tempdir().unwrap() }
 }
 
 impl Session {
@@ -92,9 +80,8 @@ impl Session {
     }
 
     fn stop(self) {
-        self.host.close();
-        self.served.join().unwrap();
-        assert!(self.incoming.try_iter().all(|m| !matches!(m, Incoming::Request(_))), "nothing called back");
+        self.host.stop();
+        assert!(self.host.calls().is_empty(), "nothing called back");
     }
 }
 
@@ -221,7 +208,9 @@ fn a_big_answer_is_a_blob() {
     let blob = s.import(&file, json!({ "scratch": scratch })).unwrap();
     assert_eq!(blob, ImportAnswer::Blob(Blob { blob: "read.json".into() }));
     let held: Imported = serde_json::from_slice(&std::fs::read(scratch.join("read.json")).unwrap()).unwrap();
-    let ImportAnswer::Read(said) = s.import(&file, json!({})).unwrap() else { panic!("no folder, no blob") };
+    let ImportAnswer::Read(said) = s.import(&file, json!({ "scratch": null })).unwrap() else {
+        panic!("no folder, no blob")
+    };
     assert_eq!((held.tracks[0].find.title.as_ref().map(String::len), &held), (Some(MESSAGE), &said));
     let e = s.import(&file, json!({ "scratch": s.dir.path().join("gone") })).unwrap_err();
     assert_eq!(e.kind(), Some("io"));
@@ -479,7 +468,7 @@ fn a_collection_is_read_in_pages() {
     assert_eq!(e.message, format!("{} changed since its first page was read: read it again", file.display()));
     assert_eq!(s.read_library(&file, &[], None, json!({})).unwrap().tracks.len(), 1000);
     let read = json!({ "source": "traktor", "options": {}, "roots": [] });
-    let e = s.host.request::<_, LibraryPage>(method::READ_LIBRARY, &read).unwrap_err();
+    let e = s.host.request::<LibraryPage>(method::READ_LIBRARY, &read).unwrap_err();
     assert_eq!(e.kind(), Some("invalid_params"), "{e:?}");
     let e = s.read_library(&s.dir.path().join("gone.nml"), &[], None, json!({})).unwrap_err();
     assert_eq!(e.kind(), Some("io"), "{e:?}");
@@ -872,7 +861,7 @@ fn library_reads(tc: &TestCase, case: u8) {
                 6 => (s.read_library(&s.file("<plist/>"), &[], None, json!({})), "invalid"),
                 _ => {
                     let read = json!({ "source": "traktor", "options": {}, "roots": [] });
-                    (s.host.request::<_, LibraryPage>(method::READ_LIBRARY, &read), "invalid_params")
+                    (s.host.request::<LibraryPage>(method::READ_LIBRARY, &read), "invalid_params")
                 }
             };
             assert_eq!(e.unwrap_err().kind(), Some(kind));

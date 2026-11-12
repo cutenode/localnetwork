@@ -102,10 +102,9 @@ fn the_manifest_is_a_built_in_set_destination_on_soundcloud() {
     // Served as a real one is: it says it's this manifest, publishing sets through fetches with
     // an account.
     let s = start(SoundCloud::new());
-    let has = |f: &&str| s.hello.features.iter().any(|had| had == f);
-    assert!(["destinations", "net", "blobs", "accounts"].iter().all(has), "{:?}", s.hello.features);
-    let described: Manifest = s.host.request(method::DESCRIBE, &json!({})).unwrap();
-    assert_eq!(described, manifest);
+    // `start` checks that it describes itself as `manifest`.
+    let has = |f: &&str| s.host.hello().features.iter().any(|had| had == f);
+    assert!(["destinations", "net", "blobs", "accounts"].iter().all(has), "{:?}", s.host.hello().features);
     s.stop();
 }
 
@@ -290,8 +289,8 @@ fn signed_out_or_without_a_scratch_folder_nothing_goes() {
     let picture = file(dir.path(), "cover.png", 10);
     let s = start(SoundCloud::new());
     let req = json!({ "destination": "track", "set": set(), "recording": path, "tracklist": [],
-        "context": { "settings": { "picture": picture } } });
-    let e = s.host.request::<_, Published>(method::SET_PUBLISH, &req).unwrap_err();
+        "context": { "scratch": null, "settings": { "picture": picture } } });
+    let e = s.host.request::<Published>(method::SET_PUBLISH, &req).unwrap_err();
     assert_eq!(e.message, "invalid params: no scratch folder to send the artwork from");
     // Nor when the artwork can't be copied there.
     std::fs::remove_dir(s.scratch.path()).unwrap();
@@ -955,8 +954,8 @@ fn prop_the_artwork_goes_from_the_scratch_folder(tc: TestCase) {
             }
             1 => {
                 let req = json!({ "destination": "track", "set": set(), "recording": path, "tracklist": [],
-                "context": { "settings": settings } });
-                let e = s.host.request::<_, Published>(method::SET_PUBLISH, &req).unwrap_err();
+                "context": { "scratch": null, "settings": settings } });
+                let e = s.host.request::<Published>(method::SET_PUBLISH, &req).unwrap_err();
                 assert_eq!(e.message, "invalid params: no scratch folder to send the artwork from");
             }
             4 => {

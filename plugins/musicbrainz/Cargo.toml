@@ -25,4 +25,5 @@ workspace = true
 [dev-dependencies]
 hegeltest.workspace = true
 indexmap.workspace = true
+loclib-plugin = { workspace = true, features = ["test-util"] }
 serde_json.workspace = true

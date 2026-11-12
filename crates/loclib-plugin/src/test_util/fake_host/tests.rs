@@ -12,7 +12,8 @@ use crate::peer::tests::json_value;
 use crate::{EventName, Hooks, Host, Progressed, RunCommand};
 
 /// A plugin that makes the call its params name, leaves a file in its scratch folder, or starts
-/// a phase, reads `drive.info` and waits to be cancelled; and tells the user of each event.
+/// a phase, reads `drive.info`, tells the user what it read and waits to be cancelled; and tells
+/// the user of each event.
 const MANIFEST: &str = r#"
 id = "probe"
 name = "Probe"
@@ -47,7 +48,8 @@ fn run(req: RunCommand, host: &Host) -> Result<Value, RpcError> {
         _ => {
             let ctx = host.ctx();
             ctx.phase_start(Phase::Scan, 0, 0);
-            host.call::<_, Value>("drive.info", &json!({}))?;
+            let info: Value = host.call("drive.info", &json!({}))?;
+            host.notify(&HostNotify { message: info.to_string(), ..HostNotify::default() });
             loop {
                 ctx.check()?;
                 std::thread::sleep(Duration::from_millis(5));
@@ -190,6 +192,50 @@ fn cancel_on_cancels_the_request_under_way_once() {
     host.stop();
 }
 
+/// A response that answers and then cancels lands the cancel after the answer: the plugin has
+/// what it read, then stops with `cancelled`.
+#[test]
+fn an_answer_then_cancel_reaches_the_plugin_first() {
+    let host = FakeHost::start(MANIFEST, serve);
+    host.on_call("drive.info", |_| Response::AnswerThenCancel(Ok(json!({ "name": "USB" }))));
+    let e = host.request::<Value>(method::RUN_COMMAND, &json!({ "command": "wait" })).unwrap_err();
+    assert_eq!(e.kind(), Some("cancelled"));
+    host.stop();
+    let messages: Vec<String> = host.notices().into_iter().map(|n| n.message).collect();
+    assert_eq!(messages, [r#"{"name":"USB"}"#]);
+}
+
+/// A call held is never answered: the plugin waits on it until its hook is cancelled.
+#[test]
+fn a_held_call_waits_until_the_hook_is_cancelled() {
+    let host = FakeHost::start(MANIFEST, serve);
+    host.on_call("drive.info", |_| Response::Hold);
+    let waiting = host.send(method::RUN_COMMAND, &json!({ "command": "wait" }));
+    assert!(waiting.wait_timeout::<Value>(Duration::from_millis(200)).is_none(), "under way");
+    waiting.cancel();
+    let answer = waiting.wait_timeout::<Value>(Duration::from_secs(10)).expect("it stops");
+    assert_eq!(answer.unwrap_err().kind(), Some("cancelled"));
+    host.stop();
+    assert!(host.notices().is_empty(), "nothing read");
+    assert_eq!(host.calls(), [("drive.info".to_string(), json!({}))]);
+}
+
+/// A `context.scratch` the params give is kept, and no folder made for it: a folder, or `null`
+/// for none.
+#[test]
+fn a_scratch_folder_given_is_kept() {
+    let host = FakeHost::start(MANIFEST, serve);
+    let dir = tempfile::tempdir().unwrap();
+    let given = host.send(method::RUN_COMMAND, &json!({ "command": "blob", "context": { "scratch": dir.path() } }));
+    let answer: Value = given.wait().unwrap();
+    assert_eq!((&answer["scratch"], given.scratch()), (&json!(dir.path()), None));
+    assert!(dir.path().join("out.txt").exists());
+    let none = json!({ "command": "blob", "context": { "scratch": null } });
+    let e = host.request::<Value>(method::RUN_COMMAND, &none).unwrap_err();
+    assert_eq!(e.message, "invalid params: no scratch folder");
+    host.stop();
+}
+
 /// What the plugin tells the user of each event is kept, in order, by the time it has stopped.
 #[test]
 fn notices_are_kept_in_order() {
@@ -216,4 +262,30 @@ fn prop_canned_reads_reach_the_plugin_unchanged(tc: TestCase) {
     assert_eq!(got, answer);
     assert_eq!(host.calls(), [(read, Value::Object(given))]);
     host.stop();
+}
+
+/// Any answer given and then cancelled reaches the plugin before the cancel; held, none does, and
+/// the plugin waits until it's cancelled. Either way the hook stops with `cancelled`.
+#[hegel::test(test_cases = 25)]
+fn prop_an_answer_reaches_the_plugin_unless_held(tc: TestCase) {
+    let answer = json_value(&tc, 3);
+    let held = tc.draw(gs::booleans());
+    let host = FakeHost::start(MANIFEST, serve);
+    let (given, (called, made)) = (answer.clone(), std::sync::mpsc::channel());
+    host.on_call("drive.info", move |_| {
+        let _ = called.send(());
+        match held {
+            true => Response::Hold,
+            false => Response::AnswerThenCancel(Ok(given.clone())),
+        }
+    });
+    let waiting = host.send(method::RUN_COMMAND, &json!({ "command": "wait" }));
+    if held {
+        made.recv().unwrap();
+        waiting.cancel();
+    }
+    assert_eq!(waiting.wait::<Value>().unwrap_err().kind(), Some("cancelled"));
+    host.stop();
+    let read: Vec<Value> = host.notices().iter().map(|n| serde_json::from_str(&n.message).unwrap()).collect();
+    assert_eq!(read, if held { Vec::new() } else { vec![answer] });
 }

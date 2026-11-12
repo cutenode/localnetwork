@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use loclib_plugin::{Cancel, Manifest, Published, PublishedSet, method};
+use loclib_plugin::{Published, PublishedSet};
 use serde_json::json;
 
 use super::mixcloud::{Mixcloud, PAGE, Part, Reply, SIGNED_OUT, error, file, rate_limited, start};
@@ -23,12 +23,10 @@ fn text(name: &str, value: &str) -> (String, Part) {
 /// account.
 #[test]
 fn it_serves_its_manifest() {
-    let manifest = Manifest::parse(MANIFEST).unwrap();
+    // `start` checks that it describes itself as its manifest.
     let s = start(Mixcloud::new());
-    let has = |f: &&str| s.hello.features.iter().any(|had| had == f);
-    assert!(["destinations", "net", "blobs", "accounts"].iter().all(has), "{:?}", s.hello.features);
-    let described: Manifest = s.host.request(method::DESCRIBE, &json!({})).unwrap();
-    assert_eq!(described, manifest);
+    let has = |f: &&str| s.host.hello().features.iter().any(|had| had == f);
+    assert!(["destinations", "net", "blobs", "accounts"].iter().all(has), "{:?}", s.host.hello().features);
     s.stop();
 }
 
@@ -286,7 +284,7 @@ fn cancelling_stops_the_wait() {
         assert!(pending.wait_timeout::<Published>(Duration::from_millis(5)).is_none(), "it waits");
     }
     let asked = Instant::now();
-    s.host.notify(method::CANCEL, &Cancel { id: pending.id().into() });
+    pending.cancel();
     let answer = pending.wait_timeout::<Published>(Duration::from_secs(30)).expect("an answer");
     assert!(asked.elapsed() < Duration::from_millis(400), "{:?}", asked.elapsed());
     assert_eq!(answer.unwrap_err().kind(), Some("cancelled"));
