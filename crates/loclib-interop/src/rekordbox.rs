@@ -47,9 +47,17 @@ fn colour(c: TrackColor) -> &'static str {
     }
 }
 
+/// The software that wrote a collection, as rekordbox XML's `PRODUCT` names it.
+#[derive(Debug, Clone, Copy)]
+pub struct Product<'a> {
+    pub name: &'a str,
+    pub version: &'a str,
+    pub company: &'a str,
+}
+
 /// `file`, holding `src`'s tracks, playlists and folders, and their beat grids and cues when it
-/// has them. Its `PRODUCT` is locallibrary, at this crate's version.
-pub fn build(src: &Source<'_>, file: &Path, ctx: &Ctx<'_>) -> Result<Export> {
+/// has them, written by `product`.
+pub fn build(src: &Source<'_>, product: &Product<'_>, file: &Path, ctx: &Ctx<'_>) -> Result<Export> {
     let lib = src.library;
     let mut export = Export::new(lib);
     export.tracks = lib.tracks.len();
@@ -57,8 +65,10 @@ pub fn build(src: &Source<'_>, file: &Path, ctx: &Ctx<'_>) -> Result<Export> {
     x.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<DJ_PLAYLISTS Version=\"1.0.0\">\n");
     let _ = writeln!(
         x,
-        "  <PRODUCT Name=\"locallibrary\" Version=\"{}\" Company=\"locallibrary\"/>",
-        env!("CARGO_PKG_VERSION")
+        "  <PRODUCT Name=\"{}\" Version=\"{}\" Company=\"{}\"/>",
+        esc(product.name),
+        esc(product.version),
+        esc(product.company)
     );
     let _ = writeln!(x, "  <COLLECTION Entries=\"{}\">", lib.tracks.len());
     ctx.phase_start(Phase::Scan, lib.tracks.len() as u64, 0);

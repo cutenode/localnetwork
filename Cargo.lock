@@ -4092,7 +4092,6 @@ dependencies = [
  "ring",
  "rusqlite",
  "rustc-hash",
- "rustfft",
  "same-file",
  "schemars",
  "serde",
@@ -4362,7 +4361,6 @@ dependencies = [
  "serde",
  "serde_json",
  "stratum-dsp",
- "symphonia",
  "tempfile",
  "thiserror 2.0.21",
 ]
@@ -4453,6 +4451,7 @@ dependencies = [
 name = "loclib-plugin"
 version = "0.1.0"
 dependencies = [
+ "codspeed-criterion-compat",
  "hegeltest",
  "indexmap",
  "jsonschema",
@@ -4510,7 +4509,6 @@ dependencies = [
  "rubato",
  "schemars",
  "serde",
- "symphonia",
  "tempfile",
  "thiserror 2.0.21",
 ]
