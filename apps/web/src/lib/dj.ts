@@ -13,6 +13,14 @@ export type DjSet = z.infer<typeof djSetSchema> & { uri: string };
 /** One account's records: what a project page and its press kit show for each of its DJs. */
 export type DjActivity = { did: string; handle: string | null; profile: DjProfile | null; sets: DjSet[] };
 
+/** What the dashboard home's locallibrary card says about the viewer's own records. */
+export type LocallibraryStatus = {
+	/** When their stats were last published, or null when they have none. */
+	statsAt: string | null;
+	/** Their newest set's page and name, and when they last published a set, or null when they have none. */
+	sets: { href: string; name: string; at: string | null } | null;
+};
+
 /** "40+" for a rounded count, "48" for an exact one. */
 export function countLabel(value: NonNullable<DjProfile['sets']>['total']): string | null {
 	if (!value) return null;
