@@ -75,11 +75,12 @@ describe('what the build produces', () => {
 		// The page scripts are TypeScript with nothing to compile but the types:
 		// what runs on soundcloud.com is the file in the repository with each
 		// annotation blanked out, so every line and column is where it was.
-		for (const name of ['content', 'downloaded-store', 'state-transfer']) {
+		for (const name of ['content', 'downloaded-store', 'state-transfer', 'theme-prepaint']) {
 			const shipped = read(`${name}.js`);
 			expect(shipped, name).toBe(blankSpace(source(`${name}.ts`)));
-			// Still a classic script: a content script cannot be a module, and the
-			// shared two define page globals, which a module cannot do.
+			// Still a classic script: a content script cannot be a module, the shared
+			// two define page globals, which a module cannot do, and the theme has to
+			// be on the page before the deferred module bundle runs.
 			expect(shipped, name).not.toMatch(/^\s*(import|export)\s/m);
 		}
 
@@ -99,7 +100,8 @@ describe('what the build produces', () => {
 				'manifest.json',
 				'offscreen.html',
 				'popup.html',
-				'state-transfer.js'
+				'state-transfer.js',
+				'theme-prepaint.js'
 			].sort()
 		);
 		// A sourcemap is several times the size of the bundle and ships the whole
@@ -130,11 +132,15 @@ describe('the popup page', () => {
 		}
 	});
 
-	it('loads the shared page script before the bundle that reads it', () => {
+	it('sets the theme, then loads the shared page script, before the bundle', () => {
 		const html = read('popup.html');
 		const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => m[1]);
-		expect(scripts[0]).toBe('./downloaded-store.js');
-		expect(scripts.slice(1).every((src) => src.includes('assets/'))).toBe(true);
+		expect(scripts.slice(0, 2)).toEqual(['./theme-prepaint.js', './downloaded-store.js']);
+		expect(scripts.slice(2).every((src) => src.includes('assets/'))).toBe(true);
+		// A classic script blocks the parser where it stands, so the class is on
+		// <html> before the stylesheet below it can paint anything.
+		expect(html.indexOf('theme-prepaint.js')).toBeLessThan(html.indexOf('rel="stylesheet"'));
+		expect(html).not.toMatch(/<script[^>]+type="module"[^>]+theme-prepaint/);
 		// The state file's script is the settings sheet's alone, which puts it on
 		// the page when it opens (src/lib/globals.ts), so no popup waits for it.
 		expect(html).not.toContain('state-transfer.js');
