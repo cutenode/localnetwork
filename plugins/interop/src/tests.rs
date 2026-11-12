@@ -3,10 +3,8 @@
 //! exports' `Source`), as `locallibrary export --format traktor|serato|engine|rekordbox` writes
 //! them.
 
-use std::io::pipe;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
+use std::sync::Arc;
 
 use hegel::TestCase;
 use hegel::generators as gs;
@@ -14,7 +12,8 @@ use loclib_interop::{Content, File};
 use loclib_model::analysis::{Beat, Cue};
 use loclib_model::model::{ONELIBRARY_ONLY, Playlist};
 use loclib_model::test_util::track;
-use loclib_plugin::{Capability, ExportFrom, Incoming, Manifest, PROTOCOL_VERSION, Peer, check_params, method};
+use loclib_plugin::test_util::FakeHost;
+use loclib_plugin::{Capability, ExportFrom, Manifest, check_params, method};
 use loclib_progress::Ctx;
 use serde_json::json;
 use tempfile::TempDir;
@@ -131,16 +130,13 @@ fn drive() -> Drive {
     Drive { dir, root, library, analysis, kept: FxHashMap::default() }
 }
 
-/// A read callback: its method and params.
-type Call = (String, Value);
+/// The reads [`read`] answers.
+const READS: [&str; 4] = ["drive.library", "tracks.analysis", "sets.get", "mix.reports.get"];
 
-/// The plugin served on a thread, over pipes, past `hello`, with a host whose drive `USB` is
-/// `drive` and that answers its reads as locallibrary does.
+/// The plugin served by a fake host whose drive `USB` is `drive` and that answers its reads as
+/// locallibrary does.
 struct Session {
-    host: Peer,
-    served: JoinHandle<()>,
-    answering: JoinHandle<()>,
-    calls: Arc<Mutex<Vec<Call>>>,
+    host: FakeHost,
     /// Where the drive is mounted, as the host says in each export's source.
     root: PathBuf,
 }
@@ -151,27 +147,16 @@ fn start(drive: &Drive) -> Session {
 
 /// [`start`], with a host that cancels the export once the plugin calls `cancel_at`.
 fn start_cancelling(drive: &Drive, cancel_at: Option<&'static str>) -> Session {
-    let (plugin_in, to_plugin) = pipe().unwrap();
-    let (from_plugin, plugin_out) = pipe().unwrap();
-    let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
-    let (host, incoming) = Peer::new(from_plugin, to_plugin);
-    let calls: Arc<Mutex<Vec<Call>>> = Arc::default();
-    let (to, log) = (host.clone(), calls.clone());
-    let (library, analysis, kept) = (drive.library.clone(), drive.analysis.clone(), drive.kept.clone());
-    let answering = std::thread::spawn(move || {
-        for msg in incoming {
-            let Incoming::Request(req) = msg else { continue };
-            log.lock().unwrap().push((req.method.clone(), req.params.clone()));
-            if cancel_at == Some(req.method.as_str()) {
-                // The export: the host's second request, after `hello`.
-                to.notify(method::CANCEL, &json!({ "id": 2 }));
-            }
-            to.respond(&req.id, read(&library, &analysis, &kept, &req.method, req.params));
-        }
-    });
-    let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
-    host.request::<_, Value>(method::HELLO, &hello).unwrap();
-    Session { host, served, answering, calls, root: drive.root.clone() }
+    let host = FakeHost::start(MANIFEST, serve);
+    let held = Arc::new((drive.library.clone(), drive.analysis.clone(), drive.kept.clone()));
+    for method in READS {
+        let held = held.clone();
+        host.on_read(method, move |params| read(&held.0, &held.1, &held.2, method, params));
+    }
+    if let Some(method) = cancel_at {
+        host.cancel_on(method);
+    }
+    Session { host, root: drive.root.clone() }
 }
 
 /// A read as the host answers a plugin: the reads the manifest's capabilities grant, only with
@@ -190,7 +175,7 @@ fn read(
         "tracks.analysis" => (Capability::AnalysisRead, &["drive", "combined", "ids", "waveform", "encoding"]),
         "sets.get" => (Capability::SetsRead, &["set", "venue"]),
         "mix.reports.get" => (Capability::SetsRead, &["id"]),
-        _ => return Err(RpcError::failed("denied", format!("{method:?} isn't a read a plugin can call"))),
+        _ => unreachable!("{method:?} isn't one of READS"),
     };
     assert!(manifest.capabilities.contains(&capability), "{method} needs {capability}");
     let Value::Object(params) = params else { return Err(RpcError::invalid_params("expected an object")) };
@@ -260,13 +245,11 @@ impl Session {
 
     /// The reads made so far, by method.
     fn calls(&self, method: &str) -> Vec<Value> {
-        self.calls.lock().unwrap().iter().filter(|(m, _)| m == method).map(|(_, p)| p.clone()).collect()
+        self.host.calls().into_iter().filter(|(m, _)| m == method).map(|(_, p)| p).collect()
     }
 
     fn stop(self) {
-        self.host.close();
-        self.served.join().unwrap();
-        self.answering.join().unwrap();
+        self.host.stop();
     }
 }
 
