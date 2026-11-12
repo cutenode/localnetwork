@@ -22,7 +22,8 @@ const thread = (skey: string, status: string, lastAuthor: string, project = 'neo
 	project: {
 		uri: `at://did:plc:root/computer.localnetwork.project/${project}`,
 		slug: project,
-		name: project === 'neon-tide' ? 'Neon Tide' : 'Harbour Lights'
+		name: project === 'neon-tide' ? 'Neon Tide' : 'Harbour Lights',
+		href: `/projects/${project}`
 	},
 	promoter: { did: 'did:plc:pat', handle: 'pat.test' },
 	participants: [
@@ -34,14 +35,19 @@ const thread = (skey: string, status: string, lastAuthor: string, project = 'neo
 	createdAt: '2026-10-01T00:00:00Z'
 });
 
-const data = (did: string, threads: BookingThreadView[], projects: ProjectView[] = []) => ({
+const data = (
+	did: string,
+	threads: BookingThreadView[],
+	projects: ProjectView[] = [],
+	sections: { performer: boolean; promoter: boolean } | null = null
+) => ({
 	viewer: viewer(did),
 	pendingRequests: 0,
 	unread: 0,
 	waiting: 0,
 	needs: [],
 	access: Promise.resolve([]),
-	sections: Promise.resolve(null),
+	sections: Promise.resolve(sections),
 	projects: Promise.resolve(projects),
 	threads
 });
@@ -85,6 +91,31 @@ it('tells a DJ inquiries come to them, and a promoter where to find DJs', async 
 
 	await expect.element(page.getByText(/When a promoter sends an inquiry/)).toBeInTheDocument();
 	await expect.element(page.getByRole('link', { name: 'Find DJs' })).not.toBeInTheDocument();
+	// A DJ by their own name, with the DJ section on and no project, gets inquiries too.
+	await rerender({ data: data('did:plc:neon', [], [], { performer: true, promoter: false }) });
+	await expect.element(page.getByText(/When a promoter sends an inquiry to you/)).toBeInTheDocument();
 	await rerender({ data: data('did:plc:pat', []) });
 	await expect.element(page.getByRole('link', { name: 'Find DJs' })).toHaveAttribute('href', '/projects');
+});
+
+it('filters threads with a listed DJ by their handle, beside an act', async () => {
+	const dj = {
+		...thread('b', 'open', 'did:plc:pat'),
+		project: {
+			uri: 'at://did:plc:mara/computer.localnetwork.profile/self',
+			slug: null,
+			name: 'Mara',
+			href: '/@mara.test'
+		}
+	};
+
+	await render(Page, { params: {}, form: null, data: data('did:plc:pat', [thread('a', 'open', 'did:plc:pat'), dj]) });
+
+	const filter = page.getByRole('navigation', { name: 'Filter by project' });
+	await expect
+		.element(filter.getByRole('link', { name: 'Mara' }))
+		.toHaveAttribute('href', '/dashboard/bookings?project=@mara.test');
+	await expect
+		.element(page.getByRole('link', { name: /^Show b Mara/ }))
+		.toHaveAttribute('href', '/dashboard/bookings/b');
 });

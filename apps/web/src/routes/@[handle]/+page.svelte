@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { Clock, ExternalLink, MapPin } from '@lucide/svelte';
+	import { CalendarPlus, Clock, ExternalLink, MapPin } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import Avatar from '#lib/components/Avatar.svelte';
 	import ManageLink from '#lib/components/ManageLink.svelte';
 	import PerformerFacts, { performerFacts } from '#lib/components/PerformerFacts.svelte';
 	import ProfileTabs from '#lib/components/ProfileTabs.svelte';
-	import { accountLabel, placeLabel } from '#lib/format.ts';
+	import { accountLabel, placeLabel, profileHref } from '#lib/format.ts';
 	import { LINK_KINDS, labelFor } from '#lib/taxonomy/options.ts';
 	import Tag from '#lib/ui/Tag.svelte';
 	import { webHref } from '#lib/web-url.ts';
@@ -21,6 +21,9 @@
 	const promoter = $derived(data.profile?.record.promoter);
 
 	const place = $derived(basics?.location && placeLabel({ location: basics.location }));
+
+	// A listed DJ takes inquiries from anyone but themself, as an act does from anyone but its managers.
+	const inquire = $derived(data.bookable && data.viewer?.did !== data.account.did);
 </script>
 
 <div class="border-b border-line">
@@ -44,7 +47,14 @@
 				{#each performer.genres as genre, index (index)}<li><Tag href="/projects?genres={encodeURIComponent(genre)}">{genre}</Tag></li>{/each}
 			</ul>
 		{/if}
-		<div class="flex flex-wrap gap-2 empty:hidden"><ManageLink viewer={data.viewer} profile={data.account} /></div>
+		<div class="flex flex-wrap gap-2 empty:hidden">
+			{#if inquire && !data.viewer}
+				<a href="/login?next={encodeURIComponent(profileHref(data.account))}" class="btn-primary"><CalendarPlus class="size-4" />Sign in to book</a>
+			{:else if inquire}
+				<a href="/dashboard/bookings/new?dj={data.account.did}" class="btn-primary"><CalendarPlus class="size-4" />Send inquiry</a>
+			{/if}
+			<ManageLink viewer={data.viewer} profile={data.account} />
+		</div>
 	</div>
 </div>
 

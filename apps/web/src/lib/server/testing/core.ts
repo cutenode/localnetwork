@@ -9,6 +9,7 @@ import { silentLogger } from '../logger';
 import { Notifier } from '../notifications/notifier';
 import { RateLimiter } from '../rate-limit';
 import { AccountService } from '../services/accounts';
+import { BookingPerformers } from '../services/booking-performers';
 import { BookingService } from '../services/bookings';
 import { DjListings } from '../services/dj-listings';
 import { EpkService } from '../services/epk';
@@ -106,7 +107,6 @@ export async function createTestServices(
 	const projects = new ProjectService(core, directory);
 	const staff = new StaffService(core);
 	const flags = new FlagService(core, staff);
-	const bookings = new BookingService(core, projects);
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);
 	const tracklists = new TracklistService(core);
@@ -124,6 +124,7 @@ export async function createTestServices(
 	const shows = new ShowService(core, projects, directory, indexedRepo, 0);
 	const profiles = new ProfileService(core, indexedRepo);
 	const djListings = new DjListings(core, indexedRepo);
+	const bookings = new BookingService(core, new BookingPerformers(core, projects, profiles, djListings));
 	const performers = new PerformerSearch(core, directory, projects, profiles);
 	const requests = new RequestService(core, projects, profiles, djListings);
 	const follows = new FollowService(core, directory, 0);

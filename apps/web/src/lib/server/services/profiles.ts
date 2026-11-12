@@ -22,6 +22,8 @@ import { actorRole } from './requests';
 
 const REAUTH = 'Sign in again to save your profile';
 
+export const profileUri = (did: string) => `at://${did}/${COLLECTION.profile}/self`;
+
 const blob = z.object({
 	$type: z.literal('blob'),
 	ref: z.object({ $link: z.string() }),
@@ -79,6 +81,19 @@ export class ProfileService {
 			: await this.repos.getRecord(did, COLLECTION.profile, 'self', { strict: true });
 
 		return found && this.toView(did, found.uri, found.cid, found.value);
+	}
+
+	/** The profiles the directory has of `dids` it can show, by DID, in as few lookups as it takes. */
+	async many(dids: string[]): Promise<Map<string, ProfileView>> {
+		const found = await this.repos.getRecords(dids.map(profileUri), { strict: true });
+
+		const views = dids.flatMap((did) => {
+			const record = found.get(profileUri(did));
+
+			return (record && this.toView(did, record.uri, record.cid, record.value)) ?? [];
+		});
+
+		return new Map(views.map((view) => [view.did, view]));
 	}
 
 	/** A profile the directory served, as `did`'s, or null (logged) when it doesn't match the lexicon. */

@@ -21,7 +21,12 @@ const thread = (status: string): BookingThreadView => ({
 	status,
 	title: 'Closing Night',
 	showDate: null,
-	project: { uri: 'at://did:plc:root/computer.localnetwork.project/2', slug: 'neon-tide', name: 'Neon Tide' },
+	project: {
+		uri: 'at://did:plc:root/computer.localnetwork.project/2',
+		slug: 'neon-tide',
+		name: 'Neon Tide',
+		href: '/projects/neon-tide'
+	},
 	promoter: { did: 'did:plc:pat', handle: 'pat.test' },
 	participants: [
 		{ did: 'did:plc:pat', handle: 'pat.test', role: 'promoter' },

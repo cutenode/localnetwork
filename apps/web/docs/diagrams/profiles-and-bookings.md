@@ -116,9 +116,10 @@ flowchart TD
   Rank --> Night["Save the night and ticked DJs<br/>as a planned show"]
   Page --> Save["Save to the planner"]
   Page --> Inquire["/dashboard/bookings/new"]
+  Dj --> Inquire
 ```
 
-Source: [`src/routes/projects/+page.server.ts`](../../src/routes/projects/+page.server.ts), [`src/routes/match/+page.server.ts`](../../src/routes/match/+page.server.ts), [`src/lib/server/services/performers.ts`](../../src/lib/server/services/performers.ts), [`src/lib/server/geocode.ts`](../../src/lib/server/geocode.ts), [`lua/lib/directory.lua`](../../lua/lib/directory.lua)
+Source: [`src/routes/projects/+page.server.ts`](../../src/routes/projects/+page.server.ts), [`src/routes/match/+page.server.ts`](../../src/routes/match/+page.server.ts), [`src/lib/server/services/performers.ts`](../../src/lib/server/services/performers.ts), [`src/routes/@[handle]/+page.svelte`](../../src/routes/@[handle]/+page.svelte), [`src/lib/server/geocode.ts`](../../src/lib/server/geocode.ts), [`lua/lib/directory.lua`](../../lua/lib/directory.lua)
 
 ## Planner flow
 
@@ -142,18 +143,23 @@ Source: [`src/lib/server/services/planner.ts`](../../src/lib/server/services/pla
 
 ## Booking inquiry
 
-Opening a booking thread. It reads the performer from the root's own repo, so a new manager is already in the thread.
+Opening a booking thread, with an act or a DJ Find DJs lists. It reads an act from the root's own repo, so a new manager is already in the thread. A DJ answers for themself.
 
 ```mermaid
 sequenceDiagram
   participant B as Promoter
   participant A as App
   participant R as Root's repo
+  participant H as HappyView
   participant S as Thread's space
   participant D as SQLite
   B->>A: Send the inquiry
-  A->>R: Performer record
-  A->>S: Root creates the space,<br/>adds promoter, managers
+  alt An act
+    A->>R: Its project record
+  else A listed DJ
+    A->>H: Their listing and profile
+  end
+  A->>S: Root creates the space, adds<br/>the promoter, then the act's<br/>managers or the DJ
   A->>D: Thread and<br/>participant rows
   A->>S: Root writes the<br/>opening status record
   A->>S: Inquiry in the<br/>promoter's repo
@@ -168,7 +174,7 @@ sequenceDiagram
   end
 ```
 
-Source: [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/routes/dashboard/bookings/new/+page.server.ts`](../../src/routes/dashboard/bookings/new/+page.server.ts), [`src/routes/dashboard/bookings/[skey]/+page.server.ts`](../../src/routes/dashboard/bookings/[skey]/+page.server.ts)
+Source: [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/lib/server/services/booking-performers.ts`](../../src/lib/server/services/booking-performers.ts), [`src/routes/dashboard/bookings/new/+page.server.ts`](../../src/routes/dashboard/bookings/new/+page.server.ts), [`src/routes/dashboard/bookings/[skey]/+page.server.ts`](../../src/routes/dashboard/bookings/[skey]/+page.server.ts)
 
 ## Booking thread messages
 
@@ -192,7 +198,7 @@ sequenceDiagram
   A->>S: Message in their repo, or<br/>the root's with onBehalfOf
   A->>D: Index it, inbox items for<br/>the other participants
   A->>D: Audit booking.message,<br/>its length, never its text
-  Note over P,A: A confirmed thread offers<br/>managers Announce this show
+  Note over P,A: A confirmed thread with an act<br/>offers its managers Announce this show
 ```
 
 Source: [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/routes/dashboard/bookings/[skey]/+page.server.ts`](../../src/routes/dashboard/bookings/[skey]/+page.server.ts), [`src/routes/dashboard/bookings/[skey]/+page.svelte`](../../src/routes/dashboard/bookings/[skey]/+page.svelte), [`src/routes/dashboard/+layout.server.ts`](../../src/routes/dashboard/+layout.server.ts)

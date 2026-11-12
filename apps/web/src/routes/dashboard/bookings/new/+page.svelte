@@ -7,7 +7,6 @@
 	import PlacePicker from '#lib/components/PlacePicker.svelte';
 	import { draftKey, FormDraft } from '#lib/form-draft.svelte.ts';
 	import { formFields } from '#lib/form-fields.svelte.ts';
-	import { placeLabel } from '#lib/format.ts';
 	import { FEE_TIERS, SET_TYPES } from '#lib/taxonomy/options.ts';
 	import Eyebrow from '#lib/ui/Eyebrow.svelte';
 	import type { PageProps } from './$types';
@@ -15,7 +14,7 @@
 	let { data, form }: PageProps = $props();
 
 	const draft = new FormDraft(
-		() => draftKey(data.viewer, `inquiry:${data.project.uri}:${data.show?.rkey ?? ''}`),
+		() => draftKey(data.viewer, `inquiry:${data.to.uri}:${data.show?.rkey ?? ''}`),
 		(element) => Object.fromEntries([...new FormData(element)].filter((entry): entry is [string, string] => !(entry[1] instanceof File)))
 	);
 
@@ -27,19 +26,19 @@
 	let sending = $state(false);
 </script>
 
-<svelte:head><title>Inquire with {data.project.profile.name} · Local Network</title></svelte:head>
+<svelte:head><title>Inquire with {data.to.name} · Local Network</title></svelte:head>
 
 <div class="flex max-w-3xl flex-col gap-8">
 	<header class="flex flex-col gap-4">
 		<div class="flex items-center gap-4">
-			<Avatar src={data.project.avatarUrl} name={data.project.profile.name} />
+			<Avatar src={data.to.avatarUrl} name={data.to.name} />
 			<div class="flex min-w-0 flex-col gap-1">
 				<Eyebrow>Booking inquiry</Eyebrow>
-				<h1 class="m-0 text-title font-semibold">{data.project.profile.name}</h1>
-				<p class="m-0 text-small text-fg-muted">{placeLabel(data.project.profile)}</p>
+				<h1 class="m-0 text-title font-semibold">{data.to.name}</h1>
+				{#if data.to.place}<p class="m-0 text-small text-fg-muted">{data.to.place}</p>{/if}
 			</div>
 		</div>
-		<p class="m-0 text-lede text-fg-muted">This opens a private thread with the project's managers. The details below go first, so they can answer quickly.</p>
+		<p class="m-0 text-lede text-fg-muted">This opens a private thread with {data.to.dj ? data.to.name : "the project's managers"}. The details below go first, so they can answer quickly.</p>
 		{#if data.show}<p class="m-0 text-small text-fg-muted">Filled in from <a class="link" href="/dashboard/planner/shows/{data.show.rkey}">{data.show.title}</a> in your planner.</p>{/if}
 	</header>
 	<form
@@ -96,7 +95,7 @@
 		{/key}
 		</div>
 		<FormActions {form} submitting={sending} kept>
-			<a href="/projects/{data.project.slug}" class="btn-ghost">Cancel</a>
+			<a href={data.to.href} class="btn-ghost">Cancel</a>
 			<button class="btn-primary" disabled={sending}>{sending ? 'Sending…' : 'Send inquiry'}</button>
 		</FormActions>
 	</form>

@@ -63,8 +63,9 @@
 
 	let toggle = $state<HTMLButtonElement>();
 
-	// A confirmed booking is a show the project's managers can announce, filled in from these details.
-	const announce = $derived(thread.status === 'confirmed' && thread.project && role === 'manager' ? `/dashboard/projects/${thread.project.slug}/shows/new?booking=${thread.skey}` : null);
+	// A confirmed booking is a show the project's managers can announce, filled in from these details. Shows belong to
+	// projects, so a listed DJ's own bookings have no announce step.
+	const announce = $derived(thread.status === 'confirmed' && thread.project?.slug && role === 'manager' ? `/dashboard/projects/${thread.project.slug}/shows/new?booking=${thread.skey}` : null);
 </script>
 
 <svelte:head><title>{thread.title ?? 'Booking'} · Local Network</title></svelte:head>
@@ -76,7 +77,7 @@
 		<Eyebrow>Booking thread</Eyebrow>
 		<h1 class="m-0 text-title font-semibold">{thread.title ?? 'Booking inquiry'}</h1>
 		<p class="m-0 flex flex-wrap gap-x-1.5 text-small text-fg-muted">
-			{#if thread.project}<span>With <a class="link" href="/projects/{thread.project.slug}">{thread.project.name}</a></span><span aria-hidden="true">·</span>{/if}
+			{#if thread.project}<span>With <a class="link" href={thread.project.href}>{thread.project.name}</a></span><span aria-hidden="true">·</span>{/if}
 			{#each thread.participants as participant, index (participant.did)}<span><Handle account={participant} /> ({participant.role}){index < thread.participants.length - 1 ? ',' : ''}</span>{/each}
 		</p>
 	</header>

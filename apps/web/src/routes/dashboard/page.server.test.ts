@@ -3,6 +3,7 @@ import { BSKY_PROFILE } from '#lib/nsid.ts';
 import { HappyViewClient } from '#lib/server/happyview/client.ts';
 import { IndexedRepo } from '#lib/server/happyview/indexed.ts';
 import { silentLogger } from '#lib/server/logger.ts';
+import { BookingPerformers } from '#lib/server/services/booking-performers.ts';
 import { BookingService } from '#lib/server/services/bookings.ts';
 import { DjListings } from '#lib/server/services/dj-listings.ts';
 import { FollowService } from '#lib/server/services/follows.ts';
@@ -180,11 +181,14 @@ it('streams what a slow directory holds up, and keeps booking threads while it i
 		fetch: () => new Promise((resolve) => (answer = resolve))
 	});
 
+	const projects = new ProjectService(f.t.core, slow);
+	const profiles = new ProfileService(f.t.core, new IndexedRepo(slow, silentLogger, 0));
+
 	const app = {
 		...f.t,
-		bookings: new BookingService(f.t.core, new ProjectService(f.t.core, slow)),
-		projects: new ProjectService(f.t.core, slow),
-		profiles: new ProfileService(f.t.core, new IndexedRepo(slow, silentLogger, 0))
+		bookings: new BookingService(f.t.core, new BookingPerformers(f.t.core, projects, profiles, f.t.djListings)),
+		projects,
+		profiles
 	};
 
 	const data = await overview(DJ, { app });

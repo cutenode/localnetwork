@@ -496,7 +496,8 @@ export type BookingThreadView = {
 	status: string;
 	title: string | null;
 	showDate: string | null;
-	project: { uri: string; slug: string; name: string } | null;
+	/** Who the inquiry went to: an act (with its project's `slug`) or a listed DJ (no slug), with their public page. */
+	project: { uri: string; slug: string | null; name: string; href: string } | null;
 	promoter: AccountView;
 	participants: (AccountView & { role: 'promoter' | 'manager' })[];
 	/** Who wrote in the thread last (a message, the inquiry, or a status change), to tell whose turn it is. */

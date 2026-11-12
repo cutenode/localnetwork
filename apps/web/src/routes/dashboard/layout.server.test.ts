@@ -3,6 +3,7 @@ import { COLLECTION } from '#lib/nsid.ts';
 import { HappyViewClient } from '#lib/server/happyview/client.ts';
 import { IndexedRepo } from '#lib/server/happyview/indexed.ts';
 import { silentLogger } from '#lib/server/logger.ts';
+import { BookingPerformers } from '#lib/server/services/booking-performers.ts';
 import { BookingService } from '#lib/server/services/bookings.ts';
 import { ProfileService } from '#lib/server/services/profiles.ts';
 import { ProjectService } from '#lib/server/services/projects.ts';
@@ -97,12 +98,13 @@ it('counts what waits on the account while the directory is down', async () => {
 	});
 
 	const projects = new ProjectService(f.t.core, down);
+	const profiles = new ProfileService(f.t.core, new IndexedRepo(down, silentLogger, 0));
 
 	const data = await opened(DJ, {
 		app: {
 			projects,
-			bookings: new BookingService(f.t.core, projects),
-			profiles: new ProfileService(f.t.core, new IndexedRepo(down, silentLogger, 0))
+			bookings: new BookingService(f.t.core, new BookingPerformers(f.t.core, projects, profiles, f.t.djListings)),
+			profiles
 		}
 	});
 

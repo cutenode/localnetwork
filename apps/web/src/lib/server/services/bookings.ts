@@ -13,8 +13,8 @@ import { nowIso, parseJson } from '../db';
 import type { BookingThreadRow } from '../db/schema';
 import { unlessOffline } from '../happyview/offline';
 import { isFresh } from '../notifications/notifier';
+import type { BookingPerformers } from './booking-performers';
 import { spaceWriter } from './own-repo';
-import type { ProjectService } from './projects';
 import { actorRole } from './requests';
 
 type EventKind = 'inquiry' | 'message' | 'status';
@@ -106,26 +106,20 @@ export const auditedProjects = (core: Pick<Core, 'db'>, project?: string) =>
 
 /**
  * Booking threads. Each thread is its own space under the root authority
- * whose member list is the promoter plus the project's managers; each party
- * writes messages into their own repo in that space.
+ * whose member list is the promoter plus whoever answers for the performer
+ * (an act's managers, or a listed DJ); each party writes messages into their
+ * own repo in that space.
  */
 export class BookingService {
 	constructor(
 		private readonly core: Core,
-		private readonly projects: ProjectService
+		private readonly performers: BookingPerformers
 	) {}
 
+	/** Opens a thread with the act or listed DJ `projectUri` names (BookingPerformers.forInquiry). */
 	async start(input: { actor: Viewer; projectUri: string; show: ShowDetails; message: string }): Promise<string> {
 		const { actor } = input;
-		// The root's repo, not the directory, so a manager change that's still being indexed is already in the thread.
-		const project = await this.projects.current(input.projectUri);
-
-		if (!project || project.status !== 'active') throw new NotFoundError('That project is not available');
-
-		if (project.managers.length === 0)
-			throw new UserError("This project hasn't been claimed yet, so nobody can answer an inquiry");
-
-		if (project.managers.includes(actor.did)) throw new UserError("You can't send an inquiry to your own project");
+		const performer = await this.performers.forInquiry(input.projectUri, actor.did);
 		const message = input.message.trim();
 
 		if (!message) throw new UserError('Write a message');
@@ -135,7 +129,7 @@ export class BookingService {
 		const { client, onBehalf } = await spaceWriter(this.core, actor);
 
 		const draft: BookingRecord = {
-			project: project.uri,
+			project: performer.uri,
 			show: JSON.parse(JSON.stringify(input.show)),
 			message,
 			createdAt: nowIso()
@@ -161,7 +155,7 @@ export class BookingService {
 
 		const participants: { did: string; role: 'promoter' | 'manager' }[] = [
 			{ did: actor.did, role: 'promoter' },
-			...project.managers.map((did) => ({ did, role: 'manager' as const }))
+			...performer.answerers.map((did) => ({ did, role: 'manager' as const }))
 		];
 
 		let ref: RecordRef;
@@ -177,7 +171,7 @@ export class BookingService {
 					.values({
 						spaceUri: space,
 						skey,
-						projectUri: project.uri,
+						projectUri: performer.uri,
 						promoterDid: actor.did,
 						status: 'open',
 						title: input.show.title,
@@ -196,7 +190,7 @@ export class BookingService {
 			const opened = validateRecord(COLLECTION.bookingStatus, {
 				status: 'open',
 				note: 'Thread opened',
-				project: project.uri,
+				project: performer.uri,
 				promoter: actor.did,
 				createdAt: now
 			});
@@ -239,8 +233,8 @@ export class BookingService {
 				action: 'booking.create',
 				subject: space,
 				subjectKind: 'booking',
-				summary: `Sent a booking inquiry to ${project.profile.name}`,
-				details: { project: project.uri, inquiry: ref.uri, showDate: input.show.date, onBehalf }
+				summary: `Sent a booking inquiry to ${performer.name}`,
+				details: { project: performer.uri, inquiry: ref.uri, showDate: input.show.date, onBehalf }
 			},
 			{ actorClient: onBehalf ? null : client }
 		);
@@ -506,11 +500,11 @@ export class BookingService {
 			// is, over whichever inquiry a sync reads first.
 			const opened = await this.openingRecord(input.space);
 			const projectUri = opened?.project ?? value.project;
-			const project = await this.projects.byUri(projectUri);
+			const performer = await this.performers.get(projectUri);
 
 			// Threads opened before the record named the promoter go by who sent it: nobody can send an inquiry to their
 			// own project (start), so one from the act's side never opens a thread.
-			const promoter = opened?.promoter ? opened.promoter === author : !project?.managers.includes(author);
+			const promoter = opened?.promoter ? opened.promoter === author : !performer?.answerers.includes(author);
 
 			if (!promoter) {
 				this.core.logger.warn("not opening a booking thread from an inquiry its promoter didn't send", {
@@ -537,7 +531,7 @@ export class BookingService {
 
 				const members = [
 					{ did: author, role: 'promoter' as const },
-					...(project?.managers ?? [])
+					...(performer?.answerers ?? [])
 						.filter((did) => participants.has(did))
 						.map((did) => ({ did, role: 'manager' as const }))
 				];
@@ -713,13 +707,13 @@ export class BookingService {
 				.execute();
 
 			if (participants.length === 0) return;
-			const project = await this.projects.byUri(thread.projectUri).catch(() => null);
+			const performer = await this.performers.get(thread.projectUri).catch(() => null);
 
 			// The act speaks as itself: which of its people wrote stays out (docs/adr/0004).
 			const data = {
 				skey: thread.skey,
 				title: thread.title,
-				projectName: project?.profile.name ?? null,
+				projectName: performer?.name ?? null,
 				from: author === thread.promoterDid ? ('promoter' as const) : ('act' as const)
 			};
 
@@ -847,13 +841,13 @@ export class BookingService {
 
 		const accounts = await this.core.accounts.views(participants.map((p) => p.did));
 
-		// Project names are all the directory adds, so a thread stays readable without one while it's down.
-		const projects = await unlessOffline(this.core.logger, () =>
-			this.projects.byUris(rows.map((row) => row.projectUri))
+		// Who it's with is all the directory adds, so a thread stays readable without it while it's down.
+		const performers = await unlessOffline(this.core.logger, () =>
+			this.performers.many(rows.map((row) => row.projectUri))
 		);
 
 		return rows.map((row) => {
-			const project = projects?.get(row.projectUri);
+			const performer = performers?.get(row.projectUri);
 
 			return {
 				space: row.spaceUri,
@@ -861,7 +855,9 @@ export class BookingService {
 				status: row.status,
 				title: row.title,
 				showDate: row.showDate,
-				project: project ? { uri: project.uri, slug: project.slug, name: project.profile.name } : null,
+				project: performer
+					? { uri: performer.uri, slug: performer.slug, name: performer.name, href: performer.href }
+					: null,
 				promoter: accounts.get(row.promoterDid),
 				participants: participants
 					.filter((p) => p.spaceUri === row.spaceUri)
