@@ -64,7 +64,7 @@ describe('accountHosts', () => {
 		expect(rest).toEqual(hostList.hosts);
 	});
 
-	// hosts.schema.json checks this in an editor; this keeps a bad edit from reaching the sign-up list.
+	// tools/schemas/schemas.test.ts holds this to hosts.schema.json; this keeps a bad edit from reaching the sign-up list.
 	it('lists each host once, at an https origin', () => {
 		const services = hostList.hosts.map((host) => host.service);
 
