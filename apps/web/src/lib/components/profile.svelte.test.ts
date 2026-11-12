@@ -72,6 +72,14 @@ describe('DjStats', () => {
 		await expect.element(page.getByText(/^From locallibrary, updated/)).toBeInTheDocument();
 	});
 
+	it('links the tool its numbers come from', async () => {
+		await render(DjStats, { profile: djProfileSchema.parse(DEMO_DJ_PROFILE) });
+
+		await expect
+			.element(page.getByRole('link', { name: 'locallibrary' }))
+			.toHaveAttribute('href', '/tools/locallibrary');
+	});
+
 	it('shows tags without a headline, and only the set shapes with a share', async () => {
 		await render(DjStats, {
 			profile: djProfileSchema.parse({
