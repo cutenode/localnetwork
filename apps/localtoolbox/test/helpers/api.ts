@@ -1,4 +1,4 @@
-// A fetch stub for SoundCloud's API: routes each request through `handler`
+// A fetch stub: routes each request through `handler`
 // (given the parsed URL, the init, and the 1-based call number) and records
 // every call. Unrouted requests answer 404.
 import { vi } from 'vitest';
@@ -40,9 +40,3 @@ export function mockFetch(handler: Route = () => undefined) {
 
 	return { fn, calls, paths: () => calls.map((c) => c.url.pathname + c.url.search) };
 }
-
-// A likes listing page as /users/<id>/likes returns it.
-export const likesListing = <Track>(tracks: (Track | null)[], nextHref: string | null = null) => ({
-	collection: tracks.map((track) => (track ? { track, created_at: '2026-01-01T00:00:00Z' } : null)),
-	next_href: nextHref
-});

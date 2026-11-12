@@ -12,10 +12,8 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import * as fc from 'fast-check';
 import { loadContentScript, disposeContentScripts } from '../helpers/load.ts';
-import { mockFetch } from '../helpers/api.ts';
 import type { ChromeMock } from '../helpers/chrome.ts';
 import {
-	apiClientEntry,
 	render,
 	playlistPage,
 	playlistRow,
@@ -28,9 +26,10 @@ import {
 	trackPage,
 	moreMenu,
 	hydrationScript,
+	pageLoaded,
 	ART
 } from '../helpers/dom.ts';
-import type { DetailedTrack, TracksAnswer } from '$lib/types';
+import type { TracksAnswer } from '$lib/types';
 
 declare const chrome: ChromeMock;
 
@@ -343,49 +342,95 @@ describe('the page changing under it', () => {
 });
 
 describe('download details for any page', () => {
-	// A client id, so that the page's tracks really are asked about, and every
-	// answer to every question is a failure. The script reads the page's
-	// hydration once, as it starts, so it starts again over a page with one.
-	beforeEach(async () => {
-		disposeContentScripts();
-		hydrationScript([apiClientEntry()]);
-		await loadContentScript();
-	});
+	// Something shaped like a track or a user, with every field free to be any
+	// JSON at all: the readers take SoundCloud's answers on trust for nothing.
+	// The one fixed permalink is a row pageArb draws, so some runs do learn
+	// about a track the page shows.
+	const answerArb = () => {
+		const thing = fc.record(
+			{
+				kind: fc.constantFrom('track', 'user', 'playlist'),
+				permalink_url: fc.oneof(fc.constant('https://soundcloud.com/a/b'), fc.string({ maxLength: 30 })),
+				id: fc.jsonValue({ maxDepth: 1 }),
+				downloadable: fc.jsonValue({ maxDepth: 1 }),
+				has_downloads_left: fc.jsonValue({ maxDepth: 1 }),
+				purchase_url: fc.jsonValue({ maxDepth: 1 }),
+				purchase_title: fc.jsonValue({ maxDepth: 1 }),
+				genre: fc.jsonValue({ maxDepth: 1 }),
+				artwork_url: fc.jsonValue({ maxDepth: 1 }),
+				user: fc.jsonValue({ maxDepth: 2 }),
+				description: fc.jsonValue({ maxDepth: 1 })
+			},
+			{ requiredKeys: ['kind', 'permalink_url'] }
+		);
 
-	it('answers something a panel can render, even when nothing can be looked up', async () => {
-		let asked = 0;
+		return fc.oneof(
+			fc.jsonValue({ maxDepth: 3 }),
+			thing,
+			fc.array(thing, { maxLength: 4 }),
+			fc.record({ collection: fc.array(fc.record({ track: thing }), { maxLength: 3 }) })
+		);
+	};
+
+	// The paths page-data.ts forwards, and anything else an event could carry.
+	const pathOfAnswer = () =>
+		fc.oneof(
+			fc.constantFrom('/tracks', '/resolve', '/users/1/web-profiles', '/users/soundcloud:users:1/web-profiles'),
+			fc.string({ maxLength: 20 })
+		);
+
+	// A detail that is not even "path, newline, JSON": any string, or no string.
+	const rawDetailArb = () => fc.oneof(fc.string({ maxLength: 40 }), fc.jsonValue({ maxDepth: 1 }));
+
+	it('answers something a panel can render, whatever the page has loaded', async () => {
 		await fc.assert(
-			fc.asyncProperty(pageArb(), pathArb(), async (html, path) => {
-				const api = mockFetch(() => ({ ok: false, status: 500, json: async () => ({}) }));
-				render(html, path);
-				const answer = chrome.testSendMessage({ type: 'GET_DOWNLOAD_DETAILS' });
-				await vi.advanceTimersByTimeAsync(20000);
-				const response = await answer;
+			fc.asyncProperty(
+				pageArb(),
+				pathArb(),
+				fc.array(fc.tuple(pathOfAnswer(), answerArb()), { maxLength: 4 }),
+				fc.array(rawDetailArb(), { maxLength: 2 }),
+				async (html, path, answers, raw) => {
+					render(html, path);
 
-				if (api.calls.length > 0) asked += 1;
-				expect(response).toBeTypeOf('object');
-				expect(response.ok).toBeTypeOf('boolean');
-				expect(response).toBeOneOf([
-					// Nothing came back, so the most a track can carry is what its own
-					// row showed (a purchase link, marked partial), or nothing at all.
-					expect.objectContaining({
-						ok: true,
-						tracks: expect.toSatisfy(
-							(tracks: DetailedTrack[]) =>
-								Array.isArray(tracks) &&
-								tracks.every((track) => track.details === null || track.details?.partial === true)
-						)
-					}),
-					// A failure names its cause, in `error` or in a `reason`.
-					expect.objectContaining({ ok: false, error: expect.any(String) }),
-					expect.objectContaining({ ok: false, reason: expect.any(String) })
-				]);
-			}),
-			// Most runs ask nothing: a page with no tracks, or tracks an earlier run
-			// already failed on (a failure is remembered). About one in seven does,
-			// so this many runs all but always include several that did.
+					for (const [apiPath, body] of answers) pageLoaded(apiPath, body);
+
+					for (const detail of raw) document.dispatchEvent(new CustomEvent('tbx:page-data', { detail }));
+					const response = await chrome.testSendMessage({ type: 'GET_DOWNLOAD_DETAILS' });
+
+					expect(response.ok).toBe(true);
+					expect(Array.isArray(response.tracks)).toBe(true);
+
+					for (const track of response.tracks) {
+						expect(track.artworkUrl).toBeTypeOf('string');
+
+						// Not loaded yet, or the row's own purchase link and no more, or
+						// what the page loaded about this very track, in the shapes the
+						// panel reads.
+						if (track.details === null || track.details?.partial === true) continue;
+						expect(track.details).toMatchObject({
+							permalink: track.permalink,
+							downloadable: expect.any(Boolean),
+							hasDownloadsLeft: expect.any(Boolean),
+							purchaseUrl: expect.any(String),
+							genre: expect.any(String)
+						});
+					}
+
+					const profiles = await chrome.testSendMessage({
+						type: 'GET_ARTIST_PROFILES',
+						permalinks: ['/a', '/b', path]
+					});
+
+					expect(profiles.ok).toBe(true);
+
+					for (const profile of profiles.profiles) {
+						expect(['/a', '/b', path]).toContain(profile.permalink);
+						expect(profile.bio.length).toBeLessThanOrEqual(1000);
+						expect(profile.links.length).toBeLessThanOrEqual(20);
+					}
+				}
+			),
 			{ numRuns: 80 }
 		);
-		expect(asked).toBeGreaterThan(0);
 	});
 });

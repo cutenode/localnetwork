@@ -24,8 +24,9 @@ in the session queue instead, and you mark the batch from there once the files a
 
 ## No download
 
-A track that's been looked up and has no download link at all gets a dark **nodl** pill, so you
-can skip it at a glance. Lookups are kept for thirty days, then asked again.
+A track the page has loaded that has no download link at all gets a dark **nodl** pill, so you can
+skip it at a glance. The pills follow what SoundCloud's own page has loaded: the rows it showed
+first right away, the rest as you scroll. A reload starts over from what the page loads again.
 
 ## The queue button
 

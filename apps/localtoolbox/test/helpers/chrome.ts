@@ -7,8 +7,8 @@
 // script and the Manager panel rely on to see each other's marks.
 //
 // The two storage areas are separate stores, as they are in Chrome: `local`
-// keeps the marks and the looked-up details for good, `session` keeps the
-// queue for as long as the browser is open.
+// keeps the marks and the lists for good, `session` keeps the queue and the
+// artists' profiles for as long as the browser is open.
 //
 // In a test the global `chrome` is always this mock (test/setup.ts installs a
 // fresh one before every test), but TypeScript knows it as the real API. A
@@ -18,13 +18,11 @@
 import { vi, type Mock } from 'vitest';
 import manifest from '../../src/manifest.json';
 import type {
-	DetailsProgress,
 	LocalArea,
 	PageAnswers,
-	PageProgress,
 	PageRequest,
 	PageType,
-	ProfilesProgress,
+	ProfileEntry,
 	RoundTripRequest,
 	SaveGateRequest,
 	SessionArea,
@@ -49,6 +47,8 @@ export type TabStub = Partial<chrome.tabs.Tab>;
 export interface PopupSession {
 	view: StoredView;
 	downloader: Kept;
+	/** artists.svelte.ts PROFILES_KEY: the profiles, by artist path, for the browser session. */
+	artistProfiles: Record<string, ProfileEntry>;
 }
 
 /** A value an area may hold: one this version writes, or any JSON, as older versions may have left. */
@@ -91,18 +91,10 @@ export interface AnswerFields {
 export type PageReply = AnswerFields | Json | undefined;
 
 /**
- * A progress report as a test may write one: under either kind's type, with any of either kind's
- * fields, so a panel can be shown one that is not for it.
+ * A message as Chrome delivers one to runtime.onMessage: a question as the scripts send them, or
+ * any other JSON, which they ignore.
  */
-type ProgressFields = { type: PageProgress['type'] } & Partial<
-	Omit<DetailsProgress, 'type'> & Omit<ProfilesProgress, 'type'>
->;
-
-/**
- * A message as Chrome delivers one to runtime.onMessage: a question or a progress report as the
- * scripts send them, or any other JSON, which they ignore.
- */
-export type DeliveredMessage = PageRequest | ProgressFields | Json;
+export type DeliveredMessage = PageRequest | Json;
 
 export type StorageListener = (
 	changes: Record<string, chrome.storage.StorageChange>,
@@ -130,18 +122,19 @@ type AreaGet = (keys?: string | string[] | null) => Promise<Seed>;
 
 type AreaSet = (items: Seed) => Promise<void>;
 
+type AreaRemove = (keys: string | string[]) => Promise<void>;
+
 type SetAccessLevel = (options?: { accessLevel?: `${chrome.storage.AccessLevel}` }) => Promise<void>;
 
 /** A storage area as the stub keeps one. */
 export interface StubArea {
 	get: Mock<AreaGet>;
 	set: Mock<AreaSet>;
+	remove: Mock<AreaRemove>;
 }
 
 /** Everything the scripts send with chrome.runtime.sendMessage, and whatever answers it. */
-type RuntimeSendMessage = (
-	message: PageProgress | SaveGateRequest | WalkGateRequest | RoundTripRequest
-) => Promise<PageReply>;
+type RuntimeSendMessage = (message: SaveGateRequest | WalkGateRequest | RoundTripRequest) => Promise<PageReply>;
 
 type GetContexts = (filter: chrome.runtime.ContextFilter) => Promise<object[]>;
 
@@ -172,6 +165,7 @@ export interface ChromeStub {
 	};
 	runtime: {
 		onMessage: StubEvent<MessageListener>;
+		onInstalled: StubEvent<() => void>;
 		sendMessage: Mock<RuntimeSendMessage>;
 		getManifest: Mock<GetManifest>;
 		getContexts: Mock<GetContexts>;
@@ -283,6 +277,19 @@ export function createChrome({
 
 			// Chrome delivers onChanged after the write completes, asynchronously.
 			queueMicrotask(() => emitChanged(changes, name));
+		}),
+		remove: vi.fn<AreaRemove>(async (keys) => {
+			refuseShut(name);
+			const held = stores[name];
+			const changes: Record<string, chrome.storage.StorageChange> = {};
+
+			for (const key of [keys].flat()) {
+				if (!(key in held)) continue;
+				changes[key] = { oldValue: clone(held[key]) };
+				Reflect.deleteProperty(held, key);
+			}
+
+			if (Object.keys(changes).length > 0) queueMicrotask(() => emitChanged(changes, name));
 		})
 	});
 
@@ -349,8 +356,13 @@ export function createChrome({
 				addListener: vi.fn<Subscribe<MessageListener>>((fn) => onMessageListeners.add(fn)),
 				removeListener: vi.fn<Subscribe<MessageListener>>((fn) => onMessageListeners.delete(fn))
 			},
-			// The content script broadcasts progress with this; by default nobody
-			// is listening, which Chrome reports as a rejected promise.
+			// Recorded only: a test fires the worker's listener by calling it.
+			onInstalled: {
+				addListener: vi.fn<Subscribe<() => void>>(),
+				removeListener: vi.fn<Subscribe<() => void>>()
+			},
+			// By default nobody is listening, which Chrome reports as a rejected
+			// promise.
 			sendMessage: vi.fn<RuntimeSendMessage>(() => Promise.reject(new Error('Receiving end does not exist'))),
 			// The manifest the build ships, as Chrome answers with it.
 			// SAFETY: src/manifest.json is a Manifest V3 manifest (build.test.ts checks it against the

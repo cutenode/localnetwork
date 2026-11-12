@@ -3,9 +3,8 @@
   settings and three panel options, out to a JSON file and back.
 
   What the file carries is not one tool's: the marks are painted on the
-  SoundCloud page, the looked-up details are the content script's cache, the
-  session queue is behind the count in every header, and the options belong to
-  three panels. A backup of all that is about the extension, which is what
+  SoundCloud page, the session queue is behind the count in every header, and
+  the options belong to three panels. A backup of all that is about the extension, which is what
   this sheet is for, and here it can be taken from any view rather than only
   from one tool.
 
@@ -13,10 +12,9 @@
   nothing about what would come out of it. A row of numbers says how much
   there is to lose.
 
-  Importing adds by default, and every part of it does: marks merge, the
-  newer lookups win, listed and queued tracks and added search sites go on the
-  end without landing twice, and an option you have already chosen is left
-  alone. Replacing is a
+  Importing adds by default, and every part of it does: marks merge, listed
+  and queued tracks and added search sites go on the end without landing
+  twice, and an option you have already chosen is left alone. Replacing is a
   switch you have to find and turn on, and then it is the exact opposite in
   every one of those parts. See `apply` in state-transfer.ts, which does the
   writing for the two that have no store of their own.
@@ -34,7 +32,6 @@
   import { Switch } from '$lib/components/ui/switch/index.ts';
   import { Textarea } from '$lib/components/ui/textarea/index.ts';
   import { downloadText } from '$lib/clipboard.ts';
-  import { details } from '$lib/details.svelte.ts';
   import { downloaded } from '$lib/downloaded.svelte.ts';
   import { transfer } from '$lib/globals.ts';
   import { reloadPrefs } from '$lib/prefs.svelte.ts';
@@ -49,12 +46,10 @@
   import { listed } from '../../tools/manager/listed.svelte.ts';
   import { artists } from '../../tools/artists/artists.svelte.ts';
 
-  // All three are read once here and followed after, so the numbers below are
-  // live: a lookup made in a SoundCloud tab, or an import run in another
-  // window, moves them without this sheet being reopened. None is awaited:
-  // the strip shows zeroes for the turn it takes them to land.
-  details.start();
-
+  // Both are read once here and followed after, so the numbers below are
+  // live: an import run in another window moves them without this sheet being
+  // reopened. Neither is awaited: the strip shows zeroes for the turn it takes
+  // them to land.
   listed.start();
 
   artists.start();
@@ -71,7 +66,7 @@
 
   // What has been pasted in is *not* kept, unlike every other text box in the
   // extension: what goes in here is a whole state file, which can be megabytes
-  // of marks and looked-up details, and it is emptied the moment it is read.
+  // of marks and lists, and it is emptied the moment it is read.
   let pasted = $state('');
 
   // Nor is the replace switch. It comes back off every time the popup does,
@@ -102,7 +97,6 @@
 
   const HELD = [
     { label: 'marks', of: () => downloaded.count },
-    { label: 'looked up', of: () => details.count },
     { label: 'listed', of: () => listed.count },
     { label: 'artists', of: () => artists.count },
     { label: 'queued', of: () => queue.count },
@@ -140,8 +134,6 @@
     const parts = [];
 
     if (holds.marks > 0) parts.push(count(holds.marks, 'mark'));
-
-    if (holds.details > 0) parts.push(count(holds.details, 'looked-up track'));
 
     if (holds.listed > 0) parts.push(`${count(holds.listed, 'track')} listed`);
 
@@ -238,12 +230,11 @@
     const parts = replace
       ? [
           count(result.marks, 'mark'),
-          `${count(result.details, 'track')} of download details`,
           `${count(put.added, 'track')} listed`,
           count(who.added, 'artist'),
           `${count(queued, 'track')} queued`,
         ]
-      : [count(result.marks, 'new mark'), `${count(result.details, 'track')} of download details`];
+      : [count(result.marks, 'new mark')];
 
     if (!replace && put.added > 0) parts.push(`${count(put.added, 'track')} onto the list`);
 

@@ -48,10 +48,13 @@ beforeEach(async () => {
 });
 
 describe('the format it reads and writes', () => {
-	it('names itself, and keeps the details under the content script’s own key', () => {
+	it('names itself, and the storage keys of the lists it carries', () => {
 		expect(state.FORMAT).toBe('toolbox.manager.state');
 		expect(state.VERSION).toBe(1);
-		expect(state.DETAILS_KEY).toBe('details');
+		// Nor is there a key for download details: they last as long as the tab
+		// that loaded them (content.ts), so there is nothing stored to carry.
+		// @ts-expect-error -- asking after a key it no longer has
+		expect(state.DETAILS_KEY).toBeUndefined();
 		// Named, but never reached for: the store that owns the list hands it
 		// over and takes it back, as the queue's does.
 		expect(state.LISTED_KEY).toBe('listed');
@@ -82,7 +85,6 @@ describe('parse', () => {
 			format: state.FORMAT,
 			version: 1,
 			downloaded: {},
-			details: {},
 			listed: [],
 			artists: [],
 			queue: [],
@@ -238,6 +240,9 @@ describe('parse', () => {
 		});
 	});
 
+	// Download details are no longer written, but a file an older version
+	// exported carries a month of them, and it still has to read back: they
+	// are checked as closely as ever, and then left out (see apply).
 	describe('details', () => {
 		const withDetails = (details: FieldValue) => file({ details });
 
@@ -274,7 +279,7 @@ describe('parse', () => {
 		// taken then still has to read back.
 		it('allows details with no genre at all', () => {
 			const { genre: _drop, ...noGenre } = knownDetails({ permalink: '/a/b' });
-			expect(state.parse(json(withDetails({ '/a/b': noGenre }))).details['/a/b']).toEqual(noGenre);
+			expect(state.parse(json(withDetails({ '/a/b': noGenre }))).details!['/a/b']).toEqual(noGenre);
 		});
 
 		// The cover is kept for the same reason as the genre, and arrived the same
@@ -285,18 +290,18 @@ describe('parse', () => {
 
 			for (const artworkUrl of [art, '']) {
 				const entry = knownDetails({ permalink: '/a/b', artworkUrl });
-				expect(state.parse(json(withDetails({ '/a/b': entry }))).details['/a/b']).toEqual(entry);
+				expect(state.parse(json(withDetails({ '/a/b': entry }))).details!['/a/b']).toEqual(entry);
 			}
 
 			const { artworkUrl: _drop, ...noArtwork } = knownDetails({ permalink: '/a/b', artworkUrl: art });
-			expect(state.parse(json(withDetails({ '/a/b': noArtwork }))).details['/a/b']).toEqual(noArtwork);
+			expect(state.parse(json(withDetails({ '/a/b': noArtwork }))).details!['/a/b']).toEqual(noArtwork);
 		});
 
 		it('allows a null id and an absent one', () => {
 			const entry = knownDetails({ permalink: '/a/b', id: null });
-			expect(state.parse(json(withDetails({ '/a/b': entry }))).details['/a/b'].id).toBe(null);
+			expect(state.parse(json(withDetails({ '/a/b': entry }))).details!['/a/b'].id).toBe(null);
 			const { id: _drop, ...noId } = entry;
-			expect(state.parse(json(withDetails({ '/a/b': noId }))).details['/a/b']).toEqual(noId);
+			expect(state.parse(json(withDetails({ '/a/b': noId }))).details!['/a/b']).toEqual(noId);
 		});
 
 		it('refuses an entry filed under a track other than the one it names', () => {
@@ -518,10 +523,19 @@ describe('snapshot', () => {
 	// A listed track it is given, whose details name the track it is on.
 	const held = listedEntry({ permalink: '/a/b', details: knownDetails({ permalink: '/a/b' }) });
 
-	it('takes both storage keys and the options as they are, and the queue and list from its caller', async () => {
-		globalThis.chrome = createChrome({
-			storage: { downloaded: { '/a/b': ISO }, details: { '/a/b': knownDetails({ permalink: '/a/b' }) } }
-		});
+	// An older version's details cache may still be in storage on the day this
+	// one is installed over it (src/background.ts clears it); it is not carried.
+	it('takes the marks and the options as they are, and the queue and lists from its caller', async () => {
+		const cached = {
+			permalink: '/a/b',
+			downloadable: true,
+			hasDownloadsLeft: true,
+			purchaseUrl: '',
+			purchaseTitle: '',
+			at: AT
+		};
+
+		globalThis.chrome = createChrome({ storage: { downloaded: { '/a/b': ISO }, details: { '/a/b': cached } } });
 		localStorage.setItem('pref:background', '0');
 		localStorage.setItem('pref:sort', 'page');
 		localStorage.setItem('pref:hide-downloaded', '1');
@@ -531,9 +545,8 @@ describe('snapshot', () => {
 			version: 1,
 			exportedAt: ISO,
 			downloaded: { '/a/b': ISO },
-			details: { '/a/b': knownDetails({ permalink: '/a/b' }) },
 			listed: [held],
-			artists: [artistEntry()],
+			artists: [artistEntry({ profile: null })],
 			queue: [queued],
 			prefs: { background: false, sort: 'page', hideDownloaded: true },
 			searchSites: [searchSite()]
@@ -546,7 +559,6 @@ describe('snapshot', () => {
 			version: 1,
 			exportedAt: ISO,
 			downloaded: {},
-			details: {},
 			listed: [],
 			artists: [],
 			queue: [],
@@ -560,8 +572,19 @@ describe('snapshot', () => {
 		globalThis.chrome = createChrome({
 			storage: { artists: [artistEntry({ permalink: '/in-storage' })] }
 		});
-		expect((await state.snapshot([], [], [artistEntry()])).artists).toEqual([artistEntry()]);
-		expect(chrome.storage.local.get).toHaveBeenCalledWith(['downloaded', 'details']);
+		const without = artistEntry({ profile: null });
+		expect((await state.snapshot([], [], [without])).artists).toEqual([without]);
+		expect(chrome.storage.local.get).toHaveBeenCalledWith('downloaded');
+	});
+
+	// A profile is what a SoundCloud page loaded about somebody else's account,
+	// kept for the browser session and no longer (artists.svelte.ts). A file
+	// would keep it for good, so every artist goes out with none.
+	it('carries each artist without the profile it was handed', async () => {
+		const failed = artistEntry({ permalink: '/gone', profile: { unavailable: true, at: AT } });
+		const doc = await state.snapshot([], [], [artistEntry(), failed]);
+		expect(doc.artists).toEqual([artistEntry({ profile: null }), artistEntry({ permalink: '/gone', profile: null })]);
+		expect(JSON.stringify(doc)).not.toContain('agent@example.com');
 	});
 
 	// The list, like the queue, is handed in rather than read out of storage:
@@ -572,8 +595,8 @@ describe('snapshot', () => {
 			storage: { listed: [listedEntry({ permalink: '/in/storage' })] }
 		});
 		expect((await state.snapshot([], [held])).listed).toEqual([held]);
-		// What it does read from storage is the marks and the details, together.
-		expect(chrome.storage.local.get).toHaveBeenCalledWith(['downloaded', 'details']);
+		// What it does read from storage is the marks, and only those.
+		expect(chrome.storage.local.get).toHaveBeenCalledWith('downloaded');
 	});
 
 	// The queue on screen is the queue in the file. Its store keeps it in memory
@@ -630,50 +653,35 @@ describe('serialize and filename', () => {
 });
 
 describe('apply', () => {
-	it('adds marks and details to an empty store, and reports what it did', async () => {
+	it('adds marks and options to an empty store, and reports what it did', async () => {
 		const result = await state.apply(state.parse(json(file())));
-		expect(result).toEqual({ marks: 1, details: 1, prefs: 3 });
-		expect(chrome.testStore()).toEqual({
-			downloaded: { '/bicep/glue': ISO },
-			details: { '/bicep/glue': knownDetails() }
-		});
+		expect(result).toEqual({ marks: 1, prefs: 3 });
+		expect(chrome.testStore()).toEqual({ downloaded: { '/bicep/glue': ISO } });
 		expect(localStorage.getItem('pref:background')).toBe('1');
 		expect(localStorage.getItem('pref:sort')).toBe('page');
 		expect(localStorage.getItem('pref:hide-downloaded')).toBe('0');
 	});
 
-	it('takes details only where they are newer than what is known', async () => {
-		const stored = knownDetails({ purchaseTitle: 'already here', at: AT });
-		globalThis.chrome = createChrome({ storage: { details: { '/bicep/glue': stored } } });
+	// An older version's file carries a month of download details. They are
+	// read (parse still checks them) and go nowhere: details last as long as
+	// the tab that loaded them now, so neither an add nor a replace writes them,
+	// and a cache an older version left is not touched either.
+	it('reads an older file’s details and writes none of them', async () => {
+		const left = { '/keep/me': { unavailable: true, at: AT } };
+		globalThis.chrome = createChrome({ storage: { details: left } });
+		const older = state.parse(json(file({ details: { '/bicep/glue': knownDetails({ at: AT + 1 }) } })));
+		expect(older.details).toEqual({ '/bicep/glue': knownDetails({ at: AT + 1 }) });
 
-		const older = file({ details: { '/bicep/glue': knownDetails({ at: AT - 1 }) } });
-		expect((await state.apply(state.parse(json(older)))).details).toBe(0);
-		expect(chrome.testStore().details['/bicep/glue']).toEqual(stored);
-
-		const same = file({ details: { '/bicep/glue': knownDetails({ at: AT }) } });
-		expect((await state.apply(state.parse(json(same)))).details).toBe(0);
-		expect(chrome.testStore().details['/bicep/glue']).toEqual(stored);
-		// Nothing taken, so nothing written back: the cache is not rewritten for
-		// an import that changed none of it.
+		expect(await state.apply(older)).toEqual({ marks: 1, prefs: 3 });
+		expect(await state.apply(older, { replace: true })).toEqual({ marks: 1, prefs: 3 });
+		expect(await chrome.storage.local.get('details')).toEqual({ details: left });
 		const wrote = chrome.storage.local.set.mock.calls.map(([items]) => Object.keys(items));
 		expect(wrote.flat()).not.toContain('details');
-
-		const newer = file({ details: { '/bicep/glue': knownDetails({ at: AT + 1 }) } });
-		expect((await state.apply(state.parse(json(newer)))).details).toBe(1);
-		expect(chrome.testStore().details['/bicep/glue'].at).toBe(AT + 1);
-	});
-
-	it('keeps details of tracks the file says nothing about', async () => {
-		globalThis.chrome = createChrome({
-			storage: { details: { '/keep/me': { unavailable: true, at: AT } } }
-		});
-		await state.apply(state.parse(json(file())));
-		expect(Object.keys(chrome.testStore().details).sort()).toEqual(['/bicep/glue', '/keep/me']);
 	});
 
 	it('writes nothing for a file with no data in it', async () => {
 		const empty = state.parse(json({ format: state.FORMAT, version: 1 }));
-		expect(await state.apply(empty)).toEqual({ marks: 0, details: 0, prefs: 0 });
+		expect(await state.apply(empty)).toEqual({ marks: 0, prefs: 0 });
 		expect(chrome.storage.local.set).not.toHaveBeenCalled();
 	});
 
@@ -687,7 +695,7 @@ describe('apply', () => {
 		globalThis.chrome = createChrome({ session: { queue: [held] } });
 
 		const doc = file({ queue: [queueEntry(), queueEntry({ permalink: '/c/d', details: null })] });
-		expect(await state.apply(state.parse(json(doc)))).toEqual({ marks: 1, details: 1, prefs: 3 });
+		expect(await state.apply(state.parse(json(doc)))).toEqual({ marks: 1, prefs: 3 });
 		expect(chrome.testStore('session').queue).toEqual([held]);
 		expect(chrome.storage.session.get).not.toHaveBeenCalled();
 		expect(chrome.storage.session.set).not.toHaveBeenCalled();
@@ -727,40 +735,18 @@ describe('apply', () => {
 describe('apply, asked to replace', () => {
 	const replacing = (doc: FieldValue) => state.apply(state.parse(json(doc)), { replace: true });
 
-	it('makes the marks and the details cache exactly the file’s', async () => {
-		globalThis.chrome = createChrome({
-			storage: {
-				downloaded: { '/gone/soon': ISO },
-				details: { '/gone/soon': { unavailable: true, at: AT } }
-			}
-		});
+	it('makes the marks exactly the file’s', async () => {
+		globalThis.chrome = createChrome({ storage: { downloaded: { '/gone/soon': ISO } } });
 
-		expect(await replacing(file())).toEqual({ marks: 1, details: 1, prefs: 3 });
-		expect(chrome.testStore()).toEqual({
-			downloaded: { '/bicep/glue': ISO },
-			details: { '/bicep/glue': knownDetails() }
-		});
+		expect(await replacing(file())).toEqual({ marks: 1, prefs: 3 });
+		expect(chrome.testStore()).toEqual({ downloaded: { '/bicep/glue': ISO } });
 	});
 
-	// The one case an add would have refused outright: a file whose details are
-	// older than what is cached. Replacing takes them anyway: the file is the
-	// answer, not a second opinion.
-	it('takes the file’s details even where what is stored is newer', async () => {
-		globalThis.chrome = createChrome({
-			storage: { details: { '/bicep/glue': knownDetails({ at: AT + 1000 }) } }
-		});
-		const older = file({ details: { '/bicep/glue': knownDetails({ at: AT }) } });
-		expect((await replacing(older)).details).toBe(1);
-		expect(chrome.testStore().details['/bicep/glue'].at).toBe(AT);
-	});
-
-	it('empties both for a file that carries neither', async () => {
-		globalThis.chrome = createChrome({
-			storage: { downloaded: { '/gone/soon': ISO }, details: { '/gone/soon': knownDetails() } }
-		});
+	it('empties the marks for a file that carries none', async () => {
+		globalThis.chrome = createChrome({ storage: { downloaded: { '/gone/soon': ISO } } });
 		const bare = { format: state.FORMAT, version: 1 };
-		expect(await replacing(bare)).toEqual({ marks: 0, details: 0, prefs: 0 });
-		expect(chrome.testStore()).toEqual({ downloaded: {}, details: {} });
+		expect(await replacing(bare)).toEqual({ marks: 0, prefs: 0 });
+		expect(chrome.testStore()).toEqual({ downloaded: {} });
 	});
 
 	it('overrules an option that is already set', async () => {
@@ -879,7 +865,6 @@ describe('summary', () => {
 	it('counts what a parsed file holds, and says when it was written', () => {
 		expect(state.summary(state.parse(json(file())))).toEqual({
 			marks: 1,
-			details: 1,
 			listed: 1,
 			artists: 1,
 			queue: 1,
@@ -893,7 +878,6 @@ describe('summary', () => {
 		const bare = state.parse(json({ format: state.FORMAT, version: 1 }));
 		expect(state.summary(bare)).toEqual({
 			marks: 0,
-			details: 0,
 			listed: 0,
 			artists: 0,
 			queue: 0,

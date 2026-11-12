@@ -7,12 +7,11 @@
 // demand (when the popup asks) and mutates nothing.
 //
 // The Manager tool adds four things, each in its own section below:
-//   - "Download details": on demand, finds out whether each listed track can
-//     be downloaded on SoundCloud and where its purchase link points, from
-//     data already in the page wherever possible and from SoundCloud's public
-//     API (anonymously, in bulk, cached for a month) only for the rest. One
-//     lookup runs at a time; a request that arrives while one is under way
-//     joins it instead of competing with it;
+//   - "What the page has loaded": whether each listed track can be
+//     downloaded on SoundCloud and where its purchase link points, and who
+//     its uploader is, kept from the data SoundCloud's own page loads (its
+//     hydration, and its API answers as page-data.ts hands them over). It
+//     asks SoundCloud for nothing, and keeps nothing beyond the tab;
 //   - "Markers": paints an overlay on the cover art of tracks the user has
 //     downloaded, and a "nodl" pill on tracks known to have no download link.
 //     These are purely visual DOM additions;
@@ -41,7 +40,8 @@
 // or lazy-load triggering is performed; whatever track rows exist in the DOM
 // are extracted.
 //
-// Depends on the TbxDownloaded global from downloaded-store.ts, loaded first.
+// Depends on the TbxDownloaded global from downloaded-store.ts, loaded first,
+// and on page-data.ts in the page's main world for what the page loads.
 
 (() => {
 	// The shared shapes this script produces or reads (src/lib/types.d.ts), then its own.
@@ -57,8 +57,6 @@
 
 	type TrackDetails = Tbx.TrackDetails;
 
-	type DetailsCacheEntry = Tbx.DetailsCacheEntry;
-
 	type QueueEntry = Tbx.QueueEntry;
 
 	type ProfileLink = Tbx.ProfileLink;
@@ -72,10 +70,6 @@
 	type DetailsAnswer = Tbx.DetailsAnswer;
 
 	type ProfilesAnswer = Tbx.ProfilesAnswer;
-
-	type DetailsProgress = Tbx.DetailsProgress;
-
-	type ProfilesProgress = Tbx.ProfilesProgress;
 
 	type SaveGateRequest = Tbx.SaveGateRequest;
 
@@ -93,7 +87,7 @@
 	type DetectedPage = { type: PageType; key: string; source: 'dom' | 'url' };
 
 	/**
-	 * A track object from SoundCloud's API or the page's hydration, as far as this script reads
+	 * A track object from the page's hydration or its API answers, as far as this script reads
 	 * one (apiTrackOf): a string it did not send is ''. A playlist's tracks past its first few are
 	 * bare `{ id }` stubs.
 	 */
@@ -114,28 +108,11 @@
 		avatar_url: string;
 	}
 
-	/** A playlist object, read (apiPlaylistOf). */
-	type ApiPlaylist = { permalink_url: string; tracks?: ApiTrack[] };
-
-	/**
-	 * A user object from /resolve, which is free to hold anything: each field is checked as read.
-	 */
-	type ApiUser = JsonObject;
-
 	/**
 	 * One entry of the page's `window.__sc_hydration`. `data` is whatever that hydratable is (a
 	 * track, a playlist, a user, the API client) and is read according to its name.
 	 */
 	type HydrationEntry = { hydratable: string; data?: Json };
-
-	/** What an API request asks, besides the client id (which apiGet adds). */
-	interface ApiQuery {
-		url?: string;
-		ids?: string;
-		limit?: number;
-		offset?: number;
-		linked_partitioning?: number;
-	}
 
 	/** A layout the markers and the queue button paint (MARKER_TARGETS). */
 	interface MarkerTarget {
@@ -150,39 +127,6 @@
 		variant: 'small' | 'large';
 		/** The track as the queue keeps it. */
 		fields: (row: ParentNode) => RowFields;
-	}
-
-	/** One lookup, queued or running (see "one lookup at a time"). */
-	interface Job {
-		/** The page its tracks are on. */
-		page: { type: PageType; key: string };
-		/** That page's tracks. */
-		items: { permalink: string; itemIndex?: number }[];
-		/** The permalinks it was queued for. */
-		wanted: string[];
-		wantedSet: Set<string>;
-		clientId: string;
-		/** Whether SoundCloud turned the client id away. */
-		unauthorized: boolean;
-		/** Whether it gave up on a page the API cannot see. */
-		unseen: boolean;
-		/** Settles once it has run; set as it is queued. */
-		done?: Promise<void>;
-	}
-
-	/** What a request that waited on a lookup is told once its tracks are settled. */
-	type LookupOutcome = { unauthorized: boolean; unseen: boolean; joined: boolean };
-
-	/** A request waiting for its tracks to be settled. */
-	interface Waiter {
-		wanted: string[];
-		/** The lookup they were left to. */
-		job: Job;
-		/** Whether that lookup was already queued when it asked. */
-		joined: boolean;
-		resolve: (outcome: LookupOutcome) => void;
-		/** The permalinks already reported: sent, or settled as failures. */
-		told: Set<string>;
 	}
 
 	// Track rows on playlist pages. Regular playlists (/user/sets/name) use
@@ -862,160 +806,45 @@
 		return result;
 	};
 
-	// ---- Download details ----------------------------------------------------
+	// ---- What the page has loaded ----------------------------------------------
 	//
 	// Whether a track can be downloaded is not visible in playlist or Likes
 	// rows: SoundCloud's own "Download file" control sits in each row's More
 	// menu, which only renders when opened, and playlist rows show no purchase
-	// link at all. Everything the page already holds is used first. SoundCloud
-	// is asked only for what is left, in bulk, anonymously and read-only, and
-	// the answers are kept for a month so nothing is asked twice.
-	//
-	// Free sources (no request):
+	// link at all. The page knows all the same. SoundCloud's web app draws every
+	// row from a track object it loaded as JSON, and that object says whether
+	// the track can be downloaded and where its purchase link goes. This script
+	// keeps what the page loaded and asks SoundCloud for nothing:
 	//   1. The page's hydration data. SoundCloud server-renders a <script>
 	//      element containing `window.__sc_hydration = [...]`, the JSON the
 	//      page was built from. Being a DOM element, its text can be read here
-	//      (parsed as JSON, never executed). It holds full track objects for a
-	//      track page's track and for the first few tracks of a playlist, bare
-	//      {id} stubs for the playlist's other tracks, and on every page the
-	//      public API client id the page itself uses. Every full track in it
-	//      is harvested into the cache when the page loads. It describes the
-	//      page loaded by the last full navigation, so after in-app navigation
-	//      it is stale (the client id in it stays valid).
-	//   2. Likes rows (List view) render the purchase link and its label; see
-	//      extractLikedTracks. That settles purchase links for those rows;
-	//      only "downloadable" is unknown.
+	//      (parsed as JSON, never executed). It holds the track of a track page,
+	//      the first few tracks of a playlist and the user of a profile page.
+	//   2. The answers SoundCloud's own API client receives while the page is
+	//      browsed, which page-data.ts hands over from the main world: the rest
+	//      of a playlist's tracks as its rows are drawn, the likes listing as it
+	//      is scrolled, a track, playlist or profile after in-app navigation,
+	//      and the links on a profile.
+	//   3. Likes rows (List view) render the purchase link and its label; see
+	//      extractLikedTracks. That settles purchase links for those rows even
+	//      before anything else is known.
+	// A track the page has not loaded has no details yet, and the panels say
+	// how to get them: scroll down to it, or open it. Rows the page has drawn
+	// are tracks it has loaded, so in practice that is a row not drawn yet.
 	//
-	// Requests happen only when the panel asks and only for tracks the cache
-	// does not know. All go to SoundCloud's public API (api-v2.soundcloud.com,
-	// the one the page calls), anonymous (that client id, no cookies, no auth
-	// header), GET only, public track metadata:
-	//   - playlist pages: /tracks?ids= for the hydration's stubs, 50 per
-	//     request, in playlist order, only as far as the rendered rows need.
-	//     After in-app navigation, one /resolve of the playlist URL first, for
-	//     its track ids (half the bytes of re-fetching the page, and no
-	//     server-side render).
-	//   - Likes pages: the likes listing (/users/<id>/likes) the page itself
-	//     loads, in page order, sized to the rendered rows and at most 200 per
-	//     request: one request instead of one per track. The user id comes
-	//     from the hydration (one /resolve of the profile URL after in-app
-	//     navigation).
-	//   - track pages: nothing of their own. The one track is in the page's
-	//     own hydration, so a track page loaded fresh is answered without a
-	//     request at all; after in-app navigation it falls to the resolve
-	//     below, which is one request for one track.
-	//   - whatever those did not cover (private tracks, a filtered Likes list,
-	//     rows past the listing's reach): /resolve?url= per track, four at a
-	//     time. Failures are remembered for a day so they are not retried on
-	//     every panel open.
-	// The API accepts cross-origin calls from soundcloud.com only, which is why
-	// the content script makes them (from the page's origin) rather than the
-	// panel. 429 answers are backed off and retried a couple of times.
-	//
-	// Everything learned goes into the cache as it arrives, not when a lookup
-	// ends, and is written back shortly after, so a lookup cut short by a
-	// reload keeps what it had, markers appear as answers come in, and a later
-	// request benefits from an earlier one's progress. Lookups themselves run
-	// one at a time; see "one lookup at a time" below.
+	// What is learned stays in this tab's memory and goes with the page: a
+	// reload starts again from what the reloaded page loads.
 
-	const API_ORIGIN = 'https://api-v2.soundcloud.com';
-	const API_BATCH = 50; // ids per /tracks request
-	// How many requests of one kind are in the air at once. Every request here
-	// costs a round trip to SoundCloud rather than any work worth speaking of,
-	// so what a lookup takes is how many of them it waits through end to end.
-	// One at a time, five hundred tracks is ten round trips of half a second to
-	// two seconds each: ten seconds of a progress bar for a list the panel
-	// could otherwise have drawn in two. Four at a time was measured against
-	// the live API at a quarter to a fifth of the wall clock and not one `429`;
-	// six was no better, the server being the queue by then. Four also stays
-	// polite to the API.
-	const API_CONCURRENCY = 4;
-	// How many rows are resolved individually before the lookup decides the
-	// answer is always going to be no. See "nothing to be seen" in runJob.
-	const PROBE = 5;
-	const LIKES_PAGE = 200; // likes per listing request (the API's maximum)
-	const LIKES_MAX_PAGES = 10; // how deep the listing is followed (2,000 likes)
 	const HYDRATION_PREFIX = 'window.__sc_hydration = ';
-	const DETAILS_KEY = 'details';
-	const DETAILS_TTL_MS = 30 * 24 * 60 * 60 * 1000; // a track's details
-	const FAILURE_TTL_MS = 24 * 60 * 60 * 1000; // "could not be looked up"
-	const SAVE_DELAY_MS = 1000; // how soon after learning something the cache is written back
-
-	// How many tracks the cache keeps. Above this the oldest are dropped.
-	//
-	// chrome.storage.local is one 10 MB area and nothing waits on a write to
-	// it, so a cache that outgrew the quota would fail its write silently and
-	// go on failing. A cache that cannot be written is empty on the next visit,
-	// which sends every track on every page back to SoundCloud, forever. The
-	// cap costs a handful of extra requests for pages not seen in weeks; having
-	// no cap costs all of them. At roughly 290 bytes an entry this is about 6
-	// MB, which leaves the marks (downloaded-store.ts) room beside it.
-	const CACHE_MAX = 20000;
-
-	const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-	/**
-	 * Runs `task` over `items`, at most `limit` of them in the air at once,
-	 * taking the next item as each worker frees up (rather than in fixed
-	 * rounds, so one slow answer does not hold the others).
-	 *
-	 * `keepGoing` is checked before each item is picked up. All three callers
-	 * have one, so it is required rather than defaulted: a playlist lookup stops
-	 * as soon as it has what the rendered rows asked for (the requests already
-	 * out are the ones it had to make to find that out), and the other two stop
-	 * on a 401.
-	 *
-	 * A task that throws rethrows here at once. The caller has somewhere else to
-	 * go (a playlist batch that failed is resolved track by track instead) and
-	 * waiting for the other requests would only delay it. Those keep their
-	 * place: they take no new item, and whatever they still learn is kept. Each
-	 * worker catches for itself so that a straggler failing after the pool has
-	 * been left behind is never an unhandled rejection.
-	 */
-	const pool = <T>(items: T[], limit: number, task: (item: T) => Promise<void>, keepGoing: () => boolean) => {
-		let next = 0;
-		let failed = false;
-		let fail: (cause: unknown) => void;
-
-		const failure = new Promise((_resolve, reject) => {
-			fail = reject;
-		});
-
-		const worker = async () => {
-			while (next < items.length && !failed && keepGoing()) {
-				try {
-					await task(items[next++]);
-				} catch (e) {
-					failed = true;
-					fail(e);
-				}
-			}
-		};
-
-		const workers = Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-		// Whichever of the two loses the race is settled and never looked at
-		// again; a rejection nobody is waiting for is one the browser reports.
-		failure.catch(() => {});
-
-		return Promise.race([workers, failure]);
-	};
-
-	class ApiError extends Error {
-		declare status: number;
-
-		/** @param status the HTTP status SoundCloud answered with. */
-		constructor(status: number) {
-			super(`HTTP ${status}`);
-			this.status = status;
-		}
-	}
+	// What page-data.ts and this script say to each other (see page-data.ts).
+	const PAGE_DATA_EVENT = 'tbx:page-data';
+	const PAGE_DATA_HELLO = 'tbx:page-data-hello';
 
 	// ---- reading what SoundCloud sends
 	//
-	// The hydration and the API answer in JSON (chrome.storage keeps it too),
-	// and nothing past the readers below asks what kind of value something is:
-	// each takes whatever came and answers with what it reads, or a stand-in
-	// for nothing ('', {}, []).
+	// The hydration and the API's answers are JSON, and nothing past the
+	// readers below asks what kind of value something is: each takes whatever
+	// came and answers with what it reads, or a stand-in for nothing ('', {}, []).
 
 	const isString = (value: Json | undefined): value is string => typeof value === 'string';
 	const stringOf = (value: Json | undefined) => (isString(value) ? value : '');
@@ -1048,15 +877,6 @@
 		};
 	};
 
-	const apiPlaylistOf = (value: Json | undefined): ApiPlaylist => {
-		const playlist = objectOf(value);
-
-		return {
-			permalink_url: stringOf(playlist.permalink_url),
-			tracks: Array.isArray(playlist.tracks) ? playlist.tracks.map(apiTrackOf) : undefined
-		};
-	};
-
 	const hydrationEntryOf = (value: Json): HydrationEntry => {
 		const entry = objectOf(value);
 
@@ -1086,90 +906,20 @@
 		}
 	};
 
-	const hydratable = (hydration: HydrationEntry[] | null, name: string) =>
-		(hydration || []).find((entry) => entry.hydratable === name)?.data;
-
-	// Hydration from the <script> in the DOM, parsed once per document (the
-	// script never changes; it is stale after in-app navigation).
-	/** Undefined until the script has been looked for. */
-	let hydrationMemo: HydrationEntry[] | null | undefined;
-
+	// Hydration from the <script> in the DOM, or null where there is none. Read
+	// once, when the script starts: it never changes, and after in-app
+	// navigation it describes the page before.
 	const domHydration = () => {
-		if (hydrationMemo !== undefined) return hydrationMemo;
-		hydrationMemo = null;
-
 		for (const script of document.scripts) {
 			if (!script.src && script.textContent.includes(HYDRATION_PREFIX)) {
-				hydrationMemo = parseHydration(script.textContent);
-				break;
+				return parseHydration(script.textContent);
 			}
 		}
 
-		return hydrationMemo;
+		return null;
 	};
 
-	// The client id the page's own API client uses, or '' where the hydration
-	// names none.
-	const pageClientId = () => stringOf(objectOf(hydratable(domHydration(), 'apiClient')).id);
-
-	// GET from the API: `url` is a path or a full URL (the listing's
-	// next_href). Anonymous: no cookies or auth header ride along.
-	/** @returns the answer's JSON, which is whatever SoundCloud sent. */
-	const apiGet = async (url: string, params: ApiQuery, clientId: string): Promise<Json> => {
-		const target = new URL(url, API_ORIGIN);
-
-		for (const [key, value] of Object.entries(params)) {
-			// A number goes in as its digits.
-			target.searchParams.set(key, String(value));
-		}
-
-		target.searchParams.set('client_id', clientId);
-
-		for (let attempt = 0; ; attempt++) {
-			const response = await fetch(target, { credentials: 'omit' });
-
-			if (response.ok) return response.json();
-
-			// Rate limited: back off briefly and retry a couple of times.
-			if (response.status === 429 && attempt < 2) {
-				await sleep(1500 * (attempt + 1));
-				continue;
-			}
-
-			throw new ApiError(response.status);
-		}
-	};
-
-	// Answers to /resolve, kept for the life of the document.
-	//
-	// The details lookups ask only when the hydration cannot say (after in-app
-	// navigation, when the script in the DOM still describes the page before
-	// it), and the artists tool asks for each profile. All of them ask for
-	// something that does not change while the page is open: a playlist's track
-	// ids, a user. Without this each panel opened on such a page spends a
-	// request learning the same thing again.
-	//
-	// The promise is what is kept, so two lookups asking at once make one
-	// request. A failed one is dropped rather than remembered: the next lookup
-	// should be able to try again.
-	/** 'playlist:<path>' or 'user:<name>' -> the request, which answers what apiGet does. */
-	const resolved: Map<string, Promise<Json>> = new Map();
-
-	const resolveOnce = (key: string, get: () => Promise<Json>) => {
-		if (!resolved.has(key)) {
-			resolved.set(
-				key,
-				get().catch((e) => {
-					resolved.delete(key);
-					throw e;
-				})
-			);
-		}
-
-		return resolved.get(key)!;
-	};
-
-	// The cover an API track object names: its own artwork, else the uploader's
+	// The cover a track object names: its own artwork, else the uploader's
 	// avatar, which is what SoundCloud's own rows show for a track that has no
 	// artwork of its own, so it is the same picture the page would have
 	// rendered. The API answers with the legacy `-large` size token (100 px),
@@ -1177,7 +927,7 @@
 	// 1080 × 1080.
 	const apiArtworkUrl = (track: ApiTrack) => track.artwork_url || track.avatar_url;
 
-	// The subset of an API track object this extension keeps.
+	// The subset of a track object this extension keeps.
 	/** @returns what the cache files, before `learn` stamps it. */
 	const detailsOf = (track: ApiTrack): Omit<KnownDetails, 'at'> => ({
 		id: track.id,
@@ -1188,174 +938,133 @@
 		purchaseTitle: collapse(track.purchase_title),
 		// What the uploader filed it under. '' is an answer ("no genre set"),
 		// which the panel shows as "none".
-		//
-		// `hasEveryField` below handles entries cached before this field
-		// existed: with no `genre` key, an entry counts as stale and is asked
-		// about again, mostly for free, off the page's own hydration, rather
-		// than showing an unknown genre for the month its own lifetime had
-		// left.
 		genre: collapse(track.genre),
 		// The cover, for the rows that never showed one.
 		//
 		// A page lazy-loads its thumbnails as they scroll into view, so a list
 		// read without scrolling through all of it hands over rows with no
 		// artwork URL at all, and those rows would draw a placeholder in the
-		// panel for tracks whose artwork exists. Every track object SoundCloud
-		// sends here (the page's own hydration, /tracks?ids=, the likes
-		// listing, /resolve) names its artwork, and this keeps it. No extra
-		// request is made for it, and the page's own URL still wins where there
-		// is one (see collectDownloadDetails): that rendition is already in the
-		// browser's cache.
+		// panel for tracks whose artwork exists. Every track object the page
+		// loads names its artwork, and this keeps it. The page's own URL still
+		// wins where there is one (see collectDownloadDetails): that rendition
+		// is already in the browser's cache.
 		artworkUrl: apiArtworkUrl(track)
 	});
 
-	// Details of the tracks among API objects (listing items are unwrapped by
-	// the caller); objects that are not tracks, or lack a permalink, are dropped.
-	const detailsOfTracks = (objects: ApiTrack[]) =>
-		objects.flatMap((track) => (track.kind === 'track' && track.permalink_url ? [detailsOf(track)] : []));
+	// A profile's path: a slash and one segment.
+	const ARTIST_PATH = /^\/[^/?#\s]+$/;
+	const LINKS_MAX = 20; // links per profile
 
-	// ---- the cache: permalink path -> details (+ `at`), or a remembered
-	// failure ({ unavailable: true, at }) so it is not retried right away.
-	const detailsCache: Map<string, DetailsCacheEntry> = new Map();
+	const isArtistPath = (path: Json): path is string => isString(path) && ARTIST_PATH.test(path);
 
-	const ttlOf = (details: DetailsCacheEntry) => (details.unavailable ? FAILURE_TTL_MS : DETAILS_TTL_MS);
+	// `collapse` takes a string or nothing; the API is free to send anything.
+	const wordsOf = (value: Json | undefined) => collapse(stringOf(value));
 
-	// The fields detailsOf keeps. An entry that is missing one of them was
-	// written by an older version of this extension, before that field was
-	// kept.
-	const DETAILS_FIELDS = [
-		'id',
-		'permalink',
-		'downloadable',
-		'hasDownloadsLeft',
-		'purchaseUrl',
-		'purchaseTitle',
-		'genre',
-		'artworkUrl'
-	];
+	// The links a profile lists, as the panel keeps them: the network SoundCloud
+	// files each under, the uploader's own title for it, and the address.
+	// Anything that is not an http(s) address is dropped.
+	const profileLinksOf = (list: Json): ProfileLink[] =>
+		listOf(list)
+			.map(objectOf)
+			.filter((one) => /^https?:\/\//i.test(stringOf(one.url).trim()))
+			.slice(0, LINKS_MAX)
+			.map((one) => ({
+				network: stringOf(one.network || one.service).toLowerCase(),
+				title: wordsOf(one.title),
+				url: stringOf(one.url).trim()
+			}));
 
-	// Whether an entry has every field this version writes.
-	//
-	// Age is not the only way a cache entry goes off. The details kept here
-	// have grown (the genre was added to them after the cache had been filling
-	// up for a month), and an entry from before that will never gain the field
-	// by waiting: it is fresh, so nothing asks about the track again, so the
-	// panel says the genre is unknown about a track SoundCloud would have named
-	// the genre of in the same request it was going to make anyway. An entry
-	// that predates a field is therefore stale whatever its age.
-	//
-	// This costs one round of looking up, once, on each page whose tracks were
-	// cached by an older version, and most of that is free, because the
-	// hydration harvest runs on every page load and refills from the page
-	// itself. In return, adding a field to detailsOf is enough: nobody has to
-	// remember to invalidate anything.
-	//
-	// Remembered failures are exempt: they are not details and have none of
-	// these fields, and their own day-long TTL is what expires them.
-	const hasEveryField = (details: DetailsCacheEntry) =>
-		details.unavailable === true || DETAILS_FIELDS.every((field) => field in details);
+	// ---- what has been learned, by permalink path
 
-	const isFresh = (details: DetailsCacheEntry | undefined): details is DetailsCacheEntry =>
-		!!details && Number.isFinite(details.at) && details.at > Date.now() - ttlOf(details) && hasEveryField(details);
+	const detailsCache: Map<string, KnownDetails> = new Map();
 
-	// Usable details (fresh, and not a remembered failure).
-	const isKnown = (details: DetailsCacheEntry | undefined): details is KnownDetails =>
-		isFresh(details) && !details.unavailable;
+	// The accounts the page has loaded, by profile path ('/<user>'): a whole
+	// user where the page loaded one (a profile page; it has a `description`,
+	// even an empty one), else the short form every track carries of its
+	// uploader. A short one never replaces a whole one.
+	const usersSeen: Map<string, JsonObject> = new Map();
 
-	// Whether the cache has an answer for a permalink (details or a remembered
-	// failure), so nothing more needs asking for it.
-	const isSettled = (permalink: string) => isFresh(detailsCache.get(permalink));
+	// The links on the profiles whose links the page loaded, by user id. A
+	// profile page loads them; nothing else does.
+	const linksSeen: Map<number, ProfileLink[]> = new Map();
 
-	const loadDetailsCache = async () => {
-		const stored = (await chrome.storage.local.get(DETAILS_KEY))[DETAILS_KEY];
-		detailsCache.clear();
+	const isWholeUser = (user: JsonObject) => 'description' in user;
 
-		for (const [permalink, details] of Object.entries(stored || {})) {
-			if (isFresh(details)) detailsCache.set(permalink, details);
-		}
+	// Keeps a user, unless it is a short one for an account already held whole.
+	const takeUser = (user: JsonObject) => {
+		const path = pathOf(stringOf(user.permalink_url));
+
+		if (!isArtistPath(path)) return;
+		const held = usersSeen.get(path);
+
+		if (held && isWholeUser(held) && !isWholeUser(user)) return;
+		usersSeen.set(path, user);
 	};
 
-	// `entries` as an object, at most `limit` of them: the ones learned most
-	// recently, since those are the pages being browsed now and the ones a
-	// second visit is likeliest to want. (Every entry has been through isFresh,
-	// so `at` is a number.)
-	const newest = (entries: [string, DetailsCacheEntry][], limit: number) =>
-		Object.fromEntries(
-			entries.length <= limit ? entries : [...entries].sort((a, b) => b[1].at - a[1].at).slice(0, limit)
-		);
+	// Where the tracks and users in an answer are kept: a like wraps its track
+	// or playlist, a listing its collection, a playlist its tracks (whole ones,
+	// and bare `{ id }` stubs past its first few, which are passed over), and
+	// every track and playlist names its uploader.
+	const NESTED = ['collection', 'tracks', 'track', 'playlist', 'user'];
 
-	// Writes the cache back, merged with what is stored (another tab may have
-	// added entries meanwhile), without expired entries and capped at CACHE_MAX.
-	const saveDetailsCache = async () => {
-		const stored = (await chrome.storage.local.get(DETAILS_KEY))[DETAILS_KEY];
-		const merged: Map<string, DetailsCacheEntry> = new Map();
+	// Everything an answer holds goes into the cache, and the markers are
+	// repainted to match.
+	const learn = (value: Json | undefined) => {
+		const walk = (one: Json | undefined) => {
+			if (Array.isArray(one)) {
+				one.forEach(walk);
 
-		for (const [permalink, details] of Object.entries(stored || {})) {
-			if (isFresh(details)) merged.set(permalink, details);
-		}
+				return;
+			}
 
-		for (const [permalink, details] of detailsCache) merged.set(permalink, details);
-		const entries = [...merged];
+			if (!isObject(one)) return;
+			const track = apiTrackOf(one);
+
+			if (track.kind === 'track' && track.permalink_url) {
+				const details = detailsOf(track);
+				detailsCache.set(details.permalink, { ...details, at: Date.now() });
+			}
+
+			if (one.kind === 'user') takeUser(one);
+
+			for (const key of NESTED) walk(one[key]);
+		};
+
+		walk(value);
+		requestMarkers();
+	};
+
+	// A profile's links answer is a list of links and nothing else, so it is
+	// filed under the user its path names (`soundcloud:users:<id>` or the bare
+	// id) rather than read for tracks.
+	const LINKS_PATH = /^\/users\/(?:soundcloud:users:)?(\d+)\/web-profiles$/;
+
+	// One answer from page-data.ts: the API path, a newline, then the body.
+	// Anything else on the event, or a body that is not JSON, is let by.
+	const onPageData = (event: Event) => {
+		const detail: unknown = event instanceof CustomEvent ? event.detail : undefined;
+
+		if (typeof detail !== 'string') return;
+		const cut = detail.indexOf('\n');
+		let body: Json;
 
 		try {
-			await chrome.storage.local.set({ [DETAILS_KEY]: newest(entries, CACHE_MAX) });
+			body = JSON.parse(detail.slice(cut + 1));
 		} catch (_e) {
-			// The area would not take it: the marks share it, and an entry can be
-			// bigger than the cap was drawn for. Half as much rather than nothing:
-			// a smaller cache still spares SoundCloud most of the asking, while a
-			// write that gave up would send every track back to it next visit.
-			await chrome.storage.local.set({
-				[DETAILS_KEY]: newest(entries, Math.floor(CACHE_MAX / 2))
-			});
-		}
-	};
-
-	// The cache is written back a moment after it changes (one write per burst
-	// of answers), and when a lookup ends.
-	let saveTimer: ReturnType<typeof setTimeout> | undefined;
-
-	const scheduleSave = () => {
-		if (saveTimer) return;
-		saveTimer = setTimeout(() => {
-			saveTimer = undefined;
-			saveDetailsCache().catch(() => {});
-		}, SAVE_DELAY_MS);
-	};
-
-	const flushSave = () => {
-		if (!saveTimer) return;
-		clearTimeout(saveTimer);
-		saveTimer = undefined;
-		saveDetailsCache().catch(() => {});
-	};
-
-	// What follows anything newly in the cache: requests waiting on those
-	// tracks are answered and the panel hears of the progress (noteProgress,
-	// below), markers are repainted, and the cache is written back shortly.
-	const cacheChanged = () => {
-		noteProgress();
-		requestMarkers();
-		scheduleSave();
-	};
-
-	// Puts freshly learned details in the cache. Returns how many.
-	const learn = (list: Omit<KnownDetails, 'at'>[]) => {
-		let count = 0;
-
-		for (const details of list) {
-			detailsCache.set(details.permalink, { ...details, at: Date.now() });
-			count++;
+			return;
 		}
 
-		if (count > 0) cacheChanged();
+		const links = LINKS_PATH.exec(detail.slice(0, cut));
 
-		return count;
+		if (links) linksSeen.set(Number(links[1]), profileLinksOf(body));
+		else learn(body);
 	};
 
-	// Remembers that a track could not be looked up (for a day).
-	const learnFailure = (permalink: string) => {
-		detailsCache.set(permalink, { unavailable: true, at: Date.now() });
-		cacheChanged();
+	// Starts listening, and has page-data.ts hand over what it held until now.
+	const listenToPage = () => {
+		for (const entry of domHydration() || []) learn(entry.data);
+		document.addEventListener(PAGE_DATA_EVENT, onPageData);
+		document.dispatchEvent(new CustomEvent(PAGE_DATA_HELLO));
 	};
 
 	// Whether details describe a track with no download link at all.
@@ -1364,520 +1073,20 @@
 	const hasNoDownloadLink = (details: TrackDetails | null) =>
 		!!details && details.downloadable === false && !details.purchaseUrl;
 
-	// Every full track object the hydration holds goes into the cache. Free,
-	// and run on every page load (see startMarkers).
-	const harvestHydration = () => {
-		const fresh: Omit<KnownDetails, 'at'>[] = [];
-
-		const take = (track: ApiTrack) => {
-			if (track.kind !== 'track' || !track.permalink_url) return;
-			const details = detailsOf(track);
-
-			if (isKnown(detailsCache.get(details.permalink))) return;
-			fresh.push(details);
-		};
-
-		for (const entry of domHydration() || []) {
-			const data = entry.data;
-
-			if (!data) continue;
-			take(apiTrackOf(data));
-			apiPlaylistOf(data).tracks?.forEach(take);
-		}
-
-		return learn(fresh);
-	};
-
-	// ---- playlist pages
-
-	// Details for the tracks of the playlist at `path`, learned as they come:
-	// the full ones from the playlist data, then /tracks?ids= batches of its
-	// stubs (skipping ids already cached) in playlist order, only until every
-	// `wanted` (rendered) permalink is settled. Whatever is left over is
-	// resolved individually by the caller.
-	const playlistDetails = async (path: string, wanted: string[], clientId: string) => {
-		const isCurrent = (playlist: ApiPlaylist | undefined): playlist is ApiPlaylist & { tracks: ApiTrack[] } => {
-			const playlistPath = pathOf(playlist?.permalink_url);
-
-			// A private playlist's URL carries a "/s-<token>" suffix.
-			return (
-				!!playlistPath &&
-				Array.isArray(playlist!.tracks) &&
-				(path === playlistPath || path.startsWith(`${playlistPath}/`))
-			);
-		};
-
-		// Whichever hydration entry is this playlist (regular ones hydrate as
-		// "playlist"; system playlists differ), else (stale hydration after
-		// in-app navigation) one /resolve of its URL for the track ids. (The
-		// hydration is parsed by now, since the client id came from it, so the
-		// empty fallback is for safety; hence the coverage hint.)
-		let playlist: ApiPlaylist | undefined = /* v8 ignore next */ (domHydration() || [])
-			.map((entry) => apiPlaylistOf(entry.data))
-			.find(isCurrent);
-
-		if (!playlist) {
-			playlist = apiPlaylistOf(
-				await resolveOnce(`playlist:${path}`, () => apiGet('/resolve', { url: location.origin + path }, clientId))
-			);
-		}
-
-		if (!isCurrent(playlist)) return;
-
-		const knownIds = new Set([...detailsCache.values()].map((d) => d.id));
-		const full = [];
-		const stubIds = [];
-
-		for (const track of playlist.tracks) {
-			if (track.permalink_url) {
-				full.push(detailsOf(track));
-			} else if (track.id && !knownIds.has(track.id)) {
-				stubIds.push(track.id);
-			}
-		}
-
-		learn(full);
-
-		const unsettled = () => wanted.some((p) => !isSettled(p));
-		const batches = [];
-
-		for (let i = 0; i < stubIds.length; i += API_BATCH) {
-			batches.push(stubIds.slice(i, i + API_BATCH).join(','));
-		}
-
-		/** @param ids comma-separated. */
-		const fetchBatch = async (ids: string) => {
-			learn(detailsOfTracks(listOf(await apiGet('/tracks', { ids }, clientId)).map(apiTrackOf)));
-		};
-
-		// How wide to go: how many batches could hold a rendered row.
-		//
-		// The rows are the playlist's first rows and the stubs are in playlist
-		// order, so `wanted` rows reach at most this far down the batches. A page
-		// that has not been scrolled wants thirty rows, which is one batch, and
-		// asks for exactly one, so the other nine of a five-hundred-track
-		// playlist are never made. A page that has been scrolled to the end wants
-		// all ten and says so up front. Finding that out a doubling at a time
-		// would cost a scrolled page a whole extra round trip, which is half a
-		// second to two seconds.
-		//
-		// Only the width is decided here. The pool still walks every batch and
-		// still stops the moment the rendered rows are settled, so a page whose
-		// rows are not where this assumes loses nothing: it asks a little more
-		// narrowly and the fallback resolves whatever is left.
-		const reach = Math.max(1, Math.ceil(wanted.length / API_BATCH));
-		await pool(batches, Math.min(reach, API_CONCURRENCY), fetchBatch, unsettled);
-	};
-
-	// ---- Likes pages
-
-	// Id of the user whose likes the page lists (`owner` is 'you' or the
-	// profile permalink): the signed-in user, else the profile in the hydration
-	// when it is that one (in-app navigation can leave another profile there),
-	// else one /resolve.
-	const likesUserId = async (owner: string, clientId: string): Promise<number | null> => {
-		const hydration = domHydration();
-
-		if (owner === 'you') {
-			return integerOf(objectOf(hydratable(hydration, 'meUser')).id) || null;
-		}
-
-		const user = objectOf(hydratable(hydration, 'user'));
-		const userId = integerOf(user.id);
-
-		if (user.permalink === owner && userId) return userId;
-
-		const found = objectOf(
-			await resolveOnce(`user:${owner}`, () => apiGet('/resolve', { url: `${location.origin}/${owner}` }, clientId))
-		);
-
-		const foundId = integerOf(found.id);
-
-		return found.kind === 'user' && foundId ? foundId : null;
-	};
-
-	// Where a previous walk of a user's likes listing stopped: the `next_href`
-	// it had reached and how many items into the listing that was.
-	//
-	// A Likes page is browsed by scrolling, and every scroll brings rows the
-	// panel has not been asked about before, so without this the same listing
-	// is walked again and again in one visit, each time from the top. Two
-	// thousand likes read in ten scrolls is ten walks of one, two, three... ten
-	// pages: fifty-five requests for the ten pages SoundCloud had to send.
-	// Carrying the cursor makes it ten.
-	//
-	// Only sound when the rows now being asked about lie past what the earlier
-	// walk covered, which is the scrolling case and is checked by the caller
-	// (`from` below). Anything else (a filtered list, a like added at the top
-	// since) starts from the top.
-	// user id -> { next, seen }
-	const likesCursor: Map<number, { next: string; seen: number }> = new Map();
-
-	// Details from the likes listing, learned page by page. `depth` is how many
-	// liked items (tracks and playlists) the page shows down to the deepest
-	// wanted row and `from` the shallowest such row; the first request asks for
-	// `depth` items (plus a little slack, since items the anonymous listing omits
-	// shift the rest up) and later ones for the maximum, until every wanted
-	// permalink is settled or the listing has been followed LIKES_MAX_PAGES deep.
-	const likesDetails = async (owner: string, wanted: string[], depth: number, from: number, clientId: string) => {
-		const userId = await likesUserId(owner, clientId);
-
-		if (!userId) return;
-
-		const unsettled = () => wanted.some((p) => !isSettled(p));
-
-		// Pick up where the last walk left off when every wanted row is past it.
-		const resume = likesCursor.get(userId);
-		let seen = resume && from >= resume.seen ? resume.seen : 0;
-		let url = seen ? resume!.next : `/users/${userId}/likes`;
-
-		let params: ApiQuery = seen
-			? { limit: LIKES_PAGE }
-			: { limit: Math.min(LIKES_PAGE, depth + 5), offset: 0, linked_partitioning: 1 };
-
-		for (let page = 0; page < LIKES_MAX_PAGES && unsettled(); page++) {
-			let data: Json;
-
-			try {
-				data = await apiGet(url, params, clientId);
-			} catch (e) {
-				// A resumed cursor SoundCloud no longer honours is not a failed
-				// lookup: drop it and let the caller's fallback resolve the rows.
-				if (seen) likesCursor.delete(userId);
-				throw e;
-			}
-
-			const listing = objectOf(data);
-			const collection = listOf(listing.collection);
-			// A like is a track's or a playlist's, and a playlist's has no `track`.
-			learn(detailsOfTracks(collection.map((item) => apiTrackOf(objectOf(item).track))));
-			seen += collection.length;
-			const next = stringOf(listing.next_href);
-
-			if (!next) break;
-			url = next;
-			params = { limit: LIKES_PAGE };
-			likesCursor.set(userId, { next: url, seen });
-		}
-	};
-
-	// ---- one request per track (the fallback)
-
-	// Resolves each permalink, API_CONCURRENCY at a time, learning each answer
-	// (or failure) as it comes. Returns whether SoundCloud rejected the client
-	// id (401), in which case the rest is left alone rather than hammered.
-	const resolveDetails = async (permalinks: string[], clientId: string) => {
-		let unauthorized = false;
-
-		await pool(
-			permalinks,
-			API_CONCURRENCY,
-			async (permalink) => {
-				let details = null;
-
-				try {
-					const track = apiTrackOf(await apiGet('/resolve', { url: location.origin + permalink }, clientId));
-
-					if (track.kind === 'track') {
-						details = { ...detailsOf(track), permalink };
-					}
-				} catch (e) {
-					// 401 means the client id is no longer accepted. That says
-					// nothing about the track, so it is not remembered as a failure.
-					if (e instanceof ApiError && e.status === 401) unauthorized = true;
-					else learnFailure(permalink);
-
-					return;
-				}
-
-				// Learned outside the try. Learning tells the panel, and telling the
-				// panel throws once the extension has been reloaded under the page.
-				// That is nothing wrong with the track, and must not be remembered as
-				// a failure over an answer that has just arrived.
-				if (details) learn([details]);
-				else learnFailure(permalink);
-			},
-			() => !unauthorized
-		);
-
-		return unauthorized;
-	};
-
-	// ---- one lookup at a time
-	//
-	// The panel can be closed and reopened, and the user can navigate away and
-	// back in-app, while a long lookup is still running; each reopen asks
-	// again. Rather than starting a second lookup that competes with the first
-	// for the same tracks, requests are queued: a request whose tracks are all
-	// covered by a lookup already queued or running waits for those tracks to
-	// be settled (it is answered as soon as they are, even while that lookup
-	// goes on with the rest); any other request gets a lookup of its own, run
-	// after the ones before it and asking only for what is still unknown by
-	// then. One lookup runs at a time per tab, so SoundCloud never sees two
-	// from it at once, and a request for a different page waits its turn.
-
-	const jobs: Job[] = []; // lookups queued and running, in order
-	const waiters: Waiter[] = []; // requests waiting for their tracks to be settled
-
-	const finishWaiter = (waiter: Waiter) => {
-		const i = waiters.indexOf(waiter);
-
-		// Callers only pass waiters still in the list (each is finished once);
-		// the guard is for safety, hence the coverage hint.
-		/* v8 ignore else */
-		if (i >= 0) waiters.splice(i, 1);
-		waiter.resolve({
-			unauthorized: waiter.job.unauthorized,
-			unseen: !!waiter.job.unseen,
-			joined: waiter.joined
-		});
-	};
-
-	// Progress for the panel, if it is still open: how many of the latest
-	// request's tracks are settled. Nobody listening is fine.
-	const reportProgress = (waiter: Waiter) => {
-		// What has been learned since this waiter was last told, so the panel can
-		// fill its rows in as the answers arrive rather than all at once at the
-		// end. Each track is handed over once; a remembered failure settles a row
-		// without giving it anything to show, so it is counted and not sent.
-		const learned: KnownDetails[] = [];
-
-		for (const permalink of waiter.wanted) {
-			if (waiter.told.has(permalink)) continue;
-			const details = detailsCache.get(permalink);
-
-			if (!isFresh(details)) continue;
-			waiter.told.add(permalink);
-
-			if (!details.unavailable) learned.push(details);
-		}
-
-		chrome.runtime
-			.sendMessage({
-				type: 'DOWNLOAD_DETAILS_PROGRESS',
-				done: waiter.wanted.filter(isSettled).length,
-				total: waiter.wanted.length,
-				resumed: waiter.joined,
-				details: learned
-			} satisfies DetailsProgress)
-			.catch(() => {});
-	};
-
-	// After the cache changed (an answer arrived, or another tab learned
-	// something): answers requests whose tracks are all settled and reports
-	// how far the latest one is.
-	const noteProgress = () => {
-		// A copy, since finishing a waiter takes it out of the list.
-		for (const waiter of waiters.slice()) {
-			if (waiter.wanted.every(isSettled)) finishWaiter(waiter);
-		}
-
-		const latest = waiters[waiters.length - 1];
-
-		if (latest) reportProgress(latest);
-	};
-
-	// One lookup: the bulk source for the page's kind first, then a request per
-	// track for whatever is left. Only what is still unsettled when its turn
-	// comes is asked for (earlier lookups, or another tab, may have covered
-	// some meanwhile).
-	const runJob = async (job: Job) => {
-		const unsettled = () => job.wanted.filter((p) => !isSettled(p));
-		let pending = unsettled();
-		// What the bulk source was given to do, and whether it did any of it.
-		const before = pending.length;
-		let bulk = false;
-
-		if (pending.length && job.page.type === 'playlist') {
-			bulk = true;
-
-			try {
-				await playlistDetails(job.page.key, pending, job.clientId);
-			} catch (_e) {
-				// Fall through: the rows are resolved individually below.
-			}
-
-			pending = unsettled();
-		}
-
-		if (pending.length && job.page.type === 'likes') {
-			// The listing is worth it when it costs fewer requests than resolving
-			// each pending track: one request covers up to LIKES_PAGE items.
-			const pendingSet = new Set(pending);
-			const indexes = job.items.filter((item) => pendingSet.has(item.permalink)).map((item) => item.itemIndex || 0);
-			const depth = 1 + Math.max(0, ...indexes);
-			// The shallowest row still wanted, which says whether a walk of this
-			// listing that stopped earlier can be carried on (see likesCursor).
-			const from = Math.min(...indexes, depth);
-
-			if (pending.length > Math.ceil(depth / LIKES_PAGE)) {
-				bulk = true;
-
-				try {
-					await likesDetails(likesOwner(job.page), pending, depth, from, job.clientId);
-				} catch (_e) {
-					// Fall through.
-				}
-
-				pending = unsettled();
-			}
-		}
-
-		// ---- nothing to be seen
-		//
-		// These requests are anonymous: the extension asks SoundCloud the way a
-		// signed-out visitor would, so it does not need the user's account. A
-		// page whose tracks are not public is therefore one the API will not
-		// describe however it is asked, and the ordinary case of that is somebody
-		// looking at their own private playlist.
-		//
-		// The bulk source comes back empty for such a page, and resolving each
-		// row then fails the same way, one request per track: ninety tracks is
-		// ninety round trips, a minute of "still checking", and an answer of no.
-		// Measured on a private 90-track playlist, that was the whole of the
-		// wait.
-		//
-		// So when the bulk source settled nothing at all, a few rows are resolved
-		// first. If even one comes back, the rest follow: the page is visible and
-		// the bulk source did not cover it (a filtered list, rows past a
-		// listing's reach). If none do, the rest are left alone: they are the
-		// same request, and it has been asked.
-		if (
-			bulk &&
-			pending.length === before &&
-			// Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent. A handful of rows or fewer are all in the probe, so the request is answered before it could hear the page is unseen.
-			pending.length > PROBE
-		) {
-			const probe = pending.slice(0, PROBE);
-			job.unauthorized = await resolveDetails(probe, job.clientId);
-
-			// A rejected key is not an invisible page, and it is not a reason to ask
-			// again either: the rest are left alone whichever of the two it was.
-			if (job.unauthorized) return;
-
-			if (!probe.some((p) => isKnown(detailsCache.get(p)))) {
-				job.unseen = true;
-
-				return;
-			}
-
-			pending = unsettled();
-		}
-
-		// Stryker disable next-line ConditionalExpression: equivalent. Resolving nothing asks nothing and returns false, which job.unauthorized already is here.
-		if (pending.length) {
-			job.unauthorized = await resolveDetails(pending, job.clientId);
-		}
-	};
-
-	// Has the tracks in `wanted` (permalinks the cache cannot answer for)
-	// looked up: by a lookup already queued that covers them all, else by a new
-	// one queued behind the others. `page` is the page they are on and `items`
-	// its tracks ({ permalink, itemIndex }), which the bulk sources need.
-	// Resolves to { unauthorized, unseen, joined } once every one of them is
-	// settled or the lookup they were left to is over.
-	const lookUp = (page: Job['page'], items: Job['items'], wanted: string[], clientId: string): Promise<LookupOutcome> =>
-		new Promise((resolve) => {
-			let job = jobs.find((j) => wanted.every((p) => j.wantedSet.has(p)));
-			const joined = !!job;
-
-			if (!job) {
-				job = {
-					page,
-					items,
-					wanted,
-					wantedSet: new Set(wanted),
-					clientId,
-					unauthorized: false,
-					unseen: false
-				};
-				const previous = jobs.length ? jobs[jobs.length - 1].done! : Promise.resolve();
-				job.done = previous
-					.then(() => runJob(job!))
-					.catch(() => {
-						// Whatever went wrong, what was learned stays; the rest is
-						// reported as not checked.
-					})
-					.finally(() => {
-						jobs.splice(jobs.indexOf(job!), 1);
-
-						for (const waiter of waiters.slice()) {
-							if (waiter.job === job) finishWaiter(waiter);
-						}
-
-						flushSave();
-					});
-				jobs.push(job);
-			}
-
-			waiters.push({ wanted, job, joined, resolve, told: new Set() });
-			noteProgress();
-		});
-
 	// ---- putting it together
 
-	// Extraction plus a `details` field per track: cached/looked-up details,
-	// else partial details with `downloadable: null` for rows whose purchase
-	// link the page rendered (Likes rows, a track page's engagement bar), else
-	// null. Also `lookupFailed` (how many tracks could not be looked up),
-	// `resumed` (whether a lookup already under way covered this request, so it
-	// waited for that one) and `error` ('' | 'no-client-id' | 'unauthorized').
-	const collectDownloadDetails = async (): Promise<DetailsAnswer> => {
-		const result: DetailsAnswer = {
-			...extract(),
-			lookupFailed: 0,
-			resumed: false,
-			// Whether the lookup gave up because nothing it asked about came back:
-			// a page the anonymous API cannot see (see runJob).
-			unseen: false,
-			error: ''
-		};
-
-		if (result.tracks.length === 0) return result;
-
-		const clientId = pageClientId();
-
-		if (!clientId) {
-			result.error = 'no-client-id';
-
-			return result;
-		}
-
-		harvestHydration();
-
-		// Rendered tracks the cache cannot answer for (recent failures included).
-		const wanted = [
-			...new Set(
-				result.tracks.map((track) => track.permalink).filter((permalink) => permalink && !isSettled(permalink))
-			)
-		];
-
-		if (wanted.length > 0) {
-			const { unauthorized, unseen, joined } = await lookUp(
-				{ type: result.pageType, key: result.pageKey },
-				result.tracks.map(({ permalink, itemIndex }) => ({ permalink, itemIndex })),
-				wanted,
-				clientId
-			);
-
-			result.resumed = joined;
-			result.unseen = unseen;
-
-			if (unauthorized) result.error = 'unauthorized';
-			// Wanted tracks now remembered as failures failed during this lookup
-			// (earlier failures were not wanted in the first place).
-			result.lookupFailed = wanted.filter((permalink) => {
-				const details = detailsCache.get(permalink);
-
-				return isFresh(details) && details.unavailable;
-			}).length;
-		}
+	// Extraction plus a `details` field per track: what the page loaded about
+	// it, else partial details with `downloadable: null` for rows whose
+	// purchase link the page rendered (Likes rows, a track page's engagement
+	// bar), else null, for a track the page has not loaded yet.
+	const collectDownloadDetails = (): DetailsAnswer => {
+		const result: DetailsAnswer = extract();
 
 		for (const track of result.tracks) {
-			const cached = detailsCache.get(track.permalink);
+			const known = detailsCache.get(track.permalink);
 
-			if (isKnown(cached)) {
-				track.details = cached;
+			if (known) {
+				track.details = known;
 			} else if (track.domPurchaseUrl) {
 				// What the page itself shows: the purchase link, nothing about
 				// SoundCloud's own download.
@@ -1888,11 +1097,11 @@
 					hasDownloadsLeft: null,
 					purchaseUrl: track.domPurchaseUrl,
 					purchaseTitle: track.domPurchaseTitle || '',
-					// No answer from SoundCloud is in these details, so this says
-					// nothing about the genre, as the nulls above say nothing about the
-					// download. (`''` would be an answer: "the uploader set none".)
-					// What the row itself rendered is not lost by being absent here: it
-					// is on the track, in `genre`, which is where the page's own
+					// Nothing the page loaded is in these details, so this says
+					// nothing about the genre, as the nulls above say nothing about
+					// the download. (`''` would be an answer: "the uploader set none".)
+					// What the row itself rendered is not lost by being absent here:
+					// it is on the track, in `genre`, which is where the page's own
 					// answers live and where the panel reads it from first.
 					genre: null,
 					// Read off the page, which is where the artwork was read from too:
@@ -1904,9 +1113,9 @@
 				track.details = null;
 			}
 
-			// A row whose thumbnail never lazy-loaded has no cover to show, but the
-			// answer just given names one. The page's own URL wins where there is
-			// one: it is the rendition already in the browser's cache.
+			// A row whose thumbnail never lazy-loaded has no cover to show, but
+			// the details name one. The page's own URL wins where there is one:
+			// it is the rendition already in the browser's cache.
 			if (!track.artworkUrl && track.details) {
 				track.artworkUrl = track.details.artworkUrl || '';
 			}
@@ -1918,9 +1127,9 @@
 	// ---- Markers ---------------------------------------------------------------
 	//
 	// Tracks the user has downloaded get a translucent overlay on their cover
-	// art with a "downloaded" pill in its bottom-right corner; tracks whose
-	// details are known (looked up or harvested) and offer no download link at
-	// all get a dark "nodl" pill there (styles in content.css). One pill per
+	// art with a "downloaded" pill in its bottom-right corner; tracks the page
+	// has loaded that offer no download link at all get a dark "nodl" pill
+	// there (styles in content.css). One pill per
 	// track: downloaded wins, being the end of the story. Being in the session
 	// queue gets no pill: the queue button below says that itself, in the
 	// corner where a click can do something about it.
@@ -2107,7 +1316,7 @@
 		if (downloaded[permalink]) return 'downloaded';
 		const details = detailsCache.get(permalink);
 
-		if (isKnown(details) && hasNoDownloadLink(details)) return 'nodl';
+		if (details && hasNoDownloadLink(details)) return 'nodl';
 
 		return '';
 	};
@@ -2199,14 +1408,10 @@
 		return variant === 'small' && downloaded[permalink] ? 'small:downloaded' : `${variant}:yes`;
 	};
 
-	// The details the queue should carry for a track: what has been looked up
-	// for it, where that is known (which is how the Downloader finds its gate
-	// later without a page to read), and nothing where it is not.
-	const knownDetails = (permalink: string): KnownDetails | null => {
-		const details = detailsCache.get(permalink);
-
-		return isKnown(details) ? details : null;
-	};
+	// The details the queue should carry for a track: what the page loaded
+	// about it, where it has (which is how the Downloader finds its gate later
+	// without a page to read), and nothing where it has not.
+	const knownDetails = (permalink: string): KnownDetails | null => detailsCache.get(permalink) ?? null;
 
 	// A track as the queue keeps it: the row's own words and picture, plus
 	// whatever is known about it. A row whose thumbnail never lazy-loaded has no
@@ -2389,10 +1594,17 @@
 	};
 
 	const startMarkers = async () => {
-		[downloaded, queued] = await Promise.all([TbxDownloaded.load(), loadQueue(), loadDetailsCache(), loadSettings()]);
-		// Whatever full tracks this page was served with are free to keep (they
-		// are written back by learn's follow-up).
-		harvestHydration();
+		try {
+			[downloaded, queued] = await Promise.all([TbxDownloaded.load(), loadQueue(), loadSettings()]);
+		} finally {
+			// What the page was served with and what it has loaded since. Learning
+			// any of it repaints the markers, which is why it waits for the
+			// settings: a repaint before them would replace buttons somebody turned
+			// that off for. It needs none of that storage itself, so storage that
+			// cannot be read does not stop the panels hearing what the page loaded.
+			listenToPage();
+		}
+
 		applyMarkers();
 		new MutationObserver(onMutations).observe(document.body, {
 			childList: true,
@@ -2421,23 +1633,6 @@
 				downloaded = TbxDownloaded.isMarks(marks) ? marks : {};
 			}
 
-			if (changes[DETAILS_KEY]) {
-				// Another tab looked tracks up: take what it learned, which may
-				// settle tracks a request here is waiting for.
-				let learned = false;
-
-				for (const [permalink, details] of Object.entries(changes[DETAILS_KEY].newValue || {})) {
-					const known = detailsCache.get(permalink);
-
-					if (isFresh(details) && (!known || known.at < details.at)) {
-						detailsCache.set(permalink, details);
-						learned = true;
-					}
-				}
-
-				if (learned) noteProgress();
-			}
-
 			if (changes[SETTINGS_KEY]) {
 				// SAFETY: chrome.storage keeps what JSON can hold, and a value it
 				// hands back is one it kept.
@@ -2448,7 +1643,7 @@
 				listViewAsked = false;
 			}
 
-			if (changes[TbxDownloaded.KEY] || changes[DETAILS_KEY] || changes[SETTINGS_KEY]) {
+			if (changes[TbxDownloaded.KEY] || changes[SETTINGS_KEY]) {
 				applyMarkers();
 			}
 		});
@@ -2949,7 +2144,7 @@
 	};
 
 	// One pass over SoundCloud's own controls: ours put in their place, kept in
-	// step with what has since been looked up, or taken away again. Idempotent,
+	// step with what the page has loaded since, or taken away again. Idempotent,
 	// which matters because what the tooltip says (the domain, and whether
 	// SoundCloud's download limit is spent) is learned after the page is drawn.
 	const applyDownloadButtons = () => {
@@ -2997,7 +2192,7 @@
 	//
 	// A tile says less than a row does: about half of what this extension can
 	// read off a Likes page is only in the rows. A tile renders no genre tag,
-	// so the genre of every liked track has to be looked up instead of read; no
+	// so the genre of every liked track has to come from its details; no
 	// like or repost button, so the panel cannot say whether a track is liked
 	// from that page at all; and no purchase link, so there is nothing there to
 	// replace with a download button. Turned on (it is not, by default), this
@@ -3054,45 +2249,18 @@
 	// ---- Artist profiles -----------------------------------------------------
 	//
 	// Who is behind a track and where else to find them, for the artists tool:
-	// the uploader's public profile, and the links they put on it. Two requests
-	// per artist, to the same public API the details use and on the same terms
-	// (anonymous, GET, the page's own client id): /resolve of the profile URL
-	// for the user (id, name, avatar, place, follower count, bio), then
-	// /users/<id>/web-profiles for the links. Four at a time, as the details
-	// are; a 401 stops the lot, since it says nothing about any one artist.
-	//
-	// Nothing here is cached beyond the document. The panel keeps what it is
-	// told on the entry it asked for, and asks only about the ones it has no
-	// answer for; the /resolve half is shared with the Likes lookup through
-	// `resolveOnce`, so a profile asked about twice in one page is one request.
+	// the uploader's public profile, and the links they put on it, as the page
+	// loaded them (see "What the page has loaded"). Every track the page loads
+	// names its uploader in short: name, picture, place, follower count. The
+	// bio, the track count and the links come with the profile page, so an
+	// artist whose page has not been opened in this tab is answered in part,
+	// and the panel says where the rest is.
 
 	const BIO_MAX = 1000; // characters of a bio the panel keeps
-	const LINKS_MAX = 20; // links per profile
-	const ARTIST_PATH = /^\/[^/?#\s]+$/;
 
-	const isArtistPath = (path: Json): path is string => isString(path) && ARTIST_PATH.test(path);
-
-	// The links a profile lists, as the panel keeps them: the network SoundCloud
-	// files each under, the uploader's own title for it, and the address.
-	// Anything that is not an http(s) address is dropped.
-	const profileLinksOf = (list: Json): ProfileLink[] =>
-		listOf(list)
-			.map(objectOf)
-			.filter((one) => /^https?:\/\//i.test(stringOf(one.url).trim()))
-			.slice(0, LINKS_MAX)
-			.map((one) => ({
-				network: stringOf(one.network || one.service).toLowerCase(),
-				title: collapse(stringOf(one.title)),
-				url: stringOf(one.url).trim()
-			}));
-
-	// `collapse` takes a string or nothing; the API is free to send anything.
-	const wordsOf = (value: Json | undefined) => collapse(stringOf(value));
-
-	// The subset of an API user object the panel keeps, filed under the path it
-	// was asked for.
-	/** @param links what /users/<id>/web-profiles answered, or []. */
-	const profileOf = (permalink: string, user: ApiUser, links: Json): ArtistProfile => ({
+	// The subset of a user object the panel keeps, filed under its path.
+	/** @param links the profile's links, where the page loaded them. */
+	const profileOf = (permalink: string, user: JsonObject, links: ProfileLink[] | undefined): ArtistProfile => ({
 		id: integerOrNull(user.id),
 		permalink,
 		username: wordsOf(user.username),
@@ -3104,117 +2272,31 @@
 		verified: user.verified === true,
 		avatarUrl: stringOf(user.avatar_url),
 		bio: stringOf(user.description).trim().slice(0, BIO_MAX),
-		links: profileLinksOf(links)
+		links: links ?? [],
+		partial: isWholeUser(user) && links ? undefined : true
 	});
 
-	// One artist: the user behind the path, else null for a path that is not a
-	// public profile. The links are asked for once the user is known; a profile
-	// whose links cannot be fetched is still a profile, with none.
-	const fetchProfile = async (permalink: string, clientId: string): Promise<ArtistProfile | null> => {
-		const user = objectOf(
-			await resolveOnce(`user:${permalink.slice(1)}`, () =>
-				apiGet('/resolve', { url: location.origin + permalink }, clientId)
-			)
-		);
-
-		// Asked after by whatever id the answer gives; profileOf keeps only a whole number.
-		const id = stringOf(user.id) || integerOf(user.id);
-
-		if (user.kind !== 'user' || !id) return null;
-		let links: Json = [];
-
-		try {
-			links = await apiGet(`/users/${id}/web-profiles`, {}, clientId);
-		} catch (e) {
-			if (e instanceof ApiError && e.status === 401) throw e;
-		}
-
-		return profileOf(permalink, user, links);
-	};
-
-	// The panel's question: `profiles` for the paths that are public profiles,
-	// `missing` for the ones SoundCloud says are not, `failed` for the ones that
-	// could not be asked about, and `error` ('' | 'no-client-id' | 'unauthorized').
-	// Progress goes out as it comes, an artist at a time, so the rows fill in
-	// rather than wait.
+	// The panel's question: the profiles of those of `permalinks` the page has
+	// loaded. An artist it has not loaded at all is left out.
 	/** @param permalinks the panel's list, checked path by path. */
-	const collectArtistProfiles = async (permalinks: Json | undefined): Promise<ProfilesAnswer> => {
-		const result: ProfilesAnswer = { ok: true, profiles: [], missing: [], failed: [], error: '' };
-		const wanted = [...new Set(listOf(permalinks).filter(isArtistPath))];
+	const collectArtistProfiles = (permalinks: Json | undefined): ProfilesAnswer => {
+		const profiles = [];
 
-		if (wanted.length === 0) return result;
+		for (const permalink of new Set(listOf(permalinks).filter(isArtistPath))) {
+			const user = usersSeen.get(permalink);
 
-		const clientId = pageClientId();
-
-		if (!clientId) {
-			result.error = 'no-client-id';
-
-			return result;
+			if (!user) continue;
+			profiles.push(profileOf(permalink, user, linksSeen.get(Number(user.id))));
 		}
 
-		let unauthorized = false;
-		let done = 0;
-
-		const report = (profiles: ArtistProfile[], missing: string[], failed: string[]) => {
-			chrome.runtime
-				.sendMessage({
-					type: 'ARTIST_PROFILES_PROGRESS',
-					done,
-					total: wanted.length,
-					profiles,
-					missing,
-					failed
-				} satisfies ProfilesProgress)
-				.catch(() => {});
-		};
-
-		await pool(
-			wanted,
-			API_CONCURRENCY,
-			async (permalink) => {
-				let profile = null;
-				let asked = true;
-
-				try {
-					profile = await fetchProfile(permalink, clientId);
-				} catch (e) {
-					// 401 means the client id is no longer accepted, which says nothing
-					// about this artist and stops the rest. A 404 is SoundCloud's answer
-					// that nobody is there; anything else leaves the question open.
-					if (e instanceof ApiError && e.status === 401) {
-						unauthorized = true;
-
-						return;
-					}
-
-					asked = e instanceof ApiError && e.status === 404;
-				}
-
-				done += 1;
-
-				if (profile) {
-					result.profiles.push(profile);
-					report([profile], [], []);
-				} else if (asked) {
-					result.missing.push(permalink);
-					report([], [permalink], []);
-				} else {
-					result.failed.push(permalink);
-					report([], [], [permalink]);
-				}
-			},
-			() => !unauthorized
-		);
-
-		if (unauthorized) result.error = 'unauthorized';
-
-		return result;
+		return { ok: true, profiles };
 	};
 
 	// ---- Messages from the panels --------------------------------------------
 
-	// Marks and the details cache are loaded before any lookup runs, so a panel
-	// opened right after a page load does not ask for tracks already known.
+	// The answers below wait for this: until it has run, the hydration has not
+	// been learned, so a panel opened in the first moments after a page load
+	// would hear that nothing is loaded.
 	const ready = startMarkers().catch(() => {});
 
 	// Only the tab's own document answers the panels. The manifest says
@@ -3237,18 +2319,15 @@
 				return undefined; // sent synchronously
 			}
 
+			// What this tab holds, once it has started holding it.
 			if (message.type === 'GET_DOWNLOAD_DETAILS') {
-				ready
-					.then(collectDownloadDetails)
-					.then(sendResponse, (e) => sendResponse({ ok: false, error: String((e && e.message) || e) }));
+				void ready.then(() => sendResponse(collectDownloadDetails()));
 
 				return true; // response is sent asynchronously
 			}
 
 			if (message.type === 'GET_ARTIST_PROFILES') {
-				collectArtistProfiles(message.permalinks).then(sendResponse, (e) =>
-					sendResponse({ ok: false, error: String((e && e.message) || e) })
-				);
+				void ready.then(() => sendResponse(collectArtistProfiles(message.permalinks)));
 
 				return true;
 			}

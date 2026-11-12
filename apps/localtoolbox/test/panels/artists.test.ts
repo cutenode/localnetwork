@@ -16,7 +16,6 @@ import {
 	reopenPanel,
 	rows,
 	rowText,
-	settle,
 	stepFrames,
 	SOUNDCLOUD_TAB,
 	text,
@@ -24,15 +23,17 @@ import {
 	type
 } from '../helpers/panel.ts';
 import type { ChromeMock, PageReply, Seed, TabStub } from '../helpers/chrome.ts';
-import type { ArtistEntry, ArtistProfile, LookupError, PageFailure, ProfilesAnswer } from '$lib/types';
+import type { ArtistEntry, ArtistProfile, ProfilesAnswer } from '$lib/types';
 
 declare const chrome: ChromeMock;
 
-/** What `chromeAnswering` is told: the page's answer, the lookups', and the chrome around them. */
+const LOAD_HINT = 'open their SoundCloud page, then come back here.';
+
+/** What `chromeAnswering` is told: the page's answer, the profiles', and the chrome around them. */
 interface Answering {
 	page?: ReturnType<typeof extraction>;
-	/** An Error makes the lookup's message fail. */
-	lookup?: ProfilesAnswer | PageFailure | Error;
+	/** What the tab answers GET_ARTIST_PROFILES with. An Error makes the message fail. */
+	lookup?: PageReply | Error;
 	tab?: TabStub;
 	storage?: Seed;
 	session?: Seed;
@@ -58,18 +59,8 @@ const profile = (permalink: string, extra: Partial<ArtistProfile> = {}) => ({
 	...extra
 });
 
-const answer = (
-	profiles: ArtistProfile[] = [],
-	missing: string[] = [],
-	error: LookupError = '',
-	failed: string[] = []
-): ProfilesAnswer => ({
-	ok: true,
-	profiles,
-	missing,
-	failed,
-	error
-});
+/** The tab's answer: the profiles it has loaded, of those asked about. */
+const answer = (profiles: ArtistProfile[] = []): ProfilesAnswer => ({ ok: true, profiles });
 
 /** An artist as the list keeps one. */
 const entry = (permalink: string, extra: Partial<ArtistEntry> = {}) => ({
@@ -82,7 +73,21 @@ const entry = (permalink: string, extra: Partial<ArtistEntry> = {}) => ({
 	...extra
 });
 
-/** A chrome whose page answers `page` and whose lookups answer `lookup`. */
+/**
+ * An artists list as the store leaves one: the entries in the local area with no profile, and the
+ * profiles in the session area by path, beside whatever else `session` holds.
+ */
+const held = (artists: ArtistEntry[], session: Seed = {}) => ({
+	storage: { artists: artists.map((one) => ({ ...one, profile: null })) },
+	session: {
+		...session,
+		artistProfiles: Object.fromEntries(
+			artists.flatMap((one) => (one.profile ? [[one.permalink, one.profile] as const] : []))
+		)
+	}
+});
+
+/** A chrome whose page answers `page` and whose profile reads answer `lookup`. */
 function chromeAnswering({ page = PAGE, lookup = answer(), tab = SOUNDCLOUD_TAB, ...rest }: Answering = {}) {
 	const mock = panelChrome({ tab, ...rest });
 	mock.tabs.sendMessage.mockImplementation(async (_id, message) => {
@@ -100,6 +105,9 @@ const load = () => mountPanel('artists');
 
 const stored = () => chrome.testStore('local').artists ?? [];
 
+/** The profiles as the session area holds them, by artist path. */
+const sessionProfiles = async () => (await chrome.storage.session.get('artistProfiles')).artistProfiles;
+
 const addButton = () => buttons().find((b) => (b.getAttribute('aria-label') ?? '').endsWith('from this tab'));
 
 const addTab = () => click(addButton());
@@ -112,6 +120,16 @@ const lookups = () =>
 const meta = () => document.querySelector('header p')?.textContent.trim() ?? '';
 
 const status = () => document.querySelector('[role="status"], [role="alert"]');
+
+/** The line saying how many artists have no socials yet, and how to get them. */
+const incompleteLine = () => document.querySelector('p[role="status"]')?.textContent.trim() ?? '';
+
+/** What the line under an artist's name says when hovered. */
+const lineTitle = (permalink: string) =>
+	rows()
+		.find((li) => li.dataset.permalink === permalink)!
+		.querySelectorAll('p')[1]
+		.getAttribute('title');
 
 // A link badge is named by its letters and what it does ("IG: open Instagram"), never the address.
 const badges = () => [...document.querySelectorAll('li [aria-label*=": open "]')];
@@ -132,6 +150,8 @@ describe('before anything is added', () => {
 		expect(text()).toMatch(/by Curator · 2 artists · 3 tracks/);
 		expect(meta()).toBe('');
 		expect(rows()).toEqual([]);
+		// Nobody on the list, so nothing to fill in.
+		expect(lookups()).toEqual([]);
 	});
 
 	it('says what the tab is when it is not a page to add from, and still opens', async () => {
@@ -150,8 +170,8 @@ describe('before anything is added', () => {
 });
 
 describe('adding from the tab', () => {
-	it('lists the uploaders, looks them up, and draws what came back', async () => {
-		chromeAnswering({ lookup: answer([profile('/bicep')], ['/fourtet']) });
+	it('lists the uploaders, fills them in from the tab, and draws what came back', async () => {
+		chromeAnswering({ lookup: answer([profile('/bicep')]) });
 		await load();
 		await addTab();
 
@@ -165,11 +185,17 @@ describe('adding from the tab', () => {
 			{ permalink: '/bicep/glue', title: 'Glue' },
 			{ permalink: '/bicep/aura', title: 'Aura' }
 		]);
-		expect(stored()[0].profile).toMatchObject({ permalink: '/bicep', city: 'Belfast' });
-		expect(stored()[1].profile).toMatchObject({ unavailable: true });
+		// The profile is somebody else's account: kept for the session, and
+		// never in the list that lasts.
+		expect(stored().map((one) => one.profile)).toEqual([null, null]);
+		expect(await sessionProfiles()).toMatchObject({ '/bicep': { permalink: '/bicep', city: 'Belfast' } });
 
-		expect(rowText()).toEqual(['Bicep Belfast, GB · 1.2K followers · 1 link IG', 'Four Tet no public profile']);
-		expect(meta()).toBe('2 artists · 1 with socials');
+		// The tab had not loaded Four Tet, so that row says so, and how to.
+		expect(rowText()).toEqual(['Bicep Belfast, GB · 1.2K followers · 1 link IG', 'Four Tet not loaded yet']);
+		expect(lineTitle('/fourtet')).toBe(`not loaded yet. ${LOAD_HINT}`);
+		expect(lineTitle('/bicep')).toBe('Belfast, GB · 1.2K followers · 1 link');
+		expect(incompleteLine()).toBe(`1 artist without socials yet. ${LOAD_HINT}`);
+		expect(meta()).toBe('2 artists · 1 with socials · 1 not loaded yet');
 		expect(badges().map((b) => [b.getAttribute('aria-label'), b.getAttribute('title')])).toEqual([
 			['IG: open Instagram', 'https://www.instagram.com/bicepmusic/']
 		]);
@@ -179,81 +205,6 @@ describe('adding from the tab', () => {
 		expect(addButton()!.getAttribute('aria-label')).toBe('refresh 2 artists from this tab');
 	});
 
-	it('fills the rows in as the answers arrive, and shows how far it is', async () => {
-		let finish!: (value: PageReply) => void;
-		chromeAnswering();
-		chrome.tabs.sendMessage.mockImplementation(
-			(_id, message) =>
-				new Promise((resolve) => {
-					if (message.type === 'EXTRACT_TRACKS') resolve(PAGE);
-					else finish = resolve;
-				})
-		);
-		await load();
-		await addTab();
-
-		expect(rowText()).toEqual(['Bicep looking up…', 'Four Tet looking up…']);
-		expect(document.querySelectorAll('li [aria-label="looking up"]')).toHaveLength(2);
-		expect(text()).toMatch(/looking up 2 artists…/);
-
-		await chrome.testSendMessage({
-			type: 'ARTIST_PROFILES_PROGRESS',
-			done: 1,
-			total: 2,
-			profiles: [profile('/bicep')],
-			failed: []
-		});
-		// The Manager's lookup reports progress on the same channel; mid-lookup is
-		// exactly when one of its answers must not be taken for this one's.
-		await chrome.testSendMessage({
-			type: 'DOWNLOAD_DETAILS_PROGRESS',
-			done: 1,
-			total: 1,
-			profiles: [profile('/fourtet')]
-		});
-		await settle();
-		expect(text()).toMatch(/looking up socials… 1 \/ 2/);
-		const bar = document.querySelector('[role="progressbar"]')!;
-		expect(bar.getAttribute('aria-label')).toBe('looking up socials');
-		expect(bar.getAttribute('aria-valuetext')).toBe('1 of 2');
-		// Its own answer is in, so the row shows it, badge and all, while the
-		// other is still being asked about.
-		expect(rowText()).toEqual(['Bicep Belfast, GB · 1.2K followers · 1 link IG', 'Four Tet looking up…']);
-		expect(document.querySelectorAll('li [aria-label="looking up"]')).toHaveLength(1);
-
-		finish(answer([profile('/bicep')], ['/fourtet']));
-		await settle();
-		expect(text()).not.toMatch(/looking up socials/);
-		expect(rowText()).toEqual(['Bicep Belfast, GB · 1.2K followers · 1 link IG', 'Four Tet no public profile']);
-		expect(stored()[1].profile).toMatchObject({ unavailable: true });
-		// Said once, at the end, where a screen reader hears it.
-		expect(document.querySelector('[aria-live]')!.textContent).toMatch(/looked up 2 artists/);
-	});
-
-	// lookup.ts takes an answer from a content script older than this panel as
-	// long as it lists profiles; what it leaves out is read as nothing.
-	it('takes answers that leave out the profiles or the failures', async () => {
-		let finish!: (value: PageReply) => void;
-		chromeAnswering();
-		chrome.tabs.sendMessage.mockImplementation(
-			(_id, message) =>
-				new Promise((resolve) => {
-					if (message.type === 'EXTRACT_TRACKS') resolve(PAGE);
-					else finish = resolve;
-				})
-		);
-		await load();
-		await addTab();
-
-		await chrome.testSendMessage({ type: 'ARTIST_PROFILES_PROGRESS', done: 1, total: 2, missing: ['/fourtet'] });
-		await settle();
-		expect(rowText()).toEqual(['Bicep looking up…', 'Four Tet no public profile']);
-
-		finish({ ok: true, profiles: [profile('/bicep')], error: '' });
-		await settle();
-		expect(rowText()).toEqual(['Bicep Belfast, GB · 1.2K followers · 1 link IG', 'Four Tet no public profile']);
-	});
-
 	it('files artists from an untitled page of no particular kind under “a playlist”', async () => {
 		chromeAnswering({ page: extraction({ tracks: TRACKS, title: '', pageType: 'other' }) });
 		await load();
@@ -261,69 +212,54 @@ describe('adding from the tab', () => {
 		expect(stored().map((one) => one.from)).toEqual(['a playlist', 'a playlist']);
 	});
 
-	it('ignores progress that is not for it', async () => {
-		// An artist the stray answers name, so taking any of them would show.
-		chromeAnswering({ storage: { artists: [entry('/bicep')] } });
-		await load();
-		await chrome.testSendMessage({
-			type: 'DOWNLOAD_DETAILS_PROGRESS',
-			done: 1,
-			total: 1,
-			profiles: [profile('/bicep')]
-		});
-		await chrome.testSendMessage(null);
-		// Its own kind of answer, but to a lookup this panel never started.
-		await chrome.testSendMessage({ type: 'ARTIST_PROFILES_PROGRESS', profiles: [profile('/bicep')] });
-		await settle();
-		expect(rowText()).toEqual(['bicep not looked up']);
-	});
-
-	it('says so when the lookup could not be made, and keeps the artists', async () => {
+	it('says so when the tab could not be read, and keeps the artists', async () => {
 		chromeAnswering({ lookup: new Error('Could not establish connection') });
 		await load();
 		await addTab();
-		expect(status()!.textContent).toMatch(/couldn’t look up their socials\. can’t reach the page/);
-		expect(rowText()).toEqual(['Bicep not looked up', 'Four Tet not looked up']);
-		expect(text()).toMatch(/2 artists not looked up\./);
-		expect(meta()).toBe('2 artists · 0 with socials · 2 not looked up');
+		expect(status()!.textContent).toMatch(/couldn’t read their socials\. can’t reach the page/);
+		expect(rowText()).toEqual(['Bicep not loaded yet', 'Four Tet not loaded yet']);
+		expect(incompleteLine()).toBe(`2 artists without socials yet. ${LOAD_HINT}`);
+		expect(meta()).toBe('2 artists · 0 with socials · 2 not loaded yet');
 	});
 
-	it('says so when SoundCloud rejected the lookups, keeping what came back', async () => {
-		chromeAnswering({ lookup: answer([profile('/bicep')], [], 'unauthorized') });
-		await load();
-		await addTab();
-		expect(status()!.textContent).toMatch(/some socials weren’t looked up\. SoundCloud rejected/);
-		expect(rowText()[0]).toMatch(/^Bicep Belfast/);
-		expect(rowText()[1]).toBe('Four Tet not looked up');
-	});
-
+	// A content script from before this answer's shape: a tab to reload.
 	it('says so when the answer cannot be read at all', async () => {
 		chromeAnswering({ lookup: { ok: false, error: 'boom' } });
 		await load();
 		await addTab();
-		expect(status()!.textContent).toMatch(/couldn’t look them up\. reload the SoundCloud tab/);
+		expect(status()!.textContent).toMatch(
+			/couldn’t read their socials\. couldn’t read them\. reload the SoundCloud tab/
+		);
 	});
 
-	it('refreshes rather than duplicates, and looks up only what has no answer', async () => {
+	it('refreshes rather than duplicates, and asks only about who is not filled in', async () => {
 		chromeAnswering({
-			lookup: answer([profile('/bicep')], ['/fourtet']),
-			storage: { artists: [entry('/bicep', { profile: { ...profile('/bicep'), at: 1 } })] }
+			lookup: answer([profile('/fourtet')]),
+			...held([entry('/bicep', { profile: { ...profile('/bicep'), at: 1 } })])
 		});
 		await load();
+		// Everybody on the list is filled in already, so opening asks nothing.
+		expect(lookups()).toEqual([]);
+		expect(incompleteLine()).toBe('');
 		expect(addButton()!.getAttribute('aria-label')).toBe('add 1 artist from this tab');
 		await addTab();
 		expect(text()).toMatch(/added 1 artist, refreshed 1 artist from My Playlist/);
 		expect(lookups()).toEqual([{ type: 'GET_ARTIST_PROFILES', permalinks: ['/fourtet'] }]);
 		expect(stored()).toHaveLength(2);
+		expect(rowText()[1]).toMatch(/^Four Tet Belfast, GB/);
+		expect(incompleteLine()).toBe('');
 	});
 
 	it('says when the list is full, and adds nothing', async () => {
-		chromeAnswering({
-			storage: { artists: Array.from({ length: 2000 }, (_, n) => entry(`/a${n}`)) },
-			// A search that hides every row: two thousand of them are not what this
-			// test is about, and the list holds them either way.
-			session: { view: { open: 'artists', panels: { artists: { query: 'zzzz' } } } }
-		});
+		chromeAnswering(
+			// Each answered by an older lookup, so there is nobody to fill in. A
+			// search hides every row: two thousand of them are not what this test
+			// is about, and the list holds them either way.
+			held(
+				Array.from({ length: 2000 }, (_, n) => entry(`/a${n}`, { profile: { unavailable: true, at: 1 } })),
+				{ view: { open: 'artists', panels: { artists: { query: 'zzzz' } } } }
+			)
+		);
 		await load();
 		expect(rows()).toEqual([]);
 		expect(text()).toMatch(/nothing matches “zzzz”/);
@@ -340,10 +276,9 @@ describe('adding from the tab', () => {
 		await click(button('Manager (2)'));
 		expect(stored()).toHaveLength(2);
 		expect(lookups()).toEqual([]);
-		expect(text()).toMatch(/2 artists not looked up — open a SoundCloud tab to look up socials\./);
+		expect(incompleteLine()).toBe('2 artists without socials yet. open a SoundCloud tab to fill in socials.');
 		// Not asked and refused: not asked at all, so there is no failure to report.
-		expect(text()).not.toMatch(/couldn’t look up their socials/);
-		expect(labelled('look up 2 artists', HTMLButtonElement).disabled).toBe(true);
+		expect(text()).not.toMatch(/couldn’t read their socials/);
 	});
 });
 
@@ -381,27 +316,60 @@ describe('the other sources', () => {
 	});
 });
 
-describe('looking up from the bar', () => {
-	it('asks about everyone not looked up, from any SoundCloud page', async () => {
+describe('filling in as it opens', () => {
+	it('asks any SoundCloud page about everyone not filled in, and draws what it had loaded', async () => {
 		chromeAnswering({
 			tab: { id: 7, url: 'https://soundcloud.com/stream' },
 			page: extraction({ pageType: 'other', tracks: [] }),
-			lookup: answer([profile('/a')], ['/b']),
-			storage: { artists: [entry('/a'), entry('/b'), entry('/c', { profile: { unavailable: true, at: 1 } })] }
+			lookup: answer([profile('/a'), profile('/b', { links: [], partial: true })]),
+			...held([
+				entry('/a'),
+				entry('/b'),
+				entry('/c', { profile: { unavailable: true, at: 1 } }),
+				entry('/d', { profile: { ...profile('/d', { links: [], partial: true }), at: 1 } }),
+				entry('/e', { profile: { ...profile('/e'), at: 1 } })
+			])
 		});
 		await load();
 		expect(text()).toMatch(/that’s not a playlist, likes or track page/);
-		const lookUp = labelled('look up 2 artists', HTMLButtonElement);
-		expect(lookUp.disabled).toBe(false);
-		expect(lookUp.title).toMatch(/asks SoundCloud who’s behind each path/);
-		await click(lookUp);
-		expect(lookups()).toEqual([{ type: 'GET_ARTIST_PROFILES', permalinks: ['/a', '/b'] }]);
+		// Neither the older lookup's "no profile" nor a whole profile has more to load.
+		expect(lookups()).toEqual([{ type: 'GET_ARTIST_PROFILES', permalinks: ['/a', '/b', '/d'] }]);
 		expect(rowText()).toEqual([
 			'a Belfast, GB · 1.2K followers · 1 link IG',
-			'b no public profile',
-			'c no public profile'
+			'b Belfast, GB · 1.2K followers · links not loaded yet',
+			'c no public profile',
+			'd Belfast, GB · 1.2K followers · links not loaded yet',
+			'e Belfast, GB · 1.2K followers · 1 link IG'
 		]);
-		expect(byLabel('look up 2 artists')).toBeUndefined();
+		// A track names its uploader in short; the rest comes with their page.
+		expect(lineTitle('/b')).toBe(`Belfast, GB · 1.2K followers · links not loaded yet. ${LOAD_HINT}`);
+		expect(lineTitle('/c')).toBe('no public profile');
+		expect(incompleteLine()).toBe(`2 artists without socials yet. ${LOAD_HINT}`);
+		expect(meta()).toBe('5 artists · 2 with socials');
+		expect(await sessionProfiles()).toMatchObject({ '/a': { city: 'Belfast' }, '/b': { partial: true } });
+	});
+
+	it('says the bio is still to load in an opened row', async () => {
+		chromeAnswering(held([entry('/mid', { name: 'Mid', profile: { ...profile('/mid', { partial: true }), at: 1 } })]));
+		await load();
+		await click(chevron('Mid'));
+		expect(labelled('bio: not loaded yet', HTMLButtonElement).disabled).toBe(true);
+	});
+
+	it('says so when the tab could not be read', async () => {
+		chromeAnswering({ storage: { artists: [entry('/a')] }, lookup: new Error('Could not establish connection') });
+		await load();
+		expect(lookups()).toHaveLength(1);
+		expect(status()!.textContent).toMatch(/couldn’t read their socials\. can’t reach the page/);
+		expect(rowText()).toEqual(['a not loaded yet']);
+	});
+
+	it('asks nothing of a tab that is not SoundCloud, and says what to open', async () => {
+		chromeAnswering({ tab: { id: 1, url: 'https://example.com/' }, storage: { artists: [entry('/a')] } });
+		await load();
+		expect(lookups()).toEqual([]);
+		expect(incompleteLine()).toBe('1 artist without socials yet. open a SoundCloud tab to fill in socials.');
+		expect(lineTitle('/a')).toBe(`not loaded yet. ${LOAD_HINT}`);
 	});
 });
 
@@ -432,7 +400,7 @@ describe('the list', () => {
 	];
 
 	beforeEach(() => {
-		chromeAnswering({ storage: { artists: THREE } });
+		chromeAnswering(held(THREE));
 	});
 
 	it('is sorted by name to begin with, and by list order or followers on request', async () => {
@@ -452,9 +420,11 @@ describe('the list', () => {
 	it('shows a handful of badges and counts the rest, and draws a placeholder for no picture', async () => {
 		await load();
 		const mid = rows()[1];
-		expect(mid.textContent).toMatch(/99 followers · 7 links/);
+		// Five on the profile and one in the bio; the email address in the bio
+		// is not a link.
+		expect(mid.textContent).toMatch(/99 followers · 6 links/);
 		expect(mid.querySelectorAll('[aria-label*=": open "]')).toHaveLength(3);
-		expect(mid.textContent).toMatch(/\+4/);
+		expect(mid.textContent).toMatch(/\+3/);
 		expect(mid.querySelector('[title="no picture"]')).toBeTruthy();
 		expect(mid.querySelector('img')).toBe(null);
 	});
@@ -546,7 +516,7 @@ describe('a row opened out', () => {
 	});
 
 	beforeEach(() => {
-		chromeAnswering({ storage: { artists: [MID, entry('/other')] } });
+		chromeAnswering(held([MID, entry('/other')]));
 	});
 
 	it('lists every field, copies one on a click, and opens an address', async () => {
@@ -595,75 +565,19 @@ describe('a row opened out', () => {
 		expect(byLabel('bc: search Bandcamp')).toBeTruthy();
 	});
 
-	it('asks SoundCloud about the one artist again', async () => {
-		chromeAnswering({
-			storage: { artists: [MID] },
-			lookup: answer([profile('/mid', { city: 'Derry' })])
-		});
-		await load();
-		await click(chevron('Mid'));
-		const again = labelled('look up Mid again', HTMLButtonElement);
-		expect(again.title).toMatch(/asks SoundCloud about this artist again/);
-		await click(again);
-		expect(lookups()).toEqual([{ type: 'GET_ARTIST_PROFILES', permalinks: ['/mid'] }]);
-		expect(rowText()[0]).toMatch(/Derry, GB/);
-	});
-
-	it('keeps the profile when looking it up again fails, and says so', async () => {
-		chromeAnswering({ storage: { artists: [MID] }, lookup: answer([], [], '', ['/mid']) });
-		await load();
-		const before = stored()[0].profile;
-		await click(chevron('Mid'));
-		await click(labelled('look up Mid again', HTMLButtonElement));
-
-		expect(stored()[0].profile).toEqual(before);
-		expect(rowText()[0]).toMatch(/lookup failed/);
-		expect(rowText()[0]).not.toMatch(/no public profile/);
-	});
-
-	it('clears the failure once a lookup works', async () => {
-		const mock = chromeAnswering({ storage: { artists: [MID] }, lookup: answer([], [], '', ['/mid']) });
-		await load();
-		await click(chevron('Mid'));
-		await click(labelled('look up Mid again', HTMLButtonElement));
-		expect(rowText()[0]).toMatch(/lookup failed/);
-
-		mock.tabs.sendMessage.mockImplementation(async () => answer([profile('/mid', { city: 'Derry' })]));
-		await click(labelled('look up Mid again', HTMLButtonElement));
-		expect(rowText()[0]).toMatch(/Derry, GB/);
-	});
-
-	it('leaves a new row to be looked up when its lookup fails, rather than calling it private', async () => {
-		chromeAnswering({ lookup: answer([profile('/bicep')], [], '', ['/fourtet']) });
-		await load();
-		await addTab();
-		await settle();
-		expect(rowText()[1]).toMatch(/Four Tet lookup failed/);
-		expect(stored().find((one) => one.permalink === '/fourtet')!.profile).toBe(null);
-	});
-
-	it('is off to look up again without a SoundCloud tab', async () => {
-		chromeAnswering({ storage: { artists: [MID] }, tab: { id: 1, url: 'https://example.com/' } });
-		await load();
-		await click(chevron('Mid'));
-		const again = labelled('look up Mid again', HTMLButtonElement);
-		expect(again.disabled).toBe(true);
-		expect(again.title).toMatch(/open a SoundCloud tab/);
-	});
-
 	it('takes the artist off the list', async () => {
 		await load();
 		await click(chevron('Mid'));
 		await click(byLabel('take Mid off the list'));
 		expect(text()).toMatch(/took Mid off the list/);
-		expect(rowText()).toEqual(['other not looked up']);
+		expect(rowText()).toEqual(['other not loaded yet']);
 		expect(stored().map((one) => one.permalink)).toEqual(['/other']);
 	});
 
 	// A state file can restore a profile as little as `{ at }`: a follower count
 	// it does not carry is not known, and the row says and opens as for null.
 	it('opens a restored profile that carries no follower count', async () => {
-		chromeAnswering({ storage: { artists: [entry('/bare', { name: 'Bare', profile: { at: 1 } })] } });
+		chromeAnswering(held([entry('/bare', { name: 'Bare', profile: { at: 1 } })]));
 		await load();
 		expect(rowText()).toEqual(['Bare no links']);
 		await click(chevron('Bare'));
@@ -676,16 +590,5 @@ describe('a row opened out', () => {
 		await reopenPanel('artists');
 		expect(chevron('Mid')!.getAttribute('aria-expanded')).toBe('true');
 		expect(document.querySelector('li dl')).toBeTruthy();
-	});
-});
-
-describe('when the browser says no', () => {
-	it('still draws with a runtime that cannot be listened to', async () => {
-		chromeAnswering();
-		chrome.runtime.onMessage.addListener.mockImplementation(() => {
-			throw new Error('no runtime');
-		});
-		await load();
-		expect(text()).toMatch(/nobody here yet/);
 	});
 });

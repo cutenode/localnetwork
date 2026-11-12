@@ -52,15 +52,13 @@ export function emptyStatus(response: TracksAnswer) {
 }
 
 // Reads started before the panel that wants them exists. Reading a page is
-// two round trips (the browser process for the tab, then the content script,
-// which for download details is a good many requests to SoundCloud), and none
-// of them need wait for a chunk to compile or a component to mount. The shell
+// two round trips (the browser process for the tab, then the content script),
+// and neither needs to wait for a chunk to compile or a component to mount. The shell
 // starts them at boot for the tool it is about to open (see $lib/tools.ts), so
 // by the time the panel asks, the answer is on its way or already here.
 //
-// One per type: the tracks come back in a few milliseconds and are what a
-// list is drawn from, while their download details take as long as SoundCloud
-// takes. The registry only warms the tracks at present.
+// One per type. The registry only warms the tracks at present: they are what a
+// list is drawn from.
 const warmed = new Map<keyof PageReads, Promise<PageRead<TracksAnswer | DetailsAnswer>>>();
 
 /**

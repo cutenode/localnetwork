@@ -19,7 +19,7 @@
 // which is usually the bug report as well.
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
-import type { DetailsAnswer, ListedEntry, TracksAnswer } from '$lib/types';
+import type { ListedEntry, TracksAnswer } from '$lib/types';
 
 import { normalize, matches } from '../../src/lib/filter.ts';
 import { count, pageSummary, emptyStatus } from '../../src/lib/soundcloud.ts';
@@ -43,7 +43,7 @@ import {
 	buildListOrder,
 	isUnchecked,
 	isWithoutLinks,
-	lookupNotes
+	pageNotes
 } from '../../src/tools/manager/links.ts';
 import { safeName, filenameOf, looksLikeFile } from '../../src/tools/third-party-downloads/save.ts';
 import {
@@ -704,25 +704,6 @@ describe('download links (links.js)', () => {
 		);
 	});
 
-	it('marks as pending exactly the unchecked tracks a lookup is running for', () => {
-		fc.assert(
-			fc.property(fc.array(detailedTrack(), { maxLength: 15 }), (tracks) => {
-				const checking = new Set(tracks.map((track) => track.permalink));
-				const idle = buildListOrder(tracks);
-				const running = buildListOrder(tracks, { checking });
-				// Nothing is pending when no lookup is running, however little is
-				// known about a track...
-				expect(idle.every((row) => !row.pending)).toBe(true);
-				// ...and with one running, the pending rows are exactly the tracks
-				// nobody has an answer about, still in the list's own order.
-				expect(running.filter((row) => row.pending).map((row) => row.track)).toEqual(tracks.filter(isUnchecked));
-
-				for (const row of running.filter((one) => one.pending)) expect(row.entries).toHaveLength(0);
-			}),
-			RUNS
-		);
-	});
-
 	it('never calls a track link-less while it still has an entry', () => {
 		fc.assert(
 			fc.property(detailedTrack(), (track) => {
@@ -733,19 +714,17 @@ describe('download links (links.js)', () => {
 		);
 	});
 
-	it('notes exactly the tracks it could not check', () => {
+	it('notes exactly the tracks the page had not loaded, and the ones it read only in part', () => {
 		fc.assert(
-			fc.property(fc.array(detailedTrack(), { maxLength: 15 }), fc.nat({ max: 5 }), (tracks, lookupFailed) => {
-				// SAFETY: lookupNotes reads each track's details and nothing else of it,
-				// and the other two fields, which are what this hands it.
-				const notes = lookupNotes({ tracks, lookupFailed } as Omit<DetailsAnswer, 'tracks'> & {
-					tracks: ListedEntry[];
-				});
+			fc.property(fc.array(detailedTrack(), { maxLength: 15 }), (tracks) => {
+				const notes = pageNotes({ tracks });
 
 				const unknown = tracks.filter((t) => !t.details).length;
-				expect(notes.includes('couldn’t check')).toBe(unknown > 0);
-				// And how many: "1 track", "3 tracks".
-				expect(notes.includes(`couldn’t check ${count(unknown, 'track')}`)).toBe(unknown > 0);
+				const partial = tracks.filter((t) => t.details && t.details.downloadable === null).length;
+				// How many, said once each: "1 track", "3 tracks".
+				expect(notes.includes(`${count(unknown, 'track')} not loaded yet`)).toBe(unknown > 0);
+				expect(notes.includes(`${count(partial, 'track')}: purchase link read off the page`)).toBe(partial > 0);
+				expect(notes === '').toBe(unknown === 0 && partial === 0);
 			}),
 			RUNS
 		);

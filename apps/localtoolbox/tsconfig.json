@@ -21,6 +21,7 @@
 		"src/**/*.ts",
 		"src/**/*.svelte",
 		"content.ts",
+		"page-data.ts",
 		"downloaded-store.ts",
 		"state-transfer.ts",
 		"theme-prepaint.ts"

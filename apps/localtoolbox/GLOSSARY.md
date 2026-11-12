@@ -13,8 +13,8 @@ A record that a track was downloaded, which is what puts the marker on the page.
 _Avoid_: flag, tick, downloaded state
 
 **Details**:
-What SoundCloud said about a track, kept for a while so it doesn't have to be asked again.
-_Avoid_: metadata, track cache
+What SoundCloud's own page loaded about a track: whether it can be downloaded, and where its purchase link goes. Kept for as long as the tab holds the page.
+_Avoid_: metadata, track cache, lookup
 
 ## Downloads
 

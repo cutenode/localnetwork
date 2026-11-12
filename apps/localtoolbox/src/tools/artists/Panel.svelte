@@ -6,10 +6,10 @@
   way the Manager's is: nothing goes onto it by itself, and the bar at the top
   is the one place artists come in: from the tab in front, from the Manager's
   list, or from the session queue. Adding puts the artists on the list at once,
-  from what the source itself says (a name and the tracks), and then asks
-  SoundCloud about each one it has no answer for: the public profile behind
-  the path, and the links the uploader put on it. The rows are up before the
-  first answer and fill in as the answers land.
+  from what the source itself says (a name and the tracks), and then fills in
+  what the SoundCloud tab in front has loaded about each account: the public
+  profile behind the path, and the links the uploader put on it. A track names
+  its uploader in short; the bio and the links come with the profile page.
 
   A row is the artist's picture, name and a line about them, and then their
   socials as lettered badges, one per link, each opening that page. The
@@ -18,9 +18,10 @@
   artist here, and the search badges from Settings that look for the
   artist on the shops the Manager searches.
 
-  The socials are asked for through a SoundCloud tab (./lookup.ts), any page
-  of it; the list itself is on screen on any tab at all, with whatever it
-  already knows.
+  The socials are read from a SoundCloud tab (./lookup.ts), any page of it,
+  each time the panel opens there; the list itself is on screen on any tab at
+  all, with whatever it already knows. Profiles last the browser session
+  (./artists.svelte.ts).
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -28,8 +29,6 @@
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import Copy from '@lucide/svelte/icons/copy';
   import ExternalLink from '@lucide/svelte/icons/external-link';
-  import LoaderCircle from '@lucide/svelte/icons/loader-circle';
-  import RefreshCw from '@lucide/svelte/icons/refresh-cw';
   import Search from '@lucide/svelte/icons/search';
   import Trash2 from '@lucide/svelte/icons/trash-2';
   import User from '@lucide/svelte/icons/user';
@@ -41,13 +40,11 @@
   import AddBar from './AddBar.svelte';
   import { Button } from '$lib/components/ui/button/index.ts';
   import { Input } from '$lib/components/ui/input/index.ts';
-  import { Progress } from '$lib/components/ui/progress/index.ts';
   import * as Select from '$lib/components/ui/select/index.ts';
   import * as Tooltip from '$lib/components/ui/tooltip/index.ts';
   import { BACKGROUND_HINT, openTab } from '$lib/chrome.ts';
   import { copyText } from '$lib/clipboard.ts';
   import { matches } from '$lib/filter.ts';
-  import { LOOKUP_ERRORS } from '$lib/lookup-errors.ts';
   import { createPainting } from '$lib/painting.svelte.ts';
   import { choicePref, flagPref } from '$lib/prefs.svelte.ts';
   import { queue } from '$lib/queue.svelte.ts';
@@ -63,9 +60,11 @@
     artistsOf,
     asText,
     hasProfile,
+    isIncomplete,
     isUnavailable,
     isUnchecked,
     linksOf,
+    LOAD_HINT,
     nameOf,
     profileLine,
     ROW_BADGES,
@@ -76,17 +75,7 @@
     sorted,
   } from './profiles.ts';
   import type { Fact, Link } from './profiles.ts';
-  import type {
-    Artist,
-    ArtistEntry,
-    PageProgress,
-    PageTrack,
-    PageType,
-    PanelProps,
-    ProfileAnswer,
-    ProfilesAnswer,
-    ProfilesProgress,
-  } from '$lib/types';
+  import type { Artist, ArtistEntry, PageTrack, PageType, PanelProps } from '$lib/types';
 
   let { tool, onback }: PanelProps = $props();
 
@@ -97,10 +86,6 @@
   const FACT_HINT = 'click to copy';
 
   const LINK_HINT = 'click to copy the address. the arrow opens it in a tab.';
-
-  const LOOKUP_HINT = 'asks SoundCloud who’s behind each path, and for the links on their profile.';
-
-  const AGAIN_HINT = 'asks SoundCloud about this artist again.';
 
   const COPY_HINT = 'copies every artist shown — name, profile and links — as text.';
 
@@ -128,16 +113,23 @@
 
   let ready = $state(false);
 
-  artists.start().then(() => (ready = true));
+  const started = artists.start().then(() => (ready = true));
 
   // The Manager's list is a source, and read for the count on its button.
   listed.start();
 
   // Whether the tab in front can be asked: any SoundCloud page will do, since
-  // the content script is in every one of them. Read once, as the page is.
+  // the content script is in every one of them. Read once, as the page is,
+  // and then the list is filled in from it.
   let onSc = $state(false);
 
-  onSoundCloud().then((yes) => (onSc = yes));
+  const fillOnOpen = async () => {
+    onSc = await onSoundCloud();
+    await started;
+    await fillIn();
+  };
+
+  void fillOnOpen();
 
   // --- what there is to add --------------------------------------------------
 
@@ -215,56 +207,33 @@
       .join(' · '),
   });
 
-  // --- adding, and looking up ------------------------------------------------
+  // --- adding, and filling in ------------------------------------------------
 
   let adding = $state(false);
 
-  let lookingUp = $state(false);
-
-  /** How far the running lookup has got. */
-  let progress = $state<ProfilesProgress | null>(null);
-
-  /** The paths the running lookup covers, so their rows can say so. */
-  let checkingIds: Set<string> = $state(new Set());
-
-  /** Who the last lookup of them couldn't ask about. Not stored: it's about that lookup, not the artist. */
-  let failedIds: Set<string> = $state(new Set());
-
-  /** What the last add or lookup came to, when it is worth leaving on screen. */
+  /** What the last add or fill-in came to, when it is worth leaving on screen. */
   let note = $state<{ tone: 'bad' | 'info'; text: string } | null>(null);
 
-  // Answers arriving from the lookup, an artist at a time, taken straight
-  // into the list; the store coalesces the writes. A row stops saying it is
-  // being looked up the moment its own answer lands, not when the whole
-  // lookup ends.
-  try {
-    chrome.runtime.onMessage.addListener((message: PageProgress) => {
-      if (!message || message.type !== 'ARTIST_PROFILES_PROGRESS') return;
-
-      if (!lookingUp) return;
-      progress = message;
-      take(message);
-    });
-  } catch (_e) {
-    // No runtime to listen on: the lookup just finishes without a count.
-  }
-
   /**
-   * Folds a lookup's answers into the list. A profile or SoundCloud saying there is none goes to
-   * the store. A lookup that failed says nothing about the artist, so what the row holds stays,
-   * and the row says so until it's asked again.
-   * @param answer a progress message, or the lookup's whole answer
+   * Fills in every artist still missing a profile, or its bio and links, from
+   * what the SoundCloud tab in front has loaded. The tab answers from memory,
+   * so this costs nothing and runs whenever it might find something: as the
+   * panel opens, and after an add.
    */
-  function take({ profiles, missing, failed }: Partial<Pick<ProfilesAnswer, 'profiles' | 'missing' | 'failed'>>) {
-    const answers: ProfileAnswer[] = [
-      ...(profiles ?? []),
-      ...(missing ?? []).map((permalink) => ({ permalink, unavailable: true as const })),
-    ];
+  async function fillIn() {
+    const wanted = artists.items.filter(isIncomplete).map((entry) => entry.permalink);
 
-    artists.learn(answers);
-    const answered = new Set([...answers.map((answer) => answer.permalink), ...(failed ?? [])]);
-    checkingIds = new Set([...checkingIds].filter((permalink) => !answered.has(permalink)));
-    failedIds = new Set([...failedIds, ...(failed ?? [])]);
+    if (!onSc || wanted.length === 0) return;
+    const result = await lookupProfiles(wanted);
+
+    if (result.status) {
+      note = { tone: 'bad', text: `couldn’t read their socials. ${result.status}` };
+
+      return;
+    }
+
+    artists.learn(result.data!.profiles);
+    await artists.flush();
   }
 
   const said = ({ added, refreshed }: { added: number; refreshed: number }, from: string) => {
@@ -285,35 +254,6 @@
         'take some off and add again.'
       : '';
 
-  /** Asks SoundCloud about these artists, folding the answers into the list. */
-  async function lookUp(permalinks: string[]) {
-    if (permalinks.length === 0) return;
-    lookingUp = true;
-    progress = null;
-    checkingIds = new Set(permalinks);
-    failedIds = new Set([...failedIds].filter((permalink) => !checkingIds.has(permalink)));
-    const result = await lookupProfiles(permalinks);
-
-    if (result.status) {
-      note = { tone: 'bad', text: `couldn’t look up their socials. ${result.status}` };
-    } else {
-      // The whole answer, answers already streamed included: the same
-      // profile twice is the same profile.
-      take(result.data!);
-      const why = LOOKUP_ERRORS[result.data!.error];
-
-      // Said once it is over, through the toasts' live region: the bar above
-      // the list says how far it has got, and nothing says when it is done.
-      if (why) note = { tone: 'bad', text: `some socials weren’t looked up. ${why}` };
-      else toasts.ok(`looked up ${count(permalinks.length, 'artist')}`);
-    }
-
-    await artists.flush();
-    checkingIds = new Set();
-    progress = null;
-    lookingUp = false;
-  }
-
   async function addFrom(source: 'tab' | 'list' | 'queue') {
     adding = true;
     note = null;
@@ -332,15 +272,14 @@
     if (extra) note = { tone: 'info', text: `${said(tally, from)}. ${extra}` };
     else toasts.ok(said(tally, from));
 
-    // Then the socials, for whichever of them nobody has asked about, where
-    // there is a SoundCloud tab to ask. Without one the rows say so, and the
-    // bar offers the lookup once there is.
-    if (!onSc) return;
-    const asking = new Set(unchecked.map((entry) => entry.permalink));
-    await lookUp(list.map((artist) => artist.permalink).filter((one) => asking.has(one)));
+    // Then the socials, from the tab in front where it is SoundCloud. Without
+    // one the rows say how to get them.
+    await fillIn();
   }
 
   const unchecked = $derived(artists.items.filter(isUnchecked));
+
+  const incomplete = $derived(artists.items.filter(isIncomplete));
 
   // --- the rows --------------------------------------------------------------
 
@@ -364,7 +303,7 @@
       : [
           count(artists.count, 'artist'),
           `${withSocials} with socials`,
-          ...(unchecked.length > 0 ? [`${unchecked.length} not looked up`] : []),
+          ...(unchecked.length > 0 ? [`${unchecked.length} not loaded yet`] : []),
         ].join(' · ')
   );
 
@@ -490,18 +429,6 @@
       <Button
         size="xs"
         variant="ghost"
-        class="text-fg-muted"
-        disabled={lookingUp || !onSc}
-        aria-label={`look up ${name} again`}
-        title={onSc ? AGAIN_HINT : OPEN_A_TAB}
-        onclick={() => lookUp([entry.permalink])}
-      >
-        <RefreshCw />
-        look up again
-      </Button>
-      <Button
-        size="xs"
-        variant="ghost"
         class="text-fg-muted hover:text-critical"
         aria-label={`take ${name} off the list`}
         title="off the list. the Manager’s tracks stay."
@@ -531,26 +458,6 @@
     </Button>
   {/snippet}
 
-  {#snippet banner()}
-    {#if lookingUp && progress}
-      <div class="shrink-0 border-b border-line px-3 py-2">
-        <div class="mb-1 flex items-center justify-between text-caption text-fg-muted">
-          <span>looking up socials…</span>
-          <span class="font-mono">{progress.done} / {progress.total}</span>
-        </div>
-        <!-- The total is never 0: the page only reports on a lookup that has
-             artists to look up (content.ts). -->
-        <Progress
-          value={progress.done}
-          max={progress.total}
-          class="h-1"
-          aria-label="looking up socials"
-          aria-valuetext={`${progress.done} of ${progress.total}`}
-        />
-      </div>
-    {/if}
-  {/snippet}
-
   {#if !ready}
     <StatusNote tone="busy">reading your list…</StatusNote>
   {:else}
@@ -572,38 +479,16 @@
       {/if}
 
       {#if artists.count > 0}
-        {#if unchecked.length > 0 || lookingUp}
-          <!-- The artists nobody has asked SoundCloud about, and the button
-               that asks, or why it is off on a tab that cannot ask. -->
-          <div
-            class="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-caption text-fg-soft"
+        {#if incomplete.length > 0}
+          <!-- The artists whose socials no SoundCloud tab has loaded yet, and
+               how to get them: a track only names its uploader, and the bio
+               and the links come with the profile page. -->
+          <p
+            class="rounded-lg border border-line bg-surface px-3 py-2 text-caption leading-relaxed text-fg-soft"
             role="status"
           >
-            <span class="min-w-0 flex-1 leading-relaxed">
-              {#if lookingUp}
-                looking up {count(checkingIds.size, 'artist')}…
-              {:else if onSc}
-                {count(unchecked.length, 'artist')} not looked up.
-              {:else}
-                {count(unchecked.length, 'artist')} not looked up — {OPEN_A_TAB}
-              {/if}
-            </span>
-            <Button
-              size="xs"
-              disabled={lookingUp || !onSc}
-              aria-label={`look up ${count(unchecked.length, 'artist')}`}
-              title={onSc ? LOOKUP_HINT : OPEN_A_TAB}
-              onclick={() => lookUp(unchecked.map((entry) => entry.permalink))}
-            >
-              {#if lookingUp}
-                <LoaderCircle class="animate-spin" />
-                looking up…
-              {:else}
-                <Search />
-                look up
-              {/if}
-            </Button>
-          </div>
+            {count(incomplete.length, 'artist')} without socials yet. {onSc ? LOAD_HINT : OPEN_A_TAB}
+          </p>
         {/if}
 
         <div class="flex flex-col gap-1.5">
@@ -678,8 +563,6 @@
           {#each painted as entry (entry.permalink)}
             {@const name = nameOf(entry)}
             {@const links = linksOf(entry.profile)}
-            {@const checking = checkingIds.has(entry.permalink)}
-            {@const failed = failedIds.has(entry.permalink)}
             {@const avatar = hasProfile(entry) ? entry.profile.avatarUrl : ''}
             <li
               data-permalink={entry.permalink}
@@ -710,33 +593,26 @@
                     {/if}
                   </p>
                   <p
-                    class="truncate text-caption {isUnavailable(entry) || failed
+                    class="truncate text-caption {isUnavailable(entry) || isUnchecked(entry)
                       ? 'text-fg-subtle italic'
                       : 'text-fg-muted'}"
-                    title={profileLine(entry, { checking, failed })}
+                    title={isIncomplete(entry) ? `${profileLine(entry)}. ${LOAD_HINT}` : profileLine(entry)}
                   >
-                    {profileLine(entry, { checking, failed })}
+                    {profileLine(entry)}
                   </p>
                 </div>
 
                 <div class="flex shrink-0 items-center gap-1">
-                  {#if checking}
-                    <LoaderCircle
-                      class="size-3.5 shrink-0 animate-spin text-fg-muted"
-                      aria-label="looking up"
-                    />
-                  {:else}
-                    {#each links.slice(0, ROW_BADGES) as link (link.key)}
-                      {@render linkBadge(link)}
-                    {/each}
-                    {#if links.length > ROW_BADGES}
-                      <span
-                        class="font-mono text-[10px] text-fg-muted"
-                        title={`${links.length - ROW_BADGES} more — open the row`}
-                      >
-                        +{links.length - ROW_BADGES}
-                      </span>
-                    {/if}
+                  {#each links.slice(0, ROW_BADGES) as link (link.key)}
+                    {@render linkBadge(link)}
+                  {/each}
+                  {#if links.length > ROW_BADGES}
+                    <span
+                      class="font-mono text-[10px] text-fg-muted"
+                      title={`${links.length - ROW_BADGES} more: open the row`}
+                    >
+                      +{links.length - ROW_BADGES}
+                    </span>
                   {/if}
                   <Tooltip.Root>
                     <Tooltip.Trigger>

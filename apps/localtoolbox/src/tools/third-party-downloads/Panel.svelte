@@ -81,7 +81,7 @@
   import { count, EXTRACTION_FAILED, RELOAD_THE_TAB } from '$lib/soundcloud.ts';
   import { QUEUE, source } from '$lib/source.ts';
   import { toasts } from '$lib/toast.svelte.ts';
-  import type { DetailedTrack, PageProgress, PanelProps, Track } from '$lib/types';
+  import type { PanelProps, Track } from '$lib/types';
   import { extractGateUrls, labelOfUrl, siteFor, SITES, unwrapGate } from './sites/index.ts';
   import type { UnlockDetails } from './sites/index.ts';
   import { EMAIL, NAME, Wanting } from './next-step.ts';
@@ -310,39 +310,6 @@
         : `none of the ${count(queue.count, 'track')} in the queue point at a site this knows.`;
   }
 
-  /**
-   * The tracks the SoundCloud page lists, as the lookup fills their details
-   * in. Every row this tool has comes out of a track's purchase link, so this
-   * is what the list is built from, twice over: once from what the page
-   * itself renders, and again from each answer as it arrives.
-   */
-  let listed: DetailedTrack[] = [];
-
-  // Answers arriving from the lookup, a few at a time. `addRows` skips a link
-  // it has already listed, so building the rows again as each batch lands adds
-  // only what is new.
-  try {
-    chrome.runtime.onMessage.addListener((message: PageProgress) => {
-      if (!message || message.type !== 'DOWNLOAD_DETAILS_PROGRESS') return;
-
-      if (!message.details?.length || listed.length === 0) return;
-      const learned = new Map(message.details.map((details) => [details.permalink, details]));
-      let filled = false;
-      listed = listed.map((track) => {
-        const details = learned.get(track.permalink);
-
-        if (!details || track.details) return track;
-        filled = true;
-
-        return { ...track, details };
-      });
-
-      if (filled) gatesFromTracks(listed);
-    });
-  } catch (_e) {
-    // No runtime to listen on: every row arrives with the answer instead.
-  }
-
   /** Only ever handed a tab whose URL could be read (see collect). */
   async function collectFromTab(tab: chrome.tabs.Tab) {
     if (siteFor(tab.url!)) {
@@ -354,25 +321,10 @@
 
     if (!isSoundCloudUrl(tab.url)) return;
 
-    // The details are the slow half of this (the content script asks
-    // SoundCloud about every track the page shows, which on a scrolled page is
-    // seconds), and they are started first so they run underneath everything
-    // below rather than after it.
-    const answer = askPage(tab.id!, 'GET_DOWNLOAD_DETAILS');
-
-    // The page's own tracks come back in a few milliseconds, and on Likes
-    // pages they carry the purchase links the page itself renders: those rows
-    // are listed before SoundCloud has been asked anything at all, and the
-    // rest arrive as the answers do.
-    const preview = await askPage(tab.id!, 'EXTRACT_TRACKS');
-
-    if (preview.reached && preview.response?.ok && Array.isArray(preview.response.tracks)) {
-      listed = preview.response.tracks;
-      walked.origin = preview.response.title || 'SoundCloud';
-      gatesFromTracks(listed);
-    }
-
-    const { reached, response } = await answer;
+    // Every row this tool has comes out of a track's purchase link: the page's
+    // tracks, with what it has loaded about them, which the tab answers from
+    // memory.
+    const { reached, response } = await askPage(tab.id!, 'GET_DOWNLOAD_DETAILS');
 
     if (!reached || !response) {
       status = RELOAD_THE_TAB;
@@ -389,11 +341,8 @@
     }
 
     walked.origin = response.title || 'SoundCloud';
-    listed = response.tracks;
-    gatesFromTracks(listed);
+    gatesFromTracks(response.tracks);
 
-    // What the whole list came to, rather than what this last pass added:
-    // rows put up from the page itself, or as the answers came in, are rows.
     if (rows.length === 0) {
       status = `nothing on ${origin} points at a site this knows (${SITE_NAMES}).`;
       walked.origin = '';

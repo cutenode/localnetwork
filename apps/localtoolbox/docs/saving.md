@@ -9,14 +9,13 @@ to a file.
 One JSON file holds most of it:
 
 - your downloaded marks,
-- what SoundCloud said about each track,
 - the Manager's list,
-- the artists list,
+- the artists list, without their profiles (those last until you close the browser),
 - the session queue,
 - and three options: background tabs, the Manager's sort order and hide downloaded.
 
-**your data**, in Settings, shows how many marks, looked-up tracks, listed tracks, artists and
-queued tracks you have.
+**your data**, in Settings, shows how many marks, listed tracks, artists and queued tracks you
+have.
 
 ## Export
 
@@ -45,7 +44,10 @@ An import adds to what you have, and removes nothing:
 To restore an exact copy instead, turn on **replace what's here instead of adding to it**. The
 button changes to **replace everything**: your marks, lists, queue and those three options become
 the file's, and anything not in the file is gone. SoundCloud tabs already open show the new marks
-straight away, and keep the looked-up details they hold until you reload them.
+straight away.
+
+A file saved by an older version may also hold download details for each track. It still imports,
+and those are left out.
 
 If any part of the file isn't valid, nothing is imported.
 

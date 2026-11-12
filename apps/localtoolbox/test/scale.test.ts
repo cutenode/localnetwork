@@ -5,13 +5,13 @@
 // wrong at that size and at no other, and neither shows up in a test of three
 // tracks.
 //
-// The first is cost to SoundCloud. Asking for one track at a time is
-// invisible at three and rude at five hundred, so the request count for a full
-// page is asserted against the batch size rather than against a number
-// somebody typed: a change that drops the batching fails here.
+// The first is what the page has loaded. A list that long arrives in pieces
+// (a playlist's first few tracks whole and the rest as stubs, then the page's
+// own requests for the rest in batches), and every row has to come out with
+// its details whatever piece they were in.
 //
 // The second is cost to the machine, and the assertions about it count work
-// rather than time: requests made, writes performed, searches of the DOM,
+// rather than time: writes performed, searches of the DOM,
 // markers painted. (Rows drawn are counted where the Manager panel is tested:
 // test/panels/manager.test.ts, "draws a screenful first…".) A stopwatch would measure whatever else the
 // machine is doing; a count of how many times the page was searched for eight
@@ -22,7 +22,6 @@
 // quadratic, which at that size is minutes rather than milliseconds.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { loadContentScript, disposeContentScripts } from './helpers/load.ts';
-import { mockFetch, jsonResponse, likesListing } from './helpers/api.ts';
 import { flush, until } from './helpers/flush.ts';
 import {
 	render,
@@ -32,29 +31,33 @@ import {
 	likedSound,
 	hydrationScript,
 	apiTrack,
-	apiClientEntry,
-	CLIENT_ID
+	pageLoaded
 } from './helpers/dom.ts';
 import { FORMATS, processTracks } from '../src/tools/soundcloud-playlist-to-text/formats.ts';
 import { buildGroups, buildListOrder } from '../src/tools/manager/links.ts';
 import type { ChromeMock } from './helpers/chrome.ts';
-import type { DetailsAnswer, PageFailure } from '$lib/types';
 import { knownDetails, listedEntry } from './helpers/state-fixtures.ts';
 
 declare const chrome: ChromeMock;
 
 const SET = '/curator/sets/big';
 
-const API_BATCH = 50; // content.ts: ids per /tracks request
+// How SoundCloud's web app asks for tracks it has only stubs of, and how many
+// likes one of its listing requests brings. Neither is this extension's
+// choice: they are the sizes the page's own answers come in.
+const API_BATCH = 50;
 
-const LIKES_PAGE = 200; // content.ts: likes per listing request
+const LIKES_PAGE = 200;
 
 afterEach(disposeContentScripts);
 
 const permalink = (n: number) => `/a${n}/t${n}`;
 
-/** The tracks a details answer carries; a page that failed has none to give. */
-const tracksOf = (answer: DetailsAnswer | PageFailure) => (answer.ok ? answer.tracks : []);
+const track = (i: number) => apiTrack({ id: i, permalink: permalink(i) });
+
+// `items` cut into pieces of `size`, as the page asks for them.
+const piecesOf = <Item>(items: Item[], size: number) =>
+	Array.from({ length: Math.ceil(items.length / size) }, (_, i) => items.slice(i * size, (i + 1) * size));
 
 const bigPlaylist = (n: number) =>
 	playlistPage({
@@ -130,16 +133,15 @@ describe('reading a large playlist', () => {
 	});
 });
 
-describe('looking five hundred tracks up', () => {
+describe('details for five hundred tracks', () => {
 	beforeEach(() => {
 		vi.useFakeTimers();
 	});
 
-	it('asks in batches of fifty and nothing more', async () => {
+	it('answers for every row of a playlist the page loaded in pieces, keeping none of it in storage', async () => {
 		const total = 500;
 		render(bigPlaylist(total), SET);
 		hydrationScript([
-			apiClientEntry(),
 			{
 				hydratable: 'playlist',
 				data: {
@@ -147,48 +149,28 @@ describe('looking five hundred tracks up', () => {
 					permalink_url: `https://soundcloud.com${SET}`,
 					// As SoundCloud serves them: a handful of full tracks, the rest
 					// stubs carrying nothing but an id.
-					tracks: Array.from({ length: total }, (_, i) =>
-						i < 5 ? apiTrack({ id: i, permalink: permalink(i) }) : { id: i }
-					)
+					tracks: Array.from({ length: total }, (_, i) => (i < 5 ? track(i) : { id: i }))
 				}
 			}
 		]);
-
-		const { calls, paths } = mockFetch((url) =>
-			jsonResponse(
-				(url.searchParams.get('ids') ?? '')
-					.split(',')
-					.filter(Boolean)
-					.map((id) => apiTrack({ id: Number(id), permalink: permalink(Number(id)) }))
-			)
-		);
-
 		await loadContentScript();
-		const answer = chrome.testSendMessage({ type: 'GET_DOWNLOAD_DETAILS' });
-		await vi.advanceTimersByTimeAsync(20000);
-		const response = await answer;
 
-		expect(tracksOf(response)).toHaveLength(total);
-		expect(tracksOf(response).every((t) => t.details)).toBe(true);
+		// The page fetches the stubs itself, fifty at a time, as it scrolls.
+		const rest = Array.from({ length: total - 5 }, (_, i) => track(i + 5));
 
-		// Ten requests for five hundred tracks, and not one /resolve: everything
-		// came from the page's own hydration and the bulk endpoint.
-		const batches = paths().filter((path) => path.startsWith('/tracks?'));
-		expect(batches).toHaveLength(Math.ceil((total - 5) / API_BATCH));
-		expect(paths().filter((path) => path.startsWith('/resolve'))).toEqual([]);
-		expect(calls).toHaveLength(batches.length);
+		for (const piece of piecesOf(rest, API_BATCH)) pageLoaded('/tracks', piece);
+		await vi.advanceTimersByTimeAsync(500);
 
-		for (const call of calls) {
-			expect(call.url.searchParams.get('ids')!.split(',').length).toBeLessThanOrEqual(API_BATCH);
-			expect(call.url.searchParams.get('client_id')).toBe(CLIENT_ID);
-		}
-
-		// And the cache is written in a few batched writes, not one per track.
-		expect(chrome.storage.local.set.mock.calls.length).toBeLessThan(total / 10);
-		expect(Object.keys(chrome.testStore().details)).toHaveLength(total);
+		const response = await chrome.testSendMessage({ type: 'GET_DOWNLOAD_DETAILS' });
+		expect(response.tracks).toHaveLength(total);
+		// Each row's own, by the id SoundCloud gave it: none missing, none crossed.
+		expect(response.tracks.map((t) => t.details?.id)).toEqual(Array.from({ length: total }, (_, i) => i));
+		// Learned from the page, and kept in the page: not one write of details,
+		// however many there are.
+		expect(chrome.storage.local.set.mock.calls.filter(([items]) => 'details' in items)).toEqual([]);
 	});
 
-	it('pages a long Likes page at the API’s maximum', async () => {
+	it('answers for every row of a long Likes page from the listings the page loaded', async () => {
 		const total = 450;
 		render(
 			publicLikesPage({
@@ -199,30 +181,40 @@ describe('looking five hundred tracks up', () => {
 			}),
 			'/dj/likes'
 		);
-		hydrationScript([apiClientEntry(), { hydratable: 'user', data: { id: 7, permalink: 'dj' } }]);
-
-		const page = (from: number, size: number) =>
-			Array.from({ length: size }, (_, i) => apiTrack({ id: from + i, permalink: permalink(from + i) }));
-
-		const { paths } = mockFetch((url) => {
-			if (!url.pathname.startsWith('/users/7/likes')) return undefined;
-			const offset = Number(url.searchParams.get('offset') ?? 0);
-			const size = Math.min(LIKES_PAGE, total - offset);
-			const next = offset + size < total ? `https://api-v2.soundcloud.com/users/7/likes?offset=${offset + size}` : null;
-
-			return jsonResponse(likesListing(page(offset, size), next));
-		});
-
 		await loadContentScript();
-		const answer = chrome.testSendMessage({ type: 'GET_DOWNLOAD_DETAILS' });
-		await vi.advanceTimersByTimeAsync(20000);
-		const response = await answer;
 
-		expect(tracksOf(response)).toHaveLength(total);
-		const listings = paths().filter((path) => path.startsWith('/users/7/likes'));
-		expect(listings).toHaveLength(Math.ceil(total / LIKES_PAGE));
-		// Nothing was resolved one at a time afterwards.
-		expect(paths().filter((path) => path.startsWith('/resolve'))).toEqual([]);
+		const likes = Array.from({ length: total }, (_, i) => ({ track: track(i), created_at: '2026-01-01T00:00:00Z' }));
+
+		for (const piece of piecesOf(likes, LIKES_PAGE)) pageLoaded('/users/7/track_likes', { collection: piece });
+
+		const response = await chrome.testSendMessage({ type: 'GET_DOWNLOAD_DETAILS' });
+		expect(response.tracks).toHaveLength(total);
+		expect(response.tracks.map((t) => t.details?.id)).toEqual(Array.from({ length: total }, (_, i) => i));
+	});
+
+	// The answer is read off the page and out of memory, so its cost is the
+	// row count's: eight times the rows must not be sixty-four times the work.
+	it('searches the page a number of times the row count explains', async () => {
+		const known = (n: number) =>
+			pageLoaded(
+				'/tracks',
+				Array.from({ length: n }, (_, i) => track(i))
+			);
+
+		render(bigPlaylist(100), SET);
+		await loadContentScript();
+		known(100);
+		const small = await searches(() => chrome.testSendMessage({ type: 'GET_DOWNLOAD_DETAILS' }));
+
+		render(bigPlaylist(800), SET);
+		known(800);
+		const large = await searches(() => chrome.testSendMessage({ type: 'GET_DOWNLOAD_DETAILS' }));
+
+		expect(small.value.tracks.every((t) => t.details)).toBe(true);
+		expect(large.value.tracks).toHaveLength(800);
+		expect(large.value.tracks.every((t) => t.details)).toBe(true);
+		expect(small.count).toBeGreaterThan(0);
+		expect(large.count).toBeLessThanOrEqual(small.count * 9);
 	});
 });
 

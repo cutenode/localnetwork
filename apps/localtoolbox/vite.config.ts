@@ -57,6 +57,7 @@ const unbundled = {
 // sourcemap to ship. Keyed the same way as `unbundled`.
 const pageScripts = {
 	'content.js': 'content.ts',
+	'page-data.js': 'page-data.ts',
 	'downloaded-store.js': 'downloaded-store.ts',
 	'state-transfer.js': 'state-transfer.ts',
 	'theme-prepaint.js': 'theme-prepaint.ts'
