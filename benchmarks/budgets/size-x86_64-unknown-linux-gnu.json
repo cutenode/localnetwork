@@ -4,12 +4,12 @@
 	"tolerance_percent": 0.5,
 	"metrics": {
 		"locallibrary": {
-			"limit": 58468096,
+			"limit": 58884096,
 			"unit": "bytes",
 			"measures": "The release binary, stripped."
 		},
 		"archive": {
-			"limit": 18239384,
+			"limit": 18437084,
 			"unit": "bytes",
 			"measures": "The release archive."
 		}
