@@ -16,7 +16,7 @@ describe('DmSettings', () => {
 
 		const availability = new Promise<DmAvailability>((resolve) => (answer = resolve));
 
-		await render(DmSettings, { available: true, channel: null, availability, root, topics: ['bookings'] });
+		await render(DmSettings, { available: true, channel: null, availability, root });
 
 		await expect.element(page.getByText('Checking Bluesky chat')).toBeInTheDocument();
 		expect(action('Turn on DMs')).toBe('?/dmOn');
@@ -30,8 +30,7 @@ describe('DmSettings', () => {
 			available: true,
 			channel: { ...on, status: 'paused', pausedReason: 'dm_not_allowed' },
 			availability: Promise.resolve<DmAvailability>('not_allowed'),
-			root,
-			topics: ['bookings']
+			root
 		});
 
 		await expect
@@ -48,34 +47,27 @@ describe('DmSettings', () => {
 			available: true,
 			channel: null,
 			availability: Promise.resolve<DmAvailability>('unavailable'),
-			root,
-			topics: ['bookings']
+			root
 		});
 
 		await expect.element(page.getByText("We couldn't reach Bluesky chat.")).toBeVisible();
 		await expect.element(page.getByRole('button', { name: 'Try again' })).toHaveAttribute('type', 'button');
 	});
 
-	it('lets someone with DMs on pick topics, send a test, or turn them off', async () => {
+	it('lets someone with DMs on send a test or turn them off', async () => {
 		await render(DmSettings, {
 			available: true,
 			channel: on,
 			availability: Promise.resolve<DmAvailability>('ok'),
-			root,
-			topics: ['bookings']
+			root
 		});
 
 		await expect.element(page.getByText('On, from @localnetwork.test.')).toBeVisible();
-		await expect.element(page.getByRole('group', { name: 'What to DM' }).getByRole('checkbox')).toBeChecked();
-		expect([action('Save'), action('Send a test'), action('Turn off DMs')]).toEqual([
-			'?/dmTopics',
-			'?/dmTest',
-			'?/dmOff'
-		]);
+		expect([action('Send a test'), action('Turn off DMs')]).toEqual(['?/dmTest', '?/dmOff']);
 	});
 
 	it("says when the site doesn't send DMs", async () => {
-		await render(DmSettings, { available: false, channel: null, availability: null, root, topics: ['bookings'] });
+		await render(DmSettings, { available: false, channel: null, availability: null, root });
 
 		await expect.element(page.getByText('Not set up on this site.')).toBeVisible();
 		expect(page.getByRole('button').elements()).toHaveLength(0);

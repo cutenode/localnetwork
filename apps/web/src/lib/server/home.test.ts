@@ -48,6 +48,44 @@ describe('needsYou', () => {
 		expect(rows[3].detail).toMatch(/^Thu 1 Oct, date passed · /);
 	});
 
+	it('keeps undated replies newest first, and dates a sent-back request by its last change without a decision time', async () => {
+		await inquire('First undated');
+		await inquire('Second undated');
+
+		const request: RequestView = {
+			uri: 'at://request/1',
+			cid: 'c',
+			rkey: '1',
+			kind: 'create',
+			status: 'changes_requested',
+			requester: { did: DJ, handle: null },
+			repoDid: DJ,
+			projectUri: null,
+			project: null,
+			record: {
+				kind: 'create',
+				profile: { ...f.project.profile, name: 'Third Act' },
+				createdAt: '2026-11-01T00:00:00.000Z'
+			},
+			createdAt: '2026-11-01T00:00:00.000Z',
+			updatedAt: '2026-11-05T12:00:00.000Z',
+			decision: null,
+			resultProjectSlug: null,
+			deletedAt: null
+		};
+
+		const requests = { list: async () => [request] };
+
+		const rows = await needsYou({ bookings: f.t.bookings, requests }, await f.t.viewer(DJ), NOW);
+
+		expect(rows.map((row) => row.title)).toEqual([
+			'Reply to Second undated',
+			'Reply to First undated',
+			'Update your request'
+		]);
+		expect(rows[2].detail).toMatch(/ · yesterday$/);
+	});
+
 	it('words a reply for the promoter by the act, and leaves threads out once they close or wait on the other side', async () => {
 		const answered = await inquire('Answered', '2026-11-14');
 		const declined = await inquire('Declined', '2026-11-15');

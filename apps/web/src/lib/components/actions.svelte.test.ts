@@ -47,22 +47,21 @@ describe('ProfileSetupForm', () => {
 });
 
 describe('ChannelTopics', () => {
-	it('posts every ticked topic, and keeps the boxes as they were once it saves', async () => {
+	it('posts every ticked topic as soon as a box is ticked, and keeps the boxes as they were', async () => {
 		const server = stubFormAction();
 		await render(ChannelTopics, {
-			action: '?/topics',
-			legend: 'Email me about',
 			topics: ['bookings', 'guests', 'events'],
-			selected: ['bookings']
+			channels: [
+				{ channel: 'email', view: { status: 'active', pausedReason: null, address: null, topics: ['bookings'] } }
+			]
 		});
 
-		await page.getByLabelText('Guests').click();
-		await page.getByRole('button', { name: 'Save' }).click();
+		await page.getByLabelText('Guests by Email').click();
 		await expect.poll(() => server.sent.map((body) => body.getAll('topic'))).toEqual([['bookings', 'guests']]);
 		server.answer();
 
-		await expect.element(page.getByLabelText('Guests')).toBeChecked();
-		await expect.element(page.getByLabelText('New events')).not.toBeChecked();
+		await expect.element(page.getByLabelText('Guests by Email')).toBeChecked();
+		await expect.element(page.getByLabelText('Events by Email')).not.toBeChecked();
 	});
 });
 

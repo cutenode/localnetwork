@@ -560,6 +560,24 @@ export type NotificationView = {
 	read: boolean;
 };
 
+/**
+ * One row of the inbox: what someone heard about one booking (or other subject) since they last read it, in a
+ * sentence, or the last thing that happened once they have.
+ */
+export type InboxSubjectView = {
+	/** Its newest item, which opening the row opens. */
+	id: string;
+	topic: NotificationTopic | null;
+	/** What the subject is called, like the show's title. */
+	title: string;
+	/** Whose initials stand for it, like the act's name. */
+	scope: string;
+	summary: string;
+	href: string;
+	occurredAt: string;
+	unread: boolean;
+};
+
 export type PlannerSaveView = { rkey: string; project: string; note?: string; createdAt: string };
 
 export type PlannerShowView = {

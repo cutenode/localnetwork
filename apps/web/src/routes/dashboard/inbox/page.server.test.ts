@@ -34,8 +34,13 @@ afterEach(async () => {
 	await t.db.destroy();
 });
 
-/** The app the inbox reads: the test services, with the channels people send their inbox on by. */
-const app = () => ({ ...t, notificationChannels });
+/** The app the inbox reads: the test services, with the channels people send their inbox on by, `sends` set up. */
+const app = (sends: ('email' | 'dm')[] = []) => ({
+	...t,
+	notificationChannels,
+	outbox: { configured: sends.filter((channel) => channel === 'email') },
+	dm: sends.includes('dm') ? {} : null
+});
 
 /** Puts `count` booking inquiries in the DJ's inbox, a minute apart, the newest last. */
 async function inquiries(count: number) {
@@ -56,18 +61,25 @@ async function inquiries(count: number) {
 	return t.notifications.list(DJ, { limit: count });
 }
 
-/** The DJ's inbox at `url`. */
-const opened = async (url = '/dashboard/inbox') =>
-	loadRoute<PageServerData>(load, { app: app(), viewer: await t.viewer(DJ), url });
+/** The DJ's inbox at `url`, the rows awaited. */
+const opened = async (url = '/dashboard/inbox', sends: ('email' | 'dm')[] = []) => {
+	const data = await loadRoute<PageServerData>(load, { app: app(sends), viewer: await t.viewer(DJ), url });
 
-it('lists the inbox newest first, with nothing older to page to', async () => {
+	return { ...data, ...(await data.inbox) };
+};
+
+it('lists a row per thread, the latest first, with nothing older to page to', async () => {
 	await inquiries(2);
 
 	const data = await opened();
 
-	expect(data.items.map((item) => item.body)).toEqual(['Show 1', 'Show 0']);
+	expect(data.rows.map((row) => [row.title, row.summary])).toEqual([
+		['Show 1', 'The promoter sent a booking inquiry'],
+		['Show 0', 'The promoter sent a booking inquiry']
+	]);
 	expect(data.older).toBeUndefined();
 	expect(data.paused).toEqual([]);
+	expect(data.alsoSent).toEqual([]);
 });
 
 it('pages a long inbox fifty at a time', async () => {
@@ -75,12 +87,12 @@ it('pages a long inbox fifty at a time', async () => {
 
 	const first = await opened();
 
-	expect(first.items).toHaveLength(50);
+	expect(first.rows).toHaveLength(50);
 	expect(first.older).toBe(all[49].id);
 
 	const second = await opened(`/dashboard/inbox?before=${first.older}`);
 
-	expect(second.items.map((item) => item.id)).toEqual([all[50].id, all[51].id]);
+	expect(second.rows.map((row) => row.id)).toEqual([all[50].id, all[51].id]);
 	expect(second.older).toBeUndefined();
 });
 
@@ -92,6 +104,36 @@ it('says why a channel is paused, leaving out ones that are on', async () => {
 	await notificationChannels.enableDm(DJ, true);
 
 	expect((await opened()).paused).toEqual([]);
+});
+
+it('says where else the inbox goes only where the site sends and the account would get something', async () => {
+	await t.db
+		.insertInto('notificationChannel')
+		.values(
+			(['email', 'dm'] as const).map((channel) => ({
+				did: DJ,
+				channel,
+				status: 'active' as const,
+				pausedReason: null,
+				address: channel === 'email' ? 'dj@example.test' : null,
+				addressReadAt: null,
+				topics: JSON.stringify(['bookings']),
+				lastSentAt: null,
+				confirmTokenHash: null,
+				confirmAddressHash: null,
+				confirmExpiresAt: null,
+				unsubscribeToken: `unsub-${channel}`,
+				createdAt: new Date().toISOString(),
+				updatedAt: new Date().toISOString()
+			}))
+		)
+		.execute();
+
+	expect((await opened()).alsoSent).toEqual([]);
+	expect((await opened(undefined, ['email', 'dm'])).alsoSent).toEqual(['email', 'dm']);
+
+	await notificationChannels.setTopics(DJ, 'email', []);
+	expect((await opened(undefined, ['email', 'dm'])).alsoSent).toEqual(['dm']);
 });
 
 it('sends someone signed out to sign in', async () => {
