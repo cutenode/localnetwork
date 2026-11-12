@@ -13,12 +13,12 @@ severity: error
 message: This parses an AT URI by hand.
 note: Use parseSpaceUri, parseSpaceRecordUri, parsePublicRecordUri or rkeyOf (apps/web/src/lib/server/atproto/spaces.ts), or AtUri from @atproto/syntax.
 files:
-  - "apps/web/src/lib/server/**"
-  - "apps/web/src/routes/**/*.server.ts"
-  - "apps/web/src/routes/**/+server.ts"
+  - 'apps/web/src/lib/server/**'
+  - 'apps/web/src/routes/**/*.server.ts'
+  - 'apps/web/src/routes/**/+server.ts'
 ignores:
   # Tests take a key or DID from a URI to check the code under test, without going through it.
-  - "**/*.test.ts"
+  - '**/*.test.ts'
 rule:
   any:
     - pattern: $URI.split('/')
@@ -27,5 +27,5 @@ constraints:
   URI:
     any:
       - regex: '^(?:.*[.?])?(?:uri|space|[a-zA-Z_$][\w$]*(?:Uri|Space))$'
-      - regex: "^['\"`]at://"
+      - regex: '^[''"`]at://'
       - regex: "\\.replace\\(['\"`]at://"

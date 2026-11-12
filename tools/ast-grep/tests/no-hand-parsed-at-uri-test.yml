@@ -1,7 +1,7 @@
 id: no-hand-parsed-at-uri
 valid:
-  - "const rkey = rkeyOf(uri);"
-  - "const did = new AtUri(found.profile.uri).host;"
+  - 'const rkey = rkeyOf(uri);'
+  - 'const did = new AtUri(found.profile.uri).host;'
   - "const [, name, ...rest] = url.pathname.split('/');"
   - "const parts = path.split('/');"
   - "const segments = uri.split('.');"
