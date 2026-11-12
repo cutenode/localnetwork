@@ -138,10 +138,26 @@ elevated) included.
 ## The manifest
 
 `locallibrary-plugin.toml` says who the plugin is, what it may call back for and what it adds.
-`Manifest::parse` reads it and `Manifest::validate` checks it; `schemars::schema_for!(Manifest)`
-is its JSON Schema. A key it doesn't know is left out (`Manifest::unknown` lists them), so an
-older locallibrary reads a newer plugin's manifest; in a plugin locallibrary ships it's a mistake,
-refused.
+`Manifest::parse` reads it and `Manifest::validate` checks it. A key it doesn't know is left out
+(`Manifest::unknown` lists them), so an older locallibrary reads a newer plugin's manifest; in a
+plugin locallibrary ships it's a mistake, refused.
+
+[`manifest.schema.json`](manifest.schema.json) is its JSON Schema, made from `Manifest`, for an
+editor to check and complete it with. With taplo (VS Code's Even Better TOML runs it), start the
+manifest with a line naming the schema, by a path from the manifest or a URL. The plugins in this
+repository do:
+
+```toml
+#:schema ../../crates/loclib-plugin/manifest.schema.json
+id = "tracklist"
+```
+
+The schema allows keys it doesn't list, as `Manifest::parse` does. `Manifest::validate` checks
+more than it says: what names look like and that each is used once, semver versions, that
+`protocol` takes this protocol, that a `net` limit or an event has its capability, what only
+plugins locallibrary ships may declare, that settings' defaults fit and that params schemas
+compile. A test fails when the file is out of date, and
+`LOCALLIBRARY_BLESS=1 cargo test -p loclib-plugin --test schema` rewrites it.
 
 ```rust
 use loclib_plugin::{Capability, Manifest};

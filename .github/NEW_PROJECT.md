@@ -147,7 +147,7 @@ Then do the steps every app shares, below.
 [Plugins](../apps/locallibrary/docs/plugins.md) has what plugins do, and [loclib-plugin](../crates/loclib-plugin/README.md) has the protocol, the manifest's fields and the SDK. `crates/loclib-plugin/examples/echo/` is a complete plugin.
 
 1. Create `plugins/<id>/` with a `Cargo.toml` named `locallibrary-plugin-<id>`, `publish = false`, the workspace's package fields, `[lints] workspace = true`, and `loclib-plugin.workspace = true`.
-2. Write its manifest, `plugins/<id>/locallibrary-plugin.toml`: `id`, `name`, `version`, `protocol = "^0.2"`, `capabilities` (only what it needs) and what it `contributes`.
+2. Write its manifest, `plugins/<id>/locallibrary-plugin.toml`: `id`, `name`, `version`, `protocol = "^0.2"`, `capabilities` (only what it needs) and what it `contributes`. Start it with `#:schema ../../crates/loclib-plugin/manifest.schema.json` so an editor checks it against the schema.
 3. In `src/lib.rs`, export `pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");` and `pub fn serve(input, output)`, which calls `loclib_plugin::serve` with `MANIFEST` and its `Hooks`.
 4. Test it in `src/tests.rs` against loclib-plugin's `FakeHost` ([Testing a plugin](../crates/loclib-plugin/README.md#testing-a-plugin)), as `plugins/interop/src/tests.rs` does: `cargo add --dev -p locallibrary-plugin-<id> loclib-plugin --features test-util`. Include a test that the manifest passes `validate(true)`. `FakeHost::start` checks that `describe` returns it.
 5. Make it a dependency of locallibrary: from the repository's root, `cargo add -p locallibrary-cli --path plugins/<id>`. `apps/locallibrary/build.rs` links in every folder in `plugins/` but `accounts/`, in alphabetical order (as `plugin list` shows them), and fails the build while one isn't a dependency.
@@ -160,7 +160,7 @@ A new capability is a change to loclib-plugin, and also needs a case in `means()
 
 An [account plugin](../apps/locallibrary/docs/plugins.md#account-plugins) is a manifest and nothing else: locallibrary signs in from it and never runs it.
 
-1. Create `plugins/accounts/<id>/locallibrary-plugin.toml` with `id` (ending in `-account`), `name`, `version`, `protocol` and one `[[contributes.account_types]]` (the fields are in [loclib-plugin](../crates/loclib-plugin/README.md)). No crate, no `Cargo.toml`: `apps/locallibrary/build.rs` includes every folder there, and the workspace leaves them out.
+1. Create `plugins/accounts/<id>/locallibrary-plugin.toml` with `id` (ending in `-account`), `name`, `version`, `protocol` and one `[[contributes.account_types]]` (the fields are in [loclib-plugin](../crates/loclib-plugin/README.md)), starting with `#:schema ../../../crates/loclib-plugin/manifest.schema.json`. No crate, no `Cargo.toml`: `apps/locallibrary/build.rs` includes every folder there, and the workspace leaves them out.
 2. Give each scope the requests it covers, taken from the code of the plugins that will use it, and test from those plugins that their requests are covered, as `plugins/youtube/src/tests.rs` does.
 3. A token exchange is Local Network's (`apps/web/src/lib/server/token-exchange/services.json`), so its service has to be there.
 4. List it in `apps/locallibrary/docs/plugins.md` and `apps/locallibrary/docs/how-it-works.md`, and add a changelog line in `apps/locallibrary/changes/`.
