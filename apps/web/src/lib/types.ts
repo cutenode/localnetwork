@@ -1,9 +1,43 @@
 import type { FlagKey } from '#lib/flags/keys.generated.ts';
 /** View models shared between server and browser code. */
 
+import type { BlobRef } from '@atproto/lex-data';
 import type { Capability, SpaceKind } from './capabilities.ts';
+import type { localnetwork } from './lexicons/computer.ts';
 
 export type BlobRefJson = { $type: 'blob'; ref: { $link: string }; mimeType: string; size: number };
+
+type Element<T> = T extends readonly (infer Item)[] ? Item : never;
+
+/** Every key of any object in `T`, which can be a union of the objects a lexicon union allows. */
+type Keys<T> = T extends object ? keyof T : never;
+
+type At<T, K> = T extends object ? (K extends keyof T ? T[K] : never) : never;
+
+/**
+ * The lexicon type `Lexicon` (src/lib/lexicons, from `pnpm lexicons:types`) in JSON form, cut to the fields `Read` has,
+ * as a lenient reader may give it back: any field can be missing, since a reader drops a section it can't parse, and
+ * string formats and known values only need to be strings. A field the lexicon doesn't have is `never`.
+ */
+type Fit<Read, Lexicon> = { [K in keyof Read]: K extends Keys<Lexicon> ? FitValue<Read[K], At<Lexicon, K>> : never };
+
+type FitValue<Read, Lexicon> = Read extends undefined
+	? undefined
+	: Read extends readonly (infer Item)[]
+		? FitValue<Item, Element<Lexicon>>[]
+		: Read extends object
+			? [Exclude<Lexicon, undefined>] extends [BlobRef]
+				? BlobRefJson
+				: Fit<Read, Lexicon>
+			: Lexicon extends string
+				? string
+				: Lexicon;
+
+/**
+ * `Read`, a record as a reader gives it back or as this app writes it, which fails the type check unless it fits the
+ * lexicon type `Lexicon`, so a lexicon change it misses (a field renamed, or of another type) fails `pnpm check`.
+ */
+export type LexiconRead<Read extends Fit<Read, Lexicon>, Lexicon> = Read;
 
 export type Location = {
 	city: string;
@@ -141,13 +175,16 @@ export type PerformerSection = Partial<
 export type PromoterSection = { cities?: Location[] };
 
 /** A person's profile (`computer.localnetwork.profile`). A section is on when it's present, even empty. */
-export type ProfileRecord = {
-	basics: BasicsSection;
-	performer?: PerformerSection;
-	promoter?: PromoterSection;
-	createdAt: string;
-	updatedAt: string;
-};
+export type ProfileRecord = LexiconRead<
+	{
+		basics: BasicsSection;
+		performer?: PerformerSection;
+		promoter?: PromoterSection;
+		createdAt: string;
+		updatedAt: string;
+	},
+	localnetwork.profile.Main
+>;
 
 /** A person's profile as the site shows it, read from what the directory indexed. */
 export type ProfileView = {
@@ -228,17 +265,20 @@ export type CityFormRow = { city: string; region: string; country: string };
 
 export type ProjectStatus = 'active' | 'hidden' | 'archived';
 
-export type ProjectRecord = {
-	slug: string;
-	profile: ProjectProfile;
-	managers: string[];
-	status: ProjectStatus;
-	revision: number;
-	createdBy: string;
-	lastRequest?: string;
-	createdAt: string;
-	updatedAt: string;
-};
+export type ProjectRecord = LexiconRead<
+	{
+		slug: string;
+		profile: ProjectProfile;
+		managers: string[];
+		status: ProjectStatus;
+		revision: number;
+		createdBy: string;
+		lastRequest?: string;
+		createdAt: string;
+		updatedAt: string;
+	},
+	localnetwork.project.Main
+>;
 
 export type ProjectView = {
 	uri: string;
@@ -270,18 +310,21 @@ export type AccountView = { did: string; handle: string | null };
  * A show (`computer.localnetwork.show`): a copy of the calendar event a manager announced, tied to the project. Its
  * times carry the venue's UTC offset, so their first 16 characters read as the venue's clock.
  */
-export type ShowRecord = {
-	project: string;
-	event: StrongRef;
-	name: string;
-	startsAt: string;
-	endsAt?: string;
-	venue?: string;
-	location: Location;
-	status?: string;
-	tickets?: string;
-	createdAt: string;
-};
+export type ShowRecord = LexiconRead<
+	{
+		project: string;
+		event: StrongRef;
+		name: string;
+		startsAt: string;
+		endsAt?: string;
+		venue?: string;
+		location: Location;
+		status?: string;
+		tickets?: string;
+		createdAt: string;
+	},
+	localnetwork.show.Main
+>;
 
 /** A show as pages list it, with its project. `did` and `rkey` are the announcing manager's repo and its key. */
 export type ShowView = {
@@ -303,21 +346,24 @@ export type RequestStatus = 'pending' | 'approved' | 'rejected' | 'changes_reque
 
 export type ClaimEvidence = { relationship: string; evidence: string; links?: string[] };
 
-export type RequestRecord = {
-	kind: RequestKind;
-	project?: string;
-	baseRevision?: number;
-	profile?: ProjectProfile;
-	details?: ProjectDetails;
-	claim?: ClaimEvidence;
-	/** For a list request: the profile to list, and the version it was asked for with. */
-	listing?: { subject: string; cid?: string };
-	message?: string;
-	onBehalfOf?: string;
-	withdrawnAt?: string;
-	createdAt: string;
-	updatedAt?: string;
-};
+export type RequestRecord = LexiconRead<
+	{
+		kind: RequestKind;
+		project?: string;
+		baseRevision?: number;
+		profile?: ProjectProfile;
+		details?: ProjectDetails;
+		claim?: ClaimEvidence;
+		/** For a list request: the profile to list, and the version it was asked for with. */
+		listing?: { subject: string; cid?: string };
+		message?: string;
+		onBehalfOf?: string;
+		withdrawnAt?: string;
+		createdAt: string;
+		updatedAt?: string;
+	},
+	localnetwork.moderation.request.Main
+>;
 
 export type RequestView = {
 	uri: string;

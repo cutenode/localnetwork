@@ -138,7 +138,7 @@ Then do the steps every app shares, below.
 3. Its lexicons, if it writes records, under `lexicons/computer/localnetwork/<tool>/`.
 4. If it signs people in with their Atmosphere account, as locallibrary does: a permission-set lexicon (`<tool>Publishing.json`), `hosts` and `clientMetadata` in its tool entry, and DNS for its own host (see [Tools' pages and hosts](../apps/web/README.md#tools-pages-and-hosts)).
 5. A label for it in `.github/labels.yml`, its paths under that label in `.github/labeler.yml`, and any areas as `"<tool>: <area>"` labels in both. The `web: tools` label's description names every tool.
-6. `.github/ISSUE_TEMPLATE/<tool>-bug.yml` (labels `["bug", "<tool>"]`, `type: Bug`), and the tool in the description and "Which tool?" dropdown of `feature_request.yml`. Questions go to Discussions, which has no form.
+6. `.github/ISSUE_TEMPLATE/<tool>-bug.yml` (labels `["bug", "<tool>"]`, `type: Bug`), and the tool in the description and "Which tool?" dropdown of `feature_request.yml`.
 7. A line in `.github/CODEOWNERS` if someone other than the default owner reviews it.
 8. Its row in the root `README.md`'s table and layout; its docs and its label in `.github/CONTRIBUTING.md`; and in `.github/SECURITY.md`, its supported version and where to find the version it's on.
 
@@ -149,7 +149,7 @@ Then do the steps every app shares, below.
 1. Create `plugins/<id>/` with a `Cargo.toml` named `locallibrary-plugin-<id>`, `publish = false`, the workspace's package fields, `[lints] workspace = true`, and `loclib-plugin.workspace = true`.
 2. Write its manifest, `plugins/<id>/locallibrary-plugin.toml`: `id`, `name`, `version`, `protocol = "^0.2"`, `capabilities` (only what it needs) and what it `contributes`.
 3. In `src/lib.rs`, export `pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");` and `pub fn serve(input, output)`, which calls `loclib_plugin::serve` with `MANIFEST` and its `Hooks`.
-4. Test it in `src/tests.rs` over in-memory pipes with a fake host, as `plugins/sound/src/tests.rs` does, including a test that the manifest passes `validate(true)` and that `describe` returns it.
+4. Test it in `src/tests.rs` against loclib-plugin's `FakeHost` ([Testing a plugin](../crates/loclib-plugin/README.md#testing-a-plugin)), as `plugins/interop/src/tests.rs` does: `cargo add --dev -p locallibrary-plugin-<id> loclib-plugin --features test-util`. Include a test that the manifest passes `validate(true)`. `FakeHost::start` checks that `describe` returns it.
 5. Make it a dependency of locallibrary: from the repository's root, `cargo add -p locallibrary-cli --path plugins/<id>`. `apps/locallibrary/build.rs` links in every folder in `plugins/` but `accounts/`, in alphabetical order (as `plugin list` shows them), and fails the build while one isn't a dependency.
 6. List it in `apps/locallibrary/docs/plugins.md` and in the layout in `apps/locallibrary/docs/how-it-works.md`, and add a changelog line in `apps/locallibrary/changes/`.
 7. If it fits an existing area label, add `plugins/<id>/**` to it in `.github/labeler.yml`. The `locallibrary` and `locallibrary: plugins` labels already cover `plugins/**`.

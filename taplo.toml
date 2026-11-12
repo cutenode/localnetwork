@@ -1,0 +1,14 @@
+# Taplo's format for the repository's TOML (Cargo manifests, plugin manifests, tool configs):
+# `taplo fmt` fixes it and `taplo fmt --check` checks it, as repo-checks.yml does. The settings keep
+# the style the files already had: four-space indents, 120 columns, arrays laid out by hand.
+include = ["**/*.toml"]
+# Vendored crates keep upstream's layout; the rest is build output and installed packages.
+exclude = ["vendor/**", "**/target/**", "**/node_modules/**"]
+
+[formatting]
+column_width = 120
+indent_string = "    "
+align_comments = false
+array_auto_collapse = false
+array_auto_expand = false
+allowed_blank_lines = 2

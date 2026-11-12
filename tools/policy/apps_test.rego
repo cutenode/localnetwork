@@ -63,3 +63,8 @@ test_missing_hook if {
 	broken := object.union(hooks, {"pre-push": {"jobs": [{"root": "apps/site/", "run": "pnpm check"}]}})
 	"lefthook.yml: add a pre-push job with root apps/site/ that runs pnpm test" in apps.deny with input as fixtures.with_file("lefthook.yml", broken)
 }
+
+test_package_without_hooks if {
+	repo := fixtures.with_file("packages/other/package.json", {"name": "other"})
+	"lefthook.yml: add a pre-commit job with root packages/other/ that runs oxfmt" in apps.deny with input as repo
+}

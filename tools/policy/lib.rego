@@ -15,9 +15,9 @@ items(path) := {f.contents | some f in input; f.path == path}
 paths(pattern) := {f.path | some f in input; glob.match(pattern, ["/"], f.path)}
 
 # The folder names of the apps in apps/: TypeScript ones have a package.json, Rust ones a Cargo.toml.
-ts_apps := {split(p, "/")[1] | some p in paths("apps/*/package.json")}
+ts_apps contains split(p, "/")[1] if some p in paths("apps/*/package.json")
 
-rust_apps := {split(p, "/")[1] | some p in paths("apps/*/Cargo.toml")}
+rust_apps contains split(p, "/")[1] if some p in paths("apps/*/Cargo.toml")
 
 apps := ts_apps | rust_apps
 
@@ -39,9 +39,9 @@ embedded_files := f.contents.files if {
 }
 
 # A value that may be one string or a list of them, as a set.
-strings(x) := {x} if is_string(x)
+string_set(x) := {x} if is_string(x)
 
-strings(x) := {s | some s in x} if is_array(x)
+string_set(x) := {s | some s in x} if is_array(x)
 
 # Whether a glob as GitHub tools write it (picomatch, minimatch) matches `path`. OPA's glob needs
 # a separator on each side of `**`, where those let `**/` match no folders at all, so the

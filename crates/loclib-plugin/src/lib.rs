@@ -14,7 +14,7 @@ mod peer;
 mod protocol;
 mod reads;
 mod sdk;
-#[cfg(feature = "test-util")]
+#[cfg(any(test, feature = "test-util"))]
 pub mod test_util;
 mod view;
 mod words;

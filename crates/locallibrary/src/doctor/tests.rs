@@ -41,7 +41,7 @@ fn each_track_missing_a_shared_file_is_reported_once() {
 /// The name Sync Manager's second copy of a file has (`Name-1`, `Name (1)`) gives back the
 /// first's, any number of digits on; a name without such an ending is its own.
 #[hegel::test(test_cases = 300)]
-fn a_sync_manager_copys_name_gives_back_the_first(tc: hegel::TestCase) {
+fn a_sync_manager_copy_name_gives_back_the_first(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let stem: String = tc.draw(gs::text().alphabet("ab -()1é").min_size(1).max_size(8));
     let n = tc.draw(gs::integers::<u32>().max_value(1000));
