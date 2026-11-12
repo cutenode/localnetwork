@@ -4327,6 +4327,7 @@ name = "locallibrary-plugin-youtube"
 version = "0.1.0"
 dependencies = [
  "hegeltest",
+ "libc",
  "loclib-plugin",
  "loclib-progress",
  "serde",

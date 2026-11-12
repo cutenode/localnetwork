@@ -299,6 +299,26 @@ fn ffmpeg_going_wrong_says_why_and_sends_nothing() {
     assert!(s.stop().requests.is_empty());
 }
 
+/// FFmpeg's tools ending in a way that can't be waited for (here because the process ignores
+/// SIGCHLD, so the system reaps them itself) fails the probe and the render, saying so.
+#[test]
+fn a_tool_that_cant_be_waited_for_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let recording = tools::file(dir.path(), "set.wav", 10);
+    tools::working(tools::WAV, b"video");
+    let audio = crate::render::probe(&recording).unwrap();
+    // SAFETY: nextest gives each test a process of its own, and nothing else in it runs a child.
+    unsafe { libc::signal(libc::SIGCHLD, libc::SIG_IGN) };
+    let e = crate::render::probe(&recording).unwrap_err();
+    assert!(e.message.starts_with("ffprobe: "), "{e:?}");
+    let ctx = loclib_progress::Ctx::new(&loclib_progress::NoProgress, loclib_progress::CancelToken::new());
+    let to = dir.path().join("video.mp4");
+    let e = crate::render::render(&recording, &audio, 10, None, &to, &ctx).unwrap_err();
+    assert!(e.message.starts_with("ffmpeg: "), "{e:?}");
+    // SAFETY: as above.
+    unsafe { libc::signal(libc::SIGCHLD, libc::SIG_DFL) };
+}
+
 /// A dry run reads how long the recording is, says what would go and what YouTube does with it,
 /// and neither makes the video nor sends anything.
 #[test]
