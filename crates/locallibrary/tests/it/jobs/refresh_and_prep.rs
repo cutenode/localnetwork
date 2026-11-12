@@ -42,7 +42,7 @@ fn two_drives(dir: &Path) -> (Store, PathBuf, PathBuf) {
 /// Refreshing with `sync` saves the new export and copies it onto the library's other mounted
 /// drive; when that drive is newer, it isn't copied over, and the plan says why.
 #[test]
-fn a_refresh_copies_the_drive_onto_its_librarys_others() {
+fn a_refresh_copies_the_drive_onto_the_other_drives_of_its_library() {
     let dir = tempfile::tempdir().unwrap();
     let (store, main, backup) = two_drives(dir.path());
     let ctx = Ctx::silent();

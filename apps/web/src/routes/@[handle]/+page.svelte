@@ -1,11 +1,10 @@
 <script lang="ts">
 	import { Clock, ExternalLink, MapPin } from '@lucide/svelte';
+	import { page } from '$app/state';
 	import Avatar from '#lib/components/Avatar.svelte';
-	import DjSets from '#lib/components/DjSets.svelte';
-	import DjStats from '#lib/components/DjStats.svelte';
 	import ManageLink from '#lib/components/ManageLink.svelte';
-	import MixList from '#lib/components/MixList.svelte';
 	import PerformerFacts, { performerFacts } from '#lib/components/PerformerFacts.svelte';
+	import ProfileTabs from '#lib/components/ProfileTabs.svelte';
 	import { accountLabel, placeLabel } from '#lib/format.ts';
 	import { LINK_KINDS, labelFor } from '#lib/taxonomy/options.ts';
 	import Tag from '#lib/ui/Tag.svelte';
@@ -50,57 +49,10 @@
 </div>
 
 <div class="container-page flex flex-wrap gap-x-10 gap-y-8 py-10">
-	<div class="flex min-w-0 flex-[999_1_34rem] flex-col gap-10">
-		{#if basics?.bio || performer?.lookingFor}
-			<section aria-labelledby="about" class="flex flex-col gap-3">
-				<h2 id="about" class="m-0 text-heading font-semibold">About</h2>
-				{#if basics?.bio}<p class="m-0 max-w-[65ch] whitespace-pre-line text-fg-soft">{basics.bio}</p>{/if}
-				{#if performer?.lookingFor}
-					<div class="flex flex-col gap-1">
-						<h3 class="m-0 eyebrow text-fg-subtle">Looking for</h3>
-						<p class="m-0 max-w-[65ch] whitespace-pre-line text-small text-fg-muted">{performer.lookingFor}</p>
-					</div>
-				{/if}
-			</section>
-		{/if}
-
-		{#if performer?.mixes?.length}
-			<section aria-labelledby="mixes" class="flex flex-col gap-4">
-				<h2 id="mixes" class="m-0 text-heading font-semibold">Mixes</h2>
-				<MixList mixes={performer.mixes} sets={data.sets} />
-			</section>
-		{/if}
-
-		{#await data.dj}
-			<div aria-busy="true" aria-label="Loading how they play" class="flex flex-col gap-4">
-				<div class="h-7 w-48 animate-pulse rounded-md bg-raised"></div>
-				<div class="h-28 animate-pulse rounded-xl bg-surface"></div>
-			</div>
-		{:then accounts}
-			{#each accounts as account (account.did)}
-				{#if account.profile}
-					<section aria-labelledby="stats" class="flex flex-col gap-4">
-						<h2 id="stats" class="m-0 text-heading font-semibold">How they play</h2>
-						<DjStats profile={account.profile} />
-					</section>
-				{/if}
-				{#if account.sets.length}
-					<section aria-labelledby="sets" class="flex flex-col gap-4">
-						<h2 id="sets" class="m-0 text-heading font-semibold">Recent sets</h2>
-						<DjSets sets={account.sets} />
-					</section>
-				{/if}
-			{/each}
-		{/await}
-
-		{#if performer?.highlights?.length}
-			<section aria-labelledby="highlights" class="flex flex-col gap-3">
-				<h2 id="highlights" class="m-0 text-heading font-semibold">Highlights</h2>
-				<ul class="m-0 flex list-none flex-col gap-2 p-0">
-					{#each performer.highlights as highlight, index (index)}<li class="border-l-2 border-line-strong pl-3 text-fg-soft">{highlight}</li>{/each}
-				</ul>
-			</section>
-		{/if}
+	<div class="flex min-w-0 flex-[999_1_34rem] flex-col">
+		{#key data.account.did}
+			<ProfileTabs profile={data.profile} sets={data.sets} dj={data.dj} playsIn={data.playsIn} requested={page.url.searchParams.get('tab')} />
+		{/key}
 	</div>
 
 	<aside class="flex min-w-0 flex-[1_1_18rem] flex-col gap-6">
@@ -128,16 +80,6 @@
 				</ul>
 			</section>
 		{/if}
-		{#await data.playsIn then projects}
-			{#if projects?.length}
-				<section aria-labelledby="plays-in" class="card flex flex-col gap-3 p-5 text-small">
-					<h2 id="plays-in" class="m-0 eyebrow text-fg-subtle">Plays in</h2>
-					<ul class="m-0 flex list-none flex-col gap-1.5 p-0">
-						{#each projects as project (project.uri)}<li><a class="link" href="/projects/{project.slug}">{project.profile.name}</a></li>{/each}
-					</ul>
-				</section>
-			{/if}
-		{/await}
 		{#if data.profile}
 			<section aria-labelledby="record" class="flex flex-col gap-1.5 px-1 text-caption text-fg-subtle">
 				<h2 id="record" class="m-0 eyebrow">On the AT Protocol</h2>

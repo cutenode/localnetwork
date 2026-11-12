@@ -2,14 +2,13 @@ use std::io::pipe;
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use hegel::TestCase;
 use hegel::generators as gs;
 use indexmap::IndexMap;
 use loclib_model::Track;
 use loclib_plugin::{Fetch, Fetched, HelloReply, Incoming, Manifest, NetLimit, PROTOCOL_VERSION, Peer, Role, method};
-use loclib_progress::{CancelToken, Ctx, Event};
 use serde_json::{Value, json};
 
 use super::*;
@@ -466,39 +465,6 @@ fn a_busy_musicbrainz_is_asked_again_after_its_wait() {
     }
 }
 
-/// `Retry-After` is a number of seconds (one too big to count longer than any wait) or an
-/// HTTP-date, counted from now and rounded up; one past, missing or unreadable is no wait.
-#[test]
-fn retry_after_says_seconds_or_a_date() {
-    let now = SystemTime::UNIX_EPOCH + Duration::from_millis(784_111_770_500);
-    let said = |name: &str, value: &str| {
-        let headers: IndexMap<String, String> = [(name.to_string(), value.to_string())].into_iter().collect();
-        lookup::retry_after(&Fetched { status: 503, headers, body: None, blob: None }, now)
-    };
-    assert_eq!(said("retry-after", " 12 "), 12);
-    assert_eq!(said("Retry-After", "0"), 0);
-    assert_eq!(said("retry-after", "99999999999999999999"), u32::MAX);
-    // 784111777 is Sun, 06 Nov 1994 08:49:37 GMT: 6.5 seconds after `now`.
-    assert_eq!(said("retry-after", "Sun, 06 Nov 1994 08:49:37 GMT"), 7);
-    assert_eq!(said("retry-after", "Sun, 06 Nov 1994 08:49:30 GMT"), 0, "past");
-    assert_eq!(said("retry-after", "Fri, 31 Dec 9999 23:59:59 GMT"), u32::MAX);
-    assert_eq!((said("retry-after", "soon"), said("retry-after", "-5"), said("x-wait", "9")), (0, 0, 0));
-}
-
-/// A wait stops as soon as it's cancelled (here, before it starts), and otherwise lasts as long
-/// as it's asked to.
-#[test]
-fn a_wait_ends_when_its_cancelled() {
-    let token = CancelToken::new();
-    token.cancel();
-    let started = Instant::now();
-    let cancelled = lookup::pause(&Ctx::new(&|_: &Event| {}, token), Duration::from_secs(30));
-    assert_eq!((cancelled, started.elapsed() < Duration::from_secs(5)), (Err(RpcError::cancelled()), true));
-    let started = Instant::now();
-    assert_eq!(lookup::pause(&Ctx::new(&|_: &Event| {}, CancelToken::new()), lookup::SECOND * 5), Ok(()));
-    assert!(started.elapsed() >= lookup::SECOND * 5, "{:?}", started.elapsed());
-}
-
 /// MusicBrainz busy every time it's asked (a few times), or asking for too long a wait, fails the
 /// track, as does any other refusal, an answer that isn't a lookup's, or the host not reaching it:
 /// none of that is kept as nothing found.
@@ -530,7 +496,7 @@ fn musicbrainz_turning_it_away_fails_the_track() {
 }
 
 /// Cancelled while it waits for MusicBrainz's answer, the hook stops at once, asking for no more.
-/// (A wait for a `Retry-After` stops so too: [`a_wait_ends_when_its_cancelled`].)
+/// (A wait for a `Retry-After` stops so too: [`loclib_plugin::pause`].)
 #[test]
 fn cancelling_while_it_waits_stops_it() {
     let session = start(vec![track(1, "A - B", "", 0, IN_MY_VIEW)], |_, _| Reply::Held);
@@ -906,28 +872,4 @@ fn lookup_stops(stop: Stop, gone: &str) {
         Stop::Waiting => assert!(e == RpcError::cancelled() && (1..=2).contains(&fetched), "{e:?} {fetched}"),
         _ => assert_eq!((e, fetched), (RpcError::cancelled(), 1)),
     }
-}
-
-/// Any `Retry-After` comes to its seconds: a number as it is (one too big to count longer than
-/// any wait), an HTTP-date as the seconds until then, rounded up (none once it's past), and
-/// anything else as none.
-#[hegel::test(test_cases = 100)]
-fn any_retry_after_is_its_seconds(tc: TestCase) {
-    let base = tc.draw(gs::integers::<u64>().min_value(1_000_000_000).max_value(4_000_000_000));
-    let now = SystemTime::UNIX_EPOCH
-        + Duration::from_secs(base)
-        + Duration::from_millis(tc.draw(gs::integers::<u64>().max_value(999)));
-    let n = tc.draw(gs::integers::<u64>().max_value(1_000_000_000));
-    let date = |secs: u64| httpdate::fmt_http_date(SystemTime::UNIX_EPOCH + Duration::from_secs(secs));
-    let big = tc.draw(gs::integers::<u64>().min_value(u64::from(u32::MAX) + 1));
-    let (said, seconds) = tc.draw(gs::sampled_from(vec![
-        (n.to_string(), u32::try_from(n).unwrap()),
-        (big.to_string(), u32::MAX),
-        (format!("{big}0"), u32::MAX),
-        (date(base + n), u32::try_from(n).unwrap()),
-        (date(base - 1 - n.min(base - 1)), 0),
-        ("in a minute".to_string(), 0),
-    ]));
-    let headers: IndexMap<String, String> = [("retry-after".to_string(), said.clone())].into_iter().collect();
-    assert_eq!(lookup::retry_after(&Fetched { status: 503, headers, body: None, blob: None }, now), seconds, "{said}");
 }
