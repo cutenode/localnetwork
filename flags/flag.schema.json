@@ -22,10 +22,7 @@
 				},
 				"type": {
 					"type": "string",
-					"enum": [
-						"release",
-						"experiment"
-					],
+					"enum": ["release", "experiment"],
 					"description": "release rolls a feature out, experiment tries one out. Both go once it is decided."
 				},
 				"removeBy": {
@@ -35,12 +32,7 @@
 					"description": "When the flag and the code it gates should be gone, as YYYY-MM-DD. Tests fail after it."
 				}
 			},
-			"required": [
-				"key",
-				"description",
-				"type",
-				"removeBy"
-			],
+			"required": ["key", "description", "type", "removeBy"],
 			"additionalProperties": false
 		},
 		{
@@ -63,18 +55,11 @@
 				},
 				"type": {
 					"type": "string",
-					"enum": [
-						"ops",
-						"permission"
-					],
+					"enum": ["ops", "permission"],
 					"description": "ops changes how the site runs, permission says who can use something. Both stay."
 				}
 			},
-			"required": [
-				"key",
-				"description",
-				"type"
-			],
+			"required": ["key", "description", "type"],
 			"additionalProperties": false
 		}
 	],

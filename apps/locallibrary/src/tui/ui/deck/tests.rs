@@ -488,7 +488,7 @@ fn the_table_says_how_far_from_the_master() {
 /// The tracks heard this session are dimmed in the library until `U`. A few seconds' listen
 /// doesn't count, nor does seeking through one.
 #[test]
-fn played_tracks_dim_until_theyre_reset() {
+fn played_tracks_dim_until_they_are_reset() {
     let (mut app, _dir) = on_deck();
     let path = app.now.as_ref().unwrap().track.file_path.clone();
     let title = app.now.as_ref().unwrap().track.title.clone();

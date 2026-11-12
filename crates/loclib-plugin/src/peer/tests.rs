@@ -474,7 +474,7 @@ fn owners_until(raw: &mut Raw, incoming: &Receiver<Incoming>, method: &str) -> V
 /// Any JSON: strings with quotes, backslashes, braces and `"id":` in them, and objects with
 /// `id` and `method` keys of their own.
 #[hegel::test_helper]
-fn json_value(tc: &TestCase, depth: u8) -> Value {
+pub(crate) fn json_value(tc: &TestCase, depth: u8) -> Value {
     let kinds = if depth == 0 { 4 } else { 6 };
     match tc.draw(gs::integers::<u8>().max_value(kinds)) {
         0 => Value::Null,
