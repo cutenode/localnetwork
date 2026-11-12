@@ -192,7 +192,7 @@ flowchart LR
     plugin -.->|"no way through the host"| tokens["Tokens, keys, secret settings"]
 ```
 
-Source: [`crates/locallibrary/src/plugin/callbacks.rs`](../../../../crates/locallibrary/src/plugin/callbacks.rs), [`crates/locallibrary/src/plugin/net.rs`](../../../../crates/locallibrary/src/plugin/net.rs), [`crates/locallibrary/src/plugin/blobs.rs`](../../../../crates/locallibrary/src/plugin/blobs.rs), [`crates/locallibrary/src/plugin/secrets.rs`](../../../../crates/locallibrary/src/plugin/secrets.rs), [`crates/loclib-plugin/src/manifest.rs`](../../../../crates/loclib-plugin/src/manifest.rs), [`docs/plugins.md`](../plugins.md)
+Source: [`crates/locallibrary/src/plugin/callbacks.rs`](../../../../crates/locallibrary/src/plugin/callbacks.rs), [`crates/locallibrary/src/plugin/net.rs`](../../../../crates/locallibrary/src/plugin/net.rs), [`crates/locallibrary/src/plugin/blobs.rs`](../../../../crates/locallibrary/src/plugin/blobs.rs), [`crates/locallibrary/src/plugin/secrets.rs`](../../../../crates/locallibrary/src/plugin/secrets.rs), [`crates/loclib-plugin/src/grants.rs`](../../../../crates/loclib-plugin/src/grants.rs), [`crates/loclib-plugin/src/manifest.rs`](../../../../crates/loclib-plugin/src/manifest.rs), [`docs/plugins.md`](../plugins.md)
 
 ## A plugin's net/fetch
 
