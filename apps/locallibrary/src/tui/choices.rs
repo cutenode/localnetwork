@@ -1,6 +1,6 @@
 //! How the player looks, as the palette offers it: how keys are written and coloured, how waveforms
-//! are coloured, when it warns of a track's end, cover art and the footer's hints. What's chosen is
-//! kept in tui.json.
+//! are coloured, when it warns of a track's end, cover art (and whether it's in half blocks) and the
+//! footer's hints. What's chosen is kept in tui.json.
 
 use super::app::{App, Level};
 use super::deck::BandMode;
@@ -68,6 +68,10 @@ fn palette_label(k: KeyPalette) -> &'static str {
     }
 }
 
+fn halfblocks_label(on: bool) -> &'static str {
+    if on { "cover art in half blocks" } else { "cover art in graphics" }
+}
+
 fn warning_label(secs: u16) -> String {
     if secs == 0 { "no warning before a track ends".into() } else { format!("warn {secs} s before a track ends") }
 }
@@ -81,8 +85,9 @@ pub(super) fn items() -> Vec<(Act, Item)> {
     let palettes = KeyPalette::ALL.map(|k| (Act::KeyPalette(k), item(palette_label(k).into())));
     let warnings = WARNINGS.map(|secs| (Act::EndWarning(secs), item(warning_label(secs))));
     let art = [(Act::Art(true), item("cover art".into())), (Act::Art(false), item("no cover art".into()))];
+    let halfblocks = [false, true].map(|on| (Act::ArtHalfblocks(on), item(halfblocks_label(on).into())));
     let hints = Hints::ALL.map(|h| (Act::Hints(h), item(h.label().into())));
-    bands.chain(notations).chain(palettes).chain(warnings).chain(art).chain(hints).collect()
+    bands.chain(notations).chain(palettes).chain(warnings).chain(art).chain(halfblocks).chain(hints).collect()
 }
 
 impl App {
@@ -131,6 +136,13 @@ impl App {
     pub(super) fn use_art(&mut self, on: bool) {
         self.deck.art = on;
         self.toast(if on { "cover art" } else { "no cover art" }, Level::Info);
+    }
+
+    /// Draw cover art in half blocks, or in the terminal's graphics again, from the next cover on.
+    pub(super) fn use_art_halfblocks(&mut self, on: bool) {
+        self.deck.art_halfblocks = on;
+        self.covers.forget_picker();
+        self.toast(halfblocks_label(on), Level::Info);
     }
 }
 

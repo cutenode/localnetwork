@@ -143,6 +143,7 @@ fn contents(tc: &TestCase) -> Contents {
             bands: tc.draw(gs::optional(gs::sampled_from(vec!["blue", "3band"]))).map(String::from),
             end_warning: tc.draw(gs::optional(gs::sampled_from(vec![0, 30]))),
             art: maybe(tc),
+            art_halfblocks: maybe(tc),
             hints: tc.draw(gs::optional(gs::sampled_from(vec!["full", "off"]))).map(String::from),
             recent_commands: tc
                 .draw(gs::optional(gs::vecs(gs::sampled_from(vec!["quit", "sync"])).max_size(2)))

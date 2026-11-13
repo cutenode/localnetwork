@@ -9,9 +9,9 @@ use super::super::ui::screen;
 use super::*;
 
 /// What's chosen for the deck, as the app holds it.
-fn chosen(app: &App) -> (Option<BandMode>, Notation, KeyPalette, u16, bool) {
+fn chosen(app: &App) -> (Option<BandMode>, Notation, KeyPalette, u16, bool, bool) {
     let d = &app.deck;
-    (d.bands, d.notation, d.key_palette, d.end_warning, d.art)
+    (d.bands, d.notation, d.key_palette, d.end_warning, d.art, d.art_halfblocks)
 }
 
 /// Every choice in the palette takes, says so, and comes back from what's saved.
@@ -30,6 +30,7 @@ fn every_choice_in_the_palette_is_kept() {
             Act::EndWarning(secs) => assert_eq!(d.end_warning, secs, "{}", item.label),
             Act::Hints(hints) => assert_eq!(app.hints, hints, "{}", item.label),
             Act::Art(on) => assert_eq!(d.art, on, "{}", item.label),
+            Act::ArtHalfblocks(on) => assert_eq!(d.art_halfblocks, on, "{}", item.label),
             other => panic!("{other:?}"),
         }
         let saved = app.saved_state();
@@ -45,7 +46,7 @@ fn every_choice_in_the_palette_is_kept() {
 fn the_defaults_are_what_nothing_saved_comes_to() {
     let (mut app, _dir) = blank(View::Library);
     let start = chosen(&app);
-    assert_eq!(start, (None, Notation::Camelot, KeyPalette::Theme, 30, true));
+    assert_eq!(start, (None, Notation::Camelot, KeyPalette::Theme, 30, true, false));
     let odd = Saved {
         notation: Some("sol-fa".into()),
         key_palette: Some("mauve".into()),
@@ -144,6 +145,7 @@ fn prop_the_last_choice_of_each_kind_holds(tc: hegel::TestCase) {
                     Act::KeyPalette(k) => want.2 = k,
                     Act::EndWarning(secs) => want.3 = secs,
                     Act::Art(on) => want.4 = on,
+                    Act::ArtHalfblocks(on) => want.5 = on,
                     other => panic!("{other:?}"),
                 }
                 item.label.clone()

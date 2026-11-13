@@ -143,6 +143,8 @@ pub enum Act {
     EndWarning(u16),
     /// Cover art on or off.
     Art(bool),
+    /// Cover art in half blocks (`true`), or in the terminal's graphics when it has them.
+    ArtHalfblocks(bool),
     /// Forget what's been played this session.
     ResetPlayed,
     /// Zoom in (true) or out.

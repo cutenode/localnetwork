@@ -56,6 +56,7 @@ impl App {
         self.deck.bands = s.bands.as_deref().and_then(BandMode::parse);
         self.deck.end_warning = s.end_warning.unwrap_or(END_WARNING);
         self.deck.art = s.art.unwrap_or(true);
+        self.deck.art_halfblocks = s.art_halfblocks;
         self.hints = s.hints.as_deref().and_then(Hints::parse).unwrap_or_default();
         self.recent_commands = s.recent_commands.clone();
         self.intro_seen = s.intro_seen.clone();
@@ -102,6 +103,7 @@ impl App {
             bands: self.deck.bands.map(|b| b.name().to_string()),
             end_warning: Some(self.deck.end_warning),
             art: Some(self.deck.art),
+            art_halfblocks: self.deck.art_halfblocks,
             hints: (self.hints != Hints::default()).then(|| self.hints.name().to_string()),
             recent_commands: self.recent_commands.clone(),
             intro_seen: self.intro_seen.clone(),

@@ -60,6 +60,11 @@ pub struct Covers {
 }
 
 impl Covers {
+    /// Work out how pictures are made again, and make the cover again with it.
+    pub fn forget_picker(&mut self) {
+        (self.picker, self.cover, self.asked) = (None, None, None);
+    }
+
     /// A chip from this drive: `None` until it's read. What's not read yet is asked for by the next
     /// tick, for only the rows that are still on screen by then.
     pub fn chip(&mut self, root: &Path, id: u32, path: &str) -> Option<[Rgb; 2]> {
@@ -95,8 +100,9 @@ fn read_chip(root: &Path, path: &str) -> Option<[Rgb; 2]> {
 
 /// How pictures reach this terminal, from what's known of it: `sixel` is whether it listed them in
 /// its answer to the player's questions. Inside a multiplexer, half blocks: graphics would have to
-/// be wrapped for it, and it would have to pass them on.
-pub fn protocol(var: impl Fn(&str) -> Option<String>, sixel: bool) -> Option<ProtocolType> {
+/// be wrapped for it, and it would have to pass them on. `halfblocks` is the player's setting for a
+/// terminal guessed wrong: half blocks whatever it says, unless `LOCALLIBRARY_ART` names graphics.
+pub fn protocol(var: impl Fn(&str) -> Option<String>, sixel: bool, halfblocks: bool) -> Option<ProtocolType> {
     let named = var("LOCALLIBRARY_ART");
     let named = named.as_deref().map(str::trim);
     match named {
@@ -106,7 +112,7 @@ pub fn protocol(var: impl Fn(&str) -> Option<String>, sixel: bool) -> Option<Pro
         Some("halfblocks") => return None,
         _ => {}
     }
-    if var("TMUX").is_some() || var("STY").is_some() || var("ZELLIJ").is_some() {
+    if halfblocks || var("TMUX").is_some() || var("STY").is_some() || var("ZELLIJ").is_some() {
         return None;
     }
     let program = var("TERM_PROGRAM");
@@ -123,8 +129,8 @@ pub fn protocol(var: impl Fn(&str) -> Option<String>, sixel: bool) -> Option<Pro
 
 /// What makes pictures for this terminal, if it can show them: one that doesn't say how big its
 /// cells are can't be given one the right size.
-fn picker(sixel: bool) -> Option<Picker> {
-    let protocol = protocol(|k| std::env::var(k).ok(), sixel)?;
+fn picker(sixel: bool, halfblocks: bool) -> Option<Picker> {
+    let protocol = protocol(|k| std::env::var(k).ok(), sixel, halfblocks)?;
     let size = window_size().ok()?;
     let cell = (size.width.checked_div(size.columns)?, size.height.checked_div(size.rows)?);
     if cell.0 == 0 || cell.1 == 0 {
@@ -163,8 +169,8 @@ impl App {
         let current = self.covers.cover.as_ref().is_some_and(|c| c.track == track && c.size == size);
         if !current && self.covers.asked != Some((track, size)) {
             self.covers.asked = Some((track, size));
-            let sixel = self.sixel;
-            let picker = self.covers.picker.get_or_insert_with(|| picker(sixel)).clone();
+            let (sixel, halfblocks) = (self.sixel, self.deck.art_halfblocks);
+            let picker = self.covers.picker.get_or_insert_with(|| picker(sixel, halfblocks)).clone();
             let job = move || {
                 let picture = picture(&art, size, picker.as_ref());
                 Msg::Cover(Box::new(Cover { track, size, picture }))

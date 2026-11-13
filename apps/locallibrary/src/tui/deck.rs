@@ -74,6 +74,8 @@ pub struct Deck {
     /// Seconds before a track's end the deck warns of it, 0 for not at all.
     pub end_warning: u16,
     pub art: bool,
+    /// Cover art in half blocks, whatever graphics the terminal seems to have.
+    pub art_halfblocks: bool,
 }
 
 impl Default for Deck {
@@ -92,6 +94,7 @@ impl Default for Deck {
             bands: None,
             end_warning: END_WARNING,
             art: true,
+            art_halfblocks: false,
         }
     }
 }

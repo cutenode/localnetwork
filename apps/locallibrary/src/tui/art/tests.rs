@@ -15,7 +15,7 @@ fn env(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
 /// What's known of a terminal says how pictures reach it, and half blocks are the floor.
 #[test]
 fn a_terminals_graphics_are_worked_out_from_what_it_says() {
-    let of = |vars: &[(&str, &str)], sixel| protocol(env(vars), sixel);
+    let of = |vars: &[(&str, &str)], sixel| protocol(env(vars), sixel, false);
     assert_eq!(of(&[], false), None);
     assert_eq!(of(&[], true), Some(ProtocolType::Sixel));
     assert_eq!(of(&[("KITTY_WINDOW_ID", "1")], false), Some(ProtocolType::Kitty));
@@ -27,6 +27,12 @@ fn a_terminals_graphics_are_worked_out_from_what_it_says() {
     assert_eq!(of(&[("STY", "1.x")], true), None);
     assert_eq!(of(&[("LOCALLIBRARY_ART", "sixel"), ("TMUX", "/tmp/1")], false), Some(ProtocolType::Sixel), "as told");
     assert_eq!(of(&[("LOCALLIBRARY_ART", "halfblocks"), ("KITTY_WINDOW_ID", "1")], true), None);
+    // The setting for half blocks: whatever the terminal says, unless the variable names graphics.
+    let blocks = |vars: &[(&str, &str)], sixel| protocol(env(vars), sixel, true);
+    assert_eq!(blocks(&[("TERM_PROGRAM", "ghostty")], true), None);
+    assert_eq!(blocks(&[("KITTY_WINDOW_ID", "1")], true), None);
+    assert_eq!(blocks(&[], true), None);
+    assert_eq!(blocks(&[("LOCALLIBRARY_ART", "kitty")], false), Some(ProtocolType::Kitty), "the variable wins");
 }
 
 /// The picture for a terminal with graphics is theirs, and it's half blocks without.
@@ -129,8 +135,9 @@ fn chips_are_bounded() {
     assert!(app.covers.chips.len() < CHIPS_KEPT);
 }
 
-/// For any terminal: what's asked for by name wins, a multiplexer gets half blocks, then the
-/// terminal's own name says, then kitty's variables, and sixel only where it listed them.
+/// For any terminal: what's asked for by name wins, the setting for half blocks or a multiplexer
+/// gets half blocks, then the terminal's own name says, then kitty's variables, and sixel only
+/// where it listed them.
 #[hegel::test(test_cases = 300)]
 fn prop_a_terminal_gets_the_graphics_it_says_it_has(tc: hegel::TestCase) {
     let pick = |tc: &hegel::TestCase, values: Vec<&'static str>| tc.draw(gs::optional(gs::sampled_from(values)));
@@ -146,7 +153,7 @@ fn prop_a_terminal_gets_the_graphics_it_says_it_has(tc: hegel::TestCase) {
             vars.push((var, "1"));
         }
     }
-    let sixel = tc.draw(gs::booleans());
+    let (sixel, halfblocks) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
     let has = |k: &str| vars.iter().any(|(var, _)| *var == k);
     let multiplexed = has("TMUX") || has("STY") || has("ZELLIJ");
     let want = match (named.map(str::trim), program) {
@@ -154,13 +161,13 @@ fn prop_a_terminal_gets_the_graphics_it_says_it_has(tc: hegel::TestCase) {
         (Some("iterm2"), _) => Some(ProtocolType::Iterm2),
         (Some("sixel"), _) => Some(ProtocolType::Sixel),
         (Some("halfblocks"), _) => None,
-        _ if multiplexed => None,
+        _ if halfblocks || multiplexed => None,
         (_, Some("ghostty")) => Some(ProtocolType::Kitty),
         (_, Some("iTerm.app" | "WezTerm")) => Some(ProtocolType::Iterm2),
         _ if has("KITTY_WINDOW_ID") || term == Some("xterm-kitty") => Some(ProtocolType::Kitty),
         _ => sixel.then_some(ProtocolType::Sixel),
     };
-    assert_eq!(protocol(env(&vars), sixel), want, "{vars:?}, sixel {sixel}");
+    assert_eq!(protocol(env(&vars), sixel, halfblocks), want, "{vars:?}, sixel {sixel}, half blocks {halfblocks}");
 }
 
 /// A cover's made for any size it's asked for, once, and it's only drawn at that size: half
@@ -232,4 +239,23 @@ fn prop_chips_are_a_drives_own_covers(tc: hegel::TestCase) {
         }
         assert_eq!(chip, has[id as usize].then_some([colour(id); 2]), "{id}");
     }
+}
+
+/// Choosing half blocks in the palette, or the terminal's graphics again, makes the cover again
+/// with the choice, and the choice is kept for the next run.
+#[hegel::test(test_cases = 10)]
+fn prop_choosing_half_blocks_makes_the_cover_again_and_is_kept(tc: hegel::TestCase) {
+    let (mut app, _dir) = on_deck_art();
+    let size = (8, 4);
+    app.cover(size);
+    wait(&mut app, |a| a.covers.cover.is_some());
+    let on = tc.draw(gs::booleans());
+    app.perform(super::super::keymap::Act::ArtHalfblocks(on), None);
+    assert!(app.covers.cover.is_none() && app.covers.picker.is_none(), "made again");
+    app.cover(size);
+    wait(&mut app, |a| a.covers.cover.is_some());
+    assert_eq!(app.saved_state().art_halfblocks, on);
+    let mut next = App::blank(app.store_root.clone(), None);
+    next.apply_saved(&app.saved_state(), false);
+    assert_eq!(next.deck.art_halfblocks, on);
 }

@@ -41,7 +41,7 @@ than rekordbox 6. Profiles don't manage them until their meaning is known.
 
 `settings export` writes everything set here to one JSON file: the settings profile (base and
 per-drive overrides), the players `check` uses, your profile's preferences, the player's
-preferences (theme, colours, icons, columns, sort, visualiser, shuffle, repeat, quantize, single play, auto cue, how keys and waveforms look, the end of track warning, cover art, the hint setting, the palette's recent commands),
+preferences (theme, colours, icons, columns, sort, visualiser, shuffle, repeat, quantize, single play, auto cue, how keys and waveforms look, the end of track warning, cover art and whether it's in half blocks, the hint setting, the palette's recent commands),
 the largest fingerprint index `mix` keeps (`store index-limit`) and every plugin's settings, the player keys you gave their commands and the services you turned
 on included. Plugins' secrets stay in the keychain, and where the player was (the drive, list and
 queue, its panels and layout, the volume and output) stays on this computer. `settings import FILE` brings it back, here or on another

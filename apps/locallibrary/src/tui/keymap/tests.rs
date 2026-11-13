@@ -253,6 +253,7 @@ fn reached(act: Act) -> Reached {
         | Act::KeyPalette(_)
         | Act::EndWarning(_)
         | Act::Art(_)
+        | Act::ArtHalfblocks(_)
         | Act::Theme(_)
         | Act::Colours(_)
         | Act::Icons(_)

@@ -183,8 +183,10 @@ needs.
   - Cover art can be turned off.
 - **Cover art**: the terminal's own graphics where it has them (kitty, iTerm2 or sixel), in half
   blocks everywhere else, and a record for a track with none. There's no art with 16 colours or
-  ASCII icons, or inside tmux beyond half blocks. `LOCALLIBRARY_ART` names the graphics to use
-  (`kitty`, `iterm2`, `sixel`, `halfblocks`) when what's worked out is wrong.
+  ASCII icons, or inside tmux beyond half blocks. When what's worked out is wrong, "cover art in
+  half blocks" in the palette keeps it in half blocks from then on (kept for the next run), and
+  `LOCALLIBRARY_ART` names the graphics to use (`kitty`, `iterm2`, `sixel`, `halfblocks`) for one
+  run, over the setting.
 - **Hot cue pads**: in the Deck layout the number keys `1` to `8` play hot cues A to H the way a
   CDJ's pads do: the track jumps to the cue and plays (from pause too: a terminal can't tell when
   a key is let go, so there's no previewing while it's held). `'` turns the pads on in every view,

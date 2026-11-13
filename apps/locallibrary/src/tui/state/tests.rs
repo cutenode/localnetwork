@@ -162,6 +162,7 @@ fn preferences_of(saved: &Saved) -> Saved {
         bands,
         end_warning,
         art,
+        art_halfblocks,
         hints,
         recent_commands,
     } = saved.clone();
@@ -185,6 +186,7 @@ fn preferences_of(saved: &Saved) -> Saved {
         bands,
         end_warning,
         art,
+        art_halfblocks,
         hints,
         recent_commands,
         ..Default::default()
@@ -234,6 +236,7 @@ fn its_preferences_go_to_another_store_and_where_it_was_stays(tc: hegel::TestCas
         recent_commands: on().then(|| "shuffle on or off".to_string()).into_iter().collect(),
         intro_seen: Some("0.1.0".into()),
         art: tc.draw(gs::optional(gs::booleans())),
+        art_halfblocks: on(),
         mixes: vec!["/m/a.wav".into()],
         mix_folders: vec!["/m".into()],
         crate_list: vec![SavedCrateTrack {

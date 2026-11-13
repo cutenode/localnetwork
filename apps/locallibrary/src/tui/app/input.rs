@@ -332,6 +332,7 @@ impl App {
             Act::KeyPalette(k) => self.use_key_palette(k),
             Act::EndWarning(secs) => self.use_end_warning(secs),
             Act::Art(on) => self.use_art(on),
+            Act::ArtHalfblocks(on) => self.use_art_halfblocks(on),
             Act::ResetPlayed => self.reset_played(),
             Act::Zoom(true) => self.deck_secs = (self.deck_secs / 1.5).max(1.5),
             Act::Zoom(false) => self.deck_secs = (self.deck_secs * 1.5).min(60.0),

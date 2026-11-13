@@ -136,6 +136,9 @@ pub struct PlayerPrefs {
     /// Cover art.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub art: Option<bool>,
+    /// Cover art in half blocks, whatever graphics the terminal seems to have.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub art_halfblocks: Option<bool>,
     /// How much the footer says: `full`, `compact` or `off`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hints: Option<String>,

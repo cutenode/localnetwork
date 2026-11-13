@@ -71,6 +71,8 @@ pub struct Saved {
     pub end_warning: Option<u16>,
     /// Cover art (on unless turned off).
     pub art: Option<bool>,
+    /// Cover art in half blocks, whatever graphics the terminal seems to have.
+    pub art_halfblocks: bool,
     /// How much the footer says (`full`, `compact`, `off`): all of it without one.
     pub hints: Option<String>,
     /// The palette's commands run lately, newest first, by name.
