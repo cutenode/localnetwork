@@ -82,8 +82,7 @@ fn a_paused_deck_goes_idle() {
     app.audio.as_ref().unwrap().toggle_pause();
     let counts: Vec<usize> = app.areas.spectra.iter().map(|&(w, m)| loclib_waveform::bar_layout(w, m).0).collect();
     for _ in 0..40 {
-        let tap = app.audio.as_ref().unwrap().tap.clone();
-        app.analyzer.update(&tap, false, &counts, 0.25);
+        app.analyzer.update(None, 44_100, &counts, 0.25);
         screen(&mut app, 160, 45);
     }
     assert!(!app.animating(), "nothing's moving");

@@ -39,7 +39,8 @@ The plugins locallibrary ships are a crate each in `plugins/<id>/` (`locallibrar
 written on loclib-plugin's SDK (see [Plugins](docs/plugins.md)). Like the crates above, they never
 depend on `locallibrary`: they read the library through the host's callbacks, and the CLI links
 every one into its binary (`apps/locallibrary/src/plugins.rs`, from the table `build.rs` writes).
-Their tests sit beside their code, driving the plugin over in-memory pipes with a fake host; the
+Their tests sit beside their code, driving the plugin over in-memory pipes with a fake host
+(loclib-plugin's `FakeHost` for new ones, see its README's "Testing a plugin"); the
 CLI's tests run them through the real one. Account plugins are the exception: each is a
 `locallibrary-plugin.toml` alone in `plugins/accounts/<id>/`, outside the workspace, which
 `build.rs` includes and nothing runs, so adding one is adding its folder.
@@ -216,7 +217,7 @@ replaces `target/debug/locallibrary`, even with nothing to rebuild. A second che
 ```bash
 cargo bench -p locallibrary --bench library -- --save-baseline before   # on the code before a change
 cargo bench -p locallibrary --bench library -- --baseline before        # after it: the change in each
-cargo bench -p loclib-mixid --features test-util --bench mixid -- matcher/find   # one group
+cargo bench -p loclib-mixid --bench mixid -- matcher/find   # one group
 ```
 
 Crates with work that grows with a library or a recording have
@@ -226,7 +227,7 @@ of 5k to 20k made-up tracks), `loclib-mixid` (fingerprinting, resampling, indexi
 tracks in a mix), `loclib-model`, `loclib-tracklist` and `loclib-interop` (over
 `loclib_model::test_util::library`), `loclib-waveform` (a frame of each widget),
 `loclib-sqlcipher` (decrypting a database, with and without a WAL) and `loclib-analysis`.
-`loclib-mixid`, `loclib-model` and `loclib-sqlcipher` need `--features test-util`. The first
+`loclib-model` and `loclib-sqlcipher` need `--features test-util`. The first
 `library` run builds its drives under `target/`, which takes about a minute. Compare on a quiet
 machine and rerun anything close: a few percent is noise.
 

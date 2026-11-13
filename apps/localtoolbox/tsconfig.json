@@ -17,5 +17,12 @@
 			"$lib/*": ["./src/lib/*"]
 		}
 	},
-	"include": ["src/**/*.ts", "src/**/*.svelte", "content.ts", "downloaded-store.ts", "state-transfer.ts"]
+	"include": [
+		"src/**/*.ts",
+		"src/**/*.svelte",
+		"content.ts",
+		"downloaded-store.ts",
+		"state-transfer.ts",
+		"theme-prepaint.ts"
+	]
 }

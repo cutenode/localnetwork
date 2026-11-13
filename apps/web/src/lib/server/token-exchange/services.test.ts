@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
+import { FLAGS } from '#lib/server/flags/catalog.ts';
 import { services, servicesSchema } from './services';
 
 /** services.schema.json is the registry's schema as services.ts reads it, for editors: regenerate it after changing that. */
@@ -29,4 +30,14 @@ test('services.json has the services plugins sign in to, each at its https token
 	expect(() =>
 		servicesSchema.parse({ services: { x: { ...services.google, tokenUrl: 'http://a.example/t' } } })
 	).toThrow('Invalid URL');
+});
+
+test("every service's pauseFlag is a flag in flags/catalog/", () => {
+	const keys = new Set(FLAGS.map(({ key }) => key));
+
+	expect(Object.values(services).map(({ pauseFlag }) => [pauseFlag, keys.has(pauseFlag)])).toEqual([
+		['pauseGoogleTokenExchange', true],
+		['pauseMixcloudTokenExchange', true],
+		['pauseSoundcloudTokenExchange', true]
+	]);
 });

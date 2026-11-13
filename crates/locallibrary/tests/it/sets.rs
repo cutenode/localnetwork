@@ -402,8 +402,10 @@ fn sets_are_written_out_and_files_kept() {
         std::fs::read_to_string(&list).unwrap().lines().filter(|l| !l.starts_with('#')).map(String::from).collect();
     assert_eq!(paths, [&t[0].file_path[1..], &t[1].file_path[1..]]);
 
-    let e = export(SetFormat::Youtube, None, false).unwrap_err();
-    assert!(e.to_string().starts_with("track 3 (Someone - Dubplate) has no start time"), "{e}");
+    // YouTube's description lists a track without a start time without one.
+    let youtube = export(SetFormat::Youtube, None, false).unwrap().text.unwrap();
+    assert!(youtube.starts_with("00:00 "), "{youtube}");
+    assert!(youtube.ends_with("\nSomeone - Dubplate\n"), "{youtube}");
 }
 
 #[test]
