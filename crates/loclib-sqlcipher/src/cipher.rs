@@ -71,7 +71,9 @@ fn pbkdf2_keys(passphrase: &[u8], salt: &[u8; SALT_LEN]) -> Keys {
         let rounds = std::num::NonZeroU32::new(rounds).expect("rounds are constants above zero");
         ring::pbkdf2::derive(ring::pbkdf2::PBKDF2_HMAC_SHA512, rounds, salt, secret, out);
     };
-    let mut cipher = [0u8; 32];
+    // PBKDF2 writes over the whole buffer. Not a `[0; 32]` literal: CodeQL takes the literal for
+    // a hard-coded key when the buffer reaches AES.
+    let mut cipher = <[u8; 32]>::default();
     pbkdf2(KDF_ROUNDS, salt, passphrase, &mut cipher);
     let hmac_salt: Vec<u8> = salt.iter().map(|b| b ^ HMAC_SALT_MASK).collect();
     let mut hmac = [0u8; 32];

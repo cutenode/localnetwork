@@ -35,7 +35,10 @@ fn wal_for(codec: &Codec) -> Vec<u8> {
 }
 
 fn bench(c: &mut Criterion) {
-    let codec = Codec::with_key(b"a key", [7; SALT_LEN]);
+    // A random salt, as a real file has: CodeQL flags a literal one.
+    let mut salt = [0; SALT_LEN];
+    getrandom::fill(&mut salt).unwrap();
+    let codec = Codec::with_key(b"a key", salt);
     let db = codec.encrypt(&plain()).unwrap();
     let wal = wal_for(&codec);
     let mut group = c.benchmark_group("sqlcipher");
