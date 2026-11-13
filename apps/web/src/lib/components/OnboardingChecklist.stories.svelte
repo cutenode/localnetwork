@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { collect, type OnboardingData, STEPS } from '#lib/onboarding/checklist.ts';
+	import { flagsOff } from '#lib/testing/flags.ts';
 	import OnboardingChecklist from './OnboardingChecklist.svelte';
 
 	const { Story } = defineMeta({
@@ -67,9 +68,9 @@
 
 <Story name="Partly done on a phone" args={{ data: partly, flags: undefined }} globals={phone} />
 
-<Story name="With a new feature's step" args={{ data: partly, flags: { parityCanary: true }, steps: withFeature }} globals={wide} />
+<Story name="With a new feature's step" args={{ data: partly, flags: { ...flagsOff, parityCanary: true }, steps: withFeature }} globals={wide} />
 
-<Story name="With a new feature's step on a phone" args={{ data: partly, flags: { parityCanary: true }, steps: withFeature }} globals={phone} />
+<Story name="With a new feature's step on a phone" args={{ data: partly, flags: { ...flagsOff, parityCanary: true }, steps: withFeature }} globals={phone} />
 
 <!-- Every step done: the checklist is gone. -->
 <Story name="All done" args={{ data: finished, flags: undefined }} globals={wide} />

@@ -1,12 +1,13 @@
 use super::*;
 
+/// `n` samples of a sine at `freq` Hz, half full scale, at 44.1 kHz.
+fn sine(freq: f32, n: usize) -> Vec<f32> {
+    (0..n).map(|i| 0.5 * (2.0 * std::f32::consts::PI * freq * i as f32 / 44_100.0).sin()).collect()
+}
+
 /// Feed a sine through the analyser's spectrum and return its bands' levels.
 fn levels(freq: f32, bands: usize) -> Vec<f32> {
-    let mut a = Analyzer::default();
-    let sr = 44_100.0;
-    for (i, s) in a.samples.iter_mut().enumerate() {
-        *s = 0.5 * (2.0 * std::f32::consts::PI * freq * i as f32 / sr).sin();
-    }
+    let mut a = Analyzer { samples: sine(freq, FFT_SIZE), ..Analyzer::default() };
     a.transform();
     a.band_levels(bands)
 }
@@ -33,9 +34,8 @@ fn sines_land_in_the_right_band() {
 fn silence_decays_to_idle() {
     let full = Bands { levels: vec![1.0; 8], peaks: vec![(1.0, 0.0); 8] };
     let mut a = Analyzer { sets: vec![full], level: 1.0, ..Default::default() };
-    let tap = Tap::default();
     for _ in 0..200 {
-        a.update(&tap, false, &[8], 1.0 / 30.0);
+        a.update(None, 44_100, &[8], 1.0 / 30.0);
     }
     assert!(a.is_idle());
 }
@@ -43,12 +43,28 @@ fn silence_decays_to_idle() {
 #[test]
 fn keeps_one_set_of_bands_per_spectrum_on_screen() {
     let mut a = Analyzer::default();
-    let tap = Tap::default();
-    a.update(&tap, false, &[24, 48, 24], 0.016);
+    a.update(None, 44_100, &[24, 48, 24], 0.016);
     assert_eq!(a.sets.len(), 2);
     assert_eq!(a.bands(48).map(|b| b.levels.len()), Some(48));
-    a.update(&tap, false, &[12], 0.016);
+    a.update(None, 44_100, &[12], 0.016);
     assert!(a.bands(48).is_none() && a.bands(12).is_some());
+}
+
+/// What's played shows: in its band, in the overall level, and in a scope trace that starts on a
+/// rising zero crossing so it stands still from frame to frame.
+#[test]
+fn a_tone_played_shows_everywhere() {
+    let mut a = Analyzer::default();
+    let tone = sine(440.0, FFT_SIZE);
+    for _ in 0..10 {
+        a.update(Some(&tone), 44_100, &[32], 1.0 / 30.0);
+    }
+    let ratio = (MAX_HZ / MIN_HZ).powf(1.0 / 32.0);
+    let band = ((440.0 / MIN_HZ).ln() / ratio.ln()).floor() as usize;
+    assert!(a.bands(32).unwrap().levels[band] > 0.5, "{:?}", a.bands(32).unwrap().levels);
+    assert!(a.level > 0.5, "{}", a.level);
+    assert!(a.scope[0] <= 0.0 && a.scope[1] > 0.0, "{:?}", &a.scope[..4]);
+    assert!(!a.is_idle());
 }
 
 /// With many bands, those at the bass end are narrower than one bin of the transform: the
@@ -125,4 +141,23 @@ fn bands_rise_fast_fall_slowly_and_their_peaks_hold(tc: hegel::TestCase) {
             }
         }
     }
+}
+
+/// Samples given a few at a time follow on from those before: the window analysed is the latest
+/// `FFT_SIZE` of them, however they were split up.
+#[hegel::test(test_cases = 100)]
+fn samples_given_in_pieces_follow_on(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let all = sine(tc.draw(gs::integers::<u32>().min_value(40).max_value(12_000)) as f32, 3 * FFT_SIZE);
+    let mut pieces = Analyzer::default();
+    let mut from = 0;
+    while from < all.len() {
+        let to = (from + tc.draw(gs::integers::<usize>().min_value(256).max_value(2 * FFT_SIZE))).min(all.len());
+        pieces.update(Some(&all[from..to]), 44_100, &[], 0.016);
+        from = to;
+    }
+    let mut whole = Analyzer::default();
+    whole.update(Some(&all), 44_100, &[], 0.016);
+    assert_eq!(pieces.samples, &all[all.len() - FFT_SIZE..]);
+    assert_eq!(pieces.scope, whole.scope);
 }

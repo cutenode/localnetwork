@@ -4,7 +4,6 @@
 // Without the `account` feature, a stand-in that says there's no account.
 #[cfg_attr(not(feature = "account"), path = "account_off.rs")]
 mod account;
-mod analyzer;
 mod app;
 mod art;
 mod audio;

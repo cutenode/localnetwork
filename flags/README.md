@@ -4,6 +4,8 @@ The website's feature flags, kept here so locallibrary can use the same ones. Ea
 
 Every flag has a `type`. `release` and `experiment` flags are meant to go, so they need a `removeBy` date (`YYYY-MM-DD`): once it passes, the website's tests fail until the flag is deleted or the date moves. `ops` and `permission` flags stay, and can't have one.
 
+A flag nobody has saved reads as off, so name a flag for the state you can switch it to. A switch for something that already works is named for the paused state, like `pauseRecordingStream`, and is `ops`: the deploy that adds it changes nothing, and turning it on stops the feature. Something that's dark today and should stay switchable after it ships, like inbox email, is named for the on state and is `ops` too, so it has no `removeBy`. Use `release` or `experiment` only for flags that go once the rollout is done.
+
 Who a flag is on for lives in the staff space and is set at `/admin/flags`, not here. Every flag starts off. The list there marks a flag "Ready to remove" once it's been on for everyone, or every account, for 30 days.
 
 ```jsonc

@@ -32,6 +32,7 @@ export default {
 		'Its press kits': [{ name: 'Press kits', href: '/projects/neon-tide/press-kits' }],
 		'Its mixes': [{ name: 'Tracklist', href: '/projects/neon-tide/mixes/1', within: 'Mixes' }],
 		'Artists in its sets': [SET_ARTIST],
-		'Send an inquiry': [{ name: 'Send inquiry', href: '/dashboard/bookings/new?project=neon-tide' }]
+		'Send an inquiry': [{ name: 'Send inquiry', href: '/dashboard/bookings/new?project=neon-tide' }],
+		locallibrary: [{ name: 'locallibrary', href: '/tools/locallibrary', within: 'How they play' }]
 	}
 } satisfies LinkChecks;
