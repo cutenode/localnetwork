@@ -466,6 +466,7 @@ These diagrams cover what the app does, as drawn from the code. Website code say
 - [Shows and the inbox](docs/diagrams/shows-and-inbox.md): shows, follows, inbox delivery and channels
 - [Mixes, sets and charts](docs/diagrams/mixes-and-sets.md): tracklists, sets, recordings, stats and artist pages
 - [Staff and upkeep](docs/diagrams/staff-and-upkeep.md): bug reports, the audit log, staff actions, listings and backups
+- [Feature flags](docs/diagrams/flags.md): deciding a flag, page requests, getFlags, the staff console and the flag tables
 
 ### Architecture
 
@@ -569,7 +570,7 @@ flowchart TD
     Spaces["Spaces<br/>each writer's repo in each space"]
   end
   subgraph Server["On the server"]
-    Index[("SQLite, rebuilt by sync:<br/>requests, threads, grants, people")]
+    Index[("SQLite, rebuilt by sync:<br/>requests, threads, grants, people,<br/>performers, flags and flag groups")]
     Only[("SQLite, not rebuilt:<br/>sessions, inboxes, receipts")]
     Outbox[("SQLite audit log:<br/>rebuilt from the root's copies")]
     Memory["Memory:<br/>rate limits, credentials, caches"]
@@ -579,7 +580,7 @@ flowchart TD
     Bucket[("Bucket: database backups")]
   end
   subgraph Client["In the browser"]
-    Cookies["Cookies: ln_session, ln_signed_out,<br/>the shows page's city"]
+    Cookies["Cookies: ln_session, ln_signed_out,<br/>ln_flag_preview, the shows page's city"]
     Local["localStorage: unsent form drafts,<br/>the hotkeys preference"]
   end
   Repos -- "Jetstream, re-reads" --> HV
@@ -590,7 +591,7 @@ flowchart TD
   Outbox -- "daily" --> Bucket
 ```
 
-Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/server/sync/engine.ts`](src/lib/server/sync/engine.ts), [`src/lib/form-draft.svelte.ts`](src/lib/form-draft.svelte.ts), [`src/lib/server/shows-place.ts`](src/lib/server/shows-place.ts)
+Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/server/sync/engine.ts`](src/lib/server/sync/engine.ts), [`src/lib/form-draft.svelte.ts`](src/lib/form-draft.svelte.ts), [`src/lib/server/shows-place.ts`](src/lib/server/shows-place.ts), [`src/lib/server/flags/preview.ts`](src/lib/server/flags/preview.ts)
 
 ### Local tables: bookings and press kits
 
@@ -634,7 +635,7 @@ Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/
 
 ### Local tables: shared spaces
 
-The tables that index performer, party and venue spaces. Each line is a column the rows share.
+The tables that index performer, party and venue spaces, and who each performer space is for. Each line is a column the rows share.
 
 ```mermaid
 erDiagram
@@ -642,6 +643,7 @@ erDiagram
   shared_space ||--o{ space_invite : "space_uri"
   shared_space ||--o{ space_invite_link : "space_uri"
   shared_space ||--o{ space_join_request : "space_uri"
+  shared_space ||--o| performer : "space_uri"
   shared_space {
     text space_uri PK
     text kind
@@ -662,6 +664,12 @@ erDiagram
     text token_hash
   }
   space_join_request {
+    text did
+  }
+  performer {
+    text space_uri PK
+    text kind
+    text slug
     text did
   }
 ```
