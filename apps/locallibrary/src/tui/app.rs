@@ -304,11 +304,13 @@ pub struct App {
     /// Keeps the terminal's late answers out of the keys.
     late_answers: LateAnswers,
     last_pos_ms: f64,
-    /// The Library view shows the deck in place of its panes.
+    /// Player mode: the Library view shows the deck in place of its panes. Saved as it was.
     pub deck_layout: bool,
-    /// Browse is open over the Deck layout: the panes are back until a track's loaded.
+    /// The tab player mode was opened from, to go back to when it closes.
+    pub player_from: Option<View>,
+    /// Browse is open over player mode: the panes are back until a track's loaded.
     pub browsing: bool,
-    /// The Deck layout: the pick among the tracks that mix into the playing one, to play next.
+    /// Player mode: the pick among the tracks that mix into the playing one, to play next.
     pub next_pick: ListState,
     pub help: bool,
     /// The help's row selected, among those `help_query` leaves.
@@ -348,6 +350,8 @@ pub struct App {
     failed_in_row: usize,
     /// What was saved last, and when it was last checked for changes.
     saved: Option<Saved>,
+    /// The saved state couldn't be read at startup: this run leaves its file alone.
+    state_unreadable: bool,
     last_save_check: Instant,
     pub areas: Areas,
     pub started: Instant,
@@ -397,8 +401,10 @@ pub struct App {
 
 impl App {
     pub fn new(store_root: PathBuf, drive: Option<String>) -> App {
-        let saved = state::load(&store_root);
+        let read = state::load(&store_root);
         let mut app = App::blank(store_root, None);
+        app.state_unreadable = read.is_none();
+        let saved = read.unwrap_or_default();
         app.offline = false;
         app.transitions.enabled = true;
         app.outputs = Outputs::from_env();
@@ -517,6 +523,7 @@ impl App {
             late_answers: LateAnswers::default(),
             last_pos_ms: 0.0,
             deck_layout: false,
+            player_from: None,
             browsing: false,
             next_pick: ListState::default(),
             help: false,
@@ -539,6 +546,7 @@ impl App {
             start_paused: false,
             failed_in_row: 0,
             saved: None,
+            state_unreadable: false,
             last_save_check: Instant::now(),
             areas: Areas::default(),
             started: Instant::now(),

@@ -18,7 +18,12 @@ use crate::*;
 use youtube::{YouTube, start};
 
 fn entry(artist: Option<&str>, title: Option<&str>, start: Option<u32>) -> TracklistEntry {
-    TracklistEntry { artist: artist.map(Into::into), title: title.map(Into::into), start_seconds: start }
+    TracklistEntry {
+        artist: artist.map(Into::into),
+        title: title.map(Into::into),
+        start_seconds: start,
+        ..Default::default()
+    }
 }
 
 /// Served as a real one is, it says it's its manifest, publishing sets through fetches with an

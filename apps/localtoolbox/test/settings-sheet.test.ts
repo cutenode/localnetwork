@@ -245,9 +245,13 @@ describe('what the Downloader asks for', () => {
 		expect(field('email')).toHaveProperty('value', '');
 		expect(field('name')).toHaveProperty('value', '');
 		expect(marking()).toBe(true);
-		// The hint has to say the address reaches the artist, because a Laylo
-		// signup is a mailing list and that is the price of the link.
-		expect(text()).toContain('mailing list');
+		// The hint has to say who gets the address: Hypeddit's privacy policy
+		// shares it with the artist and with Hypeddit's own providers, and the
+		// pages opened from the Downloader get it filled in.
+		expect(text()).toContain(
+			'Hypeddit shares them with the artist, its email-checking service and its marketing providers'
+		);
+		expect(text()).toContain('Droploud and Laylo pages you open from here get the email filled in');
 	});
 
 	// The popup's own storage, not the extension's: nothing outside the popup
