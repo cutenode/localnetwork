@@ -1,4 +1,4 @@
-//! The Library view: the drive list, the playlists, the tracks, a track's details and the crate.
+//! The Library view: the drive list, the playlists, the tracks, a track's details and the queue.
 
 use locallibrary::fields::FieldValue;
 use locallibrary::query::{FieldName, SortField, SortKey};
@@ -873,60 +873,96 @@ fn draw_track_details(f: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
-/// The crate panel.
+/// The queue panel (the crate): what's playing, the picks in the order they play (played ones
+/// greyed, filled ones marked), then the list it plays on with and that list's next few tracks.
 fn draw_crate(f: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focus == Focus::Crate;
     let list = &app.crate_list;
+    let up = list.up_next().count();
     let mut heading = pane_start(4, focused);
     heading.extend([
-        Span::styled("Crate", if focused { bold(theme::current().info) } else { bold(theme::current().dim) }),
-        Span::styled(format!(" {} ", list.len()), faint()),
+        Span::styled("Queue", if focused { bold(theme::current().info) } else { bold(theme::current().dim) }),
+        Span::styled(format!(" {up} up next "), faint()),
     ]);
-    if !list.is_empty() {
-        heading.push(Span::styled(format!("{} ", clock(list.duration_secs() as f64)), faint()));
+    if up > 0 {
+        heading.push(Span::styled(format!("{} ", clock(list.up_next_secs() as f64)), faint()));
     }
     if area.height <= 1 {
         return title_row(f, Line::from(heading), focused, area);
     }
     let b = block(Line::from(heading), focused);
     let inner = b.inner(area);
-    if list.is_empty() {
-        let p = Paragraph::new(vec![
-            Line::styled("The crate is empty.", dim()),
-            Line::from(vec![
-                Span::styled("a", theme::key()),
-                Span::styled(" adds the selected or marked tracks to it.", dim()),
-            ]),
+    f.render_widget(b, area);
+    let playing = app.now.as_ref().map(|n| {
+        Line::from(vec![
+            Span::styled("now ", faint()),
+            Span::styled(n.track.title.clone(), bold(theme::current().accent)),
+            Span::styled(format!("  {}", n.track.artist), dim()),
         ])
-        .wrap(Wrap { trim: true })
-        .block(b);
-        f.render_widget(p, area);
+    });
+    let from = next_from(app);
+    let head = u16::from(playing.is_some()).min(inner.height);
+    let room = inner.height - head;
+    let tail = match &from {
+        Some(lines) if room >= lines.len() as u16 + 3 => lines.len() as u16,
+        Some(_) if room >= 4 => 1,
+        _ => 0,
+    };
+    let [now_area, rows, from_area] =
+        Layout::vertical([Constraint::Length(head), Constraint::Min(0), Constraint::Length(tail)]).areas(inner);
+    if let Some(line) = playing {
+        f.render_widget(Paragraph::new(line), now_area);
+    }
+    if let Some(lines) = from {
+        f.render_widget(Paragraph::new(lines.into_iter().take(tail as usize).collect::<Vec<_>>()), from_area);
+    }
+    if list.is_empty() {
+        let p = Paragraph::new(vec![Line::from(vec![
+            Span::styled("Nothing picked. ", dim()),
+            Span::styled("q n", theme::key()),
+            Span::styled(" plays the selected track next, ", dim()),
+            Span::styled("q a", theme::key()),
+            Span::styled(" adds it to the end.", dim()),
+        ])])
+        .wrap(Wrap { trim: true });
+        f.render_widget(p, rows);
         return;
     }
-    app.areas.crate_rows = inner;
+    app.areas.crate_rows = rows;
     let root = app.loaded.as_ref().map(|l| l.root().to_path_buf());
-    let playing = app.now.as_ref().map(|n| (n.root.clone(), n.track.file_path.clone()));
-    let w = inner.width.saturating_sub(1);
+    let next = list.items.iter().position(|t| !t.played);
+    let w = rows.width.saturating_sub(1);
     let items: Vec<ListItem> = list
         .items
         .iter()
         .enumerate()
         .map(|(n, item)| {
             let t = &item.track;
-            let is_playing = playing.as_ref().is_some_and(|(r, p)| *r == item.root && *p == t.file_path);
-            let mut left = vec![
-                Span::styled(format!("{:>2} ", n + 1), faint()),
-                Span::styled(t.title.clone(), if is_playing { bold(theme::current().accent) } else { text() }),
-                Span::styled(format!("  {}", t.artist), dim()),
-            ];
+            let (title, artist) = match (list.is_playing(n), item.played) {
+                (true, _) => (bold(theme::current().accent), dim()),
+                (false, true) => (faint(), faint()),
+                (false, false) => (text(), dim()),
+            };
+            let mut left = vec![Span::styled(format!("{:>2} ", n + 1), faint()), Span::styled(t.title.clone(), title)];
+            if next == Some(n) {
+                left.push(Span::styled(" next", bold(theme::current().info)));
+            }
+            left.push(Span::styled(format!("  {}", t.artist), artist));
             if root.as_ref() != Some(&item.root) {
                 left.push(Span::styled(format!(" · {}", item.drive), faint()));
             }
             let mut right = Vec::new();
-            if t.bpm > 0.0 {
-                right.push(Span::styled(format!("{:.0} ", t.bpm), fg(theme::current().warning)));
+            if item.filled {
+                right.push(Span::styled("fill ", faint()));
             }
-            right.push(Span::styled(format!("{:<3}", t.key), fg(theme::current().info)));
+            let (bpm, key) = match item.played {
+                true => (faint(), faint()),
+                false => (fg(theme::current().warning), fg(theme::current().info)),
+            };
+            if t.bpm > 0.0 {
+                right.push(Span::styled(format!("{:.0} ", t.bpm), bpm));
+            }
+            right.push(Span::styled(format!("{:<3}", t.key), key));
             let lw: usize = left.iter().map(Span::width).sum::<usize>();
             let rw: usize = right.iter().map(Span::width).sum::<usize>();
             let left = fit(left, (w as usize).saturating_sub(rw + 1).max(lw.min(8)));
@@ -934,9 +970,32 @@ fn draw_crate(f: &mut Frame, app: &mut App, area: Rect) {
         })
         .collect();
     let list = List::new(items)
-        .block(b)
         .highlight_style(if focused { theme::selected() } else { theme::unfocused() })
         .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)));
-    app.crate_state.fit(inner.height as usize, app.crate_list.len());
-    f.render_stateful_widget(list, area, &mut app.crate_state);
+    app.crate_state.fit(rows.height as usize, app.crate_list.len());
+    f.render_stateful_widget(list, rows, &mut app.crate_state);
+}
+
+/// What the queue plays on with after its picks: "next from" and the list's name, then its next
+/// few tracks. None without a list.
+fn next_from(app: &App) -> Option<Vec<Line<'static>>> {
+    let q = &app.queue;
+    if q.is_empty() {
+        return None;
+    }
+    let name = if q.name.is_empty() { q.drive.clone() } else { q.name.clone() };
+    let mut lines = vec![Line::from(vec![Span::styled("next from ", faint()), Span::styled(name, dim())])];
+    let mut after: Vec<usize> = q.order.iter().skip(q.pos + 1).copied().collect();
+    if app.repeat == crate::tui::app::Repeat::All {
+        after.extend(q.order.iter().take(q.pos + 1));
+    }
+    for &i in after.iter().take(3) {
+        let t = q.track(i);
+        lines.push(Line::from(vec![
+            Span::styled("   ", faint()),
+            Span::styled(t.title.clone(), dim()),
+            Span::styled(format!("  {}", t.artist), faint()),
+        ]));
+    }
+    Some(lines)
 }

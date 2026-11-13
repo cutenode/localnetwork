@@ -15,7 +15,7 @@ pub(super) const TYPE_AHEAD: usize = 5_000;
 
 /// A letter typed with shift, as a terminal reporting keys by their codes sends it (CSI u, or
 /// xterm's modifyOtherKeys): the lowercase letter, and shift. Taken as the capital, as other
-/// terminals send it, so `Q` isn't `q` (quit).
+/// terminals send it, so `Q` (quit) isn't `q` (the queue).
 fn capital(mut key: KeyEvent) -> KeyEvent {
     let typed = !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
     if let KeyCode::Char(c) = key.code
@@ -67,7 +67,7 @@ pub fn typed_tail(text: &str, columns: usize) -> &str {
 }
 
 impl App {
-    /// `q`, ctrl-c, ctrl-q, or the terminal closing: quit, except while the drive is being
+    /// `Q`, ctrl-q, ctrl-c, or the terminal closing: quit, except while the drive is being
     /// written. Stopping a write halfway would leave the drive half edited (and marked as
     /// interrupted), so the player waits for it and quits once it's done. Planning reads only,
     /// so it just stops.
@@ -112,8 +112,10 @@ impl App {
             return;
         }
         if self.chord.take().is_some() {
-            // Whatever follows `g` ends it: what it names, or nothing.
-            let goes = keymap::lookup(&[keymap::Scope::Goto], &key).filter(|_| !self.picking_view(&key));
+            // Whatever follows `g` (or `q`) ends it: what it names, or nothing.
+            let scope = if std::mem::take(&mut self.chord_queue) { keymap::Scope::Queue } else { keymap::Scope::Goto };
+            let goes =
+                (keymap::lookup(&[scope], &key)).filter(|_| scope == keymap::Scope::Queue || !self.picking_view(&key));
             if let Some(b) = goes {
                 self.perform(b.act, Some(key));
             }
@@ -264,7 +266,18 @@ impl App {
                     self.jump_to_pane(d);
                 }
             }
-            Act::Goto => self.chord = Some(Instant::now()),
+            Act::Goto => (self.chord, self.chord_queue) = (Some(Instant::now()), false),
+            Act::QueueChord => (self.chord, self.chord_queue) = (Some(Instant::now()), true),
+            Act::QueueNext => self.queue_picked(true),
+            Act::Fill => {
+                self.fill = !self.fill;
+                self.queue_changed();
+                let msg = match self.fill {
+                    true => "fill on: when the queue runs out, the best match that hasn't played goes on",
+                    false => "fill off: the queue stops when it runs out",
+                };
+                self.toast(msg, Level::Info);
+            }
             Act::ShowView(v) => self.set_view(v),
             Act::Refresh => self.refresh(),
             Act::PlayPause => {
@@ -288,7 +301,6 @@ impl App {
             Act::Phrase(forward) => deck::phrase_jump(self, forward),
             Act::Volume(dir) => self.change_volume(0.05 * dir as f32),
             Act::Shuffle => {
-                self.drop_upcoming();
                 self.shuffle = !self.shuffle;
                 if let Some(&cur) = self.queue.order.get(self.queue.pos) {
                     if self.shuffle {
@@ -298,15 +310,16 @@ impl App {
                         self.queue.pos = cur;
                     }
                 }
+                self.queue_changed();
                 self.toast(if self.shuffle { "shuffle on" } else { "shuffle off" }, Level::Info);
             }
             Act::Repeat => {
-                self.drop_upcoming();
                 self.repeat = match self.repeat {
                     Repeat::Off => Repeat::All,
                     Repeat::All => Repeat::One,
                     Repeat::One => Repeat::Off,
                 };
+                self.queue_changed();
             }
             Act::GoTo => {
                 if !(in_mixes && mix::go_to(self)) {
@@ -419,18 +432,10 @@ impl App {
                 self.fetch_form(kind, self.action_drive(), target.as_ref());
             }
             Act::Details => self.toggle_details(),
-            Act::CratePanel => {
-                self.show_crate = !self.show_crate;
-                if !self.show_crate && self.focus == Focus::Crate {
-                    self.focus = Focus::Tracks;
-                }
-                if self.crate_state.selected().is_none() && !self.crate_list.is_empty() {
-                    self.crate_state.select(Some(0));
-                }
-            }
+            Act::CratePanel => self.toggle_queue_panel(),
             Act::Mark => self.toggle_mark(),
             Act::MarkAll => self.mark_all(),
-            Act::CrateAdd => self.quick(Action::CrateAdd),
+            Act::CrateAdd => self.queue_picked(false),
             Act::Actions => self.open_menu(None),
             Act::Remove if in_mixes => mix::forget(self),
             Act::Remove => match self.focus {
@@ -529,6 +534,26 @@ impl App {
         }
     }
 
+    /// `t` or `q q`: show or hide the queue. Over player mode it opens with Browse, and from another
+    /// view in the library, with focus.
+    fn toggle_queue_panel(&mut self) {
+        let away = self.view != View::Library || self.deck_showing();
+        if self.deck_showing() {
+            self.browsing = true;
+        } else if self.view != View::Library {
+            self.set_view(View::Library);
+        }
+        self.show_crate = away || !self.show_crate;
+        if away {
+            self.focus = Focus::Crate;
+        } else if !self.show_crate && self.focus == Focus::Crate {
+            self.focus = Focus::Tracks;
+        }
+        if self.crate_state.selected().is_none() && !self.crate_list.is_empty() {
+            self.crate_state.select(Some(0));
+        }
+    }
+
     /// `i`: show or hide the details. Where the pane only shows with focus, it takes focus, and a
     /// pane left open behind another is brought back rather than closed.
     fn toggle_details(&mut self) {
@@ -621,7 +646,8 @@ impl App {
 
     pub(super) fn activate(&mut self) {
         match (self.view, self.focus) {
-            (View::Library, _) if self.deck_showing() => self.play_next(),
+            (View::Library, _) if self.deck_showing() && self.picked_tracks().is_some() => self.queue_picked(true),
+            (View::Library, _) if self.deck_showing() => {}
             (View::Library, Focus::Tracks) => {
                 self.play_selected();
                 // As a CDJ does: a track loaded, the deck's back.
@@ -629,7 +655,7 @@ impl App {
             }
             (View::Library, Focus::Playlists) => self.open_playlist(),
             (View::Library, Focus::Details) => self.play_match(),
-            (View::Library, Focus::Crate) => self.play_crate(),
+            (View::Library, Focus::Crate) => self.play_pick(),
             (View::Prepare, _) => crate::tui::prepare::run(self),
             (View::Drives, _) if self.drive_pane == DrivePane::Snapshots => self.restore_from_selected_snapshot(),
             (View::Drives, _) if self.drive_pane == DrivePane::History => self.open_played(),

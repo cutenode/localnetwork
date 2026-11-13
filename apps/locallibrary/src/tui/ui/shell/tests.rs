@@ -303,7 +303,7 @@ fn digits_jump_to_the_panes_numbered() {
     assert!(s.contains("▸ 3 "), "{s}");
     press(&mut app, "ti");
     let s = screen(&mut app, 160, 45);
-    assert!(s.contains("4 Crate") && s.contains("5 Track"), "{s}");
+    assert!(s.contains("4 Queue") && s.contains("5 Track"), "{s}");
     press(&mut app, "4");
     assert_eq!(app.focus, Focus::Crate);
     press(&mut app, "5");
@@ -521,7 +521,7 @@ fn panes_give_way_in_order() {
     assert_eq!(app.areas.drives.height, 1, "{s}");
     assert_eq!(app.areas.crate_panel.height, 1, "{s}");
     assert!(app.areas.playlists.height > 1 && app.areas.details.height > 1, "{s}");
-    assert!(s.contains("1 Drives") && s.contains("4 Crate"), "{s}");
+    assert!(s.contains("1 Drives") && s.contains("4 Queue"), "{s}");
     press(&mut app, "1");
     screen(&mut app, 100, 28);
     assert!(app.areas.drives.height > 1 && app.areas.playlists.height == 1);

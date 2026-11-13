@@ -57,7 +57,8 @@ impl App {
         self.queue.pos = 0;
     }
 
-    /// Play `items` of `library` (all on the drive at `root`) from `start`, as the queue.
+    /// Play `items` of `library` (all on the drive at `root`) from `start`, as the list the queue
+    /// plays on with after the crate's picks ("next from"). The picks stay.
     pub(super) fn play_tracks(&mut self, library: Arc<Library>, items: Vec<usize>, root: PathBuf, start: usize) {
         if start >= items.len() {
             return;
@@ -68,7 +69,9 @@ impl App {
             return;
         }
         let drive = self.drive_label(&root);
-        self.queue = Queue { order: (0..items.len()).collect(), library, items, root, drive, pos: start };
+        let order = (0..items.len()).collect();
+        self.queue = Queue { order, library, items, root, drive, pos: start, name: String::new() };
+        self.crate_list.playing = None;
         self.failed_in_row = 0;
         if self.shuffle {
             self.shuffle_order(start);
@@ -79,8 +82,9 @@ impl App {
     /// Play the selected track, queueing the rest of the visible list after it.
     pub(super) fn play_selected(&mut self) {
         let (Some(l), Some(sel)) = (&self.loaded, self.track_state.selected()) else { return };
-        let (library, root) = (l.library.clone(), l.root().to_path_buf());
+        let (library, root, name) = (l.library.clone(), l.root().to_path_buf(), l.playlist_name());
         self.play_tracks(library, self.visible.clone(), root, sel);
+        self.queue.name = name;
     }
 
     /// Play the selected match in the details panel, queueing the other matches.
@@ -91,7 +95,9 @@ impl App {
         }
         let items = d.matches.items.iter().map(|m| m.index).collect();
         let (library, root) = (d.matches.library.clone(), d.matches.root.clone());
+        let of = self.selected_track().and_then(|i| Some(self.loaded.as_ref()?.library.tracks[i].title.clone()));
         self.play_tracks(library, items, root, sel);
+        self.queue.name = format!("mixes into {}", of.unwrap_or_default());
     }
 
     /// Full screen: the pick among the playing track's matches back on the best one.
@@ -100,47 +106,161 @@ impl App {
         self.next_pick = ListState::default().with_selected(any.then_some(0));
     }
 
-    /// Full screen: queue the picked match to play after the playing track.
-    pub(super) fn play_next(&mut self) {
-        if !self.playing_queue() {
-            return;
+    /// The tracks `q n` and `q a` queue, and the drive they're on: in player mode the pick among
+    /// what mixes into the playing track; in the library the marked tracks (in the list's order)
+    /// or the selected one, the selected match, or the queue's selected entry.
+    pub(super) fn picked_tracks(&self) -> Option<(PathBuf, Vec<Track>)> {
+        if self.deck_showing() {
+            let m = self.now.as_ref()?.matches.as_ref()?;
+            let mix = m.items.get(self.next_pick.selected()?)?;
+            return Some((m.root.clone(), vec![m.track(mix).clone()]));
         }
-        let Some(m) = self.now.as_ref().and_then(|n| n.matches.as_ref()) else { return };
-        let Some(mix) = self.next_pick.selected().and_then(|i| m.items.get(i)) else { return };
-        let track = m.track(mix);
-        // The matches index the library as it was read when the track started; the queue's
-        // copy is older when the drive was read again since.
-        let index = if Arc::ptr_eq(&m.library, &self.queue.library) {
-            Some(mix.index)
-        } else {
-            self.queue.library.tracks.iter().position(|t| t.id == track.id)
-        };
-        let Some(index) = index else { return };
-        let name = track.display_name();
-        self.queue.items.push(index);
-        self.queue.order.insert(self.queue.pos + 1, self.queue.items.len() - 1);
-        self.drop_upcoming();
-        self.toast(format!("next: {name}"), Level::Info);
+        if self.view != View::Library {
+            return None;
+        }
+        match self.focus {
+            Focus::Crate => {
+                let t = self.crate_list.items.get(self.crate_state.selected()?)?;
+                Some((t.root.clone(), vec![t.track.clone()]))
+            }
+            Focus::Details => {
+                let d = self.details.as_ref().filter(|_| self.details_current())?;
+                let mix = d.matches.items.get(self.details_state.selected()?)?;
+                Some((d.matches.root.clone(), vec![d.matches.track(mix).clone()]))
+            }
+            Focus::Tracks | Focus::Playlists | Focus::Drives => {
+                let l = self.loaded.as_ref()?;
+                let tracks: Vec<Track> = self.targets().into_iter().map(|i| l.library.tracks[i].clone()).collect();
+                (!tracks.is_empty()).then(|| (l.root().to_path_buf(), tracks))
+            }
+        }
     }
 
-    /// Play the crate from the selected entry (the entries on its drive).
-    pub(super) fn play_crate(&mut self) {
-        let Some(sel) = self.crate_state.selected().filter(|&i| i < self.crate_list.len()) else { return };
-        let root = self.crate_list.items[sel].root.clone();
-        let mut start = 0;
-        let mut tracks = Vec::new();
-        for (i, t) in self.crate_list.items.iter().enumerate().filter(|(_, t)| t.root == root) {
-            if i == sel {
-                start = tracks.len();
+    /// `q n` (`next`) or `q a`: queue the tracks picked (see `picked_tracks`) to play next, before
+    /// the other picks, or after them.
+    pub(super) fn queue_picked(&mut self, next: bool) {
+        match self.picked_tracks() {
+            Some((root, tracks)) => self.queue_tracks(&root, tracks, next),
+            None => self.toast("select a track to queue", Level::Info),
+        }
+    }
+
+    /// Put `tracks` of the drive at `root` in the queue: to play `next`, or at the end.
+    pub(in crate::tui) fn queue_tracks(&mut self, root: &Path, tracks: Vec<Track>, next: bool) {
+        let (n, drive) = (tracks.len(), self.drive_label(root));
+        let name = tracks.first().filter(|_| n == 1).map(Track::display_name);
+        let added = match next {
+            true => self.crate_list.play_next(root, &drive, tracks),
+            false => self.crate_list.add(root, &drive, tracks),
+        };
+        self.queue_changed();
+        let up = self.crate_list.up_next().count();
+        let tracks = |a| crate::output::plural(a, "track");
+        let msg = match (next, name, added, n - added) {
+            (true, Some(name), ..) => format!("next: {name}"),
+            (true, None, a, _) => format!("next: {}", tracks(a)),
+            (false, _, 0, _) => "already up next".to_string(),
+            (false, Some(name), ..) => format!("queued: {name} ({up} up next)"),
+            (false, None, a, 0) => format!("queued {} ({up} up next)", tracks(a)),
+            (false, None, a, d) => format!("queued {} ({d} already up next)", tracks(a)),
+        };
+        self.toast(msg, Level::Info);
+        if self.crate_state.selected().is_none() && !self.crate_list.is_empty() {
+            self.crate_state.select(Some(0));
+        }
+    }
+
+    /// Enter in the queue: play the selected entry now. The picks before it stay to play.
+    pub(super) fn play_pick(&mut self) {
+        let Some(t) = self.crate_state.selected().and_then(|i| self.crate_list.items.get(i)) else { return };
+        let next = Next::Pick(t.root.clone(), t.track.file_path.clone());
+        if self.loaded.as_ref().is_some_and(|l| l.stale && l.root() == t.root) {
+            self.toast("the drive was unplugged", Level::Error);
+            return;
+        }
+        self.failed_in_row = 0;
+        self.go_to(&next);
+        self.start_current();
+    }
+
+    /// What plays after the playing track: the first pick still to play, else the list's next (see
+    /// `next_pos`).
+    pub(in crate::tui) fn next_up(&self, auto: bool) -> Option<Next> {
+        if let Some(t) = self.crate_list.up_next().next() {
+            return Some(Next::Pick(t.root.clone(), t.track.file_path.clone()));
+        }
+        let pos = self.next_pos(auto)?;
+        Some(Next::From { pos, item: self.queue.order[pos] })
+    }
+
+    /// The track `next` is, and the drive it's on.
+    pub(in crate::tui) fn track_of(&self, next: &Next) -> Option<(&Track, &Path)> {
+        match next {
+            Next::Pick(root, path) => {
+                let t = &self.crate_list.items[self.crate_list.position(root, path)?];
+                Some((&t.track, &t.root))
             }
-            tracks.push(t.track.clone());
+            Next::From { item, .. } => Some((self.queue.track(*item), &self.queue.root)),
         }
-        if tracks.len() < self.crate_list.len() {
-            let msg = format!("playing the crate's tracks on {}", self.crate_list.items[sel].drive);
-            self.toast(msg, Level::Info);
+    }
+
+    /// The queue's track to play now, and the drive it's on: the pick playing, else the list's at
+    /// its place.
+    pub(in crate::tui) fn current(&self) -> Option<(&Track, &Path)> {
+        if let Some(p) = &self.crate_list.playing {
+            return Some((&p.track, &p.root));
         }
-        let items = (0..tracks.len()).collect();
-        self.play_tracks(Arc::new(Library { tracks, ..Default::default() }), items, root, start);
+        let &i = self.queue.order.get(self.queue.pos)?;
+        Some((self.queue.track(i), &self.queue.root))
+    }
+
+    /// Make `next` the queue's current track: a pick is played from then on.
+    fn go_to(&mut self, next: &Next) {
+        match next {
+            Next::Pick(root, path) => {
+                if let Some(i) = self.crate_list.position(root, path) {
+                    self.crate_list.items[i].played = true;
+                    self.crate_list.playing = Some(self.crate_list.items[i].clone());
+                }
+            }
+            Next::From { pos, .. } => {
+                self.queue.pos = *pos;
+                self.crate_list.playing = None;
+            }
+        }
+    }
+
+    /// What's queued changed (a pick, shuffle, repeat): a track opened ahead that no longer plays
+    /// next is let go of, and the one that does is opened in its place.
+    pub(in crate::tui) fn queue_changed(&mut self) {
+        let next = self.next_up(true);
+        if self.upcoming.as_ref().is_some_and(|u| Some(&u.next) != next.as_ref()) {
+            self.drop_upcoming();
+        }
+    }
+
+    /// Fill, when it's on and nothing's queued after the playing track: the best match for it
+    /// (as "mixes into" ranks them) that hasn't played and isn't queued goes on the end of the
+    /// queue, marked as filled.
+    fn fill_queue(&mut self, auto: bool) {
+        if !self.fill || self.next_up(auto).is_some() {
+            return;
+        }
+        let Some(now) = self.now.as_ref().filter(|_| self.playing_queue()) else { return };
+        let Some(m) = now.matches.as_ref() else { return };
+        let fresh = |t: &&Track| {
+            t.file_path != now.track.file_path
+                && !self.played_tracks.contains(&t.file_path)
+                && !self.crate_list.contains(&m.root, &t.file_path)
+        };
+        let Some(t) = m.items.iter().map(|x| m.track(x)).find(fresh).cloned() else { return };
+        let (root, drive) = (m.root.clone(), self.drive_label(&m.root));
+        let name = t.display_name();
+        self.crate_list.add(&root, &drive, [t]);
+        if let Some(last) = self.crate_list.items.last_mut() {
+            last.filled = true;
+        }
+        self.toast(format!("filled from matches: {name}"), Level::Info);
     }
 
     /// With no output open or opening (there was none, or it went away), open the one to play
@@ -257,11 +377,11 @@ impl App {
         self.toast(format!("audio: {e} Space plays on through the output there is now."), Level::Error);
     }
 
-    /// Whether the track playing is the queue's (rather than a recorded set, played on its own).
+    /// Whether the track playing is the queue's, a pick or the list's (rather than a recorded set,
+    /// played on its own).
     pub(super) fn playing_queue(&self) -> bool {
         let Some(now) = &self.now else { return false };
-        (self.queue.order.get(self.queue.pos))
-            .is_some_and(|&i| self.queue.track(i).file_path == now.track.file_path && self.queue.root == now.root)
+        self.current().is_some_and(|(t, root)| t.file_path == now.track.file_path && root == now.root)
     }
 
     /// Start the queue's current track. It shows at once; its audio file is opened in the
@@ -269,25 +389,23 @@ impl App {
     /// background too, filling in when they arrive (and the output, when none is open). False
     /// when there's no track.
     fn start_current(&mut self) -> bool {
-        let Some(&i) = self.queue.order.get(self.queue.pos) else { return false };
-        let track = self.queue.track(i).clone();
+        let Some((track, root)) = self.current().map(|(t, r)| (t.clone(), r.to_path_buf())) else { return false };
         // Where the last run left off was for the track it was on: once another starts, it's gone.
         self.resume = None;
         self.ready_to_play();
-        self.now = Some(self.open(track, true));
+        self.now = Some(self.open(track, root, true));
         true
     }
 
-    /// Open one of the queue's tracks in the background: its audio file (see `opened`), then its
-    /// analysis, artwork and matches, which fill in as they arrive. `starts`: it's the one to
-    /// play now (rather than the next, opened ahead).
-    pub(super) fn open(&mut self, track: Track, starts: bool) -> NowPlaying {
+    /// Open one of the queue's tracks, on the drive at `root`, in the background: its audio file
+    /// (see `opened`), then its analysis, artwork and matches, which fill in as they arrive.
+    /// `starts`: it's the one to play now (rather than the next, opened ahead).
+    pub(super) fn open(&mut self, track: Track, root: PathBuf, starts: bool) -> NowPlaying {
         let id = self.next_id();
-        let root = self.queue.root.clone();
         let (t, r, auto_cue, store_root) = (track.clone(), root.clone(), self.deck.auto_cue, self.store_root.clone());
         // Matches and playlists need the drive's library, which is open unless the player
-        // moved to another drive since the queue was made.
-        let library = self.loaded.as_ref().filter(|l| l.root() == self.queue.root).map(|l| l.library.clone());
+        // moved to another drive since the track was queued.
+        let library = self.loaded.as_ref().filter(|l| l.root() == root).map(|l| l.library.clone());
         let job = move |o: &Opening| {
             let file = Device::open(&r).map_err(anyhow::Error::from).and_then(|d| {
                 let mut file = audio::open_file(&d.checked_path(&paths::key(&t.file_path))?)?;
@@ -366,7 +484,7 @@ impl App {
 
     /// The player went on to the next track, opened ahead.
     fn went_on(&mut self, up: Upcoming) {
-        self.queue.pos = up.pos;
+        self.go_to(&up.next);
         self.now = Some(up.now);
         self.reset_next_pick();
         self.deck.looped = None;
@@ -417,11 +535,12 @@ impl App {
         if now.duration.saturating_sub(self.position()) > AHEAD {
             return;
         }
-        let Some(pos) = self.next_pos(true) else { return };
-        let track = self.queue.track(self.queue.order[pos]).clone();
-        let mut now = self.open(track, false);
+        self.fill_queue(true);
+        let Some(next) = self.next_up(true) else { return };
+        let Some((track, root)) = self.track_of(&next).map(|(t, r)| (t.clone(), r.to_path_buf())) else { return };
+        let mut now = self.open(track, root, false);
         now.advancing = true;
-        self.upcoming = Some(Upcoming { now, pos, queued: false, file: None });
+        self.upcoming = Some(Upcoming { now, next, queued: false, file: None });
     }
 
     /// The next track was opened: queue it behind the playing one, or keep it to start as that
@@ -487,7 +606,7 @@ impl App {
         let Some(now) = self.now.take() else { return };
         self.toast(format!("{}: {why}", now.track.display_name()), Level::Error);
         self.failed_in_row += 1;
-        if now.advancing && self.failed_in_row < self.queue.len() {
+        if now.advancing && self.failed_in_row < self.queue.len() + self.crate_list.len() {
             self.advance(false);
         } else {
             self.failed_in_row = 0;
@@ -509,13 +628,15 @@ impl App {
         }
     }
 
-    /// Move through the queue. `auto` is the end of a track (repeat-one applies).
+    /// Move through the queue: the next pick, else the list's next. `auto` is the end of a track
+    /// (repeat-one applies to the list).
     pub(super) fn advance(&mut self, auto: bool) {
-        let Some(pos) = self.next_pos(auto) else {
+        self.fill_queue(auto);
+        let Some(next) = self.next_up(auto) else {
             self.stop();
             return;
         };
-        self.queue.pos = pos;
+        self.go_to(&next);
         if auto && self.deck.single {
             // Single play: stop, with the next track ready for space.
             self.stop();
@@ -531,8 +652,31 @@ impl App {
         }
     }
 
+    /// Back: to the start of the track, or (in its first seconds) the one before. From a pick, that's
+    /// the pick played before it, else the list's track, and the pick goes back to play next.
     pub(super) fn previous(&mut self) {
-        if self.position() > Duration::from_secs(3) || self.queue.pos == 0 {
+        if self.position() > Duration::from_secs(3) {
+            return self.seek_to(Duration::ZERO);
+        }
+        if let Some(p) = self.crate_list.playing.take() {
+            let at = self.crate_list.position(&p.root, &p.track.file_path);
+            if let Some(i) = at {
+                self.crate_list.items[i].played = false;
+            }
+            let before = self.crate_list.items[..at.unwrap_or(0)].iter().rposition(|t| t.played);
+            if let Some(b) = before {
+                self.crate_list.playing = Some(self.crate_list.items[b].clone());
+            }
+            if before.is_some() || self.current().is_some() {
+                self.start_current();
+            } else {
+                self.crate_list.playing = Some(p);
+                if let Some(i) = at {
+                    self.crate_list.items[i].played = true;
+                }
+                self.seek_to(Duration::ZERO);
+            }
+        } else if self.queue.pos == 0 {
             self.seek_to(Duration::ZERO);
         } else {
             self.queue.pos -= 1;

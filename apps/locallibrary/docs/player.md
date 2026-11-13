@@ -9,7 +9,8 @@ under every view, with what's playing, its waveform, tempo, key, time left, hot 
 Dialogs open above it, and `esc` closes one thing at a time. The Library view has two layouts, and
 `f` switches between them: the track table with the strip, and player mode, where the deck
 takes the screen. From any other tab `f` opens player mode too, and closing it (`f` or `esc`) goes
-back there. The footer's hints are buttons: click one for its key.
+back there. The footer's hints are buttons: click one for its key. `Q` quits (`ctrl-q` and `ctrl-c`
+quit too).
 
 With no drive open, the library says what to do: plug one in (it opens as soon as it's here), or
 take a next step, at most three of open a folder, browse snapshots and sign in. The first library
@@ -47,9 +48,20 @@ needs.
   each shows about the track, asked for once the selection settles on it: "loading…" until it
   answers, and what went wrong in the messages when it fails), and the tracks that **mix into**
   it, which you can play or tag from there.
-- **Crate** (`t`): a CDJ's TAG LIST, called the crate here so it isn't taken for My Tags. Collect
-  tracks while browsing (`a` adds the marked or selected ones; `m` marks), reorder them, play the
-  crate, save it to the drive as a playlist, or pack it onto another drive for a set.
+- **Queue** (`q q`, or `t`): what plays next, a CDJ's TAG LIST (in the code and the saved state it's
+  still the crate). `q n` puts the marked or selected tracks at the front of the queue, to play
+  next, and `q a` (or `a`) puts them at the end; marked tracks go in together, in the list's order.
+  They work in the track list and search results, the details' matches, the queue itself and
+  player mode's "mixes into" (where `enter` is `q n`). Picks play in the order they're queued, after
+  the playing track and before the rest of the list `enter` was pressed in, which the panel shows
+  as "next from" with its next few tracks. Starting another list replaces only that; shuffle and
+  repeat are its own, and never move a pick. Played picks stay, greyed, so the queue is a record of
+  the set too. In the panel `shift ↑↓` moves a track, `del` takes it out, `X` clears it, `enter`
+  plays a track now (the others stay to play), `w` saves it to the drive as a playlist, and pack
+  takes it onto another drive. **Fill** (in the palette, off until turned on): when the queue and
+  the list both run out, the best match for the last track that hasn't played (as "mixes into"
+  ranks them) goes on the end, marked *fill*, and plays. The queue, with what's played, is kept
+  between runs.
 - **Commands** (`:`): every action by name, with its key, or `Prepare` where it has none here (the
   word it goes by there finds it too: `restore`, `pull`); type
   a few of its letters (in order: `fsp` finds "fill the smart playlists") and enter. The ones run
@@ -65,7 +77,7 @@ needs.
   doesn't do itself (`drive format`, `drive fsck`, `drive firmware`, `provision`, `store gc`,
   `verify`, `prune` and `copy`, `bug`) shows the command to run in a terminal, the drive filled in.
 - **Actions** (`e`): what can be done to the selection, the likeliest first, and enter runs it. In
-  the library that's the marked or selected tracks, the playlist selected or the crate; in the Drives
+  the library that's the marked or selected tracks, the playlist selected or the queue; in the Drives
   view the selected drive; elsewhere what enter does there, then the pane's own keys.
 - **Help** (`?`): the keys that mean something here, the pane with focus first, and only keys: its
   top line says `:` searches everything. Type to narrow it to rows with those words, or to the key
@@ -141,8 +153,8 @@ needs.
   What `watch` kept while the player was closed is offered as it opens.
 - **Problems**: ✖ marks a track whose audio file isn't on the drive, ≈ one the drive holds another
   copy of. Browse › Problems lists them.
-- **Playback** of MP3, AAC/ALAC (`.m4a`), FLAC, WAV and AIFF, with a queue built from the list you
-  started in, shuffle and repeat. The beat counter, BPM and hot cues come from the track's
+- **Playback** of MP3, AAC/ALAC (`.m4a`), FLAC, WAV and AIFF, with a queue: your picks, then the
+  list you started in, with shuffle and repeat. The beat counter, BPM and hot cues come from the track's
   rekordbox analysis, and `c` jumps between cue points. Tracks follow each other without a gap:
   half a minute before one ends, the next is opened and queued behind it, so a continuous mix
   or a live album plays straight through (a next track at another sample rate starts the
@@ -184,8 +196,9 @@ needs.
     The matches take turns by how they mix in (same key, ±1, relative, energy boost), closest tempo
     first, so the first rows show each kind there is. `locallibrary track matches` lists the same
     tracks best first instead: every same-key track, then the rest.
-    `↑` `↓` pick one of those tracks and `enter` (or a double-click) queues it to play next, marked
-    *next* in the list.
+    `↑` `↓` pick one of those tracks and `enter` (or a double-click, or `q n`) queues it to play next,
+    after any picks queued to play next before it, and `q a` puts it at the end of the queue. What
+    plays next is marked *next* in the list.
   - With 9 rows or more for the top of the screen and room to spare, `v` picks what's beside the
     tempo: a log-frequency spectrum with peak caps, a mirrored spectrum, an oscilloscope, or nothing.
 - **What the deck looks like** (`:`, all kept between runs and in `settings export`):
@@ -206,7 +219,7 @@ needs.
   Each hot cue shows its key while the pads are on.
 - **Beat jumps and quantize**: `,` and `.` jump a beat back or forward along the track's beat
   grid, `<` and `>` a bar, `{` and `}` eight bars (a phrase); the arrows still seek by time.
-  Quantize (`Q`, on until turned off, shown as `Q on` by the clock) keeps jumps on the grid:
+  Quantize (`Z`, on until turned off, shown as `Q on` by the clock) keeps jumps on the grid:
   while playing, cue, hot cue, phrase and beat jumps land as far before or after the beat as the
   playhead was, as if they had waited for the nearest beat, so the rhythm carries on; paused,
   beat jumps land on a beat. A track without a beat grid jumps by its BPM.
@@ -225,9 +238,9 @@ needs.
   flashes in a cue's colour as the playhead crosses it, and the player shows the next cue with a
   countdown.
 - **Changing the drive** (opt-in): `e`, or right-click, opens actions for the marked or selected
-  tracks, the playlist shown and the crate: set the rating or colour, give them a My Tag, add them
+  tracks, the playlist shown and the queue: set the rating or colour, give them a My Tag, add them
   to a playlist (picked in the tree), remove them from the playlist, create, rename or delete a
-  playlist or folder, sort a playlist on the drive the way the list is sorted, save the crate, bring
+  playlist or folder, sort a playlist on the drive the way the list is sorted, save the queue, bring
   a playlist back from a snapshot, or replay recorded edits. `T` gives the marked or selected tracks
   a My Tag (one the drive has, or a new `Category/Tag`), or takes off one they all have. My Tags are
   read once as the drive loads, so after changing them elsewhere, `R` reads them again. Every change
@@ -258,7 +271,7 @@ needs.
   `locallibrary check` against the player models remembered for it, and **set prep** checks it with
   the other mounted drives of its library, with the results in a panel. **Sync** copies the newest
   drive of its group over the others plugged in, or says why none is newest. **Pack** puts the
-  marked playlists (`m` in the tree), the playlist shown or the crate (saved as a playlist first)
+  marked playlists (`m` in the tree), the playlist shown or the queue (saved as a playlist first)
   from the drive open in the library onto it, for a set. **Restore** brings back a playlist or
   folder from a snapshot picked from its library's. **Replay** makes recorded edits again, **undo**
   takes its last change back (`u` undoes the last change made this run, on whichever drive it was
@@ -328,8 +341,8 @@ is left out. `LOCALLIBRARY_REDUCED_MOTION=1` redraws only a few times a second a
 spinning record, the pulsing logo and the cue flashes.
 
 Cover art is drawn in half blocks, in as many colours as the terminal has. The player remembers the drive, list, view, sort, volume, visualiser,
-panels and columns, colours and icons, shuffle, repeat, quantize, single play and auto cue, the output, the crate,
-and the queue with how far into its track it got, to the last 15 seconds (`space` carries on
+panels and columns, colours and icons, shuffle, repeat, quantize, single play, auto cue and fill, the output,
+and the queue (its picks, which have played, and the list it plays on with) with how far into its track it got, to the last 15 seconds (`space` carries on
 from there). It saves them as they change, in the
 store once there is one and in a `locallibrary-player` folder beside it until then. A file it
 can't read as it starts (a newer version's, say) is left as it is: that run uses the defaults and
@@ -359,26 +372,26 @@ Browsing:
 |  | green keys mix with the playing track, or the selected one (⇄ its key) |
 | `i` | the selected track: details, playlists, what mixes into it |
 
-Marks and the crate:
+Marks and the queue:
 
 | Keys | |
 | --- | --- |
 | `m  insert` | mark / unmark the selected track (in the tree: a playlist or folder, to pack) |
 | `M` | mark everything shown / clear the marks |
-| `a` | add the marked (or selected) tracks to the crate |
-| `t` | show / hide the crate: tracks collected while browsing, a CDJ's TAG LIST |
-| `enter` | in the crate: play from there |
-| `shift ↑↓ K J` | move a track up / down the crate |
-| `del` | in the crate: take the track out |
-| `w` | write the crate to the drive as a playlist |
-| `X` | clear the crate (the drive isn't touched) |
+| `a` | add the marked (or selected) tracks to the end of the queue, as q a |
+| `t` | show / hide the queue, as q q |
+| `enter` | in the queue: play that track now (the others stay to play) |
+| `shift ↑↓ K J` | move a track up / down the queue |
+| `del` | in the queue: take the track out |
+| `w` | write the queue to the drive as a playlist (played tracks too) |
+| `X` | clear the queue (the drive isn't touched; the list it plays on with stays) |
 
 Changing the drive:
 
 | Keys | |
 | --- | --- |
 |  | The drive is backed up before a change is written. A change u can take back is made at once and says so; any other shows what it will do and asks first. |
-| `e` | actions for the marked or selected tracks, the playlist shown and the crate, the likeliest first (enter runs it): rating, colour, add to a playlist, remove, new / rename / delete a playlist or folder, sort a playlist on the drive, plugins' operations |
+| `e` | actions for the marked or selected tracks, the playlist shown and the queue, the likeliest first (enter runs it): rating, colour, add to a playlist, remove, new / rename / delete a playlist or folder, sort a playlist on the drive, plugins' operations |
 | `right-click` | the same, for what's under the pointer |
 | `T` | give the marked (or selected) tracks a My Tag, or take one off (asks first) |
 | `y` | after rekordbox exported over edits made here: replay them (it says so over the status line; esc puts it away) |
@@ -395,7 +408,7 @@ Prepare:
 | `V` | check the drive against the player models remembered for it (results in a panel) |
 | `W` | save the drive in the store, a snapshot of its library (shows what that adds first) |
 | `Y` | copy the newest drive of the library over the others plugged in (when none is newest, says why) |
-| `K` | the marked playlists, the playlist shown or the crate, from the open drive onto another |
+| `K` | the marked playlists, the playlist shown or the queue, from the open drive onto another |
 | `E` | unmount the drive and power it off (playing from it stops first) |
 
 ## Keys in Drives
@@ -409,7 +422,7 @@ Drives:
 | `V` | check the drive against the player models remembered for it (results in a panel) |
 | `W` | save the drive in the store, a snapshot of its library (shows what that adds first) |
 | `Y` | copy the newest drive of the library over the others plugged in (when none is newest, says why) |
-| `K` | the marked playlists, the playlist shown or the crate, from the open drive onto another |
+| `K` | the marked playlists, the playlist shown or the queue, from the open drive onto another |
 | `E` | unmount the drive and power it off (playing from it stops first) |
 
 Snapshots:
@@ -469,6 +482,9 @@ Playback:
 
 | Keys | |
 | --- | --- |
+| `q n` | play the marked (or selected) tracks next, before the other picks (in player mode, the match picked) |
+| `q a` | add the marked (or selected) tracks to the end of the queue |
+| `q q` | show / hide the queue: what's playing, the picks to play (played ones greyed) and the list it plays on with, a CDJ's TAG LIST |
 | `enter` | play the selected track (queues the list it's in); open a playlist or folder; browse a drive |
 | `space` | pause / resume |
 | `← →` | seek 5 s (shift: 30 s) |
@@ -479,6 +495,7 @@ Playback:
 | `s  r` | shuffle / repeat (off, all, one) |
 | `x` | stop |
 | `o` | go to the playing track (in Recordings, the selected track in the library) |
+| `q` | then n plays next, a adds to the end of the queue, q shows it |
 
 Deck:
 
@@ -489,7 +506,7 @@ Deck:
 | `,  .` | beat jump: one beat back / forward |
 | `<  >` | one bar (4 beats) back / forward |
 | `{  }` | 8 bars (32 beats, a phrase) back / forward |
-| `Q` | quantize on / off: playing, cue, phrase and beat jumps keep the beat; paused, beat jumps land on one |
+| `Z` | quantize on / off: playing, cue, phrase and beat jumps keep the beat; paused, beat jumps land on one |
 | `l` | loop: the saved loop the playhead is in, else 4 beats from the beat it's in; again to exit |
 | `(  )` | halve / double the loop |
 |  | A hot cue saved as a loop plays the loop. Seeking out of a loop leaves it. |
