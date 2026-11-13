@@ -14,7 +14,7 @@ use ratatui::widgets::{
 };
 
 use crate::output::{bytes, clock};
-use crate::tui::app::{App, Focus};
+use crate::tui::app::{App, COLLECTION_NAME, Focus};
 use crate::tui::browse::{NodeId, sort_label, stars};
 use crate::tui::icons;
 use crate::tui::keys::{Camelot, Notation, Relation};
@@ -127,15 +127,44 @@ fn draw_drive_list(f: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focus == Focus::Drives;
     let loaded_root = app.loaded.as_ref().map(|l| l.root().to_path_buf());
     let inner_w = area.width.saturating_sub(3);
-    let items: Vec<ListItem> = (app.drives.iter())
-        .map(|d| ListItem::new(drive_line(d, loaded_root.as_deref() == Some(d.root.as_path()), "", inner_w)))
-        .collect();
-    if area.height <= 1 {
-        return title_row(f, pane_title(1, "Drives", focused), focused, area);
+    // rekordbox's collection first, when it's on this computer: then the pane holds sources.
+    let collection = app.collection_db.is_some();
+    let title = if collection { "Sources" } else { "Drives" };
+    let open = app.loaded.as_ref().filter(|l| l.is_collection());
+    let mut items: Vec<ListItem> = Vec::new();
+    if collection {
+        items.push(ListItem::new(collection_line(open.map(|l| l.library.tracks.len()), open.is_some(), inner_w)));
     }
-    let list = drive_list(items, focused, app.scanning());
-    app.drive_state.fit(area.height.saturating_sub(2) as usize, app.drives.len());
-    f.render_stateful_widget(list, area, &mut app.drive_state);
+    items.extend(
+        (app.drives.iter())
+            .map(|d| ListItem::new(drive_line(d, loaded_root.as_deref() == Some(d.root.as_path()), "", inner_w))),
+    );
+    if area.height <= 1 {
+        return title_row(f, pane_title(1, title, focused), focused, area);
+    }
+    let list = drive_list(items, title, focused, app.scanning() && !collection);
+    let rows = app.source_rows();
+    let mut state = ListState::default().with_offset(app.source_offset).with_selected(app.source_row());
+    state.fit(area.height.saturating_sub(2) as usize, rows);
+    f.render_stateful_widget(list, area, &mut state);
+    app.source_offset = state.offset();
+}
+
+/// rekordbox's collection in the sources: open like a drive (pink), else hollow until read, with
+/// its track count once it is.
+fn collection_line(tracks: Option<usize>, open: bool, width: u16) -> Line<'static> {
+    let dot = if open {
+        Span::styled(icons::DOT.spaced(), bold(theme::current().accent))
+    } else {
+        Span::styled(icons::DOT.spaced(), fg(theme::current().good))
+    };
+    let name_style = if open { bold(theme::current().text) } else { text() };
+    let left = vec![dot, Span::styled(COLLECTION_NAME, name_style)];
+    let right = match tracks {
+        Some(n) => vec![Span::styled(compact(n), dim())],
+        None => vec![Span::styled("this computer", faint())],
+    };
+    spread(left, right, width)
 }
 
 /// A drive in a list: a dot (pink: open, green: has an export, hollow: blank), its name and its
@@ -158,13 +187,13 @@ pub(super) fn drive_line(d: &DeviceInfo, open: bool, indent: &str, width: u16) -
 }
 
 /// The drive lists' frame, and what they say with no drive.
-pub(super) fn drive_list(items: Vec<ListItem<'static>>, focused: bool, scanning: bool) -> List<'static> {
+pub(super) fn drive_list(items: Vec<ListItem<'static>>, title: &str, focused: bool, scanning: bool) -> List<'static> {
     let list = if items.is_empty() && !scanning {
         List::new([ListItem::new(Line::styled("no rekordbox drives", dim()))])
     } else {
         List::new(items)
     };
-    list.block(block(pane_title(1, "Drives", focused), focused))
+    list.block(block(pane_title(1, title, focused), focused))
         .highlight_style(if focused { theme::selected() } else { theme::unfocused() })
         .highlight_symbol(Span::styled(icons::SELECTED.get(), fg(theme::current().accent)))
 }

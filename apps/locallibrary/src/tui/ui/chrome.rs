@@ -9,7 +9,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 use crate::output::bytes;
-use crate::tui::app::{App, Level, UNDO_HINT, View, typed_tail};
+use crate::tui::app::{App, Focus, Level, UNDO_HINT, View, typed_tail};
 use crate::tui::edits::Modal;
 use crate::tui::first_run::intro_line;
 use crate::tui::theme::{self, bold, dim, faint, fg, text};
@@ -218,7 +218,13 @@ fn mode(app: &App) -> &'static str {
 /// about the drive comes from the last read of the drive list, so a frame touches no disk.
 fn whereabouts(app: &mut App) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
-    let (selected, len) = app.list_selection();
+    let (selected, len) = match (app.view, app.focus) {
+        (View::Library, Focus::Drives) if !app.deck_showing() => (app.source_row(), app.source_rows()),
+        _ => {
+            let (selected, len) = app.list_selection();
+            (*selected, len)
+        }
+    };
     if let Some(at) = selected.filter(|_| len > 0) {
         spans.push(Span::styled(format!("{}/{len}", at.min(len - 1) + 1), dim()));
     }

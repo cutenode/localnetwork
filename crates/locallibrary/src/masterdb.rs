@@ -808,6 +808,33 @@ impl Collection {
             .find(|p| p.exists())
     }
 
+    /// The library with every file it names as a full path on this computer, so it reads like a
+    /// drive's library whose drive is `/`: each track's audio where [`Collection::audio_file`]
+    /// finds it (a cloud track that isn't here keeps its path, and reads as missing), and its
+    /// analysis and artwork in the `share` folder. The player opens the collection this way.
+    pub fn library_from_root(&self, cloud: &CloudFolders) -> Library {
+        let mut lib = self.library.clone();
+        let share = |p: &str| self.share_file(p).to_string_lossy().into_owned();
+        for t in &mut lib.tracks {
+            if let Some(audio) = self.audio_file(t, cloud) {
+                t.file_path = audio.to_string_lossy().into_owned();
+            }
+            if !t.analyze_path.is_empty() {
+                t.analyze_path = share(&t.analyze_path);
+            }
+            if let Some(art) = t.artwork_path.as_mut() {
+                *art = share(art);
+            }
+        }
+        lib
+    }
+
+    /// [`Collection::tags_by_track`] for `library`, the collection's own tracks with their files
+    /// somewhere else (as [`Collection::library_from_root`] names them).
+    pub fn tags_by_track_in(&self, library: &Library) -> TagsByTrack {
+        tags_by_track(&self.tags, library)
+    }
+
     /// My Tags as `Category/Tag` for the collection's tracks, the shape track filters (`tag:`) take.
     pub fn tags_by_track(&self) -> TagsByTrack {
         tags_by_track(&self.tags, &self.library)

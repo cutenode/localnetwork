@@ -72,6 +72,9 @@ pub struct Loaded {
     pub(super) sets: Option<Vec<Set>>,
     /// The drive went away: what's shown may be out of date, and can't be played or edited.
     pub stale: bool,
+    /// rekordbox's collection, read from this `master.db`: its files are full paths from `/` (see
+    /// `masterdb::Collection::library_from_root`), and it's never written.
+    pub collection: Option<PathBuf>,
 }
 
 impl Loaded {
@@ -100,6 +103,7 @@ impl Loaded {
             fields: Fields::Unread,
             sets: None,
             stale: false,
+            collection: None,
         };
         l.rebuild_tree();
         l
@@ -194,6 +198,11 @@ impl Loaded {
 
     pub fn root(&self) -> &Path {
         self.device.root()
+    }
+
+    /// Whether this is rekordbox's collection rather than a drive's library.
+    pub fn is_collection(&self) -> bool {
+        self.collection.is_some()
     }
 
     pub fn index_of(&self, file_path: &str) -> Option<usize> {

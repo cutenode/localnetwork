@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::PoisonError;
 
 use locallibrary::api;
+use locallibrary::masterdb::{self, CloudFolders};
 use locallibrary::store::{LibraryRecord, SnapshotInfo};
 use locallibrary::watch::VolumeWatcher;
 use locallibrary::{Ctx, Device, Store, paths};
@@ -22,6 +23,12 @@ pub struct ReplayOffer {
     pub drive: String,
     /// The recorded edits (journal entries).
     pub edits: usize,
+}
+
+/// Where the player opens rekordbox's collection: the files it names are full paths, so the
+/// collection reads as the library of a drive at `/`.
+pub(in crate::tui) fn collection_root() -> PathBuf {
+    PathBuf::from("/")
 }
 
 /// The view to come back to when the open drive is read again (after an edit, say).
@@ -120,8 +127,73 @@ impl App {
     /// Read a drive's library in the background. Reading the open drive again keeps the view.
     /// Opening one drive and then another shows the other, even if the first takes longer.
     pub(in crate::tui) fn load_library(&mut self, root: PathBuf) {
+        if root == collection_root() && self.collection_db.is_some() {
+            return self.load_collection();
+        }
         let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         self.read_from(name, root.clone(), move || root);
+    }
+
+    /// The Library view's sources: rekordbox's collection (when it's on this computer), then the
+    /// drives.
+    pub(in crate::tui) fn source_rows(&self) -> usize {
+        usize::from(self.collection_db.is_some()) + self.drives.len()
+    }
+
+    /// The source selected, as a row of [`Self::source_rows`].
+    pub(in crate::tui) fn source_row(&self) -> Option<usize> {
+        let first = usize::from(self.collection_db.is_some());
+        match self.collection_row && first == 1 {
+            true => Some(0),
+            false => self.drive_state.selected().map(|i| i + first),
+        }
+    }
+
+    /// Select the source at `row`: the collection's is its own, a drive's selects the drive.
+    pub(in crate::tui) fn select_source_row(&mut self, row: usize) {
+        let first = usize::from(self.collection_db.is_some());
+        if row < first {
+            self.collection_row = true;
+        } else if let Some(i) = Some(row - first).filter(|&i| i < self.drives.len()) {
+            self.collection_row = false;
+            self.drive_state.select(Some(i));
+        }
+    }
+
+    /// Move the Library view's source selection `delta` rows.
+    pub(in crate::tui) fn move_source_row(&mut self, delta: isize) {
+        let Some(last) = self.source_rows().checked_sub(1) else { return };
+        let at = self.source_row().unwrap_or(0) as isize;
+        self.select_source_row((at + delta).clamp(0, last as isize) as usize);
+    }
+
+    /// Read rekordbox's collection in the background and show it, from `/`: its files are full
+    /// paths on this computer. Reading it again (it's asked for while open) keeps the view.
+    pub(in crate::tui) fn load_collection(&mut self) {
+        let Some(db) = self.collection_db.clone() else {
+            self.toast("rekordbox's collection isn't on this computer", Level::Info);
+            return;
+        };
+        self.collection_row = true;
+        self.loading = Some("Reading rekordbox's collection…".into());
+        self.load += 1;
+        let load = self.load;
+        let root = collection_root();
+        let failed = root.clone();
+        let job = move || {
+            let read = || -> Result<Box<Loaded>, locallibrary::Error> {
+                let c = masterdb::open(&db, &masterdb::resolve_key(None))?;
+                let library = c.library_from_root(&CloudFolders::this_computer());
+                let tags = c.tags_by_track_in(&library);
+                let mut l = Loaded::prepare(Device::open(&root)?, library);
+                l.my_tags = MyTags::Read(std::sync::Arc::new(tags));
+                l.collection = Some(db);
+                Ok(Box::new(l))
+            };
+            let r = read().map_err(|e| e.to_string());
+            Msg::Library(load, root, r)
+        };
+        self.spawn_or(job, move |e| Msg::Library(load, failed, Err(e)));
     }
 
     /// Read `name` in the background from the drive `pick` answers (`first` when picking fails),
@@ -132,6 +204,7 @@ impl App {
         first: PathBuf,
         pick: impl FnOnce() -> PathBuf + Send + 'static,
     ) {
+        self.collection_row = false;
         self.loading = Some(format!("Reading {name}…"));
         self.load += 1;
         let load = self.load;
@@ -234,7 +307,7 @@ impl App {
         }
         let Some(l) = self.loaded.as_ref() else { return };
         let (root, generation) = (l.root().to_path_buf(), l.generation);
-        if l.stale || self.replay_dismissed.contains(&root) {
+        if l.stale || l.is_collection() || self.replay_dismissed.contains(&root) {
             self.replay_checked = generation;
             return;
         }
@@ -313,3 +386,6 @@ impl App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

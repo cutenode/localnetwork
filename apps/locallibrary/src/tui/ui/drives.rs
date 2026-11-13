@@ -395,7 +395,7 @@ fn draw_drive_rows(f: &mut Frame, app: &mut App, area: Rect) {
     }
     // Each row takes two lines.
     app.drive_rows.fit(area.height.saturating_sub(2) as usize / 2, rows.len());
-    let list = drive_list(items, focused, app.scanning());
+    let list = drive_list(items, "Drives", focused, app.scanning());
     f.render_stateful_widget(list, area, &mut app.drive_rows);
 }
 

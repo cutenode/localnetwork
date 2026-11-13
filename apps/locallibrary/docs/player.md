@@ -10,7 +10,8 @@ Dialogs open above it, and `esc` closes one thing at a time. The Library view ha
 `f` switches between them: the track table with the strip, and the Deck layout, where the deck
 takes the screen.
 
-With no drive open, the library says what to do: plug one in (it opens as soon as it's here), or
+With no drive open, and rekordbox on this computer, the library opens rekordbox's collection
+(below). Without it, the library says what to do: plug one in (it opens as soon as it's here), or
 take a next step, at most three of open a folder, browse snapshots and sign in. The first library
 each version opens names `enter`, `e`, `:` and `?` in the footer until a key or a click. Nothing says
 there's no drive until the first read of the drives has answered.
@@ -23,8 +24,9 @@ On a smaller terminal, panes stacked in a column collapse to their title rows (f
 room and the rest are title rows (down to 60x20). Below that there's only the deck and the size it
 needs.
 
-- **Library**: mounted drives (hot-plugged ones appear on their own, and an unplugged one is
-  marked), the playlist tree with folders, and the track list with BPM, key and rekordbox's track
+- **Library**: what you can open (with rekordbox on this computer, the pane is called Sources and
+  **rekordbox collection** comes first; then the mounted drives, hot-plugged ones appearing on
+  their own, and an unplugged one marked), the playlist tree with folders, and the track list with BPM, key and rekordbox's track
   colours (`*` adds the ratings, `#` the [My Tags](editing.md#my-tags)). Keys that mix with the
   playing track, or with nothing playing the selected one, show green with how they mix beside
   them: `=` the same key, `±` a step round the Camelot wheel, `↔` its relative. With a track
@@ -35,6 +37,13 @@ needs.
   by artist, album, genre, key, BPM (5-BPM bands), rating, colour, month added, My Tag, the sets in
   the store (newest first, each with its tracks on this drive in the order played, and a count of
   the rest), the history lists players recorded, and problems.
+- **rekordbox's collection**: choose it in pane 1 (`1`, then `enter`) to browse the collection
+  rekordbox keeps on this computer, read from `master.db` as [`collection`](other-software.md#rekordboxs-collection)
+  reads it: its playlists, folders and history lists, with each track played from where it is on
+  this computer and rekordbox's own waveforms, beat grids, cues, phrases and covers. It's
+  read-only: edits, My Tags and drive actions say so, and `collection export` puts it on a drive
+  to edit there. Intelligent playlists show empty. `r` reads it again after rekordbox changed it.
+  Choosing a drive in the same pane goes back to the drive.
 - **Search and sort**: `/` searches as you type the way `tracks --filter` does (plain words look in
   title, artist, album, genre, label, key, comment, remixer, mix name and file path), and takes the
   whole [filter language](editing.md#filters) (`bpm:120-128 key:8A~ rating:>=4 -genre:house

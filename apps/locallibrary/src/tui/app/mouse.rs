@@ -258,7 +258,7 @@ impl App {
             (View::Library, Focus::Playlists) => (self.areas.playlists.y + 1, self.playlist_state.offset()),
             (View::Library, Focus::Details) => (self.areas.matches.y, self.details_state.offset()),
             (View::Library, Focus::Crate) => (self.areas.crate_rows.y, self.crate_state.offset()),
-            (View::Library, Focus::Drives) => (self.areas.drives.y + 1, self.drive_state.offset()),
+            (View::Library, Focus::Drives) => (self.areas.drives.y + 1, self.source_offset),
             (View::Prepare, _) => (self.areas.prepare.y + 1, self.prepare.offset()),
             (View::Drives, Focus::Drives) => (self.areas.drive_list.y + 1, self.drive_rows.offset()),
             (View::Drives, Focus::Tracks) => (self.areas.history.y + 2, self.history_state.offset()),
@@ -276,6 +276,13 @@ impl App {
             let &r = self.drive_rows().get(i)?;
             self.select_drive_row(r);
             return Some(i);
+        }
+        if (self.view, f) == (View::Library, Focus::Drives) {
+            // The sources: rekordbox's collection above the drives.
+            return (i < self.source_rows()).then(|| {
+                self.select_source_row(i);
+                i
+            });
         }
         let (sel, len) = self.list_selection();
         (i < len).then(|| {
