@@ -53,6 +53,9 @@
 - name: "web: ui"
   color: "a5cfbd"
   description: Shared components, design tokens, layout and the static pages
+- name: "web: events"
+  color: "a5cfbd"
+  description: Venues, parties, events and their guests
 - name: "locallibrary: cli"
   color: "c9adef"
   description: The locallibrary command line

@@ -8,9 +8,9 @@
 //! it too. The [`MixReport`] adds the library's metadata, the transitions between tracks and a
 //! waveform of the whole mix.
 //!
-//! Decoding, fingerprinting, the index and the matcher are loclib-mixid's ([`audio`],
-//! [`fingerprint`], [`matcher`] and part of [`index`] re-export it); this module brings the
-//! drive, the store's fingerprint cache, Audacity projects and the report.
+//! Decoding is loclib-audio's ([`audio`] re-exports it), and fingerprinting, the index and the
+//! matcher are loclib-mixid's ([`fingerprint`], [`matcher`] and part of [`index`]); this module
+//! brings the drive, the store's fingerprint cache, Audacity projects and the report.
 //!
 //! ```text
 //! locallibrary mix "Live at the Warehouse.wav" --drive DNA --html set.html
@@ -22,7 +22,8 @@ pub mod index;
 pub mod prefs;
 pub mod report;
 
-pub use loclib_mixid::{Heard, audio, fingerprint, matcher};
+pub use loclib_audio as audio;
+pub use loclib_mixid::{Heard, fingerprint, matcher};
 
 use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};

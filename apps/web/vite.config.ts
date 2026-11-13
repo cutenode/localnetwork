@@ -6,6 +6,7 @@ import tailwindcss from '@tailwindcss/vite';
 import { playwright } from '@vitest/browser-playwright';
 import type { Plugin, Rolldown } from 'vite';
 import { defineConfig } from 'vitest/config';
+import { stubPlayers } from './.storybook/stub-players.ts';
 
 // Vitest's module cache leaves out a module that calls `import.meta.glob(`, whose output changes when a file the glob
 // matches is added or removed, but it misses a typed call (`import.meta.glob<string>(`), so after a new Lua script or
@@ -109,9 +110,9 @@ export default defineConfig({
 										ctx.getModuleInfo(id)?.importedIds.every((dep) => isSmall(dep, ctx)) ? 'shared' : null,
 									// Not the Tools pages' own components, the staff console's table, the booking rules the
 									// dashboard's booking pages share, the suggestion lists only the place and handle fields use,
-									// the Follow button (and its icons) only performer and profile pages show, or the drafts only
-									// long forms keep: only those pages load them, and every page loads this.
-									test: /[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|FollowButton\.svelte|GuideList\.svelte|PlaceOptions\.svelte)|ui[\\/]ResponsiveTable\.svelte|bookings\.ts$|combobox\.svelte\.ts$|form-draft\.svelte\.ts$)|@lucide[\\/](?!.*[\\/]user-(?:check|plus)\.)/,
+									// the Follow button (and its icons) only performer and profile pages show, the drafts only long
+									// forms keep, or the mix player: only those pages load them, and every page loads this.
+									test: /[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|FollowButton\.svelte|GuideList\.svelte|PlaceOptions\.svelte|mix[\\/]MixEmbed\.svelte)|ui[\\/]ResponsiveTable\.svelte|bookings\.ts$|combobox\.svelte\.ts$|form-draft\.svelte\.ts$)|@lucide[\\/](?!.*[\\/]user-(?:check|plus)\.)/,
 									minShareCount: 2,
 									maxModuleSize: SHARED_MODULE_SIZE
 								}
@@ -156,14 +157,16 @@ export default defineConfig({
 				'src/routes/**/+server.ts',
 				'src/hooks.server.ts'
 			],
-			// The tests, their harness (fakes and request builders that only tests import), stories and types.
+			// The tests, their harness (fakes and request builders that only tests import), stories and types, the
+			// generated lexicon types included.
 			exclude: [
 				'src/lib/server/testing/**',
 				'src/lib/testing/**',
 				'src/lib/**/*.{test,spec}.ts',
 				'src/lib/**/*.svelte.{test,spec}.ts',
 				'src/lib/**/*.stories.svelte',
-				'src/lib/**/types.ts'
+				'src/lib/**/types.ts',
+				'src/lib/lexicons/**'
 			],
 			// CI's pull request comment reads the summary, and json for each changed file's uncovered lines.
 			reporter: ['text', 'html', 'lcov', 'json-summary', 'json'],
@@ -225,10 +228,12 @@ export default defineConfig({
 				server: BROWSER_TEST_SERVER,
 				test: {
 					name: 'storybook',
+					setupFiles: ['./.storybook/vitest.setup.ts'],
 					browser: {
 						enabled: true,
 						provider: browserTests(),
-						instances: [{ browser: 'chromium', headless: true }]
+						instances: [{ browser: 'chromium', headless: true }],
+						commands: { stubPlayers }
 					}
 				}
 			}

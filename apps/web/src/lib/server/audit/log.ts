@@ -62,6 +62,7 @@ export const AUDIT_ACTIONS = [
 	'people.link',
 	'listing.list',
 	'listing.unlist',
+	'page.update',
 	'record.delete',
 	'flag.update',
 	'flag.preview',

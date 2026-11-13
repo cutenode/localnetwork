@@ -19,6 +19,7 @@ workspace = true
 
 [dev-dependencies]
 hegeltest.workspace = true
+libc = "0.2"
 loclib-plugin = { workspace = true, features = ["test-util"] }
 tempfile.workspace = true
 url = "2.5"

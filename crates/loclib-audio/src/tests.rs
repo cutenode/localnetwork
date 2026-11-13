@@ -35,7 +35,7 @@ fn keeps_passband_and_length() {
 fn decoding_stops_when_the_sink_has_enough() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("long.wav");
-    std::fs::write(&path, crate::test_util::wav(44_100, 16, 30.0)).unwrap();
+    std::fs::write(&path, loclib_testkit::audio::wav(44_100, 16, 30.0)).unwrap();
     let mut heard = 0;
     let start = decode_until(&path, 11_025, &Ctx::silent(), &mut |s| {
         heard += s.len();
@@ -54,7 +54,7 @@ fn native_decoding_hands_on_the_file_and_stops_when_cancelled() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("long.wav");
     let samples: Vec<i32> = (0..8_000 * 60).map(|i| (i % 2000) - 1000).collect();
-    std::fs::write(&path, crate::test_util::wav_of(8_000, 16, samples.iter().copied())).unwrap();
+    std::fs::write(&path, loclib_testkit::audio::wav_of(8_000, 16, samples.iter().copied())).unwrap();
     let mut heard = Vec::new();
     let format = decode_native(&path, Damaged::Fail, &Ctx::silent(), |s: &[i32], rate, channels| -> Result<_> {
         assert_eq!((rate, channels), (8_000, 2));
@@ -88,7 +88,7 @@ fn chunks_dont_change_the_output() {
         r.push(std::slice::from_ref(s), &mut |s| one_by_one.extend_from_slice(s));
     }
     r.finish(&mut |s| one_by_one.extend_from_slice(s));
-    assert!(crate::test_util::resample(&x, 11_025, 48_000) == one_by_one);
+    assert!(loclib_testkit::audio::resample(&x, 11_025, 48_000) == one_by_one);
 }
 
 #[test]
@@ -126,7 +126,7 @@ fn resampling_keeps_length_and_level(tc: TestCase) {
     r.finish(&mut |s| chunked.extend_from_slice(s));
     let expected = (x.len() as u64 * u64::from(to)).div_ceil(u64::from(from));
     assert_eq!(chunked.len() as u64, expected);
-    assert!(crate::test_util::resample(&x, from, to) == chunked, "chunks of {chunk} change it");
+    assert!(loclib_testkit::audio::resample(&x, from, to) == chunked, "chunks of {chunk} change it");
     // Away from the ends, where the kernel runs off the signal.
     let edge = (to as usize / 50).max(64);
     if chunked.len() > 4 * edge {
@@ -156,7 +156,7 @@ fn each_output_is_the_kernel_at_its_position(tc: TestCase) {
         true => x.clone(),
         false => (0..).map(|o| o * r.step).take_while(|&pos| pos < n * unit).map(at).collect(),
     };
-    assert!(crate::test_util::resample(&x, from, to) == model, "{from} Hz to {to} Hz");
+    assert!(loclib_testkit::audio::resample(&x, from, to) == model, "{from} Hz to {to} Hz");
 }
 
 /// A WAV of any rate, depth and length decodes to its samples exactly, at its own rate and
@@ -174,7 +174,7 @@ fn wavs_decode_to_their_samples(tc: TestCase) {
         .collect();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("x.wav");
-    std::fs::write(&path, crate::test_util::wav_of(rate, bits, samples.iter().copied())).unwrap();
+    std::fs::write(&path, loclib_testkit::audio::wav_of(rate, bits, samples.iter().copied())).unwrap();
 
     let mut heard = Vec::new();
     let format = decode_native(&path, Damaged::Fail, &Ctx::silent(), |s: &[i32], r, channels| -> Result<_> {
@@ -309,7 +309,7 @@ fn formats_are_told_by_extension_in_any_case(tc: TestCase) {
 #[hegel::test(test_cases = 60)]
 fn damaged_files_are_that_files_error(tc: TestCase) {
     let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(2000));
-    let mut bytes = crate::test_util::wav_of(rate(&tc), 16, (0..frames as i32).map(|i| i * 7 - 3000));
+    let mut bytes = loclib_testkit::audio::wav_of(rate(&tc), 16, (0..frames as i32).map(|i| i * 7 - 3000));
     let flips = tc.draw(gs::vecs(gs::tuples!(gs::integers::<usize>(), gs::integers::<u8>())).max_size(4));
     for (at, v) in flips {
         let n = bytes.len();
@@ -346,7 +346,7 @@ fn a_sinks_error_stops_the_decode(tc: TestCase) {
     let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(6000));
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("x.wav");
-    std::fs::write(&path, crate::test_util::wav_of(rate(&tc), 16, (0..frames as i32).map(|i| i % 900))).unwrap();
+    std::fs::write(&path, loclib_testkit::audio::wav_of(rate(&tc), 16, (0..frames as i32).map(|i| i % 900))).unwrap();
     let fail = tc.draw(gs::integers::<usize>().min_value(1).max_value(packets(frames) + 1));
     let damaged = tc.draw(gs::sampled_from(vec![Damaged::Skip, Damaged::Fail]));
     let mut calls = 0;
@@ -373,7 +373,7 @@ fn broken_headers_are_that_files_error(tc: TestCase) {
     let broken = tc.draw(gs::sampled_from(vec!["intact", "missing", "block size 0", "rate 0"]));
     let name = tc.draw(gs::sampled_from(vec!["x.wav", "x", "x.bin"]));
     let samples = (0..frames as i32).map(|i| i * 5 - 1000);
-    let mut bytes = crate::test_util::wav_of(if broken == "rate 0" { 0 } else { rate }, 16, samples);
+    let mut bytes = loclib_testkit::audio::wav_of(if broken == "rate 0" { 0 } else { rate }, 16, samples);
     if broken == "block size 0" {
         bytes[32..34].fill(0);
     }
@@ -412,7 +412,7 @@ fn cancelling_stops_a_decode_at_the_next_check(tc: TestCase) {
     let frames = tc.draw(gs::integers::<usize>().min_value(250 * 1152).max_value(520 * 1152));
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("long.wav");
-    std::fs::write(&path, crate::test_util::wav_of(8_000, 16, (0..frames as i32).map(|i| i % 300))).unwrap();
+    std::fs::write(&path, loclib_testkit::audio::wav_of(8_000, 16, (0..frames as i32).map(|i| i % 300))).unwrap();
     let at = tc.draw(gs::integers::<usize>().min_value(1).max_value(packets(frames)));
     let damaged = tc.draw(gs::sampled_from(vec![Damaged::Skip, Damaged::Fail]));
     let ctx = Ctx::silent();
@@ -473,11 +473,11 @@ fn rates_past_the_highest_are_refused(tc: TestCase) {
     let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(32));
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("x.wav");
-    std::fs::write(&path, crate::test_util::wav_of(rate, 16, (0..frames as i32).map(|i| i * 99))).unwrap();
+    std::fs::write(&path, loclib_testkit::audio::wav_of(rate, 16, (0..frames as i32).map(|i| i * 99))).unwrap();
     let ctx = Ctx::silent();
     let results = [
         decode_native(&path, Damaged::Fail, &ctx, |_: &[f32], _, _| -> Result<_> { Ok(ControlFlow::Continue(())) }),
-        decode(&path, crate::fingerprint::RATE, &ctx, &mut |_| {}),
+        decode(&path, loclib_testkit::audio::RATE, &ctx, &mut |_| {}),
     ];
     for result in results {
         match result {
@@ -598,7 +598,7 @@ fn native(path: &Path, damaged: Damaged, sink: Sink) -> (Result<SourceFormat>, H
     overcount = true
 )]
 fn prop_alac_frames_decode_at_the_rate_their_setup_says(tc: TestCase) {
-    use crate::test_util::{alac_frame, m4a_with_audio};
+    use loclib_testkit::audio::{alac_frame, m4a_with_audio};
 
     let rate = tc.draw(gs::sampled_from(vec![0, 8_000, 44_100, MAX_RATE + 1]));
     let tracks = tc.draw(gs::integers::<usize>().min_value(1).max_value(2));
@@ -678,7 +678,7 @@ fn prop_alac_frames_decode_at_the_rate_their_setup_says(tc: TestCase) {
 /// file's error, however it's decoded.
 #[hegel::test(test_cases = 20)]
 fn prop_files_no_decoder_takes_are_that_files_error(tc: TestCase) {
-    use crate::test_util::{m4a, mp4_empty_tables, wav_of};
+    use loclib_testkit::audio::{m4a, mp4_empty_tables, wav_of};
 
     let (field, value) = tc.draw(hegel::one_of!(
         gs::integers::<u8>().min_value(1).map(|v| (4, v)),
@@ -705,8 +705,10 @@ fn prop_files_no_decoder_takes_are_that_files_error(tc: TestCase) {
         std::fs::write(&path, &bytes).unwrap();
     }
     let damaged = tc.draw(gs::sampled_from(vec![Damaged::Skip, Damaged::Fail]));
-    let results =
-        [native(&path, damaged, Sink::Takes).0, decode(&path, crate::fingerprint::RATE, &Ctx::silent(), &mut |_| {})];
+    let results = [
+        native(&path, damaged, Sink::Takes).0,
+        decode(&path, loclib_testkit::audio::RATE, &Ctx::silent(), &mut |_| {}),
+    ];
     for result in results {
         match (field, result) {
             (1, Err(Error::Io { path: at, .. })) => assert_eq!(at, path),
@@ -744,7 +746,7 @@ fn prop_a_folder_that_cant_be_opened_is_its_io_error(tc: TestCase) {
     let results = [
         open(&path).map(drop),
         native(&path, Damaged::Skip, Sink::Takes).0.map(drop),
-        decode(&path, crate::fingerprint::RATE, &Ctx::silent(), &mut |_| {}).map(drop),
+        decode(&path, loclib_testkit::audio::RATE, &Ctx::silent(), &mut |_| {}).map(drop),
     ];
     for result in results {
         assert!(matches!(&result, Err(Error::Io { path: at, .. }) if *at == path), "{result:?}");
@@ -767,7 +769,7 @@ fn prop_a_sink_or_cancelling_stops_a_decode_where_it_says(tc: TestCase) {
     let damaged = tc.draw(gs::sampled_from(vec![Damaged::Skip, Damaged::Fail]));
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("x.wav");
-    std::fs::write(&path, crate::test_util::wav_of(8_000, 16, (0..frames as i32).map(|i| i % 300))).unwrap();
+    std::fs::write(&path, loclib_testkit::audio::wav_of(8_000, 16, (0..frames as i32).map(|i| i % 300))).unwrap();
     let (result, heard) = native(&path, damaged, sink);
     let handed = heard.formats.len();
     let reached = at <= total;

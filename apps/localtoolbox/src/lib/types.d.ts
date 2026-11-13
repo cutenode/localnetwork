@@ -458,6 +458,20 @@ export type SavedArtistEntry = Loose<Omit<ArtistEntry, 'tracks'>, 'permalink'> &
 	tracks?: Loose<ArtistTrack, 'permalink'>[];
 };
 
+/** A search site as src/lib/search-sites.schema.json describes one: a shipped one, or one added in settings. */
+export interface SearchSiteEntry {
+	id: string;
+	name: string;
+	badge: string;
+	/** https, with {artist}, {title} or {query} in it. */
+	url: string;
+	/** Hex colours; a badge without them is grey with white on it. */
+	background?: string;
+	color?: string;
+	/** false ships the badge switched off. */
+	on?: boolean;
+}
+
 /** The panel options a file carries, from the popup's localStorage `pref:` keys. */
 export interface StatePrefs {
 	background?: boolean;
@@ -477,6 +491,8 @@ export interface StateFile {
 	artists?: SavedArtistEntry[];
 	queue?: QueueEntry[];
 	prefs?: StatePrefs;
+	/** The search sites somebody added in settings; the shipped ones are not in it. */
+	searchSites?: SearchSiteEntry[];
 }
 
 /** A state file as TbxState.parse answers it: every member but `exportedAt` filled in. */
@@ -487,4 +503,5 @@ export interface ParsedState extends StateFile {
 	artists: SavedArtistEntry[];
 	queue: QueueEntry[];
 	prefs: StatePrefs;
+	searchSites: SearchSiteEntry[];
 }

@@ -1086,6 +1086,36 @@ describe('profile and DJ listing record scripts', () => {
 
 		expect((await query<Records>(hv, 'getRecords', { uris })).records.map(({ uri }) => uri)).toEqual([listed.uri]);
 	});
+
+	it("keeps the root's act, party and venue listings when the directory can read them", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const people = [{ did: 'did:plc:ada', role: 'member' }];
+		const valid = { kind: 'act', name: 'Crew', people, updatedAt: '2026-01-01T00:00:00.000Z' };
+		const list = (rkey: string, record: JsonObject, did = ROOT) => ingest(hv, did, COLLECTION.listing, rkey, record);
+
+		const act = await list('3kact', { ...valid, managers: ['did:plc:bea'], fields: { form: 'duo' } });
+		const party = await list('3kparty', { ...valid, kind: 'party', people: [] });
+		const squatter = await list('3ksquat', valid, 'did:plc:stranger');
+		const unknownKind = await list('3kkind', { ...valid, kind: 'label' });
+		const nameless = await list('3kname', { ...valid, name: 7 });
+		const roleless = await list('3krole', { ...valid, people: [{ did: 'did:plc:ada' }] });
+		const undated = await list('3kdate', { ...valid, updatedAt: 1 });
+		const uris = [act, party, squatter, unknownKind, nameless, roleless, undated].map(({ uri }) => uri);
+		const stored = async () => (await query<Records>(hv, 'getRecords', { uris })).records.map(({ uri }) => uri);
+
+		expect(await stored()).toEqual([act.uri, party.uri]);
+		expect(hv.logs).toEqual([
+			`skipped ${squatter.uri}: not the root`,
+			`skipped ${unknownKind.uri}: unknown kind`,
+			`skipped ${nameless.uri}: no name`,
+			`skipped ${roleless.uri}: bad people`,
+			`skipped ${undated.uri}: bad updatedAt`
+		]);
+
+		// Unlisting takes it out.
+		await hv.ingest({ did: ROOT, collection: COLLECTION.listing, rkey: '3kact', cid: '', record: null });
+		expect(await stored()).toEqual([party.uri]);
+	});
 });
 
 describe('searchPerformers', () => {
