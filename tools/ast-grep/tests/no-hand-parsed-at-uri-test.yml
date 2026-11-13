@@ -1,0 +1,18 @@
+id: no-hand-parsed-at-uri
+valid:
+  - 'const rkey = rkeyOf(uri);'
+  - 'const did = new AtUri(found.profile.uri).host;'
+  - "const [, name, ...rest] = url.pathname.split('/');"
+  - "const parts = path.split('/');"
+  - "const segments = uri.split('.');"
+  - "const words = curious.split('/');"
+  - "const parts = spaces.split('/');"
+  - "const parts = spaceType.split('.');"
+invalid:
+  - "const did = uri.split('/')[2];"
+  - "const dids = performers.map((found) => found.profile.uri.split('/')[2]);"
+  - "const rkey = projectUri.split('/').at(-1);"
+  - "const owner = config.userinputSpace?.split('/')[2];"
+  - "return { skey: space.split('/').at(-1)! };"
+  - "const [owner, , rkey] = space.replace('at://', '').split('/');"
+  - "const parts = `at://${did}/${collection}/${rkey}`.split('/');"

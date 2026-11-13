@@ -1,6 +1,7 @@
 //! What the Deck layout says of the playing track beside its waveforms: the art, what's known of
 //! it, what mixes into it and the visualisers.
 
+use loclib_waveform::analyzer::Bands;
 use loclib_waveform::{Pixels, Scope, Spectrum, bar_layout, cue_letter, vinyl};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -10,7 +11,6 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wra
 use ratatui_image::Image;
 
 use crate::output::{bytes, clock, plural};
-use crate::tui::analyzer::Bands;
 use crate::tui::app::{App, Matches, NowPlaying, Vis};
 use crate::tui::art::Picture;
 use crate::tui::icons;

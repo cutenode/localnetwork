@@ -8,11 +8,13 @@
 // opens a search there.
 //
 // Which sites those are is data, not code: ./search-sites.json is a list of
-// plain objects, and adding one is an entry in it and nothing else. No
-// manifest change either, because a badge opens a tab and never fetches, so
-// none of these hosts is in `host_permissions`.
+// plain objects under `sites`, and adding one is an entry in it and nothing
+// else. Somebody can add their own in the settings sheet too, in the same
+// shape (./search-sites.svelte.ts keeps those). No manifest change either,
+// because a badge opens a tab and never fetches, so none of these hosts is in
+// `host_permissions`.
 //
-// An entry:
+// An entry, as ./search-sites.schema.json specifies it:
 //
 //   id          what the toggle for it is remembered under. Stable: renaming
 //               it forgets whether somebody had turned that badge off.
@@ -38,23 +40,18 @@
 // ./search-sites.svelte.ts holds the switch per site, and the settings sheet
 // is where they are thrown.
 
-import type { Track } from '$lib/types';
+import type { SearchSiteEntry, Track } from '$lib/types';
 import catalogue from './search-sites.json';
 import { fallback, z } from './zod.ts';
 
 type SearchTrack = Pick<Track, 'artist' | 'title'>;
 
-/** A usable entry of the file, as `siteOf` makes it. */
-export interface SearchSite {
-	id: string;
-	name: string;
-	badge: string;
-	url: string;
+/** A usable entry of the file, as `siteOf` makes it: every member filled in. */
+export interface SearchSite extends Required<SearchSiteEntry> {
 	/** The variables it uses, each one of VARIABLE_NAMES. */
 	fields: VariableName[];
 	/** The badge's inline style: its two colours. */
 	style: string;
-	on: boolean;
 }
 
 /**
@@ -80,6 +77,11 @@ const isVariable = (name: string): name is VariableName => Object.hasOwn(VARIABL
 /** The names a template may use, for the README and the tests to check. @internal */
 export const VARIABLE_NAMES = Object.keys(VARIABLES);
 
+/** "{artist}, {title} or {query}", for the hints that say what a template may carry. */
+export const VARIABLE_LIST = VARIABLE_NAMES.map((name) => `{${name}}`)
+	.join(', ')
+	.replace(/, ([^,]*)$/, ' or $1');
+
 // `{artist}` rather than `${artist}`: the second is what a JavaScript template
 // literal uses, and a string in the source carrying one is a mistake often
 // enough that the linter says so (no-template-curly-in-string).
@@ -89,6 +91,13 @@ const PLACEHOLDER = /\{(\w+)\}/g;
 // through: these land in a style attribute, and a hand-edited file is not the
 // place to accept arbitrary declarations.
 const HEX = /^#[0-9a-f]{3,8}$/i;
+
+/** A badge's colours when an entry gives none: white on grey rather than nothing on nothing. */
+export const GREY = '#52525b';
+
+/** A colour as `<input type="color">` takes one, #rrggbb: a short one spelled out, any alpha dropped. */
+export const sixDigits = (hex: string) =>
+	hex.length < 7 ? `#${hex.slice(1, 4).replace(/./g, '$&$&')}` : hex.slice(0, 7);
 
 /** A member that should be words: trimmed, and '' for anything else. */
 const Words = z.pipe(
@@ -114,7 +123,7 @@ const Entry = fallback(
 			name: Words,
 			badge: Words,
 			url: Words,
-			background: colour('#52525b'),
+			background: colour(GREY),
 			color: colour('#fff'),
 			on: z.optional(z.unknown())
 		})
@@ -123,34 +132,58 @@ const Entry = fallback(
 );
 
 /**
+ * A URL template's variables, or why it cannot be used, in the words the
+ * settings sheet shows under the field: an address that is not https, one
+ * with no variable in it at all (a badge every row of which opens the same
+ * page), or one naming a variable that does not exist.
+ */
+export function readTemplate(url: string): { fields: VariableName[] } | { problem: string } {
+	if (!url.startsWith('https://')) return { problem: 'only https addresses work.' };
+
+	const names = [...url.matchAll(PLACEHOLDER)].map((match) => match[1]);
+
+	if (names.length === 0) return { problem: `needs ${VARIABLE_LIST} where the search goes.` };
+
+	if (names.every(isVariable)) return { fields: names };
+
+	return { problem: `{${names.find((name) => !isVariable(name))}} isn’t ${VARIABLE_LIST}.` };
+}
+
+/**
  * One entry of the file as a site, or null for one that cannot be used: a
- * missing name or badge, an address that is not https, one with no variable
- * in it at all (a badge every row of which opens the same page), or one
- * naming a variable that does not exist.
+ * missing name or badge, or a template `readTemplate` refuses.
  */
 function siteOf(entry: z.output<typeof Entry>): SearchSite | null {
 	if (!entry?.id || !entry.name || !entry.badge) return null;
-	const { id, name, badge, url } = entry;
+	const { id, name, badge, url, background, color } = entry;
 
-	if (!url.startsWith('https://')) return null;
+	const template = readTemplate(url);
 
-	const fields = [...url.matchAll(PLACEHOLDER)].map((match) => match[1]);
-
-	if (fields.length === 0) return null;
-
-	if (!fields.every(isVariable)) return null;
+	if ('problem' in template) return null;
 
 	return {
 		id,
 		name,
 		badge,
 		url,
+		background,
+		color,
 		/** The variables it uses, which is what decides whether a row can use it. */
-		fields,
-		style: `background:${entry.background};color:${entry.color}`,
+		fields: template.fields,
+		style: `background:${background};color:${color}`,
 		on: entry.on !== false
 	};
 }
+
+/** A site as it is kept and exported: what an entry says, without what is worked out from it. */
+export const entryOf = ({ id, name, badge, url, background, color }: SearchSite): SearchSiteEntry => ({
+	id,
+	name,
+	badge,
+	url,
+	background,
+	color
+});
 
 /**
  * A list of entries as the sites it names, in the order it names them.
@@ -193,7 +226,7 @@ const Sites = z.pipe(
 export const readSites = Sites.parse.bind(Sites);
 
 /** Every site the file describes, whether or not its badge is switched on. */
-export const SEARCH_SITES = readSites(catalogue);
+export const SEARCH_SITES = readSites(catalogue.sites);
 
 /**
  * What a badge searches for: the track's own words, in the order the template

@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 use schemars::JsonSchema;
 use serde::Serialize;
 
+use loclib_audio::SourceFormat;
 use loclib_mixid::Heard;
-use loclib_mixid::audio::SourceFormat;
 use loclib_mixid::fingerprint::{FrameLevels, Peak};
 pub use loclib_mixid::index::*;
 

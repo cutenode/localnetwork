@@ -25,7 +25,10 @@ crates/loclib-mysettings/   My Settings files (MYSETTING.DAT and the rest): ever
 crates/loclib-tracklist/    reading outside tracklists (M3U, CSV, rekordbox text and XML, plain text) and
                             matching them to a library: by path, ISRC, artist and title, then fuzzily;
                             and rekordbox XML collections with their tags, keys, beat grids and cues
-crates/loclib-mixid/        which known tracks a recorded mix plays: decoding and resampling, landmark
+crates/loclib-audio/        decoding through symphonia without trusting a file's headers (an MP4's sample
+                            tables checked first, a decoder's panic caught), and resampling as it streams
+crates/loclib-testkit/      test helpers the crates share (synthetic audio and audio files), never published
+crates/loclib-mixid/        which known tracks a recorded mix plays: landmark
                             fingerprints, the hash index and its print format, the matcher, and how
                             two tracks line up, refined to a fraction of a sample from their audio
                             (doctor's duplicates by sound, cues carried or moved by the offset)
@@ -38,7 +41,8 @@ crates/loclib-interop/      a library for other DJ software: Traktor's collectio
                             tags, an Engine DJ library (engine.sql), rekordbox XML; and Traktor's
                             collection.nml read back
 crates/loclib-waveform/     the player's ratatui widgets: overview and detail waveforms, cue lane, phrase strip,
-                            spectrum, scope and cover art, in the colours of a palette the caller passes
+                            spectrum, scope and cover art, in the colours of a palette the caller passes; and
+                            (the `analyzer` feature) the FFT and smoothing that feed the spectrum and scope
 crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one message a line), the plugin manifest
                             and its checks, a peer over a pair of pipes and the Rust plugin SDK; the sidecar
                             reads lines and reports errors with it

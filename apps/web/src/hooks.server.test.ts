@@ -15,6 +15,7 @@ import { createTestServices } from '#lib/server/testing/core.ts';
 import { type WrittenLine, writtenLog } from '#lib/server/testing/written-log.ts';
 import type { Logger } from '#lib/server/logger.ts';
 import type { Viewer } from '#lib/types.ts';
+import { flagsOff } from '#lib/testing/flags.ts';
 import { routeEvent, type RouteEventInit } from '#lib/testing/route-event.ts';
 import type { App as ServerApp } from '#lib/server/app.ts';
 import { init, serverHooks } from './hooks.server';
@@ -168,7 +169,7 @@ it("applies a staff member's flag preview to their own requests only", async () 
 		cookies: { [SESSION_COOKIE]: adminToken, [PREVIEW_COOKIE]: preview(ADMIN, adminToken) }
 	});
 
-	expect(admin.locals.flags).toEqual({ parityCanary: true });
+	expect(admin.locals.flags).toEqual({ ...flagsOff, parityCanary: true });
 	expect(admin.locals.flagPreview).toEqual({ parityCanary: true });
 
 	// The admin's cookie, copied into someone else's browser, and one they signed for themselves.
@@ -178,7 +179,7 @@ it("applies a staff member's flag preview to their own requests only", async () 
 			cookies: { [SESSION_COOKIE]: djToken, [PREVIEW_COOKIE]: cookie }
 		});
 
-		expect(dj.locals.flags).toEqual({ parityCanary: false });
+		expect(dj.locals.flags).toEqual(flagsOff);
 		expect(dj.locals.flagPreview).toBeUndefined();
 		expect(dj.cookies.deleted).toContain(PREVIEW_COOKIE);
 	}
@@ -188,7 +189,7 @@ it("applies a staff member's flag preview to their own requests only", async () 
 		cookies: { [PREVIEW_COOKIE]: preview(ADMIN, adminToken) }
 	});
 
-	expect(signedOut.locals.flags).toEqual({ parityCanary: false });
+	expect(signedOut.locals.flags).toEqual(flagsOff);
 	expect(signedOut.cookies.deleted).toContain(PREVIEW_COOKIE);
 });
 
