@@ -318,7 +318,7 @@ pub struct App {
     /// What's been typed in the help.
     pub help_query: String,
     /// The latest message, in the footer: an info for a few seconds (see `reading_time`), an
-    /// error until esc dismisses it.
+    /// error until esc dismisses it or another view is shown.
     pub toast: Option<(String, Level, Instant)>,
     /// An error a newer message came after before it was dismissed: still shown, above it.
     pub held: Option<String>,

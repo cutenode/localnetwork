@@ -942,6 +942,25 @@ fn exports_a_set() {
     assert!(!m3u8.contains("elsewhere"), "{m3u8}");
 }
 
+/// Regression: a failed sign-in's error stayed on screen after leaving the Publish view, over
+/// every other view until esc. Leaving a view puts its errors away (they're still in the log);
+/// showing the same view again, or an info message, doesn't.
+#[test]
+fn leaving_a_view_puts_its_errors_away() {
+    let (mut app, _dir) = app_with(library());
+    app.set_view(View::Profile);
+    app.toast("signing in: it broke", Level::Error);
+    app.toast("older error held", Level::Error);
+    app.set_view(View::Profile);
+    assert!(app.toast.is_some() && app.held.is_some(), "the same view again keeps them");
+    app.set_view(View::Library);
+    assert!(app.toast.is_none() && app.held.is_none());
+    assert!(app.log.iter().any(|(m, ..)| m == "signing in: it broke"), "still in the log");
+    app.toast("loaded", Level::Info);
+    app.set_view(View::Drives);
+    assert!(app.toast.is_some(), "an info message goes in its own time");
+}
+
 #[test]
 fn errors_stay_until_esc_and_every_message_is_kept() {
     let (mut app, _dir) = app_with(library());
