@@ -34,12 +34,13 @@ Source: [`src/lib/server/flags/evaluate.ts`](../../src/lib/server/flags/evaluate
 
 ## Flags on a page request
 
-Every request outside `/xrpc` gets every flag decided once, held in memory between record changes. A staff member's preview changes only their own browser.
+Every request gets every flag decided once, held in memory between record changes. An `/xrpc` call never reads the sign-in cookie, so it gets a signed-out visitor's flags. A staff member's preview changes only their own browser.
 
 ```mermaid
 flowchart TD
-  Request["A request, not /xrpc"] --> Decide["Decide every flag for the viewer,<br/>or for a signed-out visitor"]
-  Decide --> Cookie{"ln_flag_preview set?"}
+  Request["A request"] --> Decide["Decide every flag for the viewer,<br/>or for a signed-out visitor"]
+  Decide -- "/xrpc, always signed out" --> Route["locals.flags for the route,<br/>no preview"]
+  Decide -- "not /xrpc" --> Cookie{"ln_flag_preview set?"}
   Cookie -- "no" --> Locals["locals.flags, passed to<br/>every page by the root layout"]
   Cookie -- "yes" --> Valid{"Signed with this session, for this viewer,<br/>under an hour old, and they hold flags?"}
   Valid -- "yes" --> Merge["Previewed flags replace theirs,<br/>with a banner on every page"]

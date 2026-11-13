@@ -29,7 +29,7 @@ flowchart TD
   Load --> Limit["Write limit for this address"]
   Limit -- "over it" --> Slow["429"]
   Limit --> Session["ln_session to a viewer,<br/>skipped on /xrpc/"]
-  Session --> Flags["Flags for the viewer, with a staff<br/>preview from ln_flag_preview,<br/>skipped on /xrpc/"]
+  Session --> Flags["Flags for the viewer, a signed-out<br/>visitor's on /xrpc/, and a staff preview<br/>from ln_flag_preview off it"]
   Flags --> Guard["guardArea by route"]
   Guard -- "/dashboard or /admin,<br/>signed out" --> Login["303 to /login?next="]
   Guard -- "/admin, not staff" --> Refused["403"]
