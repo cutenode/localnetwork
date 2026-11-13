@@ -1,4 +1,4 @@
-//! What the Deck layout says of the playing track beside its waveforms: the art, what's known of
+//! What player mode says of the playing track beside its waveforms: the art, what's known of
 //! it, what mixes into it and the visualisers.
 
 use loclib_waveform::analyzer::Bands;
@@ -10,7 +10,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui_image::Image;
 
-use crate::output::{bytes, clock, plural};
+use crate::output::{clock, plural};
 use crate::tui::app::{App, Matches, NowPlaying, Vis};
 use crate::tui::art::Picture;
 use crate::tui::icons;
@@ -130,22 +130,6 @@ pub(super) fn draw_info(f: &mut Frame, app: &App, area: Rect) {
     }
     lines.push(Line::from(chips));
 
-    let ext = t.file_path.rsplit('.').next().unwrap_or("").to_uppercase();
-    let mut fmt = vec![ext];
-    if t.bitrate > 0 {
-        fmt.push(format!("{} kbps", t.bitrate));
-    }
-    if t.sample_rate > 0 {
-        fmt.push(format!("{:.1} kHz", t.sample_rate as f64 / 1000.0));
-    }
-    if t.sample_depth > 0 {
-        fmt.push(format!("{}-bit", t.sample_depth));
-    }
-    if t.file_size > 0 {
-        fmt.push(bytes(t.file_size));
-    }
-    fmt.push(now.drive.clone());
-    lines.push(Line::styled(fmt.join(" · "), faint()));
     // What a plugin's analyzer worked out, drawn for what the drive lacks.
     if let Some(from) = &now.from_plugins {
         lines.push(Line::styled(from.clone(), dim()));
@@ -160,42 +144,8 @@ pub(super) fn draw_info(f: &mut Frame, app: &App, area: Rect) {
         }
         lines.push(Line::from(spans));
     }
-    let mut meta: Vec<Span> = Vec::new();
-    let mut add = |s: Span<'static>| {
-        if !meta.is_empty() {
-            meta.push(Span::styled(" · ", faint()));
-        }
-        meta.push(s);
-    };
-    if let Some(c) = t.color {
-        add(theme::colour_dot(c));
-    }
-    if !t.genre.is_empty() {
-        add(Span::styled(t.genre.clone(), text()));
-    }
-    if t.rating > 0 {
-        add(Span::styled(rating(t.rating), fg(theme::current().warning)));
-    }
-    if t.play_count > 0 {
-        add(Span::styled(format!("played {}×", t.play_count), dim()));
-    }
-    if !t.date_added.is_empty() {
-        add(Span::styled(format!("added {}", t.date_added), dim()));
-    }
-    if !meta.is_empty() {
-        lines.push(Line::from(meta));
-    }
-    if !t.comment.trim().is_empty() {
-        lines.push(Line::styled(format!("“{}”", t.comment.trim()), dim().add_modifier(Modifier::ITALIC)));
-    }
-    let credits: Vec<String> = [("composer", &t.composer), ("original", &t.original_artist), ("ISRC", &t.isrc)]
-        .into_iter()
-        .filter(|(_, v)| !v.is_empty())
-        .map(|(k, v)| format!("{k} {v}"))
-        .collect();
-    if !credits.is_empty() {
-        lines.push(Line::styled(credits.join(" · "), faint()));
-    }
+    // The file, the drive, the tags and the counts are the info panel's (`i`): while playing, the
+    // deck keeps to what's counted and cued.
     // A gap after the track's names, if it costs nothing else a line.
     if lines.len() < area.height as usize {
         lines.insert(3, Line::raw(""));
@@ -204,47 +154,15 @@ pub(super) fn draw_info(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Paragraph::new(lines), area);
 }
 
-/// Under the waveforms: what mixes into the playing track (to pick the next one from), where it's
-/// filed, and what rekordbox's analysis found, side by side.
+/// Under the waveforms: what mixes into the playing track (to pick the next one from) and where
+/// it's filed, side by side. The waveforms say what the analysis found.
 pub(super) fn draw_details(f: &mut Frame, app: &mut App, area: Rect) {
     let Some(now) = &app.now else { return };
-    let mut about: Vec<Line> = Vec::new();
-    let beats = &now.analysis.beats;
-    if !beats.is_empty() {
-        let (lo, hi) =
-            beats.iter().filter(|b| b.bpm > 0.0).fold((f64::MAX, 0.0f64), |(l, h), b| (l.min(b.bpm), h.max(b.bpm)));
-        let tempo = if hi - lo > 0.05 { format!("{lo:.1}–{hi:.1} BPM") } else { "steady tempo".into() };
-        about.push(Line::from(vec![
-            Span::styled(
-                format!("{} · {} · ", plural(beats.len(), "beat"), plural(beats.len().div_ceil(4), "bar")),
-                text(),
-            ),
-            Span::styled(tempo, dim()),
-        ]));
-    }
-    let cues = &now.analysis.cues;
-    if !cues.is_empty() {
-        let hot = cues.iter().filter(|c| c.hot_cue.is_some()).count();
-        let loops = cues.iter().filter(|c| c.end_ms.is_some()).count();
-        let about_cues =
-            format!("{} ({}) · {} memory", plural(hot, "hot cue"), plural(loops, "loop"), cues.len() - hot);
-        about.push(Line::styled(about_cues, text()));
-    }
-    if !now.phrases.is_empty() {
-        let mut spans = vec![Span::styled(format!("{} ", plural(now.phrases.len(), "phrase")), text())];
-        for p in &now.phrases {
-            spans.push(Span::styled(icons::PHRASE.get(), fg(theme::current().phrase(p.kind))));
-        }
-        about.push(Line::from(spans));
-    }
-
     let lists = now.playlists.len().min(4).min(usize::from(area.height.saturating_sub(1)));
-    let [mixes, _, lists_area, _, about_area] = Layout::horizontal([
+    let [mixes, _, lists_area] = Layout::horizontal([
         Constraint::Min(0),
         Constraint::Length(1),
-        Constraint::Length(if lists > 0 { (area.width / 5).max(20) } else { 0 }),
-        Constraint::Length(1),
-        Constraint::Length(if about.is_empty() { 0 } else { 42 }),
+        Constraint::Length(if lists > 0 { (area.width / 4).max(20) } else { 0 }),
     ])
     .areas(area);
 
@@ -264,10 +182,6 @@ pub(super) fn draw_details(f: &mut Frame, app: &mut App, area: Rect) {
 
     if lists > 0 {
         draw_in_playlists(f, lists_area, &now.playlists, lists);
-    }
-    if !about.is_empty() {
-        let inner = section(f, about_area, "analysis");
-        f.render_widget(Paragraph::new(about), inner);
     }
 }
 
@@ -378,11 +292,6 @@ pub(super) fn draw_visualiser(f: &mut Frame, app: &mut App, area: Rect) {
         }
         Vis::Deck => {}
     }
-}
-
-/// A labelled divider above a panel; returns the space below it.
-fn section(f: &mut Frame, area: Rect, name: &str) -> Rect {
-    section_with(f, area, Line::from(vec![Span::styled(format!("{name} "), dim())]))
 }
 
 pub(in crate::tui) fn section_with(f: &mut Frame, area: Rect, title: Line<'static>) -> Rect {

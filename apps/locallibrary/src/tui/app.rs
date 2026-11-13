@@ -304,11 +304,13 @@ pub struct App {
     /// Keeps the terminal's late answers out of the keys.
     late_answers: LateAnswers,
     last_pos_ms: f64,
-    /// The Library view shows the deck in place of its panes.
+    /// Player mode: the Library view shows the deck in place of its panes. Saved as it was.
     pub deck_layout: bool,
-    /// Browse is open over the Deck layout: the panes are back until a track's loaded.
+    /// The tab player mode was opened from, to go back to when it closes.
+    pub player_from: Option<View>,
+    /// Browse is open over player mode: the panes are back until a track's loaded.
     pub browsing: bool,
-    /// The Deck layout: the pick among the tracks that mix into the playing one, to play next.
+    /// Player mode: the pick among the tracks that mix into the playing one, to play next.
     pub next_pick: ListState,
     pub help: bool,
     /// The help's row selected, among those `help_query` leaves.
@@ -521,6 +523,7 @@ impl App {
             late_answers: LateAnswers::default(),
             last_pos_ms: 0.0,
             deck_layout: false,
+            player_from: None,
             browsing: false,
             next_pick: ListState::default(),
             help: false,

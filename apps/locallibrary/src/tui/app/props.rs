@@ -7,8 +7,6 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use locallibrary::query::QueryContext;
 
-use crate::output::plural;
-
 use super::testing::*;
 use super::*;
 
@@ -1044,7 +1042,10 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 let mut t = track(9, "DJ", "Set");
                 t.file_path = set.display().to_string();
                 app.play_file(&set, t, Duration::from_millis(tc.draw(gs::integers::<u64>().max_value(300))));
-                assert_eq!(app.now.as_ref().map(|n| n.drive.as_str()), Some("recorded set"));
+                assert_eq!(
+                    app.now.as_ref().map(|n| (n.track.title.as_str(), n.root.as_path())),
+                    Some(("Set", set.parent().unwrap()))
+                );
                 assert!(!app.playing_queue());
                 // Played to its end (through the output it started on), it stops.
                 let t = Instant::now();
@@ -1177,7 +1178,8 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
         assert_eq!(order, (0..q.len()).collect::<Vec<_>>(), "the play order is the queue's tracks");
         assert!(q.is_empty() || q.pos < q.len());
         if let Some(now) = &app.now {
-            let theirs = app.playing_queue() || now.drive == "recorded set" || app.queue.root != now.root;
+            // A recorded set plays from its own folder, not the queue's drive.
+            let theirs = app.playing_queue() || app.queue.root != now.root;
             assert!(theirs, "{} plays, not the queue's", now.track.title);
         }
         if app.audio.is_none() {
@@ -1550,32 +1552,20 @@ fn the_player_says_what_it_knows_of_the_track(tc: TestCase) {
     assert_eq!(app.vis, vis[turns % 4]);
     let s = super::super::ui::screen(&mut app, 220, 60);
     let now = app.now.as_ref().unwrap();
-    let (t, a) = (&now.track, &now.analysis);
+    let t = &now.track;
     let says = |what: &str| s.contains(what);
     assert!(says(&t.title) && says(&t.artist));
     assert_eq!(says("Warp"), !t.label.is_empty(), "the label\n{s}");
     assert_eq!(says("1997"), t.year > 0, "the year\n{s}");
-    assert_eq!(says("“Peak time”"), !t.comment.is_empty(), "the comment\n{s}");
-    assert_eq!(says("composer Bangalter"), !t.composer.is_empty(), "the credits\n{s}");
+    // The comment and credits are the info panel's, not the deck's.
+    assert!(!says("“Peak time”") && !says("composer Bangalter"), "{s}");
     match now.key {
         Some(k) => assert!(says(&format!(" {} {} ", k.code(), k.note())), "the key\n{s}"),
         None if !t.key.is_empty() => assert!(says(&format!(" {} ", t.key)), "the key as stored\n{s}"),
         None => {}
     }
-    if !a.beats.is_empty() {
-        let tempo = if a.beats.iter().any(|b| b.bpm != 120.0) { "120.0–126.0 BPM" } else { "steady tempo" };
-        let (beats, bars) = (a.beats.len(), a.beats.len().div_ceil(4));
-        assert!(says(&format!("{} · {} · {tempo}", plural(beats, "beat"), plural(bars, "bar"))), "{s}");
-    }
-    if !a.cues.is_empty() {
-        let hot = a.cues.iter().filter(|c| c.hot_cue.is_some()).count();
-        let loops = a.cues.iter().filter(|c| c.end_ms.is_some()).count();
-        let memory = a.cues.len() - hot;
-        assert!(says(&format!("{} ({}) · {memory} memory", plural(hot, "hot cue"), plural(loops, "loop"))), "{s}");
-    }
-    if !now.phrases.is_empty() {
-        assert!(says(&plural(now.phrases.len(), "phrase")), "{s}");
-    }
+    // What the analysis found is on the waveforms: no panel counts it.
+    assert!(!says(" beats · ") && !says(" memory") && !says("steady tempo"), "{s}");
     if let Some((i, _, _)) = now.phrase_at(pos as f64) {
         let next = match now.phrases.get(i + 1) {
             Some(p) => format!("phrase  {} ", p.kind.name()),
