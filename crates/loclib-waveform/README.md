@@ -77,14 +77,48 @@ out. `flat: true` is for colours that can't be trusted to shade: what's played t
 attribute, nothing's tinted, and hot cues' letters are in reverse video. `color::{mix, scale, gradient}` is the colour arithmetic the widgets shade with, and
 `color::{luminance, contrast}` WCAG's.
 
+## A spectrum and a scope from audio
+
+With the `analyzer` feature, `analyzer::Analyzer` turns the samples being played into what
+`Spectrum` and `Scope` draw. Fed the latest samples once a frame, it keeps each spectrum's bands
+(log-spaced from 30 Hz to 16 kHz, rising fast and falling as a meter does, with peak caps that hold
+a moment, then drop), an overall `level`, and a `scope` trace that starts on a rising zero crossing
+so it stands still. One FFT a frame feeds every spectrum on screen, whatever its number of bands.
+Given `None` (paused, stopped), it all falls back to silence, and `is_idle` says when there's
+nothing left to move.
+
+```rust
+use loclib_waveform::analyzer::Analyzer;
+use loclib_waveform::{Palette, Spectrum, bar_layout};
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
+use ratatui::widgets::Widget;
+
+let area = Rect::new(0, 0, 60, 8);
+let (n, _, _) = bar_layout(area.width, false);
+let mut analyzer = Analyzer::default();
+// A frame's worth: the latest samples played (mono, a 440 Hz tone at 44.1 kHz) and the time since
+// the last frame.
+let latest: Vec<f32> = (0..4096).map(|i| (i as f32 * 0.0627).sin() / 2.0).collect();
+analyzer.update(Some(&latest), 44_100, &[n], 1.0 / 60.0);
+
+let bands = analyzer.bands(n).unwrap();
+assert!(bands.levels.iter().any(|&level| level > 0.3));
+let mut buf = Buffer::empty(area);
+Spectrum { bands: &bands.levels, peaks: &bands.peaks, mirror: false, tint: None, palette: Palette::default() }
+    .render(area, &mut buf);
+```
+
 ## Features
 
 - `image`: `Art`, decoding cover art (JPEG, PNG, WebP, BMP, GIF) and resampling it to cells.
+- `analyzer`: `analyzer::Analyzer`, the analysis behind a spectrum and a scope (an FFT, with
+  rustfft).
 
 ## What it doesn't do
 
-It draws what it's given. Reading analysis files, decoding audio, the FFT behind a spectrum,
-letting peak caps fall and laying the widgets out are up to you.
+It draws what it's given. Reading analysis files, decoding and playing audio and laying the widgets
+out are up to you.
 
 ## Licence
 

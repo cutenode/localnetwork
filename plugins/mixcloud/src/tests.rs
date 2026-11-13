@@ -26,7 +26,12 @@ fn set() -> PublishedSet {
 }
 
 fn entry(artist: Option<&str>, title: Option<&str>, start: Option<u32>) -> TracklistEntry {
-    TracklistEntry { artist: artist.map(Into::into), title: title.map(Into::into), start_seconds: start }
+    TracklistEntry {
+        artist: artist.map(Into::into),
+        title: title.map(Into::into),
+        start_seconds: start,
+        ..Default::default()
+    }
 }
 
 /// It reaches Mixcloud's API alone, publishes sets at one destination, asks for a Mixcloud account
@@ -140,6 +145,7 @@ fn any_set(tc: &TestCase, most: usize) -> (PublishedSet, String, Vec<TracklistEn
             artist: maybe(tc),
             title: maybe(tc),
             start_seconds: tc.draw(gs::optional(gs::integers::<u32>().max_value(4 * 3600))),
+            ..Default::default()
         })
         .collect();
     (set, tags.join(","), tracklist)
@@ -148,8 +154,8 @@ fn any_set(tc: &TestCase, most: usize) -> (PublishedSet, String, Vec<TracklistEn
 /// Whatever the set, the tags setting and the tracklist, the show is within what Mixcloud takes:
 /// a description of 1,000 characters, saying so when it's cut; the setting's tags, each once
 /// (whatever its case), in order, five at most, saying which were left out; and a section for each
-/// track in order, named, its time kept when it's after every time kept before it. Its form has
-/// exactly these fields, numbered from 0.
+/// track in order, named, its time kept when it's after every time kept before it; then what
+/// Mixcloud's rules say of the tracklist. Its form has exactly these fields, numbered from 0.
 #[hegel::test(test_cases = 300)]
 fn the_show_is_within_what_mixcloud_takes(tc: TestCase) {
     let (set, tags, tracklist) = any_set(&tc, 40);
@@ -197,6 +203,7 @@ fn the_show_is_within_what_mixcloud_takes(tc: TestCase) {
     }
     let note = format!("left the time off {left_off} of the tracks, each no later than a time before it");
     assert_eq!(s.notes.contains(&note), left_off > 0, "{:?}", s.notes);
+    assert!(s.notes.ends_with(&loclib_plugin::mixcloud::warnings(&tracklist)), "{:?}", s.notes);
 
     let fields: Vec<(String, String)> =
         s.fields().into_iter().map(|f| (f.name, f.value.expect("a field is text"))).collect();

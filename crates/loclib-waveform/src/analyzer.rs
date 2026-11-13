@@ -1,15 +1,15 @@
-//! Turns the playback tap into what the visualisers draw: log-spaced spectrum bands with
-//! falling peak caps, and a trigger-aligned oscilloscope trace. One FFT per frame feeds every
-//! spectrum on screen, each with its own number of bands.
+//! Turns the samples being played into what [`Spectrum`](crate::Spectrum) and
+//! [`Scope`](crate::Scope) draw: log-spaced spectrum bands with falling peak caps, and a
+//! trigger-aligned oscilloscope trace. One FFT per frame feeds every spectrum on screen, each with
+//! its own number of bands.
 
 use std::sync::Arc;
 
 use rustfft::num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
 
-use super::audio::Tap;
-
-const FFT_SIZE: usize = 4096;
+/// How many of the latest samples each update analyses (the transform's size).
+pub const FFT_SIZE: usize = 4096;
 const SCOPE_LEN: usize = 2048;
 const MIN_HZ: f32 = 30.0;
 const MAX_HZ: f32 = 16_000.0;
@@ -54,6 +54,7 @@ impl Bands {
     }
 }
 
+/// The analysis behind a player's spectra and scope, fed what it plays once a frame.
 pub struct Analyzer {
     fft: Arc<dyn Fft<f32>>,
     window: Vec<f32>,
@@ -69,7 +70,6 @@ pub struct Analyzer {
     pub scope: Vec<f32>,
     /// Overall loudness, 0-1, smoothed.
     pub level: f32,
-    last_written: usize,
 }
 
 impl Default for Analyzer {
@@ -92,22 +92,23 @@ impl Default for Analyzer {
             sets: Vec::new(),
             scope: vec![0.0; SCOPE_LEN / 2],
             level: 0.0,
-            last_written: 0,
         }
     }
 }
 
 impl Analyzer {
     /// Advance by `dt` seconds, keeping a set of bands for each count in `band_counts` (one per
-    /// spectrum on screen). When nothing new was played (paused, stopped) the displays fall back to
-    /// silence.
-    pub fn update(&mut self, tap: &Tap, playing: bool, band_counts: &[usize], dt: f32) {
-        let written = tap.written();
-        let fresh = playing && written != self.last_written;
-        self.last_written = written;
-        if fresh {
-            tap.latest(&mut self.samples);
-            self.sample_rate = tap.sample_rate() as f32;
+    /// spectrum on screen). `latest` is the most recent samples played, mono, oldest first, at
+    /// `sample_rate`: the last [`FFT_SIZE`] of them are analysed, and fewer follow on from those
+    /// given before. When nothing new was played (`None`: paused, stopped) the displays fall back
+    /// to silence.
+    pub fn update(&mut self, latest: Option<&[f32]>, sample_rate: u32, band_counts: &[usize], dt: f32) {
+        let fresh = latest.is_some();
+        if let Some(latest) = latest {
+            let new = &latest[latest.len().saturating_sub(FFT_SIZE)..];
+            self.samples.copy_within(new.len().., 0);
+            self.samples[FFT_SIZE - new.len()..].copy_from_slice(new);
+            self.sample_rate = sample_rate as f32;
             self.update_scope();
             self.transform();
         } else {

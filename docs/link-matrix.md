@@ -4,7 +4,7 @@ Which public pages each kind of public page links to, whenever the data for the 
 
 The tests check every row marked `on main`. Each page type's checks are a module in [apps/web/src/lib/testing/link-matrix/](../apps/web/src/lib/testing/link-matrix/), and [link-matrix.svelte.test.ts](../apps/web/src/routes/link-matrix.svelte.test.ts) fails when a row marked `on main` has no check, or a check names a row that isn't. So a change that adds a missing link marks its row `on main` and adds its check, and a new page type adds a module.
 
-The status column says where main stands, read at [`fe5cadef`](https://github.com/cutenode/localnetwork/tree/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598), and the source links are pinned there:
+The status column says where main stands, read at [`fe5cadef`](https://github.com/cutenode/localnetwork/tree/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598), and the source links are pinned there. A row a later change put on main links its file as it is now:
 
 - **on main**: the link exists.
 - **missing**: both pages exist and the link doesn't.
@@ -63,7 +63,7 @@ Wherever a handle shows, it links to that profile. That's on main through `profi
 | Tracks in their sets                        | the tracks flag is on         | new page |                                                                                                                                                                                                                                        |
 | Followers and Following                     | always                        | new page |                                                                                                                                                                                                                                        |
 | Send an inquiry                             | they're a DJ                  | missing  | the form needs `?project=` [routes/dashboard/bookings/new/+page.server.ts:28](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/dashboard/bookings/new/%2Bpage.server.ts#L28) |
-| locallibrary                                | they're a DJ                  | missing  |                                                                                                                                                                                                                                        |
+| locallibrary                                | they're a DJ                  | missing  | only once they've published stats, under How they play [lib/components/DjStats.svelte](../apps/web/src/lib/components/DjStats.svelte)                                                                                                  |
 
 ## Act
 
@@ -80,7 +80,7 @@ Wherever a handle shows, it links to that profile. That's on main through `profi
 | Tracks in its sets            | the tracks flag is on     | new page |                                                                                                                                                                                                                                                              |
 | Followers and Following       | always                    | new page |                                                                                                                                                                                                                                                              |
 | Send an inquiry               | always                    | on main  | signed in only [routes/projects/\[slug\]/+page.svelte:70](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/projects/%5Bslug%5D/%2Bpage.svelte#L70)                                                 |
-| locallibrary                  | members published stats   | missing  | "From locallibrary" is unlinked text [lib/components/DjStats.svelte:177](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/lib/components/DjStats.svelte#L177)                                             |
+| locallibrary                  | members published stats   | on main  | "From locallibrary" under How they play [lib/components/DjStats.svelte](../apps/web/src/lib/components/DjStats.svelte)                                                                                                                                       |
 
 ## Party
 
@@ -184,6 +184,7 @@ One tab per kind. Each result links its page.
 | Parties, venues, events, sets, mixes | new page |                                                                                                                                                                                                                                                                                                                     |
 | Artists                              | missing  | artist search is its own page, `/artists`, reached from one button on Charts [routes/charts/+page.svelte:16](https://github.com/cutenode/localnetwork/blob/fe5cadefac6a3ab54ab995e1e4786b1fd93fc598/apps/web/src/routes/charts/%2Bpage.svelte#L16)                                                                  |
 | Tracks                               | new page |                                                                                                                                                                                                                                                                                                                     |
+| locallibrary                         | on main  | "Get locallibrary" under the Find DJs header [routes/projects/+page.svelte](../apps/web/src/routes/projects/+page.svelte)                                                                                                                                                                                           |
 
 ## Followers and Following
 

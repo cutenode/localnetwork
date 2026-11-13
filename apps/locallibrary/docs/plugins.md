@@ -87,7 +87,8 @@ are:
   (else its venue and date), in YouTube's category for music, and the tracklist is the
   description, a `05:30 Artist - Title` line a track, the first at `00:00`: YouTube makes those
   chapters when there are three or more, in order, each at least ten seconds long, so a time that
-  would break that is left off its line (the dry run says how many). Who can watch it is the
+  would break that is left off its line (the dry run says how many). `sets export SET --format
+  youtube` writes the same description, to paste. Who can watch it is the
   `privacy` setting, `unlisted` unless you set `private` or `public`. Sign in first with
   `locallibrary account google sign-in --for youtube`: it asks Google only to upload videos.
   The video goes in 16 MiB parts, and one that doesn't arrive is sent again from where YouTube got
@@ -118,8 +119,11 @@ are:
   publish again.
 
   Mixcloud licenses the music in DJ mixes, so the artists you play get paid royalties, under
-  rules for what a show may play that `sets export SET --format mixcloud` checks. A free account
-  keeps 10 shows published at once: to publish another, move an older one to your drafts, or go
+  rules for what a show may play: no copyrighted music under 15 minutes, and over that at most 3
+  tracks from one release (2 in a row) and 4 by one artist (3 in a row), or only subscribers can
+  listen. Publishing (its dry run too) warns about each rule a set breaks, as `sets export SET
+  --format mixcloud` does, counting only the tracks it names where the export counts them all. A
+  free account keeps 10 shows published at once: to publish another, move an older one to your drafts, or go
   Pro ([Mixcloud](https://www.mixcloud.com/blog/2026/10/21/what-are-unlimited-uploads-and-why-do-they-matter/)).
   And listeners without Premium can rewind a show only a few times an hour
   ([Mixcloud](https://help.mixcloud.com/hc/en-us/articles/360004054059)).

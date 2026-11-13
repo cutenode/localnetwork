@@ -5,9 +5,15 @@
 //! the DJ's profile `ID - ID` (see [`SetEntry::may_name`]), as tracklists write a track nobody's
 //! named. CSV and M3U8 are for the DJ: they name every track, and CSV says which the set marks
 //! unnamed in its last column. M3U8 only lists the files.
+//!
+//! YouTube's description and Mixcloud's checks are the ones the youtube and mixcloud plugins
+//! publish with ([`loclib_plugin::youtube`], [`loclib_plugin::mixcloud`]), so what's pasted is
+//! what would be uploaded.
 
 use loclib_model::audio::Format;
+use loclib_plugin::{mixcloud, youtube};
 use rustc_hash::FxHashMap;
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use schemars::JsonSchema;
@@ -17,7 +23,7 @@ use serde_json::json;
 use super::{Set, SetEntry, chapters};
 use crate::export::{Locator, csv_line, numbered, one_line};
 use crate::mix::export::UNNAMED;
-use crate::model::{Library, Track, artist_credits, normalize};
+use crate::model::{Library, Track};
 use crate::profile::ProfilePrefs;
 use crate::{Error, Result};
 
@@ -75,10 +81,16 @@ pub(crate) fn render(
                 }
                 None => public_name(e, prefs),
             }),
-            mixcloud_check(set),
+            // Every track counts, named or not: the rules are about the music played.
+            mixcloud::warnings(&set.tracklist(&BTreeSet::new())),
         ),
         SetFormat::Cue => cue(set, prefs)?,
-        SetFormat::Youtube => youtube(set, prefs)?,
+        SetFormat::Youtube => {
+            // How long the recording is, when it's on this computer: no chapter starts in its
+            // last ten seconds. The youtube plugin reads it with ffprobe, to the same second.
+            let length = set.recording.as_ref().and_then(|r| crate::probe::format(&r.path).ok()?.duration_secs);
+            return youtube(set, prefs, length.map_or(u32::MAX, |l| l as u32));
+        }
         SetFormat::Tracklists => (
             lines(&|e| match e.start_seconds {
                 Some(s) => format!("[{}] {}", clock(s), public_name(e, prefs)),
@@ -199,30 +211,14 @@ fn cue(set: &Set, prefs: &ProfilePrefs) -> Result<(String, Vec<String>)> {
     Ok((out, out_of_order(&starts)))
 }
 
-/// YouTube chapters: the first at 00:00 (YouTube insists), with a warning for each of its other
-/// rules broken (at least three, in order, each 10 seconds or longer).
-fn youtube(set: &Set, prefs: &ProfilePrefs) -> Result<(String, Vec<String>)> {
-    let mut starts = starts(set, "YouTube")?;
-    if let Some(first) = starts.first_mut() {
-        *first = 0;
-    }
-    let mut out = String::new();
-    for (e, &start) in set.tracks.iter().zip(&starts) {
-        let at = match hms(start) {
-            (0, m, s) => format!("{m:02}:{s:02}"),
-            _ => clock(start),
-        };
-        let _ = writeln!(out, "{at} {}", public_name(e, prefs));
-    }
-    let mut warnings = Vec::new();
-    if starts.len() < 3 {
-        warnings.push(format!("YouTube needs at least 3 chapters; this has {}", starts.len()));
-    }
-    warnings.extend(out_of_order(&starts));
-    for (i, w) in starts.windows(2).enumerate().filter(|(_, w)| w[1] > w[0] && w[1] - w[0] < 10) {
-        warnings.push(format!("chapter {} is {} seconds long; YouTube needs 10", i + 1, w[1] - w[0]));
-    }
-    Ok((out, warnings))
+/// The description the youtube plugin uploads for `set` with a recording `length` seconds long
+/// (see [`youtube::description`]), naming only the tracks `prefs` lets it, with its notes as the
+/// warnings.
+fn youtube(set: &Set, prefs: &ProfilePrefs, length: u32) -> Result<Rendered> {
+    let unnamed = set.unnamed(&[], prefs)?.positions;
+    let d = youtube::description(&set.tracklist(&unnamed), length);
+    let text = if d.text.is_empty() { d.text } else { d.text + "\n" };
+    Ok(Rendered { text, tracks: d.tracks, warnings: d.notes })
 }
 
 /// `chapters` as Podcasting 2.0 JSON chapters, version 1.2.0
@@ -257,70 +253,6 @@ fn csv(set: &Set) -> String {
         ];
         csv_line(&mut out, &row);
     }
-    out
-}
-
-/// Mixcloud's rules for a show: over 15 minutes, at most 3 tracks from one release (2 in a row)
-/// and 4 by one artist (3 in a row), or only subscribers can listen; under 15 minutes, no
-/// copyrighted music at all. The show's length is to the end of its last track when that has a
-/// start time (about the recording's), else its tracks' lengths added up.
-fn mixcloud_check(set: &Set) -> Vec<String> {
-    let length = match set.tracks.last() {
-        Some(SetEntry { start_seconds: Some(s), duration_secs, .. }) => s + duration_secs,
-        _ => set.tracks.iter().map(|e| e.duration_secs).sum(),
-    };
-    if length > 0 && length < 15 * 60 {
-        return vec![format!(
-            "it's {} minutes long: Mixcloud doesn't allow copyrighted music in uploads under 15 minutes",
-            length / 60
-        )];
-    }
-    let releases: Vec<Vec<String>> =
-        set.tracks.iter().map(|e| Some(e.album.clone()).filter(|a| !a.is_empty()).into_iter().collect()).collect();
-    let artists: Vec<Vec<String>> = set.tracks.iter().map(|e| artist_credits(&e.artist)).collect();
-    let mut out = limits(&releases, |r| format!("from {r:?}"), 3, 2);
-    out.extend(limits(&artists, |a| format!("by {a}"), 4, 3));
-    out
-}
-
-/// A warning for each name (a release or an artist; `tracks` holds each track's) on more than
-/// `most` tracks, and each run of more than `in_a_row` tracks one after another with it.
-fn limits(tracks: &[Vec<String>], what: impl Fn(&str) -> String, most: usize, in_a_row: usize) -> Vec<String> {
-    const LIMITED: &str = "before it limits the show to subscribers";
-    // Each name by its key, as first spelled: how many tracks have it, and where its run started.
-    let mut names: Vec<(String, String, usize, Option<usize>)> = Vec::new();
-    let mut runs = Vec::new();
-    // One past the last track ends every run.
-    for i in 0..=tracks.len() {
-        let credits = tracks.get(i).map(Vec::as_slice).unwrap_or_default();
-        let keys: Vec<String> = credits.iter().map(|c| normalize(c)).collect();
-        for (key, name, _, run) in names.iter_mut() {
-            if let Some(from) = run.take_if(|_| !keys.contains(key))
-                && i - from > in_a_row
-            {
-                runs.push(format!(
-                    "tracks {}-{i} are {}: Mixcloud allows {in_a_row} in a row {LIMITED}",
-                    from + 1,
-                    what(name)
-                ));
-            }
-        }
-        for (key, credit) in keys.into_iter().zip(credits) {
-            match names.iter_mut().find(|n| n.0 == key) {
-                Some((_, _, count, run)) => {
-                    *count += 1;
-                    run.get_or_insert(i);
-                }
-                None => names.push((key, credit.clone(), 1, Some(i))),
-            }
-        }
-    }
-    let mut out: Vec<String> = names
-        .iter()
-        .filter(|n| n.2 > most)
-        .map(|(_, name, count, _)| format!("{count} tracks {}: Mixcloud allows {most} {LIMITED}", what(name)))
-        .collect();
-    out.extend(runs);
     out
 }
 
