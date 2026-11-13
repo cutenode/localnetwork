@@ -20,7 +20,7 @@ pub use {
 #[cfg(feature = "dsp")]
 use {
     estimate::RATE,
-    loclib_mixid::audio::{self, Damaged, Resampler},
+    loclib_audio::{self as audio, Damaged, Resampler},
     loclib_progress::Ctx,
     serde::{Deserialize, Serialize},
     std::ops::ControlFlow,

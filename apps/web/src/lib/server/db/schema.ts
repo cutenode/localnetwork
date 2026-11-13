@@ -35,6 +35,7 @@ export interface Database {
 	epkDraft: EpkDraftTable;
 	sharedSpace: SharedSpaceTable;
 	spacePerson: SpacePersonTable;
+	performer: PerformerTable;
 	spaceInvite: SpaceInviteTable;
 	spaceInviteLink: SpaceInviteLinkTable;
 	spaceJoinRequest: SpaceJoinRequestTable;
@@ -339,6 +340,23 @@ export interface SpacePersonTable {
 	/** The invite, invite link or request they came in through. */
 	source: string | null;
 	createdAt: string;
+	updatedAt: string;
+}
+
+/** Who a performer's space is for, from the root's `computer.localnetwork.performer` record in it. */
+export interface PerformerTable {
+	spaceUri: string;
+	skey: string;
+	kind: 'act' | 'dj';
+	/** An act's, unique among acts; null for a DJ. */
+	slug: string | null;
+	/** A DJ's; null for an act. */
+	did: string | null;
+	/** The whole record, as JSON. */
+	record: string;
+	/** The project URIs it was before, as a JSON array. */
+	formerly: string;
+	cid: string;
 	updatedAt: string;
 }
 

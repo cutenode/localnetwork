@@ -30,10 +30,10 @@ use std::time::{Duration, Instant};
 
 use locallibrary::query::{FieldName, SortKey};
 use locallibrary::{DeviceInfo, api};
+use loclib_waveform::analyzer::Analyzer;
 use ratatui::widgets::{ListState, TableState};
 use uuid::Uuid;
 
-use super::analyzer::Analyzer;
 use super::audio::{self, Audio, Outputs};
 use super::browse::SavedNode;
 use super::choices::Hints;
@@ -280,6 +280,8 @@ pub struct App {
     pub shuffle: bool,
     pub repeat: Repeat,
     pub analyzer: Analyzer,
+    /// What the analyser is fed: the playing output's latest samples.
+    pub tap_reader: audio::TapReader,
     /// Hot cue pads and the rest of what the deck does (see `deck.rs`).
     pub deck: super::deck::Deck,
     pub vis: Vis,
@@ -500,6 +502,7 @@ impl App {
             shuffle: false,
             repeat: Repeat::Off,
             analyzer: Analyzer::default(),
+            tap_reader: Default::default(),
             deck: Default::default(),
             vis: Vis::Bars,
             deck_secs: 8.0,

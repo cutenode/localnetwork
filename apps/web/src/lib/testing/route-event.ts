@@ -1,6 +1,6 @@
 import type { Cookies } from '@sveltejs/kit';
 import { type Logger, silentLogger } from '#lib/server/logger.ts';
-import { FLAGS } from '#lib/server/flags/catalog.ts';
+import { flagsOff } from '#lib/testing/flags.ts';
 import type { FlagPreview, Flags, Viewer } from '#lib/types.ts';
 
 type MaybePromise<T> = T | Promise<T>;
@@ -85,7 +85,7 @@ export function routeEvent(init: RouteEventInit = {}) {
 	const locals = {
 		app: init.app ?? {},
 		viewer: init.viewer ?? null,
-		flags: { ...Object.fromEntries(FLAGS.map(({ key }) => [key, false])), ...init.flags },
+		flags: { ...flagsOff, ...init.flags },
 		flagPreview: init.flagPreview,
 		reauth: init.reauth,
 		sessionToken: init.sessionToken,

@@ -21,8 +21,8 @@ fn mixes_are_kept_by_their_absolute_path() {
 fn a_recording_on_the_drive_is_left_out_of_its_own_tracks() {
     use crate::mix::fingerprint::RATE;
     use crate::probe::tests::wav_of;
-    use loclib_mixid::test_util::synth;
     use loclib_model::test_util::track;
+    use loclib_testkit::audio::synth;
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("drive");
     std::fs::create_dir_all(root.join("Contents")).unwrap();
@@ -51,8 +51,8 @@ fn a_recording_on_the_drive_is_left_out_of_its_own_tracks() {
 fn a_ridden_pitch_fader_gives_the_speeds_it_went_between() {
     use crate::mix::fingerprint::RATE;
     use crate::probe::tests::wav_of;
-    use loclib_mixid::test_util::{resample, synth};
     use loclib_model::test_util::track;
+    use loclib_testkit::audio::{resample, synth};
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("drive");
     std::fs::create_dir_all(root.join("Contents")).unwrap();
@@ -638,8 +638,8 @@ fn recordings_are_every_mix_file_outside_hidden_folders(tc: TestCase) {
 #[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn a_set_on_a_drive_is_identified_as_its_tracks(tc: TestCase) {
     use crate::probe::tests::wav_of;
-    use loclib_mixid::test_util::synth;
     use loclib_model::test_util::track;
+    use loclib_testkit::audio::synth;
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("drive");
     std::fs::create_dir_all(root.join("Contents")).unwrap();

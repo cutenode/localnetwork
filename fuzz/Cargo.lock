@@ -2181,6 +2181,7 @@ dependencies = [
  "keyring-core",
  "libc",
  "loclib-analysis",
+ "loclib-audio",
  "loclib-equipment",
  "loclib-mixid",
  "loclib-model",
@@ -2242,11 +2243,22 @@ name = "loclib-analysis"
 version = "0.1.0"
 dependencies = [
  "indexmap",
+ "loclib-audio",
  "loclib-mixid",
  "loclib-model",
  "loclib-progress",
  "schemars",
  "serde",
+ "symphonia",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-audio"
+version = "0.1.0"
+dependencies = [
+ "loclib-model",
+ "loclib-progress",
  "symphonia",
  "thiserror 2.0.21",
 ]
@@ -2265,12 +2277,10 @@ dependencies = [
 name = "loclib-mixid"
 version = "0.1.0"
 dependencies = [
- "loclib-model",
+ "loclib-audio",
  "loclib-progress",
  "rustc-hash",
  "rustfft",
- "symphonia",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -2345,8 +2355,8 @@ name = "loclib-transcode"
 version = "0.1.0"
 dependencies = [
  "flacenc",
+ "loclib-audio",
  "loclib-equipment",
- "loclib-mixid",
  "loclib-progress",
  "lofty",
  "rubato",

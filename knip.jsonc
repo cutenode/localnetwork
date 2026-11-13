@@ -43,6 +43,7 @@
 				"content.ts!",
 				"downloaded-store.ts!",
 				"state-transfer.ts!",
+				"theme-prepaint.ts!",
 				"content.css!",
 				"svelte.config.ts",
 				"vitest.stryker.config.ts"

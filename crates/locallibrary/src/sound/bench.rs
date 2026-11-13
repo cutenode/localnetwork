@@ -148,7 +148,7 @@ pub fn bench(
         (Some(dir), _) => walkdir::WalkDir::new(dir)
             .into_iter()
             .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file() && loclib_mixid::audio::is_decodable(e.path()))
+            .filter(|e| e.file_type().is_file() && loclib_audio::is_decodable(e.path()))
             .filter_map(|e| Some((id_of(&e.file_name().to_string_lossy())?, e.into_path())))
             .collect(),
         (None, Some((device, _))) => stored

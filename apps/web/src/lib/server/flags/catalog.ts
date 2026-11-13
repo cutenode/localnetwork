@@ -30,7 +30,9 @@ export const flagDefinition = z
 				...flagFields,
 				type: z
 					.enum(['ops', 'permission'])
-					.describe('ops changes how the site runs, permission says who can use something. Both stay.')
+					.describe(
+						'ops changes how the site runs, permission says who can use something. Both stay. A kill switch is ops and named for its paused state, like pauseRecordingStream.'
+					)
 			})
 			.strict()
 	])

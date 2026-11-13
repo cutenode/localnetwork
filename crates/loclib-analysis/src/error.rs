@@ -4,9 +4,9 @@ use std::path::PathBuf;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// A file couldn't be read or decoded (loclib-mixid's error, as its decoder reports it).
+    /// A file couldn't be read or decoded (loclib-audio's error).
     #[error(transparent)]
-    Audio(#[from] loclib_mixid::Error),
+    Audio(#[from] loclib_audio::Error),
 
     /// The tempo and key analyzer or the loudness meter failed on audio that decoded.
     #[error("could not analyse {}: {message}", path.display())]
