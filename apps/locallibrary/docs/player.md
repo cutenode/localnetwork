@@ -196,9 +196,10 @@ needs.
   - The warning before a track ends is at 15, 30 (unless you change it), 45 or 60 seconds, or off.
   - Cover art can be turned off.
 - **Cover art**: the terminal's own graphics where it has them (kitty, iTerm2 or sixel), in half
-  blocks everywhere else, and a record for a track with none. There's no art with 16 colours or
-  ASCII icons, or inside tmux beyond half blocks. `LOCALLIBRARY_ART` names the graphics to use
-  (`kitty`, `iterm2`, `sixel`, `halfblocks`) when what's worked out is wrong.
+  blocks everywhere else, and a record for a track with none. A cover fills its space: a big one
+  is shrunk smoothly, and a small one grown in whole pixels, so it stays sharp. There's no art
+  with 16 colours or ASCII icons, or inside tmux beyond half blocks. `LOCALLIBRARY_ART` names the
+  graphics to use (`kitty`, `iterm2`, `sixel`, `halfblocks`) when what's worked out is wrong.
 - **Hot cue pads**: in player mode the number keys `1` to `8` play hot cues A to H the way a
   CDJ's pads do: the track jumps to the cue and plays (from pause too: a terminal can't tell when
   a key is let go, so there's no previewing while it's held). `'` turns the pads on in every view,
