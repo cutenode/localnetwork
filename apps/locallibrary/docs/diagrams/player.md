@@ -288,7 +288,8 @@ flowchart TD
     tap --> output["Output device"]
     looper --> playhead["Playhead"]
     playhead --> ui["UI: clock, waveforms, cues"]
-    tap --> vis["Visualisers"]
+    tap -->|"the latest samples, each tick"| analyzer["loclib-waveform's analyzer:<br/>spectrum bands, scope trace"]
+    analyzer --> vis["Visualisers"]
 ```
 
 Source: [`src/tui/audio.rs`](../../src/tui/audio.rs), [`src/tui/deck.rs`](../../src/tui/deck.rs), [`crates/loclib-waveform/src/analyzer.rs`](../../../../crates/loclib-waveform/src/analyzer.rs), [`src/tui/app/player.rs`](../../src/tui/app/player.rs), [`src/tui/app/playing.rs`](../../src/tui/app/playing.rs), [`src/tui/ui/player.rs`](../../src/tui/ui/player.rs)

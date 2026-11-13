@@ -280,7 +280,7 @@ The crates the binary and the core library link.
 flowchart LR
     bin["locallibrary binary<br/>apps/locallibrary"] --> core["Core library<br/>crates/locallibrary"]
     bin --> plugins["Built-in plugins<br/>plugins/, linked in"]
-    bin --> wave["loclib-waveform<br/>the player's widgets"]
+    bin --> wave["loclib-waveform<br/>the player's widgets, visualiser analysis"]
     bin --> sdk["loclib-plugin<br/>protocol, manifest, SDK"]
     core --> sdk
     core --> pdb["rekordbox-pdb<br/>export.pdb, vendored"]
