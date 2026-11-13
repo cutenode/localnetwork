@@ -16,6 +16,8 @@ import { EpkService } from '../services/epk';
 import { EpkViews } from '../services/epk-views';
 import { FollowService } from '../services/follows';
 import { HeldRecords } from '../services/held-records';
+import { performerListingSource } from '../services/performer-index';
+import { PerformerService } from '../services/performer-registry';
 import { PerformerSearch } from '../services/performers';
 import { PlannerService } from '../services/planner';
 import { ProfileService } from '../services/profiles';
@@ -136,8 +138,9 @@ export async function createTestServices(
 		resolve: async (did) => ({ handle: handles.get(did) ?? null })
 	});
 
-	const listings = new ListingWriter(core, options.listingSources ?? {});
+	const listings = new ListingWriter(core, { performer: performerListingSource(db), ...options.listingSources });
 	const sharedSpaces = new SharedSpaces(core, listings);
+	const performerRegistry = new PerformerService(core, sharedSpaces, projects);
 	const spaceJoins = new SpaceJoins(core, sharedSpaces, new RateLimiter(30, 30 / 60));
 	const heldRecords = new HeldRecords(core, requests, projects, new RateLimiter(30, 30 / 60));
 
@@ -189,6 +192,7 @@ export async function createTestServices(
 		profiles,
 		djListings,
 		performers,
+		performerRegistry,
 		viewer,
 		capable,
 		spaces

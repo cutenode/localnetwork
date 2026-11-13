@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use super::*;
-use crate::test_util::{resample, synth, wav_of};
+use loclib_testkit::audio::{resample, synth, wav_of};
 
 /// Rate the test signal is taken to be at: 44.1 kHz isn't a multiple of it, so a delay of
 /// whole samples here is a fraction of one there.

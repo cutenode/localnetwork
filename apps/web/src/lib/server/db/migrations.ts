@@ -491,6 +491,28 @@ export const migrations = {
 		async up(db) {
 			await sql.raw('ALTER TABLE feature_flag ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1').execute(db);
 		}
+	},
+	// Who each performer's space is for, from the root's performer record in it.
+	'015_performers': {
+		async up(db) {
+			await sql
+				.raw(
+					`CREATE TABLE performer (
+						space_uri TEXT PRIMARY KEY,
+						skey TEXT NOT NULL,
+						kind TEXT NOT NULL,
+						slug TEXT UNIQUE,
+						did TEXT,
+						record TEXT NOT NULL,
+						formerly TEXT NOT NULL,
+						cid TEXT NOT NULL,
+						updated_at TEXT NOT NULL
+					)`
+				)
+				.execute(db);
+			await sql.raw('CREATE INDEX performer_skey ON performer (skey)').execute(db);
+			await sql.raw('CREATE INDEX performer_did ON performer (did)').execute(db);
+		}
 	}
 } satisfies Record<string, Migration>;
 

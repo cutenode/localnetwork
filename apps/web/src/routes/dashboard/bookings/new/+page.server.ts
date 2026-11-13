@@ -2,6 +2,7 @@ import { isValidDid } from '@atproto/syntax';
 import { error, redirect } from '@sveltejs/kit';
 import { performerFacts } from '#lib/components/PerformerFacts.svelte';
 import { feeLevels, placeLabel, profileHref } from '#lib/format.ts';
+import { rkeyOf } from '#lib/server/atproto/spaces.ts';
 import { parseShow } from '#lib/server/forms/show.ts';
 import { act, requireViewer, stringValues, text } from '#lib/server/http.ts';
 import { takesInquiries } from '#lib/server/services/booking-performers.ts';
@@ -123,7 +124,7 @@ export const actions: Actions = {
 				message: text(form, 'message', 20_000)
 			});
 
-			return { skey: space.split('/').at(-1)! };
+			return { skey: rkeyOf(space) };
 		}, stringValues(form));
 
 		if ('skey' in result) redirect(303, `/dashboard/bookings/${result.skey}`);

@@ -1,7 +1,7 @@
 use std::io;
 use std::path::PathBuf;
 
-/// What can go wrong reading audio or matching a mix.
+/// What can go wrong reading or decoding audio, or in a sink that takes the samples.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
