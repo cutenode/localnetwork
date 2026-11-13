@@ -197,7 +197,7 @@ Each section, where it keeps what it sets, and who obeys it. An import writes ba
 flowchart LR
   Page["SoundCloud pages<br/>replace buttons, likes as a list"]
   Down["downloads<br/>email, name, mark"]
-  Badges["search badges"]
+  Badges["search badges<br/>switches, sites you add"]
   Look["appearance<br/>theme, title case"]
   Data["your data"]
   About["about<br/>version, report a bug"]
@@ -218,4 +218,4 @@ flowchart LR
   About --> Bug
 ```
 
-Source: [`src/lib/components/SettingsSheet.svelte`](../../src/lib/components/SettingsSheet.svelte), [`src/lib/settings.svelte.ts`](../../src/lib/settings.svelte.ts), [`src/lib/downloader.svelte.ts`](../../src/lib/downloader.svelte.ts), [`src/lib/components/StateTransfer.svelte`](../../src/lib/components/StateTransfer.svelte), [`src/lib/bug-report.ts`](../../src/lib/bug-report.ts)
+Source: [`src/lib/components/SettingsSheet.svelte`](../../src/lib/components/SettingsSheet.svelte), [`src/lib/settings.svelte.ts`](../../src/lib/settings.svelte.ts), [`src/lib/downloader.svelte.ts`](../../src/lib/downloader.svelte.ts), [`src/lib/search-sites.svelte.ts`](../../src/lib/search-sites.svelte.ts), [`src/lib/components/SearchSiteForm.svelte`](../../src/lib/components/SearchSiteForm.svelte), [`src/lib/components/StateTransfer.svelte`](../../src/lib/components/StateTransfer.svelte), [`src/lib/bug-report.ts`](../../src/lib/bug-report.ts)
