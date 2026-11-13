@@ -34,7 +34,7 @@
 			"measures": "Instructions `diff` runs on the 3,886-track fixture, under cachegrind."
 		},
 		"check": {
-			"limit": 1432534679,
+			"limit": 1432533374,
 			"unit": "instructions",
 			"measures": "Instructions `check` runs on the 3,886-track fixture, under cachegrind."
 		},
