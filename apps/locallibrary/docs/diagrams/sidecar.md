@@ -178,7 +178,7 @@ flowchart TD
     hub --> store["The store and settings<br/>store.gc, store.prune, settings.write, settings.import, settings.import_file, settings.import_published, players.set, players.clear"]
     hub --> jobs["Jobs<br/>refresh, prep"]
     hub --> publish["Publishing<br/>settings.publish, profile.publish, sets.publish"]
-    hub --> plugin["Plugins<br/>plugins.op, plugins.export, plugins.import, plugins.source, plugins.publish, plugins.provide, plugins.apply_fields, plugins.apply_analysis"]
+    hub --> plugin["Plugins<br/>plugins.op, plugins.command, plugins.export, plugins.import, plugins.source, plugins.publish, plugins.provide, plugins.apply_fields, plugins.apply_analysis"]
     copies ~~~ jobs
     edits ~~~ publish
     drive ~~~ plugin

@@ -19,9 +19,11 @@
 //! the host, see [`Plugins::begin_account_sign_in`]). They write records in the Atmosphere
 //! account, of the types their `atmosphere:write:` capabilities grant, through the host, which
 //! checks each against its Lexicon and has the user confirm it ([`RecordWrite`]). An operation's
-//! edits are planned and applied by the host as any edit plan is, and an exporter's overwrites are
-//! confirmed first. Answers too big for a message are files in a folder the host makes for each
-//! request (`scratch`), which it reads itself.
+//! edits are planned and applied by the host as any edit plan is, and an exporter's overwrites,
+//! and what a command planned first says it will do (see [`Plugins::plan_command`]), are confirmed
+//! first. Answers too big for a message are files in a folder the host makes for each request
+//! (`scratch`), which it reads itself; what a plugin keeps between requests goes in a folder of
+//! its own in the store (`plugins/<id>/data/`, its hooks' `data_dir`).
 //! Analyzers' values go to the [`crate::fields`] store, their beat grids, phrases and waveforms
 //! to its overlay store. What providers find for tracks, the host offers the user and makes the
 //! edits of itself (see [`Plugins::provide`]), as it does of what importers read (see
@@ -45,6 +47,7 @@ mod atmosphere;
 mod blobs;
 mod callbacks;
 mod checks;
+mod collection;
 mod commands;
 mod destinations;
 mod events;
@@ -66,7 +69,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use indexmap::IndexMap;
-use loclib_plugin::{Command, Context, Manifest, Operation, Selection, check_params};
+use loclib_plugin::{Command, Context, Manifest, Operation, Selection, Where, check_params};
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde_json::{Map, Value};
 
@@ -92,7 +95,7 @@ pub use checks::{
     CheckChange, CheckSettings, Fix, MAX_TIMEOUT, MIN_TIMEOUT, PluginFix, TIMEOUT, check_timeout, set_check_timeout,
     set_hosted,
 };
-pub use commands::CommandOutput;
+pub use commands::{CommandOutput, CommandPlanned, PluginCommand};
 pub use destinations::{SetPublish, SetPublished, StoreDestination, destination_spec};
 pub use events::{
     Event, MAX_SUGGESTED, PluginNotice, Suggestions, forget_suggested, keep_suggested, suggested, tracks_on,
@@ -116,6 +119,57 @@ use process::{Plugin, Slot};
 pub enum Cli<'a> {
     Command(&'a Command),
     Operation(&'a Operation),
+}
+
+impl<'a> Cli<'a> {
+    pub fn name(self) -> &'a str {
+        match self {
+            Cli::Command(c) => &c.name,
+            Cli::Operation(o) => &o.name,
+        }
+    }
+
+    pub fn title(self) -> &'a str {
+        match self {
+            Cli::Command(c) => &c.title,
+            Cli::Operation(o) => &o.title,
+        }
+    }
+
+    /// The JSON Schema of its params.
+    pub fn params(self) -> Option<&'a Value> {
+        match self {
+            Cli::Command(c) => c.params.as_ref(),
+            Cli::Operation(o) => o.params.as_ref(),
+        }
+    }
+
+    /// Its own place on the command line, if it has one.
+    pub fn cli(self) -> Option<&'a str> {
+        match self {
+            Cli::Command(c) => c.cli.as_deref(),
+            Cli::Operation(o) => o.cli.as_deref(),
+        }
+    }
+
+    /// Where its manifest offers it.
+    pub fn offered(self) -> &'a [Where] {
+        match self {
+            Cli::Command(c) => &c.offered,
+            Cli::Operation(o) => &o.offered,
+        }
+    }
+
+    /// Whether it's planned and confirmed before it changes anything: an operation, or a command
+    /// planned first.
+    pub fn planned(self) -> bool {
+        matches!(self, Cli::Operation(_) | Cli::Command(Command { plan: true, .. }))
+    }
+
+    /// Whether it's about the collection alone (`where = ["collection"]`): no drive is named.
+    pub fn collection_only(self) -> bool {
+        self.offered() == [Where::Collection]
+    }
 }
 
 /// How the app starts a plugin: a program and its arguments.
@@ -173,6 +227,9 @@ pub struct Options {
     /// How long a plugin has to answer a request it was asked to cancel, and to exit once it's
     /// stopped (idle, or at [`Plugins::shutdown`]), before it's killed.
     pub grace: Duration,
+    /// [`Options::grace`] for a long-running command (`long_running = true`), which may be writing
+    /// something big (a backup) it should tidy up before it answers.
+    pub long_grace: Duration,
     /// The most read callbacks one plugin may have under way at once: more are refused.
     pub callbacks: usize,
     /// The most tracks analysed at once.
@@ -239,6 +296,7 @@ impl Default for Options {
             idle: Duration::from_secs(60),
             handshake: Duration::from_secs(10),
             grace: Duration::from_secs(5),
+            long_grace: Duration::from_secs(60),
             callbacks: 8,
             analyses: 4,
             max_blobs: 512 << 20,

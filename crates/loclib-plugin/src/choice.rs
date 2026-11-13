@@ -1,5 +1,6 @@
 //! A question a hook asks the user before it can answer (feature `choose`): a view command answers
-//! [`crate::View::Choose`], an operation `{"choose": ...}` ([`crate::OpAnswer::Choose`]). The host
+//! [`crate::View::Choose`], an operation or a planned command's dry run `{"choose": ...}`
+//! ([`crate::OpAnswer::Choose`], [`crate::CommandPlanAnswer::Choose`]). The host
 //! shows the items, the user picks one (or, `multi`, any of them), and the host runs the same hook
 //! again with `params[param]` set to the item's value (a list of them). Further questions in
 //! `more` are asked in the same round, and the hook run again once with every param set.
@@ -139,6 +140,22 @@ impl Choice {
         }
         Value::Object(params)
     }
+}
+
+/// A plan's answer, read by its `choose` key rather than by trying each kind: a question when it
+/// has one (`choose` makes the answer), else the plan (`plan` makes it), so what's wrong with a
+/// plan is said as a plan's error.
+pub(crate) fn or_plan<'de, D, P, T>(d: D, choose: fn(Choice) -> T, plan: fn(P) -> T) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    P: serde::de::DeserializeOwned,
+{
+    let answer = Value::deserialize(d)?;
+    let read = match answer.get("choose") {
+        Some(asked) => Choice::deserialize(asked).map(choose),
+        None => P::deserialize(answer).map(plan),
+    };
+    read.map_err(serde::de::Error::custom)
 }
 
 #[cfg(test)]

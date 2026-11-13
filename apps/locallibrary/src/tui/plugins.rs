@@ -1,8 +1,10 @@
 //! Plugins in the player: their commands and operations in the palette, and in the menus their
 //! manifests say (`where`: the actions menu, `e`, for the tracks selected or a playlist, and the
-//! drive menu), a form for their params (see [`super::form`]), and each run in the background as
-//! any task is (esc stops one). A command's answer shows in a panel; an operation's plan is
-//! confirmed and applied as any edit is, and undone with `u`. A question either asks first is a
+//! drive menu; those about rekordbox's collection, which no menu is for, in the palette alone, run
+//! without a drive), a form for their params (see [`super::form`]), and each run in the background
+//! as any task is (esc stops one). A command's answer shows in a panel; an operation's plan, and a
+//! command's planned first, are confirmed as any plan is (the operation's then applied as any edit
+//! is, and undone with `u`). A question either asks first is a
 //! list to choose from (several, one after another), after which it runs again with the answers.
 //! Each plugin's settings are a form, kept in the store, with a switch for each of its services,
 //! and its access to the store's accounts is beside them, as is signing in to and out of those; a
@@ -29,8 +31,8 @@ use std::path::{Path, PathBuf};
 
 use locallibrary::Store;
 use locallibrary::op::AnyPlanned;
-use locallibrary::plugin::{Cli, CommandOutput, Offer, OpPlanned};
-use loclib_plugin::{Capability, Choice, Context, Partial, Setting, SettingType, View, Where};
+use locallibrary::plugin::{Cli, CommandOutput, CommandPlanned, Offer, OpPlanned};
+use loclib_plugin::{Capability, Choice, Command, Context, Mode, Partial, Setting, SettingType, View, Where};
 use serde_json::{Map, Value, json};
 
 use super::app::{App, Level, View as Screen};
@@ -57,18 +59,12 @@ pub struct Run {
 impl Run {
     /// Its title, as its manifest has it.
     pub fn title(&self) -> &'static str {
-        match self.hook {
-            Cli::Command(c) => &c.title,
-            Cli::Operation(o) => &o.title,
-        }
+        self.hook.title()
     }
 
     /// The JSON Schema of its params.
     pub fn params(&self) -> Option<&'static Value> {
-        match self.hook {
-            Cli::Command(c) => c.params.as_ref(),
-            Cli::Operation(o) => o.params.as_ref(),
-        }
+        self.hook.params()
     }
 }
 
@@ -92,7 +88,7 @@ impl Asking {
 }
 
 /// Every place a command or an operation may be offered: the palette offers them all.
-pub const EVERYWHERE: [Where; 3] = [Where::Track, Where::Playlist, Where::Drive];
+pub const EVERYWHERE: [Where; 4] = [Where::Track, Where::Playlist, Where::Drive, Where::Collection];
 
 /// A plugin's command or operation, as a menu offers it.
 pub struct Offered {
@@ -111,7 +107,7 @@ pub struct Offered {
 
 /// Plugins' commands and operations offered in a menu of one of `places`, as it offers them with
 /// a `drive` open or without one. An operation always needs a drive; a command, when its plugin
-/// reads one.
+/// reads one, unless it's about the collection alone.
 pub fn offered(drive: bool, places: &[Where]) -> Vec<Offered> {
     let Ok(plugins) = crate::plugins::host() else { return Vec::new() };
     let why = (!drive).then_some("open a drive first");
@@ -119,18 +115,19 @@ pub fn offered(drive: bool, places: &[Where]) -> Vec<Offered> {
     for m in plugins.manifests() {
         let c = &m.contributes;
         let reads = m.capabilities.iter().any(reads_drive);
-        let hooks = c.commands.iter().map(|x| (&x.name, &x.title, x.params.as_ref(), &x.offered, reads));
-        let hooks = hooks.chain(c.operations.iter().map(|x| (&x.name, &x.title, x.params.as_ref(), &x.offered, true)));
-        for (name, title, params, offered, needs_drive) in hooks {
+        let hooks = c.commands.iter().map(Cli::Command).chain(c.operations.iter().map(Cli::Operation));
+        for hook in hooks {
+            let offered = hook.offered();
             if !offered.iter().any(|w| places.contains(w)) {
                 continue;
             }
-            let asks = if properties(params).next().is_some() { "…" } else { "" };
+            let needs_drive = matches!(hook, Cli::Operation(_)) || (reads && !hook.collection_only());
+            let asks = if properties(hook.params()).next().is_some() { "…" } else { "" };
             all.push(Offered {
                 plugin: &m.id,
-                name,
+                name: hook.name(),
                 offered,
-                label: format!("{}{asks}", named(title)),
+                label: format!("{}{asks}", named(hook.title())),
                 by: &m.name,
                 unavailable: why.filter(|_| needs_drive).map(String::from),
             });
@@ -139,9 +136,17 @@ pub fn offered(drive: bool, places: &[Where]) -> Vec<Offered> {
     all
 }
 
+/// The plugin's command a plan of one planned first is (`<plugin>.command.<name>`), and the
+/// plugin's name.
+pub fn planned_command(operation: &str) -> Option<(&'static str, &'static Command)> {
+    let (plugin, name) = operation.split_once(".command.")?;
+    let m = crate::plugins::host().ok()?.manifest(plugin).ok()?;
+    Some((&m.name, m.contributes.commands.iter().find(|c| c.name == name && c.plan)?))
+}
+
 /// A title as the player names its own commands: its first letter lowercase, unless it starts a
 /// name in capitals (`M3U`).
-fn named(title: &str) -> String {
+pub(super) fn named(title: &str) -> String {
     let mut chars = title.chars();
     match (chars.next(), chars.next()) {
         (Some(first), Some(second)) if !second.is_uppercase() && !second.is_numeric() => {
@@ -440,6 +445,8 @@ impl App {
             return;
         };
         let context = target.map(|t| self.context(t)).unwrap_or_default();
+        // One about the collection alone runs on no drive.
+        let root = root.filter(|_| !hook.collection_only());
         let context = Context { drive: root.as_deref().and_then(|r| self.plugin_drive(r)), ..context };
         let run = Run { plugin, hook, root, context };
         match properties(run.params()).next() {
@@ -449,8 +456,9 @@ impl App {
     }
 
     /// Run a plugin's command with `params` in the background, what it answers showing once it's
-    /// done; or plan its operation, the plan to confirm showing once it's made. A question either
-    /// asks first is a list to choose from: answered, it runs again with the answer.
+    /// done; or plan its operation, or a command planned first, the plan to confirm showing once
+    /// it's made. A question any asks first is a list to choose from: answered, it runs again with
+    /// the answer.
     pub(super) fn run_plugin(&mut self, run: Run, params: Value) {
         let Ok(plugins) = crate::plugins::host() else { return };
         let again = run.clone();
@@ -458,6 +466,23 @@ impl App {
         let context = Context { drive: root.as_ref().map(|r| r.display().to_string()), ..context };
         let store_root = self.store_root.clone();
         match hook {
+            Cli::Command(command) if command.plan => {
+                self.task("Planning".into(), move |ctx| {
+                    let store = Store::open(&store_root).ok();
+                    let name = &command.name;
+                    let planned = plugins.plan_command(plugin, name, params.clone(), context, store.as_ref(), ctx);
+                    Ok(Box::new(move |app: &mut App| match planned {
+                        Ok(CommandPlanned::Choose { choose }) => {
+                            app.ask(Asking::Hook { run: again, params, choice: choose, answers: Vec::new() })
+                        }
+                        other => {
+                            let plan = other.and_then(CommandPlanned::plan).map(|p| Box::new(p) as Box<dyn AnyPlanned>);
+                            // On no drive, for one about the collection alone.
+                            app.planned(root.unwrap_or_default(), None, plan)
+                        }
+                    }))
+                });
+            }
             Cli::Command(command) => {
                 let title = command.title.clone();
                 self.task_showing(title.clone(), move |ctx, show| {
@@ -550,6 +575,16 @@ impl App {
             report.lines.extend(i.detail.map(|d| (Tone::Faint, format!("  {d}"))));
         }
         self.modal = Some(Modal::Report(report));
+    }
+
+    /// What a command planned first answered once its plan was applied (`report`, as JSON): a view
+    /// if it's a view command, else as any command's answer.
+    pub(super) fn show_planned_answer(&mut self, command: &Command, report: Value) {
+        let answer = match command.mode {
+            Mode::View => serde_json::from_value(report.clone()).map(CommandOutput::View),
+            Mode::Headless => Ok(CommandOutput::Headless(report.clone())),
+        };
+        self.show_answer(command.title.clone(), answer.unwrap_or(CommandOutput::Headless(report)));
     }
 
     /// What a command answered: nothing or a line of text as a message, a view in a panel

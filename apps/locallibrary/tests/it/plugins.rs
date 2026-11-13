@@ -17,6 +17,7 @@ mod destinations;
 mod events;
 mod imports;
 mod panels;
+mod plans;
 mod props;
 mod providers;
 mod refresh;

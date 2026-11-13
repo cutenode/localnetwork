@@ -21,6 +21,7 @@ use crate::{
 #[path = "../../examples/echo/plugin.rs"]
 mod echo;
 mod events;
+mod plans;
 
 /// The host's end of a plugin served on a thread, over pipes.
 struct Session {
@@ -117,6 +118,7 @@ fn hello_answers_who_the_plugin_is_and_ignores_unknown_features() {
         "net",
         "choose",
         "views",
+        "plans",
     ];
     let features = features.map(String::from).to_vec();
     assert_eq!(reply, HelloReply { protocol: PROTOCOL_VERSION.into(), plugin, features });
@@ -131,7 +133,7 @@ fn an_incompatible_protocol_is_refused() {
     for theirs in ["0.1.0", "1.2.0", "one"] {
         let e = s.call(method::HELLO, hello(theirs, &[])).unwrap_err();
         assert_eq!((e.code, e.kind()), (code::FAILED, Some("incompatible")), "{theirs}");
-        assert_eq!(e.message, format!("protocol {theirs:?} isn't compatible with 0.2.0"));
+        assert_eq!(e.message, format!("protocol {theirs:?} isn't compatible with {PROTOCOL_VERSION}"));
     }
     // Refused, it's still waiting for a hello.
     assert_eq!(s.call(method::DESCRIBE, json!({})).unwrap_err().message, "hello first");
@@ -442,7 +444,10 @@ fn a_source_answers_its_library_a_page_at_a_time() {
     };
     let s = start_with(manifest, Hooks::new().on(read));
     let reply: HelloReply = s.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
-    assert_eq!(reply.features, ["accounts", "analysis", "atmosphere", "sources", "blobs", "net", "choose", "views"]);
+    assert_eq!(
+        reply.features,
+        ["accounts", "analysis", "atmosphere", "sources", "blobs", "net", "choose", "views", "plans"]
+    );
     let mut paths = Vec::new();
     let mut cursor: Option<String> = None;
     loop {
@@ -466,7 +471,10 @@ fn a_source_answers_its_library_a_page_at_a_time() {
 fn a_hook_the_plugin_doesnt_implement_isnt_found() {
     let s = start(Hooks::new().on(echo::analyze_track));
     let reply: HelloReply = s.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
-    assert_eq!(reply.features, ["accounts", "analysis", "analyzers", "atmosphere", "blobs", "net", "choose", "views"]);
+    assert_eq!(
+        reply.features,
+        ["accounts", "analysis", "analyzers", "atmosphere", "blobs", "net", "choose", "views", "plans"]
+    );
     let track = json!({ "id": 1, "file_path": "/a.mp3", "audio_path": "/a.mp3" });
     for (method, params) in [
         (method::RUN_COMMAND, run("echo", json!({}), None)),
@@ -486,7 +494,7 @@ fn a_hook_the_plugin_doesnt_implement_isnt_found() {
     let reply: HelloReply = none.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
     assert_eq!(
         reply.features,
-        ["accounts", "analysis", "atmosphere", "blobs", "net", "choose", "views"],
+        ["accounts", "analysis", "atmosphere", "blobs", "net", "choose", "views", "plans"],
         "only the SDK's own"
     );
     none.stop();
@@ -678,6 +686,7 @@ fn hello_comes_first_and_then_the_plugin_describes_its_manifest(tc: TestCase) {
         "net",
         "choose",
         "views",
+        "plans",
     ];
     let features = features.map(String::from).to_vec();
     let greeting = HelloReply { protocol: PROTOCOL_VERSION.into(), plugin, features };

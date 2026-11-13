@@ -44,6 +44,31 @@ fn a_plugin_reads_no_roots() {
     assert_eq!(info, json!({ "result": { "name": "USB", "drives": [{ "id": 1 }] } }));
 }
 
+/// rekordbox's files are read by the host itself, not the app, for a plugin granted
+/// `collection:files` alone: where they are comes as it is, though it's in the temporary folder,
+/// which every other read says as `<temp>`. A copy outside the request's scratch folder is
+/// refused.
+#[test]
+fn a_plugin_with_collection_files_reads_where_rekordbox_is() {
+    let f = Fixture::new(|dir| vec![spec(dir, &granting(&["collection:files"]), &[])], Options::default());
+    let master = f._dir.path().join("rekordbox/master.db");
+    // SAFETY: nextest runs each test in a process of its own.
+    unsafe { std::env::set_var("LOCALLIBRARY_MASTERDB", &master) };
+    let at = call(&f, "collection.locations", json!({}))["result"].clone();
+    assert_eq!((at["master_db"].clone(), at["master_db_exists"].clone()), (json!(master), json!(false)));
+    let outside = call(&f, "collection.copy", json!({ "into": f._dir.path().join("copy.db") }))["error"].clone();
+    assert_eq!(outside["data"]["kind"], "invalid", "{outside}");
+    assert!(!f._dir.path().join("copy.db").exists());
+
+    let echo = Fixture::echo();
+    let denied = call(&echo, "collection.locations", json!({}))["error"].clone();
+    assert_eq!(denied["data"]["kind"], "denied");
+    assert_eq!(
+        denied["message"],
+        "collection.locations needs the collection:files capability, which the echo plugin doesn't have"
+    );
+}
+
 /// Nor where anything else is: a store's copies, a set's or a mix's recording (and its cover),
 /// rekordbox's collection or a drive last mounted are left out, and a mounted drive is said by its
 /// name, in a path or alone.

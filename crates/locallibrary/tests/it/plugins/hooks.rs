@@ -348,7 +348,10 @@ fn settings_are_checked_kept_and_handed_to_hooks() {
     let id = locallibrary::Device::open(&f.drive).unwrap().id().unwrap().to_string();
     // And the request's scratch folder (`blobs.rs`).
     assert!(context.as_object_mut().unwrap().shift_remove("scratch").is_some());
-    assert_eq!(context, json!({ "drive": id, "settings": { "greeting": "hi" } }));
+    // And its own folder, made before the request.
+    let data = f.store.root().join("plugins/echo/data");
+    assert!(data.is_dir());
+    assert_eq!(context, json!({ "drive": id, "settings": { "greeting": "hi" }, "data_dir": data }));
     // Kept as written: what no longer fits the setting (an older plugin's) is its default.
     let file = f.store.root().join("plugins/echo/settings.json");
     assert_eq!(serde_json::from_slice::<Value>(&std::fs::read(&file).unwrap()).unwrap(), json!({ "greeting": "hi" }));

@@ -37,14 +37,14 @@ pub use hooks::analyzers::{
 };
 pub use hooks::atmosphere::{PutRecord, is_nsid};
 pub use hooks::checks::{Check, CheckFinding, Findings, Fix, PlanCheck, RunCheck, When};
-pub use hooks::commands::{Command, Mode, RunCommand};
+pub use hooks::commands::{Command, CommandPlan, CommandPlanAnswer, Mode, RunCommand};
 pub use hooks::destinations::{
     Destination, DestinationKind, GetBlob, GetManifest, Got, GotManifest, HasBlobs, Kept, Missing, PublishSet,
     Published, PublishedSet, PutBlob, PutManifest, StrongRef, TracklistEntry,
 };
 pub use hooks::events::{
-    AnalyzeAction, DriveAction, EventName, EventNotify, ExportAction, FetchAction, HostAction, HostNotify, Listener,
-    MAX_SUGGESTED_PARAMS, MAX_SUGGESTED_TRACKS, Suggested, Suggestion,
+    AnalyzeAction, CommandAction, DriveAction, EventName, EventNotify, ExportAction, FetchAction, HostAction,
+    HostNotify, Listener, MAX_SUGGESTED_PARAMS, MAX_SUGGESTED_TRACKS, Suggested, Suggestion,
 };
 pub use hooks::exporters::{ExportFrom, ExportSource, ExportSources, Exported, ExportedFile, Exporter, WriteExport};
 pub use hooks::importers::{
@@ -72,8 +72,9 @@ pub use peer::{Incoming, Peer, Pending, Request};
 pub use protocol::*;
 pub use publishing::{clock, fit_lines, mixcloud, youtube};
 pub use reads::{
-    AnalysedTrack, ArtworkImage, DriveInfo, DriveReads, MAX_ANALYSES, MAX_IDS, MAX_IMAGES, PlaylistNode, PlaylistTree,
-    TrackArtwork, TracksAnalysis, TracksById, TracksQuery,
+    AnalysedTrack, ArtworkImage, CollectionCopy, CollectionLocations, CollectionReads, CollectionStatus,
+    CollectionTrack, CollectionTracks, DriveInfo, DriveReads, MAX_ANALYSES, MAX_IDS, MAX_IMAGES, PlaylistNode,
+    PlaylistTree, TrackArtwork, TracksAnalysis, TracksById, TracksQuery,
 };
 pub use sdk::{Hook, Hooks, Host, serve};
 pub use view::{ChartStyle, Column, ColumnKind, ListItem, Pair, Section, Series, TreeItem, TypedColumn, View};

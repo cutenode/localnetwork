@@ -256,6 +256,12 @@ impl Test {
                 std::thread::sleep(Duration::from_millis(10));
             }
         }
+        if req.dry_run {
+            return Ok(planned(&req));
+        }
+        if host.manifest().contributes.commands.iter().any(|c| c.name == req.command && c.plan) {
+            return ran(req, host);
+        }
         if p["context"] == true {
             return Ok(serde_json::to_value(&req.context).expect("a context is JSON"));
         }
@@ -643,6 +649,37 @@ fn checked(context: &Context, edits: &[Value], host: &Host) -> Result<Findings, 
 
 /// The question `p["ask"]` asks, while `p` doesn't answer it (has no value of its param), or
 /// with `ask_again` whatever it has.
+/// A planned command's plan: its `plan` param as it is, its summary the request (as JSON) unless it
+/// says one, and the question it asks (`choose`) left out once it's given the param.
+fn planned(req: &RunCommand) -> Value {
+    let p = &req.params;
+    let mut plan = p["plan"].clone();
+    if plan.get("summary").is_none() {
+        plan["summary"] = Value::from(serde_json::to_string(req).expect("a request is JSON"));
+    }
+    let asks = p["plan"]["choose"]["param"].as_str().is_some_and(|q| p.get(q).is_none());
+    if !asks && let Some(plan) = plan.as_object_mut() {
+        plan.remove("choose");
+    }
+    plan
+}
+
+/// A planned command, run: writes `written` to each file its plan said, waits until it's
+/// cancelled when its params say `wait`, and answers the request it ran with.
+fn ran(req: RunCommand, host: &Host) -> Result<Value, RpcError> {
+    let p = &req.params;
+    for path in p["plan"]["files"].as_array().into_iter().flatten().filter_map(|f| f["path"].as_str()) {
+        std::fs::write(path, "written").map_err(|e| RpcError::failed("io", e.to_string()))?;
+    }
+    if p["wait"] == true {
+        loop {
+            host.ctx().check()?;
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    Ok(json!({ "request": req }))
+}
+
 fn asked(p: &Value) -> Option<Choice> {
     let choice: Choice = serde_json::from_value(p.get("ask")?.clone()).ok()?;
     (p.get(&choice.param).is_none() || p["ask_again"] == true).then_some(choice)

@@ -5697,6 +5697,14 @@ export type HostAction =
     name: "analyze";
     params: AnalyzeAction;
   }
+  /**
+   * Run one of its commands with these params, as from a menu where the user is: one planned
+   * first (`plan = true`) is planned and confirmed as any.
+   */
+  | {
+    name: "command";
+    params: CommandAction;
+  }
   /** Save a drive in the store as a snapshot (`locallibrary pull`). */
   | {
     name: "pull";
@@ -5746,6 +5754,14 @@ export type AnalyzeAction = {
   drive: string;
   /** Only these tracks, by id [default: every one]. */
   tracks?: number[];
+};
+
+/** `command`'s params. */
+export type CommandAction = {
+  /** One of the plugin's commands. */
+  command: string;
+  /** As the command's `params` schema says. */
+  params?: { [key: string]: unknown };
 };
 
 /** `pull`'s and `sync`'s params. */
@@ -8786,6 +8802,16 @@ export type Command = {
   mode: Mode;
   /** Where hosts offer it (see [`Where`]). */
   where: Where[];
+  /**
+   * Planned first: the host asks for a dry run, shows its plan ([`CommandPlan`]) and runs it
+   * only once the user confirms.
+   */
+  plan?: boolean;
+  /**
+   * Running it takes a while: hosts show its progress and offer to stop it, and give it longer
+   * to stop once asked before they kill the plugin.
+   */
+  long_running?: boolean;
   /** A JSON Schema for its params (an object). */
   params?: unknown;
   /** Its own place on the command line (see [`Operation::cli`]). */
@@ -8800,9 +8826,16 @@ export type Mode =
 
 /**
  * Where a host offers a command or an operation: in the menu of the tracks selected, of a
- * playlist, or of a drive. A host's palette has every one.
+ * playlist, or of a drive; or, for a command alone, with what's about rekordbox's collection on
+ * this computer rather than a drive (`collection`). A host's palette has every one.
  */
-export type Where = "track" | "playlist" | "drive";
+export type Where =
+  | ("track" | "playlist" | "drive")
+  /**
+   * About this computer's rekordbox collection, not a track, a playlist or a drive: run without
+   * one (a backup of the collection, say). Commands only: an operation edits a drive.
+   */
+  | "collection";
 
 /**
  * `[[contributes.destinations]]`: somewhere the user copies their store to (`store`), or
@@ -9270,6 +9303,36 @@ export type Section = {
   view: View;
 };
 
+/**
+ * What planning a plugin's command comes to: its plan, or a question for the user first, after
+ * which it's planned again with each of its params set ([`Choice::answered`]).
+ */
+export type CommandPlanned = {
+  choose: PluginChoice;
+} | (PluginCommand & PlanFields);
+
+/** A plugin's command, planned: what it said it would do, to run once confirmed. */
+export type PluginCommand = {
+  plugin: string;
+  command: string;
+  /** The files it would write, as the plugin says, each with whether it's there already. */
+  files: ExportFile[];
+};
+
+/**
+ * A file an export (or a planned command) writes, as the plugin says, and whether it's there
+ * already (and so overwritten).
+ */
+export type ExportFile = {
+  /** Absolute, below the export's `output`. */
+  path: string;
+  /** What it holds, in a few words (`Traktor collection`). */
+  what?: string;
+  /** Its size, as far as it's known before it's written. */
+  bytes: number;
+  exists: boolean;
+};
+
 /** A set a plugin will publish, as its dry run said. */
 export type SetPublish = {
   plugin: string;
@@ -9320,20 +9383,6 @@ export type PluginExport = {
    * are the plan's warnings.)
    */
   notes: string[];
-};
-
-/**
- * A file an export writes, as the plugin says, and whether it's there already (and so
- * overwritten).
- */
-export type ExportFile = {
-  /** Absolute, below the export's `output`. */
-  path: string;
-  /** What it holds, in a few words (`Traktor collection`). */
-  what?: string;
-  /** Its size, as far as it's known before it's written. */
-  bytes: number;
-  exists: boolean;
 };
 
 /** What `export/write` answers. */
@@ -10523,6 +10572,10 @@ export interface Methods {
   "plugins.apply_analysis.apply": { params: ApplyPlan | (ApplyAnalysis & WriteOptions); result: EditReport };
   /** read method; long running: sends `progress`, can be cancelled */
   "plugins.run": { params: RunPluginCommand; result: CommandOutput };
+  /** plan method; paired with `plugins.command.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.command.plan": { params: RunPluginCommand & WriteOptions; result: CommandPlanned };
+  /** apply method; paired with `plugins.command.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.command.apply": { params: ApplyPlan | (RunPluginCommand & WriteOptions); result: CommandOutput };
   /** immediate method; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.store.copy": { params: CopyTo & WriteOptions; result: CopyReport };
   /** immediate method; long running: sends `progress`, can be cancelled */

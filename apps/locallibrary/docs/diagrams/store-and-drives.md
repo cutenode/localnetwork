@@ -67,7 +67,7 @@ flowchart TD
     hub --> worked["Worked out, kept to save time<br/>cache/, reports/, profile-document.json"]
     hub --> player["The player<br/>tui.json"]
     hub --> art["art embed's copies<br/>embed-backups/"]
-    hub --> plugins["Plugins<br/>plugins/ID/work/, scratch/, settings.json, plugins/settings.json, suggested.json, seen.json"]
+    hub --> plugins["Plugins<br/>plugins/ID/work/, plugins/ID/data/, scratch/, settings.json, plugins/settings.json, suggested.json, seen.json"]
     hub --> accounts["Accounts<br/>atmosphere.json, accounts.json, and without a keychain atmosphere-session.json, secrets/"]
     hub --> copies["Its copies<br/>copies.json, and copy.json in a copy"]
     hub --> locks["Locks<br/>lock, drives.lock, accounts.lock, atmosphere.lock, views.lock, accounts/, plugins/suggested.lock, each scratch folder's .lock"]

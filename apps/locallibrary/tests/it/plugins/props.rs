@@ -31,7 +31,7 @@ fn toml(v: &Value) -> String {
 }
 
 /// Every capability a manifest can name but `net:<host>`.
-const CAPABILITIES: [&str; 21] = [
+const CAPABILITIES: [&str; 22] = [
     "library:read",
     "analysis:read",
     "artwork:read",
@@ -43,6 +43,7 @@ const CAPABILITIES: [&str; 21] = [
     "sets:read",
     "account:status",
     "collection:read",
+    "collection:files",
     "library:plan",
     "library:delete",
     "tags:plan",
@@ -1754,8 +1755,14 @@ fn the_sidecar_hosts_plugins_as_the_command_line_does(tc: TestCase) {
     }
     let ran = json!({ "plugin": id, "command": "ask", "params": { "context": true }, "context": context });
     let mut got = answer(&mut s, call, "plugins.run", ran).unwrap();
-    // And a scratch folder of its own.
-    assert!(got.as_object_mut().unwrap().shift_remove("scratch").is_some_and(|s| s.is_string()));
+    // And a scratch folder of its own, and its folder for what it keeps when there's a store.
+    let kept = got.as_object_mut().unwrap();
+    assert!(kept.shift_remove("scratch").is_some_and(|s| s.is_string()));
+    let data = kept.shift_remove("data_dir").map(|d| std::path::PathBuf::from(d.as_str().unwrap()));
+    assert!(
+        data.as_ref().is_none_or(|d| d.ends_with(std::path::Path::new("plugins").join(&id).join("data"))),
+        "{data:?}"
+    );
     assert_eq!(got, Value::Object(given));
     let e = answer(&mut s, call, "plugins.run", json!({ "plugin": id, "command": "nope" })).unwrap_err();
     assert_eq!(e["kind"], "not_found");

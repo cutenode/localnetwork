@@ -193,9 +193,11 @@ clashing with each other are both left out.
 ## Where they show up
 
 On the command line, what a plugin adds runs as commands of its own or of locallibrary's
-(`analyze`, `export --format`, `import`, `art fetch`). In the player (`locallibrary tui`) it's in the
-palette (`:`), and a drive's menu or the actions menu (`e`) where it works on a drive, tracks or a
-playlist, with a form for what it takes, a param the plugin fills from what's selected (the
+(`analyze`, `export --format`, `import`, `art fetch`), and `locallibrary collection --help` lists
+the commands about rekordbox's collection on this computer. In the player (`locallibrary tui`) it's
+in the palette (`:`), and a drive's menu or the actions menu (`e`) where it works on a drive, tracks
+or a playlist (one about the collection is in the palette alone, and needs no drive open), with a
+form for what it takes, a param the plugin fills from what's selected (the
 tracks, the playlist, the drive) starting as it (see [the player](player.md)). The sidecar has all of it for desktop apps as
 `plugins.*` methods (see [Building a GUI](sidecar.md)).
 
@@ -386,7 +388,14 @@ shows what it answers as a list or a table (its rows as they come, when the plug
 labelled values, a tree, a chart (as a table of its points), a picture (said in words) or
 sections of those, or as text or JSON when it answers a plain value (`--json`: as it is, a
 picture as a PNG `data:` URL); an operation shows its plan
-and asks first, like any edit (`--dry-run`, `--yes`), and `locallibrary undo` takes it back.
+and asks first, like any edit (`--dry-run`, `--yes`), and `locallibrary undo` takes it back. A
+command the plugin plans first (one that writes files, like a backup) does too: it says what it
+would do and which files it would write (those there already marked, since it replaces them), asks,
+and only then runs (`--dry-run` stops at the plan, `--yes` doesn't ask, and without a terminal or
+with `--json` it doesn't run unless `--yes`); once a file it would write changes, it's planned
+again. One about rekordbox's collection takes no drive. A command that takes a while shows its
+progress and stops on Ctrl-C (esc in the player), and gets a minute to tidy up before it's stopped
+for it.
 Either may ask you something first (which track an entry is, say), or several things at once
 (which track each of a tracklist's entries is): in a terminal you pick from a numbered list for
 each; otherwise, or with `--json`, it stops and says how to answer each with `--choose
@@ -441,10 +450,12 @@ is dropped, and its log says so), so a slow plugin never holds up the player, th
 A plugin may tell you something back, from an event or a service, and suggest one of its own
 operations, or one of locallibrary's own flows on what it contributes: fetching cover art or track
 details from its providers (`art.fetch`, `track.fetch`), exporting in one of its formats
-(`export`) or running one of its analyzers (`analyze`), on a drive known here it names (never a
+(`export`), running one of its analyzers (`analyze`) or one of its commands (`command`), on a
+drive known here it names (never a
 path: one locallibrary doesn't know, the suggestion is left out) and the tracks of it that drive
 has. The player shows it as a message, and "review: ..." in the palette plans the operation,
-shown and asked about as any is, or opens the flow as if you'd started it, filled in: the fetch
+shown and asked about as any is, runs one of its commands as from the palette (`command`: one it
+plans first is shown and asked about), or opens the flow as if you'd started it, filled in: the fetch
 form only from its providers to start with, saying which drive and how many tracks; the export
 form with its options and a set's own name for the file (where it goes is yours to pick, as
 always); or a question before analyzing. The player doesn't export mixes, so it says so for a
@@ -633,7 +644,12 @@ kind of hook it has, `host.drive(drive)` to read a drive (the library, tracks by
 query, playlists, analysis, artwork and `drive.info`, each read whole however locallibrary pages
 it), `host.fetch(..)` to go online, `host.put_record(..)` to write an [Atmosphere
 record](#atmosphere-records) and `host.partial_rows(..)` to send a view's rows as they're ready. A command or an operation may answer a question for you (`Choice`) instead, or several
-at once (`Choice::together`), and is run again with your answers as its params. A view (a
+at once (`Choice::together`), and is run again with your answers as its params. A command with
+`plan = true` answers its plan (`CommandPlan`: a summary, warnings and the files it would write)
+when it's asked for a dry run, and is run with the same request once you confirm; one with
+`long_running = true` is shown with its progress. `where = ["collection"]` puts a command with
+rekordbox's collection rather than on a drive, and `context.data_dir` is the plugin's own folder
+for what it keeps (`plugins/ID/data/` in the store). A view (a
 command's, a panel's) is any of loclib-plugin's kinds, each with a plain text form for a host
 that can't draw it, and a theme is a table of colours in the manifest. `Hooks::on_event`
 handles events, a service is a hook that runs until it's cancelled, and `host.notify(..)` tells
@@ -648,9 +664,14 @@ bounded size. Those are the drives known here, and the one a hook under way runs
 opened by path too, named as the hook's context names it, until the hook is done. What it gets back, errors too, doesn't say where things are on this computer:
 a drive is said by its name, where the store's copies, a set's or a mix's recording and
 rekordbox's collection are is left out, and any other path is said from its drive, the store
-(`<store>`) or your home folder (`~`). An exporter alone is told where the drive it exports is, as
+(`<store>`) or your home folder (`~`). A plugin with `collection:files` is told where rekordbox's
+own files and its tracks' audio are, as backing them up needs, and can read them: its database and settings hold your
+rekordbox and Dropbox sign-in tokens. locallibrary still never writes to rekordbox's folders, and
+the copy of rekordbox's database it makes for the plugin leaves the cloud agent's sign-in out
+unless the plugin asks for it. An exporter alone is told where the drive it exports is, as
 the files it writes name the audio there, and an importer only where the file it reads is. None is started from a process running as an administrator or
-root, and each runs in a folder of its own in the store (`plugins/ID/work/`). One that stops
+root, and each runs in a folder of its own in the store (`plugins/ID/work/`), keeping what it
+needs between runs in another (`plugins/ID/data/`), which locallibrary makes and never removes. One that stops
 answering is stopped, and started again the next time it's needed. What a plugin says (its
 manifest, its answers, its errors and what it tells you) is shown without control characters or
 terminal escape sequences, a newline or a tab as a space (but in a text view, or a command's

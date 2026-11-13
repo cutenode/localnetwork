@@ -537,7 +537,7 @@ impl Slot {
             )));
         }
         let (base, temp) = match store {
-            Some(store) => (store.root().join("plugins").join(&self.manifest.id), None),
+            Some(store) => (self.folder(store), None),
             None => {
                 let temp = std::env::temp_dir();
                 let made = tempfile::Builder::new()
@@ -589,6 +589,25 @@ impl Slot {
         let child = Mutex::new(child);
         let scratch = base.join("scratch");
         Ok(Process { child, peer, activity, dead, grace, live, scratch, _temp: temp })
+    }
+
+    /// The plugin's folder in `store`: `<store>/plugins/<id>/`.
+    fn folder(&self, store: &Store) -> PathBuf {
+        store.root().join("plugins").join(&self.manifest.id)
+    }
+
+    /// How long a request asked to stop has to answer before the plugin is killed: a long-running
+    /// command's [`Options::long_grace`](super::Options::long_grace), so it can tidy up what it
+    /// was writing, else [`Options::grace`](super::Options::grace).
+    fn grace(&self, method: &str, params: &Value) -> Duration {
+        let command = params["command"].as_str();
+        let commands = &self.manifest.contributes.commands;
+        let long = method == method::RUN_COMMAND
+            && commands.iter().any(|c| Some(c.name.as_str()) == command && c.long_running);
+        match long {
+            true => self.host.options.long_grace,
+            false => self.host.options.grace,
+        }
     }
 
     /// `hello`, then `describe`: it must speak the protocol, be the plugin its manifest says, and
@@ -659,7 +678,9 @@ impl Slot {
     }
 
     /// [`Slot::call`], the hook's `params.context` given a scratch folder of its own (with the
-    /// `blobs` feature), the view's rows it sends in parts shown with `shown` as they come, and
+    /// `blobs` feature) and, with a store, the plugin's folder for what it keeps
+    /// (`<store>/plugins/<id>/data/`, made first), the view's rows it sends in parts shown with
+    /// `shown` as they come, and
     /// its answer read by `read` with the files it left in that folder (see [`Scratch::blob`]),
     /// which is removed after, and what the process has (its features). A folder holding more
     /// than [`Options::max_blobs`] fails the call.
@@ -708,6 +729,12 @@ impl Slot {
         if let Some(dir) = scratch.dir() {
             params["context"]["scratch"] = Value::from(dir.to_string_lossy().into_owned());
         }
+        if let Some(store) = store {
+            let data = self.folder(store).join("data");
+            std::fs::create_dir_all(&data).at(&data)?;
+            params["context"]["data_dir"] = Value::from(data.to_string_lossy().into_owned());
+        }
+        let grace = self.grace(method, &params);
         let pending = p.peer.send_request_reporting(method, &params).map_err(|e| self.error(&p, e))?;
         if let Some(reporter) = pending.reporter() {
             scratch.report_to(reporter);
@@ -736,8 +763,8 @@ impl Slot {
                 let (peer, id) = (p.peer.clone(), pending.id());
                 std::thread::spawn(move || peer.notify(method::CANCEL, &Cancel { id: id.into() }));
             }
-            if cancelled.is_some_and(|at| at.elapsed() >= self.host.options.grace) {
-                self.kill(&p);
+            if cancelled.is_some_and(|at| at.elapsed() >= grace) {
+                self.kill(&p, grace);
                 return Err(Error::Cancelled);
             }
         }
@@ -760,9 +787,8 @@ impl Slot {
         Ok(())
     }
 
-    /// Kills the process: a request it was asked to cancel wasn't answered within its grace.
-    fn kill(&self, p: &Arc<Process>) {
-        let grace = self.host.options.grace;
+    /// Kills the process: a request it was asked to cancel wasn't answered within its `grace`.
+    fn kill(&self, p: &Arc<Process>, grace: Duration) {
         self.host.log(&self.manifest.id, &format!("killed: it didn't stop within {grace:?} of being asked to"));
         p.dead.store(true, Ordering::SeqCst);
         let _ = lock(&p.child).kill();

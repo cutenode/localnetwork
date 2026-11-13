@@ -8,7 +8,10 @@
 //! it fetched into a blob; with `orphan`, one a process it starts sends, see `--orphan`), sends
 //! lines later from a process it starts (`late`, see `--late`) or
 //! sends its rows in parts (`partial`, `partial_items`) when its
-//! params say so; its operation answers the `edits` (and `inputs`) it's given; both ask the
+//! params say so; a command planned first answers its dry run with its `plan` param (its summary
+//! the request as JSON unless it says, a `choose` in it asked until the param is given), then
+//! writes `written` to each of the plan's files, waits to be cancelled with `wait`, and answers
+//! the request it ran with; its operation answers the `edits` (and `inputs`) it's given; both ask the
 //! question `ask` (a `Choice`) until they're given its param (or, `ask_again`, always), the
 //! command then answering each of its questions' params as text, with spaces between; both
 //! first write the `blobs` (by name, their bytes), `hard_links` and (on Unix) `links` they're

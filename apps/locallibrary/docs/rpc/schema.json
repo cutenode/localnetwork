@@ -5306,6 +5306,57 @@
       }
     },
     {
+      "name": "plugins.command.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "plugins.command.apply",
+      "operation": "plugins.command",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/RunPluginCommand"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/CommandPlanned"
+      }
+    },
+    {
+      "name": "plugins.command.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "plugins.command.plan",
+      "operation": "plugins.command",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/RunPluginCommand"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/CommandOutput"
+      }
+    },
+    {
       "name": "plugins.store.copy",
       "aliases": [],
       "kind": "immediate",
@@ -22892,6 +22943,23 @@
           "properties": {
             "name": {
               "type": "string",
+              "const": "command"
+            },
+            "params": {
+              "$ref": "#/$defs/CommandAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Run one of its commands with these params, as from a menu where the user is: one planned\nfirst (`plan = true`) is planned and confirmed as any."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
               "const": "pull"
             },
             "params": {
@@ -23021,6 +23089,25 @@
         "drive"
       ],
       "description": "`analyze`'s params."
+    },
+    "CommandAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "One of the plugin's commands."
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "As the command's `params` schema says."
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "description": "`command`'s params."
     },
     "DriveAction": {
       "type": "object",
@@ -32255,6 +32342,7 @@
             "sets:read",
             "account:status",
             "collection:read",
+            "collection:files",
             "library:plan",
             "library:delete",
             "library:delete-unbacked",
@@ -32870,6 +32958,14 @@
             "drive"
           ]
         },
+        "plan": {
+          "type": "boolean",
+          "description": "Planned first: the host asks for a dry run, shows its plan ([`CommandPlan`]) and runs it\nonly once the user confirms."
+        },
+        "long_running": {
+          "type": "boolean",
+          "description": "Running it takes a while: hosts show its progress and offer to stop it, and give it longer\nto stop once asked before they kill the plugin."
+        },
         "params": {
           "description": "A JSON Schema for its params (an object)."
         },
@@ -32904,13 +33000,22 @@
       ]
     },
     "Where": {
-      "type": "string",
-      "enum": [
-        "track",
-        "playlist",
-        "drive"
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "track",
+            "playlist",
+            "drive"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "collection",
+          "description": "About this computer's rekordbox collection, not a track, a playlist or a drive: run without\none (a backup of the collection, say). Commands only: an operation edits a drive."
+        }
       ],
-      "description": "Where a host offers a command or an operation: in the menu of the tracks selected, of a\nplaylist, or of a drive. A host's palette has every one."
+      "description": "Where a host offers a command or an operation: in the menu of the tracks selected, of a\nplaylist, or of a drive; or, for a command alone, with what's about rekordbox's collection on\nthis computer rather than a drive (`collection`). A host's palette has every one."
     },
     "Destination": {
       "type": "object",
@@ -34065,6 +34170,85 @@
         "view"
       ]
     },
+    "CommandPlanned": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "choose": {
+              "$ref": "#/$defs/PluginChoice"
+            }
+          },
+          "required": [
+            "choose"
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/PluginCommand"
+            },
+            {
+              "$ref": "#/$defs/PlanFields"
+            }
+          ]
+        }
+      ],
+      "description": "What planning a plugin's command comes to: its plan, or a question for the user first, after\nwhich it's planned again with each of its params set ([`Choice::answered`])."
+    },
+    "PluginCommand": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExportFile"
+          },
+          "description": "The files it would write, as the plugin says, each with whether it's there already."
+        }
+      },
+      "required": [
+        "plugin",
+        "command",
+        "files"
+      ],
+      "description": "A plugin's command, planned: what it said it would do, to run once confirmed."
+    },
+    "ExportFile": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Absolute, below the export's `output`."
+        },
+        "what": {
+          "type": "string",
+          "description": "What it holds, in a few words (`Traktor collection`)."
+        },
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Its size, as far as it's known before it's written.",
+          "default": 0
+        },
+        "exists": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "bytes",
+        "exists"
+      ],
+      "description": "A file an export (or a planned command) writes, as the plugin says, and whether it's there\nalready (and so overwritten)."
+    },
     "SetPublish": {
       "type": "object",
       "properties": {
@@ -34226,35 +34410,6 @@
         "notes"
       ],
       "description": "An export a plugin will write."
-    },
-    "ExportFile": {
-      "type": "object",
-      "properties": {
-        "path": {
-          "type": "string",
-          "description": "Absolute, below the export's `output`."
-        },
-        "what": {
-          "type": "string",
-          "description": "What it holds, in a few words (`Traktor collection`)."
-        },
-        "bytes": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0,
-          "description": "Its size, as far as it's known before it's written.",
-          "default": 0
-        },
-        "exists": {
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "path",
-        "bytes",
-        "exists"
-      ],
-      "description": "A file an export writes, as the plugin says, and whether it's there already (and so\noverwritten)."
     },
     "Exported": {
       "type": "object",

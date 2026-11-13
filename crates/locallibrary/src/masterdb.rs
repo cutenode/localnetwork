@@ -76,14 +76,16 @@ pub const KEY_ENV: &str = "LOCALLIBRARY_MASTERDB_KEY";
 /// Environment variable with the path of the `master.db` to read instead of rekordbox's.
 pub const PATH_ENV: &str = "LOCALLIBRARY_MASTERDB";
 
-/// Where rekordbox keeps `master.db` on this computer: [`PATH_ENV`] when set, otherwise
+/// Where rekordbox keeps `master.db` on this computer: [`PATH_ENV`] when set, else where
+/// rekordbox's own settings say once the library was moved (`masterDbDirectory` in
+/// `rekordbox3.settings`, else `db-path` in its agent's `options.json`), otherwise
 /// `~/Library/Pioneer/rekordbox/master.db` on macOS and `%APPDATA%\Pioneer\rekordbox\master.db`
 /// on Windows. `None` elsewhere (rekordbox runs on neither).
 pub fn default_path() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os(PATH_ENV).filter(|p| !p.is_empty()) {
         return Some(PathBuf::from(p));
     }
-    platform_path()
+    moved(settings_path().as_deref(), agent_options_path().as_deref()).or_else(platform_path)
 }
 
 #[cfg(target_os = "macos")]
@@ -102,6 +104,18 @@ fn platform_path() -> Option<PathBuf> {
 #[cfg(not(any(target_os = "macos", windows)))]
 fn platform_path() -> Option<PathBuf> {
     None
+}
+
+/// rekordbox's `share` folder beside the `master.db` at `path`, which its `AnalysisDataPath` and
+/// `ImagePath` are paths in.
+fn share_dir(path: &Path) -> PathBuf {
+    path.parent().unwrap_or(Path::new(".")).join("share")
+}
+
+/// Whether a track's `FolderPath` is its path in a storage service's `rekordbox` folder
+/// (`/contents_<id>/...`), where Cloud Library Sync keeps it, rather than on this computer.
+fn in_cloud(path: &str) -> bool {
+    path.trim_start_matches('/').split('/').next().unwrap_or("").starts_with("contents_")
 }
 
 /// The passphrase to use: `key` when given, else [`KEY_ENV`], else [`DEFAULT_KEY`].
@@ -158,29 +172,10 @@ impl CloudFolders {
 
     /// The folders a `rekordbox3.settings` file names.
     pub fn from_settings(path: &Path) -> Result<CloudFolders> {
-        let xml = std::fs::read_to_string(path).at(path)?;
-        let mut reader = quick_xml::Reader::from_str(&xml);
         let mut out = CloudFolders::default();
-        loop {
-            let event = reader.read_event().map_err(|e| Error::parse(path, e))?;
-            let e = match &event {
-                quick_xml::events::Event::Empty(e) | quick_xml::events::Event::Start(e) => e,
-                quick_xml::events::Event::Eof => break,
-                _ => continue,
-            };
-            if e.name().as_ref() != "VALUE" {
-                continue;
-            }
-            let attr = |name: &str| -> Option<String> {
-                let a = e.attributes().flatten().find(|a| a.key.as_ref() == name)?;
-                a.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok().map(|v| v.into_owned())
-            };
-            let slot = match attr("name").as_deref() {
-                Some("DropboxSharingPath") => &mut out.dropbox,
-                Some("GoogleDriveSharingPath") => &mut out.google_drive,
-                _ => continue,
-            };
-            *slot = attr("val").filter(|v| !v.is_empty()).map(PathBuf::from);
+        for (name, val) in settings_values(path, &["DropboxSharingPath", "GoogleDriveSharingPath"])? {
+            let slot = if name == "DropboxSharingPath" { &mut out.dropbox } else { &mut out.google_drive };
+            *slot = val.map(PathBuf::from);
         }
         Ok(out)
     }
@@ -194,13 +189,65 @@ impl CloudFolders {
     }
 }
 
-/// rekordbox 6 and 7's settings file: `~/Library/Application Support/Pioneer/rekordbox6/` on
-/// macOS, `%APPDATA%\Pioneer\rekordbox6\` on Windows.
-fn settings_path() -> Option<PathBuf> {
+/// The values of the settings `names` in a `rekordbox3.settings` file (`<VALUE name val/>`), in the
+/// file's order, an empty one as none. Nothing else in it is kept: it holds sign-in tokens too.
+fn settings_values(path: &Path, names: &[&str]) -> Result<Vec<(String, Option<String>)>> {
+    let xml = std::fs::read_to_string(path).at(path)?;
+    let mut reader = quick_xml::Reader::from_str(&xml);
+    let mut out = Vec::new();
+    loop {
+        let event = reader.read_event().map_err(|e| Error::parse(path, e))?;
+        let e = match &event {
+            quick_xml::events::Event::Empty(e) | quick_xml::events::Event::Start(e) => e,
+            quick_xml::events::Event::Eof => return Ok(out),
+            _ => continue,
+        };
+        let attr = |name: &str| -> Option<String> {
+            let a = e.attributes().flatten().find(|a| a.key.as_ref() == name)?;
+            a.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok().map(|v| v.into_owned())
+        };
+        match attr("name") {
+            Some(name) if e.name().as_ref() == "VALUE" && names.contains(&name.as_str()) => {
+                out.push((name, attr("val").filter(|v| !v.is_empty())));
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Where rekordbox's settings say `master.db` is, once its library was moved: the last absolute
+/// `masterDbDirectory` in the `rekordbox3.settings` at `settings`, else `db-path` in the agent's
+/// `options.json` at `options` (as pyrekordbox finds it).
+fn moved(settings: Option<&Path>, options: Option<&Path>) -> Option<PathBuf> {
+    let dirs = settings.and_then(|s| settings_values(s, &["masterDbDirectory"]).ok()).unwrap_or_default();
+    let dir = dirs.into_iter().rev().filter_map(|(_, v)| v.map(PathBuf::from)).find(|d| d.is_absolute());
+    let db_path = || agent_option(options?, "db-path").map(PathBuf::from).filter(|p| p.is_absolute());
+    dir.map(|d| d.join("master.db")).or_else(db_path)
+}
+
+/// The option `name` in rekordbox's agent's `options.json` at `path` (`{"options": [[name,
+/// value], ...]}`), when it's text.
+fn agent_option(path: &Path, name: &str) -> Option<String> {
+    let json: serde_json::Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+    let option = json["options"].as_array()?.iter().find(|o| o[0] == name)?;
+    option[1].as_str().map(str::to_string)
+}
+
+/// Pioneer's folder of rekordbox's settings: `~/Library/Application Support/Pioneer/` on macOS,
+/// `%APPDATA%\Pioneer\` (roaming) on Windows.
+fn pioneer_dir() -> Option<PathBuf> {
     let base = directories::BaseDirs::new()?;
-    // The application support folder on macOS, %APPDATA% (roaming) on Windows.
-    let dir = if cfg!(any(target_os = "macos", windows)) { base.config_dir().to_path_buf() } else { return None };
-    Some(dir.join("Pioneer").join("rekordbox6").join("rekordbox3.settings"))
+    cfg!(any(target_os = "macos", windows)).then(|| base.config_dir().join("Pioneer"))
+}
+
+/// rekordbox 6 and 7's settings file, in `rekordbox6/` there.
+fn settings_path() -> Option<PathBuf> {
+    Some(pioneer_dir()?.join("rekordbox6").join("rekordbox3.settings"))
+}
+
+/// rekordbox's agent's options, in `rekordboxAgent/storage/` there.
+fn agent_options_path() -> Option<PathBuf> {
+    Some(pioneer_dir()?.join("rekordboxAgent").join("storage").join("options.json"))
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -239,11 +286,22 @@ pub struct CollectionInfo {
 /// [`resolve_key`]); a plain, already decrypted SQLite file is read as it is.
 pub fn open(path: &Path, key: &str) -> Result<Collection> {
     let dir = tempfile::tempdir().map_err(|e| Error::Io { path: std::env::temp_dir(), source: e })?;
-    let (copy, flags) = match decrypt_copy(path, key, dir.path())? {
-        Copy::Decrypted(p) => (p, OpenFlags::SQLITE_OPEN_READ_ONLY),
+    open_copy(path, key, dir.path(), false)?.0.collection()
+}
+
+/// The salt a file is encrypted with (its first bytes).
+type Salt = [u8; cipher::SALT_LEN];
+
+/// [`decrypt_copy`] of `path` into `dir`, opened: read only unless `write` (or a plain copy's WAL
+/// is to be replayed, which SQLite does itself), and only once SQLite finds nothing amiss and it
+/// has a `djmdContent` table. With the salt it was encrypted with, unless it was plain.
+fn open_copy<'a>(path: &'a Path, key: &str, dir: &Path, write: bool) -> Result<(Db<'a>, Option<Salt>)> {
+    let writes = if write { OpenFlags::SQLITE_OPEN_READ_WRITE } else { OpenFlags::SQLITE_OPEN_READ_ONLY };
+    let (copy, salt, flags) = match decrypt_copy(path, key, dir)? {
+        Copy::Decrypted(p, salt) => (p, Some(salt), writes),
         // SQLite replays a plain copy's WAL itself, which takes write access to the copy (never
         // to the original).
-        Copy::Plain(p) => (p, OpenFlags::SQLITE_OPEN_READ_WRITE),
+        Copy::Plain(p) => (p, None, OpenFlags::SQLITE_OPEN_READ_WRITE),
     };
     let conn = Connection::open_with_flags(&copy, flags | OpenFlags::SQLITE_OPEN_NO_MUTEX)
         .map_err(|e| Error::parse(path, e))?;
@@ -260,13 +318,14 @@ pub fn open(path: &Path, key: &str) -> Result<Collection> {
     if db.columns("djmdContent")?.is_empty() {
         return Err(Error::parse(path, "no djmdContent table; not a rekordbox collection database"));
     }
-    db.collection()
+    Ok((db, salt))
 }
 
 /// A working copy of `master.db` in a temporary folder.
 enum Copy {
-    /// Decrypted, with the WAL's committed pages applied: a plain database on its own.
-    Decrypted(PathBuf),
+    /// Decrypted, with the WAL's committed pages applied: a plain database on its own. With the
+    /// salt the original was encrypted with.
+    Decrypted(PathBuf, Salt),
     /// The file was plain SQLite already; copied with its WAL, if any.
     Plain(PathBuf),
 }
@@ -298,7 +357,7 @@ fn decrypt_copy(path: &Path, key: &str, dir: &Path) -> Result<Copy> {
     if !len.is_multiple_of(cipher::PAGE_SIZE as u64) {
         return Err(Error::parse(path, format!("{len} bytes is not a whole number of 4096-byte pages")));
     }
-    let salt: [u8; cipher::SALT_LEN] = first[..cipher::SALT_LEN].try_into().expect("16 bytes");
+    let salt: Salt = first[..cipher::SALT_LEN].try_into().expect("16 bytes");
     let codec = cipher::Codec::with_key(key.as_bytes(), salt);
     let wrong_key = || {
         Error::invalid(format!(
@@ -345,7 +404,7 @@ fn decrypt_copy(path: &Path, key: &str, dir: &Path) -> Result<Copy> {
     dst.seek(SeekFrom::Start(18)).at(&out)?;
     dst.write_all(&[1, 1]).at(&out)?;
     dst.flush().at(&out)?;
-    Ok(Copy::Decrypted(out))
+    Ok(Copy::Decrypted(out, salt))
 }
 
 /// Copy `path` to `to` with `copy` and read its WAL, both as of one moment. rekordbox may
@@ -397,6 +456,12 @@ impl Db<'_> {
     /// `wanted` columns of every row rekordbox hasn't deleted, in storage order; columns the table
     /// lacks come back NULL, and a missing table has no rows.
     fn select(&self, table: &str, wanted: &[&str]) -> Result<Vec<Vec<Value>>> {
+        self.rows(table, wanted, false, "")
+    }
+
+    /// [`Db::select`], with the rows rekordbox deleted too when `deleted`, and only those `then`
+    /// (an SQL `LIMIT` clause) leaves.
+    fn rows(&self, table: &str, wanted: &[&str], deleted: bool, then: &str) -> Result<Vec<Vec<Value>>> {
         let cols = self.columns(table)?;
         if cols.is_empty() {
             return Ok(Vec::new());
@@ -405,14 +470,22 @@ impl Db<'_> {
             .iter()
             .map(|c| if cols.contains(&c.to_lowercase()) { format!("\"{c}\"") } else { "NULL".into() })
             .collect();
-        let filter = if cols.contains("rb_local_deleted") { " WHERE IFNULL(rb_local_deleted, 0) = 0" } else { "" };
-        let sql = format!("SELECT {} FROM \"{table}\"{filter} ORDER BY rowid", list.join(", "));
+        let filter = match !deleted && cols.contains("rb_local_deleted") {
+            true => " WHERE IFNULL(rb_local_deleted, 0) = 0",
+            false => "",
+        };
+        let sql = format!("SELECT {} FROM \"{table}\"{filter} ORDER BY rowid{then}", list.join(", "));
         let mut stmt = self.conn.prepare(&sql).map_err(|e| self.sql(e))?;
         let n = wanted.len();
         let rows = stmt
             .query_map([], |r| (0..n).map(|i| r.get::<_, Value>(i)).collect::<rusqlite::Result<Vec<Value>>>())
             .map_err(|e| self.sql(e))?;
         rows.map(|r| r.map_err(|e| self.sql(e))).collect()
+    }
+
+    /// `djmdProperty`'s `column` (`DBID`, `DBVersion`), when it's there and isn't empty.
+    fn property(&self, column: &str) -> Result<Option<String>> {
+        Ok(self.select("djmdProperty", &[column])?.first().map(|r| text(&r[0])).filter(|v| !v.is_empty()))
     }
 
     /// `ID` -> `column` of a lookup table.
@@ -559,11 +632,7 @@ impl Db<'_> {
 
         Ok(Collection {
             path: self.path.to_path_buf(),
-            db_version: self
-                .select("djmdProperty", &["DBVersion"])?
-                .first()
-                .map(|r| text(&r[0]))
-                .filter(|v| !v.is_empty()),
+            db_version: self.property("DBVersion")?,
             library,
             cues,
             tags: self.tags(&track_ids)?,
@@ -777,7 +846,7 @@ impl Collection {
     /// rekordbox's `share` folder beside `master.db`, which `AnalysisDataPath` and `ImagePath`
     /// are paths in.
     pub fn share_dir(&self) -> PathBuf {
-        self.path.parent().unwrap_or(Path::new(".")).join("share")
+        share_dir(&self.path)
     }
 
     /// Where a file the collection names in its `share` folder is on this computer.
@@ -797,8 +866,7 @@ impl Collection {
     /// `rekordbox` folder, the first of `cloud`'s that has it. `None` when it's in none of them.
     pub fn audio_file(&self, track: &Track, cloud: &CloudFolders) -> Option<PathBuf> {
         let path = &track.file_path;
-        let first = path.trim_start_matches('/').split('/').next().unwrap_or("");
-        if !first.starts_with("contents_") {
+        if !in_cloud(path) {
             return Some(PathBuf::from(path));
         }
         cloud
@@ -886,6 +954,7 @@ pub(crate) fn kind_for_hot_cue(h: u8) -> i64 {
     if h < 3 { i64::from(h) + 1 } else { i64::from(h) + 2 }
 }
 
+pub mod files;
 pub mod smartlist;
 
 #[cfg(test)]

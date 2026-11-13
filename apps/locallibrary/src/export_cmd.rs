@@ -276,18 +276,24 @@ pub(crate) fn about(f: &ExportFile) -> String {
 /// files (what each holds, and those there already), what the format can't hold, then problems
 /// with the library.
 fn render_export(p: &Planned<PluginExport>) {
-    crate::output::summary(&p.summary, &[]);
-    for f in p.files.iter().take(FILES_SHOWN) {
+    render_written(&p.summary, &p.files, &p.notes, &p.warnings);
+}
+
+/// A plan of files a plugin writes (an export's, a planned command's): its `summary`, its first
+/// `files` (what each holds, and those there already), its `notes`, then its `warnings`.
+pub(crate) fn render_written(summary: &[String], files: &[ExportFile], notes: &[String], warnings: &[String]) {
+    crate::output::summary(summary, &[]);
+    for f in files.iter().take(FILES_SHOWN) {
         let replaces = if f.exists { " (already there)" } else { "" };
         say!("  {}  {}{replaces}", f.file.path.display(), dim(about(f)));
     }
-    if p.files.len() > FILES_SHOWN {
-        say!("  {}", dim(format!("... and {} more", p.files.len() - FILES_SHOWN)));
+    if files.len() > FILES_SHOWN {
+        say!("  {}", dim(format!("... and {} more", files.len() - FILES_SHOWN)));
     }
-    for n in &p.notes {
+    for n in notes {
         say!("  {}", dim(n));
     }
-    for w in &p.warnings {
+    for w in warnings {
         warn(w);
     }
 }

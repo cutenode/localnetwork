@@ -502,7 +502,6 @@ fn undo_lines(c: &crate::tui::edits::Confirm, lines: &mut Vec<Line<'static>>) {
 /// files (what each holds, and those there already, by their place in the output's folder), what
 /// the format can't hold, then problems with the library.
 fn export_lines(c: &crate::tui::edits::Confirm, lines: &mut Vec<Line<'static>>) {
-    use crate::export_cmd::{FILES_SHOWN, about};
     let Some(p) = c.export() else { return };
     // The summary says where (`write 2 file(s) to ...`).
     for s in &p.summary {
@@ -512,17 +511,7 @@ fn export_lines(c: &crate::tui::edits::Confirm, lines: &mut Vec<Line<'static>>) 
         ]));
     }
     let dir = p.plan.output.parent().unwrap_or(&p.plan.output);
-    for f in p.plan.files.iter().take(FILES_SHOWN) {
-        let path = f.file.path.strip_prefix(dir).unwrap_or(&f.file.path).display().to_string();
-        let mut spans = vec![Span::styled(format!("  {path}  "), text()), Span::styled(about(f), dim())];
-        if f.exists {
-            spans.push(Span::styled(" (already there)", fg(theme::current().warning)));
-        }
-        lines.push(Line::from(spans));
-    }
-    if p.plan.files.len() > FILES_SHOWN {
-        lines.push(Line::styled(format!("  and {} more", p.plan.files.len() - FILES_SHOWN), dim()));
-    }
+    file_lines(&p.plan.files, dir, lines);
     for n in &p.plan.notes {
         lines.push(Line::styled(n.clone(), dim()));
     }
@@ -532,6 +521,23 @@ fn export_lines(c: &crate::tui::edits::Confirm, lines: &mut Vec<Line<'static>>) 
     if p.destructive {
         lines.push(Line::raw(""));
         lines.push(Line::styled("This replaces files already there.", fg(theme::current().warning)));
+    }
+}
+
+/// The first of the files a plugin writes (what each holds, and those there already), each by its
+/// place in `dir`.
+fn file_lines(files: &[locallibrary::plugin::ExportFile], dir: &std::path::Path, lines: &mut Vec<Line<'static>>) {
+    use crate::export_cmd::{FILES_SHOWN, about};
+    for f in files.iter().take(FILES_SHOWN) {
+        let path = f.file.path.strip_prefix(dir).unwrap_or(&f.file.path).display().to_string();
+        let mut spans = vec![Span::styled(format!("  {path}  "), text()), Span::styled(about(f), dim())];
+        if f.exists {
+            spans.push(Span::styled(" (already there)", fg(theme::current().warning)));
+        }
+        lines.push(Line::from(spans));
+    }
+    if files.len() > FILES_SHOWN {
+        lines.push(Line::styled(format!("  and {} more", files.len() - FILES_SHOWN), dim()));
     }
 }
 
@@ -586,6 +592,10 @@ pub(super) fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
                     Span::styled(icons::BULLET.spaced(), fg(theme::current().info)),
                     Span::styled(s.clone(), bold(theme::current().text)),
                 ]));
+            }
+            // A plugin's command planned first: the files it writes, each where it is.
+            if let Some(p) = c.command() {
+                file_lines(&p.plan.files, std::path::Path::new(""), &mut lines);
             }
             for w in plan.warnings() {
                 lines.push(Line::styled(format!("{} {w}", icons::WARNING.get()), fg(theme::current().warning)));
