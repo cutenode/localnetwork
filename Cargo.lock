@@ -4364,7 +4364,6 @@ dependencies = [
  "serde",
  "serde_json",
  "stratum-dsp",
- "symphonia",
  "tempfile",
  "thiserror 2.0.21",
 ]
