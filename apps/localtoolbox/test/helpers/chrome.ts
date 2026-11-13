@@ -18,6 +18,11 @@
 import { vi, type Mock } from 'vitest';
 import manifest from '../../src/manifest.json';
 import type {
+	GatePageHelp,
+	GatePagePrefs,
+	GatePageRequest,
+	OffscreenRequest,
+	OpenGatesRequest,
 	LocalArea,
 	PageAnswers,
 	PageRequest,
@@ -25,8 +30,7 @@ import type {
 	ProfileEntry,
 	RoundTripRequest,
 	SaveGateRequest,
-	SessionArea,
-	WalkGateRequest
+	SessionArea
 } from '$lib/types';
 import type { StoredView } from '../../src/lib/view.svelte.ts';
 import type { Kept } from '../../src/tools/third-party-downloads/walked.svelte.ts';
@@ -88,7 +92,7 @@ export interface AnswerFields {
  * Any answer a content script gives, or none. A tab open across an update still runs the script it
  * loaded with, which can answer in any shape at all, and Chrome hands over whatever JSON it sent.
  */
-export type PageReply = AnswerFields | Json | undefined;
+export type PageReply = AnswerFields | GatePageHelp | GatePagePrefs | Json | undefined;
 
 /**
  * A message as Chrome delivers one to runtime.onMessage: a question as the scripts send them, or
@@ -134,7 +138,9 @@ export interface StubArea {
 }
 
 /** Everything the scripts send with chrome.runtime.sendMessage, and whatever answers it. */
-type RuntimeSendMessage = (message: SaveGateRequest | WalkGateRequest | RoundTripRequest) => Promise<PageReply>;
+type RuntimeSendMessage = (
+	message: SaveGateRequest | OffscreenRequest | RoundTripRequest | OpenGatesRequest | GatePageRequest
+) => Promise<PageReply>;
 
 type GetContexts = (filter: chrome.runtime.ContextFilter) => Promise<object[]>;
 

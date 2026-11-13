@@ -19,6 +19,7 @@ export default {
 	// to is Svelte's bookkeeping, not ours.
 	mutate: [
 		'content.ts',
+		'gate-page.ts',
 		'page-data.ts',
 		'downloaded-store.ts',
 		'state-transfer.ts',

@@ -30,10 +30,10 @@ use std::time::{Duration, Instant};
 
 use locallibrary::query::{FieldName, SortKey};
 use locallibrary::{DeviceInfo, api};
+use loclib_waveform::analyzer::Analyzer;
 use ratatui::widgets::{ListState, TableState};
 use uuid::Uuid;
 
-use super::analyzer::Analyzer;
 use super::audio::{self, Audio, Outputs};
 use super::browse::SavedNode;
 use super::choices::Hints;
@@ -280,6 +280,8 @@ pub struct App {
     pub shuffle: bool,
     pub repeat: Repeat,
     pub analyzer: Analyzer,
+    /// What the analyser is fed: the playing output's latest samples.
+    pub tap_reader: audio::TapReader,
     /// Hot cue pads and the rest of what the deck does (see `deck.rs`).
     pub deck: super::deck::Deck,
     pub vis: Vis,
@@ -346,6 +348,8 @@ pub struct App {
     failed_in_row: usize,
     /// What was saved last, and when it was last checked for changes.
     saved: Option<Saved>,
+    /// The saved state couldn't be read at startup: this run leaves its file alone.
+    state_unreadable: bool,
     last_save_check: Instant,
     pub areas: Areas,
     pub started: Instant,
@@ -395,8 +399,10 @@ pub struct App {
 
 impl App {
     pub fn new(store_root: PathBuf, drive: Option<String>) -> App {
-        let saved = state::load(&store_root);
+        let read = state::load(&store_root);
         let mut app = App::blank(store_root, None);
+        app.state_unreadable = read.is_none();
+        let saved = read.unwrap_or_default();
         app.offline = false;
         app.transitions.enabled = true;
         app.outputs = Outputs::from_env();
@@ -500,6 +506,7 @@ impl App {
             shuffle: false,
             repeat: Repeat::Off,
             analyzer: Analyzer::default(),
+            tap_reader: Default::default(),
             deck: Default::default(),
             vis: Vis::Bars,
             deck_secs: 8.0,
@@ -536,6 +543,7 @@ impl App {
             start_paused: false,
             failed_in_row: 0,
             saved: None,
+            state_unreadable: false,
             last_save_check: Instant::now(),
             areas: Areas::default(),
             started: Instant::now(),

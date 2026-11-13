@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { HOSTS, SITES, type Site } from '../src/tools/third-party-downloads/sites/index.ts';
+import { HOSTS, PAGE_HOSTS, SITES, type Site } from '../src/tools/third-party-downloads/sites/index.ts';
 
 const ROOT = resolve(import.meta.dirname, '..');
 
@@ -28,25 +28,26 @@ describe('manifest.json', () => {
 	it('is a Manifest V3 extension with only the permissions the README lists', () => {
 		expect(manifest.manifest_version).toBe(3);
 		expect(manifest.permissions).toEqual(['activeTab', 'clipboardWrite', 'storage', 'downloads', 'offscreen']);
-		// The one worker: it walks a gate for the page's Download button (background.ts).
+		// The one worker: it walks a gate for the page's Download button, and runs
+		// the gates done on their own page (background.ts).
 		expect(manifest.background).toEqual({ service_worker: 'background.js', type: 'module' });
 	});
 
-	// The page walks a link to a gate whose walk always ends in a file rather
-	// than following it (content.ts saveGate). A classic script cannot import
-	// the registry, so it keeps its own list of hosts, held to the sites here.
-	it('lets the page walk exactly the sites whose walk ends in a file', () => {
-		const walked = SITES.flatMap((site) => (site.yields === 'file' ? [...site.hosts, ...(site.aliases ?? [])] : []));
+	// The page hands a link to a walked or page gate to the worker rather than
+	// following it (content.ts saveGate). A classic script cannot import the
+	// registry, so it keeps its own list of hosts, held to the sites here.
+	it('hands the worker exactly the walked and page sites', () => {
+		const handed = SITES.flatMap((site) => (site.how === 'link' ? [] : [...site.hosts, ...(site.aliases ?? [])]));
 
-		const declared = /const WALKED_HOSTS = new Set\((\[[^\]]*\])\)/.exec(read('content.ts'))![1];
+		const declared = /const HANDED_HOSTS = new Set\((\[[^\]]*\])\)/.exec(read('content.ts'))![1];
 
-		expect(JSON.parse(declared.replace(/'/g, '"')).sort()).toEqual(walked.sort());
+		expect(JSON.parse(declared.replace(/'/g, '"')).sort()).toEqual(handed.sort());
 	});
 
-	// The Downloader reads gate pages from the panel, so every site it knows
-	// needs a host permission; nothing reaches beyond its content script's own
-	// match pattern otherwise. A pattern here that no site claims is a hole, and
-	// a site whose host is not covered is a tool that cannot fetch anything.
+	// The Downloader fetches only the gates it walks, so those sites need a
+	// host permission and no others do. A pattern here that no walk uses is a
+	// hole, and a walked site whose host is not covered is a walk that cannot
+	// fetch anything.
 	it('reaches exactly the sites the Downloader walks', async () => {
 		const covers = (host: string) =>
 			manifest.host_permissions.some((pattern: string) => {
@@ -62,6 +63,8 @@ describe('manifest.json', () => {
 		expect(HOSTS.length).toBeGreaterThan(0);
 
 		for (const host of HOSTS) expect(covers(host), host).toBe(true);
+
+		expect(manifest.host_permissions).toHaveLength(HOSTS.length);
 
 		// An alias is a host a site claims but rewrites before fetching, so a
 		// permission for it would be one the extension never uses.
@@ -84,9 +87,18 @@ describe('manifest.json', () => {
 		}
 	});
 
-	it('refers only to files that ship, with the store loaded before the content script', () => {
-		const [pageData, contentScript] = manifest.content_scripts;
-		expect(manifest.content_scripts).toHaveLength(2);
+	// gate-page.ts helps on the sites whose gates are done on their own page,
+	// and only there: a match no page site claims would put it on a site it has
+	// nothing to do on.
+	it('runs the gate page script on exactly the page sites', () => {
+		const [, , gatePage] = manifest.content_scripts;
+
+		expect(gatePage.matches).toEqual(PAGE_HOSTS.map((host) => `https://${host}/*`));
+	});
+
+	it('refers only to files that ship, with the store loaded before each content script', () => {
+		const [pageData, contentScript, gatePage] = manifest.content_scripts;
+		expect(manifest.content_scripts).toHaveLength(3);
 
 		// First the page's own side: page-data.ts runs in the page's world, before
 		// SoundCloud's scripts do, so it sees every API answer the page loads and
@@ -102,9 +114,13 @@ describe('manifest.json', () => {
 
 		expect(contentScript.matches).toEqual(['https://soundcloud.com/*']);
 		expect(contentScript.js).toEqual(['downloaded-store.js', 'content.js']);
+		expect(gatePage.js).toEqual(['downloaded-store.js', 'gate-page.js']);
+
 		// The scripts are written in TypeScript and shipped with their types
 		// blanked out (see "the build" below), so it is the .ts that has to exist.
-		const sources = [...pageData.js, ...contentScript.js].map((file: string) => file.replace(/\.js$/, '.ts'));
+		const sources = [...pageData.js, ...contentScript.js, ...gatePage.js].map((file: string) =>
+			file.replace(/\.js$/, '.ts')
+		);
 
 		for (const file of [...sources, ...contentScript.css, ...Object.values(manifest.icons)]) {
 			expect(exists(file), file).toBe(true);
@@ -139,12 +155,12 @@ describe('the build', () => {
 		// beside the compiled popup, under the name the manifest calls it by.
 		const copied = { ...unbundled(), ...pageScripts() };
 
-		const named = manifest.content_scripts.flatMap((entry: { js: string[]; css?: string[] }) => [
-			...entry.js,
-			...(entry.css ?? [])
+		const scripts = manifest.content_scripts.flatMap((script: { js: string[]; css?: string[] }) => [
+			...script.js,
+			...(script.css ?? [])
 		]);
 
-		for (const file of ['manifest.json', 'icons', ...named]) {
+		for (const file of ['manifest.json', 'icons', ...scripts]) {
 			expect(Object.keys(copied), file).toContain(file);
 		}
 

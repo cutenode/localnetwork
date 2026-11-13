@@ -46,10 +46,12 @@ own **Download** button. Hover it to see where the file comes from, such as `hyp
 `soundcloud.com`. Clicking it follows the link, or presses SoundCloud's own Download file for
 you, and puts the track in the session queue.
 
-A link to Hypeddit, Droploud or Pump Your Sound is walked there and then, the way the third-party
-downloader does it: the file is saved and the track marked downloaded. If the gate needs you (a
-CAPTCHA, an email address Settings doesn't have yet, a Spotify step to connect once), it opens in
-a tab and the track is queued. Hold ⌘, Ctrl, Shift or Alt to follow the link instead.
+A link to Hypeddit is walked there and then, the way the third-party downloader does it: the
+file is saved and the track marked downloaded. If the gate needs you (a CAPTCHA, an email address
+Settings doesn't have yet, a Spotify step to connect once), it opens in a tab and the track is
+queued. A link to Droploud, Pump Your Sound or Laylo opens in a tab with the steps outlined and
+your email filled in, and the track is queued; once you've done the gate, the file is saved and
+the track marked. Hold ⌘, Ctrl, Shift or Alt to follow the link instead.
 
 Turn the setting off and SoundCloud's own buttons come back, in every open tab.
 

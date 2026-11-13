@@ -13,9 +13,14 @@
   queue contributes the links of the tracks picked out there, which is the way
   to work through a batch without the page it came from being open at all.
 
-  Not every site ends in a file, and the panel is straight about which: a row
-  that resolves to somewhere to go rather than something to save says so and
-  offers to open it, instead of reporting a failure it did not have.
+  Not every site is walked here (sites/index.ts, `how`). Hypeddit is: the panel
+  fetches the gate and saves the file. Droploud, Pump Your Sound and Laylo are
+  done by the person on the site's own page: Get opens the gate in a tab with
+  the extension's help on it, and the background worker files the download the
+  page starts (./on-page.ts), reporting back to the row. ToneDen, FanLink and
+  Feature.fm are only opened. A row that resolves to somewhere to go rather
+  than something to save says so and offers to open it, instead of reporting a
+  failure it did not have.
 
   A row that really did fail is not a dead end either. Most of these gates fail
   because they want something a fetch cannot give them (a connected account, a
@@ -81,12 +86,16 @@
   import { count, EXTRACTION_FAILED, RELOAD_THE_TAB } from '$lib/soundcloud.ts';
   import { QUEUE, source } from '$lib/source.ts';
   import { toasts } from '$lib/toast.svelte.ts';
-  import type { PanelProps, Track } from '$lib/types';
-  import { extractGateUrls, labelOfUrl, siteFor, SITES, unwrapGate } from './sites/index.ts';
-  import type { UnlockDetails } from './sites/index.ts';
-  import { EMAIL, NAME, Wanting } from './next-step.ts';
+  import type { OpenGatesRequest, PanelProps, Track } from '$lib/types';
+  import { extractGateUrls, labelOfUrl, openUrlOf, siteFor, SITES, unwrapGate } from './sites/index.ts';
+  import type { UnlockDetails, WalkedSite } from './sites/index.ts';
+  import { EMAIL, Wanting } from './next-step.ts';
+  import { walk as walkGate } from './walks/index.ts';
   import { save } from './save.ts';
   import { walked, type Row } from './walked.svelte.ts';
+
+  /** A row whose site the panel walks itself. */
+  type WalkedRow = Row & { site: WalkedSite };
 
   let { tool, onback }: PanelProps = $props();
 
@@ -114,7 +123,7 @@
 
   const ADD_EMAIL_HINT = 'this gate wants an email. opens settings, then run the row again.';
 
-  const ADD_NAME_HINT = 'this one wants a name too. opens settings, then run the row again.';
+  const PAGE_HINT = 'opens it on the site with the steps outlined. the file saves when it unlocks.';
 
   // One row per link, in the order they were added, and where they were taken
   // from. These are the session's rather than this panel's, because a row is
@@ -164,6 +173,7 @@
     queued: { text: '', tone: '' },
     working: { text: 'unlocking…', tone: 'text-fg-soft' },
     saving: { text: 'saving…', tone: 'text-fg-soft' },
+    opened: { text: 'opened', tone: 'text-fg-muted' },
     done: { text: 'saved', tone: 'text-good' },
     sent: { text: 'signed up', tone: 'text-good' },
     link: { text: '', tone: 'text-fg-muted' },
@@ -171,9 +181,10 @@
   };
 
   // A row is finished when there is nothing more this tool can do for it: it
-  // has been saved, or it has resolved to a page only a person can go to.
+  // has been saved, or it has resolved to a page only a person can go to, as a
+  // link to a site that is only opened always has.
   const settled = (row: Row) =>
-    row.state === 'done' || row.state === 'link' || row.state === 'sent';
+    row.site.how === 'link' || row.state === 'done' || row.state === 'sent';
 
   // What the toggles leave. A row with no track of its own (a pasted link, the
   // gate in a tab) is in neither state, so it always stays.
@@ -191,7 +202,7 @@
 
   const saved = $derived(rows.filter((row) => row.state === 'done').length);
 
-  const links = $derived(rows.filter((row) => row.state === 'link').length);
+  const links = $derived(rows.filter((row) => row.site.how === 'link').length);
 
   const failed = $derived(rows.filter((row) => row.state === 'failed').length);
 
@@ -399,7 +410,7 @@
 
       if (!status) {
         status =
-          'open a gate link or a SoundCloud page in this tab, or paste links below. it walks ' +
+          'open a gate link or a SoundCloud page in this tab, or paste links below. it knows ' +
           `${SITE_NAMES}.`;
       }
     }
@@ -446,8 +457,18 @@
   async function run(pending: Row[]) {
     // Never empty, and never while a run is going: both buttons that start one
     // are off until there is something left to walk and nothing walking.
-    const todo = pending.filter((row) => !settled(row));
+    const unsettled = pending.filter((row) => !settled(row));
+    const todo = unsettled.filter((row): row is WalkedRow => row.site.how === 'walk');
+    const onPage = unsettled.filter((row) => row.site.how === 'page');
 
+    // The walks first, here, then the gates done on their own page, which open
+    // a tab and so close the popup.
+    if (todo.length > 0) await walk(todo);
+
+    if (onPage.length > 0) await openOnPage(onPage);
+  }
+
+  async function walk(todo: WalkedRow[]) {
     running = true;
     // A trip that needed a person needed one for the account, not for the gate,
     // so the next twenty rows would wait out the same timeout for the same
@@ -482,18 +503,7 @@
         row.detail = '';
         row.next = '';
         row.openUrl = '';
-        const result = await row.site.unlock(row.url, details);
-
-        if (result.title) row.label = result.title;
-
-        if (result.kind !== 'file') {
-          // A signup is not a file and not a page left to visit: the address
-          // has been left with the artist, and what comes back comes by mail.
-          row.state = result.kind === 'signup' ? 'sent' : 'link';
-          row.openUrl = result.url;
-          row.detail = result.why;
-          continue;
-        }
+        const result = await walkGate(row.site, row.url, details);
 
         row.state = 'saving';
         // Past this point the gate has been walked and the file is known, so
@@ -503,12 +513,15 @@
 
         const { id, name: filename, renamed } = await save(result.url, {
           subfolder: row.site.subfolder,
-          filename: result.filename,
         });
 
         byDownloadId.set(id, row);
 
         if (filename) row.label = filename;
+
+        // Something the walk did on the person's own account (a Spotify follow)
+        // is the row's line, unless the name needs saying more.
+        if (result.note) row.detail = result.note;
 
         // Chrome would not take the name the file came with, so it was saved
         // without one. It is in the download folder rather than the site's,
@@ -536,22 +549,33 @@
 
     running = false;
     const files = todo.filter((row) => row.state === 'done').length;
-    const pages = todo.filter((row) => row.state === 'link').length;
-    const signups = todo.filter((row) => row.state === 'sent').length;
-    const rest = todo.length - files - pages - signups;
 
-    // What a run is worth saying is what it did: files saved, addresses left
-    // with an artist, pages that are still yours to open.
-    const also = [
-      signups > 0 ? `${signups} signed up for` : '',
-      pages > 0 ? `${pages} to open by hand` : '',
-    ].filter(Boolean);
-
+    // What a run is worth saying is what it did: the files saved.
     toasts.said(
-      rest === 0,
-      [`saved ${count(files, 'file')}`, ...also].join(', '),
-      `saved ${files} of ${todo.length} — check the rows that failed`
+      files === todo.length,
+      `saved ${count(files, 'file')}`,
+      `saved ${files} of ${todo.length}. check the rows that failed`
     );
+  }
+
+  // The gates done on their own page go to the background worker, which opens
+  // the first in a tab and each of the rest as the one before it is done. Their
+  // tracks are queued on the way, the way a gate opened by hand is: the popup
+  // closes as the tab opens, and a gate left half-done is then still on a list.
+  async function openOnPage(gates: Row[]) {
+    const tracks = gates.flatMap((row) => (row.track ? [row.track] : []));
+
+    if (tracks.length > 0) await queue.add(tracks);
+
+    try {
+      await chrome.runtime.sendMessage({
+        type: 'OPEN_GATES',
+        gates: gates.map((row) => ({ url: row.url, permalink: row.permalink })),
+      } satisfies OpenGatesRequest);
+    } catch (_e) {
+      // No worker to hand them to: the first opens as a plain tab instead.
+      await openTab(gates[0].url);
+    }
   }
 
   // Carrying on by hand, which is how most of these failures end. The track
@@ -618,7 +642,7 @@
       <Button
         size="sm"
         disabled={running || left === 0}
-        title="walks every link and saves the files"
+        title="saves Hypeddit files here, then opens the other gates one by one"
         onclick={() => run(visible)}
       >
         {#if running}
@@ -664,16 +688,18 @@
         {#each visible as row (row.url)}
           {@const state = STATES[row.state]}
           {@const fault = row.state === 'failed' ? row.detail : ''}
-          {@const line = fault
-            ? ''
-            : row.detail || (row.state === 'queued' ? waiting(row) : state.text)}
+          {@const line = row.site.how === 'link'
+            ? row.site.note
+            : fault
+              ? ''
+              : row.detail || (row.state === 'queued' ? waiting(row) : state.text)}
           <li
             class="overflow-hidden rounded-lg border transition-colors
                    {row.state === 'done' || row.state === 'sent'
               ? 'border-good/40 bg-good/5'
               : row.state === 'failed'
                 ? 'border-critical/40 bg-surface'
-                : row.state === 'queued' || row.state === 'link'
+                : row.state === 'queued'
                   ? 'border-line bg-surface'
                   : 'border-line-strong bg-surface'}"
           >
@@ -709,12 +735,12 @@
                   taken off the same way.
                 -->
                 {#if row.permalink}{@render markButton(row)}{/if}
-                {#if row.state === 'link' || row.state === 'sent'}
+                {#if row.site.how === 'link' || row.state === 'sent'}
                   <Button
                     size="sm"
                     variant="outline"
                     title={`opens ${row.openUrl}`}
-                    onclick={() => openTab(row.openUrl)}
+                    onclick={() => openTab(row.openUrl || openUrlOf(row.url))}
                   >
                     <ExternalLink />
                     open
@@ -727,14 +753,10 @@
                     it). Get is still there beside it, for the failures worth
                     another go on their own.
                   -->
-                  {#if row.state === 'failed' && (row.next === EMAIL || row.next === NAME)}
-                    <Button
-                      size="sm"
-                      title={row.next === NAME ? ADD_NAME_HINT : ADD_EMAIL_HINT}
-                      onclick={() => (view.settingsOpen = true)}
-                    >
+                  {#if row.state === 'failed' && row.next === EMAIL}
+                    <Button size="sm" title={ADD_EMAIL_HINT} onclick={() => (view.settingsOpen = true)}>
                       <Settings2 />
-                      add {row.next === NAME ? 'name' : 'email'}
+                      add email
                     </Button>
                   {:else if row.state === 'failed'}
                     <Button size="sm" title={OPEN_HINT} onclick={() => openByHand(row)}>
@@ -744,9 +766,11 @@
                   {/if}
                   <Button
                     size="sm"
-                    variant={row.state === 'done' || row.state === 'failed' ? 'outline' : 'default'}
+                    variant={row.state === 'done' || row.state === 'failed' || row.state === 'opened'
+                      ? 'outline'
+                      : 'default'}
                     disabled={running || row.state === 'done'}
-                    title="walks this link and saves the file"
+                    title={row.site.how === 'page' ? PAGE_HINT : 'walks this link and saves the file'}
                     onclick={() => run([row])}
                   >
                     get

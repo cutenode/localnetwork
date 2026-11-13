@@ -71,7 +71,7 @@ account = ["locallibrary/account"]
 # `store serve` and `store fetch`: copying snapshots between computers over the network.
 peers = ["locallibrary/peers"]
 # The interactive player (`locallibrary tui`, and `locallibrary` on its own in a terminal).
-tui = ["dep:ratatui", "dep:rodio", "dep:rustfft", "dep:loclib-waveform", "dep:crossterm", "dep:terminal-colorsaurus", "dep:terminal-trx", "dep:ratatui-image", "dep:image", "dep:tachyonfx"]
+tui = ["dep:ratatui", "dep:rodio", "dep:loclib-waveform", "dep:crossterm", "dep:terminal-colorsaurus", "dep:terminal-trx", "dep:ratatui-image", "dep:image", "dep:tachyonfx"]
 # The player's audio output: cpal, and ALSA on Linux. Without it the player browses, edits and
 # shows waveforms, but there's no output to play through.
 playback = ["tui", "rodio/playback"]
@@ -89,8 +89,8 @@ console.workspace = true
 ctrlc = { version = "3.5", features = ["termination"] }
 indicatif.workspace = true
 ratatui = { version = "0.30", optional = true }
-# The player's waveforms, visualisers and cover art.
-loclib-waveform = { workspace = true, optional = true, features = ["image"] }
+# The player's waveforms, visualisers (and the analysis behind them) and cover art.
+loclib-waveform = { workspace = true, optional = true, features = ["analyzer", "image"] }
 # Playback for the TUI: rekordbox drives carry MP3, AAC/ALAC (.m4a), FLAC, WAV and AIFF. The
 # output device comes with the `playback` feature.
 rodio = { version = "0.22", optional = true, default-features = false, features = [
@@ -103,7 +103,6 @@ rodio = { version = "0.22", optional = true, default-features = false, features 
     "symphonia-pcm",
     "symphonia-wav",
 ] }
-rustfft = { workspace = true, optional = true }
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true

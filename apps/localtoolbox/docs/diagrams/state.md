@@ -50,15 +50,21 @@ flowchart LR
   View["view<br/>open tool, which sheet is up, and per scope:<br/>scroll, query, selecting, picked, opened,<br/>drawer, paste, import"]
   Downloader["downloader<br/>origin, listed URLs,<br/>known rows and their outcomes"]
   Profiles["artistProfiles<br/>artist path to profile"]
+  Worker["Background worker"]
+  Run["gate-run<br/>the page gate open and the ones after it,<br/>its tab, how many in all"]
+  Outcomes["gate-outcomes<br/>per page gate: opened, done or sent"]
 
   Content <--> Queue
   Popup <--> Queue
   Popup <--> View
   Popup <--> Downloader
   Popup <--> Profiles
+  Worker <--> Run
+  Worker --> Outcomes
+  Outcomes --> Popup
 ```
 
-Source: [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`src/lib/view.svelte.ts`](../../src/lib/view.svelte.ts), [`src/tools/third-party-downloads/walked.svelte.ts`](../../src/tools/third-party-downloads/walked.svelte.ts), [`src/tools/artists/artists.svelte.ts`](../../src/tools/artists/artists.svelte.ts)
+Source: [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`src/lib/view.svelte.ts`](../../src/lib/view.svelte.ts), [`src/tools/third-party-downloads/walked.svelte.ts`](../../src/tools/third-party-downloads/walked.svelte.ts), [`src/tools/artists/artists.svelte.ts`](../../src/tools/artists/artists.svelte.ts), [`src/tools/third-party-downloads/on-page.ts`](../../src/tools/third-party-downloads/on-page.ts)
 
 ## Options and mirrors in localStorage
 
@@ -71,16 +77,18 @@ flowchart LR
   File["In the state file<br/>pref:background, pref:sort, pref:hide-downloaded,<br/>pref:search-sites"]
   Stay["On this install only<br/>pref:format, pref:source, pref:split-title, pref:dedupe,<br/>pref:artists-sort, pref:hide-queued, pref:theme,<br/>pref:title-case, pref:search:id"]
   Gate["For gates, on this install only<br/>pref:email, pref:name, pref:mark"]
+  Notice["Seen once, on this install only<br/>pref:notice-seen"]
   Mirror["Mirrors, corrected by the session<br/>view:open, queue:items"]
 
   Popup <--> File
   Popup <--> Stay
   Popup <--> Gate
   Popup <--> Mirror
+  Popup <--> Notice
   Gate --> Offscreen
 ```
 
-Source: [`src/lib/prefs.svelte.ts`](../../src/lib/prefs.svelte.ts), [`src/lib/downloader.svelte.ts`](../../src/lib/downloader.svelte.ts), [`src/lib/view.svelte.ts`](../../src/lib/view.svelte.ts), [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`state-transfer.ts`](../../state-transfer.ts)
+Source: [`src/lib/prefs.svelte.ts`](../../src/lib/prefs.svelte.ts), [`src/lib/downloader.svelte.ts`](../../src/lib/downloader.svelte.ts), [`src/lib/components/FirstRun.svelte`](../../src/lib/components/FirstRun.svelte), [`src/lib/view.svelte.ts`](../../src/lib/view.svelte.ts), [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`state-transfer.ts`](../../state-transfer.ts)
 
 ## State held in memory
 
@@ -95,7 +103,7 @@ flowchart LR
   Held["page-data.ts, in the main world:<br/>answers held until content.ts says hello"]
   Page["measured button heights<br/>the last row whose More was pressed<br/>mirrors of marks and queue"]
   Chunks["loaded Panel and sheet chunks<br/>warmed reads<br/>a Downloader run"]
-  Turn["the walk queue<br/>how many are waiting"]
+  Turn["the offscreen errand queue<br/>how many are waiting"]
 
   Doc --> Learned
   Doc --> Held
@@ -179,6 +187,7 @@ flowchart TD
   Native["SoundCloud's Download file<br/>or purchase link clicked"]
   Walked["Page walk saved a file"]
   Saved["Downloader saved a file"]
+  OnPage["A gate's own page handed its file over,<br/>gate-page.js marks"]
   Row["A row's check button"]
   Batch["Manager batch, queue sheet"]
   Import["Importing a state file"]
@@ -190,6 +199,7 @@ flowchart TD
 
   Walked --> Setting
   Saved --> Setting
+  OnPage --> Setting
   Setting -->|yes| Store
   Native --> Store
   Row --> Store
@@ -200,7 +210,7 @@ flowchart TD
   Key --> Rows
 ```
 
-Source: [`downloaded-store.ts`](../../downloaded-store.ts), [`src/lib/downloaded.svelte.ts`](../../src/lib/downloaded.svelte.ts), [`content.ts`](../../content.ts), [`src/tools/third-party-downloads/Panel.svelte`](../../src/tools/third-party-downloads/Panel.svelte), [`src/offscreen.ts`](../../src/offscreen.ts)
+Source: [`downloaded-store.ts`](../../downloaded-store.ts), [`src/lib/downloaded.svelte.ts`](../../src/lib/downloaded.svelte.ts), [`content.ts`](../../content.ts), [`src/tools/third-party-downloads/Panel.svelte`](../../src/tools/third-party-downloads/Panel.svelte), [`src/offscreen.ts`](../../src/offscreen.ts), [`gate-page.ts`](../../gate-page.ts)
 
 ## Exporting the state file
 

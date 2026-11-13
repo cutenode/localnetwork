@@ -1,15 +1,13 @@
 # localtoolbox diagrams: the downloader
 
-Gate links, row life, walks and gate sites. The rest are listed in the [README](../../README.md#diagrams).
+Gate links, row life, walks, gates done on their own page, and gate sites. The rest are listed in the [README](../../README.md#diagrams).
 
 - [Gathering gate links](#gathering-gate-links)
 - [Narrowing the Downloader list](#narrowing-the-downloader-list)
 - [Life of a Downloader row](#life-of-a-downloader-row)
 - [What a walk can answer](#what-a-walk-can-answer)
 - [Gate sites as data](#gate-sites-as-data)
-- [Gates that end in a file](#gates-that-end-in-a-file)
-- [Account gates and smart links](#account-gates-and-smart-links)
-- [Laylo drops](#laylo-drops)
+- [A gate done on its own page](#a-gate-done-on-its-own-page)
 - [The Spotify step on a Hypeddit gate](#the-spotify-step-on-a-hypeddit-gate)
 
 ## Gathering gate links
@@ -58,7 +56,7 @@ flowchart TD
   Queued{"hide queued on,<br/>track queued?"}
   Hidden["row hidden"]
   Visible["visible rows"]
-  GetAll["get all<br/>runs the visible rows not yet settled"]
+  GetAll["get all<br/>walks the visible Hypeddit rows not yet settled,<br/>then opens the visible page gates one by one"]
   Check["check button, on a row with a track"]
   Marks[("marks")]
 
@@ -76,205 +74,134 @@ Source: [`src/tools/third-party-downloads/Panel.svelte`](../../src/tools/third-p
 
 ## Life of a Downloader row
 
-The `RowState` values. Rows walk one at a time, and a run dies with the popup that started it.
+The `RowState` values. Walked rows run one at a time, and a run dies with the popup that started it. A page gate's row moves on through what the background worker reports, read when the popup next opens. A link site's row is an Open button in any state.
 
 ```mermaid
 stateDiagram-v2
   [*] --> queued
-  queued --> working: get, or get all
+  queued --> working: get, or get all, on a walked site
   failed --> working: get again
   working --> saving: unlock gave a file
-  working --> link: unlock gave a page
-  working --> sent: Laylo took the address
   working --> failed: unlock threw
   saving --> done: handed to chrome.downloads
   saving --> failed: save threw
   done --> failed: transfer interrupted, panel open
   working --> queued: popup closed mid-walk
   saving --> queued: popup closed mid-walk
+  queued --> opened: get on a page site, the worker opened it
+  opened --> done: the page's own download was filed
+  opened --> sent: the sign-up form was submitted
+  opened --> opened: get again
   done --> [*]
-  link --> [*]
   sent --> [*]
 ```
 
-Source: [`src/tools/third-party-downloads/walked.svelte.ts`](../../src/tools/third-party-downloads/walked.svelte.ts), [`src/tools/third-party-downloads/Panel.svelte`](../../src/tools/third-party-downloads/Panel.svelte)
+Source: [`src/tools/third-party-downloads/walked.svelte.ts`](../../src/tools/third-party-downloads/walked.svelte.ts), [`src/tools/third-party-downloads/Panel.svelte`](../../src/tools/third-party-downloads/Panel.svelte), [`src/tools/third-party-downloads/on-page.ts`](../../src/tools/third-party-downloads/on-page.ts)
 
 ## What a walk can answer
 
-Every site's `unlock` ends one of five ways. A page and a signup both offer **open**.
+A walked site's walk ends one of three ways.
 
 ```mermaid
 flowchart TD
-  Unlock["site.unlock<br/>url, email, name, connect"]
-  File["kind file"]
-  Link["kind link"]
-  Signup["kind signup"]
+  Unlock["walk, from walks/index.ts<br/>url, email, name, connect"]
+  File["the file, with a note<br/>after a Spotify follow"]
   Thrown["throws Error"]
   Wanting["throws Wanting"]
   Saved["save, in the site's folder when the name is known,<br/>mark the track if it has one and pref:mark is on"]
-  Open["open, opens the page"]
   OpenGate["open, queues the track and<br/>opens the gate or the file"]
-  Settings["add email or add name,<br/>opens the settings sheet"]
+  Settings["add email,<br/>opens the settings sheet"]
 
   Unlock --> File
-  Unlock --> Link
-  Unlock --> Signup
   Unlock --> Thrown
   Unlock --> Wanting
   File --> Saved
-  Link --> Open
-  Signup --> Open
   Thrown --> OpenGate
   Wanting --> Settings
 ```
 
-Source: [`src/tools/third-party-downloads/sites/index.ts`](../../src/tools/third-party-downloads/sites/index.ts), [`src/tools/third-party-downloads/next-step.ts`](../../src/tools/third-party-downloads/next-step.ts), [`src/tools/third-party-downloads/save.ts`](../../src/tools/third-party-downloads/save.ts), [`src/tools/third-party-downloads/Panel.svelte`](../../src/tools/third-party-downloads/Panel.svelte)
+Source: [`src/tools/third-party-downloads/sites/index.ts`](../../src/tools/third-party-downloads/sites/index.ts), [`src/tools/third-party-downloads/walks/index.ts`](../../src/tools/third-party-downloads/walks/index.ts), [`src/tools/third-party-downloads/walks/hypeddit.ts`](../../src/tools/third-party-downloads/walks/hypeddit.ts), [`src/tools/third-party-downloads/next-step.ts`](../../src/tools/third-party-downloads/next-step.ts), [`src/tools/third-party-downloads/save.ts`](../../src/tools/third-party-downloads/save.ts), [`src/tools/third-party-downloads/Panel.svelte`](../../src/tools/third-party-downloads/Panel.svelte)
 
 ## Gate sites as data
 
-`SITES` is the whole table. `siteFor` matches a link's host, without `www.`, and the diagrams below take these groups in turn.
+`SITES` is the whole table. `siteFor` matches a link's host, without `www.`, and a site's `how` says what **get** does with it.
 
 ```mermaid
 flowchart TD
   Link["A link"]
   SiteFor["siteFor<br/>hosts and aliases of SITES"]
   Unclaimed["no site: not a row"]
-  File["yields file, walked from the page too<br/>Hypeddit, hypeddit.com, folder Hypeddit, wants email<br/>Droploud, droploud.com, folder Droploud<br/>Pump Your Sound, pumpyoursound.com, folder PumpYourSound"]
-  Account["yields mixed, ToneDen's backend<br/>ToneDen, toneden.io, folder ToneDen<br/>FanLink, fanlink.tv, alias fanlink.to, folder ToneDen"]
-  Signup["yields mixed, signup<br/>Laylo, laylo.com, folder Laylo, wants email"]
-  Smart["yields mixed, smart link<br/>Feature.fm, ffm.to, folder FeatureFM"]
+  Walk["how walk: fetched and saved here<br/>Hypeddit, hypeddit.com, folder Hypeddit<br/>its host is the one host permission"]
+  Page["how page: done on its own page, with help<br/>Droploud, droploud.com, folder Droploud<br/>Pump Your Sound, pumpyoursound.com, folder PumpYourSound<br/>Laylo, laylo.com, a sign-up<br/>their hosts are gate-page.js's matches"]
+  Only["how link: only opened, with a note<br/>ToneDen, toneden.io<br/>FanLink, fanlink.tv, alias fanlink.to<br/>Feature.fm, ffm.to"]
 
   Link --> SiteFor
   SiteFor --> Unclaimed
-  SiteFor --> File
-  SiteFor --> Account
-  SiteFor --> Signup
-  SiteFor --> Smart
+  SiteFor --> Walk
+  SiteFor --> Page
+  SiteFor --> Only
 ```
 
-Source: [`src/tools/third-party-downloads/sites/index.ts`](../../src/tools/third-party-downloads/sites/index.ts), [`src/tools/third-party-downloads/sites/hypeddit.ts`](../../src/tools/third-party-downloads/sites/hypeddit.ts), [`src/tools/third-party-downloads/sites/droploud.ts`](../../src/tools/third-party-downloads/sites/droploud.ts), [`src/tools/third-party-downloads/sites/pumpyoursound.ts`](../../src/tools/third-party-downloads/sites/pumpyoursound.ts), [`src/tools/third-party-downloads/sites/toneden.ts`](../../src/tools/third-party-downloads/sites/toneden.ts), [`src/tools/third-party-downloads/sites/laylo.ts`](../../src/tools/third-party-downloads/sites/laylo.ts), [`src/tools/third-party-downloads/sites/featurefm.ts`](../../src/tools/third-party-downloads/sites/featurefm.ts)
+Source: [`src/tools/third-party-downloads/sites/index.ts`](../../src/tools/third-party-downloads/sites/index.ts), [`src/tools/third-party-downloads/sites/hypeddit.ts`](../../src/tools/third-party-downloads/sites/hypeddit.ts), [`src/tools/third-party-downloads/sites/droploud.ts`](../../src/tools/third-party-downloads/sites/droploud.ts), [`src/tools/third-party-downloads/sites/pumpyoursound.ts`](../../src/tools/third-party-downloads/sites/pumpyoursound.ts), [`src/tools/third-party-downloads/sites/laylo.ts`](../../src/tools/third-party-downloads/sites/laylo.ts), [`src/tools/third-party-downloads/sites/toneden.ts`](../../src/tools/third-party-downloads/sites/toneden.ts), [`src/tools/third-party-downloads/sites/featurefm.ts`](../../src/tools/third-party-downloads/sites/featurefm.ts), [`src/manifest.json`](../../src/manifest.json)
 
-## Gates that end in a file
+## A gate done on its own page
 
-The `yields: 'file'` family. Each fetches its gate page, reads what the page carries, and posts back what pressing Download would.
+Get on a Droploud, Pump Your Sound or Laylo row, Get all with some listed, or the page's Download button on a link to one. The person does the steps; the extension opens the page, helps on it and files the download.
+
+```mermaid
+sequenceDiagram
+  participant P as Panel, or content.ts
+  participant W as Background worker
+  participant O as Offscreen page
+  participant T as Gate tab
+  participant G as gate-page.js
+  P->>W: OPEN_GATES, or SAVE_GATE for a page site
+  W->>T: open the first gate
+  W->>W: the run, and opened, in session storage
+  G->>W: GATE_PAGE_HELLO
+  W->>O: READ_PREFS
+  O-->>W: the address and the mark setting
+  W-->>G: what to say and outline, the address if the page has an email field
+  G->>T: bar, outline, email filled while empty
+  Note over T: the person does the steps and presses the page's own button
+  alt the page starts its download
+    T->>W: onDeterminingFilename, from the gate's site
+    W-->>T: the site's folder, the site's name for the file
+    W->>W: done, in session storage
+    W->>G: GATE_PAGE_SAVED
+    G->>G: marks the track, if settings say so
+    W->>T: the next gate, after a moment
+  else the sign-up form is submitted
+    G->>W: GATE_PAGE_SIGNED_UP
+    W->>W: sent, in session storage
+    G->>W: GATE_PAGE_NEXT, on next
+    W->>T: the next gate
+  end
+```
+
+Source: [`src/tools/third-party-downloads/on-page.ts`](../../src/tools/third-party-downloads/on-page.ts), [`src/background.ts`](../../src/background.ts), [`src/offscreen.ts`](../../src/offscreen.ts), [`gate-page.ts`](../../gate-page.ts), [`src/tools/third-party-downloads/Panel.svelte`](../../src/tools/third-party-downloads/Panel.svelte), [`content.ts`](../../content.ts)
+
+Which downloads are the gate's. Anything not claimed keeps the browser's own name.
 
 ```mermaid
 flowchart TD
-  Page["GET the gate page, with cookies"]
-  Kind{"site"}
-  HRead["Hypeddit<br/>hidden fields, CSRF token, step list"]
-  DRead["Droploud<br/>gateData in the Next.js payload"]
-  PRead["Pump Your Sound<br/>the free download form"]
-  HPost["POST the visit, then email and<br/>Spotify if asked, then /gate/download/ul"]
-  DPost["POST each step, give a repost step up,<br/>then /gate/id/download"]
-  PPost["POST the form"]
-  Look{"looks like a file?"}
-  File["kind file"]
-  Page2["kind link"]
-  Refused["throws, saying why"]
+  Item["A download starts"]
+  Ours{"started by the extension?"}
+  Run{"a page gate open?"}
+  From{"referrer, URL or final URL<br/>on the gate's site?"}
+  Leave["no suggestion: the browser's name"]
+  File["the site's folder,<br/>the browser's name for it made safe"]
 
-  Page -->|"bad status, or no gate"| Refused
-  Page --> Kind
-  Kind --> HRead
-  Kind --> DRead
-  Kind --> PRead
-  HRead --> HPost
-  DRead --> DPost
-  PRead --> PPost
-  HPost -->|"signed URL"| File
-  HPost -->|refused| Refused
-  DPost -->|refused| Refused
-  DPost -->|"download_url"| Look
-  PPost -->|"file URL, or a file link in the page"| File
-  PPost -->|"nothing"| Refused
-  Look -->|yes| File
-  Look -->|no| Page2
+  Item --> Ours
+  Ours -->|yes| Leave
+  Ours -->|no| Run
+  Run -->|no| Leave
+  Run -->|yes| From
+  From -->|no| Leave
+  From -->|yes| File
 ```
 
-Source: [`src/tools/third-party-downloads/sites/hypeddit.ts`](../../src/tools/third-party-downloads/sites/hypeddit.ts), [`src/tools/third-party-downloads/sites/droploud.ts`](../../src/tools/third-party-downloads/sites/droploud.ts), [`src/tools/third-party-downloads/sites/pumpyoursound.ts`](../../src/tools/third-party-downloads/sites/pumpyoursound.ts), [`src/tools/third-party-downloads/parse.ts`](../../src/tools/third-party-downloads/parse.ts), [`src/tools/third-party-downloads/save.ts`](../../src/tools/third-party-downloads/save.ts)
-
-## Account gates and smart links
-
-The `yields: 'mixed'` sites other than Laylo. First, how a smart link picks a destination.
-
-```mermaid
-flowchart TD
-  FanLink["FanLink page<br/>fanlink.to rewritten to fanlink.tv,<br/>reads window.preloadLink"]
-  Attached{"unlock attached?"}
-  Target{"target is a ToneDen post?"}
-  Feature["Feature.fm page<br/>destUrl decoded from each button,<br/>the tracker is never called"]
-  Best["best destination: a file, then the shops,<br/>then FanLink's target, else the page"]
-  Post["the post's unlock,<br/>next diagram"]
-  Throws["throws, saying why"]
-  Result["kind file, or kind link"]
-
-  FanLink -->|"bad status, or no link"| Throws
-  FanLink --> Attached
-  Attached -->|"yes, post in hand"| Post
-  Attached -->|no| Target
-  Target -->|"yes, after the lookup"| Post
-  Target -->|no| Best
-  Feature -->|"bad status, or no services"| Throws
-  Feature --> Best
-  Best --> Result
-```
-
-Source: [`src/tools/third-party-downloads/sites/toneden.ts`](../../src/tools/third-party-downloads/sites/toneden.ts), [`src/tools/third-party-downloads/sites/featurefm.ts`](../../src/tools/third-party-downloads/sites/featurefm.ts), [`src/tools/third-party-downloads/parse.ts`](../../src/tools/third-party-downloads/parse.ts)
-
-How a ToneDen post unlocks. A post attached to a FanLink starts at the redirect check.
-
-```mermaid
-flowchart TD
-  Link["ToneDen post link"]
-  Lookup["GET /api/v1/posts<br/>no account needed"]
-  Redirect{"redirect with a URL?"}
-  Kind{"a download with a file?"}
-  NoFile["throws: no file behind it"]
-  Dl["GET the attachment's download<br/>with the browser's session"]
-  Why["gateMetadata says which account<br/>it wants, then throws"]
-  Result["kind file, or kind link"]
-
-  Link --> Lookup
-  Lookup --> Redirect
-  Redirect -->|yes| Result
-  Redirect -->|no| Kind
-  Kind -->|no| NoFile
-  Kind -->|yes| Dl
-  Dl -->|refused| Why
-  Dl -->|"a URL"| Result
-```
-
-Source: [`src/tools/third-party-downloads/sites/toneden.ts`](../../src/tools/third-party-downloads/sites/toneden.ts)
-
-## Laylo drops
-
-A drop is a signup, so the walk is reading the drop and leaving the address when it can.
-
-```mermaid
-flowchart TD
-  Json["GET the drop page, then the drop's and<br/>the artist's JSON from the CDNs it names"]
-  HasLink{"drop has a link?"}
-  Goes["kind file, or kind link"]
-  Can{"takes email, at most a name?"}
-  OpenIt["kind link, the drop to open"]
-  Have{"settings has them?"}
-  Want["throws Wanting, email or name"]
-  Rsvp["POST rsvp to events.laylo.com"]
-  Sent["kind signup"]
-  Refused["throws: open the drop"]
-
-  Json --> HasLink
-  HasLink -->|yes| Goes
-  HasLink -->|no| Can
-  Can -->|no| OpenIt
-  Can -->|yes| Have
-  Have -->|no| Want
-  Have -->|yes| Rsvp
-  Rsvp -->|success| Sent
-  Rsvp -->|"no"| Refused
-```
-
-Source: [`src/tools/third-party-downloads/sites/laylo.ts`](../../src/tools/third-party-downloads/sites/laylo.ts), [`src/tools/third-party-downloads/next-step.ts`](../../src/tools/third-party-downloads/next-step.ts)
+Source: [`src/tools/third-party-downloads/on-page.ts`](../../src/tools/third-party-downloads/on-page.ts), [`src/tools/third-party-downloads/save.ts`](../../src/tools/third-party-downloads/save.ts), [`src/background.ts`](../../src/background.ts)
 
 ## The Spotify step on a Hypeddit gate
 
@@ -300,6 +227,9 @@ sequenceDiagram
   end
   W->>H: POST /gate/download/ul
   H-->>W: download_status and a signed URL
+  opt it went through Spotify
+    W->>W: the row says whose Spotify was followed
+  end
 ```
 
-Source: [`src/tools/third-party-downloads/sites/hypeddit.ts`](../../src/tools/third-party-downloads/sites/hypeddit.ts), [`src/lib/chrome.ts`](../../src/lib/chrome.ts), [`src/tools/third-party-downloads/Panel.svelte`](../../src/tools/third-party-downloads/Panel.svelte)
+Source: [`src/tools/third-party-downloads/walks/hypeddit.ts`](../../src/tools/third-party-downloads/walks/hypeddit.ts), [`src/lib/chrome.ts`](../../src/lib/chrome.ts), [`src/tools/third-party-downloads/Panel.svelte`](../../src/tools/third-party-downloads/Panel.svelte)

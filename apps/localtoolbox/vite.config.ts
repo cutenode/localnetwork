@@ -31,7 +31,7 @@ const root = resolve(here, 'src');
 // `pageScripts` below puts each file beside the page. theme-prepaint.js puts
 // the saved theme on <html> before the first paint, which the bundle, a module
 // script, runs too late to do. downloaded-store.js is the script the popup
-// shares with the content script; it defines a page global (TbxDownloaded),
+// shares with the content scripts; it defines a page global (TbxDownloaded),
 // which only a classic script can do. state-transfer.js is a classic script too (TbxState), but only the
 // settings sheet uses it, so src/lib/globals.ts adds it when the sheet opens
 // instead of every popup reading it before anything is drawn.
@@ -50,13 +50,14 @@ const unbundled = {
 	icons: 'icons'
 };
 
-// The classic scripts: the content script and the three the popup reads. A classic
+// The classic scripts: the two content scripts and the three the popup reads. A classic
 // script has nothing to compile but its types, so ts-blank-space replaces each
 // annotation with spaces and leaves every line and column where it was, so an
 // error on soundcloud.com points at the same place in the source, with no
 // sourcemap to ship. Keyed the same way as `unbundled`.
 const pageScripts = {
 	'content.js': 'content.ts',
+	'gate-page.js': 'gate-page.ts',
 	'page-data.js': 'page-data.ts',
 	'downloaded-store.js': 'downloaded-store.ts',
 	'state-transfer.js': 'state-transfer.ts',
@@ -186,8 +187,9 @@ export default defineConfig(({ mode }) => ({
 		// a release does not.
 		sourcemap: mode === 'development',
 		rollupOptions: {
-			// The popup, and the two that walk a gate for the page's Download button:
-			// the background worker and the offscreen page it opens (background.ts).
+			// The popup, and the background worker with the offscreen page it opens,
+			// which walk a gate for the page's Download button and run the gates
+			// done on their own page (background.ts).
 			input: {
 				popup: resolve(root, 'popup.html'),
 				offscreen: resolve(root, 'offscreen.html'),

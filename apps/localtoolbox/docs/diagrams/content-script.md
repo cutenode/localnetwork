@@ -199,12 +199,12 @@ flowchart TD
   Kind{"stands in for"}
   Press["press SoundCloud's hidden button,<br/>the listener marks the track"]
   Queue["queue the track"]
-  Walked{"plain click on Hypeddit,<br/>Droploud or Pump Your Sound?"}
+  Walked{"plain click on Hypeddit, Droploud,<br/>Pump Your Sound or Laylo?"}
   Follow["queue the track,<br/>the browser follows the link"]
-  Save["SAVE_GATE to the worker"]
+  Save["SAVE_GATE to the worker,<br/>the link and the track"]
   Saved{"saved?"}
   Mark["mark the track,<br/>if pref:mark is on"]
-  Gone["queue the track,<br/>a tab has opened"]
+  Gone["queue the track,<br/>a tab has opened: the gate, or a page gate<br/>with help, marked when its file lands"]
 
   Start --> Kind
   Kind -->|"Download file"| Press
@@ -221,7 +221,7 @@ Source: [`content.ts`](../../content.ts), [`src/background.ts`](../../src/backgr
 
 ## The walk behind a Download button
 
-The same site modules the Downloader panel uses. The offscreen page has `DOMParser` and host access, and the worker has tabs and downloads.
+The same site modules the Downloader panel uses. The offscreen page has `DOMParser` and host access, and the worker has tabs and downloads. A Droploud, Pump Your Sound or Laylo link is not walked: the worker opens it as a gate done on its own page (the Downloader diagrams, "A gate done on its own page").
 
 ```mermaid
 sequenceDiagram
@@ -229,7 +229,11 @@ sequenceDiagram
   participant W as Background worker
   participant O as Offscreen page
   participant G as Gate site
-  C->>W: SAVE_GATE, the link
+  C->>W: SAVE_GATE, the link and the track
+  alt a page site
+    Note over W: opens it with help, beside the page
+    W-->>C: not saved
+  end
   Note over W: one walk at a time
   W->>O: WALK_GATE
   O->>G: unlock, with email and name
@@ -248,7 +252,7 @@ sequenceDiagram
   Note over W: offscreen page closes when idle
 ```
 
-Source: [`src/background.ts`](../../src/background.ts), [`src/offscreen.ts`](../../src/offscreen.ts), [`src/tools/third-party-downloads/save.ts`](../../src/tools/third-party-downloads/save.ts), [`content.ts`](../../content.ts)
+Source: [`src/background.ts`](../../src/background.ts), [`src/offscreen.ts`](../../src/offscreen.ts), [`src/tools/third-party-downloads/save.ts`](../../src/tools/third-party-downloads/save.ts), [`src/tools/third-party-downloads/on-page.ts`](../../src/tools/third-party-downloads/on-page.ts), [`content.ts`](../../content.ts)
 
 ## The signed-in frame
 

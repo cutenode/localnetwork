@@ -8,8 +8,8 @@ Click its icon in the toolbar and pick a tool:
 - **Manager** keeps a list of tracks and shows where each one can be downloaded: SoundCloud's own
   Download file, or the link the uploader set, grouped by site (Hypeddit, Droploud, Bandcamp and
   so on).
-- **third-party downloader** works through download gates like Hypeddit, ToneDen and Droploud
-  for you and saves the files.
+- **third-party downloader** gets the files behind download gates like Hypeddit and Droploud,
+  opening the ones you do on the site's own page with the steps outlined.
 - **SoundCloud playlist to text** turns a playlist, Likes page or track page into plain text,
   CSV, TSV or JSON.
 - **artists** keeps a list of the artists behind your tracks, with their socials.

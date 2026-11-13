@@ -65,6 +65,8 @@
 		const canvas = within(canvasElement);
 		await expect(canvas.getByRole('heading', { level: 1, name: 'Tidal Hours' })).toBeVisible();
 		await expect(canvas.getByRole('link', { name: /Neon$/ })).toHaveAttribute('href', '/@neon.test');
+		// The set's name links its page everywhere else.
+		await expect(canvas.queryByRole('link', { name: 'Tidal Hours' })).toBeNull();
 		await expect(canvas.queryByRole('heading', { name: 'Shared as a mix' })).toBeNull();
 	}}
 >
