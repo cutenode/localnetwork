@@ -53,11 +53,11 @@ Source: [`src/lib/server/services/sets.ts`](../../src/lib/server/services/sets.t
 
 ## DJ stats on a page
 
-How a performer page or a profile gets the stats and recent sets DJs publish. The app stores none of it. A profile link with `?tab=` waits for them, and for the projects the person plays in, so the tab it opens works without scripts.
+How a performer page, a profile or the dashboard home's locallibrary card gets the stats and recent sets DJs publish. The app stores none of it. A profile link with `?tab=` waits for them, and for the projects the person plays in, so the tab it opens works without scripts.
 
 ```mermaid
 flowchart TD
-  Page["Performer page or /@[handle]"] --> Fresh["Every account cached,<br/>under 5 minutes old?"]
+  Page["Performer page, /@[handle]<br/>or /dashboard's locallibrary card"] --> Fresh["Every account cached,<br/>under 5 minutes old?"]
   Fresh -- "yes" --> Now["Rendered with the page"]
   Fresh -- "no" --> Stream["Streamed in after the page"]
   Fresh -- "no, ?tab= in the URL" --> Waited["Fetched first,<br/>rendered with the page"]
@@ -69,7 +69,7 @@ flowchart TD
   Sets --> Cache
 ```
 
-Source: [`src/lib/server/services/dj.ts`](../../src/lib/server/services/dj.ts), [`src/lib/server/project-page.ts`](../../src/lib/server/project-page.ts), [`src/lib/server/profile-page.ts`](../../src/lib/server/profile-page.ts), [`src/lib/components/ProfileTabs.svelte`](../../src/lib/components/ProfileTabs.svelte), [`src/lib/profile-tabs/`](../../src/lib/profile-tabs/)
+Source: [`src/lib/server/services/dj.ts`](../../src/lib/server/services/dj.ts), [`src/lib/server/project-page.ts`](../../src/lib/server/project-page.ts), [`src/lib/server/profile-page.ts`](../../src/lib/server/profile-page.ts), [`src/lib/server/locallibrary.ts`](../../src/lib/server/locallibrary.ts), [`src/lib/components/ProfileTabs.svelte`](../../src/lib/components/ProfileTabs.svelte), [`src/lib/profile-tabs/`](../../src/lib/profile-tabs/)
 
 ## Sets and recordings
 

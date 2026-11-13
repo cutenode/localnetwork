@@ -20,7 +20,6 @@ pub struct NowPlaying {
     /// Matches the background read of the track's files to this play.
     pub id: u64,
     pub track: Track,
-    pub drive: String,
     pub root: PathBuf,
     pub analysis: TrackAnalysis,
     pub waves: DriveWaves,

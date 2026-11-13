@@ -18,7 +18,7 @@ use crate::protocol::{
 };
 use crate::{
     Contributions, EnsureAccount, Ensured, EventNotify, FEATURES, HostNotify, Incoming, ListItem, Manifest,
-    PROTOCOL_VERSION, Peer, Request, RpcError,
+    PROTOCOL_VERSION, Peer, PutRecord, Request, RpcError, StrongRef,
 };
 
 /// A request the host sends a hook: its method, what it answers, and the contribution it's for,
@@ -164,6 +164,13 @@ impl Host {
     /// them, until the host cancels the hook.
     pub fn ensure_account(&self, req: &EnsureAccount) -> Result<Ensured, RpcError> {
         self.call(method::ACCOUNTS_ENSURE, req)
+    }
+
+    /// `atmosphere/put_record`: writes a record in the Atmosphere account signed in to the host,
+    /// of a type the manifest's `atmosphere:write:` capabilities grant (see [`PutRecord`]): its
+    /// at:// URI and CID. The host asks the user first: this waits for them.
+    pub fn put_record(&self, req: &PutRecord) -> Result<StrongRef, RpcError> {
+        self.call(method::ATMOSPHERE_PUT_RECORD, req)
     }
 
     /// Sends the host the next rows of the table a view command will answer (`partial`), to

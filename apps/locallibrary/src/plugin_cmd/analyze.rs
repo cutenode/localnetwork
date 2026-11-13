@@ -129,11 +129,15 @@ pub fn analyze(args: AnalyzeArgs, store_path: &Option<PathBuf>, out: Output, ctx
     }
     let drive = crate::jobs_cmd::drive_or_default(args.drive, store_path, "analyze")?;
     let store = crate::open_store(store_path)?;
-    if let Some(&role) = apply.first().filter(|_| selected.len() > 1) {
-        let chosen = roles::chosen(Some(&store), role);
-        let named = |(p, a): &(&str, &str)| {
-            chosen.as_ref().is_some_and(|f| f.analyzer.plugin == *p && f.analyzer.analyzer == *a)
-        };
+    // A key and BPM come from the analyzer chosen for the first asked (else the first with it), a
+    // grid, phrases and a waveform from the one chosen for the first asked, if one is.
+    let chosen = match (apply.first(), parts.first()) {
+        (Some(&role), _) => Some(roles::chosen(Some(&store), role).map(|f| f.analyzer)),
+        (None, Some(part)) => roles::parts_chosen(Some(&store)).shift_remove(part),
+        (None, None) => None,
+    };
+    if let Some(chosen) = chosen.filter(|_| selected.len() > 1) {
+        let named = |(p, a): &(&str, &str)| chosen.as_ref().is_some_and(|c| c.plugin == *p && c.analyzer == *a);
         selected.retain(named);
     }
     if (!fields.is_empty() && selected.len() > 1) || selected.is_empty() {
@@ -177,6 +181,7 @@ pub fn analyze(args: AnalyzeArgs, store_path: &Option<PathBuf>, out: Output, ctx
         };
         plugins.plan_apply_fields(&req, &store, ctx)?
     } else {
+        let (plugin, analyzer) = (Some(plugin), Some(analyzer));
         let req = ApplyAnalysis { plugin, analyzer, drive, parts, tracks, overwrite: args.overwrite };
         plugins.plan_apply_analysis(&req, &store, ctx)?
     };

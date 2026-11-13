@@ -52,9 +52,10 @@ flowchart LR
     upload --> setrec
     delete["sets delete"] --> gone["Deletes both from the account"]
     bug["bug"] --> discussion["app.userinput.discussion<br/>a bug report"]
+    plugin["A command running a plugin<br/>with atmosphere:write:NSID"] --> pluginrec["NSID records, each one<br/>you confirm in a terminal"]
 ```
 
-Source: [`crates/locallibrary/src/publish.rs`](../../../../crates/locallibrary/src/publish.rs), [`crates/locallibrary/src/atmosphere/lexicon.rs`](../../../../crates/locallibrary/src/atmosphere/lexicon.rs), [`crates/locallibrary/src/api/publish.rs`](../../../../crates/locallibrary/src/api/publish.rs), [`docs/account.md`](../account.md), [`lexicons/computer/localnetwork`](../../../../lexicons/computer/localnetwork)
+Source: [`crates/locallibrary/src/publish.rs`](../../../../crates/locallibrary/src/publish.rs), [`crates/locallibrary/src/atmosphere/lexicon.rs`](../../../../crates/locallibrary/src/atmosphere/lexicon.rs), [`crates/locallibrary/src/api/publish.rs`](../../../../crates/locallibrary/src/api/publish.rs), [`docs/account.md`](../account.md), [`crates/locallibrary/src/plugin/atmosphere.rs`](../../../../crates/locallibrary/src/plugin/atmosphere.rs), [`lexicons/computer/localnetwork`](../../../../lexicons/computer/localnetwork)
 
 ## Publishing a set
 
@@ -136,7 +137,7 @@ flowchart LR
     core --> iroh["iroh and n0's relays:<br/>store serve, store fetch"]
 ```
 
-Source: [`crates/locallibrary/src/atmosphere/mod.rs`](../../../../crates/locallibrary/src/atmosphere/mod.rs), [`crates/locallibrary/src/atmosphere/directory.rs`](../../../../crates/locallibrary/src/atmosphere/directory.rs), [`crates/locallibrary/src/atmosphere/repo.rs`](../../../../crates/locallibrary/src/atmosphere/repo.rs), [`crates/locallibrary/src/peers/mod.rs`](../../../../crates/locallibrary/src/peers/mod.rs)
+Source: [`crates/locallibrary/src/atmosphere/mod.rs`](../../../../crates/locallibrary/src/atmosphere/mod.rs), [`crates/locallibrary/src/atmosphere/identity.rs`](../../../../crates/locallibrary/src/atmosphere/identity.rs), [`crates/locallibrary/src/atmosphere/directory.rs`](../../../../crates/locallibrary/src/atmosphere/directory.rs), [`crates/locallibrary/src/atmosphere/repo.rs`](../../../../crates/locallibrary/src/atmosphere/repo.rs), [`crates/locallibrary/src/peers/mod.rs`](../../../../crates/locallibrary/src/peers/mod.rs)
 
 ## Online services of plugins and the browser
 
