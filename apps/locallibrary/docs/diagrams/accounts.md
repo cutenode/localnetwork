@@ -59,6 +59,7 @@ sequenceDiagram
     L->>C: Online, allowing<br/>these scopes?
     Note over L,C: Offline: the localhost<br/>development client.<br/>Online without them: refused
     L->>L: Find the server from<br/>a handle, DID or address
+    Note over L: A handle neither DNS nor<br/>its web address names a DID for:<br/>stops, saying what each answered,<br/>and to try the server's address
     L->>S: Pushed authorization<br/>request, with PKCE
     L->>B: Open the sign-in page
     B->>S: You approve
