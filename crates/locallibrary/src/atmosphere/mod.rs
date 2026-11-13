@@ -273,8 +273,20 @@ fn oauth_error(e: OAuthError) -> Error {
         OAuthError::Callback(CallbackError::IssuerMismatch { .. }) => Error::Account(one_line(&format!(
             "the sign-in came back from a different server than it went to ({e}); sign in again"
         ))),
-        _ => Error::Account(one_line(&format!("signing in: {}", net::with_causes(&e)))),
+        _ => match causes(&e).find_map(|c| c.downcast_ref::<identity::HandleNotFound>()) {
+            Some(nf) => Error::Account(one_line(&format!(
+                "no Atmosphere account has the handle {}: {nf}. Check the handle, or sign in with your \
+                 account's server instead (https://bsky.social for a Bluesky account)",
+                nf.handle
+            ))),
+            None => Error::Account(one_line(&format!("signing in: {}", net::with_causes(&e)))),
+        },
     }
+}
+
+/// `e` and the errors under it, outermost first.
+fn causes<'a>(e: &'a (dyn std::error::Error + 'static)) -> impl Iterator<Item = &'a (dyn std::error::Error + 'static)> {
+    std::iter::successors(Some(e), |e| e.source())
 }
 
 fn scopes(list: &[String]) -> Result<Scopes<SmolStr>> {
