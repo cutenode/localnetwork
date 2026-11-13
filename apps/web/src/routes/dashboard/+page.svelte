@@ -2,7 +2,7 @@
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import NeedsList from '#lib/components/NeedsList.svelte';
 	import NightList from '#lib/components/NightList.svelte';
-	import ProfileSetupCard from '#lib/components/ProfileSetupCard.svelte';
+	import OnboardingChecklist from '#lib/components/OnboardingChecklist.svelte';
 	import { nightLabel, pluralize } from '#lib/format.ts';
 	import { statusLine } from '#lib/home.ts';
 	import { resolved } from '#lib/resolved.svelte.ts';
@@ -20,6 +20,8 @@
 
 	const summary = resolved(() => data.summary, null);
 
+	const onboarding = resolved(() => data.onboarding, null);
+
 	const needs = $derived(rows.value && [...rows.value, ...access.value]);
 
 	// Known before the rows are, so the heading and the room they take never wait.
@@ -27,10 +29,6 @@
 </script>
 
 <svelte:head><title>Home · Local Network</title></svelte:head>
-
-{#snippet setup(firstRun: { name: string; hasAvatar: boolean })}
-	<ProfileSetupCard name={firstRun.name} hasAvatar={firstRun.hasAvatar} />
-{/snippet}
 
 {#snippet failure()}
 	<p class="notice notice-info m-0 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">Some of your nights didn't load. Everything else here is up to date.<a class="btn-secondary btn-sm" href="/dashboard" data-sveltekit-reload>Try again</a></p>
@@ -56,6 +54,8 @@
 		</p>
 	</header>
 
+	{#if onboarding.value}<OnboardingChecklist data={onboarding.value} flags={data.flags} />{/if}
+
 	{#if !data.viewer?.spacesCapable}
 		<p class="notice notice-info m-0">Your account's server can't keep private data for Local Network yet, so Local Network keeps your bookings and submissions for you (<a href="/dashboard/data">see what it keeps</a>) and the planner is off. Once it can, sign out and back in.</p>
 	{/if}
@@ -72,9 +72,6 @@
 			{#if needs.length > NEEDS_SHOWN}<p class="m-0 text-small text-fg-muted"><a class="link" href="/dashboard/bookings">{needs.length - NEEDS_SHOWN} more</a></p>{/if}
 		</section>
 	{/if}
-
-	<!-- Something waiting on them outranks setting up, so the card only leads an otherwise empty page. -->
-	{#if firstRun.value && !count}{@render setup(firstRun.value)}{/if}
 
 	{#await data.nights}
 		<section aria-labelledby="next" class="flex flex-col gap-3">
@@ -95,8 +92,6 @@
 	{/await}
 
 	{#if summary.value?.others}<p class="m-0 text-small text-fg-muted">{summary.value.others}</p>{/if}
-
-	{#if firstRun.value && count}{@render setup(firstRun.value)}{/if}
 
 	{#if firstRun.value && !count}
 		<p class="m-0 text-small text-fg-muted">Bookings, shows and anything else show up here when they need you.</p>

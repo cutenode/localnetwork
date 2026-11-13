@@ -35,6 +35,31 @@ path = "src/unit.rs"
 dist = true
 formula = "locallibrary"
 
+# What cargo-shear can't see used. The plugins are linked through the table build.rs writes
+# (src/plugins.rs includes it from OUT_DIR). The test plugin comes in by #[path] from
+# crates/locallibrary/src/bin/test-plugin and uses loclib-progress, and the tests compile
+# crates/locallibrary/tests/support/ the same way (tests/it/main.rs), which uses jacquard-oauth,
+# oauth2 and tokio. crossterm comes in only to turn on its use-dev-tty feature for ratatui's copy.
+[package.metadata.cargo-shear]
+ignored = [
+    "locallibrary-plugin-archive",
+    "locallibrary-plugin-coverart",
+    "locallibrary-plugin-demos",
+    "locallibrary-plugin-interop",
+    "locallibrary-plugin-mixcloud",
+    "locallibrary-plugin-musicbrainz",
+    "locallibrary-plugin-plyr",
+    "locallibrary-plugin-sound",
+    "locallibrary-plugin-soundcloud",
+    "locallibrary-plugin-tracklist",
+    "locallibrary-plugin-youtube",
+    "loclib-progress",
+    "jacquard-oauth",
+    "oauth2",
+    "tokio",
+    "crossterm",
+]
+
 [features]
 default = ["account", "tui", "playback", "peers"]
 # The Atmosphere account: `account`, publishing (`profile publish`, `sets publish`, `settings
@@ -142,7 +167,6 @@ rekordbox-pdb.workspace = true
 image.workspace = true
 # Builds rekordbox-shaped collection databases (`master.db`) for `collection`'s tests.
 rusqlite.workspace = true
-loclib-mixid = { workspace = true, features = ["test-util"] }
 # Checks the RPC sidecar's answers against its contract (docs/rpc/schema.json).
 jsonschema.workspace = true
 # For the library's test helpers the CLI's tests share (crates/locallibrary/tests/support): copying
@@ -157,6 +181,7 @@ loclib-interop.workspace = true
 # The mock OAuth service accounts are signed in to at (crates/locallibrary/tests/support/mock_oauth.rs).
 oauth2 = { version = "5.0.0", default-features = false }
 form_urlencoded = "1.2.2"
+loclib-testkit.workspace = true
 
 [lints]
 workspace = true

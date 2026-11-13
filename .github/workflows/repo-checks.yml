@@ -4,13 +4,14 @@ name: Repo checks
 # config files, knip (knip.jsonc) over every JavaScript and TypeScript project, ast-grep's rules
 # (sgconfig.yml) over the Rust, TypeScript and Svelte code, goat over the lexicons, on a pull
 # request, that the Mermaid diagrams whose sources it changes still hold, and on main, that GitHub's
-# "Protect Main" ruleset is .github/rulesets/protect-main.json. ci.yml calls it with the jobs a pull request or push needs, and it runs weekly too, for a ruleset
-# changed in GitHub's settings, which starts no workflow.
+# "Protect Main" ruleset is .github/rulesets/protect-main.json. ci.yml calls it with the jobs a
+# pull request or push needs, and it runs weekly too, for a ruleset changed in GitHub's settings,
+# which starts no workflow.
 on:
   workflow_call:
     inputs:
       policy:
-        description: Whether to run the policies and ast-grep (ci.yml's repo_checks paths).
+        description: Whether to run the policies, ast-grep and the root's own checks (ci.yml's repo_checks paths).
         type: boolean
         required: true
       lexicons:
@@ -23,6 +24,18 @@ on:
         required: true
       diagrams:
         description: Whether it's a pull request, so the diagrams whose sources it changes are checked.
+        type: boolean
+        required: true
+      bombadil:
+        description: Whether Bombadil's npm project changed (ci.yml's repo_checks_bombadil paths).
+        type: boolean
+        required: true
+      text:
+        description: Whether anything changed, Markdown included, for the spelling and link checks.
+        type: boolean
+        required: true
+      commits:
+        description: Whether to check a pull request's commit messages.
         type: boolean
         required: true
   schedule:
@@ -55,6 +68,24 @@ jobs:
       - run: pnpm exec ast-grep scan
       - name: Tools tests
         run: pnpm test:tools
+      # The root's own TypeScript and config (tools/, .railway/, Bombadil's specs, the shared flags,
+      # budgets and tokens), which no app's format, lint or type check reaches. Bombadil's packages
+      # give the type-aware lint its types.
+      - run: npm ci --prefix apps/locallibrary/bombadil
+      - run: pnpm format:tools --check
+      - run: pnpm lint:tools
+      - run: pnpm check:tools
+      # Every shell script, which actionlint's ShellCheck pass doesn't see: only the workflows' own
+      # `run:` blocks. A pinned image, as tools/policy.sh runs its tools.
+      - name: ShellCheck
+        run: |
+          git ls-files -z '*.sh' | xargs -0 docker run --rm -v "$PWD:/mnt:ro" -w /mnt \
+            koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
+      # Every TOML file's format (taplo.toml).
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: taplo@0.10.0
+      - run: taplo fmt --check
 
   # Knip over the whole repo, so a change to tools/ or Bombadil alone, which starts no app's CI, gets
   # checked too. A job of its own so the policies don't wait on installing every app, whose configs
@@ -142,3 +173,63 @@ jobs:
       - run: tools/ruleset.sh check
         env:
           GH_TOKEN: ${{ github.token }}
+
+  # Bombadil's own npm project (apps/locallibrary/bombadil): `npm ci` fails when package.json and
+  # package-lock.json disagree, and tsc checks the specs. The specs themselves need the TUI built,
+  # so they run weekly in locallibrary-scheduled.yml.
+  bombadil:
+    if: inputs.bombadil
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/locallibrary/bombadil
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: npm ci
+      - run: npm run typecheck
+
+  # Spelling (typos, with the repository's words in _typos.toml) over every file, and the links in
+  # the Markdown, offline: relative paths and their #anchors. The links to other sites are checked
+  # weekly (repo-scheduled.yml). Runs on Markdown-only pull requests too, which skip the policy job.
+  text:
+    if: github.event_name == 'workflow_dispatch' || inputs.text
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: crate-ci/typos@7f9d0819ca1c008ade73f4b41fa9d258d48f605b # v1.51.1
+      # The action pins lychee 0.24.2.
+      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: --offline --include-fragments --no-progress './**/*.md'
+          jobSummary: false
+
+  # Each commit a pull request adds follows Conventional Commits (commitlint.config.js), as main's
+  # history does. Merge commits are skipped.
+  commits:
+    if: inputs.commits && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter localnetwork-monorepo
+      - env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: pnpm exec commitlint --from "$BASE" --to "$HEAD" --verbose
