@@ -9,27 +9,27 @@
 			"measures": "Instructions of one frame of the Library view at 160x45 in the debug profile, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"deck": {
-			"limit": 33225844,
+			"limit": 31537366,
 			"unit": "instructions",
-			"measures": "Instructions of one frame of the Deck layout at 160x45 in the debug profile, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
+			"measures": "Instructions of one frame of player mode at 160x45 in the debug profile, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"drives": {
-			"limit": 30938591,
+			"limit": 30924529,
 			"unit": "instructions",
 			"measures": "Instructions of one frame of the Drives view at 160x45 in the debug profile, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"prepare": {
-			"limit": 35282137,
+			"limit": 34461292,
 			"unit": "instructions",
 			"measures": "Instructions of one frame of the Prepare view at 160x45 in the debug profile, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"palette": {
-			"limit": 59125859,
+			"limit": 59122835,
 			"unit": "instructions",
 			"measures": "Instructions of one frame of the command palette, over the Library view, at 160x45 in the debug profile, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"help": {
-			"limit": 77471568,
+			"limit": 74431250,
 			"unit": "instructions",
 			"measures": "Instructions of one frame of the help, over the Library view, at 160x45 in the debug profile, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		}

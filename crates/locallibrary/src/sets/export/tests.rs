@@ -3,6 +3,7 @@ use crate::export::PathStyle;
 use crate::sets::query::tests::set;
 use crate::sets::{EntryOrigin, Recording};
 use loclib_model::test_util::track;
+use loclib_plugin::TracklistEntry;
 
 fn friday() -> Set {
     let mut s = set("3m2abcdefgh22", "2026-10-03", Some("Friday"));
@@ -144,35 +145,44 @@ fn m3u8_lists_the_tracks_on_the_drive() {
 }
 
 #[test]
-fn timed_formats_need_every_start() {
+fn a_cue_sheet_needs_every_start() {
     let mut s = friday();
     s.tracks[1].start_seconds = None;
-    for format in [SetFormat::Cue, SetFormat::Youtube] {
-        let err = render(&s, format, &ProfilePrefs::default(), None).unwrap_err().to_string();
-        assert!(err.starts_with("track 2 (Someone, Other feat. X - Secret) has no start time"), "{err}");
-    }
+    let err = render(&s, SetFormat::Cue, &ProfilePrefs::default(), None).unwrap_err().to_string();
+    assert!(err.starts_with("track 2 (Someone, Other feat. X - Secret) has no start time"), "{err}");
     let mut s = friday();
     s.recording = None;
     let err = render(&s, SetFormat::Cue, &ProfilePrefs::default(), None).unwrap_err().to_string();
     assert_eq!(err, "a CUE sheet indexes the recording: attach it to the set first");
 }
 
+/// YouTube's description is the one the youtube plugin uploads: a time that would break YouTube's
+/// chapters (out of order, under ten seconds after the chapter before, in the recording's last ten
+/// seconds) is left off its line, as is a track without one, and the warnings say so.
 #[test]
-fn youtube_rules_are_warned_about() {
+fn youtube_times_that_break_its_chapters_are_left_off() {
+    let prefs = ProfilePrefs::default();
     let mut s = friday();
-    s.tracks[2].start_seconds = Some(100);
-    s.tracks[1].start_seconds = Some(105);
-    let r = render(&s, SetFormat::Youtube, &ProfilePrefs::default(), None).unwrap();
-    assert_eq!(r.warnings, ["track 3 (0:01:40) doesn't start after track 2 (0:01:45)"]);
-    s.tracks.pop();
-    let r = render(&s, SetFormat::Youtube, &ProfilePrefs::default(), None).unwrap();
-    assert_eq!(r.text.lines().next(), Some("00:00 Floorplan - Never Grow Old"));
-    assert_eq!(r.warnings, ["YouTube needs at least 3 chapters; this has 2"]);
-    s.tracks[1].start_seconds = Some(9);
-    let r = render(&s, SetFormat::Youtube, &ProfilePrefs::default(), None).unwrap();
-    assert_eq!(r.warnings[1], "chapter 1 is 9 seconds long; YouTube needs 10");
-    s.tracks[1].start_seconds = Some(10);
-    assert_eq!(render(&s, SetFormat::Youtube, &ProfilePrefs::default(), None).unwrap().warnings.len(), 1);
+    (s.tracks[1].start_seconds, s.tracks[2].start_seconds) = (Some(105), Some(100));
+    let r = youtube(&s, &prefs, 3600).unwrap();
+    assert_eq!(r.text, "00:00 Floorplan - Never Grow Old\n01:45 ID - ID\nDaft Punk - Around the World\n");
+    let left_off = "left the time off 1 of the tracks: YouTube's chapters are in order, each at least 10 seconds long";
+    let few = "YouTube shows chapters once there are 3, and the description has 2";
+    assert_eq!((r.tracks, r.warnings.as_slice()), (3, &[left_off.to_string(), few.into()][..]));
+    s.tracks[2].start_seconds = Some(115);
+    let r = youtube(&s, &prefs, 125).unwrap();
+    assert_eq!((r.text.lines().nth(2), r.warnings.len()), (Some("01:55 Daft Punk - Around the World"), 0));
+    assert_eq!(youtube(&s, &prefs, 124).unwrap().warnings, [left_off, few]);
+    s.tracks[2].start_seconds = None;
+    let r = youtube(&s, &prefs, 3600).unwrap();
+    assert_eq!(
+        (r.text.lines().nth(2), r.warnings.as_slice()),
+        (Some("Daft Punk - Around the World"), &[few.to_string()][..])
+    );
+    // A recording that isn't on this computer has no known length.
+    assert_eq!(render(&s, SetFormat::Youtube, &prefs, None).unwrap(), youtube(&s, &prefs, u32::MAX).unwrap());
+    let empty = set("3m2abcdefgh22", "2026-10-03", None);
+    assert_eq!(youtube(&empty, &prefs, 3600).unwrap(), Rendered { text: String::new(), tracks: 0, warnings: vec![] });
 }
 
 /// A set of 5-minute tracks by these artists, from these releases.
@@ -191,46 +201,22 @@ fn show(tracks: &[(&str, &str)]) -> Set {
 
 const LIMITED: &str = "before it limits the show to subscribers";
 
+/// Mixcloud's rules count every track, named or not: they're about the music played.
 #[test]
-fn mixcloud_allows_three_from_a_release_two_in_a_row() {
-    assert!(mixcloud_check(&show(&[("A", "X"), ("A", "X"), ("B", "Y"), ("A", "X")])).is_empty());
+fn mixcloud_rules_count_unnamed_tracks() {
+    let mut s = show(&[("A", "X"); 5]);
+    s.tracks[1].unnamed = true;
+    let r = render(&s, SetFormat::Mixcloud, &ProfilePrefs::default(), None).unwrap();
+    assert_eq!(r.text.lines().nth(1), Some("ID - ID"));
     assert_eq!(
-        mixcloud_check(&show(&[("A", "X"), ("A", "X"), ("B", "Y"), ("A", "X"), ("C", "x")])),
-        [format!("4 tracks from \"X\": Mixcloud allows 3 {LIMITED}")]
+        r.warnings,
+        [
+            format!("5 tracks from \"X\": Mixcloud allows 3 {LIMITED}"),
+            format!("tracks 1-5 are from \"X\": Mixcloud allows 2 in a row {LIMITED}"),
+            format!("5 tracks by A: Mixcloud allows 4 {LIMITED}"),
+            format!("tracks 1-5 are by A: Mixcloud allows 3 in a row {LIMITED}"),
+        ]
     );
-    assert_eq!(
-        mixcloud_check(&show(&[("A", "X"), ("B", "X"), ("C", "X"), ("D", "Y")])),
-        [format!("tracks 1-3 are from \"X\": Mixcloud allows 2 in a row {LIMITED}")]
-    );
-    assert!(mixcloud_check(&show(&[("A", ""), ("B", ""), ("C", ""), ("D", ""), ("E", "")])).is_empty());
-}
-
-#[test]
-fn mixcloud_allows_four_by_an_artist_three_in_a_row() {
-    assert!(mixcloud_check(&show(&[("A", ""), ("A", ""), ("A", ""), ("B", ""), ("A feat. C", "")])).is_empty());
-    assert_eq!(
-        mixcloud_check(&show(&[("A", ""), ("a", ""), ("A", ""), ("A feat. C", ""), ("B", "")])),
-        [format!("tracks 1-4 are by A: Mixcloud allows 3 in a row {LIMITED}")]
-    );
-    let spread = [("A", ""), ("B", ""), ("A", ""), ("C", ""), ("A", ""), ("D", ""), ("C, A", ""), ("E", "")];
-    assert!(mixcloud_check(&show(&spread)).is_empty());
-    assert_eq!(
-        mixcloud_check(&show(&[&spread[..], &[("A", "")]].concat())),
-        [format!("5 tracks by A: Mixcloud allows 4 {LIMITED}")]
-    );
-}
-
-#[test]
-fn mixcloud_wants_fifteen_minutes() {
-    assert_eq!(
-        mixcloud_check(&show(&[("A", "X"), ("A", "X"), ("A", "X")][..2])),
-        ["it's 10 minutes long: Mixcloud doesn't allow copyrighted music in uploads under 15 minutes"]
-    );
-    let mut s = show(&[("A", "X"), ("A", "X"), ("A", "X")]);
-    assert_eq!(mixcloud_check(&s).len(), 1, "15 minutes is long enough for the rules to apply");
-    s.tracks[2].start_seconds = Some(500);
-    assert!(mixcloud_check(&s)[0].starts_with("it's 13 minutes long"), "a recording's length goes by its times");
-    assert!(mixcloud_check(&set("3m2abcdefgh22", "2026-10-03", None)).is_empty());
 }
 
 use hegel::TestCase;
@@ -321,10 +307,10 @@ fn clock_of(secs: u32) -> String {
 }
 
 /// Every format lists every track in set order: text numbered, Mixcloud and 1001Tracklists
-/// with the times they have, CSV naming every track (read back as written); YouTube and CUE
-/// need every track's start (CUE the recording too), refuse naming the first track without
-/// one, and warn about tracks that don't start after the one before. The formats for publishing
-/// name no track the set marks unnamed or the profile hides. An M3U8 needs a drive.
+/// with the times they have, CSV naming every track (read back as written); CUE needs every
+/// track's start and the recording, refuses naming the first track without one, and warns about
+/// tracks that don't start after the one before. The formats for publishing name no track the set
+/// marks unnamed or the profile hides. An M3U8 needs a drive.
 #[hegel::test(test_cases = 300)]
 fn every_format_lists_every_track_in_order(tc: TestCase) {
     let s = some_set(&tc, tc.draw(gs::booleans()));
@@ -392,39 +378,6 @@ fn every_format_lists_every_track_in_order(tc: TestCase) {
             s.tracks[i].name()
         )
     };
-    match (missing, render(&s, SetFormat::Youtube, &prefs, None)) {
-        (Some(i), Err(e)) => assert_eq!(e.to_string(), refused("YouTube", i)),
-        (None, Ok(r)) => {
-            let mut chapters = starts.clone();
-            if let Some(first) = chapters.first_mut() {
-                *first = 0;
-            }
-            let want: Vec<String> = s
-                .tracks
-                .iter()
-                .zip(&chapters)
-                .map(|(e, &t)| match t < 3600 {
-                    true => format!("{:02}:{:02} {}", t / 60, t % 60, published(e)),
-                    false => format!("{} {}", clock_of(t), published(e)),
-                })
-                .collect();
-            assert_eq!(r.text.lines().collect::<Vec<_>>(), want);
-            let mut warnings = Vec::new();
-            if chapters.len() < 3 {
-                warnings.push(format!("YouTube needs at least 3 chapters; this has {}", chapters.len()));
-            }
-            warnings.extend(late(&chapters));
-            warnings.extend(
-                (1..chapters.len())
-                    .filter(|&i| chapters[i] > chapters[i - 1] && chapters[i] - chapters[i - 1] < 10)
-                    .map(|i| {
-                        format!("chapter {i} is {} seconds long; YouTube needs 10", chapters[i] - chapters[i - 1])
-                    }),
-            );
-            assert_eq!(r.warnings, warnings);
-        }
-        (missing, got) => panic!("track {missing:?} has no start, and YouTube gave {got:?}"),
-    }
     match (&s.recording, missing, render(&s, SetFormat::Cue, &prefs, None)) {
         (None, _, Err(e)) => {
             assert_eq!(e.to_string(), "a CUE sheet indexes the recording: attach it to the set first")
@@ -467,70 +420,43 @@ fn every_format_lists_every_track_in_order(tc: TestCase) {
     }
 }
 
-/// Mixcloud's rules, as a model counts them: over 15 minutes, a release on more than 3 tracks
-/// or more than 2 in a row, an artist credited on more than 4 or more than 3 in a row, each
-/// named as first spelled (ignoring case); under 15, the one warning about length.
+/// What a set destination is sent of `s`: each track's names, album and length only when the
+/// published tracklist names it (`named`), its start whatever it is.
+fn sent(s: &Set, named: impl Fn(&SetEntry) -> bool) -> Vec<TracklistEntry> {
+    s.tracks
+        .iter()
+        .map(|e| {
+            let named = named(e);
+            TracklistEntry {
+                artist: named.then(|| e.artist.clone()),
+                title: named.then(|| e.title.clone()),
+                album: (named && !e.album.is_empty()).then(|| e.album.clone()),
+                start_seconds: e.start_seconds,
+                duration_seconds: (named && e.duration_secs > 0).then_some(e.duration_secs),
+            }
+        })
+        .collect()
+}
+
+/// Whatever the set, profile and recording's length, the YouTube description pasted is the one
+/// the youtube plugin uploads: YouTube's description of the tracklist the host sends it, which
+/// names no track the set marks unnamed or the profile hides, and holds no album or length of one.
+/// Mixcloud's tracklist is warned about as the mixcloud plugin warns, counting every track.
 #[hegel::test(test_cases = 300)]
-fn mixcloud_rules_are_counted_as_the_model_does(tc: TestCase) {
-    let s = some_set(&tc, false);
-    let length = match s.tracks.last() {
-        Some(e) if e.start_seconds.is_some() => e.start_seconds.unwrap() + e.duration_secs,
-        _ => s.tracks.iter().map(|e| e.duration_secs).sum(),
-    };
-    let got = mixcloud_check(&s);
-    if length > 0 && length < 900 {
-        assert_eq!(got.len(), 1);
-        assert!(got[0].starts_with(&format!("it's {} minutes long", length / 60)), "{got:?}");
-        return;
-    }
-    let releases: Vec<Vec<String>> =
-        s.tracks.iter().map(|e| Some(e.album.clone()).filter(|a| !a.is_empty()).into_iter().collect()).collect();
-    let artists: Vec<Vec<String>> = s.tracks.iter().map(|e| artist_credits(&e.artist)).collect();
-    let model = |tracks: &[Vec<String>], what: &dyn Fn(&str) -> String, most: usize, in_a_row: usize| {
-        let mut names: Vec<(String, String)> = Vec::new();
-        for c in tracks.iter().flatten() {
-            if !names.iter().any(|n| n.0 == normalize(c)) {
-                names.push((normalize(c), c.clone()));
-            }
-        }
-        let has = |i: usize, key: &str| tracks[i].iter().any(|c| normalize(c) == key);
-        let limited = "before it limits the show to subscribers";
-        let mut out: Vec<String> = names
-            .iter()
-            .map(|(key, name)| (name, (0..tracks.len()).filter(|&i| has(i, key)).count()))
-            .filter(|(_, n)| *n > most)
-            .map(|(name, n)| format!("{n} tracks {}: Mixcloud allows {most} {limited}", what(name)))
-            .collect();
-        // Runs, in the order they end, then the order names first appear.
-        let mut runs: Vec<(usize, usize, String)> = Vec::new();
-        for (k, (key, name)) in names.iter().enumerate() {
-            let mut i = 0;
-            while i < tracks.len() {
-                if !has(i, key) {
-                    i += 1;
-                    continue;
-                }
-                let from = i;
-                while i < tracks.len() && has(i, key) {
-                    i += 1;
-                }
-                if i - from > in_a_row {
-                    let msg = format!(
-                        "tracks {}-{i} are {}: Mixcloud allows {in_a_row} in a row {limited}",
-                        from + 1,
-                        what(name)
-                    );
-                    runs.push((i, k, msg));
-                }
-            }
-        }
-        runs.sort_by_key(|r| (r.0, r.1));
-        out.extend(runs.into_iter().map(|r| r.2));
-        out
-    };
-    let mut want = model(&releases, &|r| format!("from {r:?}"), 3, 2);
-    want.extend(model(&artists, &|a| format!("by {a}"), 4, 3));
-    assert_eq!(got, want);
+fn pasted_is_what_the_plugins_publish(tc: TestCase) {
+    let s = some_set(&tc, tc.draw(gs::booleans()));
+    let prefs = some_prefs(&tc);
+    let length = tc.draw(gs::integers::<u32>().max_value(25_000));
+    let unnamed = s.unnamed(&[], &prefs).unwrap().positions;
+    let tracklist = sent(&s, |e| named(e, &prefs));
+    assert_eq!(s.tracklist(&unnamed), tracklist, "what the host sends a set destination");
+    let r = youtube(&s, &prefs, length).unwrap();
+    let uploaded = loclib_plugin::youtube::description(&tracklist, length);
+    let pasted = if uploaded.text.is_empty() { String::new() } else { format!("{}\n", uploaded.text) };
+    assert_eq!((r.text, r.tracks, r.warnings), (pasted, uploaded.tracks, uploaded.notes));
+
+    let r = render(&s, SetFormat::Mixcloud, &prefs, None).unwrap();
+    assert_eq!(r.warnings, loclib_plugin::mixcloud::warnings(&sent(&s, |_| true)));
 }
 
 /// An M3U8 lists the set's tracks found on the drive by file (in any case), in set order, and
