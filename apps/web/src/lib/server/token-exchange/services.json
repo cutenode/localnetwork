@@ -6,21 +6,24 @@
 			"tokenUrl": "https://oauth2.googleapis.com/token",
 			"style": "form",
 			"clientIdEnv": "GOOGLE_CLIENT_ID",
-			"clientSecretEnv": "GOOGLE_CLIENT_SECRET"
+			"clientSecretEnv": "GOOGLE_CLIENT_SECRET",
+			"pauseFlag": "pauseGoogleTokenExchange"
 		},
 		"mixcloud": {
 			"title": "Mixcloud",
 			"tokenUrl": "https://www.mixcloud.com/oauth/access_token",
 			"style": "query",
 			"clientIdEnv": "MIXCLOUD_CLIENT_ID",
-			"clientSecretEnv": "MIXCLOUD_CLIENT_SECRET"
+			"clientSecretEnv": "MIXCLOUD_CLIENT_SECRET",
+			"pauseFlag": "pauseMixcloudTokenExchange"
 		},
 		"soundcloud": {
 			"title": "SoundCloud",
 			"tokenUrl": "https://secure.soundcloud.com/oauth/token",
 			"style": "form",
 			"clientIdEnv": "SOUNDCLOUD_CLIENT_ID",
-			"clientSecretEnv": "SOUNDCLOUD_CLIENT_SECRET"
+			"clientSecretEnv": "SOUNDCLOUD_CLIENT_SECRET",
+			"pauseFlag": "pauseSoundcloudTokenExchange"
 		}
 	}
 }

@@ -2,6 +2,7 @@ import { page } from 'vitest/browser';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { collect, type OnboardingData } from '#lib/onboarding/checklist.ts';
+import { flagsOff } from '#lib/testing/flags.ts';
 import type { RequestView, Viewer } from '#lib/types.ts';
 import Handle from './Handle.svelte';
 import ManageLink from './ManageLink.svelte';
@@ -200,14 +201,14 @@ describe('OnboardingChecklist', () => {
 	});
 
 	it("marks a feature's step new while its flag is on, and leaves it out otherwise", async () => {
-		const { rerender } = await render(OnboardingChecklist, { data, steps, flags: { parityCanary: true } });
+		const { rerender } = await render(OnboardingChecklist, { data, steps, flags: { ...flagsOff, parityCanary: true } });
 
 		const mix = page.getByRole('listitem').filter({ hasText: 'Add a mix' });
 		await expect.element(mix.getByRole('link', { name: 'Add a mix' })).toHaveAttribute('href', '/mixes');
 		await expect.element(mix.getByText('new', { exact: true })).toBeInTheDocument();
 		await expect.element(page.getByText('0 of 2 done')).toBeInTheDocument();
 
-		await rerender({ data, steps, flags: { parityCanary: false } });
+		await rerender({ data, steps, flags: { ...flagsOff, parityCanary: false } });
 		await expect.element(page.getByText('Add a mix')).not.toBeInTheDocument();
 		await expect.element(page.getByText('0 of 1 done')).toBeInTheDocument();
 	});

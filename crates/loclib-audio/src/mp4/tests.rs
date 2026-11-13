@@ -5,8 +5,8 @@ use hegel::generators as gs;
 use loclib_progress::Ctx;
 
 use super::*;
-use crate::audio::{Damaged, decode, decode_native, open};
-use crate::test_util::{be, m4a, mp4_atom, mp4_empty_tables, mp4_full};
+use crate::{Damaged, decode, decode_native, open};
+use loclib_testkit::audio::{be, m4a, mp4_atom, mp4_empty_tables, mp4_full};
 
 /// Every way of reading `path` (opening it, decoding it at its rate and to mono), as the error
 /// message each gives, or `None` for one that read it.

@@ -1,8 +1,8 @@
 //! What the player remembers between runs (the drive and list it was showing, the view, sort,
 //! volume, visualiser and panels, its theme, colours and icons, quantize, the output, the crate,
 //! and the queue and where it was in it), in `tui.json` in the store, or beside the store's folder until there is one. Best
-//! effort: a missing or unreadable file just means starting fresh, and nothing is ever written to
-//! a drive. Of it, the choices that are the user's preferences (the theme, colours and icons,
+//! effort: a missing or unreadable file just means starting fresh, an unreadable one is left as it
+//! is for the rest of the run, and nothing is ever written to a drive. Of it, the choices that are the user's preferences (the theme, colours and icons,
 //! the columns, the visualiser, playback modes, how keys and waveforms look, the footer's hints and
 //! the palette's recent commands) go in `settings export`; see `locallibrary::settings::transfer`.
 
@@ -110,15 +110,21 @@ fn has_store(store_root: &Path) -> bool {
     store_root.join("store.json").is_file()
 }
 
-/// Read the saved state (the store's, else the one kept beside it); anything wrong with it
-/// means the defaults.
-pub fn load(store_root: &Path) -> Saved {
+/// Read the saved state (the store's, else the one kept beside it): the defaults when there's
+/// none, `None` when there's one that can't be read or parsed (a newer build's, say), which the
+/// player then runs without and doesn't save over.
+pub fn load(store_root: &Path) -> Option<Saved> {
     let dir = if has_store(store_root) && store_root.join(FILE).is_file() {
         Some(store_root.to_path_buf())
     } else {
         fallback(store_root)
     };
-    dir.and_then(|d| std::fs::read(d.join(FILE)).ok()).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    let Some(dir) = dir else { return Some(Saved::default()) };
+    match std::fs::read(dir.join(FILE)) {
+        Ok(bytes) => serde_json::from_slice(&bytes).ok(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(Saved::default()),
+        Err(_) => None,
+    }
 }
 
 /// Save the state into the store when there is one. The store refuses to set itself up in a
@@ -134,7 +140,7 @@ pub fn save(store_root: &Path, saved: &Saved) {
     if saved.root.as_deref().is_some_and(|r| resolved(&dir).starts_with(resolved(r))) {
         return;
     }
-    // One that can't be read right now keeps what it holds: `load` gave the defaults for it.
+    // One that can't be read right now keeps what it holds.
     let file = dir.join(FILE);
     if std::fs::File::open(&file).is_err_and(|e| e.kind() != std::io::ErrorKind::NotFound) {
         return;

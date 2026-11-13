@@ -3,7 +3,6 @@
 	import MixReport from '#lib/components/mix/MixReport.svelte';
 	import type { MixReport as Report } from '#lib/mix/report.ts';
 	import { parseMixReport, parseMixReportText } from '#lib/mix/schema.ts';
-	import { sampleReport } from '#lib/mix/sample.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import CodeBlock from '#lib/ui/CodeBlock.svelte';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
@@ -21,7 +20,9 @@
 		error = result.ok ? null : result.error;
 	}
 
-	function loadSample() {
+	// Imported on demand: only someone who asks for the sample downloads it.
+	async function loadSample() {
+		const { sampleReport } = await import('#lib/mix/sample.ts');
 		const result = parseMixReport(structuredClone(sampleReport));
 		report = result.ok ? result.report : null;
 		error = result.ok ? null : result.error;

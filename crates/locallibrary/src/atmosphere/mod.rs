@@ -32,6 +32,7 @@
 
 pub mod bug_report;
 pub mod directory;
+mod identity;
 pub mod lexicon;
 mod net;
 pub mod repo;
@@ -50,8 +51,6 @@ use jacquard_common::error::ClientErrorKind;
 use jacquard_common::types::did::Did;
 use jacquard_common::xrpc::{XrpcClient, XrpcError};
 use jacquard_common::{SmolStr, ToSmolStr};
-use jacquard_identity::JacquardResolver;
-use jacquard_identity::resolver::ResolverOptions;
 use jacquard_oauth::atproto::AtprotoClientMetadata;
 use jacquard_oauth::client::{OAuthClient, OAuthSession};
 use jacquard_oauth::error::OAuthError;
@@ -63,7 +62,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::callback;
 pub use crate::callback::{CALLBACK_PATH, CallbackQuery, LONGEST_LOGIN_WAIT, span};
-use net::Http;
+use identity::{Resolver, resolver};
 use store::{AccountFile, LocalStore};
 
 use crate::error::{Action, Reason};
@@ -252,8 +251,8 @@ impl AccountInfo {
 // The OAuth client
 // ---------------------------------------------------------------------------------------------
 
-type Oauth = OAuthClient<JacquardResolver<Http>, LocalStore>;
-type Session = OAuthSession<JacquardResolver<Http>, LocalStore>;
+type Oauth = OAuthClient<Resolver, LocalStore>;
+type Session = OAuthSession<Resolver, LocalStore>;
 
 /// Runs `f` on the network's runtime, which the OAuth client runs on.
 fn block_on<F: Future>(f: F) -> F::Output {
@@ -310,16 +309,6 @@ fn client_config(
                 .with_client_name(SmolStr::new_static("locallibrary"))
         }
     })
-}
-
-/// Finding an account's servers and talking to them; with `public_only` (signing in, where the
-/// servers are whatever the handle's DID document says), only at public https addresses. A handle
-/// is resolved from its own DNS or `/.well-known/atproto-did`, never by asking Bluesky's AppView,
-/// which jacquard falls back to by default.
-fn resolver(public_only: bool) -> Result<JacquardResolver<Http>> {
-    let _guard = runtime().enter();
-    let options = ResolverOptions { public_fallback_for_handle: false, ..ResolverOptions::default() };
-    Ok(JacquardResolver::new(Http::new(public_only)?, options).with_system_dns())
 }
 
 fn oauth(store: LocalStore, config: AtprotoClientMetadata<SmolStr>, public_only: bool) -> Result<Oauth> {

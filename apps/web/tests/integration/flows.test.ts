@@ -22,6 +22,7 @@ import type { ShowEdit } from '../../src/lib/server/services/shows.ts';
 import { plannerSpace } from '../../src/lib/server/atproto/spaces.ts';
 import { parseProfile } from '../../src/lib/server/forms/project.ts';
 import { silentLogger } from '../../src/lib/server/logger.ts';
+import { flagsOff } from '../../src/lib/testing/flags.ts';
 import { load as adminAudit } from '../../src/routes/admin/audit/+page.server.ts';
 import { load as adminAuditEntry } from '../../src/routes/admin/audit/[id]/+page.server.ts';
 import { load as adminOverview } from '../../src/routes/admin/+page.server.ts';
@@ -1117,8 +1118,8 @@ describe('Local Network on a real atproto spaces network', () => {
 		expect(await net.app.requests.counts()).toEqual(before.requests);
 		expect(await net.app.staff.roles(net.user('milo').did)).toEqual(before.roles);
 		expect(await net.app.flags.list()).toEqual(flagged);
-		expect(await net.app.flags.evaluate(net.user('lee').did)).toEqual({ parityCanary: true });
-		expect(await net.app.flags.evaluate(net.user('pat').did)).toEqual({ parityCanary: false });
+		expect(await net.app.flags.evaluate(net.user('lee').did)).toEqual({ ...flagsOff, parityCanary: true });
+		expect(await net.app.flags.evaluate(net.user('pat').did)).toEqual(flagsOff);
 		expect((await net.app.audit.stats()).total).toBeGreaterThanOrEqual(before.audit);
 		expect(await net.app.audit.verifyChain()).toMatchObject({ ok: true });
 		expect(await net.app.projects.bySlug('static-bloom')).toMatchObject({ revision: 3 });

@@ -12,7 +12,7 @@
 		"format:check": "oxfmt --check",
 		"test": "vitest run",
 		"test:coverage": "vitest run --coverage",
-		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm test:coverage"
+		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm -w knip && pnpm test:coverage"
 	},
 	"devDependencies": {
 		"@atproto/lex-resolver": "^0.3.2",

@@ -58,11 +58,13 @@ describe('what the build produces', () => {
 		expect(there('manifest.json')).toBe(true);
 		expect(JSON.parse(read('manifest.json'))).toEqual(manifest);
 
-		const [contentScript] = manifest.content_scripts;
+		const scripts = manifest.content_scripts.flatMap((script: { js: string[]; css?: string[] }) => [
+			...script.js,
+			...(script.css ?? [])
+		]);
 
 		for (const file of [
-			...contentScript.js,
-			...contentScript.css,
+			...scripts,
 			...Object.values(manifest.icons),
 			manifest.action.default_popup,
 			manifest.background.service_worker
@@ -75,11 +77,12 @@ describe('what the build produces', () => {
 		// The page scripts are TypeScript with nothing to compile but the types:
 		// what runs on soundcloud.com is the file in the repository with each
 		// annotation blanked out, so every line and column is where it was.
-		for (const name of ['content', 'downloaded-store', 'state-transfer']) {
+		for (const name of ['content', 'gate-page', 'downloaded-store', 'state-transfer', 'theme-prepaint']) {
 			const shipped = read(`${name}.js`);
 			expect(shipped, name).toBe(blankSpace(source(`${name}.ts`)));
-			// Still a classic script: a content script cannot be a module, and the
-			// shared two define page globals, which a module cannot do.
+			// Still a classic script: a content script cannot be a module, the shared
+			// two define page globals, which a module cannot do, and the theme has to
+			// be on the page before the deferred module bundle runs.
 			expect(shipped, name).not.toMatch(/^\s*(import|export)\s/m);
 		}
 
@@ -95,11 +98,13 @@ describe('what the build produces', () => {
 				'content.css',
 				'content.js',
 				'downloaded-store.js',
+				'gate-page.js',
 				'icons',
 				'manifest.json',
 				'offscreen.html',
 				'popup.html',
-				'state-transfer.js'
+				'state-transfer.js',
+				'theme-prepaint.js'
 			].sort()
 		);
 		// A sourcemap is several times the size of the bundle and ships the whole
@@ -130,11 +135,15 @@ describe('the popup page', () => {
 		}
 	});
 
-	it('loads the shared page script before the bundle that reads it', () => {
+	it('sets the theme, then loads the shared page script, before the bundle', () => {
 		const html = read('popup.html');
 		const scripts = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => m[1]);
-		expect(scripts[0]).toBe('./downloaded-store.js');
-		expect(scripts.slice(1).every((src) => src.includes('assets/'))).toBe(true);
+		expect(scripts.slice(0, 2)).toEqual(['./theme-prepaint.js', './downloaded-store.js']);
+		expect(scripts.slice(2).every((src) => src.includes('assets/'))).toBe(true);
+		// A classic script blocks the parser where it stands, so the class is on
+		// <html> before the stylesheet below it can paint anything.
+		expect(html.indexOf('theme-prepaint.js')).toBeLessThan(html.indexOf('rel="stylesheet"'));
+		expect(html).not.toMatch(/<script[^>]+type="module"[^>]+theme-prepaint/);
 		// The state file's script is the settings sheet's alone, which puts it on
 		// the page when it opens (src/lib/globals.ts), so no popup waits for it.
 		expect(html).not.toContain('state-transfer.js');
@@ -258,7 +267,7 @@ describe('the bundle', () => {
 		// passing on nothing.
 		const chunks = js();
 
-		for (const marker of ['api.droploud.com', 'checking download details', 'close the queue', 'close settings']) {
+		for (const marker of ['/verifyEmailAddress', 'checking download details', 'close the queue', 'close settings']) {
 			expect(
 				chunks.some(([file, code]) => !boot.has(file) && code.includes(marker)),
 				`${marker} is in no chunk at all`
@@ -319,12 +328,15 @@ describe('the bundle', () => {
 			// the bundle's. Svelte's own errors end in a link to their page on
 			// svelte.dev, which is text in a message, not a request. The settings
 			// sheet's "report a bug" is a link to this repository's issue form
-			// (src/lib/bug-report.ts), opened in a tab and never fetched.
+			// (src/lib/bug-report.ts), opened in a tab and never fetched. The search
+			// site form's placeholder is on the reserved .example domain, which is
+			// text in an empty field and resolves nowhere.
 			for (const [, url] of code.matchAll(/["'`](https?:\/\/[^"'`\s]+)/g)) {
 				const isLinkOut =
 					/^https:\/\/\$\{\w+\}$/.test(url) ||
 					url.startsWith('https://svelte.dev/e/') ||
-					url === 'https://github.com/cutenode/localnetwork/issues/new';
+					url === 'https://github.com/cutenode/localnetwork/issues/new' ||
+					/^https:\/\/[\w.]+\.example\//.test(url);
 
 				if (isLinkOut) continue;
 				expect(url, `${file}: ${url}`).toMatch(

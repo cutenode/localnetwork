@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { ExternalLink } from '@lucide/svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
+	import Handle from '#lib/components/Handle.svelte';
 	import { setPlace } from '#lib/dj.ts';
-	import { accountLabel, pluralize } from '#lib/format.ts';
+	import { pluralize, setHref } from '#lib/format.ts';
 	import { clock } from '#lib/mix/report.ts';
 	import { musicBrainzUrl } from '#lib/supports.ts';
 	import type { ArtistSupports, TrackPlay } from '#lib/types.ts';
@@ -28,10 +29,10 @@
 		<div class="flex min-w-0 flex-1 flex-col gap-1">
 			<p class="m-0">
 				{#each dj?.projects ?? [] as project, i (project.slug)}{#if i > 0},{' '}{/if}<a class="entity-link font-semibold text-fg" href="/projects/{project.slug}">{project.name}</a>{/each}
-				<span class="text-small text-fg-muted">{accountLabel(dj ?? { did: item.did, handle: null })}</span>
+				<Handle account={dj ?? { did: item.did, handle: null }} class="text-small text-fg-muted" />
 			</p>
 			<p class="m-0 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-small text-fg-muted">
-				{setPlace(item.set) ?? item.set.title ?? 'Somewhere'}
+				<a class="entity-link" href={setHref(item.set.uri, dj?.handle)}>{setPlace(item.set) ?? item.set.title ?? 'Somewhere'}</a>
 				{#if item.set.kind}<Tag variant="mono">{item.set.kind}</Tag>{/if}
 				{#if item.startSeconds !== undefined}<span class="text-label text-fg-subtle">at <span class="font-mono">{clock(item.startSeconds)}</span></span>{/if}
 			</p>

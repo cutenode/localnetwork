@@ -102,7 +102,7 @@ fn the_keeper_is_kept_for_the_first_thing_it_has_more_of(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 4)]
 fn measured_offsets_are_the_delay_or_say_why_not(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    use loclib_mixid::test_util::{resample, synth, wav_of};
+    use loclib_testkit::audio::{resample, synth, wav_of};
     let dir = tempfile::tempdir().unwrap();
     let write = |name: &str, seed: u32, delay_ms: u32| {
         let mut pcm = vec![0.0f32; (44_100 * delay_ms / 1000) as usize];
@@ -159,7 +159,7 @@ fn lossless_audio_is_told_by_its_extension_or_its_header(tc: hegel::TestCase) {
 fn tracks_are_offset_only_when_they_sound_like_one_recording(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use loclib_mixid::fingerprint::RATE;
-    use loclib_mixid::test_util::{resample, synth, wav_of};
+    use loclib_testkit::audio::{resample, synth, wav_of};
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("Contents")).unwrap();
     let d = Device::open(dir.path()).unwrap();
