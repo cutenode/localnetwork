@@ -16,13 +16,13 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 ### Dashboard
 
-- Signing in lands on `/dashboard`, where every change to what a public page shows happens: each project you manage (`/dashboard/projects/<slug>`, with its profile, shows and press kits), your inbox, booking threads and planner. Account (`/dashboard/account`) holds notification settings, your activity in plain sentences, what the root holds on your behalf with counts by type (`/dashboard/account/data`), your requests to staff, and sign out. The pages' old addresses, which emails and DMs may still link to, redirect with a 308. Staff work in the staff console at `/admin`, on the same sidebar layout.
+- Signing in lands on `/dashboard`, where every change to what a public page shows happens: each project you manage (`/dashboard/projects/<slug>`, with its profile, shows and press kits), your inbox, booking threads and planner. Account (`/dashboard/account`) holds notification settings, your activity in plain sentences, what the root holds on your behalf with counts by type (`/dashboard/account/data`), your requests to staff, and sign out. The pages' old addresses, which emails and DMs may still link to, redirect with a 308. The home ends with a locallibrary card: when your playing stats and sets were last published, a link to your newest set, "Get locallibrary" while you've published neither, and a link to preview a mix export. Staff work in the staff console at `/admin`, on the same sidebar layout.
 - The inbox (`/dashboard/inbox`) tells each participant in a booking thread about a new inquiry, message or status change from someone else in it, with a dot in the sidebar while anything is unread. An item names the project, never which of its managers wrote, and holds none of what was written. Opening an item, or its thread, marks it read. Read items go after 90 days and unread ones after 180. People can also have new items emailed: the address comes from their account's host, read only after they approve it, and nothing goes to it until they open a link we email it, which works for a day. New items wait two minutes so a burst goes as one email. Anything older than six hours when it's indexed stays on the site. They can also have them sent as Bluesky DMs from the root account, a minute apart at most; when Bluesky chat says the root can't DM them yet, the settings page asks them to allow DMs from people they follow and to follow the root. The site asks chat alone, not the AppView, so it doesn't know which of the two is missing. `/dashboard/account/notifications` turns each on and off, picks what gets sent, and sends a test.
-- People edit their profile at `/dashboard/profile`: the basics, and the DJ and promoter sections they turn on, each adding its own fields (the project form is built from the same basics and performer fields). Turning a section off asks first, since saving deletes what was in it. The profile goes to the account's own repo with its session, over the version the form opened on. A session from before profiles is offered "Sign in again" when the page opens. Someone without a profile gets a card on `/dashboard` to make one from their Bluesky name and picture, read once from their own repo. The sections decide the dashboard sidebar: a DJ's projects under Yours, and a promoter's planner (everything shows until there's a profile, and projects someone manages always do). On a phone the sidebar's main items become tabs along the bottom, and Menu opens the rest in a sheet.
+- People edit their profile at `/dashboard/profile`: the basics, and the DJ and promoter sections they turn on, each adding its own fields (the project form is built from the same basics and performer fields). Turning a section off asks first, since saving deletes what was in it. The profile goes to the account's own repo with its session, over the version the form opened on. A session from before profiles is offered "Sign in again" when the page opens. Someone without a profile makes one from the first step of the checklist on `/dashboard`, from their Bluesky name and picture, read once from their own repo. The sections decide the dashboard sidebar: a DJ's projects under Yours, and a promoter's planner (everything shows until there's a profile, and projects someone manages always do). On a phone the sidebar's main items become tabs along the bottom, and Menu opens the rest in a sheet.
 - A DJ asks staff to list them in Find DJs from their profile editor, once their profile has the DJ section on: a `list` request in the moderation space that names their profile and the version they asked with. Staff review it at `/admin/requests` like any other, seeing the profile as it is now, with a note when it changed since the request and when the same account manages a solo project, which would put them in Find DJs twice. Approving writes the root's `computer.localnetwork.listing.profile` for them and has HappyView read their profile again; `/admin/listings/<did>` (staff's Manage link on a profile) shows the listing and takes them out again. Both are audited.
 - Public pages only read, apart from Follow and Save. A project's managers get a Manage link to its dashboard there, and staff one to the staff console. A project that isn't public shows its managers and staff a "Not public yet" banner; everyone else gets a 404.
 - Every account has a profile page at `/@<handle>`, showing its `computer.localnetwork.profile`: its basics, the performer and promoter sections it turned on, the DJ stats and sets it publishes, and the active projects it manages. A DID with a verified handle, and a handle in any other form, redirect there; an account without a verified handle has its page at `/@<did>`. Its sections are tabs (About, Mixes, Sets, How they play, Plays in), each a file in `src/lib/profile-tabs/` that the page collects, so a new tab is a new file; a tab with nothing in it is left out, and `?tab=<id>` opens one, without scripts too. An account without a profile record still gets a page, with its Bluesky display name when the directory keeps one (else its handle), the projects it plays in, and a line saying it hasn't set up a profile; only an address that names no account is a 404. Handles across the site link to these pages. The owner gets a Manage link to their profile editor, and staff one to its Find DJs listing (`/admin/listings/<did>`).
-- Each published set has a page at `/@<handle>/sets/<rkey>`, redirected the same way: its place and date, the event it names (when HappyView keeps that event), its player and tracklist, and the mixes on its DJ's active projects that link it, each to its tracklist page when it has one. A mix's "Set:" line links there. A set HappyView doesn't have is a 404.
+- Each published set has a page at `/@<handle>/sets/<rkey>`, redirected the same way: its place and date, the event it names (when HappyView keeps that event), its player and tracklist, and the mixes on its DJ's active projects that link it, each to its tracklist page when it has one. A mix's "Set:" line links there, and so does each set's name wherever sets are listed and each play on an artist's page. A set HappyView doesn't have is a 404.
 
 ### Promoters
 
@@ -35,9 +35,9 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 - List a new project, or claim one an admin added. Several managers per project (crews, agents).
 - When a project's managers change, a new manager joins its booking threads that are still being worked out or confirmed for an upcoming show, and a manager who leaves is taken out of all of them. The promoter always stays. The same step keeps the project's backstage, its press kit request space and its press kit spaces to the current managers, leaving the people granted a press kit. The app repeats this at startup, every hour, and on the System page's bootstrap, so a change that failed part way still finishes. A thread follows the project named in the root's opening record, which the promoter can't rewrite, or for a thread opened before that record named one, in its `booking.create` audit entry (written by the app, and rebuilt only from the root's copy). A thread with neither, or where the two disagree, is left as it is.
-- Acts, parties and venues each get a space under the root (no pages for them yet). Its people records say who's in it, in what role, with which capabilities, and whether they're hidden from everyone outside it. The root writes every record there, for someone who holds the capability the change needs or for staff, whose changes the audit log marks with their role. Someone always has to be left who can manage its people, unless staff decide otherwise. The space's members follow its people: everyone reads, and those with a capability that writes also write. The app repeats that at startup and every hour, so a member update that failed part way still finishes.
+- Acts, parties and venues each get a space under the root (no pages for them yet). A performer's space also holds the root's `computer.localnetwork.performer` record, which says whether it's an act (with what its page shows) or a DJ's own space for their backstage and managers. Its booking details go in a separate booking details space with the same key, which only the root is in, so members can't read them from another client ([ADR 0011](../../docs/adr/0011-booking-details-stay-out-of-the-performer-space.md)). Its people records say who's in it, in what role, with which capabilities, and whether they're hidden from everyone outside it. The root writes every record there, for someone who holds the capability the change needs or for staff, whose changes the audit log marks with their role. Someone always has to be left who can manage its people, unless staff decide otherwise. The space's members follow its people: everyone reads, and those with a capability that writes also write. The app repeats that at startup and every hour, so a member update that failed part way still finishes.
 - People come into one by an invite to their account, an invite link, or a request to join that someone with people.manage approves, and choose then whether to be hidden. A link's token is shown once and only its hash is kept, and a link never lets anyone manage people. Invites last 30 days and links 7 unless their maker picks up to 90, someone can have 50 open in a space at once, and both go when their maker can no longer add people, unless staff made them.
-- When staff list one, the root writes a `computer.localnetwork.listing` record to its public repo with what its public page shows and the people in a listed role (an act's members, a party's hosts and cohosts) who haven't hidden. It's rewritten only when that changes, and checked every hour. No kind has a public page yet, so nothing is listed. Staff see every space and its people, hidden ones marked, at `/admin/spaces`, where they add and remove people, change roles, and list or unlist it.
+- When staff list one, the root writes a `computer.localnetwork.listing` record to its public repo with what its public page shows, the people in a listed role (an act's members, a party's hosts and cohosts) who haven't hidden, and an act's managers who haven't. It's rewritten only when that changes, and checked every hour. Only acts have something to list so far (their form, basics and performer sections; the avatar is a blob the root uploaded), and a DJ's own space is never listed. HappyView keeps only the root's listings (`lua/computer/localnetwork/listing.lua`). Staff see every space and its people, hidden ones marked, at `/admin/spaces`, where they add and remove people, change roles, and list or unlist it.
 - Profiles cover genres, city and travel radius, set types and lengths, formats, room sizes, any number of fee levels (each a tier, with an optional label and range), links, playable SoundCloud/Mixcloud/YouTube mixes, highlights, photo.
 - A mix can carry a tracklist: a mix report exported from [locallibrary](../locallibrary) (`locallibrary mix … --export`), shown at `/projects/<slug>/mixes/<n>` with the waveform and track lanes, tempo, key moves on the Camelot wheel, and every transition. `/mixes/preview` renders an export locally without uploading it.
 - A mix can also link a set a manager published with locallibrary (`locallibrary sets publish`), picked from a list on the new-project and edit forms. The profile shows when and where it was played, and says so if the set changed after it was linked.
@@ -59,15 +59,15 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 ### Artists and charts
 
-- `/artists/<mbid>` (or `/artists/name/<name>` for an artist sets give no MusicBrainz ID) shows who played an artist's tracks: each of their tracks that appears in a published set, with every play (the DJ and the projects they manage, the date, the venue and city, the kind of set, and how far into the set it starts, where the set knows), and their all-time supports. `/artists` finds them by name.
+- `/artists/<mbid>` (or `/artists/name/<name>` for an artist sets give no MusicBrainz ID) shows who played an artist's tracks: each of their tracks that appears in a published set, with every play (the DJ's profile and the projects they manage, the date, the venue and city linking the set's page, the kind of set, and how far into the set it starts, where the set knows), and their all-time supports. `/artists` finds them by name.
 - `/charts` ranks tracks and artists by how many DJs supported them, for the last 30 days or a month, everywhere or in one city, counted like 1001Tracklists' Top 101 Producers: a DJ supports a track once however often they play it, a track charts once three DJs support it, and an artist gets at most five supports from one DJ, counting only tracks that chart.
 - A DJ is an act: an active project, whose managers count as one (a crew whose members each publish the same gig counts once). A back-to-back set published by two acts counts for both. A set stops counting when its author no longer manages an active project.
 - A track is its recording's MusicBrainz ID, else its ISRC, else its artist and title (any case or spacing). A play without an ID counts with the plays that have one when only one fits, so sets published before IDs were filled in still add up.
-- Set tracklists on profiles and press kits link tracks with an MBID to MusicBrainz, and artists to their pages.
+- Set tracklists on profiles and press kits link tracks with an MBID to MusicBrainz, and artists to their pages, as mix tracklists do.
 
 ### Tools
 
-- `/tools` lists Local Network's other tools, [locallibrary](../locallibrary) and [localtoolbox](../localtoolbox). Each has a page at `/tools/<id>` that shows what it does as hot cues on a real track's waveform, each with a capture of the tool at work, then how to install it and its guides, which are bundled from the repo at build time: its README and `docs/*.md`, or only `docs/*.md` led by `docs/overview.md` when the README is written for developers, as localtoolbox's is. A guide with four or more sections opens on a list of them. See [Tools' pages and hosts](#tools-pages-and-hosts).
+- `/tools` lists Local Network's other tools, [locallibrary](../locallibrary) and [localtoolbox](../localtoolbox). Each has a page at `/tools/<id>` that shows what it does as hot cues on a real track's waveform, each with a capture of the tool at work, then how to install it and its guides, which are bundled from the repo at build time: its README and `docs/*.md`, or only `docs/*.md` led by `docs/overview.md` when the README is written for developers, as localtoolbox's is, and its `CHANGELOG.md` last when it has one. A guide with four or more sections opens on a list of them. See [Tools' pages and hosts](#tools-pages-and-hosts).
 
 ### Bug reports
 
@@ -89,7 +89,7 @@ What's set is kept as `staff.flag` and `staff.group` records in the staff space,
 - Admins verify project managers' accounts on Bluesky from the root account (`/admin/verifications`), which reads the verifications and the display names they compare from HappyView. Apps that trust the root show a badge while the account's handle and display name match the ones verified, so a rename shows as out of date until it's re-issued. An approved claim from the act's own account or a member, and each manager on a project's admin page, link straight to it. Bluesky's own app only shows verifications from accounts it has made trusted verifiers.
 - Moderators review creates, claims, and changes with field-level diffs and stale-revision warnings. Nobody can review their own request.
 - A complete audit log of every account's actions, with filters, per-entry detail, hash-chain verification, and JSONL export.
-- System page: root spaces and policies, per-space and per-repo sync status, audit delivery backlog, HappyView status and script sync, one-click bootstrap/resync.
+- System page: root spaces and policies, per-space and per-repo sync status, records stuck in projection, audit delivery backlog, HappyView status and script sync, one-click bootstrap/resync.
 
 ## How data is stored
 
@@ -116,6 +116,8 @@ What's set is kept as `staff.flag` and `staff.group` records in the staff space,
 | Press kit view receipts                                                   | The app's database only                                           | The app                              | The project's managers  |
 | People in acts, parties and venues (`computer.localnetwork.people.*`)     | One space per performer, party or venue under the root            | Root, for its people or staff        | Members (staff via app) |
 | Directory listing status (`computer.localnetwork.listing.status`)         | The same space                                                    | Root, after staff action             | Members (staff via app) |
+| Who a performer is (`computer.localnetwork.performer`)                    | The performer's space, at the key `self`                          | Root, for page.edit holders or staff | Members (staff via app) |
+| A performer's booking details (`computer.localnetwork.performer.details`) | One booking details space per performer under the root            | Root                                 | Via the app only        |
 | Bluesky display names (`app.bsky.actor.profile`)                          | The account's own public repo                                     | The account, in any Bluesky app      | Admins, via HappyView   |
 | Managers' Bluesky follows (`app.bsky.graph.follow`)                       | The manager's public repo                                         | The manager, in any Bluesky app      | The app, via HappyView  |
 | The bug report space (`app.userinput.space`)                              | Its owner's public repo on userinput.app                          | userinput.app                        | The app, via HappyView  |
@@ -264,7 +266,7 @@ pnpm dev
 | `neon.test` | `neon-pass` | DJ with a profile at `/@neon.test`, manages two demo projects, has three sets and four shows, and made Neon Tide's Radio press kit the old way, so it moves to the root on their first dashboard visit |
 | `pat.test`  | `pat-pass`  | promoter, follows both of neon's projects                                                                                                                                                              |
 
-`harbour.test`, `pirate.test`, and `glasshouse.test` (passwords `harbour-pass` and so on) manage Harbour Lights, Pirate Signal, and Glasshouse and have sets of their own, so `/charts` has tracks several DJs played.
+`harbour.test`, `pirate.test`, and `glasshouse.test` (passwords `harbour-pass` and so on) manage Harbour Lights, Pirate Signal, and Glasshouse and have sets of their own, so `/charts` has tracks several DJs played. Every other demo project has a manager too (`velvet.test`, `tunde.test` and so on; the dev network prints them all). Each manager got there through a claim ada.test approved, and each solo project's DJ claimed it as themselves.
 
 The network is temporary; Ctrl-C stops it, and restarting resets everything (and the dev database). To restart the app without resetting the network, run `pnpm dev:network` in one terminal and `pnpm dev:app` in another.
 
@@ -376,7 +378,7 @@ A restore downloads the backup, checks its integrity, keeps the database it repl
 
 ### Tools' pages and hosts
 
-Each tool has an entry in `src/lib/tools/` (name, tagline, one to eight things it does with a capture for each, install steps) and a page at `/tools/<id>`. The captures in `src/lib/tools/captures/`, and the demo track their hot cues sit on, come from `pnpm atstore` at the repo root ([packages/atstore](../../packages/atstore)); the build turns them into AVIF and WebP at the widths they're shown at, and the page offers only those, with one JPEG or PNG as the fallback. The hot cues draw the track the way the tool's own world does: rekordbox's coloured overview for locallibrary, SoundCloud's flat bars for localtoolbox (`lookOf` in `HotCues.svelte`). A tool's guides are its own `README.md` and `docs/*.md` in `apps/<tool>/` (localtoolbox leaves out its README, which is for developers, and leads with `docs/overview.md`), bundled at build time and rendered on the server with GitHub's heading ids. Links to the tool's other guides stay on this site, links to other files in the repo go to GitHub, and raw HTML in the Markdown shows as text. Adding a tool is one file there, listed in `src/lib/tools/index.ts`, plus the steps in [Adding an app or plugin](../../.github/NEW_PROJECT.md).
+Each tool has an entry in `src/lib/tools/` (name, tagline, one to eight things it does with a capture for each, install steps) and a page at `/tools/<id>`. The captures in `src/lib/tools/captures/`, and the demo track their hot cues sit on, come from `pnpm atstore` at the repo root ([packages/atstore](../../packages/atstore)); the build turns them into AVIF and WebP at the widths they're shown at, and the page offers only those, with one JPEG or PNG as the fallback. The hot cues draw the track the way the tool's own world does: rekordbox's coloured overview for locallibrary, SoundCloud's flat bars for localtoolbox (`lookOf` in `HotCues.svelte`). A tool's guides are its own `README.md`, `docs/*.md` and `CHANGELOG.md` in `apps/<tool>/` (localtoolbox leaves out its README, which is for developers, and leads with `docs/overview.md`; locallibrary's changelog starts at its first version, leaving out the notes for maintainers), bundled at build time and rendered on the server with GitHub's heading ids. Links to the tool's other guides stay on this site, links to other files in the repo go to GitHub, and raw HTML in the Markdown shows as text. Adding a tool is one file there, listed in `src/lib/tools/index.ts`, plus the steps in [Adding an app or plugin](../../.github/NEW_PROJECT.md).
 
 A tool with a host of its own lists it in its entry, and this app answers that host before anything else runs, so it works even while the app isn't configured. `/` redirects (308) to the tool's page on `PUBLIC_URL` (`https://localnetwork.computer` when it isn't set), `/oauth-client-metadata.json` serves the tool's OAuth client document if it has one, and every other path is a 404.
 
@@ -464,6 +466,7 @@ These diagrams cover what the app does, as drawn from the code. Website code say
 - [Shows and the inbox](docs/diagrams/shows-and-inbox.md): shows, follows, inbox delivery and channels
 - [Mixes, sets and charts](docs/diagrams/mixes-and-sets.md): tracklists, sets, recordings, stats and artist pages
 - [Staff and upkeep](docs/diagrams/staff-and-upkeep.md): bug reports, the audit log, staff actions, listings and backups
+- [Feature flags](docs/diagrams/flags.md): deciding a flag, page requests, getFlags, the staff console and the flag tables
 
 ### Architecture
 
@@ -567,7 +570,7 @@ flowchart TD
     Spaces["Spaces<br/>each writer's repo in each space"]
   end
   subgraph Server["On the server"]
-    Index[("SQLite, rebuilt by sync:<br/>requests, threads, grants, people")]
+    Index[("SQLite, rebuilt by sync:<br/>requests, threads, grants, people,<br/>performers, flags and flag groups")]
     Only[("SQLite, not rebuilt:<br/>sessions, inboxes, receipts")]
     Outbox[("SQLite audit log:<br/>rebuilt from the root's copies")]
     Memory["Memory:<br/>rate limits, credentials, caches"]
@@ -577,7 +580,7 @@ flowchart TD
     Bucket[("Bucket: database backups")]
   end
   subgraph Client["In the browser"]
-    Cookies["Cookies: ln_session, ln_signed_out,<br/>the shows page's city"]
+    Cookies["Cookies: ln_session, ln_signed_out,<br/>ln_flag_preview, the shows page's city"]
     Local["localStorage: unsent form drafts,<br/>the hotkeys preference"]
   end
   Repos -- "Jetstream, re-reads" --> HV
@@ -588,7 +591,7 @@ flowchart TD
   Outbox -- "daily" --> Bucket
 ```
 
-Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/server/sync/engine.ts`](src/lib/server/sync/engine.ts), [`src/lib/form-draft.svelte.ts`](src/lib/form-draft.svelte.ts), [`src/lib/server/shows-place.ts`](src/lib/server/shows-place.ts)
+Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/server/sync/engine.ts`](src/lib/server/sync/engine.ts), [`src/lib/form-draft.svelte.ts`](src/lib/form-draft.svelte.ts), [`src/lib/server/shows-place.ts`](src/lib/server/shows-place.ts), [`src/lib/server/flags/preview.ts`](src/lib/server/flags/preview.ts)
 
 ### Local tables: bookings and press kits
 
@@ -632,7 +635,7 @@ Source: [`src/lib/server/db/schema.ts`](src/lib/server/db/schema.ts), [`src/lib/
 
 ### Local tables: shared spaces
 
-The tables that index performer, party and venue spaces. Each line is a column the rows share.
+The tables that index performer, party and venue spaces, and who each performer space is for. Each line is a column the rows share.
 
 ```mermaid
 erDiagram
@@ -640,6 +643,7 @@ erDiagram
   shared_space ||--o{ space_invite : "space_uri"
   shared_space ||--o{ space_invite_link : "space_uri"
   shared_space ||--o{ space_join_request : "space_uri"
+  shared_space ||--o| performer : "space_uri"
   shared_space {
     text space_uri PK
     text kind
@@ -660,6 +664,12 @@ erDiagram
     text token_hash
   }
   space_join_request {
+    text did
+  }
+  performer {
+    text space_uri PK
+    text kind
+    text slug
     text did
   }
 ```

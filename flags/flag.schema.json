@@ -56,7 +56,7 @@
 				"type": {
 					"type": "string",
 					"enum": ["ops", "permission"],
-					"description": "ops changes how the site runs, permission says who can use something. Both stay."
+					"description": "ops changes how the site runs, permission says who can use something. Both stay. A kill switch is ops and named for its paused state, like pauseRecordingStream."
 				}
 			},
 			"required": ["key", "description", "type"],

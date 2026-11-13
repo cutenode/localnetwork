@@ -5,7 +5,7 @@ use std::fs::File;
 use std::ops::ControlFlow;
 use std::path::Path;
 
-use loclib_mixid::audio::{Damaged, decode_native, open};
+use loclib_audio::{Damaged, decode_native, open};
 use loclib_progress::{Ctx, Event, Phase};
 use lofty::config::ParseOptions;
 use lofty::file::TaggedFileExt;
@@ -49,7 +49,7 @@ pub struct Transcoded {
 }
 
 fn parse(path: &Path, message: &str) -> Error {
-    Error::Decode(loclib_mixid::Error::Parse { path: path.to_path_buf(), message: message.into() })
+    Error::Decode(loclib_audio::Error::Parse { path: path.to_path_buf(), message: message.into() })
 }
 
 fn run(source: &Path, recipe: &Recipe, out: &Path, ctx: &Ctx<'_>) -> Result<Transcoded> {

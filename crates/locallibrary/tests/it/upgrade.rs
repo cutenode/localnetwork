@@ -18,9 +18,9 @@ use locallibrary::edit::{Edit, journal};
 use locallibrary::progress::Ctx;
 use locallibrary::upgrade::UpgradeOptions;
 use locallibrary::{Error, Library, Store, cue_edit, paths, pdb, testing};
-use loclib_mixid::audio::Resampler;
+use loclib_audio::Resampler;
 use loclib_mixid::fingerprint::RATE;
-use loclib_mixid::test_util::{synth, wav_of};
+use loclib_testkit::audio::{synth, wav_of};
 use rekordbox_pdb::NewTrack;
 
 pub(crate) const MP3: &str = "/Contents/Sound/Song.mp3";

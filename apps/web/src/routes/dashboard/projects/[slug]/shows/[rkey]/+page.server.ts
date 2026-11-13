@@ -1,6 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import { bookingValues, showFormDefaults } from '#lib/shows.ts';
 import type { ShowFormValues } from '#lib/shows.ts';
+import { rkeyOf } from '#lib/server/atproto/spaces.ts';
 import { parseAnnouncement, parseEdit } from '#lib/server/forms/announce.ts';
 import { act, requireViewer, stringValues } from '#lib/server/http.ts';
 import { requireManager } from '#lib/server/manage.ts';
@@ -56,7 +57,7 @@ export const actions: Actions = {
 					isNew ? undefined : parseEdit(form, params.rkey)
 				);
 
-				return { saved: isNew ? 'announced' : 'updated', rkey: uri.split('/').at(-1) };
+				return { saved: isNew ? 'announced' : 'updated', rkey: rkeyOf(uri) };
 			},
 			{ ...stringValues(form), cancelled: form.get('cancelled') === 'on' }
 		);

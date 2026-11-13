@@ -6,6 +6,7 @@ import tailwindcss from '@tailwindcss/vite';
 import { playwright } from '@vitest/browser-playwright';
 import type { Plugin, Rolldown } from 'vite';
 import { defineConfig } from 'vitest/config';
+import { stubPlayers } from './.storybook/stub-players.ts';
 
 // Vitest's module cache leaves out a module that calls `import.meta.glob(`, whose output changes when a file the glob
 // matches is added or removed, but it misses a typed call (`import.meta.glob<string>(`), so after a new Lua script or
@@ -258,10 +259,12 @@ export default defineConfig({
 				server: BROWSER_TEST_SERVER,
 				test: {
 					name: 'storybook',
+					setupFiles: ['./.storybook/vitest.setup.ts'],
 					browser: {
 						enabled: true,
 						provider: browserTests(),
-						instances: [{ browser: 'chromium', headless: true }]
+						instances: [{ browser: 'chromium', headless: true }],
+						commands: { stubPlayers }
 					}
 				}
 			}
