@@ -71,7 +71,7 @@ fn flac_and_aiff_copies_read_back_as_written(tc: TestCase) {
     let secs = f64::from(tc.draw(gs::integers::<u32>().min_value(10).max_value(14)));
     let dir = tempfile::tempdir().unwrap();
     let src = dir.path().join("src.wav");
-    fs::write(&src, loclib_mixid::test_util::wav(rate, 16, secs)).unwrap();
+    fs::write(&src, loclib_testkit::audio::wav(rate, 16, secs)).unwrap();
     for container in [Container::Flac, Container::Aiff] {
         let out = dir.path().join(format!("copy.{}", container.extension()));
         let recipe = Recipe { container, sample_rate: rate, bit_depth: 16, dither: Dither::None };

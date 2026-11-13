@@ -2,10 +2,10 @@ use std::path::{Path, PathBuf};
 
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
-use loclib_mixid::test_util::{resample, synth, wav_of};
 use loclib_plugin::test_util::{FakeHost, Response, Sent};
 use loclib_plugin::{EventName, FieldType, Listener, Manifest, Output, Role, Suggestion, code, method};
 use loclib_progress::Ctx;
+use loclib_testkit::audio::{resample, synth, wav_of};
 use serde_json::{Value, json};
 
 use super::*;
@@ -66,7 +66,7 @@ fn recording(dir: &Path, seed: u32, secs: f64, rate: u32, gain: f32) -> PathBuf 
 
 /// The 16-bit samples [`recording`] writes to each of its two channels.
 fn pcm(seed: u32, secs: f64, rate: u32, gain: f32) -> Vec<i32> {
-    resample(&synth(secs, seed), loclib_mixid::fingerprint::RATE, rate)
+    resample(&synth(secs, seed), loclib_testkit::audio::RATE, rate)
         .iter()
         .map(|s| ((s * gain) as i32).clamp(-32_768, 32_767))
         .collect()

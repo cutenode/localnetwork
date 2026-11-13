@@ -19,6 +19,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use locallibrary::probe;
+use loclib_waveform::analyzer::FFT_SIZE;
 #[cfg(feature = "playback")]
 use rodio::MixerDeviceSink;
 use rodio::mixer::Mixer;
@@ -76,6 +77,33 @@ impl Tap {
         for s in self.ring.iter() {
             s.store(0, Ordering::Relaxed);
         }
+    }
+}
+
+/// Reads a [`Tap`] for the visualisers: its latest samples, when something new has played.
+pub struct TapReader {
+    samples: Vec<f32>,
+    last_written: usize,
+}
+
+impl Default for TapReader {
+    fn default() -> TapReader {
+        TapReader { samples: vec![0.0; FFT_SIZE], last_written: 0 }
+    }
+}
+
+impl TapReader {
+    /// The latest samples `tap` played, oldest first, or `None` when nothing new was played since
+    /// the last read (paused, stopped).
+    pub fn read(&mut self, tap: &Tap, playing: bool) -> Option<&[f32]> {
+        let written = tap.written();
+        let fresh = playing && written != self.last_written;
+        self.last_written = written;
+        if !fresh {
+            return None;
+        }
+        tap.latest(&mut self.samples);
+        Some(&self.samples)
     }
 }
 
