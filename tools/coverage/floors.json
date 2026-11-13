@@ -21,6 +21,11 @@
 			"functions": 97.9,
 			"regions": 97.3
 		},
+		"crates/loclib-capacity": {
+			"lines": 96.4,
+			"functions": 99.8,
+			"regions": 95.3
+		},
 		"crates/loclib-equipment": {
 			"lines": 99.8,
 			"functions": 99.8,

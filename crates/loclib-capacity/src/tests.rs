@@ -364,6 +364,45 @@ fn wrapping_disks_show_where_each_region_landed(tc: TestCase) {
     assert_eq!((r.regions as u64, r.failed as u64), (claimed_mib, claimed_mib - real_mib));
     assert_eq!(r.works_up_to, Some(real_mib * MIB));
     assert_eq!(r.aliases, past[..past.len().min(8)]);
+    let pairs: Vec<[u64; 2]> = r.aliases.iter().map(|a| [a.written_at, a.read_at]).collect();
+    assert_eq!(serde_json::to_value(&r.aliases).unwrap(), serde_json::json!(pairs), "each alias is sent as its pair");
+}
+
+/// A file standing in for a disk reads back, from where it was written, what was written there;
+/// a missing one can't be opened. (Probing one is `device_files_probe_as_real`, which Linux skips.)
+#[hegel::test(test_cases = 10)]
+fn device_files_read_back_what_was_written_where(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rdisk4");
+    std::fs::File::create(&path).unwrap().set_len(2 * MIB).unwrap();
+    let offset = tc.draw(gs::integers::<u64>().max_value(MIB / 512)) * 512;
+    let data = tc.draw(gs::binary().min_size(1).max_size(8192));
+    let mut dev = DeviceFile::open_to_overwrite(&path).unwrap();
+    dev.write_at(offset, &data).unwrap();
+    let mut back = vec![0; data.len()];
+    dev.read_at(offset, &mut back).unwrap();
+    assert_eq!(back, data);
+    let start = offset as usize;
+    assert_eq!(std::fs::read(&path).unwrap()[start..start + data.len()], data[..], "written to the file");
+    let err = DeviceFile::open_to_overwrite(dir.path().join("rdisk5")).err().unwrap();
+    assert!(matches!(err, Error::Io { .. }), "{err}");
+}
+
+/// Linux caches block devices, so a probe drops the caches before reading back, which needs
+/// root. Without the rights it stops with an I/O error at the boot region's flush rather than
+/// read back what the kernel kept.
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn a_linux_probe_drops_the_caches_or_stops() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sdz");
+    std::fs::File::create(&path).unwrap().set_len(2 * MIB).unwrap();
+    let can_drop = std::fs::OpenOptions::new().write(true).open("/proc/sys/vm/drop_caches").is_ok();
+    let mut dev = DeviceFile::open_to_overwrite(&path).unwrap();
+    match probe(&mut dev, 2 * MIB, 512, &Ctx::silent()) {
+        Ok(r) => assert!(can_drop && !r.is_fake(), "{r:?}"),
+        Err(e) => assert!(!can_drop && matches!(e, Error::Io { .. }), "{e}"),
+    }
 }
 
 /// A device this process may not write to is refused for asking administrator rights, naming
