@@ -31,8 +31,14 @@ pub struct CollectionRef {
 
 /// Read the collection `req` names.
 pub fn open_collection(req: &CollectionRef) -> Result<Collection> {
-    let path = match &req.db {
-        Some(p) => p.clone(),
+    masterdb::open(&collection_path(req.db.as_deref())?, &masterdb::resolve_key(req.key.as_deref()))
+}
+
+/// The `master.db` to read: `db`, else rekordbox's own ([`masterdb::default_path`]), once it's
+/// there.
+pub(crate) fn collection_path(db: Option<&Path>) -> Result<PathBuf> {
+    let path = match db {
+        Some(p) => p.to_path_buf(),
         None => masterdb::default_path().ok_or_else(|| {
             Error::NotFound(
                 "rekordbox's collection: give the master.db to read (rekordbox runs on macOS and Windows)".into(),
@@ -45,7 +51,7 @@ pub fn open_collection(req: &CollectionRef) -> Result<Collection> {
             path.display()
         )));
     }
-    masterdb::open(&path, &masterdb::resolve_key(req.key.as_deref()))
+    Ok(path)
 }
 
 pub fn collection_info(req: &CollectionRef) -> Result<CollectionInfo> {

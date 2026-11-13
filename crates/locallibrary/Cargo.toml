@@ -110,6 +110,8 @@ oauth2 = { version = "5.0.0", default-features = false }
 futures-util = { version = "0.3.34", default-features = false }
 rayon = "1.12.0"
 memchr = "2.8.3"
+# Whether rekordbox is running, and where its app is (`collection.status`).
+sysinfo = { version = "0.38.4", default-features = false, features = ["system"] }
 loclib-audio.workspace = true
 # A handle's `_atproto` TXT record, looked up with the DNS servers the system is set to use.
 hickory-resolver = { version = "0.26.3", default-features = false, features = ["system-config", "tokio"], optional = true }
@@ -147,6 +149,10 @@ ignored-paths = ["tests/support/*.rs"]
 [target."cfg(unix)".dependencies]
 # Whether this process runs as root: plugins are never started from one.
 libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# rekordbox's version, from its app's Info.plist.
+plist = "1.10.1"
 
 [lints]
 workspace = true

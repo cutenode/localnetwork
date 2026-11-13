@@ -1306,7 +1306,8 @@ fn a_drive_differs_from_the_collection_in_what_it_lacks(tc: hegel::TestCase) {
 
 /// A key given is the one used, whatever it says; none (or an empty one) falls back to
 /// `LOCALLIBRARY_MASTERDB_KEY`, then the key every rekordbox uses. Without
-/// `LOCALLIBRARY_MASTERDB`, the collection read is rekordbox's own, in this user's folders.
+/// `LOCALLIBRARY_MASTERDB`, the collection read is rekordbox's own, in this user's folders or
+/// where rekordbox's settings moved it.
 #[hegel::test(test_cases = 20)]
 fn keys_and_the_collection_default_to_rekordboxs(tc: hegel::TestCase) {
     use hegel::generators as gs;
@@ -1318,7 +1319,7 @@ fn keys_and_the_collection_default_to_rekordboxs(tc: hegel::TestCase) {
     #[cfg(target_os = "macos")]
     if std::env::var_os(PATH_ENV).is_none_or(|p| p.is_empty()) {
         let home = directories::BaseDirs::new().map(|b| b.home_dir().join("Library/Pioneer/rekordbox/master.db"));
-        assert_eq!(default_path(), home);
+        assert_eq!(default_path(), moved(settings_path().as_deref(), agent_options_path().as_deref()).or(home));
     }
 }
 
