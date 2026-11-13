@@ -117,7 +117,7 @@ flowchart LR
   Limits -- "login: 10 a minute" --> L1["/login and /login/create,<br/>per address"]
   Limits -- "flags: 60, then 1 a second" --> F1["getFlags with a token,<br/>per address"]
   Limits -- "search: 60, then 2 a second" --> S1["/api/actors and /api/places,<br/>per address"]
-  Limits -- "profileMisses: 30 in 10 minutes" --> M1["/@[handle] naming no account,<br/>per address"]
+  Limits -- "profileMisses: 30 in 10 minutes" --> M1["/@[handle] and its set pages<br/>naming no account, per address"]
   Limits -- "optIn: 5 in 10 minutes" --> O1["Turning email or DMs on,<br/>per account"]
   Limits -- "testSend: 3 an hour" --> T1["Test messages, per account"]
   Limits -- "email confirmations" --> C1["5 a day per account, 3 a day per<br/>account and email, 10 a day per<br/>email, 100 an hour overall"]

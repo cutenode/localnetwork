@@ -25,6 +25,7 @@ flowchart LR
   App -- "first draft saved" --> Backstage["backstage,<br/>one per performer"]
   App -- "SharedSpaces.create or createAct,<br/>no page calls them yet" --> Shared["performer, party, venue"]
   App -- "first planner read or write" --> Planner["planner, under the<br/>person's own DID"]
+  App -- "nothing yet" --> Details["bookingDetails, one per<br/>performer, root only"]
   Four --> Watch["Syncer watches it,<br/>reading with the<br/>root's credential"]
   Booking --> Watch
   Epk --> Watch
@@ -34,7 +35,7 @@ flowchart LR
   Planner --> Session["Read with their session,<br/>no copy kept"]
 ```
 
-Source: [`src/lib/server/bootstrap.ts`](../../src/lib/server/bootstrap.ts), [`src/lib/server/atproto/spaces.ts`](../../src/lib/server/atproto/spaces.ts), [`src/lib/server/services/space-members.ts`](../../src/lib/server/services/space-members.ts), [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/lib/server/services/planner.ts`](../../src/lib/server/services/planner.ts)
+Source: [`src/lib/server/bootstrap.ts`](../../src/lib/server/bootstrap.ts), [`src/lib/server/atproto/spaces.ts`](../../src/lib/server/atproto/spaces.ts), [`src/lib/nsid.ts`](../../src/lib/nsid.ts), [`src/lib/server/services/space-members.ts`](../../src/lib/server/services/space-members.ts), [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bookings.ts), [`src/lib/server/services/planner.ts`](../../src/lib/server/services/planner.ts)
 
 ## Space credentials
 

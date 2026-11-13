@@ -160,7 +160,7 @@ Source: [`src/lib/server/services/shared-spaces.ts`](../../src/lib/server/servic
 
 ## Public listings
 
-How a listed act, party or venue would reach the directory. No kind has a public page yet, so nothing is listed.
+How a listed act, party or venue reaches the directory. Only acts have something to list so far, from the root's performer record in their space; a DJ's own space, parties and venues have nothing to show, so they're never listed. HappyView keeps only the root's listings.
 
 ```mermaid
 flowchart TD
@@ -175,7 +175,7 @@ flowchart TD
   Same -- "yes" --> Put["Root writes computer.localnetwork.listing"]
 ```
 
-Source: [`src/lib/server/services/listings.ts`](../../src/lib/server/services/listings.ts), [`src/lib/server/sync/projections.ts`](../../src/lib/server/sync/projections.ts), [`../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md`](../../../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md)
+Source: [`src/lib/server/services/listings.ts`](../../src/lib/server/services/listings.ts), [`src/lib/server/services/performer-index.ts`](../../src/lib/server/services/performer-index.ts), [`lua/computer/localnetwork/listing.lua`](../../lua/computer/localnetwork/listing.lua), [`src/lib/server/sync/projections.ts`](../../src/lib/server/sync/projections.ts), [`../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md`](../../../../docs/adr/0003-profiles-in-repos-performers-in-spaces.md)
 
 ## Backup and restore
 

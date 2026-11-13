@@ -228,7 +228,7 @@ The starting capabilities of each role in a performer, party or venue space. `pa
 ```mermaid
 flowchart LR
   Performer["performer space"] --> PM["member, listed:<br/>page.edit, people.manage, listing.request,<br/>presskits.manage, bookings.answer, shows.manage"]
-  Performer --> PManager["manager:<br/>page.edit, listing.request, presskits.manage,<br/>bookings.answer, shows.manage"]
+  Performer --> PManager["manager, in the listing's managers:<br/>page.edit, listing.request, presskits.manage,<br/>bookings.answer, shows.manage"]
   Party["party space"] --> H["host, listed:<br/>page.edit, people.manage, listing.request, events.manage,<br/>bookings.send, guests.manage, guests.checkin"]
   Party --> C["cohost, listed:<br/>all of host's but people.manage"]
   Party --> D["door:<br/>guests.checkin"]
@@ -236,4 +236,4 @@ flowchart LR
   Venue --> B["booker:<br/>venue.approve"]
 ```
 
-Source: [`src/lib/capabilities.ts`](../../src/lib/capabilities.ts), [`src/lib/server/services/shared-spaces.ts`](../../src/lib/server/services/shared-spaces.ts)
+Source: [`src/lib/capabilities.ts`](../../src/lib/capabilities.ts), [`src/lib/server/services/shared-spaces.ts`](../../src/lib/server/services/shared-spaces.ts), [`src/lib/server/services/listings.ts`](../../src/lib/server/services/listings.ts)

@@ -63,7 +63,7 @@ sequenceDiagram
     A-->>C: Every flag's gates, targeted false,<br/>public for 60 seconds
   else Over the flags rate limit for this IP
     A-->>C: 429, retry after 30 seconds
-  else Service token fails on audience, lxm or signature
+  else Service token expired, without lxm, or<br/>wrong on audience, lxm or signature
     A-->>C: 401
   else Verified
     A-->>C: The gates, with targeted for the<br/>token's issuer, no-store
@@ -74,7 +74,7 @@ Source: [`src/routes/xrpc/computer.localnetwork.flags.getFlags/+server.ts`](../.
 
 ## Changing flags
 
-What `/admin/flags` writes. Admins hold both grants; a moderator holds what an admin gives them on `/admin/staff`. Each write is audited, and saving a flag unchanged writes nothing.
+What `/admin/flags` writes. Admins hold both grants; a moderator holds what an admin gives them on `/admin/staff`. Each write is audited, and saving a flag or a group unchanged writes nothing.
 
 ```mermaid
 flowchart TD

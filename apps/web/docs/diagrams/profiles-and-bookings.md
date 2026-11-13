@@ -18,7 +18,7 @@ How someone gets a profile, and how a DJ gets into Find DJs.
 
 ```mermaid
 flowchart TD
-  First["No profile yet: a card on /dashboard,<br/>filled from their Bluesky profile"] --> Edit["/dashboard/profile"]
+  First["No profile yet: the first step of<br/>the /dashboard checklist, filled<br/>from their Bluesky profile"] --> Edit["/dashboard/profile"]
   Edit --> Save["Writes computer.localnetwork.profile<br/>to their repo over the version the form opened"]
   Save --> Wait["Waits up to 5 s for HappyView to serve it"]
   Wait --> Page["/@[handle] shows it,<br/>sections decide the sidebar"]
@@ -30,7 +30,7 @@ flowchart TD
   Find --> Off["Turning the DJ section off hides<br/>them too, the listing stays"]
 ```
 
-Source: [`src/lib/server/services/profiles.ts`](../../src/lib/server/services/profiles.ts), [`src/routes/dashboard/profile/+page.server.ts`](../../src/routes/dashboard/profile/+page.server.ts), [`src/lib/server/services/dj-listings.ts`](../../src/lib/server/services/dj-listings.ts), [`src/routes/admin/listings/[did]/+page.server.ts`](../../src/routes/admin/listings/[did]/+page.server.ts)
+Source: [`src/lib/server/services/profiles.ts`](../../src/lib/server/services/profiles.ts), [`src/lib/onboarding/steps/profile.ts`](../../src/lib/onboarding/steps/profile.ts), [`src/routes/dashboard/profile/+page.server.ts`](../../src/routes/dashboard/profile/+page.server.ts), [`src/lib/server/services/dj-listings.ts`](../../src/lib/server/services/dj-listings.ts), [`src/routes/admin/listings/[did]/+page.server.ts`](../../src/routes/admin/listings/[did]/+page.server.ts)
 
 ## Moderation requests
 
