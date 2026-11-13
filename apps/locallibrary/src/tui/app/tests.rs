@@ -3869,12 +3869,12 @@ fn the_picks_and_whats_played_come_back_next_run() {
     app.resume = Some(Duration::from_secs(40));
     app.save_state();
     let mut next = App::blank(app.store_root.clone(), None);
-    next.apply_saved(&state::load(&app.store_root), true);
+    next.apply_saved(&state::load(&app.store_root).expect("the saved state"), true);
     let picks = |a: &App| a.crate_list.items.iter().map(|t| (t.track.title.clone(), t.played)).collect::<Vec<_>>();
     assert_eq!(picks(&next), picks(&app));
     assert_eq!(picks(&next)[0], ("Never Grow Old".to_string(), true));
     let (t, at) = next.resumable().expect("ready to carry on");
     assert_eq!((t.title.as_str(), at), ("Never Grow Old", Duration::from_secs(30)));
-    let saved = state::load(&app.store_root).queue.expect("the list");
+    let saved = state::load(&app.store_root).expect("the saved state").queue.expect("the list");
     assert_eq!(saved.name, "All tracks");
 }

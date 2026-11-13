@@ -549,7 +549,7 @@ The player:
 | `?` | this help: type to narrow it, enter runs the row selected |
 | `!` | messages: everything the status line said since starting |
 | `&` | jobs: what's running, with a cancel for each that can still stop |
-| `q` | quit (a write to the drive finishes first) |
+| `Q` | quit, also ctrl-q (a write to the drive finishes first) |
 
 Changing the drive:
 
