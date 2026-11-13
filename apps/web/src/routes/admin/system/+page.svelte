@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { CircleCheck, ClipboardList, LoaderCircle, RefreshCw, TriangleAlert } from '@lucide/svelte';
+	import { CircleCheck, FileText, LoaderCircle, RefreshCw, TriangleAlert } from '@lucide/svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import MigrationPlan from '#lib/components/MigrationPlan.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
@@ -44,7 +44,7 @@
 	<SectionHeader level={1} title="System" lede="Bootstrap and sync creates any missing root spaces, then re-reads every space and the directory. Run it after a deploy or when sync falls behind.">
 		{#snippet actions()}
 			<form method="POST" action="?/planMigration" use:enhance={() => { planning = true; return async ({ update }) => { await update(); planning = false; }; }}>
-				<button class="btn-secondary w-full" disabled={planning}>{#if planning}<LoaderCircle class="size-4 animate-spin" />{:else}<ClipboardList class="size-4" />{/if}Plan the project migration</button>
+				<button class="btn-secondary w-full" disabled={planning}>{#if planning}<LoaderCircle class="size-4 animate-spin" />{:else}<FileText class="size-4" />{/if}Plan the project migration</button>
 			</form>
 			<form method="POST" action="?/retryAudit" use:enhance><button class="btn-secondary w-full">Retry audit copies</button></form>
 			<form method="POST" action="?/resync" use:enhance={({ cancel }) => { if (!confirm('Bootstrap and sync every space now? It can take a minute.')) return cancel(); busy = true; return async ({ update }) => { await update(); busy = false; }; }}>
