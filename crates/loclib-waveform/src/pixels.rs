@@ -64,10 +64,14 @@ impl Art {
         &self.image
     }
 
-    /// Pixels for a `cols` x `rows` cell area (two pixels per cell vertically).
+    /// Pixels for a `cols` x `rows` cell area (two pixels per cell vertically). Shrunk smoothly, and
+    /// grown in whole pixels, so a small cover stays crisp.
     pub fn resized(&self, cols: u16, rows: u16) -> PixelBuf {
-        let resized =
-            image::imageops::resize(&*self.image, cols as u32, rows as u32 * 2, image::imageops::FilterType::Lanczos3);
+        use image::imageops::FilterType;
+        let (w, h) = (u32::from(cols), u32::from(rows) * 2);
+        let grows = w >= self.image.width() && h >= self.image.height();
+        let filter = if grows { FilterType::Nearest } else { FilterType::Lanczos3 };
+        let resized = image::imageops::resize(&*self.image, w, h, filter);
         resized.pixels().map(|p| Some(p.0)).collect()
     }
 
