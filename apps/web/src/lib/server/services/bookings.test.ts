@@ -206,6 +206,55 @@ describe('BookingService', () => {
 		expect(thread.project).toBeNull();
 	});
 
+	it('lists threads from the index with their projects to follow', async () => {
+		const space = await open();
+		await open();
+		const { threads, acts, projects } = await t.bookings.listFor(PROMOTER);
+
+		expect(threads.map((thread) => thread.project)).toEqual([null, null]);
+		expect(acts).toBe(2);
+		expect((await projects)?.get(space)?.name).toBe('Bookable');
+	});
+
+	it('says the projects are unknown while the directory is down', async () => {
+		await open();
+		vi.spyOn(t.directory, 'query').mockRejectedValue(new HappyViewError(503, 'down'));
+
+		await expect((await t.bookings.listFor(PROMOTER)).projects).resolves.toBeNull();
+	});
+
+	it('opens a thread without waiting on the directory, and says when it has no project for it', async () => {
+		const space = await open();
+		const viewer = await t.viewer(PROMOTER);
+
+		expect(await (await t.bookings.openThread(viewer, space)).project).toMatchObject({ name: 'Bookable' });
+
+		vi.spyOn(t.directory, 'query').mockRejectedValue(new HappyViewError(503, 'down'));
+		const { thread, events, project } = await t.bookings.openThread(viewer, space);
+
+		expect(thread.project).toBeNull();
+		expect(events).toHaveLength(1);
+		await expect(project).resolves.toBeNull();
+	});
+
+	it('tells an inquiry someone withdrew from a booking someone cancelled', async () => {
+		const withdrawn = await open();
+		const called = await open();
+		const dj = await t.viewer(DJ);
+		const promoter = await t.viewer(PROMOTER);
+
+		await t.bookings.setStatus({ actor: promoter, space: withdrawn, status: 'cancelled' });
+		await t.bookings.setStatus({ actor: dj, space: called, status: 'confirmed' });
+		await t.bookings.setStatus({ actor: promoter, space: called, status: 'cancelled' });
+
+		const { threads } = await t.bookings.listFor(PROMOTER);
+
+		expect(Object.fromEntries(threads.map((thread) => [thread.space, thread.withdrawn]))).toEqual({
+			[withdrawn]: true,
+			[called]: false
+		});
+	});
+
 	it("still tells the promoter the act wrote when the directory can't name the act", async () => {
 		const space = await open();
 		vi.spyOn(t.directory, 'query').mockRejectedValue(new HappyViewError(503, 'down'));

@@ -4,7 +4,14 @@ import { sql } from 'kysely';
 import { bookingActions, bookingGroup, type BookingRole } from '#lib/bookings.ts';
 import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
 import { BOOKING_STATUSES, isOneOf, labelFor } from '#lib/taxonomy/options.ts';
-import type { BookingEventView, BookingThreadView, ShowDetails, Viewer } from '#lib/types.ts';
+import type {
+	BookingEventView,
+	BookingListThread,
+	BookingThreadView,
+	ShowDetails,
+	ThreadProjects,
+	Viewer
+} from '#lib/types.ts';
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
 import { type JsonRecord, memberSpacePolicy, type RecordRef } from '../atproto/repo-client';
 import { bookingSpace, parseSpaceRecordUri, parseSpaceUri } from '../atproto/spaces';
@@ -746,16 +753,61 @@ export class BookingService {
 		}
 	}
 
-	async threadsFor(did: string): Promise<BookingThreadView[]> {
-		const rows = await this.core.db
+	private rowsFor(did: string): Promise<BookingThreadRow[]> {
+		return this.core.db
 			.selectFrom('bookingThread')
 			.innerJoin('bookingParticipant', 'bookingParticipant.spaceUri', 'bookingThread.spaceUri')
 			.selectAll('bookingThread')
 			.where('bookingParticipant.did', '=', did)
 			.orderBy('bookingThread.lastActivityAt', 'desc')
 			.execute();
+	}
 
-		return this.toViews(rows);
+	async threadsFor(did: string): Promise<BookingThreadView[]> {
+		return this.toViews(await this.rowsFor(did));
+	}
+
+	/**
+	 * `did`'s threads from the site's index, so a list can render at once: `project` is null on each until `projects`
+	 * answers with them by space, or with null if the directory is offline. `acts` says how many there'll be.
+	 */
+	async listFor(did: string): Promise<{
+		threads: BookingListThread[];
+		acts: number;
+		projects: Promise<ThreadProjects | null>;
+	}> {
+		const rows = await this.rowsFor(did);
+		const threads = await this.indexViews(rows);
+		const confirmed = await this.everConfirmed(rows);
+
+		return {
+			threads: threads.map((thread) => ({
+				...thread,
+				withdrawn: thread.status === 'cancelled' && !confirmed.has(thread.space)
+			})),
+			acts: new Set(rows.map((row) => row.projectUri)).size,
+			projects: this.projectsOf(rows)
+		};
+	}
+
+	/**
+	 * Which cancelled threads were confirmed at some point. Only a confirmed booking can be cancelled (bookingActions),
+	 * so one that wasn't is an inquiry someone withdrew.
+	 */
+	private async everConfirmed(rows: BookingThreadRow[]): Promise<Set<string>> {
+		const cancelled = rows.flatMap((row) => (row.status === 'cancelled' ? [row.spaceUri] : []));
+
+		if (cancelled.length === 0) return new Set();
+
+		const events = await this.core.db
+			.selectFrom('bookingEvent')
+			.select('spaceUri')
+			.where('spaceUri', 'in', cancelled)
+			.where('kind', '=', 'status')
+			.where(sql<string>`json_extract(record, '$.status')`, '=', 'confirmed')
+			.execute();
+
+		return new Set(events.map((event) => event.spaceUri));
 	}
 
 	/** How many of `did`'s threads wait on them. It reads only the site's index, so it answers without the directory. */
@@ -780,8 +832,25 @@ export class BookingService {
 	}
 
 	async thread(viewer: Viewer, space: string): Promise<{ thread: BookingThreadView; events: BookingEventView[] }> {
+		const { thread, events, project } = await this.openThread(viewer, space);
+
+		return { thread: { ...thread, project: await project }, events };
+	}
+
+	/**
+	 * The thread and its events from the site's index, so the page can render at once: `thread.project` stays null, and
+	 * `project` answers with it, or with null if the directory is offline.
+	 */
+	async openThread(
+		viewer: Viewer,
+		space: string
+	): Promise<{
+		thread: BookingThreadView;
+		events: BookingEventView[];
+		project: Promise<BookingThreadView['project']>;
+	}> {
 		const row = await this.requireParticipant(viewer, space);
-		const [thread] = await this.toViews([row]);
+		const [thread] = await this.indexViews([row]);
 
 		const events = await this.core.db
 			.selectFrom('bookingEvent')
@@ -796,6 +865,7 @@ export class BookingService {
 
 		return {
 			thread,
+			project: this.projectsOf([row]).then((projects) => projects?.get(space) ?? null),
 			events: events
 				.filter((event) => event.authorDid !== this.core.rootDid)
 				.map((event) => {
@@ -842,35 +912,56 @@ export class BookingService {
 	}
 
 	private async toViews(rows: BookingThreadRow[]): Promise<BookingThreadView[]> {
-		if (rows.length === 0) return [];
-		const { members: participants, lastAuthors } = await this.parties(rows);
+		const threads = await this.indexViews(rows);
+		const projects = await this.projectsOf(rows);
 
-		const accounts = await this.core.accounts.views(participants.map((p) => p.did));
+		return threads.map((thread) => ({ ...thread, project: projects?.get(thread.space) ?? null }));
+	}
+
+	/** Each thread's project as the directory has it, keyed by space, or null while it's down. */
+	private async projectsOf(rows: BookingThreadRow[]): Promise<ThreadProjects | null> {
+		if (rows.length === 0) return new Map();
 
 		// Project names are all the directory adds, so a thread stays readable without one while it's down.
 		const projects = await unlessOffline(this.core.logger, () =>
 			this.projects.byUris(rows.map((row) => row.projectUri))
 		);
 
-		return rows.map((row) => {
-			const project = projects?.get(row.projectUri);
+		if (!projects) return null;
 
-			return {
-				space: row.spaceUri,
-				skey: row.skey,
-				status: row.status,
-				title: row.title,
-				showDate: row.showDate,
-				project: project ? { uri: project.uri, slug: project.slug, name: project.profile.name } : null,
-				promoter: accounts.get(row.promoterDid),
-				participants: participants
-					.filter((p) => p.spaceUri === row.spaceUri)
-					.map((p) => ({ ...accounts.get(p.did), role: p.role })),
-				lastAuthor: lastAuthors.get(row.spaceUri) ?? null,
-				lastActivityAt: row.lastActivityAt,
-				createdAt: row.createdAt
-			};
-		});
+		return new Map(
+			rows.flatMap((row) => {
+				const project = projects.get(row.projectUri);
+
+				return project
+					? [[row.spaceUri, { uri: project.uri, slug: project.slug, name: project.profile.name }] as const]
+					: [];
+			})
+		);
+	}
+
+	/** The threads as the site's index has them, which is everything but the project. */
+	private async indexViews(rows: BookingThreadRow[]): Promise<BookingThreadView[]> {
+		if (rows.length === 0) return [];
+		const { members: participants, lastAuthors } = await this.parties(rows);
+
+		const accounts = await this.core.accounts.views(participants.map((p) => p.did));
+
+		return rows.map((row) => ({
+			space: row.spaceUri,
+			skey: row.skey,
+			status: row.status,
+			title: row.title,
+			showDate: row.showDate,
+			project: null,
+			promoter: accounts.get(row.promoterDid),
+			participants: participants
+				.filter((p) => p.spaceUri === row.spaceUri)
+				.map((p) => ({ ...accounts.get(p.did), role: p.role })),
+			lastAuthor: lastAuthors.get(row.spaceUri) ?? null,
+			lastActivityAt: row.lastActivityAt,
+			createdAt: row.createdAt
+		}));
 	}
 
 	async bySkey(skey: string): Promise<string | null> {

@@ -818,7 +818,6 @@ test.describe('signed in', () => {
 		// Once it's confirmed, the DJ can announce it, starting from the inquiry's details.
 		await signIn(page, 'neon.test', 'neon-pass', thread);
 		await expect(page.getByRole('link', { name: 'Announce this show' })).toHaveCount(0);
-		await page.getByRole('button', { name: 'Change status' }).click();
 		// Confirming settles the booking, so it asks once more before it goes.
 		await page.getByRole('button', { name: 'Confirm booking' }).click();
 		await page.getByRole('button', { name: 'Confirm booking' }).click();

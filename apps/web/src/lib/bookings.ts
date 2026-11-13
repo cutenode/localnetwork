@@ -1,5 +1,5 @@
 import { BOOKING_STATUSES, isOneOf } from './taxonomy/options';
-import type { BookingThreadView } from './types';
+import type { BookingListThread, BookingThreadView } from './types';
 
 export type BookingStatus = (typeof BOOKING_STATUSES)[number]['value'];
 
@@ -61,8 +61,8 @@ export function bookingActions(role: BookingRole, status: string, answered: bool
 
 /** How the bookings list sorts threads for whoever is looking, in the order it shows them. */
 export const BOOKING_GROUPS = [
-	{ value: 'reply', label: 'Needs your reply' },
-	{ value: 'active', label: 'In progress' },
+	{ value: 'reply', label: 'Your turn' },
+	{ value: 'active', label: 'Waiting on them' },
 	{ value: 'confirmed', label: 'Confirmed' },
 	{ value: 'closed', label: 'Closed' }
 ] as const;
@@ -80,4 +80,67 @@ export function bookingGroup(
 	const roleOf = (did: string) => thread.participants.find((participant) => participant.did === did)?.role;
 
 	return thread.lastAuthor && roleOf(thread.lastAuthor) !== roleOf(viewer) ? 'reply' : 'active';
+}
+
+/** Whether a thread's night went by, by the UTC day show dates are kept in. */
+export const datePassed = ({ showDate }: Pick<BookingThreadView, 'showDate'>, now = Date.now()) =>
+	!!showDate && showDate.slice(0, 10) < new Date(now).toISOString().slice(0, 10);
+
+/**
+ * The threads by turn, in the order the list shows them. Within a group the nights still to come lead, soonest first,
+ * then threads with no date, then ones whose date went by. Closed keeps the newest on top, and takes confirmed
+ * bookings once their night has passed, so Confirmed only ever holds what's ahead.
+ */
+export function bookingsByTurn<Thread extends Parameters<typeof bookingGroup>[0] & Pick<BookingThreadView, 'showDate'>>(
+	threads: Thread[],
+	viewer: string,
+	now = Date.now()
+) {
+	const groupOf = (thread: Thread): BookingGroup => {
+		const group = bookingGroup(thread, viewer);
+
+		return group === 'confirmed' && datePassed(thread, now) ? 'closed' : group;
+	};
+
+	const rank = (thread: Thread) => {
+		if (!thread.showDate) return 1;
+
+		return datePassed(thread, now) ? 2 : 0;
+	};
+
+	const byNight = (a: Thread, b: Thread) => rank(a) - rank(b) || (a.showDate ?? '').localeCompare(b.showDate ?? '');
+
+	return BOOKING_GROUPS.flatMap((group) => {
+		const inGroup = threads.filter((thread) => groupOf(thread) === group.value);
+
+		if (inGroup.length === 0) return [];
+
+		return [{ ...group, threads: group.value === 'closed' ? inGroup : inGroup.toSorted(byNight) }];
+	});
+}
+
+/**
+ * The status a row in `group` adds to what the group already says, if any: how a closed thread ended, a live one's
+ * date going by, and otherwise how far along it is, where an inquiry the manager has to answer is new. A confirmed row
+ * in Closed got there by its date passing.
+ */
+export function bookingMark(
+	thread: Pick<BookingListThread, 'status' | 'showDate' | 'withdrawn'>,
+	group: BookingGroup,
+	role: BookingRole | undefined,
+	now = Date.now()
+): string | null {
+	if (group === 'confirmed') return null;
+
+	if (group === 'closed') {
+		if (thread.withdrawn) return 'withdrawn';
+
+		return thread.status === 'confirmed' ? 'date_passed' : thread.status;
+	}
+
+	if (datePassed(thread, now)) return 'date_passed';
+
+	if (thread.status === 'negotiating') return 'negotiating';
+
+	return group === 'reply' && role === 'manager' ? 'new' : null;
 }
