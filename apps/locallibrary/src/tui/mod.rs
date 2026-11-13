@@ -9,6 +9,7 @@ mod art;
 mod audio;
 mod browse;
 mod choices;
+mod cli;
 mod crate_list;
 mod deck;
 mod docs;

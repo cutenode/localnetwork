@@ -54,12 +54,23 @@ needs.
   word it goes by there finds it too: `restore`, `pull`); type
   a few of its letters (in order: `fsp` finds "fill the smart playlists") and enter. The ones run
   lately come first, kept between runs, and what can't run now stays in the list, greyed, with the
-  reason. Plugins' commands and what they suggest are in it too.
+  reason. Plugins' commands and what they suggest are in it too. Each command also has words it's
+  found by: "duplicates" finds the health report and replacing them, "MP3 to FLAC" upgrading to
+  lossless files, "free space" what's using the drive.
+- **The command line's jobs**, in the palette by name, on the open drive (the selected one in the
+  Drives view): `doctor` (and `doctor --by-sound`), `drive space` and `plays stats` show their
+  report in a panel, as a check does; `track dedupe`, `track relocate`, `track upgrade` and
+  `refresh` show their plan first, and `u` takes them back. Relocating and upgrading ask for the
+  folder to look in. `clean` is the demos plugin's operation, found by that name. What the player
+  doesn't do itself (`drive format`, `drive fsck`, `drive firmware`, `provision`, `store gc`,
+  `verify`, `prune` and `copy`, `bug`) shows the command to run in a terminal, the drive filled in.
 - **Actions** (`e`): what can be done to the selection, the likeliest first, and enter runs it. In
   the library that's the marked or selected tracks, the playlist selected or the crate; in the Drives
   view the selected drive; elsewhere what enter does there, then the pane's own keys.
-- **Help** (`?`): the keys that mean something here, the pane with focus first. Type to narrow it to
-  rows with those words, or to the key itself; enter runs the row selected, and `esc` closes it.
+- **Help** (`?`): the keys that mean something here, the pane with focus first, and only keys: its
+  top line says `:` searches everything. Type to narrow it to rows with those words, or to the key
+  itself; enter runs the row selected, and `esc` closes it. When no key has the words typed, enter
+  searches the palette for them.
 - **Jobs** (`&`): what's running, with a cancel for each that can still stop. A write can stop until
   its databases are being written, and from then on it says it can't. A read of a drive just
   finishes, and says so. The status line shows the latest job's progress, and `esc` cancels it.
@@ -322,7 +333,7 @@ and the queue with how far into its track it got, to the last 15 seconds (`space
 from there). It saves them as they change, in the
 store once there is one and in a `locallibrary-player` folder beside it until then. Messages show
 in the status line: errors stay until `esc`, and `!` lists every message since starting. The footer
-hints at the keys for where focus is, as many as fit. `?` lists every key, the view's own first;
+hints at the keys for where focus is, as many as fit. `?` lists every key, the view's own first (`:` has every command);
 all of them come from one table, so a key means one thing in every view (`l` loops, `d` picks the
 output, `o` goes to a track, `w` writes a file, `e` opens the Library and Drives actions).
 
@@ -519,7 +530,6 @@ The player:
 | `?` | this help: type to narrow it, enter runs the row selected |
 | `!` | messages: everything the status line said since starting |
 | `&` | jobs: what's running, with a cancel for each that can still stop |
-|  | found a bug? locallibrary bug, in a terminal, reports it |
 | `q` | quit (a write to the drive finishes first) |
 
 Changing the drive:
@@ -527,25 +537,6 @@ Changing the drive:
 | Keys | |
 | --- | --- |
 | `u` | undo: take back the last change made, on the drive it was made to (before any, the open or selected drive's last), after showing what that puts back |
-
-Commands (type : and a few letters):
-
-| Keys | |
-| --- | --- |
-| `pull` | save the drive in the store, a snapshot of its library (shows what that adds first) |
-| `check` | check the drive against the player models remembered for it (results in a panel) |
-| `set prep` | check the drive and the other mounted drives of its library together, for a set |
-| `sync` | copy the newest drive of the library over the others plugged in (when none is newest, says why) |
-| `pack` | the marked playlists, the playlist shown or the crate, from the open drive onto another |
-| `restore` | a playlist or folder as a snapshot in the store had it, onto the drive |
-| `replay` | make the drive's recorded edits again after rekordbox exported over them |
-| `smart` | the rule-based playlists kept in the store |
-| `smart apply` | fill the rule-based playlists on the drive from its own library (shows what changes first) |
-| `smart new` | a rule-based playlist from the search box's filter and the list's sort |
-| `export` | write the playlist, set, session or all tracks shown to a file on this computer |
-| `eject` | unmount the drive and power it off (playing from it stops first) |
-| `g d 3` | the snapshots in the store, in the Drives view |
-| `g u L` | sign in to your Atmosphere account, in the Publish view |
 
 [//]: # (End of the key tables.)
 

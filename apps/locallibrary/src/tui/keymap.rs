@@ -10,6 +10,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::app::{App, DrivePane, Focus, View};
 use super::choices::Hints;
+use super::cli::Cli;
 use super::deck::BandMode;
 use super::keys::{KeyPalette, Notation};
 
@@ -264,6 +265,11 @@ pub enum Act {
     Source(&'static str, &'static str),
     /// Fetch what plugins' providers of a kind find for the tracks selected.
     Fetch(loclib_plugin::ProviderKind),
+    /// One of the command line's jobs, run on the drive (see `tui::cli`).
+    Run(super::cli::Cli),
+    /// Show a command line to copy, for what the player doesn't do itself: `DRIVE` stands for
+    /// the drive (see `tui::cli`).
+    Copy(&'static str),
 }
 
 /// The help's sections.
@@ -326,6 +332,9 @@ pub struct Binding {
     /// The footer's label for it, and how long it stays there as the footer narrows (higher
     /// stays longer).
     pub hint: Option<(&'static str, u8)>,
+    /// More words the palette finds it by, comma-separated: what it's for, as someone looking for
+    /// it might put it ("duplicates", "MP3 to FLAC").
+    pub words: &'static str,
 }
 
 const fn key(
@@ -337,7 +346,7 @@ const fn key(
     help: &'static str,
     group: Group,
 ) -> Binding {
-    Binding { scope, keys, shown, act, name, help, group, hint: None }
+    Binding { scope, keys, shown, act, name, help, group, hint: None, words: "" }
 }
 
 /// A help line that isn't a key of its own (or one bound elsewhere, explained for this view).
@@ -353,6 +362,12 @@ const fn tip(scope: Scope, shown: &'static str, label: &'static str, prio: u8) -
 impl Binding {
     const fn hint(mut self, label: &'static str, prio: u8) -> Binding {
         self.hint = Some((label, prio));
+        self
+    }
+
+    /// More words the palette finds it by (see [`Binding::words`]).
+    const fn words(mut self, words: &'static str) -> Binding {
+        self.words = words;
         self
     }
 }
@@ -606,7 +621,6 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[K::Ch('?')], "?", A::Help, "help: the keys", "this help: type to narrow it, enter runs the row selected", G::Player).hint("help", 5),
     key(S::Global, &[K::Ch('!')], "!", A::Messages, "messages since starting", "messages: everything the status line said since starting", G::Player),
     key(S::Global, &[K::Ch('&')], "&", A::Jobs, "jobs: what's running", "jobs: what's running, with a cancel for each that can still stop", G::Player),
-    note(S::Global, "", "found a bug? locallibrary bug, in a terminal, reports it", G::Player),
     // Commands with no key of their own, for the drive open in the library (the selected one in
     // the Drives view).
     key(S::Global, &[], "pull", A::Pull, "save a snapshot of the drive", PULL, G::Commands),
@@ -624,6 +638,42 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[], "eject", A::Eject, "eject the drive", EJECT, G::Commands),
     key(S::Global, &[], "g d 3", A::Snapshots, "browse snapshots", "the snapshots in the store, in the Drives view", G::Commands),
     key(S::Global, &[], "g u L", A::SignIn, "sign in", "sign in to your Atmosphere account, in the Publish view", G::Commands),
+    // The command line's jobs, run on the drive: reports in a panel, changes planned and confirmed.
+    key(S::Global, &[], "doctor", A::Run(Cli::Doctor), "health report: duplicates, missing and orphaned files", "duplicates, missing and orphaned files, tracks in no playlist, files too big for FAT32 (results in a panel)", G::Commands)
+        .words("duplicates, missing files, orphaned files, broken tracks, unfiled, health, problems"),
+    key(S::Global, &[], "doctor --by-sound", A::Run(Cli::BySound), "find duplicates by their sound", "the same recording in other files and encodings, by its sound (decodes every track the first time)", G::Commands)
+        .words("duplicates, same recording, FLAC and MP3, fingerprint"),
+    key(S::Global, &[], "track dedupe", A::Run(Cli::Dedupe), "replace duplicates with the copy to keep", "replace each copy of a recording with the one doctor keeps, its playlists and My Tags with it (shows what changes first)", G::Commands)
+        .words("duplicates, copies, merge duplicates, remove duplicates"),
+    key(S::Global, &[], "track relocate", A::Run(Cli::Relocate), "find the tracks' missing files…", "point tracks whose file is missing at it, where it is on the drive or in a folder you name (shows what changes first)", G::Commands)
+        .words("missing files, moved files, broken tracks, relink, locate"),
+    key(S::Global, &[], "track upgrade", A::Run(Cli::Upgrade), "upgrade tracks to lossless files…", "point lossy tracks at lossless files of their recording in a folder you name, cues and beat grid kept (shows what changes first)", G::Commands)
+        .words("MP3 to FLAC, lossless, FLAC, AIFF, WAV, better quality, replace lossy"),
+    key(S::Global, &[], "refresh", A::Run(Cli::Refresh), "after a rekordbox export: put back what it replaced", "after rekordbox exported to the drive: remove its demo tracks, replay edits, fill smart playlists, save it (shows the steps first)", G::Commands)
+        .words("rekordbox export, exported, replay edits, demo tracks"),
+    key(S::Global, &[], "drive space", A::Run(Cli::Space), "what's using the drive's space", "what's using the drive's space, and when it will be full (results in a panel)", G::Commands)
+        .words("free space, full, disk usage, size, room left"),
+    key(S::Global, &[], "plays stats", A::Run(Cli::PlayStats), "play counts: most and never played", "the drive's most played tracks, and those never played (results in a panel)", G::Commands)
+        .words("most played, never played, play count, statistics, history"),
+    // What the player doesn't do itself: the command to run in a terminal, the drive filled in.
+    key(S::Global, &[], "drive format", A::Copy("drive format DRIVE"), "format a drive (in a terminal)", "the command that erases and formats the drive", G::Commands)
+        .words("erase, wipe, FAT32, exFAT, new drive"),
+    key(S::Global, &[], "drive fsck", A::Copy("drive fsck DRIVE"), "check the drive's file system (in a terminal)", "the command that checks the drive's file system (--repair fixes it)", G::Commands)
+        .words("file system, repair, corrupt, disk utility, chkdsk"),
+    key(S::Global, &[], "drive firmware", A::Copy("drive firmware DRIVE <file.UPD>"), "put a player firmware update on the drive (in a terminal)", "the command that copies a player's firmware update onto the drive", G::Commands)
+        .words("update, firmware update, UPD, CDJ update"),
+    key(S::Global, &[], "provision", A::Copy("provision <new drive> --like DRIVE"), "make a new drive a copy of the library (in a terminal)", "the command that turns a blank drive into another copy of the drive's library", G::Commands)
+        .words("new drive, blank drive, clone, set up a drive, another copy"),
+    key(S::Global, &[], "store gc", A::Copy("store gc --dry-run"), "delete what nothing in the store uses (in a terminal)", "the command that frees the store's files no snapshot uses (--dry-run shows them)", G::Commands)
+        .words("store size, free space, garbage, tidy the store"),
+    key(S::Global, &[], "store verify", A::Copy("store verify"), "re-read every file in the store (in a terminal)", "the command that hashes every stored file again", G::Commands)
+        .words("integrity, corrupt, check the store"),
+    key(S::Global, &[], "store prune", A::Copy("store prune --dry-run"), "remove old snapshots (in a terminal)", "the command that removes old snapshots, keeping each library's latest and labelled ones (--dry-run shows them)", G::Commands)
+        .words("old snapshots, store size, free space"),
+    key(S::Global, &[], "store copy", A::Copy("store copy <folder>"), "copy the store to another folder (in a terminal)", "the command that copies the store to a NAS, another disk or a cloud-synced folder", G::Commands)
+        .words("backup, back up, NAS, cloud, offsite, mirror"),
+    key(S::Global, &[], "bug", A::Copy("bug"), "report a bug (in a terminal)", "the command that reports a bug, with this version and system filled in", G::Commands)
+        .words("problem, issue, crash, feedback"),
     key(S::Global, &[K::Ch('q'), K::Ctrl('c'), K::Ctrl('q')], "q", A::Quit, "quit", "quit (a write to the drive finishes first)", G::Player).hint("quit", 1),
     // -----------------------------------------------------------------------------------------
     // The drive's jobs, by key where they have a home (here so `about` finds the rows above)
@@ -806,7 +856,7 @@ pub fn help_rows(app: &App, query: &str) -> Vec<HelpRow> {
         }
     };
     let wanted = |s: Scope| focused.contains(&s) || own.contains(&s) || matches!(s, Scope::Pads | Scope::Goto);
-    let mut rows: Vec<&'static Binding> = KEYMAP.iter().filter(|b| !b.help.is_empty() && wanted(b.scope)).collect();
+    let mut rows: Vec<&'static Binding> = KEYMAP.iter().filter(|b| in_help(b) && wanted(b.scope)).collect();
     // The crate's own keys under its heading, after marking and adding to it.
     rows.sort_by_key(|b| (rank(b.scope), b.group as u8, b.scope == Scope::Crate));
     let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
@@ -818,6 +868,11 @@ pub fn help_rows(app: &App, query: &str) -> Vec<HelpRow> {
         rows.sort_by_key(|b| b.shown.split_whitespace().all(|k| k != query.trim()));
     }
     rows.into_iter().map(|binding| HelpRow { title: binding.group.title(), binding }).collect()
+}
+
+/// Whether a row is in the help, which lists keys: a command with none is the palette's alone.
+fn in_help(b: &Binding) -> bool {
+    !b.help.is_empty() && b.group != Group::Commands
 }
 
 /// Whether enter can run a help row: what needs the key itself, or moves what the help covers,
@@ -855,9 +910,9 @@ fn view_scopes(view: View) -> &'static [Scope] {
 pub fn help(view: View) -> (Vec<HelpSection>, Vec<HelpSection>) {
     let own = view_scopes(view);
     // The crate's own keys under its heading, after marking and adding to it.
-    let mut rows: Vec<&'static Binding> = KEYMAP.iter().filter(|b| own.contains(&b.scope)).collect();
+    let mut rows: Vec<&'static Binding> = KEYMAP.iter().filter(|b| own.contains(&b.scope) && in_help(b)).collect();
     rows.sort_by_key(|b| (b.group as u8, b.scope == Scope::Crate));
-    let everywhere = |b: &&Binding| matches!(b.scope, Scope::Global | Scope::Pads | Scope::Goto);
+    let everywhere = |b: &&Binding| matches!(b.scope, Scope::Global | Scope::Pads | Scope::Goto) && in_help(b);
     let global = KEYMAP.iter().filter(everywhere);
     let mut global: Vec<&'static Binding> = global.collect();
     global.sort_by_key(|b| b.group as u8);

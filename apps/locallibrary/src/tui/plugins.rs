@@ -107,6 +107,8 @@ pub struct Offered {
     pub by: &'static str,
     /// Why it can't run here, if it can't.
     pub unavailable: Option<String>,
+    /// Its command on the command line (`clean`), which finds it in the palette too.
+    pub cli: Option<&'static str>,
 }
 
 /// Plugins' commands and operations offered in a menu of one of `places`, as it offers them with
@@ -119,9 +121,12 @@ pub fn offered(drive: bool, places: &[Where]) -> Vec<Offered> {
     for m in plugins.manifests() {
         let c = &m.contributes;
         let reads = m.capabilities.iter().any(reads_drive);
-        let hooks = c.commands.iter().map(|x| (&x.name, &x.title, x.params.as_ref(), &x.offered, reads));
-        let hooks = hooks.chain(c.operations.iter().map(|x| (&x.name, &x.title, x.params.as_ref(), &x.offered, true)));
-        for (name, title, params, offered, needs_drive) in hooks {
+        let hooks =
+            c.commands.iter().map(|x| (&x.name, &x.title, x.params.as_ref(), &x.offered, x.cli.as_deref(), reads));
+        let hooks = hooks.chain(
+            c.operations.iter().map(|x| (&x.name, &x.title, x.params.as_ref(), &x.offered, x.cli.as_deref(), true)),
+        );
+        for (name, title, params, offered, cli, needs_drive) in hooks {
             if !offered.iter().any(|w| places.contains(w)) {
                 continue;
             }
@@ -133,6 +138,7 @@ pub fn offered(drive: bool, places: &[Where]) -> Vec<Offered> {
                 label: format!("{}{asks}", named(title)),
                 by: &m.name,
                 unavailable: why.filter(|_| needs_drive).map(String::from),
+                cli,
             });
         }
     }
@@ -257,7 +263,10 @@ impl App {
         let drive = root.is_some();
         let all = offered(drive, places).into_iter();
         let mut items: Vec<(Act, Item)> = all
-            .map(|o| (Act::Plugin(o.plugin, o.name), Item { unavailable: o.unavailable, ..Item::new(o.label, o.by) }))
+            .map(|o| {
+                let words = o.cli.unwrap_or_default().to_string();
+                (Act::Plugin(o.plugin, o.name), Item { unavailable: o.unavailable, words, ..Item::new(o.label, o.by) })
+            })
             .collect();
         if places.contains(&Where::Track) {
             let fetching = providers::fetches(drive).into_iter();
