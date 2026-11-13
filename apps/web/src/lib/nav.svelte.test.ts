@@ -57,6 +57,9 @@ describe('the site header', () => {
 		await expect.element(header().getByRole('link', { name: 'Bookings' })).not.toBeInTheDocument();
 		await header().getByRole('button', { name: 'Account, @neon.test' }).click();
 		await expect.element(header().getByRole('button', { name: 'Sign out' })).toBeVisible();
+		await expect
+			.element(header().getByRole('link', { name: 'Account', exact: true }))
+			.toHaveAttribute('href', '/dashboard/account');
 		await expect.element(header().getByRole('link', { name: /Staff console/ })).not.toBeInTheDocument();
 	});
 

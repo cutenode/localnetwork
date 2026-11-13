@@ -47,11 +47,11 @@
 </Story>
 
 <Story name="Requests" asChild>
-	<div class="card max-w-xl p-0">
+	<div class="max-w-xl">
 		<RequestList requests={[request('halflight', 'pending', 'Halflight'), request('saffron', 'approved', 'Saffron Social'), request('neon', 'rejected', 'Neon Tide')]} />
 	</div>
 </Story>
 
 <Story name="Requests, none" asChild>
-	<div class="card max-w-xl p-0"><RequestList requests={[]} /></div>
+	<div class="max-w-xl"><RequestList requests={[]} /></div>
 </Story>

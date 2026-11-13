@@ -302,7 +302,7 @@ it("says when the account's server can't keep private data", async () => {
 
 	await expect
 		.element(page.getByRole('link', { name: 'see what it keeps' }))
-		.toHaveAttribute('href', '/dashboard/data');
+		.toHaveAttribute('href', '/dashboard/account/data');
 });
 
 const library = () => page.getByRole('region', { name: 'locallibrary' });

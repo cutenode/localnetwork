@@ -98,7 +98,7 @@ sequenceDiagram
   end
 ```
 
-Source: [`src/routes/dashboard/inbox/settings/+page.server.ts`](../../src/routes/dashboard/inbox/settings/+page.server.ts), [`src/routes/report/+page.server.ts`](../../src/routes/report/+page.server.ts), [`src/routes/oauth/callback/+server.ts`](../../src/routes/oauth/callback/+server.ts), [`src/lib/server/atproto/oauth.ts`](../../src/lib/server/atproto/oauth.ts), [`src/lib/server/notifications/channels.ts`](../../src/lib/server/notifications/channels.ts)
+Source: [`src/routes/dashboard/account/notifications/+page.server.ts`](../../src/routes/dashboard/account/notifications/+page.server.ts), [`src/routes/report/+page.server.ts`](../../src/routes/report/+page.server.ts), [`src/routes/oauth/callback/+server.ts`](../../src/routes/oauth/callback/+server.ts), [`src/lib/server/atproto/oauth.ts`](../../src/lib/server/atproto/oauth.ts), [`src/lib/server/notifications/channels.ts`](../../src/lib/server/notifications/channels.ts)
 
 ## Who writes a record
 

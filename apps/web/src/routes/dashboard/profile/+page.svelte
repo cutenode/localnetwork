@@ -54,7 +54,7 @@
 			{#if data.listing}
 				<p class="m-0 text-small text-fg-muted">Staff list you in Find DJs, so promoters searching there find you.</p>
 			{:else if data.listRequest}
-				<p class="m-0 text-small text-fg-muted">You asked to be listed. <a class="link" href="/dashboard/requests/{data.listRequest.rkey}">See your request</a></p>
+				<p class="m-0 text-small text-fg-muted">You asked to be listed. <a class="link" href="/dashboard/account/requests/{data.listRequest.rkey}">See your request</a></p>
 			{:else}
 				<p class="m-0 text-small text-fg-muted">Ask staff to list you, so promoters searching Find DJs find you. They look at your profile as it is when they review.</p>
 				<form method="POST" action="?/requestListing" class="flex flex-col gap-3" use:enhance>

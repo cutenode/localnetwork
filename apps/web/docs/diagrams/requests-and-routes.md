@@ -24,7 +24,9 @@ flowchart TD
   Csrf -- "form post from<br/>another origin" --> Blocked["403"]
   Csrf --> Tool["Tool host check"]
   Tool -- "a tool's own host" --> ToolSite["toolSite answers"]
-  Tool --> Load["Get the app"]
+  Tool --> Moved["Moved page check"]
+  Moved -- "an old account address" --> Redirect["308 to its new address<br/>under /dashboard/account"]
+  Moved --> Load["Get the app"]
   Load -- "it can't start" --> Setup["503 setup page"]
   Load --> Limit["Write limit for this address"]
   Limit -- "over it" --> Slow["429"]
@@ -37,7 +39,7 @@ flowchart TD
   Route --> Out["gzip, security headers,<br/>noindex on unlisted areas,<br/>the one log line for the request"]
 ```
 
-Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`src/lib/server/compress.ts`](../../src/lib/server/compress.ts), [`src/lib/server/logger.ts`](../../src/lib/server/logger.ts), [`vite.config.ts`](../../vite.config.ts)
+Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/moved-pages.ts`](../../src/lib/server/moved-pages.ts), [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/services/flags.ts`](../../src/lib/server/services/flags.ts), [`src/lib/server/compress.ts`](../../src/lib/server/compress.ts), [`src/lib/server/logger.ts`](../../src/lib/server/logger.ts), [`vite.config.ts`](../../vite.config.ts)
 
 ## Page loads and form actions
 
@@ -175,9 +177,11 @@ Everything under `/dashboard`. The server hook turns away anyone signed out; pag
 ```mermaid
 flowchart LR
   Dash["/dashboard<br/>any signed-in account"]
-  Dash --> Over["/activity, /profile, /data"]
-  Dash --> Inbox["/inbox, /inbox/settings"]
-  Dash --> Req["/requests, /requests/[rkey]<br/>the requester or staff"]
+  Dash --> Over["/profile, /inbox"]
+  Dash --> Account["/account"]
+  Account --> Yours["/activity, /notifications,<br/>/data, /data/[kind]"]
+  Account --> Req["/requests, /requests/[rkey]<br/>the requester or staff"]
+  Dash -- "308 from /activity, /data,<br/>/requests, /inbox/settings" --> Account
   Dash --> Book["/bookings, /bookings/new,<br/>/bookings/[skey] for participants"]
   Dash --> Plan["/planner, /planner/shows/[rkey]<br/>needs spaces"]
   Dash --> Claim["/claim/[slug], /projects/new"]
@@ -187,7 +191,7 @@ flowchart LR
   Manage --> Kits["/press-kits, /press-kits/new,<br/>/press-kits/[rkey], .../access"]
 ```
 
-Source: [`src/routes/dashboard/+layout.server.ts`](../../src/routes/dashboard/+layout.server.ts), [`src/routes/dashboard/projects/[slug]/+layout.server.ts`](../../src/routes/dashboard/projects/[slug]/+layout.server.ts), [`src/routes/dashboard/requests/[rkey]/+page.server.ts`](../../src/routes/dashboard/requests/[rkey]/+page.server.ts), [`src/lib/server/planner-page.ts`](../../src/lib/server/planner-page.ts)
+Source: [`src/routes/dashboard/+layout.server.ts`](../../src/routes/dashboard/+layout.server.ts), [`src/lib/server/moved-pages.ts`](../../src/lib/server/moved-pages.ts), [`src/routes/dashboard/projects/[slug]/+layout.server.ts`](../../src/routes/dashboard/projects/[slug]/+layout.server.ts), [`src/routes/dashboard/account/requests/[rkey]/+page.server.ts`](../../src/routes/dashboard/account/requests/[rkey]/+page.server.ts), [`src/lib/server/planner-page.ts`](../../src/lib/server/planner-page.ts)
 
 ## Staff console routes
 
@@ -242,7 +246,7 @@ What the small routes do, beside the flows above.
 ```mermaid
 flowchart LR
   Small["Small routes"]
-  Small -- "/dashboard/activity" --> A["The viewer's own audit<br/>entries, 50 a page"]
+  Small -- "/dashboard/account/activity" --> A["The viewer's own audit<br/>entries, 50 a page"]
   Small -- "/projects/[slug]/epk" --> B["308 to its press kits"]
   Small -- "/epk/[did]/[rkey] and its photos" --> C["Finds the press kit, 308 to<br/>its page, or 404"]
   Small -- "/sets/[did]/[rkey]/chapters.json" --> D["The set's tracklist as<br/>Podcasting 2.0 chapters"]
@@ -251,4 +255,4 @@ flowchart LR
   Small -- "/for-djs" --> G["Streams an example listing and<br/>the directory's totals"]
 ```
 
-Source: [`src/routes/dashboard/activity/+page.server.ts`](../../src/routes/dashboard/activity/+page.server.ts), [`src/routes/projects/[slug]/epk/+server.ts`](../../src/routes/projects/[slug]/epk/+server.ts), [`src/lib/server/epk-page.ts`](../../src/lib/server/epk-page.ts), [`src/routes/sets/[did]/[rkey]/chapters.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/chapters.json/+server.ts), [`src/lib/server/actor-search.ts`](../../src/lib/server/actor-search.ts), [`src/routes/healthz/+server.ts`](../../src/routes/healthz/+server.ts), [`src/routes/for-djs/+page.server.ts`](../../src/routes/for-djs/+page.server.ts)
+Source: [`src/routes/dashboard/account/activity/+page.server.ts`](../../src/routes/dashboard/account/activity/+page.server.ts), [`src/routes/projects/[slug]/epk/+server.ts`](../../src/routes/projects/[slug]/epk/+server.ts), [`src/lib/server/epk-page.ts`](../../src/lib/server/epk-page.ts), [`src/routes/sets/[did]/[rkey]/chapters.json/+server.ts`](../../src/routes/sets/[did]/[rkey]/chapters.json/+server.ts), [`src/lib/server/actor-search.ts`](../../src/lib/server/actor-search.ts), [`src/routes/healthz/+server.ts`](../../src/routes/healthz/+server.ts), [`src/routes/for-djs/+page.server.ts`](../../src/routes/for-djs/+page.server.ts)

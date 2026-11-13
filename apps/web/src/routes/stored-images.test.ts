@@ -6,7 +6,7 @@ import { silentLogger } from '#lib/server/logger.ts';
 import { ROOT } from '#lib/server/testing/core.ts';
 import { DJ, pressKitServices } from '#lib/server/testing/press-kits.ts';
 import { GET as editorPhoto } from './dashboard/projects/[slug]/press-kits/[rkey]/photos/[cid]/+server.ts';
-import { GET as requestAvatar } from './dashboard/requests/[rkey]/avatar/+server.ts';
+import { GET as requestAvatar } from './dashboard/account/requests/[rkey]/avatar/+server.ts';
 import { GET as oldPhoto } from './epk/[did]/[rkey]/photos/[cid]/+server.ts';
 import { GET as media } from './media/[did]/[cid]/+server.ts';
 import { GET as photo } from './projects/[slug]/press-kits/[rkey]/photos/[cid]/+server.ts';
@@ -161,7 +161,12 @@ describe('routes serving stored images', () => {
 					avatar: { bytes, mimeType }
 				});
 
-				return get(requestAvatar, `/dashboard/requests/${request.rkey}/avatar${query}`, { rkey: request.rkey }, DJ);
+				return get(
+					requestAvatar,
+					`/dashboard/account/requests/${request.rkey}/avatar${query}`,
+					{ rkey: request.rkey },
+					DJ
+				);
 			}
 		]
 	];

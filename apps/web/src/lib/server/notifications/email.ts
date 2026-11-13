@@ -83,7 +83,7 @@ export class LogEmailSender implements EmailSender {
 /** A batch of inbox items as one email, with a link to turn email off. */
 export function renderEmail(items: NotificationView[], to: Recipient & { address: string }, publicUrl: string): Email {
 	const inbox = `${publicUrl}/dashboard/inbox`;
-	const settings = `${publicUrl}/dashboard/inbox/settings`;
+	const settings = `${publicUrl}/dashboard/account/notifications`;
 	const unsubscribe = `${publicUrl}/notifications/unsubscribe?t=${encodeURIComponent(to.unsubscribeToken ?? '')}`;
 	const subject = items.length === 1 ? items[0].title : `${items.length} new things in your Local Network inbox`;
 	const line = (item: NotificationView) => [item.title, item.body].filter(Boolean).join(': ');

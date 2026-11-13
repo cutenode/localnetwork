@@ -51,11 +51,13 @@ it("lists the sections and everything that is the viewer's own", async () => {
 		['Inbox', '/dashboard/inbox'],
 		['Bookings', '/dashboard/bookings'],
 		['Planner', '/dashboard/planner'],
-		['Submissions', '/dashboard/requests'],
-		['Activity', '/dashboard/activity'],
-		['Your data', '/dashboard/data']
+		['Account', '/dashboard/account']
 	]) {
 		await expect.element(nav.getByRole('link', { name, exact: true })).toHaveAttribute('href', href);
+	}
+
+	for (const name of ['Submissions', 'Activity', 'Your data']) {
+		await expect.element(nav.getByRole('link', { name })).not.toBeInTheDocument();
 	}
 
 	const yours = nav.getByRole('list', { name: 'Yours' });

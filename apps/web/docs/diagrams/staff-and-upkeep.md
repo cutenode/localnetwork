@@ -125,7 +125,7 @@ Source: [`src/lib/server/services/verifications.ts`](../../src/lib/server/servic
 
 ## Records the root holds
 
-How someone deletes what the root wrote for them at `/dashboard/data`. Audit entries and booking status changes aren't offered.
+How someone deletes what the root wrote for them at `/dashboard/account/data/<kind>`. Audit entries and booking status changes aren't offered.
 
 ```mermaid
 flowchart TD
@@ -139,7 +139,7 @@ flowchart TD
   Gone --> Audit
 ```
 
-Source: [`src/lib/server/services/held-records.ts`](../../src/lib/server/services/held-records.ts), [`src/routes/dashboard/data/+page.server.ts`](../../src/routes/dashboard/data/+page.server.ts)
+Source: [`src/lib/server/services/held-records.ts`](../../src/lib/server/services/held-records.ts), [`src/routes/dashboard/account/data/[kind]/+page.server.ts`](../../src/routes/dashboard/account/data/[kind]/+page.server.ts)
 
 ## People in shared spaces
 
