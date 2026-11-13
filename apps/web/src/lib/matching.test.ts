@@ -49,6 +49,14 @@ describe('noteTexts', () => {
 		).toEqual(['under 1 km away', '3.2 km away', 'Travels 504 km', '1,235 km away']);
 	});
 
+	it('reads notes the directory sent without their details', () => {
+		expect(noteTexts([{ code: 'plays' }, { code: 'nearby' }, { code: 'formats' }])).toEqual([
+			'Plays ',
+			'under 1 km away',
+			'Plays '
+		]);
+	});
+
 	it('leaves out codes this app does not know yet', () => {
 		expect(noteTexts([{ code: 'vibes' }, { code: 'constructor' }, { code: 'local' }])).toEqual(['Local']);
 	});

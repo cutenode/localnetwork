@@ -44,4 +44,21 @@ describe('showsPlace', () => {
 		cookies.set('ln_shows_place', '{not json');
 		expect(showsPlace(at(''), cookies, true)).toBeNull();
 	});
+
+	it('keeps the place for the whole site, and drops the copy that only /shows was sent', () => {
+		const sent: string[] = [];
+
+		const cookies = {
+			get: () => undefined,
+			set: (_name: string, _value: string, options?: { path?: string }) => void sent.push(`set ${options?.path}`),
+			delete: (_name: string, options?: { path?: string }) => void sent.push(`delete ${options?.path}`)
+		};
+
+		showsPlace(at('?place=Berlin&lat=52.52&lng=13.405'), cookies, true);
+		expect(sent).toEqual(['delete /shows', 'set /']);
+
+		sent.length = 0;
+		showsPlace(at('?place='), cookies, true);
+		expect(sent).toEqual(['delete /shows', 'delete /']);
+	});
 });

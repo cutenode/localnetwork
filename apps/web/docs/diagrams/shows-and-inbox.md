@@ -38,7 +38,7 @@ Source: [`src/lib/server/services/shows.ts`](../../src/lib/server/services/shows
 
 ## Follows and the shows list
 
-Following a performer, and what that does to `/shows`.
+Following a performer, and what that does to `/shows` and the home page.
 
 ```mermaid
 flowchart TD
@@ -53,9 +53,12 @@ flowchart TD
   View -- "default" --> Near["listShows near a city,<br/>kept in a cookie"]
   View -- "Following" --> Followed["listShows of followed performers"]
   Write -. "read by" .-> Followed
+  Home["/ with socialHome on"] -- "signed out" --> Near
+  Home -- "signed in" --> Followed
+  Home -- "signed in, then" --> HomeCity["listShows near their home city,<br/>else the city in the cookie"]
 ```
 
-Source: [`src/lib/server/services/follows.ts`](../../src/lib/server/services/follows.ts), [`src/routes/projects/[slug]/+page.server.ts`](../../src/routes/projects/[slug]/+page.server.ts), [`src/routes/shows/+page.server.ts`](../../src/routes/shows/+page.server.ts), [`src/lib/server/shows-place.ts`](../../src/lib/server/shows-place.ts), [`lua/computer/localnetwork/directory/listShows.lua`](../../lua/computer/localnetwork/directory/listShows.lua)
+Source: [`src/lib/server/services/follows.ts`](../../src/lib/server/services/follows.ts), [`src/routes/projects/[slug]/+page.server.ts`](../../src/routes/projects/[slug]/+page.server.ts), [`src/routes/shows/+page.server.ts`](../../src/routes/shows/+page.server.ts), [`src/lib/server/shows-place.ts`](../../src/lib/server/shows-place.ts), [`src/lib/server/social-home.ts`](../../src/lib/server/social-home.ts), [`lua/computer/localnetwork/directory/listShows.lua`](../../lua/computer/localnetwork/directory/listShows.lua)
 
 ## Inbox delivery
 

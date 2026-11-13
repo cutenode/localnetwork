@@ -55,7 +55,8 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 ### Fans
 
 - Follow a project from its page with any Atmosphere account. The follow is a `computer.localnetwork.follow` record in the follower's own repo; unfollowing deletes it. The page shows the follower count.
-- `/shows` lists upcoming shows by date near a city (picked with the same city search as the directory, and remembered in a cookie), or, under Following, the shows of the projects you follow, nearest first once you pick a city. A show drops off once it ends, or 12 hours after it starts when it has no end. There are no email or push notifications for shows yet.
+- `/shows` lists upcoming shows by date near a city (picked with the same city search as the directory, and remembered in a cookie the home page reads too), or, under Following, the shows of the projects you follow, nearest first once you pick a city. A show drops off once it ends, or 12 hours after it starts when it has no end. There are no email or push notifications for shows yet.
+- Behind the `socialHome` flag, the home page is for going out. Signed out, it shows what's on near the city picked last, who's playing there, their mixes and the charts, and asks people to sign in. Signed in, it leads with the shows of the projects you follow, with what's near your profile's home city beside them, leaving out what you already follow.
 
 ### Artists and charts
 
@@ -579,7 +580,7 @@ flowchart TD
     Bucket[("Bucket: database backups")]
   end
   subgraph Client["In the browser"]
-    Cookies["Cookies: ln_session, ln_signed_out,<br/>the shows page's city"]
+    Cookies["Cookies: ln_session, ln_signed_out,<br/>the city picked last for shows"]
     Local["localStorage: unsent form drafts,<br/>the hotkeys preference"]
   end
   Repos -- "Jetstream, re-reads" --> HV

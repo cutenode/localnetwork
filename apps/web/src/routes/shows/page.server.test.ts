@@ -72,7 +72,7 @@ it('lists the shows near the place in the address, and remembers it for next tim
 
 	expect(data.place).toEqual({ place: 'Berlin', lat: 52.52, lng: 13.405, radiusKm: 25 });
 	expect(await listed(data.shows)).toEqual([berlin.uri]);
-	expect(cookies.options.get('ln_shows_place')).toMatchObject({ secure: true, path: '/shows' });
+	expect(cookies.options.get('ln_shows_place')).toMatchObject({ secure: true, path: '/' });
 	expect(await listed(far.shows)).toEqual([]);
 });
 

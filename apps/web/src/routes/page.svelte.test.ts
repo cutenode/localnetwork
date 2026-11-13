@@ -23,6 +23,7 @@ const project: ProjectView = {
 };
 
 const base = {
+	social: false as const,
 	shows: Promise.resolve([]),
 	tracks: Promise.resolve([]),
 	viewer: null,
@@ -101,7 +102,7 @@ describe('/', () => {
 	});
 
 	it('holds a place for shows and tracks while they load', async () => {
-		await show({ ...base, ...directory, shows: new Promise(() => {}), tracks: new Promise(() => {}) });
+		await show({ ...base, ...directory, shows: new Promise<null>(() => {}), tracks: new Promise<null>(() => {}) });
 
 		await expect.element(page.getByRole('list', { name: 'Loading shows' })).toBeInTheDocument();
 		expect(page.getByRole('list', { name: 'Most played this month' }).element().children).toHaveLength(5);

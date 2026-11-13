@@ -109,10 +109,10 @@ export default defineConfig({
 									name: (id, ctx) =>
 										ctx.getModuleInfo(id)?.importedIds.every((dep) => isSmall(dep, ctx)) ? 'shared' : null,
 									// Not the Tools pages' own components, the staff console's table, the booking rules the
-									// dashboard's booking pages share, the suggestion lists only the place and handle fields use,
+									// dashboard's booking pages share, the suggestion lists only the place and handle fields use, the Follow button and its icons,
 									// the drafts only long forms keep, or the mix player: only those pages load them, and every
 									// page loads this.
-									test: /[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|GuideList\.svelte|PlaceOptions\.svelte|mix[\\/]MixEmbed\.svelte)|ui[\\/]ResponsiveTable\.svelte|bookings\.ts$|combobox\.svelte\.ts$|form-draft\.svelte\.ts$)|@lucide/,
+									test: /[\\/]src[\\/]lib[\\/](?!components[\\/](?:tools[\\/]|FollowButton\.svelte|GuideList\.svelte|PlaceOptions\.svelte|mix[\\/]MixEmbed\.svelte)|ui[\\/]ResponsiveTable\.svelte|bookings\.ts$|combobox\.svelte\.ts$|form-draft\.svelte\.ts$)|@lucide[\\/](?!svelte[\\/]dist[\\/]icons[\\/]user-(?:check|plus)\.)/,
 									minShareCount: 2,
 									maxModuleSize: SHARED_MODULE_SIZE
 								}
