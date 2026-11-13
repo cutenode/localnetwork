@@ -191,7 +191,7 @@ Source: [`src/lib/components/QueueSheet.svelte`](../../src/lib/components/QueueS
 
 ## What the settings sheet changes
 
-Each section, where it keeps what it sets, and who obeys it. An import writes back to the marks, the details, both lists, the queue and three pref keys.
+Each section, where it keeps what it sets, and who obeys it. An import writes back to the marks, the details, both lists, the queue, the search sites and three pref keys.
 
 ```mermaid
 flowchart LR

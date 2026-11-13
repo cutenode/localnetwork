@@ -40,7 +40,7 @@ pub(crate) fn lead(device: &Device, t: &Track, ctx: &Ctx<'_>) -> Result<Option<f
     let columns = detail.columns.len().min((60.0 * f64::from(rate) / per_column) as usize);
     let need = (columns as f64 * per_column) as usize;
     let mut level = Vec::with_capacity(need);
-    loclib_mixid::audio::decode_until(&file, rate, ctx, &mut |s| {
+    loclib_audio::decode_until(&file, rate, ctx, &mut |s| {
         level.extend(s.iter().map(|v| f64::from(v.abs())));
         if level.len() >= need { std::ops::ControlFlow::Break(()) } else { std::ops::ControlFlow::Continue(()) }
     })?;

@@ -62,7 +62,7 @@ export default defineRailway(() => {
 
 	// The CLI's project.variables, which railway 3.16.0's ProjectDefinition doesn't declare yet: project() passes
 	// it through, and a spread isn't checked for unknown properties.
-	const projectVariables: { variables: { managed: boolean } } = { variables: { managed: true } };
+	const projectVariables = { variables: { managed: true } };
 
 	return project('localnetwork.computer', {
 		...projectVariables,

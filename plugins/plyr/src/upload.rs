@@ -17,9 +17,9 @@
 //! once it has been idle for a day; publishing again starts afresh.
 
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use loclib_plugin::{ByteRange, Fetch, Fetched, Host, RpcError, StrongRef};
+use loclib_plugin::{ByteRange, Fetch, Fetched, Host, RpcError, StrongRef, pause};
 use loclib_progress::{Ctx, Phase};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -39,9 +39,6 @@ pub(crate) const TRIES: u32 = 4;
 /// The wait before the second try, doubling for each try after. In this crate's tests it's a
 /// thousandth of a second, so they wait out every try without spending seconds on it.
 const FIRST_WAIT: Duration = if cfg!(test) { Duration::from_millis(1) } else { Duration::from_secs(1) };
-
-/// How often a wait notices the hook being cancelled.
-const CHECK_EVERY: Duration = Duration::from_millis(50);
 
 /// What opening a session answers.
 #[derive(Deserialize)]
@@ -224,17 +221,4 @@ fn refused(answer: &Fetched, what: &str) -> RpcError {
 /// plyr.fm's answer as `T`.
 fn read<T: DeserializeOwned>(body: &str) -> Result<T, RpcError> {
     serde_json::from_str(body).map_err(|e| RpcError::failed("external", format!("plyr.fm's answer can't be read: {e}")))
-}
-
-/// Waits `wait`, failing with `cancelled` once `ctx` is.
-fn pause(ctx: &Ctx<'_>, wait: Duration) -> Result<(), RpcError> {
-    let until = Instant::now() + wait;
-    loop {
-        ctx.check()?;
-        let left = until.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            return Ok(());
-        }
-        std::thread::sleep(left.min(CHECK_EVERY));
-    }
 }
