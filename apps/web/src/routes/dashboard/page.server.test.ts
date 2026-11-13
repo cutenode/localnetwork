@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
-import { BSKY_PROFILE } from '#lib/nsid.ts';
+import { BSKY_PROFILE, COLLECTION } from '#lib/nsid.ts';
 import { HappyViewClient } from '#lib/server/happyview/client.ts';
 import { IndexedRepo } from '#lib/server/happyview/indexed.ts';
 import { silentLogger } from '#lib/server/logger.ts';
 import { BookingService } from '#lib/server/services/bookings.ts';
+import { DjService } from '#lib/server/services/dj.ts';
+import { DjListings } from '#lib/server/services/dj-listings.ts';
+import { FollowService } from '#lib/server/services/follows.ts';
 import { ProfileService } from '#lib/server/services/profiles.ts';
 import { ProjectService } from '#lib/server/services/projects.ts';
 import { DJ, NO_SPACES, pressKitServices, PROMOTER } from '#lib/server/testing/press-kits.ts';
@@ -24,8 +27,12 @@ afterEach(async () => {
 	await f.t.db.destroy();
 });
 
-/** The overview as `did` opens it, under the dashboard layout's data, on `app` (the test services unless given). */
-async function overview(did: string, { app = f.t, as = {} }: { app?: object; as?: Partial<Viewer> } = {}) {
+/**
+ * The overview as `did` opens it, under the dashboard layout's data, on `app` (the test services unless given), with
+ * DJs' own records.
+ */
+async function overview(did: string, { app: given = f.t, as = {} }: { app?: object; as?: Partial<Viewer> } = {}) {
+	const app = { dj: new DjService(f.t.indexedRepo, silentLogger), ...given };
 	const viewer = { ...(await f.t.viewer(did)), ...as };
 	const parent = await loadRoute<LayoutServerData>(layout, { app, viewer, url: '/dashboard' });
 
@@ -117,7 +124,55 @@ it("asks nobody to set up a profile while the directory can't say what they have
 	const data = await overview(PROMOTER, { app });
 
 	expect(await data.firstRun).toBeNull();
+	expect(await data.onboarding).toBeNull();
 	expect((await data.nights).failed).toBe(true);
+});
+
+it('gives a new account a checklist with nothing done, starting from Bluesky', async () => {
+	expect(await (await overview(NO_SPACES, { as: { handle: 'nospaces.test' } })).onboarding).toEqual({
+		profile: null,
+		prefill: { name: 'nospaces.test', hasAvatar: false },
+		listing: false,
+		follows: false
+	});
+});
+
+it('checks a DJ off once they asked to be listed and follow someone', async () => {
+	await performerProfile(DJ);
+	const dj = await f.t.viewer(DJ);
+	const profile = await f.t.profiles.get(DJ);
+	await f.t.requests.submit({
+		actor: dj,
+		kind: 'list',
+		listing: profile ? { subject: profile.uri, cid: profile.cid } : undefined
+	});
+	await f.t.follows.follow(dj, f.project);
+
+	expect(await (await overview(DJ)).onboarding).toEqual({
+		profile: expect.objectContaining({ basics: { name: 'Neon' }, performer: {} }),
+		prefill: null,
+		listing: true,
+		follows: true
+	});
+});
+
+it("leaves a step to do when what it checks can't be read", async () => {
+	await performerProfile(DJ);
+	const dj = await f.t.viewer(DJ);
+	await f.t.follows.follow(dj, f.project);
+
+	const down = new HappyViewClient({
+		url: 'http://happyview.test',
+		fetch: async () => new Response(null, { status: 503 })
+	});
+
+	const app = {
+		...f.t,
+		follows: new FollowService(f.t.core, down),
+		djListings: new DjListings(f.t.core, new IndexedRepo(down, silentLogger, 0))
+	};
+
+	expect(await (await overview(DJ, { app })).onboarding).toMatchObject({ listing: false, follows: false });
 });
 
 it('streams what a slow directory holds up, and keeps booking threads while it is down', async () => {
@@ -143,6 +198,52 @@ it('streams what a slow directory holds up, and keeps booking threads while it i
 	expect(data.nights).toBeInstanceOf(Promise);
 
 	answer(new Response(null, { status: 503 }));
+});
+
+/** Publishes `did`'s playing stats, as locallibrary would. */
+const publishStats = (did: string, generatedAt: string) =>
+	f.t.net.client(did).putRecord({
+		collection: COLLECTION.djProfile,
+		rkey: 'self',
+		record: { $type: COLLECTION.djProfile, generatedAt, precision: 'rounded', basis: 'plays' }
+	});
+
+/** Publishes a set `did` played on `date`, as locallibrary would. */
+const publishSet = (did: string, rkey: string, set: { title: string; date: string; createdAt: string }) =>
+	f.t.net.client(did).putRecord({
+		collection: COLLECTION.djSet,
+		rkey,
+		record: { $type: COLLECTION.djSet, tracks: [], ...set }
+	});
+
+it('says when nothing is published from locallibrary', async () => {
+	expect(await (await overview(DJ)).locallibrary).toEqual({ statsAt: null, sets: null });
+});
+
+it('says when stats alone are published', async () => {
+	await publishStats(DJ, '2026-11-02T10:00:00.000Z');
+
+	expect(await (await overview(DJ)).locallibrary).toEqual({ statsAt: '2026-11-02T10:00:00.000Z', sets: null });
+});
+
+it('links the newest set played, and says when a set was last published', async () => {
+	await publishStats(DJ, '2026-11-02T10:00:00.000Z');
+	await publishSet(DJ, '3kset000000a1', {
+		title: 'Tidal Hours',
+		date: '2026-11-07',
+		createdAt: '2026-11-08T09:00:00.000Z'
+	});
+	// Played earlier, published later.
+	await publishSet(DJ, '3kset000000a2', {
+		title: 'Late show',
+		date: '2026-10-20',
+		createdAt: '2026-11-09T12:00:00.000Z'
+	});
+
+	expect(await (await overview(DJ, { as: { handle: 'neon.test' } })).locallibrary).toEqual({
+		statsAt: '2026-11-02T10:00:00.000Z',
+		sets: { href: '/@neon.test/sets/3kset000000a1', name: 'Tidal Hours', at: '2026-11-09T12:00:00.000Z' }
+	});
 });
 
 it('sends someone signed out to sign in', async () => {

@@ -140,7 +140,7 @@ sequenceDiagram
     H->>P: describe
     P-->>H: Its manifest, which must match
     H->>P: A hook: track/analyze, op/plan...
-    P->>H: A read, net/fetch or accounts/ensure
+    P->>H: A read, net/fetch, accounts/ensure<br/>or atmosphere/put_record
     H-->>P: Checked, then answered
     P->>H: progress, partial, host/notify
     opt You stop it
@@ -184,6 +184,7 @@ flowchart LR
     plugin["Plugin process"] -->|"reads its capabilities grant"| reads["Sidecar read methods: drives by name,<br/>pages bounded, paths scrubbed"]
     plugin -->|"net/fetch"| net["Servers its net: capabilities name,<br/>sending files lent to the hook"]
     plugin -->|"accounts/ensure"| ensure["More scopes of an account"]
+    plugin -->|"atmosphere/put_record"| record["Records of the types its atmosphere:write:<br/>capabilities name, in the DJ account, each one you confirm"]
     plugin -->|"its answers"| scratch["Its request's scratch folder"]
     plugin -->|"its files"| work["STORE/plugins/ID/work/"]
     plugin -->|"fs:read"| folders["Folders you grant for a source read"]
@@ -193,7 +194,7 @@ flowchart LR
     plugin -.->|"no way through the host"| tokens["Tokens, keys, secret settings"]
 ```
 
-Source: [`crates/locallibrary/src/plugin/callbacks.rs`](../../../../crates/locallibrary/src/plugin/callbacks.rs), [`crates/locallibrary/src/plugin/collection.rs`](../../../../crates/locallibrary/src/plugin/collection.rs), [`crates/locallibrary/src/plugin/net.rs`](../../../../crates/locallibrary/src/plugin/net.rs), [`crates/locallibrary/src/plugin/blobs.rs`](../../../../crates/locallibrary/src/plugin/blobs.rs), [`crates/locallibrary/src/plugin/secrets.rs`](../../../../crates/locallibrary/src/plugin/secrets.rs), [`crates/loclib-plugin/src/manifest.rs`](../../../../crates/loclib-plugin/src/manifest.rs), [`docs/plugins.md`](../plugins.md)
+Source: [`crates/locallibrary/src/plugin/callbacks.rs`](../../../../crates/locallibrary/src/plugin/callbacks.rs), [`crates/locallibrary/src/plugin/collection.rs`](../../../../crates/locallibrary/src/plugin/collection.rs), [`crates/locallibrary/src/plugin/net.rs`](../../../../crates/locallibrary/src/plugin/net.rs), [`crates/locallibrary/src/plugin/blobs.rs`](../../../../crates/locallibrary/src/plugin/blobs.rs), [`crates/locallibrary/src/plugin/secrets.rs`](../../../../crates/locallibrary/src/plugin/secrets.rs), [`crates/locallibrary/src/plugin/atmosphere.rs`](../../../../crates/locallibrary/src/plugin/atmosphere.rs), [`crates/loclib-plugin/src/manifest.rs`](../../../../crates/loclib-plugin/src/manifest.rs), [`docs/plugins.md`](../plugins.md)
 
 ## A plugin's net/fetch
 

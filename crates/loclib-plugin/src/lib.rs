@@ -12,11 +12,13 @@ mod hooks;
 mod manifest;
 mod peer;
 mod protocol;
+mod publishing;
 mod reads;
 mod sdk;
 #[cfg(any(test, feature = "test-util"))]
 pub mod test_util;
 mod view;
+mod wait;
 mod words;
 
 pub use choice::{Choice, ChoiceItem};
@@ -33,6 +35,7 @@ pub use hooks::analysis::{Output, WaveformBlob};
 pub use hooks::analyzers::{
     Analysis, AnalyzeTrack, Analyzer, FieldDisplay, FieldFormat, FieldType, FieldValue, Role, Track,
 };
+pub use hooks::atmosphere::{PutRecord, is_nsid};
 pub use hooks::checks::{Check, CheckFinding, Findings, Fix, PlanCheck, RunCheck, When};
 pub use hooks::commands::{Command, Mode, RunCommand};
 pub use hooks::destinations::{
@@ -67,6 +70,7 @@ pub use manifest::{
 };
 pub use peer::{Incoming, Peer, Pending, Request};
 pub use protocol::*;
+pub use publishing::{clock, fit_lines, mixcloud, youtube};
 pub use reads::{
     AnalysedTrack, ArtworkImage, CollectionCopy, CollectionLocations, CollectionReads, CollectionStatus,
     CollectionTrack, CollectionTracks, DriveInfo, DriveReads, MAX_ANALYSES, MAX_IDS, MAX_IMAGES, PlaylistNode,
@@ -74,6 +78,7 @@ pub use reads::{
 };
 pub use sdk::{Hook, Hooks, Host, serve};
 pub use view::{ChartStyle, Column, ColumnKind, ListItem, Pair, Section, Series, TreeItem, TypedColumn, View};
+pub use wait::pause;
 pub use words::a_or_an;
 
 /// The error codes.

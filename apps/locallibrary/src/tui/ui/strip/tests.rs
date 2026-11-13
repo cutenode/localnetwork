@@ -22,7 +22,7 @@ fn deck(app: &mut App) -> Vec<Vec<Cell>> {
     (r.y..r.bottom()).map(|y| (r.x..r.right()).map(|x| buf[(x, y)].clone()).collect()).collect()
 }
 
-/// Beside a table the hot cues are letters in their colours: chips are for the Deck layout.
+/// Beside a table the hot cues are letters in their colours: chips are for player mode.
 #[test]
 fn the_strip_keeps_its_cues_quiet() {
     let cues = vec![cue(Some(0), 40_000, None)];

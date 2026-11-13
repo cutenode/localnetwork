@@ -300,9 +300,9 @@ fn vinyl_is_a_record_with_a_label_and_a_hole() {
     let at = |x: usize, y: usize| px[y * 40 + x];
     assert_eq!((at(0, 0), at(39, 39)), (None, None), "corners are outside");
     assert_eq!(at(20, 20), None, "the spindle hole");
-    assert_eq!(at(24, 20), Some([0, 0, 219]), "the label, lit from the top left");
+    assert_eq!(at(24, 20), Some([0, 0, 255]), "the label, flat");
     let groove = at(32, 20).unwrap();
-    assert!(groove == [40, 40, 52] || groove == [31, 31, 40], "vinyl, away from the streak: {groove:?}");
+    assert!(groove == [40, 40, 52] || groove == [28, 28, 37], "vinyl, away from the streak: {groove:?}");
 }
 
 #[cfg(feature = "image")]

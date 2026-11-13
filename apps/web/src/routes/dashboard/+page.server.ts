@@ -1,5 +1,7 @@
 import { nextNights, soon, withOthers } from '#lib/server/home.ts';
 import { requireViewer } from '#lib/server/http.ts';
+import { locallibraryStatus } from '#lib/server/locallibrary.ts';
+import { onboardingData } from '#lib/server/onboarding.ts';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, url, parent }) => {
@@ -16,7 +18,7 @@ export const load: PageServerLoad = async ({ locals, url, parent }) => {
 		return undefined;
 	});
 
-	// Someone without a profile gets a card to make one, filled in from their Bluesky profile.
+	// Someone without a profile makes one from the checklist, filled in from their Bluesky profile.
 	const firstRun = profile.then(async (found) => {
 		if (found !== null) return null;
 		const prefill = (await app.profiles.blueskyPrefill(viewer.did)) ?? {};
@@ -32,7 +34,19 @@ export const load: PageServerLoad = async ({ locals, url, parent }) => {
 	// server, and neither holds up the rest.
 	const nights = threads.then(async (all) => nextNights(locals, viewer, all, await projects, await sections));
 
-	const [setup, said, next] = await Promise.all([soon(firstRun), soon(summary), soon(nights)]);
+	const [setup, said, next, steps, published] = await Promise.all([
+		soon(firstRun),
+		soon(summary),
+		soon(nights),
+		soon(onboardingData(locals, viewer, profile, firstRun)),
+		soon(locallibraryStatus(locals, viewer))
+	]);
 
-	return { firstRun: setup.value, summary: said.value, nights: next.value };
+	return {
+		firstRun: setup.value,
+		summary: said.value,
+		nights: next.value,
+		onboarding: steps.value,
+		locallibrary: published.value
+	};
 };

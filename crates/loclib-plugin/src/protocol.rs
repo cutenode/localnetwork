@@ -20,6 +20,7 @@ pub const PROTOCOL_VERSION: &str = "0.2.0";
 pub mod method {
     pub use crate::hooks::accounts::ACCOUNTS_ENSURE;
     pub use crate::hooks::analyzers::ANALYZE_TRACK;
+    pub use crate::hooks::atmosphere::ATMOSPHERE_PUT_RECORD;
     pub use crate::hooks::checks::{PLAN_CHECK, RUN_CHECK};
     pub use crate::hooks::commands::RUN_COMMAND;
     pub use crate::hooks::destinations::{BLOBS_GET, BLOBS_HAS, BLOBS_PUT, MANIFEST_GET, MANIFEST_PUT, SET_PUBLISH};

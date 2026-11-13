@@ -9,8 +9,8 @@ const pageTypes = Object.values(
 );
 
 describe.each(pageTypes)('$pageType', ({ render, links }) => {
-	it.each(Object.entries(links))('links to %s', async (_, expected) => {
-		await render();
+	it.each(Object.entries(links))('links to %s', async (row, expected) => {
+		await render(row);
 
 		for (const { name, href, within, reveal } of expected) {
 			const scope = within ? page.getByRole('region', { name: within }) : page;

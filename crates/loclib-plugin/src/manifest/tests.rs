@@ -10,7 +10,8 @@ use crate::{
     AccountNeed, AccountType, Analyzer, Check, Command, Destination, DestinationKind, EventName, ExportFrom,
     ExportSources, Exporter, FieldDisplay, FieldFormat, FieldType, FieldValue, ImportKind, Importer, Key,
     LibrarySource, Listener, Mode, Operation, OptionalScopes, Panel, Provider, ProviderKind, Role, SUBJECT_PLACEHOLDER,
-    Scope, ScopeRequest, Service, SignIn, Theme, TokenPlace, When, Whoami, account_placeholder, code, not_plain_https,
+    Scope, ScopeRequest, Service, SignIn, Theme, TokenPlace, When, Whoami, account_placeholder, code, is_nsid,
+    not_plain_https,
 };
 
 const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n";
@@ -942,6 +943,11 @@ fn the_json_schema_describes_manifests() {
     assert!(validator.is_valid(&echo));
     echo["capabilities"] = json!(["library:write"]);
     assert!(!validator.is_valid(&echo));
+    echo["capabilities"] = json!(["atmosphere:write:fm.plyr.track"]);
+    echo["lexicons"] = json!([{ "lexicon": 1, "id": "fm.plyr.track", "defs": {} }]);
+    assert!(validator.is_valid(&echo));
+    echo["capabilities"] = json!(["atmosphere:write:*"]);
+    assert!(!validator.is_valid(&echo));
 }
 
 #[test]
@@ -1000,6 +1006,131 @@ fn a_net_limit_is_for_a_host_the_plugin_talks_to() {
     assert_eq!(limited(&one("musicbrainz.org", "0.0002")), rate);
     let m = Manifest::parse(&format!("{HEAD}{}", one("musicbrainz.org", "1"))).unwrap();
     assert_eq!(m.net, [NetLimit { host: "musicbrainz.org".into(), per_second: 1.0 }]);
+}
+
+/// A manifest's Lexicon for `nsid`, a record type of a title.
+fn record_lexicon(nsid: &str) -> String {
+    format!(
+        "[[lexicons]]\nlexicon = 1\nid = \"{nsid}\"\n[lexicons.defs.main]\ntype = \"record\"\nkey = \"tid\"\n\
+         [lexicons.defs.main.record]\ntype = \"object\"\nproperties = {{ title = {{ type = \"string\" }} }}\n"
+    )
+}
+
+/// `atmosphere:write:<nsid>` names one record type, an NSID with its authority in lowercase, and
+/// reads back as it's written; a pattern, or anything else after it, is refused.
+#[test]
+fn an_atmosphere_write_names_one_record_type() {
+    let c = "atmosphere:write:fm.plyr.track".parse::<Capability>().unwrap();
+    assert_eq!(c, Capability::AtmosphereWrite("fm.plyr.track".into()));
+    assert_eq!(c.to_string(), "atmosphere:write:fm.plyr.track");
+    assert!(!c.reaches("fm.plyr.track"));
+    let camel = "atmosphere:write:app.bsky.feed.threadgate2".parse::<Capability>().unwrap();
+    assert_eq!(camel, Capability::AtmosphereWrite("app.bsky.feed.threadgate2".into()));
+    assert!("atmosphere:write:com.example.fooBar".parse::<Capability>().is_ok());
+    for nsid in [
+        "",
+        "fm.plyr.*",
+        "*",
+        "fm.*",
+        "fm.plyr",
+        "Fm.plyr.track",
+        "fm.plyr.track.",
+        "fm..track",
+        "fm.-p.track",
+        "1m.plyr.track",
+        "fm.plyr.tra-ck",
+        "fm.plyr.2track",
+    ] {
+        let s = format!("atmosphere:write:{nsid}");
+        let e = s.parse::<Capability>().unwrap_err();
+        assert!(e.starts_with(&format!("{s:?} names no record type: atmosphere:write:<nsid>")), "{e}");
+    }
+    assert!(problem("capabilities = [\"atmosphere:write:fm.plyr.*\"]").contains("names no record type"));
+    assert!(problem("capabilities = [\"atmosphere:fm.plyr.track\"]").contains("unknown capability"));
+}
+
+/// A plugin writes Local Network's records only when locallibrary ships it, with locallibrary's
+/// Lexicons; the AT Protocol's own, never; any other record type with its Lexicon in `lexicons`,
+/// whose main definition is a record.
+#[test]
+fn an_atmosphere_write_is_of_a_record_type_with_a_lexicon() {
+    let writing = |nsid: &str, lexicons: &str, built_in: bool| {
+        let toml = format!("{HEAD}capabilities = [\"library:read\", \"atmosphere:write:{nsid}\"]\n{lexicons}");
+        Manifest::parse(&toml).unwrap().validate(built_in).err().map(|e| e.to_string()).unwrap_or_default()
+    };
+    let own = "computer.localnetwork.dj.recording";
+    assert_eq!(writing(own, "", true), "");
+    assert_eq!(
+        writing(own, "", false),
+        "capabilities[1]: only plugins locallibrary ships write Local Network's records"
+    );
+    let schema = "com.atproto.lexicon.schema";
+    for built_in in [true, false] {
+        let e = writing(schema, &record_lexicon(schema), built_in);
+        assert_eq!(e, "capabilities[1]: the AT Protocol's own records aren't a plugin's to write");
+    }
+    let track = "fm.plyr.track";
+    assert_eq!(writing(track, &record_lexicon(track), false), "");
+    let lacks = "capabilities[1]: atmosphere:write:fm.plyr.track needs its record type's Lexicon in lexicons";
+    assert_eq!(writing(track, "", false), lacks);
+    assert_eq!(writing(track, "", true), lacks);
+    assert_eq!(writing(track, &record_lexicon("fm.plyr.album"), false), lacks);
+    let not_a_record = record_lexicon(track).replace("type = \"record\"", "type = \"object\"");
+    assert_eq!(writing(track, &not_a_record, false), lacks);
+    let m = Manifest::parse(&format!("{HEAD}{}", record_lexicon(track))).unwrap();
+    assert_eq!(m.lexicon(track).unwrap()["defs"]["main"]["key"], "tid");
+    assert!(m.lexicon("fm.plyr.album").is_none());
+    let back: Manifest = serde_json::from_value(serde_json::to_value(&m).unwrap()).unwrap();
+    assert_eq!(back, m);
+}
+
+/// Each of `lexicons` is a Lexicon document, its id an NSID, there once.
+#[test]
+fn lexicons_are_lexicon_documents_each_once() {
+    let track = record_lexicon("fm.plyr.track");
+    assert_eq!(problem(&track), "");
+    let not_one = "lexicons[0]: isn't a Lexicon document: lexicon = 1, an id and defs";
+    assert_eq!(problem(&track.replace("lexicon = 1", "lexicon = 2")), not_one);
+    assert_eq!(problem("[[lexicons]]\nlexicon = 1\nid = \"fm.plyr.track\"\n"), not_one);
+    assert_eq!(problem("lexicons = [\"fm.plyr.track\"]\n"), not_one);
+    let e = problem(&track.replace("fm.plyr.track", "fm.plyr.*"));
+    assert_eq!(e, "lexicons[0].id: \"fm.plyr.*\" isn't an NSID, like \"fm.plyr.track\"");
+    assert_eq!(problem(&format!("{track}{track}")), "lexicons[1].id: \"fm.plyr.track\" is there twice");
+}
+
+/// For any string, `atmosphere:write:` and it is a capability exactly when it's an NSID as the AT
+/// Protocol's library takes one (jacquard's check) with its authority in lowercase: what a data
+/// server takes as a collection, written one way.
+#[hegel::test(test_cases = 300)]
+fn prop_an_atmosphere_write_names_an_nsid_and_nothing_else(tc: TestCase) {
+    let nsid = match tc.draw(gs::integers::<u8>().max_value(3)) {
+        0 => tc.draw(gs::text().max_size(24)),
+        1 => tc.draw(gs::from_regex(r"[a-zA-Z0-9.*-]{0,24}").fullmatch(true)),
+        2 => tc.draw(
+            gs::from_regex(r"[a-z][a-z0-9-]{0,4}(\.[a-z0-9-]{1,4}){1,3}\.[a-zA-Z][a-zA-Z0-9]{0,4}").fullmatch(true),
+        ),
+        // Long ones, about the most an NSID may be.
+        _ => {
+            let segments = tc.draw(gs::integers::<usize>().min_value(2).max_value(5));
+            let long = |_| "a".repeat(tc.draw(gs::integers::<usize>().min_value(60).max_value(64)));
+            format!("{}.b", (0..segments).map(long).collect::<Vec<_>>().join("."))
+        }
+    };
+    let lowercase =
+        nsid.rsplit_once('.').is_none_or(|(authority, _)| !authority.contains(|c: char| c.is_ascii_uppercase()));
+    let valid = jacquard_common::types::nsid::validate_nsid(&nsid).is_ok() && lowercase;
+    assert_eq!(is_nsid(&nsid), valid, "{nsid:?}");
+    let s = format!("atmosphere:write:{nsid}");
+    match s.parse::<Capability>() {
+        Ok(c) => {
+            assert!(valid, "{nsid:?}");
+            assert_eq!((c.to_string(), c), (s.clone(), Capability::AtmosphereWrite(nsid.clone())));
+        }
+        Err(e) => {
+            assert!(!valid, "{nsid:?}");
+            assert!(e.contains("names no record type"), "{e}");
+        }
+    }
 }
 
 #[test]
@@ -1847,6 +1978,7 @@ fn manifest(tc: &TestCase, built_in: bool) -> Manifest {
             settings,
         },
         net,
+        lexicons: Vec::new(),
         unknown: Vec::new(),
     }
 }
@@ -3016,7 +3148,7 @@ fn capabilities_read_back_from_their_names_and_nothing_else(tc: TestCase) {
         Err(ref e) => {
             assert!(!named.contains(&s.as_str()), "{s:?}");
             let known = named.join(", ");
-            assert_eq!(*e, format!("unknown capability {s:?}: one of {known} or net:<host>"));
+            assert_eq!(*e, format!("unknown capability {s:?}: one of {known}, net:<host> or atmosphere:write:<nsid>"));
         }
     }
     if let Ok(c) = &parsed {
@@ -3128,6 +3260,7 @@ fn account_plugin(tc: &TestCase, built_in: bool) -> Manifest {
         accounts: Vec::new(),
         contributes: Contributions { account_types: vec![account_type(tc, built_in)], ..Contributions::default() },
         net: Vec::new(),
+        lexicons: Vec::new(),
         unknown: Vec::new(),
     }
 }
@@ -3730,6 +3863,7 @@ fn asking_plugin(tc: &TestCase) -> Manifest {
         accounts: types.into_iter().map(|name| account_need(tc, name)).collect(),
         contributes: Contributions::default(),
         net: Vec::new(),
+        lexicons: Vec::new(),
         unknown: Vec::new(),
     }
 }
@@ -4059,8 +4193,8 @@ fn prop_a_net_grant_reaches_its_host_or_those_below_its_domain(tc: TestCase) {
 }
 
 /// A manifest has a feature's contributions exactly when the feature says it does: accounts it
-/// asks for, analyzers with a structured field, `net` limits, or a contribution of the feature's
-/// kind; never for the SDK's own features.
+/// asks for, analyzers with a structured field, `net` limits, records it writes, or a contribution
+/// of the feature's kind; never for the SDK's own features.
 #[hegel::test(test_cases = 50)]
 fn prop_a_feature_is_contributed_exactly_when_the_manifest_has_its_contributions(tc: TestCase) {
     let m = manifest(&tc, tc.draw(gs::booleans()));
@@ -4071,6 +4205,7 @@ fn prop_a_feature_is_contributed_exactly_when_the_manifest_has_its_contributions
             "accounts" => !m.accounts.is_empty(),
             "analysis" => structured,
             "net" => !m.net.is_empty(),
+            "atmosphere" => m.capabilities.iter().any(|c| matches!(c, Capability::AtmosphereWrite(_))),
             "blobs" | "choose" | "views" => false,
             "events" => !c.events.is_empty(),
             kind => len(c, kind) > 0,

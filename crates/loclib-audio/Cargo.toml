@@ -1,0 +1,25 @@
+[package]
+name = "loclib-audio"
+description = "Decode DJ tracks and recordings (MP3, AAC and ALAC, FLAC, WAV, AIFF) through symphonia without trusting their headers, and resample them as they stream"
+readme = "README.md"
+keywords = ["audio", "decode", "resample", "symphonia", "dj"]
+categories = ["multimedia::audio", "multimedia::encoding"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+loclib-model.workspace = true
+loclib-progress.workspace = true
+symphonia.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+hegeltest.workspace = true
+loclib-testkit.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true
