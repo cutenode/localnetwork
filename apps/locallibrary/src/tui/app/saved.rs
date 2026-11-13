@@ -141,6 +141,9 @@ impl App {
 
     /// Save what to remember, now (on the way out).
     pub fn save_state(&mut self) {
+        if self.state_unreadable {
+            return;
+        }
         let saved = self.saved_state();
         state::save(&self.store_root, &saved);
         self.saved = Some(saved);
@@ -149,7 +152,7 @@ impl App {
     /// Save what to remember when it has changed (checked every couple of seconds), so a crash
     /// or a killed terminal loses little.
     pub(super) fn autosave(&mut self) {
-        if self.last_save_check.elapsed() < Duration::from_secs(2) {
+        if self.state_unreadable || self.last_save_check.elapsed() < Duration::from_secs(2) {
             return;
         }
         self.last_save_check = Instant::now();

@@ -672,7 +672,7 @@ fn the_next_run_carries_on_with_the_queue(tc: TestCase) {
     };
     app.resume = Some(at);
     app.save_state();
-    let read = state::load(&app.store_root);
+    let read = state::load(&app.store_root).unwrap();
     assert_eq!(read, app.saved_state(), "saved as it is");
 
     // Unchanged, nothing is written; changed, it is.
@@ -684,10 +684,10 @@ fn the_next_run_carries_on_with_the_queue(tc: TestCase) {
     press(&mut app, "+");
     app.last_save_check = Instant::now() - Duration::from_secs(3);
     app.tick();
-    assert_eq!(state::load(&app.store_root).volume, Some(app.volume));
+    assert_eq!(state::load(&app.store_root).unwrap().volume, Some(app.volume));
 
     let mut next = App::blank(app.store_root.clone(), None);
-    let mut saved = state::load(&app.store_root);
+    let mut saved = state::load(&app.store_root).unwrap();
     // The next run: as it was left, already playing something else, or with the drive's tracks
     // gone since; with the My Tags column shown, or not.
     let (how, tags) = (tc.draw(gs::integers::<u8>().max_value(2)), tc.draw(gs::booleans()));
@@ -699,7 +699,7 @@ fn the_next_run_carries_on_with_the_queue(tc: TestCase) {
     saved.tags_column = tags;
     app.vis = tc.draw(gs::sampled_from(&[Vis::Bars, Vis::Mirror, Vis::Scope, Vis::Deck][..]));
     app.save_state();
-    assert_eq!(state::load(&app.store_root).vis.as_deref(), Some(app.vis.name()), "the visualiser kept");
+    assert_eq!(state::load(&app.store_root).unwrap().vis.as_deref(), Some(app.vis.name()), "the visualiser kept");
     // Showing a set last time, or not.
     let a_set = tc.draw(gs::booleans());
     if a_set {
@@ -2236,7 +2236,7 @@ fn an_analyzers_column_shows_sorts_filters_and_is_kept(tc: TestCase) {
 
     // The next run.
     app.save_state();
-    let saved = state::load(&app.store_root);
+    let saved = state::load(&app.store_root).unwrap();
     assert_eq!(saved.field_columns, ["echo.bytes"]);
     let mut next = App::blank(app.store_root.clone(), None);
     next.apply_saved(&saved, false);
@@ -2249,7 +2249,7 @@ fn an_analyzers_column_shows_sorts_filters_and_is_kept(tc: TestCase) {
     assert_eq!((0..lib.tracks.len()).map(|i| bytes_of(&next, i)).collect::<Vec<_>>(), want);
     press(&mut app, ":hide the echo.bytes column\n");
     app.save_state();
-    assert!(app.field_columns.is_empty() && state::load(&app.store_root).field_columns.is_empty());
+    assert!(app.field_columns.is_empty() && state::load(&app.store_root).unwrap().field_columns.is_empty());
 }
 
 /// Plugins' fields of each kind, as an analyzer declares them.
