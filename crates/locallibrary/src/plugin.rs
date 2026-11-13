@@ -16,12 +16,14 @@
 //! methods their capabilities grant, within limits (see [`Reads`]), and reach the servers their
 //! `net:` capabilities grant through the host (`net/fetch`), which fills in their secret settings
 //! (kept in the keychain) and the tokens of the accounts they're given access to (signed in to by
-//! the host, see [`Plugins::begin_account_sign_in`]); an operation's edits are planned and applied
-//! by the host as any edit plan is, and an exporter's overwrites, and what a command planned first
-//! says it will do (see [`Plugins::plan_command`]), are confirmed first. Answers too big for a
-//! message are files in a folder the host makes for each request (`scratch`), which it reads
-//! itself; what a plugin keeps between requests goes in a folder of its own in the store
-//! (`plugins/<id>/data/`, its hooks' `data_dir`).
+//! the host, see [`Plugins::begin_account_sign_in`]). They write records in the Atmosphere
+//! account, of the types their `atmosphere:write:` capabilities grant, through the host, which
+//! checks each against its Lexicon and has the user confirm it ([`RecordWrite`]). An operation's
+//! edits are planned and applied by the host as any edit plan is, and an exporter's overwrites,
+//! and what a command planned first says it will do (see [`Plugins::plan_command`]), are confirmed
+//! first. Answers too big for a message are files in a folder the host makes for each request
+//! (`scratch`), which it reads itself; what a plugin keeps between requests goes in a folder of
+//! its own in the store (`plugins/<id>/data/`, its hooks' `data_dir`).
 //! Analyzers' values go to the [`crate::fields`] store, their beat grids, phrases and waveforms
 //! to its overlay store. What providers find for tracks, the host offers the user and makes the
 //! edits of itself (see [`Plugins::provide`]), as it does of what importers read (see
@@ -41,6 +43,7 @@ mod accounts;
 mod analysis;
 mod analyzers;
 mod apply;
+mod atmosphere;
 mod blobs;
 mod callbacks;
 mod checks;
@@ -71,7 +74,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde_json::{Map, Value};
 
 use crate::fields::Analyzer;
-use crate::fields::roles::{Offered, RoleField};
+use crate::fields::roles::{Offered, RoleField, RoleOrPart};
 use crate::keychain::Storage;
 use crate::model::{Library, Track};
 use crate::{Error, Result};
@@ -84,6 +87,7 @@ pub use accounts::{REFRESH_BEFORE, WARN_DAYS, due_soon};
 pub use analysis::{AnalysisPart, ApplyAnalysis, same_grid};
 pub use analyzers::Analyzed;
 pub use apply::ApplyFields;
+pub use atmosphere::RecordWrite;
 pub(crate) use blobs::abandoned as abandoned_scratch;
 pub use callbacks::Reads;
 pub(crate) use checks::hosted;
@@ -260,7 +264,9 @@ pub struct Options {
     /// end shows them its own way. Called on the thread reading the plugin, so it mustn't wait.
     pub notices: Notices,
     /// How the front end asks the user whether a plugin may use more of an account it has access
-    /// to (`accounts/ensure`, see [`AskAccess`]): with none, the plugin is told how to give it.
+    /// to (`accounts/ensure`, see [`AskAccess`]): with none, the plugin is told how to give it. And
+    /// whether a plugin may write a record in the Atmosphere account (`atmosphere/put_record`):
+    /// with none, it isn't written.
     pub ask: Option<Arc<dyn AskAccess>>,
     /// How many times in a row a service that stopped or failed is started again before it's left
     /// off: the failure after the last of them is the one that does it.
@@ -395,14 +401,20 @@ impl Plugins {
         self.installed().map(|(a, _)| a).collect()
     }
 
-    /// The analyzers' fields with each role, in the order the app gave the plugins: what it tells
-    /// the readers ([`crate::fields::roles::set_offered`]).
+    /// The analyzers' fields with each role, and their beat grids, phrases and waveforms (each a
+    /// part of the analysis), in the order the app gave the plugins: what it tells the readers
+    /// ([`crate::fields::roles::set_offered`]).
     pub fn roles(&self) -> Offered {
         let mut offered = Offered::new();
         for (analyzer, declared) in self.installed() {
-            for (role, field) in &declared.roles {
+            let roles = declared.roles.iter().map(|(role, field)| (RoleOrPart::Role(*role), field));
+            let part = |kind: loclib_plugin::FieldType| {
+                AnalysisPart::ALL.into_iter().find(|p| p.kind() == kind).map(RoleOrPart::Part)
+            };
+            let parts = declared.fields.iter().filter_map(|(field, kind)| Some((part(*kind)?, field)));
+            for (at, field) in roles.chain(parts) {
                 let field = RoleField { analyzer: analyzer.clone(), field: field.clone() };
-                offered.entry(*role).or_default().push(field);
+                offered.entry(at).or_default().push(field);
             }
         }
         offered

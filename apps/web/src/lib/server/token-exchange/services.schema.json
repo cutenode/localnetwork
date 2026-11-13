@@ -39,9 +39,14 @@
 						"type": "string",
 						"pattern": "^[A-Z][A-Z0-9_]*$",
 						"description": "The environment variable holding that client's secret."
+					},
+					"pauseFlag": {
+						"type": "string",
+						"pattern": "^[a-z][a-zA-Z0-9]*$",
+						"description": "The ops flag in flags/catalog/ that, on for everyone, pauses this exchange without a deploy: it answers 503 before reading the secret."
 					}
 				},
-				"required": ["title", "tokenUrl", "style", "clientIdEnv", "clientSecretEnv"],
+				"required": ["title", "tokenUrl", "style", "clientIdEnv", "clientSecretEnv", "pauseFlag"],
 				"additionalProperties": false
 			},
 			"description": "By the id a plugin's account names at the end of its token_exchange address."

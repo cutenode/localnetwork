@@ -21,7 +21,7 @@ use locallibrary::atmosphere::lexicon::{self, ADDRESS, PROFILE, SET, SETTINGS};
 use locallibrary::atmosphere::repo;
 use locallibrary::atmosphere::{self, AccountInfo, Client, Storage};
 use locallibrary::error::Reason;
-use locallibrary::fields::roles::RoleField;
+use locallibrary::fields::roles::{RoleField, RoleOrPart};
 use locallibrary::fields::{Analyzer, FieldStore, FieldValue, Role};
 use locallibrary::plugin::Analyzed;
 use locallibrary::profile::{
@@ -1520,7 +1520,7 @@ fn a_lookup_asks_about_the_tracks_the_record_names(tc: TestCase) {
     let drive = common::bigger_drive(&volumes, "Main");
     let library = common::library(&drive);
     let analyzer = Analyzer { plugin: "mb".into(), analyzer: "ids".into(), version: "1".into() };
-    let field = |r: Role| (r, vec![RoleField { analyzer: analyzer.clone(), field: r.name().into() }]);
+    let field = |r: Role| (RoleOrPart::Role(r), vec![RoleField { analyzer: analyzer.clone(), field: r.name().into() }]);
     locallibrary::testing::roles_on_this_thread(Some(MusicBrainzIds::ROLES.map(field).into_iter().collect()));
     let fields = FieldStore::in_store(&store);
     let audio = |i: usize| locallibrary::paths::to_fs(&drive, &locallibrary::paths::key(&library.tracks[i].file_path));
@@ -1707,7 +1707,7 @@ fn a_track_is_read_back_from_the_drive_it_was_analysed_on(tc: TestCase) {
     std::fs::write(unreadable.join(locallibrary::paths::EXPORT_PDB), b"not a database").unwrap();
     let library = common::library(&readable);
     let analyzer = Analyzer { plugin: "mb".into(), analyzer: "ids".into(), version: "1".into() };
-    let field = |r: Role| (r, vec![RoleField { analyzer: analyzer.clone(), field: r.name().into() }]);
+    let field = |r: Role| (RoleOrPart::Role(r), vec![RoleField { analyzer: analyzer.clone(), field: r.name().into() }]);
     locallibrary::testing::roles_on_this_thread(Some(MusicBrainzIds::ROLES.map(field).into_iter().collect()));
     let file = |drive: &Path, i: usize| {
         locallibrary::paths::to_fs(drive, &locallibrary::paths::key(&library.tracks[i].file_path))

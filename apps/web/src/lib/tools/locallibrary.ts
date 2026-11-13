@@ -21,10 +21,10 @@ import type { Tool } from './types.ts';
 export const locallibrary: Tool = {
 	id: 'locallibrary',
 	name: 'locallibrary',
-	kind: 'Terminal app for Mac',
+	kind: 'Terminal app for macOS, experimental on Linux and Windows',
 	tagline: 'Keeps your rekordbox USB drives in sync, backed up and edited.',
 	summary:
-		'A command line tool and terminal player for DJs who export from rekordbox to a stick and play it on CDJs or XDJs. It runs on a Mac (Linux and Windows are experimental). Every change shows its plan and asks first, and undo takes the last one back.',
+		'A command line tool and terminal player for DJs who export from rekordbox to a stick and play it on CDJs or XDJs. Every change shows its plan and asks first, and undo takes the last one back.',
 	cues: [
 		{
 			name: 'Play',
@@ -116,20 +116,21 @@ Signing in only asks who you are. Sign out with \`locallibrary account logout\`,
 		},
 		{
 			title: 'Publishing',
-			markdown: `The first time you publish, locallibrary asks for one more permission: to create and update three kinds of record in your account. It can't delete them, and can't touch anything else.
+			markdown: `The first time you publish, locallibrary asks for one more permission: to create and replace four kinds of record in your account, to delete sets and their recordings, and to upload a set's recording. It can't touch anything else.
 
-- \`locallibrary sets publish\` writes a set: the day, venue, event and tracks in order.
+- \`locallibrary sets publish\` writes a set: the day, venue, event and tracks in order. With \`--upload\` it uploads the set's recording too.
+- \`locallibrary sets delete\` takes a set and its recording off your account.
 - \`locallibrary settings publish\` writes your My Settings.
 - \`locallibrary profile publish\` writes a rounded summary of how you play.
 
-Each one shows what it will publish and asks first. Tracks you mark unnamed go out without a name, and a set's notes, recordings and file paths stay on your computer. What's published is public.
+Each one shows what it will publish and asks first. Tracks you mark unnamed go out without a name, and a set's notes, file paths and recording (unless you upload it) stay on your computer. What's published is public, on [your Local Network profile](/@me). [Atmosphere account](docs/account.md#publishing) has the details.
 
-A mix exported with \`locallibrary mix … --export\` can go on your [Local Network profile](/for-djs), with its tracklist.`
+A mix exported with \`locallibrary mix … --export\` can go on your profile too, with its tracklist. [Preview its report](/mixes/preview) first.`
 		}
 	],
 	docs: loadDocs(
 		'apps/locallibrary',
-		import.meta.glob<string>('../../../../locallibrary/{README.md,docs/*.md}', {
+		import.meta.glob<string>('../../../../locallibrary/{README.md,CHANGELOG.md,docs/*.md}', {
 			query: '?raw',
 			import: 'default',
 			eager: true

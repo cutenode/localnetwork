@@ -15,10 +15,10 @@
 //! The Archive's derive (the MP3s it plays the item from, its waveform) is left to run.
 
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use loclib_plugin::{Fetch, Fetched, Host, RpcError};
-use loclib_progress::{Ctx, Phase};
+use loclib_plugin::{Fetch, Fetched, Host, RpcError, pause};
+use loclib_progress::Phase;
 use percent_encoding::utf8_percent_encode;
 use serde::Deserialize;
 
@@ -40,9 +40,6 @@ pub(crate) const TRIES: u32 = 4;
 /// waits 30 seconds after a `503 SlowDown`. In this crate's tests it's a thousandth of a second,
 /// so they wait out every try without spending minutes on it.
 const FIRST_WAIT: Duration = if cfg!(test) { Duration::from_millis(1) } else { Duration::from_secs(30) };
-
-/// How often a wait notices the hook being cancelled.
-const CHECK_EVERY: Duration = Duration::from_millis(50);
 
 /// The first of `base`, `base-2`... up to `base-10` that no item has, asking the Archive.
 pub(crate) fn free(host: &Host, base: &str) -> Result<String, RpcError> {
@@ -181,18 +178,5 @@ fn refused(answer: &Fetched, what: &str) -> RpcError {
         _ if spam(answer) => RpcError::failed("invalid", format!("the Archive took {what} for spam ({status}{said})")),
         400..=499 => RpcError::failed("invalid", format!("the Archive refused {what} ({status}{said})")),
         _ => RpcError::failed("external", format!("the Archive failed {what} ({status}{said})")),
-    }
-}
-
-/// Waits `wait`, failing with `cancelled` once `ctx` is.
-fn pause(ctx: &Ctx<'_>, wait: Duration) -> Result<(), RpcError> {
-    let until = Instant::now() + wait;
-    loop {
-        ctx.check()?;
-        let left = until.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            return Ok(());
-        }
-        std::thread::sleep(left.min(CHECK_EVERY));
     }
 }

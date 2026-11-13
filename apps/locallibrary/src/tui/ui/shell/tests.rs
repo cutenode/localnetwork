@@ -433,7 +433,7 @@ fn the_status_line_says_what_and_where() {
     assert!(status(&mut app, 160).contains(" PICK "));
     app.picking = None;
     app.deck_layout = true;
-    assert!(status(&mut app, 160).contains(" DECK "));
+    assert!(status(&mut app, 160).contains(" PLAYER "));
     app.deck_layout = false;
     app.deck.pads = true;
     assert!(status(&mut app, 160).contains(" PADS "));
