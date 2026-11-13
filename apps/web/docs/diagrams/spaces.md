@@ -23,7 +23,7 @@ flowchart LR
   App -- "first press kit publish" --> Epk["epk,<br/>one per press kit"]
   App -- "first request or grant" --> Requests["epkRequests,<br/>one per performer"]
   App -- "first draft saved" --> Backstage["backstage,<br/>one per performer"]
-  App -- "SharedSpaces.create,<br/>no page calls it yet" --> Shared["performer, party, venue"]
+  App -- "SharedSpaces.create or createAct,<br/>no page calls them yet" --> Shared["performer, party, venue"]
   App -- "first planner read or write" --> Planner["planner, under the<br/>person's own DID"]
   Four --> Watch["Syncer watches it,<br/>reading with the<br/>root's credential"]
   Booking --> Watch
@@ -168,7 +168,7 @@ flowchart LR
   Sync -- "booking.inquiry, message, status,<br/>participants and the root" --> A6["booking_thread, booking_event,<br/>inbox items"]
   Sync -- "epk.request, and epk.grant<br/>from the authority only" --> A7["epk_request, epk_grant"]
   Sync -- "epk.draft in a backstage" --> A8["epk_draft"]
-  Sync -- "people.*, listing.status,<br/>root only" --> A9["shared space tables,<br/>then its listing"]
+  Sync -- "people.*, listing.status,<br/>performer, root only" --> A9["shared space tables and<br/>performer, then its listing"]
   Sync -- "staff.flag, staff.group,<br/>root only" --> A10["feature_flag, flag_group"]
 ```
 

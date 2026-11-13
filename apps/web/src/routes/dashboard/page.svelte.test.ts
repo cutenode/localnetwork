@@ -2,6 +2,7 @@ import { page } from 'vitest/browser';
 import { expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import type { NeedsRow, NightRow } from '#lib/home.ts';
+import type { OnboardingData } from '#lib/onboarding/checklist.ts';
 import type { ProjectView, Viewer } from '#lib/types.ts';
 import Page from './+page.svelte';
 import type { PageProps } from './$types';
@@ -51,7 +52,8 @@ const base: PageProps['data'] = {
 	access: Promise.resolve([]),
 	firstRun: null,
 	summary: { others: null, hasBookings: true },
-	nights: nights([])
+	nights: nights([]),
+	onboarding: null
 };
 
 const open = (data: Partial<PageProps['data']>) => render(Page, { params: {}, form: null, data: { ...base, ...data } });
@@ -177,33 +179,101 @@ it('offers another try, not a broken page, when the nights fail outright', async
 	await expect.element(page.getByRole('link', { name: 'Try again' })).toBeInTheDocument();
 });
 
-it('leads a first visit with setting up, and says the card goes away', async () => {
+const fresh: OnboardingData = {
+	profile: null,
+	prefill: { name: 'Pat', hasAvatar: false },
+	listing: false,
+	follows: false
+};
+
+/** The steps the checklist lists, with an x on each one done. */
+const steps = () =>
+	page
+		.getByRole('region', { name: 'Your checklist' })
+		.getByRole('listitem')
+		.elements()
+		.map(
+			(item) => `${item.querySelector('[aria-label="Done"]') ? 'x' : ' '} ${item.querySelector('a, p')?.textContent}`
+		);
+
+it('leads a first visit with the checklist, making the profile right there', async () => {
 	await open({
 		firstRun: { name: 'Pat', hasAvatar: false },
 		summary: { others: null, hasBookings: false },
-		projects: Promise.resolve([])
+		projects: Promise.resolve([]),
+		onboarding: Promise.resolve(fresh)
 	});
 
 	await expect.element(page.getByRole('heading', { level: 1 })).toHaveTextContent('Set up your page');
 	await expect.element(page.getByText("This goes away when you're done.")).toBeInTheDocument();
-	await expect.element(page.getByRole('heading', { name: 'Start with your name' })).toBeInTheDocument();
+	await expect.element(page.getByText('0 of 6 done')).toBeInTheDocument();
+	await expect.element(page.getByLabelText('Name')).toHaveValue('Pat');
+	await expect
+		.element(page.getByRole('link', { name: 'Make your profile' }))
+		.toHaveAttribute('href', '/dashboard/profile');
+	expect(steps()).toEqual([
+		'  Make your profile',
+		'  Add a picture',
+		'  Set your home city',
+		'  Add a bio and links',
+		'  Say if you DJ or put on shows',
+		'  Follow a DJ'
+	]);
 });
 
-it('puts what waits on a new account ahead of setting up', async () => {
+it('ticks off what a half-done profile has, and puts the checklist ahead of what waits', async () => {
 	await open({
 		waiting: 1,
-		firstRun: { name: 'Pat', hasAvatar: false },
-		needs: [need('Answer Neon Tide about Rooftop Rave')]
+		needs: [need('Answer Neon Tide about Rooftop Rave')],
+		onboarding: {
+			...fresh,
+			prefill: null,
+			profile: { basics: { name: 'Pat', bio: 'Hi' }, performer: {}, createdAt: '', updatedAt: '' },
+			follows: true
+		}
 	});
 
-	await expect.element(page.getByRole('heading', { level: 1 })).toHaveTextContent('1 thing needs you.');
+	await expect.element(page.getByText('3 of 7 done')).toBeInTheDocument();
+	expect(steps()).toEqual([
+		'x Make your profile',
+		'  Add a picture',
+		'  Set your home city',
+		'  Add a bio and links',
+		'x Say if you DJ or put on shows',
+		'  Ask to be listed in Find DJs',
+		'x Follow a DJ'
+	]);
+	await expect.element(page.getByLabelText('Name')).not.toBeInTheDocument();
+	await expect
+		.element(page.getByRole('link', { name: 'Ask to be listed in Find DJs' }))
+		.toHaveAttribute('href', '/dashboard/profile#listing');
 
 	const [first, second] = [
-		page.getByRole('region', { name: 'Needs you' }).element(),
-		page.getByRole('region', { name: 'Start with your name' }).element()
+		page.getByRole('region', { name: 'Your checklist' }).element(),
+		page.getByRole('region', { name: 'Needs you' }).element()
 	];
 
 	expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+it('drops the checklist once every step is done', async () => {
+	const profile = {
+		basics: {
+			name: 'Pat',
+			bio: 'Parties since 2019.',
+			links: [{ kind: 'website', url: 'https://pat.test' }],
+			location: { city: 'Berlin', country: 'DE' },
+			avatar: { $type: 'blob' as const, ref: { $link: 'bafy' }, mimeType: 'image/png', size: 1 }
+		},
+		promoter: {},
+		createdAt: '',
+		updatedAt: ''
+	};
+
+	await open({ onboarding: { ...fresh, prefill: null, profile, follows: true } });
+
+	await expect.element(page.getByRole('heading', { level: 1 })).toBeInTheDocument();
+	await expect.element(page.getByRole('region', { name: 'Your checklist' })).not.toBeInTheDocument();
 });
 
 it('suggests freshening up an act when all is quiet', async () => {

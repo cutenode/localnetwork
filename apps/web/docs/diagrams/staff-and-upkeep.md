@@ -143,7 +143,7 @@ Source: [`src/lib/server/services/held-records.ts`](../../src/lib/server/service
 
 ## People in shared spaces
 
-How people join a performer, party or venue space. `SpaceJoins` and the self-service parts of `SharedSpaces` exist without pages; today only the staff console adds, changes and removes people. No page starts a space yet either: `SharedSpaces.create`, which adds its first person, has no caller.
+How people join a performer, party or venue space. `SpaceJoins` and the self-service parts of `SharedSpaces` exist without pages; today only the staff console adds, changes and removes people. No page starts a space yet either: `SharedSpaces.create` and `createAct`, which add its first person, have no caller.
 
 ```mermaid
 flowchart TD
@@ -165,11 +165,11 @@ How a listed act, party or venue would reach the directory. No kind has a public
 ```mermaid
 flowchart TD
   Status["Staff list or unlist:<br/>listing.status in the space"] --> Refresh["ListingWriter.refresh"]
-  People["A people record syncs"] --> Refresh
+  People["A people or performer<br/>record syncs"] --> Refresh
   Hourly["Startup and hourly reconcile"] --> Refresh
   Refresh --> Source{"Listed, with a<br/>page to show?"}
   Source -- "no" --> Delete["Delete any listing"]
-  Source -- "yes" --> Build["Public fields, plus people in a<br/>listed role who haven't hidden"]
+  Source -- "yes" --> Build["Public fields, plus people in a<br/>listed role and a performer's<br/>managers, if they haven't hidden"]
   Build --> Same{"Differs from<br/>the published one?"}
   Same -- "no" --> Skip["No write"]
   Same -- "yes" --> Put["Root writes computer.localnetwork.listing"]
@@ -205,7 +205,7 @@ What a public page tells crawlers and link previews.
 flowchart TD
   Load["A public page's load"] --> Meta["meta: title, description,<br/>preview image"]
   Load -- "listed in search" --> Records["meta-records: at:canonical,<br/>at:alternate, at:author"]
-  Load -- "listed in search" --> Json["JSON-LD: performer, press kit,<br/>profile, mix, artist"]
+  Load -- "listed in search" --> Json["JSON-LD: performer, press kit,<br/>profile, mix, set playlist, artist"]
   Records --> Head["crawlerHead"]
   Json --> Head
   Head --> Hook["Server hook swaps it for the<br/>marker in app.html"]

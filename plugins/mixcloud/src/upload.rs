@@ -11,10 +11,10 @@
 //! whole, a few times, waiting longer each time; one over Mixcloud's rate limit waits as long as
 //! Mixcloud says, unless that's longer than publishing should wait.
 
-use std::time::{Duration, Instant};
+use std::time::{Duration, SystemTime};
 
-use loclib_plugin::{Fetch, Fetched, FormPart, Host, RpcError};
-use loclib_progress::{Ctx, Phase};
+use loclib_plugin::{Fetch, Fetched, FormPart, Host, RpcError, pause};
+use loclib_progress::Phase;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
@@ -37,9 +37,6 @@ const FIRST_WAIT: u64 = 5;
 /// The longest Mixcloud's rate limit is waited out, in seconds: past it, the upload fails saying
 /// when to publish again.
 pub(crate) const MAX_RETRY_AFTER: u64 = 15 * 60;
-
-/// How often a wait notices the hook being cancelled.
-const CHECK_EVERY: Duration = Duration::from_millis(50);
 
 /// Whether an upload Mixcloud refused is sent again: after the seconds Mixcloud asks for, when it
 /// says.
@@ -139,8 +136,7 @@ fn refused(answer: &Fetched) -> (Next, RpcError) {
         RpcError::failed(kind, format!("Mixcloud {verb} the show ({words}){why}"))
     };
     if said.kind == "RateLimitException" || status == 429 {
-        let header = answer.headers.get("retry-after").and_then(|s| s.trim().parse::<u64>().ok());
-        return match header.or(said.retry_after) {
+        return match answer.retry_after(SystemTime::now()).or(said.retry_after) {
             Some(secs) if secs > MAX_RETRY_AFTER => {
                 let why = format!("it's over its rate limit: publish again in {} minutes", secs.div_ceil(60));
                 (Next::Stop, failed("external", &why))
@@ -169,18 +165,5 @@ fn problems(why: &Value) -> String {
         }
         Value::String(why) => why.clone(),
         other => other.to_string(),
-    }
-}
-
-/// Waits `wait`, failing with `cancelled` once `ctx` is.
-fn pause(ctx: &Ctx<'_>, wait: Duration) -> Result<(), RpcError> {
-    let until = Instant::now() + wait;
-    loop {
-        ctx.check()?;
-        let left = until.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            return Ok(());
-        }
-        std::thread::sleep(left.min(CHECK_EVERY));
     }
 }

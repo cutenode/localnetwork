@@ -1,0 +1,210 @@
+---
+# What a script sees in HappyView 2.16: Lua 5.4 (mlua) with HappyView's sandbox and globals, plus what the bundle
+# (src/lib/server/happyview/bundle.ts) puts in front of each script. src/lib/server/testing/happyview.ts sets up
+# the same runtime for the tests. selene has no Lua 5.4 library, so this builds on 5.3's (5.4 only adds warn and
+# coroutine.close, which the scripts don't use). Its release builds also parse Lua 5.1 syntax only (hence the
+# "lua52 ... feature for it is not enabled" line it prints), so `//`, bitwise operators, goto and <const> fail as
+# parse errors.
+base: lua53
+name: happyview
+globals:
+  # selene's 5.3 library still has these 5.1 functions, which Lua 5.4 doesn't.
+  unpack: &removed
+    removed: true
+  loadstring: *removed
+  module: *removed
+  newproxy: *removed
+  math.pow: *removed
+  math.log10: *removed
+  math.ldexp: *removed
+  math.frexp: *removed
+  math.cosh: *removed
+  math.sinh: *removed
+  math.tanh: *removed
+  math.atan2: *removed
+  table.maxn: *removed
+  table.getn: *removed
+  table.foreach: *removed
+  table.foreachi: *removed
+
+  # HappyView's sandbox leaves os with only time, date, difftime and clock, and removes the rest of these. selene
+  # removes a library one field at a time.
+  require: *removed
+  dofile: *removed
+  loadfile: *removed
+  load: *removed
+  collectgarbage: *removed
+  os.execute: *removed
+  os.exit: *removed
+  os.getenv: *removed
+  os.remove: *removed
+  os.rename: *removed
+  os.setlocale: *removed
+  os.tmpname: *removed
+  io: *removed
+  io.close: *removed
+  io.flush: *removed
+  io.input: *removed
+  io.lines: *removed
+  io.open: *removed
+  io.output: *removed
+  io.popen: *removed
+  io.read: *removed
+  io.stderr: *removed
+  io.stdin: *removed
+  io.stdout: *removed
+  io.tmpfile: *removed
+  io.type: *removed
+  io.write: *removed
+  debug: *removed
+  debug.debug: *removed
+  debug.getfenv: *removed
+  debug.gethook: *removed
+  debug.getinfo: *removed
+  debug.getlocal: *removed
+  debug.getmetatable: *removed
+  debug.getregistry: *removed
+  debug.getupvalue: *removed
+  debug.getuservalue: *removed
+  debug.setfenv: *removed
+  debug.sethook: *removed
+  debug.setlocal: *removed
+  debug.setmetatable: *removed
+  debug.setupvalue: *removed
+  debug.setuservalue: *removed
+  debug.traceback: *removed
+  debug.upvalueid: *removed
+  debug.upvaluejoin: *removed
+  package: *removed
+  package.config: *removed
+  package.cpath: *removed
+  package.loaded: *removed
+  package.loaders: *removed
+  package.loadlib: *removed
+  package.path: *removed
+  package.preload: *removed
+  package.searchers: *removed
+  package.searchpath: *removed
+  package.seeall: *removed
+
+  # HappyView's APIs.
+  db.raw:
+    args:
+      - type: string
+      - type: table
+        required: false
+  json.encode:
+    args:
+      - type: any
+  json.decode:
+    args:
+      - type: string
+  toarray:
+    args:
+      - type: table
+  log:
+    args:
+      - type: string
+
+  # Every script defines handle(), which HappyView calls.
+  handle:
+    property: full-write
+
+  # Record scripts get the event.
+  action:
+    property: read-only
+  uri:
+    property: read-only
+  did:
+    property: read-only
+  collection:
+    property: read-only
+  rkey:
+    property: read-only
+  record:
+    any: true
+
+  # Query scripts get the call.
+  method:
+    property: read-only
+  params:
+    any: true
+  env:
+    any: true
+
+  # The bundle's prelude: ROOT_DID for every script, USERINPUT_SPACE (nil without one) for record scripts, TAXONOMY
+  # for queries.
+  ROOT_DID:
+    property: read-only
+  USERINPUT_SPACE:
+    property: read-only
+  TAXONOMY.families:
+    property: read-only
+  TAXONOMY.aliases:
+    property: read-only
+  TAXONOMY.feeTiers:
+    property: read-only
+
+  # Lua 5.3 has these, but selene's lua53 library leaves math.type out and string.rep's separator off.
+  math.type:
+    args:
+      - type: any
+  string.rep:
+    args:
+      - type: string
+      - type: number
+      - type: string
+        required: false
+
+  # The bundle puts lib/directory.lua's locals in front of every query script. These are the ones the scripts use,
+  # with any arguments, since their signatures live in that file.
+  PROJECT:
+    property: read-only
+  FOLLOW:
+    property: read-only
+  SET_FIELDS:
+    property: read-only
+  UPCOMING:
+    property: read-only
+  MAX_SUPPORTS_PER_DJ:
+    property: read-only
+  MIN_DJS_TO_CHART:
+    property: read-only
+  DJS:
+    property: read-only
+  PLAYS:
+    property: read-only
+  list: &helper
+    args:
+      - type: '...'
+        required: false
+  contains: *helper
+  text: *helper
+  integer: *helper
+  pageSize: *helper
+  marks: *helper
+  point: *helper
+  distanceKm: *helper
+  meters: *helper
+  withinBox: *helper
+  projects: *helper
+  recordView: *helper
+  setView: *helper
+  sets: *helper
+  showRows: *helper
+  showCount: *helper
+  showView: *helper
+  normalize: *helper
+  mbid: *helper
+  playsArgs: *helper
+  rankArtists: *helper
+  artistView: *helper
+  trackView: *helper
+  normalizeGenres: *helper
+  similarities: *helper
+  terms: *helper
+  relevance: *helper
+  inFeeTiers: *helper
+  performerFilter: *helper
+  searchSort: *helper
+  searchPage: *helper

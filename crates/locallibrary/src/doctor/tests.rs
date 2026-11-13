@@ -41,7 +41,7 @@ fn each_track_missing_a_shared_file_is_reported_once() {
 /// The name Sync Manager's second copy of a file has (`Name-1`, `Name (1)`) gives back the
 /// first's, any number of digits on; a name without such an ending is its own.
 #[hegel::test(test_cases = 300)]
-fn a_sync_manager_copys_name_gives_back_the_first(tc: hegel::TestCase) {
+fn a_sync_manager_copy_name_gives_back_the_first(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let stem: String = tc.draw(gs::text().alphabet("ab -()1é").min_size(1).max_size(8));
     let n = tc.draw(gs::integers::<u32>().max_value(1000));
@@ -102,7 +102,7 @@ fn the_keeper_is_kept_for_the_first_thing_it_has_more_of(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 4)]
 fn measured_offsets_are_the_delay_or_say_why_not(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    use loclib_mixid::test_util::{resample, synth, wav_of};
+    use loclib_testkit::audio::{resample, synth, wav_of};
     let dir = tempfile::tempdir().unwrap();
     let write = |name: &str, seed: u32, delay_ms: u32| {
         let mut pcm = vec![0.0f32; (44_100 * delay_ms / 1000) as usize];
@@ -159,7 +159,7 @@ fn lossless_audio_is_told_by_its_extension_or_its_header(tc: hegel::TestCase) {
 fn tracks_are_offset_only_when_they_sound_like_one_recording(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use loclib_mixid::fingerprint::RATE;
-    use loclib_mixid::test_util::{resample, synth, wav_of};
+    use loclib_testkit::audio::{resample, synth, wav_of};
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("Contents")).unwrap();
     let d = Device::open(dir.path()).unwrap();

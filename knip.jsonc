@@ -14,8 +14,6 @@
 			"ignoreBinaries": ["playwright", "tsx"],
 			// tools/policy.sh runs it from node_modules/.bin, and knip doesn't read shell scripts.
 			"ignoreDependencies": ["@lavamoat/harden"],
-			// locallibrary's RPC types for sidecar clients, written by `locallibrary rpc --emit-schema`.
-			"ignore": ["apps/locallibrary/docs/rpc/locallibrary.d.ts"],
 			// The repo's own tooling: nothing here ships.
 			"project": ["**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}"]
 		},
@@ -45,6 +43,7 @@
 				"content.ts!",
 				"downloaded-store.ts!",
 				"state-transfer.ts!",
+				"theme-prepaint.ts!",
 				"content.css!",
 				"svelte.config.ts",
 				"vitest.stryker.config.ts"

@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import type { NeedsRow, NightRow } from '#lib/home.ts';
+	import type { OnboardingData } from '#lib/onboarding/checklist.ts';
 	import type { ProjectView, Viewer } from '#lib/types.ts';
 	import Page from './+page.svelte';
 
@@ -46,7 +47,8 @@
 		access: Promise.resolve(access),
 		firstRun: null,
 		summary: { others: '3 bookings are waiting on promoters and 1 request is with staff. Nothing needed from you.', hasBookings: true },
-		nights: { nights, more: 0, failed: false }
+		nights: { nights, more: 0, failed: false },
+		onboarding: null
 	};
 
 	const quiet = { ...base, waiting: 0, needs: [], access: Promise.resolve([]) };
@@ -54,6 +56,15 @@
 	const fresh = { ...quiet, summary: { others: null, hasBookings: false }, projects: Promise.resolve([]), nights: { nights: [], more: 0, failed: false } };
 
 	const phone = { viewport: { value: 'mobile2', isRotated: false } };
+
+	const newAccount = (hasAvatar: boolean): OnboardingData => ({ profile: null, prefill: { name: 'Pat', hasAvatar }, listing: false, follows: false });
+
+	const partly: OnboardingData = {
+		profile: { basics: { name: 'Pat', bio: 'Warehouse techno, Berlin.' }, performer: {}, createdAt: '', updatedAt: '' },
+		prefill: null,
+		listing: false,
+		follows: true
+	};
 </script>
 
 <Story name="Busy" asChild>
@@ -82,15 +93,24 @@
 </Story>
 
 <Story name="First visit" asChild>
-	<Page params={{}} form={null} data={{ ...fresh, firstRun: { name: 'Pat', hasAvatar: true } }} />
+	<Page params={{}} form={null} data={{ ...fresh, firstRun: { name: 'Pat', hasAvatar: true }, onboarding: newAccount(true) }} />
 </Story>
 
 <Story name="First visit on a phone" asChild globals={phone}>
-	<Page params={{}} form={null} data={{ ...fresh, firstRun: { name: 'Pat', hasAvatar: true } }} />
+	<Page params={{}} form={null} data={{ ...fresh, firstRun: { name: 'Pat', hasAvatar: true }, onboarding: newAccount(true) }} />
 </Story>
 
 <Story name="New account with a booking waiting" asChild>
-	<Page params={{}} form={null} data={{ ...base, firstRun: { name: 'Pat', hasAvatar: false } }} />
+	<Page params={{}} form={null} data={{ ...base, firstRun: { name: 'Pat', hasAvatar: false }, onboarding: newAccount(false) }} />
+</Story>
+
+<!-- The checklist stays first until it's done, ticking off what the profile has. -->
+<Story name="Partly set up" asChild>
+	<Page params={{}} form={null} data={{ ...quiet, onboarding: partly }} />
+</Story>
+
+<Story name="Partly set up on a phone" asChild globals={phone}>
+	<Page params={{}} form={null} data={{ ...quiet, onboarding: partly }} />
 </Story>
 
 <Story name="Nights loading" asChild>
@@ -98,11 +118,11 @@
 </Story>
 
 <Story name="Loading" asChild>
-	<Page params={{}} form={null} data={{ ...base, needs: loading, access: loading, projects: loading, firstRun: loading, summary: loading, nights: loading }} />
+	<Page params={{}} form={null} data={{ ...base, needs: loading, access: loading, projects: loading, firstRun: loading, summary: loading, nights: loading, onboarding: loading }} />
 </Story>
 
 <Story name="Loading on a phone" asChild globals={phone}>
-	<Page params={{}} form={null} data={{ ...base, needs: loading, access: loading, projects: loading, firstRun: loading, summary: loading, nights: loading }} />
+	<Page params={{}} form={null} data={{ ...base, needs: loading, access: loading, projects: loading, firstRun: loading, summary: loading, nights: loading, onboarding: loading }} />
 </Story>
 
 <Story name="Some nights didn't load" asChild>
