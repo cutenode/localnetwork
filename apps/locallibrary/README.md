@@ -361,7 +361,7 @@ flowchart TD
     hub --> plays["Plays and players<br/>plays, sets, mix, profile, players"]
     hub --> other["Other<br/>account, plugin, bug, completions, help,<br/>analysis, import"]
     hub --> hidden["Not in the help<br/>rpc, man, and the old names of moved commands"]
-    hub --> added["Plugins' own commands<br/>locallibrary PLUGIN NAME, listed under Other"]
+    hub --> added["Plugins' own commands<br/>locallibrary PLUGIN NAME, listed under Other;<br/>those about the collection in collection --help too"]
     everyday ~~~ plays
     drives ~~~ other
     library ~~~ hidden
