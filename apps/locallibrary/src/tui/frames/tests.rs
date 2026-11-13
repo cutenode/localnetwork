@@ -41,13 +41,15 @@ const SAMPLES_A_FRAME: usize = RATE as usize / 60;
 const START: Duration = Duration::from_secs(45);
 
 /// The views counted: each one's name in the budget, how it's shown, and text it has to show.
-const VIEWS: [(&str, View, bool, &str); 6] = [
+/// `fade` is the Library view with a fade under way in 256 colours, started again each frame.
+const VIEWS: [(&str, View, bool, &str); 7] = [
     ("library", View::Library, false, "All tracks"),
     ("deck", View::Library, true, "spectrum"),
     ("drives", View::Drives, false, "Demo"),
     ("prepare", View::Prepare, false, "check the drive"),
     ("palette", View::Library, false, "search or filter the tracks"),
     ("help", View::Library, false, "enter runs it"),
+    ("fade", View::Library, false, "All tracks"),
 ];
 
 /// A minute of two tones, so the spectrum and the scope have something to show.
@@ -130,14 +132,18 @@ fn play_on(app: &mut App, out: &mut MixerSource) {
     app.analyzer.update(&tap, true, &counts, 1.0 / 60.0);
 }
 
-/// What drawing `frames` frames after the first allocates in all, and the last one's text.
-fn draw_frames(app: &mut App, out: &mut MixerSource, frames: u64) -> (u64, u64, String) {
+/// What drawing `frames` frames after the first allocates in all, and the last one's text. With
+/// `fade`, a fade over the whole screen starts with each frame, as one does after a change.
+fn draw_frames(app: &mut App, out: &mut MixerSource, frames: u64, fade: bool) -> (u64, u64, String) {
     let mut terminal = Terminal::new(TestBackend::new(SIZE.0, SIZE.1)).unwrap();
     terminal.draw(|f| ui::draw(f, app)).unwrap();
     let (mut allocations, mut bytes) = (0, 0);
     for _ in 0..frames {
         play_on(app, out);
         let before = (ALLOCATIONS.load(Ordering::Relaxed), BYTES.load(Ordering::Relaxed));
+        if fade {
+            app.transitions.start(ratatui::layout::Rect::new(0, 0, SIZE.0, SIZE.1));
+        }
         terminal.draw(|f| ui::draw(f, app)).unwrap();
         allocations += ALLOCATIONS.load(Ordering::Relaxed) - before.0;
         bytes += BYTES.load(Ordering::Relaxed) - before.1;
@@ -165,7 +171,11 @@ fn frames_allocate_what_their_budgets_say() {
         if name == "palette" {
             app.open_palette();
         }
-        let (allocations, bytes, text) = draw_frames(&mut app, &mut out, frames);
+        let fade = name == "fade";
+        if fade {
+            theme::set_test_tier(Some(theme::Tier::Colors256));
+        }
+        let (allocations, bytes, text) = draw_frames(&mut app, &mut out, frames, fade);
         assert!(text.contains(says), "{name} doesn't show {says:?}:\n{text}");
         counts.insert(format!("{name}.allocations"), allocations / frames.max(1));
         counts.insert(format!("{name}.bytes"), bytes / frames.max(1));
