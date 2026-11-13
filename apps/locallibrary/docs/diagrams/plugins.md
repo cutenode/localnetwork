@@ -27,7 +27,7 @@ Each thing a plugin's manifest can contribute, and the protocol method that asks
 ```mermaid
 flowchart TD
     hub["A plugin's manifest"]
-    hub --> commands["Commands<br/>command/run"]
+    hub --> commands["Commands<br/>command/run, a dry run first<br/>for one planned first"]
     hub --> operations["Operations<br/>op/plan"]
     hub --> panels["Panels<br/>panel/render"]
     hub --> analyzers["Analyzers<br/>track/analyze"]
@@ -140,7 +140,7 @@ sequenceDiagram
     H->>P: describe
     P-->>H: Its manifest, which must match
     H->>P: A hook: track/analyze, op/plan...
-    P->>H: A read, net/fetch or accounts/ensure
+    P->>H: A read, net/fetch, accounts/ensure<br/>or atmosphere/put_record
     H-->>P: Checked, then answered
     P->>H: progress, partial, host/notify
     opt You stop it
@@ -184,8 +184,10 @@ flowchart LR
     plugin["Plugin process"] -->|"reads its capabilities grant"| reads["Sidecar read methods: drives by name,<br/>pages bounded, paths scrubbed"]
     plugin -->|"net/fetch"| net["Servers its net: capabilities name,<br/>sending files lent to the hook"]
     plugin -->|"accounts/ensure"| ensure["More scopes of an account"]
+    plugin -->|"atmosphere/put_record"| record["Records of the types its atmosphere:write:<br/>capabilities name, in the DJ account, each one you confirm"]
     plugin -->|"its answers"| scratch["Its request's scratch folder"]
     plugin -->|"its files"| work["STORE/plugins/ID/work/"]
+    plugin -->|"what it keeps"| data["STORE/plugins/ID/data/"]
     plugin -->|"fs:read"| folders["Folders you grant for a source read"]
     plugin -->|"collection:files"| rekordbox["rekordbox's library here: where its files are,<br/>whether it runs, a copy of master.db in scratch,<br/>its tracks, with real paths"]
     plugin -->|"host/notify"| notify["A message or a suggestion"]
@@ -193,7 +195,7 @@ flowchart LR
     plugin -.->|"no way through the host"| tokens["Tokens, keys, secret settings"]
 ```
 
-Source: [`crates/locallibrary/src/plugin/callbacks.rs`](../../../../crates/locallibrary/src/plugin/callbacks.rs), [`crates/locallibrary/src/plugin/collection.rs`](../../../../crates/locallibrary/src/plugin/collection.rs), [`crates/locallibrary/src/plugin/net.rs`](../../../../crates/locallibrary/src/plugin/net.rs), [`crates/locallibrary/src/plugin/blobs.rs`](../../../../crates/locallibrary/src/plugin/blobs.rs), [`crates/locallibrary/src/plugin/secrets.rs`](../../../../crates/locallibrary/src/plugin/secrets.rs), [`crates/loclib-plugin/src/manifest.rs`](../../../../crates/loclib-plugin/src/manifest.rs), [`docs/plugins.md`](../plugins.md)
+Source: [`crates/locallibrary/src/plugin/callbacks.rs`](../../../../crates/locallibrary/src/plugin/callbacks.rs), [`crates/locallibrary/src/plugin/collection.rs`](../../../../crates/locallibrary/src/plugin/collection.rs), [`crates/locallibrary/src/plugin/net.rs`](../../../../crates/locallibrary/src/plugin/net.rs), [`crates/locallibrary/src/plugin/blobs.rs`](../../../../crates/locallibrary/src/plugin/blobs.rs), [`crates/locallibrary/src/plugin/secrets.rs`](../../../../crates/locallibrary/src/plugin/secrets.rs), [`crates/locallibrary/src/plugin/atmosphere.rs`](../../../../crates/locallibrary/src/plugin/atmosphere.rs), [`crates/loclib-plugin/src/manifest.rs`](../../../../crates/loclib-plugin/src/manifest.rs), [`docs/plugins.md`](../plugins.md)
 
 ## A plugin's net/fetch
 
@@ -240,16 +242,17 @@ Source: [`crates/locallibrary/src/plugin/operations.rs`](../../../../crates/loca
 
 ## Plugins that write elsewhere
 
-Two hooks that write files without an edit plan, and what the host checks.
+Three hooks that write files without an edit plan, and what the host checks.
 
 ```mermaid
 flowchart TD
     source["Library source:<br/>answers tracks"] --> copied["The host checks each file is in<br/>a folder you granted, and hashes it"]
     copied --> built["Written as collection export writes"]
     exporter["Exporter: writes its own<br/>files, where you say"] --> dry["A dry run first, overwrites confirmed. Never on<br/>a drive or in the store, and it must write what it said"]
+    command["Command planned first: writes<br/>its own files on this computer"] --> planned["A dry run first, its files and their overwrites<br/>confirmed. Stale once one of them changes"]
 ```
 
-Source: [`crates/locallibrary/src/plugin/sources.rs`](../../../../crates/locallibrary/src/plugin/sources.rs), [`crates/locallibrary/src/plugin/exports.rs`](../../../../crates/locallibrary/src/plugin/exports.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs)
+Source: [`crates/locallibrary/src/plugin/sources.rs`](../../../../crates/locallibrary/src/plugin/sources.rs), [`crates/locallibrary/src/plugin/exports.rs`](../../../../crates/locallibrary/src/plugin/exports.rs), [`crates/locallibrary/src/plugin/commands.rs`](../../../../crates/locallibrary/src/plugin/commands.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs)
 
 ## Running an analyzer
 

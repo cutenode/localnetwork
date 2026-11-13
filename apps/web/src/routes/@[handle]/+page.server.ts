@@ -6,7 +6,9 @@ import { personProfile } from '#lib/server/structured-data.ts';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
-	const page = await loadProfilePage(event.locals, event.params.handle, event.url.search, clientIp(event));
+	// Untracked, so switching tabs (`?tab=`), which the page reads from the URL, doesn't load the profile again.
+	const search = event.untrack(() => event.url.search);
+	const page = await loadProfilePage(event.locals, event.params.handle, search, clientIp(event));
 
 	return {
 		...page,

@@ -3630,7 +3630,6 @@ checksum = "37605d1d386326d594b7714ab84b0ded0e91d4bb003214f663eacf99f1b49da5"
 dependencies = [
  "bon",
  "bytes",
- "hickory-resolver",
  "http",
  "jacquard-common",
  "jacquard-lexicon",
@@ -4063,6 +4062,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.4",
  "hegeltest",
+ "hickory-resolver",
  "hmac 0.12.1",
  "http",
  "image",
@@ -4079,6 +4079,7 @@ dependencies = [
  "libc",
  "locallibrary-plugin-demos",
  "loclib-analysis",
+ "loclib-audio",
  "loclib-equipment",
  "loclib-interop",
  "loclib-mixid",
@@ -4086,6 +4087,7 @@ dependencies = [
  "loclib-mysettings",
  "loclib-plugin",
  "loclib-progress",
+ "loclib-testkit",
  "loclib-tracklist",
  "loclib-transcode",
  "lofty",
@@ -4157,10 +4159,10 @@ dependencies = [
  "locallibrary-plugin-tracklist",
  "locallibrary-plugin-youtube",
  "loclib-interop",
- "loclib-mixid",
  "loclib-model",
  "loclib-plugin",
  "loclib-progress",
+ "loclib-testkit",
  "loclib-waveform",
  "oauth2",
  "os_info",
@@ -4171,7 +4173,6 @@ dependencies = [
  "rodio",
  "rusqlite",
  "rustc-hash",
- "rustfft",
  "schemars",
  "serde",
  "serde_json",
@@ -4266,11 +4267,9 @@ name = "locallibrary-plugin-musicbrainz"
 version = "0.1.0"
 dependencies = [
  "hegeltest",
- "httpdate",
  "indexmap",
  "loclib-model",
  "loclib-plugin",
- "loclib-progress",
  "loclib-tracklist",
  "quick-xml 0.42.0",
  "rustc-hash",
@@ -4319,9 +4318,9 @@ version = "0.1.0"
 dependencies = [
  "hegeltest",
  "loclib-analysis",
- "loclib-mixid",
  "loclib-plugin",
  "loclib-progress",
+ "loclib-testkit",
  "rustc-hash",
  "serde",
  "serde_json",
@@ -4361,6 +4360,7 @@ name = "locallibrary-plugin-youtube"
 version = "0.1.0"
 dependencies = [
  "hegeltest",
+ "libc",
  "loclib-plugin",
  "loclib-progress",
  "serde",
@@ -4387,13 +4387,28 @@ dependencies = [
  "ebur128",
  "hegeltest",
  "indexmap",
+ "loclib-audio",
  "loclib-mixid",
  "loclib-model",
  "loclib-progress",
+ "loclib-testkit",
  "schemars",
  "serde",
  "serde_json",
  "stratum-dsp",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-audio"
+version = "0.1.0"
+dependencies = [
+ "hegeltest",
+ "loclib-model",
+ "loclib-progress",
+ "loclib-testkit",
+ "symphonia",
  "tempfile",
  "thiserror 2.0.21",
 ]
@@ -4441,13 +4456,12 @@ version = "0.1.0"
 dependencies = [
  "codspeed-criterion-compat",
  "hegeltest",
- "loclib-model",
+ "loclib-audio",
  "loclib-progress",
+ "loclib-testkit",
  "rustc-hash",
  "rustfft",
- "symphonia",
  "tempfile",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4484,8 +4498,11 @@ dependencies = [
 name = "loclib-plugin"
 version = "0.1.0"
 dependencies = [
+ "codspeed-criterion-compat",
  "hegeltest",
+ "httpdate",
  "indexmap",
+ "jacquard-common",
  "jsonschema",
  "loclib-model",
  "loclib-progress",
@@ -4513,6 +4530,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "loclib-testkit"
+version = "0.1.0"
+dependencies = [
+ "loclib-audio",
+ "loclib-mixid",
+]
+
+[[package]]
 name = "loclib-tracklist"
 version = "0.1.0"
 dependencies = [
@@ -4534,9 +4559,10 @@ version = "0.1.0"
 dependencies = [
  "flacenc",
  "hegeltest",
+ "loclib-audio",
  "loclib-equipment",
- "loclib-mixid",
  "loclib-progress",
+ "loclib-testkit",
  "lofty",
  "rubato",
  "schemars",
@@ -4554,6 +4580,7 @@ dependencies = [
  "image",
  "loclib-model",
  "ratatui",
+ "rustfft",
 ]
 
 [[package]]

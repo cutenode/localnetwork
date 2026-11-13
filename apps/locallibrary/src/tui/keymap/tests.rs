@@ -247,7 +247,7 @@ fn reached(act: Act) -> Reached {
             LeftOut("moving about means nothing from a list over the view")
         }
         Act::Remove | Act::DriveActions => LeftOut("acts on what the pane selected"),
-        Act::Browse | Act::NextBands => LeftOut("only the Deck layout's; the palette has the choices"),
+        Act::Browse | Act::NextBands => LeftOut("only player mode's; the palette has the choices"),
         Act::Bands(_)
         | Act::KeyNotation(_)
         | Act::KeyPalette(_)

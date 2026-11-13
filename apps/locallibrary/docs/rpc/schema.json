@@ -12410,10 +12410,20 @@
       "type": "object",
       "properties": {
         "plugin": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The plugin to write from, named with its analyzer [default: each part from the analyzer\nchosen for it alone (`plugin roles`), else the first with one for a track].",
+          "default": null
         },
         "analyzer": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Its analyzer, named with the plugin.",
+          "default": null
         },
         "drive": {
           "type": "string",
@@ -12446,12 +12456,10 @@
         }
       },
       "required": [
-        "plugin",
-        "analyzer",
         "drive",
         "parts"
       ],
-      "description": "What to write to a drive's tracks' analysis files, from what one analyzer kept."
+      "description": "What to write to a drive's tracks' analysis files, from what analyzers kept."
     },
     "AnalysisPart": {
       "oneOf": [
@@ -13248,7 +13256,8 @@
       "type": "object",
       "properties": {
         "role": {
-          "$ref": "#/$defs/FieldRole"
+          "$ref": "#/$defs/RoleOrPart",
+          "description": "The role, or the part of the analysis (`grid`, `phrases`, `waveform`)."
         },
         "analyzer": {
           "type": [
@@ -13267,6 +13276,17 @@
       "required": [
         "role"
       ]
+    },
+    "RoleOrPart": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FieldRole"
+        },
+        {
+          "$ref": "#/$defs/AnalysisPart"
+        }
+      ],
+      "description": "What an analyzer is chosen for: a role, or a part of a track's analysis. Their names never\nclash."
     },
     "SourceExport": {
       "type": "object",
@@ -32338,6 +32358,9 @@
         },
         {
           "pattern": "^net:(\\*\\.)?[A-Za-z0-9.-]+$"
+        },
+        {
+          "pattern": "^atmosphere:write:[a-z][a-z0-9.-]*\\.[A-Za-z][A-Za-z0-9]*$"
         }
       ]
     },
@@ -32454,6 +32477,11 @@
             "$ref": "#/$defs/NetLimit"
           },
           "description": "How often the host may send `net/fetch` requests to some of the hosts it talks to."
+        },
+        "lexicons": {
+          "type": "array",
+          "items": true,
+          "description": "The Lexicon documents of the record types its `atmosphere:write:` capabilities name, as\ntheir authorities publish them, and of the definitions they refer to."
         }
       },
       "required": [
@@ -34769,7 +34797,7 @@
       "type": "object",
       "properties": {
         "role": {
-          "$ref": "#/$defs/FieldRole"
+          "$ref": "#/$defs/RoleOrPart"
         },
         "chosen": {
           "type": [
@@ -34801,7 +34829,7 @@
         "off",
         "offered"
       ],
-      "description": "A role, and the analyzers answering it."
+      "description": "A role or a part of the analysis, and the analyzers answering it."
     },
     "ProgressParams": {
       "type": "object",

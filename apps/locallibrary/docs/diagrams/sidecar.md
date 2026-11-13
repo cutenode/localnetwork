@@ -150,7 +150,7 @@ The `read` and `control` methods, by what they're about.
 flowchart TD
     hub["Reads and control"]
     hub --> control["The sidecar<br/>initialize, version, rpc.describe, $/cancel, jobs.list, events.subscribe, events.unsubscribe, watch.start, watch.stop, shutdown"]
-    hub --> fleet["Drives<br/>status, fleet.status, drives.list, drives.mounted, drives.known, disks.list, drive.info, drive.library, drive.backups, drive.log, drive.groups, drive.recognise, drive.space, drive.verify, drive.restore.preview"]
+    hub --> fleet["Drives<br/>status, fleet.status, drives.list, drives.mounted, drives.known, disks.list, drive.info, drive.library, drive.backups, drive.log, drive.groups, drive.recognise, drive.space, drive.speed, drive.verify, drive.restore.preview"]
     hub --> tracks["Library<br/>tracks.get, tracks.query, tracks.analysis, track.analysis, track.fields, track.show, track.matches, playlists.tree, tags.list, cues.list, art.missing, art.get, art.path, compare, diff, check, doctor"]
     hub --> store["Store<br/>store.info, store.history, store.verify, store.copies, store.serve, library.list, snapshot.library, undo.list, edits.list, smart.list"]
     hub --> plays["Plays and sets<br/>plays.history, plays.archive, plays.stats, sessions.list, sets.list, sets.get, sets.played, sets.suggest, mix.reports.list, mix.reports.get, profile.build, profile.document, profile.prefs"]
@@ -178,7 +178,7 @@ flowchart TD
     hub --> store["The store and settings<br/>store.gc, store.prune, settings.write, settings.import, settings.import_file, settings.import_published, players.set, players.clear"]
     hub --> jobs["Jobs<br/>refresh, prep"]
     hub --> publish["Publishing<br/>settings.publish, profile.publish, sets.publish"]
-    hub --> plugin["Plugins<br/>plugins.op, plugins.export, plugins.import, plugins.source, plugins.publish, plugins.provide, plugins.apply_fields, plugins.apply_analysis"]
+    hub --> plugin["Plugins<br/>plugins.op, plugins.command, plugins.export, plugins.import, plugins.source, plugins.publish, plugins.provide, plugins.apply_fields, plugins.apply_analysis"]
     copies ~~~ jobs
     edits ~~~ publish
     drive ~~~ plugin
@@ -196,7 +196,7 @@ flowchart TD
     hub --> store["Store<br/>store.copy, store.fetch, snapshot.label, library.rename, smart.set, smart.remove, settings.set, settings.unset"]
     hub --> sets["Sets and profile<br/>sets.new, sets.edit, sets.delete, sets.export, sets.lookup, sessions.dismiss, sessions.import, profile.prefs.set"]
     hub --> mix["Mixes and files<br/>mix.index, mix.identify, mix.export, mix.reports.html, export"]
-    hub --> drive["Drives<br/>drive.role, drive.retire, drive.forget, drive.repair, drive.fsck"]
+    hub --> drive["Drives<br/>drive.role, drive.retire, drive.forget, drive.repair, drive.fsck, drive.speed.measure"]
     hub --> account["Accounts<br/>account.login.begin, finish, paste, cancel, account.logout, accounts.sign_in.begin, finish, paste, cancel, accounts.sign_out, accounts.access.give, set_default, take_away"]
     hub --> plugins["Plugins<br/>plugins.settings.set, plugins.analyze, plugins.checks.set, plugins.checks.timeout.set, plugins.providers.set, plugins.roles.set, plugins.store.copy, plugins.store.restore, plugins.store.repair"]
     store ~~~ drive
@@ -208,16 +208,18 @@ Source: [`src/rpc/methods.rs`](../../src/rpc/methods.rs), [`src/rpc/methods/acco
 
 ## Sidecar contract
 
-One list of methods answers everything: dispatch, `rpc.describe`, and the files in `docs/rpc`. A build without the `account` feature lacks `account.*`, the `*.publish.*` methods, `sets.lookup` and `settings.import_published.*`. One without `peers` lacks `store.serve` and `store.fetch`.
+One list of methods is behind dispatch, `rpc.describe` and the files in `docs/rpc`. A release build with the `account` and `peers` features doesn't build the contract from it: it answers with `docs/rpc/schema.json`, built into the binary, which a test keeps equal to what the list makes. A build without the `account` feature lacks `account.*`, the `*.publish.*` methods, `sets.lookup` and `settings.import_published.*`. One without `peers` lacks `store.serve` and `store.fetch`.
 
 ```mermaid
 flowchart TD
     registry["Method registry: name, kind, aliases,<br/>params and result types"] --> dispatch["Dispatch at run time"]
-    registry --> describe["rpc.describe"]
-    registry --> emit["rpc --emit-schema DIR"]
+    registry --> kinds["Kinds: read, plan, apply,<br/>immediate, control"]
+    registry -->|"a debug build, or one<br/>without account or peers"| contract["The contract"]
+    docs["docs/rpc/schema.json,<br/>bundled at build time"] -->|"a release build<br/>with both"| contract
+    contract --> describe["rpc.describe"]
+    contract --> emit["rpc --emit-schema DIR"]
     emit --> schema["schema.json"]
     emit --> dts["locallibrary.d.ts"]
-    registry --> kinds["Kinds: read, plan, apply,<br/>immediate, control"]
 ```
 
-Source: [`src/rpc/methods.rs`](../../src/rpc/methods.rs), [`src/rpc/contract.rs`](../../src/rpc/contract.rs), [`src/rpc/typescript.rs`](../../src/rpc/typescript.rs), [`docs/rpc/schema.json`](../rpc/schema.json), [`docs/rpc/locallibrary.d.ts`](../rpc/locallibrary.d.ts)
+Source: [`src/rpc/methods.rs`](../../src/rpc/methods.rs), [`src/rpc/contract.rs`](../../src/rpc/contract.rs), [`build.rs`](../../build.rs), [`tests/it/rpc.rs`](../../tests/it/rpc.rs), [`src/rpc/typescript.rs`](../../src/rpc/typescript.rs), [`docs/rpc/schema.json`](../rpc/schema.json), [`docs/rpc/locallibrary.d.ts`](../rpc/locallibrary.d.ts)

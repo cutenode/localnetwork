@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { expect, within } from 'storybook/test';
 	import type { Charts, SupportedArtist } from '#lib/types.ts';
 	import ArtistResults from './ArtistResults.svelte';
 	import ArtistSupport from './ArtistSupport.svelte';
@@ -21,6 +22,15 @@
 	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	const retryHref = '/charts';
+
+	/** Each play links the DJ who played it and the set it's in. */
+	const playLinks = async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+		const plays = within(canvasElement.querySelector<HTMLElement>('[aria-label="Plays of Night Bus"]')!);
+
+		await expect(plays.getByRole('link', { name: 'Pirate Signal' })).toHaveAttribute('href', '/projects/pirate-signal');
+		await expect(plays.getByRole('link', { name: '@pirate.test' })).toHaveAttribute('href', '/@pirate.test');
+		await expect(plays.getByRole('link', { name: 'Corsica Studios, London' })).toHaveAttribute('href', '/@pirate.test/sets/3kset2');
+	};
 </script>
 
 <Story name="Charts" args={{ charts, retryHref }} />
@@ -35,7 +45,7 @@
 
 <Story name="Charts on a phone" args={{ charts, retryHref }} globals={phone} />
 
-<Story name="Artist" asChild>
+<Story name="Artist" asChild play={playLinks}>
 	<ArtistSupport supports={artistSupports} retryHref="/artists/ferrule" />
 </Story>
 
