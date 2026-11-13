@@ -311,9 +311,11 @@ locallibrary merge BACKUP REKORDBOX --history  # keep both sets of new tracks
 locallibrary sync Home                         # then make them identical again
 ```
 
-The merge plan lists tracks both drives have whose details differ: REKORDBOX's stay, and the
-sync copies them to BACKUP. A merge that leaves some of BACKUP out (`--only`, `--playlists none`,
-history lists without `--history`) leaves the drives diverged, and so does undoing it.
+The merge plan lists tracks both drives have whose details or My Tags differ: REKORDBOX's stay,
+and the sync copies them to BACKUP. It also lists tracks only BACKUP's OneLibrary has, which merge
+doesn't bring across. A merge that leaves some of BACKUP out (`--only`, `--playlists none`, history
+lists without `--history`, those OneLibrary-only tracks) leaves the drives diverged, and so does
+undoing it.
 
 **A new drive**
 

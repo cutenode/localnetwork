@@ -665,6 +665,11 @@ pub fn merge_plan(p: &MergePlan) {
         })
         .collect();
     capped(&differing, 15);
+    if !p.source_onelibrary_only.is_empty() {
+        say!("  {} only in {}'s OneLibrary aren't merged", p.source_onelibrary_only.len(), p.source);
+    }
+    let left: Vec<String> = p.source_onelibrary_only.iter().map(|t| format!("- {}", t.name)).collect();
+    capped(&left, 15);
     match p.takes_in_source {
         true => say!("  {}", dim(format!("afterwards, sync copies the merged library to {}", p.source))),
         false => {

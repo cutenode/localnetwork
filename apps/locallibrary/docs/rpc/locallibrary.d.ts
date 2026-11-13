@@ -4030,8 +4030,13 @@ export type MergePlan = {
   new_tracks: PlannedTrack[];
   /** Source tracks already in the target. */
   matched_tracks: number;
-  /** Those whose details, file or analysis differ: the target's stay as they are. */
+  /** Those whose details, file, analysis or My Tags differ: the target's stay as they are. */
   differing_tracks: TrackChange[];
+  /**
+   * Tracks only the source's OneLibrary lists. A merge reads the source's export.pdb, so
+   * they aren't brought across, and with any the source isn't taken in.
+   */
+  source_onelibrary_only: TrackRef[];
   /**
    * Whether the target holds everything the source has once merged (every track, its
    * playlists and history), `differing_tracks` aside. Then the source's state goes into the
