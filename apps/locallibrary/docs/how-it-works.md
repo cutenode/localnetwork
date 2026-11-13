@@ -23,7 +23,10 @@ crates/loclib-mysettings/   My Settings files (MYSETTING.DAT and the rest): ever
 crates/loclib-tracklist/    reading outside tracklists (M3U, CSV, rekordbox text and XML, plain text) and
                             matching them to a library: by path, ISRC, artist and title, then fuzzily;
                             and rekordbox XML collections with their tags, keys, beat grids and cues
-crates/loclib-mixid/        which known tracks a recorded mix plays: decoding and resampling, landmark
+crates/loclib-audio/        decoding through symphonia without trusting a file's headers (an MP4's sample
+                            tables checked first, a decoder's panic caught), and resampling as it streams
+crates/loclib-testkit/      test helpers the crates share (synthetic audio and audio files), never published
+crates/loclib-mixid/        which known tracks a recorded mix plays: landmark
                             fingerprints, the hash index and its print format, the matcher, and how
                             two tracks line up, refined to a fraction of a sample from their audio
                             (doctor's duplicates by sound, cues carried or moved by the offset)
@@ -36,7 +39,8 @@ crates/loclib-interop/      a library for other DJ software: Traktor's collectio
                             tags, an Engine DJ library (engine.sql), rekordbox XML; and Traktor's
                             collection.nml read back
 crates/loclib-waveform/     the player's ratatui widgets: overview and detail waveforms, cue lane, phrase strip,
-                            spectrum, scope and cover art, in the colours of a palette the caller passes
+                            spectrum, scope and cover art, in the colours of a palette the caller passes; and
+                            (the `analyzer` feature) the FFT and smoothing that feed the spectrum and scope
 crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one message a line), the plugin manifest
                             and its checks, a peer over a pair of pipes and the Rust plugin SDK; the sidecar
                             reads lines and reports errors with it
@@ -127,8 +131,9 @@ crates/locallibrary/src/    the library, built on the crates above
   plugin/      the plugin host: starting the plugins locallibrary ships and checking who they are,
                the reads they may call back for (callbacks.rs), and their commands, operations
                (planned as edit plans), exports, analyzers and settings
-  sound/       tempo, key and loudness through loclib-analysis: doctor's analysis section, how sure each
-               key is for the set planner, the check's loudness item, and `analysis bench` (bench.rs)
+  sound/       tempo, key and loudness as the analyzers chosen for those roles kept them: doctor's
+               analysis section, how sure each key is for the set planner and the check's loudness
+               item; and `analysis bench` (bench.rs), which runs loclib-analysis itself
   mix/         which library tracks a recorded set plays, through loclib-mixid: the drive's tracks, the
                store's fingerprints (index.rs), Audacity projects (aup.rs), the report (the
                interactive page, the mix's playable audio, the reports kept in the store: report.rs and

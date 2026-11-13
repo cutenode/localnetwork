@@ -35,7 +35,7 @@ fn register(store: &Store, d: &Device) {
 }
 
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
-fn drives_stand_where_their_state_is_in_the_librarys_history(tc: TestCase) {
+fn drives_stand_where_their_state_is_in_the_library_history(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let a = common::bigger_drive(dir.path(), "A");

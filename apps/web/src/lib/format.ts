@@ -38,6 +38,16 @@ export function profileHref(account: AccountView): string {
 	return `/@${account.handle ?? account.did}`;
 }
 
+/**
+ * A set's page, from the set's at:// URI: under its DJ's handle when it's known, else their DID, which the page sends
+ * on to the handle.
+ */
+export function setHref(uri: string, handle: string | null = null): string {
+	const [did, , rkey] = uri.slice('at://'.length).split('/');
+
+	return `${profileHref({ did, handle })}/sets/${rkey}`;
+}
+
 const RELATIVE = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
 
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [

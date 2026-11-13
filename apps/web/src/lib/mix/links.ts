@@ -45,7 +45,7 @@ export function embedUrl(url: string): string | null {
 	}
 
 	if (platform === 'Mixcloud') {
-		return `https://player-widget.mixcloud.com/widget/iframe/?hide_cover=1&feed=${encodeURIComponent(parsed.pathname)}`;
+		return `https://player-widget.mixcloud.com/widget/iframe/?hide_cover=1&hide_artwork=1&feed=${encodeURIComponent(parsed.pathname)}`;
 	}
 
 	const plyr = plyrTrackId(url);
@@ -57,4 +57,24 @@ export function embedUrl(url: string): string | null {
 		(parsed.hostname === 'youtu.be' ? parsed.pathname.slice(1) : parsed.searchParams.get('v'));
 
 	return youtube ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(youtube)}` : null;
+}
+
+/** The site's palettes: dark, and light under a `light` class on the root (packages/tokens/theme.css). */
+type Theme = 'dark' | 'light';
+
+/**
+ * A player from `embedUrl` in the site's theme, and the height in pixels it lays out for. Mixcloud's widget is dark
+ * unless asked for its light one. The others have no theme option: SoundCloud's player is white on either theme, at the
+ * 166px of SoundCloud's own embed code.
+ */
+export function embedFrame(src: string, theme: Theme) {
+	const url = parse(src);
+
+	if (url?.hostname === 'player-widget.mixcloud.com') {
+		if (theme === 'light') url.searchParams.set('light', '1');
+
+		return { src: url.href, height: 120 };
+	}
+
+	return { src, height: url?.hostname === 'w.soundcloud.com' ? 166 : 160 };
 }

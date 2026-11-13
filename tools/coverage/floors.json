@@ -1,0 +1,135 @@
+{
+	"$schema": "./floors.schema.json",
+	"floors": {
+		"apps/locallibrary": {
+			"lines": 96.6,
+			"functions": 96.2,
+			"regions": 95.4
+		},
+		"crates/locallibrary": {
+			"lines": 98.1,
+			"functions": 97.3,
+			"regions": 96.5
+		},
+		"crates/loclib-analysis": {
+			"lines": 99.4,
+			"functions": 98.3,
+			"regions": 98.3
+		},
+		"crates/loclib-audio": {
+			"lines": 98.7,
+			"functions": 97.9,
+			"regions": 97.3
+		},
+		"crates/loclib-equipment": {
+			"lines": 99.8,
+			"functions": 99.8,
+			"regions": 99.8
+		},
+		"crates/loclib-interop": {
+			"lines": 99,
+			"functions": 97.4,
+			"regions": 98.3
+		},
+		"crates/loclib-mixid": {
+			"lines": 99.5,
+			"functions": 99.4,
+			"regions": 98.8
+		},
+		"crates/loclib-model": {
+			"lines": 99.6,
+			"functions": 99.8,
+			"regions": 99.4
+		},
+		"crates/loclib-mysettings": {
+			"lines": 99.8,
+			"functions": 99.8,
+			"regions": 99.8
+		},
+		"crates/loclib-plugin": {
+			"lines": 99.5,
+			"functions": 99.8,
+			"regions": 99.5
+		},
+		"crates/loclib-progress": {
+			"lines": 99.8,
+			"functions": 99.8,
+			"regions": 99.8
+		},
+		"crates/loclib-tracklist": {
+			"lines": 99.7,
+			"functions": 99.8,
+			"regions": 99.7
+		},
+		"crates/loclib-transcode": {
+			"lines": 99.8,
+			"functions": 99.8,
+			"regions": 98.6
+		},
+		"crates/loclib-waveform": {
+			"lines": 99.8,
+			"functions": 99.8,
+			"regions": 99.8
+		},
+		"plugins/archive": {
+			"lines": 99.8,
+			"functions": 99.8,
+			"regions": 99.8
+		},
+		"plugins/coverart": {
+			"lines": 99.8,
+			"functions": 99.8,
+			"regions": 99.8
+		},
+		"plugins/demos": {
+			"lines": 99.8,
+			"functions": 99.8,
+			"regions": 99.8
+		},
+		"plugins/interop": {
+			"lines": 99.1,
+			"functions": 96.7,
+			"regions": 98.6
+		},
+		"plugins/mixcloud": {
+			"lines": 99.8,
+			"functions": 99.8,
+			"regions": 99.6
+		},
+		"plugins/musicbrainz": {
+			"lines": 99.8,
+			"functions": 99.8,
+			"regions": 99.8
+		},
+		"plugins/plyr": {
+			"lines": 99.8,
+			"functions": 99.8,
+			"regions": 99.5
+		},
+		"plugins/sound": {
+			"lines": 99.8,
+			"functions": 99.8,
+			"regions": 99.8
+		},
+		"plugins/soundcloud": {
+			"lines": 99.8,
+			"functions": 99.8,
+			"regions": 99.6
+		},
+		"plugins/tracklist": {
+			"lines": 99.5,
+			"functions": 98.3,
+			"regions": 99.1
+		},
+		"plugins/youtube": {
+			"lines": 99.3,
+			"functions": 97,
+			"regions": 98.8
+		},
+		"vendor/rekordbox-pdb": {
+			"lines": 99.5,
+			"functions": 99.8,
+			"regions": 96.3
+		}
+	}
+}

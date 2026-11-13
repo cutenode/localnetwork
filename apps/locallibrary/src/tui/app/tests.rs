@@ -2974,7 +2974,7 @@ fn the_log_keeps_the_last_messages() {
 /// On a big library the search box narrows the list once typing pauses (at the next tick
 /// after then), not on every key.
 #[test]
-fn a_big_librarys_search_waits_for_typing_to_pause() {
+fn a_big_library_search_waits_for_typing_to_pause() {
     let dir = tempfile::tempdir().unwrap();
     let mut app = App::with_library(dir.path(), big_library(TYPE_AHEAD as u32 + 1));
     press(&mut app, "/title 4999");
@@ -3208,7 +3208,7 @@ fn a_plugins_analysis_fills_in_what_the_drive_lacks() {
 /// library has it (LOC-13: every match was said to show 4A). On rekordcrate's 3,886-track
 /// export, playing tracks in each of the keys it has.
 #[test]
-fn the_mixes_into_panel_shows_each_matchs_own_key() {
+fn the_mixes_into_panel_shows_each_match_with_its_own_key() {
     let dir = tempfile::tempdir().unwrap();
     let pdb = dir.path().join(paths::EXPORT_PDB);
     std::fs::create_dir_all(pdb.parent().unwrap()).unwrap();

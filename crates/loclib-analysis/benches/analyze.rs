@@ -7,8 +7,8 @@ use std::path::Path;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use loclib_analysis::{Want, analyze};
-use loclib_mixid::test_util::wav_of;
 use loclib_progress::Ctx;
+use loclib_testkit::audio::wav_of;
 
 const SECS: f64 = 60.0;
 
