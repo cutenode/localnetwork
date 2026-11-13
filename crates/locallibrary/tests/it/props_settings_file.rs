@@ -17,6 +17,7 @@ use locallibrary::query::{SortField, SortKey};
 use locallibrary::settings::transfer::{Action, PlayerPrefs, SettingsExport};
 use locallibrary::settings::{DriveOverrides, SCHEMA, SettingsProfile};
 use locallibrary::store::Store;
+use locallibrary::store::prefs::StorePrefs;
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
@@ -29,6 +30,7 @@ struct Contents {
     /// What the player remembers (`tui.json`), its preferences and where it was.
     player: Option<Map<String, Value>>,
     mix: Option<MixPrefs>,
+    store: Option<StorePrefs>,
     host: Map<String, Value>,
     plugins: Map<String, Value>,
 }
@@ -45,6 +47,9 @@ impl Contents {
         }
         if let Some(mix) = &self.mix {
             mix.save(store).unwrap();
+        }
+        if let Some(prefs) = &self.store {
+            prefs.save(store).unwrap();
         }
         let plugins = store.root().join("plugins");
         fs::create_dir_all(&plugins).unwrap();
@@ -160,6 +165,9 @@ fn contents(tc: &TestCase) -> Contents {
         let limit = gs::sampled_from(vec![0, 64, 256, 1024]);
         c.mix = Some(MixPrefs { index_limit_mib: tc.draw(gs::optional(limit)) });
     }
+    if tc.draw(gs::booleans()) {
+        c.store = Some(StorePrefs { copy_on_write: tc.draw(gs::booleans()) });
+    }
     for key in tc.draw(gs::vecs(gs::sampled_from(vec!["checks.sound.bpm.on", "providers.auto_pick"])).max_size(2)) {
         c.host.insert(key.into(), scalar(tc));
     }
@@ -235,6 +243,7 @@ fn an_export_fits_its_schema(tc: TestCase) {
         assert!(export["player"].get(key).is_none(), "{key} went out: {export}");
     }
     assert_eq!(export["mix"], serde_json::to_value(c.mix.unwrap_or_default()).unwrap(), "{export}");
+    assert_eq!(export["store"], serde_json::to_value(c.store.unwrap_or_default()).unwrap(), "{export}");
     let errors: Vec<String> = validator.iter_errors(&export).map(|e| format!("{}: {e}", e.instance_path())).collect();
     assert!(errors.is_empty(), "{errors:?}\n{export:#}");
 }
@@ -477,7 +486,7 @@ fn prop_a_file_with_a_section_it_cant_read_is_refused(tc: TestCase) {
     let drive = Uuid::from_u128(1).to_string();
     let drive = drive.as_str();
     let replace = tc.draw(gs::booleans());
-    for case in 0..10u8 {
+    for case in 0..11u8 {
         let (doc, says) = match case {
             0 => (json!({ "version": 0 }), "not one locallibrary wrote".to_string()),
             1 => {
@@ -496,6 +505,7 @@ fn prop_a_file_with_a_section_it_cant_read_is_refused(tc: TestCase) {
             6 => (json!({ "version": 1, "profile": { "precision": [] } }), "profile".into()),
             7 => (json!({ "version": 1, "player": { "theme": 5 } }), "player".into()),
             8 => (json!({ "version": 1, "mix": { "index_limit_mib": "lots" } }), "mix".into()),
+            9 => (json!({ "version": 1, "store": { "copy_on_write": "yes" } }), "store".into()),
             _ => {
                 let id = tc.draw(gs::sampled_from(vec!["../up", "a b", ""]));
                 (json!({ "version": 1, "plugins": { id: {} } }), "plugins".into())
@@ -526,6 +536,7 @@ fn prop_a_store_file_that_cant_be_read_stops_export_and_import(tc: TestCase) {
         "players.json",
         locallibrary::profile::PREFS_FILE,
         locallibrary::mix::prefs::PREFS_FILE,
+        locallibrary::store::prefs::PREFS_FILE,
         "plugins/sound/settings.json",
     ]));
     let path = store.root().join(damaged);

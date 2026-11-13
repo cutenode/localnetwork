@@ -1,7 +1,7 @@
 //! Everything set here in one file, to keep a copy or take it to another computer: the My Settings
 //! profile, the players `check` remembers, the profile's preferences, the player's preferences
 //! (never where it was: the drive, the list, the queue, its panels), what's set for identifying
-//! mixes, the host's settings for plugins and each plugin's own (its services' switches and the player's keys for its commands
+//! mixes and for the store, the host's settings for plugins and each plugin's own (its services' switches and the player's keys for its commands
 //! included). A plugin's settings go as the JSON object the store keeps for it, installed here or
 //! not. Secrets never do: they're kept apart (see [`crate::plugin`]).
 //!
@@ -22,6 +22,7 @@ use crate::equipment::Remembered;
 use crate::mix::prefs::{self as mix_prefs, MixPrefs};
 use crate::profile::{PREFS_FILE, ProfilePrefs};
 use crate::query::SortKey;
+use crate::store::prefs::{self as store_prefs, StorePrefs};
 use crate::store::{PLAYER_FILE, Store, player_fallback};
 use crate::{Error, Result, fsutil, plugin};
 
@@ -51,6 +52,10 @@ pub struct SettingsExport {
     /// What's set for identifying mixes ([`MixPrefs`]): the largest fingerprint index kept.
     #[serde(default)]
     pub mix: Map<String, Value>,
+    /// What's set for the store ([`StorePrefs`]): whether a pull makes copy-on-write copies of
+    /// rekordbox's collection.
+    #[serde(default)]
+    pub store: Map<String, Value>,
     /// The host's settings for plugins: which analyzer each field role is read from, when a
     /// provider's candidate is picked, and whether each check runs.
     #[serde(default)]
@@ -70,6 +75,7 @@ impl Default for SettingsExport {
             profile: Map::new(),
             player: Map::new(),
             mix: Map::new(),
+            store: Map::new(),
             plugin_host: Map::new(),
             plugins: Map::new(),
         }
@@ -216,6 +222,7 @@ enum Target {
     Profile,
     Player,
     Mix,
+    Store,
     PluginHost,
     Plugin(String),
 }
@@ -228,6 +235,7 @@ impl Target {
             Target::Profile => PREFS_FILE.into(),
             Target::Player => PLAYER_FILE.into(),
             Target::Mix => mix_prefs::PREFS_FILE.into(),
+            Target::Store => store_prefs::PREFS_FILE.into(),
             Target::PluginHost => "plugins/settings.json".into(),
             Target::Plugin(id) => format!("plugins/{id}/settings.json"),
         }
@@ -251,6 +259,7 @@ impl Target {
                 fsutil::write_json_atomic(&store.root().join(PLAYER_FILE), &state)
             }
             Target::Mix => typed::<MixPrefs>(value)?.save(store),
+            Target::Store => typed::<StorePrefs>(value)?.save(store),
             Target::PluginHost => plugin::save_host_settings(store, &typed(value)?),
             Target::Plugin(id) => plugin::save_settings(store, id, &typed(value)?),
         }
@@ -258,7 +267,7 @@ impl Target {
 }
 
 /// The sections, by their names in the file.
-const SECTIONS: [&str; 7] = ["my_settings", "players", "profile", "player", "mix", "plugin_host", "plugins"];
+const SECTIONS: [&str; 8] = ["my_settings", "players", "profile", "player", "mix", "store", "plugin_host", "plugins"];
 
 impl SettingsExport {
     /// The store files its sections are kept in, below the store's folder: what importing it
@@ -270,6 +279,7 @@ impl SettingsExport {
             (Target::Profile, &self.profile),
             (Target::Player, &self.player),
             (Target::Mix, &self.mix),
+            (Target::Store, &self.store),
             (Target::PluginHost, &self.plugin_host),
         ];
         let sections = sections.into_iter().filter(|(_, s)| !s.is_empty()).map(|(t, _)| t.file());
@@ -283,6 +293,7 @@ impl SettingsExport {
             "profile" => &self.profile,
             "player" => &self.player,
             "mix" => &self.mix,
+            "store" => &self.store,
             "plugin_host" => &self.plugin_host,
             _ => &self.plugins,
         }
@@ -295,6 +306,7 @@ impl SettingsExport {
             "profile" => &mut self.profile,
             "player" => &mut self.player,
             "mix" => &mut self.mix,
+            "store" => &mut self.store,
             "plugin_host" => &mut self.plugin_host,
             _ => &mut self.plugins,
         }
@@ -329,6 +341,7 @@ impl SettingsExport {
         // Only the preferences: what else a hand-made file has of the player's is left out.
         self.player = retyped::<PlayerPrefs>("player", &self.player)?;
         self.mix = retyped::<MixPrefs>("mix", &self.mix)?;
+        self.store = retyped::<StorePrefs>("store", &self.store)?;
         if let Some((id, _)) = self.plugins.iter().find(|(id, v)| !crate::fields::is_name(id) || !v.is_object()) {
             return Err(in_section("plugins", Error::invalid(format!("{id:?} isn't a plugin's id with its settings"))));
         }
@@ -410,6 +423,7 @@ pub fn export(store: &Store) -> Result<SettingsExport> {
             .map(|p| untyped(&p))
             .unwrap_or_default(),
         mix: kept::<MixPrefs>(store, mix_prefs::PREFS_FILE)?,
+        store: kept::<StorePrefs>(store, store_prefs::PREFS_FILE)?,
         plugin_host: plugin::host_settings_to_change(store)?.into_iter().collect(),
         plugins: plugins.collect(),
     };
@@ -442,6 +456,7 @@ pub fn merge(store: &Store, file: &SettingsExport, replace: bool) -> Result<Merg
             "profile" => Target::Profile,
             "player" => Target::Player,
             "mix" => Target::Mix,
+            "store" => Target::Store,
             "plugin_host" => Target::PluginHost,
             _ => {
                 ids.dedup();

@@ -17372,6 +17372,12 @@
           "format": "uint64",
           "minimum": 0
         },
+        "from_collection": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "Of the new files, those made from rekordbox's collection's copy of the file, copy-on-write\nwhere the volume can (with [`crate::store::prefs::StorePrefs::copy_on_write`] on); the rest\nwere copied from the drive."
+        },
         "reused_files": {
           "type": "integer",
           "format": "uint",
@@ -17385,6 +17391,7 @@
         "up_to_date",
         "imported_files",
         "imported_bytes",
+        "from_collection",
         "reused_files"
       ]
     },
@@ -21301,6 +21308,12 @@
           "description": "What's set for identifying mixes ([`MixPrefs`]): the largest fingerprint index kept.",
           "default": {}
         },
+        "store": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "What's set for the store ([`StorePrefs`]): whether a pull makes copy-on-write copies of\nrekordbox's collection.",
+          "default": {}
+        },
         "plugin_host": {
           "type": "object",
           "additionalProperties": true,
@@ -21321,6 +21334,7 @@
         "profile",
         "player",
         "mix",
+        "store",
         "plugin_host",
         "plugins"
       ],
