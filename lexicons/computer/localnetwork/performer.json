@@ -1,0 +1,55 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.performer",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "literal:self",
+			"description": "Who a performer's space is for: an act, or a DJ under their own name. Written only by the Local Network root account, into the performer's space.",
+			"record": {
+				"type": "object",
+				"required": ["subject", "createdAt", "updatedAt"],
+				"properties": {
+					"subject": {
+						"type": "union",
+						"refs": ["#act", "#dj"],
+						"closed": false,
+						"description": "An act, with what its page shows, or the DJ whose backstage and managers the space holds."
+					},
+					"formerly": {
+						"type": "array",
+						"maxLength": 20,
+						"description": "The projects this performer was before, so links to them still find it.",
+						"items": { "type": "string", "format": "at-uri" }
+					},
+					"createdAt": { "type": "string", "format": "datetime" },
+					"updatedAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		},
+		"act": {
+			"type": "object",
+			"description": "A name DJs play under other than their own.",
+			"required": ["slug", "form", "basics", "performer"],
+			"properties": {
+				"slug": { "type": "string", "minLength": 2, "maxLength": 64 },
+				"form": {
+					"type": "string",
+					"maxLength": 32,
+					"knownValues": ["alias", "duo", "group", "collective"],
+					"description": "alias: one member. duo, group or collective: several."
+				},
+				"basics": { "type": "ref", "ref": "computer.localnetwork.section.defs#basics" },
+				"performer": { "type": "ref", "ref": "computer.localnetwork.section.defs#performer" }
+			}
+		},
+		"dj": {
+			"type": "object",
+			"description": "A DJ under their own name, whose page is their profile.",
+			"required": ["did"],
+			"properties": {
+				"did": { "type": "string", "format": "did" }
+			}
+		}
+	}
+}

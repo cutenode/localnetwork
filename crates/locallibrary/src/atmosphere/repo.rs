@@ -72,19 +72,22 @@ fn what(collection: &str) -> &'static str {
     }
 }
 
-/// Signing `info`'s account in again, allowing what writing `collection` needs: filing bug
-/// reports (keeping what the session may do now), or publishing.
-fn sign_in_again(info: &AccountInfo, collection: &str) -> Action {
-    match collection {
-        lexicon::DISCUSSION => {
-            let mut scopes = kept_scopes(info);
-            if !scopes.iter().any(|s| s == REPORT_SCOPE) {
-                scopes.push(REPORT_SCOPE.into());
-            }
-            Action::call("account.login.begin", json!({ "scopes": scopes }), "Sign in again, allowing bug reports")
-        }
-        _ => Action::call("account.login.begin", json!({ "publish": true }), "Sign in again, allowing publishing"),
+/// Signing `info`'s account in again, allowing what writing `collection` needs: publishing, or
+/// filing bug reports or writing another record type (a plugin's), keeping what the session may do
+/// now.
+pub(crate) fn sign_in_again(info: &AccountInfo, collection: &str) -> Action {
+    if lexicon::COLLECTIONS.contains(&collection) {
+        return Action::call("account.login.begin", json!({ "publish": true }), "Sign in again, allowing publishing");
     }
+    let (scope, allowing) = match collection {
+        lexicon::DISCUSSION => (REPORT_SCOPE.to_string(), "bug reports".to_string()),
+        _ => (format!("repo:{collection}?action=create&action=update"), format!("{collection} records")),
+    };
+    let mut scopes = kept_scopes(info);
+    if !scopes.contains(&scope) {
+        scopes.push(scope);
+    }
+    Action::call("account.login.begin", json!({ "scopes": scopes }), format!("Sign in again, allowing {allowing}"))
 }
 
 /// The error for a session that may not write `collection`.
@@ -131,6 +134,19 @@ pub fn put_record(
     swap: Option<&str>,
 ) -> Result<Written> {
     lexicon::validate(collection, record)?;
+    put_checked(root, did, collection, rkey, record, swap)
+}
+
+/// [`put_record`] of a record already checked against its Lexicon (a plugin's, which the plugin
+/// ships).
+pub(crate) fn put_checked(
+    root: &Path,
+    did: &str,
+    collection: &str,
+    rkey: &str,
+    record: &Value,
+    swap: Option<&str>,
+) -> Result<Written> {
     let (_lock, info) = writer(root, did, collection, |info| missing_scope(info, collection).is_none())?;
     let session = restore(root)?;
     let body =
@@ -169,6 +185,11 @@ pub fn put_record(
 /// allowed to create such records, not to replace them.
 pub fn create_record(root: &Path, did: &str, collection: &str, record: &Value) -> Result<Written> {
     lexicon::validate(collection, record)?;
+    create_checked(root, did, collection, record)
+}
+
+/// [`create_record`] of a record already checked against its Lexicon (a plugin's).
+pub(crate) fn create_checked(root: &Path, did: &str, collection: &str, record: &Value) -> Result<Written> {
     let (_lock, info) = writer(root, did, collection, |info| may_create(info, collection))?;
     let session = restore(root)?;
     let request =

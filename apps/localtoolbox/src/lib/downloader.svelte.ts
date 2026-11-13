@@ -20,8 +20,10 @@
 // Not in chrome.storage, where settings.svelte.ts's live: those are there
 // because the content script has to read them, and nothing outside the
 // extension's own pages has any use for these. The one other page that reads
-// them is the offscreen page that walks a gate for the page's Download button
-// (src/offscreen.ts), which shares the popup's origin and so its localStorage.
+// them is the offscreen page the background worker opens (src/offscreen.ts),
+// which shares the popup's origin and so its localStorage: it walks a gate for
+// the page's Download button, and hands the worker the address gate-page.ts
+// fills in on a gate's own page.
 // Nor are they in the exported state file: the keys it carries are listed in
 // state-transfer.ts, and an address is not something to ship to another
 // install with somebody's marks.
@@ -29,10 +31,10 @@
 import { flagPref, textPref } from './prefs.svelte.ts';
 
 export const downloader = {
-	/** The address the two sites that ask for one are given. */
+	/** The address a Hypeddit gate that asks is given, and a Droploud or Laylo page is filled in with. */
 	email: textPref('pref:email'),
 
-	/** The name a Laylo drop sometimes asks for beside it. */
+	/** The name a Hypeddit gate's email step sends beside it. */
 	name: textPref('pref:name'),
 
 	/**

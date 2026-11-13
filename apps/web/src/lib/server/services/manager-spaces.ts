@@ -2,7 +2,7 @@ import type { z } from 'zod';
 import { epkGrantSchema } from '#lib/epk-schema.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import { listAllSpaceRecords, type RootRepoClient } from '../atproto/repo-client';
-import { backstageSpace, epkRequestSpace, epkSpace, parsePublicRecordUri } from '../atproto/spaces';
+import { backstageSpace, epkRequestSpace, epkSpace, parsePublicRecordUri, rkeyOf } from '../atproto/spaces';
 import type { Core } from '../core';
 import type { IndexedRepo } from '../happyview/indexed';
 import { auditedProjects, openedProjects } from './bookings';
@@ -81,7 +81,7 @@ export class ManagerSpaces {
 
 		for (const { uri, value } of await this.indexed.listAll(root.did, COLLECTION.epk, { strict: true })) {
 			if (value.project !== projectUri) continue;
-			const space = epkSpace(root.did, uri.split('/').at(-1)!);
+			const space = epkSpace(root.did, rkeyOf(uri));
 
 			try {
 				// Grants not moved out of the press kit's space yet count too.

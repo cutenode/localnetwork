@@ -1,10 +1,13 @@
 //! What a frame of the terminal player costs: each widget drawn at the size it gets on a 200x50
-//! terminal, with a six minute track's data.
+//! terminal, with a six minute track's data, and (with the `analyzer` feature) the analysis behind
+//! the spectrum and scope.
 
 use std::hint::black_box;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use loclib_model::analysis::{Beat, Cue, WaveColumn, WaveLayer, Waveform, WaveformStyle};
+#[cfg(feature = "analyzer")]
+use loclib_waveform::analyzer::{Analyzer, FFT_SIZE};
 use loclib_waveform::{
     CueLane, Detail, Overview, Palette, PhraseStrip, Pixels, Scope, Spectrum, Wave, Zoom, ZoomRing, bar_layout, vinyl,
 };
@@ -158,6 +161,17 @@ fn bench(c: &mut Criterion) {
     });
     let samples: Vec<f32> = (0..1024).map(|i| (i as f32 * 0.05).sin() * 0.8).collect();
     draw(c, "scope", Rect::new(0, 0, 200, 16), || Scope { samples: &samples, tint: None, palette });
+    // A frame's analysis for the mirrored spectrum above and the scope: the latest samples played,
+    // one FFT, and the bands moved towards it.
+    #[cfg(feature = "analyzer")]
+    {
+        let mut rand = noise(11);
+        let latest: Vec<f32> = (0..FFT_SIZE).map(|_| rand() * 2.0 - 1.0).collect();
+        let mut analyzer = Analyzer::default();
+        c.bench_function("analyzer", |b| {
+            b.iter(|| analyzer.update(Some(black_box(latest.as_slice())), 44_100, &[n], 1.0 / 60.0))
+        });
+    }
     let art = Rect::new(0, 0, 40, 20);
     c.bench_function("vinyl", |b| {
         b.iter(|| black_box(vinyl(black_box(art.width), art.height, 1.0, [255, 92, 160], [40, 40, 52])))

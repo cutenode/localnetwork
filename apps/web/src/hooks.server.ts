@@ -107,9 +107,12 @@ export function serverHooks({
 			}
 		}
 
+		// An xrpc call never reads the sign-in cookie, so it gets the flags a signed-out visitor does. A route that has
+		// checked a service token can evaluate flags for that token's DID itself.
+		const { viewer } = event.locals;
+		event.locals.flags = await app.flags.evaluate(viewer?.did ?? null);
+
 		if (!isXrpc) {
-			const { viewer } = event.locals;
-			event.locals.flags = await app.flags.evaluate(viewer?.did ?? null);
 			const cookie = event.cookies.get(PREVIEW_COOKIE);
 			const preview = cookie && viewer ? await app.flags.preview(viewer, cookie, token) : null;
 

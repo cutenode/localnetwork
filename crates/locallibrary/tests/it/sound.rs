@@ -15,7 +15,7 @@ use locallibrary::sound::bench::{BenchOptions, ESTIMATE, REKORDBOX};
 use locallibrary::sound::{KeyOutcome, TempoOutcome};
 use locallibrary::{Error, paths};
 use loclib_analysis::{Want, analyze};
-use loclib_mixid::test_util::wav_of;
+use loclib_testkit::audio::wav_of;
 use rekordbox_pdb::NewTrack;
 
 fn write(dir: &Path, name: &str, text: &str) {
