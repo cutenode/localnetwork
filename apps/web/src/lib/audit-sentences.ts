@@ -65,6 +65,7 @@ const PHRASES: Record<
 	'people.link': said,
 	'listing.list': said,
 	'listing.unlist': said,
+	'page.update': said,
 	'flag.update': said,
 	'flag.preview': said,
 	'flagGroup.create': said,

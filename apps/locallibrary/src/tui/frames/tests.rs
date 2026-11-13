@@ -93,7 +93,6 @@ fn mid_set() -> (App, MixerSource, TempDir, Fixture) {
     app.now = Some(NowPlaying {
         id: 1,
         key: Camelot::parse(&track.key),
-        drive: "LARGE".into(),
         root,
         analysis: Default::default(),
         waves: Default::default(),
@@ -127,7 +126,7 @@ fn play_on(app: &mut App, out: &mut MixerSource) {
     let mut counts: Vec<usize> = app.areas.spectra.iter().map(|&(w, m)| bar_layout(w, m).0).collect();
     counts.dedup();
     let tap = app.audio.as_ref().unwrap().tap.clone();
-    app.analyzer.update(&tap, true, &counts, 1.0 / 60.0);
+    app.analyzer.update(app.tap_reader.read(&tap, true), tap.sample_rate(), &counts, 1.0 / 60.0);
 }
 
 /// What drawing `frames` frames after the first allocates in all, and the last one's text.

@@ -53,7 +53,8 @@ const base: PageProps['data'] = {
 	firstRun: null,
 	summary: { others: null, hasBookings: true },
 	nights: nights([]),
-	onboarding: null
+	onboarding: null,
+	locallibrary: { statsAt: null, sets: null }
 };
 
 const open = (data: Partial<PageProps['data']>) => render(Page, { params: {}, form: null, data: { ...base, ...data } });
@@ -277,17 +278,6 @@ it('drops the checklist once every step is done', async () => {
 });
 
 it('suggests freshening up an act when all is quiet', async () => {
-	await open({
-		summary: { others: null, hasBookings: false },
-		projects: Promise.resolve([{ ...act, profile: { ...act.profile, name: 'Neon Tide' } }])
-	});
-
-	await expect
-		.element(page.getByRole('link', { name: 'Neon Tide' }))
-		.toHaveAttribute('href', '/dashboard/projects/neon-tide');
-});
-
-it('suggests freshening up an act when all is quiet', async () => {
 	const neon = { ...act, profile: { ...act.profile, name: 'Neon Tide' } };
 
 	await open({ summary: { others: null, hasBookings: false }, projects: Promise.resolve([neon]) });
@@ -313,4 +303,67 @@ it("says when the account's server can't keep private data", async () => {
 	await expect
 		.element(page.getByRole('link', { name: 'see what it keeps' }))
 		.toHaveAttribute('href', '/dashboard/account/data');
+});
+
+const library = () => page.getByRole('region', { name: 'locallibrary' });
+
+const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
+
+it('offers locallibrary to someone who has published nothing from it, under the checklist', async () => {
+	await open({ onboarding: Promise.resolve(fresh) });
+
+	await expect
+		.element(library().getByRole('link', { name: 'Get locallibrary' }))
+		.toHaveAttribute('href', '/tools/locallibrary');
+	await expect
+		.element(library().getByRole('link', { name: 'Preview a mix export' }))
+		.toHaveAttribute('href', '/mixes/preview');
+
+	const [checklist, card] = [page.getByRole('region', { name: 'Your checklist' }).element(), library().element()];
+
+	expect(checklist.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+it('says when stats were published, and how to publish sets', async () => {
+	await open({ locallibrary: { statsAt: hoursAgo(48), sets: null } });
+
+	await expect.element(library().getByText('Published 2 days ago')).toBeInTheDocument();
+	await expect.element(library().getByText('Not published yet.')).toBeInTheDocument();
+	await expect
+		.element(library().getByRole('link', { name: 'How to publish' }))
+		.toHaveAttribute('href', '/tools/locallibrary/docs/account#publishing');
+	await expect.element(library().getByRole('link', { name: 'Get locallibrary' })).not.toBeInTheDocument();
+	await expect.element(library().getByRole('link', { name: 'Preview a mix export' })).toBeInTheDocument();
+});
+
+it('links the newest set once stats and sets are published, and stays once the checklist is done', async () => {
+	await open({
+		locallibrary: {
+			statsAt: hoursAgo(48),
+			sets: { href: '/@neon.test/sets/3kset', name: 'Tidal Hours', at: hoursAgo(3) }
+		}
+	});
+
+	await expect.element(library().getByText('Published 3 hours ago')).toBeInTheDocument();
+	await expect
+		.element(library().getByRole('link', { name: 'Tidal Hours' }))
+		.toHaveAttribute('href', '/@neon.test/sets/3kset');
+	await expect.element(library().getByText('Not published yet.')).not.toBeInTheDocument();
+	await expect.element(page.getByRole('region', { name: 'Your checklist' })).not.toBeInTheDocument();
+});
+
+it('says sets are published even when they do not say when', async () => {
+	await open({
+		locallibrary: { statsAt: null, sets: { href: '/@neon.test/sets/3kset', name: 'Late show', at: null } }
+	});
+
+	await expect.element(library().getByText('Published', { exact: true })).toBeInTheDocument();
+	await expect.element(library().getByRole('link', { name: 'How to publish' })).toBeInTheDocument();
+});
+
+it('holds room for what was published while it streams', async () => {
+	await open({ locallibrary: new Promise(() => {}) });
+
+	await expect.element(library().getByRole('status', { name: 'Loading what you published' })).toBeInTheDocument();
+	await expect.element(library().getByRole('link', { name: 'Preview a mix export' })).toBeInTheDocument();
 });

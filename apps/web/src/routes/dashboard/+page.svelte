@@ -1,5 +1,6 @@
 <script lang="ts">
 	import EmptyState from '#lib/components/EmptyState.svelte';
+	import LocallibraryCard from '#lib/components/LocallibraryCard.svelte';
 	import NeedsList from '#lib/components/NeedsList.svelte';
 	import NightList from '#lib/components/NightList.svelte';
 	import NightsFailed from '#lib/components/NightsFailed.svelte';
@@ -22,6 +23,8 @@
 	const summary = resolved(() => data.summary, null);
 
 	const onboarding = resolved(() => data.onboarding, null);
+
+	const locallibrary = resolved(() => data.locallibrary, null);
 
 	const needs = $derived(rows.value && [...rows.value, ...access.value]);
 
@@ -104,4 +107,6 @@
 			{/if}
 		{/await}
 	{/if}
+
+	<LocallibraryCard status={locallibrary.value} />
 </div>

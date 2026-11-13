@@ -5,6 +5,7 @@ use filetime::FileTime;
 
 use super::*;
 use crate::model::Library;
+use crate::plugin::AnalysisPart;
 
 fn analyzer(plugin: &str, analyzer: &str) -> Analyzer {
     Analyzer { plugin: plugin.into(), analyzer: analyzer.into(), version: "1".into() }
@@ -14,11 +15,16 @@ fn field(plugin: &str, a: &str, field: &str) -> RoleField {
     RoleField { analyzer: analyzer(plugin, a), field: field.into() }
 }
 
-/// Two analyzers with a key, in that order, one of them with a BPM too, offered on this thread.
+/// Two analyzers with a key and a waveform, in that order, one of them with a BPM too, offered on
+/// this thread.
 fn offer() {
     let offered: Offered = [
-        (Role::Key, vec![field("sound", "tkl", "key"), field("other", "keys", "camelot")]),
-        (Role::Bpm, vec![field("other", "keys", "tempo")]),
+        (RoleOrPart::Role(Role::Key), vec![field("sound", "tkl", "key"), field("other", "keys", "camelot")]),
+        (RoleOrPart::Role(Role::Bpm), vec![field("other", "keys", "tempo")]),
+        (
+            RoleOrPart::Part(AnalysisPart::Waveform),
+            vec![field("sound", "tkl", "wave"), field("other", "keys", "bands")],
+        ),
     ]
     .into_iter()
     .collect();
@@ -46,10 +52,10 @@ fn a_role_is_read_from_the_analyzer_chosen_else_the_first() {
     let key = &all[0];
     assert_eq!(
         (key.role, key.chosen.as_deref(), key.set, key.offered.clone()),
-        (Role::Key, Some("other.keys"), true, vec!["sound.tkl".to_string(), "other.keys".into()])
+        (RoleOrPart::Role(Role::Key), Some("other.keys"), true, vec!["sound.tkl".to_string(), "other.keys".into()])
     );
-    assert_eq!(all.iter().map(|c| c.role).collect::<Vec<_>>(), Role::ALL, "every role");
-    let none = all.iter().find(|c| c.role == Role::Identity).unwrap();
+    assert_eq!(all.iter().map(|c| c.role).collect::<Vec<_>>(), RoleOrPart::all().collect::<Vec<_>>(), "every role");
+    let none = all.iter().find(|c| c.role == RoleOrPart::Role(Role::Identity)).unwrap();
     assert_eq!((none.chosen.as_ref(), none.set, none.offered.len()), (None, false, 0));
     let kept: Value = serde_json::from_slice(&fs::read(store.root().join("plugins/settings.json")).unwrap()).unwrap();
     assert_eq!(kept, serde_json::json!({ "analysis.roles.key": "other.keys" }));
@@ -64,7 +70,8 @@ fn a_role_is_read_from_the_analyzer_chosen_else_the_first() {
     choose(&store, Role::Key, None).unwrap();
     assert_eq!(name(Some(&store), Role::Key).as_deref(), Some("sound.tkl"));
     choose(&store, Role::Key, Some("other.keys")).unwrap();
-    crate::testing::roles_on_this_thread(Some([(Role::Key, vec![field("sound", "tkl", "key")])].into_iter().collect()));
+    let key = [(RoleOrPart::Role(Role::Key), vec![field("sound", "tkl", "key")])];
+    crate::testing::roles_on_this_thread(Some(key.into_iter().collect()));
     let key = choices(Some(&store)).remove(0);
     assert_eq!((key.chosen.as_deref(), key.set, key.off), (Some("sound.tkl"), false, false));
     crate::testing::roles_on_this_thread(None);
@@ -137,9 +144,9 @@ fn values_are_read_by_role() {
 fn prop_each_role_is_read_from_what_its_last_choice_says(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let offered: Offered = [
-        (Role::Key, vec![field("sound", "tkl", "key"), field("other", "keys", "camelot")]),
-        (Role::Bpm, vec![field("other", "keys", "tempo")]),
-        (Role::Loudness, vec![field("sound", "loud", "lufs")]),
+        (RoleOrPart::Role(Role::Key), vec![field("sound", "tkl", "key"), field("other", "keys", "camelot")]),
+        (RoleOrPart::Role(Role::Bpm), vec![field("other", "keys", "tempo")]),
+        (RoleOrPart::Role(Role::Loudness), vec![field("sound", "loud", "lufs")]),
     ]
     .into_iter()
     .collect();
@@ -151,7 +158,8 @@ fn prop_each_role_is_read_from_what_its_last_choice_says(tc: hegel::TestCase) {
     let roles = [Role::Key, Role::Bpm, Role::Loudness, Role::Identity];
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(6)) {
         let role = tc.draw(gs::sampled_from(roles.to_vec()));
-        let names: Vec<String> = offered.get(&role).into_iter().flatten().map(RoleField::name).collect();
+        let names: Vec<String> =
+            offered.get(&RoleOrPart::Role(role)).into_iter().flatten().map(RoleField::name).collect();
         match tc.draw(gs::integers::<u8>().max_value(2)) {
             0 => {
                 turn_off(&store, role).unwrap();
@@ -174,7 +182,7 @@ fn prop_each_role_is_read_from_what_its_last_choice_says(tc: hegel::TestCase) {
         }
     }
     let want = |role: Role| -> Option<RoleField> {
-        let all = offered.get(&role)?;
+        let all = offered.get(&RoleOrPart::Role(role))?;
         match model.get(&role).cloned().flatten() {
             Some(None) => None,
             Some(Some(name)) => all.iter().find(|f| f.name() == name).cloned(),
@@ -214,5 +222,124 @@ fn prop_each_role_is_read_from_what_its_last_choice_says(tc: hegel::TestCase) {
         .collect();
     assert_eq!(heard.get(&1).cloned().unwrap_or_default(), expected);
     assert!(!heard.contains_key(&2), "off the drive");
+    crate::testing::roles_on_this_thread(None);
+}
+
+/// A part of the analysis is chosen, shown, turned off and put back as a role is, under its own
+/// name, and read from the analyzer chosen for it alone; one without it is refused.
+#[test]
+fn a_part_of_the_analysis_is_chosen_as_a_role_is() {
+    offer();
+    let dir = tempfile::tempdir().unwrap();
+    let store = store(dir.path());
+    let wave =
+        |all: Vec<RoleChoice>| all.into_iter().find(|c| c.role == RoleOrPart::Part(AnalysisPart::Waveform)).unwrap();
+    let default = wave(choices(Some(&store)));
+    assert_eq!((default.chosen.as_deref(), default.set, default.off), (Some("sound.tkl"), false, false));
+    assert_eq!(parts_chosen(Some(&store)), PartsChosen::new(), "none chosen: any analyzer's");
+
+    let chosen = wave(choose(&store, AnalysisPart::Waveform, Some("other.keys")).unwrap());
+    assert_eq!((chosen.chosen.as_deref(), chosen.set, chosen.offered.len()), (Some("other.keys"), true, 2));
+    assert_eq!(
+        parts_chosen(Some(&store)),
+        PartsChosen::from([(AnalysisPart::Waveform, Some(analyzer("other", "keys")))])
+    );
+    let kept: Value = serde_json::from_slice(&fs::read(store.root().join("plugins/settings.json")).unwrap()).unwrap();
+    assert_eq!(kept, serde_json::json!({ "analysis.roles.waveform": "other.keys" }));
+
+    let e = choose(&store, AnalysisPart::Waveform, Some("nope.x")).unwrap_err();
+    assert_eq!(e.to_string(), "nope.x doesn't work out waveform: sound.tkl, other.keys does");
+    let e = choose(&store, AnalysisPart::Grid, Some("sound.tkl")).unwrap_err();
+    assert_eq!(e.to_string(), "no analyzer works out grid");
+    let waveform = parts_chosen(Some(&store)).shift_remove(&AnalysisPart::Waveform);
+    assert_eq!(waveform, Some(Some(analyzer("other", "keys"))), "a refusal changes nothing");
+
+    let off = wave(turn_off(&store, AnalysisPart::Waveform).unwrap());
+    assert_eq!((off.chosen, off.set, off.off), (None, false, true));
+    assert_eq!(parts_chosen(Some(&store)), PartsChosen::from([(AnalysisPart::Waveform, None)]));
+    choose(&store, AnalysisPart::Waveform, None).unwrap();
+    assert_eq!(parts_chosen(Some(&store)), PartsChosen::new());
+    crate::testing::roles_on_this_thread(None);
+}
+
+/// A role or part is named as the settings, `plugin roles` and the sidecar name it, and nothing
+/// else is one.
+#[test]
+fn roles_and_parts_are_named_alike() {
+    assert_eq!("waveform".parse::<RoleOrPart>(), Ok(RoleOrPart::Part(AnalysisPart::Waveform)));
+    assert_eq!("key".parse::<RoleOrPart>(), Ok(RoleOrPart::Role(Role::Key)));
+    let e = "wave".parse::<RoleOrPart>().unwrap_err();
+    assert!(
+        e.starts_with("\"wave\" isn't a role: one of key, bpm,") && e.ends_with(", grid, phrases, waveform"),
+        "{e}"
+    );
+    for r in RoleOrPart::all() {
+        assert_eq!(serde_json::to_value(r).unwrap(), Value::from(r.name()));
+        assert_eq!(serde_json::from_value::<RoleOrPart>(Value::from(r.name())).unwrap(), r);
+    }
+    assert_eq!(RoleOrPart::all().count(), Role::ALL.len() + AnalysisPart::ALL.len());
+}
+
+/// For any sequence of choices (an analyzer, the default again, or none at all) for any part of
+/// the analysis, it's read from the analyzer its last choice named if that has it, from none once
+/// turned off, else from any; `plugin roles` shows the same, its default the first offered; and
+/// choosing one without it is refused and changes nothing.
+#[hegel::test(test_cases = 30)]
+fn prop_each_part_is_read_from_what_its_last_choice_says(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let offered: Offered = [
+        (RoleOrPart::Part(AnalysisPart::Grid), vec![field("sound", "tkl", "grid"), field("other", "keys", "beats")]),
+        (RoleOrPart::Part(AnalysisPart::Waveform), vec![field("other", "keys", "wave")]),
+    ]
+    .into_iter()
+    .collect();
+    crate::testing::roles_on_this_thread(Some(offered.clone()));
+    let dir = tempfile::tempdir().unwrap();
+    let store = store(dir.path());
+    let names = |part: AnalysisPart| -> Vec<String> {
+        offered.get(&RoleOrPart::Part(part)).into_iter().flatten().map(RoleField::name).collect()
+    };
+    // The model: a part's last choice (`None`: the default, `Some(None)`: turned off).
+    let mut model: IndexMap<AnalysisPart, Option<Option<String>>> = IndexMap::new();
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(6)) {
+        let part = tc.draw(gs::sampled_from(AnalysisPart::ALL.to_vec()));
+        match tc.draw(gs::integers::<u8>().max_value(2)) {
+            0 => {
+                turn_off(&store, part).unwrap();
+                model.insert(part, Some(None));
+            }
+            1 => {
+                choose(&store, part, None).unwrap();
+                model.insert(part, None);
+            }
+            _ => {
+                let name = tc.draw(gs::sampled_from(vec!["sound.tkl", "other.keys", "nope.x"]));
+                match choose(&store, part, Some(name)) {
+                    Ok(_) => {
+                        assert!(names(part).iter().any(|n| n == name));
+                        model.insert(part, Some(Some(name.to_string())));
+                    }
+                    Err(_) => assert!(!names(part).iter().any(|n| n == name), "{name} for {part:?}"),
+                }
+            }
+        }
+    }
+    let by_name = |name: &str| offered.values().flatten().find(|f| f.name() == name).map(|f| f.analyzer.clone());
+    let expected: PartsChosen = model
+        .iter()
+        .filter_map(|(part, last)| Some((*part, last.as_ref()?.as_deref().map(|n| by_name(n).unwrap()))))
+        .collect();
+    // In any order.
+    assert_eq!(parts_chosen(Some(&store)), expected);
+    for c in choices(Some(&store)) {
+        let RoleOrPart::Part(part) = c.role else { continue };
+        let last = model.get(&part).cloned().flatten();
+        let want = match &last {
+            Some(None) => None,
+            Some(Some(name)) => Some(name.clone()),
+            None => names(part).first().cloned(),
+        };
+        assert_eq!((c.chosen, c.off, c.offered), (want, last == Some(None), names(part)), "{part:?}");
+    }
     crate::testing::roles_on_this_thread(None);
 }

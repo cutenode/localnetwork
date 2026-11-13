@@ -20,6 +20,7 @@ use super::shared::AccountSignIn;
 use super::token::{about, failed};
 use crate::Error;
 use crate::api::RpcFailure;
+use crate::plugin::RecordWrite;
 use crate::plugin::callbacks::{for_plugin, known_roots};
 use crate::plugin::process::{Live, Plugin};
 use crate::progress::Ctx;
@@ -48,8 +49,9 @@ pub struct AccessQuestion {
 /// when they name it (see [`AskAccess::enter_keys`]).
 pub type EnteredKeys = (IndexMap<String, String>, Option<String>);
 
-/// How a front end asks the user whether a plugin may use more of an account it has access to
-/// (see [`crate::plugin::Options::ask`]).
+/// How a front end asks the user whether a plugin may use more of an account it has access to,
+/// and whether it may write a record in the Atmosphere account (see
+/// [`crate::plugin::Options::ask`]).
 pub trait AskAccess: Send + Sync {
     /// Whether the user allows what `question` asks: `None` when they can't be asked here.
     fn allow(&self, question: &AccessQuestion) -> Option<bool>;
@@ -63,6 +65,14 @@ pub trait AskAccess: Send + Sync {
     /// `named`: `None` when they can't be asked here, or don't enter them. Never opens the browser.
     fn enter_keys(&self, start: &AccountSignIn) -> Option<EnteredKeys> {
         let _ = start;
+        None
+    }
+
+    /// Whether the user confirms writing `write` in the Atmosphere account, its record shown to
+    /// them as [`RecordWrite::shown`] has it: `None` when they can't be asked here, and nothing's
+    /// written.
+    fn write_record(&self, write: &RecordWrite) -> Option<bool> {
+        let _ = write;
         None
     }
 }

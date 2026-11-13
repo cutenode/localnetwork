@@ -3,6 +3,7 @@ import { createTestServices } from '#lib/server/testing/core.ts';
 import { newToken } from '#lib/server/auth/session.ts';
 import { openPreview, PREVIEW_COOKIE } from '#lib/server/flags/preview.ts';
 import type { FlagPreview } from '#lib/types.ts';
+import { flagsOff } from '#lib/testing/flags.ts';
 import { callRoute, loadRoute, routeEvent } from '#lib/testing/route-event.ts';
 import type { PageServerData as ListData } from './$types';
 import { actions as listActions, load as loadList } from './+page.server.ts';
@@ -297,7 +298,7 @@ it("previews a flag in the staff member's own browser, and clears it", async () 
 		secure: true,
 		maxAge: 3600
 	});
-	expect(await t.flags.evaluate(ADMIN)).toEqual({ [FLAG]: false });
+	expect(await t.flags.evaluate(ADMIN)).toEqual({ ...flagsOff, [FLAG]: false });
 
 	const off = await preview('off', { [FLAG]: true });
 

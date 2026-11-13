@@ -117,7 +117,7 @@
 			{#if account.sets.length}
 				<section aria-labelledby="epk-sets" class="flex flex-col gap-4">
 					<h2 id="epk-sets" class="m-0 text-heading font-semibold">Recent sets</h2>
-					<DjSets sets={account.sets} limit={6} />
+					<DjSets sets={account.sets} handle={account.handle} limit={6} />
 				</section>
 			{/if}
 		{/each}
