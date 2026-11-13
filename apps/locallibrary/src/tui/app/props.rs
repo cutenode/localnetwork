@@ -1641,10 +1641,15 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
     for step in 0..tc.draw(gs::integers::<usize>().min_value(14).max_value(28)) {
         (app.view, app.modal, app.deck.outputs, app.picking) = (View::Library, None, None, None);
         (app.drive_pane, app.drive_tab) = (DrivePane::List, DrivePane::Info);
-        draw(&mut app);
+        let kind = kinds[step % kinds.len()];
+        // The Library view's areas, which the kinds that show another view (or click nothing)
+        // don't use: those draw what they show themselves.
+        if !matches!(kind, 9 | 12 | 13) {
+            draw(&mut app);
+        }
         let a = &app.areas;
         let mid = |r: Rect| (r.x + r.width / 2, r.y + r.height / 2);
-        match kinds[step % kinds.len()] {
+        match kind {
             13 => {
                 // The Drives view's snapshots, under their header.
                 let record = LibraryRecord {
@@ -1782,7 +1787,7 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
                     continue;
                 }
                 let x = tc.draw(gs::integers::<u16>().max_value(r.width - 1));
-                if kinds[step % kinds.len()] == 6 {
+                if kind == 6 {
                     app.last_seek = Instant::now() - Duration::from_secs(1);
                     mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), (r.x + x, r.y));
                 } else {
