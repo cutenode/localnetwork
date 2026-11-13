@@ -4,7 +4,7 @@ import type { ToolDoc } from './types.ts';
  * A tool's guides from its README and `docs/*.md`, given as an eager `?raw` `import.meta.glob`
  * of them and the tool's folder in the repo. The overview comes first, then the guides in the
  * order it first links them, then any it doesn't link, by title. The overview is the README, or
- * `docs/overview.md` for a tool whose glob leaves out a README written for developers. A README's
+ * `docs/overview.md` for a tool whose glob leaves out a README written for developers. Any file's
  * `## Diagrams` section stays on GitHub: it's for developers, and only GitHub draws Mermaid.
  */
 export function loadDocs(repoDir: string, files: Record<string, string>): ToolDoc[] {

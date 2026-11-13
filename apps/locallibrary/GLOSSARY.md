@@ -127,6 +127,13 @@ _Avoid_: stick, device, volume, USB
 A saved copy of a drive's library in the store.
 _Avoid_: backup, version, commit
 
+**Fingerprint**:
+What a library state goes by: every library file's path and size, and the bytes of each one but the
+audio. `exportLibrary.db` and its WAL count by the library they hold when it can be read, so
+drives with the same export share a fingerprint. `drive verify` finds a state's snapshot by it, and a lineage is a list
+of them. A track's audio fingerprint, which `mix` matches recordings with, is a different thing.
+_Avoid_: hash, checksum, state ID
+
 **View**:
 A temporary, read-only folder of links into the store, laid out as one snapshot's drive tree, with
 nothing copied.
