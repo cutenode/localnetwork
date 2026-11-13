@@ -51,9 +51,9 @@
 <svelte:head><title>{title} · Local Network</title></svelte:head>
 
 <div class="flex max-w-4xl flex-col gap-6">
-	<a href="/dashboard/requests" class="inline-flex items-center gap-1.5 self-start text-small text-fg-muted no-underline hover:text-fg"><ArrowLeft class="size-4" />All submissions</a>
+	<a href="/dashboard/requests" class="inline-flex items-center gap-1.5 self-start text-small text-fg-muted no-underline hover:text-fg"><ArrowLeft class="size-4" />All review requests</a>
 	<header class="flex flex-col gap-3">
-		<Eyebrow>Request</Eyebrow>
+		<Eyebrow>Review request</Eyebrow>
 		<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
 			<h1 class="m-0 text-title font-semibold">{title}</h1>
 			<StatusPill status={request.status} />

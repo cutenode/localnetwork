@@ -19,7 +19,7 @@
 		lede="Every action you take is audited. Each entry goes into your own repo inside Local Network's audit space, and the root account writes a hash-chained copy."
 	/>
 	{#if data.entries.length === 0}
-		<EmptyState title="Nothing yet" body="Requests, bookings and planner changes show up here." />
+		<EmptyState title="Nothing yet" body="Review requests, bookings and planner changes show up here." />
 	{:else}
 		<ol class="card m-0 list-none divide-y divide-line p-0">
 			{#each data.entries as entry (entry.id)}

@@ -46,12 +46,12 @@
 	<PreviewBanner status="archived" />
 </Story>
 
-<Story name="Requests" asChild>
+<Story name="Review requests" asChild>
 	<div class="card max-w-xl p-0">
 		<RequestList requests={[request('halflight', 'pending', 'Halflight'), request('saffron', 'approved', 'Saffron Social'), request('neon', 'rejected', 'Neon Tide')]} />
 	</div>
 </Story>
 
-<Story name="Requests, none" asChild>
+<Story name="Review requests, none" asChild>
 	<div class="card max-w-xl p-0"><RequestList requests={[]} /></div>
 </Story>

@@ -16,7 +16,7 @@
 				{ href: '/dashboard', label: 'Overview', icon: LayoutDashboard, exact: true },
 				{ href: '/dashboard/bookings', label: 'Bookings', icon: CalendarPlus },
 				{ href: '/dashboard/planner', label: 'Planner', icon: NotebookPen },
-				{ href: '/dashboard/requests', label: 'Requests', icon: ClipboardList },
+				{ href: '/dashboard/requests', label: 'Review requests', icon: ClipboardList },
 				{ href: '/dashboard/activity', label: 'Activity', icon: History }
 			]
 		},
@@ -34,7 +34,7 @@
 		{
 			items: [
 				{ href: '/admin', label: 'Overview', icon: LayoutDashboard, exact: true },
-				{ href: '/admin/requests', label: 'Requests', icon: ClipboardCheck, badge: 3 },
+				{ href: '/admin/requests', label: 'Review requests', icon: ClipboardCheck, badge: 3 },
 				{ href: '/admin/projects', label: 'Projects', icon: Disc3 },
 				{ href: '/admin/audit', label: 'Audit log', icon: ScrollText },
 				{ href: '/admin/system', label: 'System', icon: Activity }

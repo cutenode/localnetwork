@@ -10,7 +10,7 @@
 	let { data, form }: PageProps = $props();
 
 	const ROLES: Record<StaffRole, { label: string; hint: string }> = {
-		moderator: { label: 'Moderator', hint: 'Reviews requests, hides projects, and reads the audit log.' },
+		moderator: { label: 'Moderator', hint: 'Decides review requests, hides projects, and reads the audit log.' },
 		admin: { label: 'Admin', hint: 'Everything, including staff and direct edits.' }
 	};
 

@@ -70,7 +70,7 @@
 			<h2 class="m-0 text-emphasis font-semibold">Profile</h2>
 			{#if data.pendingUpdate}
 				<p class="m-0 text-small text-fg-muted">Your proposed changes are waiting for a moderator.</p>
-				<a href="/dashboard/requests/{data.pendingUpdate.rkey}" class="btn-secondary btn-sm self-start">View submission<ArrowRight class="size-4" /></a>
+				<a href="/dashboard/requests/{data.pendingUpdate.rkey}" class="btn-secondary btn-sm self-start">View review request<ArrowRight class="size-4" /></a>
 			{:else}
 				<p class="m-0 text-small text-fg-muted">Changes go to a moderator before they're published.</p>
 				<a href="{base}/profile" class="btn-secondary btn-sm self-start"><Pencil class="size-4" />Propose changes</a>

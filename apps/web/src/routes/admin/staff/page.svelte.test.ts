@@ -51,7 +51,7 @@ describe('the staff page', () => {
 		expect(options.map((option) => option.textContent)).toEqual(['Moderator', 'Admin']);
 		await expect
 			.element(role)
-			.toHaveAccessibleDescription('Reviews requests, hides projects, and reads the audit log.');
+			.toHaveAccessibleDescription('Decides review requests, hides projects, and reads the audit log.');
 
 		await role.selectOptions('Admin');
 

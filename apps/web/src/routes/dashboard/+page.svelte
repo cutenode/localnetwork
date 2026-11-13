@@ -60,7 +60,7 @@
 	{#if onboarding.value}<OnboardingChecklist data={onboarding.value} flags={data.flags} />{/if}
 
 	{#if !data.viewer?.spacesCapable}
-		<p class="notice notice-info m-0">Your account's server can't keep private data for Local Network yet, so Local Network keeps your bookings and submissions for you (<a href="/dashboard/data">see what it keeps</a>) and the planner is off. Once it can, sign out and back in.</p>
+		<p class="notice notice-info m-0">Your account's server can't keep private data for Local Network yet, so Local Network keeps your bookings and review requests for you (<a href="/dashboard/data">see what it keeps</a>) and the planner is off. Once it can, sign out and back in.</p>
 	{/if}
 
 	{#if !needs && count}

@@ -82,7 +82,7 @@ describe('needsYou', () => {
 
 		const rows = await needsYou(f.t, dj, NOW);
 
-		expect(rows.map((row) => row.title)).toEqual(['Reply to Night', 'Update your request']);
+		expect(rows.map((row) => row.title)).toEqual(['Reply to Night', 'Update your review request']);
 		expect(rows[1]).toMatchObject({ action: 'Update', href: `/dashboard/requests/${request.rkey}` });
 		expect(rows[1].detail).toMatch(/^New project: Second Act · Staff asked for changes · /);
 	});

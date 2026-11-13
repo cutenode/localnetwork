@@ -96,7 +96,7 @@ it('lets a DJ ask to be listed in Find DJs, and then says where that stands', as
 	cleanup();
 	await open(profile, false, { listRequest: { rkey: '3req', status: 'pending' } });
 	await expect
-		.element(page.getByRole('link', { name: 'See your request' }))
+		.element(page.getByRole('link', { name: 'See your review request' }))
 		.toHaveAttribute('href', '/dashboard/requests/3req');
 	await expect.element(page.getByRole('button', { name: 'Ask to be listed' })).not.toBeInTheDocument();
 

@@ -10,7 +10,7 @@
 		{
 			items: [
 				{ href: '/admin', label: 'Overview', icon: LayoutDashboard, exact: true },
-				{ href: '/admin/requests', label: 'Requests', icon: ClipboardCheck, badge: data.pendingRequests },
+				{ href: '/admin/requests', label: 'Review requests', icon: ClipboardCheck, badge: data.pendingRequests },
 				{ href: '/admin/projects', label: 'Projects', icon: Disc3 },
 				{ href: '/admin/spaces', label: 'Spaces', icon: UsersRound },
 				{ href: '/admin/audit', label: 'Audit log', icon: ScrollText },

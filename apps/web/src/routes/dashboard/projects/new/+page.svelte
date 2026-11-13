@@ -14,7 +14,7 @@
 	<div class="flex flex-col gap-3">
 		<p class="notice notice-info m-0">A moderator reviews new projects before they go live. You'll see the status on your dashboard. Already listed? <a class="link" href="/projects">Find it</a> and claim it instead.</p>
 		{#if !data.viewer?.spacesCapable}
-			<p class="notice notice-info m-0">Your PDS doesn't support atproto spaces yet, so Local Network will file this request for you from its root account.</p>
+			<p class="notice notice-info m-0">Your PDS doesn't support atproto spaces yet, so Local Network will file this review request for you from its root account.</p>
 		{/if}
 	</div>
 	<ProjectForm {form} values={form?.values ?? {}} sets={data.sets} showMessage geocoder={data.geocoder} draft={draftKey(data.viewer, 'project:new')} />

@@ -25,7 +25,7 @@ const base = {
 	sets: undefined
 };
 
-it('confirms a submission in plain words, without where the record is stored', async () => {
+it('confirms a review request in plain words, without where the record is stored', async () => {
 	await render(Page, { params: { rkey: '3kupdate' }, data: base, form: null });
 
 	await expect.element(page.getByRole('heading', { level: 1 })).toHaveTextContent('Changes: Neon Tide');
