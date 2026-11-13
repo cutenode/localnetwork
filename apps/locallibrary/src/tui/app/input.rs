@@ -194,7 +194,8 @@ impl App {
     }
 
     /// Keys while the help is open: typing narrows it, the arrows move, enter runs the row selected
-    /// and esc closes it (`?` too, with nothing typed).
+    /// (with no key matching what's typed, searches the palette for it) and esc closes it (`?`
+    /// too, with nothing typed).
     fn on_help_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Up => self.help_row = self.help_row.saturating_sub(1),
@@ -205,6 +206,11 @@ impl App {
             KeyCode::Char('?') if self.help_query.is_empty() => self.help = false,
             KeyCode::Enter => {
                 let rows = keymap::help_rows(self, &self.help_query);
+                if rows.is_empty() && !self.help_query.trim().is_empty() {
+                    self.help = false;
+                    let query = std::mem::take(&mut self.help_query);
+                    return self.open_palette_with(&query);
+                }
                 let chosen = rows.get(self.help_row).map(|r| r.binding.act).filter(|a| keymap::runs(*a));
                 if let Some(act) = chosen {
                     self.help = false;
@@ -400,6 +406,8 @@ impl App {
             Act::ProviderSettings => self.provider_settings(),
             Act::CheckSettings => self.check_settings(),
             Act::Fix(i) => self.fix(i),
+            Act::Run(job) => self.run_cli(job),
+            Act::Copy(command) => self.copy_command(command),
             Act::Theme(key) => self.use_theme(key),
             Act::Colours(tier) => self.use_colours(tier),
             Act::Icons(set) => self.use_icons(set),
