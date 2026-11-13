@@ -98,7 +98,7 @@ Source: [`src/lib/server/notifications/outbox.ts`](../../src/lib/server/notifica
 
 ## Inbox and delivery retention
 
-How long inbox items and deliveries last. The hourly `inbox-retention` job deletes them. An item's age counts from when it was made, and opening it or its thread marks it read.
+How long inbox items and deliveries last. The hourly `inbox-retention` job deletes them. An item's age counts from when it was made, and opening its inbox row or its thread marks it read.
 
 ```mermaid
 flowchart LR
