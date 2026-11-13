@@ -2875,7 +2875,7 @@ sequenceDiagram
   C-->>P: tracks with details
   P->>C: GET_ARTIST_PROFILES
   C--)P: ARTIST_PROFILES_PROGRESS, many
-  C-->>P: profiles, failed, error
+  C-->>P: profiles, missing, failed, error
   C->>W: SAVE_GATE
   W->>O: WALK_GATE
   O->>W: ROUND_TRIP, a sign-in tab
