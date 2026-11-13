@@ -293,7 +293,7 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   that has no recent result, with scratch data in `.locallibrary/` that's removed after, keeps the
   result there, and says it did. A drive that had no `.locallibrary/` loses it again if you say no.
   A dry run never does any of this (see [Speed](drives.md#speed) and
-  [the decision](adr/0002-a-plan-may-time-its-drive.md)).
+  [the decision](adr/0004-a-plan-may-time-its-drive.md)).
 - **No silent overwrites.** `library push` refuses to overwrite a drive holding a library state the
   store has never seen (pull it first, or `--force`), `sync` refuses when it can't tell which side
   is newer (without lineage, holding more tracks isn't enough on its own, and a side with fewer
