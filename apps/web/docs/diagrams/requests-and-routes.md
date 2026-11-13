@@ -24,7 +24,9 @@ flowchart TD
   Csrf -- "form post from<br/>another origin" --> Blocked["403"]
   Csrf --> Tool["Tool host check"]
   Tool -- "a tool's own host" --> ToolSite["toolSite answers"]
-  Tool --> Load["Get the app"]
+  Tool --> Moved["Moved page check"]
+  Moved -- "an old account address" --> Redirect["308 to its new address<br/>under /dashboard/account"]
+  Moved --> Load["Get the app"]
   Load -- "it can't start" --> Setup["503 setup page"]
   Load --> Limit["Write limit for this address"]
   Limit -- "over it" --> Slow["429"]
@@ -36,7 +38,7 @@ flowchart TD
   Route --> Out["gzip, security headers,<br/>noindex on unlisted areas,<br/>the one log line for the request"]
 ```
 
-Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/compress.ts`](../../src/lib/server/compress.ts), [`src/lib/server/logger.ts`](../../src/lib/server/logger.ts), [`vite.config.ts`](../../vite.config.ts)
+Source: [`src/hooks.server.ts`](../../src/hooks.server.ts), [`src/lib/server/moved-pages.ts`](../../src/lib/server/moved-pages.ts), [`src/lib/server/http.ts`](../../src/lib/server/http.ts), [`src/lib/server/compress.ts`](../../src/lib/server/compress.ts), [`src/lib/server/logger.ts`](../../src/lib/server/logger.ts), [`vite.config.ts`](../../vite.config.ts)
 
 ## Page loads and form actions
 
@@ -171,9 +173,11 @@ Everything under `/dashboard`. The server hook turns away anyone signed out; pag
 ```mermaid
 flowchart LR
   Dash["/dashboard<br/>any signed-in account"]
-  Dash --> Over["/activity, /profile, /data"]
-  Dash --> Inbox["/inbox, /inbox/settings"]
-  Dash --> Req["/requests, /requests/[rkey]<br/>the requester or staff"]
+  Dash --> Over["/profile, /inbox"]
+  Dash --> Account["/account"]
+  Account --> Yours["/activity, /notifications,<br/>/data, /data/[kind]"]
+  Account --> Req["/requests, /requests/[rkey]<br/>the requester or staff"]
+  Dash -- "308 from /activity, /data,<br/>/requests, /inbox/settings" --> Account
   Dash --> Book["/bookings, /bookings/new,<br/>/bookings/[skey] for participants"]
   Dash --> Plan["/planner, /planner/shows/[rkey]<br/>needs spaces"]
   Dash --> Claim["/claim/[slug], /projects/new"]
@@ -183,7 +187,7 @@ flowchart LR
   Manage --> Kits["/press-kits, /press-kits/new,<br/>/press-kits/[rkey], .../access"]
 ```
 
-Source: [`src/routes/dashboard/+layout.server.ts`](../../src/routes/dashboard/+layout.server.ts), [`src/routes/dashboard/projects/[slug]/+layout.server.ts`](../../src/routes/dashboard/projects/[slug]/+layout.server.ts), [`src/routes/dashboard/account/requests/[rkey]/+page.server.ts`](../../src/routes/dashboard/account/requests/[rkey]/+page.server.ts), [`src/lib/server/planner-page.ts`](../../src/lib/server/planner-page.ts)
+Source: [`src/routes/dashboard/+layout.server.ts`](../../src/routes/dashboard/+layout.server.ts), [`src/lib/server/moved-pages.ts`](../../src/lib/server/moved-pages.ts), [`src/routes/dashboard/projects/[slug]/+layout.server.ts`](../../src/routes/dashboard/projects/[slug]/+layout.server.ts), [`src/routes/dashboard/account/requests/[rkey]/+page.server.ts`](../../src/routes/dashboard/account/requests/[rkey]/+page.server.ts), [`src/lib/server/planner-page.ts`](../../src/lib/server/planner-page.ts)
 
 ## Staff console routes
 
