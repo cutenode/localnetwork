@@ -1,6 +1,6 @@
-//! `plugins.roles*`: which analyzer each field role is read from.
+//! `plugins.roles*`: which analyzer each field role, and each part of the analysis, is read from.
 
-use locallibrary::fields::{Role, roles};
+use locallibrary::fields::roles::{self, RoleOrPart};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -8,7 +8,8 @@ use crate::rpc::methods::Registry;
 
 #[derive(Deserialize, JsonSchema)]
 struct ChooseRole {
-    role: Role,
+    /// The role, or the part of the analysis (`grid`, `phrases`, `waveform`).
+    role: RoleOrPart,
     /// The analyzer to read it from, `<plugin>.<analyzer>` (one with the role); `null` (or left
     /// out) puts it back to its default.
     #[serde(default)]

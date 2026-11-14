@@ -322,7 +322,12 @@ fn set() -> PublishedSet {
 }
 
 fn entry(artist: Option<&str>, title: Option<&str>, start: Option<u32>) -> TracklistEntry {
-    TracklistEntry { artist: artist.map(Into::into), title: title.map(Into::into), start_seconds: start }
+    TracklistEntry {
+        artist: artist.map(Into::into),
+        title: title.map(Into::into),
+        start_seconds: start,
+        ..Default::default()
+    }
 }
 
 fn kind(e: &RpcError) -> (&str, &str) {
@@ -661,6 +666,7 @@ fn tracklist(tc: &TestCase, most: usize) -> Vec<TracklistEntry> {
             artist: name(tc),
             title: name(tc),
             start_seconds: tc.draw(gs::optional(gs::integers::<u32>().max_value(5 * 3600))),
+            ..Default::default()
         })
         .collect()
 }

@@ -29,7 +29,7 @@
 	/** Picks a track by clicking its row away from the title, then lets it go from the keyboard on the title. */
 	const pickRow = async ({ canvasElement }: Context) => {
 		const canvas = within(canvasElement);
-		const title = canvas.getByRole('button', { name: '2 Signal Path Mira Okonkwo' });
+		const title = canvas.getByRole('button', { name: '2 Signal Path' });
 
 		await userEvent.click(canvas.getAllByText('Floor Two')[0]);
 		await expect(title).toHaveAttribute('aria-pressed', 'true');
@@ -54,7 +54,7 @@
 
 		await expect(wheel.queryByText('1A', { ignore: '[aria-hidden="true"] *' })).toBeNull();
 
-		const track = canvas.getByRole('button', { name: '3 Halogen Two Rooms' });
+		const track = canvas.getByRole('button', { name: '3 Halogen' });
 
 		wheel.getByRole('button', { name: '9A: track 3' }).focus();
 		await userEvent.keyboard('a');

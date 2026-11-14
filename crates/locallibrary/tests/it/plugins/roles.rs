@@ -3,7 +3,7 @@
 
 use locallibrary::api::DriveRef;
 use locallibrary::edit::{Edit, TrackFields};
-use locallibrary::fields::roles::RoleField;
+use locallibrary::fields::roles::{RoleField, RoleOrPart};
 use locallibrary::fields::{FieldValue, Role};
 use locallibrary::harmony::Camelot;
 use locallibrary::paths;
@@ -28,16 +28,14 @@ fn roles_are_offered_in_the_order_the_plugins_are() {
     let f =
         Fixture::new(|dir| vec![spec(dir, &heard("echo"), &[]), spec(dir, &heard("second"), &[])], Options::default());
     let offered = f.plugins.roles();
-    let names = |role| offered[&role].iter().map(RoleField::name).collect::<Vec<_>>();
+    let names = |role| offered[&RoleOrPart::Role(role)].iter().map(RoleField::name).collect::<Vec<_>>();
     assert_eq!(
         offered.keys().copied().collect::<Vec<_>>(),
-        [Role::Key, Role::Bpm, Role::KeyConfidence, Role::BpmConfidence]
+        [Role::Key, Role::Bpm, Role::KeyConfidence, Role::BpmConfidence].map(RoleOrPart::Role)
     );
     assert_eq!(names(Role::Key), ["echo.heard", "second.heard"]);
-    assert_eq!(
-        (offered[&Role::Bpm][0].field.as_str(), offered[&Role::Bpm][0].analyzer.version.as_str()),
-        ("tempo", "1")
-    );
+    let bpm = &offered[&RoleOrPart::Role(Role::Bpm)][0];
+    assert_eq!((bpm.field.as_str(), bpm.analyzer.version.as_str()), ("tempo", "1"));
     assert!(Fixture::echo().plugins.roles().is_empty(), "a plugin without roles offers none");
 }
 
@@ -337,7 +335,7 @@ fn prop_writing_what_an_analyzer_doesnt_have_is_refused_case(tc: &hegel::TestCas
         _ => (ApplyFields { analyzer: "nope".into(), ..req }, "not_found".into()),
     };
     let e = f.plugins.plan_apply_fields(&req, &f.store, &Ctx::silent()).unwrap_err();
-    assert_eq!(f.plugins.roles()[&Role::Key][0].name(), "echo.heard");
+    assert_eq!(f.plugins.roles()[&RoleOrPart::Role(Role::Key)][0].name(), "echo.heard");
     assert_eq!(f.plugins.setting_list("echo").unwrap()[0].key, "greeting");
     // Nor does it say how to show what it doesn't have.
     assert!(f.plugins.display("echo", "tone").is_none() && f.plugins.display("nope", "tone").is_none());
