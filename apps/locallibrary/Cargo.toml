@@ -65,8 +65,9 @@ default = ["account", "tui", "playback", "peers"]
 # The Atmosphere account: `account`, publishing (`profile publish`, `sets publish`, `settings
 # publish`, `settings import --from-handle`), posting bug reports (`bug`; without it, `bug` opens
 # GitHub's form), the `account.*` and `*.publish.*` RPC methods and signing in from the player's
-# Profile view. Most of the dependencies (an HTTP client, an async
-# runtime, TLS, the keychain) are for this alone.
+# Profile view. It adds only the library's AT Protocol clients and DNS (its `account` feature): the
+# HTTP client, TLS, the async runtime and the keychain are plugins' too, and `peers` and `tui` each
+# bring more of the dependencies than this does.
 account = ["locallibrary/account"]
 # `store serve` and `store fetch`: copying snapshots between computers over the network.
 peers = ["locallibrary/peers"]
