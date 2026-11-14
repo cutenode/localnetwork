@@ -1,5 +1,9 @@
 //! What a set destination writes of a set: its name, and its tracklist a line a track, as much
-//! of it as fits.
+//! of it as fits; as a YouTube description ([`youtube`]); and what Mixcloud's rules say of its
+//! music ([`mixcloud`]).
+
+pub mod mixcloud;
+pub mod youtube;
 
 use crate::{PublishedSet, TracklistEntry};
 

@@ -47,7 +47,7 @@ impl App {
         }
     }
 
-    /// The first read of the drives answered: with nothing to show, a saved Deck layout opens Browse
+    /// The first read of the drives answered: with nothing to show, a saved player mode opens Browse
     /// over itself, so the empty state shows. Loading a track brings the deck back, as ever.
     pub(super) fn first_answer(&mut self) {
         if self.loaded.is_none() && self.loading.is_none() && self.now.is_none() {

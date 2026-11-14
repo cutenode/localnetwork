@@ -246,7 +246,7 @@ describe('MixReport', () => {
 
 		await page.getByRole('button', { name: '3 Halogen by Two Rooms, 10:10 to 16:20' }).click();
 		await expect
-			.element(page.getByRole('button', { name: '3 Halogen Two Rooms', exact: true }))
+			.element(page.getByRole('button', { name: '3 Halogen', exact: true }))
 			.toHaveAttribute('aria-pressed', 'true');
 		await expect.element(page.getByText(/key clash/).first()).toBeInTheDocument();
 	});

@@ -1,5 +1,7 @@
 #![doc = include_str!("../README.md")]
 
+#[cfg(feature = "analyzer")]
+pub mod analyzer;
 pub mod color;
 mod cues;
 mod palette;

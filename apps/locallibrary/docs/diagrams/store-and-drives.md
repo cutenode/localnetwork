@@ -1,6 +1,6 @@
 # locallibrary diagrams: the store and drives
 
-What's in the store and on a drive, pull, push, copies and checks. The rest are listed in the [README](../../README.md#diagrams).
+What's in the store and on a drive, pull, push, copies, browsing and checks. The rest are listed in the [README](../../README.md#diagrams).
 
 - [Store records](#store-records)
 - [Inside the store folder](#inside-the-store-folder)
@@ -12,6 +12,7 @@ What's in the store and on a drive, pull, push, copies and checks. The rest are 
 - [Serving a store to another computer](#serving-a-store-to-another-computer)
 - [What a fetch does to each library](#what-a-fetch-does-to-each-library)
 - [Pruning and collecting](#pruning-and-collecting)
+- [Browsing a snapshot](#browsing-a-snapshot)
 - [Watching drives](#watching-drives)
 - [A drive's life](#a-drives-life)
 - [Checking drives](#checking-drives)
@@ -69,16 +70,18 @@ flowchart TD
     hub --> plugins["Plugins<br/>plugins/ID/work/, scratch/, settings.json, plugins/settings.json, suggested.json, seen.json"]
     hub --> accounts["Accounts<br/>atmosphere.json, accounts.json, and without a keychain atmosphere-session.json, secrets/"]
     hub --> copies["Its copies<br/>copies.json, and copy.json in a copy"]
-    hub --> locks["Locks<br/>lock, drives.lock, accounts.lock, atmosphere.lock, accounts/, plugins/suggested.lock, each scratch folder's .lock"]
+    hub --> locks["Locks<br/>lock, drives.lock, accounts.lock, atmosphere.lock, views.lock, accounts/, plugins/suggested.lock, each scratch folder's .lock"]
+    hub --> views["Open views<br/>views.json"]
     history ~~~ player
     yours ~~~ art
     worked ~~~ plugins
     player ~~~ accounts
     art ~~~ copies
     plugins ~~~ locks
+    accounts ~~~ views
 ```
 
-Source: [`crates/locallibrary/src/store.rs`](../../../../crates/locallibrary/src/store.rs), [`crates/locallibrary/src/plugin/settings.rs`](../../../../crates/locallibrary/src/plugin/settings.rs), [`crates/locallibrary/src/plugin/accounts/kept.rs`](../../../../crates/locallibrary/src/plugin/accounts/kept.rs), [`crates/locallibrary/src/atmosphere/store.rs`](../../../../crates/locallibrary/src/atmosphere/store.rs), [`crates/locallibrary/src/audio_cache.rs`](../../../../crates/locallibrary/src/audio_cache.rs), [`crates/locallibrary/src/offsite.rs`](../../../../crates/locallibrary/src/offsite.rs)
+Source: [`crates/locallibrary/src/store.rs`](../../../../crates/locallibrary/src/store.rs), [`crates/locallibrary/src/plugin/settings.rs`](../../../../crates/locallibrary/src/plugin/settings.rs), [`crates/locallibrary/src/plugin/accounts/kept.rs`](../../../../crates/locallibrary/src/plugin/accounts/kept.rs), [`crates/locallibrary/src/atmosphere/store.rs`](../../../../crates/locallibrary/src/atmosphere/store.rs), [`crates/locallibrary/src/audio_cache.rs`](../../../../crates/locallibrary/src/audio_cache.rs), [`crates/locallibrary/src/offsite.rs`](../../../../crates/locallibrary/src/offsite.rs), [`crates/locallibrary/src/view.rs`](../../../../crates/locallibrary/src/view.rs)
 
 ## Inside a drive
 
@@ -116,9 +119,11 @@ flowchart LR
     state --> pack["pack.json<br/>what it was packed from"]
     state --> collection["collection.json<br/>what it was exported from"]
     state --> transcodes["transcodes.json<br/>the copies pack made"]
+    state --> writing["writing.json<br/>the new files a write is making"]
+    state --> speed["speed.json<br/>how fast the drive writes"]
 ```
 
-Source: [`crates/locallibrary/src/device.rs`](../../../../crates/locallibrary/src/device.rs), [`crates/locallibrary/src/backup.rs`](../../../../crates/locallibrary/src/backup.rs), [`crates/locallibrary/src/edit.rs`](../../../../crates/locallibrary/src/edit.rs), [`crates/locallibrary/src/pack.rs`](../../../../crates/locallibrary/src/pack.rs), [`crates/locallibrary/src/pack/transcode.rs`](../../../../crates/locallibrary/src/pack/transcode.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs)
+Source: [`crates/locallibrary/src/device.rs`](../../../../crates/locallibrary/src/device.rs), [`crates/locallibrary/src/backup.rs`](../../../../crates/locallibrary/src/backup.rs), [`crates/locallibrary/src/edit.rs`](../../../../crates/locallibrary/src/edit.rs), [`crates/locallibrary/src/pack.rs`](../../../../crates/locallibrary/src/pack.rs), [`crates/locallibrary/src/pack/transcode.rs`](../../../../crates/locallibrary/src/pack/transcode.rs), [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/writing.rs`](../../../../crates/locallibrary/src/writing.rs), [`crates/locallibrary/src/drive_speed.rs`](../../../../crates/locallibrary/src/drive_speed.rs)
 
 ## Saving a drive with pull
 
@@ -133,11 +138,15 @@ flowchart TD
     head -->|"older"| older["Refused: push to update it"]
     head -->|"diverged"| diverged["Refused: force it,<br/>or pull into another library"]
     head -->|"no head yet, descends,<br/>or --force"| import["Import each library file,<br/>reading only what the store lacks"]
-    import --> save["Flush, save the snapshot, move the head"]
+    import --> twin{"Audio the store lacks that rekordbox's<br/>collection holds on the store's volume?"}
+    twin -->|"yes, by size then content"| clone["Cloned from the collection's file,<br/>taking no space of its own"]
+    twin -->|no| copied["From the drive"]
+    clone --> save["Flush, save the snapshot, move the head"]
+    copied --> save
     save --> link["Link the drive: lineage and registry"]
 ```
 
-Source: [`crates/locallibrary/src/sync.rs`](../../../../crates/locallibrary/src/sync.rs), [`crates/locallibrary/src/store.rs`](../../../../crates/locallibrary/src/store.rs), [`src/store_cmd.rs`](../../src/store_cmd.rs)
+Source: [`crates/locallibrary/src/sync.rs`](../../../../crates/locallibrary/src/sync.rs), [`crates/locallibrary/src/device.rs`](../../../../crates/locallibrary/src/device.rs), [`crates/locallibrary/src/twins.rs`](../../../../crates/locallibrary/src/twins.rs), [`crates/locallibrary/src/store.rs`](../../../../crates/locallibrary/src/store.rs), [`src/store_cmd.rs`](../../src/store_cmd.rs)
 
 ## Writing a snapshot with library push
 
@@ -149,13 +158,16 @@ flowchart TD
     scan --> unsaved{"Its state in the store,<br/>or behind the snapshot?"}
     unsaved -->|"no, no --force"| refused["Refused: pull it first"]
     unsaved -->|"yes, or --force"| plan["Plan the files to copy and delete"]
-    plan --> confirm["Confirm"]
+    plan --> stored{"Does the store hold<br/>every file to copy?"}
+    stored -->|no| lacks["Refused, naming the tracks:<br/>see store verify"]
+    stored -->|yes| estimate["A big write to an external drive says how long<br/>it'll take, timing the drive first if it needs to"]
+    estimate --> confirm["Confirm"]
     confirm --> copy["Copy from the store's objects,<br/>as a sync copies"]
     copy --> lineage["The drive takes on the snapshot's<br/>lineage and library"]
     lineage --> register["Update the registry"]
 ```
 
-Source: [`crates/locallibrary/src/sync.rs`](../../../../crates/locallibrary/src/sync.rs), [`src/library_cmd.rs`](../../src/library_cmd.rs)
+Source: [`crates/locallibrary/src/sync.rs`](../../../../crates/locallibrary/src/sync.rs), [`crates/locallibrary/src/api/drive_speed.rs`](../../../../crates/locallibrary/src/api/drive_speed.rs), [`crates/locallibrary/src/drive_speed.rs`](../../../../crates/locallibrary/src/drive_speed.rs), [`src/library_cmd.rs`](../../src/library_cmd.rs)
 
 ## Copies of the store
 
@@ -171,7 +183,7 @@ flowchart TD
     dest -->|"drive verify --from --repair"| drive["A damaged drive"]
     order["Order of a copy: files, then snapshots<br/>with all their files, then libraries.json"] -.-> folder
     order -.-> dest
-    leftout["Never copied: accounts, plugins' folders,<br/>mix.json, store-prefs.json, tui.json,<br/>embed-backups/, locks, caches, reports"] -.-> folder
+    leftout["Never copied: accounts, plugins' folders,<br/>mix.json, store-prefs.json, tui.json,<br/>embed-backups/, views.json, locks, caches, reports"] -.-> folder
     leftout -.-> dest
 ```
 
@@ -222,11 +234,33 @@ What `store prune` keeps, and what `store gc` frees.
 flowchart TD
     prune["store prune"] --> keep["Keeps each library's latest, labelled ones,<br/>what each drive in use last held, the newest with<br/>each history list, those it can't read, and what<br/>--keep-last, --keep-daily, --keep-weekly ask for"]
     keep --> gone["The rest go, their parents kept in pruned.json"]
+    keep --> views["Warns first of an open view of one that goes"]
     gone -->|"then, in the same run"| gc["store gc"]
     gc --> freed["Deletes snapshots of no library (not labelled,<br/>a head, or a kept one's parent), objects no snapshot<br/>uses, what cut-off writes left, unread caches,<br/>plugins' abandoned scratch folders"]
 ```
 
-Source: [`crates/locallibrary/src/retention.rs`](../../../../crates/locallibrary/src/retention.rs), [`crates/locallibrary/src/store.rs`](../../../../crates/locallibrary/src/store.rs), [`crates/locallibrary/src/api/snapshots.rs`](../../../../crates/locallibrary/src/api/snapshots.rs)
+Source: [`crates/locallibrary/src/retention.rs`](../../../../crates/locallibrary/src/retention.rs), [`crates/locallibrary/src/store.rs`](../../../../crates/locallibrary/src/store.rs), [`crates/locallibrary/src/api/snapshots.rs`](../../../../crates/locallibrary/src/api/snapshots.rs), [`crates/locallibrary/src/view.rs`](../../../../crates/locallibrary/src/view.rs)
+
+## Browsing a snapshot
+
+How `store browse` opens a past version of a drive as a folder, with nothing copied, and how it's removed. Not on Windows.
+
+```mermaid
+flowchart TD
+    browse["store browse SNAPSHOT"] --> folder["A temporary folder, or a new<br/>or empty one with --to"]
+    folder --> listed["Listed in views.json, under views.lock"]
+    listed --> links["The snapshot's drive tree as links into the store:<br/>hard links on the store's disk, symlinks elsewhere"]
+    links --> sealed["Each stored file it links and each folder made read-only.<br/>A disk that can't keep that refuses"]
+    sealed --> keep{"--keep?"}
+    keep -->|no| wait["Removed on Ctrl-C"]
+    keep -->|yes| left["Stays until store unbrowse"]
+    views["store views"] -.->|"lists them, with broken links"| listed
+    unbrowse["store unbrowse, one or all"] --> removed["Its links and folders deleted, files someone<br/>added left, its entry dropped"]
+    left --> unbrowse
+    prune["store prune of its snapshot"] --> warned["Warns, then goes ahead: symlinks to files nothing<br/>else uses break, hard links hold their space"]
+```
+
+Source: [`crates/locallibrary/src/view.rs`](../../../../crates/locallibrary/src/view.rs), [`crates/locallibrary/src/fsutil.rs`](../../../../crates/locallibrary/src/fsutil.rs), [`crates/locallibrary/src/retention.rs`](../../../../crates/locallibrary/src/retention.rs), [`src/store_cmd.rs`](../../src/store_cmd.rs)
 
 ## Watching drives
 
@@ -289,7 +323,7 @@ flowchart LR
     doctor -->|"--analyze"| opinions["Opinions on tempo, key<br/>and level, never a problem"]
     verify["drive verify"] --> bytes["Every byte against a snapshot<br/>or the hash cache"]
     fsck["drive fsck"] --> os["The OS's file system check"]
-    storeverify["store verify"] --> objects["Every stored file<br/>against its hash"]
+    storeverify["store verify"] --> objects["Every stored file against its hash,<br/>every snapshot against its id"]
     check --> plugins["Plugins' checks"]
     doctor --> plugins
     db --> four["Exit 4 on problems"]
@@ -308,8 +342,10 @@ What `drive verify` compares with, and what `--repair` writes back.
 
 ```mermaid
 flowchart TD
-    verify["drive verify reads every byte"] --> refs["Against a snapshot of this state, else<br/>the hash cache, else an older snapshot"]
+    verify["drive verify reads every byte"] --> refs["Against a snapshot of this state, else the hash cache<br/>of what was written or verified, else an older snapshot,<br/>else what a scan read, which shows a change, never a match"]
+    verify --> db["exportLibrary.db and its WAL: against a snapshot<br/>holding the same library, whatever their bytes"]
     refs --> found["Damaged, unreadable, missing"]
+    db --> found
     found -->|"--repair"| again["Each checked again: intact, or<br/>no good copy, is skipped"]
     again --> source["A copy from the store, --against a drive,<br/>or --from a destination, fetched first"]
     source --> write["The one write routine, no backup,<br/>each copy checked as it's staged"]
@@ -326,11 +362,11 @@ The two commands that remove what nothing needs.
 flowchart TD
     fix["doctor --fix-orphans"] --> orphans["Audio, analysis and artwork<br/>no track in either database uses"]
     orphans --> commit["Confirmed, then the one write routine: backed up,<br/>undo takes it back, copied onto clones"]
-    tidy["drive tidy"] --> clutter["._*, .DS_Store, Thumbs.db, .TemporaryItems,<br/>Spotlight, .fseventsd, cut-off temp files,<br/>the trash with --empty-trash"]
+    tidy["drive tidy"] --> clutter["._*, .DS_Store, Thumbs.db, .TemporaryItems,<br/>Spotlight, .fseventsd, cut-off temp files, the files<br/>a cut-off write noted, the trash with --empty-trash"]
     clutter --> gone["Confirmed, then deleted: no backup.<br/>It reaches outside PIONEER/ and Contents/"]
 ```
 
-Source: [`crates/locallibrary/src/doctor.rs`](../../../../crates/locallibrary/src/doctor.rs), [`crates/locallibrary/src/api/doctor.rs`](../../../../crates/locallibrary/src/api/doctor.rs), [`crates/locallibrary/src/tidy.rs`](../../../../crates/locallibrary/src/tidy.rs), [`crates/locallibrary/src/paths.rs`](../../../../crates/locallibrary/src/paths.rs)
+Source: [`crates/locallibrary/src/doctor.rs`](../../../../crates/locallibrary/src/doctor.rs), [`crates/locallibrary/src/api/doctor.rs`](../../../../crates/locallibrary/src/api/doctor.rs), [`crates/locallibrary/src/tidy.rs`](../../../../crates/locallibrary/src/tidy.rs), [`crates/locallibrary/src/writing.rs`](../../../../crates/locallibrary/src/writing.rs), [`crates/locallibrary/src/paths.rs`](../../../../crates/locallibrary/src/paths.rs)
 
 ## What's using a drive
 

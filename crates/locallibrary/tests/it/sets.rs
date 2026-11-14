@@ -14,7 +14,7 @@ use locallibrary::api::{
     TrackPlaysQuery,
 };
 use locallibrary::error::Reason;
-use locallibrary::fields::roles::RoleField;
+use locallibrary::fields::roles::{RoleField, RoleOrPart};
 use locallibrary::fields::{Analyzer, FieldStore, FieldValue, Fields, Role};
 use locallibrary::mix::{MixInfo, MixReport, Play, report};
 use locallibrary::progress::Ctx;
@@ -208,7 +208,7 @@ fn tracks_take_what_their_tags_lack_from_the_ids_an_analyzer_kept() {
     let s = setup();
     let t = &s.tracks;
     let analyzer = Analyzer { plugin: "mb".into(), analyzer: "ids".into(), version: "1".into() };
-    let field = |r: Role| (r, vec![RoleField { analyzer: analyzer.clone(), field: r.name().into() }]);
+    let field = |r: Role| (RoleOrPart::Role(r), vec![RoleField { analyzer: analyzer.clone(), field: r.name().into() }]);
     locallibrary::testing::roles_on_this_thread(Some(MusicBrainzIds::ROLES.map(field).into_iter().collect()));
     let kept = |track: &Track, recording: String, artists: Vec<Uuid>, isrc: Option<&str>| {
         let fields: Fields = [
@@ -402,8 +402,10 @@ fn sets_are_written_out_and_files_kept() {
         std::fs::read_to_string(&list).unwrap().lines().filter(|l| !l.starts_with('#')).map(String::from).collect();
     assert_eq!(paths, [&t[0].file_path[1..], &t[1].file_path[1..]]);
 
-    let e = export(SetFormat::Youtube, None, false).unwrap_err();
-    assert!(e.to_string().starts_with("track 3 (Someone - Dubplate) has no start time"), "{e}");
+    // YouTube's description lists a track without a start time without one.
+    let youtube = export(SetFormat::Youtube, None, false).unwrap().text.unwrap();
+    assert!(youtube.starts_with("00:00 "), "{youtube}");
+    assert!(youtube.ends_with("\nSomeone - Dubplate\n"), "{youtube}");
 }
 
 #[test]
