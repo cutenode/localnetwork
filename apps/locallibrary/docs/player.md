@@ -30,9 +30,9 @@ needs.
   playing track, or with nothing playing the selected one, show green with how they mix beside
   them: `=` the same key, `±` a step round the Camelot wheel, `↔` its relative. With a track
   playing, ΔBPM says how far each track's tempo is from it: the player has one deck, so the track
-  playing is the master. Tracks heard for 30 seconds this session are dimmed, and `U` brings them
-  back. Each row has its cover's two main colours, read as the row comes on screen. **Browse**, at
-  the top of the tree, groups the drive like a CDJ's top menu:
+  playing is the master. Tracks heard for 30 seconds since the player started are dimmed, and `U`
+  brings them back. Each row has its cover's two main colours, read as the row comes on screen.
+  **Browse**, at the top of the tree, groups the drive like a CDJ's top menu:
   by artist, album, genre, key, BPM (5-BPM bands), rating, colour, month added, My Tag, the sets in
   the store (newest first, each with its tracks on this drive in the order played, and a count of
   the rest), the history lists players recorded, and problems.
@@ -110,7 +110,7 @@ needs.
   does).
 - **Imports**: "import …" in the palette (or a drive's `e` menu) reads a file with a plugin's
   importer (a form asks for the file and the format's options), then shows what it adds to the
-  drive's tracks and the sessions it keeps, with how many tracks it couldn't find, confirmed like
+  drive's tracks and the histories it keeps, with how many tracks it couldn't find, confirmed like
   any edit.
 - **Providers**: "fetch cover art…" and "fetch track details…" in the actions menu (`e`) and the
   palette ask the plugins' providers about the marked or selected tracks (a form says which

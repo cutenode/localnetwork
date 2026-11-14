@@ -41,7 +41,7 @@ Source: [`crates/locallibrary/src/publish.rs`](../../../../crates/locallibrary/s
 
 ## What each command publishes
 
-The record types locallibrary writes to the DJ account. Per-drive overrides, notes, paths and sessions stay on this computer.
+The record types locallibrary writes to the DJ account. Per-drive overrides, notes, paths and histories stay on this computer.
 
 ```mermaid
 flowchart LR

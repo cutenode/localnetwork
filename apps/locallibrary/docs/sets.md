@@ -85,29 +85,29 @@ drives, `pull` also saves each mounted drive of the library the way step 1 does.
 ## History and play counts
 
 Players start a history list every time a drive goes in, and log any track that plays for about a
-minute, practice and track checks too: each list is a session. rekordbox imports and deletes them on
-its next sync, but every `locallibrary pull` keeps the drive's databases: `locallibrary plays lists
-Home --all` lists every session the store ever saw (once, however many drives or snapshots held it),
-each with its id, how many tracks and how long, when it was recorded and the set made from it. An
-id, or its first 4 or more characters, names a session wherever a list's name does: `locallibrary
-plays export SD "HISTORY 012" -o set.txt` (or `plays export SD 1a2b3c4d -o set.txt`, adding
-`--all` for a session only the store has) writes one as `01. Artist - Title` (or CSV, M3U8).
-`locallibrary plays import friday.csv` keeps a log from Beat Link Trigger's Playlist Writer as a
-session, with the time each track played. `locallibrary plays lists SD --delete` clears the lists
-from the drive, like a player's ALL DELETE, but only those the store has kept. `locallibrary plays
-stats Home --since 3f9a2c` (or `--since 2026-09`) shows the most and never played tracks and what
-was played since a snapshot. `locallibrary export` writes playlists and folders the same way, and
-`locallibrary diff REKORDBOX BACKUP --playlist Sets/Friday` shows which entries were added, removed
-or moved between two drives, libraries or snapshots.
+minute, practice and track checks too (the commands call each history a session). rekordbox imports
+and deletes them on its next sync, but every `locallibrary pull` keeps the drive's databases:
+`locallibrary plays lists Home --all` lists every history the store ever saw (once, however many
+drives or snapshots held it), each with its id, how many tracks and how long, when it was recorded
+and the set made from it. An id, or its first 4 or more characters, names a history wherever a
+list's name does: `locallibrary plays export SD "HISTORY 012" -o set.txt` (or `plays export SD
+1a2b3c4d -o set.txt`, adding `--all` for a history only the store has) writes one as `01. Artist -
+Title` (or CSV, M3U8). `locallibrary plays import friday.csv` keeps a log from Beat Link Trigger's
+Playlist Writer as a history, with the time each track played. `locallibrary plays lists SD
+--delete` clears the lists from the drive, like a player's ALL DELETE, but only those the store has
+kept. `locallibrary plays stats Home --since 3f9a2c` (or `--since 2026-09`) shows the most and
+never played tracks and what was played since a snapshot. `locallibrary export` writes playlists
+and folders the same way, and `locallibrary diff REKORDBOX BACKUP --playlist Sets/Friday` shows
+which entries were added, removed or moved between two drives, libraries or snapshots.
 
 ## Sets
 
-A session is what a player logged; a set is what you played, where and when, and only you can say
-which sessions were one. A set can span several sessions and drives (a play is logged on the drive
+A history is what a player logged; a set is what you played, where and when, and only you can say
+which histories were one. A set can span several histories and drives (a play is logged on the drive
 the file came from, whichever deck played it), and a recording of it says more than any of them.
 
 ```bash
-locallibrary sets suggest                     # sessions that look like sets, with the evidence
+locallibrary sets suggest                     # histories that look like sets, with the evidence
 locallibrary sets new --from 1a2b3c4d --from 5e6f7a8b --title Friday --venue Warehouse \
   --city Leeds --country GB --date 2026-10-03
 locallibrary sets new --recording friday.wav --title Friday   # the tracks a recording plays, timed
@@ -120,13 +120,13 @@ locallibrary sets played "never grow old"     # when and where you played a trac
 locallibrary sets publish Friday --dry-run    # see Publishing
 ```
 
-`sets suggest` lists the sessions in no set that look like sets and says why: how many tracks, a
+`sets suggest` lists the histories in no set that look like sets and says why: how many tracks, a
 drive you take to sets (`drive role <drive> set`), a recording that has its tracks, several drives.
-Sessions one pull saved, whose windows overlap, or that are still only on drives of one library go
+Histories one pull saved, whose windows overlap, or that are still only on drives of one library go
 together as one night when their windows span 36 hours or less; wider windows (a drive's first pull,
-or a week between pulls) can't tell nights apart, so each session of 3 tracks or more is suggested
-on its own. It prints the `sets new` command for each; `--dismiss ID` says a session wasn't one.
-`sets new` takes sessions in play order, a recording (identified as `mix` identifies one), both, or
+or a week between pulls) can't tell nights apart, so each history of 3 tracks or more is suggested
+on its own. It prints the `sets new` command for each; `--dismiss ID` says a history wasn't one.
+`sets new` takes histories in play order, a recording (identified as `mix` identifies one), both, or
 neither (then `sets edit --insert` adds tracks). A recording's tracklist wins: it has start times,
 catches tracks played for less than a minute and leaves out what was only previewed in headphones,
 and the logged tracks it doesn't hear are pointed out. Sets are kept in the store's `sets.json` with
@@ -134,11 +134,11 @@ a copy of each track's details, so they read without the drive: with the MusicBr
 is tagged with (as MusicBrainz Picard tags them), read from a mounted drive when the set is made or
 edited.
 
-Players have no clock, so a session's date is a window: after locallibrary last saw the drive
+Players have no clock, so a history's date is a window: after locallibrary last saw the drive
 without it, before it first saw it with it (`on 3 Oct 2026` when both fall on one day, `between 29
 Sep and 3 Oct 2026` otherwise). `watch` keeps the windows tight by saving drives as they're plugged
-in. A set's day is the one you give with `--date`, else the recording's, else the day its sessions'
-windows agree on; failing those, it's dated the day locallibrary first saw one of its sessions (or
+in. A set's day is the one you give with `--date`, else the recording's, else the day its histories'
+windows agree on; failing those, it's dated the day locallibrary first saw one of its histories (or
 today), with a note to give the real one (`sets edit --date`). A log from Beat Link Trigger has real
 times, so a set made from it is timed too.
 
@@ -256,8 +256,8 @@ locallibrary profile document -o profile.json # what a public profile would show
 (`locallibrary sets`), each track's analysis (BPM, key, phrase mood, cues) and tags, and My
 Settings. A set's tracks are found by file in every library it reads (the drives, the store's
 snapshots and every history list `pull` archived), so their analysis counts; a track none of them
-has still counts, from what the set kept. Until you declare a set, the sessions players record stand
-in: history lists with 5 tracks or more (`--min-tracks`). Practice lands in those too, so the report
+has still counts, from what the set kept. Until you declare a set, the histories players record
+stand in: those with 5 tracks or more (`--min-tracks`). Practice lands in those too, so the report
 calls them sessions and the public document never counts them. With nothing played to count, the
 collection is described, and the same recording on several drives or in several files counts once.
 Without drives named, it reads the mounted drives the store knows (ones you've pulled or synced), so
@@ -268,7 +268,7 @@ deleted, nor one track logged twice.
 | Section | What it says |
 | --- | --- |
 | Summary | a headline ("Techno and House · 122–128 BPM · 48 sets") and the traits the numbers support, each with its evidence: mixes in key, smooth tempo changes, builds the tempo through a set, genre-hopping, mostly one genre, plays new releases or older records, rarely repeats tracks, has signature tracks, cues up every track, plays with quantize off, a wide pitch range |
-| Sets | how many, how long, when they were played (until you declare sets: sessions, never published) |
+| Sets | how many, how long, when they were played (until you declare sets: histories, which the report calls sessions, never published) |
 | Tempo | the BPM range of the middle 80% of plays, and a histogram |
 | Set shape | opening against closing tempo, and whether sets build, hold or wind down |
 | Mixing | how many transitions are harmonic on the Camelot wheel (same key, ±1, relative, energy boost), tempo steps, genre changes |

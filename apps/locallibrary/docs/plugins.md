@@ -487,8 +487,8 @@ where a track has none (a key written as rekordbox names it, a BPM to hundredths
 cue slot (or at a place) a track has none in (one a cue edit can't set, say a colour or a loop it
 doesn't take, is left out, saying why), and the My Tags a track lacks. It's one edit, shown
 and asked about as any is (`--dry-run`), and `undo` takes it back. The plays it logged are kept in
-the store as sessions, as Beat Link Trigger's are (`plays`), each play found on the drive or kept
-as the log names it; the same log imported again replaces its session. In the player, a drive's
+the store as histories, as Beat Link Trigger's are (`plays`), each play found on the drive or kept
+as the log names it; the same log imported again replaces its history. In the player, a drive's
 menu and the palette have "import ...", a form asking for the file. An importer plans nothing
 itself and needs no capability to: it only answers what it read.
 

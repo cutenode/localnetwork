@@ -66,7 +66,7 @@ on Windows). The Linux build needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12)
 ### Shell completion and man pages
 
 Tab completes commands and flags, and also the drives mounted now, their playlist paths, My Tags and
-history lists, the libraries, sets and sessions in the store (a library's name wherever one is
+history lists, the libraries, sets and histories in the store (a library's name wherever one is
 taken), player models and the steps `refresh --skip` leaves out: the shell asks `locallibrary`
 itself as you type. Load the script from your
 shell's startup file (rather than saving it once), so it always matches the `locallibrary` you have:
