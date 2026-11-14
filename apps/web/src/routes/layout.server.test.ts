@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { createTestServices } from '#lib/server/testing/core.ts';
+import { flagsOff } from '#lib/testing/flags.ts';
 import { loadRoute } from '#lib/testing/route-event.ts';
 import type { LayoutServerData } from './$types';
 import { load } from './+layout.server.ts';
@@ -30,7 +31,7 @@ it('gives someone signed out no viewer and no requests to review', async () => {
 	expect(await loadRoute<LayoutServerData>(load, { app: t, url: '/' })).toEqual({
 		viewer: null,
 		pendingRequests: 0,
-		flags: { parityCanary: false }
+		flags: flagsOff
 	});
 });
 
@@ -47,12 +48,12 @@ it('counts the pending requests for staff only', async () => {
 	expect(await loadRoute<LayoutServerData>(load, { app: t, viewer: admin, url: '/' })).toEqual({
 		viewer: admin,
 		pendingRequests: 1,
-		flags: { parityCanary: false }
+		flags: flagsOff
 	});
 	expect(await loadRoute<LayoutServerData>(load, { app: t, viewer: dj, url: '/' })).toEqual({
 		viewer: dj,
 		pendingRequests: 0,
-		flags: { parityCanary: false }
+		flags: flagsOff
 	});
 });
 
@@ -67,12 +68,12 @@ it('lets a session that has to sign in again load the login page itself', async 
 	expect(await loadNeedingReauth('/login')).toEqual({
 		viewer: null,
 		pendingRequests: 0,
-		flags: { parityCanary: false }
+		flags: flagsOff
 	});
 });
 
 it('hands pages the flags the server hook worked out', async () => {
 	const data = await loadRoute<LayoutServerData>(load, { app: t, url: '/', flags: { parityCanary: true } });
 
-	expect(data.flags).toEqual({ parityCanary: true });
+	expect(data.flags).toEqual({ ...flagsOff, parityCanary: true });
 });

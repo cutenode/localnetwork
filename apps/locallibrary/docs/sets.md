@@ -145,7 +145,8 @@ times, so a set made from it is timed too.
 `sets edit` positions name the tracklist as it was before the edit, so `--drop 1 --move 5:2` puts
 the track that was fifth just before the one that was second. `--insert` looks the track up on
 the drive (`--drive`) and otherwise takes it as typed. `sets export` writes text, Mixcloud's
-tracklist (its rules checked), a CUE sheet (with the recording attached), YouTube chapters,
+tracklist (its rules checked), a CUE sheet (with the recording attached), YouTube's description
+(what the youtube plugin uploads: a time that would break YouTube's chapters is left off its line),
 1001Tracklists, [Podcasting 2.0
 chapters](https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/examples/chapters/jsonChapters.md)
 for podcast apps (`chapters`: a chapter for each track with a start time, in the order they play),

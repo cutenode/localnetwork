@@ -11,6 +11,7 @@ import {
 	type RootRepoClient,
 	type StoredRecord
 } from '../atproto/repo-client';
+import { rkeyOf } from '../atproto/spaces';
 import type { RecordEvent } from './happyview';
 
 /** The most writes a PDS takes in one applyWrites, to a repo or a space (MAX_WRITES in @atproto/pds). */
@@ -55,7 +56,7 @@ export class FakeNetwork {
 		return this.records
 			.entries()
 			.filter(([key]) => key.startsWith(`${did}|${collection}|`))
-			.map(([, { uri, cid, value }]) => ({ did, collection, rkey: uri.split('/').at(-1)!, cid, record: value }))
+			.map(([, { uri, cid, value }]) => ({ did, collection, rkey: rkeyOf(uri), cid, record: value }))
 			.toArray();
 	}
 

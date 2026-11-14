@@ -3,10 +3,12 @@ mod publishing;
 
 use hegel::TestCase;
 use hegel::generators as gs;
-use loclib_plugin::{Capability, DestinationKind, Manifest, PublishedSet, SettingType, TokenPlace, TracklistEntry};
+use loclib_plugin::{
+    Capability, DestinationKind, Manifest, PublishedSet, SettingType, TokenPlace, TracklistEntry, youtube,
+};
 use serde_json::{Value, json};
 
-use super::video::{self, MAX_DESCRIPTION, MAX_TITLE, MIN_CHAPTER, MIN_CHAPTERS};
+use super::video::{self, MAX_TITLE};
 use super::*;
 
 /// The Google account plugin's manifest: the account type the plugin asks for.
@@ -20,10 +22,6 @@ fn set() -> PublishedSet {
         venue: Some("Warehouse".into()),
         ..PublishedSet::default()
     }
-}
-
-fn entry(artist: Option<&str>, title: Option<&str>, start: Option<u32>) -> TracklistEntry {
-    TracklistEntry { artist: artist.map(Into::into), title: title.map(Into::into), start_seconds: start }
 }
 
 /// It reaches YouTube's API alone, publishes sets at one destination, asks for a Google account
@@ -80,75 +78,29 @@ fn tracklist(tc: &TestCase, most: usize) -> Vec<TracklistEntry> {
             artist: name(tc),
             title: name(tc),
             start_seconds: tc.draw(gs::optional(gs::integers::<u32>().max_value(5 * 3600))),
+            ..Default::default()
         })
         .collect()
 }
 
-/// A line's time in seconds, if it starts with one (`05:30`, `1:02:03`), and the rest.
-fn timed(line: &str) -> (Option<u32>, &str) {
-    let Some((time, rest)) = line.split_once(' ') else { return (None, line) };
-    let fields: Option<Vec<u32>> = time.split(':').map(|f| f.parse().ok()).collect();
-    match fields.as_deref() {
-        Some([m, s]) => (Some(m * 60 + s), rest),
-        Some([h, m, s]) => (Some(h * 3600 + m * 60 + s), rest),
-        _ => (None, line),
-    }
-}
-
-/// Whatever the set, recording and tracklist, the video's title and description are within what
-/// YouTube takes, and the description's times are chapters YouTube makes: the first line at
-/// 00:00, then in order, each at least ten seconds after the one before and before the
-/// recording's last ten seconds, each the track's own start. Every track that could have been one
-/// is; a tracklist too long keeps the lines that fit, in order, and says how many more.
+/// Whatever the set, recording and tracklist, the video's title is within what YouTube takes,
+/// saying so when it's cut, and its description, chapters and the rest of its notes are YouTube's
+/// description of the tracklist (see `loclib_plugin::youtube`), which `sets export` writes too.
 #[hegel::test(test_cases = 300)]
-fn the_description_is_chapters_youtube_takes(tc: TestCase) {
+fn the_title_and_description_are_what_youtube_takes(tc: TestCase) {
     let words = gs::optional(gs::sampled_from(vec!["Closing set".to_string(), "<>".into(), "\u{3a9}".repeat(150)]));
     let set = PublishedSet { title: tc.draw(words), ..set() };
     let length = tc.draw(gs::integers::<u32>().max_value(6 * 3600));
     let tracklist = tracklist(&tc, 60);
     let d = video::of(&set, &tracklist, length);
 
-    for text in [&d.title, &d.description] {
-        assert!(!text.contains(['<', '>']), "{text:?}");
-    }
+    assert!(!d.title.contains(['<', '>']), "{:?}", d.title);
     assert!(!d.title.is_empty() && d.title.chars().count() <= MAX_TITLE, "{:?}", d.title);
     let long = set.title.as_ref().is_some_and(|t| t.chars().count() > MAX_TITLE);
-    assert_eq!(d.notes.iter().any(|n| n.starts_with("the title is cut to YouTube's")), long, "{:?}", d.notes);
-    assert!(d.description.len() <= MAX_DESCRIPTION, "{}", d.description.len());
-
-    let mut lines: Vec<&str> = d.description.lines().collect();
-    let more = lines.last().and_then(|l| l.strip_prefix("+ ")).and_then(|l| l.strip_suffix(" more"));
-    if let Some(more) = more {
-        lines.pop();
-        assert_eq!(more.parse::<usize>().unwrap(), tracklist.len() - lines.len());
-        // The next line wouldn't have fit, with one fewer to say there are more of.
-        let next = video::line(&tracklist[lines.len()], video::chapters(&tracklist, length)[lines.len()]).len();
-        let fewer = format!("+ {} more", tracklist.len() - lines.len() - 1).len();
-        assert!(d.description.len() - "+  more".len() - more.len() + next + 1 + fewer > MAX_DESCRIPTION);
-    } else {
-        assert_eq!(lines.len(), tracklist.len());
-    }
-    let any_timed = tracklist.iter().any(|e| e.start_seconds.is_some());
-    let mut last: Option<u32> = None;
-    for (i, (line, entry)) in lines.iter().zip(&tracklist).enumerate() {
-        let (at, name) = timed(line);
-        let plain = |s: &Option<String>| {
-            let s: String = s.as_deref().unwrap_or_default().chars().filter(|c| !matches!(c, '<' | '>')).collect();
-            let s = s.replace('\n', " ").trim().to_string();
-            if s.is_empty() { "ID".into() } else { s }
-        };
-        assert_eq!(name, format!("{} - {}", plain(&entry.artist), plain(&entry.title)), "{line:?}");
-        let start = if i == 0 && any_timed { Some(0) } else { entry.start_seconds };
-        let could = start.filter(|&s| last.is_none_or(|l| s >= l + MIN_CHAPTER) && s + MIN_CHAPTER <= length);
-        assert_eq!(at, could, "line {i}: {line:?}, after {last:?}, of {length} s");
-        last = at.or(last);
-    }
-    let chapters = lines.iter().filter(|l| timed(l).0.is_some()).count();
-    assert_eq!(chapters, d.chapters);
-    let few = d.notes.iter().any(|n| n.starts_with("YouTube shows chapters once"));
-    assert_eq!(few, (1..MIN_CHAPTERS).contains(&chapters), "{:?}", d.notes);
-    let cut = d.notes.iter().any(|n| n.starts_with("the description lists"));
-    assert_eq!(cut, more.is_some());
+    let cut = long.then(|| format!("the title is cut to YouTube's {MAX_TITLE} characters"));
+    let description = youtube::description(&tracklist, length);
+    let notes = [cut.into_iter().collect(), description.notes].concat();
+    assert_eq!((d.description, d.chapters, d.notes), (description.text, description.chapters, notes));
 }
 
 /// A set without a title is named after where it was played (its venue, else its city, else "DJ
@@ -161,16 +113,4 @@ fn prop_an_untitled_set_is_named_after_where_and_when(tc: TestCase) {
     let given = |s: Option<String>| s.map(|s| s.replace(['<', '>'], "")).filter(|s| !s.trim().is_empty());
     let place = given(venue).or_else(|| given(city)).unwrap_or_else(|| "DJ set".into());
     assert_eq!(video::of(&set, &[], 60).title, format!("{place}, 2026-10-03"));
-}
-
-/// A chapter's time, as `05:30` or past an hour `1:02:03`, reads back as the second it's for.
-#[hegel::test(test_cases = 100)]
-fn a_chapters_time_reads_back(tc: TestCase) {
-    let secs = tc.draw(gs::integers::<u32>());
-    let line = video::line(&entry(Some("A"), Some("B"), None), Some(secs));
-    let (time, name) = line.split_once(' ').unwrap();
-    assert_eq!(name, "A - B");
-    assert!(time.split(':').skip(1).all(|f| f.len() == 2), "{line}");
-    assert_eq!(time.split(':').count(), if secs < 3600 { 2 } else { 3 }, "{line}");
-    assert_eq!(timed(&line).0, Some(secs), "{line}");
 }

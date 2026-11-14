@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import type { epkContentSchema, epkFieldsSchema, epkRecordSchema } from './epk-schema.ts';
-import type { AccountView } from './types.ts';
+import type { localnetwork } from './lexicons/computer.ts';
+import type { AccountView, LexiconRead } from './types.ts';
 
 /**
  * Press kits (EPKs) as records: a public `computer.localnetwork.epk` in the root account's repo, and a
@@ -110,9 +111,9 @@ export function readRule(value: string | undefined): AccessRule {
 	return ACCESS_RULES.find((rule) => rule === value) ?? 'none';
 }
 
-export type EpkRecord = z.infer<typeof epkRecordSchema>;
+export type EpkRecord = LexiconRead<z.infer<typeof epkRecordSchema>, localnetwork.epk.Main>;
 
-export type EpkContent = z.infer<typeof epkContentSchema>;
+export type EpkContent = LexiconRead<z.infer<typeof epkContentSchema>, localnetwork.epk.content.Main>;
 
 export type EpkMix = NonNullable<EpkRecord['mixes']>[number];
 
@@ -154,7 +155,7 @@ export const LEGACY_KIT =
 	'This press kit moves to the project the next time the manager who made it opens the dashboard';
 
 /** Some fields of a press kit: the public record's at the top level, the private part's under `content`. */
-export type EpkFields = z.infer<typeof epkFieldsSchema>;
+export type EpkFields = LexiconRead<z.infer<typeof epkFieldsSchema>, localnetwork.epk.draft.Fields>;
 
 type PublicValues = Omit<EpkFields, 'content'>;
 

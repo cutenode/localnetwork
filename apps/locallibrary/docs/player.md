@@ -7,8 +7,9 @@ Prepare, Drives, Recordings and Publish. `g` and a letter goes to one (`g l`, `g
 that pane; the pane with focus has `▸` in its title as well as its border. The deck strip stays
 under every view, with what's playing, its waveform, tempo, key, time left, hot cues and loop.
 Dialogs open above it, and `esc` closes one thing at a time. The Library view has two layouts, and
-`f` switches between them: the track table with the strip, and the Deck layout, where the deck
-takes the screen.
+`f` switches between them: the track table with the strip, and player mode, where the deck
+takes the screen. From any other tab `f` opens player mode too, and closing it (`f` or `esc`) goes
+back there. The footer's hints are buttons: click one for its key.
 
 With no drive open, the library says what to do: plug one in (it opens as soon as it's here), or
 take a next step, at most three of open a folder, browse snapshots and sign in. The first library
@@ -145,11 +146,13 @@ needs.
   plays through the default and says so. An output that goes away mid-track (headphones
   unplugged) is let go of, and the track waits where it was: `space` plays on through whatever
   output there is then.
-- **The Deck layout** (`f`): the track's waveforms and numbers on the whole screen, as on a CDJ's
-  display. `b` opens Browse over it, as a CDJ's BROWSE button does: the panes and the strip, until a
+- **Player mode** (`f`, from any tab): the track's waveforms and numbers on the whole screen, as
+  on a CDJ's display, and only what a set needs: the file, tags and counts are in the info panel
+  (`i`), and the readout under the waveforms names only the modes that are on. `b` opens Browse
+  over it, as a CDJ's BROWSE button does: the panes and the strip, until a
   track's loaded or `esc`. The layout's kept between runs.
   - The zoomed waveform scrolls past a playhead fixed in the middle, under a beat ruler with stronger
-    bar starts and bar numbers. `[` and `]` zoom it, from 1.5 to 60 seconds across.
+    bar starts and bar numbers, sitting on the waveform, each bar's line carried down through it. `[` and `]` zoom it, from 1.5 to 60 seconds across.
   - The overview stays still while its playhead moves, in eighths of a cell, the played part dimmed.
     Click it to seek. Phrases run under it with rekordbox's labels, as colour alone where a label
     wouldn't fit whole.
@@ -185,7 +188,7 @@ needs.
   blocks everywhere else, and a record for a track with none. There's no art with 16 colours or
   ASCII icons, or inside tmux beyond half blocks. `LOCALLIBRARY_ART` names the graphics to use
   (`kitty`, `iterm2`, `sixel`, `halfblocks`) when what's worked out is wrong.
-- **Hot cue pads**: in the Deck layout the number keys `1` to `8` play hot cues A to H the way a
+- **Hot cue pads**: in player mode the number keys `1` to `8` play hot cues A to H the way a
   CDJ's pads do: the track jumps to the cue and plays (from pause too: a terminal can't tell when
   a key is let go, so there's no previewing while it's held). `'` turns the pads on in every view,
   until it's pressed again (digits jump to panes only while they're off).
@@ -205,7 +208,7 @@ needs.
   player is drawn like a saved one.
 - **Phrases**: rekordbox's phrase analysis (Intro, Up, Down, Chorus, Verse, Bridge, Outro) shows
   as the current phrase and bar in the player, with a countdown to the next one, and as a strip
-  under the Deck layout's overview. `N` and `P` jump to the next and previous phrase.
+  under player mode's overview. `N` and `P` jump to the next and previous phrase.
 - **Cues**: memory cues and loops take the colours they were given in rekordbox, and loop lengths
   are the ones rekordbox stored (½ beat, 4 beats), not worked out from the tempo. The visualiser
   flashes in a cue's colour as the playhead crosses it, and the player shows the next cue with a
@@ -317,7 +320,9 @@ Cover art is drawn in half blocks, in as many colours as the terminal has. The p
 panels and columns, colours and icons, shuffle, repeat, quantize, single play and auto cue, the output, the crate,
 and the queue with how far into its track it got, to the last 15 seconds (`space` carries on
 from there). It saves them as they change, in the
-store once there is one and in a `locallibrary-player` folder beside it until then. Messages show
+store once there is one and in a `locallibrary-player` folder beside it until then. A file it
+can't read as it starts (a newer version's, say) is left as it is: that run uses the defaults and
+saves nothing. Messages show
 in the status line: errors stay until `esc`, and `!` lists every message since starting. The footer
 hints at the keys for where focus is, as many as fit. `?` lists every key, the view's own first;
 all of them come from one table, so a key means one thing in every view (`l` loops, `d` picks the
@@ -468,7 +473,7 @@ Deck:
 
 | Keys | |
 | --- | --- |
-| `1 … 8` | in the Deck layout, or with the pads on: hot cue A … H (jumps there and plays) |
+| `1 … 8` | in player mode, or with the pads on: hot cue A … H (jumps there and plays) |
 | `'` | pads on / off: the digit row plays hot cues instead of jumping to panes |
 | `,  .` | beat jump: one beat back / forward |
 | `<  >` | one bar (4 beats) back / forward |
@@ -485,9 +490,9 @@ Visuals:
 
 | Keys | |
 | --- | --- |
-| `v` | spectrum · mirror · scope · none, in the Deck layout where there's room |
-| `[  ]` | zoom the deck's waveform out / in |
-| `f` | the Library layout or the Deck layout, where the deck takes the screen |
+| `v` | spectrum · mirror · scope · none, in player mode where there's room |
+| `[  ]` | zoom the detail waveform out / in |
+| `f` | player mode: the playing track on the whole screen, from any tab; again to go back |
 
 Moving about:
 

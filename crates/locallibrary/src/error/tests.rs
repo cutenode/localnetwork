@@ -216,10 +216,10 @@ fn errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::TestCase)
     let message = tc.draw(gs::text().alphabet("abc é:").min_size(1).max_size(8));
     let io = || io::Error::other(message.clone());
     let mixid = |kind: u8| match kind {
-        0 => loclib_mixid::Error::Io { path: path.clone(), source: io() },
-        1 => loclib_mixid::Error::Parse { path: path.clone(), message: message.clone() },
-        2 => loclib_mixid::Error::Invalid(message.clone()),
-        _ => loclib_mixid::Error::Cancelled(loclib_progress::Cancelled),
+        0 => loclib_audio::Error::Io { path: path.clone(), source: io() },
+        1 => loclib_audio::Error::Parse { path: path.clone(), message: message.clone() },
+        2 => loclib_audio::Error::Invalid(message.clone()),
+        _ => loclib_audio::Error::Cancelled(loclib_progress::Cancelled),
     };
     let mixid_code = |kind: u8| ["io", "parse", "invalid", "cancelled"][usize::from(kind)];
     let kind = tc.draw(gs::integers::<u8>().max_value(3));

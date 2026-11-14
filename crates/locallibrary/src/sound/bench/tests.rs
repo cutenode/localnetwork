@@ -84,11 +84,8 @@ fn scores_count_every_annotated_track_once(tc: TestCase) {
         if has_audio {
             let at = if in_folder { folder.join(&file) } else { root.join("Contents").join(&file) };
             let bad = tc.draw(gs::weighted_booleans(0.3));
-            let wav = if bad {
-                loclib_mixid::test_util::wav(0, 16, 0.0)
-            } else {
-                loclib_mixid::test_util::wav(44_100, 16, 0.2)
-            };
+            let wav =
+                if bad { loclib_testkit::audio::wav(0, 16, 0.0) } else { loclib_testkit::audio::wav(44_100, 16, 0.2) };
             std::fs::write(at, wav).unwrap();
             audible.push(id.clone());
             if bad {
@@ -202,7 +199,7 @@ fn prop_what_has_no_id_or_leaves_the_drive_is_passed_over(tc: TestCase) {
     std::fs::write(keys_dir.join("2.LOFI.key"), "A major").unwrap();
     std::fs::write(keys_dir.join(".LOFI.key"), "xqz!").unwrap();
     std::fs::write(tempos_dir.join(".LOFI.bpm"), "fast").unwrap();
-    let wav = loclib_mixid::test_util::wav(44_100, 16, 0.2);
+    let wav = loclib_testkit::audio::wav(44_100, 16, 0.2);
     std::fs::write(folder.join(".LOFI.wav"), &wav).unwrap();
     std::fs::write(root.join("Contents/.LOFI.wav"), &wav).unwrap();
     let in_folder = tc.draw(gs::booleans());
@@ -236,7 +233,7 @@ fn prop_a_cancelled_benchmark_scores_nothing(tc: TestCase) {
     std::fs::create_dir_all(&folder).unwrap();
     std::fs::create_dir_all(&keys_dir).unwrap();
     std::fs::write(keys_dir.join("1.LOFI.key"), "C minor").unwrap();
-    std::fs::write(folder.join("1.LOFI.wav"), loclib_mixid::test_util::wav(44_100, 16, 0.2)).unwrap();
+    std::fs::write(folder.join("1.LOFI.wav"), loclib_testkit::audio::wav(44_100, 16, 0.2)).unwrap();
     let opts = BenchOptions { keys: Some(keys_dir), tempos: None, audio: Some(folder) };
     let token = crate::progress::CancelToken::new();
     if tc.draw(gs::booleans()) {

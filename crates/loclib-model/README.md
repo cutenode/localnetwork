@@ -73,7 +73,9 @@ assert!(diff.changed_playlists.is_empty());
 
 - `schemars`: JSON Schema (`schemars::JsonSchema`) for the serialisable types.
 - `test-util`: `test_util::track`, a ready-made track for tests, and Hegel generators of tracks
-  (`tracks_like`), libraries (`libraries`) and Camelot keys (`keys`). Not a stable API.
+  (`tracks_like`), libraries (`libraries`) and Camelot keys (`keys`). Not a stable API, and left
+  out of the docs. It stays here rather than in loclib-testkit because this crate's own tests use
+  it, and those would get a second copy of `Track` from a crate built on this one.
 
 ## What it doesn't do
 

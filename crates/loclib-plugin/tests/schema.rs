@@ -46,8 +46,9 @@ fn the_manifest_schema_beside_the_crate_is_current() {
 }
 
 /// The schema takes manifests as their authors write them: the example, a newer plugin's with keys
-/// this locallibrary doesn't know (which `Manifest::parse` leaves out) and `net:` capabilities. It
-/// refuses a capability that isn't one, and a manifest without its id.
+/// this locallibrary doesn't know (which `Manifest::parse` leaves out), `net:` capabilities and an
+/// `atmosphere:write:` one with its Lexicon. It refuses a capability that isn't one, a record type
+/// given as a pattern, and a manifest without its id.
 #[test]
 fn the_schema_takes_manifests_as_written() {
     let schema: Value = serde_json::from_str(&std::fs::read_to_string(path()).unwrap()).unwrap();
@@ -66,5 +67,11 @@ fn the_schema_takes_manifests_as_written() {
     let net = format!("{HEAD}capabilities = [\"net:example.com\", \"net:*.archive.org\"]\n");
     assert_eq!(problems(&net), Vec::<String>::new());
     assert!(!problems(&format!("{HEAD}capabilities = [\"library:write\"]\n")).is_empty());
+    let atmosphere = format!(
+        "{HEAD}capabilities = [\"atmosphere:write:fm.plyr.track\"]\n\
+         [[lexicons]]\nlexicon = 1\nid = \"fm.plyr.track\"\ndefs = {{}}\n"
+    );
+    assert_eq!(problems(&atmosphere), Vec::<String>::new());
+    assert!(!problems(&format!("{HEAD}capabilities = [\"atmosphere:write:*\"]\n")).is_empty());
     assert!(!problems(&HEAD.replace("id = \"demo\"\n", "")).is_empty());
 }

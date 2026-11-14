@@ -14,6 +14,7 @@ pub(crate) mod account_types;
 pub(crate) mod accounts;
 pub(crate) mod analysis;
 pub(crate) mod analyzers;
+pub(crate) mod atmosphere;
 pub(crate) mod checks;
 pub(crate) mod commands;
 pub(crate) mod destinations;

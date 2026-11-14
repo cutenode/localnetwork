@@ -22,6 +22,7 @@ use locallibrary::api::RpcFailure;
 use locallibrary::mix::report::ShownField;
 use locallibrary::plugin::{
     Access, AccessQuestion, AccountSignIn, AskAccess, EnteredKeys, Launch, Log, Options, PluginSpec, Plugins, Reads,
+    RecordWrite,
 };
 use locallibrary::progress::Ctx;
 use locallibrary::{Error, Result};
@@ -177,8 +178,9 @@ pub fn log_to(log: Option<Log>) {
     *LOG.lock().unwrap_or_else(PoisonError::into_inner) = log;
 }
 
-/// Who asks the user whether a plugin may use more of an account it has access to: nobody until
-/// a front end that can ask says so (see [`ask_to`]).
+/// Who asks the user whether a plugin may use more of an account it has access to, or write a
+/// record in the Atmosphere account: nobody until a front end that can ask says so (see
+/// [`ask_to`]).
 static ASK: Mutex<Option<Arc<dyn AskAccess>>> = Mutex::new(None);
 
 /// Has `ask` ask the user whether a plugin may use more of an account it has access to (the
@@ -208,6 +210,10 @@ impl AskAccess for Asking {
 
     fn enter_keys(&self, start: &AccountSignIn) -> Option<EnteredKeys> {
         Asking::asker()?.enter_keys(start)
+    }
+
+    fn write_record(&self, write: &RecordWrite) -> Option<bool> {
+        Asking::asker()?.write_record(write)
     }
 }
 
@@ -533,6 +539,9 @@ fn means(c: &Capability) -> String {
                 Some(domain) => format!("talk to any server under {domain}"),
                 None => format!("talk to {host}"),
             };
+        }
+        Capability::AtmosphereWrite(nsid) => {
+            return format!("write {nsid} records in your Atmosphere account, each one you confirm");
         }
     }
     .into()

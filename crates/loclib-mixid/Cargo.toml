@@ -11,20 +11,15 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-loclib-model.workspace = true
+loclib-audio.workspace = true
 loclib-progress.workspace = true
 rustc-hash.workspace = true
 rustfft.workspace = true
-symphonia.workspace = true
-thiserror.workspace = true
-
-[features]
-# `test_util`: synthetic audio and WAV files for tests, in this crate and the ones built on it.
-test-util = []
 
 [dev-dependencies]
 criterion.workspace = true
 hegeltest.workspace = true
+loclib-testkit.workspace = true
 tempfile.workspace = true
 
 [lints]
@@ -33,4 +28,3 @@ workspace = true
 [[bench]]
 name = "mixid"
 harness = false
-required-features = ["test-util"]

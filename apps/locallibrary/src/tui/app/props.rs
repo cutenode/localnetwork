@@ -7,8 +7,6 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use locallibrary::query::QueryContext;
 
-use crate::output::plural;
-
 use super::testing::*;
 use super::*;
 
@@ -674,7 +672,7 @@ fn the_next_run_carries_on_with_the_queue(tc: TestCase) {
     };
     app.resume = Some(at);
     app.save_state();
-    let read = state::load(&app.store_root);
+    let read = state::load(&app.store_root).unwrap();
     assert_eq!(read, app.saved_state(), "saved as it is");
 
     // Unchanged, nothing is written; changed, it is.
@@ -686,10 +684,10 @@ fn the_next_run_carries_on_with_the_queue(tc: TestCase) {
     press(&mut app, "+");
     app.last_save_check = Instant::now() - Duration::from_secs(3);
     app.tick();
-    assert_eq!(state::load(&app.store_root).volume, Some(app.volume));
+    assert_eq!(state::load(&app.store_root).unwrap().volume, Some(app.volume));
 
     let mut next = App::blank(app.store_root.clone(), None);
-    let mut saved = state::load(&app.store_root);
+    let mut saved = state::load(&app.store_root).unwrap();
     // The next run: as it was left, already playing something else, or with the drive's tracks
     // gone since; with the My Tags column shown, or not.
     let (how, tags) = (tc.draw(gs::integers::<u8>().max_value(2)), tc.draw(gs::booleans()));
@@ -701,7 +699,7 @@ fn the_next_run_carries_on_with_the_queue(tc: TestCase) {
     saved.tags_column = tags;
     app.vis = tc.draw(gs::sampled_from(&[Vis::Bars, Vis::Mirror, Vis::Scope, Vis::Deck][..]));
     app.save_state();
-    assert_eq!(state::load(&app.store_root).vis.as_deref(), Some(app.vis.name()), "the visualiser kept");
+    assert_eq!(state::load(&app.store_root).unwrap().vis.as_deref(), Some(app.vis.name()), "the visualiser kept");
     // Showing a set last time, or not.
     let a_set = tc.draw(gs::booleans());
     if a_set {
@@ -1044,7 +1042,10 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 let mut t = track(9, "DJ", "Set");
                 t.file_path = set.display().to_string();
                 app.play_file(&set, t, Duration::from_millis(tc.draw(gs::integers::<u64>().max_value(300))));
-                assert_eq!(app.now.as_ref().map(|n| n.drive.as_str()), Some("recorded set"));
+                assert_eq!(
+                    app.now.as_ref().map(|n| (n.track.title.as_str(), n.root.as_path())),
+                    Some(("Set", set.parent().unwrap()))
+                );
                 assert!(!app.playing_queue());
                 // Played to its end (through the output it started on), it stops.
                 let t = Instant::now();
@@ -1177,7 +1178,8 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
         assert_eq!(order, (0..q.len()).collect::<Vec<_>>(), "the play order is the queue's tracks");
         assert!(q.is_empty() || q.pos < q.len());
         if let Some(now) = &app.now {
-            let theirs = app.playing_queue() || now.drive == "recorded set" || app.queue.root != now.root;
+            // A recorded set plays from its own folder, not the queue's drive.
+            let theirs = app.playing_queue() || app.queue.root != now.root;
             assert!(theirs, "{} plays, not the queue's", now.track.title);
         }
         if app.audio.is_none() {
@@ -1550,32 +1552,20 @@ fn the_player_says_what_it_knows_of_the_track(tc: TestCase) {
     assert_eq!(app.vis, vis[turns % 4]);
     let s = super::super::ui::screen(&mut app, 220, 60);
     let now = app.now.as_ref().unwrap();
-    let (t, a) = (&now.track, &now.analysis);
+    let t = &now.track;
     let says = |what: &str| s.contains(what);
     assert!(says(&t.title) && says(&t.artist));
     assert_eq!(says("Warp"), !t.label.is_empty(), "the label\n{s}");
     assert_eq!(says("1997"), t.year > 0, "the year\n{s}");
-    assert_eq!(says("“Peak time”"), !t.comment.is_empty(), "the comment\n{s}");
-    assert_eq!(says("composer Bangalter"), !t.composer.is_empty(), "the credits\n{s}");
+    // The comment and credits are the info panel's, not the deck's.
+    assert!(!says("“Peak time”") && !says("composer Bangalter"), "{s}");
     match now.key {
         Some(k) => assert!(says(&format!(" {} {} ", k.code(), k.note())), "the key\n{s}"),
         None if !t.key.is_empty() => assert!(says(&format!(" {} ", t.key)), "the key as stored\n{s}"),
         None => {}
     }
-    if !a.beats.is_empty() {
-        let tempo = if a.beats.iter().any(|b| b.bpm != 120.0) { "120.0–126.0 BPM" } else { "steady tempo" };
-        let (beats, bars) = (a.beats.len(), a.beats.len().div_ceil(4));
-        assert!(says(&format!("{} · {} · {tempo}", plural(beats, "beat"), plural(bars, "bar"))), "{s}");
-    }
-    if !a.cues.is_empty() {
-        let hot = a.cues.iter().filter(|c| c.hot_cue.is_some()).count();
-        let loops = a.cues.iter().filter(|c| c.end_ms.is_some()).count();
-        let memory = a.cues.len() - hot;
-        assert!(says(&format!("{} ({}) · {memory} memory", plural(hot, "hot cue"), plural(loops, "loop"))), "{s}");
-    }
-    if !now.phrases.is_empty() {
-        assert!(says(&plural(now.phrases.len(), "phrase")), "{s}");
-    }
+    // What the analysis found is on the waveforms: no panel counts it.
+    assert!(!says(" beats · ") && !says(" memory") && !says("steady tempo"), "{s}");
     if let Some((i, _, _)) = now.phrase_at(pos as f64) {
         let next = match now.phrases.get(i + 1) {
             Some(p) => format!("phrase  {} ", p.kind.name()),
@@ -2246,7 +2236,7 @@ fn an_analyzers_column_shows_sorts_filters_and_is_kept(tc: TestCase) {
 
     // The next run.
     app.save_state();
-    let saved = state::load(&app.store_root);
+    let saved = state::load(&app.store_root).unwrap();
     assert_eq!(saved.field_columns, ["echo.bytes"]);
     let mut next = App::blank(app.store_root.clone(), None);
     next.apply_saved(&saved, false);
@@ -2259,7 +2249,7 @@ fn an_analyzers_column_shows_sorts_filters_and_is_kept(tc: TestCase) {
     assert_eq!((0..lib.tracks.len()).map(|i| bytes_of(&next, i)).collect::<Vec<_>>(), want);
     press(&mut app, ":hide the echo.bytes column\n");
     app.save_state();
-    assert!(app.field_columns.is_empty() && state::load(&app.store_root).field_columns.is_empty());
+    assert!(app.field_columns.is_empty() && state::load(&app.store_root).unwrap().field_columns.is_empty());
 }
 
 /// Plugins' fields of each kind, as an analyzer declares them.

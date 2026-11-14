@@ -35,13 +35,13 @@ describe('verifyServiceJwt', () => {
 
 	it.each([
 		['missing token', undefined, 'Missing'],
-		['malformed token', 'Bearer abc', 'Malformed'],
+		['malformed token', 'Bearer abc', 'poorly formatted'],
 		['token whose parts are not JSON', 'Bearer a.b.c', 'Malformed']
 	])('rejects a %s', async (_label, header, message) => {
 		await expect(verifyServiceJwt(header, { audience, lxm, getSigningKey: async () => '' })).rejects.toThrow(message);
 	});
 
-	it('rejects wrong audience, method, expiry, issuer, typ, and signature', async () => {
+	it('rejects wrong audience, a wrong or missing method, expiry, issuer, typ, and signature', async () => {
 		const key = await Secp256k1Keypair.create();
 		const other = await Secp256k1Keypair.create();
 		const opts = { audience, lxm, getSigningKey: async () => key.did() };
@@ -49,9 +49,10 @@ describe('verifyServiceJwt', () => {
 		const cases: [JsonObject, JsonObject, string][] = [
 			[{ iss: 'did:plc:a', aud: 'did:web:other', lxm, exp: now + 60 }, {}, 'audience'],
 			[{ iss: 'did:plc:a', aud: audience, lxm: 'com.example.other', exp: now + 60 }, {}, 'method'],
+			[{ iss: 'did:plc:a', aud: audience, exp: now + 60 }, {}, 'missing jwt lexicon method'],
 			[{ iss: 'did:plc:a', aud: audience, lxm, exp: now - 10 }, {}, 'expired'],
-			[{ iss: 'not-a-did', aud: audience, lxm, exp: now + 60 }, {}, 'issuer'],
-			[{ iss: 'did:plc:a', aud: audience, lxm, exp: now + 60 }, { typ: 'at+jwt' }, 'Not a service auth token']
+			[{ iss: 'not-a-did', aud: audience, lxm, exp: now + 60 }, {}, 'iss is not a valid did'],
+			[{ iss: 'did:plc:a', aud: audience, lxm, exp: now + 60 }, { typ: 'at+jwt' }, 'Invalid jwt type']
 		];
 
 		for (const [payload, header, message] of cases) {
@@ -66,7 +67,7 @@ describe('verifyServiceJwt', () => {
 		// A signing key it can't read verifies nothing.
 		const signed = await serviceJwt(key, { iss: 'did:plc:a', aud: audience, lxm, exp: now + 60 });
 		await expect(verifyServiceJwt(signed, { ...opts, getSigningKey: async () => 'did:key:nope' })).rejects.toThrow(
-			'Invalid service auth signature'
+			'could not verify jwt signature'
 		);
 	});
 });

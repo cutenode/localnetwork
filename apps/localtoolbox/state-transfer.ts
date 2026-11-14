@@ -1,7 +1,8 @@
 // Import and export of what the extension holds that would hurt to lose, as
 // one JSON file: the Manager's own list of tracks, the ones marked as
 // downloaded, the cached download details, the artists tool's list, the
-// session queue and the three panel options in PREFS below.
+// session queue, the search sites added in settings and the three panel
+// options in PREFS below.
 //
 // Why it exists: the list, the marks and the details cache live in the
 // extension's own storage, which goes away with the extension. Reinstalling it
@@ -45,6 +46,8 @@ const TbxState = (() => {
 	type ListedEntry = Tbx.ListedEntry;
 
 	type ArtistEntry = Tbx.ArtistEntry;
+
+	type SearchSiteEntry = Tbx.SearchSiteEntry;
 
 	type LocalArea = Tbx.LocalArea;
 
@@ -460,6 +463,51 @@ const TbxState = (() => {
 		});
 	};
 
+	// The words a search site cannot go without: anything but blank.
+	const isWords = (value: Json): value is string => isString(value) && /\S/.test(value);
+
+	// The schema's `colour`, which lands in a style attribute.
+	const isColour = (value: Json) => isString(value) && /^#[0-9a-fA-F]{3,8}$/.test(value);
+
+	// A search address a badge can use (src/lib/search-sites.ts, readTemplate):
+	// https, with at least one variable in it and no word in braces that is not
+	// one. The schema says it with the same three expressions.
+	const isTemplate = (value: Json) =>
+		isString(value) &&
+		value.startsWith('https://') &&
+		/\{(?:artist|title|query)\}/.test(value) &&
+		!/\{(?!(?:artist|title|query)\})\w+\}/.test(value);
+
+	// The schema's `searchSites`: the sites somebody added in settings, each one
+	// a `site` of src/lib/search-sites.schema.json, the shipped list's own shape.
+	const checkSearchSites = (list: Json) => {
+		if (!Array.isArray(list)) fail('“searchSites” must be an array');
+		list.forEach((entry, index) => {
+			const where = `search site #${index + 1}`;
+
+			if (!isObject(entry)) fail(`${where}: must be an object`);
+			checkMembers(entry, where, {
+				id: { required: true, check: isWords, expected: 'some text' },
+				name: { required: true, check: isWords, expected: 'some text' },
+				// Counted as the schema's maxLength counts, in characters rather than
+				// UTF-16 units (the `u`), so an emoji badge is one.
+				badge: {
+					required: true,
+					check: (v) => isWords(v) && /^.{1,3}$/su.test(v),
+					expected: 'one to three characters'
+				},
+				url: {
+					required: true,
+					check: isTemplate,
+					expected: 'an https address with {artist}, {title} or {query} in it'
+				},
+				background: { check: isColour, expected: 'a hex colour' },
+				color: { check: isColour, expected: 'a hex colour' },
+				on: { check: isBoolean, expected: 'true or false' }
+			});
+		});
+	};
+
 	// The schema's `downloaded` map.
 	const checkDownloaded = (downloaded: Json) => {
 		if (!isObject(downloaded)) fail('“downloaded” must be an object');
@@ -509,9 +557,18 @@ const TbxState = (() => {
 
 		for (const name of Object.keys(doc)) {
 			if (
-				!['format', 'version', 'exportedAt', 'downloaded', 'details', 'listed', 'artists', 'queue', 'prefs'].includes(
-					name
-				)
+				![
+					'format',
+					'version',
+					'exportedAt',
+					'downloaded',
+					'details',
+					'listed',
+					'artists',
+					'queue',
+					'prefs',
+					'searchSites'
+				].includes(name)
 			) {
 				fail(`“${name}” is not part of this format`);
 			}
@@ -536,12 +593,15 @@ const TbxState = (() => {
 		if ('queue' in doc) checkQueue(doc.queue);
 
 		if ('prefs' in doc) checkPrefs(doc.prefs);
+
+		// The newest member, absent from every file before sites could be added.
+		if ('searchSites' in doc) checkSearchSites(doc.searchSites);
 	};
 
 	// --- parsing ---------------------------------------------------------------
 
 	// Reads exported JSON, refusing anything the schema would refuse. Returns
-	// the document with its six collections filled in, so callers never
+	// the document with its seven collections filled in, so callers never
 	// have to check for them. Throws StateError with a message naming what is
 	// wrong; nothing is written before this has passed.
 	const parse = (text: string): ParsedState => {
@@ -562,7 +622,8 @@ const TbxState = (() => {
 			listed: doc.listed || [],
 			artists: doc.artists || [],
 			queue: doc.queue || [],
-			prefs: doc.prefs || {}
+			prefs: doc.prefs || {},
+			searchSites: doc.searchSites || []
 		};
 	};
 
@@ -589,8 +650,8 @@ const TbxState = (() => {
 
 	// Everything worth keeping, as the object that gets written to the file.
 	//
-	// The queue and the two lists are handed in rather than read out of
-	// storage, because the stores that own them do not always get to write them
+	// The queue, the two lists and the added search sites are handed in rather
+	// than read out of storage, because the stores that own them do not always get to write them
 	// there: when storage cannot be reached each is held in memory and shown on
 	// screen all the same (queue.svelte.ts, listed.svelte.ts,
 	// artists.svelte.ts), and a file written from storage would then carry
@@ -601,7 +662,8 @@ const TbxState = (() => {
 	const snapshot = async (
 		queue: QueueEntry[] = [],
 		listed: ListedEntry[] = [],
-		artists: ArtistEntry[] = []
+		artists: ArtistEntry[] = [],
+		searchSites: SearchSiteEntry[] = []
 	): Promise<Required<StateFile>> => {
 		const stored: Stored = await chrome.storage.local.get([TbxDownloaded.KEY, DETAILS_KEY]);
 
@@ -614,7 +676,8 @@ const TbxState = (() => {
 			listed,
 			artists,
 			queue,
-			prefs: readPrefs()
+			prefs: readPrefs(),
+			searchSites
 		};
 	};
 
@@ -633,6 +696,7 @@ const TbxState = (() => {
 		artists: doc.artists.length,
 		queue: doc.queue.length,
 		prefs: Object.keys(doc.prefs).length,
+		searchSites: doc.searchSites.length,
 		exportedAt: doc.exportedAt ?? ''
 	});
 
@@ -655,11 +719,11 @@ const TbxState = (() => {
 	// nothing, back to its default. What was here and is not in the file is
 	// gone. Nobody gets there without turning a switch on first.
 	//
-	// Either way, neither the file's queue nor its lists are written here, for
-	// the same reason the marks are not: the store that owns a thing does the
-	// writing. The sheet hands `doc.queue`, `doc.listed` and `doc.artists` to
-	// those stores' own `add` (or `replace`), and folds the counts it gets back
-	// into the same report.
+	// Either way, neither the file's queue nor its lists nor its search sites
+	// are written here, for the same reason the marks are not: the store that
+	// owns a thing does the writing. The sheet hands `doc.queue`, `doc.listed`,
+	// `doc.artists` and `doc.searchSites` to those stores' own `add` (or
+	// `replace`), and folds the counts it gets back into the same report.
 	//
 	// Returns what changed, for the sheet to report.
 	const apply = async (doc: ParsedState, { replace = false }: { replace?: boolean } = {}) => {

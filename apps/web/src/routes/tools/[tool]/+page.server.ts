@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { lookOf } from '#lib/components/tools/HotCues.svelte';
 import { slimCapture } from '#lib/components/tools/sources.ts';
+import { profileHref } from '#lib/format.ts';
 import { pageMeta } from '#lib/server/meta.ts';
 import { renderSections } from '#lib/server/tools/markdown.ts';
 import { demoTrack, findTool, tools } from '#lib/tools/index.ts';
@@ -31,7 +32,7 @@ export const load: PageServerLoad = ({ params, locals }) => {
 		others: tools
 			.filter((other) => other.id !== id)
 			.map((other) => ({ id: other.id, name: other.name, tagline: other.tagline })),
-		sections: renderSections(tool),
+		sections: renderSections(tool, locals.viewer ? profileHref(locals.viewer) : undefined),
 		guides: tool.docs.map(({ slug, title }) => ({ slug, title })),
 		meta: pageMeta(locals.app.config.publicUrl, {
 			title: name,

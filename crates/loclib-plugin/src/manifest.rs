@@ -36,6 +36,10 @@ pub struct Manifest {
     /// How often the host may send `net/fetch` requests to some of the hosts it talks to.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub net: Vec<NetLimit>,
+    /// The Lexicon documents of the record types its `atmosphere:write:` capabilities name, as
+    /// their authorities publish them, and of the definitions they refer to.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lexicons: Vec<Value>,
     /// The keys [`Manifest::parse`] left out, where they were (`contributes.commands[0].colour`).
     #[serde(skip)]
     #[schemars(skip)]
@@ -265,10 +269,14 @@ pub enum Capability {
     /// `net:*.<domain>` to any server below that domain. Shown to the user; a native plugin can't
     /// be held to it.
     Net(String),
+    /// `atmosphere:write:<nsid>`: it writes records of this type (an NSID, never a pattern) in the
+    /// Atmosphere account signed in to the host (`atmosphere/put_record`), each one the user
+    /// confirms.
+    AtmosphereWrite(String),
 }
 
 impl Capability {
-    /// Every capability but `net:<host>`.
+    /// Every capability but `net:<host>` and `atmosphere:write:<nsid>`.
     pub const NAMED: [Capability; 23] = [
         Capability::LibraryRead,
         Capability::AnalysisRead,
@@ -295,7 +303,7 @@ impl Capability {
         Capability::FsRead,
     ];
 
-    /// Its name, unless it's `net:<host>`.
+    /// Its name, unless it names a host or a record type.
     fn name(&self) -> Option<&'static str> {
         Some(match self {
             Capability::LibraryRead => "library:read",
@@ -321,7 +329,7 @@ impl Capability {
             Capability::EventsJobs => "events:jobs",
             Capability::EventsPlans => "events:plans",
             Capability::FsRead => "fs:read",
-            Capability::Net(_) => return None,
+            Capability::Net(_) | Capability::AtmosphereWrite(_) => return None,
         })
     }
 }
@@ -343,10 +351,14 @@ impl fmt::Display for Capability {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Capability::Net(host) => write!(f, "net:{host}"),
+            Capability::AtmosphereWrite(nsid) => write!(f, "{ATMOSPHERE_WRITE}{nsid}"),
             named => f.write_str(named.name().unwrap_or_default()),
         }
     }
 }
+
+/// What an `atmosphere:write:<nsid>` capability starts with.
+const ATMOSPHERE_WRITE: &str = "atmosphere:write:";
 
 /// A host name, or `*.` and a domain: no scheme, path, port or spaces.
 fn is_host(host: &str) -> bool {
@@ -364,9 +376,18 @@ impl FromStr for Capability {
                 false => Err(format!("{s:?} names no host: net:<host> or net:*.<domain>, like net:musicbrainz.org")),
             };
         }
+        if let Some(nsid) = s.strip_prefix(ATMOSPHERE_WRITE) {
+            return match hooks::atmosphere::is_nsid(nsid) {
+                true => Ok(Capability::AtmosphereWrite(nsid.into())),
+                false => Err(format!(
+                    "{s:?} names no record type: atmosphere:write:<nsid>, its authority in lowercase, like \
+                     atmosphere:write:fm.plyr.track"
+                )),
+            };
+        }
         Capability::NAMED.into_iter().find(|c| c.name() == Some(s)).ok_or_else(|| {
             let known: Vec<_> = Capability::NAMED.iter().filter_map(Capability::name).collect();
-            format!("unknown capability {s:?}: one of {} or net:<host>", known.join(", "))
+            format!("unknown capability {s:?}: one of {}, net:<host> or atmosphere:write:<nsid>", known.join(", "))
         })
     }
 }
@@ -392,7 +413,11 @@ impl JsonSchema for Capability {
         let named: Vec<_> = Capability::NAMED.iter().filter_map(Capability::name).collect();
         json_schema!({
             "type": "string",
-            "anyOf": [{ "enum": named }, { "pattern": "^net:(\\*\\.)?[A-Za-z0-9.-]+$" }],
+            "anyOf": [
+                { "enum": named },
+                { "pattern": "^net:(\\*\\.)?[A-Za-z0-9.-]+$" },
+                { "pattern": "^atmosphere:write:[a-z][a-z0-9.-]*\\.[A-Za-z][A-Za-z0-9]*$" },
+            ],
         })
     }
 }
@@ -580,6 +605,11 @@ impl Manifest {
         &self.unknown
     }
 
+    /// The Lexicon document in `lexicons` whose id is `nsid`.
+    pub fn lexicon(&self, nsid: &str) -> Option<&Value> {
+        self.lexicons.iter().find(|doc| doc["id"] == nsid)
+    }
+
     /// Whether it's an account plugin: one that provides an account type, and (valid) nothing
     /// else.
     pub fn is_account_plugin(&self) -> bool {
@@ -642,6 +672,7 @@ impl Manifest {
         hooks::operations::validate(self)?;
         hooks::panels::validate(self)?;
         hooks::analyzers::validate(self)?;
+        hooks::atmosphere::validate(self, built_in)?;
         hooks::checks::validate(self)?;
         hooks::exporters::validate(self)?;
         hooks::importers::validate(self)?;

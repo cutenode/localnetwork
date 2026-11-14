@@ -3,7 +3,7 @@
 	import { CircleCheck, RefreshCw, TriangleAlert } from '@lucide/svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
-	import { shortDid, timeAgo } from '#lib/format.ts';
+	import { pluralize, shortDid, timeAgo } from '#lib/format.ts';
 	import Card from '#lib/ui/Card.svelte';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
 	import type { PageProps } from './$types';
@@ -14,7 +14,10 @@
 
 	const access = (open: boolean) => (open ? 'public' : 'members');
 
-	const failing = (space: (typeof data.sync)[number]) => !!space.lastError || space.repos.some((repo) => repo.lastError);
+	const failing = (space: (typeof data.sync)[number]) =>
+		!!space.lastError || space.repos.some((repo) => repo.lastError) || space.stuck.length > 0;
+
+	const nextTry = (at: string) => (Date.parse(at) > Date.now() ? `next try ${timeAgo(at)}` : 'due on the next sync');
 
 	// Spaces with errors first, so a problem isn't lost among the healthy ones.
 	const spaces = $derived(data.sync.toSorted((a, b) => Number(failing(b)) - Number(failing(a))));
@@ -76,7 +79,7 @@
 
 	<section class="flex flex-col gap-3">
 		<h2 class="section-title">Root spaces</h2>
-		<div class="card overflow-x-auto">
+		<div role="region" aria-label="Root spaces" tabindex="0" class="card overflow-x-auto">
 			<table class="table-base min-w-200">
 				<thead><tr><th>Space</th><th>Read</th><th>Write</th><th>URI</th></tr></thead>
 				<tbody>
@@ -105,6 +108,17 @@
 							<li class="text-fg-subtle">No writers yet.</li>
 						{/each}
 					</ul>
+					{#if space.stuck.length}
+						<h3 class="text-label font-medium text-fg">Stuck in projection</h3>
+						<ul class="flex flex-col gap-1 text-label">
+							{#each space.stuck as record (`${record.did} ${record.collection} ${record.rkey}`)}
+								<li class="text-fg-subtle">
+									<p class="font-mono break-all">{record.collection}/{record.rkey}</p>
+									<p><span class="font-mono">{shortDid(record.did)}</span> · {pluralize(record.attempts, 'attempt')} · {nextTry(record.nextAttemptAt)}{#if record.lastError}<span class="text-critical">{` · ${record.lastError}`}</span>{/if}</p>
+								</li>
+							{/each}
+						</ul>
+					{/if}
 				</Card>
 			{/each}
 		</div>

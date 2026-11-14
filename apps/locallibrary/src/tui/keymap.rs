@@ -33,9 +33,9 @@ pub enum Scope {
     Details,
     /// The crate panel.
     Crate,
-    /// The digit row plays hot cues (the Deck layout, or with the pads on).
+    /// The digit row plays hot cues (player mode, or with the pads on).
     Pads,
-    /// The Deck layout.
+    /// Player mode.
     Deck,
     /// What follows `g`.
     Goto,
@@ -131,7 +131,7 @@ pub enum Act {
     Visualiser,
     /// The Library view's other layout.
     DeckLayout,
-    /// Browse, over the Deck layout.
+    /// Browse, over player mode.
     Browse,
     /// The next way of colouring waveforms.
     NextBands,
@@ -404,7 +404,7 @@ pub static KEYMAP: &[Binding] = &[
     tip(S::Tracks, "i", "info", 4),
     tip(S::Tracks, "t", "crate", 3),
     tip(S::Tracks, "T", "My Tag", 3),
-    tip(S::Tracks, "f", "deck", 2),
+    tip(S::Tracks, "f", "player", 2),
     tip(S::Tracks, "tab", "focus", 5),
     tip(S::Tree, "enter", "open", 9),
     tip(S::Tree, "e", "actions", 7),
@@ -531,23 +531,17 @@ pub static KEYMAP: &[Binding] = &[
     note(S::Mixes, "click", "on the timeline: play from there, or pick the track under it", G::Mixes),
     tip(S::Mixes, "tab", "focus", 3),
     // -----------------------------------------------------------------------------------------
-    // Full screen (hints: the keys are the deck's)
+    // Player mode (hints: the few a set needs; `?` has the rest)
     // -----------------------------------------------------------------------------------------
     tip(S::Deck, "1-8", "hot cue", 9),
-    tip(S::Deck, ", .", "beat", 8),
-    tip(S::Deck, "< >", "bar", 6),
-    tip(S::Deck, "Q", "quantize", 5),
     tip(S::Deck, "l", "loop", 7),
-    tip(S::Deck, "c C", "cue", 6),
-    tip(S::Deck, "N P", "phrase", 5),
     tip(S::Deck, "space", "pause", 8),
-    tip(S::Deck, "n p", "track", 4),
     tip(S::Deck, "↑↓ enter", "play next", 7),
-    tip(S::Deck, "S", "autoplay", 5),
-    key(S::Deck, &[K::Ch('b')], "b", A::Browse, "", "browse the library over the deck; loading a track or esc comes back", G::Visuals).hint("browse", 9),
-    key(S::Deck, &[K::Ch('w')], "w", A::NextBands, "", "the waveform's colours: BLUE, RGB, 3Band, as the drive says", G::Visuals).hint("colours", 3),
-    tip(S::Deck, "f", "library", 7),
-    key(S::Pads, &[K::Digits('1', '8')], "1 … 8", A::HotCue, "", "in the Deck layout, or with the pads on: hot cue A … H (jumps there and plays)", G::Deck),
+    key(S::Deck, &[K::Ch('b')], "b", A::Browse, "", "browse the library over player mode; loading a track or esc comes back", G::Visuals).hint("browse", 9),
+    key(S::Deck, &[K::Ch('w')], "w", A::NextBands, "", "the waveform's colours: BLUE, RGB, 3Band, as the drive says", G::Visuals),
+    tip(S::Deck, "f", "back", 7),
+    tip(S::Deck, "?", "keys", 3),
+    key(S::Pads, &[K::Digits('1', '8')], "1 … 8", A::HotCue, "", "in player mode, or with the pads on: hot cue A … H (jumps there and plays)", G::Deck),
     tip(S::Pads, "1-8", "hot cue", 9),
     // -----------------------------------------------------------------------------------------
     // After g
@@ -592,10 +586,10 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[K::Ch('S')], "S", A::Single, "autoplay on or off (single play)", "autoplay off (single play): stop after each track, the next one ready for space; again to play on", G::Deck),
     key(S::Global, &[K::Ch('A')], "A", A::AutoCue, "auto cue on or off", "auto cue: tracks start at their first memory cue, else their first beat", G::Deck),
     key(S::Global, &[K::Ch('d')], "d", A::Outputs, "the output to play through", "the output: the system's default, or another (headphones, an interface), remembered", G::Deck),
-    key(S::Global, &[K::Ch('v')], "v", A::Visualiser, "the next visualiser", "spectrum · mirror · scope · none, in the Deck layout where there's room", G::Visuals),
-    key(S::Global, &[K::Ch('[')], "[  ]", A::Zoom(false), "zoom the deck out", "zoom the deck's waveform out / in", G::Visuals),
-    key(S::Global, &[K::Ch(']')], "", A::Zoom(true), "zoom the deck in", "", G::Visuals),
-    key(S::Global, &[K::Ch('f')], "f", A::DeckLayout, "switch between the Library and Deck layouts", "the Library layout or the Deck layout, where the deck takes the screen", G::Visuals),
+    key(S::Global, &[K::Ch('v')], "v", A::Visualiser, "the next visualiser", "spectrum · mirror · scope · none, in player mode where there's room", G::Visuals),
+    key(S::Global, &[K::Ch('[')], "[  ]", A::Zoom(false), "zoom the waveform out", "zoom the detail waveform out / in", G::Visuals),
+    key(S::Global, &[K::Ch(']')], "", A::Zoom(true), "zoom the waveform in", "", G::Visuals),
+    key(S::Global, &[K::Ch('f')], "f", A::DeckLayout, "open or close player mode", "player mode: the playing track on the whole screen, from any tab; again to go back", G::Visuals),
     key(S::Global, &[K::Code(C::Up), K::Ch('k')], "↑ ↓  j k", A::Move(-1), "", "move", G::Moving),
     key(S::Global, &[K::Code(C::Down), K::Ch('j')], "", A::Move(1), "", "", G::Moving),
     key(S::Global, &[K::Code(C::PageUp)], "pgup  pgdn", A::Page(-1), "", "a page up / down", G::Moving),
@@ -714,6 +708,27 @@ pub fn view_letter(view: View) -> &'static str {
 /// The binding `key` means in `scopes` (most specific first).
 pub fn lookup(scopes: &[Scope], key: &KeyEvent) -> Option<&'static Binding> {
     scopes.iter().find_map(|s| KEYMAP.iter().find(|b| b.scope == *s && b.keys.iter().any(|k| k.matches(key))))
+}
+
+/// The key a footer hint's key stands for, when it's one key: `l`, `space`, `enter`. A range
+/// (`1-8`) or a pair of arrows isn't one.
+pub fn hint_key(shown: &str) -> Option<KeyEvent> {
+    let code = match shown {
+        "space" => C::Char(' '),
+        "enter" => C::Enter,
+        "esc" => C::Esc,
+        "tab" => C::Tab,
+        "del" => C::Delete,
+        _ => {
+            let mut chars = shown.chars();
+            match (chars.next(), chars.next()) {
+                (Some(c), None) if !c.is_control() && !"←→↑↓".contains(c) => C::Char(c),
+                _ => return None,
+            }
+        }
+    };
+    let shift = matches!(code, C::Char(c) if c.is_uppercase());
+    Some(KeyEvent::new(code, if shift { KeyModifiers::SHIFT } else { KeyModifiers::NONE }))
 }
 
 /// The most hints the compact footer holds.

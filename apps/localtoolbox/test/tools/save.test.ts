@@ -1,7 +1,7 @@
 // src/tools/third-party-downloads/save.ts: naming a file, telling a file from
 // a page, and handing one to the browser.
 import { describe, it, expect } from 'vitest';
-import { filenameOf, looksLikeFile, safeName, save } from '../../src/tools/third-party-downloads/save.ts';
+import { filenameOf, safeName, save } from '../../src/tools/third-party-downloads/save.ts';
 import type { ChromeMock } from '../helpers/chrome.ts';
 
 declare const chrome: ChromeMock;
@@ -68,32 +68,6 @@ describe('filenameOf', () => {
 
 	it('answers nothing at all for something that is not a URL', () => {
 		expect(filenameOf('not a url')).toBe('');
-	});
-});
-
-describe('looksLikeFile', () => {
-	it('knows the extensions a free download arrives as', () => {
-		for (const ext of ['mp3', 'wav', 'aiff', 'aif', 'flac', 'm4a', 'ogg', 'zip']) {
-			expect(looksLikeFile(`https://cdn.test/a.${ext}`), ext).toBe(true);
-		}
-
-		expect(looksLikeFile('https://cdn.test/a.html')).toBe(false);
-	});
-
-	it('takes Dropbox and Drive only when asked for the bytes', () => {
-		expect(looksLikeFile('https://www.dropbox.com/s/abc/track?dl=1')).toBe(true);
-		expect(looksLikeFile('https://www.dropbox.com/s/abc/track?dl=0')).toBe(false);
-		expect(looksLikeFile('https://drive.google.com/uc?id=1&export=download')).toBe(true);
-		expect(looksLikeFile('https://drive.google.com/file/d/1/view')).toBe(false);
-	});
-
-	it('does not take a host that only ends in "dropbox.com" for Dropbox', () => {
-		expect(looksLikeFile('https://dl.dropbox.com/s/abc/track?dl=1')).toBe(true);
-		expect(looksLikeFile('https://notdropbox.com/s/abc/track?dl=1')).toBe(false);
-	});
-
-	it('says no to anything that is not a URL', () => {
-		expect(looksLikeFile('nope')).toBe(false);
 	});
 });
 

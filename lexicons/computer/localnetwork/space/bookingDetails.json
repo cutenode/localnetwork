@@ -1,0 +1,13 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.space.bookingDetails",
+	"defs": {
+		"main": {
+			"type": "space",
+			"description": "A performer's private booking details. Owned by the Local Network root account, one space per performer, keyed by the performer space's key. Only the root writes it; the app shows the details to the people who answer the performer's bookings.",
+			"key": "tid",
+			"name": "Local Network booking details",
+			"collections": ["computer.localnetwork.performer.details"]
+		}
+	}
+}

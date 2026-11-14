@@ -337,7 +337,12 @@ fn set() -> PublishedSet {
 }
 
 fn entry(artist: Option<&str>, title: Option<&str>, start: Option<u32>) -> TracklistEntry {
-    TracklistEntry { artist: artist.map(Into::into), title: title.map(Into::into), start_seconds: start }
+    TracklistEntry {
+        artist: artist.map(Into::into),
+        title: title.map(Into::into),
+        start_seconds: start,
+        ..Default::default()
+    }
 }
 
 fn kind(e: &RpcError) -> (&str, &str) {
@@ -678,6 +683,7 @@ fn tracklist(tc: &TestCase, most: usize) -> Vec<TracklistEntry> {
             artist: name(tc),
             title: name(tc),
             start_seconds: tc.draw(gs::optional(gs::integers::<u32>().max_value(5 * 3600))),
+            ..Default::default()
         })
         .collect()
 }
@@ -710,7 +716,7 @@ fn the_track_is_the_set_within_plyrs_lengths(tc: TestCase) {
     assert_eq!(t.notes.iter().any(|n| n.starts_with("the title is cut")), cut);
 
     assert!(t.description.len() <= MAX_DESCRIPTION, "{}", t.description.len());
-    let lines: Vec<String> = tracklist.iter().map(track::line).collect();
+    let lines: Vec<String> = tracklist.iter().map(TracklistEntry::line).collect();
     let all = lines.join("\n");
     if all.len() <= MAX_DESCRIPTION {
         assert_eq!(t.description, all);
@@ -751,7 +757,7 @@ fn prop_a_tracklist_too_long_keeps_the_lines_that_fit(tc: TestCase) {
     let artist = |tc: &TestCase| "\u{3a9}".repeat(tc.draw(gs::integers::<usize>().min_value(150).max_value(300)));
     let tracklist: Vec<TracklistEntry> = (0..n).map(|_| entry(Some(&artist(&tc)), None, None)).collect();
     let t = track::of(&set(), &tracklist);
-    let lines: Vec<String> = tracklist.iter().map(track::line).collect();
+    let lines: Vec<String> = tracklist.iter().map(TracklistEntry::line).collect();
     assert!(t.description.len() <= MAX_DESCRIPTION);
     let (kept, more) = t.description.rsplit_once('\n').unwrap();
     let kept: Vec<&str> = kept.lines().collect();
@@ -762,24 +768,6 @@ fn prop_a_tracklist_too_long_keeps_the_lines_that_fit(tc: TestCase) {
         kept.len()
     );
     assert_eq!(t.notes, [note]);
-}
-
-/// A line's time, as `05:30` or past an hour `1:02:03`, reads back as the entry's.
-#[hegel::test(test_cases = 100)]
-fn a_lines_time_reads_back(tc: TestCase) {
-    let secs = tc.draw(gs::integers::<u32>());
-    let line = track::line(&entry(Some("A"), Some("B"), Some(secs)));
-    let (time, name) = line.split_once(' ').unwrap();
-    assert_eq!(name, "A - B");
-    let fields: Vec<u32> = time.split(':').map(|f| f.parse().unwrap()).collect();
-    assert!(time.split(':').skip(1).all(|f| f.len() == 2), "{line}");
-    match fields[..] {
-        [m, s] => assert_eq!((secs < 3600, m * 60 + s), (true, secs), "{line}"),
-        [h, m, s] => {
-            assert_eq!((secs >= 3600, u64::from(h) * 3600 + u64::from(m * 60 + s)), (true, u64::from(secs)), "{line}")
-        }
-        _ => panic!("{line}"),
-    }
 }
 
 /// What plyr.fm answers a step with in place of going on, in the property below: refusing the

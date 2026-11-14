@@ -6,6 +6,7 @@
 use locallibrary::analysis_edit::NewAnalysis;
 use locallibrary::anlz::{self, Bands, Beat, Mood, Phrase, PhraseKind, SongStructure};
 use locallibrary::edit::Edit;
+use locallibrary::fields::roles::{self, PartsChosen, RoleOrPart};
 use locallibrary::fields::{Analyzer, FieldStore, OverlayStore};
 use locallibrary::paths;
 use locallibrary::plugin::{AnalysisPart, ApplyAnalysis};
@@ -66,8 +67,8 @@ impl Fixture {
 
     fn apply_analysis(&self, parts: &[AnalysisPart], overwrite: bool) -> Result<Planned<EditPlan>> {
         let req = ApplyAnalysis {
-            plugin: "echo".into(),
-            analyzer: "heard".into(),
+            plugin: Some("echo".into()),
+            analyzer: Some("heard".into()),
             drive: "USB".into(),
             parts: parts.to_vec(),
             tracks: None,
@@ -100,7 +101,7 @@ fn structured_fields_are_kept_apart_from_the_columns() {
     let columns: Vec<String> = f.plugins.fields().into_keys().collect();
     assert_eq!(columns, ["echo.bytes", "echo.tempo"]);
     // Drawn from the first analyzer with each.
-    let shown = overlays.first(&f.audio(&tracks[0]), &[heard()]);
+    let shown = overlays.first(&f.audio(&tracks[0]), &[heard()], &PartsChosen::new(), true);
     assert_eq!((shown.beats_from, shown.overlay.beats.map(|b| b.len())), (Some(heard()), Some(64)));
 }
 
@@ -186,8 +187,8 @@ fn only_what_the_analyzer_works_out_is_written() {
     let e = |parts: &[AnalysisPart]| f.apply_analysis(parts, false).unwrap_err().to_string();
     assert_eq!(e(&[]), "say what to write: grid, phrases, waveform");
     let req = ApplyAnalysis {
-        plugin: "echo".into(),
-        analyzer: "size".into(),
+        plugin: Some("echo".into()),
+        analyzer: Some("size".into()),
         drive: "USB".into(),
         parts: vec![AnalysisPart::Grid],
         tracks: Some(vec![9999]),
@@ -195,8 +196,171 @@ fn only_what_the_analyzer_works_out_is_written() {
     };
     let size = f.plugins.plan_apply_analysis(&req, &f.store, &Ctx::silent()).unwrap_err();
     assert_eq!(size.to_string(), "File size works out no grid");
-    let req = ApplyAnalysis { analyzer: "heard".into(), ..req };
+    let req = ApplyAnalysis { analyzer: Some("heard".into()), ..req };
     assert_eq!(f.plugins.plan_apply_analysis(&req, &f.store, &Ctx::silent()).unwrap_err().code(), "not_found");
+}
+
+/// [`structured`] with a second analyzer after `heard`, `also`, working out a beat grid and a
+/// waveform of its own.
+fn competing() -> String {
+    structured().replace(
+        "tempo = \"number\" }\n",
+        "tempo = \"number\" }\n\n[[contributes.analyzers]]\nname = \"also\"\ntitle = \"Also\"\nversion = \"1\"\n\
+         fields = { also_grid = \"beats\", also_wave = \"waveform\" }\n",
+    )
+}
+
+fn also() -> Analyzer {
+    Analyzer { analyzer: "also".into(), ..heard() }
+}
+
+/// The grid each track's analysis edit in `planned` writes, in order.
+fn grids_written(planned: &Planned<EditPlan>) -> Vec<Option<Vec<Beat>>> {
+    let grid = |e: &Edit| match e {
+        Edit::SetAnalysis { analysis, .. } => Some(analysis.beats.clone()),
+        _ => None,
+    };
+    planned.plan.recorded.iter().filter_map(grid).collect()
+}
+
+/// Each part of the analysis is drawn, and written with no analyzer named, from the analyzer
+/// chosen for it (`plugin roles grid echo.also`), else from the first with it for the track. A
+/// track the chosen one hasn't analysed is drawn from another, and written from none; an analyzer
+/// without the part isn't chosen for it, and a part turned off is read from none.
+#[test]
+fn each_part_is_drawn_and_written_from_the_analyzer_chosen_for_it() {
+    use locallibrary::fields::Overlay;
+    let f = Fixture::new(|dir| vec![spec(dir, &competing(), &[])], Options::default());
+    let tracks = f.hear_all(&[json!({}), json!({})]);
+    let overlays = OverlayStore::in_store(&f.store);
+    let wave = |n: u8| Some(Bands(vec![[n, n, n]; 300]));
+    for t in &tracks {
+        let theirs = Overlay { beats: Some(grid(64, 25)), phrases: Some(phrases()), waveform: wave(1) };
+        overlays.put(&f.audio(t), &heard(), &theirs).unwrap();
+    }
+    // `also` has analysed the first track alone.
+    let ours = Overlay { beats: Some(grid(64, 30)), phrases: None, waveform: wave(2) };
+    overlays.put(&f.audio(&tracks[0]), &also(), &ours).unwrap();
+    let offered = f.plugins.roles();
+    let names = |part| offered[&RoleOrPart::Part(part)].iter().map(|r| r.name()).collect::<Vec<_>>();
+    assert_eq!(names(AnalysisPart::Grid), ["echo.heard", "echo.also"]);
+    assert_eq!(names(AnalysisPart::Phrases), ["echo.heard"]);
+    locallibrary::testing::roles_on_this_thread(Some(offered.clone()));
+    let drawn = |i: usize| {
+        let chosen = roles::parts_chosen(Some(&f.store));
+        overlays.first(&f.audio(&tracks[i]), &f.plugins.analyzers(), &chosen, true)
+    };
+    let named = ApplyAnalysis {
+        plugin: Some("echo".into()),
+        analyzer: Some("heard".into()),
+        drive: "USB".into(),
+        parts: vec![AnalysisPart::Grid],
+        tracks: None,
+        overwrite: true,
+    };
+    let unnamed = ApplyAnalysis { plugin: None, analyzer: None, ..named.clone() };
+    let plan = |req: &ApplyAnalysis| f.plugins.plan_apply_analysis(req, &f.store, &Ctx::silent());
+
+    // None chosen: the first with each.
+    let shown = drawn(0);
+    assert_eq!((shown.beats_from, shown.waveform_from), (Some(heard()), Some(heard())));
+    let planned = plan(&unnamed).unwrap();
+    assert_eq!(planned.summary[0], "write the grid from Heard and Also to 2 track(s)");
+    assert_eq!(grids_written(&planned), [Some(grid(64, 25)), Some(grid(64, 25))]);
+
+    // Chosen: drawn from that one first, the other parts as they were; written from it alone.
+    roles::choose(&f.store, AnalysisPart::Grid, Some("echo.also")).unwrap();
+    let shown = drawn(0);
+    assert_eq!(
+        (shown.beats_from, shown.phrases_from, shown.waveform_from),
+        (Some(also()), Some(heard()), Some(heard()))
+    );
+    assert_eq!(shown.phrases_grid, Some(grid(64, 25)), "phrases count their own analyzer's beats");
+    assert_eq!(drawn(1).beats_from, Some(heard()), "a track it hasn't analysed is drawn from another");
+    let planned = plan(&unnamed).unwrap();
+    assert_eq!(planned.summary[0], "write the grid from Also to 1 track(s)");
+    assert_eq!(grids_written(&planned), [Some(grid(64, 30))], "nor written from another");
+    assert_eq!(grids_written(&plan(&named).unwrap()), [Some(grid(64, 25)), Some(grid(64, 25))], "named");
+    let e = roles::choose(&f.store, AnalysisPart::Phrases, Some("echo.also")).unwrap_err();
+    assert_eq!(e.to_string(), "echo.also doesn't work out phrases: echo.heard does");
+
+    // Turned off: from none.
+    roles::turn_off(&f.store, AnalysisPart::Grid).unwrap();
+    assert_eq!((drawn(0).beats_from, drawn(1).beats_from), (None, None));
+    assert_eq!(
+        plan(&unnamed).unwrap_err().to_string(),
+        "no analyzer works out grid, or none is chosen to: `locallibrary plugin roles grid` says"
+    );
+    let half = ApplyAnalysis { analyzer: None, ..named };
+    assert_eq!(plan(&half).unwrap_err().to_string(), "name the analyzer with its plugin, or neither");
+    locallibrary::testing::roles_on_this_thread(None);
+}
+
+/// For any parts two analyzers kept for an audio file and any choice for each part (none, either
+/// analyzer, or turned off), each part comes from the analyzer chosen for it if that has it, from
+/// none once turned off, else from the first with it; where the chosen one hasn't it, from the
+/// other when drawing (`fallback`) and from none when writing. Phrases come with their own
+/// analyzer's grid.
+#[hegel::test(test_cases = 100)]
+fn prop_each_part_is_drawn_from_the_analyzer_chosen_for_it(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use locallibrary::fields::Overlay;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let overlays = OverlayStore::in_store(&store);
+    let audio = dir.path().join("a.mp3");
+    std::fs::write(&audio, b"audio").unwrap();
+    let analyzers = [heard(), Analyzer { analyzer: "other".into(), ..heard() }];
+    let mut kept = Vec::new();
+    for (i, a) in analyzers.iter().enumerate() {
+        let o = Overlay {
+            beats: tc.draw(gs::booleans()).then(|| grid(8, i as u32)),
+            phrases: tc.draw(gs::booleans()).then(phrases),
+            waveform: tc.draw(gs::booleans()).then(|| Bands(vec![[i as u8; 3]; 4])),
+        };
+        if !o.is_empty() {
+            overlays.put(&audio, a, &o).unwrap();
+        }
+        kept.push(o);
+    }
+    // Each part: chosen for neither (left out), for the first, for the second, or turned off.
+    let mut chosen = PartsChosen::new();
+    for part in AnalysisPart::ALL {
+        match tc.draw(gs::integers::<u8>().max_value(3)) {
+            0 => {}
+            3 => {
+                chosen.insert(part, None);
+            }
+            i => {
+                chosen.insert(part, Some(analyzers[usize::from(i) - 1].clone()));
+            }
+        }
+    }
+    let has = |o: &Overlay, part: AnalysisPart| match part {
+        AnalysisPart::Grid => o.beats.is_some(),
+        AnalysisPart::Phrases => o.phrases.is_some(),
+        AnalysisPart::Waveform => o.waveform.is_some(),
+    };
+    let fallback = tc.draw(gs::booleans());
+    let from = |part: AnalysisPart| -> Option<usize> {
+        let candidates = match chosen.get(&part) {
+            None => vec![0, 1],
+            Some(None) => vec![],
+            Some(Some(a)) => {
+                let i = analyzers.iter().position(|x| x == a).unwrap();
+                if fallback { vec![i, 1 - i] } else { vec![i] }
+            }
+        };
+        candidates.into_iter().find(|&i| has(&kept[i], part))
+    };
+    let shown = overlays.first(&audio, &analyzers, &chosen, fallback);
+    let named = |i: Option<usize>| i.map(|i| analyzers[i].clone());
+    assert_eq!(shown.beats_from, named(from(AnalysisPart::Grid)));
+    assert_eq!(shown.phrases_from, named(from(AnalysisPart::Phrases)));
+    assert_eq!(shown.waveform_from, named(from(AnalysisPart::Waveform)));
+    assert_eq!(shown.overlay.beats, from(AnalysisPart::Grid).and_then(|i| kept[i].beats.clone()));
+    assert_eq!(shown.overlay.waveform, from(AnalysisPart::Waveform).and_then(|i| kept[i].waveform.clone()));
+    assert_eq!(shown.phrases_grid, from(AnalysisPart::Phrases).and_then(|i| kept[i].beats.clone()));
 }
 
 /// A manifest declaring a structured field needs the `analysis` feature: one whose plugin says it
@@ -408,7 +572,7 @@ fn overlays_read_back_as_kept_and_refuse_what_isnt_theirs(tc: hegel::TestCase) {
             overlays.put(&audio, &heard(), &first).unwrap();
             overlays.put(&audio, &other, &second).unwrap();
             assert_eq!(overlays.get(&audio, &heard()).as_ref(), Some(&first));
-            let shown = overlays.first(&audio, &[heard(), other.clone()]);
+            let shown = overlays.first(&audio, &[heard(), other.clone()], &PartsChosen::new(), true);
             let pick = |mine: bool, theirs: bool| match (mine, theirs) {
                 (true, _) => Some(heard()),
                 (false, true) => Some(other.clone()),
@@ -435,8 +599,8 @@ fn writing_an_analysis_is_refused_for_what_isnt_there(tc: hegel::TestCase) {
     let f = Fixture::new(|dir| vec![spec(dir, &structured(), &[])], Options::default());
     let parts = tc.draw(gs::vecs(gs::sampled_from(AnalysisPart::ALL.to_vec())).min_size(1).max_size(3));
     let req = ApplyAnalysis {
-        plugin: "echo".into(),
-        analyzer: "heard".into(),
+        plugin: Some("echo".into()),
+        analyzer: Some("heard".into()),
         drive: "USB".into(),
         parts: parts.clone(),
         tracks: None,
@@ -444,9 +608,9 @@ fn writing_an_analysis_is_refused_for_what_isnt_there(tc: hegel::TestCase) {
     };
     let (req, code) = match tc.draw(gs::integers::<u8>().max_value(5)) {
         0 => (ApplyAnalysis { parts: Vec::new(), ..req }, "invalid"),
-        1 => (ApplyAnalysis { analyzer: "size".into(), ..req }, "invalid"),
-        2 => (ApplyAnalysis { analyzer: "unheard".into(), ..req }, "not_found"),
-        3 => (ApplyAnalysis { plugin: "nobody".into(), ..req }, "not_found"),
+        1 => (ApplyAnalysis { analyzer: Some("size".into()), ..req }, "invalid"),
+        2 => (ApplyAnalysis { analyzer: Some("unheard".into()), ..req }, "not_found"),
+        3 => (ApplyAnalysis { plugin: Some("nobody".into()), ..req }, "not_found"),
         4 => (ApplyAnalysis { drive: "NOWHERE".into(), ..req }, "not_found"),
         _ => {
             let id = tc.draw(gs::integers::<u32>().min_value(10_000));
@@ -455,7 +619,7 @@ fn writing_an_analysis_is_refused_for_what_isnt_there(tc: hegel::TestCase) {
     };
     let e = f.plugins.plan_apply_analysis(&req, &f.store, &Ctx::silent()).unwrap_err();
     assert_eq!(e.code(), code, "{e}");
-    if req.analyzer == "size" {
+    if req.analyzer.as_deref() == Some("size") {
         assert_eq!(e.to_string(), format!("File size works out no {}", parts[0].name()));
     }
 }
@@ -606,8 +770,8 @@ fn any_kept_analysis_is_planned_as_asked_and_left_out_as_said(tc: hegel::TestCas
     let overwrite = tc.draw(gs::weighted_booleans(0.7));
     let only = tc.draw(gs::optional(gs::integers::<usize>().max_value(tracks.len() - 1)));
     let req = ApplyAnalysis {
-        plugin: "echo".into(),
-        analyzer: "heard".into(),
+        plugin: Some("echo".into()),
+        analyzer: Some("heard".into()),
         drive: "USB".into(),
         parts: parts.clone(),
         tracks: only.map(|i| vec![tracks[i].id]),
@@ -758,8 +922,8 @@ fn prop_applying_analysis_to_a_drive_nothing_is_planned_for_fails_case(tc: &hege
     let f = Fixture::new(|dir| vec![spec(dir, &structured(), &[])], Options::default());
     let (drive, code) = how.make(&f);
     let req = ApplyAnalysis {
-        plugin: "echo".into(),
-        analyzer: "heard".into(),
+        plugin: Some("echo".into()),
+        analyzer: Some("heard".into()),
         drive: drive.into(),
         parts,
         tracks: None,
@@ -923,8 +1087,8 @@ fn prop_applying_analysis_refuses_stops_or_leaves_out_what_it_has_case(tc: &hege
         0 => {
             for part in AnalysisPart::ALL {
                 let req = ApplyAnalysis {
-                    plugin: "echo".into(),
-                    analyzer: "size".into(),
+                    plugin: Some("echo".into()),
+                    analyzer: Some("size".into()),
                     drive: "USB".into(),
                     parts: vec![part],
                     tracks: None,
@@ -938,8 +1102,8 @@ fn prop_applying_analysis_refuses_stops_or_leaves_out_what_it_has_case(tc: &hege
             let cancel = locallibrary::CancelToken::new();
             cancel.cancel();
             let req = ApplyAnalysis {
-                plugin: "echo".into(),
-                analyzer: "heard".into(),
+                plugin: Some("echo".into()),
+                analyzer: Some("heard".into()),
                 drive: "USB".into(),
                 parts: vec![part],
                 tracks: None,
@@ -950,8 +1114,8 @@ fn prop_applying_analysis_refuses_stops_or_leaves_out_what_it_has_case(tc: &hege
         }
         3 => {
             let req = ApplyAnalysis {
-                plugin: "echo".into(),
-                analyzer: "heard".into(),
+                plugin: Some("echo".into()),
+                analyzer: Some("heard".into()),
                 drive: "USB".into(),
                 parts: vec![part],
                 tracks: Some(vec![999_999]),
@@ -981,8 +1145,8 @@ fn prop_applying_analysis_refuses_stops_or_leaves_out_what_it_has_case(tc: &hege
             }
             assert!(anlz::load(&device, &t).preview.is_none());
             let req = ApplyAnalysis {
-                plugin: "echo".into(),
-                analyzer: "heard".into(),
+                plugin: Some("echo".into()),
+                analyzer: Some("heard".into()),
                 drive: "USB".into(),
                 parts: vec![AnalysisPart::Waveform],
                 tracks: Some(vec![t.id]),
@@ -994,8 +1158,8 @@ fn prop_applying_analysis_refuses_stops_or_leaves_out_what_it_has_case(tc: &hege
         }
         4 => {
             let req = ApplyAnalysis {
-                plugin: "echo".into(),
-                analyzer: "nope".into(),
+                plugin: Some("echo".into()),
+                analyzer: Some("nope".into()),
                 drive: "USB".into(),
                 parts: vec![part],
                 tracks: None,

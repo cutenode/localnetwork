@@ -11,6 +11,8 @@ import {
 } from '#lib/epk.ts';
 import { type epkDraftSchema, epkFieldsSchema, type epkGrantSchema, type epkRequestSchema } from '#lib/epk-schema.ts';
 import type { JsonObject } from '@atproto/lex-json';
+import type { localnetwork } from '#lib/lexicons/computer.ts';
+import type { LexiconRead } from '#lib/types.ts';
 
 /**
  * A press kit as fields, the way drafts change it: the public record's fields and the private part's
@@ -25,9 +27,9 @@ type FieldValue = EpkFieldValue | undefined;
 type PressKitRecord =
 	| EpkRecord
 	| EpkContent
-	| z.infer<typeof epkDraftSchema>
-	| z.infer<typeof epkGrantSchema>
-	| z.infer<typeof epkRequestSchema>;
+	| LexiconRead<z.infer<typeof epkDraftSchema>, localnetwork.epk.draft.Main>
+	| LexiconRead<z.infer<typeof epkGrantSchema>, localnetwork.epk.grant.Main>
+	| LexiconRead<z.infer<typeof epkRequestSchema>, localnetwork.epk.request.Main>;
 
 const CONTENT = 'content.';
 

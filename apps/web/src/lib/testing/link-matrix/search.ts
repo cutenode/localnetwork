@@ -61,6 +61,7 @@ export default {
 		'Acts and listed DJs': [
 			{ name: /^Neon Tide/, href: '/projects/neon-tide' },
 			{ name: /^Neon(?! Tide)/, href: '/@neon.test' }
-		]
+		],
+		locallibrary: [{ name: 'Get locallibrary', href: '/tools/locallibrary' }]
 	}
 } satisfies LinkChecks;

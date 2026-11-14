@@ -290,6 +290,32 @@ test.describe('public pages', () => {
 		await expect(page.getByTestId('playhead')).toHaveCSS('transition-property', 'none');
 	});
 
+	test("a person's profile opens each section as a tab, by link too, with scripts or without", async ({
+		page,
+		browser
+	}) => {
+		await page.goto('/@neon.test');
+		await hydrated(page);
+		await page.getByRole('tab', { name: 'Sets' }).click();
+		await expect(page).toHaveURL('/@neon.test?tab=sets');
+		await expect(page.getByRole('tabpanel', { name: 'Sets' }).getByText('Tidal Hours', { exact: true })).toBeVisible();
+		// Safari doesn't focus a link it clicks.
+		await page.getByRole('tab', { name: 'Sets' }).focus();
+		await page.keyboard.press('ArrowRight');
+		await page.keyboard.press('Enter');
+		await expect(page).toHaveURL('/@neon.test?tab=how-they-play');
+		await expect(page.getByRole('tab', { name: 'How they play' })).toBeFocused();
+		await expectAccessible(page);
+
+		const noScripts = await browser.newContext({ javaScriptEnabled: false, baseURL: new URL(page.url()).origin });
+		const plain = await noScripts.newPage();
+		await plain.goto('/@neon.test?tab=plays-in');
+		await expect(
+			plain.getByRole('tabpanel', { name: 'Plays in' }).getByRole('link', { name: 'Neon Tide' })
+		).toBeVisible();
+		await noScripts.close();
+	});
+
 	test("a profile's sets link their artists to who played them", async ({ page }) => {
 		// The sets render with the page once the server has them cached (otherwise they stream in after it
 		// hydrates), and a tracklist opened before the page hydrates stays open.

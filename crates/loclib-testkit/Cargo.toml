@@ -1,0 +1,17 @@
+[package]
+name = "loclib-testkit"
+description = "Test helpers shared by the loclib crates: synthetic audio and audio files"
+readme = "README.md"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+loclib-audio.workspace = true
+loclib-mixid.workspace = true
+
+[lints]
+workspace = true

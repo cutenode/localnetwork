@@ -89,7 +89,9 @@ fn a_missing_scope_names_what_couldnt_be_published() {
     let said = |collection| scope_error(&info, collection).to_string();
     assert!(said(lexicon::PROFILE).contains("publish the profile;"));
     assert!(said(lexicon::SET).contains("publish sets;"));
-    assert!(said("app.example.thing").contains("publish records;"));
+    assert!(said("app.example.thing").contains("publish records; sign in again, allowing app.example.thing records"));
+    let again = &scope_error(&info, "app.example.thing").detail().actions[0];
+    assert_eq!(again.params["scopes"], json!(["atproto", "repo:app.example.thing?action=create&action=update"]));
 }
 
 /// A blob as a data server answers an upload.
@@ -189,7 +191,16 @@ fn an_explained_refusal_says_how_to_go_on(tc: hegel::TestCase) {
     }
     if scope || session {
         let again = &err.detail().actions[0];
-        assert_eq!((again.method.as_deref(), &again.params["publish"]), (Some("account.login.begin"), &json!(true)));
+        assert_eq!(again.method.as_deref(), Some("account.login.begin"));
+        match collection {
+            // Another record type (a plugin's): its scope, and what the session may do now.
+            "app.example.thing" => {
+                let scopes = again.params["scopes"].as_array().unwrap();
+                assert_eq!(scopes[0], "atproto", "{again:?}");
+                assert_eq!(scopes.last().unwrap(), "repo:app.example.thing?action=create&action=update");
+            }
+            _ => assert_eq!(again.params["publish"], json!(true), "{again:?}"),
+        }
     }
 }
 

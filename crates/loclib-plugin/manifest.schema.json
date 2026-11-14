@@ -61,6 +61,11 @@
       "items": {
         "$ref": "#/$defs/NetLimit"
       }
+    },
+    "lexicons": {
+      "description": "The Lexicon documents of the record types its `atmosphere:write:` capabilities name, as\ntheir authorities publish them, and of the definitions they refer to.",
+      "type": "array",
+      "items": true
     }
   },
   "required": [
@@ -102,6 +107,9 @@
         },
         {
           "pattern": "^net:(\\*\\.)?[A-Za-z0-9.-]+$"
+        },
+        {
+          "pattern": "^atmosphere:write:[a-z][a-z0-9.-]*\\.[A-Za-z][A-Za-z0-9]*$"
         }
       ]
     },

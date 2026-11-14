@@ -189,21 +189,35 @@ fn a_plugin_suggests_one_of_its_own_commands() {
     assert_eq!((action.drive(), action.fetch().is_none()), (None, true));
 }
 
-/// For any plan a planned command answers its dry run, the host reads back that plan, and the
-/// run it then asks for is the dry run's request but for `dry_run`.
-#[hegel::test(test_cases = 25)]
-fn prop_any_plan_reads_back_and_its_run_differs_only_in_dry_run(tc: TestCase) {
+/// Any plan: a summary, a few warnings and up to three files it would write.
+fn plan(tc: &TestCase) -> CommandPlan {
     let file = || {
         let path = tc.draw(gs::from_regex("(/[a-z0-9 ._-]{1,8}){1,3}").fullmatch(true));
         let what = tc.draw(gs::text().max_size(12));
         ExportedFile { path: path.into(), what, bytes: tc.draw(gs::integers::<u64>()) }
     };
     let n = tc.draw(gs::integers::<usize>().max_value(3));
-    let plan = CommandPlan {
+    CommandPlan {
         summary: tc.draw(gs::text().max_size(40)),
         warnings: tc.draw(gs::vecs(gs::text().max_size(20)).max_size(3)),
         files: (0..n).map(|_| file()).collect(),
-    };
+    }
+}
+
+/// Any plan is the answer it makes, and as JSON reads back as that answer.
+#[hegel::test(test_cases = 50)]
+fn prop_a_plan_is_its_own_answer_and_reads_back_as_one(tc: TestCase) {
+    let plan = plan(&tc);
+    assert_eq!(CommandPlanAnswer::from(plan.clone()), CommandPlanAnswer::Plan(plan.clone()));
+    let read: CommandPlanAnswer = serde_json::from_value(Value::from(plan.clone())).unwrap();
+    assert_eq!(read, CommandPlanAnswer::Plan(plan));
+}
+
+/// For any plan a planned command answers its dry run, the host reads back that plan, and the
+/// run it then asks for is the dry run's request but for `dry_run`.
+#[hegel::test(test_cases = 25)]
+fn prop_any_plan_reads_back_and_its_run_differs_only_in_dry_run(tc: TestCase) {
+    let plan = plan(&tc);
     let to = tc.draw(gs::from_regex("/[a-z]{1,6}").fullmatch(true));
     static PLANNED: std::sync::Mutex<Option<CommandPlan>> = std::sync::Mutex::new(None);
     *PLANNED.lock().unwrap() = Some(plan.clone());
