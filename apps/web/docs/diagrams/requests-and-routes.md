@@ -149,7 +149,7 @@ The pages anyone can read. A performer that isn't active shows only to its manag
 ```mermaid
 flowchart LR
   Public["Public pages"]
-  Public --> Home["/, /for-djs, /about, /privacy"]
+  Public --> Home["/, /for-djs, /for-promoters,<br/>/about, /privacy"]
   Public --> Find["/projects, /match"]
   Public --> Performer["/projects/[slug]<br/>/projects/[slug]/mixes/[n]<br/>/projects/[slug]/press-kits<br/>/projects/[slug]/press-kits/[rkey]"]
   Public --> Profile["/@[handle]<br/>/@[handle]/sets/[rkey]"]

@@ -138,10 +138,10 @@ Which query answers which page. All of them are Lua scripts on HappyView, and `g
 ```mermaid
 flowchart LR
   Pages["Pages and services"]
-  Pages -- "home, staff overview" --> Q1["getStats"]
-  Pages -- "home, dashboard sidebar,<br/>staff's performers" --> Q10["searchProjects"]
+  Pages -- "home, /for-djs, /for-promoters,<br/>staff overview" --> Q1["getStats"]
+  Pages -- "home, /for-djs, /for-promoters,<br/>dashboard sidebar, staff's performers" --> Q10["searchProjects"]
   Pages -- "/projects" --> Q2["searchPerformers"]
-  Pages -- "/match" --> Q3["matchProjects"]
+  Pages -- "/match, /for-promoters" --> Q3["matchProjects"]
   Pages -- "performer pages, dashboard" --> Q4["getProject, getProjects"]
   Pages -- "/shows, performer pages" --> Q5["listShows"]
   Pages -- "waiting on a show write" --> Q11["getShows"]
@@ -151,4 +151,4 @@ flowchart LR
   Pages -- "stats, press kits, profiles,<br/>verifications, bug report space" --> Q9["getRecords, listRecords"]
 ```
 
-Source: [`src/lib/server/happyview/client.ts`](../../src/lib/server/happyview/client.ts), [`src/lib/server/happyview/indexed.ts`](../../src/lib/server/happyview/indexed.ts), [`src/lib/server/services/projects.ts`](../../src/lib/server/services/projects.ts), [`src/lib/server/services/performers.ts`](../../src/lib/server/services/performers.ts), [`src/lib/server/services/shows.ts`](../../src/lib/server/services/shows.ts), [`src/lib/server/services/supports.ts`](../../src/lib/server/services/supports.ts)
+Source: [`src/lib/server/happyview/client.ts`](../../src/lib/server/happyview/client.ts), [`src/lib/server/happyview/indexed.ts`](../../src/lib/server/happyview/indexed.ts), [`src/lib/server/services/projects.ts`](../../src/lib/server/services/projects.ts), [`src/lib/server/services/performers.ts`](../../src/lib/server/services/performers.ts), [`src/lib/server/services/shows.ts`](../../src/lib/server/services/shows.ts), [`src/lib/server/services/supports.ts`](../../src/lib/server/services/supports.ts), [`src/lib/server/landing.ts`](../../src/lib/server/landing.ts), [`src/routes/for-djs/+page.server.ts`](../../src/routes/for-djs/+page.server.ts), [`src/routes/for-promoters/+page.server.ts`](../../src/routes/for-promoters/+page.server.ts)

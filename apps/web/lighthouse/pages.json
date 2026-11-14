@@ -4,6 +4,7 @@
 		{ "path": "/", "pr": true },
 		{ "path": "/about" },
 		{ "path": "/for-djs" },
+		{ "path": "/for-promoters" },
 		{ "path": "/privacy" },
 		{ "path": "/login" },
 		{ "path": "/login/create" },
