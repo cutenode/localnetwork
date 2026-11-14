@@ -22,6 +22,7 @@ cargo_common_metadata = "warn"
 locallibrary = { path = "crates/locallibrary", default-features = false }
 loclib-analysis = { path = "crates/loclib-analysis", version = "0.1.0" }
 loclib-audio = { path = "crates/loclib-audio", version = "0.1.0" }
+loclib-capacity = { path = "crates/loclib-capacity", version = "0.1.0" }
 loclib-equipment = { path = "crates/loclib-equipment", version = "0.1.0" }
 loclib-interop = { path = "crates/loclib-interop", version = "0.1.0" }
 loclib-mixid = { path = "crates/loclib-mixid", version = "0.1.0" }

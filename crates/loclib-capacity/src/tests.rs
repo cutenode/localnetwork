@@ -134,11 +134,11 @@ fn a_device_file_is_probed() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("rdisk4");
     std::fs::File::create(&path).unwrap().set_len(8 * MIB).unwrap();
-    let mut dev = DeviceFile::open(&path.to_string_lossy()).unwrap();
+    let mut dev = DeviceFile::open_to_overwrite(&path).unwrap();
     let r = probe(&mut dev, 8 * MIB, 512, &Ctx::silent()).unwrap();
     assert!(!r.is_fake() && r.regions == 8, "{r:?}");
-    let err = DeviceFile::open(&dir.path().join("rdisk5").to_string_lossy()).err().unwrap();
-    assert_eq!(err.code(), "io");
+    let err = DeviceFile::open_to_overwrite(dir.path().join("rdisk5")).err().unwrap();
+    assert!(matches!(err, Error::Io { .. }), "{err}");
 }
 
 #[test]
@@ -290,14 +290,26 @@ fn probes_find_the_real_capacity(tc: TestCase) {
     // Each alias is sent as the `[written_at, read_at]` pair its schema describes.
     let sent = serde_json::to_value(&r).unwrap();
     let pairs: Vec<[u64; 2]> = r.aliases.iter().map(|a| [a.written_at, a.read_at]).collect();
-    assert_eq!(sent["aliases"], serde_json::json!(pairs));
-    let schema = serde_json::to_value(schemars::schema_for!(Alias)).unwrap();
-    let titles: Vec<&str> =
-        schema["prefixItems"].as_array().unwrap().iter().map(|i| i["title"].as_str().unwrap()).collect();
     assert_eq!(
-        (titles, &schema["minItems"], &schema["maxItems"]),
-        (vec!["written_at", "read_at"], &serde_json::json!(2), &serde_json::json!(2))
+        sent,
+        serde_json::json!({
+            "claimed": r.claimed,
+            "regions": r.regions,
+            "failed": r.failed,
+            "works_up_to": r.works_up_to,
+            "aliases": pairs,
+        })
     );
+    #[cfg(feature = "schemars")]
+    {
+        let schema = serde_json::to_value(schemars::schema_for!(Alias)).unwrap();
+        let titles: Vec<&str> =
+            schema["prefixItems"].as_array().unwrap().iter().map(|i| i["title"].as_str().unwrap()).collect();
+        assert_eq!(
+            (schema["type"].as_str(), titles, &schema["minItems"], &schema["maxItems"]),
+            (Some("array"), vec!["written_at", "read_at"], &serde_json::json!(2), &serde_json::json!(2))
+        );
+    }
     // The first region was wiped and then written last, so it holds its own pattern.
     if !offsets.is_empty() && real >= MIB {
         assert_eq!(&disk.data[..8], MAGIC);
@@ -310,10 +322,10 @@ fn probes_find_the_real_capacity(tc: TestCase) {
 fn a_cancelled_probe_stops_after_the_wipe(tc: TestCase) {
     let size = tc.draw(gs::integers::<u64>().min_value(1).max_value(4)) * MIB;
     let mut disk = Simulated { data: vec![0xFF; size as usize], past: Past::Wrap };
-    let cancel = crate::progress::CancelToken::new();
+    let cancel = loclib_progress::CancelToken::new();
     cancel.cancel();
-    let err = probe(&mut disk, size, 512, &Ctx::new(&crate::progress::NoProgress, cancel)).unwrap_err();
-    assert_eq!(err.code(), "cancelled");
+    let err = probe(&mut disk, size, 512, &Ctx::new(&loclib_progress::NoProgress, cancel)).unwrap_err();
+    assert!(matches!(err, Error::Cancelled(_)), "{err}");
     assert!(disk.data[..REGION].iter().all(|&b| b == 0) && disk.data[REGION..].iter().all(|&b| b == 0xFF));
 }
 
@@ -327,12 +339,12 @@ fn device_files_probe_as_real(tc: TestCase) {
     let path = dir.path().join("rdisk4");
     let size = tc.draw(gs::integers::<u64>().min_value(1).max_value(6 * MIB / 512)) * 512;
     std::fs::File::create(&path).unwrap().set_len(size).unwrap();
-    let mut dev = DeviceFile::open(&path.to_string_lossy()).unwrap();
+    let mut dev = DeviceFile::open_to_overwrite(&path).unwrap();
     let r = probe(&mut dev, size, 512, &Ctx::silent()).unwrap();
     assert!(!r.is_fake() && r.regions == region_count(size, 512), "{r:?}");
     assert_eq!(std::fs::metadata(&path).unwrap().len(), size, "nothing written past the end");
-    let err = DeviceFile::open(&dir.path().join("rdisk5").to_string_lossy()).err().unwrap();
-    assert_eq!(err.code(), "io");
+    let err = DeviceFile::open_to_overwrite(dir.path().join("rdisk5")).err().unwrap();
+    assert!(matches!(err, Error::Io { .. }), "{err}");
 }
 
 /// A disk that wraps writes at a whole number of MiB hands back, for each region past its real
@@ -352,6 +364,45 @@ fn wrapping_disks_show_where_each_region_landed(tc: TestCase) {
     assert_eq!((r.regions as u64, r.failed as u64), (claimed_mib, claimed_mib - real_mib));
     assert_eq!(r.works_up_to, Some(real_mib * MIB));
     assert_eq!(r.aliases, past[..past.len().min(8)]);
+    let pairs: Vec<[u64; 2]> = r.aliases.iter().map(|a| [a.written_at, a.read_at]).collect();
+    assert_eq!(serde_json::to_value(&r.aliases).unwrap(), serde_json::json!(pairs), "each alias is sent as its pair");
+}
+
+/// A file standing in for a disk reads back, from where it was written, what was written there;
+/// a missing one can't be opened. (Probing one is `device_files_probe_as_real`, which Linux skips.)
+#[hegel::test(test_cases = 10)]
+fn device_files_read_back_what_was_written_where(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rdisk4");
+    std::fs::File::create(&path).unwrap().set_len(2 * MIB).unwrap();
+    let offset = tc.draw(gs::integers::<u64>().max_value(MIB / 512)) * 512;
+    let data = tc.draw(gs::binary().min_size(1).max_size(8192));
+    let mut dev = DeviceFile::open_to_overwrite(&path).unwrap();
+    dev.write_at(offset, &data).unwrap();
+    let mut back = vec![0; data.len()];
+    dev.read_at(offset, &mut back).unwrap();
+    assert_eq!(back, data);
+    let start = offset as usize;
+    assert_eq!(std::fs::read(&path).unwrap()[start..start + data.len()], data[..], "written to the file");
+    let err = DeviceFile::open_to_overwrite(dir.path().join("rdisk5")).err().unwrap();
+    assert!(matches!(err, Error::Io { .. }), "{err}");
+}
+
+/// Linux caches block devices, so a probe drops the caches before reading back, which needs
+/// root. Without the rights it stops with an I/O error at the boot region's flush rather than
+/// read back what the kernel kept.
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn a_linux_probe_drops_the_caches_or_stops() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sdz");
+    std::fs::File::create(&path).unwrap().set_len(2 * MIB).unwrap();
+    let can_drop = std::fs::OpenOptions::new().write(true).open("/proc/sys/vm/drop_caches").is_ok();
+    let mut dev = DeviceFile::open_to_overwrite(&path).unwrap();
+    match probe(&mut dev, 2 * MIB, 512, &Ctx::silent()) {
+        Ok(r) => assert!(can_drop && !r.is_fake(), "{r:?}"),
+        Err(e) => assert!(!can_drop && matches!(e, Error::Io { .. }), "{e}"),
+    }
 }
 
 /// A device this process may not write to is refused for asking administrator rights, naming
@@ -366,11 +417,11 @@ fn devices_that_cant_be_written_ask_for_rights(tc: TestCase) {
     let writable = tc.draw(gs::booleans());
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(if writable { 0o600 } else { 0o400 })).unwrap();
     let name = path.to_string_lossy().into_owned();
-    match DeviceFile::open(&name) {
+    match DeviceFile::open_to_overwrite(&path) {
         Ok(_) => assert!(writable || is_root(&path), "a read-only device opened"),
-        Err(Error::Permission(m)) => {
+        Err(e @ Error::Permission { .. }) => {
             assert!(!writable);
-            assert_eq!(m, format!("checking the capacity of {name} needs administrator rights"));
+            assert_eq!(e.to_string(), format!("checking the capacity of {name} needs administrator rights"));
         }
         Err(e) => panic!("{e}"),
     }
@@ -441,7 +492,7 @@ fn prop_a_probe_stops_at_a_disk_error_or_a_cancel_before_reading(tc: TestCase) {
     assert!(matches!(&err, Error::Io { path, .. } if path.to_str() == Some("disk")), "{err}");
     assert_eq!(disk.ops, fail_at + 1, "nothing after the failure");
 
-    let cancel = crate::progress::CancelToken::new();
+    let cancel = loclib_progress::CancelToken::new();
     let reads = Mutex::new(0usize);
     let stop = |e: &Event| match e {
         Event::PhaseEnd { phase: Phase::Write } => cancel.cancel(),
@@ -449,5 +500,25 @@ fn prop_a_probe_stops_at_a_disk_error_or_a_cancel_before_reading(tc: TestCase) {
         _ => {}
     };
     let err = probe(&mut Failing { ops: 0, fail_at: None }, size, 512, &Ctx::new(&stop, cancel.clone())).unwrap_err();
-    assert_eq!((err.code(), *reads.lock().unwrap()), ("cancelled", 0));
+    assert!(matches!(err, Error::Cancelled(_)), "{err}");
+    assert_eq!(*reads.lock().unwrap(), 0);
+}
+
+/// A pattern starts with the magic, its offset and the nonce, comes out the same each time for
+/// the same ones, fills the whole buffer (a last word cut short included) and differs from the
+/// next offset's.
+#[hegel::test(test_cases = 100)]
+fn patterns_are_headed_and_repeatable(tc: TestCase) {
+    let offset = tc.draw(gs::integers::<u64>());
+    let nonce = tc.draw(gs::integers::<u64>());
+    let len = tc.draw(gs::integers::<usize>().min_value(24).max_value(4096));
+    let mut a = vec![0u8; len];
+    pattern(offset, nonce, &mut a);
+    assert_eq!((&a[..8], &a[8..16], &a[16..24]), (&MAGIC[..], &offset.to_le_bytes()[..], &nonce.to_le_bytes()[..]));
+    let mut b = vec![0xFF; len];
+    pattern(offset, nonce, &mut b);
+    assert_eq!(a, b);
+    let mut next = vec![0u8; len];
+    pattern(offset.wrapping_add(1), nonce, &mut next);
+    assert_ne!(a, next);
 }
