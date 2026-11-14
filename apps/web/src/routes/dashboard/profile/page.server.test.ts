@@ -149,6 +149,22 @@ it('saves a new profile, then changes it from the version the form opened on', a
 	expect((await t.profiles.get(DJ))?.record.basics.name).toBe('Neon Tide');
 });
 
+it('points to the Promoter section once, when saving turns the promoter section on', async () => {
+	const viewer = await t.viewer(DJ);
+
+	const save = (form: Record<string, string>) =>
+		callRoute(actions.save, { app: app(), viewer, url: '/dashboard/profile?/save', form });
+
+	await expect(save({ name: 'Neon', section: 'promoter' })).rejects.toMatchObject({
+		location: '/dashboard/profile?saved=1&promoting=1'
+	});
+
+	const saved = (await t.profiles.get(DJ))!;
+	await expect(save({ name: 'Neon Tide', section: 'promoter', cid: saved.cid })).rejects.toMatchObject({
+		location: '/dashboard/profile?saved=1'
+	});
+});
+
 it('keeps what was typed and says what to fix when the profile has no name', async () => {
 	const result = await callRoute(actions.save, {
 		app: app(),

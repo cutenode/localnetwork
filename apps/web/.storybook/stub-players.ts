@@ -10,7 +10,7 @@ const stubbed = new WeakSet<BrowserContext>();
  * Answers SoundCloud's and Mixcloud's players with a page that shows the URL it was asked for, so the story tests
  * open players without loading the real widgets. Storybook itself still shows the real ones.
  */
-export const stubPlayers: BrowserCommand<[]> = async ({ context }) => {
+export const stubPlayers: BrowserCommand = async ({ context }) => {
 	if (stubbed.has(context)) return;
 	stubbed.add(context);
 

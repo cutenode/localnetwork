@@ -70,6 +70,8 @@ it("lists the sections and everything that is the viewer's own", async () => {
 		.toHaveAttribute('href', '/dashboard/projects/new');
 	await expect.element(nav.getByRole('link', { name: /Staff console/ })).not.toBeInTheDocument();
 	await expect.element(nav.getByRole('link', { name: 'View site' })).not.toBeInTheDocument();
+	// Without a profile the planner shows on its own; the Promoter section waits until it's turned on.
+	await expect.element(nav.getByRole('list', { name: 'Promoter' })).not.toBeInTheDocument();
 });
 
 it('adds the staff console, with the requests waiting, for staff', async () => {
@@ -162,7 +164,7 @@ it('still offers to list a project when the directory is offline', async () => {
 	expect(yours.getByRole('link').elements()).toHaveLength(2);
 });
 
-it('shows a DJ their projects and a promoter their planner, by the sections their profile has on', async () => {
+it('shows a DJ their projects and a promoter their Promoter section, by the sections their profile has on', async () => {
 	const open = async (sections: { performer: boolean; promoter: boolean }, projects: ProjectView[] = []) => {
 		cleanup();
 
@@ -185,12 +187,16 @@ it('shows a DJ their projects and a promoter their planner, by the sections thei
 	};
 
 	let nav = await open({ performer: false, promoter: true });
+	const promoter = nav.getByRole('list', { name: 'Promoter' });
+	await expect.element(promoter.getByRole('link', { name: 'Book DJs' })).toHaveAttribute('href', '/dashboard/promoter');
+	await expect.element(promoter.getByRole('link', { name: 'Planner' })).toHaveAttribute('href', '/dashboard/planner');
 	await expect.element(nav.getByRole('link', { name: 'You', exact: true })).toBeInTheDocument();
-	await expect.element(nav.getByRole('link', { name: 'Planner' })).toBeInTheDocument();
 	await expect.element(nav.getByRole('link', { name: 'List a project' })).not.toBeInTheDocument();
 
 	nav = await open({ performer: true, promoter: false });
 	await expect.element(nav.getByRole('link', { name: 'List a project' })).toBeInTheDocument();
+	await expect.element(nav.getByRole('list', { name: 'Promoter' })).not.toBeInTheDocument();
+	await expect.element(nav.getByRole('link', { name: 'Book DJs' })).not.toBeInTheDocument();
 	await expect.element(nav.getByRole('link', { name: 'Planner' })).not.toBeInTheDocument();
 
 	// Projects someone manages stay, whatever their profile says.

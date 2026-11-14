@@ -41,6 +41,7 @@
 		<SignInAgain did={data.viewer.did} next={page.url.pathname} error={reauth} />
 	{:else if page.url.searchParams.has('saved') && !form}
 		<FormMessage form={{ success: 'Saved. Your profile shows the changes now.' }} />
+		{#if page.url.searchParams.has('promoting')}<p class="m-0 text-small text-fg-muted">Your dashboard has a Promoter section now, starting with <a class="link" href="/dashboard/promoter">Book DJs</a>.</p>{/if}
 	{:else if page.url.searchParams.has('created') && !form}
 		<FormMessage form={{ success: 'Your profile is up. Add more here whenever you like.' }} />
 	{:else if !form?.values}
@@ -105,7 +106,7 @@
 				<input id="section-promoter" type="checkbox" class="checkbox mt-0.5" name="section" value="promoter" aria-describedby="section-promoter-hint" bind:checked={promoter} />
 				<div class="flex flex-col gap-0.5">
 					<label class="text-fg" for="section-promoter">I put on shows</label>
-					<p id="section-promoter-hint" class="m-0 text-small text-fg-muted">The cities you book in.</p>
+					<p id="section-promoter-hint" class="m-0 text-small text-fg-muted">The cities you book in, and a Promoter section on your dashboard.</p>
 				</div>
 			</div>
 		</FormSection>

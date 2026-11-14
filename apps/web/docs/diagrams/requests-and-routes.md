@@ -175,6 +175,7 @@ flowchart LR
   Dash --> Inbox["/inbox, /inbox/settings"]
   Dash --> Req["/requests, /requests/[rkey]<br/>the requester or staff"]
   Dash --> Book["/bookings, /bookings/new,<br/>/bookings/[skey] for participants"]
+  Dash --> Promoter["/promoter, in the sidebar<br/>once promoting is on"]
   Dash --> Plan["/planner, /planner/shows/[rkey]<br/>needs spaces"]
   Dash --> Claim["/claim/[slug], /projects/new"]
   Dash --> Access["/access/[slug]/[rkey]"]
