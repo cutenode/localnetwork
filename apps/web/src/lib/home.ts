@@ -1,7 +1,10 @@
 /** Something waiting on the viewer, as Home lists it. `scope` is the act or thing it belongs to, for its monogram. */
 export type NeedsRow = { key: string; scope: string; title: string; detail: string; href: string; action: string };
 
-/** A night the viewer has something to do with. `tentative` nights aren't settled yet; `when` says how close it is. */
+/**
+ * A night the viewer has something to do with. `tentative` nights aren't settled yet; `when` says how close it is;
+ * `inquiries`, on the first of them, how many unconfirmed bookings share the night.
+ */
 export type NightRow = {
 	key: string;
 	date: string;
@@ -10,6 +13,7 @@ export type NightRow = {
 	href: string;
 	tentative: boolean;
 	when?: 'Tonight' | 'Tomorrow';
+	inquiries?: number;
 };
 
 /** Home's heading: the one count of what's waiting on the viewer. */

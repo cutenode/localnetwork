@@ -18,7 +18,7 @@ type Log = Pick<Logger, 'warn'>;
 /** How many of an account's projects Home asks the directory about, so nobody's page waits on dozens of lookups. */
 const PROJECTS_READ = 10;
 
-const NIGHTS_SHOWN = 5;
+const DAY_MS = 86_400_000;
 
 /** How long a load holds the first paint for a slower source, so a healthy one renders with no placeholders at all. */
 const SOON_MS = 150;
@@ -186,7 +186,9 @@ const plannedNight = (show: PlannerShowView): NightRow => ({
 	key: show.rkey,
 	date: dayOf(show.details.date ?? ''),
 	title: show.details.title,
-	detail: ['Planned', show.details.venue, pluralize(show.lineup.length, 'DJ')].filter(Boolean).join(' · '),
+	detail: ['Planned', show.details.venue, show.lineup.length && pluralize(show.lineup.length, 'DJ')]
+		.filter(Boolean)
+		.join(' · '),
 	href: `/dashboard/planner/shows/${show.rkey}`,
 	tentative: true
 });
@@ -194,13 +196,17 @@ const plannedNight = (show: PlannerShowView): NightRow => ({
 const closeness = (date: string, now: number): NightRow['when'] => {
 	if (date === today(now)) return 'Tonight';
 
-	return date === today(now + 86_400_000) ? 'Tomorrow' : undefined;
+	return date === today(now + DAY_MS) ? 'Tomorrow' : undefined;
 };
+
+/** Which nights {@link nextNights} returns: `shown` caps the list, the rest only counted in `more`; `ahead` stops it that many days out. */
+export type NightWindow = { shown?: number; ahead?: number };
 
 /**
  * The viewer's next nights across shows they announced, bookings and their planner, soonest first. Each source can
  * fail alone: `failed` says some are missing, and the rest still show. A booking that became a show counts once, as
- * the show.
+ * the show. The first of two or more unconfirmed bookings an act of theirs was asked about for one night carries
+ * their count as `inquiries`, since that's a clash to sort out.
  */
 export async function nextNights(
 	{
@@ -218,9 +224,11 @@ export async function nextNights(
 	threads: BookingThreadView[],
 	projects: ProjectView[] | null,
 	sections: { promoter: boolean } | null,
+	{ shown = 5, ahead = Infinity }: NightWindow = {},
 	now = Date.now()
 ): Promise<{ nights: NightRow[]; more: number; failed: boolean }> {
 	const start = today(now);
+	const until = Number.isFinite(ahead) ? today(now + ahead * DAY_MS) : '9999';
 
 	const shows = await unlessOffline(log, () =>
 		Promise.all((projects ?? []).slice(0, PROJECTS_READ).map((project) => app.shows.forProject(project)))
@@ -257,14 +265,30 @@ export async function nextNights(
 	]) {
 		const same = `${night.date} ${night.title.toLowerCase()}`;
 
-		if (night.date >= start && !once.has(same)) once.set(same, { ...night, when: closeness(night.date, now) });
+		if (night.date >= start && night.date <= until && !once.has(same))
+			once.set(same, { ...night, when: closeness(night.date, now) });
 	}
 
 	const nights = [...once.values()].sort((a, b) => a.date.localeCompare(b.date));
 
+	// Asked about one night twice, an act has to choose; a promoter asking two acts is building a lineup.
+	const asked = new Set(
+		booked
+			.values()
+			.filter((thread) => roleIn(thread, viewer.did) === 'manager')
+			.map((thread) => thread.skey)
+	);
+
+	const asks = Map.groupBy(
+		nights.filter((night) => night.tentative && asked.has(night.key)),
+		(night) => night.date
+	);
+
+	for (const [first, ...rest] of asks.values()) if (rest.length) first.inquiries = rest.length + 1;
+
 	return {
-		nights: nights.slice(0, NIGHTS_SHOWN),
-		more: Math.max(nights.length - NIGHTS_SHOWN, 0),
+		nights: nights.slice(0, shown),
+		more: Math.max(nights.length - shown, 0),
 		failed: shows === null || projects === null || (!!planner && 'problem' in planner)
 	};
 }
