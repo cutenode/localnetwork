@@ -136,7 +136,7 @@
 					<section aria-labelledby="stats-{account.did}" class="flex flex-col gap-4">
 						<div class="flex flex-wrap items-baseline justify-between gap-2">
 							<h2 id="stats-{account.did}" class="m-0 text-heading font-semibold">How they play</h2>
-							{#if accounts.length > 1 && account.handle}<span class="text-small text-fg-muted">@{account.handle}</span>{/if}
+							{#if accounts.length > 1 && account.handle}<Handle {account} class="text-small text-fg-muted" />{/if}
 						</div>
 						<DjStats profile={account.profile} />
 					</section>
@@ -144,7 +144,7 @@
 				{#if account.sets.length}
 					<section aria-labelledby="sets-{account.did}" class="flex flex-col gap-4">
 						<h2 id="sets-{account.did}" class="m-0 text-heading font-semibold">Recent sets</h2>
-						<DjSets sets={account.sets} />
+						<DjSets sets={account.sets} handle={account.handle} />
 					</section>
 				{/if}
 			{/each}

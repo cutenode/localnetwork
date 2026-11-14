@@ -94,7 +94,7 @@ Source: [`crates/locallibrary/src/masterdb.rs`](../../../../crates/locallibrary/
 
 ```mermaid
 flowchart TD
-    source["master.db, or a plugin's source<br/>with the folders you --grant"] --> plan["Plan the files that differ. A library it holds<br/>from elsewhere is replaced only when asked"]
+    source["master.db, or a plugin's source<br/>with the folders you --grant"] --> plan["Plan the files that differ, with how long it'll take.<br/>A library it holds from elsewhere is replaced only when asked"]
     plan --> saved["Save what only the target has in the store"]
     saved --> backup["Back up what it replaces, not audio,<br/>if it holds a library. Mark it as being written"]
     backup --> copy["Copy what differs: library_write, as pack does"]
@@ -102,7 +102,7 @@ flowchart TD
     build --> delete["Delete what's no longer used, record the<br/>new state, write collection.json, forget the journal"]
 ```
 
-Source: [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`crates/locallibrary/src/plugin/sources.rs`](../../../../crates/locallibrary/src/plugin/sources.rs), [`crates/locallibrary/src/api/collection.rs`](../../../../crates/locallibrary/src/api/collection.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs)
+Source: [`crates/locallibrary/src/collection_export.rs`](../../../../crates/locallibrary/src/collection_export.rs), [`crates/locallibrary/src/library_write.rs`](../../../../crates/locallibrary/src/library_write.rs), [`crates/locallibrary/src/plugin/sources.rs`](../../../../crates/locallibrary/src/plugin/sources.rs), [`crates/locallibrary/src/api/collection.rs`](../../../../crates/locallibrary/src/api/collection.rs), [`crates/locallibrary/src/drive_speed.rs`](../../../../crates/locallibrary/src/drive_speed.rs), [`src/collection_cmd.rs`](../../src/collection_cmd.rs)
 
 ## Sets from histories and recordings
 
@@ -156,7 +156,7 @@ flowchart TD
     report --> set["sets new, from the recording"]
 ```
 
-Source: [`crates/locallibrary/src/mix/mod.rs`](../../../../crates/locallibrary/src/mix/mod.rs), [`crates/locallibrary/src/mix/index.rs`](../../../../crates/locallibrary/src/mix/index.rs), [`crates/locallibrary/src/mix/report.rs`](../../../../crates/locallibrary/src/mix/report.rs), [`crates/locallibrary/src/mix/export.rs`](../../../../crates/locallibrary/src/mix/export.rs), [`src/mix_cmd.rs`](../../src/mix_cmd.rs)
+Source: [`crates/locallibrary/src/mix/mod.rs`](../../../../crates/locallibrary/src/mix/mod.rs), [`crates/locallibrary/src/mix/index.rs`](../../../../crates/locallibrary/src/mix/index.rs), [`crates/loclib-audio/src/lib.rs`](../../../../crates/loclib-audio/src/lib.rs), [`crates/loclib-mixid/src/lib.rs`](../../../../crates/loclib-mixid/src/lib.rs), [`crates/locallibrary/src/mix/report.rs`](../../../../crates/locallibrary/src/mix/report.rs), [`crates/locallibrary/src/mix/export.rs`](../../../../crates/locallibrary/src/mix/export.rs), [`src/mix_cmd.rs`](../../src/mix_cmd.rs)
 
 ## The DJ profile
 

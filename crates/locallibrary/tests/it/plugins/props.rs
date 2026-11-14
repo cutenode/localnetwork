@@ -1363,8 +1363,8 @@ fn prop_a_plugin_that_isnt_there_has_nothing(tc: TestCase) {
         min_confidence: None,
     };
     let analysis = ApplyAnalysis {
-        plugin: nope.clone(),
-        analyzer: "size".into(),
+        plugin: Some(nope.clone()),
+        analyzer: Some("size".into()),
         drive: "USB".into(),
         parts: vec![AnalysisPart::Grid],
         tracks: None,

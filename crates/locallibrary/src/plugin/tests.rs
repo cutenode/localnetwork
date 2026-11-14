@@ -61,3 +61,36 @@ fn prop_settings_kept_are_read_back_or_fail_naming_the_file(tc: hegel::TestCase)
     std::fs::write(store.root().join("plugins"), "").unwrap();
     assert!(save_host_settings(&store, &host).is_err());
 }
+
+/// For any text in a record a plugin writes, the record as it's shown to the user has no control
+/// character but its line breaks and no bidirectional text mark, each written as an escape
+/// instead, and is the record's JSON as it is when there's none.
+#[hegel::test(test_cases = 200)]
+fn prop_a_record_is_shown_without_what_could_hide_it(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let tricky = gs::sampled_from(vec!['\u{1b}', '\u{9b}', '\u{7f}', '\u{202e}', '\u{2066}', '\u{200f}', 'a', '\n']);
+    let mut title: String = tc.draw(gs::text().max_size(8));
+    title.extend(tc.draw(gs::vecs(tricky).max_size(4)));
+    let record = serde_json::json!({ "$type": "fm.plyr.track", "title": title });
+    let write = RecordWrite {
+        plugin: "Echo".into(),
+        account: "@dj.example.com".into(),
+        collection: "fm.plyr.track".into(),
+        rkey: None,
+        swap: None,
+        record: record.clone(),
+    };
+    let shown = write.shown();
+    let hiding = |c: char| {
+        (c.is_control() && c != '\n')
+            || matches!(c, '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+    };
+    assert!(!shown.chars().any(hiding), "{shown:?}");
+    let pretty = serde_json::to_string_pretty(&record).unwrap();
+    if !pretty.chars().any(hiding) {
+        assert_eq!(shown, pretty);
+    }
+    for c in pretty.chars().filter(|c| hiding(*c)) {
+        assert!(shown.contains(&format!("\\u{:04x}", c as u32)), "{c:?} in {shown:?}");
+    }
+}

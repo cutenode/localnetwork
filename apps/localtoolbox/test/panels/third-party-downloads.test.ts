@@ -1,9 +1,10 @@
 // src/tools/third-party-downloads/Panel.svelte: the third-party downloader,
-// against the real downloaded-store.ts. The sites themselves are a stubbed
+// against the real downloaded-store.ts. The walked site (Hypeddit) is a stubbed
 // `fetch`: a gate page as HTML, then whatever endpoints walking it goes
-// through. What each site's walk looks like is tested in test/tools/gates.test.ts;
-// what is here is the panel around them: where the links come from, what a row
-// says as it runs, and which of "saved" and "somewhere to open" it ends on.
+// through. What its walk looks like is tested in test/tools/gates.test.ts; what
+// is here is the panel around it: where the links come from, what a row says
+// as it runs, which of "saved" and "somewhere to open" it ends on, and the
+// gates it hands the background worker to open on their own page instead.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { flush } from '../helpers/flush.ts';
 import {
@@ -59,9 +60,18 @@ const DROP = 'https://droploud.com/gate/abc';
 
 const LAYLO = 'https://laylo.com/hairitage/9PWcf';
 
+const TONE = 'https://www.toneden.io/artist/post/free-dl';
+
+const FFM = 'https://ffm.to/release';
+
+const FANLINK_TO = 'https://fanlink.to/abc';
+
+const CLOSING = 'ToneDen shuts down on Dec 1, 2026.';
+
 // --- the sites, stubbed ------------------------------------------------------
 
 const gateHtml = (uid = '886rp1', steps = 'sc') => `<html><head>
+<title>FE!N (Remix) by KAKU | Free Download on Hypeddit</title>
 <meta name="csrf-token" content="CSRF">
 </head><body>
 <input id="current_download_file_listner" value="${uid}">
@@ -83,15 +93,6 @@ const signed = (name = 'KAKU - FE!N (Remix).wav') =>
 		`attachment; filename="${name}"`
 	)}`;
 
-const droploudHtml = (title = 'Front to Back') =>
-	`<script>self.__next_f.push([1,${JSON.stringify(
-		`a:{"gateData":{"track":{"id":"abc","title":${JSON.stringify(
-			title
-		)}},"artist":{"display_name":"D!lemma"},"steps":[{"id":"sc_follow","type":"soundcloud_follow"}]}}\n`
-	)}])</script>`;
-
-const laylaHtml = `<script>fetch('https://d21i0hc4hl3bvt.cloudfront.net/hairitage/9PWcf.json')</script>`;
-
 /** A response with `body` as its text: a page, or what a JSON endpoint sent. */
 const res = (body: string, { ok = true, status = 200 } = {}) => ({
 	ok,
@@ -108,18 +109,16 @@ const json = (value: Json, options?: { ok?: boolean; status?: number }) => res(J
 
 type Answer = ReturnType<typeof res>;
 
-/** A fetch answering for every site the panel might reach, overridable. */
+/**
+ * A fetch answering for the walked site, overridable. Nothing else is stubbed:
+ * the panel fetches no other site, and a request to one fails the test.
+ */
 function net(over: Record<string, Route> = {}) {
 	const routes = Object.entries<Route>({
 		'hypeddit.com/886rp1': () => res(gateHtml()),
 		'hypeddit.com/artist/second-track': () => res(gateHtml('second')),
 		'/gate/ge': () => json({ ok: 1 }),
 		'/gate/download/ul': () => json({ download_status: true, URL: signed() }),
-		'droploud.com/gate/abc': () => res(droploudHtml()),
-		'api.droploud.com': () => json({ download_url: 'https://cdn.test/Front%20to%20Back.wav' }),
-		'laylo.com/hairitage': () => res(laylaHtml),
-		d21i0hc4hl3bvt: () => json({ title: 'REMIXES', rsvpOptions: { email: 1 }, user: {} }),
-		d3oyaxbt9vo0fg: () => json({ id: 'a1', displayName: 'Hairitage' }),
 		...over
 	});
 
@@ -411,15 +410,33 @@ describe('walking a link', () => {
 		expect(meta()).toBe('1 link · My Playlist · 1 saved');
 	});
 
-	it('sends each site to its own folder', async () => {
+	// Droploud, Pump Your Sound and Laylo are done by the person on the site's
+	// own page: Get hands the gate to the worker, which opens it (on-page.ts),
+	// and the panel fetches nothing from the site.
+	it('hands a gate done on its own page to the worker, queueing its track', async () => {
 		panelChrome({ response: page(DROP) });
-		await load();
+		chrome.runtime.sendMessage.mockResolvedValue(true);
+		const { queue } = await load();
+
 		await click(rowButtons('get')[0]);
-		expect(chrome.downloads.download).toHaveBeenCalledWith({
-			url: 'https://cdn.test/Front%20to%20Back.wav',
-			filename: 'Droploud/Front to Back.wav'
+		expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
+			type: 'OPEN_GATES',
+			gates: [{ url: DROP, permalink: '/artist/track1' }]
 		});
-		expect(rows()[0].title).toBe('Front to Back.wav');
+		expect(queue.has('/artist/track1')).toBe(true);
+		expect(fetch).not.toHaveBeenCalled();
+		expect(chrome.downloads.download).not.toHaveBeenCalled();
+		expect(chrome.tabs.create).not.toHaveBeenCalled();
+	});
+
+	it('opens the gate as a plain tab when there is no worker to hand it to', async () => {
+		panelChrome({ tab: { id: 3, url: LAYLO } });
+		const { queue } = await load();
+
+		await click(rowButtons('get')[0]);
+		expect(chrome.tabs.create).toHaveBeenCalledWith({ url: LAYLO, active: true });
+		// A link with no track behind it has nothing to queue.
+		expect(queue.count).toBe(0);
 	});
 
 	it('leaves the track unmarked when that setting is off', async () => {
@@ -432,97 +449,27 @@ describe('walking a link', () => {
 		expect(rows()[0].state).toMatch(/saved/);
 	});
 
-	it('offers somewhere to open rather than reporting a failure it did not have', async () => {
-		panelChrome({ response: page(LAYLO) });
+	// ToneDen, FanLink and Feature.fm are only opened: their rows are an Open
+	// button and a line saying what the site is, from the moment they are listed.
+	it('lists a site that is only opened as somewhere to go, with nothing to run', async () => {
+		panelChrome({ response: page(TONE, FFM, FANLINK_TO) });
 		await load();
 
-		await click(rowButtons('get')[0]);
-		expect(rows()).toEqual([
-			{
-				title: 'REMIXES',
-				state: expect.stringMatching(/^Laylo Laylo is a notify-me page, not a gate/)
-			}
+		expect(rows().map((row) => row.state)).toEqual([
+			`ToneDen ${CLOSING}`,
+			'Feature.fm a page of shop and streaming links.',
+			`FanLink ${CLOSING}`
 		]);
-		expect(chrome.downloads.download).not.toHaveBeenCalled();
-		expect(meta()).toBe('1 link · My Playlist · 1 to open');
-
-		await click(rowButtons('open')[0]);
-		expect(chrome.tabs.create).toHaveBeenCalledWith({
-			url: LAYLO,
-			active: true
-		});
-	});
-
-	// A Laylo drop is a mailing list rather than a gate, so the walk is the
-	// signup: the address from settings is left with the artist, and the row
-	// says whose list it is on now rather than claiming a file it never got.
-	const signable = {
-		title: 'REMIXES',
-		productId: 'p1',
-		rsvpOptions: { email: 1 },
-		user: { id: 'a1' }
-	};
-
-	it('signs up for a Laylo drop with the address settings holds', async () => {
-		alreadySet({ email: 'me@example.com' });
-		panelChrome({ response: page(LAYLO) });
-
-		const calls = net({
-			d21i0hc4hl3bvt: () => json(signable),
-			'events.laylo.com': () => json({ success: true })
-		});
-
-		const { downloaded } = await load();
-
-		await click(rowButtons('get')[0]);
-		expect(rows()[0].state).toMatch(/signed me@example.com up — Hairitage sends the link out/);
-		expect(meta()).toBe('1 link · My Playlist');
-
-		const signup = JSON.parse(calls.find((call) => call.url.includes('events.laylo'))!.body);
-		expect(signup.payload).toMatchObject({
-			productId: 'p1',
-			creatorId: 'a1',
-			email: 'me@example.com'
-		});
-		// Signed up is not downloaded: no file was fetched, and nothing is marked.
-		expect(chrome.downloads.download).not.toHaveBeenCalled();
-		expect(downloaded.has('/artist/track1')).toBe(false);
-		// The address is left, and leaving it twice is not a retry worth offering:
-		// the row keeps only the drop, the way a row that ended on a page does.
 		expect(rowButtons('get')).toHaveLength(0);
+		// Nothing for Get all to do with them.
+		expect(clean(allButton()!)).toBe('all done');
+
 		await click(rowButtons('open')[0]);
-		expect(chrome.tabs.create).toHaveBeenCalledWith({ url: LAYLO, active: true });
-	});
-
-	it('sends a drop that wants an address to settings, not to a tab', async () => {
-		panelChrome({ response: page(LAYLO) });
-		net({ d21i0hc4hl3bvt: () => json(signable) });
-		await loadInPopup();
-
-		await click(rowButtons('get')[0]);
-		expect(rows()[0].state).toMatch(/add an address in settings/);
-		expect(rowButtons('open')).toHaveLength(0);
-
-		await click(rowButtons('add email')[0]);
-		expect(chrome.tabs.create).not.toHaveBeenCalled();
-		expect(settingsSheet()).not.toBe(null);
-		expect(field('email')).toBeTruthy();
-	});
-
-	it('sends a drop that wants a name there too, and asks for the name', async () => {
-		alreadySet({ email: 'me@example.com' });
-		panelChrome({ response: page(LAYLO) });
-		net({
-			d21i0hc4hl3bvt: () => json({ ...signable, additionalRSVPInputs: [{ fieldName: 'name', required: true }] })
-		});
-		await loadInPopup();
-
-		await click(rowButtons('get')[0]);
-		expect(rows()[0].state).toMatch(/asks for a name/);
-
-		await click(rowButtons('add name')[0]);
-		expect(settingsSheet()).not.toBe(null);
-		expect(field('name')).toBeTruthy();
+		expect(chrome.tabs.create).toHaveBeenLastCalledWith({ url: TONE, active: true });
+		// fanlink.to is dead; the same path opens on fanlink.tv.
+		await click(rowButtons('open')[2]);
+		expect(chrome.tabs.create).toHaveBeenLastCalledWith({ url: 'https://fanlink.tv/abc', active: true });
+		expect(fetch).not.toHaveBeenCalled();
 	});
 
 	it('says on the row why one did not work', async () => {
@@ -633,20 +580,33 @@ describe('walking a link', () => {
 	});
 
 	it('runs the whole list one after another, and says what it did', async () => {
-		panelChrome({ response: page(HYPE, HYPE2, LAYLO) });
+		panelChrome({ response: page(HYPE, DROP, HYPE2, LAYLO, TONE) });
+		chrome.runtime.sendMessage.mockResolvedValue(true);
 		await load();
 
-		expect(clean(allButton()!)).toBe('get all (3)');
+		// The site that is only opened is not one to get.
+		expect(clean(allButton()!)).toBe('get all (4)');
 		await click(allButton());
 
+		// The walks here first, then the gates done on their own page, in list
+		// order, handed over at once for the worker to open one after another.
 		expect(chrome.downloads.download).toHaveBeenCalledTimes(2);
-		expect(rows().map((row) => row.state.slice(0, 30))).toEqual([
+		expect(rows().map((row) => row.state)).toEqual([
 			'Hypeddit saved',
+			// Queued on the way, as a gate opened by hand is.
+			'Droploud in the queue',
 			'Hypeddit saved',
-			'Laylo Laylo is a notify-me pag'
+			'Laylo in the queue',
+			`ToneDen ${CLOSING}`
 		]);
-		expect(text()).toMatch(/saved 2 files, 1 to open by hand/);
-		expect(clean(allButton()!)).toBe('all done');
+		expect(text()).toMatch(/saved 2 files/);
+		expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
+			type: 'OPEN_GATES',
+			gates: [
+				{ url: DROP, permalink: '/artist/track2' },
+				{ url: LAYLO, permalink: '/artist/track4' }
+			]
+		});
 	});
 
 	it('reports a batch that only partly worked', async () => {
@@ -657,7 +617,7 @@ describe('walking a link', () => {
 		await load();
 
 		await click(allButton());
-		expect(text()).toMatch(/saved 1 of 2 — check the rows that failed/);
+		expect(text()).toMatch(/saved 1 of 2. check the rows that failed/);
 	});
 
 	it('does not offer a saved row again', async () => {
@@ -749,7 +709,8 @@ describe('a step that needs a tab', () => {
 		});
 		// Opened behind the popup and taken away again.
 		expect(chrome.tabs.remove).toHaveBeenCalledWith(99);
-		expect(rows()[0].state).toMatch(/saved/);
+		// The follow happened on the person's own Spotify, so the row says whose.
+		expect(rows()[0].state).toBe('Hypeddit followed KAKU on Spotify, saved the track');
 	});
 
 	it('asks for the one press it needs, and does not post a download without it', async () => {
@@ -800,11 +761,9 @@ describe('marking a track by hand', () => {
 	});
 
 	it('marks a row that only resolved to a page, which saving would never have', async () => {
-		panelChrome({ response: page(LAYLO) });
+		panelChrome({ response: page(TONE) });
 		const { downloaded } = await load();
 
-		await click(rowButtons('get')[0]);
-		expect(rows()[0].state).toMatch(/not a gate/);
 		expect(downloaded.has('/artist/track1')).toBe(false);
 
 		await click(markButtons()[0]);
@@ -947,13 +906,14 @@ describe('what the panel remembers', () => {
 	// run that is not kept is a run that is mostly thrown away. See
 	// src/tools/third-party-downloads/walked.svelte.ts.
 	it('gives every row back what became of it when the popup comes back', async () => {
-		panelChrome({ response: page(HYPE, DROP, LAYLO) });
+		panelChrome({ response: page(HYPE, HYPE2, TONE) });
+		net({ 'hypeddit.com/artist/second-track': () => res('<html></html>') });
 		await load();
 		await click(allButton());
 		expect(rows().map((r) => r.state)).toEqual([
 			expect.stringMatching(/saved/),
-			expect.stringMatching(/saved/),
-			expect.stringMatching(/^Laylo Laylo is a notify-me page/)
+			expect.stringMatching(/not a Hypeddit gate/),
+			`ToneDen ${CLOSING}`
 		]);
 		const before = rows();
 
@@ -961,6 +921,49 @@ describe('what the panel remembers', () => {
 		expect(rows()).toEqual(before);
 		// And a row that is spent is not offered again.
 		expect(rowButtons('get')[0].disabled).toBe(true);
+	});
+
+	// A gate done on its own page is finished while the popup is closed, and the
+	// worker says what became of it under a key of its own (on-page.ts).
+	it('shows what the worker said about the gates done on their own page', async () => {
+		// The rows the panel listed before it handed the gates over.
+		const listed = (url: string, n: number) => ({
+			url,
+			permalink: `/artist/track${n}`,
+			label: `Track ${n}`
+		});
+
+		panelChrome({
+			response: page(DROP, LAYLO),
+			session: {
+				downloader: { listed: [DROP, LAYLO], known: { [DROP]: listed(DROP, 1), [LAYLO]: listed(LAYLO, 2) } },
+				'gate-outcomes': {
+					[DROP]: { state: 'done', detail: '', label: 'Front to Back.mp3' },
+					[LAYLO]: { state: 'opened', detail: 'finish it on Laylo’s page.', label: '' }
+				}
+			}
+		});
+		await load();
+		expect(rows()).toEqual([
+			{ title: 'Front to Back.mp3', state: 'Droploud saved' },
+			{ title: 'Track 2', state: 'Laylo finish it on Laylo’s page.' }
+		]);
+		expect(meta()).toBe('2 links · My Playlist · 1 saved');
+		// An opened gate can be opened again.
+		expect(rowButtons('get')[1].disabled).toBe(false);
+
+		// And as it happens, with the panel open.
+		chrome.testEmitStorageChange(
+			{
+				'gate-outcomes': {
+					newValue: { [LAYLO]: { state: 'sent', detail: 'you RSVP’d on Laylo’s page.', label: '' } }
+				}
+			},
+			'session'
+		);
+		await settle();
+		expect(rows()[1].state).toBe('Laylo you RSVP’d on Laylo’s page.');
+		expect(rowButtons('open')).toHaveLength(1);
 	});
 
 	it('does not let the gate tab a row sent you to become the whole list', async () => {

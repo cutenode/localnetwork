@@ -14,7 +14,7 @@ use locallibrary::api::{
     TrackPlaysQuery,
 };
 use locallibrary::error::Reason;
-use locallibrary::fields::roles::RoleField;
+use locallibrary::fields::roles::{RoleField, RoleOrPart};
 use locallibrary::fields::{Analyzer, FieldStore, FieldValue, Fields, Role};
 use locallibrary::mix::{MixInfo, MixReport, Play, report};
 use locallibrary::progress::Ctx;
@@ -208,7 +208,7 @@ fn tracks_take_what_their_tags_lack_from_the_ids_an_analyzer_kept() {
     let s = setup();
     let t = &s.tracks;
     let analyzer = Analyzer { plugin: "mb".into(), analyzer: "ids".into(), version: "1".into() };
-    let field = |r: Role| (r, vec![RoleField { analyzer: analyzer.clone(), field: r.name().into() }]);
+    let field = |r: Role| (RoleOrPart::Role(r), vec![RoleField { analyzer: analyzer.clone(), field: r.name().into() }]);
     locallibrary::testing::roles_on_this_thread(Some(MusicBrainzIds::ROLES.map(field).into_iter().collect()));
     let kept = |track: &Track, recording: String, artists: Vec<Uuid>, isrc: Option<&str>| {
         let fields: Fields = [

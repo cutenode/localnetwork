@@ -20,7 +20,7 @@ use std::sync::Mutex;
 use locallibrary::api::{self, Direction, SyncManyRequest, SyncRequest};
 use locallibrary::device::Device;
 use locallibrary::edit::{Edit, EditOptions, EditPlan};
-use locallibrary::fields::roles::RoleField;
+use locallibrary::fields::roles::{RoleField, RoleOrPart};
 use locallibrary::fields::{Analyzer, FieldStore, FieldValue, Fields, Role};
 use locallibrary::onelibrary::{ContentRecord, OneLibrary, cipher};
 use locallibrary::progress::{CancelToken, Ctx, Event, Progress};
@@ -34,7 +34,9 @@ use rekordbox_pdb::{NewTrack, PdbEditor};
 pub fn offer_roles() -> Analyzer {
     let analyzer = Analyzer { plugin: "heard".into(), analyzer: "it".into(), version: "1".into() };
     let field = |r: &Role| vec![RoleField { analyzer: analyzer.clone(), field: r.name().into() }];
-    locallibrary::testing::roles_on_this_thread(Some(sound::ROLES.iter().map(|r| (*r, field(r))).collect()));
+    locallibrary::testing::roles_on_this_thread(Some(
+        sound::ROLES.iter().map(|r| (RoleOrPart::Role(*r), field(r))).collect(),
+    ));
     analyzer
 }
 

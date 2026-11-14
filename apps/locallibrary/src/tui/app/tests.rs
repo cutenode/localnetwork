@@ -1006,7 +1006,7 @@ fn remembers_the_crate_queue_view_and_modes() {
     app.resume = Some(Duration::from_secs(95));
     app.save_state();
 
-    let saved = state::load(&store);
+    let saved = state::load(&store).unwrap();
     assert_eq!(saved.view.as_deref(), Some("Recordings"));
     assert!(saved.shuffle && saved.repeat.as_deref() == Some("all"));
     assert_eq!(saved.crate_list.len(), 1);
@@ -1082,7 +1082,7 @@ fn mixes_lists_a_folder_of_sets_and_remembers_it() {
 
     std::fs::write(sets.join("tachycardia/encore.flac"), "x").unwrap();
     let mut next = App::blank(store.clone(), None);
-    next.apply_saved(&state::load(&store), false);
+    next.apply_saved(&state::load(&store).unwrap(), false);
     next.view = View::Mixes;
     // Drawing the view lists the folders.
     super::super::ui::screen(&mut next, 100, 30);
@@ -1232,7 +1232,6 @@ fn tracks_open_in_the_background() {
     app.now = Some(NowPlaying {
         id: 5,
         key: None,
-        drive: "TEST".into(),
         root,
         analysis: TrackAnalysis::default(),
         waves: Default::default(),
@@ -1374,7 +1373,7 @@ fn full_screen_queues_a_match_to_play_next() {
     let screen = super::super::ui::screen(&mut app, 200, 50);
     assert!(screen.contains("Track 3 next"), "{screen}");
     let hints = super::super::keymap::hints(&app, 200);
-    assert!(hints.iter().any(|h| h.1 == "play next") && hints.iter().any(|h| h.1 == "autoplay"), "{hints:?}");
+    assert!(hints.iter().any(|h| h.1 == "play next") && hints.iter().any(|h| h.1 == "hot cue"), "{hints:?}");
     press(&mut app, "S");
     assert_eq!(last_message(&app), "autoplay off: stops after each track");
     press(&mut app, "n");
@@ -2741,10 +2740,10 @@ fn remembers_the_players_settings_and_saves_them_as_they_change() {
     // Not saved until it's been a couple of seconds since the last look.
     app.last_save_check = just_now();
     app.tick();
-    assert_eq!(state::load(&store), Saved::default());
+    assert_eq!(state::load(&store), Some(Saved::default()));
     app.last_save_check = Instant::now() - Duration::from_secs(3);
     app.tick();
-    let saved = state::load(&store);
+    let saved = state::load(&store).unwrap();
     assert_eq!(saved.vis.as_deref(), Some("scope"));
 
     let mut next = App::blank(store, None);
@@ -2759,6 +2758,40 @@ fn remembers_the_players_settings_and_saves_them_as_they_change() {
     {
         assert_eq!(View::from_title(title), Some(view), "what {title} is now");
     }
+}
+
+/// A state file the player couldn't read as it started (one it can't parse, or one it had no
+/// permission to read then) isn't saved over for the rest of that run, even once it can be read.
+#[hegel::test(test_cases = 10)]
+fn a_state_file_unread_at_startup_is_never_saved_over(tc: hegel::TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("store");
+    locallibrary::Store::open_or_init(&store).unwrap();
+    let file = store.join("tui.json");
+    let unparsable = !cfg!(unix) || tc.draw(hegel::generators::booleans());
+    let held = if unparsable { br#"{"volume": "loud"}"#.to_vec() } else { br#"{"volume": 0.7}"#.to_vec() };
+    std::fs::write(&file, &held).unwrap();
+    #[cfg(unix)]
+    let mode = |bits: u32| {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(bits)).unwrap();
+    };
+    #[cfg(unix)]
+    if !unparsable {
+        mode(0o000);
+        // Root reads anything.
+        if std::fs::read(&file).is_ok() {
+            return mode(0o644);
+        }
+    }
+    let mut app = started(store, None);
+    #[cfg(unix)]
+    mode(0o644);
+    app.volume = 0.35;
+    app.last_save_check = Instant::now() - Duration::from_secs(3);
+    app.tick();
+    app.save_state();
+    assert_eq!(std::fs::read(&file).unwrap(), held);
 }
 
 /// The queue the last run had waits for its drive; it isn't put back over a track playing,
@@ -3041,7 +3074,7 @@ fn what_is_remembered_is_what_the_next_run_starts_with(tc: hegel::TestCase) {
     app.field_columns = shown[..tc.draw(gs::integers::<usize>().max_value(shown.len()))].to_vec();
     let saved = app.saved_state();
     state::save(&app.store_root, &saved);
-    let read = state::load(&app.store_root);
+    let read = state::load(&app.store_root).unwrap();
     assert_eq!(read, saved);
     let mut next = App::blank(app.store_root.clone(), None);
     next.apply_saved(&read, true);
@@ -3230,7 +3263,6 @@ fn the_mixes_into_panel_shows_each_match_with_its_own_key() {
         app.now = Some(NowPlaying {
             id,
             key: Camelot::parse(&track.key),
-            drive: "LARGE".into(),
             root: dir.path().to_path_buf(),
             analysis: TrackAnalysis::default(),
             waves: Default::default(),

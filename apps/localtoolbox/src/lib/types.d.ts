@@ -332,10 +332,11 @@ export interface PageAnswers {
 // Sent with chrome.runtime.sendMessage. The page asks the background worker (background.ts),
 // which has the gate walked in the offscreen page (offscreen.ts) and asks nothing of a panel.
 
-/** A gate link the page's Download button wants saved. */
+/** A gate link the page's Download button wants saved, and the track it is for. */
 export interface SaveGateRequest {
 	type: 'SAVE_GATE';
 	url: string;
+	permalink: string;
 }
 
 /** What became of it: saved (and whether that marks the track), or opened in a tab instead. */
@@ -350,9 +351,83 @@ export interface WalkGateRequest {
 	url: string;
 }
 
+/** The worker's other errands for the offscreen page, which holds the settings and the marks. */
+export type OffscreenRequest =
+	| WalkGateRequest
+	/** Answered with the settings a gate done on its own page uses (GatePagePrefs). */
+	| { type: 'READ_PREFS' };
+
+/** The address gate-page.ts fills in ('' for none), and whether a saved file marks its track. */
+export interface GatePagePrefs {
+	email: string;
+	mark: boolean;
+}
+
+// ---- A gate done on its own page (tools/third-party-downloads/on-page.ts) ----
+//
+// The Downloader and the page's Download button hand the worker gates to open
+// one after another; gate-page.ts, on the gate's page, asks the worker what to
+// help with and tells it what the person did.
+
+/** One gate to open, and the track whose mark its file makes. */
+export interface PageGate {
+	url: string;
+	/** '' for a link with no track behind it. */
+	permalink: string;
+}
+
+/** Opens the first of these, and each of the rest as the one before it is done. */
+export interface OpenGatesRequest {
+	type: 'OPEN_GATES';
+	gates: PageGate[];
+}
+
+/** What gate-page.ts says to the worker. */
+export type GatePageRequest =
+	| { type: 'GATE_PAGE_HELLO' }
+	/** On to the next gate, or done if there is none. */
+	| { type: 'GATE_PAGE_NEXT' }
+	/** No more help on this tab. */
+	| { type: 'GATE_PAGE_STOP' }
+	/** The person submitted the page's sign-up form. */
+	| { type: 'GATE_PAGE_SIGNED_UP' };
+
+/** The worker's answer to a hello from the tab it opened: what to help with there. */
+export interface GatePageHelp {
+	/** The site's name. */
+	name: string;
+	say: string;
+	steps: string;
+	email: string;
+	emailField: string;
+	signup: string;
+	/** Which gate this is of how many the run was handed, from 1. */
+	at: number;
+	of: number;
+}
+
+/** What the worker tells gate-page.ts once the page's file has been filed. */
+export interface GatePageSaved {
+	type: 'GATE_PAGE_SAVED';
+	/** Where it landed, as `<subfolder>/<name>`. */
+	path: string;
+	/** Whether another gate opens after it. */
+	more: boolean;
+	/** The track to mark downloaded, or '' when there is none or settings say not to. */
+	mark: string;
+}
+
+/** What became of a gate done on its page, under its URL, for the Downloader's row (walked.svelte.ts). */
+export interface GateOutcome {
+	state: 'opened' | 'done' | 'sent';
+	detail: string;
+	/** What the row is called now: the saved file's name, or ''. */
+	label: string;
+}
+
 /** The end of a walk: the file and where it goes, or the page to send the person to instead. */
 export type WalkGateAnswer =
-	| { ok: true; url: string; filename: string; subfolder: string; mark: boolean }
+	| { ok: true; url: string; subfolder: string; mark: boolean }
 	| { ok: false; openUrl: string };
 
 /** The offscreen page's errand for the worker: a sign-in walked in a tab (chrome.ts roundTrip). */

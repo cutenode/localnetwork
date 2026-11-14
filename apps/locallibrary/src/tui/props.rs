@@ -292,8 +292,11 @@ fn state(app: &mut App) {
             within(p.state.selected(), p.shown.len(), "picker");
             for &i in &p.shown {
                 let it = &p.items[i];
-                let found = fuzzy(&p.query, &it.label).or(fuzzy(&p.query, &it.detail));
+                // By its label, its detail, or one of the words it's found by.
+                let words = it.words.split(',').filter_map(|w| fuzzy(&p.query, w.trim()));
+                let found = fuzzy(&p.query, &it.label).or(fuzzy(&p.query, &it.detail)).or(words.max());
                 assert!(found.is_some(), "{:?} shown for {:?}", it.label, p.query);
+                assert_eq!(found.is_some(), it.score(&p.query).is_some());
             }
         }
         _ => {}
