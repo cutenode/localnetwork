@@ -111,7 +111,7 @@
 <text x="765 774 783 792 801" y="122" fill="#9494a8">shown</text>
 <text x="819 828" y="122" fill="#9494a8">or</text>
 <text x="846 855 864" y="122" fill="#9494a8">the</text>
-<text x="882 891 900 909 918 927" y="122" fill="#9494a8">crate,</text>
+<text x="882 891 900 909 918 927" y="122" fill="#9494a8">queue,</text>
 <text x="945 954 963 972" y="122" fill="#9494a8">from</text>
 <text x="990 999 1008" y="122" fill="#9494a8">the</text>
 <text x="1026 1035 1044 1053" y="122" fill="#9494a8">open</text>
@@ -389,6 +389,6 @@
 <text x="855 864 873 882 891 900 909 918" y="806" fill="#9494a8">commands</text>
 <text x="945" y="806" fill="#ff5ca0" font-weight="bold">?</text>
 <text x="963 972 981 990" y="806" fill="#9494a8">help</text>
-<text x="1017" y="806" fill="#ff5ca0" font-weight="bold">q</text>
+<text x="1017" y="806" fill="#ff5ca0" font-weight="bold">Q</text>
 <text x="1035 1044 1053 1062" y="806" fill="#9494a8">quit</text>
 </svg>

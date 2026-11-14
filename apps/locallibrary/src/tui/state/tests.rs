@@ -140,6 +140,8 @@ fn preferences_of(saved: &Saved) -> Saved {
         mixes: _,
         mix_folders: _,
         crate_list: _,
+        crate_playing: _,
+        crate_at_ms: _,
         queue: _,
         intro_seen: _,
         // The user's preferences.
@@ -157,6 +159,7 @@ fn preferences_of(saved: &Saved) -> Saved {
         quantize,
         single,
         auto_cue,
+        fill,
         notation,
         key_palette,
         bands,
@@ -180,6 +183,7 @@ fn preferences_of(saved: &Saved) -> Saved {
         quantize,
         single,
         auto_cue,
+        fill,
         notation,
         key_palette,
         bands,
@@ -240,7 +244,18 @@ fn its_preferences_go_to_another_store_and_where_it_was_stays(tc: hegel::TestCas
             root: "/Volumes/USB".into(),
             drive: "USB".into(),
             track: Default::default(),
+            played: true,
+            filled: false,
         }],
+        crate_playing: Some(SavedCrateTrack {
+            root: "/Volumes/USB".into(),
+            drive: "USB".into(),
+            track: Default::default(),
+            played: true,
+            filled: false,
+        }),
+        crate_at_ms: 15_000,
+        fill: on(),
         queue: Some(SavedQueue { root: "/Volumes/USB".into(), tracks: vec!["/a.mp3".into()], ..Default::default() }),
     };
     save(&here, &saved);
@@ -249,7 +264,7 @@ fn its_preferences_go_to_another_store_and_where_it_was_stays(tc: hegel::TestCas
     let (all, kept) = (serde_json::to_value(&saved).unwrap(), serde_json::to_value(preferences_of(&saved)).unwrap());
     let session: Vec<&String> =
         all.as_object().unwrap().keys().filter(|k| all[k.as_str()] != kept[k.as_str()]).collect();
-    assert_eq!(session.len(), 13, "{session:?}");
+    assert_eq!(session.len(), 15, "{session:?}");
     assert!(session.iter().all(|k| !doc.player.contains_key(k.as_str())), "{:?}", doc.player);
     let file = dir.path().join("settings.json");
     std::fs::write(&file, serde_json::to_vec(&doc).unwrap()).unwrap();

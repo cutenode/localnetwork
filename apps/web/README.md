@@ -26,6 +26,7 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 ### Promoters
 
+- `/for-promoters` makes the case for booking DJs here, with the Find DJs search at the top. It shows a real listing from the directory and the matcher's real shortlist for that listing's sound near its city, both streamed so the page paints first, then example booking and planner screens (those are private, so the data is made up and marked as an example), press kits, and how to turn on the promoter section.
 - Directory search (Find DJs, `/projects`) over active projects and the DJs staff list, together, by text, genre family (a search for "house" finds deep house and afro house), distance from a venue, fee tier, slot, format, and type. A listed DJ counts as a solo DJ, found by the genres their profile names or else the ones they play most, and a solo project they manage alone gives way to their profile.
 - Show matcher: describe the night and get a ranked shortlist, scored on sound (40%), distance (25%), budget (15%), room size, slot, and booth setup, with the reasons for each match.
 - Booking inquiries open a private thread (its own space) shared only with the project's managers, with show details up front and a status flow (open → negotiating → confirmed / declined / cancelled). Managers negotiate, confirm or decline; the promoter can confirm once a manager has answered, or withdraw; either side can cancel a confirmed booking. The server refuses any other change (`src/lib/bookings.ts`).

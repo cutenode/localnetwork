@@ -54,12 +54,12 @@
 			"measures": "Bytes allocated by one frame of the command palette, over the Library view, at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"help.allocations": {
-			"limit": 2251,
+			"limit": 2309,
 			"unit": "allocations",
 			"measures": "Allocations of one frame of the help, over the Library view, at 160x45, with the 3,886-track fixture open and a track playing."
 		},
 		"help.bytes": {
-			"limit": 139932,
+			"limit": 142340,
 			"unit": "bytes",
 			"measures": "Bytes allocated by one frame of the help, over the Library view, at 160x45, with the 3,886-track fixture open and a track playing."
 		}

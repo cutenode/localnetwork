@@ -26,7 +26,7 @@ beforeEach(() => page.viewport(1280, 800));
 afterEach(() => page.viewport(414, 896));
 
 describe('the site header', () => {
-	it('links the four destinations, For DJs and Sign in for someone signed out', async () => {
+	it('links the four destinations, For promoters, For DJs and Sign in for someone signed out', async () => {
 		await show('/', { viewer: null, pendingRequests: 0 });
 		const main = header().getByRole('navigation', { name: 'Main' });
 
@@ -41,6 +41,9 @@ describe('the site header', () => {
 			['Charts', '/charts'],
 			['Tools', '/tools']
 		]);
+		await expect
+			.element(header().getByRole('link', { name: 'For promoters' }))
+			.toHaveAttribute('href', '/for-promoters');
 		await expect.element(header().getByRole('link', { name: 'For DJs' })).toHaveAttribute('href', '/for-djs');
 		await expect.element(header().getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
 		await expect.element(header().getByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
@@ -52,6 +55,7 @@ describe('the site header', () => {
 
 		await expect.element(header().getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/dashboard');
 		await expect.element(header().getByRole('link', { name: 'Sign in' })).not.toBeInTheDocument();
+		await expect.element(header().getByRole('link', { name: 'For promoters' })).not.toBeInTheDocument();
 		await expect.element(header().getByRole('link', { name: 'For DJs' })).not.toBeInTheDocument();
 		await expect.element(header().getByRole('link', { name: 'List your project' })).not.toBeInTheDocument();
 		await expect.element(header().getByRole('link', { name: 'Bookings' })).not.toBeInTheDocument();

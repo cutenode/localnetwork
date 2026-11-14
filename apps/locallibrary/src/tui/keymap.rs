@@ -40,6 +40,8 @@ pub enum Scope {
     Deck,
     /// What follows `g`.
     Goto,
+    /// What follows `q`: the queue.
+    Queue,
     Prepare,
     Drives,
     Snapshots,
@@ -96,6 +98,8 @@ pub enum Act {
     PaneKey,
     /// `g`: what follows goes somewhere.
     Goto,
+    /// `q`: what follows queues.
+    QueueChord,
     ShowView(View),
     Refresh,
     // Playback
@@ -172,7 +176,12 @@ pub enum Act {
     CratePanel,
     Mark,
     MarkAll,
+    /// Add to the end of the queue (`a`, `q a`).
     CrateAdd,
+    /// Put at the front of the queue's picks, to play next.
+    QueueNext,
+    /// Fill the queue from matches when it runs out, on or off.
+    Fill,
     Actions,
     /// `e` in a pane with no menu of its own: what enter does there, then the pane's keys.
     PaneActions,
@@ -301,7 +310,7 @@ impl Group {
             Group::Moving => "Moving about",
             Group::Player => "The player",
             Group::Browsing => "Browsing",
-            Group::Crate => "Marks and the crate",
+            Group::Crate => "Marks and the queue",
             Group::Changing => "Changing the drive",
             Group::Prepare => "Prepare",
             Group::Drives => "Drives",
@@ -414,10 +423,11 @@ pub static KEYMAP: &[Binding] = &[
     tip(S::Tracks, "/", "search", 8),
     tip(S::Tracks, "b", "sort", 5),
     tip(S::Tracks, "m", "mark", 6),
-    tip(S::Tracks, "a", "to crate", 6),
+    tip(S::Tracks, "q n", "play next", 4),
+    tip(S::Tracks, "a", "to queue", 6),
     tip(S::Tracks, "e", "actions", 7),
     tip(S::Tracks, "i", "info", 4),
-    tip(S::Tracks, "t", "crate", 3),
+    tip(S::Tracks, "t", "queue", 3),
     tip(S::Tracks, "T", "My Tag", 3),
     tip(S::Tracks, "f", "player", 2),
     tip(S::Tracks, "tab", "focus", 5),
@@ -427,11 +437,12 @@ pub static KEYMAP: &[Binding] = &[
     tip(S::Tree, "/", "search", 6),
     tip(S::Tree, "tab", "focus", 5),
     tip(S::Details, "enter", "play", 9),
-    tip(S::Details, "a", "to crate", 6),
+    tip(S::Details, "a", "to queue", 6),
     tip(S::Details, "e", "actions", 7),
     tip(S::Details, "i", "close", 5),
     tip(S::Details, "tab", "focus", 5),
     tip(S::Crate, "enter", "play", 9),
+    tip(S::Crate, "q n", "play next", 7),
     tip(S::Crate, "shift ↑↓", "move", 6),
     tip(S::Crate, "del", "remove", 6),
     tip(S::Crate, "w", "save to drive", 7),
@@ -442,12 +453,12 @@ pub static KEYMAP: &[Binding] = &[
     tip(S::DriveList, "space", "pause", 8),
     tip(S::DriveList, "/", "search", 6),
     tip(S::DriveList, "tab", "focus", 5),
-    // The crate's own keys, while it has focus.
-    key(S::Crate, &[K::Shift(C::Up), K::Ch('K')], "shift ↑↓ K J", A::CrateMove(-1), "move up in the crate", "move a track up / down the crate", G::Crate),
-    key(S::Crate, &[K::Shift(C::Down), K::Ch('J')], "", A::CrateMove(1), "move down in the crate", "", G::Crate),
-    key(S::Crate, &[K::Code(C::Delete), K::Code(C::Backspace)], "del", A::Remove, "", "in the crate: take the track out", G::Crate),
-    key(S::Crate, &[K::Ch('w')], "w", A::CrateSave, "save the crate to the drive as a playlist", "write the crate to the drive as a playlist", G::Crate),
-    key(S::Crate, &[K::Ch('X')], "X", A::CrateClear, "clear the crate", "clear the crate (the drive isn't touched)", G::Crate),
+    // The queue's own keys, while it has focus.
+    key(S::Crate, &[K::Shift(C::Up), K::Ch('K')], "shift ↑↓ K J", A::CrateMove(-1), "move up in the queue", "move a track up / down the queue", G::Crate),
+    key(S::Crate, &[K::Shift(C::Down), K::Ch('J')], "", A::CrateMove(1), "move down in the queue", "", G::Crate),
+    key(S::Crate, &[K::Code(C::Delete), K::Code(C::Backspace)], "del", A::Remove, "", "in the queue: take the track out", G::Crate),
+    key(S::Crate, &[K::Ch('w')], "w", A::CrateSave, "save the queue to the drive as a playlist", "write the queue to the drive as a playlist (played tracks too)", G::Crate),
+    key(S::Crate, &[K::Ch('X')], "X", A::CrateClear, "clear the queue", "clear the queue (the drive isn't touched; the list it plays on with stays)", G::Crate),
     key(S::Library, &[K::Ch('/')], "/", A::Search, "search or filter the tracks", "search title, artist, album, genre, label, key, comment and path as you type", G::Browsing),
     note(S::Library, "", "or filter: bpm:120-128 key:8A~ rating:>=4 -genre:house tag:Deep", G::Browsing),
     note(S::Library, "", "in the box: enter keeps it, esc clears it, ctrl-u empties it, ctrl-w deletes a word, tab searches the whole drive or the list shown", G::Browsing),
@@ -462,11 +473,12 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Library, &[K::Ch('i')], "i", A::Details, "show or hide the track's details", "the selected track: details, playlists, what mixes into it", G::Browsing),
     key(S::Library, &[K::Ch('m'), K::Code(C::Insert)], "m  insert", A::Mark, "mark or unmark the track", "mark / unmark the selected track (in the tree: a playlist or folder, to pack)", G::Crate),
     key(S::Library, &[K::Ch('M')], "M", A::MarkAll, "mark everything shown, or clear the marks", "mark everything shown / clear the marks", G::Crate),
-    key(S::Library, &[K::Ch('a')], "a", A::CrateAdd, "add to the crate", "add the marked (or selected) tracks to the crate", G::Crate),
-    key(S::Library, &[K::Ch('t')], "t", A::CratePanel, "show or hide the crate", "show / hide the crate: tracks collected while browsing, a CDJ's TAG LIST", G::Crate),
-    note(S::Library, "enter", "in the crate: play from there", G::Crate),
+    key(S::Library, &[], "q n", A::QueueNext, "play next", "", G::Crate),
+    key(S::Library, &[K::Ch('a')], "a", A::CrateAdd, "add to the queue", "add the marked (or selected) tracks to the end of the queue, as q a", G::Crate),
+    key(S::Library, &[K::Ch('t')], "t", A::CratePanel, "show or hide the queue", "show / hide the queue, as q q", G::Crate),
+    note(S::Library, "enter", "in the queue: play that track now (the others stay to play)", G::Crate),
     note(S::Library, "", "The drive is backed up before a change is written. A change u can take back is made at once and says so; any other shows what it will do and asks first.", G::Changing),
-    key(S::Library, &[K::Ch('e')], "e", A::Actions, "actions for the selection", "actions for the marked or selected tracks, the playlist shown and the crate, the likeliest first (enter runs it): rating, colour, add to a playlist, remove, new / rename / delete a playlist or folder, sort a playlist on the drive, plugins' operations", G::Changing),
+    key(S::Library, &[K::Ch('e')], "e", A::Actions, "actions for the selection", "actions for the marked or selected tracks, the playlist shown and the queue, the likeliest first (enter runs it): rating, colour, add to a playlist, remove, new / rename / delete a playlist or folder, sort a playlist on the drive, plugins' operations", G::Changing),
     note(S::Library, "right-click", "the same, for what's under the pointer", G::Changing),
     key(S::Library, &[K::Ch('T')], "T", A::Tag, "give the tracks a My Tag, or take one off", "give the marked (or selected) tracks a My Tag, or take one off (asks first)", G::Changing),
     note(S::Library, "y", "after rekordbox exported over edits made here: replay them (it says so over the status line; esc puts it away)", G::Changing),
@@ -568,6 +580,13 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Goto, &[K::Ch('u')], "g u", A::ShowView(View::Profile), "go to Publish", "Publish", G::Player),
     key(S::Goto, &[K::Ch('g')], "g g", A::End(-1), "", "the first row", G::Moving),
     // -----------------------------------------------------------------------------------------
+    // After q: the queue, picks that play in order after the playing track, then the list they
+    // were started from
+    // -----------------------------------------------------------------------------------------
+    key(S::Queue, &[K::Ch('n')], "q n", A::QueueNext, "play next", "play the marked (or selected) tracks next, before the other picks (in player mode, the match picked)", G::Playback),
+    key(S::Queue, &[K::Ch('a')], "q a", A::CrateAdd, "add to the end", "add the marked (or selected) tracks to the end of the queue", G::Playback),
+    key(S::Queue, &[K::Ch('q')], "q q", A::CratePanel, "show or hide the queue", "show / hide the queue: what's playing, the picks to play (played ones greyed) and the list it plays on with, a CDJ's TAG LIST", G::Playback),
+    // -----------------------------------------------------------------------------------------
     // Everywhere
     // -----------------------------------------------------------------------------------------
     key(S::Global, &[K::Code(C::Enter)], "enter", A::Activate, "", "play the selected track (queues the list it's in); open a playlist or folder; browse a drive", G::Playback),
@@ -593,7 +612,7 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[K::Ch('>')], "", A::BeatJump(4), "a bar forward", "", G::Deck),
     key(S::Global, &[K::Ch('{')], "{  }", A::BeatJump(-32), "8 bars back", "8 bars (32 beats, a phrase) back / forward", G::Deck),
     key(S::Global, &[K::Ch('}')], "", A::BeatJump(32), "8 bars forward", "", G::Deck),
-    key(S::Global, &[K::Ch('Q')], "Q", A::Quantize, "quantize on or off", "quantize on / off: playing, cue, phrase and beat jumps keep the beat; paused, beat jumps land on one", G::Deck),
+    key(S::Global, &[K::Ch('Z')], "Z", A::Quantize, "quantize on or off", "quantize on / off: playing, cue, phrase and beat jumps keep the beat; paused, beat jumps land on one", G::Deck),
     key(S::Global, &[K::Ch('l')], "l", A::Loop, "loop here, or exit the loop", "loop: the saved loop the playhead is in, else 4 beats from the beat it's in; again to exit", G::Deck),
     key(S::Global, &[K::Ch('(')], "(  )", A::LoopSize(false), "halve the loop", "halve / double the loop", G::Deck),
     key(S::Global, &[K::Ch(')')], "", A::LoopSize(true), "double the loop", "", G::Deck),
@@ -616,6 +635,7 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[K::Code(C::Esc)], "esc", A::Escape, "", "stop a change before it writes; hide an error; clear the search, then the marks (press twice)", G::Moving),
     key(S::Global, &[K::Digits('1', '5')], "1 … 5", A::PaneKey, "", "the pane with that number in its title (while the pads are off)", G::Moving),
     key(S::Global, &[K::Ch('g')], "g", A::Goto, "", "then a letter, for a view (the letter beside its tab), or g for the first row", G::Moving),
+    key(S::Global, &[K::Ch('q')], "q", A::QueueChord, "", "then n plays next, a adds to the end of the queue, q shows it", G::Playback),
     key(S::Global, &[K::Ch('R'), K::Code(C::F(5))], "R  F5", A::Refresh, "refresh: read the drive and the view again", "read again: the drive, the drives' status, the snapshots, the profile, the recordings", G::Player),
     key(S::Global, &[K::Ch(':')], ":", A::Palette, "", "commands: every action by name (type a few of its letters), the ones used lately first, plugins' commands and suggestions", G::Player).hint("commands", 6),
     key(S::Global, &[K::Ch('?')], "?", A::Help, "help: the keys", "this help: type to narrow it, enter runs the row selected", G::Player).hint("help", 5),
@@ -629,6 +649,7 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[], "sync", A::SyncGroup, "sync the library's drives", SYNC, G::Commands),
     key(S::Global, &[], "pack", A::Pack, "pack playlists for a set…", PACK, G::Commands),
     key(S::Global, &[], "restore", A::RestorePlaylist, "bring back a playlist from a snapshot…", "a playlist or folder as a snapshot in the store had it, onto the drive", G::Commands),
+    key(S::Global, &[], "fill", A::Fill, "fill the queue from matches, on or off", "when the queue runs out, play on with the best match for the last track that hasn't played (off until turned on)", G::Commands),
     key(S::Global, &[], "replay", A::Replay, "replay edits rekordbox overwrote", "make the drive's recorded edits again after rekordbox exported over them", G::Commands),
     key(S::Global, &[K::Ch('u')], "u", A::Undo, "undo the last change", "undo: take back the last change made, on the drive it was made to (before any, the open or selected drive's last), after showing what that puts back", G::Changing),
     key(S::Global, &[], "smart", A::SmartList, "smart playlists: the rules", "the rule-based playlists kept in the store", G::Commands),
@@ -674,7 +695,7 @@ pub static KEYMAP: &[Binding] = &[
         .words("backup, back up, NAS, cloud, offsite, mirror"),
     key(S::Global, &[], "bug", A::Copy("bug"), "report a bug (in a terminal)", "the command that reports a bug, with this version and system filled in", G::Commands)
         .words("problem, issue, crash, feedback"),
-    key(S::Global, &[K::Ch('q'), K::Ctrl('c'), K::Ctrl('q')], "q", A::Quit, "quit", "quit (a write to the drive finishes first)", G::Player).hint("quit", 1),
+    key(S::Global, &[K::Ch('Q'), K::Ctrl('q'), K::Ctrl('c')], "Q", A::Quit, "quit", "quit, also ctrl-q (a write to the drive finishes first)", G::Player).hint("quit", 1),
     // -----------------------------------------------------------------------------------------
     // The drive's jobs, by key where they have a home (here so `about` finds the rows above)
     // -----------------------------------------------------------------------------------------
@@ -694,7 +715,7 @@ pub static KEYMAP: &[Binding] = &[
 const PULL: &str = "save the drive in the store, a snapshot of its library (shows what that adds first)";
 const CHECK: &str = "check the drive against the player models remembered for it (results in a panel)";
 const SYNC: &str = "copy the newest drive of the library over the others plugged in (when none is newest, says why)";
-const PACK: &str = "the marked playlists, the playlist shown or the crate, from the open drive onto another";
+const PACK: &str = "the marked playlists, the playlist shown or the queue, from the open drive onto another";
 const EJECT: &str = "unmount the drive and power it off (playing from it stops first)";
 
 /// The scopes keys are looked up in now, most specific first.
@@ -855,7 +876,8 @@ pub fn help_rows(app: &App, query: &str) -> Vec<HelpRow> {
             2
         }
     };
-    let wanted = |s: Scope| focused.contains(&s) || own.contains(&s) || matches!(s, Scope::Pads | Scope::Goto);
+    let wanted =
+        |s: Scope| focused.contains(&s) || own.contains(&s) || matches!(s, Scope::Pads | Scope::Goto | Scope::Queue);
     let mut rows: Vec<&'static Binding> = KEYMAP.iter().filter(|b| in_help(b) && wanted(b.scope)).collect();
     // The crate's own keys under its heading, after marking and adding to it.
     rows.sort_by_key(|b| (rank(b.scope), b.group as u8, b.scope == Scope::Crate));
@@ -883,6 +905,7 @@ pub fn runs(act: Act) -> bool {
         Act::None
             | Act::Help
             | Act::Goto
+            | Act::QueueChord
             | Act::PaneKey
             | Act::HotCue
             | Act::Move(_)
@@ -912,7 +935,8 @@ pub fn help(view: View) -> (Vec<HelpSection>, Vec<HelpSection>) {
     // The crate's own keys under its heading, after marking and adding to it.
     let mut rows: Vec<&'static Binding> = KEYMAP.iter().filter(|b| own.contains(&b.scope) && in_help(b)).collect();
     rows.sort_by_key(|b| (b.group as u8, b.scope == Scope::Crate));
-    let everywhere = |b: &&Binding| matches!(b.scope, Scope::Global | Scope::Pads | Scope::Goto) && in_help(b);
+    let everywhere =
+        |b: &&Binding| matches!(b.scope, Scope::Global | Scope::Pads | Scope::Goto | Scope::Queue) && in_help(b);
     let global = KEYMAP.iter().filter(everywhere);
     let mut global: Vec<&'static Binding> = global.collect();
     global.sort_by_key(|b| b.group as u8);

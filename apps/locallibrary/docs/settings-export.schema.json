@@ -120,6 +120,7 @@
 				"quantize": { "type": "boolean" },
 				"single": { "description": "Stop after each track.", "type": "boolean" },
 				"auto_cue": { "description": "Start tracks at their first memory cue or beat.", "type": "boolean" },
+				"fill": { "description": "When the queue runs out, play on with the best match that hasn't played.", "type": "boolean" },
 				"notation": { "description": "How keys are written.", "enum": ["camelot", "open-key", "musical"] },
 				"key_palette": {
 					"description": "The colours keys come in.",
@@ -141,6 +142,17 @@
 					"description": "The largest fingerprint index kept for a drive between runs, in MiB (512 when it's not set): a bigger one is built again each run. 0 keeps none.",
 					"type": "integer",
 					"minimum": 0
+				}
+			}
+		},
+		"store": {
+			"description": "What's set for the store on this computer.",
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"copy_on_write": {
+					"description": "Whether a pull makes a track rekordbox's collection holds on the store's volume a copy-on-write copy of the collection's file. Off when it's not set.",
+					"type": "boolean"
 				}
 			}
 		},
