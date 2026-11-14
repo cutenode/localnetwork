@@ -2753,9 +2753,13 @@ fn remembers_the_players_settings_and_saves_them_as_they_change() {
     assert_eq!(shown(&next), (Vis::Scope, true, true, true, true, true, 0.35));
     let deck = |a: &App| (a.deck.quantize, a.deck.single, a.deck.auto_cue, a.deck.output.clone());
     assert_eq!(deck(&next), (false, true, true, Some("Phones".into())));
-    for (title, view) in
-        [("History", View::Drives), ("Snapshots", View::Drives), ("Mixes", View::Mixes), ("Profile", View::Profile)]
-    {
+    for (title, view) in [
+        ("History", View::Drives),
+        ("Snapshots", View::Drives),
+        ("Mixes", View::Mixes),
+        ("Profile", View::Profile),
+        ("Publish", View::Profile),
+    ] {
         assert_eq!(View::from_title(title), Some(view), "what {title} is now");
     }
 }
@@ -2909,7 +2913,7 @@ fn clicks_in_the_crate_on_borders_and_on_dialogs() {
 fn tabs_from_every_view_and_enter_on_the_drive_list() {
     let (mut app, _dir) = app_with(library());
     press(&mut app, "gr");
-    point(&mut app, LEFT, "u Publish");
+    point(&mut app, LEFT, "n localnetwork");
     assert_eq!(app.view, View::Profile);
     point(&mut app, LEFT, "l Library");
     assert_eq!(app.view, View::Library);
@@ -3342,7 +3346,7 @@ fn prop_the_view_saved_comes_back(tc: hegel::TestCase) {
     let titles = View::ALL
         .map(View::title)
         .into_iter()
-        .chain(["History", "Snapshots", "Mixes", "Profile", "Nowhere"])
+        .chain(["History", "Snapshots", "Mixes", "Profile", "Publish", "Nowhere"])
         .collect::<Vec<_>>();
     let saved = tc.draw(gs::sampled_from(titles));
     let dir = tempfile::tempdir().unwrap();
@@ -3351,7 +3355,7 @@ fn prop_the_view_saved_comes_back(tc: hegel::TestCase) {
     let want = match saved {
         "History" | "Snapshots" => View::Drives,
         "Mixes" => View::Mixes,
-        "Profile" => View::Profile,
+        "Profile" | "Publish" => View::Profile,
         "Nowhere" => View::Library,
         title => View::ALL.into_iter().find(|v| v.title() == title).unwrap(),
     };

@@ -18,7 +18,7 @@ const VIEWS = [
 	['Prepare', 'p'],
 	['Drives', 'd'],
 	['Recordings', 'r'],
-	['Publish', 'u']
+	['localnetwork', 'n']
 ];
 
 /** Below this, there's only the deck and the size it needs. */

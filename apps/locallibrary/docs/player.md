@@ -2,8 +2,9 @@
 
 `locallibrary` on its own (or `locallibrary tui [<library>]`) opens a terminal UI for browsing and
 listening to your library the way the players see it. It has five views, one for each job: Library,
-Prepare, Drives, Recordings and Publish. `g` and a letter goes to one (`g l`, `g p`, `g d`, `g r`,
-`g u`; pause after `g` and it lists them). Panes have numbers in their titles, and a digit jumps to
+Prepare, Drives and Recordings for working on your music, and localnetwork, what goes out to Local
+Network, its tab apart at the right end of the top bar. `g` and a letter goes to one (`g l`, `g p`,
+`g d`, `g r`, `g n`; pause after `g` and it lists them). Panes have numbers in their titles, and a digit jumps to
 that pane; the pane with focus has `▸` in its title as well as its border. The deck strip stays
 under every view, with what's playing, its waveform, tempo, key, time left, hot cues and loop.
 Dialogs open above it, and `esc` closes one thing at a time. The Library view has two layouts, and
@@ -266,7 +267,7 @@ needs.
   from it stops first). Beside the list are **Snapshots** (`3`), the store's snapshots, where `enter`
   brings a playlist back from the selected one onto the drive open in the library, and **History**
   (`4`), what players recorded on the drive open in the library, where `enter` opens a list there.
-- **Publish** (`g u`): your [DJ profile](sets.md#dj-profile), section by section, with what each would reveal. `i` puts a section
+- **localnetwork** (`g n`): your [DJ profile](sets.md#dj-profile), section by section, with what each would reveal. `i` puts a section
   in the public document or takes it out, `m`/`h`/`H` pin and hide tracks and artists, `D` shows the
   document and `w` writes it. The bar at the top shows your [Atmosphere account](account.md): `L`
   signs in (type your handle, approve in the browser), and signed in, `L` twice signs out.
@@ -289,7 +290,7 @@ needs.
   the timeline seeks, `z` zooms. `o` goes to the selected track in the library, `E` exports the set
   as data for [Local Network](sets.md#mixes) and `w` writes the HTML report and opens it.
 
-Each view drawn in a terminal of two sizes: Library ([80x24](player/library-80x24.svg), [160x45](player/library-160x45.svg)), Prepare ([80x24](player/prepare-80x24.svg), [160x45](player/prepare-160x45.svg)), Drives ([80x24](player/drives-80x24.svg), [160x45](player/drives-160x45.svg)), Recordings ([80x24](player/recordings-80x24.svg), [160x45](player/recordings-160x45.svg)), Publish ([80x24](player/publish-80x24.svg), [160x45](player/publish-160x45.svg)).
+Each view drawn in a terminal of two sizes: Library ([80x24](player/library-80x24.svg), [160x45](player/library-160x45.svg)), Prepare ([80x24](player/prepare-80x24.svg), [160x45](player/prepare-160x45.svg)), Drives ([80x24](player/drives-80x24.svg), [160x45](player/drives-160x45.svg)), Recordings ([80x24](player/recordings-80x24.svg), [160x45](player/recordings-160x45.svg)), localnetwork ([80x24](player/localnetwork-80x24.svg), [160x45](player/localnetwork-160x45.svg)).
 
 Colours are the theme's: the default, or a plugin's chosen in the palette ("Night theme",
 "default theme"), kept for the next run in `tui.json`.
@@ -446,9 +447,9 @@ Recordings:
 | `w` | write the HTML report and open it in a browser |
 | `click` | on the timeline: play from there, or pick the track under it |
 
-## Keys in Publish
+## Keys in localnetwork
 
-Publish:
+localnetwork:
 
 | Keys | |
 | --- | --- |
@@ -526,7 +527,7 @@ The player:
 | `g p` | Prepare |
 | `g d` | Drives, their snapshots and history |
 | `g r` | Recordings |
-| `g u` | Publish |
+| `g n` | localnetwork |
 | `R  F5` | read again: the drive, the drives' status, the snapshots, the profile, the recordings |
 | `:` | commands: every action by name (type a few of its letters), the ones used lately first, plugins' commands and suggestions |
 | `?` | this help: type to narrow it, enter runs the row selected |

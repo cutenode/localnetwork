@@ -99,7 +99,7 @@ fn check(app: &mut App, what: &str, needles: &[&str], wide: &[&str]) {
         let lines: Vec<&str> = s.lines().collect();
         assert_eq!(lines.len(), h as usize);
         if !overlay(app) {
-            assert!(lines[0].contains("◉") && lines[0].contains("u Publish"), "{what} {w}x{h}: header\n{s}");
+            assert!(lines[0].contains("◉") && lines[0].contains("n localnetwork"), "{what} {w}x{h}: header\n{s}");
             assert!(!lines[h as usize - 1].trim().is_empty(), "{what} {w}x{h}: footer\n{s}");
         }
         let missing: Vec<&&str> =
@@ -229,7 +229,7 @@ fn snapshots() {
 #[test]
 fn profile() {
     let Fixture { _dir, mut app, .. } = fixture();
-    press(&mut app, "gu");
+    press(&mut app, "gn");
     assert_eq!(app.view, View::Profile);
     let first = locallibrary::profile::Section::ALL[0].title();
     check(&mut app, "the profile", &[first, "i in/out of document"], &[]);

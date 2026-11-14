@@ -227,3 +227,8 @@ _Avoid_: hot cue buttons, performance pads
 **Recording**:
 The audio of a played set.
 _Avoid_: mix, session, take
+
+**localnetwork**:
+The player's view of what goes out to Local Network: your DJ profile and the Atmosphere account it's
+published with. Lowercase, like locallibrary; its tab sits apart at the right end of the top bar.
+_Avoid_: Publish, Profile (its old names)
