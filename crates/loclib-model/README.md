@@ -79,9 +79,9 @@ assert!(diff.changed_playlists.is_empty());
 
 ## What it doesn't do
 
-- Read or write a library's files. Parsing `export.pdb`, OneLibrary, ANLZ files or rekordbox XML,
-  and writing them back, is locallibrary's job. The one thing here that touches the disk is
-  `reflink`, which clones a file copy-on-write where the filesystem can.
+- Read or write a library's files. ANLZ files are loclib-anlz's; parsing `export.pdb`, OneLibrary
+  or rekordbox XML, and writing them back, is locallibrary's job. The one thing here that touches
+  the disk is `reflink`, which clones a file copy-on-write where the filesystem can.
 - Analyse audio. `analysis` holds what rekordbox worked out; nothing here decodes or measures
   anything.
 - Keep a library consistent. The fields are public: nothing allocates ids or checks that a

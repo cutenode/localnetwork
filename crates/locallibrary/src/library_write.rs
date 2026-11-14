@@ -92,8 +92,8 @@ fn analysis_bytes(path: &Path, audio_path: &str, shift_ms: i32) -> Result<Vec<u8
         ms => anlz::shift_times(&b, ms),
     });
     rewritten.map_err(|e| match e {
-        Error::Parse { message, .. } => Error::parse(path, message),
-        e => e,
+        anlz::Error::Malformed(message) => Error::parse(path, message),
+        e => e.into(),
     })
 }
 

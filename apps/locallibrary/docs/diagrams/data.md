@@ -33,7 +33,7 @@ flowchart TD
     library --> cache["Sidecar: parsed libraries of the last 4 drives,<br/>read again when a database changes"]
 ```
 
-Source: [`crates/locallibrary/src/device.rs`](../../../../crates/locallibrary/src/device.rs), [`crates/locallibrary/src/pdb.rs`](../../../../crates/locallibrary/src/pdb.rs), [`crates/locallibrary/src/onelibrary/mod.rs`](../../../../crates/locallibrary/src/onelibrary/mod.rs), [`crates/locallibrary/src/anlz.rs`](../../../../crates/locallibrary/src/anlz.rs), [`crates/locallibrary/src/query.rs`](../../../../crates/locallibrary/src/query.rs), [`crates/locallibrary/src/api/cache.rs`](../../../../crates/locallibrary/src/api/cache.rs)
+Source: [`crates/locallibrary/src/device.rs`](../../../../crates/locallibrary/src/device.rs), [`crates/locallibrary/src/pdb.rs`](../../../../crates/locallibrary/src/pdb.rs), [`crates/locallibrary/src/onelibrary/mod.rs`](../../../../crates/locallibrary/src/onelibrary/mod.rs), [`crates/locallibrary/src/anlz.rs`](../../../../crates/locallibrary/src/anlz.rs), [`crates/loclib-anlz/src/lib.rs`](../../../../crates/loclib-anlz/src/lib.rs), [`crates/locallibrary/src/query.rs`](../../../../crates/locallibrary/src/query.rs), [`crates/locallibrary/src/api/cache.rs`](../../../../crates/locallibrary/src/api/cache.rs)
 
 ## My Settings
 

@@ -21,6 +21,7 @@ cargo_common_metadata = "warn"
 # Without its default features (the Atmosphere account): the CLI turns them on with its own.
 locallibrary = { path = "crates/locallibrary", default-features = false }
 loclib-analysis = { path = "crates/loclib-analysis", version = "0.1.0" }
+loclib-anlz = { path = "crates/loclib-anlz", version = "0.1.0" }
 loclib-audio = { path = "crates/loclib-audio", version = "0.1.0" }
 loclib-equipment = { path = "crates/loclib-equipment", version = "0.1.0" }
 loclib-interop = { path = "crates/loclib-interop", version = "0.1.0" }

@@ -179,6 +179,8 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
   reads from a USB drive, with sources, also as JSON
 - [loclib-mysettings](../../crates/loclib-mysettings): reading and writing the My Settings files
   players load from a drive
+- [loclib-anlz](../../crates/loclib-anlz): reading and writing rekordbox's analysis files: beat
+  grids, cues, waveforms, phrases and the audio path
 - [loclib-tracklist](../../crates/loclib-tracklist): reading M3U, CSV, rekordbox and plain-text
   tracklists, and finding their tracks in a library
 - [loclib-audio](../../crates/loclib-audio): decoding tracks and recordings without trusting their
@@ -285,6 +287,7 @@ flowchart LR
     core --> sdk
     core --> pdb["rekordbox-pdb<br/>export.pdb, vendored"]
     core --> set["loclib-mysettings<br/>My Settings files"]
+    core --> anlz["loclib-anlz<br/>analysis files"]
     core --> equip["loclib-equipment<br/>what players read"]
     core --> track["loclib-tracklist<br/>outside tracklists"]
     core --> mixid["loclib-mixid<br/>fingerprints, matcher"]

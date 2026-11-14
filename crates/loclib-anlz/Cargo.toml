@@ -1,0 +1,35 @@
+[package]
+name = "loclib-anlz"
+description = "Read and write rekordbox analysis files (ANLZ0000.DAT, .EXT and .2EX): beat grids, cues, waveforms, phrases and the audio path"
+readme = "README.md"
+keywords = ["rekordbox", "pioneer", "cdj", "dj", "anlz"]
+categories = ["encoding", "parser-implementations", "multimedia::audio"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+loclib-model.workspace = true
+schemars = { version = "1.2", default-features = false, features = ["derive", "std"], optional = true }
+serde.workspace = true
+thiserror.workspace = true
+
+[features]
+# JSON Schema (`schemars::JsonSchema`) for `CuePoint`, and for loclib-model's types it uses.
+schemars = ["dep:schemars", "loclib-model/schemars"]
+
+[dev-dependencies]
+binrw = "0.14"
+criterion.workspace = true
+hegeltest.workspace = true
+# Independent parser the tests check what's written against.
+rekordcrate.workspace = true
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "anlz"
+harness = false
