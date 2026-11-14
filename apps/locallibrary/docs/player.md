@@ -325,9 +325,10 @@ all of that.
 If the terminal says the wrong thing of itself, pick "24-bit colour", "256 colours" or "16 colours"
 in the palette ("colours as the terminal says" goes back), or set `LOCALLIBRARY_COLOR=truecolor`,
 `256` or `16`, which wins over the palette. 256 colours stay within the cube and greys (16-255), so
-a terminal's scheme can't change them. 16 colours are the scheme's own: text is the terminal's
-foreground, quieter text is dim, the selection and chips are in reverse video, the focused pane has
-a heavy border, and track colours show as their numbers.
+a terminal's scheme can't change them. A track that loads and a panel that opens fade in, in 24-bit
+and 256 colours. 16 colours are the scheme's own: text is the terminal's foreground, quieter text is
+dim, the selection and chips are in reverse video, the focused pane has a heavy border, track
+colours show as their numbers, and nothing fades.
 
 Icons come in three sets. "Nerd Font icons", "Unicode icons" and "ASCII icons" in the palette
 choose one, kept in `tui.json`, and `LOCALLIBRARY_ICONS=nerd`, `unicode` or `ascii` wins over that.
@@ -339,7 +340,7 @@ With [`NO_COLOR`](https://no-color.org) set, the player draws no colours and ask
 nothing: the selection is in reverse video, the focused pane has a heavy border, keys that mix are
 marked `⇄` and underlined, track colours show as their numbers (1 pink to 8 purple) and cover art
 is left out. `LOCALLIBRARY_REDUCED_MOTION=1` redraws only a few times a second and stops the
-spinning record, the pulsing logo and the cue flashes.
+spinning record, the pulsing logo, the cue flashes and the fades.
 
 Cover art is drawn in half blocks, in as many colours as the terminal has. The player remembers the drive, list, view, sort, volume, visualiser,
 panels and columns, colours and icons, shuffle, repeat, quantize, single play, auto cue and fill, the output,
