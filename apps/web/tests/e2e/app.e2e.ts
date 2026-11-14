@@ -354,6 +354,7 @@ test.describe('public pages', () => {
 			'/',
 			'/about',
 			'/for-djs',
+			'/for-promoters',
 			'/privacy',
 			'/match',
 			'/projects',
