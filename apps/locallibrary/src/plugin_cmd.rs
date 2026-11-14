@@ -93,10 +93,12 @@ enum PluginCommand {
     },
     /// Which analyzer each role is read from (a track's key, tempo and level, for doctor, the
     /// check before a set, ordering a set and `analyze --apply`; a published set's MusicBrainz
-    /// IDs): show them, choose one (ROLE PLUGIN.ANALYZER), read one from none (ROLE --none), or
-    /// put one back to its default (ROLE --reset)
+    /// IDs; the beat grid, phrases and waveform the player draws and `analyze --apply` writes):
+    /// show them, choose one (ROLE PLUGIN.ANALYZER), read one from none (ROLE --none), or put one
+    /// back to its default (ROLE --reset)
     Roles {
-        /// The role (`key`, `bpm`, `loudness`...) [default: every one]
+        /// The role (`key`, `bpm`, `loudness`..., `grid`, `phrases`, `waveform`) [default: every
+        /// one]
         role: Option<String>,
         /// The analyzer to read it from, as PLUGIN.ANALYZER (`sound.tempo-key-loudness`)
         #[arg(conflicts_with = "reset")]

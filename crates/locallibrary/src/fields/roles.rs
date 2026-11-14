@@ -3,18 +3,24 @@
 //! the one chosen for it in the store's settings (`analysis.roles.<role>`), else the only one with
 //! it, else the first in the order the app has its plugins.
 //!
+//! A part of a track's analysis (its beat grid, phrases or waveform, see [`AnalysisPart`]) is chosen
+//! the same way, under its own name (`analysis.roles.waveform`): `plugins.apply_analysis` writes it
+//! from that analyzer alone, and the player draws it from that one first ([`parts_chosen`]).
+//! Unchosen, it's the first analyzer with one for the track, in that order.
+//!
 //! The app says which analyzers' fields have roles ([`set_offered`]) as its plugins load: this
 //! crate never depends on a plugin, and analyses nothing for a role. Readers ([`by_role`]) read
 //! what those analyzers kept in the [`FieldStore`].
 
 use std::cell::RefCell;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::OnceLock;
 
 use indexmap::IndexMap;
 use rustc_hash::FxHashMap;
 use schemars::JsonSchema;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub use loclib_plugin::Role;
@@ -22,7 +28,7 @@ pub use loclib_plugin::Role;
 use super::{Analyzer, FieldStore, FieldValue};
 use crate::device::Device;
 use crate::model::Track;
-use crate::plugin::{host_settings, set_host_setting};
+use crate::plugin::{AnalysisPart, host_settings, set_host_setting};
 use crate::store::Store;
 use crate::{Error, Result, paths};
 
@@ -40,8 +46,56 @@ impl RoleField {
     }
 }
 
-/// The analyzers' fields with each role, in the order the app has its plugins.
-pub type Offered = IndexMap<Role, Vec<RoleField>>;
+/// What an analyzer is chosen for: a role, or a part of a track's analysis. Their names never
+/// clash.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum RoleOrPart {
+    Role(Role),
+    Part(AnalysisPart),
+}
+
+impl RoleOrPart {
+    /// Every role, then every part.
+    pub fn all() -> impl Iterator<Item = RoleOrPart> {
+        Role::ALL.into_iter().map(RoleOrPart::Role).chain(AnalysisPart::ALL.into_iter().map(RoleOrPart::Part))
+    }
+
+    /// As the settings and `plugin roles` name it (`key`, `waveform`).
+    pub fn name(self) -> &'static str {
+        match self {
+            RoleOrPart::Role(r) => r.name(),
+            RoleOrPart::Part(p) => p.name(),
+        }
+    }
+}
+
+impl From<Role> for RoleOrPart {
+    fn from(r: Role) -> RoleOrPart {
+        RoleOrPart::Role(r)
+    }
+}
+
+impl From<AnalysisPart> for RoleOrPart {
+    fn from(p: AnalysisPart) -> RoleOrPart {
+        RoleOrPart::Part(p)
+    }
+}
+
+impl FromStr for RoleOrPart {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<RoleOrPart, String> {
+        RoleOrPart::all().find(|r| r.name() == s).ok_or_else(|| {
+            let all: Vec<&str> = RoleOrPart::all().map(RoleOrPart::name).collect();
+            format!("{s:?} isn't a role: one of {}", all.join(", "))
+        })
+    }
+}
+
+/// The analyzers' fields with each role, and with each part of the analysis, in the order the app
+/// has its plugins.
+pub type Offered = IndexMap<RoleOrPart, Vec<RoleField>>;
 
 /// A track's role values (a value may be null: worked out, with nothing to show).
 pub type RoleValues = IndexMap<Role, FieldValue>;
@@ -66,24 +120,24 @@ fn offered() -> Offered {
 }
 
 /// The setting naming the analyzer chosen for `role`.
-fn setting(role: Role) -> String {
+fn setting(role: RoleOrPart) -> String {
     format!("analysis.roles.{}", role.name())
 }
 
 /// The analyzer `settings` choose for `role` among those `offered` it, if that one still is.
-fn set_in<'o>(settings: &IndexMap<String, Value>, offered: &'o Offered, role: Role) -> Option<&'o RoleField> {
+fn set_in<'o>(settings: &IndexMap<String, Value>, offered: &'o Offered, role: RoleOrPart) -> Option<&'o RoleField> {
     let name = settings.get(&setting(role))?.as_str()?;
     offered.get(&role)?.iter().find(|f| f.name() == name)
 }
 
 /// Whether `settings` read `role` from no analyzer at all ([`turn_off`]).
-fn off_in(settings: &IndexMap<String, Value>, role: Role) -> bool {
+fn off_in(settings: &IndexMap<String, Value>, role: RoleOrPart) -> bool {
     settings.get(&setting(role)) == Some(&Value::Bool(false))
 }
 
 /// The field `role` is read from: the one `settings` choose, else the first offered, unless they
 /// turned it off.
-fn chosen_in<'o>(settings: &IndexMap<String, Value>, offered: &'o Offered, role: Role) -> Option<&'o RoleField> {
+fn chosen_in<'o>(settings: &IndexMap<String, Value>, offered: &'o Offered, role: RoleOrPart) -> Option<&'o RoleField> {
     if off_in(settings, role) {
         return None;
     }
@@ -91,14 +145,29 @@ fn chosen_in<'o>(settings: &IndexMap<String, Value>, offered: &'o Offered, role:
 }
 
 /// The analyzer's field `role` is read from now, with the settings in `store` (none: the default).
-pub fn chosen(store: Option<&Store>, role: Role) -> Option<RoleField> {
-    chosen_in(&host_settings(store), &offered(), role).cloned()
+pub fn chosen(store: Option<&Store>, role: impl Into<RoleOrPart>) -> Option<RoleField> {
+    chosen_in(&host_settings(store), &offered(), role.into()).cloned()
 }
 
-/// A role, and the analyzers answering it.
+/// The parts of the analysis read from one analyzer first, as the settings choose: the analyzer
+/// chosen for each, or none once it's turned off. A part left out is read from the first analyzer
+/// with one for a track ([`super::OverlayStore::first`]).
+pub type PartsChosen = IndexMap<AnalysisPart, Option<Analyzer>>;
+
+/// The parts of the analysis read from one analyzer first, with the settings in `store`.
+pub fn parts_chosen(store: Option<&Store>) -> PartsChosen {
+    let (settings, offered) = (host_settings(store), offered());
+    let chosen = |part: AnalysisPart| match off_in(&settings, part.into()) {
+        true => Some((part, None)),
+        false => Some((part, Some(set_in(&settings, &offered, part.into())?.analyzer.clone()))),
+    };
+    AnalysisPart::ALL.into_iter().filter_map(chosen).collect()
+}
+
+/// A role or a part of the analysis, and the analyzers answering it.
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 pub struct RoleChoice {
-    pub role: Role,
+    pub role: RoleOrPart,
     /// The analyzer it's read from now, `<plugin>.<analyzer>` (none: no analyzer has it, or it's
     /// turned off).
     pub chosen: Option<String>,
@@ -110,7 +179,8 @@ pub struct RoleChoice {
     pub offered: Vec<String>,
 }
 
-/// Every role, and the analyzers answering it, with the settings in `store`.
+/// Every role and part of the analysis, and the analyzers answering it, with the settings in
+/// `store`.
 pub fn choices(store: Option<&Store>) -> Vec<RoleChoice> {
     let (settings, offered) = (host_settings(store), offered());
     let choice = |role| RoleChoice {
@@ -120,13 +190,13 @@ pub fn choices(store: Option<&Store>) -> Vec<RoleChoice> {
         off: off_in(&settings, role),
         offered: offered.get(&role).into_iter().flatten().map(RoleField::name).collect(),
     };
-    Role::ALL.into_iter().map(choice).collect()
+    RoleOrPart::all().map(choice).collect()
 }
 
 /// Read `role` from `analyzer` (`<plugin>.<analyzer>`, one that has it), or with `None` from the
 /// default again. Answers every role then. Damaged settings are written anew.
-pub fn choose(store: &Store, role: Role, analyzer: Option<&str>) -> Result<Vec<RoleChoice>> {
-    let offered = offered();
+pub fn choose(store: &Store, role: impl Into<RoleOrPart>, analyzer: Option<&str>) -> Result<Vec<RoleChoice>> {
+    let (role, offered) = (role.into(), offered());
     let names: Vec<String> = offered.get(&role).into_iter().flatten().map(RoleField::name).collect();
     if let Some(a) = analyzer.filter(|a| !names.iter().any(|n| n == a)) {
         return Err(Error::invalid(match names.is_empty() {
@@ -140,8 +210,8 @@ pub fn choose(store: &Store, role: Role, analyzer: Option<&str>) -> Result<Vec<R
 
 /// Read `role` from no analyzer at all, until [`choose`] says otherwise: `sets publish` looks up no
 /// MusicBrainz IDs once `recording` is. Answers every role then.
-pub fn turn_off(store: &Store, role: Role) -> Result<Vec<RoleChoice>> {
-    set_host_setting(store, &setting(role), Some(Value::Bool(false)))?;
+pub fn turn_off(store: &Store, role: impl Into<RoleOrPart>) -> Result<Vec<RoleChoice>> {
+    set_host_setting(store, &setting(role.into()), Some(Value::Bool(false)))?;
     Ok(choices(Some(store)))
 }
 
@@ -151,7 +221,7 @@ pub fn turn_off(store: &Store, role: Role) -> Result<Vec<RoleChoice>> {
 pub(crate) fn reader(store: &Store, roles: &[Role]) -> Option<impl Fn(&Path) -> RoleValues> {
     let (settings, offered) = (host_settings(Some(store)), offered());
     let chosen: Vec<(Role, RoleField)> =
-        roles.iter().filter_map(|&r| Some((r, chosen_in(&settings, &offered, r)?.clone()))).collect();
+        roles.iter().filter_map(|&r| Some((r, chosen_in(&settings, &offered, r.into())?.clone()))).collect();
     let mut analyzers: Vec<Analyzer> = Vec::new();
     for (_, f) in &chosen {
         if !analyzers.contains(&f.analyzer) {

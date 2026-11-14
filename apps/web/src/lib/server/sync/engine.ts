@@ -75,6 +75,15 @@ export type SyncStatus = {
 	registrationExpiresAt: string | null;
 	/** A repo that has failed since before it ever synced has no rev or sync time. */
 	repos: { did: string; rev: string | null; lastSyncedAt: string | null; lastError: string | null }[];
+	/** Records whose projection has failed at least once and is waiting for its next try. */
+	stuck: {
+		did: string;
+		collection: string;
+		rkey: string;
+		attempts: number;
+		nextAttemptAt: string;
+		lastError: string | null;
+	}[];
 };
 
 /**
@@ -857,6 +866,14 @@ export class SpaceSyncer {
 
 		const repos = [...synced, ...unsynced.map((repo) => ({ ...repo, rev: null, lastSyncedAt: null }))];
 
+		// A row with no attempts is only waiting for its first run, which isn't a failure.
+		const stuck = await this.deps.db
+			.selectFrom('pendingProjection')
+			.selectAll()
+			.where('attempts', '>', 0)
+			.orderBy('nextAttemptAt')
+			.execute();
+
 		return watches.map((watch) => ({
 			space: watch.spaceUri,
 			type: watch.spaceType,
@@ -873,6 +890,18 @@ export class SpaceSyncer {
 					rev: repo.rev,
 					lastSyncedAt: repo.lastSyncedAt,
 					lastError: repo.lastError
+				}))
+				.toArray(),
+			stuck: stuck
+				.values()
+				.filter((record) => record.spaceUri === watch.spaceUri)
+				.map(({ repoDid, collection, rkey, attempts, nextAttemptAt, lastError }) => ({
+					did: repoDid,
+					collection,
+					rkey,
+					attempts,
+					nextAttemptAt,
+					lastError
 				}))
 				.toArray()
 		}));

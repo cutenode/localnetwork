@@ -4,14 +4,15 @@
 //! most, five tags, and a section for each track, its artist and song, starting `start_time` whole
 //! seconds into the show. Mixcloud says of no other limit.
 
-use loclib_plugin::{FormPart, PublishedSet, TracklistEntry};
+use loclib_plugin::{FormPart, PublishedSet, TracklistEntry, mixcloud};
 
 /// The longest description, in characters.
 pub(crate) const MAX_DESCRIPTION: usize = 1000;
 /// How many tags a show has at most.
 pub(crate) const MAX_TAGS: usize = 5;
 
-/// A set's show, and what was cut or left out to fit, in a line each.
+/// A set's show, and what was cut or left out to fit and which of Mixcloud's rules for its music
+/// it breaks, in a line each.
 #[derive(Debug, PartialEq)]
 pub(crate) struct Show {
     pub(crate) name: String,
@@ -33,7 +34,8 @@ pub(crate) struct Section {
 
 /// `set`'s show: its title, else where and when it was played ("Warehouse, 2026-10-03"), the
 /// comma-separated `tags` (each once), and a section for each track of `tracklist`. A track's time
-/// is kept when it's after the time before it, so the sections are in order.
+/// is kept when it's after the time before it, so the sections are in order. The notes end with
+/// what Mixcloud's rules say of the tracklist (see [`mixcloud::warnings`]).
 pub(crate) fn of(set: &PublishedSet, tracklist: &[TracklistEntry], tags: &str, unlisted: bool) -> Show {
     let mut notes = Vec::new();
     let name = set.name();
@@ -69,6 +71,7 @@ pub(crate) fn of(set: &PublishedSet, tracklist: &[TracklistEntry], tags: &str, u
     if untimed > 0 {
         notes.push(format!("left the time off {untimed} of the tracks, each no later than a time before it"));
     }
+    notes.extend(mixcloud::warnings(tracklist));
     Show { name, description, tags: kept, sections, unlisted, notes }
 }
 

@@ -15,15 +15,21 @@ const ROOT = resolve(import.meta.dirname, '..');
 
 export const SCHEMA_PATH = resolve(ROOT, 'docs/manager-state.schema.json');
 
-export const readSchema = () => JSON.parse(readFileSync(SCHEMA_PATH, 'utf8'));
+export const SITES_SCHEMA_PATH = resolve(ROOT, 'src/lib/search-sites.schema.json');
+
+const readJson = (path: string) => JSON.parse(readFileSync(path, 'utf8'));
+
+export const readSchema = () => readJson(SCHEMA_PATH);
 
 // An Ajv that reports every problem, not just the first, and understands the
-// "date-time" format the schema uses.
+// "date-time" format the schema uses. The search sites' schema is loaded
+// beside it, because a state file's sites are that schema's entries and the
+// state schema refers to it by its $id; handed that one, this compiles it.
 export function createValidator(schema = readSchema()) {
-	const ajv = new Ajv2020({ allErrors: true, strict: true });
+	const ajv = new Ajv2020({ allErrors: true, strict: true, schemas: [readJson(SITES_SCHEMA_PATH)] });
 	addFormats(ajv);
 
-	return ajv.compile(schema);
+	return ajv.getSchema(schema.$id) ?? ajv.compile(schema);
 }
 
 // Ajv's errors as one readable line each.

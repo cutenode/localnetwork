@@ -447,9 +447,12 @@ in the message.
 
 ### Analysis
 
-`plugins.apply_analysis.plan {plugin, analyzer, drive, parts: ["grid" | "phrases" | "waveform"],
+`plugins.apply_analysis.plan {plugin?, analyzer?, drive, parts: ["grid" | "phrases" | "waveform"],
 tracks?, overwrite?}` plans writing the beat grid, phrases and waveform an analyzer worked out into
-the tracks' analysis files (each track's `set_analysis` edit, a grid with its `edit_tracks` BPM),
+the tracks' analysis files (each track's `set_analysis` edit, a grid with its `edit_tracks` BPM).
+Without `plugin` and `analyzer`, each part comes from the analyzer chosen for it in
+`plugins.roles` alone (a track it hasn't analysed gets none), else the first with one for the
+track. The plan is
 applied by `plugins.apply_analysis.apply {plan_id}`; tracks it can't write to are left out with a
 warning. An operation's `set_analysis` edit (`{op, track, beats?, phrases?, waveform?: {blob}}`,
 the waveform a file in its scratch folder) needs `analysis:plan`.
@@ -602,7 +605,8 @@ files in the folders granted are copied, and what's left out is in its `warnings
 
 ### Roles
 
-`plugins.roles` answers which analyzer each role (`key`, `bpm`, `loudness`...) is read from,
+`plugins.roles` answers which analyzer each role (`key`, `bpm`, `loudness`...) and each part of
+the analysis (`grid`, `phrases`, `waveform`) is read from,
 `[{role, chosen, set, off, offered}]`, and `plugins.roles.set {role, analyzer}` (`<plugin>.<analyzer>`,
 or `null`: back to its default) chooses one, or with `none: true` none (`off`). `plugins.apply_fields.plan {plugin, analyzer, drive,
 fields, tracks?, overwrite?, min_confidence?}` (`fields`: `key`, `bpm`) answers an edit plan
