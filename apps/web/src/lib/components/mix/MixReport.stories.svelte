@@ -3,6 +3,7 @@
 	import { expect, userEvent, within } from 'storybook/test';
 	import type { MixReport as Report } from '#lib/mix/report.ts';
 	import { riddenReport, sampleReport } from '#lib/mix/sample.ts';
+	import { lightTheme } from '#lib/testing/light-theme.ts';
 	import MixReport from './MixReport.svelte';
 
 	const { Story } = defineMeta({ title: 'Mixes/Mix report', component: MixReport, tags: ['autodocs'], args: { report: sampleReport } });
@@ -10,12 +11,6 @@
 	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 
 	/** The light palette (packages/tokens/theme.css), which applies under a `light` class on the root. */
-	const light = () => {
-		document.documentElement.classList.add('light');
-
-		return () => document.documentElement.classList.remove('light');
-	};
-
 	/** The sample's five tracks three times over, so the track colours come round again under two-digit numbers. */
 	const longReport: Report = {
 		...sampleReport,
@@ -66,15 +61,15 @@
 
 <Story name="A set" />
 
-<Story name="A set, light" beforeEach={light} />
+<Story name="A set, light" beforeEach={lightTheme} />
 
 <Story name="A long set" args={{ report: longReport }} />
 
-<Story name="A long set, light" args={{ report: longReport }} beforeEach={light} />
+<Story name="A long set, light" args={{ report: longReport }} beforeEach={lightTheme} />
 
 <Story name="Ridden, on a phone" args={{ report: riddenReport }} globals={phone} />
 
-<Story name="Ridden, on a phone, light" args={{ report: riddenReport }} globals={phone} beforeEach={light} />
+<Story name="Ridden, on a phone, light" args={{ report: riddenReport }} globals={phone} beforeEach={lightTheme} />
 
 <Story name="Lanes named by what they show" play={laneNames} />
 
