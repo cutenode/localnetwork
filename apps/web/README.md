@@ -290,6 +290,7 @@ The network is temporary; Ctrl-C stops it, and restarting resets everything (and
 | `pnpm test:e2e`                     | Playwright (desktop browsers and phones) on an isolated network, axe                         |
 | `pnpm test:lighthouse`              | Lighthouse CI on the production build (`lighthouserc.cjs`)                                   |
 | `pnpm test:lighthouse:full`         | Lighthouse on every page, phone and desktop, against its history ([Lighthouse](#lighthouse)) |
+| `pnpm fuzz`                         | Jazzer.js on the byte parsers, 30 seconds a target ([Fuzzing](#fuzzing))                     |
 | `pnpm -w knip`                      | Unused files, exports, and dependencies across the repo (the root `knip.jsonc`)              |
 | `pnpm lexicons:publish`             | Publish lexicons from the root account and check or set their DNS                            |
 | `pnpm lexicons:types`               | Types from the lexicons in `src/lib/lexicons` (git-ignored), to check the readers against    |
@@ -299,6 +300,18 @@ The network is temporary; Ctrl-C stops it, and restarting resets everything (and
 | `pnpm verify`                       | CI's quick checks, in order                                                                  |
 
 Pull requests run the e2e tests in Chromium only (`pnpm test:e2e --project chromium`); the other browsers and the phones run weekly.
+
+### Fuzzing
+
+`fuzz/` holds [Jazzer.js](https://github.com/CodeIntelligenceTesting/jazzer.js) targets for the parsers that read raw bytes from outside: `mix-report` (`parseMixReportText`), `image` (`sniffImage` and the press kit's photo size) and `range` (`parseRange`). Each throws when the parser breaks a rule its callers rely on, and libFuzzer mutates its seeds (`seeds` in the target) looking for an input that does. [`scripts/fuzz.ts`](scripts/fuzz.ts) bundles them with esbuild, since Jazzer instruments JavaScript only, and runs them in turn:
+
+```bash
+pnpm fuzz                                              # every target, 30 seconds each
+pnpm fuzz --seconds 300 range                          # one target, five minutes
+pnpm fuzz range --input fuzz/artifacts/range/crash-…   # replay a crash
+```
+
+What reaches new code is kept in `fuzz/corpus/<target>/` and a crash's input in `fuzz/artifacts/<target>/` (both ignored by git). A crash is a bug in the parser: fix it there and add the input as a test beside the parser's others. The Web scheduled workflow runs each target for five minutes, keeping the corpus between runs, and uploads the input of any crash as its `web-fuzz-artifacts` artifact.
 
 ### Lighthouse
 
