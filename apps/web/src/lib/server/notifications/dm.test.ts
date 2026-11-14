@@ -1,5 +1,7 @@
 import { AppBskyRichtextFacet, AtpAgent } from '@atproto/api';
+import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { hostileInboxItem } from '#lib/testing/hostile-text.ts';
 import type { NotificationView } from '#lib/types.ts';
 import { silentLogger } from '../logger';
 import { type DmMessage, dmChannel, LogDmSender, renderDm, RootDmSender } from './dm';
@@ -233,6 +235,62 @@ describe('renderDm', () => {
 		expect(one.text).toContain('…');
 		expect(many.text).toMatch(/\nand \d+ more\n/);
 		expect(links(many).map((link) => link.uri)).toEqual([`${url}/dashboard/inbox`, `${url}/dashboard/inbox/settings`]);
+	});
+
+	describe('for anything people write', () => {
+		/** The text outside every facet, which chat shows as written. */
+		const unlinked = ({ text, facets }: DmMessage) => {
+			const all = bytes(text);
+			let from = 0;
+			let rest = '';
+
+			for (const { index } of facets) {
+				rest += new TextDecoder().decode(all.slice(from, index.byteStart));
+				from = index.byteEnd;
+			}
+
+			return rest + new TextDecoder().decode(all.slice(from));
+		};
+
+		it("links only the site's own pages, at byte ranges inside the text that cover each link", () => {
+			fc.assert(
+				fc.property(fc.array(hostileInboxItem(), { minLength: 1, maxLength: 5 }), (items) => {
+					const message = renderDm(items, url);
+					const size = bytes(message.text).length;
+
+					for (const { index } of message.facets) {
+						expect(index.byteStart).toBeGreaterThanOrEqual(0);
+						expect(index.byteStart).toBeLessThan(index.byteEnd);
+						expect(index.byteEnd).toBeLessThanOrEqual(size);
+					}
+
+					for (const { covers, uri } of links(message)) {
+						expect(covers).toBe(uri);
+						expect(new URL(covers).origin).toBe(url);
+					}
+
+					// What people wrote can't turn into a link either: no scheme, and no dot between letters as in a domain.
+					expect(unlinked(message)).not.toMatch(/:\/\/|[\p{L}\p{N}]\.\p{L}/u);
+				})
+			);
+		});
+
+		it("stays within chat's limits for a full batch of the longest titles the lexicons allow", () => {
+			// 300 code points are at most 1,200 bytes, a show title's limit (lexicons/computer/localnetwork/defs.json).
+			const longest = fc.string({ unit: 'binary', maxLength: 300, size: 'max' });
+
+			fc.assert(
+				fc.property(fc.array(hostileInboxItem(longest), { minLength: 1, maxLength: 20 }), (items) => {
+					const { text } = renderDm(items, url);
+
+					expect([...new Intl.Segmenter().segment(text)].length).toBeLessThanOrEqual(1000);
+					expect(bytes(text).length).toBeLessThanOrEqual(10_000);
+				}),
+				// Shrinking twenty long items, each try segmenting the whole DM, takes minutes, and the first few seconds of it
+				// already give a counterexample to read.
+				{ numRuns: 30, interruptAfterTimeLimit: 4000 }
+			);
+		});
 	});
 });
 
