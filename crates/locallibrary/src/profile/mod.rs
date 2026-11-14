@@ -11,10 +11,14 @@
 //! go out, tracks to name or never name, rounding, genre spellings) are [`ProfilePrefs`], kept in
 //! the store.
 //!
-//! Most numbers describe what was *played* (every appearance in a set counts). Until the DJ
-//! declares sets, the sessions players recorded stand in for them ([`Basis::Sessions`]): practice
-//! and track checks land in those too, so the report says so and the document never counts them.
-//! Without either, the collection is described instead ([`Basis::Collection`]).
+//! Genres, artists, era and energy describe the collection: every track in the libraries read
+//! (drives' and the store's latest snapshots), each once, however often it was played. The rest
+//! describe what was *played* (every appearance in a set counts). Until the DJ declares sets, the
+//! sessions players recorded stand in for them ([`Basis::Sessions`]): practice and track checks
+//! land in those too, so the report says so and the document never counts them. Without either,
+//! the collection is described instead ([`Basis::Collection`]). Only the sections that describe the
+//! collection, and how many sets there were, can be published ([`Section::publishable`]): what was
+//! played locallibrary only partly sees.
 //!
 //! What a profile can't say: anything that compares a DJ with other DJs (tracks only they play),
 //! since that needs other DJs' data.
@@ -114,7 +118,8 @@ pub struct Sources<'a> {
 // The report
 // ---------------------------------------------------------------------------------------------
 
-/// What the numbers describe.
+/// What the numbers about plays describe (sets, tempo, keys, labels and the rest). Genres,
+/// artists, era and energy always count the collection, each track once.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Basis {
@@ -157,8 +162,11 @@ pub struct ProfileReport {
     pub keys: KeysSection,
     /// `None` without analysis files.
     pub energy: Option<EnergySection>,
+    /// Collection tracks with a genre.
     pub genres: RankedSection,
+    /// Plays (or tracks) with a label.
     pub labels: RankedSection,
+    /// Collection tracks with an artist, each credited artist counted.
     pub artists: RankedSection,
     pub era: EraSection,
     pub signature: SignatureSection,
@@ -347,7 +355,7 @@ pub struct KeysSection {
 
 #[derive(Debug, Clone, Default, Serialize, JsonSchema)]
 pub struct EnergySection {
-    /// Plays (or tracks) whose phrase analysis was read.
+    /// Collection tracks whose phrase analysis was read.
     pub tracks: usize,
     pub high: f64,
     pub mid: f64,
@@ -358,7 +366,7 @@ pub struct EnergySection {
 
 #[derive(Debug, Clone, Default, Serialize, JsonSchema)]
 pub struct RankedSection {
-    /// Plays (or tracks) with a value.
+    /// Plays, or tracks, with a value.
     pub known: usize,
     pub distinct: usize,
     pub top: Vec<Share>,
@@ -374,12 +382,12 @@ pub struct Share {
 
 #[derive(Debug, Clone, Default, Serialize, JsonSchema)]
 pub struct EraSection {
-    /// Plays (or tracks) with a release year.
+    /// Collection tracks with a release year.
     pub tracks: usize,
     pub median_year: Option<i32>,
     pub oldest: Option<i32>,
     pub newest: Option<i32>,
-    /// Released the year it was played, or the year before.
+    /// Released this year or last.
     pub recent_share: Option<f64>,
     /// Oldest first.
     pub decades: Vec<DecadeCount>,
@@ -747,9 +755,11 @@ impl<'a> Builder<'a> {
             };
             let dat = paths::key(&rec.track.analyze_path);
             // Every track's .EXT is read: it holds all of a track's hot cues, where the .DAT
-            // holds A to C only (see `anlz::write`). Its phrases only played tracks need.
+            // holds A to C only (see `anlz::write`), and its phrases' mood, which energy counts
+            // over the collection and a set's mood curve over its plays. One read (or cache
+            // lookup) gives both.
             let ext = dat.strip_suffix(".DAT").and_then(|s| read(&format!("{s}.EXT")));
-            let mood = ext.and_then(|e| e.mood).filter(|_| played.contains(&i));
+            let mood = ext.and_then(|e| e.mood);
             let cues = match ext.and_then(|e| e.cues).filter(|c| c.hot + c.memory + c.loops > 0) {
                 Some(c) => Some(c),
                 None => read(&dat).and_then(|d| d.cues),
@@ -978,15 +988,17 @@ fn compute(b: &Builder<'_>, counted: Basis, too_short: usize, now: DateTime<Utc>
     let recs = &b.recs;
     let sets = &b.sets;
 
+    // The collection, each track once: what genres, artists, era and energy count.
+    let owned: Vec<usize> = (0..recs.len()).filter(|&i| recs[i].in_collection).collect();
     // The pool: every play, or the collection when there are no sets. Each play carries the year
-    // it was played in (for "recent" releases).
+    // it was played in.
     let mut pool: Vec<(usize, i32)> = Vec::new();
     for s in sets {
         let year = s.date.map_or(now.year(), |d| d.year());
         pool.extend(s.tracks.iter().map(|&i| (i, year)));
     }
     let basis = if pool.is_empty() {
-        pool = (0..recs.len()).filter(|&i| recs[i].in_collection).map(|i| (i, now.year())).collect();
+        pool = owned.iter().map(|&i| (i, now.year())).collect();
         Basis::Collection
     } else {
         counted
@@ -1150,8 +1162,8 @@ fn compute(b: &Builder<'_>, counted: Basis, too_short: usize, now: DateTime<Utc>
     top_keys.truncate(o.top);
     let keys = KeysSection { tracks: keyed, wheel, minor_share: share(minor, keyed), top: top_keys };
 
-    // Energy.
-    let moods: Vec<Mood> = pool.iter().filter_map(|&(i, _)| recs[i].mood).collect();
+    // Energy: the collection's moods; the curve, its plays' through a set.
+    let moods: Vec<Mood> = owned.iter().filter_map(|&i| recs[i].mood).collect();
     let energy = (!moods.is_empty()).then(|| {
         let n = moods.len();
         let count = |m: Mood| moods.iter().filter(|x| **x == m).count() as f64 / n as f64;
@@ -1164,20 +1176,23 @@ fn compute(b: &Builder<'_>, counted: Basis, too_short: usize, now: DateTime<Utc>
         }
     });
 
-    // Genres, labels, artists.
+    // Labels (plays); genres and artists (the collection).
     let (mut g, mut l, mut a) = (FxHashMap::default(), FxHashMap::default(), FxHashMap::default());
     let (mut g_known, mut l_known, mut a_known) = (0, 0, 0);
     for &(i, _) in &pool {
+        let r = &recs[i];
+        if !r.track.label.trim().is_empty() {
+            l_known += 1;
+            tally(&mut l, &r.track.label);
+        }
+    }
+    for &i in &owned {
         let r = &recs[i];
         if !r.genres.is_empty() {
             g_known += 1;
             for name in &r.genres {
                 tally(&mut g, name);
             }
-        }
-        if !r.track.label.trim().is_empty() {
-            l_known += 1;
-            tally(&mut l, &r.track.label);
         }
         let credits = artist_credits(&r.track.artist);
         if !credits.is_empty() {
@@ -1191,17 +1206,17 @@ fn compute(b: &Builder<'_>, counted: Basis, too_short: usize, now: DateTime<Utc>
     let labels = ranked(l, l_known, o.top);
     let artists = ranked(a, a_known, o.top);
 
-    // Era.
-    let years: Vec<(i32, i32)> = pool.iter().filter_map(|&(i, played)| recs[i].year.map(|y| (y, played))).collect();
+    // Era (the collection).
+    let years: Vec<i32> = owned.iter().filter_map(|&i| recs[i].year).collect();
     let mut era = EraSection { tracks: years.len(), ..Default::default() };
     if !years.is_empty() {
-        let ys: Vec<f64> = years.iter().map(|y| y.0 as f64).collect();
+        let ys: Vec<f64> = years.iter().map(|&y| y as f64).collect();
         era.median_year = median(&ys).map(|m| m.round() as i32);
-        era.oldest = years.iter().map(|y| y.0).min();
-        era.newest = years.iter().map(|y| y.0).max();
-        era.recent_share = share(years.iter().filter(|(y, played)| *y >= played - 1).count(), years.len());
+        era.oldest = years.iter().copied().min();
+        era.newest = years.iter().copied().max();
+        era.recent_share = share(years.iter().filter(|&&y| y >= now.year() - 1).count(), years.len());
         let mut decades: IndexMap<i32, usize> = IndexMap::new();
-        for (y, _) in &years {
+        for y in &years {
             *decades.entry(y / 10 * 10).or_default() += 1;
         }
         decades.sort_unstable_keys();
@@ -1227,7 +1242,7 @@ fn compute(b: &Builder<'_>, counted: Basis, too_short: usize, now: DateTime<Utc>
     });
 
     // Collection.
-    let in_collection: Vec<&Rec> = recs.iter().filter(|r| r.in_collection).collect();
+    let in_collection: Vec<&Rec> = owned.iter().map(|&i| &recs[i]).collect();
     let n = in_collection.len();
     let played: FxHashSet<usize> = sets.iter().flat_map(|s| s.tracks.iter().copied()).collect();
     let collection = CollectionSection {
@@ -1471,7 +1486,11 @@ fn summarise(r: &ProfileReport) -> Summary {
         && r.genres.known >= 20
         && top.share >= 0.6
     {
-        tag("focused", format!("Mostly {}", top.name), format!("{} of plays are tagged {}", pct(top.share), top.name));
+        tag(
+            "focused",
+            format!("Mostly {}", top.name),
+            format!("{} of the collection is tagged {}", pct(top.share), top.name),
+        );
     }
     let unit = r.basis.unit();
     if r.arc.sets >= 3 && r.arc.builds >= 0.5 {
@@ -1487,15 +1506,15 @@ fn summarise(r: &ProfileReport) -> Summary {
     {
         tag(
             "fresh",
-            "Plays new releases".into(),
-            format!("{} of plays came out that year or the year before", pct(recent)),
+            "Collects new releases".into(),
+            format!("{} of the collection came out this year or last", pct(recent)),
         );
     }
     if let Some(y) = r.era.median_year
         && r.era.tracks >= 20
         && y <= r.generated.year() - 10
     {
-        tag("digger", "Plays older records".into(), format!("half of the plays were released in {y} or earlier"));
+        tag("digger", "Collects older records".into(), format!("half the collection came out in {y} or earlier"));
     }
     if r.sets.count >= 5 && r.sets.plays > 0 {
         let fresh = r.sets.distinct_tracks as f64 / r.sets.plays as f64;

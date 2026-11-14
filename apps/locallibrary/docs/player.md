@@ -267,7 +267,8 @@ needs.
   brings a playlist back from the selected one onto the drive open in the library, and **History**
   (`4`), what players recorded on the drive open in the library, where `enter` opens a list there.
 - **Publish** (`g u`): your [DJ profile](sets.md#dj-profile), section by section, with what each would reveal. `i` puts a section
-  in the public document or takes it out, `m`/`h`/`H` pin and hide tracks and artists, `D` shows the
+  in the public document or takes it out (only Sets, Energy, Genres, Artists, Era and Collection can
+  go in; the rest stay on this computer), `m`/`h`/`H` pin and hide tracks and artists, `D` shows the
   document and `w` writes it. The bar at the top shows your [Atmosphere account](account.md): `L`
   signs in (type your handle, approve in the browser), and signed in, `L` twice signs out.
 - **Export**: in the palette, "export" writes the playlist, set, history list or all tracks shown as

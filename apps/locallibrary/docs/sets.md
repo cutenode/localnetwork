@@ -258,43 +258,51 @@ Settings. A set's tracks are found by file in every library it reads (the drives
 snapshots and every history list `pull` archived), so their analysis counts; a track none of them
 has still counts, from what the set kept. Until you declare a set, the sessions players record stand
 in: history lists with 5 tracks or more (`--min-tracks`). Practice lands in those too, so the report
-calls them sessions and the public document never counts them. With nothing played to count, the
-collection is described, and the same recording on several drives or in several files counts once.
+calls them sessions and the public document never counts them. Genres, Artists, Era and Energy
+always describe the collection instead: every track in the libraries read (the drives' and the
+store's latest snapshots), each once however often you played it. With nothing played to count, the
+other sections describe the collection too, and the same recording on several drives or in several
+files counts once.
 Without drives named, it reads the mounted drives the store knows (ones you've pulled or synced), so
 a stick someone else plugged in doesn't count as yours; a store that knows none reads every mounted
 drive. Transitions are tracks played one after the other: not two either side of a track since
 deleted, nor one track logged twice.
 
-| Section | What it says |
-| --- | --- |
-| Summary | a headline ("Techno and House · 122–128 BPM · 48 sets") and the traits the numbers support, each with its evidence: mixes in key, smooth tempo changes, builds the tempo through a set, genre-hopping, mostly one genre, plays new releases or older records, rarely repeats tracks, has signature tracks, cues up every track, plays with quantize off, a wide pitch range |
-| Sets | how many, how long, when they were played (until you declare sets: sessions, never published) |
-| Tempo | the BPM range of the middle 80% of plays, and a histogram |
-| Set shape | opening against closing tempo, and whether sets build, hold or wind down |
-| Mixing | how many transitions are harmonic on the Camelot wheel (same key, ±1, relative, energy boost), tempo steps, genre changes |
-| Keys, Energy, Genres, Labels, Artists, Era | what you play: the Camelot wheel, rekordbox's phrase mood, tags, release years |
-| Signature tracks | tracks in two or more sets, moves played again and again, openers and closers |
-| Prep, Collection, Player style | how many tracks have cues and loops, the collection's size, My Settings such as quantize and jog mode |
+| Section | What it says | Published |
+| --- | --- | --- |
+| Summary | a headline ("Techno and House · 122–128 BPM · 48 sets") and the traits the numbers support, each with its evidence: mixes in key, smooth tempo changes, builds the tempo through a set, genre-hopping, mostly one genre, collects new releases or older records, rarely repeats tracks, has signature tracks, cues up every track, plays with quantize off, a wide pitch range | never |
+| Sets | how many, how long, when they were played (until you declare sets: sessions, never published) | by default |
+| Tempo | the BPM range of the middle 80% of plays, and a histogram | never |
+| Set shape | opening against closing tempo, and whether sets build, hold or wind down | never |
+| Mixing | how many transitions are harmonic on the Camelot wheel (same key, ±1, relative, energy boost), tempo steps, genre changes | never |
+| Keys, Labels | what you play: the Camelot wheel, labels | never |
+| Energy | rekordbox's phrase mood (high, mid, low) across the collection's tracks that have phrase analysis, and the mood through a set | by default |
+| Genres, Era | the genres in your collection, and when its music was released, by decade | by default |
+| Artists | the artists in your collection, most tracks first | if you include it |
+| Signature tracks | tracks in two or more sets, moves played again and again, openers and closers | never |
+| Prep, Player style | how many tracks have cues and loops, My Settings such as quantize and jog mode | never |
+| Collection | the collection's size | if you include it |
 
 The report stays on this computer. `profile document` is the part meant for a public profile, and
 `profile publish` puts it on your [Atmosphere account](account.md#publishing) as a
-`computer.localnetwork.dj.profile` record: counts rounded down to round numbers, shares (of genres,
-labels and artists) to 5% (shares of one whole still add up to it), BPM to whole numbers, and
-no paths, drive or history-list names, ratings or exact dates. Sections that name tracks, artists or
-labels, or describe the collection itself, stay out until you include them, and the headline and
-traits only say what the included sections say. Your choices are kept in the store (`profile.json`):
+`computer.localnetwork.dj.profile` record. Only Energy, Genres, Artists, Era, Sets and Collection are
+ever published: what you played locallibrary only partly sees (the sets you told it about, the
+history lists on drives it read), so the sections about plays stay on this computer, and
+`profile include` refuses them. Counts are rounded down to round numbers, shares (of genres and
+artists) to 5% (shares of one whole still add up to it), and there are no paths, drive or
+history-list names, ratings or exact dates. Artists and Collection stay out until you include them.
+Your choices are kept in the store (`profile.json`); a section saved there that can't be published
+any more is ignored:
 
 ```bash
 locallibrary profile sections                  # what each section reveals, and which are in the document
-locallibrary profile include signature,artists # name your most-played tracks and artists
-locallibrary profile pin "everlong"            # list this track first (matched against what you've played)
-locallibrary profile hide "ID - ID" --exact    # never name a track; it still counts in the numbers
+locallibrary profile include artists           # the artists in your collection, most tracks first
 locallibrary profile hide "Rihanna" --artist   # never name an artist, wherever they're credited
 locallibrary profile alias dnb "Drum & Bass"   # spell a genre your way
-locallibrary profile headline "Warm-up specialist"
 locallibrary profile precision exact           # or rounded, the default
 ```
 
-A track one of your sets marks unnamed (`sets edit --unnamed`) is never named either, pinned or
-not. A profile can't compare you with other DJs (which tracks only you play): that needs their
+A hidden track (`profile hide`) is still `ID - ID` in the sets you publish. Pinned tracks (`profile
+pin`) and your own headline (`profile headline`) only show in the report now: Signature tracks and
+Summary aren't published. A profile can't compare you with other DJs (which tracks only you play): that needs their
 data.

@@ -35,12 +35,12 @@ fn sections_parse_by_name_and_alias() {
 #[test]
 fn prefs_updates_validate_and_normalise() {
     let mut p = ProfilePrefs::default();
-    assert!(p.published().contains(&Section::Tempo));
-    assert!(!p.published().contains(&Section::Signature));
-    p.apply(&PrefsUpdate { include: vec![Section::Signature], exclude: vec![Section::Style], ..Default::default() })
+    assert!(p.published().contains(&Section::Genres));
+    assert!(!p.published().contains(&Section::Artists));
+    p.apply(&PrefsUpdate { include: vec![Section::Artists], exclude: vec![Section::Era], ..Default::default() })
         .unwrap();
-    assert!(p.published().contains(&Section::Signature));
-    assert!(!p.published().contains(&Section::Style));
+    assert!(p.published().contains(&Section::Artists));
+    assert!(!p.published().contains(&Section::Era));
 
     p.apply(&PrefsUpdate { pin: vec!["Bicep - Glue".into(), "bicep -  glue".into()], ..Default::default() }).unwrap();
     assert_eq!(p.pinned, ["Bicep - Glue"]);
@@ -61,6 +61,49 @@ fn prefs_updates_validate_and_normalise() {
 
     p.apply(&PrefsUpdate { reset: true, ..Default::default() }).unwrap();
     assert_eq!(p, ProfilePrefs::default());
+}
+
+/// Only Energy, Genres, Artists, Era, Sets and Collection can be published; of those, Artists and
+/// Collection are opt-in.
+#[test]
+fn only_what_describes_the_collection_and_the_sets_can_be_published() {
+    let publishable: Vec<Section> = Section::ALL.into_iter().filter(|s| s.publishable()).collect();
+    assert_eq!(
+        publishable,
+        [Section::Sets, Section::Energy, Section::Genres, Section::Artists, Section::Era, Section::Collection]
+    );
+    let defaults: Vec<Section> = ProfilePrefs::default().published().into_iter().collect();
+    assert_eq!(defaults, [Section::Sets, Section::Energy, Section::Genres, Section::Era]);
+    for s in Section::ALL {
+        assert!(!s.published_by_default() || s.publishable(), "{s}");
+    }
+}
+
+/// Preferences saved before a section stopped being publishable still name it: it's ignored,
+/// and the next change drops it. Asking for one now is refused, and changes nothing.
+#[test]
+fn a_section_that_cant_be_published_is_ignored_when_saved_and_refused_when_asked_for() {
+    let saved: ProfilePrefs =
+        serde_json::from_value(serde_json::json!({ "sections": ["summary", "tempo", "genres", "signature"] })).unwrap();
+    assert_eq!(saved.published().into_iter().collect::<Vec<_>>(), [Section::Genres]);
+
+    let mut p = saved.clone();
+    p.apply(&PrefsUpdate { include: vec![Section::Era], ..Default::default() }).unwrap();
+    assert_eq!(p.sections, Some([Section::Genres, Section::Era].into()));
+
+    for u in [
+        PrefsUpdate { include: vec![Section::Tempo], ..Default::default() },
+        PrefsUpdate { sections: Some(vec![Section::Genres, Section::Signature]), ..Default::default() },
+    ] {
+        let mut p = saved.clone();
+        let e = p.apply(&u).unwrap_err().to_string();
+        assert!(e.contains("stays on this computer"), "{e}");
+        assert_eq!(p, saved);
+    }
+    // Leaving one out is harmless.
+    let mut p = saved.clone();
+    p.apply(&PrefsUpdate { exclude: vec![Section::Tempo], ..Default::default() }).unwrap();
+    assert_eq!(p.published().into_iter().collect::<Vec<_>>(), [Section::Genres]);
 }
 
 #[test]

@@ -112,16 +112,16 @@ fn sessions_on_a_drive_describe_how_it_was_played() {
     assert!(r.summary.headline.contains("Techno"), "{}", r.summary.headline);
     assert!(r.summary.headline.contains("2 sessions"), "{}", r.summary.headline);
 
-    // The document leaves out what names tracks unless asked, and never counts sessions.
+    // The document leaves out artists unless asked, never counts sessions, and never says what
+    // was played.
     let doc = serde_json::to_value(&v.document).unwrap();
-    assert!(doc.get("signature").is_none());
     assert!(doc.get("artists").is_none());
     assert_eq!(doc["basis"], "sessions");
     assert!(doc.get("sets").is_none(), "{doc}");
-    let headline = doc["headline"].as_str().unwrap();
-    assert!(headline.contains("Techno") && !headline.contains("session") && !headline.contains("set"), "{headline}");
+    for played in ["headline", "tags", "tempo", "mixing", "keys", "signature"] {
+        assert!(doc.get(played).is_none(), "{played}: {doc}");
+    }
     assert_eq!(doc["genres"][0]["name"], "Techno");
-    assert!(doc["tempo"]["low"].as_f64().unwrap().fract() == 0.0, "rounded to whole BPM");
     let text = doc.to_string();
     assert!(!text.contains("HISTORY"), "history list names stay private");
     assert!(!text.contains("Contents/"), "paths stay private");
@@ -135,54 +135,46 @@ fn preferences_choose_what_the_document_shows() {
     let req = ProfileRequest { no_store: true, ..request(&[&root]) };
 
     let update = PrefsUpdate {
-        include: vec![Section::Signature, Section::Artists],
-        exclude: vec![Section::Style, Section::Keys],
-        pin: vec!["[a]pendics.shuffle - Deluxe Cynic".into()],
-        hide: vec!["[a]pendics.shuffle - A1 - It's In The Eyes".into()],
+        include: vec![Section::Artists],
+        exclude: vec![Section::Era],
         alias: IndexMap::from([("electronic".into(), "Electronica".into())]),
-        headline: Some("Techno warm-ups".into()),
         precision: Some(locallibrary::profile::Precision::Exact),
         ..Default::default()
     };
     api::profile_prefs_update(&store, &update).unwrap();
-    assert_eq!(api::profile_prefs(&store).unwrap().pinned.len(), 1);
 
     let v = build(Some(&store), &req);
-    assert!(v.published.contains(&Section::Signature));
-    assert!(!v.published.contains(&Section::Keys));
+    assert!(v.published.contains(&Section::Artists));
+    assert!(!v.published.contains(&Section::Era));
     let d = &v.document;
-    assert_eq!(d.headline.as_deref(), Some("Techno warm-ups"));
-    assert!(d.keys.is_none());
-    let sig = d.signature.as_ref().unwrap();
-    let titles: Vec<&str> = sig.iter().map(|t| t.title.as_str()).collect();
-    // Pinned first; the hidden track never appears, though it still counts.
-    assert_eq!(titles, ["Deluxe Cynic", "A2 - In Charge"]);
-    assert_eq!(sig[0].artist, "[a]pendics.shuffle");
-    assert_eq!(v.report.signature.tracks.len(), 2);
+    assert!(d.era.is_none());
+    assert_eq!(d.artists.as_ref().unwrap()[0].name, "[a]pendics.shuffle");
     assert_eq!(v.report.genres.top[1].name, "Electronica");
+    assert_eq!(d.genres.as_ref().unwrap()[1].name, "Electronica");
     assert!(d.sets.is_none(), "sessions aren't sets");
 
-    // Hiding the artist hides every track by them, and the artist list.
+    // Hiding the artist hides them in the artist list.
     api::profile_prefs_update(
         &store,
         &PrefsUpdate { hide_artist: vec!["[A]pendics.Shuffle".into()], ..Default::default() },
     )
     .unwrap();
     let v = build(Some(&store), &req);
-    assert!(v.document.signature.is_none());
     assert!(v.document.artists.is_none());
 
-    // Invalid changes save nothing.
+    // Invalid changes save nothing: a section that's never published, or unpinning what isn't.
     let before = api::profile_prefs(&store).unwrap();
-    assert!(
-        api::profile_prefs_update(&store, &PrefsUpdate { unpin: vec!["nothing".into()], ..Default::default() })
-            .is_err()
-    );
-    assert_eq!(api::profile_prefs(&store).unwrap(), before);
+    for u in [
+        PrefsUpdate { unpin: vec!["nothing".into()], ..Default::default() },
+        PrefsUpdate { include: vec![Section::Artists, Section::Signature], ..Default::default() },
+    ] {
+        assert!(api::profile_prefs_update(&store, &u).is_err());
+        assert_eq!(api::profile_prefs(&store).unwrap(), before);
+    }
 }
 
 /// A track one of the DJ's sets marks unnamed (an unreleased dubplate, say) is never named in
-/// public, even pinned, as if the profile hid it; it still counts.
+/// public, even pinned: no track is. It still counts, in the report.
 #[test]
 fn a_track_a_set_marks_unnamed_is_never_named() {
     let dir = tempfile::tempdir().unwrap();
@@ -194,69 +186,40 @@ fn a_track_a_set_marks_unnamed_is_never_named() {
         &store,
         vec![("Friday", "2026-09-12", friday), ("Warm-up", "2026-10-03", entries(&root, &[9, 10, 1, 2, 12, 7]))],
     );
-    let pin = PrefsUpdate {
-        include: vec![Section::Signature],
-        pin: vec!["[a]pendics.shuffle - A1 - It's In The Eyes".into()],
-        ..Default::default()
-    };
+    let pin = PrefsUpdate { pin: vec!["[a]pendics.shuffle - A1 - It's In The Eyes".into()], ..Default::default() };
     api::profile_prefs_update(&store, &pin).unwrap();
 
     let v = build(Some(&store), &request(&[&root]));
-    let titles: Vec<&str> = v.document.signature.iter().flatten().map(|t| t.title.as_str()).collect();
-    assert_eq!(titles, ["A2 - In Charge"]);
+    assert!(v.document.signature.is_none());
     let unnamed: Vec<&str> = v.report.signature.tracks.iter().filter(|t| t.unnamed).map(|t| t.title.as_str()).collect();
     assert_eq!(unnamed, ["A1 - It's In The Eyes"], "it still counts, in the report");
 }
 
+/// The summary describes what was played, so it stays on this computer: whatever the
+/// preferences say, the document has no headline (not even the DJ's own) and no traits, and
+/// nothing else about plays.
 #[test]
-fn the_summary_says_no_more_than_the_sections_in_the_document() {
+fn the_document_says_nothing_about_what_was_played() {
     let dir = tempfile::tempdir().unwrap();
     let root = club_drive(dir.path(), "Main");
     let mut report = build(None, &request(&[&root])).report;
     // As if the DJ had declared those sessions as sets.
     report.basis = Basis::Plays;
-    // Traits a bigger library would earn, one backed by each kind of section.
-    let traits = [
-        ("harmonic", "Mixes in key"),
-        ("focused", "Mostly Techno"),
-        ("signature", "Has signature tracks"),
-        ("prepared", "Cues up every track"),
-        ("quantize_off", "Plays with quantize off"),
-    ];
-    report.summary.tags =
-        traits.iter().map(|(id, label)| profile::Tag { id, label: label.to_string(), why: String::new() }).collect();
-    let with = |sections: &[Section]| ProfilePrefs {
-        sections: Some(sections.iter().copied().collect()),
+    report.summary.tags = [("harmonic", "Mixes in key"), ("focused", "Mostly Techno")]
+        .iter()
+        .map(|(id, label)| profile::Tag { id, label: label.to_string(), why: String::new() })
+        .collect();
+    let prefs = ProfilePrefs {
+        sections: Some(Section::ALL.into_iter().collect()),
+        headline: Some("Warm-up specialist".into()),
         ..Default::default()
     };
-
-    let all = profile::document(&report, &with(&Section::ALL));
-    let headline = all.headline.unwrap();
-    assert!(headline.contains("Techno") && headline.contains("BPM") && headline.contains("2 sets"), "{headline}");
-    assert_eq!(all.tags.len(), traits.len());
-
-    // By default the opt-in sections stay out, and so do the traits they back.
-    let defaults = profile::document(&report, &ProfilePrefs::default());
-    assert_eq!(defaults.tags, ["Mixes in key", "Mostly Techno", "Plays with quantize off"]);
-
-    // Without genres, tempo and sets, the generated headline names none of them.
-    let mixing = profile::document(&report, &with(&[Section::Summary, Section::Mixing]));
-    assert_eq!(mixing.headline, None);
-    assert_eq!(mixing.tags, ["Mixes in key"]);
-    let tempo = profile::document(&report, &with(&[Section::Summary, Section::Tempo]));
-    let headline = tempo.headline.unwrap();
-    assert!(headline.ends_with("BPM") && !headline.contains("Techno") && !headline.contains("set"), "{headline}");
-    assert!(tempo.tags.is_empty());
-    // The DJ's own headline is theirs to write.
-    let own = ProfilePrefs { headline: Some("Warm-up specialist".into()), ..with(&[Section::Summary]) };
-    assert_eq!(profile::document(&report, &own).headline.as_deref(), Some("Warm-up specialist"));
-
-    // Counts in the headline are rounded like the document's.
-    report.sets.count = 48;
-    let sets = profile::document(&report, &with(&[Section::Summary, Section::Sets]));
-    assert_eq!(sets.headline.as_deref(), Some("45+ sets"));
-    let exact = ProfilePrefs { precision: Precision::Exact, ..with(&[Section::Summary, Section::Sets]) };
-    assert_eq!(profile::document(&report, &exact).headline.as_deref(), Some("48 sets"));
+    let d = profile::document(&report, &prefs);
+    assert!(d.headline.is_none() && d.tags.is_empty());
+    assert!(d.tempo.is_none() && d.arc.is_none() && d.mixing.is_none() && d.keys.is_none());
+    assert!(d.labels.is_none() && d.signature.is_none() && d.prep.is_none() && d.style.is_none());
+    assert!(d.sets.is_some() && d.genres.is_some() && d.artists.is_some() && d.era.is_some());
+    assert!(d.collection.is_some());
 }
 
 #[test]
@@ -274,8 +237,9 @@ fn the_published_profile_is_the_document_in_whole_numbers() {
     assert_eq!(r["basis"], "sessions");
     assert!(r.get("sets").is_none());
     assert_eq!(r["genres"][0]["name"], "Techno");
-    assert!(r["genres"][0]["share"].is_i64() && r["tempo"]["low"].is_i64());
-    assert!(r.get("signature").is_none() && r.get("artists").is_none(), "opt-in sections stay out");
+    assert!(r["genres"][0]["share"].is_i64());
+    assert!(r.get("artists").is_none() && r.get("collection").is_none(), "opt-in sections stay out");
+    assert!(r.get("tempo").is_none() && r.get("headline").is_none(), "what was played stays out");
     let text = r.to_string();
     assert!(!text.contains("HISTORY") && !text.contains("Contents/"));
     let err = api::profile_publish_apply(&dir.path().join("store"), &request(&[&root]), &Ctx::silent()).unwrap_err();
@@ -324,21 +288,16 @@ fn archived_sessions_keep_counting_after_rekordbox_takes_them_off_the_drive() {
     assert!(v.report.sets.oldest.is_some());
 }
 
-/// Shares of one whole add up as published (84/8/8% isn't 85/10/10%), and the set shape is the
-/// one they show: 24 of 49 sets building is published as half, so the sets build.
+/// Shares of one whole add up as published (84/8/8% isn't 85/10/10%).
 #[test]
 fn published_shares_add_up() {
     let dir = tempfile::tempdir().unwrap();
     let root = club_drive(dir.path(), "Main");
     let mut report = build(None, &request(&[&root])).report;
-    report.arc.sets = 49;
-    (report.arc.builds, report.arc.steady, report.arc.winds_down) = (24.0 / 49.0, 15.0 / 49.0, 10.0 / 49.0);
     report.energy = Some(profile::EnergySection { tracks: 25, high: 0.84, mid: 0.08, low: 0.08, curve: Vec::new() });
     let doc = serde_json::to_value(profile::document(&report, &ProfilePrefs::default())).unwrap();
     let sum = |v: &serde_json::Value, keys: &[&str]| keys.iter().map(|k| v[k].as_f64().unwrap()).sum::<f64>();
     assert!((sum(&doc["energy"], &["high", "mid", "low"]) - 1.0).abs() < 1e-9, "{}", doc["energy"]);
-    assert!((sum(&doc["arc"], &["builds", "steady", "windsDown"]) - 1.0).abs() < 1e-9, "{}", doc["arc"]);
-    assert_eq!((&doc["arc"]["builds"], &doc["arc"]["shape"]), (&serde_json::json!(0.5), &serde_json::json!("builds")));
 }
 
 /// A transition is two tracks played one after the other: not two either side of a track that's
@@ -377,9 +336,11 @@ fn a_library_without_sets_is_described_from_its_collection() {
     assert_eq!(r.sets.count, 0);
     assert!(r.tempo.median.is_some());
     assert_eq!(r.collection.tracks, 2);
-    // Real analysis files: cues were read.
+    // Real analysis files: cues and phrase mood were read, nothing played or not.
     let prep = r.prep.as_ref().expect("cue statistics");
     assert_eq!(prep.tracks, 2);
+    assert_eq!(r.energy.as_ref().map(|e| e.tracks), Some(2));
+    assert!(v.document.energy.is_some());
     assert!(r.summary.headline.contains("2 tracks"), "{}", r.summary.headline);
     assert!(v.document.sets.is_none());
 
@@ -471,10 +432,30 @@ fn set_entries_are_found_in_the_library_by_file() {
     assert!(played.contains(&"Unknown Artist - Dubplate"), "{played:?}");
     // The library's BPMs (128 and 120), and the dubplate's own.
     assert_eq!((r.tempo.tracks, r.tempo.min, r.tempo.max), (3, Some(120.0), Some(140.0)));
-    assert_eq!(r.genres.top[0].name, "Jungle");
+    // Genres count the collection: the dubplate, only in the set, isn't in it.
+    assert!(r.genres.top.iter().all(|g| g.name != "Jungle"), "{:?}", r.genres.top);
     // Phrase mood comes from the two library tracks' analysis files.
     assert_eq!(r.energy.as_ref().map(|e| e.tracks), Some(2));
     assert_eq!(r.mixing.transitions, 2);
+}
+
+/// Energy, genres, artists and era count each collection track once: a track played three times
+/// counts once, and one never played (its phrase analysis read all the same) counts too.
+#[test]
+fn the_collection_counts_each_track_once_played_or_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Demo");
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let once = entries(&root, &[1]);
+    let thrice: Vec<SetEntry> = once.iter().chain(&once).chain(&once).cloned().collect();
+    declare(&store, vec![("Loop", "2026-09-20", thrice)]);
+
+    let r = build(Some(&store), &request(&[&root])).report;
+    assert_eq!((r.basis, r.sets.plays, r.tempo.tracks), (Basis::Plays, 3, 3), "plays still count plays");
+    assert_eq!(r.energy.as_ref().map(|e| e.tracks), Some(2), "track 2 was never played");
+    assert_eq!(r.artists.known, 2);
+    assert_eq!(r.artists.top.iter().map(|a| a.count).sum::<usize>(), 2, "{:?}", r.artists.top);
+    assert!(r.era.tracks <= 2 && r.genres.known <= 2);
 }
 
 /// `--since` and `--until` take sets by the day they were played. With none in the dates, the
@@ -505,7 +486,7 @@ fn sets_are_taken_by_the_day_they_were_played() {
 }
 
 /// Sessions stand in for sets in the numbers, but the document never counts them: no sets
-/// section, no count in the headline, no trait the sets section backs.
+/// section.
 #[test]
 fn sessions_are_never_counted_in_public() {
     let dir = tempfile::tempdir().unwrap();
@@ -523,16 +504,12 @@ fn sessions_are_never_counted_in_public() {
     };
     let d = profile::document(&report, &all);
     assert!(d.sets.is_none());
-    assert_eq!(d.tags, ["Mixes in key"]);
-    let headline = d.headline.unwrap();
-    assert!(headline.ends_with("BPM") && !headline.contains("session"), "{headline}");
+    assert!(d.tags.is_empty() && d.headline.is_none());
 
     // The same numbers from declared sets are counted.
     report.basis = Basis::Plays;
     let d = profile::document(&report, &all);
     assert_eq!(d.sets.map(|s| s.count), Some(Count::Exact { count: 2 }));
-    assert_eq!(d.tags.len(), 2);
-    assert!(d.headline.unwrap().ends_with("2 sets"));
 }
 
 /// What a report says, but for when it was built.
