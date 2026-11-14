@@ -162,6 +162,7 @@ The other programs locallibrary runs, and what for.
 
 ```mermaid
 flowchart LR
+    identify["Which disk a drive is on: adopt,<br/>drive disks, drive speed, doctor"] --> which["diskutil, ioreg; lsblk;<br/>PowerShell's Storage cmdlets"]
     format["drive format, provision"] --> disk["diskutil, newfs_msdos, newfs_exfat, plutil,<br/>ioreg; sfdisk, mkfs, lsblk, udevadm, sync,<br/>umount; PowerShell's Storage cmdlets"]
     fsck["drive fsck"] --> check["diskutil; fsck.vfat, fsck.exfat, sudo,<br/>udisksctl; chkdsk"]
     eject["eject"] --> ej["diskutil; udisksctl, umount;<br/>PowerShell, Explorer's Eject"]
@@ -173,4 +174,4 @@ flowchart LR
     pager["Long lists"] --> less["sh running $PAGER, else less"]
 ```
 
-Source: [`crates/locallibrary/src/format/mod.rs`](../../../../crates/locallibrary/src/format/mod.rs), [`crates/locallibrary/src/fscheck.rs`](../../../../crates/locallibrary/src/fscheck.rs), [`crates/locallibrary/src/eject.rs`](../../../../crates/locallibrary/src/eject.rs), [`crates/locallibrary/src/publish/recording.rs`](../../../../crates/locallibrary/src/publish/recording.rs), [`plugins/youtube/src/render.rs`](../../../../plugins/youtube/src/render.rs), [`src/autostart.rs`](../../src/autostart.rs), [`crates/locallibrary/src/opener.rs`](../../../../crates/locallibrary/src/opener.rs), [`src/pager.rs`](../../src/pager.rs)
+Source: [`crates/locallibrary/src/format/mod.rs`](../../../../crates/locallibrary/src/format/mod.rs), [`crates/locallibrary/src/fleet.rs`](../../../../crates/locallibrary/src/fleet.rs), [`crates/locallibrary/src/api/drive_speed.rs`](../../../../crates/locallibrary/src/api/drive_speed.rs), [`crates/locallibrary/src/fscheck.rs`](../../../../crates/locallibrary/src/fscheck.rs), [`crates/locallibrary/src/eject.rs`](../../../../crates/locallibrary/src/eject.rs), [`crates/locallibrary/src/publish/recording.rs`](../../../../crates/locallibrary/src/publish/recording.rs), [`plugins/youtube/src/render.rs`](../../../../plugins/youtube/src/render.rs), [`src/autostart.rs`](../../src/autostart.rs), [`crates/locallibrary/src/opener.rs`](../../../../crates/locallibrary/src/opener.rs), [`src/pager.rs`](../../src/pager.rs)

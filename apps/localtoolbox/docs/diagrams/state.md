@@ -254,7 +254,7 @@ flowchart TD
   Replace --> Reload
 ```
 
-Source: [`state-transfer.ts`](../../state-transfer.ts), [`src/lib/components/StateTransfer.svelte`](../../src/lib/components/StateTransfer.svelte), [`downloaded-store.ts`](../../downloaded-store.ts), [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`src/tools/manager/listed.svelte.ts`](../../src/tools/manager/listed.svelte.ts), [`src/tools/artists/artists.svelte.ts`](../../src/tools/artists/artists.svelte.ts), [`docs/manager-state.schema.json`](../manager-state.schema.json)
+Source: [`state-transfer.ts`](../../state-transfer.ts), [`src/lib/components/StateTransfer.svelte`](../../src/lib/components/StateTransfer.svelte), [`downloaded-store.ts`](../../downloaded-store.ts), [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`src/tools/manager/listed.svelte.ts`](../../src/tools/manager/listed.svelte.ts), [`src/tools/artists/artists.svelte.ts`](../../src/tools/artists/artists.svelte.ts), [`src/lib/search-sites.svelte.ts`](../../src/lib/search-sites.svelte.ts), [`docs/manager-state.schema.json`](../manager-state.schema.json)
 
 ## Checking a state file by hand
 
@@ -266,7 +266,7 @@ flowchart TD
   Any{"any files named?"}
   Usage["usage line, exit 2"]
   Parse{"JSON?"}
-  Ajv{"valid against<br/>docs/manager-state.schema.json?"}
+  Ajv{"valid against<br/>docs/manager-state.schema.json,<br/>its sites against search-sites.schema.json?"}
   Good["a tick for that file"]
   Bad["a cross, and the read error<br/>or each Ajv error"]
   Exit["exit 0 if all passed, else 1"]
@@ -282,4 +282,4 @@ flowchart TD
   Bad --> Exit
 ```
 
-Source: [`scripts/validate-state.mts`](../../scripts/validate-state.mts), [`docs/manager-state.schema.json`](../manager-state.schema.json), [`state-transfer.ts`](../../state-transfer.ts)
+Source: [`scripts/validate-state.mts`](../../scripts/validate-state.mts), [`docs/manager-state.schema.json`](../manager-state.schema.json), [`src/lib/search-sites.schema.json`](../../src/lib/search-sites.schema.json), [`state-transfer.ts`](../../state-transfer.ts)
