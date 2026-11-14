@@ -304,3 +304,59 @@ describe('ListingWriter', () => {
 		);
 	});
 });
+
+describe("an act's listing", () => {
+	let t: Awaited<ReturnType<typeof createTestServices>>;
+
+	beforeEach(async () => {
+		t = await createTestServices({ admins: [ADMIN] });
+	});
+	afterEach(async () => {
+		await t.audit.idle();
+		await t.db.destroy();
+	});
+
+	const listing = (space: string) =>
+		t.net.records.get(`${ROOT}|${COLLECTION.listing}|${parseSpaceUri(space)!.skey}`)?.value;
+
+	it("shows its public sections, a root-held avatar, and the managers who haven't hidden", async () => {
+		const admin = await t.viewer(ADMIN);
+		const basics = { name: 'Crew', bio: 'Two of us' };
+		const performer = { genres: ['techno'] };
+		const space = await t.sharedSpaces.createAct(await t.viewer(ADA), { slug: 'crew', form: 'duo', basics, performer });
+		const swap = t.net.spaceRecords.get(`${space}|${ROOT}|${COLLECTION.performer}|self`)!.cid;
+		const avatar = { upload: { bytes: new Uint8Array([7]), mimeType: 'image/png' } };
+		await t.sharedSpaces.updatePage(await t.viewer(ADA), space, { form: 'duo', basics, performer, avatar, swap });
+		await t.sharedSpaces.addPerson(admin, space, { did: BO, role: 'manager', hidden: true });
+		await t.sharedSpaces.addPerson(admin, space, { did: CY, role: 'manager' });
+		await t.sharedSpaces.setListed(admin, space, true);
+
+		const record = listing(space)!;
+		const cid = [...t.net.blobs.keys()].at(-1)!;
+		const blob = { $type: 'blob', ref: { $link: cid }, mimeType: 'image/png', size: 1 };
+		expect(record).toEqual({
+			$type: COLLECTION.listing,
+			kind: 'act',
+			name: 'Crew',
+			slug: 'crew',
+			fields: { form: 'duo', basics: { ...basics, avatar: blob }, performer },
+			people: [{ did: ADA, role: 'member' }],
+			managers: [CY],
+			updatedAt: expect.any(String)
+		});
+		expect(() => validateRecord(COLLECTION.listing, record)).not.toThrow();
+		// The root can write a public record holding the avatar because it uploaded the blob itself.
+		expect(t.net.blobHolders.get(cid)).toContain(ROOT);
+	});
+
+	it("never lists a DJ's own space as an act", async () => {
+		const space = await t.sharedSpaces.create(await t.viewer(ADA), 'performer');
+		const at = new Date().toISOString();
+		const subject = { $type: `${COLLECTION.performer}#dj`, did: ADA };
+		const value = { $type: COLLECTION.performer, subject, createdAt: at, updatedAt: at };
+		await t.sharedSpaces.index({ space, collection: COLLECTION.performer, rkey: 'self', value });
+		await t.sharedSpaces.setListed(await t.viewer(ADMIN), space, true);
+
+		expect(listing(space)).toBeUndefined();
+	});
+});

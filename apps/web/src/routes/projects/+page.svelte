@@ -54,6 +54,7 @@
 	<div class="flex flex-col gap-6">
 		<FindDjsSwitch current="/projects" />
 		<SectionHeader level={1} eyebrow="Directory" title="Find DJs" align="split" lede="Search by sound, place, fee and slot. A search for house finds deep house and afro house too." />
+		<p class="m-0 text-small text-fg-muted">DJ? <a class="link" href="/tools/locallibrary">Get locallibrary</a> to show your sets and how you play.</p>
 	</div>
 
 	<div class="grid items-start gap-6 lg:grid-cols-[18rem_minmax(0,1fr)] lg:gap-10">

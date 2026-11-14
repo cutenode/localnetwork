@@ -7,8 +7,9 @@ Prepare, Drives, Recordings and Publish. `g` and a letter goes to one (`g l`, `g
 that pane; the pane with focus has `▸` in its title as well as its border. The deck strip stays
 under every view, with what's playing, its waveform, tempo, key, time left, hot cues and loop.
 Dialogs open above it, and `esc` closes one thing at a time. The Library view has two layouts, and
-`f` switches between them: the track table with the strip, and the Deck layout, where the deck
-takes the screen.
+`f` switches between them: the track table with the strip, and player mode, where the deck
+takes the screen. From any other tab `f` opens player mode too, and closing it (`f` or `esc`) goes
+back there. The footer's hints are buttons: click one for its key.
 
 With no drive open, the library says what to do: plug one in (it opens as soon as it's here), or
 take a next step, at most three of open a folder, browse snapshots and sign in. The first library
@@ -53,12 +54,23 @@ needs.
   word it goes by there finds it too: `restore`, `pull`); type
   a few of its letters (in order: `fsp` finds "fill the smart playlists") and enter. The ones run
   lately come first, kept between runs, and what can't run now stays in the list, greyed, with the
-  reason. Plugins' commands and what they suggest are in it too.
+  reason. Plugins' commands and what they suggest are in it too. Each command also has words it's
+  found by: "duplicates" finds the health report and replacing them, "MP3 to FLAC" upgrading to
+  lossless files, "free space" what's using the drive.
+- **The command line's jobs**, in the palette by name, on the open drive (the selected one in the
+  Drives view): `doctor` (and `doctor --by-sound`), `drive space` and `plays stats` show their
+  report in a panel, as a check does; `track dedupe`, `track relocate`, `track upgrade` and
+  `refresh` show their plan first, and `u` takes them back. Relocating and upgrading ask for the
+  folder to look in. `clean` is the demos plugin's operation, found by that name. What the player
+  doesn't do itself (`drive format`, `drive fsck`, `drive firmware`, `provision`, `store gc`,
+  `verify`, `prune` and `copy`, `bug`) shows the command to run in a terminal, the drive filled in.
 - **Actions** (`e`): what can be done to the selection, the likeliest first, and enter runs it. In
   the library that's the marked or selected tracks, the playlist selected or the crate; in the Drives
   view the selected drive; elsewhere what enter does there, then the pane's own keys.
-- **Help** (`?`): the keys that mean something here, the pane with focus first. Type to narrow it to
-  rows with those words, or to the key itself; enter runs the row selected, and `esc` closes it.
+- **Help** (`?`): the keys that mean something here, the pane with focus first, and only keys: its
+  top line says `:` searches everything. Type to narrow it to rows with those words, or to the key
+  itself; enter runs the row selected, and `esc` closes it. When no key has the words typed, enter
+  searches the palette for them.
 - **Jobs** (`&`): what's running, with a cancel for each that can still stop. A write can stop until
   its databases are being written, and from then on it says it can't. A read of a drive just
   finishes, and says so. The status line shows the latest job's progress, and `esc` cancels it.
@@ -145,11 +157,13 @@ needs.
   plays through the default and says so. An output that goes away mid-track (headphones
   unplugged) is let go of, and the track waits where it was: `space` plays on through whatever
   output there is then.
-- **The Deck layout** (`f`): the track's waveforms and numbers on the whole screen, as on a CDJ's
-  display. `b` opens Browse over it, as a CDJ's BROWSE button does: the panes and the strip, until a
+- **Player mode** (`f`, from any tab): the track's waveforms and numbers on the whole screen, as
+  on a CDJ's display, and only what a set needs: the file, tags and counts are in the info panel
+  (`i`), and the readout under the waveforms names only the modes that are on. `b` opens Browse
+  over it, as a CDJ's BROWSE button does: the panes and the strip, until a
   track's loaded or `esc`. The layout's kept between runs.
   - The zoomed waveform scrolls past a playhead fixed in the middle, under a beat ruler with stronger
-    bar starts and bar numbers. `[` and `]` zoom it, from 1.5 to 60 seconds across.
+    bar starts and bar numbers, sitting on the waveform, each bar's line carried down through it. `[` and `]` zoom it, from 1.5 to 60 seconds across.
   - The overview stays still while its playhead moves, in eighths of a cell, the played part dimmed.
     Click it to seek. Phrases run under it with rekordbox's labels, as colour alone where a label
     wouldn't fit whole.
@@ -185,7 +199,7 @@ needs.
   blocks everywhere else, and a record for a track with none. There's no art with 16 colours or
   ASCII icons, or inside tmux beyond half blocks. `LOCALLIBRARY_ART` names the graphics to use
   (`kitty`, `iterm2`, `sixel`, `halfblocks`) when what's worked out is wrong.
-- **Hot cue pads**: in the Deck layout the number keys `1` to `8` play hot cues A to H the way a
+- **Hot cue pads**: in player mode the number keys `1` to `8` play hot cues A to H the way a
   CDJ's pads do: the track jumps to the cue and plays (from pause too: a terminal can't tell when
   a key is let go, so there's no previewing while it's held). `'` turns the pads on in every view,
   until it's pressed again (digits jump to panes only while they're off).
@@ -205,7 +219,7 @@ needs.
   player is drawn like a saved one.
 - **Phrases**: rekordbox's phrase analysis (Intro, Up, Down, Chorus, Verse, Bridge, Outro) shows
   as the current phrase and bar in the player, with a countdown to the next one, and as a strip
-  under the Deck layout's overview. `N` and `P` jump to the next and previous phrase.
+  under player mode's overview. `N` and `P` jump to the next and previous phrase.
 - **Cues**: memory cues and loops take the colours they were given in rekordbox, and loop lengths
   are the ones rekordbox stored (½ beat, 4 beats), not worked out from the tempo. The visualiser
   flashes in a cue's colour as the playhead crosses it, and the player shows the next cue with a
@@ -317,9 +331,11 @@ Cover art is drawn in half blocks, in as many colours as the terminal has. The p
 panels and columns, colours and icons, shuffle, repeat, quantize, single play and auto cue, the output, the crate,
 and the queue with how far into its track it got, to the last 15 seconds (`space` carries on
 from there). It saves them as they change, in the
-store once there is one and in a `locallibrary-player` folder beside it until then. Messages show
+store once there is one and in a `locallibrary-player` folder beside it until then. A file it
+can't read as it starts (a newer version's, say) is left as it is: that run uses the defaults and
+saves nothing. Messages show
 in the status line: errors stay until `esc`, and `!` lists every message since starting. The footer
-hints at the keys for where focus is, as many as fit. `?` lists every key, the view's own first;
+hints at the keys for where focus is, as many as fit. `?` lists every key, the view's own first (`:` has every command);
 all of them come from one table, so a key means one thing in every view (`l` loops, `d` picks the
 output, `o` goes to a track, `w` writes a file, `e` opens the Library and Drives actions).
 
@@ -468,7 +484,7 @@ Deck:
 
 | Keys | |
 | --- | --- |
-| `1 … 8` | in the Deck layout, or with the pads on: hot cue A … H (jumps there and plays) |
+| `1 … 8` | in player mode, or with the pads on: hot cue A … H (jumps there and plays) |
 | `'` | pads on / off: the digit row plays hot cues instead of jumping to panes |
 | `,  .` | beat jump: one beat back / forward |
 | `<  >` | one bar (4 beats) back / forward |
@@ -485,9 +501,9 @@ Visuals:
 
 | Keys | |
 | --- | --- |
-| `v` | spectrum · mirror · scope · none, in the Deck layout where there's room |
-| `[  ]` | zoom the deck's waveform out / in |
-| `f` | the Library layout or the Deck layout, where the deck takes the screen |
+| `v` | spectrum · mirror · scope · none, in player mode where there's room |
+| `[  ]` | zoom the detail waveform out / in |
+| `f` | player mode: the playing track on the whole screen, from any tab; again to go back |
 
 Moving about:
 
@@ -516,7 +532,6 @@ The player:
 | `?` | this help: type to narrow it, enter runs the row selected |
 | `!` | messages: everything the status line said since starting |
 | `&` | jobs: what's running, with a cancel for each that can still stop |
-|  | found a bug? locallibrary bug, in a terminal, reports it |
 | `q` | quit (a write to the drive finishes first) |
 
 Changing the drive:
@@ -524,25 +539,6 @@ Changing the drive:
 | Keys | |
 | --- | --- |
 | `u` | undo: take back the last change made, on the drive it was made to (before any, the open or selected drive's last), after showing what that puts back |
-
-Commands (type : and a few letters):
-
-| Keys | |
-| --- | --- |
-| `pull` | save the drive in the store, a snapshot of its library (shows what that adds first) |
-| `check` | check the drive against the player models remembered for it (results in a panel) |
-| `set prep` | check the drive and the other mounted drives of its library together, for a set |
-| `sync` | copy the newest drive of the library over the others plugged in (when none is newest, says why) |
-| `pack` | the marked playlists, the playlist shown or the crate, from the open drive onto another |
-| `restore` | a playlist or folder as a snapshot in the store had it, onto the drive |
-| `replay` | make the drive's recorded edits again after rekordbox exported over them |
-| `smart` | the rule-based playlists kept in the store |
-| `smart apply` | fill the rule-based playlists on the drive from its own library (shows what changes first) |
-| `smart new` | a rule-based playlist from the search box's filter and the list's sort |
-| `export` | write the playlist, set, session or all tracks shown to a file on this computer |
-| `eject` | unmount the drive and power it off (playing from it stops first) |
-| `g d 3` | the snapshots in the store, in the Drives view |
-| `g u L` | sign in to your Atmosphere account, in the Publish view |
 
 [//]: # (End of the key tables.)
 

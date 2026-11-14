@@ -16,9 +16,9 @@ use locallibrary::doctor::{self, DoctorOptions, DuplicateReason, Section};
 use locallibrary::edit::{Edit, journal};
 use locallibrary::progress::{CancelToken, Ctx, Event, Phase, Progress};
 use locallibrary::{Error, Store, backup, cue_edit, paths, testing};
-use loclib_mixid::audio::Resampler;
+use loclib_audio::Resampler;
 use loclib_mixid::fingerprint::RATE;
-use loclib_mixid::test_util::{synth, wav_of};
+use loclib_testkit::audio::{synth, wav_of};
 use rekordbox_pdb::NewTrack;
 
 pub(crate) const ORIGINAL: &str = "/Contents/Sound/Song.wav";

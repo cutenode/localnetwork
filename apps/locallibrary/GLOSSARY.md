@@ -169,12 +169,13 @@ _Avoid_: channel, turntable
 The Library view with its panes and the deck strip.
 _Avoid_: list mode
 
-**Deck layout**:
-The Library view with the deck on the whole screen.
-_Avoid_: full screen
+**Player mode**:
+The playing track on the whole screen: its waveforms, numbers and what mixes into it. `f` opens it
+from any tab and goes back to that tab.
+_Avoid_: Deck layout, deck mode, full screen
 
 **Browse overlay**:
-The Library view's panes opened over the Deck layout until a track's loaded, as a CDJ's BROWSE
+The Library view's panes opened over player mode until a track's loaded, as a CDJ's BROWSE
 button does. Not the Browse node at the top of the tree.
 _Avoid_: library popup
 

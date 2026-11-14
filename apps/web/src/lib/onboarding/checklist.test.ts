@@ -1,14 +1,15 @@
 import { readdirSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import type { FlagKey } from '#lib/flags/keys.generated.ts';
+import { flagsOff } from '#lib/testing/flags.ts';
 import type { Flags, ProfileRecord } from '#lib/types.ts';
 import { checklist, collect, type OnboardingData, type StepDefinition, STEPS } from './checklist';
 
 const FLAG = 'parityCanary' satisfies FlagKey;
 
-const off: Flags = { [FLAG]: false };
+const off: Flags = { ...flagsOff, [FLAG]: false };
 
-const on: Flags = { [FLAG]: true };
+const on: Flags = { ...flagsOff, [FLAG]: true };
 
 const step = (order: number, overrides: Partial<StepDefinition> = {}): StepDefinition => ({
 	order,

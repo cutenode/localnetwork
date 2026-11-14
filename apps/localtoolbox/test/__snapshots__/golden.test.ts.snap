@@ -22,6 +22,9 @@ exports[`the exported state file > says the same thing about every document it r
   "queue #1 details: “permalink” says /c/d, but the track queued is /a/b",
   "prefs: “sort” must be “site” or “page”",
   "prefs: “nope” is not an option of this tool",
+  "“searchSites” must be an array",
+  "search site #1: “url” must be an https address with {artist}, {title} or {query} in it",
+  "search site #1: “url” must be an https address with {artist}, {title} or {query} in it",
 ]
 `;
 

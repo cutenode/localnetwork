@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { ExternalLink, Pause, Play } from '@lucide/svelte';
 	import { type DjSet, setPlace, trackBpm } from '#lib/dj.ts';
+	import { setHref } from '#lib/format.ts';
 	import { clock } from '#lib/mix/report.ts';
 	import { type PlayerSource, type PlayerTrack, playable } from '#lib/mix/source.ts';
 	import { musicBrainzUrl, trackArtists } from '#lib/supports.ts';
@@ -12,10 +13,11 @@
 	import { webHref } from '#lib/web-url.ts';
 
 	/**
-	 * Sets a DJ played, newest first, each with its tracklist folded away under it. A set with a recording plays
-	 * here, its tracklist marking the track playing and starting any track it's given a time for.
+	 * Sets a DJ played, newest first, each with its tracklist folded away under it and its name linking its page under
+	 * `handle` (unless `link` is false, on that page). A set with a recording plays here, its tracklist marking the
+	 * track playing and starting any track it's given a time for.
 	 */
-	let { sets, limit = 5 }: { sets: DjSet[]; limit?: number } = $props();
+	let { sets, handle = null, link = true, limit = 5 }: { sets: DjSet[]; handle?: string | null; link?: boolean; limit?: number } = $props();
 
 	const shown = $derived(sets.slice(0, limit));
 
@@ -58,7 +60,7 @@
 				<DateBlock date={set.date} />
 				<div class="flex min-w-0 flex-1 flex-col gap-1">
 					<p class="m-0 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-						<span class="text-emphasis font-semibold">{name(set)}</span>
+						{#if link}<a class="entity-link text-emphasis font-semibold text-fg" href={setHref(set.uri, handle)}>{name(set)}</a>{:else}<span class="text-emphasis font-semibold">{name(set)}</span>{/if}
 						{#if set.kind}<Tag variant="mono">{labelFor(SET_KINDS, set.kind)}</Tag>{/if}
 					</p>
 					<p class="m-0 text-small text-fg-muted">

@@ -2,9 +2,11 @@ name: Repo checks
 
 # The repository's own conventions (.github/NEW_PROJECT.md): tools/policy.sh's policies over its
 # config files, knip (knip.jsonc) over every JavaScript and TypeScript project, ast-grep's rules
-# (sgconfig.yml) over the Rust, TypeScript and Svelte code, goat over the lexicons, and on main, that GitHub's "Protect Main" ruleset is .github/rulesets/protect-main.json.
-# ci.yml calls it with the jobs a pull request or push needs, and it runs weekly too, for a ruleset
-# changed in GitHub's settings, which starts no workflow.
+# (sgconfig.yml) over the Rust, TypeScript and Svelte code, goat over the lexicons, on a pull
+# request, that the Mermaid diagrams whose sources it changes still hold, and on main, that GitHub's
+# "Protect Main" ruleset is .github/rulesets/protect-main.json. ci.yml calls it with the jobs a
+# pull request or push needs, and it runs weekly too, for a ruleset changed in GitHub's settings,
+# which starts no workflow.
 on:
   workflow_call:
     inputs:
@@ -18,6 +20,10 @@ on:
         required: true
       ruleset:
         description: Whether a push to main changed the ruleset file, so it's checked against GitHub's copy.
+        type: boolean
+        required: true
+      diagrams:
+        description: Whether it's a pull request, so the diagrams whose sources it changes are checked.
         type: boolean
         required: true
       bombadil:
@@ -121,6 +127,36 @@ jobs:
       - run: tools/lexicons.sh lint
       # Compares with the published lexicons, so it skips any that aren't published yet.
       - run: tools/lexicons.sh breaking
+
+  # Every pull request, Markdown alone too: a diagram (apps/*/README.md and apps/*/docs/diagrams/)
+  # whose Source: files changed needs its own file changed, or a `diagrams-checked:` line in the
+  # body saying why it still holds (.github/CONTRIBUTING.md#checks).
+  diagrams:
+    if: inputs.diagrams
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # The pull request's body.
+      pull-requests: read
+    steps:
+      # The merge commit and its parents, the first of which is the base it was made on, so the diff
+      # against it is the pull request's.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # From the API: a body edited since this run's event wouldn't be in it.
+          gh api "repos/$GH_REPO/pulls/$NUMBER" --jq '.body // ""' > "$RUNNER_TEMP/body.md"
+          node tools/readmes/cli.ts drift HEAD^1 "$RUNNER_TEMP/body.md"
 
   # Not on pull requests: a new required check goes into the file with the workflow that reports
   # it, and an admin applies the file once it merges (tools/ruleset.sh apply). Until then, this

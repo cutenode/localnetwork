@@ -249,11 +249,18 @@ fn a_drive_is_repaired_from_a_destination_once_the_store_has_lost_its_copy() {
     assert!(api::drive_verify(Some(&f.store), &verify, &Ctx::silent()).unwrap().is_clean());
 }
 
-/// A set with a recording in `dir` and two tracks, the second published without naming it.
+/// A set with a recording in `dir` and two 5-minute tracks from Paradise, the second published
+/// without naming it.
 fn set(store: &Store, dir: &Path) -> Set {
     let recording = dir.join("friday.wav");
     std::fs::write(&recording, b"RIFF").unwrap();
-    let track = |title: &str, unnamed| SetEntry { unnamed, start_seconds: Some(60), ..SetEntry::added(title) };
+    let track = |title: &str, unnamed| SetEntry {
+        unnamed,
+        start_seconds: Some(60),
+        album: "Paradise".into(),
+        duration_secs: 300,
+        ..SetEntry::added(title)
+    };
     let set = Set {
         id: "3m4nset0000000".into(),
         title: Some("Friday".into()),
@@ -289,7 +296,16 @@ fn a_set_is_published_after_its_dry_run_and_keeps_its_link() {
     assert_eq!(sent["dry_run"], true);
     assert_eq!(
         sent["tracklist"],
-        json!([{ "artist": "Burial", "title": "Archangel", "start_seconds": 60 }, { "start_seconds": 60 }])
+        json!([
+            {
+                "artist": "Burial",
+                "title": "Archangel",
+                "album": "Paradise",
+                "start_seconds": 60,
+                "duration_seconds": 300
+            },
+            { "start_seconds": 60 }
+        ])
     );
     assert!(!asked[0].contains("never published"), "a set's notes stay here");
     assert_eq!(SetBook::load(&f.store).unwrap().sets[0].link, None, "a dry run publishes nothing");
@@ -432,7 +448,8 @@ const TRACK: (&str, &str) =
 /// publishes nothing: the plan names the set's heading and its tracks, which tracks go unnamed and
 /// why, where the plugin says it would be, and the link it replaces (destructive exactly when
 /// there's one), warning as the plugin does, and the plugin is sent the set's details and a
-/// tracklist naming only the tracks it may, never the set's notes. Applied, the set's link is where
+/// tracklist naming only the tracks it may (with their albums and lengths, when they're known),
+/// never the set's notes. Applied, the set's link is where
 /// the plugin says it's published when that's an https address (named as the plugin names it, up
 /// to 64 characters), stays as it was when it says nowhere, and the record it says holds the
 /// recording is kept when it's an at:// URI and a CID; an address of another kind, a name too long
@@ -456,6 +473,11 @@ fn a_set_is_published_as_its_dry_run_said(tc: TestCase) {
     );
     let hide: Vec<usize> =
         tc.draw(gs::vecs(gs::integers::<usize>().min_value(1).max_value(tracks.len() + 1)).max_size(2));
+    // Each track's album and length, when they're known.
+    let releases: Vec<(&str, u32)> = tracks
+        .iter()
+        .map(|_| (tc.draw(gs::sampled_from(vec!["", "Paradise"])), tc.draw(gs::sampled_from(vec![0, 300]))))
+        .collect();
     let hidden_artists = vec!["Hidden".to_string()];
     ProfilePrefs { hidden_artists, ..ProfilePrefs::default() }.save(&f.store).unwrap();
     let link = tc.draw(gs::optional(gs::just("https://old.example/friday")));
@@ -463,11 +485,17 @@ fn a_set_is_published_as_its_dry_run_said(tc: TestCase) {
     let recording_is = tc.draw(gs::sampled_from(vec![0, 0, 0, 1, 2]));
     let recording = f.store.root().join("friday.wav");
     std::fs::write(&recording, b"RIFF").unwrap();
-    let entries = tracks.iter().enumerate().map(|(i, &(how, start_seconds))| SetEntry {
-        unnamed: how == 1,
-        start_seconds,
-        ..SetEntry::added(&format!("{} - Title {i}", if how == 2 { "Hidden".into() } else { format!("Artist {i}") }))
-    });
+    let entries =
+        tracks.iter().zip(&releases).enumerate().map(|(i, (&(how, start_seconds), &(album, duration)))| SetEntry {
+            unnamed: how == 1,
+            start_seconds,
+            album: album.into(),
+            duration_secs: duration,
+            ..SetEntry::added(&format!(
+                "{} - Title {i}",
+                if how == 2 { "Hidden".into() } else { format!("Artist {i}") }
+            ))
+        });
     let date = NaiveDate::from_ymd_opt(2026, 10, 2).unwrap();
     let s = Set {
         id: "3m4nset0000000".into(),
@@ -567,11 +595,18 @@ fn a_set_is_published_as_its_dry_run_said(tc: TestCase) {
     let sent: Value = serde_json::from_str(sent.trim_end().strip_prefix("set/publish ").unwrap()).unwrap();
     let tracklist: Vec<Value> = tracks
         .iter()
+        .zip(&releases)
         .enumerate()
-        .map(|(i, &(how, start))| {
+        .map(|(i, (&(how, start), &(album, duration)))| {
             let mut e = json!({});
             if how == 0 && !hide.contains(&(i + 1)) {
                 e = json!({ "artist": format!("Artist {i}"), "title": format!("Title {i}") });
+                if !album.is_empty() {
+                    e["album"] = album.into();
+                }
+                if duration > 0 {
+                    e["duration_seconds"] = duration.into();
+                }
             }
             if let Some(start) = start {
                 e["start_seconds"] = start.into();
