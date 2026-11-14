@@ -48,6 +48,8 @@ plugins/accounts/           the account plugins: a manifest each and no crate, w
                             and never starts
   archive-account/          the `archive` account type, signed in to with the account's S3 keys; its scope
                             `upload`
+  discogs-account/          the `discogs` account type, signed in to with a personal access token; its scope
+                            `database`
   google-account/           the `google` account type, signed in to through Local Network's token exchange;
                             its scope `youtube-upload`
   mixcloud-account/         the `mixcloud` account type, through the token exchange; its scope `upload`
@@ -61,6 +63,9 @@ plugins/coverart/           the coverart plugin: front covers and track details 
                             the Cover Art Archive, offered as candidates locallibrary plans the edits of
 plugins/demos/              the demos plugin: rekordbox's demo tracks on a drive, found by its check and
                             removed by `clean` as one `delete_unbacked` edit
+plugins/discogs/            the discogs plugin: front covers and track details for tracks lacking them (or all,
+                            asked to), each album searched on Discogs with the user's Discogs account,
+                            offered as candidates locallibrary plans the edits of
 plugins/interop/            the interop plugin: exporters for Traktor, Serato, Engine DJ and rekordbox XML,
                             writing a drive's library with loclib-interop on this computer, and an importer
                             and a library source reading Traktor's collection.nml back

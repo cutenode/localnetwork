@@ -148,13 +148,13 @@ flowchart LR
     host["Plugin host"] --> exchange["localnetwork.computer:<br/>token exchange"]
     host --> oauth["Google, SoundCloud,<br/>Mixcloud: sign-in"]
     host --> upload["YouTube, SoundCloud, Mixcloud,<br/>plyr.fm, Internet Archive: uploads"]
-    host --> mb["MusicBrainz, Cover Art<br/>Archive: lookups"]
+    host --> mb["MusicBrainz, Cover Art<br/>Archive, Discogs: lookups"]
     browser["Your browser"] --> oauth
     browser --> pds["The account's server: sign-in"]
     browser --> github["GitHub's bug form"]
 ```
 
-Source: [`crates/locallibrary/src/plugin/net.rs`](../../../../crates/locallibrary/src/plugin/net.rs), [`crates/locallibrary/src/plugin/accounts.rs`](../../../../crates/locallibrary/src/plugin/accounts.rs), [`src/bug_cmd.rs`](../../src/bug_cmd.rs), [`plugins/accounts`](../../../../plugins/accounts)
+Source: [`crates/locallibrary/src/plugin/net.rs`](../../../../crates/locallibrary/src/plugin/net.rs), [`crates/locallibrary/src/plugin/accounts.rs`](../../../../crates/locallibrary/src/plugin/accounts.rs), [`src/bug_cmd.rs`](../../src/bug_cmd.rs), [`plugins/accounts`](../../../../plugins/accounts), [`plugins/discogs/locallibrary-plugin.toml`](../../../../plugins/discogs/locallibrary-plugin.toml)
 
 ## Programs on this computer
 

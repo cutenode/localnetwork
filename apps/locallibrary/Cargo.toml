@@ -135,6 +135,7 @@ locallibrary-plugin-archive = { version = "0.1.0", path = "../../plugins/archive
 locallibrary-plugin-youtube = { version = "0.1.0", path = "../../plugins/youtube" }
 locallibrary-plugin-mixcloud = { version = "0.1.0", path = "../../plugins/mixcloud" }
 locallibrary-plugin-soundcloud = { version = "0.1.0", path = "../../plugins/soundcloud" }
+locallibrary-plugin-discogs = { version = "0.1.0", path = "../../plugins/discogs" }
 # The player asks the terminal for its real colours (OSC 10 and 11) as it starts.
 terminal-colorsaurus = { version = "1.0.3", optional = true }
 # Cover art in the graphics a terminal has. Pinned: its API changes between versions. No default
