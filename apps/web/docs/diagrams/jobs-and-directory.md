@@ -143,11 +143,11 @@ flowchart LR
   Pages -- "/projects" --> Q2["searchPerformers"]
   Pages -- "/match, /for-promoters" --> Q3["matchProjects"]
   Pages -- "performer pages, dashboard" --> Q4["getProject, getProjects"]
-  Pages -- "/shows, performer pages" --> Q5["listShows"]
+  Pages -- "/shows, /for-djs, performer pages" --> Q5["listShows"]
   Pages -- "waiting on a show write" --> Q11["getShows"]
   Pages -- "mixes, the set picker" --> Q6["getSets, listSets"]
   Pages -- "Follow button" --> Q7["getFollowStatus"]
-  Pages -- "/charts, /artists" --> Q8["getCharts, getArtist,<br/>searchArtists"]
+  Pages -- "/charts, /artists, /for-djs" --> Q8["getCharts, getArtist,<br/>searchArtists"]
   Pages -- "stats, press kits, profiles,<br/>verifications, bug report space" --> Q9["getRecords, listRecords"]
 ```
 
