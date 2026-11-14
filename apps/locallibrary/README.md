@@ -177,6 +177,8 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
   analysis (beat grid, cues, waveforms, phrases)
 - [loclib-equipment](../../crates/loclib-equipment): what each Pioneer DJ / AlphaTheta player and mixer
   reads from a USB drive, with sources, also as JSON
+- [loclib-capacity](../../crates/loclib-capacity): catching fake-capacity USB sticks and cards by
+  writing and reading back test regions across the whole disk
 - [loclib-mysettings](../../crates/loclib-mysettings): reading and writing the My Settings files
   players load from a drive
 - [loclib-tracklist](../../crates/loclib-tracklist): reading M3U, CSV, rekordbox and plain-text
@@ -286,6 +288,7 @@ flowchart LR
     core --> pdb["rekordbox-pdb<br/>export.pdb, vendored"]
     core --> set["loclib-mysettings<br/>My Settings files"]
     core --> equip["loclib-equipment<br/>what players read"]
+    core --> cap["loclib-capacity<br/>fake-capacity probe"]
     core --> track["loclib-tracklist<br/>outside tracklists"]
     core --> mixid["loclib-mixid<br/>fingerprints, matcher"]
     core --> audio["loclib-audio<br/>decoding, resampling"]
