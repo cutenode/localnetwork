@@ -17,6 +17,7 @@ coverage = "llvm-cov nextest --no-fail-fast --failure-mode all --fail-under-line
 # (ignored by git, cached by CI, made by -create_missing_dirs), and only reads the seeds after it:
 # the tests' fixtures, and fuzz/seeds/ for formats whose tests keep their examples inline.
 fuzz-pdb = ["fuzz", "run", "pdb", "fuzz/corpus/pdb", "crates/locallibrary/tests/fixtures/rekordcrate/demo_tracks/PIONEER/rekordbox", "crates/locallibrary/tests/fixtures/rekordcrate/empty/PIONEER/rekordbox", "--", "-create_missing_dirs=1"]
+fuzz-pdb_edit = ["fuzz", "run", "pdb_edit", "fuzz/corpus/pdb_edit", "--", "-create_missing_dirs=1"]
 fuzz-anlz = ["fuzz", "run", "anlz", "fuzz/corpus/anlz", "crates/locallibrary/tests/fixtures/rekordcrate/demo_tracks/PIONEER/USBANLZ", "--", "-create_missing_dirs=1"]
 fuzz-mysettings = ["fuzz", "run", "mysettings", "fuzz/corpus/mysettings", "crates/locallibrary/tests/fixtures/rekordcrate/settings", "--", "-create_missing_dirs=1"]
 fuzz-tracklist = ["fuzz", "run", "tracklist", "fuzz/corpus/tracklist", "fuzz/seeds/tracklist", "--", "-create_missing_dirs=1"]
