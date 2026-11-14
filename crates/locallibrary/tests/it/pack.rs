@@ -83,6 +83,49 @@ fn packs_chosen_playlists_and_updates_incrementally() {
     assert_eq!(lib(&src_root).tracks.len(), 12);
 }
 
+/// A playlist whose folder isn't in the database (a damaged or hand-edited export can hold one)
+/// isn't packed, nor are its tracks, unless it was chosen.
+#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_playlist_whose_folder_is_gone_is_packed_only_when_chosen(tc: hegel::TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let src_root = common::bigger_drive(dir.path(), "Main");
+    let l = lib(&src_root);
+    let ids = |r: std::ops::Range<usize>| TrackSelector {
+        ids: l.tracks[r].iter().map(|t| t.id).collect(),
+        ..Default::default()
+    };
+    let edits = vec![
+        Edit::SetTracks { playlist: "Gone/Orphan".into(), tracks: ids(0..3), sort: None, limit: None, create: true },
+        Edit::SetTracks { playlist: "Other".into(), tracks: ids(3..5), sort: None, limit: None, create: true },
+    ];
+    common::apply(&src_root, &edits);
+    // The folder's row goes, the playlist in it stays.
+    let pdb = src_root.join(paths::EXPORT_PDB);
+    let mut ed = rekordbox_pdb::PdbEditor::from_file(&pdb).unwrap();
+    ed.remove_playlists(&[lib(&src_root).playlists.iter().find(|p| p.name == "Gone").unwrap().id]).unwrap();
+    ed.save(&pdb).unwrap();
+    let src = Device::open_export(&src_root).unwrap();
+    let source = lib(&src_root);
+    let tracks_of = |name: &str, l: &Library| {
+        let p = l.playlists.iter().find(|p| p.name == name).unwrap();
+        let mut files: Vec<String> = p.track_ids.iter().map(|id| l.track(*id).unwrap().file_path.clone()).collect();
+        files.sort();
+        files
+    };
+    let chosen: &str = tc.draw(hegel::generators::sampled_from(vec!["Other", "Orphan"]));
+    let club_root = dir.path().join("Club");
+    fs::create_dir_all(&club_root).unwrap();
+    let mut club = Device::open(&club_root).unwrap();
+    let opts = PackOptions { playlists: vec![chosen.into()], ..Default::default() };
+    let plan = pack::plan(&src, &club, &opts, &Ctx::silent()).unwrap();
+    pack::apply(&plan, &src, &mut club, None, &Ctx::silent()).unwrap();
+    let l = lib(&club_root);
+    assert_eq!(l.playlists.iter().map(|p| l.playlist_path(p.id)).collect::<Vec<_>>(), [chosen]);
+    let mut files: Vec<String> = l.tracks.iter().map(|t| t.file_path.clone()).collect();
+    files.sort();
+    assert_eq!(files, tracks_of(chosen, &source));
+}
+
 #[test]
 fn pack_recopies_an_unfinished_file_matching_the_current_source() {
     let dir = tempfile::tempdir().unwrap();

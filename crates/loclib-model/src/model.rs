@@ -321,9 +321,9 @@ impl Library {
             .collect()
     }
 
-    /// The playlists and folders `ids`, everything below them and the folders above them. The
-    /// folders above are kept apart from the walks down: one that's also among `ids`, after
-    /// something in it, is walked down from like any other.
+    /// The playlists and folders `ids`, everything below them and the folders above them, up to
+    /// one that isn't in the library. The folders above are kept apart from the walks down: one
+    /// that's also among `ids`, after something in it, is walked down from like any other.
     pub fn with_relatives(&self, ids: impl IntoIterator<Item = u32>) -> FxHashSet<u32> {
         let (mut below, mut above) = (FxHashSet::default(), FxHashSet::default());
         for id in ids {
@@ -334,8 +334,8 @@ impl Library {
                 }
             }
             let mut parent = self.playlist(id).and_then(|p| p.parent_id);
-            while let Some(id) = parent.filter(|id| above.insert(*id)) {
-                parent = self.playlist(id).and_then(|f| f.parent_id);
+            while let Some(folder) = parent.and_then(|id| self.playlist(id)).filter(|f| above.insert(f.id)) {
+                parent = folder.parent_id;
             }
         }
         below.extend(above);
