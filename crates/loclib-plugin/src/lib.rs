@@ -8,6 +8,7 @@ mod choice;
 mod error;
 mod features;
 pub mod framing;
+mod grants;
 mod hooks;
 mod manifest;
 mod peer;
@@ -24,6 +25,7 @@ mod words;
 pub use choice::{Choice, ChoiceItem};
 pub use error::{ErrorData, RpcError, params};
 pub use features::{FEATURES, Feature};
+pub use grants::{Param, READS, Read};
 pub use hooks::account_types::{
     AccountType, Key, KeyPlace, SUBJECT_PLACEHOLDER, Scope, ScopeRequest, SignIn, TOKEN_KEY, Whoami,
 };

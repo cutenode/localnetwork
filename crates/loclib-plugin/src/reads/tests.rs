@@ -6,7 +6,7 @@ use loclib_model::analysis::Beat;
 use serde_json::json;
 
 use super::*;
-use crate::{Hooks, Incoming, Peer, RunCommand, method, serve};
+use crate::{Hooks, Incoming, Peer, READS, RunCommand, method, serve};
 
 /// A plugin with a command to read with.
 const MANIFEST: &str = r#"
@@ -235,6 +235,45 @@ fn a_reads_error_comes_back_as_it_is() {
     let (read, calls) = reading(|host| host.drive("USB").artwork(&[1; 60]), move |_, _| Err(answer.clone()));
     assert_eq!(read.unwrap_err(), refused);
     assert_eq!(calls.len(), 1);
+}
+
+/// Each typed read is one a plugin may call ([`READS`]), with only params the host takes from a
+/// plugin: a host that refuses it would leave the read useless.
+#[test]
+fn each_typed_read_is_one_a_plugin_may_call() {
+    let read = |host: &Host| {
+        let drive = host.drive("USB").combined();
+        let query =
+            TracksQuery { filter: Some("bpm:120".into()), playlist: Some("Set".into()), sort: Some("bpm".into()) };
+        let _ = (drive.info(), drive.library(), drive.playlists(), drive.tracks(&[1]), drive.query(&query));
+        let _ = (drive.analysis(1), drive.analyses(&[1]), drive.artwork(&[1]));
+        let (c, db) = (host.collection(), std::path::Path::new("/scratch/master.db"));
+        let _ = (c.locations(), c.status(), c.copy(db, true), c.tracks(Some(db)));
+        Ok(())
+    };
+    let (_, calls) = reading(read, |_, _| Err(RpcError::failed("gone", "the drive isn't here")));
+    let methods: Vec<&str> = calls.iter().map(|(method, _)| method.as_str()).collect();
+    let typed = [
+        "drive.info",
+        "drive.library",
+        "playlists.tree",
+        "tracks.get",
+        "tracks.query",
+        "track.analysis",
+        "tracks.analysis",
+        "art.get",
+        "collection.locations",
+        "collection.status",
+        "collection.copy",
+        "collection.tracks",
+    ];
+    assert_eq!(methods, typed);
+    for (method, params) in &calls {
+        let read = READS.iter().find(|r| r.method == method).unwrap_or_else(|| panic!("a plugin can't call {method}"));
+        for name in params.as_object().unwrap().keys() {
+            assert!(read.params().any(|(n, _)| n == name), "a plugin doesn't give {method} `{name}`");
+        }
+    }
 }
 
 /// The drive the host refuses every read of.

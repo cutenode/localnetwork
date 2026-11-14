@@ -659,7 +659,7 @@ locallibrary adds kinds of hooks without breaking older plugins.
 ## Safety
 
 A plugin is refused if it says it's something other than what locallibrary knows it as. It may
-call only the reads its capabilities grant, naming drives by name or id (never a path), in pages of
+call only the reads its capabilities grant (loclib-plugin's README lists them), naming drives by name or id (never a path), in pages of
 bounded size. Those are the drives known here, and the one a hook under way runs on, a folder
 opened by path too, named as the hook's context names it, until the hook is done. What it gets back, errors too, doesn't say where things are on this computer:
 a drive is said by its name, where the store's copies, a set's or a mix's recording and

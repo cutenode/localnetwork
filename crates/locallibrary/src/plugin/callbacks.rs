@@ -1,9 +1,9 @@
 //! What plugins read: requests named after the sidecar's read methods, answered by the app's
 //! (see [`Reads`]) once the host has checked them, but for the reads of rekordbox's files a backup
 //! needs, which the host answers itself (see [`super::collection`]). A plugin may call only the
-//! reads its capabilities grant, with only the params listed for each, naming drives the host finds
-//! itself or gave its hooks under way (never by path) and files only in the request's scratch
-//! folder, in pages of a bounded size, a few calls at a time; what it gets back, errors
+//! reads its capabilities grant, with only the params listed for each ([`READS`]), naming drives
+//! the host finds itself or gave its hooks under way (never by path) and files only in the
+//! request's scratch folder, in pages of a bounded size, a few calls at a time; what it gets back, errors
 //! too, says nothing of where things are on this computer (see [`answer_for_plugin`]), but where
 //! rekordbox's files and its tracks' audio are, which `collection.locations` and
 //! `collection.tracks` are for. A plugin
@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Weak};
 
-use loclib_plugin::{Capability, ErrorData, Incoming, MAX_IDS, MAX_IMAGES, Manifest, Peer, RpcError, code, method};
+use loclib_plugin::{ErrorData, Incoming, Manifest, Param, Peer, READS, RpcError, code, method};
 use memchr::memmem::Finder;
 use serde_json::Value;
 
@@ -41,108 +41,6 @@ pub trait Reads: Send + Sync {
     fn drive(&self, spec: &str) -> Result<PathBuf> {
         Ok(api::resolve_known_drive(spec)?.root().to_path_buf())
     }
-}
-
-/// The most tracks (or snapshots, or matches, or most played) a page holds: a plugin asks for
-/// the next.
-const MAX_PAGE: u64 = 500;
-/// The most tracks asked for at once by reads that answer each in full (details, cues).
-const MAX_TRACKS: usize = 100;
-
-/// A param a plugin may give a read.
-#[derive(Debug, Clone, Copy)]
-enum Param {
-    /// Passed on as it is.
-    Plain,
-    /// A drive (or library) the host finds itself: the app is given its root.
-    Drive,
-    /// A list of them.
-    Drives,
-    /// A list of at most this many.
-    AtMost(usize),
-    /// A page size of at most this many, this many when not given.
-    Limit(u64),
-    /// This when not given.
-    Or(&'static str),
-    /// A file in the request's scratch folder, absolute: [`super::collection`] holds it there.
-    Scratch,
-}
-
-/// Params a plugin may give a read, by name.
-type Params = &'static [(&'static str, Param)];
-
-/// What a read of a drive's library takes.
-const LIBRARY: Params = &[("drive", Param::Drive), ("combined", Param::Plain)];
-
-/// The capability a read needs, whether it reads a library (and takes [`LIBRARY`]'s params), and
-/// the other params a plugin may give it. `None` for anything else, which no plugin may call:
-/// writes, reads naming files on this computer outside the request's scratch folder, and reads
-/// whose answers can't be bounded. A param added to a read is refused until it's listed here.
-fn allowed(method: &str) -> Option<(Capability, bool, Params)> {
-    use Capability::*;
-    use Param::*;
-    Some(match method {
-        "drive.library" => (LibraryRead, true, &[("offset", Plain), ("limit", Limit(MAX_PAGE))]),
-        "playlists.tree" => (LibraryRead, true, &[]),
-        "tracks.get" => (LibraryRead, true, &[("ids", AtMost(MAX_IDS))]),
-        "tracks.query" => (
-            LibraryRead,
-            true,
-            &[("filter", Plain), ("playlist", Plain), ("sort", Plain), ("offset", Plain), ("limit", Limit(MAX_PAGE))],
-        ),
-        "track.show" | "cues.list" => {
-            (LibraryRead, true, &[("ids", AtMost(MAX_TRACKS)), ("paths", AtMost(MAX_TRACKS))])
-        }
-        "track.matches" => (LibraryRead, true, &[("track", Plain), ("limit", Limit(MAX_PAGE))]),
-        "tags.list" => (LibraryRead, false, &[("drive", Drive)]),
-        "track.analysis" => (AnalysisRead, true, &[("track", Plain), ("waveform", Or("none")), ("encoding", Plain)]),
-        "tracks.analysis" => {
-            (AnalysisRead, true, &[("ids", AtMost(api::MAX_ANALYSES)), ("waveform", Plain), ("encoding", Plain)])
-        }
-        "track.fields" => (AnalysisRead, true, &[("tracks", AtMost(MAX_IDS)), ("plugin", Plain)]),
-        "art.get" => (ArtworkRead, true, &[("track", Plain), ("tracks", AtMost(MAX_IMAGES))]),
-        "drive.info" | "drive.backups" | "drive.space" => (DriveInfo, false, &[("drive", Drive)]),
-        "drives.list" => (DriveInfo, false, &[("all", Plain)]),
-        "drives.mounted" | "drive.groups" => (DriveInfo, false, &[]),
-        "fleet.status" => (DriveInfo, false, &[("all", Plain), ("retired", Plain)]),
-        "doctor" => (
-            HealthRead,
-            false,
-            &[
-                ("drive", Drive),
-                ("hash_audio", Plain),
-                ("by_sound", Plain),
-                ("only", Plain),
-                ("audio", Plain),
-                ("analyze", Plain),
-                ("sure_only", Plain),
-            ],
-        ),
-        "check" => (HealthRead, false, &[("drives", Drives), ("players", Plain), ("audio", Plain)]),
-        "drive.verify" => (HealthRead, false, &[("drive", Drive), ("snapshot", Plain)]),
-        "store.info" | "store.copies" | "library.list" | "smart.list" => (StoreRead, false, &[]),
-        "store.history" => (StoreRead, false, &[("library", Plain), ("limit", Limit(MAX_PAGE))]),
-        "snapshot.library" => (StoreRead, false, &[("snapshot", Plain), ("offset", Plain), ("limit", Limit(MAX_PAGE))]),
-        "settings.schema" | "settings.profile" | "players.models" | "players.show" => (SettingsRead, false, &[]),
-        "settings.show" | "player.show" => (SettingsRead, false, &[("drive", Drive)]),
-        "plays.stats" => (PlaysRead, false, &[("source", Drive), ("since", Plain), ("limit", Limit(MAX_PAGE))]),
-        "sets.played" => (PlaysRead, false, &[("track", Plain)]),
-        "sets.list" => (SetsRead, false, &[("venue", Plain), ("kind", Plain), ("since", Plain), ("until", Plain)]),
-        "sets.get" => (SetsRead, false, &[("set", Plain), ("venue", Plain)]),
-        "sessions.list" => (SetsRead, false, &[("drive", Drive), ("unassigned", Plain)]),
-        // A recorded set's tracklist, for a mix exporter.
-        "mix.reports.get" => (SetsRead, false, &[("id", Plain)]),
-        "account.status" => (AccountStatus, false, &[]),
-        "collection.info" => (CollectionRead, false, &[]),
-        "collection.diff" => (CollectionRead, false, &[("drive", Drive), ("playlist", Plain)]),
-        // rekordbox's files, for a backup: the host answers these itself (see `answers`).
-        "collection.locations" | "collection.status" => (CollectionFiles, false, &[]),
-        "collection.copy" => (CollectionFiles, false, &[("into", Scratch), ("with_credentials", Plain)]),
-        "collection.tracks" => {
-            (CollectionFiles, false, &[("db", Scratch), ("offset", Plain), ("limit", Limit(MAX_PAGE))])
-        }
-        _ => return None,
-    })
 }
 
 pub(super) fn invalid_params(message: impl std::fmt::Display) -> RpcFailure {
@@ -234,16 +132,17 @@ pub(crate) fn answer(
 /// for it, each as its [`Param`] says (drives found by `drive`, lists and pages bounded), or
 /// refused.
 pub(crate) fn check(manifest: &Manifest, drive: Drive<'_>, method: &str, params: Value) -> Result<Value, RpcFailure> {
-    let Some((capability, library, others)) = allowed(method) else {
+    let Some(read) = READS.iter().find(|r| r.method == method) else {
         let e = format!("{method:?} isn't a read a plugin can call");
         return Err(RpcFailure::new(code::METHOD_NOT_FOUND, "method_not_found", e));
     };
-    if !manifest.capabilities.contains(&capability) {
+    let capability = &read.capability;
+    if !manifest.capabilities.contains(capability) {
         let e = format!("{method} needs the {capability} capability, which the {} plugin doesn't have", manifest.id);
         return Err(RpcFailure::new(code::FAILED, "denied", e));
     }
     let Value::Object(mut params) = params else { return Err(invalid_params("expected an object")) };
-    let listed: Vec<(&str, Param)> = LIBRARY.iter().filter(|_| library).chain(others).copied().collect();
+    let listed: Vec<(&str, Param)> = read.params().collect();
     if let Some(name) = params.keys().find(|k| !listed.iter().any(|(l, _)| l == k)) {
         return Err(invalid_params(format!("a plugin doesn't give {method} `{name}`")));
     }
