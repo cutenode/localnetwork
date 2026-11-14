@@ -59,13 +59,29 @@ fn every_section_draws_at_any_size() {
         t.document = true;
         let screen = render(&mut t, w, h);
         if w >= 80 {
-            assert!(screen.contains("\"version\": 1"), "{screen}");
+            assert!(screen.contains("\"version\": 2"), "{screen}");
         }
         t.document = false;
     }
     t.select_section(Section::ALL.iter().position(|s| *s == Section::Tempo).unwrap());
     let screen = render(&mut t, 120, 40);
     assert!(screen.contains("124–128 BPM"), "{screen}");
+}
+
+/// A section that's never published (it describes what was played) is shown, says it stays on
+/// this computer, and `i` doesn't put it in the document. The header counts only the sections
+/// that can be published.
+#[test]
+fn a_section_about_plays_stays_on_this_computer() {
+    let (mut app, _dir) = profile_app(fixture_tab());
+    app.profile.select_section(Section::ALL.iter().position(|s| *s == Section::Tempo).unwrap());
+    let shown = screen(&mut app, 160, 40);
+    assert!(shown.contains("Never published, so only you see this") && shown.contains("only on this computer"));
+    assert!(!shown.contains("i include") && shown.contains("document: 4 of 6 sections"), "{shown}");
+    press(&mut app, "i");
+    assert_eq!(last_message(&app), "Tempo stays on this computer: it's never published");
+    let Some(Ok(v)) = &app.profile.view else { panic!("no profile") };
+    assert!(!v.published.contains(&Section::Tempo) && v.document.tempo.is_none());
 }
 
 /// Without declared sets, the view counts sessions and calls them that.
@@ -358,7 +374,7 @@ fn every_section_says_what_its_numbers_show() {
             ],
         ),
         (Section::Energy, &["mood, 12 tracks", "high", "50%", "Mood through a set"]),
-        (Section::Era, &["median 2019", "(1998–2024) · 30% released the year played", "1990s", "2010s"]),
+        (Section::Era, &["median 2019", "(1998–2024) · 30% released this year or last", "1990s", "2010s"]),
         (Section::Signature, &["Moves played again and again", " 3× Ferrule - Night Bus → Ferrule - Halogen"]),
         (Section::Prep, &["Cues across 12 tracks", "75% · 3.5 each", "memory cues"]),
         (Section::Collection, &["Played in a set", "40%", "3 more files are copies of these"]),
@@ -474,7 +490,7 @@ fn w_writes_the_document_to_the_store() {
     let path = app.store_root.join("profile-document.json");
     assert_eq!(last_message(&app), format!("wrote {}", path.display()));
     let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    assert_eq!(doc["version"], 1);
+    assert_eq!(doc["version"], locallibrary::profile::DOCUMENT_VERSION);
 
     let (tx, _rx) = std::sync::mpsc::channel();
     app.profile = ProfileTab::new(tx);
@@ -495,6 +511,8 @@ fn a_choice_that_cant_be_saved_says_why() {
         Some(Ok(v)) => v.published.clone(),
         _ => panic!("no profile"),
     };
+    // A section that can be published: one that can't isn't saved at all.
+    app.profile.select_section(Section::ALL.iter().position(|s| *s == Section::Genres).unwrap());
     press(&mut app, "i");
     assert!(app.toast.as_ref().is_some_and(|t| t.1 == Level::Error), "{:?}", app.toast);
     press(&mut app, "w");
@@ -927,6 +945,9 @@ fn the_djs_choices_are_kept_as_made(tc: hegel::TestCase) {
                     }
                     _ => assert!(said.starts_with("select a track under Signature tracks, or an artist"), "{said}"),
                 },
+                Act::ProfileInclude if !section.publishable() => {
+                    assert_eq!(said, format!("{} stays on this computer: it's never published", section.title()));
+                }
                 Act::ProfileInclude => {
                     let on = !published.remove(&section) && published.insert(section);
                     let title = section.title();
@@ -1069,6 +1090,7 @@ fn the_profile_view_answers_to_its_keys_and_the_mouse(tc: hegel::TestCase) {
                 // The store's folder a file: a choice can't be saved, nor the document written.
                 let store = std::mem::replace(&mut app.store_root, dir.path().join("a file"));
                 std::fs::write(&app.store_root, "not a folder").unwrap();
+                app.profile.select_section(Section::ALL.iter().position(|s| *s == Section::Genres).unwrap());
                 press(&mut app, "i");
                 assert!(app.toast.as_ref().is_some_and(|t| t.1 == Level::Error), "{:?}", app.toast);
                 press(&mut app, "w");

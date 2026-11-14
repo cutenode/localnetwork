@@ -32,10 +32,13 @@ const SECTIONS: [(&str, &str); 15] = [
     ("style", "Player style"),
 ];
 
+/// The sections that can be published: the rest are only ever in the report.
+const PUBLISHABLE: [&str; 6] = ["sets", "energy", "genres", "artists", "era", "collection"];
+
 /// Published unless they're turned off.
 fn by_default() -> BTreeSet<String> {
-    let opt_in = ["labels", "artists", "signature", "prep", "collection"];
-    SECTIONS.iter().map(|(s, _)| s.to_string()).filter(|s| !opt_in.contains(&s.as_str())).collect()
+    let opt_in = ["artists", "collection"];
+    PUBLISHABLE.iter().map(|s| s.to_string()).filter(|s| !opt_in.contains(&s.as_str())).collect()
 }
 
 /// A section's heading in a report on `basis`.
@@ -127,7 +130,7 @@ fn the_printed_report_says_what_the_json_does(tc: TestCase) {
         fx.ok(&["--yes", "profile", "pin", "Somebody - Never Played", "--exact"]);
     }
     if tc.draw(gs::booleans()) {
-        fx.ok(&["--yes", "profile", "include", "labels,artists,signature,prep,collection"]);
+        fx.ok(&["--yes", "profile", "include", "artists,collection"]);
     }
     // Drive A has analysis files (phrase moods, cues) and a session; Club neither.
     for drive in ["Club", "A"] {
@@ -293,8 +296,12 @@ fn named<'a>(list: &'a [String], query: &str) -> Option<&'a String> {
 }
 
 impl Prefs {
+    /// What's published: a section that can't be is ignored, saved or not.
     fn published(&self) -> BTreeSet<String> {
-        self.sections.clone().unwrap_or_else(by_default)
+        match &self.sections {
+            Some(s) => s.iter().filter(|s| PUBLISHABLE.contains(&s.as_str())).cloned().collect(),
+            None => by_default(),
+        }
     }
 
     /// As `profile prefs --json` has it.
@@ -338,10 +345,14 @@ fn profile_choices_agree_with_a_model(tc: TestCase) {
         let sections_changed = [0, 1, 2, 13].contains(&step);
         let words: Vec<String> = match step {
             0 | 1 => {
-                let some: Vec<&str> = tc.draw(gs::subsequences(names.clone()));
+                // Mostly sections that can be published, now and then any.
+                let pool = if tc.draw(gs::weighted_booleans(0.8)) { PUBLISHABLE.to_vec() } else { names.clone() };
+                let some: Vec<&str> = tc.draw(gs::subsequences(pool));
                 if some.is_empty() {
                     continue;
                 }
+                // Including a section that's never published is refused, and changes nothing.
+                ok = step == 1 || some.iter().all(|x| PUBLISHABLE.contains(x));
                 let mut s = m.published();
                 for x in &some {
                     match step {
@@ -349,7 +360,9 @@ fn profile_choices_agree_with_a_model(tc: TestCase) {
                         _ => s.remove(*x),
                     };
                 }
-                m.sections = Some(s);
+                if ok {
+                    m.sections = Some(s);
+                }
                 let verb = if step == 0 { "include" } else { "exclude" };
                 vec![verb.into(), some.join(",")]
             }

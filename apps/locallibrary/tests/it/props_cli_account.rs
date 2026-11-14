@@ -350,9 +350,9 @@ fn publishing_writes_the_record_the_plan_shows(tc: TestCase) {
         "https://www.mixcloud.com/dj/friday/",
     ]);
     fx.ok(&["--yes", "sets", "edit", "Friday", "--insert", "1:Someone - Dubplate", "--drive", "A"]);
-    // The profile with the sections that name tracks and describe the collection, or without.
+    // The profile with the opt-in sections (artists, the collection's size), or without.
     if tc.draw(gs::booleans()) {
-        fx.ok(&["--yes", "profile", "include", "signature,prep,collection,artists,labels"]);
+        fx.ok(&["--yes", "profile", "include", "collection,artists"]);
     }
     // Records published before, from another computer: each plan shows what it replaces.
     if tc.draw(gs::booleans()) {
@@ -592,10 +592,10 @@ fn a_profile_plan_says_what_it_no_longer_publishes(tc: TestCase) {
         current[*field] = value.clone();
     }
     pds.put(DID, "computer.localnetwork.dj.profile", "self", current.clone());
-    // Sections turned on and off now, from the report's own names (`sets` and `summary` stand
-    // for the record's `sets`, and `headline` and `tags`).
-    let report_sections =
-        ["summary", "sets", "tempo", "arc", "mixing", "keys", "energy", "genres", "labels", "artists", "era"];
+    // Sections turned on and off now, of those that can be published. A record published before
+    // can hold any (an older locallibrary published tempo, keys and the rest): those are no
+    // longer published.
+    let report_sections = ["sets", "energy", "genres", "artists", "era", "collection"];
     let on: Vec<&str> = tc.draw(gs::subsequences(report_sections.to_vec()));
     if !on.is_empty() {
         fx.ok(&["--yes", "profile", "include", &on.join(",")]);

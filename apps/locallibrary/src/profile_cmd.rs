@@ -130,9 +130,9 @@ enum ProfileCommand {
         #[command(flatten)]
         browser: crate::browser::BrowserArgs,
     },
-    /// Every section: whether the document includes it, and what it reveals
+    /// The sections that can be published: whether the document includes each, and what it reveals
     Sections,
-    /// Put sections in the document (e.g. `include signature artists`)
+    /// Put sections in the document (e.g. `include artists collection`)
     Include {
         /// Sections (`profile sections` lists them), repeated or separated with commas
         #[arg(required = true, value_delimiter = ',', value_parser = parse_section)]
@@ -235,15 +235,24 @@ pub fn run(args: ProfileArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             let on = crate::diff_cmd::read_or_empty(store_path, ProfilePrefs::load)?.published();
             let rows: Vec<_> = Section::ALL
                 .iter()
-                .map(|s| serde_json::json!({ "section": s, "published": on.contains(s), "reveals": s.reveals() }))
+                .map(|s| {
+                    serde_json::json!({
+                        "section": s,
+                        "published": on.contains(s),
+                        "publishable": s.publishable(),
+                        "reveals": s.reveals(),
+                    })
+                })
                 .collect();
             out.emit(&rows, |_| {
-                for s in Section::ALL {
+                for s in Section::ALL.into_iter().filter(|s| s.publishable()) {
                     let mark = if on.contains(&s) { style("●").green() } else { style("○").dim() };
                     say!("  {mark} {:<11} {}", s.name(), dim(s.reveals()));
                 }
+                let local: Vec<&str> = Section::ALL.iter().filter(|s| !s.publishable()).map(|s| s.name()).collect();
                 say!();
                 say!("{}", dim("● in the document · change with `profile include` / `profile exclude`"));
+                say!("{}", dim(format!("only on this computer (never published): {}", local.join(", "))));
             });
         }
         ProfileCommand::Include { sections } => {
@@ -681,7 +690,7 @@ fn render_keys(c: &Page<'_>) {
 }
 
 fn render_energy(c: &Page<'_>) {
-    if !c.section(Section::Energy, "rekordbox's phrase-analysis mood") {
+    if !c.section(Section::Energy, "rekordbox's phrase-analysis mood, across your collection") {
         return;
     }
     let Some(e) = &c.report.energy else {
@@ -691,6 +700,7 @@ fn render_energy(c: &Page<'_>) {
     for (name, share) in [("high", e.high), ("mid", e.mid), ("low", e.low)] {
         say!("  {name:<5} {} {}", style(bar(share, 30)).magenta(), pct(share));
     }
+    say!("  {}", dim(format!("of {} tracks in your collection with phrase analysis", thousands(e.tracks))));
     if e.curve.iter().flatten().count() > 1 {
         say!(
             "  start {} end  {}",
@@ -720,16 +730,17 @@ fn render_ranked(c: &Page<'_>, s: Section, r: &RankedSection, with: &str) {
             if hidden { dim("  hidden").to_string() } else { String::new() }
         );
     }
-    let noun = match c.report.basis {
-        Basis::Plays | Basis::Sessions => "plays",
-        Basis::Collection => "tracks",
+    let noun = match (s, c.report.basis) {
+        (Section::Genres | Section::Artists, _) => "tracks in your collection",
+        (_, Basis::Plays | Basis::Sessions) => "plays",
+        (_, Basis::Collection) => "tracks",
     };
     say!("  {}", dim(format!("shares of {} {noun} {with} · {} different", thousands(r.known), thousands(r.distinct))));
 }
 
 fn render_era(c: &Page<'_>) {
     let e = &c.report.era;
-    if !c.section(Section::Era, "release years") {
+    if !c.section(Section::Era, "release years, across your collection") {
         return;
     }
     if e.tracks == 0 {
@@ -737,7 +748,7 @@ fn render_era(c: &Page<'_>) {
         return;
     }
     say!(
-        "  median {} ({}–{}) · {} released the year played or the year before",
+        "  median {} ({}–{}) · {} released this year or last",
         e.median_year.unwrap_or(0),
         e.oldest.unwrap_or(0),
         e.newest.unwrap_or(0),

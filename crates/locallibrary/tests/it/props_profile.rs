@@ -205,7 +205,16 @@ fn update() -> impl hegel::PrintableGenerator<PrefsUpdate> {
         // Undoing what isn't there fails the whole update, so undo rarely.
         let rarely = |v: Vec<String>| if tc.draw(gs::weighted_booleans(0.2)) { v } else { Vec::new() };
         let artists = || gs::vecs(gs::sampled_from(vec!["Bicep", "Four Tet"]).map(String::from)).max_size(1);
-        let sections = || gs::vecs(gs::sampled_from(Section::ALL.to_vec())).max_size(3);
+        // Asking for a section that's never published fails the whole update, so ask for those
+        // only now and then.
+        let sections = || {
+            let pool: Vec<Section> = if tc.draw(gs::weighted_booleans(0.1)) {
+                Section::ALL.to_vec()
+            } else {
+                Section::ALL.into_iter().filter(|s| s.publishable()).collect()
+            };
+            gs::vecs(gs::sampled_from(pool)).max_size(3)
+        };
         PrefsUpdate {
             reset: tc.draw(gs::weighted_booleans(0.1)),
             sections: tc.draw(gs::optional(sections())),
@@ -293,6 +302,8 @@ fn changes_undo(tc: TestCase) {
 }
 
 /// Including and excluding sections adds and removes exactly those from what's published.
+/// Including one that can't be published is refused and changes nothing; published sections are
+/// only ever publishable ones.
 #[hegel::test(test_cases = 300)]
 fn include_and_exclude_edit_the_published_sections(tc: TestCase) {
     let mut prefs = ProfilePrefs::default();
@@ -301,13 +312,22 @@ fn include_and_exclude_edit_the_published_sections(tc: TestCase) {
     }
     let sections = || gs::vecs(gs::sampled_from(Section::ALL.to_vec())).max_size(4);
     let (include, exclude) = (tc.draw(sections()), tc.draw(sections()));
+    let before = prefs.clone();
     let mut want = prefs.published();
     want.extend(include.iter().copied());
     for x in &exclude {
         want.remove(x);
     }
-    prefs.apply(&PrefsUpdate { include, exclude, ..Default::default() }).unwrap();
-    assert_eq!(prefs.published(), want);
+    let refused = include.iter().any(|s| !s.publishable());
+    let r = prefs.apply(&PrefsUpdate { include, exclude, ..Default::default() });
+    if refused {
+        assert!(r.is_err());
+        assert_eq!(prefs, before);
+    } else {
+        r.unwrap();
+        assert_eq!(prefs.published(), want);
+    }
+    assert!(prefs.published().iter().all(|s| s.publishable()));
 }
 
 /// Every section reads back from its name, upper-cased or with dashes.
@@ -694,8 +714,8 @@ fn saved_preferences_load_back(tc: TestCase) {
 }
 
 /// Every section has a title and says what publishing it tells; without declared sets, the sets
-/// and their shape are titled as sessions, and the opt-in sections are exactly those naming
-/// tracks, artists or labels, or describing the collection.
+/// and their shape are titled as sessions. Only sets and what describes the collection can be
+/// published, and of those, artists and the collection's size are opt-in.
 #[hegel::test(test_cases = 50)]
 fn every_section_says_what_it_reveals(tc: TestCase) {
     let s = tc.draw(gs::sampled_from(Section::ALL.to_vec()));
@@ -705,9 +725,13 @@ fn every_section_says_what_it_reveals(tc: TestCase) {
     let renamed = s.title_in(Basis::Sessions) != s.title();
     assert_eq!(renamed, matches!(s, Section::Sets | Section::Arc));
     assert!(!renamed || s.title_in(Basis::Sessions).starts_with("Session"));
-    let opt_in =
-        matches!(s, Section::Labels | Section::Artists | Section::Signature | Section::Prep | Section::Collection);
-    assert_eq!(s.published_by_default(), !opt_in);
+    let publishable = matches!(
+        s,
+        Section::Sets | Section::Energy | Section::Genres | Section::Artists | Section::Era | Section::Collection
+    );
+    assert_eq!(s.publishable(), publishable);
+    let opt_in = matches!(s, Section::Artists | Section::Collection);
+    assert_eq!(s.published_by_default(), publishable && !opt_in);
     assert_eq!(Basis::Sessions.publishes(s), s != Section::Sets);
     assert!(profile::tag_section("nope").is_none());
 }

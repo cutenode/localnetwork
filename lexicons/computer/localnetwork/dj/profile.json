@@ -1,12 +1,12 @@
 {
 	"lexicon": 1,
 	"id": "computer.localnetwork.dj.profile",
-	"description": "A DJ's public profile: how they play, worked out from their sets (or, until they declare some, the history lists their players recorded), their tracks' analysis and their player settings.",
+	"description": "A DJ's public profile: what's in their collection (genres, artists, era, energy, each track counted once) and how many sets they've played, worked out from their rekordbox libraries and the sets they declared (or, until they declare some, the history lists their players recorded).",
 	"defs": {
 		"main": {
 			"type": "record",
 			"key": "literal:self",
-			"description": "One per account. Only the sections the DJ chose are present. Never holds file paths, drive or history-list names, ratings or exact dates. Shares are whole percents (0 to 100) and tempos whole BPM.",
+			"description": "One per account. Only the sections the DJ chose are present. Never holds file paths, drive or history-list names, ratings or exact dates. Shares are whole percents (0 to 100) and tempos whole BPM. locallibrary now writes only sets, energy, genres, artists, era and collection; headline, tags, tempo, arc, mixing, keys, labels, signature, prep and style come only from records older versions wrote.",
 			"record": {
 				"type": "object",
 				"required": ["generatedAt", "precision", "basis"],
@@ -21,7 +21,7 @@
 					"basis": {
 						"type": "string",
 						"maxLength": 32,
-						"description": "plays: tracks as played in sets (a track in three sets counts three times). sessions: no sets declared yet, so the history lists players recorded (which can include practice) stand in; the sets section is then absent. collection: no sets were found, so the collection, each track once.",
+						"description": "What the sections about plays count. plays: tracks as played in sets (a track in three sets counts three times). sessions: no sets declared yet, so the history lists players recorded (which can include practice) stand in; the sets section is then absent. collection: no sets were found. Genres, artists, era and energy count the collection, each track once, whatever the basis (in records older versions wrote, they counted plays too).",
 						"knownValues": ["plays", "sessions", "collection"]
 					},
 					"headline": {
@@ -45,7 +45,7 @@
 					"genres": {
 						"type": "array",
 						"maxLength": 10,
-						"description": "The genres played most, with their share of plays.",
+						"description": "The genres in the collection, most tracks first, with their share of its tracks.",
 						"items": { "type": "ref", "ref": "computer.localnetwork.dj.defs#share" }
 					},
 					"labels": {
@@ -57,7 +57,7 @@
 					"artists": {
 						"type": "array",
 						"maxLength": 10,
-						"description": "The artists played most, with their share of plays. A track credited to several artists counts for each.",
+						"description": "The artists in the collection, most tracks first, with their share of its tracks. A track credited to several artists counts for each.",
 						"items": { "type": "ref", "ref": "computer.localnetwork.dj.defs#share" }
 					},
 					"era": { "type": "ref", "ref": "#era" },
@@ -173,7 +173,7 @@
 		},
 		"energy": {
 			"type": "object",
-			"description": "Percent of plays in each phrase mood (high, mid, low), as the tracks' phrase analysis has it.",
+			"description": "Percent of the collection's tracks in each phrase mood (high, mid, low), as rekordbox's phrase analysis has it, of the tracks that have one.",
 			"required": ["high", "mid", "low"],
 			"properties": {
 				"high": { "type": "integer", "minimum": 0, "maximum": 100 },
@@ -186,13 +186,13 @@
 			"properties": {
 				"medianYear": {
 					"type": "integer",
-					"description": "Half the plays came out this year or earlier."
+					"description": "Half the collection came out this year or earlier."
 				},
 				"recent": {
 					"type": "integer",
 					"minimum": 0,
 					"maximum": 100,
-					"description": "Percent of plays released that year or the year before."
+					"description": "Percent of the collection released the year the profile was made or the year before."
 				}
 			}
 		},
