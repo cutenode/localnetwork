@@ -24927,13 +24927,16 @@
           "description": "`None` without analysis files."
         },
         "genres": {
-          "$ref": "#/$defs/RankedSection"
+          "$ref": "#/$defs/RankedSection",
+          "description": "Collection tracks with a genre."
         },
         "labels": {
-          "$ref": "#/$defs/RankedSection"
+          "$ref": "#/$defs/RankedSection",
+          "description": "Plays (or tracks) with a label."
         },
         "artists": {
-          "$ref": "#/$defs/RankedSection"
+          "$ref": "#/$defs/RankedSection",
+          "description": "Collection tracks with an artist, each credited artist counted."
         },
         "era": {
           "$ref": "#/$defs/EraSection"
@@ -25072,7 +25075,7 @@
           "description": "Nothing played to count (no sets in the range, or no sets declared and no sessions): the\ncollection, each track once."
         }
       ],
-      "description": "What the numbers describe."
+      "description": "What the numbers about plays describe (sets, tempo, keys, labels and the rest). Genres,\nartists, era and energy always count the collection, each track once."
     },
     "SourceInfo": {
       "type": "object",
@@ -25635,7 +25638,7 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0,
-          "description": "Plays (or tracks) whose phrase analysis was read."
+          "description": "Collection tracks whose phrase analysis was read."
         },
         "high": {
           "type": "number",
@@ -25676,7 +25679,7 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0,
-          "description": "Plays (or tracks) with a value."
+          "description": "Plays, or tracks, with a value."
         },
         "distinct": {
           "type": "integer",
@@ -25703,7 +25706,7 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0,
-          "description": "Plays (or tracks) with a release year."
+          "description": "Collection tracks with a release year."
         },
         "median_year": {
           "type": [
@@ -25732,7 +25735,7 @@
             "null"
           ],
           "format": "double",
-          "description": "Released the year it was played, or the year before."
+          "description": "Released this year or last."
         },
         "decades": {
           "type": "array",
@@ -26033,7 +26036,7 @@
           "items": {
             "$ref": "#/$defs/ProfileSection"
           },
-          "description": "Sections the document includes (`None`: the defaults, see\n[`Section::published_by_default`])."
+          "description": "Sections the document includes (`None`: the defaults, see\n[`Section::published_by_default`]). One that isn't [publishable](Section::publishable)\n(saved before it stopped being) is ignored."
         },
         "precision": {
           "$ref": "#/$defs/Precision",

@@ -468,18 +468,17 @@ fn a_profile_is_shown_against_what_was_published() {
     let d = path(&club);
     let out = env.ok(&["profile", "publish", d, "--dry-run"]);
     assert!(out.starts_with("Your profile, as it would be published\n"), "{out}");
-    assert!(out.contains("  Tempo             "), "{out}");
+    assert!(out.contains("  Genres            "), "{out}");
+    assert!(!out.contains("  Tempo ") && !out.contains("  Headline "), "what was played isn't published: {out}");
     assert!(out.contains("  rounded numbers - `locallibrary profile sections` shows what each section reveals"));
 
     sign_in(&env.store, &pds.url, &PUBLISHING, json!({}));
     env.ok(&["--yes", "profile", "publish", d]);
-    env.ok(&["profile", "headline", "Techno warm-ups"]);
     env.ok(&["profile", "exclude", "genres"]);
-    env.ok(&["profile", "include", "signature"]);
+    env.ok(&["profile", "include", "artists"]);
     let out = env.ok(&["profile", "publish", d, "--dry-run"]);
-    assert!(out.contains("  Headline          Techno warm-ups (changed)\n"), "{out}");
     assert!(out.contains("  Genres            no longer published\n"), "{out}");
-    assert!(out.lines().any(|l| l.starts_with("  Signature tracks  ") && l.ends_with(" (new)")), "{out}");
+    assert!(out.lines().any(|l| l.starts_with("  Artists           ") && l.ends_with(" (new)")), "{out}");
 }
 
 #[test]
