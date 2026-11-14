@@ -32,6 +32,7 @@ const blob = z.object({
 const bskyProfile = z.object({
 	displayName: z.string().trim().min(1).optional(),
 	description: z.string().trim().min(1).optional(),
+	pronouns: z.string().trim().min(1).optional(),
 	avatar: blob.optional()
 });
 
@@ -40,8 +41,11 @@ function assertProfileRecord(value: JsonObject): asserts value is JsonObject & P
 	validateRecord(COLLECTION.profile, value);
 }
 
-/** What a profile shows from someone's Bluesky profile when they first make one. */
-export type BlueskyPrefill = { name?: string; bio?: string; avatar?: BlobRefJson };
+/**
+ * What a profile takes from someone's Bluesky profile: its name, bio and picture when they first make one, and the
+ * pronouns it always shows.
+ */
+export type BlueskyPrefill = { name?: string; bio?: string; pronouns?: string; avatar?: BlobRefJson };
 
 /**
  * What saving a profile writes: the sections that are on (a section left out is turned off, and what was in it goes),
@@ -98,20 +102,20 @@ export class ProfileService {
 	}
 
 	/**
-	 * The display name `did` set on Bluesky, for a page about an account without a profile, or null. Only the directory
-	 * is asked, which keeps it for accounts that manage a project or that the root verified; a public page never asks
-	 * the account's own PDS. A directory that's down reads as no name.
+	 * The display name and pronouns `did` set on Bluesky, for their pages. Only the directory is asked, which keeps them
+	 * for accounts with a profile, that manage a project or that the root verified; a public page never asks the
+	 * account's own PDS. A directory that's down reads as neither.
 	 */
-	async blueskyName(did: string): Promise<string | null> {
-		const found = await this.repos.getRecord(did, BSKY_PROFILE, 'self');
+	async bluesky(did: string): Promise<{ name: string | null; pronouns: string | null }> {
+		const found = bskyProfile.safeParse((await this.repos.getRecord(did, BSKY_PROFILE, 'self'))?.value).data;
 
-		return bskyProfile.safeParse(found?.value).data?.displayName ?? null;
+		return { name: found?.displayName ?? null, pronouns: found?.pronouns ?? null };
 	}
 
 	/**
-	 * What `did`'s own Bluesky profile offers their first profile here: its display name, description and picture (whose
-	 * blob is already in their repo, so the profile can point at it without uploading it again). Null without a session
-	 * or a Bluesky profile.
+	 * What `did`'s own Bluesky profile offers their profile here: its display name, description and picture for their
+	 * first one (the picture's blob is already in their repo, so the profile can point at it without uploading it
+	 * again), and the pronouns the form shows. Null without a session or a Bluesky profile.
 	 */
 	async blueskyPrefill(did: string): Promise<BlueskyPrefill | null> {
 		const client = await this.core.userClient(did);
@@ -119,8 +123,8 @@ export class ProfileService {
 		if (!client) return null;
 
 		try {
-			// Their own Bluesky profile, read from their own repo with their session to fill in the profile they're about
-			// to make: the directory keeps only display names, and only for some accounts.
+			// Their own Bluesky profile, read from their own repo with their session for the profile form: the directory
+			// keeps only display names and pronouns, only for some accounts, and only once it has caught up.
 			// ast-grep-ignore: no-direct-pds-read
 			const found = await client.getRecord({ collection: BSKY_PROFILE, rkey: 'self' });
 			const parsed = bskyProfile.safeParse(found?.value).data;
@@ -128,7 +132,7 @@ export class ProfileService {
 			if (!parsed) return null;
 			const avatar = parsed.avatar && AVATAR_TYPES.has(parsed.avatar.mimeType) ? parsed.avatar : undefined;
 
-			return { name: parsed.displayName?.slice(0, 64), bio: parsed.description, avatar };
+			return { name: parsed.displayName?.slice(0, 64), bio: parsed.description, pronouns: parsed.pronouns, avatar };
 		} catch (error) {
 			this.core.logger.info("couldn't read the account's Bluesky profile", { err: error, did });
 
@@ -187,6 +191,9 @@ export class ProfileService {
 		});
 
 		await this.repos.awaitWrite(actor.did, COLLECTION.profile, 'self', ref.cid);
+		// The directory keeps someone's Bluesky profile, for the pronouns their page shows, once they have a profile here,
+		// so it's read now rather than at their next change on Bluesky.
+		void this.repos.reindex(actor.did, BSKY_PROFILE);
 
 		const sections = (record: { performer?: unknown; promoter?: unknown } | undefined) =>
 			[record?.performer && 'performer', record?.promoter && 'promoter'].filter(Boolean).join(', ') || undefined;

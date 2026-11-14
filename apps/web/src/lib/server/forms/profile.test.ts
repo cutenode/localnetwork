@@ -43,12 +43,18 @@ describe('parseProfileForm', () => {
 		expect(input).toEqual({
 			basics: {
 				name: 'Neon',
-				pronouns: 'they/them',
 				links: [{ kind: 'soundcloud', url: 'https://soundcloud.com/neon' }]
 			},
 			avatar: 'keep',
 			promoter: { cities: [{ city: 'Leipzig', country: 'DE' }] }
 		});
+	});
+
+	it("keeps the pronouns the profile had, since they're set on Bluesky, whatever the form posts", async () => {
+		const previous = { basics: { name: 'Neon', pronouns: 'she/her' }, createdAt: '', updatedAt: '' };
+
+		expect((await parseProfileForm(form(basics), previous)).basics.pronouns).toBe('she/her');
+		expect((await parseProfileForm(form(basics), undefined)).basics).not.toHaveProperty('pronouns');
 	});
 
 	it('reads the performer section like a project, with genres optional, and an empty section as on', async () => {

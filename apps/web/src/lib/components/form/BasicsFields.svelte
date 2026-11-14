@@ -12,7 +12,8 @@
 	/**
 	 * What every profile and project has (`section.defs#basics`): a name, pronouns, a bio, a picture, where they're
 	 * based, and links. `nameAside` sits beside the name, like a project's kind. A project has to say where it is; a
-	 * person doesn't.
+	 * person doesn't. A person's pronouns come from their Bluesky profile, so they pass `pronouns` (empty for none),
+	 * which shows them without a field; a project edits its own.
 	 */
 	let {
 		values = {},
@@ -21,7 +22,8 @@
 		nameLabel = 'Name',
 		description,
 		placeRequired = false,
-		nameAside
+		nameAside,
+		pronouns
 	}: {
 		values?: ProjectFormValues;
 		avatarUrl?: string | null;
@@ -30,6 +32,7 @@
 		description: string;
 		placeRequired?: boolean;
 		nameAside?: Snippet;
+		pronouns?: string;
 	} = $props();
 
 	const fields = $derived(formFields(values));
@@ -53,10 +56,18 @@
 		</div>
 		{#if nameAside}{@render nameAside()}{/if}
 	</div>
-	<div class="sm:max-w-60">
-		<label class="label" for="pronouns">Pronouns <span class="font-normal text-fg-subtle">(optional)</span></label>
-		<input id="pronouns" class="input" name="pronouns" bind:value={fields.pronouns} maxlength="24" />
-	</div>
+	{#if pronouns === undefined}
+		<div class="sm:max-w-60">
+			<label class="label" for="pronouns">Pronouns <span class="font-normal text-fg-subtle">(optional)</span></label>
+			<input id="pronouns" class="input" name="pronouns" bind:value={fields.pronouns} maxlength="24" />
+		</div>
+	{:else}
+		<div>
+			<p class="label">Pronouns</p>
+			<p class="m-0 text-body text-fg">{pronouns || 'None set'}</p>
+			<p class="hint">Change them in your Bluesky profile.</p>
+		</div>
+	{/if}
 	<div>
 		<label class="label" for="bio">Bio</label>
 		<textarea id="bio" class="input min-h-36 py-2.5" name="bio" maxlength="30000" bind:value={fields.bio}></textarea>

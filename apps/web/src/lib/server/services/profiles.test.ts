@@ -133,6 +133,19 @@ describe('ProfileService.save and blueskyPrefill', () => {
 		expect((await t.profiles.get(DJ))?.record.basics.avatar).toBeUndefined();
 	});
 
+	it("has the directory read the account's Bluesky profile once they have a profile here, for its pronouns", async () => {
+		await t.net.client(DJ).putRecord({
+			collection: BSKY_PROFILE,
+			rkey: 'self',
+			record: { $type: BSKY_PROFILE, displayName: 'Neon', pronouns: 'they/them' }
+		});
+		// Without a profile here, the directory skipped it.
+		expect(await t.profiles.bluesky(DJ)).toEqual({ name: null, pronouns: null });
+
+		await t.profiles.save(await t.viewer(DJ), { basics: { name: 'Neon' }, avatar: 'keep', swap: null });
+		await expect.poll(() => t.profiles.bluesky(DJ)).toEqual({ name: 'Neon', pronouns: 'they/them' });
+	});
+
 	it('asks an account whose session lapsed to sign in again', async () => {
 		const viewer = await t.viewer('did:plc:lapsed');
 
@@ -187,10 +200,21 @@ describe('ProfileService.save and blueskyPrefill', () => {
 		await client.putRecord({
 			collection: BSKY_PROFILE,
 			rkey: 'self',
-			record: { $type: BSKY_PROFILE, displayName: 'Neon', description: 'Hypnotic techno', avatar }
+			record: {
+				$type: BSKY_PROFILE,
+				displayName: 'Neon',
+				description: 'Hypnotic techno',
+				pronouns: 'they/them',
+				avatar
+			}
 		});
 
-		expect(await t.profiles.blueskyPrefill(DJ)).toEqual({ name: 'Neon', bio: 'Hypnotic techno', avatar });
+		expect(await t.profiles.blueskyPrefill(DJ)).toEqual({
+			name: 'Neon',
+			bio: 'Hypnotic techno',
+			pronouns: 'they/them',
+			avatar
+		});
 		// Without a session there's nothing to read it with.
 		expect(await t.profiles.blueskyPrefill('did:plc:lapsed')).toBeNull();
 	});
