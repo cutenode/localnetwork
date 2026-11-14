@@ -1564,7 +1564,7 @@ pub fn scrub_report(r: &ScrubReport) {
     }
 }
 
-fn kind_name(k: SpaceKind) -> &'static str {
+pub(crate) fn kind_name(k: SpaceKind) -> &'static str {
     match k {
         SpaceKind::Audio => "audio",
         SpaceKind::Analysis => "analysis (beat grids, cues, waveforms)",

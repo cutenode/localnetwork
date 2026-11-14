@@ -18,7 +18,7 @@ How someone gets a profile, and how a DJ gets into Find DJs.
 
 ```mermaid
 flowchart TD
-  First["No profile yet: a card on /dashboard,<br/>filled from their Bluesky profile"] --> Edit["/dashboard/profile"]
+  First["No profile yet: the first step of<br/>the /dashboard checklist, filled<br/>from their Bluesky profile"] --> Edit["/dashboard/profile"]
   Edit --> Save["Writes computer.localnetwork.profile<br/>to their repo over the version the form opened"]
   Save --> Wait["Waits up to 5 s for HappyView to serve it"]
   Wait --> Page["/@[handle] shows it,<br/>sections decide the sidebar"]
@@ -30,7 +30,7 @@ flowchart TD
   Find --> Off["Turning the DJ section off hides<br/>them too, the listing stays"]
 ```
 
-Source: [`src/lib/server/services/profiles.ts`](../../src/lib/server/services/profiles.ts), [`src/routes/dashboard/profile/+page.server.ts`](../../src/routes/dashboard/profile/+page.server.ts), [`src/lib/server/services/dj-listings.ts`](../../src/lib/server/services/dj-listings.ts), [`src/routes/admin/listings/[did]/+page.server.ts`](../../src/routes/admin/listings/[did]/+page.server.ts)
+Source: [`src/lib/server/services/profiles.ts`](../../src/lib/server/services/profiles.ts), [`src/lib/onboarding/steps/profile.ts`](../../src/lib/onboarding/steps/profile.ts), [`src/routes/dashboard/profile/+page.server.ts`](../../src/routes/dashboard/profile/+page.server.ts), [`src/lib/server/services/dj-listings.ts`](../../src/lib/server/services/dj-listings.ts), [`src/routes/admin/listings/[did]/+page.server.ts`](../../src/routes/admin/listings/[did]/+page.server.ts)
 
 ## Moderation requests
 
@@ -62,16 +62,16 @@ Source: [`src/lib/server/services/requests.ts`](../../src/lib/server/services/re
 
 ## Request lifecycle
 
-The status of a moderation request. Nobody can decide their own, and only staff decide. A rejection or a call for changes needs a reason. A `list` request can't be revised, so changes requested on one end in a withdrawal.
+The status of a moderation request. Nobody can decide their own, and only staff decide. A rejection or a call for changes needs a reason. Revising a `list` request takes only a note, since staff review the profile as it is.
 
 ```mermaid
 stateDiagram-v2
   [*] --> pending: submitted
-  pending --> pending: requester revises (not a list request)
+  pending --> pending: requester revises
   pending --> approved: staff approve
   pending --> rejected: staff reject
   pending --> changes_requested: staff ask for changes
-  changes_requested --> pending: requester revises (not a list request)
+  changes_requested --> pending: requester revises
   pending --> withdrawn: requester withdraws, or their record is deleted
   changes_requested --> withdrawn: requester withdraws, or their record is deleted
   approved --> [*]
@@ -109,6 +109,8 @@ flowchart TD
   City["City search"] --> Places["/api/places, cached in SQLite"]
   Places --> Find
   Places --> Match
+  City -- "typed, not picked" --> Lookup["/projects looks it up once,<br/>same cache"]
+  Lookup --> Search
   Search --> Dj["/@[handle] for a listed DJ"]
   Search --> Page["/projects/[slug]"]
   Rank --> Page
@@ -199,7 +201,7 @@ Source: [`src/lib/server/services/bookings.ts`](../../src/lib/server/services/bo
 
 ## Booking lifecycle
 
-The status of a booking thread. The site refuses any other change with a 409 and audits it as denied. A status record a participant writes to the space from elsewhere is indexed without that check.
+The status of a booking thread. The site refuses any other change with a 409 and audits it as denied. A status record a participant writes to the space from elsewhere waits as unapplied until the thread's rules allow that move.
 
 ```mermaid
 stateDiagram-v2

@@ -1,10 +1,12 @@
 import { render } from 'vitest-browser-svelte';
 import { DEMO_PROFILE } from '../../../../scripts/seed-data.ts';
 import Page from '../../../routes/@[handle]/+page.svelte';
-import { NEON, NEON_DJ, NEON_TIDE, SET_ARTIST, type LinkChecks } from '#lib/testing/link-matrix.ts';
+import { NEON, NEON_DJ, NEON_TIDE, SET_ARTIST, SET_PAGE, type LinkChecks } from '#lib/testing/link-matrix.ts';
 import { PAGE_META } from '#lib/testing/page-meta.ts';
 
 const ACTS = 'Acts they play in or manage';
+
+const SETS = 'Their sets';
 
 const ARTISTS = 'Artists in their sets';
 
@@ -32,7 +34,7 @@ export default {
 				name: DEMO_PROFILE.basics.name,
 				account: NEON,
 				meta: PAGE_META,
-				dj: Promise.resolve(row === ARTISTS ? [{ ...NEON_DJ, profile: null }] : []),
+				dj: Promise.resolve(row === ACTS ? [] : [{ ...NEON_DJ, profile: null }]),
 				sets: undefined,
 				playsIn: Promise.resolve(row === ACTS ? [NEON_TIDE] : [])
 			},
@@ -40,6 +42,7 @@ export default {
 		}),
 	links: {
 		[ACTS]: [{ name: 'Neon Tide', href: '/projects/neon-tide', within: 'Plays in' }],
+		[SETS]: [{ ...SET_PAGE, within: 'Sets' }],
 		[ARTISTS]: [{ ...SET_ARTIST, within: 'Sets' }]
 	}
 } satisfies LinkChecks;

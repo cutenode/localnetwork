@@ -851,10 +851,10 @@ describe('the signed-in layout’s cart', () => {
 	});
 });
 
-// A purchase link to a gate the Downloader always walks to a file (Hypeddit,
-// Droploud, Pump Your Sound) is walked where it is clicked, by the background
-// worker (test/background.test.ts), instead of followed. Here the worker is
-// whatever answers SAVE_GATE.
+// A purchase link to a gate the background worker takes (Hypeddit, walked to
+// its file; Droploud, Pump Your Sound and Laylo, opened with help on their own
+// page) is handed to it where it is clicked (test/background.test.ts), instead
+// of followed. Here the worker is whatever answers SAVE_GATE.
 describe('a gate the extension walks', () => {
 	const GATE = 'https://hypeddit.com/x';
 
@@ -885,7 +885,7 @@ describe('a gate the extension walks', () => {
 
 		await click(ours());
 		expect(followed).toEqual([false]);
-		expect(asked()).toEqual([[{ type: 'SAVE_GATE', url: GATE }]]);
+		expect(asked()).toEqual([[{ type: 'SAVE_GATE', url: GATE, permalink: '/l/one' }]]);
 		expect(ours().getAttribute('aria-busy')).toBe('true');
 		expect(said()).toEqual(['']);
 
@@ -925,6 +925,21 @@ describe('a gate the extension walks', () => {
 		answer({ saved: true, mark: false });
 		await flush();
 		expect(said()).toEqual(['saved']);
+	});
+
+	it('hands the worker a gate done on its own page, which it opens with help there', async () => {
+		globalThis.chrome = createChrome();
+		const LAYLO = 'https://laylo.com/hairitage/9PWcf';
+		render(likesWithPurchase({ purchase: { url: LAYLO, label: 'Free Download' } }), '/dj/likes');
+		await loadContentScript();
+		stopNavigation();
+		chrome.runtime.sendMessage.mockResolvedValue({ saved: false, mark: false });
+
+		await click(ours());
+		await flush();
+		expect(asked()).toEqual([[{ type: 'SAVE_GATE', url: LAYLO, permalink: '/l/one' }]]);
+		expect(queueIn()).toEqual([expect.objectContaining({ permalink: '/l/one' })]);
+		expect(said()).toEqual(['opened the gate']);
 	});
 
 	it('walks it once however often it is clicked while it walks', async () => {

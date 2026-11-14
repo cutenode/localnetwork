@@ -3,8 +3,9 @@
 //! capabilities grant, with only the params listed for each, naming drives the host finds itself
 //! or gave its hooks under way (never by path), in pages of a bounded size, a few calls at a time; what it gets back, errors
 //! too, says nothing of where things are on this computer (see [`answer_for_plugin`]). A plugin
-//! with the `net` feature calls `net/fetch` here too (see [`super::net`]), and one with the
-//! `accounts` feature `accounts/ensure` (see [`super::accounts::ensure`]).
+//! with the `net` feature calls `net/fetch` here too (see [`super::net`]), one with the
+//! `accounts` feature `accounts/ensure` (see [`super::accounts::ensure`]), and one with the
+//! `atmosphere` feature `atmosphere/put_record` (see [`super::atmosphere`]).
 
 use std::cmp::Reverse;
 use std::path::PathBuf;
@@ -198,6 +199,10 @@ pub(crate) fn answer(
                 method::NET_FETCH if live.sends(method::NET_FETCH) => plugin.fetch(&live, req.params, &req.cancel),
                 method::ACCOUNTS_ENSURE if live.sends(method::ACCOUNTS_ENSURE) => {
                     plugin.ensure(&live, req.params, &Ctx::new(&NoProgress, req.cancel.clone()))
+                }
+                #[cfg(feature = "account")]
+                method::ATMOSPHERE_PUT_RECORD if live.sends(method::ATMOSPHERE_PUT_RECORD) => {
+                    plugin.put_record(&live, req.params)
                 }
                 _ => {
                     let params = match plugin.has_loose() && reads_library(&req.method) {

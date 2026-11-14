@@ -9,9 +9,9 @@
 			"measures": "Instructions of one frame of the Library view at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"deck": {
-			"limit": 3671618,
+			"limit": 3489265,
 			"unit": "instructions",
-			"measures": "Instructions of one frame of the Deck layout at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
+			"measures": "Instructions of one frame of player mode at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"drives": {
 			"limit": 3212290,
@@ -29,7 +29,7 @@
 			"measures": "Instructions of one frame of the command palette, over the Library view, at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"help": {
-			"limit": 8247502,
+			"limit": 7898035,
 			"unit": "instructions",
 			"measures": "Instructions of one frame of the help, over the Library view, at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		}

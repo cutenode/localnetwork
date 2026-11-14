@@ -2397,10 +2397,15 @@ export type SetPluginSetting = {
   value?: unknown;
 };
 
-/** What to write to a drive's tracks' analysis files, from what one analyzer kept. */
+/** What to write to a drive's tracks' analysis files, from what analyzers kept. */
 export type ApplyAnalysis = {
-  plugin: string;
-  analyzer: string;
+  /**
+   * The plugin to write from, named with its analyzer [default: each part from the analyzer
+   * chosen for it alone (`plugin roles`), else the first with one for a track].
+   */
+  plugin?: string | null;
+  /** Its analyzer, named with the plugin. */
+  analyzer?: string | null;
   /** The library or drive whose tracks to write to. */
   drive: string;
   /** What to write, which the analyzer must work out: `grid`, `phrases`, `waveform`. */
@@ -2724,7 +2729,8 @@ export type SetAutoPick = {
 };
 
 export type ChooseRole = {
-  role: FieldRole;
+  /** The role, or the part of the analysis (`grid`, `phrases`, `waveform`). */
+  role: RoleOrPart;
   /**
    * The analyzer to read it from, `<plugin>.<analyzer>` (one with the role); `null` (or left
    * out) puts it back to its default.
@@ -2733,6 +2739,12 @@ export type ChooseRole = {
   /** Read it from no analyzer instead (`recording`: `sets publish` looks up no MusicBrainz IDs). */
   none?: boolean;
 };
+
+/**
+ * What an analyzer is chosen for: a role, or a part of a track's analysis. Their names never
+ * clash.
+ */
+export type RoleOrPart = FieldRole | AnalysisPart;
 
 /** Building a drive from a plugin's library source. */
 export type SourceExport = {
@@ -8583,6 +8595,11 @@ export type Manifest = {
   contributes: Contributions;
   /** How often the host may send `net/fetch` requests to some of the hosts it talks to. */
   net?: NetLimit[];
+  /**
+   * The Lexicon documents of the record types its `atmosphere:write:` capabilities name, as
+   * their authorities publish them, and of the definitions they refer to.
+   */
+  lexicons?: unknown[];
 };
 
 /**
@@ -9483,9 +9500,9 @@ export type ListedProvider = {
   kind: ProviderKind;
 };
 
-/** A role, and the analyzers answering it. */
+/** A role or a part of the analysis, and the analyzers answering it. */
 export type RoleChoice = {
-  role: FieldRole;
+  role: RoleOrPart;
   /**
    * The analyzer it's read from now, `<plugin>.<analyzer>` (none: no analyzer has it, or it's
    * turned off).

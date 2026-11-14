@@ -193,6 +193,17 @@ fn plugin_roles_shows_and_chooses_where_each_role_is_read_from() {
     assert_eq!((&v[0]["chosen"], &v[0]["off"]), (&Value::Null, &json!(true)), "{v}");
     let out = env.ok(&["--yes", "plugin", "roles", "recording", "--reset"]);
     assert!(line(&out, "recording  ").contains("musicbrainz.ids  default"), "{out}");
+
+    // The beat grid, phrases and waveform are chosen as roles are, from an analyzer that has one.
+    let out = env.ok(&["plugin", "roles"]);
+    assert!(line(&out, "waveform").contains("sound.tempo-key-loudness  default"), "{out}");
+    assert!(line(&out, "phrases").contains("no analyzer works it out"), "{out}");
+    let out = env.ok(&["--yes", "plugin", "roles", "waveform", sound]);
+    assert!(line(&out, "waveform  ").ends_with("chosen"), "{out}");
+    let v = env.json(&["plugin", "roles", "waveform"]);
+    assert_eq!(v, json!([{ "role": "waveform", "chosen": sound, "set": true, "off": false, "offered": [sound] }]));
+    let err = env.fails(1, &["--yes", "plugin", "roles", "grid", sound]);
+    assert!(err.contains("no analyzer works out grid"), "{err}");
 }
 
 /// `analyze` alone leaves out the analyzers of plugins that go online, and says how to run them:
@@ -403,8 +414,8 @@ fn analyze_writes_a_grid_into_the_analysis_files() {
 /// whose audio fails it or none: `analyze --apply` runs it and writes what it worked out where
 /// it can, saying what it left out (a grid only over the tracks' with --overwrite, phrases on the
 /// tracks' grid, no waveform over rekordbox's colour one), and changes nothing on a dry run. A
-/// key or BPM asked with them, --min-confidence, an analyzer not named or one that doesn't work
-/// it out is refused before anything runs, and every track failing is an error. A key or BPM
+/// key or BPM asked with them, --min-confidence, an analyzer not named (unless one is chosen for
+/// the grid in `plugin roles`) or one that doesn't work it out is refused before anything runs, and every track failing is an error. A key or BPM
 /// asked alone is written from the analyzer chosen for it (the sound plugin's, of it and
 /// `heard`), as `plugins.apply_fields` plans it.
 #[cfg(debug_assertions)]
@@ -499,6 +510,13 @@ fn analyze_apply_writes_the_parts_asked_where_it_can(tc: hegel::TestCase) {
         let err = env.fails(2, &[&["analyze", at][..], &args].concat());
         assert!(err.contains(why), "{err}");
         assert!(!err.contains("analyzed"), "nothing ran: {err}");
+        if refusal == Some(2) && failing == 0 {
+            // Once one is chosen for the grid, it's the one run and written from.
+            env.ok(&["--yes", "plugin", "roles", "grid", "echo.heard"]);
+            let out = env.ok(&["analyze", at, "--apply", "grid", "--dry-run"]);
+            assert!(out.contains("heard (echo)") && !out.contains("beat (echo)"), "{out}");
+            assert!(out.contains("write the grid from Heard to"), "{out}");
+        }
         return;
     }
     let mut parts: Vec<AnalysisPart> =

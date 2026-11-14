@@ -12,7 +12,10 @@ fn offered(dir: &Path) -> Store {
         field: field.into(),
     };
     let both = |name| vec![field("a", name), field("b", name)];
-    crate::testing::roles_on_this_thread(Some([(Role::Key, both("tone")), (Role::Bpm, both("tempo"))].into()));
+    let role = roles::RoleOrPart::Role;
+    crate::testing::roles_on_this_thread(Some(
+        [(role(Role::Key), both("tone")), (role(Role::Bpm), both("tempo"))].into(),
+    ));
     Store::open_or_init(dir.join("store")).unwrap()
 }
 
