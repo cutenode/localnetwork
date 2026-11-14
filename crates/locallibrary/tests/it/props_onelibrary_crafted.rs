@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::edit::{AudioFile, TrackFields};
-use locallibrary::onelibrary::cipher::{Codec, PAGE_SIZE};
+use locallibrary::onelibrary::cipher::{self, PAGE_SIZE};
 use locallibrary::onelibrary::{self, ContentRecord, CueRow, OneLibrary, Tree};
 use rusqlite::types::Value;
 
@@ -398,7 +398,7 @@ fn a_property_table_of_many_pages_is_hashed_as_it_is(tc: TestCase) {
     assert_eq!(hash(&before) == hash(&after), !many, "{rows} rows");
     let (codec, plain) = onelibrary::decrypt(&after, None).unwrap();
     assert_eq!(hash(&codec.encrypt(&plain).unwrap()), hash(&after));
-    assert!(Codec::for_file(&after).is_ok());
+    assert!(cipher::for_file(&after).is_ok());
 }
 
 /// Ids are read as players number them, up to 2^32 - 1: a row whose id, or whose reference to

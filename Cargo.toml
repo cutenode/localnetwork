@@ -29,6 +29,7 @@ loclib-model = { path = "crates/loclib-model", version = "0.1.0" }
 loclib-mysettings = { path = "crates/loclib-mysettings", version = "0.1.0" }
 loclib-plugin = { path = "crates/loclib-plugin", version = "0.1.0" }
 loclib-progress = { path = "crates/loclib-progress", version = "0.1.0" }
+loclib-sqlcipher = { path = "crates/loclib-sqlcipher", version = "0.1.0" }
 # Test helpers, never published: a dev-dependency only, so no version.
 loclib-testkit = { path = "crates/loclib-testkit" }
 loclib-transcode = { path = "crates/loclib-transcode", version = "0.1.0" }

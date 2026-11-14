@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 
 use hegel::generators as gs;
 use hegel::{Generator, HealthCheck, PrintableGenerator, TestCase};
-use locallibrary::onelibrary::cipher::{Codec, PAGE_SIZE, RESERVE, SALT_LEN, SQLITE_MAGIC};
+use locallibrary::onelibrary::cipher::{self, Codec, PAGE_SIZE, RESERVE, SALT_LEN, SQLITE_MAGIC};
 use locallibrary::onelibrary::{self, CueRow, OneLibrary, wal};
 use locallibrary::{paths, pdb};
 use loclib_model::test_util::tracks_like;
@@ -30,7 +30,7 @@ fn fixture(name: &str) -> &'static [u8] {
 /// The codec of the empty fixture database (its keys are derived once per process).
 fn codec() -> &'static Codec {
     static CODEC: OnceLock<Codec> = OnceLock::new();
-    CODEC.get_or_init(|| Codec::for_file(fixture("empty.db")).unwrap())
+    CODEC.get_or_init(|| cipher::for_file(fixture("empty.db")).unwrap())
 }
 
 /// The empty fixture database, decrypted.
@@ -100,7 +100,7 @@ fn databases_round_trip_through_the_cipher(tc: TestCase) {
     plain[20] = RESERVE as u8;
     let enc = codec().encrypt(&plain).unwrap();
     assert_eq!(enc.len(), plain.len());
-    let dec = Codec::for_file(&enc).unwrap().decrypt(&enc, |_| true).unwrap();
+    let dec = cipher::for_file(&enc).unwrap().decrypt(&enc, |_| true).unwrap();
     for (a, b) in dec.chunks(PAGE_SIZE).zip(plain.chunks(PAGE_SIZE)) {
         assert_eq!(&a[..USABLE], &b[..USABLE]);
     }

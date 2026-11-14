@@ -4038,11 +4038,9 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 name = "locallibrary"
 version = "0.1.0"
 dependencies = [
- "aes 0.9.3",
  "base64 0.22.1",
  "binrw",
  "blake3",
- "cbc",
  "chrono",
  "codspeed-criterion-compat",
  "directories",
@@ -4054,7 +4052,6 @@ dependencies = [
  "getrandom 0.3.4",
  "hegeltest",
  "hickory-resolver",
- "hmac 0.12.1",
  "http",
  "image",
  "indexmap",
@@ -4078,6 +4075,7 @@ dependencies = [
  "loclib-mysettings",
  "loclib-plugin",
  "loclib-progress",
+ "loclib-sqlcipher",
  "loclib-testkit",
  "loclib-tracklist",
  "loclib-transcode",
@@ -4091,7 +4089,6 @@ dependencies = [
  "rekordbox-pdb",
  "rekordcrate",
  "reqwest 0.12.28",
- "ring",
  "rusqlite",
  "rustc-hash",
  "same-file",
@@ -4494,6 +4491,24 @@ dependencies = [
  "hegeltest",
  "schemars",
  "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-sqlcipher"
+version = "0.1.0"
+dependencies = [
+ "aes 0.9.3",
+ "cbc",
+ "codspeed-criterion-compat",
+ "getrandom 0.3.4",
+ "hegeltest",
+ "hmac 0.12.1",
+ "indexmap",
+ "ring",
+ "rusqlite",
+ "rustc-hash",
+ "sha2 0.10.9",
  "thiserror 2.0.21",
 ]
 
