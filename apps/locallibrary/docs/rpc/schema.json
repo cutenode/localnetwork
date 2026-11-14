@@ -17456,7 +17456,14 @@
           "items": {
             "$ref": "#/$defs/TrackChange"
           },
-          "description": "Those whose details, file or analysis differ: the target's stay as they are."
+          "description": "Those whose details, file, analysis or My Tags differ: the target's stay as they are."
+        },
+        "source_onelibrary_only": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrackRef"
+          },
+          "description": "Tracks only the source's OneLibrary lists. A merge reads the source's export.pdb, so\nthey aren't brought across, and with any the source isn't taken in."
         },
         "takes_in_source": {
           "type": "boolean",
@@ -17528,6 +17535,7 @@
         "new_tracks",
         "matched_tracks",
         "differing_tracks",
+        "source_onelibrary_only",
         "takes_in_source",
         "playlists",
         "artwork_files",
