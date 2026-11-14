@@ -24,6 +24,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Local, NaiveDate, Utc};
+use loclib_plugin::TracklistEntry;
 use lofty::prelude::*;
 use lofty::tag::ItemKey;
 use schemars::JsonSchema;
@@ -145,6 +146,24 @@ impl Set {
         .flatten()
         .collect();
         Ok(Unnamed { positions: marked.into_iter().chain(asked).chain(profile).collect(), notes })
+    }
+
+    /// Its tracks as a published tracklist has them: those at the `unnamed` positions (from 1)
+    /// as only their place, without their artist, title, album or length.
+    pub fn tracklist(&self, unnamed: &BTreeSet<usize>) -> Vec<TracklistEntry> {
+        (1..)
+            .zip(&self.tracks)
+            .map(|(n, e)| {
+                let named = !unnamed.contains(&n);
+                TracklistEntry {
+                    artist: named.then(|| e.artist.clone()),
+                    title: named.then(|| e.title.clone()),
+                    album: (named && !e.album.is_empty()).then(|| e.album.clone()),
+                    start_seconds: e.start_seconds,
+                    duration_seconds: (named && e.duration_secs > 0).then_some(e.duration_secs),
+                }
+            })
+            .collect()
     }
 }
 

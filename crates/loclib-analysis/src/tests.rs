@@ -1,6 +1,6 @@
 use std::f64::consts::PI;
 
-use loclib_mixid::test_util::{wav, wav_of};
+use loclib_testkit::audio::{wav, wav_of};
 
 use super::*;
 use crate::tempo::TempoRelation;
@@ -179,10 +179,10 @@ fn unreadable_files_and_cancelling_are_errors() {
     let dir = tempfile::tempdir().unwrap();
     let gone = dir.path().join("gone.wav");
     let err = analyze(&gone, Want::ALL, &Ctx::silent()).unwrap_err();
-    assert!(matches!(&err, Error::Audio(loclib_mixid::Error::Io { path, .. }) if *path == gone), "{err}");
+    assert!(matches!(&err, Error::Audio(loclib_audio::Error::Io { path, .. }) if *path == gone), "{err}");
     let zero = dir.path().join("zero.wav");
     std::fs::write(&zero, wav(0, 16, 0.0)).unwrap();
-    assert!(matches!(analyze(&zero, Want::ALL, &Ctx::silent()), Err(Error::Audio(loclib_mixid::Error::Parse { .. }))));
+    assert!(matches!(analyze(&zero, Want::ALL, &Ctx::silent()), Err(Error::Audio(loclib_audio::Error::Parse { .. }))));
     let path = write(&dir, "sine.wav", 44_100, &sine(44_100, 30.0, 440.0, 0.5, 0.0));
     let ctx = Ctx::silent();
     ctx.cancel.cancel();

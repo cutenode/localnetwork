@@ -3,8 +3,9 @@
 //
 // The panel around it is tested in test/panels/third-party-downloads.test.ts
 // and test/panels/remembered.test.ts; what is here is the store's own rules:
-// what a row keeps, what it deliberately does not, and what happens to a row
-// whose site this version no longer knows.
+// what a row keeps, what it deliberately does not, what happens to a row whose
+// site this version no longer knows, and how it takes in what the background
+// worker says about a gate done on its own page.
 import { describe, it, expect, vi } from 'vitest';
 import type { Site } from '../../src/tools/third-party-downloads/sites/index.ts';
 import type { Row } from '../../src/tools/third-party-downloads/walked.svelte.ts';
@@ -17,6 +18,8 @@ declare const chrome: ChromeMock;
 const HYPE = 'https://hypeddit.com/886rp1';
 
 const DROP = 'https://droploud.com/gate/abc';
+
+const LAYLO = 'https://laylo.com/hairitage/9PWcf';
 
 // A fresh module graph each time, so the singleton starts empty.
 async function freshWalked(session: Seed = {}) {
@@ -63,9 +66,10 @@ describe('the list', () => {
 
 	it('is read once, however many times it is started', async () => {
 		const { walked } = await freshWalked();
-		expect(chrome.storage.session.get).toHaveBeenCalledTimes(1);
+		// The list, then what the worker has said since (below).
+		expect(chrome.storage.session.get).toHaveBeenCalledTimes(2);
 		await walked.start();
-		expect(chrome.storage.session.get).toHaveBeenCalledTimes(1);
+		expect(chrome.storage.session.get).toHaveBeenCalledTimes(2);
 	});
 
 	it('keeps of a row what the panel would have to ask for again', async () => {
@@ -249,5 +253,90 @@ describe('with no session storage to write to', () => {
 		walked.add(row(HYPE, siteFor(HYPE)));
 		await flush();
 		expect(walked.listed(HYPE)!.url).toBe(HYPE);
+	});
+});
+
+// A gate done on its own page is finished while the popup is closed; the
+// worker keeps what became of it under 'gate-outcomes', by URL
+// (tools/third-party-downloads/on-page.ts), and the list takes it in.
+describe('what the worker says about a gate done on its own page', () => {
+	const kept = (over: Record<string, Partial<Row>> = {}) => ({
+		downloader: {
+			listed: [DROP],
+			known: {
+				[DROP]: { url: DROP, label: 'Front', state: 'failed', next: 'open', openUrl: DROP, detail: 'gone' },
+				[LAYLO]: { url: LAYLO, label: 'Drop', state: 'queued' },
+				...over
+			}
+		}
+	});
+
+	it('takes it in on start, listed or not, and writes the list back', async () => {
+		const { walked } = await freshWalked({
+			...kept(),
+			'gate-outcomes': {
+				[DROP]: { state: 'done', detail: '', label: 'Front to Back.mp3' },
+				[LAYLO]: { state: 'sent', detail: 'you RSVP’d.', label: '' },
+				// A gate the list never had is nobody's row.
+				'https://droploud.com/gate/elsewhere': { state: 'done', detail: '', label: 'x' }
+			}
+		});
+
+		expect(walked.rows[0]).toMatchObject({
+			state: 'done',
+			label: 'Front to Back.mp3',
+			detail: '',
+			// What the failure offered goes with it.
+			next: '',
+			openUrl: ''
+		});
+		await flush();
+		expect(stored().known[DROP]).toMatchObject({ state: 'done', label: 'Front to Back.mp3' });
+		// Not listed, so not on screen, but what became of it is remembered, and
+		// an outcome with no name keeps the row's own.
+		expect(stored().known[LAYLO]).toMatchObject({ state: 'sent', detail: 'you RSVP’d.', label: 'Drop' });
+		expect(stored().known).not.toHaveProperty(['https://droploud.com/gate/elsewhere']);
+	});
+
+	it('follows it while the popup is open', async () => {
+		const { walked } = await freshWalked(kept());
+
+		await chrome.storage.session.set({
+			'gate-outcomes': { [DROP]: { state: 'opened', detail: 'finish it on Droploud’s page.', label: '' } }
+		});
+		await flush();
+		expect(walked.rows[0]).toMatchObject({ state: 'opened', detail: 'finish it on Droploud’s page.' });
+
+		// Other keys, and the other area, are not about it.
+		await chrome.storage.session.set({ queue: [] });
+		await chrome.storage.local.set({ 'gate-outcomes': { [DROP]: { state: 'done', detail: '', label: 'no' } } });
+		await flush();
+		expect(walked.rows[0].state).toBe('opened');
+	});
+
+	it('writes nothing for what changes nothing, or what does not read', async () => {
+		await freshWalked({
+			...kept({ [DROP]: { url: DROP, label: 'Front', state: 'opened', detail: 'on the page.' } }),
+			'gate-outcomes': { [DROP]: { state: 'opened', detail: 'on the page.', label: '' } }
+		});
+		await flush();
+		expect(chrome.storage.session.set).not.toHaveBeenCalled();
+
+		await chrome.storage.session.set({ 'gate-outcomes': 'not a record' });
+		await flush();
+		expect(chrome.storage.session.set).toHaveBeenCalledTimes(1);
+	});
+
+	it('takes in nothing when it cannot be read, and keeps the list', async () => {
+		vi.resetModules();
+		globalThis.chrome = createChrome({ session: kept() });
+		const read = chrome.storage.session.get.getMockImplementation()!;
+		chrome.storage.session.get.mockImplementation((keys) =>
+			keys === 'gate-outcomes' ? Promise.reject(new Error('gone')) : read(keys)
+		);
+		const { walked } = await import('../../src/tools/third-party-downloads/walked.svelte.ts');
+
+		await expect(walked.start()).resolves.toBeUndefined();
+		expect(walked.rows[0].state).toBe('failed');
 	});
 });

@@ -32,6 +32,7 @@ import {
 	parseSpaceRecordUri,
 	parseSpaceUri,
 	publicRecordUri,
+	rkeyOf,
 	spaceOfRecord
 } from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
@@ -959,7 +960,7 @@ export class EpkService {
 
 	/** A press kit record in `did`'s repo as a view, or null when it doesn't validate. */
 	view(did: string, { uri, cid, value }: DirectoryRecord): EpkView | null {
-		const rkey = uri.split('/').at(-1)!;
+		const rkey = rkeyOf(uri);
 		const record = this.parse(COLLECTION.epk, epkRecordSchema, value);
 
 		if (!record) {

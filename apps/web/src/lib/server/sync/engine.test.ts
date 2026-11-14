@@ -550,7 +550,8 @@ describe('SpaceSyncer against a repo host', () => {
 				lastSyncedAt: expect.any(String),
 				lastError: null,
 				registrationExpiresAt: null,
-				repos: [{ did: DJ, rev: synced?.rev, lastSyncedAt: synced?.lastSyncedAt, lastError: null }]
+				repos: [{ did: DJ, rev: synced?.rev, lastSyncedAt: synced?.lastSyncedAt, lastError: null }],
+				stuck: []
 			}
 		]);
 
@@ -784,12 +785,23 @@ describe('SpaceSyncer against a repo host', () => {
 			await s.sync(SPACE);
 			expect((await repoRow())?.rev).toBeTruthy();
 			expect(await pending()).toMatchObject([{ rkey: 'a', attempts: 1, lastError: 'directory offline' }]);
+			expect((await s.status())[0]?.stuck).toEqual([
+				{
+					did: DJ,
+					collection: NOTE,
+					rkey: 'a',
+					attempts: 1,
+					nextAttemptAt: '2026-11-04T12:01:00.000Z',
+					lastError: 'directory offline'
+				}
+			]);
 
 			state.broken = false;
 			after(60_000);
 			await s.sync(SPACE);
 			expect(state.seen).toMatchObject([{ kind: 'upsert', rkey: 'a', value: { text: 'one' } }]);
 			expect(await pending()).toEqual([]);
+			expect((await s.status())[0]?.stuck).toEqual([]);
 		});
 
 		it('shows a failure that is not an Error as its text', async () => {
@@ -870,6 +882,8 @@ describe('SpaceSyncer against a repo host', () => {
 					lastError: null
 				})
 				.execute();
+			// Only waiting for its first run, so not stuck.
+			expect((await s.status())[0]?.stuck).toEqual([]);
 			state.seen.length = 0;
 			await s.sync(SPACE);
 			expect(state.seen).toMatchObject([{ kind: 'upsert', cid, value: JSON.parse(value) }]);

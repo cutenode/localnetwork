@@ -19,6 +19,7 @@ import { describe, it, expect } from 'vitest';
 import { audit } from './helpers/a11y.ts';
 import {
 	button,
+	byLabel,
 	buttons,
 	click,
 	mountApp,
@@ -244,9 +245,13 @@ describe('what the Downloader asks for', () => {
 		expect(field('email')).toHaveProperty('value', '');
 		expect(field('name')).toHaveProperty('value', '');
 		expect(marking()).toBe(true);
-		// The hint has to say the address reaches the artist, because a Laylo
-		// signup is a mailing list and that is the price of the link.
-		expect(text()).toContain('mailing list');
+		// The hint has to say who gets the address: Hypeddit's privacy policy
+		// shares it with the artist and with Hypeddit's own providers, and the
+		// pages opened from the Downloader get it filled in.
+		expect(text()).toContain(
+			'Hypeddit shares them with the artist, its email-checking service and its marketing providers'
+		);
+		expect(text()).toContain('Droploud and Laylo pages you open from here get the email filled in');
 	});
 
 	// The popup's own storage, not the extension's: nothing outside the popup
@@ -337,6 +342,161 @@ describe('the search badges', () => {
 		for (const site of SITES) await click(badgeSwitch(site.id));
 		expect(SITES.some((site) => badgeOn(site.id))).toBe(false);
 		expect(text()).toContain('those tracks get no badges');
+	});
+});
+
+// A site of your own, in the shape of the file's: added, edited and removed
+// here, kept in the popup's own storage, and judged as it is typed by the
+// reading the file gets, so a template refused here is one no row could use.
+describe('search sites of your own', () => {
+	const JUNO = 'https://www.juno.co.uk/search/?q={query}';
+
+	const siteForm = () => settingsSheet()!.querySelector('form');
+
+	/** The form's control for a label, found by the label's words. */
+	const formField = (label: string) =>
+		[...siteForm()!.querySelectorAll('label')].find((node) => clean(node) === label)!.control;
+
+	const formButton = (label: string) => [...siteForm()!.querySelectorAll('button')].find((b) => clean(b) === label)!;
+
+	const hint = () => clean(siteForm()!.querySelector('#site-url-hint'));
+
+	const own = () => JSON.parse(localStorage.getItem('pref:search-sites') ?? '[]');
+
+	const editButtons = () => buttons().filter((b) => /^(edit|remove) /.test(b.getAttribute('aria-label') ?? ''));
+
+	async function openForm() {
+		await openApp();
+		await openSettings();
+		await click(button('add a site'));
+	}
+
+	async function fill({ name = 'Juno', badge = 'J', url = JUNO } = {}) {
+		await type(formField('name'), name);
+		await type(formField('badge'), badge);
+		await type(formField('search address'), url);
+	}
+
+	async function addJuno() {
+		await openForm();
+		await fill();
+		await click(formButton('save'));
+	}
+
+	it('has none to begin with, and offers to add one', async () => {
+		await openApp();
+		await openSettings();
+		expect(editButtons()).toEqual([]);
+		expect(siteForm()).toBe(null);
+
+		await click(button('add a site'));
+		expect(siteForm()!.getAttribute('aria-label')).toBe('add a search site');
+		expect(button('add a site')).toBeUndefined();
+		expect(hint()).toBe('{artist}, {title} or {query} is filled in from the track.');
+		expect(formButton('save').disabled).toBe(true);
+		expect(audit()).toEqual([]);
+	});
+
+	it('adds one after the file’s, with a switch like theirs, kept between openings', async () => {
+		await openForm();
+		await fill();
+		await type(formField('colour'), '#f26522');
+		await type(formField('text'), '#000000');
+		expect(formButton('save').disabled).toBe(false);
+
+		await click(formButton('save'));
+		expect(siteForm()).toBe(null);
+		expect(own()).toEqual([
+			{ id: expect.any(String), name: 'Juno', badge: 'J', url: JUNO, background: '#f26522', color: '#000000' }
+		]);
+
+		const { id } = own()[0];
+		const switches = [...settingsSheet()!.querySelectorAll('[id^="search-"]')].map((node) => node.id);
+		expect(switches).toEqual([...SITES.map((site) => `search-${site.id}`), `search-${id}`]);
+		expect(field(`search-${id}`)!.getAttribute('aria-checked')).toBe('true');
+
+		await click(field(`search-${id}`));
+		expect(localStorage.getItem(`pref:search:${id}`)).toBe('0');
+
+		await mountApp();
+		expect(text()).toContain('Juno');
+		expect(field(`search-${id}`)!.getAttribute('aria-checked')).toBe('false');
+		expect(editButtons().map((b) => b.getAttribute('aria-label'))).toEqual(['edit Juno', 'remove Juno']);
+	});
+
+	it.each([
+		['not https', 'http://www.juno.co.uk/search/?q={query}', 'only https addresses work.'],
+		['no variable', 'https://www.juno.co.uk/search/', 'needs {artist}, {title} or {query} where the search goes.'],
+		[
+			'a variable that does not exist',
+			'https://www.juno.co.uk/?q={artis}',
+			'{artis} isn’t {artist}, {title} or {query}.'
+		],
+		['a search that is already a badge', SITES[0].url, 'that search is already a badge.']
+	])('refuses a template with %s, and says why', async (_why, url, problem) => {
+		await openForm();
+		await fill({ url });
+		expect(hint()).toBe(problem);
+		expect(formField('search address')!.getAttribute('aria-invalid')).toBe('true');
+		expect(formButton('save').disabled).toBe(true);
+
+		// Enter in a field submits the form, and that does not get past it either.
+		siteForm()!.requestSubmit();
+		await settle();
+		expect(own()).toEqual([]);
+		expect(audit()).toEqual([]);
+	});
+
+	it.each([
+		['name', { name: '  ' }],
+		['badge', { badge: '' }]
+	])('waits for a %s', async (_what, blank) => {
+		await openForm();
+		await fill(blank);
+		expect(formButton('save').disabled).toBe(true);
+	});
+
+	it('edits one in place, keeping its switch', async () => {
+		await addJuno();
+		const [{ id }] = own();
+
+		await click(byLabel('edit Juno'));
+		expect(siteForm()!.getAttribute('aria-label')).toBe('edit search site');
+		expect(formField('name')).toHaveProperty('value', 'Juno');
+		expect(formField('search address')).toHaveProperty('value', JUNO);
+		// Its own search is not one that is already a badge.
+		expect(formButton('save').disabled).toBe(false);
+
+		await type(formField('name'), 'Juno Records');
+		await click(formButton('save'));
+		expect(own()).toEqual([expect.objectContaining({ id, name: 'Juno Records' })]);
+		expect(text()).toContain('Juno Records');
+	});
+
+	it('removes one, and shuts the form if it was the one being edited', async () => {
+		await addJuno();
+		await click(byLabel('edit Juno'));
+		await click(byLabel('remove Juno'));
+		expect(own()).toEqual([]);
+		expect(siteForm()).toBe(null);
+		expect(editButtons()).toEqual([]);
+		expect(button('add a site')).toBeTruthy();
+	});
+
+	// The address is copied out of a shop's own tab, and going there closes
+	// the popup: what was typed is waiting when it comes back.
+	it('keeps a half-typed site when the popup closes, until it is cancelled', async () => {
+		await openForm();
+		await type(formField('name'), 'Juno');
+
+		await mountApp();
+		expect(formField('name')).toHaveProperty('value', 'Juno');
+
+		await click(formButton('cancel'));
+		expect(siteForm()).toBe(null);
+		await mountApp();
+		expect(siteForm()).toBe(null);
+		expect(own()).toEqual([]);
 	});
 });
 

@@ -180,6 +180,7 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
     }
     match method {
         "accounts.sign_in.begin" => scopes.iter().for_each(|s| comes_back(s)),
+        "account.login.begin" if params["publish"] != true => scopes.iter().for_each(|s| comes_back(s)),
         "accounts.access.set_default" => comes_back(params["account"]["subject"].as_str().unwrap()),
         "accounts.access.give" => {
             comes_back(params["account"]["subject"].as_str().unwrap());
