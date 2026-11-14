@@ -28,12 +28,13 @@ pub(in crate::tui) fn popup(area: Rect, w: u16, h: u16, at: Option<(u16, u16)>) 
     Rect { x, y, width: w, height: h }
 }
 
-/// After `g` and a pause, what can follow, in the corner over the deck.
+/// After `g` (or `q`) and a pause, what can follow, in the corner over the deck.
 pub(super) fn draw_chord(f: &mut Frame, app: &App, area: Rect) {
     if app.chord.is_none_or(|at| at.elapsed() < CHORD_HINT) {
         return;
     }
-    let lines: Vec<Line> = (KEYMAP.iter().filter(|b| b.scope == Scope::Goto))
+    let (scope, heading) = if app.chord_queue { (Scope::Queue, "Queue") } else { (Scope::Goto, "Go to") };
+    let lines: Vec<Line> = (KEYMAP.iter().filter(|b| b.scope == scope))
         .map(|b| {
             let about = if b.name.is_empty() { b.help } else { b.name.trim_start_matches("go to ") };
             Line::from(vec![
@@ -46,7 +47,7 @@ pub(super) fn draw_chord(f: &mut Frame, app: &App, area: Rect) {
     let (w, h) = (w.min(area.width), (lines.len() as u16 + 2).min(area.height));
     let r = Rect { x: area.right() - w, y: area.bottom() - h, width: w, height: h };
     f.render_widget(Clear, r);
-    f.render_widget(Paragraph::new(lines).block(block(title("Go to", true), true)), r);
+    f.render_widget(Paragraph::new(lines).block(block(title(heading, true), true)), r);
 }
 
 /// How many rows `lines` take wrapped to `width` (near enough: words may wrap a little earlier).
@@ -681,13 +682,17 @@ pub(super) fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
     let rows = keymap::help_rows(app, &app.help_query);
     app.help_row = app.help_row.min(rows.len().saturating_sub(1));
     let narrowed = !app.help_query.is_empty();
-    let mut lines: Vec<Line<'static>> = Vec::new();
+    // The keys are here; everything else is in the palette, by name.
+    let mut lines: Vec<Line<'static>> = vec![
+        Line::from(vec![Span::styled(":", theme::key()), Span::styled(" searches everything", dim())]),
+        Line::raw(""),
+    ];
     let mut section = "";
     let mut selected = 0..0;
     for (i, row) in rows.iter().enumerate() {
         if !narrowed && row.title != section {
             section = row.title;
-            if !lines.is_empty() {
+            if lines.len() > 2 {
                 lines.push(Line::raw(""));
             }
             lines.push(Line::styled(section.to_uppercase(), bold(theme::current().info)));
@@ -700,7 +705,7 @@ pub(super) fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
     if rows.is_empty() {
-        lines.push(Line::styled("no key has those words", dim()));
+        lines.push(Line::styled("no key has those words: enter searches the commands (:) for them", dim()));
     }
     if !narrowed {
         lines.push(Line::raw(""));

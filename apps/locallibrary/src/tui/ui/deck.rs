@@ -1,4 +1,4 @@
-//! The Deck layout: the track's waveforms and numbers on the whole screen, as on a CDJ's display.
+//! Player mode: the track's waveforms and numbers on the whole screen, as on a CDJ's display.
 //! The tempo and key are the track playing's: the player has one deck, so it's the master, and
 //! what the library says of tempo and key is against it.
 
@@ -366,8 +366,8 @@ const ONE_READOUT: u16 = 76;
 const WORDY_READOUT: u16 = 100;
 
 /// Where the readout's columns end, in terse and in spelled out, so nothing moves as its numbers
-/// change: the time, the next cue and the next phrase.
-const STOPS: [[usize; 3]; 2] = [[15, 25, 41], [15, 35, 65]];
+/// change: playing or not, the next cue and the next phrase.
+const STOPS: [[usize; 3]; 2] = [[3, 13, 29], [3, 23, 53]];
 
 /// `spans` padded out to `to` columns.
 fn pad_to(spans: &mut Vec<Span<'static>>, to: usize) {
@@ -377,9 +377,10 @@ fn pad_to(spans: &mut Vec<Span<'static>>, to: usize) {
     }
 }
 
-/// Under the waveforms, in columns: the time, how far the next cue and phrase are in bars, and at
-/// the right how the deck's set. On two rows where one won't take it.
-fn draw_readout(f: &mut Frame, app: &App, area: Rect) {
+/// Under the waveforms, in columns: playing or not, how far the next cue and phrase are in bars,
+/// and at the right the modes that are on. On two rows where one won't take it. The time is the
+/// large one beside the tempo.
+fn draw_readout(f: &mut Frame, app: &mut App, area: Rect) {
     let width = area.width as usize;
     let wordy = area.width >= WORDY_READOUT;
     let [to_time, to_cue, to_phrase] = STOPS[usize::from(wordy)];
@@ -417,67 +418,64 @@ fn draw_readout(f: &mut Frame, app: &App, area: Rect) {
     if end_style(app).is_some() {
         left.extend([chip("END".into(), theme::current().critical), Span::raw(" ")]);
     }
-    if let Some(c) = loop_chip(app) {
+    // The loop chip is a button: a click ends the loop. It's where it's drawn whole.
+    let chip_at: usize = left.iter().map(Span::width).sum();
+    let chip_w = loop_chip(app).map(|c| {
+        let w = c.width();
         left.push(c);
+        w
+    });
+    let right = deck_states(app);
+    let room =
+        if area.height > 1 { width } else { width.saturating_sub(right.iter().map(Span::width).sum::<usize>() + 1) };
+    if let Some(w) = chip_w.filter(|w| chip_at + w < room) {
+        app.areas.loop_chip = Rect { x: area.x + chip_at as u16, y: area.y, width: w as u16, height: 1 };
     }
-    let lw: usize = left.iter().map(Span::width).sum();
-    let mut right = deck_states(app, true);
     if area.height > 1 {
         let [first, second] = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(area);
         f.render_widget(Line::from(fit(left, width)), first);
         return f.render_widget(spread(Vec::new(), right, area.width), second);
     }
-    // What's off goes before what's on.
-    if lw + right.iter().map(Span::width).sum::<usize>() >= width {
-        right = deck_states(app, false);
-    }
     let rw: usize = right.iter().map(Span::width).sum();
     f.render_widget(spread(fit(left, width.saturating_sub(rw + 1)), right, area.width), area);
 }
 
-/// The readout's first column: playing or not, how far in, and how long the track is.
+/// The readout's first column: playing or not.
 fn transport(app: &App) -> Vec<Span<'static>> {
-    let pos = app.position().as_secs_f64();
-    let (dur, have) = app.now.as_ref().map_or((0.0, false), |n| (n.duration.as_secs_f64(), true));
-    let glyph = if !have {
+    let glyph = if app.now.is_none() {
         Span::styled(icons::SQUARE.spaced(), faint())
     } else if app.is_playing() {
         Span::styled(icons::PLAY.spaced(), bold(theme::current().accent))
     } else {
         Span::styled(icons::PAUSE.spaced(), bold(theme::current().warning))
     };
-    vec![
-        glyph,
-        Span::styled(clock(if have { pos } else { 0.0 }), bold(theme::current().text)),
-        Span::styled(format!(" / {}", clock(dur)), faint()),
-    ]
+    vec![glyph]
 }
 
-/// How the deck's set, for the readout's right side: the waveform's colours, the volume and the
-/// modes, those that are off only with `all`.
-fn deck_states(app: &App, all: bool) -> Vec<Span<'static>> {
+/// The readout's right side: the volume when it's turned down, and the modes that are on. What's
+/// off, and the waveform's colours (which `w` says as they change), aren't said.
+fn deck_states(app: &App) -> Vec<Span<'static>> {
     let on = fg(theme::current().info);
-    let mut spans = vec![
-        Span::styled(drawn_bands(app), on),
-        Span::styled("  vol ", faint()),
-        Span::styled(format!("{:.0}%", app.volume * 100.0), text()),
-    ];
-    let mut state = |shown: String, style| spans.extend([Span::raw("  "), Span::styled(shown, style)]);
+    let mut spans = Vec::new();
+    let mut state = |shown: String, style| {
+        if !spans.is_empty() {
+            spans.push(Span::raw("  "));
+        }
+        spans.push(Span::styled(shown, style));
+    };
+    if app.volume < 0.995 {
+        state(format!("vol {:.0}%", app.volume * 100.0), text());
+    }
     match app.repeat {
-        Repeat::Off if all => state(format!("{} off", icons::REPEAT.get()), faint()),
         Repeat::Off => {}
         Repeat::All => state(format!("{} all", icons::REPEAT.get()), on),
         Repeat::One => state(format!("{} one", icons::REPEAT.get()), on),
     }
     if app.shuffle {
         state(format!("{} on", icons::MIX.get()), on);
-    } else if all {
-        state(format!("{} off", icons::MIX.get()), faint());
     }
     if app.deck.quantize {
         state("Q on".into(), fg(theme::current().warning));
-    } else if all {
-        state("Q off".into(), faint());
     }
     if app.deck.single {
         state("single".into(), on);
@@ -486,13 +484,6 @@ fn deck_states(app: &App, all: bool) -> Vec<Span<'static>> {
         state("auto cue".into(), on);
     }
     spans
-}
-
-/// How the waveform's coloured, as rekordbox says it.
-fn drawn_bands(app: &App) -> &'static str {
-    let mode = app.band_mode();
-    let drawn = app.now.as_ref().and_then(|n| n.zoom_wave(mode)).map(|(_, m)| m);
-    drawn.flatten().unwrap_or(mode).title()
 }
 
 /// The waveform going past the playhead, or why it isn't there.
@@ -513,7 +504,7 @@ fn draw_zoom(f: &mut Frame, app: &mut App, area: Rect, cue_rows: u16) {
             let msg = match &app.now {
                 Some(n) if n.loading => "reading the analysis…",
                 Some(_) => "no detail waveform for this track",
-                None => "deck: play a track",
+                None => "player mode: play a track",
             };
             let y = area.y + area.height / 2;
             f.render_widget(

@@ -8,6 +8,8 @@
 
 use std::path::{Path, PathBuf};
 
+use image::imageops::FilterType;
+use image::{DynamicImage, RgbImage, Rgba, RgbaImage};
 use locallibrary::{Device, paths};
 use loclib_waveform::{Art, PixelBuf, Rgb};
 use ratatui::crossterm::terminal::window_size;
@@ -142,10 +144,39 @@ fn picker(sixel: bool) -> Option<Picker> {
 fn picture(art: &Art, size: (u16, u16), picker: Option<&Picker>) -> Picture {
     let (cols, rows) = size;
     let graphics = picker.and_then(|p| {
-        let image = image::DynamicImage::ImageRgb8(art.image().clone());
-        p.new_protocol(image, Size::new(cols, rows), Resize::Fit(None)).ok()
+        let font = p.font_size();
+        let (image, resize) = fitted(art.image(), (font.width, font.height), size);
+        p.new_protocol(image, Size::new(cols, rows), resize).ok()
     });
     graphics.map_or_else(|| Picture::Pixels(art.resized(cols, rows)), |p| Picture::Graphics(Box::new(p)))
+}
+
+/// `image` made ready to fill `size` cells of `font` pixels, and how ratatui-image is to fit it. A
+/// big cover shrinks smoothly. A small one grows in whole pixels, so it stays crisp: where a whole
+/// number of screen pixels to each of its own fills the same cells, it's grown by that here and
+/// padded out to whole cells, so it's drawn as it is. Otherwise each screen pixel is still one of
+/// the cover's, just not always the same number of them.
+fn fitted(image: &RgbImage, font: (u16, u16), size: (u16, u16)) -> (DynamicImage, Resize) {
+    let (fw, fh) = (u32::from(font.0).max(1), u32::from(font.1).max(1));
+    let (cols, rows) = (u32::from(size.0), u32::from(size.1));
+    let (bw, bh) = (cols * fw, rows * fh);
+    let (w, h) = image.dimensions();
+    if w == 0 || h == 0 || w > bw || h > bh {
+        return (DynamicImage::ImageRgb8(image.clone()), Resize::Fit(Some(FilterType::Triangle)));
+    }
+    let times = (bw / w).min(bh / h);
+    let (tw, th) = (w * times, h * times);
+    if tw.div_ceil(fw) < cols && th.div_ceil(fh) < rows {
+        return (DynamicImage::ImageRgb8(image.clone()), Resize::Scale(Some(FilterType::Nearest)));
+    }
+    let mut grown = RgbaImage::new(tw.div_ceil(fw) * fw, th.div_ceil(fh) * fh);
+    for (x, y, px) in image.enumerate_pixels() {
+        let [r, g, b] = px.0;
+        for (dx, dy) in (0..times).flat_map(|dx| (0..times).map(move |dy| (dx, dy))) {
+            grown.put_pixel(x * times + dx, y * times + dy, Rgba([r, g, b, 255]));
+        }
+    }
+    (DynamicImage::ImageRgba8(grown), Resize::Fit(None))
 }
 
 impl App {

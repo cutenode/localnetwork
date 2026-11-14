@@ -41,6 +41,7 @@ flowchart LR
   Poll --> P2["directory-sync: retry a failed sync,<br/>else script re-reads"]
   Quick["15 s"] --> Q1["audit-retry: 25 due entries"]
   Quick --> Q2["notification-delivery, also<br/>woken when an item comes due"]
+  Five["5 minutes"] --> F1["staff-spaces"]
   Hour["1 hour"] --> H1["oauth-state-cleanup"]
   Hour --> H2["manager-spaces"]
   Hour --> H3["shared-spaces"]
@@ -76,7 +77,7 @@ What makes the app ask HappyView to read a repo again through `/admin/backfill`.
 flowchart LR
   Backfill["/admin/backfill"]
   Backfill -- "new record script" --> R1["That collection, per<br/>manager and root"]
-  Backfill -- "new record script" --> R2["Follows press kits read,<br/>root's verifications and<br/>DJ listings, bug report space"]
+  Backfill -- "new record script" --> R2["Follows press kits read,<br/>root's verifications, DJ listings<br/>and listings, bug report space"]
   Backfill -- "a performer gains a manager,<br/>once HappyView serves it" --> R3["Their records and follows"]
   Backfill -- "boot" --> R4["The root's performers,<br/>each manager's shows"]
   Backfill -- "the set picker opens" --> R5["Their sets, every<br/>10 minutes at most"]
@@ -119,7 +120,7 @@ What each record script keeps of what Jetstream sends. Anyone can write these co
 ```mermaid
 flowchart LR
   Jet["Jetstream"]
-  Jet -- "the root's only" --> Root["project, listing.profile,<br/>verification"]
+  Jet -- "the root's only" --> Root["project, listing, listing.profile,<br/>verification"]
   Jet -- "every account's" --> All["profile, dj.set, dj.recording,<br/>dj.profile, locallibrary.settings"]
   Jet -- "accounts that manage<br/>the root's performers" --> Managers["calendar event, and show when<br/>it names a performer they manage"]
   Jet -- "managers, and accounts<br/>the root verified" --> Names["Bluesky display names"]
@@ -129,7 +130,7 @@ flowchart LR
   Jet -- "USERINPUT_SPACE alone" --> Input["app.userinput.space"]
 ```
 
-Source: [`lua/computer/localnetwork/project.lua`](../../lua/computer/localnetwork/project.lua), [`lua/computer/localnetwork/show.lua`](../../lua/computer/localnetwork/show.lua), [`lua/computer/localnetwork/epk.lua`](../../lua/computer/localnetwork/epk.lua), [`lua/computer/localnetwork/follow.lua`](../../lua/computer/localnetwork/follow.lua), [`lua/app/bsky/actor/profile.lua`](../../lua/app/bsky/actor/profile.lua), [`lua/app/bsky/graph/follow.lua`](../../lua/app/bsky/graph/follow.lua), [`lua/app/userinput/space.lua`](../../lua/app/userinput/space.lua), [`src/lib/server/happyview/bundle.ts`](../../src/lib/server/happyview/bundle.ts)
+Source: [`lua/computer/localnetwork/project.lua`](../../lua/computer/localnetwork/project.lua), [`lua/computer/localnetwork/listing.lua`](../../lua/computer/localnetwork/listing.lua), [`lua/computer/localnetwork/show.lua`](../../lua/computer/localnetwork/show.lua), [`lua/computer/localnetwork/epk.lua`](../../lua/computer/localnetwork/epk.lua), [`lua/computer/localnetwork/follow.lua`](../../lua/computer/localnetwork/follow.lua), [`lua/app/bsky/actor/profile.lua`](../../lua/app/bsky/actor/profile.lua), [`lua/app/bsky/graph/follow.lua`](../../lua/app/bsky/graph/follow.lua), [`lua/app/userinput/space.lua`](../../lua/app/userinput/space.lua), [`src/lib/server/happyview/bundle.ts`](../../src/lib/server/happyview/bundle.ts)
 
 ## Directory queries
 
@@ -143,12 +144,12 @@ flowchart LR
   Pages -- "/projects" --> Q2["searchPerformers"]
   Pages -- "/match, /for-promoters" --> Q3["matchProjects"]
   Pages -- "performer pages, dashboard" --> Q4["getProject, getProjects"]
-  Pages -- "/shows, performer pages" --> Q5["listShows"]
+  Pages -- "home, /shows, performer pages" --> Q5["listShows"]
   Pages -- "waiting on a show write" --> Q11["getShows"]
   Pages -- "mixes, the set picker" --> Q6["getSets, listSets"]
   Pages -- "Follow button" --> Q7["getFollowStatus"]
-  Pages -- "/charts, /artists" --> Q8["getCharts, getArtist,<br/>searchArtists"]
-  Pages -- "stats, press kits, profiles,<br/>verifications, bug report space" --> Q9["getRecords, listRecords"]
+  Pages -- "home, /charts, /artists" --> Q8["getCharts, getArtist,<br/>searchArtists"]
+  Pages -- "stats, press kits, profiles,<br/>verifications, bug report space,<br/>dashboard checklist, set pages" --> Q9["getRecords, listRecords"]
 ```
 
-Source: [`src/lib/server/happyview/client.ts`](../../src/lib/server/happyview/client.ts), [`src/lib/server/happyview/indexed.ts`](../../src/lib/server/happyview/indexed.ts), [`src/lib/server/services/projects.ts`](../../src/lib/server/services/projects.ts), [`src/lib/server/services/performers.ts`](../../src/lib/server/services/performers.ts), [`src/lib/server/services/shows.ts`](../../src/lib/server/services/shows.ts), [`src/lib/server/services/supports.ts`](../../src/lib/server/services/supports.ts), [`src/lib/server/landing.ts`](../../src/lib/server/landing.ts), [`src/routes/for-djs/+page.server.ts`](../../src/routes/for-djs/+page.server.ts), [`src/routes/for-promoters/+page.server.ts`](../../src/routes/for-promoters/+page.server.ts)
+Source: [`src/lib/server/happyview/client.ts`](../../src/lib/server/happyview/client.ts), [`src/lib/server/happyview/indexed.ts`](../../src/lib/server/happyview/indexed.ts), [`src/lib/server/services/projects.ts`](../../src/lib/server/services/projects.ts), [`src/lib/server/services/performers.ts`](../../src/lib/server/services/performers.ts), [`src/lib/server/services/shows.ts`](../../src/lib/server/services/shows.ts), [`src/lib/server/services/follows.ts`](../../src/lib/server/services/follows.ts), [`src/lib/server/services/recordings.ts`](../../src/lib/server/services/recordings.ts), [`src/lib/server/services/supports.ts`](../../src/lib/server/services/supports.ts), [`src/routes/+page.server.ts`](../../src/routes/+page.server.ts), [`src/routes/for-djs/+page.server.ts`](../../src/routes/for-djs/+page.server.ts), [`src/lib/server/landing.ts`](../../src/lib/server/landing.ts), [`src/routes/for-promoters/+page.server.ts`](../../src/routes/for-promoters/+page.server.ts)

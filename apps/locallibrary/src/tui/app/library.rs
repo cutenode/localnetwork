@@ -339,30 +339,19 @@ impl App {
         }
     }
 
-    /// Add tracks on the drive at `root` (by file path) to the crate.
+    /// Add tracks on the drive at `root` (by file path) to the end of the queue.
     pub(in crate::tui) fn add_to_crate(&mut self, root: &Path, paths: &[String]) {
         let Some(l) = self.loaded.as_ref().filter(|l| l.root() == root) else { return };
         let tracks: Vec<Track> =
             paths.iter().filter_map(|p| l.index_of(p)).map(|i| l.library.tracks[i].clone()).collect();
-        let n = tracks.len();
-        let drive = self.drive_label(root);
-        let added = self.crate_list.add(root, &drive, tracks);
-        let total = self.crate_list.len();
-        let msg = match (added, n - added) {
-            (0, _) => "already in the crate".to_string(),
-            (a, 0) => format!("added {a} to the crate ({total} in all)"),
-            (a, d) => format!("added {a} to the crate ({d} already there)"),
-        };
-        self.toast(msg, Level::Info);
-        if self.crate_state.selected().is_none() && total > 0 {
-            self.crate_state.select(Some(0));
-        }
+        self.queue_tracks(root, tracks, false);
     }
 
     pub(super) fn shift_crate(&mut self, delta: isize) {
         if let Some(i) = self.crate_state.selected() {
             let to = self.crate_list.shift(i, delta);
             self.crate_state.select(Some(to));
+            self.queue_changed();
         }
     }
 
@@ -371,6 +360,7 @@ impl App {
         if self.crate_list.remove(i).is_some() {
             let len = self.crate_list.len();
             self.crate_state.select(if len == 0 { None } else { Some(i.min(len - 1)) });
+            self.queue_changed();
         }
     }
 

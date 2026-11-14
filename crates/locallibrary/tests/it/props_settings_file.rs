@@ -138,6 +138,7 @@ fn contents(tc: &TestCase) -> Contents {
             quantize: maybe(tc),
             single: maybe(tc),
             auto_cue: maybe(tc),
+            fill: maybe(tc),
             notation: tc.draw(gs::optional(gs::sampled_from(vec!["camelot", "open-key"]))).map(String::from),
             key_palette: tc.draw(gs::optional(gs::sampled_from(vec!["theme", "tritanopia"]))).map(String::from),
             bands: tc.draw(gs::optional(gs::sampled_from(vec!["blue", "3band"]))).map(String::from),

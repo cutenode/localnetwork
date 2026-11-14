@@ -132,7 +132,7 @@ fn keys_change_the_view_and_save_choices() {
     assert_eq!(app.view, View::Library);
     press(&mut app, "gu");
     assert_eq!(app.view, View::Profile);
-    press(&mut app, "q");
+    press(&mut app, "Q");
     assert!(app.quit);
 }
 

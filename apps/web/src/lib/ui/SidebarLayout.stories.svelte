@@ -16,8 +16,8 @@
 				{ href: '/dashboard', label: 'Overview', icon: LayoutDashboard, exact: true },
 				{ href: '/dashboard/bookings', label: 'Bookings', icon: CalendarPlus },
 				{ href: '/dashboard/planner', label: 'Planner', icon: NotebookPen },
-				{ href: '/dashboard/requests', label: 'Requests', icon: ClipboardList },
-				{ href: '/dashboard/activity', label: 'Activity', icon: History }
+				{ href: '/dashboard/account/requests', label: 'Requests', icon: ClipboardList },
+				{ href: '/dashboard/account/activity', label: 'Activity', icon: History }
 			]
 		},
 		{ label: 'Projects', items: managed }

@@ -120,6 +120,7 @@
 				"quantize": { "type": "boolean" },
 				"single": { "description": "Stop after each track.", "type": "boolean" },
 				"auto_cue": { "description": "Start tracks at their first memory cue or beat.", "type": "boolean" },
+				"fill": { "description": "When the queue runs out, play on with the best match that hasn't played.", "type": "boolean" },
 				"notation": { "description": "How keys are written.", "enum": ["camelot", "open-key", "musical"] },
 				"key_palette": {
 					"description": "The colours keys come in.",

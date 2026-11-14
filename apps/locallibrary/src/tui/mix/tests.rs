@@ -315,7 +315,7 @@ fn keys_move_zoom_and_type() {
     assert_eq!(app.view, View::Library);
     press(&mut app, "gr");
     assert_eq!(app.view, View::Mixes);
-    press(&mut app, "q");
+    press(&mut app, "Q");
     assert!(app.quit);
 }
 
@@ -437,8 +437,8 @@ fn a_tab_clicked_while_typing_a_path_puts_the_line_away() {
     press(&mut app, "\u{1b}5");
     let s = screen(&mut app, 120, 30);
     assert!(!s.contains("Open a recording or folder:") && !s.contains("~/Music"), "{s}");
-    press(&mut app, "q");
-    assert!(app.quit, "q quits, not typed");
+    press(&mut app, "Q");
+    assert!(app.quit, "Q quits, not typed");
 }
 
 /// A folder's listing that comes back after another folder was opened is too late to count;

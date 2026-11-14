@@ -186,7 +186,7 @@ describe('renderDm', () => {
 			[
 				'Neon Tide sent a message: Warehouse night',
 				`${url}/dashboard/bookings/3mabc`,
-				`Change what you get: ${url}/dashboard/inbox/settings`
+				`Change what you get: ${url}/dashboard/account/notifications`
 			].join('\n\n')
 		);
 
@@ -194,7 +194,7 @@ describe('renderDm', () => {
 		expect(several.text).toContain('2 new things in your Local Network inbox:\n\n• One: Warehouse night\n• Two');
 		expect(links(several)).toEqual([
 			{ covers: `${url}/dashboard/inbox`, uri: `${url}/dashboard/inbox` },
-			{ covers: `${url}/dashboard/inbox/settings`, uri: `${url}/dashboard/inbox/settings` }
+			{ covers: `${url}/dashboard/account/notifications`, uri: `${url}/dashboard/account/notifications` }
 		]);
 	});
 
@@ -206,7 +206,7 @@ describe('renderDm', () => {
 
 		expect(links(message)).toEqual([
 			{ covers: `${url}/dashboard/bookings/3mabc`, uri: `${url}/dashboard/bookings/3mabc` },
-			{ covers: `${url}/dashboard/inbox/settings`, uri: `${url}/dashboard/inbox/settings` }
+			{ covers: `${url}/dashboard/account/notifications`, uri: `${url}/dashboard/account/notifications` }
 		]);
 		expect(message.text).not.toContain('https://evil.example');
 		expect(message.text).not.toContain('evil.example');
@@ -232,7 +232,10 @@ describe('renderDm', () => {
 
 		expect(one.text).toContain('…');
 		expect(many.text).toMatch(/\nand \d+ more\n/);
-		expect(links(many).map((link) => link.uri)).toEqual([`${url}/dashboard/inbox`, `${url}/dashboard/inbox/settings`]);
+		expect(links(many).map((link) => link.uri)).toEqual([
+			`${url}/dashboard/inbox`,
+			`${url}/dashboard/account/notifications`
+		]);
 	});
 });
 

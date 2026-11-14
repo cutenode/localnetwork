@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { redirect } from '@sveltejs/kit';
 import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit/hooks';
 import { type App, getApp } from '#lib/server/app.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
@@ -8,6 +9,7 @@ import { PREVIEW_COOKIE } from '#lib/server/flags/preview.ts';
 import { CRAWLER_HEAD, withCrawlerHead } from '#lib/server/crawler-head.ts';
 import { clientIp, guardArea, isUnlisted } from '#lib/server/http.ts';
 import { createLogger, type Logger } from '#lib/server/logger.ts';
+import { movedTo } from '#lib/server/moved-pages.ts';
 import { toolSite } from '#lib/server/tools/site.ts';
 
 const fallbackLogger = createLogger({
@@ -47,6 +49,10 @@ export function serverHooks({
 		const tool = toolSite(event.request, event.url.pathname);
 
 		if (tool) return gzipped(event.request, tool);
+
+		const moved = movedTo(event.url);
+
+		if (moved) redirect(308, moved);
 
 		const requestId = event.request.headers.get('x-request-id')?.slice(0, 64) || randomUUID();
 		event.locals.requestId = requestId;
@@ -101,9 +107,12 @@ export function serverHooks({
 			}
 		}
 
+		// An xrpc call never reads the sign-in cookie, so it gets the flags a signed-out visitor does. A route that has
+		// checked a service token can evaluate flags for that token's DID itself.
+		const { viewer } = event.locals;
+		event.locals.flags = await app.flags.evaluate(viewer?.did ?? null);
+
 		if (!isXrpc) {
-			const { viewer } = event.locals;
-			event.locals.flags = await app.flags.evaluate(viewer?.did ?? null);
 			const cookie = event.cookies.get(PREVIEW_COOKIE);
 			const preview = cookie && viewer ? await app.flags.preview(viewer, cookie, token) : null;
 

@@ -291,6 +291,11 @@ const STATES: [id: string, states: State[]][] = [
 								{
 									...track('Artist', 'Two'),
 									details: details({ permalink: '/artist/two', purchaseUrl: 'https://laylo.com/x/y' })
+								},
+								// A site that is only opened: an Open button and a line, no Get.
+								{
+									...track('Artist', 'Three'),
+									details: details({ permalink: '/artist/three', purchaseUrl: 'https://www.toneden.io/a/post/b' })
 								}
 							],
 							lookupFailed: 0,
@@ -381,6 +386,14 @@ describe('the popup as a whole', () => {
 		expect(menu.length).toBeGreaterThan(0);
 
 		for (const item of menu) expect(accessibleName(item)).not.toBe('');
+	});
+
+	it('reads the first-run notice without sight', async () => {
+		localStorage.removeItem('pref:notice-seen');
+		panelChrome({ response: extraction({ tracks: TRACKS }) });
+		await mountApp();
+		expect(document.querySelector('section[aria-labelledby="first-run"]')).not.toBe(null);
+		clean();
 	});
 
 	it('keeps every control reachable by keyboard, in the order it is drawn', async () => {

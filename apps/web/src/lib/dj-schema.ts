@@ -89,5 +89,7 @@ export const djSetSchema = z.object({
 	links: section(z.array(z.object({ uri: z.url(), name: z.string().max(640).optional() })).max(10)),
 	/** The record where its recording can be played (a com.atproto.repo.strongRef), like an fm.plyr.track. */
 	recording: section(z.object({ uri: z.string().startsWith('at://'), cid: z.string().min(1) })),
-	tracks: z.array(track).max(1000)
+	tracks: z.array(track).max(1000),
+	/** When it was first published. */
+	createdAt: section(z.iso.datetime({ offset: true }))
 });

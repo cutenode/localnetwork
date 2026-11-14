@@ -1,13 +1,13 @@
 <script lang="ts">
-	import { ExternalLink } from '@lucide/svelte';
 	import type { Snippet } from 'svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import { pluralize } from '#lib/format.ts';
-	import { artistHref, musicBrainzUrl } from '#lib/supports.ts';
+	import { artistHref } from '#lib/supports.ts';
 	import type { Charts } from '#lib/types.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import ArtistLinks from './ArtistLinks.svelte';
 	import GhostRows from './GhostRows.svelte';
+	import MusicBrainzLink from './MusicBrainzLink.svelte';
 
 	/**
 	 * The charts' two ranked lists, tracks and then artists (beside each other on a wide screen), as they stream in.
@@ -50,7 +50,7 @@
 							<span class="font-mono text-label text-fg-subtle">{i + 1}</span>
 							<span class="flex min-w-0 flex-col">
 								<span class="font-semibold"
-									>{track.title}{#if track.recordingMbId}{' '}<a class="inline-flex text-fg-subtle hover:text-fg" href={musicBrainzUrl('recording', track.recordingMbId)} rel="noopener noreferrer" target="_blank" aria-label="{track.title} on MusicBrainz"><ExternalLink class="size-3.5" /></a>{/if}</span
+									>{track.title}{#if track.recordingMbId}{' '}<MusicBrainzLink kind="recording" mbid={track.recordingMbId} name={track.title} />{/if}</span
 								>
 								<span class="text-small"><ArtistLinks artists={track.artists} /></span>
 							</span>
