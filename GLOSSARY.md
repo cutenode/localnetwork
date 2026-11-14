@@ -119,20 +119,24 @@ A named night or series that anyone can start. People can follow a party, and ev
 _Avoid_: series, brand, collective (collectives are acts)
 
 **Guest**:
-Someone who has RSVP'd to an event, whether going, interested, can't go, waitlisted, or waiting for approval, here or in another AT Protocol app. Going and interested show on the event and to their followers unless they hide them, and the events they went to show on their profile unless they turn that off.
+Someone who has RSVP'd to an event, whether going, interested, can't go, waitlisted, or waiting for approval, here or in another AT Protocol app. Going and interested show on the event and to their followers unless they hide them. The events they went to show on their profile only once they turn that on.
 _Avoid_: attendee, ticket holder
 
 **Venue**:
-A real place events happen, shared by everyone who links to it. Promoters say how they relate to each venue they work with: owner, booker, resident or regular promoter, staff, or something else in their own words. Owners are confirmed by staff. Each venue chooses whether events naming it show right away, marked unconfirmed until an owner approves, or only after approval. Owners can block profiles, acts and parties from listing events there, claiming a relationship to it, or naming it in booking inquiries.
-_Avoid_: club, location (when meaning the place itself)
+A real place events happen, shared by everyone who links to it. There's one venue per place: anyone can suggest two venues are the same place, the owners of both get a window to object, and staff merge them into the older one. Promoters say how they relate to each venue they work with: owner, booking manager, resident or regular promoter, staff, or something else in their own words. Owners are confirmed by staff. Each venue chooses **Anyone can list**, where events naming it show right away as **Waiting for the venue** until an owner confirms them, or **Venue approves**, where they show only once **Confirmed**. Owners can block profiles, acts and parties from listing events there, claiming a relationship to it, or naming it in booking inquiries. A block is silent: the blocked side only ever sees its event waiting for the venue, and only the venue's owners and staff see the block.
+_Avoid_: club, location (when meaning the place itself), booker, unconfirmed, pending
 
 **Inbox**:
 Where the site tells someone about guests, bookings, waitlist spots and new events, and asks them to decide things: claim and listing decisions, press kit access requests, lineup credits to confirm and community photos to approve. Every item opens what it's about. Inquiries and messages from strangers wait under its Requests tab. Each person can also opt into getting these by email or Bluesky DM.
 _Avoid_: notifications page, feed
 
 **Event**:
-One night: a date, a venue, often a party, and a lineup of credits. Public events are listed and anyone can see them; private ones only open from their link. An event belongs to its party, or to the account that posted it when it has none. An event made in another AT Protocol calendar app counts when it names a venue, party or performer that's on Local Network.
+One night: a date, a venue, often a party, and a lineup of credits. Public events are listed and anyone can see them; private ones only open from their link, which carries a token. An event belongs to its party, or to the account that posted it when it has none; an event with no party is always public until it's moved into one. An event still waiting for the venue when its night ends is **Never confirmed**: it leaves listings and stays only on its posters' dashboards. An event made in another AT Protocol calendar app counts when it names a venue, party or performer that's on Local Network.
 _Avoid_: gig, party (the party is the series)
+
+**Night**:
+An evening and everything after it until 6:00 the next morning, or the later time the venue sets, on the venue's clock. A night is dated by the evening it starts, so a set at 2:00 on Sunday is part of Saturday night.
+_Avoid_: day, date (when meaning the night)
 
 **Host picture**:
 A picture the people running an event, party or venue post of it: a thumbnail, poster, flyer or header.
