@@ -21,6 +21,7 @@ import { PerformerSearch } from '../services/performers';
 import { PlannerService } from '../services/planner';
 import { ProfileService } from '../services/profiles';
 import { ProjectAdmin } from '../services/project-admin';
+import { ProjectMigration } from '../services/project-migration';
 import { ProjectService } from '../services/projects';
 import { RequestService } from '../services/requests';
 import { type ListingSource, ListingWriter } from '../services/listings';
@@ -140,6 +141,7 @@ export async function createTestServices(
 	const listings = new ListingWriter(core, { performer: performerListingSource(db), ...options.listingSources });
 	const sharedSpaces = new SharedSpaces(core, listings);
 	const performerRegistry = new PerformerService(core, sharedSpaces, projects);
+	const projectMigration = new ProjectMigration(core, projects, epks, shows, follows, performerRegistry);
 	const spaceJoins = new SpaceJoins(core, sharedSpaces, new RateLimiter(30, 30 / 60));
 	const heldRecords = new HeldRecords(core, requests, projects, new RateLimiter(30, 30 / 60));
 
@@ -192,6 +194,7 @@ export async function createTestServices(
 		djListings,
 		performers,
 		performerRegistry,
+		projectMigration,
 		viewer,
 		capable,
 		spaces
