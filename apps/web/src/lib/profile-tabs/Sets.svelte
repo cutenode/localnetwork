@@ -15,4 +15,4 @@
 	let { data }: { data: ProfileTabData } = $props();
 </script>
 
-{#each data.dj ?? [] as account (account.did)}<DjSets sets={account.sets} />{/each}
+{#each data.dj ?? [] as account (account.did)}<DjSets sets={account.sets} handle={account.handle} />{/each}
