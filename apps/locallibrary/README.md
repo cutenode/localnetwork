@@ -427,7 +427,7 @@ flowchart TD
     hub["Library and store"]
     hub --> tracks["tracks<br/>list, search, filter, sort"]
     hub --> library["library<br/>ls, rename, log, push, prune"]
-    hub --> store["store<br/>info, gc, verify, index-limit, label, unlabel, prune, copy, copies, browse, views, unbrowse, restore, serve, fetch"]
+    hub --> store["store<br/>info, gc, verify, index-limit, copy-on-write, label, unlabel, prune, copy, copies,<br/>browse, views, unbrowse, restore, serve, fetch"]
     hub --> diff["diff<br/>entries between two drives or snapshots"]
     hub --> collection["collection<br/>info, tracks, playlists, export, diff"]
     hub --> export["export<br/>M3U8, CSV, text or a plugin's format"]
