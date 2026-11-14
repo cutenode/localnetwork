@@ -143,7 +143,7 @@ its drives.
 | `locallibrary export <library> [PLAYLIST] -o FILE` | A playlist, folder, history list or the whole library as M3U8, CSV or text |
 | `locallibrary export <library> [PLAYLIST] --format traktor\|serato\|engine\|rekordbox -o PATH [--option KEY=VALUE]... [--dry-run]` | The library for other DJ software (the interop plugin's), written on this computer: a folder, or for `rekordbox` an XML file, see [Other DJ software](other-software.md#other-dj-software) |
 | `locallibrary export <library> [PLAYLIST] --format FORMAT -o PATH [--option KEY=VALUE]... [--dry-run] [--replace]` | A format a plugin adds; overwriting a file is asked about first unless `--replace`, see [Plugins](plugins.md) |
-| `locallibrary import FILE [<library>] [--format FORMAT] [--option KEY=VALUE]... [--dry-run]` | Read another program's file with a plugin's importer: keys, BPMs, cues and My Tags added to the tracks it finds where they have none, plays kept as sessions, see [Plugins](plugins.md#import-formats) |
+| `locallibrary import FILE [<library>] [--format FORMAT] [--option KEY=VALUE]... [--dry-run]` | Read another program's file with a plugin's importer: keys, BPMs, cues and My Tags added to the tracks it finds where they have none, plays kept as histories, see [Plugins](plugins.md#import-formats) |
 | `locallibrary analyze [<library>] [--plugin ID] [--analyzer NAME] [--track ID]... [--apply key,bpm\|grid,phrases,waveform [--overwrite] [--min-confidence N] [--dry-run]]` | Run plugins' analyzers on a library's tracks, once each; `track` shows what they worked out as `PLUGIN.FIELD` (`sound.bpm`); `--apply` then writes the analyzer's keys and BPMs to the tracks, or its beat grids, phrases and waveforms into their analysis files, as an edit, see [Plugins](plugins.md) |
 | `locallibrary xml [<library>] -o rekordbox.xml [--only PLAYLIST]` | Export as rekordbox XML, the same as `export --format rekordbox` (`--only`: just those playlists or folders and their tracks) |
 
@@ -169,14 +169,14 @@ its drives.
 
 | | |
 | --- | --- |
-| `locallibrary plays [<drive>]` | The sessions (history lists) players recorded on a drive, with their ids and dates (`plays lists`), see [History and play counts](sets.md#history-and-play-counts) |
-| `locallibrary plays lists [<drive> [SESSION]] [--all] [--delete]` | Sessions players recorded (`--all`: every one the store kept); one session's tracks; `--delete` once archived |
-| `locallibrary plays export <drive> <SESSION> -o FILE` | Write a session as text, CSV or M3U8 |
-| `locallibrary plays import FILE.csv [--drive D] [--name N]` | Keep a log from Beat Link Trigger's Playlist Writer as a session, with the time each track played |
+| `locallibrary plays [<drive>]` | The histories players recorded on a drive, with their ids and dates (`plays lists`), see [History and play counts](sets.md#history-and-play-counts) |
+| `locallibrary plays lists [<drive> [LIST]] [--all] [--delete]` | Histories players recorded (`--all`: every one the store kept); one history's tracks; `--delete` once archived |
+| `locallibrary plays export <drive> <LIST> -o FILE` | Write a history as text, CSV or M3U8 |
+| `locallibrary plays import FILE.csv [--drive D] [--name N]` | Keep a log from Beat Link Trigger's Playlist Writer as a history, with the time each track played |
 | `locallibrary plays stats <library\|drive\|snapshot:ID> [--since SNAPSHOT\|DATE]` | Most played, never played, and what was played since a snapshot or a date |
 | `locallibrary sets [list] [--venue V] [--kind K] [--since D] [--until D]` | Your sets, newest first, see [Sets](sets.md#sets) |
-| `locallibrary sets suggest [--dismiss SESSION]` | The sets your sessions suggest, each with the command that declares it |
-| `locallibrary sets new\|show\|edit\|delete ...` | Declare a set from sessions or a recording, show it, change its details and tracklist, delete it (and its record and recording's on your Atmosphere account when they're published) |
+| `locallibrary sets suggest [--dismiss SESSION]` | The sets your histories suggest, each with the command that declares it |
+| `locallibrary sets new\|show\|edit\|delete ...` | Declare a set from histories or a recording, show it, change its details and tracklist, delete it (and its record and recording's on your Atmosphere account when they're published) |
 | `locallibrary sets export <SET> [--format text\|mixcloud\|cue\|youtube\|1001\|chapters\|csv\|m3u8] [-o FILE]` | A set's tracklist for Mixcloud, a CUE sheet, YouTube chapters, 1001Tracklists, podcast apps' chapters, a spreadsheet, or a playlist file |
 | `locallibrary sets export <SET> --format FORMAT -o PATH [--drive LIB] [--option KEY=VALUE]... [--dry-run] [--replace]` | A set in a format a plugin adds for sets, see [Plugins](plugins.md#export-formats) |
 | `locallibrary sets played <QUERY>` / `sets playlist <SET> <library>` | When and where you played a track; a playlist of a set's tracks in a library |

@@ -160,7 +160,7 @@ locallibrary drive contact REKORDBOX "sam@example.com" --playlist
 
 ### Back from a set
 
-Players write to the drive: a history list every session, memory cues, and on the CDJ-3000X
+Players write to the drive: a history list each time it goes in, memory cues, and on the CDJ-3000X
 playlist edits and TAG LIST playlists. If the primary got a new export in the meantime, both
 drives changed since they were last in sync, and a plain sync has to refuse. `sync` looks at what
 each drive changed since the last state both held, which must be in the store (pull before

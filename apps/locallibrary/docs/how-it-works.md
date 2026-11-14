@@ -119,8 +119,8 @@ crates/locallibrary/src/    the library, built on the crates above
   upgrade.rs   pointing lossy tracks at lossless files of their recording, found by sound, cues and
                grid moved by the offset between them
   plays.rs     history lists on drives and in the store, play statistics
-  sets/        the DJ's sets (sets.json): sessions and their windows, suggestions, building a set from
-               sessions and recordings, editing, exports, Beat Link Trigger logs
+  sets/        the DJ's sets (sets.json): histories and their windows, suggestions, building a set from
+               histories and recordings, editing, exports, Beat Link Trigger logs
   profile/     what sets, tags, analysis and My Settings say about a DJ; the public document and its preferences
   audio_cache.rs  what's worked out from each audio file (fingerprints, analyses), cached in the store
                by file name, size and modification time, and worked out in parallel when it isn't;
