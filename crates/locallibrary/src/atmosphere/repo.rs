@@ -456,7 +456,7 @@ pub fn resolve(input: &str) -> Result<Resolved> {
     }
     let h: Handle = Handle::new_owned(input).map_err(|e| not_found(format!("not a handle: {e}")))?;
     let resolver = resolver(true)?;
-    let did = block_on(resolver.resolve_handle(&h)).map_err(|e| not_found(e.to_string()))?;
+    let did = block_on(resolver.resolve_handle(&h)).map_err(|e| not_found(crate::net::with_causes(&e)))?;
     Ok(Resolved { did: did.as_str().to_string(), handle: Some(input.to_lowercase()) })
 }
 

@@ -874,7 +874,7 @@ impl App {
             self.toast("the track is on another drive", Level::Info);
             return;
         }
-        self.view = View::Library;
+        self.set_view(View::Library);
         self.focus = Focus::Tracks;
     }
 }
