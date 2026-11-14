@@ -185,7 +185,8 @@ needs.
     left is a small line by the tempo. Under the waveforms a line has the time gone and the track's
     length, how many bars and beats it is to the next cue and phrase, as bars.beats, and how the
     deck's set, on two rows under 78 columns. Near the end of a track the time left turns red and
-    blinks, and END shows; with `LOCALLIBRARY_REDUCED_MOTION` it doesn't blink.
+    blinks, and END shows. As the warning starts, the overview washes red twice (in 16 colours it
+    flashes red); with `LOCALLIBRARY_REDUCED_MOTION` nothing blinks or washes.
   - `w` goes round rekordbox's waveform colours: BLUE, RGB, 3Band, and as the drive's My Settings
     say. A drive with no `DEVSETTING.DAT` gets 3Band, and a track with no waveform of that kind (older
     analysis has only blue) the nearest it has. The mode drawn is named in the line under the
