@@ -289,7 +289,7 @@ flowchart LR
     core --> track["loclib-tracklist<br/>outside tracklists"]
     core --> mixid["loclib-mixid<br/>fingerprints, matcher"]
     core --> audio["loclib-audio<br/>decoding, resampling"]
-    core --> sound["loclib-analysis<br/>tempo, key, loudness"]
+    core -->|scoring only| sound["loclib-analysis<br/>tempo, key, loudness"]
     core --> trans["loclib-transcode<br/>copies for players"]
     core --> model["loclib-model<br/>loclib-progress"]
     plugins --> sdk

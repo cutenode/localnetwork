@@ -253,7 +253,7 @@ Source: [`crates/locallibrary/src/plugin/sources.rs`](../../../../crates/localli
 
 ## Running an analyzer
 
-`track/analyze` over a drive's tracks. Each audio file is handed to the plugin read only.
+`track/analyze` over a drive's tracks, or for `analysis bench` over audio files too. Each audio file is handed to the plugin read only.
 
 ```mermaid
 flowchart TD
@@ -264,9 +264,11 @@ flowchart TD
     ask -->|"answered, fields as declared"| fields[("Fields in cache/,<br/>grids and waveforms beside them")]
     ask -->|"it failed"| failed
     ask -->|"a field it didn't declare"| failed
+    bench["analysis bench: the analyzers chosen<br/>for key and bpm, on a drive's tracks or files"] --> measure["track/analyze afresh, a few at a time.<br/>Files on no drive: library reads refused"]
+    measure --> scored["Scored against the dataset, nothing kept"]
 ```
 
-Source: [`crates/locallibrary/src/plugin/analyzers.rs`](../../../../crates/locallibrary/src/plugin/analyzers.rs), [`crates/locallibrary/src/fields.rs`](../../../../crates/locallibrary/src/fields.rs), [`src/plugin_cmd/analyze.rs`](../../src/plugin_cmd/analyze.rs)
+Source: [`crates/locallibrary/src/plugin/analyzers.rs`](../../../../crates/locallibrary/src/plugin/analyzers.rs), [`crates/locallibrary/src/fields.rs`](../../../../crates/locallibrary/src/fields.rs), [`src/plugin_cmd/analyze.rs`](../../src/plugin_cmd/analyze.rs), [`crates/locallibrary/src/sound/bench.rs`](../../../../crates/locallibrary/src/sound/bench.rs)
 
 ## Running checks and guards
 

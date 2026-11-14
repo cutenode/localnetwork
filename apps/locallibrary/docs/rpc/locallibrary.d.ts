@@ -5860,7 +5860,10 @@ export type DriveLoudness = {
 
 /** Each analyzer's scores. */
 export type BenchReport = {
-  /** Key reports by analyzer (`rekordbox`, `stratum-dsp`): `score` is MIREX's weighted score. */
+  /**
+   * Key reports by analyzer (`rekordbox`, `sound.tempo-key-loudness`): `score` is MIREX's
+   * weighted score.
+   */
   keys: { [key: string]: KeyOutcomeReport };
   /** Tempo reports by analyzer: `score` is Accuracy1. */
   tempos: { [key: string]: TempoOutcomeReport };
@@ -5871,7 +5874,10 @@ export type BenchReport = {
    * the audio folder.
    */
   unmatched: number;
-  /** Audio files that couldn't be analysed: `[name, error]`. */
+  /**
+   * Audio files that couldn't be analysed: `[name, error]`, once for each analyzer that failed
+   * on it.
+   */
   failed: [string, string][];
 };
 

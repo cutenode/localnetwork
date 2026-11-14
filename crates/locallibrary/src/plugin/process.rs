@@ -94,6 +94,18 @@ pub(crate) struct Plugin {
     /// The drives given to its hooks under way (see [`Slot::context`]), each by the name its
     /// context gives it and with its root, once for each hook.
     given: Mutex<Vec<(String, PathBuf)>>,
+    /// The hooks under way that were handed audio files on no drive (see [`Plugin::hand_loose`]).
+    loose: AtomicUsize,
+}
+
+/// A hook under way handed audio files on no drive: its plugin's reads of a library are refused
+/// until it's dropped.
+pub(crate) struct Loose(Arc<Plugin>);
+
+impl Drop for Loose {
+    fn drop(&mut self) {
+        self.0.loose.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// A drive given to a hook under way: its plugin's callbacks may name it (as the context does)
@@ -414,11 +426,30 @@ impl Plugin {
     pub(crate) fn given(&self) -> Vec<(String, PathBuf)> {
         lock(&self.given).clone()
     }
+
+    /// Refuses the plugin's reads of a library until what this answers is dropped: a hook under
+    /// way has audio files on no drive, which no library has tracks for. Its callbacks can't say
+    /// which hook they're for, so its other hooks' are refused meanwhile too.
+    pub(crate) fn hand_loose(self: &Arc<Self>) -> Loose {
+        self.loose.fetch_add(1, Ordering::SeqCst);
+        Loose(self.clone())
+    }
+
+    /// Whether a hook under way has audio files on no drive ([`Plugin::hand_loose`]).
+    pub(crate) fn has_loose(&self) -> bool {
+        self.loose.load(Ordering::SeqCst) > 0
+    }
 }
 
 impl Slot {
     pub(crate) fn new(manifest: Manifest, launch: Launch, host: Arc<Host>) -> Slot {
-        let plugin = Arc::new(Plugin { manifest, host, net: Arc::default(), given: Mutex::default() });
+        let plugin = Arc::new(Plugin {
+            manifest,
+            host,
+            net: Arc::default(),
+            given: Mutex::default(),
+            loose: AtomicUsize::default(),
+        });
         Slot { plugin, launch, hosting: Arc::default(), events: Arc::default(), services: Mutex::default() }
     }
 

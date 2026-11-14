@@ -274,7 +274,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   phrases), `track.show` (details, playlists, My Tags, copies, analysis summary), `track.matches`
   (harmonic matches), `doctor` (`analyze`: the analysis section, after the analyzers for its
   roles run), `doctor.orphans.plan/apply`,
-  `analysis.bench` (scoring rekordbox and the analysis against GiantSteps annotations), `plays.history`, `plays.archive`,
+  `analysis.bench` (scoring rekordbox and the analyzers chosen for key and bpm against GiantSteps annotations), `plays.history`, `plays.archive`,
   `plays.stats`, `profile.build` (the report, preferences and document), `profile.document`,
   `profile.prefs`, `profile.prefs.set`, `export`, `diff`, `check`, `players.models` (what each model
   reads), `players.show/set/clear` (`{models, library}`; the models `check` uses without `players`),

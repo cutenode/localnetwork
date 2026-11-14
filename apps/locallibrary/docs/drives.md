@@ -341,8 +341,10 @@ locallibrary analysis bench GIANTSTEPS --keys giantsteps-key-dataset/annotations
 locallibrary analysis bench --keys giantsteps-mtg-key-dataset/annotations/annotations.txt --audio audio/
 ```
 
-`analysis bench` scores rekordbox's stored keys and tempos on a drive, and the analysis doctor runs
-on the same audio (or the files in `--audio`), analysed afresh every run, against the annotations
+`analysis bench` scores rekordbox's stored keys and tempos on a drive, and the analyzers doctor runs
+for key and bpm (the sound plugin's unless another is chosen, see [Roles](plugins.md#roles)), each
+under its own name (`sound.tempo-key-loudness`), on the same audio (or the files in `--audio`),
+analysed afresh every run and kept nowhere, against the annotations
 of the [GiantSteps Key](https://github.com/GiantSteps/giantsteps-key-dataset),
 [GiantSteps MTG Key](https://github.com/GiantSteps/giantsteps-mtg-key-dataset) (its tracks with one
 key at confidence 2) and [GiantSteps Tempo](https://github.com/GiantSteps/giantsteps-tempo-dataset)
@@ -354,3 +356,5 @@ the parallel one) and the share of each mistake; tempos get Accuracy1 (within 4%
 (also double, half, triple or a third), and the share of each octave mistake. Fifths count in
 either direction, as MIREX has scored them since 2017; weighted scores published before then,
 such as the 2015 GiantSteps paper's, counted only a fifth above, so don't compare them directly.
+The files in `--audio` are on no drive, so an analyzer gets each with no library to read: one that
+reads the library as it analyses fails on them, and the file is listed with the error.

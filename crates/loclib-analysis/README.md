@@ -21,6 +21,10 @@ the BPMs and keys rekordbox stored on a USB drive, but all it needs is audio fil
   weighted scores published before then (the 2015 GiantSteps paper's among them) aren't directly
   comparable.
 
+`analyze` and what it measures need the `dsp` feature, on by default. Without it
+(`default-features = false`) the crate is `benchmark` and `tempo` alone, with no stratum-dsp,
+ebur128 or biquad: enough to score another analyzer's answers.
+
 ```rust,no_run
 use loclib_analysis::{Want, analyze};
 use loclib_progress::Ctx;

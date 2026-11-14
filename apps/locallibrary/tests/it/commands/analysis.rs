@@ -250,15 +250,17 @@ fn bench_scores_rekordbox_and_the_analysis() {
     assert_eq!(r.code, 0, "{}\n{}", r.out, r.err);
     let out = r.out;
     assert!(line(&out, "rekordbox").contains("weighted 100.0%, correct 100.0%"), "{out}");
-    // The demo's placeholder audio doesn't decode: the analysis has no key for either track.
-    assert!(line(&out, "stratum-dsp").contains("weighted 0.0%, correct 0.0%  no key 100.0%"), "{out}");
+    // The demo's placeholder audio doesn't decode: the sound plugin, chosen for the key and bpm
+    // roles, has no key for either track.
+    let sound = line(&out, "sound.tempo-key-loudness");
+    assert!(sound.contains("weighted 0.0%, correct 0.0%  no key 100.0%"), "{out}");
     assert!(out.contains("Accuracy1 100.0%, Accuracy2 100.0%"), "{out}");
     assert!(out.contains("1 annotated track(s) had no audio to score"), "{out}");
     assert!(line(&out, "couldn't be analysed").contains("2 file(s)"), "{out}");
 
     let v = env.json(&args);
     assert_eq!(v["keys"]["rekordbox"]["tracks"], 2, "{v}");
-    assert_eq!(v["keys"]["stratum-dsp"]["counts"]["missing"], 2);
+    assert_eq!(v["keys"]["sound.tempo-key-loudness"]["counts"]["missing"], 2);
     assert_eq!(v["failed"].as_array().unwrap().len(), 2);
 
     let err = env.fails(2, &["analysis", "bench", path(&root)]);
