@@ -61,6 +61,10 @@ impl App {
 
     /// A drive's name as shown: its adopted name, else its volume's.
     pub fn drive_label(&self, root: &Path) -> String {
+        // `/` is never a drive here: it's where rekordbox's collection is opened from.
+        if root == super::drives::collection_root() {
+            return COLLECTION_NAME.to_string();
+        }
         self.drives
             .iter()
             .find(|d| d.root == root)

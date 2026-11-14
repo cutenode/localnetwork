@@ -226,7 +226,8 @@ impl App {
         if !self.volumes_in_flight && self.last_volume_poll.elapsed() > Duration::from_secs(1) {
             self.last_volume_poll = Instant::now();
             self.volumes_in_flight = true;
-            let open = self.loaded.as_ref().map(|l| l.root().to_path_buf());
+            // rekordbox's collection is on this computer: it can't be unplugged.
+            let open = self.loaded.as_ref().filter(|l| !l.is_collection()).map(|l| l.root().to_path_buf());
             let watcher = self.watcher.clone();
             let job = move || {
                 let present = open.map(|r| {
@@ -347,7 +348,12 @@ impl App {
                 // Open a library while none is (on startup, or when the first drive is plugged in):
                 // the drive open last time when it's here, else the first library (its lead
                 // clone), else the first drive with an export.
-                if self.loaded.is_none() && self.loading.is_none() {
+                let collection_last = self.collection_db.is_some()
+                    && self.preferred_root.as_deref() == Some(super::drives::collection_root().as_path());
+                if self.loaded.is_none() && self.loading.is_none() && collection_last {
+                    self.preferred_root = None;
+                    self.load_collection();
+                } else if self.loaded.is_none() && self.loading.is_none() {
                     let with_export = |r: &PathBuf| self.drives.iter().any(|d| d.has_export && d.root == *r);
                     let last = self.preferred_root.clone().filter(with_export);
                     let library = self.drive_rows().into_iter().find_map(|r| match r {
@@ -365,6 +371,8 @@ impl App {
                             self.preferred_root = None;
                             self.open_library(id);
                         }
+                        // No drive to show: rekordbox's collection, when it's on this computer.
+                        (None, None, None) if self.collection_db.is_some() => self.load_collection(),
                         (None, None, None) => {}
                     }
                 }

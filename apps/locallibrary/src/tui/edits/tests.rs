@@ -75,6 +75,16 @@ fn menu_says_why_actions_are_unavailable() {
     assert!(items.iter().any(|i| i.label == "new playlist in Sets…"));
     let t = Target { stale: true, ..t };
     assert!(menu_items(&t).iter().filter(|i| i.action != Action::CrateAdd).all(|i| i.unavailable.is_some()));
+    // rekordbox's collection is never written: everything but the crate (which isn't the
+    // collection's) says so.
+    let t = Target { stale: false, collection: true, ..t };
+    let items = menu_items(&t);
+    let others = items.iter().filter(|i| !matches!(i.action, Action::CrateAdd | Action::ClearCrate));
+    assert!(
+        others.clone().all(|i| i.unavailable.as_deref() == Some(COLLECTION_READ_ONLY)),
+        "{:?}",
+        others.map(|i| (&i.label, &i.unavailable)).collect::<Vec<_>>()
+    );
 }
 
 fn clear_line(app: &mut App) {

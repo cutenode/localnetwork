@@ -161,6 +161,8 @@ pub struct Target {
     pub crate_total: usize,
     /// The drive was unplugged.
     pub stale: bool,
+    /// It's rekordbox's collection, which isn't written.
+    pub collection: bool,
     pub selected: Selected,
 }
 
@@ -212,10 +214,13 @@ impl Menu {
     }
 }
 
+/// Why nothing is changed in rekordbox's collection from here.
+pub const COLLECTION_READ_ONLY: &str = "rekordbox's collection is read-only here: export it to a drive to edit";
+
 pub fn menu_items(t: &Target) -> Vec<MenuItem> {
     let item = |key, label: String, action, unavailable: Option<String>| MenuItem { key, label, action, unavailable };
     let because = |cond: bool, why: &str| cond.then(|| why.to_string());
-    let stale = because(t.stale, "the drive was unplugged");
+    let stale = because(t.collection, COLLECTION_READ_ONLY).or(because(t.stale, "the drive was unplugged"));
     let no_tracks = because(t.tracks.is_empty(), "no track selected");
     let tracks = stale.clone().or(no_tracks.clone());
     let list = t.list.as_deref();
@@ -667,6 +672,7 @@ impl App {
             crated,
             crate_total: self.crate_list.len(),
             stale: l.stale,
+            collection: l.is_collection(),
             selected: match self.focus {
                 Focus::Playlists => Selected::List,
                 Focus::Crate => Selected::Crate,
@@ -1151,7 +1157,7 @@ impl App {
             self.toast(msg, Level::Info);
             return;
         }
-        if self.unplugged(&root) {
+        if self.unplugged(&root) || self.read_only(&root) {
             return;
         }
         let id = self.next_id();
@@ -1183,6 +1189,16 @@ impl App {
         };
         self.spawn_or(job, move |e| Msg::Planned { job: id, root: failed_root, result: Err(Error::Invalid(e)) });
     }
+    /// Whether `root` is rekordbox's collection, which the player never writes: said, as
+    /// nothing's planned on it then.
+    pub(super) fn read_only(&mut self, root: &Path) -> bool {
+        let collection = self.loaded.as_ref().is_some_and(|l| l.is_collection() && l.root() == root);
+        if collection {
+            self.toast(COLLECTION_READ_ONLY, Level::Info);
+        }
+        collection
+    }
+
     /// Whether the drive at `root` was unplugged since it was opened: said, as nothing's planned
     /// on it then.
     pub(super) fn unplugged(&mut self, root: &Path) -> bool {

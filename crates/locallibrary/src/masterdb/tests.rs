@@ -892,6 +892,41 @@ fn files_that_arent_a_collection_say_why(tc: hegel::TestCase) {
     }
 }
 
+#[test]
+fn the_library_from_root_names_files_where_they_are_on_this_computer() {
+    let dir = tempfile::tempdir().unwrap();
+    let rb = dir.path().join("rekordbox");
+    std::fs::create_dir(&rb).unwrap();
+    let c = open(&write(&rb, &cloud_sample().encrypted(DEFAULT_KEY)), DEFAULT_KEY).unwrap();
+    let dropbox = dir.path().join("Dropbox");
+    let audio = dropbox.join("rekordbox/contents_2354715273/Floorplan/ngo.mp3");
+    std::fs::create_dir_all(audio.parent().unwrap()).unwrap();
+    std::fs::write(&audio, b"mp3").unwrap();
+    let cloud = CloudFolders { dropbox: Some(dropbox), google_drive: None };
+
+    let lib = c.library_from_root(&cloud);
+    let (local, synced) = (lib.track(84935471).unwrap(), lib.track(205356547).unwrap());
+    let was = c.library.track(84935471).unwrap();
+    assert_eq!(local.file_path, was.file_path, "a full path stays as it is");
+    assert_eq!(PathBuf::from(&synced.file_path), audio);
+    assert_eq!(PathBuf::from(&local.analyze_path), c.share_file(&was.analyze_path));
+    if let Some(art) = &was.artwork_path {
+        assert_eq!(local.artwork_path.as_deref().map(PathBuf::from), Some(c.share_file(art)));
+    }
+    for t in &lib.tracks {
+        for p in [&t.file_path, &t.analyze_path].into_iter().chain(&t.artwork_path).filter(|p| !p.is_empty()) {
+            assert!(Path::new(p).is_absolute(), "{p} is a full path");
+        }
+    }
+    let gone = c.library_from_root(&CloudFolders::default());
+    assert_eq!(
+        gone.track(205356547).unwrap().file_path,
+        "/contents_2354715273/Floorplan/ngo.mp3",
+        "not here: as it was"
+    );
+    assert_eq!(gone.tracks.len(), c.library.tracks.len());
+}
+
 /// The cloud sample with Cloud Library Sync on `service`, read once per service: building and
 /// reading it is most of a case's time, and the draws only pick among three.
 fn cloud_collection(service: &'static str) -> Collection {
