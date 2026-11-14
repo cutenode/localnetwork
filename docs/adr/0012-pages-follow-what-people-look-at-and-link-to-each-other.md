@@ -55,3 +55,7 @@ Before the locallibrary release: navigation and linking for the pages that exist
 - Charts moves under Mixes and Tools leaves the header for the footer, where it already is.
 - RSVP buttons on a public event page fall under [0001](0001-changes-happen-in-the-dashboard.md)'s exception for controls that only change the viewer's own data, like Follow and Save.
 - The inbox grows from booking events to every decision someone has to make, so notification kinds stop being bookings-only.
+
+## Amended
+
+"Went to" is off on a profile until its owner turns it on, not on by default as the events section above says. Going to a night out is something people should choose to show.
