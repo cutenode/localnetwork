@@ -95,7 +95,7 @@ fn every_key_is_in_the_help_or_the_palette() {
     }
     let (own, global) = help(View::Library);
     let titles: Vec<&str> = own.iter().chain(&global).map(|(t, _)| *t).collect();
-    assert_eq!(titles[..3], ["Browsing", "Marks and the crate", "Changing the drive"]);
+    assert_eq!(titles[..3], ["Browsing", "Marks and the queue", "Changing the drive"]);
     assert!(titles.contains(&"Playback") && titles.contains(&"Deck"));
     let (own, _) = help(View::Profile);
     assert_eq!(own[0].0, "Publish");
@@ -108,14 +108,14 @@ fn the_footer_drops_the_least_important_hints_to_fit() {
     let wide = hints(&app, 300);
     let keys: Vec<&str> = wide.iter().map(|(k, _)| k.as_str()).collect();
     assert_eq!(keys[..3], ["enter", "space", "/"], "the track list's own first: {keys:?}");
-    assert!(keys.contains(&"q") && keys.contains(&"space"));
+    assert!(keys.contains(&"Q") && keys.contains(&"space"));
     for width in [40, 60, 80, 100] {
         let h = hints(&app, width);
         let used: usize = 1 + h.iter().map(|(k, l)| k.width() + l.width() + 3).sum::<usize>();
         assert!(used <= width, "{width}: {h:?}");
         assert!(h.iter().any(|(k, _)| k == "enter"), "the most important stays: {h:?}");
     }
-    assert!(!hints(&app, 80).iter().any(|(k, _)| k == "q"), "quitting goes first");
+    assert!(!hints(&app, 80).iter().any(|(k, _)| k == "Q"), "quitting goes first");
     app.deck_layout = true;
     assert_eq!(hints(&app, 300)[0], ("1-8".to_string(), "hot cue"));
 }
@@ -245,7 +245,7 @@ fn reached(act: Act) -> Reached {
     match act {
         Act::None => LeftOut("a row that only explains"),
         Act::PaneKey | Act::HotCue => LeftOut("takes the digit pressed"),
-        Act::Goto => LeftOut("waits for the key after it"),
+        Act::Goto | Act::QueueChord => LeftOut("waits for the key after it"),
         Act::Palette | Act::Actions | Act::PaneActions => LeftOut("opens a list from the view's own key"),
         Act::Move(_) | Act::Page(_) | Act::End(_) | Act::Focus(_) | Act::Activate | Act::Escape => {
             LeftOut("moving about means nothing from a list over the view")
@@ -279,6 +279,8 @@ fn reached(act: Act) -> Reached {
         | Act::Source(..)
         | Act::Fetch(_) => Listed,
         Act::Quit
+        | Act::QueueNext
+        | Act::Fill
         | Act::Help
         | Act::Messages
         | Act::Jobs

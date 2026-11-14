@@ -60,7 +60,7 @@ fn menu_says_why_actions_are_unavailable() {
     assert_eq!(find(&items, Action::RatingMenu), None);
     assert_eq!(find(&items, Action::RemoveFromList).as_deref(), Some("the list shown isn't a playlist"));
     assert!(find(&items, Action::Rename).is_some());
-    assert_eq!(find(&items, Action::ClearCrate).as_deref(), Some("the crate is empty"));
+    assert_eq!(find(&items, Action::ClearCrate).as_deref(), Some("the queue is empty"));
     let t = Target {
         list: Some("Sets/Friday".into()),
         node: Some(("Sets/Friday".into(), false)),
@@ -187,7 +187,7 @@ fn prompts_say_what_a_name_needs() {
     press(&mut app, "a");
     app.focus = Focus::Playlists;
     press(&mut app, "ew");
-    assert_eq!(prompt(&app), ("Save the crate's 1 track as".into(), "Sets/Crate".into()));
+    assert_eq!(prompt(&app), ("Save the queue's 1 track as".into(), "Sets/Queue".into()));
     press(&mut app, "\n");
     assert!(app.modal.is_none() && app.job.is_some());
     wait(&mut app, |a| a.job.is_none());
@@ -442,7 +442,7 @@ fn packing_the_crate_needs_a_playlist_name() {
     app.drives = vec![info(&root), info(other.path())];
     press(&mut app, "a");
     app.perform(Act::Pack, None);
-    press(&mut app, "crate\n\n");
+    press(&mut app, "queue\n\n");
     assert!(matches!(&app.modal, Some(Modal::Prompt(p)) if p.text.starts_with("Sets/")), "{}", last_message(&app));
     clear_line(&mut app);
     press(&mut app, "\n");
@@ -844,9 +844,9 @@ fn the_menu_asks_for_names_from_where_it_is(tc: hegel::TestCase) {
         Some(Modal::Prompt(p)) => (p.label.clone(), p.text.clone()),
         Some(Modal::Ask(q, _)) => {
             assert_eq!(key, "X");
-            assert!(q.contains("crate"), "{q}");
+            assert!(q.contains("queue"), "{q}");
             press(&mut app, "y");
-            assert!(app.crate_list.is_empty() && last_message(&app) == "crate cleared");
+            assert!(app.crate_list.is_empty() && last_message(&app) == "queue cleared");
             return;
         }
         _ => panic!("{key}: no prompt ({})", last_message(&app)),
@@ -863,7 +863,7 @@ fn the_menu_asks_for_names_from_where_it_is(tc: hegel::TestCase) {
         ),
         _ => {
             let n = t.crated.len();
-            (format!("Save the crate's {n} track{} as", if n == 1 { "" } else { "s" }), format!("{in_folder}Crate"))
+            (format!("Save the queue's {n} track{} as", if n == 1 { "" } else { "s" }), format!("{in_folder}Queue"))
         }
     };
     assert_eq!(prompt, want);

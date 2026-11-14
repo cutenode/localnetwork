@@ -131,7 +131,7 @@ fn library() {
     key(&mut app, KeyCode::Char('a'));
     key(&mut app, KeyCode::Char('i'));
     key(&mut app, KeyCode::Char('t'));
-    check(&mut app, "the library's side panels", &["Crate", "Track"], &["Loopmasters", "mixes into", "Playlists"]);
+    check(&mut app, "the library's side panels", &["Queue", "Track"], &["Loopmasters", "mixes into", "Playlists"]);
     app.focus = Focus::Playlists;
     app.toast = None;
     check(&mut app, "the playlist tree", &["Playlists", "▸ Browse", "enter open"], &[]);
@@ -254,7 +254,7 @@ fn help_and_messages() {
     key(&mut app, KeyCode::Char('?'));
     assert!(app.help);
     // The library's own keys first, then those for everywhere.
-    check(&mut app, "the help", &["Keys · Library", "BROWSING", "enter runs it"], &["MARKS AND THE CRATE"]);
+    check(&mut app, "the help", &["Keys · Library", "BROWSING", "enter runs it"], &["MARKS AND THE QUEUE"]);
     key(&mut app, KeyCode::Esc);
     app.toast("added 2 to the crate", super::app::Level::Info);
     // (Said just now, however long the screens below take to draw.)

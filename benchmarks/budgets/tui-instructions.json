@@ -29,7 +29,7 @@
 			"measures": "Instructions of one frame of the command palette, over the Library view, at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		},
 		"help": {
-			"limit": 7898035,
+			"limit": 8053147,
 			"unit": "instructions",
 			"measures": "Instructions of one frame of the help, over the Library view, at 160x45, under cachegrind, with the 3,886-track fixture open and a track playing: a frame's audio, the analyzer and the draw."
 		}

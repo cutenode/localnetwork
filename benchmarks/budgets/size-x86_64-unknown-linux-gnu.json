@@ -9,7 +9,7 @@
 			"measures": "The release binary, stripped."
 		},
 		"archive": {
-			"limit": 18211992,
+			"limit": 18304124,
 			"unit": "bytes",
 			"measures": "The release archive."
 		}

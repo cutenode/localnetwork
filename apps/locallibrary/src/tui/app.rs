@@ -277,6 +277,8 @@ pub struct App {
     /// through: it waits for the output (see `output_ready`).
     waiting_file: Option<(u64, audio::OpenedFile)>,
     pub queue: Queue,
+    /// Fill: when the queue runs out, the best match that hasn't played goes on the end of it.
+    pub fill: bool,
     pub shuffle: bool,
     pub repeat: Repeat,
     pub analyzer: Analyzer,
@@ -288,8 +290,10 @@ pub struct App {
     pub deck_secs: f64,
     /// Colour of the cue the playhead last crossed, and when.
     flash: Option<([u8; 3], Instant)>,
-    /// `g` was pressed at this time and waits for what follows (see `keymap`).
+    /// `g` (or `q`) was pressed at this time and waits for what follows (see `keymap`).
     pub chord: Option<Instant>,
+    /// The chord waiting is `q`'s, the queue's, rather than `g`'s.
+    pub chord_queue: bool,
     /// The terminal says it draws sixels.
     pub sixel: bool,
     /// What's been read of cover art.
@@ -505,6 +509,7 @@ impl App {
             upcoming: None,
             waiting_file: None,
             queue: Queue::default(),
+            fill: false,
             shuffle: false,
             repeat: Repeat::Off,
             analyzer: Analyzer::default(),
@@ -514,6 +519,7 @@ impl App {
             deck_secs: 8.0,
             flash: None,
             chord: None,
+            chord_queue: false,
             sixel: false,
             covers: Default::default(),
             played_tracks: FxHashSet::default(),

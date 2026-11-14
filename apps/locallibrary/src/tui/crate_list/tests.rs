@@ -18,7 +18,7 @@ fn adds_once_removes_and_reorders() {
     assert_eq!(ids(&list), [2, 3, 1, 1]);
     assert_eq!(list.remove(1).map(|t| t.track.id), Some(3));
     assert!(list.remove(9).is_none());
-    assert_eq!(list.duration_secs(), 900);
+    assert_eq!(list.up_next_secs(), 900);
     list.clear();
     assert!(list.is_empty());
 }
@@ -90,4 +90,25 @@ fn moving_a_crated_track_keeps_the_rest_in_order(tc: hegel::TestCase) {
     a.remove(to);
     b.remove(i);
     assert_eq!(a, b, "the others in their order");
+}
+
+/// Play next puts a block at the front of what's still to play, in its order (first in, first
+/// out across several); adding puts tracks at the end, skipping ones still to play and queueing
+/// a played one again.
+#[test]
+fn play_next_goes_before_the_rest_and_add_after() {
+    let root = Path::new("/Volumes/A");
+    let mut q = Crate::default();
+    let ids = |q: &Crate| q.up_next().map(|x| x.track.id).collect::<Vec<_>>();
+    q.add(root, "A", [track(1, "a", "One"), track(2, "b", "Two")]);
+    q.items[0].played = true;
+    assert_eq!(q.play_next(root, "A", [track(3, "c", "Three"), track(4, "d", "Four")]), 2);
+    assert_eq!(ids(&q), [3, 4, 2]);
+    assert_eq!(q.items[0].track.id, 1, "after what's played");
+    q.play_next(root, "A", [track(2, "b", "Two")]);
+    assert_eq!(ids(&q), [2, 3, 4], "moved to the front");
+    assert_eq!(q.add(root, "A", [track(3, "c", "Three")]), 0, "still to play");
+    assert_eq!(q.add(root, "A", [track(1, "a", "One")]), 1, "played: queued again");
+    assert_eq!(ids(&q), [2, 3, 4, 1]);
+    assert_eq!(q.len(), 4);
 }

@@ -225,7 +225,7 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
     let no_node = because(t.node.is_none(), "select a playlist or folder");
     let into = if t.folder.is_empty() { String::new() } else { format!(" in {}", leaf(&t.folder)) };
     let items: Vec<MenuItem> = vec![
-        item("a", "add to the crate".into(), Action::CrateAdd, no_tracks),
+        item("a", "add to the queue".into(), Action::CrateAdd, no_tracks),
         item("0-5", "set the rating…".into(), Action::RatingMenu, tracks.clone()),
         item("c", "set the colour…".into(), Action::ColourMenu, tracks.clone()),
         item("T", "give them a My Tag (or take one off)…".into(), Action::Tag, tracks.clone()),
@@ -269,11 +269,11 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
         ),
         item(
             "w",
-            "save the crate as a playlist…".into(),
+            "save the queue as a playlist…".into(),
             Action::SaveCrate,
-            stale.clone().or(because(t.crated.is_empty(), "the crate has nothing from this drive")),
+            stale.clone().or(because(t.crated.is_empty(), "the queue has nothing from this drive")),
         ),
-        item("X", "clear the crate".into(), Action::ClearCrate, because(t.crate_total == 0, "the crate is empty")),
+        item("X", "clear the queue".into(), Action::ClearCrate, because(t.crate_total == 0, "the queue is empty")),
         item(
             "b",
             format!("bring back {} from a snapshot…", node_name.as_deref().unwrap_or("a playlist")),
@@ -914,21 +914,22 @@ impl App {
             }
             Action::SaveCrate => {
                 let label = format!(
-                    "Save the crate's {} track{} as",
+                    "Save the queue's {} track{} as",
                     t.crated.len(),
                     if t.crated.len() == 1 { "" } else { "s" }
                 );
-                let text = format!("{in_folder}Crate");
+                let text = format!("{in_folder}Queue");
                 self.modal = Some(prompt(label, text, PromptFor::SaveCrate { tracks: t.crated.clone() }));
             }
             Action::ClearCrate => {
-                let q = format!("Clear the crate ({} tracks)? The drive isn't touched.", t.crate_total);
+                let q = format!("Clear the queue ({} tracks)? The drive isn't touched.", t.crate_total);
                 self.modal = Some(Modal::Ask(
                     q,
                     Box::new(|app: &mut App| {
                         app.crate_list.clear();
                         app.crate_state.select(None);
-                        app.toast("crate cleared", Level::Info);
+                        app.queue_changed();
+                        app.toast("queue cleared", Level::Info);
                     }),
                 ));
             }

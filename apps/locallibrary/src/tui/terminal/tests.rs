@@ -421,7 +421,7 @@ fn prop_the_player_starts_asks_draws_and_quits(tc: TestCase) {
     let terminal = Terminal { capability: true, read_back: false, colours: true, dark: false, device: !late };
     let mut command = player(dir.path());
     command.env("TERM", "xterm-256color");
-    let (out, status) = on_a_pty(command, terminal, b"\x1b[?2026l", b"q");
+    let (out, status) = on_a_pty(command, terminal, b"\x1b[?2026l", b"Q");
     let shown = String::from_utf8_lossy(&out);
     assert!(status.success(), "{shown}");
     let at = |needle: &[u8]| out.windows(needle.len()).position(|w| w == needle);
