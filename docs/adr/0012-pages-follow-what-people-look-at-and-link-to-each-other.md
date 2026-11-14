@@ -59,3 +59,7 @@ Before the locallibrary release: navigation and linking for the pages that exist
 ## Amended
 
 "Went to" is off on a profile until its owner turns it on, not on by default as the events section above says. Going to a night out is something people should choose to show.
+
+## Amended (names)
+
+Act, party and venue pages are addressed by their space key with a decorative name, or by a linked account's handle, not by a unique slug: see [0016](0016-names-repeat-keys-and-handles-identify.md).

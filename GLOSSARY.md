@@ -5,7 +5,7 @@ Tools for DJs and the people who book them. This glossary covers the website at 
 ## Site areas
 
 **Public page**:
-A page anyone can read without signing in. Viewers allowed to read more, like members or people granted a press kit, see more on it, but nobody sees controls for changing it there, apart from following, saving or saying they're going. Every profile, act, party, venue, event, set, mix, press kit, artist and track has one, and each links to the others the link matrix lists for it.
+A page anyone can read without signing in. Viewers allowed to read more, like members or people granted a press kit, see more on it, but nobody sees controls for changing it there, apart from following, saving or saying they're going. Every profile, act, party, venue, event, set, mix, press kit, artist and track has one (an act's opens to everyone once staff list it), and each links to the others the link matrix lists for it.
 _Avoid_: profile view, read-only page
 
 **Link matrix**:
@@ -78,8 +78,12 @@ _Avoid_: friends, connections, following (when meaning the people)
 A profile with the performer sections turned on.
 _Avoid_: project (when meaning the person)
 
+**Alias**:
+A name a DJ plays under, kept on their profile. A DJ can make an alias its own act, with its own page and people. Their profile then links to that act, and credits move to it only when the DJ moves them.
+_Avoid_: stage name, one-member act
+
 **Act**:
-A name DJs play under other than their own: an alias with one member, or a duo, group or collective with several. A DJ playing under their own name is just their profile. Members are public unless one chooses to hide; then only the act's other members, promoters granted its press kits, and staff can see they're in it.
+A name DJs play under other than their own: a duo, group or collective, or an alias a DJ has made its own act. Starting an act offers duo, group and collective; an alias act only comes from a profile. A DJ playing under their own name, or an alias they haven't made an act, is just their profile. Members are public unless one chooses to hide; then only the act's other members, promoters granted its press kits, and staff can see they're in it. Two acts can share a name; an act that links its own account has that account's handle, which is unique.
 _Avoid_: project, side project, artist
 
 **Performer**:
@@ -87,7 +91,7 @@ A DJ or an act: whoever gets booked, credited, and has press kits. Copy still sa
 _Avoid_: project, billing
 
 **Credit**:
-Who a set or show was played as: a DJ, an act, or several of either for a b2b. A b2b partner is only credited once they confirm it. A credit on someone else's event lineup shows on the performer's page at once, marked unconfirmed until they confirm it from their inbox, and they can remove it. A one-off b2b is only a credit; a pairing that keeps playing together can become an act.
+Who a set or show was played as: a DJ, an act, or several of either for a b2b. A b2b partner is only credited once they confirm it. A credit on someone else's event lineup shows on the performer's page at once, marked as waiting for them to confirm it from their inbox, and they can remove it. A one-off b2b is only a credit; a pairing that keeps playing together can become an act.
 _Avoid_: played with, lineup entry
 
 **Section**:
@@ -106,8 +110,24 @@ _Avoid_: permission level, rank
 A DJ who plays in an act and is credited with it. Members get a set of capabilities.
 _Avoid_: manager (when they also play), owner
 
+**People**:
+Everyone in an act, party or venue, each shown with their role. It's also the name of the panel where they're managed.
+_Avoid_: team, roster, staff (staff run the site)
+
+**Invite**:
+Asking one named person to join an act, party or venue with a role. They accept or decline from their inbox.
+_Avoid_: add, request
+
+**Invite link**:
+A link anyone who has it can use to ask to join with the role chosen when it was made, member unless the maker picks another. It works until it expires, after 7 days unless the maker picks otherwise, or is revoked. An owner still approves each person it brings.
+_Avoid_: join link, share link
+
+**Join request**:
+Someone asking on their own to join an act, party or venue. An owner approves or declines it. Whoever joins, by any route, chooses whether to stay hidden and can change that later; owners can't unhide them.
+_Avoid_: application, membership request
+
 **Manager**:
-Someone who works for a performer without playing as it, such as a manager or agent. Managers get a set of capabilities, never the credit.
+Someone who works for a performer without playing as it, such as a manager or agent. Managers get a set of capabilities, never the credit. In a booking, the performer and their managers are separate sides of the thread.
 _Avoid_: owner, admin, agent (as a separate role)
 
 **Promoter**:
@@ -155,11 +175,11 @@ An event you're going to or interested in, or a show you're on the lineup for. Y
 _Avoid_: planner (that's where promoters work out shows), RSVP, saved show
 
 **Booking**:
-The conversation between a promoter and an act about a show, in a thread only they can read. A booking starts open, can go through negotiating, and can be confirmed. Once declined or cancelled it's settled, and nothing reopens it.
+The conversation between a promoter and a performer about a show, in a thread only they and the performer's managers can read. A performer can be sent an inquiry once they're in the directory and have turned on taking inquiries. A booking starts open, can go through negotiating, and can be confirmed. Once declined or cancelled it's settled, and nothing reopens it.
 _Avoid_: gig, inquiry (the inquiry is what opens one)
 
 **Review request**:
-Asking staff to list a DJ, act or party in the directory, or to confirm someone owns a venue. Profiles go live as soon as they're saved, but the directory only shows what staff have approved.
+Asking staff to list a DJ, act or party in the directory, to confirm someone owns a venue, or to confirm a claim: that a performer is you, or that you manage them. Profiles go live as soon as they're saved, but the directory only shows what staff have approved.
 _Avoid_: request (on its own, since the inbox's Requests tab holds inquiries and messages from strangers), proposal, submission, ticket
 
 **Press kit**:
