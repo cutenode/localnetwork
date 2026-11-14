@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import Ajv from 'ajv';
-import blankSpace from 'ts-blank-space';
+import { pageScript } from '../scripts/page-script.mts';
 
 const ROOT = resolve(import.meta.dirname, '..');
 
@@ -73,13 +73,14 @@ describe('what the build produces', () => {
 		}
 	});
 
-	it('ships the page scripts as they are written, less their types', () => {
+	it('ships the page scripts as they are written, less their types and comments', () => {
 		// The page scripts are TypeScript with nothing to compile but the types:
 		// what runs on soundcloud.com is the file in the repository with each
-		// annotation blanked out, so every line and column is where it was.
+		// annotation and comment blanked out, so every line and column of code is
+		// where it was (test/page-script.test.ts).
 		for (const name of ['content', 'gate-page', 'downloaded-store', 'state-transfer', 'theme-prepaint']) {
 			const shipped = read(`${name}.js`);
-			expect(shipped, name).toBe(blankSpace(source(`${name}.ts`)));
+			expect(shipped, name).toBe(pageScript(source(`${name}.ts`)));
 			// Still a classic script: a content script cannot be a module, the shared
 			// two define page globals, which a module cannot do, and the theme has to
 			// be on the page before the deferred module bundle runs.
