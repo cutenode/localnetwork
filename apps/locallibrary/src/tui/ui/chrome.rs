@@ -7,6 +7,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use unicode_width::UnicodeWidthStr;
 
 use crate::output::bytes;
 use crate::tui::app::{App, Level, UNDO_HINT, View, typed_tail};
@@ -198,7 +199,7 @@ fn busy(app: &App) -> Vec<Span<'static>> {
 fn mode(app: &App) -> &'static str {
     let typing = matches!(app.modal, Some(Modal::Prompt(_))) || app.mix.input.is_some() || app.profile.account.typing();
     if app.chord.is_some() {
-        "GO TO"
+        if app.chord_queue { "QUEUE" } else { "GO TO" }
     } else if app.searching {
         "SEARCH"
     } else if typing {
@@ -206,7 +207,7 @@ fn mode(app: &App) -> &'static str {
     } else if app.picking.is_some() {
         "PICK"
     } else if app.deck_showing() {
-        "DECK"
+        "PLAYER"
     } else if app.deck.pads {
         "PADS"
     } else {
@@ -276,7 +277,7 @@ pub(super) fn input_line(
     Line::from(spans)
 }
 
-pub(super) fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
+pub(super) fn draw_footer(f: &mut Frame, app: &mut App, area: Rect) {
     if let Some(Modal::Prompt(p)) = &app.modal {
         let label = vec![Span::styled(format!(" {}: ", p.label), theme::key())];
         let after = vec![Span::styled("   enter ok · esc cancel", faint())];
@@ -313,19 +314,38 @@ pub(super) fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     if app.intro {
         return f.render_widget(Line::from(fit(intro_line(), area.width as usize)), area);
     }
-    // The keymap's hints for where focus is, as many as fit.
+    // The keymap's hints for where focus is, as many as fit. Each key that's one key is a button,
+    // and the label is its first key's.
     let mut spans = vec![Span::raw(" ")];
+    let mut x = area.x + 1;
     for (k, label) in crate::tui::keymap::hints(app, area.width as usize) {
+        let mut first = None;
+        for (i, token) in k.split(' ').enumerate() {
+            let w = token.width() as u16;
+            let at = Rect { x: x + u16::from(i > 0), width: w, ..area };
+            x = at.right();
+            if let Some(key) = crate::tui::keymap::hint_key(token) {
+                first.get_or_insert(key);
+                app.areas.hints.push((at, key));
+            }
+        }
+        let label = format!(" {label}  ");
+        if let Some(key) = first {
+            // The label, not the space before it or the gap after.
+            let w = label.trim().width() as u16;
+            app.areas.hints.push((Rect { x: x + 1, width: w, ..area }, key));
+        }
+        x += label.width() as u16;
         spans.push(Span::styled(k, theme::key()));
-        spans.push(Span::styled(format!(" {label}  "), dim()));
+        spans.push(Span::styled(label, dim()));
     }
+    app.areas.hints.retain(|(r, _)| r.right() <= area.right());
     f.render_widget(Line::from(spans), area);
 }
 
 /// `s` in lines of at most `width` columns, broken between words, and inside words too long
 /// for a line (paths, say).
 pub(super) fn wrap_text(s: &str, width: usize) -> Vec<String> {
-    use unicode_width::UnicodeWidthStr;
     let width = width.max(1);
     let mut out = vec![String::new()];
     for word in s.split(' ') {

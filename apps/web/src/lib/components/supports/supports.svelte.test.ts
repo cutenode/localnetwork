@@ -1,6 +1,7 @@
 import { page, userEvent } from 'vitest/browser';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import '../../../routes/layout.css';
 import type { DjSet } from '#lib/dj.ts';
 import type { ArtistSupports, Charts } from '#lib/types.ts';
 import DjSets from '../DjSets.svelte';
@@ -65,8 +66,20 @@ describe('ArtistSupport', () => {
 		await expect
 			.element(plays.first().getByRole('link', { name: 'Saffron Social' }))
 			.toHaveAttribute('href', '/projects/saffron-social');
-		// A DJ with no active project and no known handle still shows up, as their DID.
+		await expect
+			.element(plays.first().getByRole('link', { name: '@neon.test' }))
+			.toHaveAttribute('href', '/@neon.test');
+		await expect
+			.element(plays.first().getByRole('link', { name: 'Halle Nord, Berlin' }))
+			.toHaveAttribute('href', '/@neon.test/sets/3kset1');
+		// A DJ with no active project and no known handle still shows up, as their DID, linking their profile and set by it.
 		await expect.element(plays.nth(1)).toHaveTextContent('Sat 10 Oct did:plc:harbour Sunday session club');
+		await expect
+			.element(plays.nth(1).getByRole('link', { name: 'did:plc:harbour' }))
+			.toHaveAttribute('href', '/@did:plc:harbour');
+		await expect
+			.element(plays.nth(1).getByRole('link', { name: 'Sunday session' }))
+			.toHaveAttribute('href', '/@did:plc:harbour/sets/3kset3');
 		await expect.element(plays).toHaveLength(8);
 
 		const more = page.getByRole('list', { name: 'More plays of Night Bus' });
@@ -160,26 +173,27 @@ describe('ArtistResults', () => {
 	});
 });
 
+/** A set with one track MusicBrainz knows, one it doesn't, and one nobody has named. */
+const set: DjSet = {
+	uri: 'at://did:plc:neon/computer.localnetwork.dj.set/3kset',
+	date: '2026-10-13',
+	tracks: [
+		{
+			title: 'Low Tide (Dub)',
+			artist: 'Ferrule, Ava Lind',
+			artists: [
+				{ artistName: 'Ferrule', artistMbId: '2a8e4f60-1c3b-4d7e-9a05-6b1f0c2d3e41' },
+				{ artistName: 'Ava Lind' }
+			],
+			recordingMbId: '0e7a4c19-6d3f-4b82-a1c5-93f2b8e60d17'
+		},
+		{ title: 'Static Bloom', artist: 'Kestrel Unit' },
+		{ unidentified: true, artist: 'Someone' }
+	]
+};
+
 describe('DjSets', () => {
 	it("links a set's tracks to MusicBrainz and its artists to their pages", async () => {
-		const set: DjSet = {
-			uri: 'at://did:plc:neon/computer.localnetwork.dj.set/3kset',
-			date: '2026-10-13',
-			tracks: [
-				{
-					title: 'Low Tide (Dub)',
-					artist: 'Ferrule, Ava Lind',
-					artists: [
-						{ artistName: 'Ferrule', artistMbId: '2a8e4f60-1c3b-4d7e-9a05-6b1f0c2d3e41' },
-						{ artistName: 'Ava Lind' }
-					],
-					recordingMbId: '0e7a4c19-6d3f-4b82-a1c5-93f2b8e60d17'
-				},
-				{ title: 'Static Bloom', artist: 'Kestrel Unit' },
-				{ unidentified: true, artist: 'Someone' }
-			]
-		};
-
 		await render(DjSets, { sets: [set] });
 		await userEvent.click(page.getByText('Tracklist'));
 
@@ -197,5 +211,61 @@ describe('DjSets', () => {
 			.toHaveAttribute('href', '/artists/name/Kestrel%20Unit');
 		await expect.element(page.getByText('Unreleased')).toBeVisible();
 		await expect.element(page.getByRole('link', { name: 'Someone' })).not.toBeInTheDocument();
+	});
+
+	it("links each set's name to its page, under the DJ's handle or else their DID, but not on that page", async () => {
+		const set: DjSet = {
+			uri: 'at://did:plc:neon/computer.localnetwork.dj.set/3kset',
+			date: '2026-10-13',
+			title: 'Closing',
+			tracks: []
+		};
+
+		const screen = await render(DjSets, { sets: [set], handle: 'neon.test' });
+		await expect.element(page.getByRole('link', { name: 'Closing' })).toHaveAttribute('href', '/@neon.test/sets/3kset');
+
+		await screen.rerender({ sets: [set], handle: null });
+		await expect
+			.element(page.getByRole('link', { name: 'Closing' }))
+			.toHaveAttribute('href', '/@did:plc:neon/sets/3kset');
+
+		await screen.rerender({ sets: [set], link: false });
+		await expect.element(page.getByText('Closing')).toBeVisible();
+		await expect.element(page.getByRole('link', { name: 'Closing' })).not.toBeInTheDocument();
+	});
+});
+
+describe('MusicBrainz links', () => {
+	// The icon stays small beside the name, but its link is a 24px target (WCAG 2.5.8).
+	it.each([
+		['ChartBoard', () => render(ChartBoard, { charts, retryHref: '/charts' }), 'Night Bus on MusicBrainz'],
+		[
+			'ArtistSupport',
+			() => render(ArtistSupport, { supports: artistSupports, retryHref: '/artists/ferrule' }),
+			'Night Bus on MusicBrainz'
+		],
+		[
+			'ArtistResults',
+			() => render(ArtistResults, { artists: supportedArtists, q: '', retryHref: '/artists' }),
+			'Ferrule on MusicBrainz'
+		],
+		[
+			'DjSets',
+			async () => {
+				await render(DjSets, { sets: [set] });
+				await userEvent.click(page.getByText('Tracklist'));
+			},
+			'Low Tide (Dub) on MusicBrainz'
+		]
+	])('gives the icon in %s a target of at least 24 by 24', async (_, draw, name) => {
+		await draw();
+
+		const link = page.getByRole('link', { name }).first().element();
+		const target = link.getBoundingClientRect();
+		const icon = link.querySelector('svg')!.getBoundingClientRect();
+
+		expect(target.width).toBeGreaterThanOrEqual(24);
+		expect(target.height).toBeGreaterThanOrEqual(24);
+		expect(icon.width).toBeLessThanOrEqual(14);
 	});
 });

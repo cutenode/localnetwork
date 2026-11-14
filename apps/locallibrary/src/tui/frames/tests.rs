@@ -93,7 +93,6 @@ fn mid_set() -> (App, MixerSource, TempDir, Fixture) {
     app.now = Some(NowPlaying {
         id: 1,
         key: Camelot::parse(&track.key),
-        drive: "LARGE".into(),
         root,
         analysis: Default::default(),
         waves: Default::default(),

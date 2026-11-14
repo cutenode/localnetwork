@@ -354,7 +354,7 @@ impl App {
         let undo_key = if self.undo_drive().as_ref() == Some(&root) { "u" } else { "" };
         let item = |act: Act, why: &Option<String>| {
             let key = keymap::key_in(Scope::Drives, act).map_or(String::new(), key_name);
-            (act, Item { label: keymap::name(act).into(), detail: key, unavailable: why.clone() })
+            (act, Item { unavailable: why.clone(), ..Item::new(keymap::name(act), key) })
         };
         let items = vec![
             item(Act::Pull, &no_export),
@@ -489,7 +489,7 @@ impl App {
             (self.crate_list.items.iter()).filter(|t| t.root == source).map(|t| t.track.file_path.clone()).collect();
         if !crated.is_empty() {
             let n = crated.len();
-            items.push(Item::new(format!("the crate's {n} track{} (saved as a playlist first)", s(n)), "t"));
+            items.push(Item::new(format!("the queue's {n} track{} (saved as a playlist first)", s(n)), "t"));
             choices.push(PackWhat::Crate(crated));
         }
         items.push(Item::new("what the drive was packed with last time", ""));
@@ -525,7 +525,7 @@ impl App {
         match what {
             PackWhat::Crate(tracks) => {
                 let today = chrono::Local::now().format("%Y-%m-%d");
-                let label = format!("Save the crate as (then pack it onto {})", self.drive_label(&target));
+                let label = format!("Save the queue as (then pack it onto {})", self.drive_label(&target));
                 self.modal = Some(Modal::Prompt(Prompt {
                     label,
                     text: format!("Sets/{today}"),

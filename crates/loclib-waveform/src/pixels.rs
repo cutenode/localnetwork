@@ -64,10 +64,14 @@ impl Art {
         &self.image
     }
 
-    /// Pixels for a `cols` x `rows` cell area (two pixels per cell vertically).
+    /// Pixels for a `cols` x `rows` cell area (two pixels per cell vertically). Shrunk smoothly, and
+    /// grown in whole pixels, so a small cover stays crisp.
     pub fn resized(&self, cols: u16, rows: u16) -> PixelBuf {
-        let resized =
-            image::imageops::resize(&*self.image, cols as u32, rows as u32 * 2, image::imageops::FilterType::Lanczos3);
+        use image::imageops::FilterType;
+        let (w, h) = (u32::from(cols), u32::from(rows) * 2);
+        let grows = w >= self.image.width() && h >= self.image.height();
+        let filter = if grows { FilterType::Nearest } else { FilterType::Lanczos3 };
+        let resized = image::imageops::resize(&*self.image, w, h, filter);
         resized.pixels().map(|p| Some(p.0)).collect()
     }
 
@@ -100,31 +104,66 @@ impl Art {
 }
 
 /// A spinning record in `record`'s colour with a `label` in the middle, for tracks without
-/// artwork. `angle` turns the light streak (radians).
+/// artwork. `angle` turns the light streak (radians). It's pixel art at any size: a few whole rings,
+/// a flat label, a streak in two steps, a one-pixel rim and a spindle hole.
 pub fn vinyl(cols: u16, rows: u16, angle: f32, label: Rgb, record: Rgb) -> PixelBuf {
+    const SHEEN: Rgb = [170, 170, 196];
+    // Six colours, each drawn flat: the record, its grooves, the streak's two steps, the rim and
+    // the label.
+    let groove = scale(record, 0.72);
+    let (dim, bright) = (mix(record, SHEEN, 0.35), mix(record, SHEEN, 0.7));
+    let rim = [74, 74, 90];
     let (w, h) = (cols as usize, rows as usize * 2);
     let (cx, cy) = (w as f32 / 2.0, h as f32 / 2.0);
+    // In pixels from here on, so the rings are whole ones.
     let radius = cx.min(cy);
+    let hole = (radius * 0.08).max(1.0);
+    let label_edge = radius * 0.38;
+    let inside_rim = radius - 1.0;
+    // A few rings, each at least two pixels wide, so none breaks up into speckle.
+    let band = inside_rim - label_edge;
+    let rings = (band / 2.0).floor().clamp(1.0, 4.0);
+    let ring = band / rings;
     let mut out = vec![None; w * h];
-    // `max(1)`: with no columns there are no pixels, and no rows to fill.
-    for (y, row) in out.chunks_exact_mut(w.max(1)).enumerate() {
-        for (x, px) in row.iter_mut().enumerate() {
-            let (dx, dy) = ((x as f32 + 0.5 - cx) / radius, (y as f32 + 0.5 - cy) / radius);
-            let r = (dx * dx + dy * dy).sqrt();
-            *px = if !(0.06..=1.0).contains(&r) {
-                None // outside, or the spindle hole
-            } else if r < 0.36 {
-                // Label, lit from the top left.
-                Some(scale(label, 1.0 - 0.35 * ((dy - dx) * 0.5 + 0.5).clamp(0.0, 1.0)))
-            } else if r > 0.95 {
-                Some([74, 74, 90]) // rim
+    let mut grooved = vec![false; w * h];
+    for (i, px) in out.iter_mut().enumerate() {
+        let (x, y) = ((i % w) as f32 + 0.5 - cx, (i / w) as f32 + 0.5 - cy);
+        let r = (x * x + y * y).sqrt();
+        *px = if r > radius || r < hole {
+            None // outside, or the spindle hole
+        } else if r < label_edge {
+            Some(label)
+        } else if r >= inside_rim {
+            Some(rim)
+        } else {
+            grooved[i] = true;
+            // A streak of light either side of the middle, in two steps, turning with the record.
+            let lit = (y.atan2(x) - angle).cos().abs();
+            Some(if lit > 0.97 {
+                bright
+            } else if lit > 0.87 {
+                dim
+            } else if (((r - label_edge) / ring) as u32).is_multiple_of(2) {
+                record
             } else {
-                // Grooves, plus a highlight that sweeps round as the record turns.
-                let groove = if ((r * 40.0) as i32) % 2 == 0 { 1.0 } else { 0.78 };
-                let theta = dy.atan2(dx) - angle;
-                let streak = theta.cos().abs().powi(10) * (1.1 - r) * 1.4;
-                Some(mix(scale(record, groove), [170, 170, 196], streak))
-            };
+                groove
+            })
+        };
+    }
+    // Where a ring meets the streak a pixel can be left on its own: it takes a neighbour's colour.
+    for i in (0..out.len()).filter(|&i| grooved[i]) {
+        let (x, y) = (i % w, i / w);
+        let neighbours = [
+            (x > 0).then(|| i - 1),
+            (x + 1 < w).then(|| i + 1),
+            (y > 0).then(|| i - w),
+            (i + w < out.len()).then(|| i + w),
+        ];
+        let neighbours: Vec<_> = neighbours.into_iter().flatten().filter(|&n| grooved[n]).collect();
+        if !neighbours.iter().any(|&n| out[n] == out[i])
+            && let Some(&n) = neighbours.first()
+        {
+            out[i] = out[n];
         }
     }
     out

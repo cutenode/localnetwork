@@ -4,10 +4,12 @@
   Drawn the way the website draws its pages: a bar with the waveform mark and
   the name, a mono label over the group, and bordered rows that answer the
   pointer with a stronger border. Each tool's tone is its icon tile and nothing
-  else (see $lib/tools.ts).
+  else (see $lib/tools.ts). On a first opening the list waits behind a short
+  notice of what the extension sends where (FirstRun.svelte).
 -->
 <script lang="ts">
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
+  import FirstRun from './FirstRun.svelte';
   import QueueButton from './QueueButton.svelte';
   import SettingsButton from './SettingsButton.svelte';
   import ThemeToggle from './ThemeToggle.svelte';
@@ -46,24 +48,26 @@
     <ThemeToggle />
   </header>
 
-  <nav class="flex flex-col gap-2 p-3" aria-label="tools">
-    <p aria-hidden="true" class="section-title m-0 mb-0.5">pick a tool</p>
-    {#each TOOLS as tool (tool.id)}
-      <button
-        type="button"
-        class="group flex items-center gap-3 rounded-lg border border-line bg-surface p-2.5 text-left
-               transition-colors hover:border-line-strong"
-        onclick={() => onopen(tool.id)}
-      >
-        <ToolTile icon={tool.icon} tone={tool.tone} size="md" />
+  <FirstRun>
+    <nav class="flex flex-col gap-2 p-3" aria-label="tools">
+      <p aria-hidden="true" class="section-title m-0 mb-0.5">pick a tool</p>
+      {#each TOOLS as tool (tool.id)}
+        <button
+          type="button"
+          class="group flex items-center gap-3 rounded-lg border border-line bg-surface p-2.5 text-left
+                 transition-colors hover:border-line-strong"
+          onclick={() => onopen(tool.id)}
+        >
+          <ToolTile icon={tool.icon} tone={tool.tone} size="md" />
 
-        <span class="min-w-0 flex-1">
-          <span class="block truncate text-small font-semibold">{tool.name}</span>
-          <span class="block text-caption text-fg-muted">{tool.description}</span>
-        </span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-small font-semibold">{tool.name}</span>
+            <span class="block text-caption text-fg-muted">{tool.description}</span>
+          </span>
 
-        <ChevronRight class="size-4 shrink-0 text-fg-subtle transition-colors group-hover:text-fg" />
-      </button>
-    {/each}
-  </nav>
+          <ChevronRight class="size-4 shrink-0 text-fg-subtle transition-colors group-hover:text-fg" />
+        </button>
+      {/each}
+    </nav>
+  </FirstRun>
 </div>

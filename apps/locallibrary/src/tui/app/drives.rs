@@ -185,6 +185,7 @@ impl App {
         // again, so a set shown doesn't empty meanwhile.
         new.sets = self.loaded.as_mut().and_then(|l| l.sets.take());
         self.crate_list.refresh(new.root(), &new.library);
+        self.queue_changed();
         self.loaded = Some(new);
         self.first_open();
         self.details = None;

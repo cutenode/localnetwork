@@ -13,6 +13,8 @@ const record = (uri: string, overrides: Partial<HeldRecordView> = {}): HeldRecor
 	...overrides
 });
 
+const retry = '/dashboard/account/data/booking';
+
 const records = [
 	record('at://m1'),
 	record('at://m2', { title: 'Inquiry in Rooftop', excerpt: 'Free on the 5th?' }),
@@ -31,11 +33,14 @@ const pending = () => new Promise<HeldRecordView[]>(() => {});
 
 describe('HeldRecordList', () => {
 	it('groups the records by kind, each with a delete, and a delete for the whole kind', async () => {
-		await render(HeldRecordList, { records: Promise.resolve(records) });
+		await render(HeldRecordList, { retry, records: Promise.resolve(records) });
 
 		const headings = page.getByRole('heading', { level: 2 });
-		await expect.element(headings.first()).toHaveTextContent('Submissions1');
-		expect(headings.elements().map((heading) => heading.textContent)).toEqual(['Submissions1', 'Booking messages2']);
+		await expect.element(headings.first()).toHaveTextContent('Requests to staff1');
+		expect(headings.elements().map((heading) => heading.textContent)).toEqual([
+			'Requests to staff1',
+			'Booking messages2'
+		]);
 		await expect
 			.element(page.getByText('Deleting a pending one withdraws it. A decided one keeps its decision.'))
 			.toBeVisible();
@@ -43,11 +48,11 @@ describe('HeldRecordList', () => {
 
 		expect(posts('Delete Inquiry in Rooftop')).toEqual(['?/delete', { uri: 'at://m2' }]);
 		expect(posts('Delete all booking messages')).toEqual(['?/deleteAll', { kind: 'booking' }]);
-		expect(posts('Delete all submissions')).toEqual(['?/deleteAll', { kind: 'request' }]);
+		expect(posts('Delete all requests to staff')).toEqual(['?/deleteAll', { kind: 'request' }]);
 	});
 
 	it('holds a placeholder while loading, and keeps the list while a new one loads', async () => {
-		const { rerender } = await render(HeldRecordList, { records: pending() });
+		const { rerender } = await render(HeldRecordList, { retry, records: pending() });
 
 		await expect.element(page.getByText('Loading your data')).toBeInTheDocument();
 		expect(page.getByRole('button').elements()).toHaveLength(0);
@@ -62,10 +67,10 @@ describe('HeldRecordList', () => {
 	});
 
 	it('says when there is nothing to delete', async () => {
-		await render(HeldRecordList, { records: Promise.resolve([]) });
+		await render(HeldRecordList, { retry, records: Promise.resolve([]) });
 
 		await expect.element(page.getByText('Nothing here')).toBeVisible();
-		await expect.element(page.getByText("Local Network isn't holding anything for you.")).toBeVisible();
+		await expect.element(page.getByText("Local Network isn't holding any of these for you.")).toBeVisible();
 		expect(page.getByRole('button').elements()).toHaveLength(0);
 	});
 
@@ -73,14 +78,18 @@ describe('HeldRecordList', () => {
 		const failed = Promise.reject(new Error('directory down'));
 		// Handled here as SvelteKit's streaming does, so the browser doesn't report it before the component reads it.
 		failed.catch(() => {});
-		await render(HeldRecordList, { records: failed });
+		await render(HeldRecordList, { retry, records: failed });
 
 		await expect.element(page.getByText("Couldn't load your data")).toBeVisible();
-		await expect.element(page.getByRole('link', { name: 'Try again' })).toHaveAttribute('href', '/dashboard/data');
+		await expect.element(page.getByRole('link', { name: 'Try again' })).toHaveAttribute('href', retry);
 	});
 
 	it('shows why a delete failed', async () => {
-		await render(HeldRecordList, { records: Promise.resolve(records), form: { error: "That isn't one of yours" } });
+		await render(HeldRecordList, {
+			retry,
+			records: Promise.resolve(records),
+			form: { error: "That isn't one of yours" }
+		});
 
 		await expect.element(page.getByRole('alert')).toHaveTextContent("That isn't one of yours");
 	});

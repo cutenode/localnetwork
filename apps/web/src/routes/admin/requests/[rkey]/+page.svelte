@@ -122,7 +122,7 @@
 				<Card as="section">
 					<div class="mb-3 flex items-center justify-between gap-4">
 						<h2 class="section-title">{request.kind === 'create' ? 'Proposed profile' : request.status === 'approved' ? 'Published changes' : 'Proposed changes'}</h2>
-						{#if data.avatar?.shown}<img src="/dashboard/requests/{request.rkey}/avatar" alt="Proposed" class="size-16 rounded-lg border border-line object-cover" />{/if}
+						{#if data.avatar?.shown}<img src="/dashboard/account/requests/{request.rkey}/avatar" alt="Proposed" class="size-16 rounded-lg border border-line object-cover" />{/if}
 					</div>
 					<DiffTable changes={data.changes} />
 					{#if data.tracklists.length}

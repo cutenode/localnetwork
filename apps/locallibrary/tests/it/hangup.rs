@@ -160,12 +160,12 @@ fn the_player_exits_when_its_terminal_closes() {
     assert!(status < 128, "the player ended with status {status}");
 }
 
-/// `q` quits, read from the terminal as keys are.
+/// `Q` quits, read from the terminal as keys are.
 #[test]
-fn the_player_quits_on_q() {
+fn the_player_quits_on_shift_q() {
     let fx = Env::new();
     let (session, status_file) = idle_player(&fx);
-    (&session.terminal).write_all(b"q").unwrap();
+    (&session.terminal).write_all(b"Q").unwrap();
     assert_eq!(exit_status(&session, &status_file), 0);
 }
 

@@ -49,11 +49,20 @@ pub struct Item {
     pub detail: String,
     /// Can't be chosen now, and why.
     pub unavailable: Option<String>,
+    /// More words it's found by, not shown: comma-separated phrases, each matched on its own.
+    pub words: String,
 }
 
 impl Item {
     pub fn new(label: impl Into<String>, detail: impl Into<String>) -> Item {
-        Item { label: label.into(), detail: detail.into(), unavailable: None }
+        Item { label: label.into(), detail: detail.into(), unavailable: None, words: String::new() }
+    }
+
+    /// How well `query` matches it (see [`fuzzy`]): the best of its label, its detail and each of
+    /// its words.
+    pub fn score(&self, query: &str) -> Option<i32> {
+        let words = self.words.split(',').filter(|w| !w.trim().is_empty()).map(|w| fuzzy(query, w.trim()));
+        [fuzzy(query, &self.label), fuzzy(query, &self.detail)].into_iter().chain(words).max().flatten()
     }
 }
 
@@ -108,15 +117,15 @@ impl Picker {
         self.filter();
     }
 
-    /// Narrow the list to what's typed, in the label or the detail (so a command's name finds it),
-    /// best matches first, with the edge a command used lately has (ties go to the later one, then
-    /// keep the list's order). A label typed out in full comes first whatever was used lately, so
+    /// Narrow the list to what's typed, in the label, the detail (so a command's name finds it) or
+    /// the words it's found by, best matches first, with the edge a command used lately has (ties
+    /// go to the later one, then keep the list's order). A label typed out in full comes first whatever was used lately, so
     /// "cover art" isn't "no cover art" just because that ran last.
     pub fn filter(&mut self) {
         let recency = |i: usize| self.recency.get(i).copied().unwrap_or(0);
         let typed = self.query.trim().to_lowercase();
         let mut scored: Vec<(bool, i32, usize)> = (self.items.iter().enumerate())
-            .filter_map(|(i, it)| fuzzy(&self.query, &it.label).max(fuzzy(&self.query, &it.detail)).map(|s| (s, i)))
+            .filter_map(|(i, it)| it.score(&self.query).map(|s| (s, i)))
             .map(|(s, i)| {
                 let named = !typed.is_empty() && self.items[i].label.to_lowercase() == typed;
                 (named, if recency(i) > 0 { s + RECENT_EDGE } else { s }, i)
@@ -230,7 +239,7 @@ pub fn commands(view: View) -> Vec<(Act, Item)> {
                 (None, true) => format!("{} · {}", View::Prepare.title(), b.shown),
                 (None, false) => b.shown.to_string(),
             };
-            (b.act, Item::new(b.name, detail))
+            (b.act, Item { words: b.words.to_string(), ..Item::new(b.name, detail) })
         })
         .collect()
 }
@@ -256,6 +265,16 @@ impl App {
         p.empty = "no command has those letters";
         p.rank(&self.recent_commands);
         self.modal = Some(Modal::Pick(p));
+    }
+
+    /// The palette, with `query` typed in it: what a search in the help that no key matched
+    /// looks for next.
+    pub(super) fn open_palette_with(&mut self, query: &str) {
+        self.open_palette();
+        if let Some(Modal::Pick(p)) = &mut self.modal {
+            p.query = query.to_string();
+            p.filter();
+        }
     }
 
     /// `e` where a pane has no menu of its own: what enter does there, then the pane's keys.
@@ -291,7 +310,7 @@ impl App {
         let header = self.view == View::Drives && self.drive_header.is_some();
         match act {
             Act::SyncGroup | Act::SetPrep | Act::Eject if header => None,
-            Act::Pull | Act::Check | Act::RestorePlaylist | Act::Replay | Act::SmartApply if header => {
+            Act::Pull | Act::Check | Act::RestorePlaylist | Act::Replay | Act::SmartApply | Act::Run(_) if header => {
                 Some("select one of the library's drives".into())
             }
             Act::Pull
@@ -302,7 +321,8 @@ impl App {
             | Act::RestorePlaylist
             | Act::Replay
             | Act::Eject
-            | Act::SmartApply => writes(self.action_drive().is_some()),
+            | Act::SmartApply
+            | Act::Run(_) => writes(self.action_drive().is_some()),
             Act::Undo => writes(self.undo_drive().is_some()),
             Act::SmartNew => library.or(need(self.query.trim().is_empty(), "search first (/)")),
             Act::Actions

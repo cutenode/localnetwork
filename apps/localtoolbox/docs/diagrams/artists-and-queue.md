@@ -29,7 +29,7 @@ sequenceDiagram
       C--)P: ARTIST_PROFILES_PROGRESS
       P->>L: learn, written a second later
     end
-    C-->>P: profiles, failed, error
+    C-->>P: profiles, missing, failed, error
     P->>L: flush
   else any other tab
     Note over P: rows say not looked up, look up waits for a SoundCloud tab
@@ -40,7 +40,7 @@ Source: [`src/tools/artists/Panel.svelte`](../../src/tools/artists/Panel.svelte)
 
 ## Life of an artist row
 
-What `profile` holds on an entry. A `401` leaves the row as it was, and any other failed `/resolve` counts as no profile, over whatever the row held.
+What `profile` holds on an entry. Only SoundCloud saying nobody is there (a `404`, or a path that isn't a user) counts as no profile. Any other failure leaves the row as it was, and the row says lookup failed until it's asked again; that isn't stored.
 
 ```mermaid
 stateDiagram-v2
@@ -49,11 +49,12 @@ stateDiagram-v2
   state "No profile, remembered" as Unavailable
   [*] --> Unchecked: added
   Unchecked --> Profile: lookup found the user
-  Unchecked --> Unavailable: not a public profile, or the request failed
-  Unchecked --> Unchecked: 401, or the lookup stopped short
-  Profile --> Profile: look up again
-  Profile --> Unavailable: look up again, gone or failed
+  Unchecked --> Unavailable: missing, not a public profile
+  Unchecked --> Unchecked: failed, 401, or the lookup stopped short
+  Profile --> Profile: look up again, found or failed
+  Profile --> Unavailable: look up again, missing
   Unavailable --> Profile: look up again
+  Unavailable --> Unavailable: look up again, missing or failed
   Unchecked --> [*]: taken off
   Profile --> [*]: taken off
   Unavailable --> [*]: taken off
@@ -157,7 +158,7 @@ Source: [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`content.ts
 
 ## What the queue sheet does
 
-Each control on the sheet. Marks outlast the queue, and a queued track outlasts its mark. A tool already open under the sheet keeps its source until it next mounts.
+Each control on the sheet. Marks outlast the queue, and a queued track outlasts its mark. Every tool shares one source, so a tool already open under the sheet switches to the queue at once.
 
 ```mermaid
 flowchart TD
@@ -170,7 +171,7 @@ flowchart TD
   Clear["clear, asks once more"]
   Marks[("marks")]
   Queue[("queue")]
-  Tool["that tool, reading the queue<br/>when it next mounts"]
+  Tool["that tool, open already or not,<br/>reading the queue at once"]
 
   Sheet --> MarkAll
   Sheet --> TakeOut
@@ -186,7 +187,7 @@ flowchart TD
   Send -->|"pref:source set to queue"| Tool
 ```
 
-Source: [`src/lib/components/QueueSheet.svelte`](../../src/lib/components/QueueSheet.svelte), [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`src/lib/source.ts`](../../src/lib/source.ts), [`src/lib/prefs.svelte.ts`](../../src/lib/prefs.svelte.ts)
+Source: [`src/lib/components/QueueSheet.svelte`](../../src/lib/components/QueueSheet.svelte), [`src/lib/queue.svelte.ts`](../../src/lib/queue.svelte.ts), [`src/lib/source.ts`](../../src/lib/source.ts), [`src/lib/prefs.svelte.ts`](../../src/lib/prefs.svelte.ts), [`src/tools/third-party-downloads/Panel.svelte`](../../src/tools/third-party-downloads/Panel.svelte), [`src/tools/soundcloud-playlist-to-text/Panel.svelte`](../../src/tools/soundcloud-playlist-to-text/Panel.svelte)
 
 ## What the settings sheet changes
 
@@ -196,7 +197,7 @@ Each section, where it keeps what it sets, and who obeys it. An import writes ba
 flowchart LR
   Page["SoundCloud pages<br/>replace buttons, likes as a list"]
   Down["downloads<br/>email, name, mark"]
-  Badges["search badges"]
+  Badges["search badges<br/>switches, sites you add"]
   Look["appearance<br/>theme, title case"]
   Data["your data"]
   About["about<br/>version, report a bug"]
@@ -217,4 +218,4 @@ flowchart LR
   About --> Bug
 ```
 
-Source: [`src/lib/components/SettingsSheet.svelte`](../../src/lib/components/SettingsSheet.svelte), [`src/lib/settings.svelte.ts`](../../src/lib/settings.svelte.ts), [`src/lib/downloader.svelte.ts`](../../src/lib/downloader.svelte.ts), [`src/lib/components/StateTransfer.svelte`](../../src/lib/components/StateTransfer.svelte), [`src/lib/bug-report.ts`](../../src/lib/bug-report.ts)
+Source: [`src/lib/components/SettingsSheet.svelte`](../../src/lib/components/SettingsSheet.svelte), [`src/lib/settings.svelte.ts`](../../src/lib/settings.svelte.ts), [`src/lib/downloader.svelte.ts`](../../src/lib/downloader.svelte.ts), [`src/lib/search-sites.svelte.ts`](../../src/lib/search-sites.svelte.ts), [`src/lib/components/SearchSiteForm.svelte`](../../src/lib/components/SearchSiteForm.svelte), [`src/lib/components/StateTransfer.svelte`](../../src/lib/components/StateTransfer.svelte), [`src/lib/bug-report.ts`](../../src/lib/bug-report.ts)

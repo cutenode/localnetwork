@@ -23,6 +23,8 @@
 		record('d1', { kind: 'epkDraft', title: 'Press kit draft for Neon Tide', excerpt: null, createdAt: '2026-10-01T09:30:00Z' })
 	]);
 
+	const retry = '/dashboard/account/data/booking';
+
 	const failed = Promise.reject(new Error('directory down'));
 
 	failed.catch(() => {});
@@ -30,16 +32,16 @@
 	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
-<Story name="Every kind" args={{ records }} />
+<Story name="Every kind" args={{ retry, records }} />
 
-<Story name="Loading" args={{ records: new Promise(() => {}) }} />
+<Story name="Loading" args={{ retry, records: new Promise(() => {}) }} />
 
-<Story name="Empty" args={{ records: Promise.resolve([]) }} />
+<Story name="Empty" args={{ retry, records: Promise.resolve([]) }} />
 
-<Story name="Error" args={{ records: failed }} />
+<Story name="Error" args={{ retry, records: failed }} />
 
-<Story name="Deleted" args={{ records, form: { success: 'Deleted 3 records.' } }} />
+<Story name="Deleted" args={{ retry, records, form: { success: 'Deleted 3 records.' } }} />
 
-<Story name="Phone" args={{ records }} globals={phone} />
+<Story name="Phone" args={{ retry, records }} globals={phone} />
 
-<Story name="Phone loading" args={{ records: new Promise(() => {}) }} globals={phone} />
+<Story name="Phone loading" args={{ retry, records: new Promise(() => {}) }} globals={phone} />

@@ -280,7 +280,7 @@ describe('a request', () => {
 		const { logger, lines } = writtenLog('info');
 		let late = () => {};
 
-		await logger.request({ requestId: 'req-1', path: '/dashboard/data' }, async (log) => {
+		await logger.request({ requestId: 'req-1', path: '/dashboard/account/data' }, async (log) => {
 			late = () => log.warn('could not list the records held for someone');
 
 			return answer(200);
@@ -289,8 +289,8 @@ describe('a request', () => {
 		late();
 
 		expect(lines.map(({ level, message, requestId, path }) => [level, message, requestId, path])).toEqual([
-			['info', 'request', 'req-1', '/dashboard/data'],
-			['warn', 'could not list the records held for someone', 'req-1', '/dashboard/data']
+			['info', 'request', 'req-1', '/dashboard/account/data'],
+			['warn', 'could not list the records held for someone', 'req-1', '/dashboard/account/data']
 		]);
 	});
 });

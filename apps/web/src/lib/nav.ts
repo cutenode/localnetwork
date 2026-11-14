@@ -6,7 +6,7 @@ export type NavLink = { key: string; href: string; label: string; also?: string[
 
 /**
  * What the site header shows a viewer: the four destinations, then For promoters, For DJs and Sign in, or once
- * signed in, Dashboard and an account menu (the staff console in it for staff).
+ * signed in, Dashboard and an account menu (Account, and the staff console for staff).
  */
 export function siteNav(viewer: Viewer | null, pendingRequests: number) {
 	const links: NavLink[] = [
@@ -38,7 +38,7 @@ export function siteNav(viewer: Viewer | null, pendingRequests: number) {
 		account: {
 			handle,
 			name: handle.replace(/^@/, '').split('.')[0],
-			links: staff,
+			links: [{ key: 'Y', href: '/dashboard/account', label: 'Account' }, ...staff],
 			alert: viewer.isStaff && pendingRequests ? `${pluralize(pendingRequests, 'request')} waiting` : undefined,
 			signOut: '/logout'
 		}

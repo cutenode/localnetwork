@@ -109,7 +109,7 @@ it("links to the project's sections, its public page, and how to publish stats",
 	await expect.element(page.getByText('No upcoming shows')).toBeInTheDocument();
 });
 
-it('sends a manager with changes waiting to their submission, and holds shows for a hidden project', async () => {
+it('sends a manager with changes waiting to their request, and holds shows for a hidden project', async () => {
 	// SAFETY: the page reads only the open request's key.
 	const pendingUpdate = { rkey: '3kreq' } as RequestView;
 
@@ -120,8 +120,8 @@ it('sends a manager with changes waiting to their submission, and holds shows fo
 	});
 
 	await expect
-		.element(page.getByRole('link', { name: 'View submission' }))
-		.toHaveAttribute('href', '/dashboard/requests/3kreq');
+		.element(page.getByRole('link', { name: 'View request' }))
+		.toHaveAttribute('href', '/dashboard/account/requests/3kreq');
 	await expect.element(page.getByRole('link', { name: 'Propose changes' })).not.toBeInTheDocument();
 	await expect.element(page.getByText('Not public yet. Only its managers and staff can see it.')).toBeInTheDocument();
 	await expect.element(page.getByRole('link', { name: 'Announce a show' })).not.toBeInTheDocument();

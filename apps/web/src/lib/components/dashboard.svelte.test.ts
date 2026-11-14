@@ -125,17 +125,48 @@ describe('RequestList', () => {
 
 		await expect
 			.element(page.getByRole('link', { name: 'Claim: Halflight' }))
-			.toHaveAttribute('href', '/dashboard/requests/a');
+			.toHaveAttribute('href', '/dashboard/account/requests/a');
 		await expect
 			.element(page.getByRole('link', { name: 'New project: Night Shift' }))
-			.toHaveAttribute('href', '/dashboard/requests/b');
-		await expect.element(page.getByText('Approved')).toBeInTheDocument();
+			.toHaveAttribute('href', '/dashboard/account/requests/b');
+		await expect.element(page.getByText(/^Approved on/)).toBeInTheDocument();
+	});
+
+	it('says who has each one, and lists what is back with the viewer first', async () => {
+		const { container } = await render(RequestList, {
+			requests: [
+				request('a', { status: 'approved', decision: { at: '2026-10-03T12:00:00Z', by: null, reason: null } }),
+				request('b', { status: 'pending', updatedAt: '2026-10-02T12:00:00Z' }),
+				request('c', {
+					status: 'changes_requested',
+					project: { slug: 'neon-tide', name: 'Neon Tide' },
+					decision: { at: '2026-10-04T12:00:00Z', by: null, reason: 'One more link?' }
+				})
+			]
+		});
+
+		await expect.element(page.getByText('With staff since 2 Oct. Nothing needed from you.')).toBeVisible();
+		await expect
+			.element(page.getByRole('link', { name: 'Update: Claim: Neon Tide' }))
+			.toHaveAttribute('href', '/dashboard/account/requests/c');
+		expect([...container.querySelectorAll('li')].map((row) => row.textContent)).toEqual([
+			expect.stringContaining('Staff asked for changes on 4 Oct.'),
+			expect.stringContaining('With staff since'),
+			expect.stringContaining('Approved on 3 Oct.')
+		]);
+	});
+
+	it('holds their room while loading', async () => {
+		await render(RequestList, { loading: true });
+
+		await expect.element(page.getByRole('list')).toHaveAttribute('aria-busy', 'true');
+		await expect.element(page.getByText('No requests yet')).not.toBeInTheDocument();
 	});
 
 	it('says when there are none', async () => {
 		await render(RequestList, { requests: [] });
 
-		await expect.element(page.getByText('No submissions yet')).toBeInTheDocument();
+		await expect.element(page.getByText('No requests yet')).toBeInTheDocument();
 		await expect
 			.element(page.getByRole('link', { name: 'List a project' }))
 			.toHaveAttribute('href', '/dashboard/projects/new');

@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { ExternalLink } from '@lucide/svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
+	import Handle from '#lib/components/Handle.svelte';
 	import { setPlace } from '#lib/dj.ts';
-	import { accountLabel, pluralize } from '#lib/format.ts';
+	import { pluralize, setHref } from '#lib/format.ts';
 	import { clock } from '#lib/mix/report.ts';
 	import { musicBrainzUrl } from '#lib/supports.ts';
 	import type { ArtistSupports, TrackPlay } from '#lib/types.ts';
@@ -10,6 +11,7 @@
 	import DateBlock from '#lib/ui/DateBlock.svelte';
 	import Tag from '#lib/ui/Tag.svelte';
 	import ArtistLinks from './ArtistLinks.svelte';
+	import MusicBrainzLink from './MusicBrainzLink.svelte';
 
 	/**
 	 * An artist's page below the breadcrumb: their name and supports, then each of their tracks DJs played with every
@@ -28,10 +30,10 @@
 		<div class="flex min-w-0 flex-1 flex-col gap-1">
 			<p class="m-0">
 				{#each dj?.projects ?? [] as project, i (project.slug)}{#if i > 0},{' '}{/if}<a class="entity-link font-semibold text-fg" href="/projects/{project.slug}">{project.name}</a>{/each}
-				<span class="text-small text-fg-muted">{accountLabel(dj ?? { did: item.did, handle: null })}</span>
+				<Handle account={dj ?? { did: item.did, handle: null }} class="text-small text-fg-muted" />
 			</p>
 			<p class="m-0 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-small text-fg-muted">
-				{setPlace(item.set) ?? item.set.title ?? 'Somewhere'}
+				<a class="entity-link" href={setHref(item.set.uri, dj?.handle)}>{setPlace(item.set) ?? item.set.title ?? 'Somewhere'}</a>
 				{#if item.set.kind}<Tag variant="mono">{item.set.kind}</Tag>{/if}
 				{#if item.startSeconds !== undefined}<span class="text-label text-fg-subtle">at <span class="font-mono">{clock(item.startSeconds)}</span></span>{/if}
 			</p>
@@ -62,7 +64,7 @@
 					<div class="flex items-baseline justify-between gap-3 border-b border-line px-4 py-3">
 						<div class="flex min-w-0 flex-col">
 							<h3 class="m-0 text-emphasis font-semibold">
-								{track.title}{#if track.recordingMbId}{' '}<a class="inline-flex text-fg-subtle hover:text-fg" href={musicBrainzUrl('recording', track.recordingMbId)} rel="noopener noreferrer" target="_blank" aria-label="{track.title} on MusicBrainz"><ExternalLink class="size-3.5" /></a>{/if}
+								{track.title}{#if track.recordingMbId}{' '}<MusicBrainzLink kind="recording" mbid={track.recordingMbId} name={track.title} />{/if}
 							</h3>
 							<span class="text-small"><ArtistLinks artists={track.artists} /></span>
 						</div>

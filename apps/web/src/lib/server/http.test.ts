@@ -115,8 +115,8 @@ describe('safeNext', () => {
 
 		expect(safeNext('/x/../inbox?a=1#top')).toBe('/inbox?a=1#top');
 		expect(safeNext('/%2F%2Fevil.test')).toBe('/%2F%2Fevil.test');
-		expect(withQuery('/dashboard/inbox/settings?tab=1', { email: 'declined' })).toBe(
-			'/dashboard/inbox/settings?tab=1&email=declined'
+		expect(withQuery('/dashboard/account/notifications?tab=1', { email: 'declined' })).toBe(
+			'/dashboard/account/notifications?tab=1&email=declined'
 		);
 	});
 });

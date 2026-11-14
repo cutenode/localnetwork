@@ -55,8 +55,8 @@ fn the_palette_lists_the_views_commands_first_and_runs_one() {
     press(&mut app, "gotod");
     let Some(Modal::Pick(p)) = &app.modal else { panic!() };
     assert_eq!(p.items[p.selected().unwrap()].label, "go to Drives");
-    // Keys go to the box, not to the player: q didn't quit.
-    press(&mut app, "q");
+    // Keys go to the box, not to the player: Q didn't quit.
+    press(&mut app, "Q");
     assert!(!app.quit);
     key(&mut app, KeyCode::Backspace);
     press(&mut app, "\n");
@@ -377,7 +377,8 @@ fn recent_commands_outlive_a_run() {
 #[test]
 fn every_command_shows_its_key_or_its_home() {
     let detail = |view, act| commands(view).into_iter().find(|(a, _)| *a == act).unwrap().1.detail;
-    assert_eq!(detail(View::Library, Act::Quit), "q");
+    assert_eq!(detail(View::Library, Act::Quit), "Q");
+    assert_eq!(detail(View::Library, Act::QueueNext), "q n");
     assert_eq!(detail(View::Drives, Act::Pull), "W · pull");
     assert_eq!(detail(View::Prepare, Act::Eject), "E · eject");
     assert_eq!(detail(View::Library, Act::Pull), "Prepare · pull");

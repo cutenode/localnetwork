@@ -395,7 +395,7 @@ fn operations_are_offered_where_they_can_run() {
     press(&mut app, "\u{1b}e");
     let items = menu(&app);
     let echo = items.iter().position(|(l, _)| l == "make a playlist…").expect("in the menu");
-    assert!(items[..echo].iter().any(|(l, _)| l == "clear the crate"), "after the player's own");
+    assert!(items[..echo].iter().any(|(l, _)| l == "clear the queue"), "after the player's own");
     assert!(items.iter().all(|(l, _)| l != "answer the params…"), "commands change nothing: not here");
     assert_eq!(items[echo].1, None);
     press(&mut app, "\u{1b}");
