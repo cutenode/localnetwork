@@ -430,8 +430,9 @@ impl Slot {
     /// the host's plans go stale) too. `access` and `scope` (its request couldn't use an account,
     /// see [`super::accounts::token`]) are `account` errors, whose actions come from its
     /// manifest and the store: of what its fields say, they take only the type, which of its own
-    /// accesses it used and the scopes it needs that the manifest asks for. Its connection
-    /// closing means it stopped. The secrets the host filled in for it are left out.
+    /// accesses it used and the scopes it needs that the manifest asks for. So is `account` about
+    /// a record type it writes (the Atmosphere account couldn't write it, see [`super::atmosphere`]).
+    /// Its connection closing means it stopped. The secrets the host filled in for it are left out.
     fn error(&self, p: &Process, mut e: RpcError) -> Error {
         e.message = self.net.scrub(&e.message);
         let said = format!("{} ({})", e.message, self.label());
@@ -444,10 +445,20 @@ impl Slot {
             let actions = access::actions(&self.host, &self.manifest, kind, p.live.store.as_ref(), &fields);
             actions.into_iter().fold(Error::Account(said.clone()).because(reason), Error::action)
         };
+        // Passed on from `atmosphere/put_record`: an account error only about a record it writes.
+        #[cfg(feature = "account")]
+        let written = match e.kind() {
+            Some("account") => {
+                super::atmosphere::account_error(&self.manifest, p.live.store.as_ref(), e.data.as_deref(), &said)
+            }
+            _ => None,
+        };
         let error = match (e.kind(), file) {
             (Some("access"), _) if signed_out => account(Reason::NotSignedIn),
             (Some("access"), _) => account(Reason::NoAccess),
             (Some("scope"), _) => account(Reason::MissingScope),
+            #[cfg(feature = "account")]
+            (Some("account"), _) if written.is_some() => written.expect("it's an account error about a record"),
             (Some("cancelled"), _) => return Error::Cancelled,
             (Some("closed"), _) => {
                 p.dead.store(true, Ordering::SeqCst);

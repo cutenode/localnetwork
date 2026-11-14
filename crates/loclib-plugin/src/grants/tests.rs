@@ -18,7 +18,7 @@ fn each_read_is_listed_once() {
 }
 
 #[test]
-fn a_read_takes_each_param_once_a_librarys_drive_first() {
+fn a_read_takes_each_param_once_a_library_read_drive_first() {
     for read in READS {
         let names: Vec<&str> = read.params().map(|(name, _)| name).collect();
         for (at, name) in names.iter().enumerate() {

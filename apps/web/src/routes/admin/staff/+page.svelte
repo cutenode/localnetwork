@@ -4,9 +4,17 @@
 	import StaffTable from '#lib/components/StaffTable.svelte';
 	import StrayMembers from '#lib/components/StrayMembers.svelte';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
+	import type { StaffRole } from '#lib/types.ts';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
+
+	const ROLES: Record<StaffRole, { label: string; hint: string }> = {
+		moderator: { label: 'Moderator', hint: 'Reviews requests, hides projects, and reads the audit log.' },
+		admin: { label: 'Admin', hint: 'Everything, including staff and direct edits.' }
+	};
+
+	let role = $state<StaffRole>('moderator');
 </script>
 
 <svelte:head><title>Staff · Local Network</title></svelte:head>
@@ -24,7 +32,10 @@
 			<div><label class="label" for="subject">Handle or DID</label><input id="subject" name="subject" class="input" required placeholder="alice.bsky.social" /></div>
 			<div>
 				<label class="label" for="role">Role</label>
-				<select id="role" name="role" class="input"><option value="moderator">Moderator: reviews requests, hides projects, reads the audit log</option><option value="admin">Admin: everything, including staff and direct edits</option></select>
+				<select id="role" name="role" class="input" aria-describedby="role-hint" bind:value={role}>
+					{#each Object.entries(ROLES) as [value, { label }] (value)}<option {value}>{label}</option>{/each}
+				</select>
+				<p id="role-hint" class="hint">{ROLES[role].hint}</p>
 			</div>
 			<div><label class="label" for="note">Note</label><input id="note" name="note" class="input" maxlength="300" /></div>
 			<button class="btn-primary w-full">Grant role</button>

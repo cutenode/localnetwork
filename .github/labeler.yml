@@ -174,7 +174,7 @@ atstore:
 "locallibrary: core":
   - changed-files:
       - any-glob-to-any-file:
-          - "crates/{locallibrary,loclib-model,loclib-progress,loclib-mysettings,loclib-equipment}/**"
+          - "crates/{locallibrary,loclib-model,loclib-progress,loclib-mysettings,loclib-equipment,loclib-audio,loclib-testkit}/**"
           - "vendor/**"
           - "fuzz/**"
 
@@ -185,7 +185,7 @@ atstore:
           - "plugins/sound/**"
           - "crates/locallibrary/src/sound{.rs,/**}"
           - "apps/locallibrary/src/analysis_cmd.rs"
-          - "apps/locallibrary/src/tui/analyzer{.rs,/**}"
+          - "crates/loclib-waveform/src/analyzer{.rs,/**}"
 
 "locallibrary: mixes":
   - changed-files:

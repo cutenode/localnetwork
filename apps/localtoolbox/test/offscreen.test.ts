@@ -4,7 +4,8 @@
 // for the gate (test/tools/gates.test.ts covers every site's walk on its own);
 // what is under test is the glue around it: which links are walked at all, the
 // settings the popup keeps in localStorage handed to the gate, the Spotify
-// step sent back to the worker, and what the worker is told.
+// step sent back to the worker, and what the worker is told. It also reads the
+// worker the settings a gate done on its own page uses.
 import { describe, it, expect, vi } from 'vitest';
 import { createChrome, type ChromeMock } from './helpers/chrome.ts';
 
@@ -71,7 +72,7 @@ describe('a gate whose walk ends in a file', () => {
 		hypeddit();
 		await start();
 
-		expect(await walk()).toEqual({ ok: true, url: FILE, filename: '', subfolder: 'Hypeddit', mark: true });
+		expect(await walk()).toEqual({ ok: true, url: FILE, subfolder: 'Hypeddit', mark: true });
 	});
 
 	it('hands the gate the address in settings, and says when marking is off', async () => {
@@ -103,32 +104,10 @@ describe('a gate whose walk ends in a file', () => {
 
 		expect(await walk()).toEqual({ ok: false, openUrl: GATE });
 	});
-
-	it('sends the person where the walk ended when that is a page', async () => {
-		const gate = 'https://droploud.com/gate/abc';
-		const folder = 'https://www.dropbox.com/scl/fo/folder';
-		vi.stubGlobal(
-			'fetch',
-			vi.fn<Fetch>(async (url) =>
-				url.endsWith('/download')
-					? json({ download_url: folder, type: 'external' })
-					: url.endsWith('/step')
-						? json({ ok: true })
-						: html(
-								`<script>self.__next_f.push([1,${JSON.stringify(
-									`x:["$L33",null,{"gateData":${JSON.stringify({ track: { id: 'abc', title: 'T' }, steps: [] })}}]\n`
-								)}])</script>`
-							)
-			)
-		);
-		await start();
-
-		expect(await walk(gate)).toEqual({ ok: false, openUrl: folder });
-	});
 });
 
 describe('links it leaves alone', () => {
-	it('does not walk a site whose walk can end in a page or a signup', async () => {
+	it('does not walk a site done on its own page, one only opened, or one it does not know', async () => {
 		const fetch = vi.fn<Fetch>();
 		vi.stubGlobal('fetch', fetch);
 		await start();
@@ -137,8 +116,19 @@ describe('links it leaves alone', () => {
 			ok: false,
 			openUrl: 'https://laylo.com/artist/drop'
 		});
+		expect(await walk('https://droploud.com/gate/abc')).toEqual({
+			ok: false,
+			openUrl: 'https://droploud.com/gate/abc'
+		});
+		expect(await walk('https://ffm.to/release')).toEqual({ ok: false, openUrl: 'https://ffm.to/release' });
 		expect(await walk('https://buy.test/x')).toEqual({ ok: false, openUrl: 'https://buy.test/x' });
 		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it('opens a FanLink on the domain it moved to', async () => {
+		await start();
+
+		expect(await walk('http://fanlink.to/abc')).toEqual({ ok: false, openUrl: 'https://fanlink.tv/abc' });
 	});
 
 	it('answers no other message', async () => {
@@ -146,5 +136,21 @@ describe('links it leaves alone', () => {
 
 		expect(await chrome.testSendMessage({ type: 'SAVE_GATE', url: GATE })).toBeUndefined();
 		expect(await chrome.testSendMessage(null)).toBeUndefined();
+	});
+});
+
+describe('the settings a gate done on its own page uses', () => {
+	it('reads the address and the mark setting', async () => {
+		localStorage.setItem('pref:email', ' dj@example.com ');
+		localStorage.setItem('pref:mark', '0');
+		await start();
+
+		expect(await chrome.testSendMessage({ type: 'READ_PREFS' })).toEqual({ email: 'dj@example.com', mark: false });
+	});
+
+	it('reads no address and marking on, as a fresh install has them', async () => {
+		await start();
+
+		expect(await chrome.testSendMessage({ type: 'READ_PREFS' })).toEqual({ email: '', mark: true });
 	});
 });

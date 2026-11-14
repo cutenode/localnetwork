@@ -14,10 +14,13 @@ repository.workspace = true
 loclib-model.workspace = true
 image = { workspace = true, optional = true }
 ratatui = { version = "0.30", default-features = false, features = ["std"] }
+rustfft = { workspace = true, optional = true }
 
 [features]
 # `Art`: decoding cover art (JPEG, PNG, WebP, BMP, GIF) and resampling it to cells.
 image = ["dep:image"]
+# `analyzer`: turning the samples being played into a spectrum's bands and a scope's trace (an FFT).
+analyzer = ["dep:rustfft"]
 
 [dev-dependencies]
 criterion.workspace = true

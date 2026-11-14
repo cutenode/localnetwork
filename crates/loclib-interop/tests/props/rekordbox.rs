@@ -13,6 +13,10 @@ use loclib_progress::{CancelToken, Ctx, Event, Phase};
 
 use crate::common::{self, El};
 
+/// A product whose name, version and company each need escaping in an attribute.
+const PRODUCT: rekordbox::Product<'static> =
+    rekordbox::Product { name: "Tom & Jerry's \"DJ\" <app>", version: "1.0 <beta>", company: "A&B" };
+
 /// rekordbox's colours, as its XML spells them.
 const COLOURS: [(TrackColor, &str); 8] = [
     (TrackColor::Pink, "0xFF007F"),
@@ -65,7 +69,11 @@ fn xml(export: &Export) -> El {
     assert!(text.chars().all(|c| c >= ' ' || c == '\n'), "no raw control characters");
     let doc = common::parse_xml(text);
     assert_eq!((doc.name.as_str(), doc.get("Version")), ("DJ_PLAYLISTS", "1.0.0"));
-    assert_eq!(doc.one("PRODUCT").get("Name"), "locallibrary");
+    let product = doc.one("PRODUCT");
+    assert_eq!(
+        (product.get("Name"), product.get("Version"), product.get("Company")),
+        (PRODUCT.name, PRODUCT.version, PRODUCT.company)
+    );
     doc
 }
 
@@ -108,7 +116,7 @@ fn the_library_reads_back(tc: TestCase) {
     let analysed = tc.draw(gs::booleans());
     let root = PathBuf::from(tc.draw(gs::sampled_from(vec!["/Volumes/USB", "e:\\", "/Users/me/Music"])));
     let src = Source { library: &lib, root, analysis: analysed.then_some(load) };
-    let export = rekordbox::build(&src, Path::new("out.xml"), &Ctx::silent()).unwrap();
+    let export = rekordbox::build(&src, &PRODUCT, Path::new("out.xml"), &Ctx::silent()).unwrap();
     let doc = xml(&export);
 
     let collection = doc.one("COLLECTION");
@@ -192,7 +200,7 @@ fn progress_and_cancelling(tc: TestCase) {
     let src = Source { library: &lib, root: PathBuf::from("/Volumes/USB"), analysis: None };
     let events = Mutex::new(Vec::new());
     let record = |e: &Event| events.lock().unwrap().push(e.clone());
-    rekordbox::build(&src, Path::new("out.xml"), &Ctx::new(&record, CancelToken::new())).unwrap();
+    rekordbox::build(&src, &PRODUCT, Path::new("out.xml"), &Ctx::new(&record, CancelToken::new())).unwrap();
     let events = events.into_inner().unwrap();
     let n = lib.tracks.len();
     assert_eq!(events.len(), n + 2);
@@ -205,7 +213,7 @@ fn progress_and_cancelling(tc: TestCase) {
     let cancel = CancelToken::new();
     cancel.cancel();
     let ctx = Ctx { cancel, ..Ctx::silent() };
-    match rekordbox::build(&src, Path::new("out.xml"), &ctx) {
+    match rekordbox::build(&src, &PRODUCT, Path::new("out.xml"), &ctx) {
         Err(e @ Error::Cancelled(_)) => assert!(n > 0, "{e}"),
         Ok(export) => assert_eq!((n, export.tracks), (0, 0)),
         Err(e) => panic!("{e}"),

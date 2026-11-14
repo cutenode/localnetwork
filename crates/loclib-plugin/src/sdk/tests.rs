@@ -109,6 +109,7 @@ fn hello_answers_who_the_plugin_is_and_ignores_unknown_features() {
         "operations",
         "panels",
         "analyzers",
+        "atmosphere",
         "checks",
         "exporters",
         "importers",
@@ -443,7 +444,10 @@ fn a_source_answers_its_library_a_page_at_a_time() {
     };
     let s = start_with(manifest, Hooks::new().on(read));
     let reply: HelloReply = s.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
-    assert_eq!(reply.features, ["accounts", "analysis", "sources", "blobs", "net", "choose", "views", "plans"]);
+    assert_eq!(
+        reply.features,
+        ["accounts", "analysis", "atmosphere", "sources", "blobs", "net", "choose", "views", "plans"]
+    );
     let mut paths = Vec::new();
     let mut cursor: Option<String> = None;
     loop {
@@ -467,7 +471,10 @@ fn a_source_answers_its_library_a_page_at_a_time() {
 fn a_hook_the_plugin_doesnt_implement_isnt_found() {
     let s = start(Hooks::new().on(echo::analyze_track));
     let reply: HelloReply = s.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
-    assert_eq!(reply.features, ["accounts", "analysis", "analyzers", "blobs", "net", "choose", "views", "plans"]);
+    assert_eq!(
+        reply.features,
+        ["accounts", "analysis", "analyzers", "atmosphere", "blobs", "net", "choose", "views", "plans"]
+    );
     let track = json!({ "id": 1, "file_path": "/a.mp3", "audio_path": "/a.mp3" });
     for (method, params) in [
         (method::RUN_COMMAND, run("echo", json!({}), None)),
@@ -487,7 +494,7 @@ fn a_hook_the_plugin_doesnt_implement_isnt_found() {
     let reply: HelloReply = none.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
     assert_eq!(
         reply.features,
-        ["accounts", "analysis", "blobs", "net", "choose", "views", "plans"],
+        ["accounts", "analysis", "atmosphere", "blobs", "net", "choose", "views", "plans"],
         "only the SDK's own"
     );
     none.stop();
@@ -670,6 +677,7 @@ fn hello_comes_first_and_then_the_plugin_describes_its_manifest(tc: TestCase) {
         "operations",
         "panels",
         "analyzers",
+        "atmosphere",
         "checks",
         "exporters",
         "importers",
@@ -1222,6 +1230,42 @@ fn a_hook_fetches_through_the_host_and_sends_its_rows_in_parts() {
             (vec![vec![json!("second")], vec![json!(200)]], vec![])
         ]
     );
+    s.stop();
+}
+
+/// For any record a hook writes, at a record key replacing a version or not, or under a key the
+/// server picks: it asks the host (`atmosphere/put_record`, its request as the host gets it) and
+/// answers what the host does, the record's URI and CID, or its error, as it is.
+#[hegel::test(test_cases = 25)]
+fn a_hook_writes_a_record_through_the_host(tc: TestCase) {
+    let rkey = tc.draw(gs::optional(gs::sampled_from(vec!["self".to_string(), "3lzy2ji4nms2z".into()])));
+    let cid = "bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm".to_string();
+    let swap = rkey.as_ref().and(tc.draw(gs::optional(gs::just(cid.clone()))));
+    let record = json!({ "$type": "fm.plyr.track", "title": tc.draw(gs::text().max_size(8)) });
+    let put = PutRecord { collection: "fm.plyr.track".into(), rkey, record, swap };
+    let asked = put.clone();
+    let s = greeted(
+        Hooks::new()
+            .on(move |_: RunCommand, host: &Host| Ok(serde_json::to_value(host.put_record(&asked)?).expect("JSON"))),
+    );
+    let pending = s.host.send_request(method::RUN_COMMAND, &run("echo", json!({}), None)).unwrap();
+    let Incoming::Request(req) = s.next() else { panic!("not a callback") };
+    assert_eq!(req.method, method::ATMOSPHERE_PUT_RECORD);
+    assert_eq!(req.params, serde_json::to_value(&put).unwrap());
+    assert_eq!(
+        (req.params.get("rkey").is_some(), req.params.get("swap").is_some()),
+        (put.rkey.is_some(), put.swap.is_some())
+    );
+    let answer = match tc.draw(gs::booleans()) {
+        true => Err(RpcError::failed("account", "not signed in to an Atmosphere account")),
+        false => Ok(StrongRef {
+            uri: format!("at://did:plc:abc/fm.plyr.track/{}", put.rkey.as_deref().unwrap_or("3m")),
+            cid,
+        }),
+    };
+    s.host.respond(&req.id, answer.clone().map(|a| serde_json::to_value(a).unwrap()));
+    let answered = pending.wait_timeout::<StrongRef>(Duration::from_secs(10)).unwrap();
+    assert_eq!(answered, answer);
     s.stop();
 }
 

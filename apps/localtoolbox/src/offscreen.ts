@@ -1,43 +1,44 @@
 // The offscreen page: a document with nothing on it, which the background
-// worker opens to walk a download gate and closes again once nothing is
-// waiting (background.ts says why it cannot walk one itself).
+// worker opens for what only an extension page can do, and closes again once
+// nothing is waiting (background.ts says why it cannot do these itself).
 //
 // It is an extension page like the popup, so its fetches go out with the
 // extension's host permissions and it reads the popup's localStorage, where
-// the address, the name and the mark setting live
-// ($lib/downloader.svelte.ts). What it cannot do is open a tab, so the one
-// step that needs one, a Spotify sign-in, goes back to the worker.
+// the address, the name and the mark setting live ($lib/downloader.svelte.ts).
+// What it cannot do is open a tab (or use any extension API but messaging), so
+// the one step that needs one, a Spotify sign-in, goes back to the worker.
+//
+// Its errands: walking a gate for the page's Download button, and reading the
+// settings a gate done on its own page uses.
 
 import { downloader } from '$lib/downloader.svelte.ts';
-import type { RoundTripRequest, WalkGateAnswer, WalkGateRequest } from '$lib/types';
-import { siteFor } from './tools/third-party-downloads/sites/index.ts';
+import type { GatePagePrefs, OffscreenRequest, RoundTripRequest, WalkGateAnswer } from '$lib/types';
+import { openUrlOf, siteFor } from './tools/third-party-downloads/sites/index.ts';
+import { walk as walkGate } from './tools/third-party-downloads/walks/index.ts';
 
 const connect = (url: string, { landing }: { landing: string }): Promise<boolean> =>
 	chrome.runtime.sendMessage({ type: 'ROUND_TRIP', url, landing } satisfies RoundTripRequest);
 
 /**
- * One gate, walked the way the Downloader panel walks a row. Only the sites whose walk ends in
- * a file are walked from the page: the others end in a page to open or a signup, and opening
- * the link is already the button's answer for those.
+ * One gate, walked the way the Downloader panel walks a row. Only the walked sites are walked
+ * from the page: the others are done on their own page, or only opened, and opening the link is
+ * already the button's answer for those.
  */
 async function walk(url: string): Promise<WalkGateAnswer> {
 	const site = siteFor(url);
 
-	if (site?.yields !== 'file') return { ok: false, openUrl: url };
+	if (site?.how !== 'walk') return { ok: false, openUrl: openUrlOf(url) };
 
 	try {
-		const result = await site.unlock(url, {
+		const result = await walkGate(site, url, {
 			email: downloader.email.value.trim(),
 			name: downloader.name.value.trim(),
 			connect
 		});
 
-		if (result.kind !== 'file') return { ok: false, openUrl: result.url };
-
 		return {
 			ok: true,
 			url: result.url,
-			filename: result.filename ?? '',
 			subfolder: site.subfolder,
 			mark: downloader.mark.value
 		};
@@ -47,9 +48,19 @@ async function walk(url: string): Promise<WalkGateAnswer> {
 	}
 }
 
-chrome.runtime.onMessage.addListener((message: WalkGateRequest, _sender, sendResponse) => {
-	if (message?.type !== 'WALK_GATE') return undefined;
-	void walk(message.url).then(sendResponse);
+chrome.runtime.onMessage.addListener((message: OffscreenRequest, _sender, sendResponse) => {
+	switch (message?.type) {
+		case 'WALK_GATE':
+			void walk(message.url).then(sendResponse);
 
-	return true;
+			return true;
+
+		case 'READ_PREFS':
+			sendResponse({ email: downloader.email.value.trim(), mark: downloader.mark.value } satisfies GatePagePrefs);
+
+			return undefined;
+
+		default:
+			return undefined;
+	}
 });
