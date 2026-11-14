@@ -654,6 +654,14 @@ enum StoreCommand {
         #[arg(value_name = "MIB", value_parser = store_cmd::parse_index_limit)]
         limit: Option<store_cmd::IndexLimit>,
     },
+    /// Whether `pull` makes a track rekordbox's collection holds on the store's volume a
+    /// copy-on-write copy of the collection's file, taking no space but no longer a second copy
+    /// (off unless turned on): show it, or set it
+    CopyOnWrite {
+        /// `on` or `off`
+        #[arg(value_name = "on|off", value_parser = store_cmd::parse_switch)]
+        on: Option<bool>,
+    },
     /// Label a snapshot ("before NYE"): shown in `library log`, usable as its id, kept by `store prune`
     Label {
         /// Snapshot id (prefix) or another label
@@ -1494,6 +1502,7 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
                 StoreCommand::Views => return store_cmd::views(&cli.store, out),
                 StoreCommand::Unbrowse { path } => return store_cmd::unbrowse(&existing()?, path, out),
                 StoreCommand::IndexLimit { limit } => return store_cmd::index_limit(&cli.store, limit, out),
+                StoreCommand::CopyOnWrite { on } => return store_cmd::copy_on_write(&cli.store, on, out),
                 StoreCommand::Restore { from, libraries, dry_run } => {
                     let options = locallibrary::offsite::RestoreOptions { libraries, dry_run };
                     return store_cmd::restore(&store()?, &from, &options, out, &ctx);

@@ -168,11 +168,14 @@ taken here.
 
 ## Off-site copies
 
-On APFS, Btrfs and XFS, a pull makes a track rekordbox's collection already holds on the store's
-volume a copy-on-write copy of its file, which takes no space until one side is written. The store
-is then no second physical copy of that track: a failing disk loses both, so a `store copy` on
-another disk is what backs it up. `du` and Finder count such a file at full size, and deleting it
-frees almost nothing.
+With `locallibrary store copy-on-write on` (off until you turn it on), a pull makes a track
+rekordbox's collection already holds on the store's volume a copy-on-write copy of its file on
+APFS, Btrfs and XFS, which takes no space until one side is written. The store is then no second
+physical copy of that track: a failing disk loses both, so a `store copy` on another disk is what
+backs it up. The first pull with it on also reads every file of the collection that's the size of
+one on the drive. `du` and Finder count such a file at full size, and deleting it frees almost
+nothing. The pull's summary says how many files came from the collection, and the setting goes out
+with `settings export`.
 
 ```bash
 locallibrary store copy /Volumes/NAS/locallibrary        # the first copy takes a while; later ones copy what's new

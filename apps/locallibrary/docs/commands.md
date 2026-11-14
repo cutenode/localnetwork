@@ -131,6 +131,7 @@ its drives.
 | `locallibrary library prune [--keep-last N] ...` | Remove old snapshots (as `store prune`), see [Pruning old snapshots](store.md#pruning-old-snapshots) |
 | `locallibrary store [info\|gc\|verify\|label\|unlabel\|prune]` | Store size, garbage collection, integrity check, snapshot labels, removing old snapshots |
 | `locallibrary store index-limit [MIB\|default]` | The largest fingerprint index `mix` keeps for a drive (512 MiB unless set), see [Mixes](sets.md#mixes) |
+| `locallibrary store copy-on-write [on\|off]` | Whether `pull` makes copy-on-write copies of rekordbox's collection (off unless set), see [Off-site copies](store.md#off-site-copies) |
 | `locallibrary store serve` / `store fetch <code>` | Copy snapshots between computers over the network: one serves its store, the other fetches what it lacks, see [From another computer](store.md#from-another-computer) |
 | `locallibrary store copy <dir>` / `store copies` | Copy the store somewhere else (a NAS, another disk, a cloud-synced folder), only what's new; where copies were made, see [Off-site copies](store.md#off-site-copies) |
 | `locallibrary store browse <snapshot> [--to DIR] [--keep]` / `store views` / `store unbrowse [DIR]` | Open a past version of a drive as a folder of read-only links into the store (macOS and Linux), see [Browsing a snapshot](store.md#browsing-a-snapshot) |

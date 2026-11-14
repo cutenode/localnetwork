@@ -1,5 +1,5 @@
 //! `pull` and the store's upkeep:
-//! `store label|unlabel|prune|copy|copies|browse|views|unbrowse|restore|serve|fetch|index-limit`.
+//! `store label|unlabel|prune|copy|copies|browse|views|unbrowse|restore|serve|fetch|index-limit|copy-on-write`.
 
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -13,6 +13,7 @@ use locallibrary::catalog::{FetchReport, LibraryOutcome};
 use locallibrary::local_time;
 use locallibrary::mix::prefs::{DEFAULT_INDEX_LIMIT_MIB, MixPrefs};
 use locallibrary::progress::Ctx;
+use locallibrary::store::prefs::StorePrefs;
 use locallibrary::view;
 use serde::Serialize;
 
@@ -298,6 +299,40 @@ pub fn index_limit(store: &Option<PathBuf>, limit: Option<IndexLimit>, out: Outp
     prefs.index_limit_mib = mib;
     prefs.save(&store)?;
     Ok(out.done(&shown(&prefs), |s| output::ok(said(s))))
+}
+
+/// `on` or `off`.
+pub fn parse_switch(s: &str) -> std::result::Result<bool, String> {
+    match s {
+        "on" => Ok(true),
+        "off" => Ok(false),
+        _ => Err(format!("not `on` or `off`: {s:?}")),
+    }
+}
+
+/// What `store copy-on-write` says.
+#[derive(Serialize)]
+struct CopyOnWriteShown {
+    copy_on_write: bool,
+}
+
+/// `store copy-on-write`: whether a pull makes copy-on-write copies of rekordbox's collection's
+/// files, or `on` set as that.
+pub fn copy_on_write(store: &Option<PathBuf>, on: Option<bool>, out: Output) -> Result<ExitCode> {
+    let said = |s: &CopyOnWriteShown| match s.copy_on_write {
+        true => "pull makes copy-on-write copies of rekordbox's collection where it can",
+        false => "pull copies what it stores from the drive",
+    };
+    let Some(on) = on else {
+        let prefs = crate::diff_cmd::read_or_empty(store, StorePrefs::load)?;
+        out.emit(&CopyOnWriteShown { copy_on_write: prefs.copy_on_write }, |s| say!("{}", said(s)));
+        return Ok(ExitCode::SUCCESS);
+    };
+    let store = crate::open_store(store)?;
+    let mut prefs = StorePrefs::load(&store)?;
+    prefs.copy_on_write = on;
+    prefs.save(&store)?;
+    Ok(out.done(&CopyOnWriteShown { copy_on_write: on }, |s| output::ok(said(s))))
 }
 
 /// `store label` and `store unlabel`.

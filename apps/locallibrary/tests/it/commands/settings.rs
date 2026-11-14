@@ -47,3 +47,22 @@ fn settings_are_listed_compared_and_written() {
     let done = env.ok(&["--yes", "settings", "apply", "Main", "--create-missing"]);
     assert!(done.ends_with("    created DEVSETTING.DAT from the profile\n"), "{done}");
 }
+
+/// `store copy-on-write` is off until it's turned on, and says so; a pull's summary says it
+/// copied from the drive. Turned on, it goes out with the store's settings.
+#[test]
+fn copy_on_write_is_off_until_turned_on() {
+    let env = Env::ascii();
+    let drive = env.demo("Demo");
+    assert_eq!(env.ok(&["store", "copy-on-write"]).trim(), "pull copies what it stores from the drive");
+    let pulled = env.ok(&["pull", crate::support::path(&drive)]);
+    assert!(pulled.contains(", copied from the drive), "), "{pulled}");
+    let on = env.ok(&["store", "copy-on-write", "on"]);
+    assert_eq!(on.trim(), "v pull makes copy-on-write copies of rekordbox's collection where it can");
+    assert_eq!(env.json(&["store", "copy-on-write"])["copy_on_write"], true);
+    assert_eq!(env.json(&["settings", "export"])["store"], serde_json::json!({ "copy_on_write": true }));
+    env.ok(&["store", "copy-on-write", "off"]);
+    assert_eq!(env.json(&["store", "copy-on-write"])["copy_on_write"], false);
+    assert!(env.json(&["settings", "export"])["store"].get("copy_on_write").is_none());
+    assert!(env.fails(2, &["store", "copy-on-write", "maybe"]).contains("not `on` or `off`"));
+}

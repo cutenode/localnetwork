@@ -21,6 +21,7 @@
 //!   settings.json         the settings profile (see crate::settings)
 //!   players.json          the player models `check` uses when none are given (see
 //!                         crate::equipment::Remembered)
+//!   store-prefs.json      what's set for the store on this computer (see prefs)
 //!   lock                  advisory lock so a CLI and a GUI can't write concurrently, and
 //!                         two can't make the store at once (see Store::open_or_init)
 //! ```
@@ -1136,6 +1137,8 @@ pub(crate) fn label_taken(l: &SnapshotLabel) -> Error {
         format!("Take {:?} off", l.name),
     ))
 }
+
+pub mod prefs;
 
 #[cfg(test)]
 mod tests;
